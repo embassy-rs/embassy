@@ -37,7 +37,9 @@ pub use nrf52833_pac as pac;
 #[cfg(feature = "nrf52840")]
 pub use nrf52840_pac as pac;
 
+pub mod gpiote;
 pub mod interrupt;
 pub mod qspi;
 pub mod uarte;
+
 pub use cortex_m_rt::interrupt;
