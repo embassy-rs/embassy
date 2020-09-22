@@ -1,0 +1,12 @@
+{
+  "editor.formatOnSave": true,
+  "rust-analyzer.cargo.allFeatures": false,
+  "rust-analyzer.checkOnSave.allFeatures": false,
+  "rust-analyzer.cargo.target": "thumbv7em-none-eabihf",
+  "rust-analyzer.checkOnSave.allTargets": false,
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/target/**": true
+  }
+}

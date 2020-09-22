@@ -1,0 +1,14 @@
+[package]
+name = "embassy"
+version = "0.1.0"
+authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
+edition = "2018"
+
+[features]
+std = []
+
+[dependencies]
+defmt = "0.1.0"
+cortex-m = "0.6.3"
+futures     = { version = "0.3.5", default-features = false, features = [ "async-await" ] }
+pin-project = { version = "0.4.23", default-features = false }

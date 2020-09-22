@@ -1,0 +1,31 @@
+[package]
+authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
+edition = "2018"
+name = "embassy-examples"
+version = "0.1.0"
+
+[features]
+default = [
+    "defmt-default",
+]
+defmt-default = []
+defmt-trace = []
+defmt-debug = []
+defmt-info = []
+defmt-warn = []
+defmt-error = []
+
+
+[dependencies]
+cortex-m        = { version = "0.6.3" }
+cortex-m-rt = "0.6.12"
+defmt = "0.1.0"
+embedded-hal    = { version = "0.2.4" }
+defmt-rtt = "0.1.0"
+panic-probe = "0.1.0"
+nrf52840-hal    = { version = "0.11.0" }
+embassy = { version = "0.1.0", path = "../embassy" }
+embassy-nrf = { version = "0.1.0", path = "../embassy-nrf", features = ["defmt-trace", "nrf52840"] }
+static-executor  = { version = "0.1.0", features=["defmt"]}
+static-executor-cortex-m  = { version = "0.1.0" }
+futures = { version = "0.3.5", default-features = false }

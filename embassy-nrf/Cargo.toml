@@ -1,0 +1,38 @@
+[package]
+name = "embassy-nrf"
+version = "0.1.0"
+authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
+edition = "2018"
+
+[features]
+default = [
+    "defmt-default",
+]
+defmt-default = []
+defmt-trace = []
+defmt-debug = []
+defmt-info = []
+defmt-warn = []
+defmt-error = []
+
+nrf52810 = ["nrf52810-pac"]
+nrf52811 = ["nrf52811-pac"]
+nrf52832 = ["nrf52832-pac"]
+nrf52833 = ["nrf52833-pac"]
+nrf52840 = ["nrf52840-pac"]
+
+
+[dependencies]
+embassy = { version = "0.1.0", path = "../embassy" }
+cortex-m-rt = "0.6.12"
+cortex-m        = { version = "0.6.3" }
+embedded-hal    = { version = "0.2.4" }
+nrf52840-hal    = { version = "0.11.0" }
+bare-metal = { version = "0.2.0", features = ["const-fn"] }
+defmt = "0.1.0"
+
+nrf52810-pac  = { version = "0.9.0", optional = true }
+nrf52811-pac  = { version = "0.9.0", optional = true }
+nrf52832-pac  = { version = "0.9.0", optional = true }
+nrf52833-pac  = { version = "0.9.0", optional = true }
+nrf52840-pac  = { version = "0.9.0", optional = true }
