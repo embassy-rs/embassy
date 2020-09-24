@@ -31,7 +31,7 @@ fn main() -> ! {
     };
 
     rtc.start();
-    rtc.set_alarm(53719);
+    rtc.set_alarm(53719, || info!("ALARM TRIGGERED"));
 
     info!("initialized!");
 

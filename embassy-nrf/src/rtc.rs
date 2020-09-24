@@ -52,15 +52,18 @@ pub struct RTC<T> {
     period: AtomicU32,
 
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
-    alarm: Mutex<Cell<u64>>,
+    alarm: Mutex<Cell<(u64, Option<fn()>)>>,
 }
+
+unsafe impl<T> Send for RTC<T> {}
+unsafe impl<T> Sync for RTC<T> {}
 
 impl<T: Instance> RTC<T> {
     pub fn new(rtc: T) -> Self {
         Self {
             rtc,
             period: AtomicU32::new(0),
-            alarm: Mutex::new(Cell::new(u64::MAX)),
+            alarm: Mutex::new(Cell::new((u64::MAX, None))),
         }
     }
 
@@ -108,7 +111,7 @@ impl<T: Instance> RTC<T> {
             let period = self.period.fetch_add(1, Ordering::Relaxed) + 1;
             let t = (period as u64) << 23;
 
-            let at = self.alarm.borrow(cs).get();
+            let (at, _) = self.alarm.borrow(cs).get();
 
             let diff = at - t;
             if diff < 0xc00000 {
@@ -126,21 +129,25 @@ impl<T: Instance> RTC<T> {
 
     fn trigger_alarm(&self) {
         self.rtc.intenclr.write(|w| w.compare1().clear());
-        interrupt::free(|cs| self.alarm.borrow(cs).set(u64::MAX));
+        interrupt::free(|cs| {
+            let alarm = self.alarm.borrow(cs);
+            let (_, f) = alarm.get();
+            alarm.set((u64::MAX, None));
 
-        // TODO
-        trace!("ALARM! {:u32}", self.now() as u32);
+            // Call after clearing alarm, so the callback can set another alarm.
+            f.map(|f| f())
+        });
     }
 
-    pub fn set_alarm(&self, at: u64) {
+    fn do_set_alarm(&self, at: u64, f: Option<fn()>) {
         interrupt::free(|cs| {
+            self.alarm.borrow(cs).set((at, f));
+
             let t = self.now();
             if at <= t {
                 self.trigger_alarm();
                 return;
             }
-
-            self.alarm.borrow(cs).set(at);
 
             let diff = at - t;
             if diff < 0xc00000 {
@@ -162,8 +169,12 @@ impl<T: Instance> RTC<T> {
         })
     }
 
+    pub fn set_alarm(&self, at: u64, f: fn()) {
+        self.do_set_alarm(at, Some(f));
+    }
+
     pub fn clear_alarm(&self) {
-        self.set_alarm(u64::MAX);
+        self.do_set_alarm(u64::MAX, None);
     }
 }
 
