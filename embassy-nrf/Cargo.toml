@@ -15,11 +15,11 @@ defmt-info = []
 defmt-warn = []
 defmt-error = []
 
-nrf52810 = ["nrf52810-pac"]
-nrf52811 = ["nrf52811-pac"]
-nrf52832 = ["nrf52832-pac"]
-nrf52833 = ["nrf52833-pac"]
-nrf52840 = ["nrf52840-pac"]
+52810 = ["nrf52810-pac"]
+52811 = ["nrf52811-pac"]
+52832 = ["nrf52832-pac"]
+52833 = ["nrf52833-pac"]
+52840 = ["nrf52840-pac"]
 
 
 [dependencies]
