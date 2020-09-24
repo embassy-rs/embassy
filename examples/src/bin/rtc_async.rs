@@ -8,6 +8,7 @@ use example_common::*;
 
 use core::mem::MaybeUninit;
 use cortex_m_rt::entry;
+use embassy::clock::Monotonic;
 use embassy_nrf::rtc;
 use futures_intrusive::timer::{Clock, LocalTimer, LocalTimerService};
 use nrf52840_hal::clocks;

@@ -1,8 +1,8 @@
 use core::cell::Cell;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU32, Ordering};
-
 use defmt::trace;
+use embassy::clock::Monotonic;
 
 use crate::interrupt;
 use crate::interrupt::Mutex;
@@ -121,12 +121,6 @@ impl<T: Instance> RTC<T> {
         })
     }
 
-    pub fn now(&self) -> u64 {
-        let counter = self.rtc.counter.read().bits();
-        let period = self.period.load(Ordering::Relaxed);
-        calc_now(period, counter)
-    }
-
     fn trigger_alarm(&self) {
         self.rtc.intenclr.write(|w| w.compare1().clear());
         interrupt::free(|cs| {
@@ -139,19 +133,19 @@ impl<T: Instance> RTC<T> {
         });
     }
 
-    fn do_set_alarm(&self, at: u64, f: Option<fn()>) {
+    fn do_set_alarm(&self, timestamp: u64, callback: Option<fn()>) {
         interrupt::free(|cs| {
-            self.alarm.borrow(cs).set((at, f));
+            self.alarm.borrow(cs).set((timestamp, callback));
 
             let t = self.now();
-            if at <= t {
+            if timestamp <= t {
                 self.trigger_alarm();
                 return;
             }
 
-            let diff = at - t;
+            let diff = timestamp - t;
             if diff < 0xc00000 {
-                self.rtc.cc[1].write(|w| unsafe { w.bits(at as u32 & 0xFFFFFF) });
+                self.rtc.cc[1].write(|w| unsafe { w.bits(timestamp as u32 & 0xFFFFFF) });
                 self.rtc.intenset.write(|w| w.compare1().set());
 
                 // We may have been preempted for arbitrary time between checking if `at` is in the past
@@ -159,7 +153,7 @@ impl<T: Instance> RTC<T> {
                 // So, we check again just in case.
 
                 let t = self.now();
-                if at <= t {
+                if timestamp <= t {
                     self.trigger_alarm();
                     return;
                 }
@@ -168,12 +162,20 @@ impl<T: Instance> RTC<T> {
             }
         })
     }
+}
 
-    pub fn set_alarm(&self, at: u64, f: fn()) {
-        self.do_set_alarm(at, Some(f));
+impl<T: Instance> Monotonic for RTC<T> {
+    fn now(&self) -> u64 {
+        let counter = self.rtc.counter.read().bits();
+        let period = self.period.load(Ordering::Relaxed);
+        calc_now(period, counter)
     }
 
-    pub fn clear_alarm(&self) {
+    fn set_alarm(&self, timestamp: u64, callback: fn()) {
+        self.do_set_alarm(timestamp, Some(callback));
+    }
+
+    fn clear_alarm(&self) {
         self.do_set_alarm(u64::MAX, None);
     }
 }
