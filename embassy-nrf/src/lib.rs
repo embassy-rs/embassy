@@ -40,6 +40,7 @@ pub use nrf52840_pac as pac;
 pub mod gpiote;
 pub mod interrupt;
 pub mod qspi;
+pub mod rtc;
 pub mod uarte;
 
 pub use cortex_m_rt::interrupt;
