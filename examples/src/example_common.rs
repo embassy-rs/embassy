@@ -3,7 +3,6 @@
 use defmt_rtt as _; // global logger
 use nrf52840_hal as _;
 use panic_probe as _;
-use static_executor_cortex_m as _;
 
 pub use defmt::{info, intern};
 

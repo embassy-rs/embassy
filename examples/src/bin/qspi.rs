@@ -11,6 +11,9 @@ use embassy::flash::Flash;
 use embassy_nrf::qspi;
 use nrf52840_hal::gpio;
 
+use static_executor::{task, Executor};
+static EXECUTOR: Executor = Executor::new(|| cortex_m::asm::sev());
+
 const PAGE_SIZE: usize = 4096;
 
 // Workaround for alignment requirements.
@@ -18,7 +21,7 @@ const PAGE_SIZE: usize = 4096;
 #[repr(C, align(4))]
 struct AlignedBuf([u8; 4096]);
 
-#[static_executor::task]
+#[task]
 async fn run() {
     let p = embassy_nrf::pac::Peripherals::take().dewrap();
 
@@ -117,7 +120,11 @@ fn main() -> ! {
     info!("Hello World!");
 
     unsafe {
-        run.spawn().dewrap();
-        static_executor::run();
+        EXECUTOR.spawn(run()).dewrap();
+
+        loop {
+            EXECUTOR.run();
+            cortex_m::asm::wfe();
+        }
     }
 }

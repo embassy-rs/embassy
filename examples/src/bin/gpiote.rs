@@ -13,7 +13,10 @@ use embassy_nrf::gpiote;
 use futures::pin_mut;
 use nrf52840_hal::gpio;
 
-#[static_executor::task]
+use static_executor::{task, Executor};
+static EXECUTOR: Executor = Executor::new(|| cortex_m::asm::sev());
+
+#[task]
 async fn run() {
     let p = embassy_nrf::pac::Peripherals::take().dewrap();
     let port0 = gpio::p0::Parts::new(p.P0);
@@ -78,7 +81,11 @@ fn main() -> ! {
     info!("Hello World!");
 
     unsafe {
-        run.spawn().dewrap();
-        static_executor::run();
+        EXECUTOR.spawn(run()).dewrap();
+
+        loop {
+            EXECUTOR.run();
+            cortex_m::asm::wfe();
+        }
     }
 }

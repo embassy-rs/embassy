@@ -27,5 +27,4 @@ nrf52840-hal    = { version = "0.11.0" }
 embassy = { version = "0.1.0", path = "../embassy" }
 embassy-nrf = { version = "0.1.0", path = "../embassy-nrf", features = ["defmt-trace", "52840"] }
 static-executor  = { version = "0.1.0", features=["defmt"]}
-static-executor-cortex-m  = { version = "0.1.0" }
 futures = { version = "0.3.5", default-features = false }

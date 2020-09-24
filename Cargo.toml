@@ -10,8 +10,7 @@ members = [
 panic-probe = { git = "https://github.com/knurling-rs/probe-run", branch="main" }
 defmt-rtt = { git = "https://github.com/knurling-rs/defmt", branch="cursed-symbol-names-linkers-must-repent-for-their-sins" }
 defmt = { git = "https://github.com/knurling-rs/defmt", branch="cursed-symbol-names-linkers-must-repent-for-their-sins" }
-static-executor = { git = "https://github.com/Dirbaio/static-executor" }
-static-executor-cortex-m = { git = "https://github.com/Dirbaio/static-executor" }
+static-executor = { git = "https://github.com/Dirbaio/static-executor", branch="multi"}
 
 [profile.dev]
 codegen-units = 1
