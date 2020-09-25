@@ -2,6 +2,8 @@ use core::cell::Cell;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU32, Ordering};
 
+use embassy::time::Clock;
+
 use crate::interrupt;
 use crate::interrupt::{CriticalSection, Mutex};
 use crate::pac::{rtc0, Interrupt, RTC0, RTC1};
@@ -100,12 +102,6 @@ impl<T: Instance> RTC<T> {
         interrupt::enable(T::INTERRUPT);
     }
 
-    pub fn now(&self) -> u64 {
-        let counter = self.rtc.counter.read().bits();
-        let period = self.period.load(Ordering::Relaxed);
-        calc_now(period, counter)
-    }
-
     fn on_interrupt(&self) {
         if self.rtc.events_ovrflw.read().bits() == 1 {
             self.rtc.events_ovrflw.write(|w| w);
@@ -200,6 +196,14 @@ impl<T: Instance> RTC<T> {
     }
     pub fn alarm2(&'static self) -> Alarm<T> {
         Alarm { n: 2, rtc: self }
+    }
+}
+
+impl<T: Instance> embassy::time::Clock for RTC<T> {
+    fn now(&self) -> u64 {
+        let counter = self.rtc.counter.read().bits();
+        let period = self.period.load(Ordering::Relaxed);
+        calc_now(period, counter)
     }
 }
 

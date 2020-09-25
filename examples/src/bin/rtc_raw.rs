@@ -8,7 +8,7 @@ use example_common::*;
 
 use core::mem::MaybeUninit;
 use cortex_m_rt::entry;
-use embassy::time::Alarm;
+use embassy::time::{Alarm, Clock};
 use embassy_nrf::rtc;
 use nrf52840_hal::clocks;
 

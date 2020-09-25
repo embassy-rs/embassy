@@ -11,7 +11,7 @@ pub use waker_store::*;
 mod drop_bomb;
 pub use drop_bomb::*;
 
-use defmt::{warn, error};
+use defmt::{debug, error, info, intern, trace, warn};
 
 pub trait Dewrap<T> {
     /// dewrap = defmt unwrap

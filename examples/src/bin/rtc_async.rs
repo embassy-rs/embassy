@@ -9,7 +9,7 @@ use example_common::*;
 use core::mem::MaybeUninit;
 use cortex_m_rt::entry;
 use embassy::executor::{task, Executor, WfeModel};
-use embassy::time::{Duration, Instant, Timer};
+use embassy::time::{Clock, Duration, Timer};
 use embassy_nrf::pac;
 use embassy_nrf::rtc;
 use nrf52840_hal::clocks;
@@ -51,7 +51,7 @@ fn main() -> ! {
     };
 
     rtc.start();
-    unsafe { embassy::time::set_clock(|| RTC.as_ptr().as_ref().unwrap().now()) };
+    unsafe { embassy::time::set_clock(rtc) };
 
     let executor: &'static _ = unsafe {
         let ptr = EXECUTOR.as_mut_ptr();

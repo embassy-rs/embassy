@@ -7,21 +7,17 @@ use core::ptr;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use core::task::{Context, Poll};
 
+use crate::util::*;
 use fi::LocalTimer;
 use futures_intrusive::timer as fi;
+static mut CLOCK: Option<&'static dyn Clock> = None;
 
-static mut CLOCK: fn() -> u64 = clock_not_set;
-
-fn clock_not_set() -> u64 {
-    panic!("No clock set. You must call embassy::time::set_clock() before trying to use the clock")
-}
-
-pub unsafe fn set_clock(clock: fn() -> u64) {
-    CLOCK = clock;
+pub unsafe fn set_clock(clock: &'static dyn Clock) {
+    CLOCK = Some(clock);
 }
 
 fn now() -> u64 {
-    unsafe { CLOCK() }
+    unsafe { CLOCK.dexpect(defmt::intern!("No clock set")).now() }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -270,6 +266,19 @@ impl Future for Timer {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }.poll(cx)
     }
 }
+/// Monotonic clock
+pub trait Clock {
+    /// Return the current timestamp in ticks.
+    /// This is guaranteed to be monotonic, i.e. a call to now() will always return
+    /// a greater or equal value than earler calls.
+    fn now(&self) -> u64;
+}
+
+impl<T: Clock + ?Sized> Clock for &T {
+    fn now(&self) -> u64 {
+        T::now(self)
+    }
+}
 
 /// Trait to register a callback at a given timestamp.
 pub trait Alarm {
@@ -288,4 +297,16 @@ pub trait Alarm {
     /// Clears the previously-set alarm.
     /// If no alarm was set, this is a noop.
     fn clear(&self);
+}
+
+impl<T: Alarm + ?Sized> Alarm for &T {
+    fn set_callback(&self, callback: fn()) {
+        T::set_callback(self, callback);
+    }
+    fn set(&self, timestamp: u64) {
+        T::set(self, timestamp);
+    }
+    fn clear(&self) {
+        T::clear(self)
+    }
 }
