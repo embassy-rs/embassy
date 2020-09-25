@@ -2,22 +2,78 @@
 
 Embassy is a project to make async/await a first-class option for embedded development.
 
-The `embassy` crate defines some traits.
+## Traits and types
 
-- `embassy::io`: Traits for byte-stream IO, essentially `no_std` compatible versions of `futures::io`.
-- `embassy::flash`: Trait for an async flash device.
+`embassy` provides a set of traits and types specifically designed for `async` usage.
+
+- `embassy::io`: `AsyncBufRead`, `AsyncWrite`. Traits for byte-stream IO, essentially `no_std` compatible versions of `futures::io`.
+- `embassy::flash`: Flash device trait.
+- `embassy::time`: `Clock` and `Alarm` traits. Std-like `Duration` and `Instant`.
 - More traits for SPI, I2C, UART async HAL coming soon.
+
+## Executor with timers
+
+The `embassy::executor` module provides an async/await executor based on [static-executor](https://github.com/Dirbaio/static-executor).
+
+- No `alloc`, no heap needed. Task futures are statically allocated.
+- Integrated timer queue allows simple sleeping: `Timer::after(Duration::from_ticks(64000)).await;`.
+- Suitable for low-power operation. Using interrupts or `WFE/SEV` ensures the CPU sleeps when there's no work to do. No busy-loop polling.
+- Creating multiple executor instances is supported, to run tasks with multiple priority levels. This allows higher-priority tasks to preempt lower-priority tasks. (example coming soon)
+- Compatible with RTIC (example coming soon).
+
+## Utils
+
+`embassy::util` contains some lightweight async/await utilities, mainly helpful for async driver development (signaling a task that an interrupt has occured, for example).
+
+## embassy-nrf
 
 The `embassy-nrf` crate contains implementations for nRF 52 series SoCs.
 
 - `uarte`: UARTE driver implementing `AsyncBufRead` and `AsyncWrite`.
 - `qspi`: QSPI driver implementing `Flash`.
+- `gpiote`: GPIOTE driver. Allows `await`ing GPIO pin changes. Great for reading buttons or receiving interrupts from external chips.
+- `rtc`: RTC driver implementing `Clock` and `Alarm`, for use with `embassy::executor`.
 
-Currently Embassy requires a recent nightly, mainly for `generic_associated_types` (for trait funcs returning futures) and `type_alias_impl_trait` (for returning futures implemented with `async{}` blocks). Stable support is a non-goal.
+## Running the examples
+
+Examples are for the nRF52840 chip but should be easily adaptable to other nRF52 chips.
+
+GPIO pins are set up for the `nrf52840-dk` board (PCA10056)
+
+- Install `probe-run` with defmt support.
+
+```
+cargo install --git https://github.com/knurling-rs/probe-run --branch main --features defmt
+```
+
+- Run the example
+
+```
+cargo run --bin rtc_async
+```
+
+## Using on your project
+
+`embassy` requires git version of a few dependencies.
+
+When using `embassy` in your own project, make sure you copy over the `[patch.crates-io]` section from root `Cargo.toml`.
+
+This will no longer needed after the first crates.io release.
+
+## Minimum supported Rust version (MSRV)
+
+`rustc 1.48.0-nightly (1fd5b9d51 2020-09-20)`
+
+Any recent nightly should work. Nightly is required for:
+
+- `generic_associated_types`: for trait funcs returning futures.
+- `type_alias_impl_trait`: for trait funcs returning futures implemented with `async{}` blocks, and for `static-executor`.
+
+Stable support is a non-goal until these features get stabilized.
 
 ## Why the name?
 
-EMBedded ASYnc.
+EMBedded ASYnc! :)
 
 ## License
 
