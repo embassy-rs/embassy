@@ -18,7 +18,7 @@ The `embassy::executor` module provides an async/await executor based on [static
 - No `alloc`, no heap needed. Task futures are statically allocated.
 - Integrated timer queue allows simple sleeping: `Timer::after(Duration::from_ticks(64000)).await;`.
 - Suitable for low-power operation. Using interrupts or `WFE/SEV` ensures the CPU sleeps when there's no work to do. No busy-loop polling.
-- Creating multiple executor instances is supported, to run tasks with multiple priority levels. This allows higher-priority tasks to preempt lower-priority tasks. (example coming soon)
+- Creating multiple executor instances is supported, to run tasks with multiple priority levels. This allows higher-priority tasks to preempt lower-priority tasks.
 - Compatible with RTIC (example coming soon).
 
 ## Utils
