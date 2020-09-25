@@ -6,11 +6,16 @@ members = [
     "examples",
 ]
 
+exclude = [
+    "third_party"
+]
+
 [patch.crates-io]
 panic-probe = { git = "https://github.com/knurling-rs/probe-run", branch="main" }
 defmt-rtt = { git = "https://github.com/knurling-rs/defmt", branch="cursed-symbol-names-linkers-must-repent-for-their-sins" }
 defmt = { git = "https://github.com/knurling-rs/defmt", branch="cursed-symbol-names-linkers-must-repent-for-their-sins" }
 static-executor = { git = "https://github.com/Dirbaio/static-executor", branch="multi"}
+futures-intrusive = { git = "https://github.com/Dirbaio/futures-intrusive", branch="master"}
 
 [profile.dev]
 codegen-units = 1

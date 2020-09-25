@@ -13,3 +13,4 @@ cortex-m = "0.6.3"
 futures     = { version = "0.3.5", default-features = false, features = [ "async-await" ] }
 pin-project = { version = "0.4.23", default-features = false }
 futures-intrusive = { version = "0.3.1", default-features = false }
+static-executor  = { version = "0.1.0", features=["defmt"]}

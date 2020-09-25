@@ -8,7 +8,7 @@ use example_common::*;
 
 use core::mem::MaybeUninit;
 use cortex_m_rt::entry;
-use embassy::clock::Monotonic;
+use embassy::time::Alarm;
 use embassy_nrf::rtc;
 use nrf52840_hal::clocks;
 
@@ -31,8 +31,11 @@ fn main() -> ! {
         &*ptr
     };
 
+    let alarm = rtc.alarm0();
+
     rtc.start();
-    rtc.set_alarm(53719, || info!("ALARM TRIGGERED"));
+
+    alarm.set(53719, || info!("ALARM TRIGGERED"));
 
     info!("initialized!");
 

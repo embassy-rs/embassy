@@ -3,7 +3,8 @@
 #![feature(generic_associated_types)]
 #![feature(const_fn)]
 
-pub mod clock;
+pub mod executor;
 pub mod flash;
 pub mod io;
+pub mod time;
 pub mod util;

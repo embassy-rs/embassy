@@ -1,8 +1,6 @@
 use core::cell::Cell;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU32, Ordering};
-use defmt::trace;
-use embassy::clock::Monotonic;
 
 use crate::interrupt;
 use crate::interrupt::Mutex;
@@ -86,22 +84,25 @@ impl<T: Instance> RTC<T> {
         interrupt::enable(T::INTERRUPT);
     }
 
+    pub fn now(&self) -> u64 {
+        let counter = self.rtc.counter.read().bits();
+        let period = self.period.load(Ordering::Relaxed);
+        calc_now(period, counter)
+    }
+
     fn on_interrupt(&self) {
         if self.rtc.events_ovrflw.read().bits() == 1 {
             self.rtc.events_ovrflw.write(|w| w);
-            trace!("rtc overflow");
             self.next_period();
         }
 
         if self.rtc.events_compare[0].read().bits() == 1 {
             self.rtc.events_compare[0].write(|w| w);
-            trace!("rtc compare0");
             self.next_period();
         }
 
         if self.rtc.events_compare[1].read().bits() == 1 {
             self.rtc.events_compare[1].write(|w| w);
-            trace!("rtc compare1");
             self.trigger_alarm();
         }
     }
@@ -162,26 +163,28 @@ impl<T: Instance> RTC<T> {
             }
         })
     }
+
+    pub fn alarm0(&'static self) -> Alarm<T> {
+        Alarm { rtc: self }
+    }
 }
 
-impl<T: Instance> Monotonic for RTC<T> {
-    fn now(&self) -> u64 {
-        let counter = self.rtc.counter.read().bits();
-        let period = self.period.load(Ordering::Relaxed);
-        calc_now(period, counter)
+pub struct Alarm<T: Instance> {
+    rtc: &'static RTC<T>,
+}
+
+impl<T: Instance> embassy::time::Alarm for Alarm<T> {
+    fn set(&self, timestamp: u64, callback: fn()) {
+        self.rtc.do_set_alarm(timestamp, Some(callback));
     }
 
-    fn set_alarm(&self, timestamp: u64, callback: fn()) {
-        self.do_set_alarm(timestamp, Some(callback));
-    }
-
-    fn clear_alarm(&self) {
-        self.do_set_alarm(u64::MAX, None);
+    fn clear(&self) {
+        self.rtc.do_set_alarm(u64::MAX, None);
     }
 }
 
 /// Implemented by all RTC instances.
-pub trait Instance: Deref<Target = rtc0::RegisterBlock> + Sized {
+pub trait Instance: Deref<Target = rtc0::RegisterBlock> + Sized + 'static {
     /// The interrupt associated with this RTC instance.
     const INTERRUPT: Interrupt;
 
