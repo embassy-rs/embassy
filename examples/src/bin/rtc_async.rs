@@ -8,7 +8,7 @@ use example_common::*;
 
 use core::mem::MaybeUninit;
 use cortex_m_rt::entry;
-use embassy::executor::{task, Executor, WfeModel};
+use embassy::executor::{task, Executor};
 use embassy::time::{Clock, Duration, Timer};
 use embassy_nrf::pac;
 use embassy_nrf::rtc;
@@ -31,7 +31,7 @@ async fn run2() {
 }
 
 static mut RTC: MaybeUninit<rtc::RTC<pac::RTC1>> = MaybeUninit::uninit();
-static mut EXECUTOR: MaybeUninit<Executor<WfeModel, rtc::Alarm<pac::RTC1>>> = MaybeUninit::uninit();
+static mut EXECUTOR: MaybeUninit<Executor<rtc::Alarm<pac::RTC1>>> = MaybeUninit::uninit();
 
 #[entry]
 fn main() -> ! {
@@ -55,7 +55,7 @@ fn main() -> ! {
 
     let executor: &'static _ = unsafe {
         let ptr = EXECUTOR.as_mut_ptr();
-        ptr.write(Executor::new(rtc.alarm0()));
+        ptr.write(Executor::new(rtc.alarm0(), cortex_m::asm::sev));
         &*ptr
     };
 
@@ -63,6 +63,9 @@ fn main() -> ! {
         executor.spawn(run1()).dewrap();
         executor.spawn(run2()).dewrap();
 
-        executor.run()
+        loop {
+            executor.run();
+            cortex_m::asm::wfe();
+        }
     }
 }

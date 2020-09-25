@@ -6,33 +6,19 @@ use crate::time::Alarm;
 
 pub use se::{task, SpawnError, SpawnToken};
 
-pub trait Model {
-    fn signal();
-}
-
-pub struct WfeModel;
-
-impl Model for WfeModel {
-    fn signal() {
-        cortex_m::asm::sev()
-    }
-}
-
-pub struct Executor<M, A: Alarm> {
+pub struct Executor<A: Alarm> {
     inner: se::Executor,
     alarm: A,
     timer: time::TimerService,
-    _phantom: PhantomData<M>,
 }
 
-impl<M: Model, A: Alarm> Executor<M, A> {
-    pub fn new(alarm: A) -> Self {
-        alarm.set_callback(M::signal);
+impl<A: Alarm> Executor<A> {
+    pub fn new(alarm: A, signal_fn: fn()) -> Self {
+        alarm.set_callback(signal_fn);
         Self {
-            inner: se::Executor::new(M::signal),
+            inner: se::Executor::new(signal_fn),
             alarm,
             timer: time::TimerService::new(time::IntrusiveClock),
-            _phantom: PhantomData,
         }
     }
 
@@ -46,7 +32,7 @@ impl<M: Model, A: Alarm> Executor<M, A> {
     /// Runs the executor until the queue is empty.
     ///
     /// safety: can only be called from the executor thread
-    pub unsafe fn run_once(&'static self) {
+    pub unsafe fn run(&'static self) {
         time::with_timer_service(&self.timer, || {
             self.timer.check_expirations();
             self.inner.run();
@@ -58,16 +44,5 @@ impl<M: Model, A: Alarm> Executor<M, A> {
                 None => self.alarm.clear(),
             }
         })
-    }
-}
-
-impl<A: Alarm> Executor<WfeModel, A> {
-    /// Runs the executor forever
-    /// safety: can only be called from the executor thread
-    pub unsafe fn run(&'static self) -> ! {
-        loop {
-            self.run_once();
-            cortex_m::asm::wfe()
-        }
     }
 }
