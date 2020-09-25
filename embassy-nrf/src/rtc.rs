@@ -17,6 +17,10 @@ fn calc_now(period: u32, counter: u32) -> u64 {
     ((period as u64) << 23) + counter_shifted as u64 - 0x400000
 }
 
+fn compare_n(n: usize) -> u32 {
+    1 << (n + 16)
+}
+
 mod test {
     use super::*;
 
@@ -84,11 +88,11 @@ impl<T: Instance> RTC<T> {
     }
 
     pub fn start(&'static self) {
-        self.rtc.cc[0].write(|w| unsafe { w.bits(0x800000) });
+        self.rtc.cc[3].write(|w| unsafe { w.bits(0x800000) });
 
         self.rtc.intenset.write(|w| {
             let w = w.ovrflw().set();
-            let w = w.compare0().set();
+            let w = w.compare3().set();
             w
         });
 
@@ -108,14 +112,14 @@ impl<T: Instance> RTC<T> {
             self.next_period();
         }
 
-        if self.rtc.events_compare[0].read().bits() == 1 {
-            self.rtc.events_compare[0].write(|w| w);
+        if self.rtc.events_compare[3].read().bits() == 1 {
+            self.rtc.events_compare[3].write(|w| w);
             self.next_period();
         }
 
         for n in 0..ALARM_COUNT {
-            if self.rtc.events_compare[n + 1].read().bits() == 1 {
-                self.rtc.events_compare[n + 1].write(|w| w);
+            if self.rtc.events_compare[n].read().bits() == 1 {
+                self.rtc.events_compare[n].write(|w| w);
                 interrupt::free(|cs| {
                     self.trigger_alarm(n, cs);
                 })
@@ -128,20 +132,21 @@ impl<T: Instance> RTC<T> {
             let period = self.period.fetch_add(1, Ordering::Relaxed) + 1;
             let t = (period as u64) << 23;
 
-            for alarm in self.alarms.borrow(cs) {
+            for n in 0..ALARM_COUNT {
+                let alarm = &self.alarms.borrow(cs)[n];
                 let at = alarm.timestamp.get();
 
                 let diff = at - t;
                 if diff < 0xc00000 {
-                    self.rtc.cc[1].write(|w| unsafe { w.bits(at as u32 & 0xFFFFFF) });
-                    self.rtc.intenset.write(|w| w.compare1().set());
+                    self.rtc.cc[n].write(|w| unsafe { w.bits(at as u32 & 0xFFFFFF) });
+                    self.rtc.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
                 }
             }
         })
     }
 
     fn trigger_alarm(&self, n: usize, cs: &CriticalSection) {
-        self.rtc.intenclr.write(|w| w.compare1().clear());
+        self.rtc.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
 
         let alarm = &self.alarms.borrow(cs)[n];
         alarm.timestamp.set(u64::MAX);
@@ -170,8 +175,8 @@ impl<T: Instance> RTC<T> {
 
             let diff = timestamp - t;
             if diff < 0xc00000 {
-                self.rtc.cc[1].write(|w| unsafe { w.bits(timestamp as u32 & 0xFFFFFF) });
-                self.rtc.intenset.write(|w| w.compare1().set());
+                self.rtc.cc[n].write(|w| unsafe { w.bits(timestamp as u32 & 0xFFFFFF) });
+                self.rtc.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
 
                 // We may have been preempted for arbitrary time between checking if `at` is in the past
                 // and setting the cc. In that case, we don't know if the cc has triggered.
@@ -183,7 +188,7 @@ impl<T: Instance> RTC<T> {
                     return;
                 }
             } else {
-                self.rtc.intenclr.write(|w| w.compare1().clear());
+                self.rtc.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
             }
         })
     }

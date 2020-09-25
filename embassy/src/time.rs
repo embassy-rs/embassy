@@ -120,6 +120,10 @@ pub struct Duration {
 }
 
 impl Duration {
+    pub fn into_ticks(&self) -> u32 {
+        self.ticks
+    }
+
     pub const fn from_ticks(ticks: u32) -> Duration {
         Duration { ticks }
     }
