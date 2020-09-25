@@ -273,13 +273,17 @@ impl Future for Timer {
 
 /// Trait to register a callback at a given timestamp.
 pub trait Alarm {
+    /// Sets the callback function to be called when the alarm triggers.
+    /// The callback may be called from any context (interrupt or thread mode).
+    fn set_callback(&self, callback: fn());
+
     /// Sets an alarm at the given timestamp. When the clock reaches that
     /// timestamp, the provided callback funcion will be called.
     ///
     /// When callback is called, it is guaranteed that now() will return a value greater or equal than timestamp.
     ///
     /// Only one alarm can be active at a time. This overwrites any previously-set alarm if any.
-    fn set(&self, timestamp: u64, callback: fn());
+    fn set(&self, timestamp: u64);
 
     /// Clears the previously-set alarm.
     /// If no alarm was set, this is a noop.

@@ -35,7 +35,8 @@ fn main() -> ! {
 
     rtc.start();
 
-    alarm.set(53719, || info!("ALARM TRIGGERED"));
+    alarm.set_callback(|| info!("ALARM TRIGGERED"));
+    alarm.set(53719);
 
     info!("initialized!");
 

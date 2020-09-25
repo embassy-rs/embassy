@@ -27,6 +27,7 @@ pub struct Executor<M, A: Alarm> {
 
 impl<M: Model, A: Alarm> Executor<M, A> {
     pub fn new(alarm: A) -> Self {
+        alarm.set_callback(M::signal);
         Self {
             inner: se::Executor::new(M::signal),
             alarm,
@@ -53,7 +54,7 @@ impl<M: Model, A: Alarm> Executor<M, A> {
             match self.timer.next_expiration() {
                 // If this is in the past, set_alarm will immediately trigger the alarm,
                 // which will make the wfe immediately return so we do another loop iteration.
-                Some(at) => self.alarm.set(at, M::signal),
+                Some(at) => self.alarm.set(at),
                 None => self.alarm.clear(),
             }
         })

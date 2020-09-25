@@ -3,7 +3,7 @@ use core::ops::Deref;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::interrupt;
-use crate::interrupt::Mutex;
+use crate::interrupt::{CriticalSection, Mutex};
 use crate::pac::{rtc0, Interrupt, RTC0, RTC1};
 
 #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
@@ -34,6 +34,22 @@ mod test {
     }
 }
 
+struct AlarmState {
+    timestamp: Cell<u64>,
+    callback: Cell<Option<fn()>>,
+}
+
+impl AlarmState {
+    fn new() -> Self {
+        Self {
+            timestamp: Cell::new(u64::MAX),
+            callback: Cell::new(None),
+        }
+    }
+}
+
+const ALARM_COUNT: usize = 3;
+
 pub struct RTC<T> {
     rtc: T,
 
@@ -50,7 +66,7 @@ pub struct RTC<T> {
     period: AtomicU32,
 
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
-    alarm: Mutex<Cell<(u64, Option<fn()>)>>,
+    alarms: Mutex<[AlarmState; ALARM_COUNT]>,
 }
 
 unsafe impl<T> Send for RTC<T> {}
@@ -61,7 +77,7 @@ impl<T: Instance> RTC<T> {
         Self {
             rtc,
             period: AtomicU32::new(0),
-            alarm: Mutex::new(Cell::new((u64::MAX, None))),
+            alarms: Mutex::new([AlarmState::new(), AlarmState::new(), AlarmState::new()]),
         }
     }
 
@@ -101,9 +117,13 @@ impl<T: Instance> RTC<T> {
             self.next_period();
         }
 
-        if self.rtc.events_compare[1].read().bits() == 1 {
-            self.rtc.events_compare[1].write(|w| w);
-            self.trigger_alarm();
+        for n in 0..ALARM_COUNT {
+            if self.rtc.events_compare[n + 1].read().bits() == 1 {
+                self.rtc.events_compare[n + 1].write(|w| w);
+                interrupt::free(|cs| {
+                    self.trigger_alarm(n, cs);
+                })
+            }
         }
     }
 
@@ -112,35 +132,43 @@ impl<T: Instance> RTC<T> {
             let period = self.period.fetch_add(1, Ordering::Relaxed) + 1;
             let t = (period as u64) << 23;
 
-            let (at, _) = self.alarm.borrow(cs).get();
+            for alarm in self.alarms.borrow(cs) {
+                let at = alarm.timestamp.get();
 
-            let diff = at - t;
-            if diff < 0xc00000 {
-                self.rtc.cc[1].write(|w| unsafe { w.bits(at as u32 & 0xFFFFFF) });
-                self.rtc.intenset.write(|w| w.compare1().set());
+                let diff = at - t;
+                if diff < 0xc00000 {
+                    self.rtc.cc[1].write(|w| unsafe { w.bits(at as u32 & 0xFFFFFF) });
+                    self.rtc.intenset.write(|w| w.compare1().set());
+                }
             }
         })
     }
 
-    fn trigger_alarm(&self) {
+    fn trigger_alarm(&self, n: usize, cs: &CriticalSection) {
         self.rtc.intenclr.write(|w| w.compare1().clear());
-        interrupt::free(|cs| {
-            let alarm = self.alarm.borrow(cs);
-            let (_, f) = alarm.get();
-            alarm.set((u64::MAX, None));
 
-            // Call after clearing alarm, so the callback can set another alarm.
-            f.map(|f| f())
-        });
+        let alarm = &self.alarms.borrow(cs)[n];
+        alarm.timestamp.set(u64::MAX);
+
+        // Call after clearing alarm, so the callback can set another alarm.
+        alarm.callback.get().map(|f| f());
     }
 
-    fn do_set_alarm(&self, timestamp: u64, callback: Option<fn()>) {
+    fn set_alarm_callback(&self, n: usize, callback: fn()) {
         interrupt::free(|cs| {
-            self.alarm.borrow(cs).set((timestamp, callback));
+            let alarm = &self.alarms.borrow(cs)[n];
+            alarm.callback.set(Some(callback));
+        })
+    }
+
+    fn set_alarm(&self, n: usize, timestamp: u64) {
+        interrupt::free(|cs| {
+            let alarm = &self.alarms.borrow(cs)[n];
+            alarm.timestamp.set(timestamp);
 
             let t = self.now();
             if timestamp <= t {
-                self.trigger_alarm();
+                self.trigger_alarm(n, cs);
                 return;
             }
 
@@ -155,7 +183,7 @@ impl<T: Instance> RTC<T> {
 
                 let t = self.now();
                 if timestamp <= t {
-                    self.trigger_alarm();
+                    self.trigger_alarm(n, cs);
                     return;
                 }
             } else {
@@ -165,21 +193,32 @@ impl<T: Instance> RTC<T> {
     }
 
     pub fn alarm0(&'static self) -> Alarm<T> {
-        Alarm { rtc: self }
+        Alarm { n: 0, rtc: self }
+    }
+    pub fn alarm1(&'static self) -> Alarm<T> {
+        Alarm { n: 1, rtc: self }
+    }
+    pub fn alarm2(&'static self) -> Alarm<T> {
+        Alarm { n: 2, rtc: self }
     }
 }
 
 pub struct Alarm<T: Instance> {
+    n: usize,
     rtc: &'static RTC<T>,
 }
 
 impl<T: Instance> embassy::time::Alarm for Alarm<T> {
-    fn set(&self, timestamp: u64, callback: fn()) {
-        self.rtc.do_set_alarm(timestamp, Some(callback));
+    fn set_callback(&self, callback: fn()) {
+        self.rtc.set_alarm_callback(self.n, callback);
+    }
+
+    fn set(&self, timestamp: u64) {
+        self.rtc.set_alarm(self.n, timestamp);
     }
 
     fn clear(&self) {
-        self.rtc.do_set_alarm(u64::MAX, None);
+        self.rtc.set_alarm(self.n, u64::MAX);
     }
 }
 
