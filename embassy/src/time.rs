@@ -25,6 +25,9 @@ pub struct Instant {
     ticks: u64,
 }
 
+// TODO allow customizing, probably via Cargo features `tick-hz-32768` or something.
+pub const TICKS_PER_SECOND: u32 = 32768;
+
 impl Instant {
     pub fn now() -> Instant {
         Instant { ticks: now() }
@@ -126,6 +129,18 @@ impl Duration {
 
     pub const fn from_ticks(ticks: u32) -> Duration {
         Duration { ticks }
+    }
+
+    pub const fn from_secs(secs: u32) -> Duration {
+        Duration {
+            ticks: secs * TICKS_PER_SECOND,
+        }
+    }
+
+    pub const fn from_millis(millis: u32) -> Duration {
+        Duration {
+            ticks: millis * TICKS_PER_SECOND / 1000,
+        }
     }
 
     pub fn checked_add(self, rhs: Duration) -> Option<Duration> {
