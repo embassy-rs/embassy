@@ -1,7 +1,6 @@
 use core::cell::Cell;
 use core::pin::Pin;
 use core::ptr;
-use defmt::trace;
 use embassy::util::Signal;
 use nrf52840_hal::gpio::{Floating, Input, Pin as GpioPin, Port};
 
@@ -23,7 +22,7 @@ pub enum EventPolarity {
     Toggle,
 }
 
-#[derive(defmt::Format)]
+#[derive(defmt::Format, Debug)]
 pub enum NewChannelError {
     NoFreeChannels,
 }
@@ -66,7 +65,8 @@ impl Gpiote {
             }
             self.free_channels.set(chs & !(1 << index));
 
-            trace!("allocated ch {:u8}", index as u8);
+            #[cfg(feature = "defmt")]
+            defmt::trace!("allocated ch {:u8}", index as u8);
 
             self.inner.config[index].write(|w| {
                 match trigger_mode {
@@ -112,7 +112,9 @@ impl<'a> Drop for Channel<'a> {
             self.gpiote
                 .free_channels
                 .set(self.gpiote.free_channels.get() | 1 << self.index);
-            trace!("freed ch {:u8}", self.index);
+
+            #[cfg(feature = "defmt")]
+            defmt::trace!("freed ch {:u8}", self.index);
         })
     }
 }

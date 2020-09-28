@@ -25,8 +25,6 @@ pub use uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 use embassy::io::{AsyncBufRead, AsyncWrite, Result};
 use embassy::util::WakerStore;
 
-use defmt::trace;
-
 //use crate::trace;
 
 const RINGBUF_SIZE: usize = 512;
@@ -49,7 +47,8 @@ impl RingBuf {
 
     fn push_buf(&mut self) -> &mut [u8] {
         if self.start == self.end && !self.empty {
-            trace!("  ringbuf: push_buf empty");
+            #[cfg(feature = "defmt")]
+            defmt::trace!("  ringbuf: push_buf empty");
             return &mut self.buf[..0];
         }
 
@@ -59,12 +58,14 @@ impl RingBuf {
             self.start - self.end
         };
 
-        trace!("  ringbuf: push_buf {:?}..{:?}", self.end, self.end + n);
+        #[cfg(feature = "defmt")]
+        defmt::trace!("  ringbuf: push_buf {:?}..{:?}", self.end, self.end + n);
         &mut self.buf[self.end..self.end + n]
     }
 
     fn push(&mut self, n: usize) {
-        trace!("  ringbuf: push {:?}", n);
+        #[cfg(feature = "defmt")]
+        defmt::trace!("  ringbuf: push {:?}", n);
         if n == 0 {
             return;
         }
@@ -75,7 +76,8 @@ impl RingBuf {
 
     fn pop_buf(&mut self) -> &mut [u8] {
         if self.empty {
-            trace!("  ringbuf: pop_buf empty");
+            #[cfg(feature = "defmt")]
+            defmt::trace!("  ringbuf: pop_buf empty");
             return &mut self.buf[..0];
         }
 
@@ -85,12 +87,14 @@ impl RingBuf {
             self.end - self.start
         };
 
-        trace!("  ringbuf: pop_buf {:?}..{:?}", self.start, self.start + n);
+        #[cfg(feature = "defmt")]
+        defmt::trace!("  ringbuf: pop_buf {:?}..{:?}", self.start, self.start + n);
         &mut self.buf[self.start..self.start + n]
     }
 
     fn pop(&mut self, n: usize) {
-        trace!("  ringbuf: pop {:?}", n);
+        #[cfg(feature = "defmt")]
+        defmt::trace!("  ringbuf: pop {:?}", n);
         if n == 0 {
             return;
         }
@@ -291,19 +295,23 @@ impl<T: Instance> UarteState<T> {
         // take in to account actions by DMA. The fence has been placed here,
         // before any DMA action has started
         compiler_fence(Ordering::SeqCst);
-        trace!("poll_read");
+        #[cfg(feature = "defmt")]
+        defmt::trace!("poll_read");
 
         // We have data ready in buffer? Return it.
         let buf = this.rx.pop_buf();
         if buf.len() != 0 {
-            trace!("  got {:?} {:?}", buf.as_ptr() as u32, buf.len());
+            #[cfg(feature = "defmt")]
+            defmt::trace!("  got {:?} {:?}", buf.as_ptr() as u32, buf.len());
             return Poll::Ready(Ok(buf));
         }
 
-        trace!("  empty");
+        #[cfg(feature = "defmt")]
+        defmt::trace!("  empty");
 
         if this.rx_state == RxState::ReceivingReady {
-            trace!("  stopping");
+            #[cfg(feature = "defmt")]
+            defmt::trace!("  stopping");
             this.rx_state = RxState::Stopping;
             this.inner.tasks_stoprx.write(|w| unsafe { w.bits(1) });
         }
@@ -314,7 +322,8 @@ impl<T: Instance> UarteState<T> {
 
     fn consume(self: Pin<&mut Self>, amt: usize) {
         let this = unsafe { self.get_unchecked_mut() };
-        trace!("consume {:?}", amt);
+        #[cfg(feature = "defmt")]
+        defmt::trace!("consume {:?}", amt);
         this.rx.pop(amt);
         interrupt::pend(T::interrupt());
     }
@@ -322,11 +331,13 @@ impl<T: Instance> UarteState<T> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
         let this = unsafe { self.get_unchecked_mut() };
 
-        trace!("poll_write: {:?}", buf.len());
+        #[cfg(feature = "defmt")]
+        defmt::trace!("poll_write: {:?}", buf.len());
 
         let tx_buf = this.tx.push_buf();
         if tx_buf.len() == 0 {
-            trace!("poll_write: pending");
+            #[cfg(feature = "defmt")]
+            defmt::trace!("poll_write: pending");
             this.tx_waker.store(cx.waker());
             return Poll::Pending;
         }
@@ -335,7 +346,8 @@ impl<T: Instance> UarteState<T> {
         tx_buf[..n].copy_from_slice(&buf[..n]);
         this.tx.push(n);
 
-        trace!("poll_write: queued {:?}", n);
+        #[cfg(feature = "defmt")]
+        defmt::trace!("poll_write: queued {:?}", n);
 
         // Conservative compiler fence to prevent optimizations that do not
         // take in to account actions by DMA. The fence has been placed here,
@@ -348,16 +360,19 @@ impl<T: Instance> UarteState<T> {
     }
 
     fn on_interrupt(&mut self) {
-        trace!("irq: start");
+        #[cfg(feature = "defmt")]
+        defmt::trace!("irq: start");
         let mut more_work = true;
         while more_work {
             more_work = false;
             match self.rx_state {
                 RxState::Idle => {
-                    trace!("  irq_rx: in state idle");
+                    #[cfg(feature = "defmt")]
+                    defmt::trace!("  irq_rx: in state idle");
 
                     if self.inner.events_rxdrdy.read().bits() != 0 {
-                        trace!("  irq_rx: rxdrdy?????");
+                        #[cfg(feature = "defmt")]
+                        defmt::trace!("  irq_rx: rxdrdy?????");
                         self.inner.events_rxdrdy.reset();
                     }
 
@@ -367,7 +382,8 @@ impl<T: Instance> UarteState<T> {
 
                     let buf = self.rx.push_buf();
                     if buf.len() != 0 {
-                        trace!("  irq_rx: starting {:?}", buf.len());
+                        #[cfg(feature = "defmt")]
+                        defmt::trace!("  irq_rx: starting {:?}", buf.len());
                         self.rx_state = RxState::Receiving;
 
                         // Set up the DMA read
@@ -383,7 +399,8 @@ impl<T: Instance> UarteState<T> {
                             // The MAXCNT field is at least 8 bits wide and accepts the full
                             // range of values.
                             unsafe { w.maxcnt().bits(buf.len() as _) });
-                        trace!("  irq_rx: buf {:?} {:?}", buf.as_ptr() as u32, buf.len());
+                        #[cfg(feature = "defmt")]
+                        defmt::trace!("  irq_rx: buf {:?} {:?}", buf.as_ptr() as u32, buf.len());
 
                         // Enable RXRDY interrupt.
                         self.inner.events_rxdrdy.reset();
@@ -396,9 +413,11 @@ impl<T: Instance> UarteState<T> {
                     }
                 }
                 RxState::Receiving => {
-                    trace!("  irq_rx: in state receiving");
+                    #[cfg(feature = "defmt")]
+                    defmt::trace!("  irq_rx: in state receiving");
                     if self.inner.events_rxdrdy.read().bits() != 0 {
-                        trace!("  irq_rx: rxdrdy");
+                        #[cfg(feature = "defmt")]
+                        defmt::trace!("  irq_rx: rxdrdy");
 
                         // Disable the RXRDY event interrupt
                         // RXRDY is triggered for every byte, but we only care about whether we have
@@ -414,16 +433,19 @@ impl<T: Instance> UarteState<T> {
                     }
                 }
                 RxState::ReceivingReady | RxState::Stopping => {
-                    trace!("  irq_rx: in state ReceivingReady");
+                    #[cfg(feature = "defmt")]
+                    defmt::trace!("  irq_rx: in state ReceivingReady");
 
                     if self.inner.events_rxdrdy.read().bits() != 0 {
-                        trace!("  irq_rx: rxdrdy");
+                        #[cfg(feature = "defmt")]
+                        defmt::trace!("  irq_rx: rxdrdy");
                         self.inner.events_rxdrdy.reset();
                     }
 
                     if self.inner.events_endrx.read().bits() != 0 {
                         let n: usize = self.inner.rxd.amount.read().amount().bits() as usize;
-                        trace!("  irq_rx: endrx {:?}", n);
+                        #[cfg(feature = "defmt")]
+                        defmt::trace!("  irq_rx: endrx {:?}", n);
                         self.rx.push(n);
 
                         self.inner.events_endrx.reset();
@@ -441,10 +463,12 @@ impl<T: Instance> UarteState<T> {
             more_work = false;
             match self.tx_state {
                 TxState::Idle => {
-                    trace!("  irq_tx: in state Idle");
+                    #[cfg(feature = "defmt")]
+                    defmt::trace!("  irq_tx: in state Idle");
                     let buf = self.tx.pop_buf();
                     if buf.len() != 0 {
-                        trace!("  irq_tx: starting {:?}", buf.len());
+                        #[cfg(feature = "defmt")]
+                        defmt::trace!("  irq_tx: starting {:?}", buf.len());
                         self.tx_state = TxState::Transmitting(buf.len());
 
                         // Set up the DMA write
@@ -468,11 +492,13 @@ impl<T: Instance> UarteState<T> {
                     }
                 }
                 TxState::Transmitting(n) => {
-                    trace!("  irq_tx: in state Transmitting");
+                    #[cfg(feature = "defmt")]
+                    defmt::trace!("  irq_tx: in state Transmitting");
                     if self.inner.events_endtx.read().bits() != 0 {
                         self.inner.events_endtx.reset();
 
-                        trace!("  irq_tx: endtx {:?}", n);
+                        #[cfg(feature = "defmt")]
+                        defmt::trace!("  irq_tx: endtx {:?}", n);
                         self.tx.pop(n);
                         self.tx_waker.wake();
                         self.tx_state = TxState::Idle;
@@ -481,7 +507,8 @@ impl<T: Instance> UarteState<T> {
                 }
             }
         }
-        trace!("irq: end");
+        #[cfg(feature = "defmt")]
+        defmt::trace!("irq: end");
     }
 }
 
