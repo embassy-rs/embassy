@@ -117,7 +117,7 @@ impl Sub<Instant> for Instant {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(defmt::Format, Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Duration {
     ticks: u32,
 }
