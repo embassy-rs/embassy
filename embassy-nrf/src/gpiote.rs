@@ -51,11 +51,11 @@ impl Gpiote {
         }
     }
 
-    pub fn new_input_channel<T>(
-        &self,
-        pin: GpioPin<Input<T>>,
+    pub fn new_input_channel<'a, T>(
+        &'a self,
+        pin: &'a GpioPin<Input<T>>,
         trigger_mode: EventPolarity,
-    ) -> Result<Channel<'_>, NewChannelError> {
+    ) -> Result<Channel<'a>, NewChannelError> {
         interrupt::free(|_| {
             unsafe { INSTANCE = self };
 

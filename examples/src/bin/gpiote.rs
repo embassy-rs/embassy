@@ -28,7 +28,7 @@ async fn run() {
     let pin1 = port0.p0_11.into_pullup_input().degrade();
     let button1 = async {
         let ch = g
-            .new_input_channel(pin1, gpiote::EventPolarity::HiToLo)
+            .new_input_channel(&pin1, gpiote::EventPolarity::HiToLo)
             .dewrap();
 
         loop {
@@ -40,7 +40,7 @@ async fn run() {
     let pin2 = port0.p0_12.into_pullup_input().degrade();
     let button2 = async {
         let ch = g
-            .new_input_channel(pin2, gpiote::EventPolarity::LoToHi)
+            .new_input_channel(&pin2, gpiote::EventPolarity::LoToHi)
             .dewrap();
 
         loop {
@@ -52,7 +52,7 @@ async fn run() {
     let pin3 = port0.p0_24.into_pullup_input().degrade();
     let button3 = async {
         let ch = g
-            .new_input_channel(pin3, gpiote::EventPolarity::Toggle)
+            .new_input_channel(&pin3, gpiote::EventPolarity::Toggle)
             .dewrap();
 
         loop {
@@ -64,7 +64,7 @@ async fn run() {
     let pin4 = port0.p0_25.into_pullup_input().degrade();
     let button4 = async {
         let ch = g
-            .new_input_channel(pin4, gpiote::EventPolarity::Toggle)
+            .new_input_channel(&pin4, gpiote::EventPolarity::Toggle)
             .dewrap();
 
         loop {
