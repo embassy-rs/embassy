@@ -110,8 +110,8 @@ impl From<io::Error> for Error {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for Error {}
+//#[cfg(feature = "std")]
+//impl std::error::Error for Error {}
 
 /*
 impl From<smoltcp::Error> for Error {

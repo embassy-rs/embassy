@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![feature(slice_fill)]
 #![feature(generic_associated_types)]
 #![feature(const_fn)]
