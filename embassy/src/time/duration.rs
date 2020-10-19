@@ -8,7 +8,7 @@ pub struct Duration {
 }
 
 impl Duration {
-    pub fn into_ticks(&self) -> u32 {
+    pub const fn into_ticks(&self) -> u32 {
         self.ticks
     }
 

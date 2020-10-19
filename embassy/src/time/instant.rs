@@ -17,7 +17,11 @@ impl Instant {
         Instant { ticks: now() }
     }
 
-    pub fn into_ticks(&self) -> u64 {
+    pub const fn from_ticks(ticks: u64) -> Self {
+        Self { ticks }
+    }
+
+    pub const fn into_ticks(&self) -> u64 {
         self.ticks
     }
 
