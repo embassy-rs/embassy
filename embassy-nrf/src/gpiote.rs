@@ -85,9 +85,9 @@ impl Gpiote {
 
     pub fn new_input_channel<'a, T>(
         &'a self,
-        pin: &'a Pin<Input<T>>,
+        pin: Pin<Input<T>>,
         trigger_mode: EventPolarity,
-    ) -> Result<InputChannel<'a>, NewChannelError> {
+    ) -> Result<InputChannel<'a, T>, NewChannelError> {
         interrupt::free(|_| {
             unsafe { INSTANCE = self };
             let index = self.allocate_channel()?;
@@ -113,6 +113,7 @@ impl Gpiote {
             Ok(InputChannel {
                 gpiote: self,
                 index,
+                pin,
             })
         })
     }
@@ -157,20 +158,25 @@ impl Gpiote {
     }
 }
 
-pub struct InputChannel<'a> {
+pub struct InputChannel<'a, T> {
     gpiote: &'a Gpiote,
+    pin: Pin<Input<T>>,
     index: u8,
 }
 
-impl<'a> Drop for InputChannel<'a> {
+impl<'a, T> Drop for InputChannel<'a, T> {
     fn drop(&mut self) {
         self.gpiote.free_channel(self.index);
     }
 }
 
-impl<'a> InputChannel<'a> {
+impl<'a, T> InputChannel<'a, T> {
     pub async fn wait(&self) -> () {
         self.gpiote.signals[self.index as usize].wait().await;
+    }
+
+    pub fn pin(&self) -> &Pin<Input<T>> {
+        &self.pin
     }
 }
 

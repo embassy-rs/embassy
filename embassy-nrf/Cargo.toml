@@ -5,9 +5,6 @@ authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
 
 [features]
-default = [
-    "defmt-default",
-]
 defmt-default = []
 defmt-trace = []
 defmt-debug = []
