@@ -26,5 +26,5 @@ panic-probe = "0.1.0"
 nrf52840-hal    = { version = "0.11.0" }
 embassy = { version = "0.1.0", path = "../embassy" }
 embassy-nrf = { version = "0.1.0", path = "../embassy-nrf", features = ["defmt-trace", "52840"] }
-static-executor  = { version = "0.1.0", features=["defmt"]}
 futures = { version = "0.3.5", default-features = false }
+cortex-m-rtic = { git = "https://github.com/rtic-rs/cortex-m-rtic", branch = "master"}

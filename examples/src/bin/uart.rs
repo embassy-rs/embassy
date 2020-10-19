@@ -12,7 +12,7 @@ use embassy_nrf::uarte;
 use futures::pin_mut;
 use nrf52840_hal::gpio;
 
-use static_executor::{task, Executor};
+use embassy::executor::{task, Executor};
 static EXECUTOR: Executor = Executor::new(|| cortex_m::asm::sev());
 
 #[task]
