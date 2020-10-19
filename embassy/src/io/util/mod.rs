@@ -24,6 +24,9 @@ pub use self::read_to_end::ReadToEnd;
 mod skip_while;
 pub use self::skip_while::SkipWhile;
 
+mod drain;
+pub use self::drain::Drain;
+
 mod write;
 pub use self::write::Write;
 
@@ -77,6 +80,13 @@ pub trait AsyncBufReadExt: AsyncBufRead {
         Self: Unpin,
     {
         SkipWhile::new(self, f)
+    }
+
+    fn drain<'a>(&'a mut self) -> Drain<'a, Self>
+    where
+        Self: Unpin,
+    {
+        Drain::new(self)
     }
 
     fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Read<'a, Self>
