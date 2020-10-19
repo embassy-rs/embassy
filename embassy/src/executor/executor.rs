@@ -110,18 +110,16 @@ impl Queue {
     }
 
     unsafe fn dequeue_all(&self, on_task: impl Fn(*mut Header)) {
-        loop {
-            let mut task = self.head.swap(ptr::null_mut(), Ordering::AcqRel);
+        let mut task = self.head.swap(ptr::null_mut(), Ordering::AcqRel);
 
-            if task.is_null() {
-                // Queue is empty, we're done
-                return;
-            }
+        while !task.is_null() {
+            // If the task re-enqueues itself, the `next` pointer will get overwritten.
+            // Therefore, first read the next pointer, and only then process the task.
+            let next = (*task).next.load(Ordering::Relaxed);
 
-            while !task.is_null() {
-                on_task(task);
-                task = (*task).next.load(Ordering::Relaxed);
-            }
+            on_task(task);
+
+            task = next
         }
     }
 }
