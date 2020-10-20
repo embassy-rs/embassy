@@ -7,7 +7,7 @@ use core::task::{Context, Poll};
 
 use super::{now, Duration};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, defmt::Format)]
 pub struct Instant {
     ticks: u64,
 }
