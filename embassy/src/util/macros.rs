@@ -1,5 +1,6 @@
 #![macro_use]
 
+#[macro_export]
 macro_rules! depanic {
     ($( $i:expr ),*) => {
         {
@@ -9,6 +10,7 @@ macro_rules! depanic {
     }
 }
 
+#[macro_export]
 macro_rules! deassert {
     ($cond:expr) => {
         deassert!($cond, "assertion failed");

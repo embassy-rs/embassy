@@ -13,6 +13,8 @@ pub use drop_bomb::*;
 
 use defmt::{debug, error, info, intern, trace, warn};
 
+pub use macros::*;
+
 pub trait Dewrap<T> {
     /// dewrap = defmt unwrap
     fn dewrap(self) -> T;

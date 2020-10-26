@@ -1,6 +1,3 @@
-#![no_std]
-#![feature(const_fn)]
-
 use core::cell::Cell;
 use core::cell::UnsafeCell;
 use core::future::Future;
