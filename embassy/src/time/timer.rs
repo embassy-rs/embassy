@@ -13,7 +13,7 @@ pub struct Timer {
 impl Timer {
     pub fn at(when: Instant) -> Self {
         Self {
-            inner: current_timer_queue().deadline(when.into_ticks()),
+            inner: current_timer_queue().deadline(when.as_ticks()),
         }
     }
 

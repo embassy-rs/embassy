@@ -1,28 +1,37 @@
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
+use core::fmt;
 
 use super::TICKS_PER_SECOND;
 
 #[derive(defmt::Format, Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Duration {
-    pub(crate) ticks: u32,
+    pub(crate) ticks: u64,
 }
 
 impl Duration {
-    pub const fn into_ticks(&self) -> u32 {
+    pub const fn as_ticks(&self) -> u64 {
         self.ticks
     }
 
-    pub const fn from_ticks(ticks: u32) -> Duration {
+    pub const fn as_secs(&self) -> u64 {
+        self.ticks / TICKS_PER_SECOND
+    }
+
+    pub const fn as_millis(&self) -> u64 {
+        self.ticks * 1000 / TICKS_PER_SECOND
+    }
+
+    pub const fn from_ticks(ticks: u64) -> Duration {
         Duration { ticks }
     }
 
-    pub const fn from_secs(secs: u32) -> Duration {
+    pub const fn from_secs(secs: u64) -> Duration {
         Duration {
             ticks: secs * TICKS_PER_SECOND,
         }
     }
 
-    pub const fn from_millis(millis: u32) -> Duration {
+    pub const fn from_millis(millis: u64) -> Duration {
         Duration {
             ticks: millis * TICKS_PER_SECOND / 1000,
         }
@@ -41,11 +50,11 @@ impl Duration {
     }
 
     pub fn checked_mul(self, rhs: u32) -> Option<Duration> {
-        self.ticks.checked_mul(rhs).map(|ticks| Duration { ticks })
+        self.ticks.checked_mul(rhs as _).map(|ticks| Duration { ticks })
     }
 
     pub fn checked_div(self, rhs: u32) -> Option<Duration> {
-        self.ticks.checked_div(rhs).map(|ticks| Duration { ticks })
+        self.ticks.checked_div(rhs as _).map(|ticks| Duration { ticks })
     }
 }
 
@@ -114,5 +123,11 @@ impl Div<u32> for Duration {
 impl DivAssign<u32> for Duration {
     fn div_assign(&mut self, rhs: u32) {
         *self = *self / rhs;
+    }
+}
+
+impl<'a> fmt::Display for Duration {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} ticks", self.ticks)
     }
 }

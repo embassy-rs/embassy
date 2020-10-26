@@ -1,10 +1,8 @@
 use core::convert::TryInto;
-use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
-use core::pin::Pin;
-use core::ptr;
-use core::sync::atomic::{AtomicPtr, Ordering};
-use core::task::{Context, Poll};
+use core::ops::{Add, AddAssign, Sub, SubAssign};
+use core::fmt;
 
+use super::TICKS_PER_SECOND;
 use super::{now, Duration};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, defmt::Format)]
@@ -21,8 +19,28 @@ impl Instant {
         Self { ticks }
     }
 
-    pub const fn into_ticks(&self) -> u64 {
+    pub const fn from_millis(millis: u64) -> Self {
+        Self {
+            ticks: millis * TICKS_PER_SECOND as u64 / 1000,
+        }
+    }
+
+    pub const fn from_secs(seconds: u64) -> Self {
+        Self {
+            ticks: seconds * TICKS_PER_SECOND as u64,
+        }
+    }
+
+    pub const fn as_ticks(&self) -> u64 {
         self.ticks
+    }
+
+    pub const fn as_secs(&self) -> u64 {
+        self.ticks / TICKS_PER_SECOND as u64
+    }
+
+    pub const fn as_millis(&self) -> u64 {
+        self.ticks * 1000 / TICKS_PER_SECOND as u64
     }
 
     pub fn duration_since(&self, earlier: Instant) -> Duration {
@@ -102,5 +120,11 @@ impl Sub<Instant> for Instant {
 
     fn sub(self, other: Instant) -> Duration {
         self.duration_since(other)
+    }
+}
+
+impl<'a> fmt::Display for Instant {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} ticks", self.ticks)
     }
 }

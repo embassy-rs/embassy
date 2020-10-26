@@ -11,7 +11,7 @@ pub use traits::*;
 use crate::util::Dewrap;
 
 // TODO allow customizing, probably via Cargo features `tick-hz-32768` or something.
-pub const TICKS_PER_SECOND: u32 = 32768;
+pub const TICKS_PER_SECOND: u64 = 32768;
 
 static mut CLOCK: Option<&'static dyn Clock> = None;
 
