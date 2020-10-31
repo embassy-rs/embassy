@@ -85,29 +85,15 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
 
     let name = task_fn.sig.ident.clone();
 
-    let type_name = format_ident!("__embassy_executor_type_{}", name);
-    let pool_name = format_ident!("__embassy_executor_pool_{}", name);
-    let task_fn_name = format_ident!("__embassy_executor_task_{}", name);
-    let create_fn_name = format_ident!("__embassy_executor_create_{}", name);
-
     let visibility = &task_fn.vis;
-
-    task_fn.sig.ident = task_fn_name.clone();
+    task_fn.sig.ident = format_ident!("task");
 
     let result = quote! {
-        #task_fn
-        #[allow(non_camel_case_types)]
-        type #type_name = impl ::core::future::Future + 'static;
-
-        fn #create_fn_name(#args) -> #type_name {
-            #task_fn_name(#arg_names)
-        }
-
-        #[allow(non_upper_case_globals)]
-        static #pool_name: [::embassy::executor::Task<#type_name>; #pool_size] = [::embassy::executor::Task::new(); #pool_size];
-
         #visibility fn #name(#args) -> ::embassy::executor::SpawnToken {
-            unsafe { ::embassy::executor::Task::spawn(&#pool_name, || #create_fn_name(#arg_names)) }
+            #task_fn
+            type F = impl ::core::future::Future + 'static;
+            static POOL: [::embassy::executor::Task<F>; #pool_size] = [::embassy::executor::Task::new(); #pool_size];
+            unsafe { ::embassy::executor::Task::spawn(&POOL, || task(#arg_names)) }
         }
     };
     result.into()
