@@ -47,9 +47,6 @@ impl Priority {
     }
 }
 
-static CS_FLAG: AtomicBool = AtomicBool::new(false);
-static mut CS_MASK: [u32; 2] = [0; 2];
-
 #[inline]
 pub fn free<F, R>(f: F) -> R
 where
