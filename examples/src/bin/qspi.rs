@@ -7,12 +7,12 @@ mod example_common;
 use example_common::*;
 
 use cortex_m_rt::entry;
-use embassy::flash::Flash;
-use embassy_nrf::qspi;
 use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
-static EXECUTOR: Executor = Executor::new(|| cortex_m::asm::sev());
+use embassy::flash::Flash;
+use embassy::util::Forever;
+use embassy_nrf::qspi;
 
 const PAGE_SIZE: usize = 4096;
 
@@ -115,16 +115,17 @@ async fn run() {
     info!("done!")
 }
 
+static EXECUTOR: Forever<Executor> = Forever::new();
+
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
 
-    unsafe {
-        EXECUTOR.spawn(run()).dewrap();
+    let executor = EXECUTOR.put(Executor::new(cortex_m::asm::wfi));
+    executor.spawn(run()).dewrap();
 
-        loop {
-            EXECUTOR.run();
-            cortex_m::asm::wfe();
-        }
+    loop {
+        executor.run();
+        cortex_m::asm::wfe();
     }
 }

@@ -7,13 +7,13 @@ mod example_common;
 use example_common::*;
 
 use cortex_m_rt::entry;
-use embassy::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
-use embassy_nrf::uarte;
 use futures::pin_mut;
 use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
-static EXECUTOR: Executor = Executor::new(|| cortex_m::asm::sev());
+use embassy::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
+use embassy::util::Forever;
+use embassy_nrf::uarte;
 
 #[task]
 async fn run() {
@@ -64,16 +64,17 @@ async fn run() {
     }
 }
 
+static EXECUTOR: Forever<Executor> = Forever::new();
+
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
 
-    unsafe {
-        EXECUTOR.spawn(run()).dewrap();
+    let executor = EXECUTOR.put(Executor::new(cortex_m::asm::wfi));
+    executor.spawn(run()).dewrap();
 
-        loop {
-            EXECUTOR.run();
-            cortex_m::asm::wfe();
-        }
+    loop {
+        executor.run();
+        cortex_m::asm::wfe();
     }
 }

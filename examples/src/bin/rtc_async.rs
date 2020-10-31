@@ -8,11 +8,13 @@ use example_common::*;
 
 use core::mem::MaybeUninit;
 use cortex_m_rt::entry;
-use embassy::executor::{task, Executor};
+use nrf52840_hal::clocks;
+
+use embassy::executor::{task, TimerExecutor};
 use embassy::time::{Clock, Duration, Timer};
+use embassy::util::Forever;
 use embassy_nrf::pac;
 use embassy_nrf::rtc;
-use nrf52840_hal::clocks;
 
 #[task]
 async fn run1() {
@@ -30,8 +32,8 @@ async fn run2() {
     }
 }
 
-static mut RTC: MaybeUninit<rtc::RTC<pac::RTC1>> = MaybeUninit::uninit();
-static mut EXECUTOR: MaybeUninit<Executor<rtc::Alarm<pac::RTC1>>> = MaybeUninit::uninit();
+static RTC: Forever<rtc::RTC<pac::RTC1>> = Forever::new();
+static EXECUTOR: Forever<TimerExecutor<rtc::Alarm<pac::RTC1>>> = Forever::new();
 
 #[entry]
 fn main() -> ! {
@@ -44,28 +46,18 @@ fn main() -> ! {
         .set_lfclk_src_external(clocks::LfOscConfiguration::NoExternalNoBypass)
         .start_lfclk();
 
-    let rtc: &'static _ = unsafe {
-        let ptr = RTC.as_mut_ptr();
-        ptr.write(rtc::RTC::new(p.RTC1));
-        &*ptr
-    };
-
+    let rtc = RTC.put(rtc::RTC::new(p.RTC1));
     rtc.start();
+
     unsafe { embassy::time::set_clock(rtc) };
 
-    let executor: &'static _ = unsafe {
-        let ptr = EXECUTOR.as_mut_ptr();
-        ptr.write(Executor::new(rtc.alarm0(), cortex_m::asm::sev));
-        &*ptr
-    };
+    let executor = EXECUTOR.put(TimerExecutor::new(rtc.alarm0(), cortex_m::asm::sev));
 
-    unsafe {
-        executor.spawn(run1()).dewrap();
-        executor.spawn(run2()).dewrap();
+    executor.spawn(run1()).dewrap();
+    executor.spawn(run2()).dewrap();
 
-        loop {
-            executor.run();
-            cortex_m::asm::wfe();
-        }
+    loop {
+        executor.run();
+        cortex_m::asm::wfe();
     }
 }

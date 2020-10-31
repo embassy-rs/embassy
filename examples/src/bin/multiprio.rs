@@ -86,8 +86,8 @@ async fn run_med() {
         cortex_m::asm::delay(32_000_000); // ~1 second
 
         let end = Instant::now();
-        let ms = end.duration_since(start).into_ticks() / 33;
-        info!("    [med] done in {:u32} ms", ms);
+        let ms = end.duration_since(start).as_ticks() / 33;
+        info!("    [med] done in {:u64} ms", ms);
 
         Timer::after(Duration::from_ticks(23421)).await;
     }
@@ -103,8 +103,8 @@ async fn run_low() {
         cortex_m::asm::delay(64_000_000); // ~2 seconds
 
         let end = Instant::now();
-        let ms = end.duration_since(start).into_ticks() / 33;
-        info!("[low] done in {:u32} ms", ms);
+        let ms = end.duration_since(start).as_ticks() / 33;
+        info!("[low] done in {:u64} ms", ms);
 
         Timer::after(Duration::from_ticks(32983)).await;
     }
