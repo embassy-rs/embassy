@@ -8,3 +8,4 @@ pub mod flash;
 pub mod io;
 pub mod time;
 pub mod util;
+pub mod rand;
