@@ -1,6 +1,6 @@
 use core::convert::TryInto;
-use core::ops::{Add, AddAssign, Sub, SubAssign};
 use core::fmt;
+use core::ops::{Add, AddAssign, Sub, SubAssign};
 
 use super::TICKS_PER_SECOND;
 use super::{now, Duration};
