@@ -1,8 +1,3 @@
-#[cfg(feature = "std")]
-use core::convert::From;
-#[cfg(feature = "std")]
-use futures::io;
-
 /// Categories of errors that can occur.
 ///
 /// This list is intended to grow over time and it is not recommended to
@@ -85,33 +80,67 @@ pub enum Error {
 pub type Result<T> = core::result::Result<T, Error>;
 
 #[cfg(feature = "std")]
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Error {
         match err.kind() {
-            io::ErrorKind::NotFound => Error::NotFound,
-            io::ErrorKind::PermissionDenied => Error::PermissionDenied,
-            io::ErrorKind::ConnectionRefused => Error::ConnectionRefused,
-            io::ErrorKind::ConnectionReset => Error::ConnectionReset,
-            io::ErrorKind::ConnectionAborted => Error::ConnectionAborted,
-            io::ErrorKind::NotConnected => Error::NotConnected,
-            io::ErrorKind::AddrInUse => Error::AddrInUse,
-            io::ErrorKind::AddrNotAvailable => Error::AddrNotAvailable,
-            io::ErrorKind::BrokenPipe => Error::BrokenPipe,
-            io::ErrorKind::AlreadyExists => Error::AlreadyExists,
-            io::ErrorKind::WouldBlock => Error::WouldBlock,
-            io::ErrorKind::InvalidInput => Error::InvalidInput,
-            io::ErrorKind::InvalidData => Error::InvalidData,
-            io::ErrorKind::TimedOut => Error::TimedOut,
-            io::ErrorKind::WriteZero => Error::WriteZero,
-            io::ErrorKind::Interrupted => Error::Interrupted,
-            io::ErrorKind::UnexpectedEof => Error::UnexpectedEof,
+            std::io::ErrorKind::NotFound => Error::NotFound,
+            std::io::ErrorKind::PermissionDenied => Error::PermissionDenied,
+            std::io::ErrorKind::ConnectionRefused => Error::ConnectionRefused,
+            std::io::ErrorKind::ConnectionReset => Error::ConnectionReset,
+            std::io::ErrorKind::ConnectionAborted => Error::ConnectionAborted,
+            std::io::ErrorKind::NotConnected => Error::NotConnected,
+            std::io::ErrorKind::AddrInUse => Error::AddrInUse,
+            std::io::ErrorKind::AddrNotAvailable => Error::AddrNotAvailable,
+            std::io::ErrorKind::BrokenPipe => Error::BrokenPipe,
+            std::io::ErrorKind::AlreadyExists => Error::AlreadyExists,
+            std::io::ErrorKind::WouldBlock => Error::WouldBlock,
+            std::io::ErrorKind::InvalidInput => Error::InvalidInput,
+            std::io::ErrorKind::InvalidData => Error::InvalidData,
+            std::io::ErrorKind::TimedOut => Error::TimedOut,
+            std::io::ErrorKind::WriteZero => Error::WriteZero,
+            std::io::ErrorKind::Interrupted => Error::Interrupted,
+            std::io::ErrorKind::UnexpectedEof => Error::UnexpectedEof,
             _ => Error::Other,
         }
     }
 }
 
-//#[cfg(feature = "std")]
-//impl std::error::Error for Error {}
+#[cfg(feature = "std")]
+impl From<Error> for std::io::Error {
+    fn from(e: Error) -> Self {
+        let kind = match e {
+            Error::NotFound => std::io::ErrorKind::NotFound,
+            Error::PermissionDenied => std::io::ErrorKind::PermissionDenied,
+            Error::ConnectionRefused => std::io::ErrorKind::ConnectionRefused,
+            Error::ConnectionReset => std::io::ErrorKind::ConnectionReset,
+            Error::ConnectionAborted => std::io::ErrorKind::ConnectionAborted,
+            Error::NotConnected => std::io::ErrorKind::NotConnected,
+            Error::AddrInUse => std::io::ErrorKind::AddrInUse,
+            Error::AddrNotAvailable => std::io::ErrorKind::AddrNotAvailable,
+            Error::BrokenPipe => std::io::ErrorKind::BrokenPipe,
+            Error::AlreadyExists => std::io::ErrorKind::AlreadyExists,
+            Error::WouldBlock => std::io::ErrorKind::WouldBlock,
+            Error::InvalidInput => std::io::ErrorKind::InvalidInput,
+            Error::InvalidData => std::io::ErrorKind::InvalidData,
+            Error::TimedOut => std::io::ErrorKind::TimedOut,
+            Error::WriteZero => std::io::ErrorKind::WriteZero,
+            Error::Interrupted => std::io::ErrorKind::Interrupted,
+            Error::UnexpectedEof => std::io::ErrorKind::UnexpectedEof,
+            Error::Truncated => std::io::ErrorKind::Other,
+            Error::Other => std::io::ErrorKind::Other,
+        };
+        std::io::Error::new(kind, "embassy::io::Error")
+    }
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for Error {}
 
 /*
 impl From<smoltcp::Error> for Error {
