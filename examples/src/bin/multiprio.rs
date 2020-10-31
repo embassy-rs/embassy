@@ -61,12 +61,13 @@
 mod example_common;
 use example_common::*;
 
-use core::mem::MaybeUninit;
 use cortex_m_rt::entry;
-use embassy::executor::{task, Executor};
-use embassy::time::{Duration, Instant, Timer};
-use embassy_nrf::{interrupt, pac, rtc};
 use nrf52840_hal::clocks;
+
+use embassy::executor::{task, TimerExecutor};
+use embassy::time::{Duration, Instant, Timer};
+use embassy::util::Forever;
+use embassy_nrf::{interrupt, pac, rtc};
 
 #[task]
 async fn run_high() {
@@ -110,10 +111,10 @@ async fn run_low() {
     }
 }
 
-static mut RTC: MaybeUninit<rtc::RTC<pac::RTC1>> = MaybeUninit::uninit();
-static mut EXECUTOR_LOW: MaybeUninit<Executor<rtc::Alarm<pac::RTC1>>> = MaybeUninit::uninit();
-static mut EXECUTOR_MED: MaybeUninit<Executor<rtc::Alarm<pac::RTC1>>> = MaybeUninit::uninit();
-static mut EXECUTOR_HIGH: MaybeUninit<Executor<rtc::Alarm<pac::RTC1>>> = MaybeUninit::uninit();
+static RTC: Forever<rtc::RTC<pac::RTC1>> = Forever::new();
+static EXECUTOR_LOW: Forever<TimerExecutor<rtc::Alarm<pac::RTC1>>> = Forever::new();
+static EXECUTOR_MED: Forever<TimerExecutor<rtc::Alarm<pac::RTC1>>> = Forever::new();
+static EXECUTOR_HIGH: Forever<TimerExecutor<rtc::Alarm<pac::RTC1>>> = Forever::new();
 
 #[entry]
 fn main() -> ! {
@@ -126,60 +127,35 @@ fn main() -> ! {
         .set_lfclk_src_external(clocks::LfOscConfiguration::NoExternalNoBypass)
         .start_lfclk();
 
-    let rtc: &'static _ = unsafe {
-        let ptr = RTC.as_mut_ptr();
-        ptr.write(rtc::RTC::new(p.RTC1));
-        &*ptr
-    };
-
+    let rtc = RTC.put(rtc::RTC::new(p.RTC1));
     rtc.start();
     unsafe { embassy::time::set_clock(rtc) };
 
-    let executor_low: &'static _ = unsafe {
-        let ptr = EXECUTOR_LOW.as_mut_ptr();
-        ptr.write(Executor::new(rtc.alarm0(), cortex_m::asm::sev));
-        &*ptr
-    };
-
-    let executor_med: &'static _ = unsafe {
-        let ptr = EXECUTOR_MED.as_mut_ptr();
-        ptr.write(Executor::new(rtc.alarm1(), || {
-            interrupt::pend(interrupt::SWI0_EGU0)
-        }));
-        &*ptr
-    };
-
-    let executor_high: &'static _ = unsafe {
-        let ptr = EXECUTOR_HIGH.as_mut_ptr();
-        ptr.write(Executor::new(rtc.alarm2(), || {
-            interrupt::pend(interrupt::SWI1_EGU1)
-        }));
-        &*ptr
-    };
+    let executor_low = EXECUTOR_LOW.put(TimerExecutor::new(rtc.alarm0(), cortex_m::asm::sev));
+    let executor_med = EXECUTOR_MED.put(TimerExecutor::new(rtc.alarm1(), cortex_m::asm::sev));
+    let executor_high = EXECUTOR_HIGH.put(TimerExecutor::new(rtc.alarm2(), cortex_m::asm::sev));
 
     interrupt::set_priority(interrupt::SWI0_EGU0, interrupt::Priority::Level7);
     interrupt::set_priority(interrupt::SWI1_EGU1, interrupt::Priority::Level6);
     interrupt::enable(interrupt::SWI0_EGU0);
     interrupt::enable(interrupt::SWI1_EGU1);
 
-    unsafe {
-        executor_low.spawn(run_low()).dewrap();
-        executor_med.spawn(run_med()).dewrap();
-        executor_high.spawn(run_high()).dewrap();
+    executor_low.spawn(run_low()).dewrap();
+    executor_med.spawn(run_med()).dewrap();
+    executor_high.spawn(run_high()).dewrap();
 
-        loop {
-            executor_low.run();
-            cortex_m::asm::wfe();
-        }
+    loop {
+        executor_low.run();
+        cortex_m::asm::wfe();
     }
 }
 
 #[interrupt]
 unsafe fn SWI0_EGU0() {
-    EXECUTOR_MED.as_ptr().as_ref().unwrap().run()
+    EXECUTOR_MED.steal().run()
 }
 
 #[interrupt]
 unsafe fn SWI1_EGU1() {
-    EXECUTOR_HIGH.as_ptr().as_ref().unwrap().run()
+    EXECUTOR_HIGH.steal().run()
 }

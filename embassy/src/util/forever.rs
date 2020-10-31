@@ -30,4 +30,10 @@ impl<T> Forever<T> {
             &mut *p
         }
     }
+
+    pub unsafe fn steal(&self) -> &'static mut T {
+        let p = self.t.get();
+        let p = (&mut *p).as_mut_ptr();
+        &mut *p
+    }
 }
