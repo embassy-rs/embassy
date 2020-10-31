@@ -1,5 +1,5 @@
-use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 use core::fmt;
+use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 use super::TICKS_PER_SECOND;
 
@@ -50,11 +50,15 @@ impl Duration {
     }
 
     pub fn checked_mul(self, rhs: u32) -> Option<Duration> {
-        self.ticks.checked_mul(rhs as _).map(|ticks| Duration { ticks })
+        self.ticks
+            .checked_mul(rhs as _)
+            .map(|ticks| Duration { ticks })
     }
 
     pub fn checked_div(self, rhs: u32) -> Option<Duration> {
-        self.ticks.checked_div(rhs as _).map(|ticks| Duration { ticks })
+        self.ticks
+            .checked_div(rhs as _)
+            .map(|ticks| Duration { ticks })
     }
 }
 
