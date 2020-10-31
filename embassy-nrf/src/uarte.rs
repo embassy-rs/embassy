@@ -13,11 +13,14 @@ use core::ptr;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
+use embedded_hal::digital::v2::OutputPin;
+
+use crate::hal::gpio::{Floating, Input, Output, Pin as GpioPin, Port as GpioPort, PushPull};
 use crate::interrupt;
 use crate::interrupt::CriticalSection;
-use crate::pac::{uarte0, Interrupt, UARTE0, UARTE1};
-use embedded_hal::digital::v2::OutputPin;
-use nrf52840_hal::gpio::{Floating, Input, Output, Pin as GpioPin, Port as GpioPort, PushPull};
+#[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
+use crate::pac::UARTE1;
+use crate::pac::{uarte0, Interrupt, UARTE0};
 
 // Re-export SVD variants to allow user to directly set values
 pub use uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
@@ -152,6 +155,7 @@ pub struct UarteState<T> {
     _pin: PhantomPinned,
 }
 
+#[cfg(any(feature = "52833", feature = "52840"))]
 fn port_bit(port: GpioPort) -> bool {
     match port {
         GpioPort::Port0 => false,
@@ -164,12 +168,14 @@ impl<T: Instance> Uarte<T> {
         // Select pins
         uarte.psel.rxd.write(|w| {
             let w = unsafe { w.pin().bits(pins.rxd.pin()) };
+            #[cfg(any(feature = "52833", feature = "52840"))]
             let w = w.port().bit(port_bit(pins.rxd.port()));
             w.connect().connected()
         });
         pins.txd.set_high().unwrap();
         uarte.psel.txd.write(|w| {
             let w = unsafe { w.pin().bits(pins.txd.pin()) };
+            #[cfg(any(feature = "52833", feature = "52840"))]
             let w = w.port().bit(port_bit(pins.txd.port()));
             w.connect().connected()
         });
@@ -178,6 +184,7 @@ impl<T: Instance> Uarte<T> {
         uarte.psel.cts.write(|w| {
             if let Some(ref pin) = pins.cts {
                 let w = unsafe { w.pin().bits(pin.pin()) };
+                #[cfg(any(feature = "52833", feature = "52840"))]
                 let w = w.port().bit(port_bit(pin.port()));
                 w.connect().connected()
             } else {
@@ -188,6 +195,7 @@ impl<T: Instance> Uarte<T> {
         uarte.psel.rts.write(|w| {
             if let Some(ref pin) = pins.rts {
                 let w = unsafe { w.pin().bits(pin.pin()) };
+                #[cfg(any(feature = "52833", feature = "52840"))]
                 let w = w.port().bit(port_bit(pin.port()));
                 w.connect().connected()
             } else {
@@ -493,11 +501,11 @@ pub struct Pins {
 }
 
 mod private {
-    use nrf52840_pac::{UARTE0, UARTE1};
     pub trait Sealed {}
 
-    impl Sealed for UARTE0 {}
-    impl Sealed for UARTE1 {}
+    impl Sealed for crate::pac::UARTE0 {}
+    #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
+    impl Sealed for crate::pac::UARTE1 {}
 }
 
 pub trait Instance: Deref<Target = uarte0::RegisterBlock> + Sized + private::Sealed {
@@ -515,12 +523,14 @@ unsafe fn UARTE0_UART0() {
     interrupt::free(|cs| UARTE0::get_state(cs).as_mut().unwrap().on_interrupt());
 }
 
+#[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
 #[interrupt]
 unsafe fn UARTE1() {
     interrupt::free(|cs| UARTE1::get_state(cs).as_mut().unwrap().on_interrupt());
 }
 
 static mut UARTE0_STATE: *mut UarteState<UARTE0> = ptr::null_mut();
+#[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
 static mut UARTE1_STATE: *mut UarteState<UARTE1> = ptr::null_mut();
 
 impl Instance for UARTE0 {
@@ -536,6 +546,7 @@ impl Instance for UARTE0 {
     }
 }
 
+#[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
 impl Instance for UARTE1 {
     fn interrupt() -> Interrupt {
         Interrupt::UARTE1

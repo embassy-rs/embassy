@@ -3,7 +3,7 @@
 //! This module implements an API for managing interrupts compatible with
 //! nrf_softdevice::interrupt. Intended for switching between the two at compile-time.
 
-use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
+use core::sync::atomic::{compiler_fence, Ordering};
 
 use crate::pac::{NVIC, NVIC_PRIO_BITS};
 

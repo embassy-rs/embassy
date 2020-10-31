@@ -96,8 +96,8 @@ impl<T: Instance> RTC<T> {
             w
         });
 
-        self.rtc.tasks_clear.write(|w| w.tasks_clear().set_bit());
-        self.rtc.tasks_start.write(|w| w.tasks_start().set_bit());
+        self.rtc.tasks_clear.write(|w| unsafe { w.bits(1) });
+        self.rtc.tasks_start.write(|w| unsafe { w.bits(1) });
 
         // Wait for clear
         while self.rtc.counter.read().bits() != 0 {}

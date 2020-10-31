@@ -1,6 +1,7 @@
-use crate::pac::{Interrupt, QSPI};
 use core::future::Future;
-use nrf52840_hal::gpio::{Output, Pin as GpioPin, Port as GpioPort, PushPull};
+
+use crate::hal::gpio::{Output, Pin as GpioPin, Port as GpioPort, PushPull};
+use crate::pac::{Interrupt, QSPI};
 
 pub use crate::pac::qspi::ifconfig0::ADDRMODE_A as AddressMode;
 pub use crate::pac::qspi::ifconfig0::PPSIZE_A as WritePageSize;
@@ -314,7 +315,7 @@ static SIGNAL: Signal<()> = Signal::new();
 
 #[interrupt]
 unsafe fn QSPI() {
-    let p = unsafe { crate::pac::Peripherals::steal().QSPI };
+    let p = crate::pac::Peripherals::steal().QSPI;
     if p.events_ready.read().events_ready().bit_is_set() {
         p.events_ready.reset();
         SIGNAL.signal(());

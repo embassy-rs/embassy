@@ -2,8 +2,8 @@ use core::cell::Cell;
 use core::ptr;
 use defmt::trace;
 use embassy::util::Signal;
-use nrf52840_hal::gpio::{Input, Level, Output, Pin, Port};
 
+use crate::hal::gpio::{Input, Level, Output, Pin, Port};
 use crate::interrupt;
 use crate::pac::generic::Reg;
 use crate::pac::gpiote::_TASKS_OUT;
@@ -100,6 +100,7 @@ impl Gpiote {
                     EventPolarity::None => w.mode().event().polarity().none(),
                     EventPolarity::Toggle => w.mode().event().polarity().toggle(),
                 };
+                #[cfg(any(feature = "52833", feature = "52840"))]
                 w.port().bit(match pin.port() {
                     Port::Port0 => false,
                     Port::Port1 => true,
@@ -140,6 +141,7 @@ impl Gpiote {
                     TaskOutPolarity::Clear => w.polarity().hi_to_lo(),
                     TaskOutPolarity::Toggle => w.polarity().toggle(),
                 };
+                #[cfg(any(feature = "52833", feature = "52840"))]
                 w.port().bit(match pin.port() {
                     Port::Port0 => false,
                     Port::Port1 => true,
