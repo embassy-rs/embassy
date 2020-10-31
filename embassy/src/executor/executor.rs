@@ -1,6 +1,7 @@
 use core::cell::Cell;
 use core::cell::UnsafeCell;
 use core::future::Future;
+use core::marker::PhantomData;
 use core::mem;
 use core::mem::MaybeUninit;
 use core::pin::Pin;
@@ -241,6 +242,7 @@ impl Drop for SpawnToken {
 pub struct Executor {
     queue: Queue,
     signal_fn: fn(),
+    not_send: PhantomData<*mut ()>,
 }
 
 impl Executor {
@@ -248,6 +250,7 @@ impl Executor {
         Self {
             queue: Queue::new(),
             signal_fn: signal_fn,
+            not_send: PhantomData,
         }
     }
 
