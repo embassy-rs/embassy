@@ -258,42 +258,40 @@ impl Executor {
     }
 
     /// Spawn a future on this executor.
-    ///
-    /// safety: can only be called from the executor thread
-    pub unsafe fn spawn(&'static self, token: SpawnToken) -> Result<(), SpawnError> {
+    pub fn spawn(&'static self, token: SpawnToken) -> Result<(), SpawnError> {
         let header = token.header;
         mem::forget(token);
 
         match header {
-            Some(header) => {
+            Some(header) => unsafe {
                 let header = header.as_ref();
                 header.executor.set(self);
                 self.enqueue(header as *const _ as _);
                 Ok(())
-            }
+            },
             None => Err(SpawnError::Busy),
         }
     }
 
     /// Runs the executor until the queue is empty.
-    ///
-    /// safety: can only be called from the executor thread
-    pub unsafe fn run(&self) {
-        self.queue.dequeue_all(|p| {
-            let header = &*p;
+    pub fn run(&self) {
+        unsafe {
+            self.queue.dequeue_all(|p| {
+                let header = &*p;
 
-            let state = header.state.fetch_and(!STATE_QUEUED, Ordering::AcqRel);
-            if state & STATE_RUNNING == 0 {
-                // If task is not running, ignore it. This can happen in the following scenario:
-                //   - Task gets dequeued, poll starts
-                //   - While task is being polled, it gets woken. It gets placed in the queue.
-                //   - Task poll finishes, returning done=true
-                //   - RUNNING bit is cleared, but the task is already in the queue.
-                return;
-            }
+                let state = header.state.fetch_and(!STATE_QUEUED, Ordering::AcqRel);
+                if state & STATE_RUNNING == 0 {
+                    // If task is not running, ignore it. This can happen in the following scenario:
+                    //   - Task gets dequeued, poll starts
+                    //   - While task is being polled, it gets woken. It gets placed in the queue.
+                    //   - Task poll finishes, returning done=true
+                    //   - RUNNING bit is cleared, but the task is already in the queue.
+                    return;
+                }
 
-            // Run the task
-            header.poll_fn.read()(p as _);
-        });
+                // Run the task
+                header.poll_fn.read()(p as _);
+            });
+        }
     }
 }

@@ -34,14 +34,14 @@ impl<A: Alarm> TimerExecutor<A> {
     /// Spawn a future on this executor.
     ///
     /// safety: can only be called from the executor thread
-    pub unsafe fn spawn(&'static self, token: SpawnToken) -> Result<(), SpawnError> {
+    pub fn spawn(&'static self, token: SpawnToken) -> Result<(), SpawnError> {
         self.inner.spawn(token)
     }
 
     /// Runs the executor until the queue is empty.
     ///
     /// safety: can only be called from the executor thread
-    pub unsafe fn run(&'static self) {
+    pub fn run(&'static self) {
         with_timer_queue(&self.timer_queue, || {
             self.timer_queue.check_expirations();
             self.inner.run();
