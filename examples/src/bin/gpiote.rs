@@ -15,7 +15,7 @@ use embassy_nrf::gpiote;
 
 #[task]
 async fn run() {
-    let p = embassy_nrf::pac::Peripherals::take().dewrap();
+    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
     let port0 = gpio::p0::Parts::new(p.P0);
 
     let g = gpiote::Gpiote::new(p.GPIOTE);
@@ -24,9 +24,7 @@ async fn run() {
 
     let pin1 = port0.p0_11.into_pullup_input().degrade();
     let button1 = async {
-        let ch = g
-            .new_input_channel(pin1, gpiote::EventPolarity::HiToLo)
-            .dewrap();
+        let ch = unwrap!(g.new_input_channel(pin1, gpiote::EventPolarity::HiToLo));
 
         loop {
             ch.wait().await;
@@ -36,9 +34,7 @@ async fn run() {
 
     let pin2 = port0.p0_12.into_pullup_input().degrade();
     let button2 = async {
-        let ch = g
-            .new_input_channel(pin2, gpiote::EventPolarity::LoToHi)
-            .dewrap();
+        let ch = unwrap!(g.new_input_channel(pin2, gpiote::EventPolarity::LoToHi));
 
         loop {
             ch.wait().await;
@@ -48,9 +44,7 @@ async fn run() {
 
     let pin3 = port0.p0_24.into_pullup_input().degrade();
     let button3 = async {
-        let ch = g
-            .new_input_channel(pin3, gpiote::EventPolarity::Toggle)
-            .dewrap();
+        let ch = unwrap!(g.new_input_channel(pin3, gpiote::EventPolarity::Toggle));
 
         loop {
             ch.wait().await;
@@ -60,9 +54,7 @@ async fn run() {
 
     let pin4 = port0.p0_25.into_pullup_input().degrade();
     let button4 = async {
-        let ch = g
-            .new_input_channel(pin4, gpiote::EventPolarity::Toggle)
-            .dewrap();
+        let ch = unwrap!(g.new_input_channel(pin4, gpiote::EventPolarity::Toggle));
 
         loop {
             ch.wait().await;
@@ -79,8 +71,8 @@ static EXECUTOR: Forever<Executor> = Forever::new();
 fn main() -> ! {
     info!("Hello World!");
 
-    let executor = EXECUTOR.put(Executor::new(cortex_m::asm::wfi));
-    executor.spawn(run()).dewrap();
+    let executor = EXECUTOR.put(Executor::new(cortex_m::asm::sev));
+    unwrap!(executor.spawn(run()));
 
     loop {
         executor.run();

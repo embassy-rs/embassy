@@ -1,3 +1,4 @@
+use anyfmt::panic;
 use core::mem;
 
 pub struct DropBomb {
@@ -16,6 +17,6 @@ impl DropBomb {
 
 impl Drop for DropBomb {
     fn drop(&mut self) {
-        depanic!("boom")
+        panic!("boom")
     }
 }

@@ -17,7 +17,7 @@ use embassy_nrf::uarte;
 
 #[task]
 async fn run() {
-    let p = embassy_nrf::pac::Peripherals::take().dewrap();
+    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
 
     let port0 = gpio::p0::Parts::new(p.P0);
 
@@ -41,14 +41,14 @@ async fn run() {
 
     info!("uarte initialized!");
 
-    u.write_all(b"Hello!\r\n").await.dewrap();
+    unwrap!(u.write_all(b"Hello!\r\n").await);
     info!("wrote hello in uart!");
 
     // Simple demo, reading 8-char chunks and echoing them back reversed.
     loop {
         info!("reading...");
         let mut buf = [0u8; 8];
-        u.read_exact(&mut buf).await.dewrap();
+        unwrap!(u.read_exact(&mut buf).await);
         info!("read done, got {:[u8]}", buf);
 
         // Reverse buf
@@ -59,7 +59,7 @@ async fn run() {
         }
 
         info!("writing...");
-        u.write_all(&buf).await.dewrap();
+        unwrap!(u.write_all(&buf).await);
         info!("write done");
     }
 }
@@ -70,8 +70,8 @@ static EXECUTOR: Forever<Executor> = Forever::new();
 fn main() -> ! {
     info!("Hello World!");
 
-    let executor = EXECUTOR.put(Executor::new(cortex_m::asm::wfi));
-    executor.spawn(run()).dewrap();
+    let executor = EXECUTOR.put(Executor::new(cortex_m::asm::sev));
+    unwrap!(executor.spawn(run()));
 
     loop {
         executor.run();

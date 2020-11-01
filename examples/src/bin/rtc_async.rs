@@ -39,7 +39,7 @@ static EXECUTOR: Forever<TimerExecutor<rtc::Alarm<pac::RTC1>>> = Forever::new();
 fn main() -> ! {
     info!("Hello World!");
 
-    let p = embassy_nrf::pac::Peripherals::take().dewrap();
+    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
 
     clocks::Clocks::new(p.CLOCK)
         .enable_ext_hfosc()
@@ -53,8 +53,8 @@ fn main() -> ! {
 
     let executor = EXECUTOR.put(TimerExecutor::new(rtc.alarm0(), cortex_m::asm::sev));
 
-    executor.spawn(run1()).dewrap();
-    executor.spawn(run2()).dewrap();
+    unwrap!(executor.spawn(run1()));
+    unwrap!(executor.spawn(run2()));
 
     loop {
         executor.run();

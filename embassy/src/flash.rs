@@ -1,7 +1,7 @@
-
 use core::future::Future;
 
-#[derive(defmt::Format, Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     Failed,
     AddressMisaligned,
@@ -48,4 +48,3 @@ pub trait Flash {
     /// This is guaranteed to be a power of 2.
     fn erase_size(&self) -> usize;
 }
-

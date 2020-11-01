@@ -120,7 +120,7 @@ static EXECUTOR_HIGH: Forever<TimerExecutor<rtc::Alarm<pac::RTC1>>> = Forever::n
 fn main() -> ! {
     info!("Hello World!");
 
-    let p = embassy_nrf::pac::Peripherals::take().dewrap();
+    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
 
     clocks::Clocks::new(p.CLOCK)
         .enable_ext_hfosc()
@@ -132,17 +132,21 @@ fn main() -> ! {
     unsafe { embassy::time::set_clock(rtc) };
 
     let executor_low = EXECUTOR_LOW.put(TimerExecutor::new(rtc.alarm0(), cortex_m::asm::sev));
-    let executor_med = EXECUTOR_MED.put(TimerExecutor::new(rtc.alarm1(), cortex_m::asm::sev));
-    let executor_high = EXECUTOR_HIGH.put(TimerExecutor::new(rtc.alarm2(), cortex_m::asm::sev));
+    let executor_med = EXECUTOR_MED.put(TimerExecutor::new(rtc.alarm1(), || {
+        interrupt::pend(interrupt::SWI0_EGU0)
+    }));
+    let executor_high = EXECUTOR_HIGH.put(TimerExecutor::new(rtc.alarm2(), || {
+        interrupt::pend(interrupt::SWI1_EGU1)
+    }));
 
     interrupt::set_priority(interrupt::SWI0_EGU0, interrupt::Priority::Level7);
     interrupt::set_priority(interrupt::SWI1_EGU1, interrupt::Priority::Level6);
     interrupt::enable(interrupt::SWI0_EGU0);
     interrupt::enable(interrupt::SWI1_EGU1);
 
-    executor_low.spawn(run_low()).dewrap();
-    executor_med.spawn(run_med()).dewrap();
-    executor_high.spawn(run_high()).dewrap();
+    unwrap!(executor_low.spawn(run_low()));
+    unwrap!(executor_med.spawn(run_med()));
+    unwrap!(executor_high.spawn(run_high()));
 
     loop {
         executor_low.run();

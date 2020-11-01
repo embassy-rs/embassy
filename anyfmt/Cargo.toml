@@ -1,0 +1,10 @@
+[package]
+name = "anyfmt"
+version = "0.1.0"
+authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
+edition = "2018"
+
+
+[dependencies]
+defmt = { version = "0.1.0", optional = true }
+log = { version = "0.4.11", optional = true }

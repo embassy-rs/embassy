@@ -12,7 +12,8 @@ pub use crate::pac::Interrupt;
 pub use crate::pac::Interrupt::*; // needed for cortex-m-rt #[interrupt]
 pub use bare_metal::{CriticalSection, Mutex};
 
-#[derive(defmt::Format, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub enum Priority {
     Level0 = 0,

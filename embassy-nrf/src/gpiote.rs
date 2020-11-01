@@ -1,6 +1,6 @@
+use anyfmt::*;
 use core::cell::Cell;
 use core::ptr;
-use defmt::trace;
 use embassy::util::Signal;
 
 use crate::hal::gpio::{Input, Level, Output, Pin, Port};
@@ -34,7 +34,8 @@ pub enum TaskOutPolarity {
     Toggle,
 }
 
-#[derive(defmt::Format)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum NewChannelError {
     NoFreeChannels,
 }

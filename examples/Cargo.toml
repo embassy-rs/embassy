@@ -17,14 +17,17 @@ defmt-error = []
 
 
 [dependencies]
+embassy = { version = "0.1.0", path = "../embassy", features = ["defmt"] }
+embassy-nrf = { version = "0.1.0", path = "../embassy-nrf", features = ["defmt", "defmt-trace", "52840"] }
+anyfmt = { version = "0.1.0", path = "../anyfmt", features = ["defmt"] }
+
+defmt = "0.1.0"
+defmt-rtt = "0.1.0"
+
 cortex-m        = { version = "0.6.3" }
 cortex-m-rt = "0.6.12"
-defmt = "0.1.0"
 embedded-hal    = { version = "0.2.4" }
-defmt-rtt = "0.1.0"
 panic-probe = "0.1.0"
 nrf52840-hal    = { version = "0.11.0" }
-embassy = { version = "0.1.0", path = "../embassy" }
-embassy-nrf = { version = "0.1.0", path = "../embassy-nrf", features = ["defmt-trace", "52840"] }
 futures = { version = "0.3.7", default-features = false, features = ["async-await"] }
 cortex-m-rtic = { git = "https://github.com/rtic-rs/cortex-m-rtic", branch = "master"}

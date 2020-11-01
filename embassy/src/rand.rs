@@ -1,4 +1,5 @@
-use crate::util::Dewrap;
+use anyfmt::*;
+
 pub trait Rand {
     fn rand(&self, buf: &mut [u8]);
 }
@@ -10,5 +11,5 @@ pub unsafe fn set_rand(rand: &'static dyn Rand) {
 }
 
 pub fn rand(buf: &mut [u8]) {
-    unsafe { RAND.dexpect(defmt::intern!("No rand set")).rand(buf) }
+    unsafe { expect!(RAND, "No rand set").rand(buf) }
 }

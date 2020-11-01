@@ -1,3 +1,4 @@
+use anyfmt::panic;
 use core::cell::UnsafeCell;
 use core::future::Future;
 use core::mem;
@@ -58,7 +59,7 @@ impl<'a, T: Send> Future for WaitFuture<'a, T> {
                         Poll::Pending
                     }
                     State::Waiting(w) if w.will_wake(cx.waker()) => Poll::Pending,
-                    State::Waiting(_) => depanic!("waker overflow"),
+                    State::Waiting(_) => panic!("waker overflow"),
                     State::Signaled(_) => match mem::replace(state, State::None) {
                         State::Signaled(res) => Poll::Ready(res),
                         _ => unreachable!(),

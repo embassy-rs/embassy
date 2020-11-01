@@ -28,7 +28,8 @@ pub use uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 use embassy::io::{AsyncBufRead, AsyncWrite, Result};
 use embassy::util::WakerStore;
 
-use defmt::trace;
+use anyfmt::panic;
+use anyfmt::*;
 
 //use crate::trace;
 

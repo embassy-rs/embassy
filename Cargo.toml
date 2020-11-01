@@ -3,6 +3,7 @@
 members = [
     "embassy",
     "embassy-nrf",
+    "anyfmt",
     "examples",
 ]
 

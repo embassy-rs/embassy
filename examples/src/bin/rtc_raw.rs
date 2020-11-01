@@ -18,7 +18,7 @@ static mut RTC: MaybeUninit<rtc::RTC<embassy_nrf::pac::RTC1>> = MaybeUninit::uni
 fn main() -> ! {
     info!("Hello World!");
 
-    let p = embassy_nrf::pac::Peripherals::take().dewrap();
+    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
 
     clocks::Clocks::new(p.CLOCK)
         .enable_ext_hfosc()

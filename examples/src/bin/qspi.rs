@@ -6,6 +6,7 @@
 mod example_common;
 use example_common::*;
 
+use anyfmt::panic;
 use cortex_m_rt::entry;
 use nrf52840_hal::gpio;
 
@@ -23,7 +24,7 @@ struct AlignedBuf([u8; 4096]);
 
 #[task]
 async fn run() {
-    let p = embassy_nrf::pac::Peripherals::take().dewrap();
+    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
 
     let port0 = gpio::p0::Parts::new(p.P0);
 
@@ -121,8 +122,8 @@ static EXECUTOR: Forever<Executor> = Forever::new();
 fn main() -> ! {
     info!("Hello World!");
 
-    let executor = EXECUTOR.put(Executor::new(cortex_m::asm::wfi));
-    executor.spawn(run()).dewrap();
+    let executor = EXECUTOR.put(Executor::new(cortex_m::asm::sev));
+    unwrap!(executor.spawn(run()));
 
     loop {
         executor.run();

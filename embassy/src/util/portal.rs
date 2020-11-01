@@ -1,3 +1,4 @@
+use anyfmt::panic;
 use core::cell::UnsafeCell;
 use core::future::Future;
 use core::mem;
@@ -27,7 +28,7 @@ impl<T> Portal<T> {
         unsafe {
             match *self.state.get() {
                 State::None => {}
-                State::Running => depanic!("Portall::call() called reentrantly"),
+                State::Running => panic!("Portall::call() called reentrantly"),
                 State::Waiting(func) => (*func)(val),
             }
         }
@@ -58,7 +59,7 @@ impl<T> Portal<T> {
                 let state = &mut *self.state.get();
                 match state {
                     State::None => {}
-                    _ => depanic!("Multiple tasks waiting on same portal"),
+                    _ => panic!("Multiple tasks waiting on same portal"),
                 }
                 *state = State::Waiting(func_ptr);
             }
@@ -110,7 +111,7 @@ impl<T> Portal<T> {
                 let state = &mut *self.state.get();
                 match *state {
                     State::None => {}
-                    _ => depanic!("Multiple tasks waiting on same portal"),
+                    _ => panic!("Multiple tasks waiting on same portal"),
                 }
                 *state = State::Waiting(func_ptr);
             }
