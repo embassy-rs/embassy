@@ -17,4 +17,5 @@ set -euxo pipefail
 (cd embassy-nrf; cargo build --target thumbv7em-none-eabihf --features 52833)
 (cd embassy-nrf; cargo build --target thumbv7em-none-eabihf --features 52840)
 
+(cd embassy-nrf; cargo build --target thumbv7em-none-eabihf --features 52840,anyfmt/log)
 (cd embassy-nrf; cargo build --target thumbv7em-none-eabihf --features 52840,defmt,embassy/defmt,anyfmt/defmt)
