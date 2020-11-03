@@ -93,7 +93,7 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
             #task_fn
             type F = impl ::core::future::Future + 'static;
             static POOL: [::embassy::executor::Task<F>; #pool_size] = [::embassy::executor::Task::new(); #pool_size];
-            unsafe { ::embassy::executor::Task::spawn(&POOL, || task(#arg_names)) }
+            unsafe { ::embassy::executor::Task::spawn(&POOL, move || task(#arg_names)) }
         }
     };
     result.into()
