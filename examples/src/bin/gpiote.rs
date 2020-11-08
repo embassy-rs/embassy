@@ -24,7 +24,7 @@ async fn run() {
 
     let pin1 = port0.p0_11.into_pullup_input().degrade();
     let button1 = async {
-        let ch = unwrap!(g.new_input_channel(pin1, gpiote::EventPolarity::HiToLo));
+        let ch = unwrap!(g.new_input_channel(pin1, gpiote::InputChannelPolarity::HiToLo));
 
         loop {
             ch.wait().await;
@@ -34,7 +34,7 @@ async fn run() {
 
     let pin2 = port0.p0_12.into_pullup_input().degrade();
     let button2 = async {
-        let ch = unwrap!(g.new_input_channel(pin2, gpiote::EventPolarity::LoToHi));
+        let ch = unwrap!(g.new_input_channel(pin2, gpiote::InputChannelPolarity::LoToHi));
 
         loop {
             ch.wait().await;
@@ -44,7 +44,7 @@ async fn run() {
 
     let pin3 = port0.p0_24.into_pullup_input().degrade();
     let button3 = async {
-        let ch = unwrap!(g.new_input_channel(pin3, gpiote::EventPolarity::Toggle));
+        let ch = unwrap!(g.new_input_channel(pin3, gpiote::InputChannelPolarity::Toggle));
 
         loop {
             ch.wait().await;
@@ -54,7 +54,7 @@ async fn run() {
 
     let pin4 = port0.p0_25.into_pullup_input().degrade();
     let button4 = async {
-        let ch = unwrap!(g.new_input_channel(pin4, gpiote::EventPolarity::Toggle));
+        let ch = unwrap!(g.new_input_channel(pin4, gpiote::InputChannelPolarity::Toggle));
 
         loop {
             ch.wait().await;

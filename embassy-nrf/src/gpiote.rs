@@ -20,7 +20,7 @@ pub struct Gpiote {
 
 static mut INSTANCE: *const Gpiote = ptr::null_mut();
 
-pub enum EventPolarity {
+pub enum InputChannelPolarity {
     None,
     HiToLo,
     LoToHi,
@@ -28,7 +28,7 @@ pub enum EventPolarity {
 }
 
 /// Polarity of the `task out` operation.
-pub enum TaskOutPolarity {
+pub enum OutputChannelPolarity {
     Set,
     Clear,
     Toggle,
@@ -87,7 +87,7 @@ impl Gpiote {
     pub fn new_input_channel<'a, T>(
         &'a self,
         pin: Pin<Input<T>>,
-        trigger_mode: EventPolarity,
+        polarity: InputChannelPolarity,
     ) -> Result<InputChannel<'a, T>, NewChannelError> {
         interrupt::free(|_| {
             unsafe { INSTANCE = self };
@@ -95,11 +95,11 @@ impl Gpiote {
             trace!("allocated in ch {:u8}", index as u8);
 
             self.inner.config[index as usize].write(|w| {
-                match trigger_mode {
-                    EventPolarity::HiToLo => w.mode().event().polarity().hi_to_lo(),
-                    EventPolarity::LoToHi => w.mode().event().polarity().lo_to_hi(),
-                    EventPolarity::None => w.mode().event().polarity().none(),
-                    EventPolarity::Toggle => w.mode().event().polarity().toggle(),
+                match polarity {
+                    InputChannelPolarity::HiToLo => w.mode().event().polarity().hi_to_lo(),
+                    InputChannelPolarity::LoToHi => w.mode().event().polarity().lo_to_hi(),
+                    InputChannelPolarity::None => w.mode().event().polarity().none(),
+                    InputChannelPolarity::Toggle => w.mode().event().polarity().toggle(),
                 };
                 #[cfg(any(feature = "52833", feature = "52840"))]
                 w.port().bit(match pin.port() {
@@ -124,7 +124,7 @@ impl Gpiote {
         &'a self,
         pin: Pin<Output<T>>,
         level: Level,
-        task_out_polarity: TaskOutPolarity,
+        polarity: OutputChannelPolarity,
     ) -> Result<OutputChannel<'a>, NewChannelError> {
         interrupt::free(|_| {
             unsafe { INSTANCE = self };
@@ -137,10 +137,10 @@ impl Gpiote {
                     Level::High => w.outinit().high(),
                     Level::Low => w.outinit().low(),
                 };
-                match task_out_polarity {
-                    TaskOutPolarity::Set => w.polarity().lo_to_hi(),
-                    TaskOutPolarity::Clear => w.polarity().hi_to_lo(),
-                    TaskOutPolarity::Toggle => w.polarity().toggle(),
+                match polarity {
+                    OutputChannelPolarity::Set => w.polarity().lo_to_hi(),
+                    OutputChannelPolarity::Clear => w.polarity().hi_to_lo(),
+                    OutputChannelPolarity::Toggle => w.polarity().toggle(),
                 };
                 #[cfg(any(feature = "52833", feature = "52840"))]
                 w.port().bit(match pin.port() {
