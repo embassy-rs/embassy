@@ -1,4 +1,4 @@
-use anyfmt::*;
+use anyfmt::{panic, *};
 use core::cell::Cell;
 use core::ptr;
 use embassy::util::Signal;
@@ -7,18 +7,31 @@ use crate::hal::gpio::{Input, Level, Output, Pin, Port};
 use crate::interrupt;
 use crate::pac::generic::Reg;
 use crate::pac::gpiote::_TASKS_OUT;
-use crate::pac::GPIOTE;
+use crate::pac::{p0 as gpio, GPIOTE, P0, P1};
 
 #[cfg(not(feature = "51"))]
 use crate::pac::gpiote::{_TASKS_CLR, _TASKS_SET};
 
+pub const CHANNEL_COUNT: usize = 8;
+
+#[cfg(any(feature = "52833", feature = "52840"))]
+pub const PIN_COUNT: usize = 48;
+#[cfg(not(any(feature = "52833", feature = "52840")))]
+pub const PIN_COUNT: usize = 32;
+
 pub struct Gpiote {
     inner: GPIOTE,
     free_channels: Cell<u8>, // 0 = used, 1 = free. 8 bits for 8 channelself.
-    signals: [Signal<()>; 8],
+    channel_signals: [Signal<()>; CHANNEL_COUNT],
+    port_signals: [Signal<()>; PIN_COUNT],
 }
 
 static mut INSTANCE: *const Gpiote = ptr::null_mut();
+
+pub enum PortInputPolarity {
+    High,
+    Low,
+}
 
 pub enum InputChannelPolarity {
     None,
@@ -42,13 +55,115 @@ pub enum NewChannelError {
 
 impl Gpiote {
     pub fn new(gpiote: GPIOTE) -> Self {
+        #[cfg(any(feature = "52833", feature = "52840"))]
+        let ports = unsafe { &[&*P0::ptr(), &*P1::ptr()] };
+        #[cfg(not(any(feature = "52833", feature = "52840")))]
+        let ports = unsafe { &[&*P0::ptr()] };
+
+        for &p in ports {
+            // Enable latched detection
+            p.detectmode.write(|w| w.detectmode().ldetect());
+            // Clear latch
+            p.latch.write(|w| unsafe { w.bits(0xFFFFFFFF) })
+        }
+
+        // Enable interrupts
+        gpiote.events_port.write(|w| w);
+        gpiote.intenset.write(|w| w.port().set());
         interrupt::unpend(interrupt::GPIOTE);
         interrupt::enable(interrupt::GPIOTE);
 
         Self {
             inner: gpiote,
             free_channels: Cell::new(0xFF), // all 8 channels free
-            signals: [
+            channel_signals: [
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+            ],
+            // This is just horrible
+            #[cfg(any(feature = "52833", feature = "52840"))]
+            port_signals: [
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+            ],
+            #[cfg(not(any(feature = "52833", feature = "52840")))]
+            port_signals: [
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
+                Signal::new(),
                 Signal::new(),
                 Signal::new(),
                 Signal::new(),
@@ -81,6 +196,13 @@ impl Gpiote {
             self.free_channels
                 .set(self.free_channels.get() | 1 << index);
             trace!("freed ch {:u8}", index);
+        })
+    }
+
+    pub fn new_port_input<'a, T>(&'a self, pin: Pin<Input<T>>) -> PortInput<'a, T> {
+        interrupt::free(|_| {
+            unsafe { INSTANCE = self };
+            PortInput { gpiote: self, pin }
         })
     }
 
@@ -161,6 +283,56 @@ impl Gpiote {
     }
 }
 
+pub struct PortInput<'a, T> {
+    gpiote: &'a Gpiote,
+    pin: Pin<Input<T>>,
+}
+
+impl<'a, T> Drop for PortInput<'a, T> {
+    fn drop(&mut self) {
+        pin_conf(&self.pin).modify(|_, w| w.sense().disabled());
+        self.gpiote.port_signals[pin_num(&self.pin)].reset();
+    }
+}
+
+impl<'a, T> PortInput<'a, T> {
+    pub async fn wait(&self, polarity: PortInputPolarity) {
+        pin_conf(&self.pin).modify(|_, w| match polarity {
+            PortInputPolarity::Low => w.sense().low(),
+            PortInputPolarity::High => w.sense().high(),
+        });
+        self.gpiote.port_signals[pin_num(&self.pin)].wait().await;
+    }
+
+    pub fn pin(&self) -> &Pin<Input<T>> {
+        &self.pin
+    }
+}
+
+fn pin_num<T>(pin: &Pin<T>) -> usize {
+    let port = match pin.port() {
+        Port::Port0 => 0,
+        #[cfg(any(feature = "52833", feature = "52840"))]
+        Port::Port1 => 32,
+    };
+
+    port + pin.pin() as usize
+}
+
+fn pin_block<T>(pin: &Pin<T>) -> &gpio::RegisterBlock {
+    let ptr = match pin.port() {
+        Port::Port0 => P0::ptr(),
+        #[cfg(any(feature = "52833", feature = "52840"))]
+        Port::Port1 => P1::ptr(),
+    };
+
+    unsafe { &*ptr }
+}
+
+fn pin_conf<T>(pin: &Pin<T>) -> &gpio::PIN_CNF {
+    &pin_block(pin).pin_cnf[pin.pin() as usize]
+}
+
 pub struct InputChannel<'a, T> {
     gpiote: &'a Gpiote,
     pin: Pin<Input<T>>,
@@ -174,8 +346,10 @@ impl<'a, T> Drop for InputChannel<'a, T> {
 }
 
 impl<'a, T> InputChannel<'a, T> {
-    pub async fn wait(&self) -> () {
-        self.gpiote.signals[self.index as usize].wait().await;
+    pub async fn wait(&self) {
+        self.gpiote.channel_signals[self.index as usize]
+            .wait()
+            .await;
     }
 
     pub fn pin(&self) -> &Pin<Input<T>> {
@@ -235,7 +409,45 @@ unsafe fn GPIOTE() {
     for i in 0..8 {
         if s.inner.events_in[i].read().bits() != 0 {
             s.inner.events_in[i].write(|w| w);
-            s.signals[i].signal(());
+            s.channel_signals[i].signal(());
+        }
+    }
+
+    if s.inner.events_port.read().bits() != 0 {
+        s.inner.events_port.write(|w| w);
+
+        #[cfg(any(feature = "52833", feature = "52840"))]
+        let ports = &[&*P0::ptr(), &*P1::ptr()];
+        #[cfg(not(any(feature = "52833", feature = "52840")))]
+        let ports = &[&*P0::ptr()];
+
+        let mut work = true;
+        while work {
+            work = false;
+            for (port, &p) in ports.iter().enumerate() {
+                for pin in BitIter(p.latch.read().bits()) {
+                    work = true;
+                    p.pin_cnf[pin as usize].modify(|_, w| w.sense().disabled());
+                    p.latch.write(|w| w.bits(1 << pin));
+                    s.port_signals[port * 32 + pin as usize].signal(());
+                }
+            }
+        }
+    }
+}
+
+struct BitIter(u32);
+
+impl Iterator for BitIter {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.0.trailing_zeros() {
+            32 => None,
+            b => {
+                self.0 &= !(1 << b);
+                Some(b)
+            }
         }
     }
 }
