@@ -7,7 +7,9 @@ use crate::hal::gpio::{Input, Level, Output, Pin, Port};
 use crate::interrupt;
 use crate::pac::generic::Reg;
 use crate::pac::gpiote::_TASKS_OUT;
-use crate::pac::{p0 as gpio, GPIOTE, P0, P1};
+#[cfg(any(feature = "52833", feature = "52840"))]
+use crate::pac::P1;
+use crate::pac::{p0 as gpio, GPIOTE, P0};
 
 #[cfg(not(feature = "51"))]
 use crate::pac::gpiote::{_TASKS_CLR, _TASKS_SET};
