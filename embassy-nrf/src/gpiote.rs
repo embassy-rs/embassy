@@ -195,7 +195,7 @@ impl Gpiote {
 
             self.free_channels
                 .set(self.free_channels.get() | 1 << index);
-            trace!("freed ch {:u8}", index);
+            trace!("freed ch {:?}", index);
         })
     }
 
@@ -214,7 +214,7 @@ impl Gpiote {
         interrupt::free(|_| {
             unsafe { INSTANCE = self };
             let index = self.allocate_channel()?;
-            trace!("allocated in ch {:u8}", index as u8);
+            trace!("allocated in ch {:?}", index as u8);
 
             self.inner.config[index as usize].write(|w| {
                 match polarity {
@@ -251,7 +251,7 @@ impl Gpiote {
         interrupt::free(|_| {
             unsafe { INSTANCE = self };
             let index = self.allocate_channel()?;
-            trace!("allocated out ch {:u8}", index);
+            trace!("allocated out ch {:?}", index);
 
             self.inner.config[index as usize].write(|w| {
                 w.mode().task();
