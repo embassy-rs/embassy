@@ -12,15 +12,13 @@ use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
 use embassy::util::Forever;
-use embassy_nrf::gpiote;
+use embassy_nrf::gpiote::{Gpiote, PortInputPolarity};
 
-async fn button(g: &gpiote::Gpiote, n: usize, pin: gpio::Pin<gpio::Input<gpio::PullUp>>) {
-    let ch = g.new_port_input(pin);
-
+async fn button(g: &Gpiote, n: usize, pin: gpio::Pin<gpio::Input<gpio::PullUp>>) {
     loop {
-        ch.wait(gpiote::PortInputPolarity::Low).await;
+        g.wait_port_input(&pin, PortInputPolarity::Low).await;
         info!("Button {:?} pressed!", n);
-        ch.wait(gpiote::PortInputPolarity::High).await;
+        g.wait_port_input(&pin, PortInputPolarity::High).await;
         info!("Button {:?} released!", n);
     }
 }
@@ -30,12 +28,12 @@ async fn run() {
     let p = unwrap!(embassy_nrf::pac::Peripherals::take());
     let port0 = gpio::p0::Parts::new(p.P0);
 
-    let g = gpiote::Gpiote::new(p.GPIOTE);
+    let g = Gpiote::new(p.GPIOTE);
     info!(
         "sizeof Signal<()> = {:usize}",
         mem::size_of::<embassy::util::Signal<()>>()
     );
-    info!("sizeof gpiote = {:usize}", mem::size_of::<gpiote::Gpiote>());
+    info!("sizeof gpiote = {:usize}", mem::size_of::<Gpiote>());
 
     info!("Starting!");
 

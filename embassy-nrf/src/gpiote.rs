@@ -1,6 +1,8 @@
 use anyfmt::{panic, *};
 use core::cell::Cell;
+use core::future::Future;
 use core::ptr;
+use core::task::{Context, Poll};
 use embassy::util::Signal;
 
 use crate::hal::gpio::{Input, Level, Output, Pin, Port};
@@ -201,10 +203,18 @@ impl Gpiote {
         })
     }
 
-    pub fn new_port_input<'a, T>(&'a self, pin: Pin<Input<T>>) -> PortInput<'a, T> {
+    pub fn wait_port_input<'a, T>(
+        &'a self,
+        pin: &'a Pin<Input<T>>,
+        polarity: PortInputPolarity,
+    ) -> PortInputFuture<'a, T> {
         interrupt::free(|_| {
             unsafe { INSTANCE = self };
-            PortInput { gpiote: self, pin }
+            PortInputFuture {
+                gpiote: self,
+                pin,
+                polarity,
+            }
         })
     }
 
@@ -285,29 +295,28 @@ impl Gpiote {
     }
 }
 
-pub struct PortInput<'a, T> {
+pub struct PortInputFuture<'a, T> {
     gpiote: &'a Gpiote,
-    pin: Pin<Input<T>>,
+    pin: &'a Pin<Input<T>>,
+    polarity: PortInputPolarity,
 }
 
-impl<'a, T> Drop for PortInput<'a, T> {
+impl<'a, T> Drop for PortInputFuture<'a, T> {
     fn drop(&mut self) {
         pin_conf(&self.pin).modify(|_, w| w.sense().disabled());
         self.gpiote.port_signals[pin_num(&self.pin)].reset();
     }
 }
 
-impl<'a, T> PortInput<'a, T> {
-    pub async fn wait(&self, polarity: PortInputPolarity) {
-        pin_conf(&self.pin).modify(|_, w| match polarity {
+impl<'a, T> Future for PortInputFuture<'a, T> {
+    type Output = ();
+
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        pin_conf(&self.pin).modify(|_, w| match self.polarity {
             PortInputPolarity::Low => w.sense().low(),
             PortInputPolarity::High => w.sense().high(),
         });
-        self.gpiote.port_signals[pin_num(&self.pin)].wait().await;
-    }
-
-    pub fn pin(&self) -> &Pin<Input<T>> {
-        &self.pin
+        self.gpiote.port_signals[pin_num(&self.pin)].poll_wait(cx)
     }
 }
 

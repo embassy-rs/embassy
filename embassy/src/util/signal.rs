@@ -2,7 +2,6 @@ use anyfmt::panic;
 use core::cell::UnsafeCell;
 use core::future::Future;
 use core::mem;
-use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 
 pub struct Signal<T> {
@@ -42,21 +41,9 @@ impl<T: Send> Signal<T> {
         })
     }
 
-    pub fn wait<'a>(&'a self) -> impl Future<Output = T> + 'a {
-        WaitFuture { signal: self }
-    }
-}
-
-struct WaitFuture<'a, T> {
-    signal: &'a Signal<T>,
-}
-
-impl<'a, T: Send> Future for WaitFuture<'a, T> {
-    type Output = T;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
+    pub fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
         cortex_m::interrupt::free(|_| unsafe {
-            let state = &mut *self.signal.state.get();
+            let state = &mut *self.state.get();
             match state {
                 State::None => {
                     *state = State::Waiting(cx.waker().clone());
@@ -70,5 +57,9 @@ impl<'a, T: Send> Future for WaitFuture<'a, T> {
                 },
             }
         })
+    }
+
+    pub fn wait(&self) -> impl Future<Output = T> + '_ {
+        futures::future::poll_fn(move |cx| self.poll_wait(cx))
     }
 }
