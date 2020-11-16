@@ -18,7 +18,7 @@ impl<T> Forever<T> {
         }
     }
 
-    pub fn put(&self, val: T) -> &'static mut T {
+    pub fn put(&'static self, val: T) -> &'static mut T {
         if self.used.compare_and_swap(false, true, Ordering::SeqCst) {
             panic!("Forever.put() called multiple times");
         }
@@ -31,7 +31,7 @@ impl<T> Forever<T> {
         }
     }
 
-    pub unsafe fn steal(&self) -> &'static mut T {
+    pub unsafe fn steal(&'static self) -> &'static mut T {
         let p = self.t.get();
         let p = (&mut *p).as_mut_ptr();
         &mut *p
