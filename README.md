@@ -52,14 +52,6 @@ cargo install --git https://github.com/knurling-rs/probe-run --branch main --fea
 cargo run --bin rtc_async
 ```
 
-## Using on your project
-
-`embassy` requires git version of a few dependencies.
-
-When using `embassy` in your own project, make sure you copy over the `[patch.crates-io]` section from root `Cargo.toml`.
-
-This will no longer needed after the first crates.io release.
-
 ## Minimum supported Rust version (MSRV)
 
 `rustc 1.48.0-nightly (1fd5b9d51 2020-09-20)`

@@ -10,10 +10,9 @@ use crate::pac::{NVIC, NVIC_PRIO_BITS};
 // Re-exports
 pub use crate::pac::Interrupt;
 pub use crate::pac::Interrupt::*; // needed for cortex-m-rt #[interrupt]
-pub use bare_metal::{CriticalSection, Mutex};
+pub use cortex_m::interrupt::{CriticalSection, Mutex};
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, defmt::Format)]
 #[repr(u8)]
 pub enum Priority {
     Level0 = 0,

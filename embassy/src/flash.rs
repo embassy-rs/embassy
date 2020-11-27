@@ -1,7 +1,6 @@
 use core::future::Future;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, defmt::Format)]
 pub enum Error {
     Failed,
     AddressMisaligned,

@@ -63,8 +63,7 @@ pub struct Task<F: Future + 'static> {
     future: UninitCell<F>, // Valid if STATE_RUNNING
 }
 
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone, Debug, defmt::Format)]
 pub enum SpawnError {
     Busy,
 }

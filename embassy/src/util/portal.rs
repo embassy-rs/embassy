@@ -1,8 +1,8 @@
-use anyfmt::panic;
 use core::cell::UnsafeCell;
 use core::future::Future;
 use core::mem;
 use core::mem::MaybeUninit;
+use defmt::panic;
 
 use crate::util::*;
 

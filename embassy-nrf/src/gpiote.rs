@@ -1,8 +1,8 @@
-use anyfmt::{panic, *};
 use core::cell::Cell;
 use core::future::Future;
 use core::ptr;
 use core::task::{Context, Poll};
+use defmt::{panic, *};
 use embassy::util::Signal;
 
 use crate::hal::gpio::{Input, Level, Output, Pin, Port};
@@ -51,8 +51,7 @@ pub enum OutputChannelPolarity {
     Toggle,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, defmt::Format)]
 pub enum NewChannelError {
     NoFreeChannels,
 }

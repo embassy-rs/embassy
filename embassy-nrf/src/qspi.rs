@@ -1,4 +1,5 @@
 use core::future::Future;
+use defmt::{assert, assert_eq, panic, *};
 
 use crate::hal::gpio::{Output, Pin as GpioPin, Port as GpioPort, PushPull};
 use crate::pac::{Interrupt, QSPI};
@@ -32,12 +33,18 @@ pub struct Pins {
     pub io3: Option<GpioPin<Output<PushPull>>>,
 }
 
+pub struct DeepPowerDownConfig {
+    pub enter_time: u16,
+    pub exit_time: u16,
+}
+
 pub struct Config {
     pub pins: Pins,
     pub xip_offset: u32,
     pub read_opcode: ReadOpcode,
     pub write_opcode: WriteOpcode,
     pub write_page_size: WritePageSize,
+    pub deep_power_down: Option<DeepPowerDownConfig>,
 }
 
 pub struct Qspi {
@@ -96,14 +103,26 @@ impl Qspi {
             }
         });
 
-        qspi.ifconfig0.write(|w| {
-            let w = w.addrmode().variant(AddressMode::_24BIT);
-            let w = w.dpmenable().disable();
-            let w = w.ppsize().variant(config.write_page_size);
-            let w = w.readoc().variant(config.read_opcode);
-            let w = w.writeoc().variant(config.write_opcode);
+        qspi.ifconfig0.write(|mut w| {
+            w = w.addrmode().variant(AddressMode::_24BIT);
+            if config.deep_power_down.is_some() {
+                w = w.dpmenable().enable();
+            } else {
+                w = w.dpmenable().disable();
+            }
+            w = w.ppsize().variant(config.write_page_size);
+            w = w.readoc().variant(config.read_opcode);
+            w = w.writeoc().variant(config.write_opcode);
             w
         });
+
+        if let Some(dpd) = &config.deep_power_down {
+            qspi.dpmdur.write(|mut w| unsafe {
+                w = w.enter().bits(dpd.enter_time);
+                w = w.exit().bits(dpd.exit_time);
+                w
+            })
+        }
 
         qspi.ifconfig1.write(|w| {
             let w = unsafe { w.sckdelay().bits(80) };
@@ -125,11 +144,26 @@ impl Qspi {
         qspi.events_ready.reset();
 
         // Enable READY interrupt
+        SIGNAL.reset();
         qspi.intenset.write(|w| w.ready().set());
         interrupt::set_priority(Interrupt::QSPI, interrupt::Priority::Level7);
+        interrupt::unpend(Interrupt::QSPI);
         interrupt::enable(Interrupt::QSPI);
 
         Self { inner: qspi }
+    }
+
+    pub fn sleep(&mut self) {
+        info!("flash: sleeping");
+        info!("flash: state = {:?}", self.inner.status.read().bits());
+        self.inner.ifconfig1.modify(|r, w| w.dpmen().enter());
+        info!("flash: state = {:?}", self.inner.status.read().bits());
+        cortex_m::asm::delay(1000000);
+        info!("flash: state = {:?}", self.inner.status.read().bits());
+
+        self.inner
+            .tasks_deactivate
+            .write(|w| w.tasks_deactivate().set_bit());
     }
 
     pub fn custom_instruction<'a>(
@@ -318,6 +352,7 @@ unsafe fn QSPI() {
     let p = crate::pac::Peripherals::steal().QSPI;
     if p.events_ready.read().events_ready().bit_is_set() {
         p.events_ready.reset();
+        info!("qspi ready");
         SIGNAL.signal(());
     }
 }

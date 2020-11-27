@@ -3,18 +3,13 @@
 members = [
     "embassy",
     "embassy-nrf",
-    "anyfmt",
+    "embassy-macros",
     "examples",
 ]
 
 exclude = [
     "third_party"
 ]
-
-[patch.crates-io]
-panic-probe = { git = "https://github.com/knurling-rs/probe-run", branch="main" }
-defmt-rtt = { git = "https://github.com/knurling-rs/defmt", branch="main" }
-defmt = { git = "https://github.com/knurling-rs/defmt", branch="main" }
 
 [profile.dev]
 codegen-units = 1

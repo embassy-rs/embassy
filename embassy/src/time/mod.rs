@@ -8,7 +8,7 @@ pub use instant::Instant;
 pub use timer::Timer;
 pub use traits::*;
 
-use anyfmt::*;
+use defmt::*;
 
 // TODO allow customizing, probably via Cargo features `tick-hz-32768` or something.
 pub const TICKS_PER_SECOND: u64 = 32768;
@@ -20,5 +20,5 @@ pub unsafe fn set_clock(clock: &'static dyn Clock) {
 }
 
 pub(crate) fn now() -> u64 {
-    unsafe { expect!(CLOCK, "No clock set").now() }
+    unsafe { unwrap!(CLOCK, "No clock set").now() }
 }

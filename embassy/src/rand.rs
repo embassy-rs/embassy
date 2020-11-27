@@ -1,4 +1,4 @@
-use anyfmt::*;
+use defmt::*;
 
 pub trait Rand {
     fn rand(&self, buf: &mut [u8]);
@@ -11,5 +11,5 @@ pub unsafe fn set_rand(rand: &'static dyn Rand) {
 }
 
 pub fn rand(buf: &mut [u8]) {
-    unsafe { expect!(RAND, "No rand set").rand(buf) }
+    unsafe { unwrap!(RAND, "No rand set").rand(buf) }
 }

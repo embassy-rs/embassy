@@ -3,8 +3,7 @@ use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 use super::TICKS_PER_SECOND;
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, defmt::Format)]
 pub struct Duration {
     pub(crate) ticks: u64,
 }

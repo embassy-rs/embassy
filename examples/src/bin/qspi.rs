@@ -6,8 +6,8 @@
 mod example_common;
 use example_common::*;
 
-use anyfmt::panic;
 use cortex_m_rt::entry;
+use defmt::{assert_eq, panic, *};
 use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
@@ -65,6 +65,7 @@ async fn run() {
         write_opcode: qspi::WriteOpcode::PP4IO,
         xip_offset: 0,
         write_page_size: qspi::WritePageSize::_256BYTES,
+        deep_power_down: None,
     };
 
     let mut q = qspi::Qspi::new(p.QSPI, config);

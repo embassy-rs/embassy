@@ -21,13 +21,10 @@ defmt-error = [ ]
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy" }
 
-anyfmt = { version = "0.1.0", path = "../anyfmt" }
-defmt = { version = "0.1.0", optional = true }
-
-cortex-m-rt = "0.6.12"
-cortex-m        = { version = "0.6.3" }
+defmt = { version = "0.1.2" }
+cortex-m-rt = "0.6.13"
+cortex-m        = { version = "0.6.4" }
 embedded-hal    = { version = "0.2.4" }
-bare-metal = { version = "0.2.0", features = ["const-fn"] }
 
 nrf52810-pac  = { version = "0.9.0", optional = true }
 nrf52811-pac  = { version = "0.9.1", optional = true }
@@ -35,8 +32,8 @@ nrf52832-pac  = { version = "0.9.0", optional = true }
 nrf52833-pac  = { version = "0.9.0", optional = true }
 nrf52840-pac  = { version = "0.9.0", optional = true }
 
-nrf52810-hal  = { version = "0.11.0", optional = true }
-#nrf52811-hal  = { version = "0.11.0", optional = true }  # doesn't exist yet
-nrf52832-hal  = { version = "0.11.0", optional = true }
-nrf52833-hal  = { version = "0.11.0", optional = true }
-nrf52840-hal  = { version = "0.11.0", optional = true }
+nrf52810-hal  = { version = "0.12.0", optional = true }
+#nrf52811-hal  = { version = "0.12.0", optional = true }  # doesn't exist yet
+nrf52832-hal  = { version = "0.12.0", optional = true }
+nrf52833-hal  = { version = "0.12.0", optional = true }
+nrf52840-hal  = { version = "0.12.0", optional = true }

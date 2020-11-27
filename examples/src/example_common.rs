@@ -4,7 +4,7 @@ use defmt_rtt as _; // global logger
 use nrf52840_hal as _;
 use panic_probe as _;
 
-pub use anyfmt::*;
+pub use defmt::*;
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 

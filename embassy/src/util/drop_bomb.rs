@@ -1,5 +1,5 @@
-use anyfmt::panic;
 use core::mem;
+use defmt::panic;
 
 pub struct DropBomb {
     _private: (),

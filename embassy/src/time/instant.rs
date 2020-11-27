@@ -5,8 +5,7 @@ use core::ops::{Add, AddAssign, Sub, SubAssign};
 use super::TICKS_PER_SECOND;
 use super::{now, Duration};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, defmt::Format)]
 pub struct Instant {
     ticks: u64,
 }
