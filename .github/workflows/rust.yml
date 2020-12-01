@@ -2,24 +2,23 @@ name: Rust
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        target: thumbv7em-none-eabihf
-        override: true
-    - name: Build
-      run: ./test-build.sh
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          target: thumbv7em-none-eabi
+          override: true
+      - name: Build
+        run: ./test-build.sh
