@@ -74,7 +74,7 @@ macro_rules! unwrap {
         match $crate::fmt::Try::into_result($arg) {
             ::core::result::Result::Ok(t) => t,
             ::core::result::Result::Err(e) => {
-                panic!($($msg,)*);
+                ::core::panic!($($msg,)*);
             }
         }
     }
