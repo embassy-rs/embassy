@@ -1,5 +1,5 @@
+use crate::fmt::{assert, assert_eq, panic, *};
 use core::future::Future;
-use defmt::{assert, assert_eq, panic, *};
 
 use crate::hal::gpio::{Output, Pin as GpioPin, Port as GpioPort, PushPull};
 use crate::pac::{Interrupt, QSPI};

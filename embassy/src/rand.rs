@@ -1,4 +1,4 @@
-use defmt::*;
+use crate::fmt::*;
 
 pub trait Rand {
     fn rand(&self, buf: &mut [u8]);

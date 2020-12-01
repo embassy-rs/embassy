@@ -17,14 +17,14 @@ defmt-error = []
 
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../embassy", features = ["defmt-trace"] }
-embassy-nrf = { version = "0.1.0", path = "../embassy-nrf", features = ["defmt-trace", "52840"] }
+embassy = { version = "0.1.0", path = "../embassy", features = ["defmt", "defmt-trace"] }
+embassy-nrf = { version = "0.1.0", path = "../embassy-nrf", features = ["defmt", "defmt-trace", "52840"] }
 
-defmt = "0.1.2"
+defmt = "0.1.3"
 defmt-rtt = "0.1.0"
 
 cortex-m        = { version = "0.6.3" }
-cortex-m-rt = "0.6.12"
+cortex-m-rt = "0.6.13"
 embedded-hal    = { version = "0.2.4" }
 panic-probe = "0.1.0"
 nrf52840-hal    = { version = "0.12.0" }

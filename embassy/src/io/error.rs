@@ -2,7 +2,8 @@
 ///
 /// This list is intended to grow over time and it is not recommended to
 /// exhaustively match against it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// An entity was not found, often a file.
     NotFound,

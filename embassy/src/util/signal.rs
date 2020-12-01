@@ -1,8 +1,8 @@
+use crate::fmt::panic;
 use core::cell::UnsafeCell;
 use core::future::Future;
 use core::mem;
 use core::task::{Context, Poll, Waker};
-use defmt::panic;
 
 pub struct Signal<T> {
     state: UnsafeCell<State<T>>,

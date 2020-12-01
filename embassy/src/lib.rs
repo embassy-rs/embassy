@@ -4,6 +4,9 @@
 #![feature(const_fn)]
 #![feature(const_fn_fn_ptr_basics)]
 
+// This mod MUST go first, so that the others see its macros.
+pub(crate) mod fmt;
+
 pub mod executor;
 pub mod flash;
 pub mod io;
