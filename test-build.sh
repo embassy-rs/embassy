@@ -5,7 +5,10 @@ set -euxo pipefail
 # examples
 (cd examples; cargo build --target thumbv7em-none-eabi --bins)
 
-# embassy
+# embassy std
+(cd embassy; cargo build --features log,std)
+
+# embassy embedded
 (cd embassy; cargo build --target thumbv7em-none-eabi)
 (cd embassy; cargo build --target thumbv7em-none-eabi --features log)
 (cd embassy; cargo build --target thumbv7em-none-eabi --features defmt)
