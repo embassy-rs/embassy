@@ -5,7 +5,7 @@ mod traits;
 
 pub use duration::Duration;
 pub use instant::Instant;
-pub use timer::Timer;
+pub use timer::{Ticker, Timer};
 pub use traits::*;
 
 use crate::fmt::*;
