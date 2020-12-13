@@ -33,35 +33,35 @@ mod fmt {
 
     #[macro_export]
     macro_rules! trace {
-        ($($msg:expr),*) => {
+        ($($msg:expr),+ $(,)?) => {
             ()
         };
     }
 
     #[macro_export]
     macro_rules! debug {
-        ($($msg:expr),*) => {
+        ($($msg:expr),+ $(,)?) => {
             ()
         };
     }
 
     #[macro_export]
     macro_rules! info {
-        ($($msg:expr),*) => {
+        ($($msg:expr),+ $(,)?) => {
             ()
         };
     }
 
     #[macro_export]
     macro_rules! warn {
-        ($($msg:expr),*) => {
+        ($($msg:expr),+ $(,)?) => {
             ()
         };
     }
 
     #[macro_export]
     macro_rules! error {
-        ($($msg:expr),*) => {
+        ($($msg:expr),+ $(,)?) => {
             ()
         };
     }
@@ -70,11 +70,19 @@ mod fmt {
 #[cfg(not(feature = "defmt"))]
 #[macro_export]
 macro_rules! unwrap {
-    ($arg:expr$(,$msg:expr)*) => {
+    ($arg:expr) => {
         match $crate::fmt::Try::into_result($arg) {
             ::core::result::Result::Ok(t) => t,
             ::core::result::Result::Err(e) => {
-                ::core::panic!($($msg,)*);
+                ::core::panic!("unwrap of `{}` failed: {:?}", ::core::stringify!($arg), e);
+            }
+        }
+    };
+    ($arg:expr, $($msg:expr),+ $(,)? ) => {
+        match $crate::fmt::Try::into_result($arg) {
+            ::core::result::Result::Ok(t) => t,
+            ::core::result::Result::Err(e) => {
+                ::core::panic!("unwrap of `{}` failed: {}: {:?}", ::core::stringify!($arg), ::core::format_args!($($msg,)*), e);
             }
         }
     }
