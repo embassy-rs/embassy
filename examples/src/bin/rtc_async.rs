@@ -10,7 +10,7 @@ use core::mem::MaybeUninit;
 use cortex_m_rt::entry;
 use nrf52840_hal::clocks;
 
-use embassy::executor::{task, TimerExecutor};
+use embassy::executor::{task, Executor};
 use embassy::time::{Clock, Duration, Timer};
 use embassy::util::Forever;
 use embassy_nrf::pac;
@@ -33,7 +33,8 @@ async fn run2() {
 }
 
 static RTC: Forever<rtc::RTC<pac::RTC1>> = Forever::new();
-static EXECUTOR: Forever<TimerExecutor<rtc::Alarm<pac::RTC1>>> = Forever::new();
+static ALARM: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
+static EXECUTOR: Forever<Executor> = Forever::new();
 
 #[entry]
 fn main() -> ! {
@@ -51,7 +52,8 @@ fn main() -> ! {
 
     unsafe { embassy::time::set_clock(rtc) };
 
-    let executor = EXECUTOR.put(TimerExecutor::new(rtc.alarm0(), cortex_m::asm::sev));
+    let alarm = ALARM.put(rtc.alarm0());
+    let executor = EXECUTOR.put(Executor::new_with_alarm(alarm, cortex_m::asm::sev));
 
     unwrap!(executor.spawn(run1()));
     unwrap!(executor.spawn(run2()));

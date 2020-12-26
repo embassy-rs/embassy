@@ -1,6 +1,5 @@
 pub use embassy_macros::task;
 
-use core::cell::Cell;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::mem;
@@ -8,30 +7,54 @@ use core::pin::Pin;
 use core::ptr;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU32, Ordering};
-use core::task::{Context, Poll, RawWaker, Waker};
+use core::task::{Context, Poll, Waker};
+use core::{
+    cell::{Cell, UnsafeCell},
+    cmp::min,
+};
 
 mod run_queue;
+pub(crate) mod timer;
+mod timer_queue;
 mod util;
 mod waker;
 
 use self::run_queue::{RunQueue, RunQueueItem};
+use self::timer_queue::{TimerQueue, TimerQueueItem};
 use self::util::UninitCell;
+use crate::{
+    fmt::{panic, *},
+    time::{Alarm, Instant},
+};
 
 /// Task is spawned (has a future)
-const STATE_SPAWNED: u32 = 1 << 0;
+pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
 /// Task is in the executor run queue
-const STATE_RUN_QUEUED: u32 = 1 << 1;
+pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
 /// Task is in the executor timer queue
-const STATE_TIMER_QUEUED: u32 = 1 << 2;
+pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
 
 pub(crate) struct TaskHeader {
     state: AtomicU32,
     run_queue_item: RunQueueItem,
+    expires_at: Cell<Instant>,
+    timer_queue_item: TimerQueueItem,
     executor: Cell<*const Executor>, // Valid if state != 0
     poll_fn: UninitCell<unsafe fn(*mut TaskHeader)>, // Valid if STATE_SPAWNED
 }
 
 impl TaskHeader {
+    const fn new() -> Self {
+        Self {
+            state: AtomicU32::new(0),
+            expires_at: Cell::new(Instant::from_ticks(0)),
+            run_queue_item: RunQueueItem::new(),
+            timer_queue_item: TimerQueueItem::new(),
+            executor: Cell::new(ptr::null()),
+            poll_fn: UninitCell::uninit(),
+        }
+    }
+
     pub(crate) unsafe fn enqueue(&self) {
         let mut current = self.state.load(Ordering::Acquire);
         loop {
@@ -71,12 +94,7 @@ pub struct Task<F: Future + 'static> {
 impl<F: Future + 'static> Task<F> {
     pub const fn new() -> Self {
         Self {
-            header: TaskHeader {
-                state: AtomicU32::new(0),
-                run_queue_item: RunQueueItem::new(),
-                executor: Cell::new(ptr::null()),
-                poll_fn: UninitCell::uninit(),
-            },
+            header: TaskHeader::new(),
             future: UninitCell::uninit(),
         }
     }
@@ -144,7 +162,9 @@ pub enum SpawnError {
 }
 
 pub struct Executor {
+    alarm: Option<&'static dyn Alarm>,
     run_queue: RunQueue,
+    timer_queue: TimerQueue,
     signal_fn: fn(),
     not_send: PhantomData<*mut ()>,
 }
@@ -152,7 +172,18 @@ pub struct Executor {
 impl Executor {
     pub const fn new(signal_fn: fn()) -> Self {
         Self {
+            alarm: None,
             run_queue: RunQueue::new(),
+            timer_queue: TimerQueue::new(),
+            signal_fn: signal_fn,
+            not_send: PhantomData,
+        }
+    }
+    pub const fn new_with_alarm(alarm: &'static dyn Alarm, signal_fn: fn()) -> Self {
+        Self {
+            alarm: Some(alarm),
+            run_queue: RunQueue::new(),
+            timer_queue: TimerQueue::new(),
             signal_fn: signal_fn,
             not_send: PhantomData,
         }
@@ -183,8 +214,13 @@ impl Executor {
     /// Runs the executor until the queue is empty.
     pub fn run(&self) {
         unsafe {
+            self.timer_queue.dequeue_expired(Instant::now(), |p| {
+                self.enqueue(p);
+            });
+
             self.run_queue.dequeue_all(|p| {
                 let header = &*p;
+                header.expires_at.set(Instant::MAX);
 
                 let state = header.state.fetch_and(!STATE_RUN_QUEUED, Ordering::AcqRel);
                 if state & STATE_SPAWNED == 0 {
@@ -198,7 +234,25 @@ impl Executor {
 
                 // Run the task
                 header.poll_fn.read()(p as _);
+
+                // Enqueue or update into timer_queue
+                self.timer_queue.update(p);
             });
+
+            // If this is in the past, set_alarm will immediately trigger the alarm,
+            // which will make the wfe immediately return so we do another loop iteration.
+            if let Some(alarm) = self.alarm {
+                let next_expiration = self.timer_queue.next_expiration();
+                alarm.set_callback(self.signal_fn);
+                alarm.set(next_expiration.as_ticks());
+            }
         }
     }
+}
+
+pub(crate) unsafe fn register_timer(at: Instant, waker: &Waker) {
+    let p = waker::task_from_waker(waker);
+    let header = &*p;
+    let expires_at = header.expires_at.get();
+    header.expires_at.set(min(expires_at, at));
 }

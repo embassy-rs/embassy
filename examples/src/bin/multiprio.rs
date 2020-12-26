@@ -64,7 +64,7 @@ use example_common::*;
 use cortex_m_rt::entry;
 use nrf52840_hal::clocks;
 
-use embassy::executor::{task, TimerExecutor};
+use embassy::executor::{task, Executor};
 use embassy::time::{Duration, Instant, Timer};
 use embassy::util::Forever;
 use embassy_nrf::{interrupt, pac, rtc};
@@ -112,9 +112,12 @@ async fn run_low() {
 }
 
 static RTC: Forever<rtc::RTC<pac::RTC1>> = Forever::new();
-static EXECUTOR_LOW: Forever<TimerExecutor<rtc::Alarm<pac::RTC1>>> = Forever::new();
-static EXECUTOR_MED: Forever<TimerExecutor<rtc::Alarm<pac::RTC1>>> = Forever::new();
-static EXECUTOR_HIGH: Forever<TimerExecutor<rtc::Alarm<pac::RTC1>>> = Forever::new();
+static ALARM_LOW: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
+static EXECUTOR_LOW: Forever<Executor> = Forever::new();
+static ALARM_MED: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
+static EXECUTOR_MED: Forever<Executor> = Forever::new();
+static ALARM_HIGH: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
+static EXECUTOR_HIGH: Forever<Executor> = Forever::new();
 
 #[entry]
 fn main() -> ! {
@@ -131,11 +134,14 @@ fn main() -> ! {
     rtc.start();
     unsafe { embassy::time::set_clock(rtc) };
 
-    let executor_low = EXECUTOR_LOW.put(TimerExecutor::new(rtc.alarm0(), cortex_m::asm::sev));
-    let executor_med = EXECUTOR_MED.put(TimerExecutor::new(rtc.alarm1(), || {
+    let alarm_low = ALARM_LOW.put(rtc.alarm0());
+    let executor_low = EXECUTOR_LOW.put(Executor::new_with_alarm(alarm_low, cortex_m::asm::sev));
+    let alarm_med = ALARM_MED.put(rtc.alarm1());
+    let executor_med = EXECUTOR_MED.put(Executor::new_with_alarm(alarm_med, || {
         interrupt::pend(interrupt::SWI0_EGU0)
     }));
-    let executor_high = EXECUTOR_HIGH.put(TimerExecutor::new(rtc.alarm2(), || {
+    let alarm_high = ALARM_HIGH.put(rtc.alarm2());
+    let executor_high = EXECUTOR_HIGH.put(Executor::new_with_alarm(alarm_high, || {
         interrupt::pend(interrupt::SWI1_EGU1)
     }));
 

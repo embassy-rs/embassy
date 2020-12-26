@@ -25,7 +25,7 @@ debug = 2
 debug-assertions = false
 incremental = false
 lto = "fat"
-opt-level = 3
+opt-level = 's'
 overflow-checks = false
 
 # do not optimize proc-macro crates = faster builds from scratch

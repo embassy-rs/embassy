@@ -12,6 +12,9 @@ pub struct Instant {
 }
 
 impl Instant {
+    pub const MIN: Instant = Instant { ticks: u64::MIN };
+    pub const MAX: Instant = Instant { ticks: u64::MAX };
+
     pub fn now() -> Instant {
         Instant { ticks: now() }
     }
