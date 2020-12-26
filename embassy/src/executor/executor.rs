@@ -225,15 +225,15 @@ unsafe impl<F: Future + 'static> Sync for Task<F> {}
 //=============
 // Spawn token
 
-#[must_use = "Calling a task function does nothing on its own. To spawn a task, pass the result to Executor::spawn()"]
+#[must_use = "Calling a task function does nothing on its own. You must pass the returned SpawnToken to Executor::spawn()"]
 pub struct SpawnToken {
     header: Option<NonNull<Header>>,
 }
 
 impl Drop for SpawnToken {
     fn drop(&mut self) {
-        // TODO maybe we can deallocate the task instead.
-        panic!("Please do not drop SpawnToken instances")
+        // TODO deallocate the task instead.
+        panic!("SpawnToken instances may not be dropped. You must pass them to Executor::spawn()")
     }
 }
 
