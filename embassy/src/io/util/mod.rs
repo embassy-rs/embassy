@@ -127,7 +127,10 @@ pub trait AsyncBufReadExt: AsyncBufRead {
 
 impl<R: AsyncBufRead + ?Sized> AsyncBufReadExt for R {}
 
-pub async fn read_line<R: AsyncBufRead + Unpin>(r: &mut R, buf: &mut [u8]) -> Result<usize> {
+pub async fn read_line<R: AsyncBufRead + Unpin + ?Sized>(
+    r: &mut R,
+    buf: &mut [u8],
+) -> Result<usize> {
     r.skip_while(|b| b == b'\r' || b == b'\n').await?;
     let n = r.read_while(buf, |b| b != b'\r' && b != b'\n').await?;
     r.skip_while(|b| b == b'\r').await?;
