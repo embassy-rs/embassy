@@ -13,14 +13,15 @@ use core::ptr;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
-use embedded_hal::digital::v2::OutputPin;
-
+use crate::hal::gpio::{Alternate, AF10, AF7, AF9};
 use crate::hal::gpio::{Floating, Input, Output, Pin as GpioPin, Port as GpioPort, PushPull};
+use crate::hal::serial::{DmaConfig, Event, Parity, StopBits, WordLength};
 use crate::interrupt;
 use crate::interrupt::CriticalSection;
 #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
 use crate::pac::UARTE1;
 use crate::pac::{uarte0, Interrupt, UARTE0};
+use embedded_hal::digital::v2::OutputPin;
 
 // Re-export SVD variants to allow user to directly set values
 pub use uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
@@ -166,57 +167,35 @@ fn port_bit(port: GpioPort) -> bool {
 impl<T: Instance> Uarte<T> {
     pub fn new(uarte: T, mut pins: Pins, parity: Parity, baudrate: Baudrate) -> Self {
         // Select pins
-        uarte.psel.rxd.write(|w| {
-            let w = unsafe { w.pin().bits(pins.rxd.pin()) };
-            #[cfg(any(feature = "52833", feature = "52840"))]
-            let w = w.port().bit(port_bit(pins.rxd.port()));
-            w.connect().connected()
-        });
-        pins.txd.set_high().unwrap();
-        uarte.psel.txd.write(|w| {
-            let w = unsafe { w.pin().bits(pins.txd.pin()) };
-            #[cfg(any(feature = "52833", feature = "52840"))]
-            let w = w.port().bit(port_bit(pins.txd.port()));
-            w.connect().connected()
-        });
-
-        // Optional pins
-        uarte.psel.cts.write(|w| {
-            if let Some(ref pin) = pins.cts {
-                let w = unsafe { w.pin().bits(pin.pin()) };
-                #[cfg(any(feature = "52833", feature = "52840"))]
-                let w = w.port().bit(port_bit(pin.port()));
-                w.connect().connected()
-            } else {
-                w.connect().disconnected()
-            }
-        });
-
-        uarte.psel.rts.write(|w| {
-            if let Some(ref pin) = pins.rts {
-                let w = unsafe { w.pin().bits(pin.pin()) };
-                #[cfg(any(feature = "52833", feature = "52840"))]
-                let w = w.port().bit(port_bit(pin.port()));
-                w.connect().connected()
-            } else {
-                w.connect().disconnected()
-            }
-        });
-
-        // Enable UARTE instance
-        uarte.enable.write(|w| w.enable().enabled());
+        // Serial<USART1, (PA9<Alternate<AF7>>, PA10<Alternate<AF7>>)>
+        let mut serial = Serial::usart1(
+            dp.USART1,
+            (pins.txd, pins.rxd),
+            Config {
+                baudrate: 9600.bps(),
+                wordlength: WordLength::DataBits8,
+                parity: Parity::ParityNone,
+                stopbits: StopBits::STOP1,
+                dma: DmaConfig::TxRx,
+            },
+            clocks,
+        )
+        .unwrap();
 
         // Enable interrupts
-        uarte.intenset.write(|w| w.endrx().set().endtx().set());
+        serial.listen(Event::Txe);
+        serial.listen(Event::Txe);
+
+        // TODO: Enable idle interrupt? Use DMA interrupt?
 
         // Configure
-        let hardware_flow_control = pins.rts.is_some() && pins.cts.is_some();
-        uarte
-            .config
-            .write(|w| w.hwfc().bit(hardware_flow_control).parity().variant(parity));
+        //let hardware_flow_control = pins.rts.is_some() && pins.cts.is_some();
+        //uarte
+        //    .config
+        //    .write(|w| w.hwfc().bit(hardware_flow_control).parity().variant(parity));
 
         // Configure frequency
-        uarte.baudrate.write(|w| w.baudrate().variant(baudrate));
+        // uarte.baudrate.write(|w| w.baudrate().variant(baudrate));
 
         Uarte {
             started: false,
@@ -494,10 +473,10 @@ impl<T: Instance> UarteState<T> {
 }
 
 pub struct Pins {
-    pub rxd: GpioPin<Input<Floating>>,
-    pub txd: GpioPin<Output<PushPull>>,
-    pub cts: Option<GpioPin<Input<Floating>>>,
-    pub rts: Option<GpioPin<Output<PushPull>>>,
+    pub rxd: PA10<Alternate<AF7>>,
+    pub txd: PA9<Alternate<AF7>>,
+    //    pub cts: Option<GpioPin<Input<Floating>>>,
+    //    pub rts: Option<GpioPin<Output<PushPull>>>,
 }
 
 mod private {
@@ -533,7 +512,7 @@ static mut UARTE0_STATE: *mut UarteState<UARTE0> = ptr::null_mut();
 #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
 static mut UARTE1_STATE: *mut UarteState<UARTE1> = ptr::null_mut();
 
-impl Instance for UARTE0 {
+impl Instance for DMA_CHANNEL1 {
     fn interrupt() -> Interrupt {
         Interrupt::UARTE0_UART0
     }
