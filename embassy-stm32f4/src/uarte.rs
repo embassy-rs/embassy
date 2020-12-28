@@ -554,13 +554,12 @@ pub trait Instance: Deref<Target = uarte0::RegisterBlock> + Sized + private::Sea
 }
 
 #[interrupt]
-unsafe fn UARTE0_UART0() {
+unsafe fn DMA2_CHANNEL2() {
     interrupt::free(|cs| UARTE0::get_state(cs).as_mut().unwrap().on_interrupt());
 }
 
-#[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
 #[interrupt]
-unsafe fn UARTE1() {
+unsafe fn DMA2_CHANNEL7() {
     interrupt::free(|cs| UARTE1::get_state(cs).as_mut().unwrap().on_interrupt());
 }
 
