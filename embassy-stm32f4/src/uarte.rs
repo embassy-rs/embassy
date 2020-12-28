@@ -12,15 +12,21 @@ use core::pin::Pin;
 use core::ptr;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
+use cortex_m::singleton;
 
+use crate::hal::dma::config::DmaConfig;
+use crate::hal::dma::{Channel4, PeripheralToMemory, Stream2, StreamsTuple, Transfer};
 use crate::hal::gpio::{Alternate, AF10, AF7, AF9};
-use crate::hal::gpio::{Floating, Input, Output, Pin as GpioPin, Port as GpioPort, PushPull};
+use crate::hal::gpio::{
+    Floating, Input, Output, Pin as GpioPin, Port as GpioPort, PushPull, Rx, Tx,
+};
 use crate::hal::serial::{DmaConfig, Event, Parity, StopBits, WordLength};
+
 use crate::interrupt;
 use crate::interrupt::CriticalSection;
+use crate::pac::{uarte0, Interrupt, UARTE0, USART1};
 #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
-use crate::pac::UARTE1;
-use crate::pac::{uarte0, Interrupt, UARTE0};
+use crate::pac::{DMA2, UARTE1};
 use embedded_hal::digital::v2::OutputPin;
 
 // Re-export SVD variants to allow user to directly set values
@@ -187,6 +193,54 @@ impl<T: Instance> Uarte<T> {
         serial.listen(Event::Txe);
 
         // TODO: Enable idle interrupt? Use DMA interrupt?
+
+        //        STREAM: Stream,
+        //        CHANNEL: Channel,
+        //        DIR: Direction,
+        //        PERIPHERAL: PeriAddress,
+        //        BUF: WriteBuffer<Word = <PERIPHERAL as PeriAddress>::MemSize> + 'static,
+        //
+        //        (Stream2<DMA2>, Channel4, Rx<pac::USART1>, PeripheralToMemory), //USART1_RX
+        //        (Stream7<DMA2>, Channel4, Tx<pac::USART1>, MemoryToPeripheral), //USART1_TX
+
+        /*
+            Taken from https://gist.github.com/thalesfragoso/a07340c5df6eee3b04c42fdc69ecdcb1
+        */
+
+        // configure dma transfer
+        let stream_7 = StreamsTuple::new(pins.dma).7;
+        let config = DmaConfig::default()
+            .transfer_complete_interrupt(true)
+            .memory_increment(true)
+            .double_buffer(true);
+
+        // let rcc = unsafe { &*RCC::ptr() };
+        // rcc.apb2enr.modify(|_, w| w.adc1en().enabled());
+        // rcc.apb2rstr.modify(|_, w| w.adcrst().set_bit());
+        // rcc.apb2rstr.modify(|_, w| w.adcrst().clear_bit());
+        // let adc = cx.device.ADC1;
+        // adc.cr2.modify(|_, w| {
+        //     w.dma()
+        //         .enabled()
+        //         .cont()
+        //         .continuous()
+        //         .dds()
+        //         .continuous()
+        //         .adon()
+        //         .enabled()
+        // });
+
+        let first_buffer = singleton!(: [u8; 128] = [0; 128]).unwrap();
+        let second_buffer = singleton!(: [u8; 128] = [0; 128]).unwrap();
+        let triple_buffer = Some(singleton!(: [u8; 128] = [0; 128]).unwrap());
+
+        let transfer = Transfer::init(
+            stream_7,
+            pins.usart,
+            first_buffer,
+            Some(second_buffer),
+            config,
+        );
 
         // Configure
         //let hardware_flow_control = pins.rts.is_some() && pins.cts.is_some();
@@ -475,6 +529,8 @@ impl<T: Instance> UarteState<T> {
 pub struct Pins {
     pub rxd: PA10<Alternate<AF7>>,
     pub txd: PA9<Alternate<AF7>>,
+    pub dma: DMA2,
+    pub usart: USART1,
     //    pub cts: Option<GpioPin<Input<Floating>>>,
     //    pub rts: Option<GpioPin<Output<PushPull>>>,
 }

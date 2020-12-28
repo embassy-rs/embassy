@@ -29,6 +29,8 @@ stm32f446 = ["stm32f4xx-hal/stm32f446"]
 stm32f469 = ["stm32f4xx-hal/stm32f469"]
 stm32f479 = ["stm32f4xx-hal/stm32f469"]
 
+default = ["stm32f405"]
+
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy" }
 
@@ -37,4 +39,4 @@ log = { version = "0.4.11", optional = true }
 cortex-m-rt = "0.6.13"
 cortex-m        = { version = "0.6.4" }
 embedded-hal    = { version = "0.2.4" }
-stm32f4xx-hal  = { version = "0.8.3", features = ["rt"]}
+stm32f4xx-hal  = { version = "0.8.3", features = ["rt"], git = "https://github.com/stm32-rs/stm32f4xx-hal.git" }
