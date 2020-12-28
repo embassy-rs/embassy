@@ -214,9 +214,11 @@ impl Executor {
     /// Runs the executor until the queue is empty.
     pub fn run(&self) {
         unsafe {
-            self.timer_queue.dequeue_expired(Instant::now(), |p| {
-                self.enqueue(p);
-            });
+            if self.alarm.is_some() {
+                self.timer_queue.dequeue_expired(Instant::now(), |p| {
+                    self.enqueue(p);
+                });
+            }
 
             self.run_queue.dequeue_all(|p| {
                 let header = &*p;
