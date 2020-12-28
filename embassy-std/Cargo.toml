@@ -1,0 +1,10 @@
+[package]
+name = "embassy-std"
+version = "0.1.0"
+authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
+edition = "2018"
+
+[dependencies]
+embassy     = { version = "0.1.0", path = "../embassy", features = ["std"] }
+lazy_static = "1.4.0"
+rand_core   = { version = "0.6.0", features = ["std"] }
