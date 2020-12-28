@@ -17,20 +17,23 @@ use cortex_m::singleton;
 use crate::hal::dma::config::DmaConfig;
 use crate::hal::dma::{Channel4, PeripheralToMemory, Stream2, StreamsTuple, Transfer};
 use crate::hal::gpio::{Alternate, AF10, AF7, AF9};
-use crate::hal::gpio::{
-    Floating, Input, Output, Pin as GpioPin, Port as GpioPort, PushPull, Rx, Tx,
+use crate::hal::gpio::{Floating, Input, Output, PushPull};
+use crate::hal::rcc::Clocks;
+use crate::hal::serial::config::{
+    Config as SerialConfig, DmaConfig as SerialDmaConfig, Parity, StopBits, WordLength,
 };
-use crate::hal::serial::{DmaConfig, Event, Parity, StopBits, WordLength};
+use crate::hal::serial::Serial;
+use crate::hal::time::Bps;
 
 use crate::interrupt;
 use crate::interrupt::CriticalSection;
-use crate::pac::{uarte0, Interrupt, UARTE0, USART1};
-#[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
-use crate::pac::{DMA2, UARTE1};
+use crate::pac::Interrupt;
+use crate::pac::{DMA2, USART1};
+
 use embedded_hal::digital::v2::OutputPin;
 
 // Re-export SVD variants to allow user to directly set values
-pub use uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
+// pub use uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
 use embassy::io::{AsyncBufRead, AsyncWrite, Result};
 use embassy::util::WakerStore;
@@ -171,26 +174,29 @@ fn port_bit(port: GpioPort) -> bool {
 }
 
 impl<T: Instance> Uarte<T> {
-    pub fn new(uarte: T, mut pins: Pins, parity: Parity, baudrate: Baudrate) -> Self {
+    pub fn new(uarte: T, mut pins: Pins, parity: Parity, baudrate: Bps, clocks: Clocks) -> Self {
         // Select pins
         // Serial<USART1, (PA9<Alternate<AF7>>, PA10<Alternate<AF7>>)>
         let mut serial = Serial::usart1(
-            dp.USART1,
+            pins.usart,
             (pins.txd, pins.rxd),
-            Config {
-                baudrate: 9600.bps(),
+            SerialConfig {
+                baudrate: baudrate,
                 wordlength: WordLength::DataBits8,
                 parity: Parity::ParityNone,
                 stopbits: StopBits::STOP1,
-                dma: DmaConfig::TxRx,
+                dma: SerialDmaConfig::TxRx,
             },
             clocks,
         )
         .unwrap();
 
+        let isr = pins.dma.hisr;
+        // self.isr().$tcifX().bit_is_clear()
+
         // Enable interrupts
-        serial.listen(Event::Txe);
-        serial.listen(Event::Txe);
+        // serial.listen(Event::Txe);
+        // serial.listen(Event::Txe);
 
         // TODO: Enable idle interrupt? Use DMA interrupt?
 
@@ -207,13 +213,6 @@ impl<T: Instance> Uarte<T> {
             Taken from https://gist.github.com/thalesfragoso/a07340c5df6eee3b04c42fdc69ecdcb1
         */
 
-        // configure dma transfer
-        let stream_7 = StreamsTuple::new(pins.dma).7;
-        let config = DmaConfig::default()
-            .transfer_complete_interrupt(true)
-            .memory_increment(true)
-            .double_buffer(true);
-
         // let rcc = unsafe { &*RCC::ptr() };
         // rcc.apb2enr.modify(|_, w| w.adc1en().enabled());
         // rcc.apb2rstr.modify(|_, w| w.adcrst().set_bit());
@@ -229,18 +228,6 @@ impl<T: Instance> Uarte<T> {
         //         .adon()
         //         .enabled()
         // });
-
-        let first_buffer = singleton!(: [u8; 128] = [0; 128]).unwrap();
-        let second_buffer = singleton!(: [u8; 128] = [0; 128]).unwrap();
-        let triple_buffer = Some(singleton!(: [u8; 128] = [0; 128]).unwrap());
-
-        let transfer = Transfer::init(
-            stream_7,
-            pins.usart,
-            first_buffer,
-            Some(second_buffer),
-            config,
-        );
 
         // Configure
         //let hardware_flow_control = pins.rts.is_some() && pins.cts.is_some();
@@ -510,6 +497,25 @@ impl<T: Instance> UarteState<T> {
                 }
                 TxState::Transmitting(n) => {
                     trace!("  irq_tx: in state Transmitting");
+                    // Start the DMA transfer
+                    // See https://github.com/mwkroening/async-stm32f1xx/blob/78c46d1bff124eae4ebc7a2f4d40e6ed74def8b5/src/serial.rs#L118-L129
+                    //     https://github.com/stm32-rs/stm32f1xx-hal/blob/68fd3d6f282173816fd3181e795988d314cb17d0/src/serial.rs#L649-L671
+
+                    let first_buffer = singleton!(: [u8; 128] = [0; 128]).unwrap();
+                    let second_buffer = singleton!(: [u8; 128] = [0; 128]).unwrap();
+                    let triple_buffer = Some(singleton!(: [u8; 128] = [0; 128]).unwrap());
+
+                    let transfer = Transfer::init(
+                        StreamsTuple::new(pins.dma).7,
+                        pins.usart,
+                        first_buffer,
+                        Some(second_buffer),
+                        DmaConfig::default()
+                            .transfer_complete_interrupt(true)
+                            .memory_increment(true)
+                            .double_buffer(true),
+                    );
+
                     if self.inner.events_endtx.read().bits() != 0 {
                         self.inner.events_endtx.reset();
 
