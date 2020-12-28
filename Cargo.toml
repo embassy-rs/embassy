@@ -3,6 +3,7 @@
 members = [
     "embassy",
     "embassy-nrf",
+    "embassy-stm32f4",
     "embassy-macros",
     "examples",
 ]
