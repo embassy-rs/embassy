@@ -13,7 +13,7 @@ use nrf52840_hal::gpio;
 use embassy::executor::{task, Executor};
 use embassy::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use embassy::util::Forever;
-use embassy_nrf::uarte;
+use embassy_nrf::buffered_uarte;
 
 #[task]
 async fn run() {
@@ -21,7 +21,7 @@ async fn run() {
 
     let port0 = gpio::p0::Parts::new(p.P0);
 
-    let pins = uarte::Pins {
+    let pins = buffered_uarte::Pins {
         rxd: port0.p0_08.into_floating_input().degrade(),
         txd: port0
             .p0_06
@@ -31,11 +31,11 @@ async fn run() {
         rts: None,
     };
 
-    let u = uarte::Uarte::new(
+    let u = buffered_uarte::BufferedUarte::new(
         p.UARTE0,
         pins,
-        uarte::Parity::EXCLUDED,
-        uarte::Baudrate::BAUD115200,
+        buffered_uarte::Parity::EXCLUDED,
+        buffered_uarte::Baudrate::BAUD115200,
     );
     pin_mut!(u);
 

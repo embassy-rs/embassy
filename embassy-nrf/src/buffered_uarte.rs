@@ -133,7 +133,7 @@ enum TxState {
 ///   are disabled before using `Uarte`. See product specification:
 ///     - nrf52832: Section 15.2
 ///     - nrf52840: Section 6.1.2
-pub struct Uarte<T: Instance> {
+pub struct BufferedUarte<T: Instance> {
     started: bool,
     state: UnsafeCell<UarteState<T>>,
 }
@@ -163,7 +163,7 @@ fn port_bit(port: GpioPort) -> bool {
     }
 }
 
-impl<T: Instance> Uarte<T> {
+impl<T: Instance> BufferedUarte<T> {
     pub fn new(uarte: T, mut pins: Pins, parity: Parity, baudrate: Baudrate) -> Self {
         // Select pins
         uarte.psel.rxd.write(|w| {
@@ -218,7 +218,7 @@ impl<T: Instance> Uarte<T> {
         // Configure frequency
         uarte.baudrate.write(|w| w.baudrate().variant(baudrate));
 
-        Uarte {
+        BufferedUarte {
             started: false,
             state: UnsafeCell::new(UarteState {
                 inner: uarte,
@@ -262,14 +262,14 @@ impl<T: Instance> Uarte<T> {
     }
 }
 
-impl<T: Instance> Drop for Uarte<T> {
+impl<T: Instance> Drop for BufferedUarte<T> {
     fn drop(&mut self) {
         // stop DMA before dropping, because DMA is using the buffer in `self`.
         todo!()
     }
 }
 
-impl<T: Instance> AsyncBufRead for Uarte<T> {
+impl<T: Instance> AsyncBufRead for BufferedUarte<T> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
         self.with_state(|s| s.poll_fill_buf(cx))
     }
@@ -279,7 +279,7 @@ impl<T: Instance> AsyncBufRead for Uarte<T> {
     }
 }
 
-impl<T: Instance> AsyncWrite for Uarte<T> {
+impl<T: Instance> AsyncWrite for BufferedUarte<T> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
         self.with_state(|s| s.poll_write(cx, buf))
     }
