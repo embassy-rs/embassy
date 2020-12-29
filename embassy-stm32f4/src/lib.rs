@@ -331,6 +331,7 @@ pub use stm32f4xx_hal::stm32 as pac;
 macro_rules! waker_interrupt {
     ($INT:ident, $waker:expr) => {{
         use core::sync::atomic::{self, Ordering};
+        use core::task::Waker;
         use stm32f4xx_hal::pac::{interrupt, Interrupt, NVIC};
 
         static mut WAKER: Option<Waker> = None;
@@ -359,7 +360,6 @@ macro_rules! waker_interrupt {
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-pub mod interrupt;
 pub mod uarte;
 
 pub use cortex_m_rt::interrupt;
