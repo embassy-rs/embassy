@@ -8,8 +8,9 @@ use example_common::*;
 
 use core::mem::MaybeUninit;
 use cortex_m_rt::entry;
+use defmt::panic;
 use embassy::time::{Alarm, Clock};
-use embassy_nrf::rtc;
+use embassy_nrf::{interrupt, rtc};
 use nrf52840_hal::clocks;
 
 static mut RTC: MaybeUninit<rtc::RTC<embassy_nrf::pac::RTC1>> = MaybeUninit::uninit();
@@ -25,9 +26,11 @@ fn main() -> ! {
         .set_lfclk_src_external(clocks::LfOscConfiguration::NoExternalNoBypass)
         .start_lfclk();
 
+    let irq = interrupt::take!(RTC1);
+
     let rtc: &'static _ = unsafe {
         let ptr = RTC.as_mut_ptr();
-        ptr.write(rtc::RTC::new(p.RTC1));
+        ptr.write(rtc::RTC::new(p.RTC1, irq));
         &*ptr
     };
 

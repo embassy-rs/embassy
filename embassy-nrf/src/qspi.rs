@@ -23,8 +23,6 @@ pub use crate::pac::qspi::ifconfig0::WRITEOC_A as WriteOpcode;
 use embassy::flash::{Error, Flash};
 use embassy::util::{DropBomb, Signal};
 
-use crate::interrupt;
-
 pub struct Pins {
     pub sck: GpioPin<Output<PushPull>>,
     pub csn: GpioPin<Output<PushPull>>,

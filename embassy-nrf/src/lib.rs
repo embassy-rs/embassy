@@ -56,6 +56,6 @@ pub(crate) mod fmt;
 pub mod interrupt;
 #[cfg(feature = "52840")]
 pub mod qspi;
-//pub mod rtc;
+pub mod rtc;
 
 pub use cortex_m_rt::interrupt;
