@@ -7,6 +7,7 @@ mod example_common;
 use example_common::*;
 
 use cortex_m_rt::entry;
+use defmt::panic;
 use futures::pin_mut;
 use nrf52840_hal::gpio;
 
@@ -14,6 +15,7 @@ use embassy::executor::{task, Executor};
 use embassy::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use embassy::util::Forever;
 use embassy_nrf::buffered_uarte;
+use embassy_nrf::interrupt;
 
 #[task]
 async fn run() {
@@ -31,8 +33,10 @@ async fn run() {
         rts: None,
     };
 
+    let irq = interrupt::take!(UARTE0_UART0);
     let u = buffered_uarte::BufferedUarte::new(
         p.UARTE0,
+        irq,
         pins,
         buffered_uarte::Parity::EXCLUDED,
         buffered_uarte::Baudrate::BAUD115200,

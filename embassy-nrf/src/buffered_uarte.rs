@@ -17,10 +17,10 @@ use embedded_hal::digital::v2::OutputPin;
 
 use crate::hal::gpio::{Floating, Input, Output, Pin as GpioPin, Port as GpioPort, PushPull};
 use crate::interrupt;
-use crate::interrupt::CriticalSection;
+use crate::interrupt::{CriticalSection, OwnedInterrupt};
 #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
 use crate::pac::UARTE1;
-use crate::pac::{uarte0, Interrupt, UARTE0};
+use crate::pac::{uarte0, UARTE0};
 
 // Re-export SVD variants to allow user to directly set values
 pub use uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
@@ -141,8 +141,9 @@ pub struct BufferedUarte<T: Instance> {
 // public because it needs to be used in Instance::{get_state, set_state}, but
 // should not be used outside the module
 #[doc(hidden)]
-pub struct UarteState<T> {
+pub struct UarteState<T: Instance> {
     inner: T,
+    irq: T::Interrupt,
 
     rx: RingBuf,
     rx_state: RxState,
@@ -164,7 +165,13 @@ fn port_bit(port: GpioPort) -> bool {
 }
 
 impl<T: Instance> BufferedUarte<T> {
-    pub fn new(uarte: T, mut pins: Pins, parity: Parity, baudrate: Baudrate) -> Self {
+    pub fn new(
+        uarte: T,
+        irq: T::Interrupt,
+        mut pins: Pins,
+        parity: Parity,
+        baudrate: Baudrate,
+    ) -> Self {
         // Select pins
         uarte.psel.rxd.write(|w| {
             let w = unsafe { w.pin().bits(pins.rxd.pin()) };
@@ -222,6 +229,7 @@ impl<T: Instance> BufferedUarte<T> {
             started: false,
             state: UnsafeCell::new(UarteState {
                 inner: uarte,
+                irq,
 
                 rx: RingBuf::new(),
                 rx_state: RxState::Idle,
@@ -287,9 +295,12 @@ impl<T: Instance> AsyncWrite for BufferedUarte<T> {
 
 impl<T: Instance> UarteState<T> {
     pub fn start(self: Pin<&mut Self>) {
-        interrupt::set_priority(T::interrupt(), interrupt::Priority::Level7);
-        interrupt::enable(T::interrupt());
-        interrupt::pend(T::interrupt());
+        self.irq.set_handler(|| unsafe {
+            interrupt::free(|cs| T::get_state(cs).as_mut().unwrap().on_interrupt());
+        });
+
+        self.irq.pend();
+        self.irq.enable();
     }
 
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
@@ -324,7 +335,7 @@ impl<T: Instance> UarteState<T> {
         let this = unsafe { self.get_unchecked_mut() };
         trace!("consume {:?}", amt);
         this.rx.pop(amt);
-        interrupt::pend(T::interrupt());
+        this.irq.pend();
     }
 
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
@@ -350,7 +361,7 @@ impl<T: Instance> UarteState<T> {
         // before any DMA action has started
         compiler_fence(Ordering::SeqCst);
 
-        interrupt::pend(T::interrupt());
+        this.irq.pend();
 
         Poll::Ready(Ok(n))
     }
@@ -509,7 +520,7 @@ mod private {
 }
 
 pub trait Instance: Deref<Target = uarte0::RegisterBlock> + Sized + private::Sealed {
-    fn interrupt() -> Interrupt;
+    type Interrupt: OwnedInterrupt;
 
     #[doc(hidden)]
     fn get_state(_cs: &CriticalSection) -> *mut UarteState<Self>;
@@ -518,25 +529,12 @@ pub trait Instance: Deref<Target = uarte0::RegisterBlock> + Sized + private::Sea
     fn set_state(_cs: &CriticalSection, state: *mut UarteState<Self>);
 }
 
-#[interrupt]
-unsafe fn UARTE0_UART0() {
-    interrupt::free(|cs| UARTE0::get_state(cs).as_mut().unwrap().on_interrupt());
-}
-
-#[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
-#[interrupt]
-unsafe fn UARTE1() {
-    interrupt::free(|cs| UARTE1::get_state(cs).as_mut().unwrap().on_interrupt());
-}
-
 static mut UARTE0_STATE: *mut UarteState<UARTE0> = ptr::null_mut();
 #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
 static mut UARTE1_STATE: *mut UarteState<UARTE1> = ptr::null_mut();
 
 impl Instance for UARTE0 {
-    fn interrupt() -> Interrupt {
-        Interrupt::UARTE0_UART0
-    }
+    type Interrupt = interrupt::UARTE0_UART0Interrupt;
 
     fn get_state(_cs: &CriticalSection) -> *mut UarteState<Self> {
         unsafe { UARTE0_STATE } // Safe because of CriticalSection
@@ -548,9 +546,7 @@ impl Instance for UARTE0 {
 
 #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
 impl Instance for UARTE1 {
-    fn interrupt() -> Interrupt {
-        Interrupt::UARTE1
-    }
+    type Interrupt = interrupt::UARTE1Interrupt;
 
     fn get_state(_cs: &CriticalSection) -> *mut UarteState<Self> {
         unsafe { UARTE1_STATE } // Safe because of CriticalSection

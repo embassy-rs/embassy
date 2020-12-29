@@ -7,6 +7,7 @@ use embassy::util::Signal;
 
 use crate::hal::gpio::{Input, Level, Output, Pin, Port};
 use crate::interrupt;
+use crate::interrupt::OwnedInterrupt;
 use crate::pac::generic::Reg;
 use crate::pac::gpiote::_TASKS_OUT;
 #[cfg(any(feature = "52833", feature = "52840"))]
@@ -58,7 +59,7 @@ pub enum NewChannelError {
 }
 
 impl Gpiote {
-    pub fn new(gpiote: GPIOTE) -> Self {
+    pub fn new(gpiote: GPIOTE, irq: interrupt::GPIOTEInterrupt) -> Self {
         #[cfg(any(feature = "52833", feature = "52840"))]
         let ports = unsafe { &[&*P0::ptr(), &*P1::ptr()] };
         #[cfg(not(any(feature = "52833", feature = "52840")))]
@@ -74,8 +75,9 @@ impl Gpiote {
         // Enable interrupts
         gpiote.events_port.write(|w| w);
         gpiote.intenset.write(|w| w.port().set());
-        interrupt::unpend(interrupt::GPIOTE);
-        interrupt::enable(interrupt::GPIOTE);
+        irq.set_handler(Self::on_irq);
+        irq.unpend();
+        irq.enable();
 
         Self {
             inner: gpiote,
@@ -293,6 +295,39 @@ impl Gpiote {
             })
         })
     }
+
+    unsafe fn on_irq() {
+        let s = &(*INSTANCE);
+
+        for i in 0..8 {
+            if s.inner.events_in[i].read().bits() != 0 {
+                s.inner.events_in[i].write(|w| w);
+                s.channel_signals[i].signal(());
+            }
+        }
+
+        if s.inner.events_port.read().bits() != 0 {
+            s.inner.events_port.write(|w| w);
+
+            #[cfg(any(feature = "52833", feature = "52840"))]
+            let ports = &[&*P0::ptr(), &*P1::ptr()];
+            #[cfg(not(any(feature = "52833", feature = "52840")))]
+            let ports = &[&*P0::ptr()];
+
+            let mut work = true;
+            while work {
+                work = false;
+                for (port, &p) in ports.iter().enumerate() {
+                    for pin in BitIter(p.latch.read().bits()) {
+                        work = true;
+                        p.pin_cnf[pin as usize].modify(|_, w| w.sense().disabled());
+                        p.latch.write(|w| w.bits(1 << pin));
+                        s.port_signals[port * 32 + pin as usize].signal(());
+                    }
+                }
+            }
+        }
+    }
 }
 
 pub struct PortInputFuture<'a, T> {
@@ -410,40 +445,6 @@ impl<'a> OutputChannel<'a> {
     #[cfg(not(feature = "51"))]
     pub fn task_set(&self) -> &Reg<u32, _TASKS_SET> {
         &self.gpiote.inner.tasks_set[self.index as usize]
-    }
-}
-
-#[interrupt]
-unsafe fn GPIOTE() {
-    let s = &(*INSTANCE);
-
-    for i in 0..8 {
-        if s.inner.events_in[i].read().bits() != 0 {
-            s.inner.events_in[i].write(|w| w);
-            s.channel_signals[i].signal(());
-        }
-    }
-
-    if s.inner.events_port.read().bits() != 0 {
-        s.inner.events_port.write(|w| w);
-
-        #[cfg(any(feature = "52833", feature = "52840"))]
-        let ports = &[&*P0::ptr(), &*P1::ptr()];
-        #[cfg(not(any(feature = "52833", feature = "52840")))]
-        let ports = &[&*P0::ptr()];
-
-        let mut work = true;
-        while work {
-            work = false;
-            for (port, &p) in ports.iter().enumerate() {
-                for pin in BitIter(p.latch.read().bits()) {
-                    work = true;
-                    p.pin_cnf[pin as usize].modify(|_, w| w.sense().disabled());
-                    p.latch.write(|w| w.bits(1 << pin));
-                    s.port_signals[port * 32 + pin as usize].signal(());
-                }
-            }
-        }
     }
 }
 
