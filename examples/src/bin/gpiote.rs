@@ -7,18 +7,20 @@ mod example_common;
 use example_common::*;
 
 use cortex_m_rt::entry;
+use defmt::panic;
 use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
 use embassy::util::Forever;
 use embassy_nrf::gpiote;
+use embassy_nrf::interrupt;
 
 #[task]
 async fn run() {
     let p = unwrap!(embassy_nrf::pac::Peripherals::take());
     let port0 = gpio::p0::Parts::new(p.P0);
 
-    let g = gpiote::Gpiote::new(p.GPIOTE);
+    let g = gpiote::Gpiote::new(p.GPIOTE, interrupt::take!(GPIOTE));
 
     info!("Starting!");
 

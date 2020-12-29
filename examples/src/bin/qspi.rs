@@ -13,7 +13,7 @@ use nrf52840_hal::gpio;
 use embassy::executor::{task, Executor};
 use embassy::flash::Flash;
 use embassy::util::Forever;
-use embassy_nrf::qspi;
+use embassy_nrf::{interrupt, qspi};
 
 const PAGE_SIZE: usize = 4096;
 
@@ -68,7 +68,8 @@ async fn run() {
         deep_power_down: None,
     };
 
-    let mut q = qspi::Qspi::new(p.QSPI, config);
+    let irq = interrupt::take!(QSPI);
+    let mut q = qspi::Qspi::new(p.QSPI, irq, config);
 
     let mut id = [1; 3];
     q.custom_instruction(0x9F, &[], &mut id).await.unwrap();

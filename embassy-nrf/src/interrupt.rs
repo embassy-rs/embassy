@@ -5,12 +5,13 @@
 
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use crate::pac::{NVIC, NVIC_PRIO_BITS};
+use crate::pac::NVIC_PRIO_BITS;
 
 // Re-exports
 pub use crate::pac::Interrupt;
 pub use crate::pac::Interrupt::*; // needed for cortex-m-rt #[interrupt]
 pub use cortex_m::interrupt::{CriticalSection, Mutex};
+pub use embassy::interrupt::{declare, take, OwnedInterrupt};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -26,14 +27,8 @@ pub enum Priority {
     Level7 = 7,
 }
 
-impl Priority {
-    #[inline]
-    fn to_nvic(self) -> u8 {
-        (self as u8) << (8 - NVIC_PRIO_BITS)
-    }
-
-    #[inline]
-    fn from_nvic(priority: u8) -> Self {
+impl From<u8> for Priority {
+    fn from(priority: u8) -> Self {
         match priority >> (8 - NVIC_PRIO_BITS) {
             0 => Self::Level0,
             1 => Self::Level1,
@@ -45,6 +40,12 @@ impl Priority {
             7 => Self::Level7,
             _ => unreachable!(),
         }
+    }
+}
+
+impl From<Priority> for u8 {
+    fn from(p: Priority) -> Self {
+        (p as u8) << (8 - NVIC_PRIO_BITS)
     }
 }
 
@@ -77,53 +78,204 @@ where
     }
 }
 
-#[inline]
-pub fn enable(irq: Interrupt) {
-    unsafe {
-        NVIC::unmask(irq);
-    }
+#[cfg(feature = "52810")]
+mod irqs {
+    use super::*;
+    declare!(POWER_CLOCK);
+    declare!(RADIO);
+    declare!(UARTE0_UART0);
+    declare!(TWIM0_TWIS0_TWI0);
+    declare!(SPIM0_SPIS0_SPI0);
+    declare!(GPIOTE);
+    declare!(SAADC);
+    declare!(TIMER0);
+    declare!(TIMER1);
+    declare!(TIMER2);
+    declare!(RTC0);
+    declare!(TEMP);
+    declare!(RNG);
+    declare!(ECB);
+    declare!(CCM_AAR);
+    declare!(WDT);
+    declare!(RTC1);
+    declare!(QDEC);
+    declare!(COMP);
+    declare!(SWI0_EGU0);
+    declare!(SWI1_EGU1);
+    declare!(SWI2);
+    declare!(SWI3);
+    declare!(SWI4);
+    declare!(SWI5);
+    declare!(PWM0);
+    declare!(PDM);
 }
 
-#[inline]
-pub fn disable(irq: Interrupt) {
-    NVIC::mask(irq);
+#[cfg(feature = "52811")]
+mod irqs {
+    use super::*;
+    declare!(POWER_CLOCK);
+    declare!(RADIO);
+    declare!(UARTE0_UART0);
+    declare!(TWIM0_TWIS0_TWI0_SPIM1_SPIS1_SPI1);
+    declare!(SPIM0_SPIS0_SPI0);
+    declare!(GPIOTE);
+    declare!(SAADC);
+    declare!(TIMER0);
+    declare!(TIMER1);
+    declare!(TIMER2);
+    declare!(RTC0);
+    declare!(TEMP);
+    declare!(RNG);
+    declare!(ECB);
+    declare!(CCM_AAR);
+    declare!(WDT);
+    declare!(RTC1);
+    declare!(QDEC);
+    declare!(COMP);
+    declare!(SWI0_EGU0);
+    declare!(SWI1_EGU1);
+    declare!(SWI2);
+    declare!(SWI3);
+    declare!(SWI4);
+    declare!(SWI5);
+    declare!(PWM0);
+    declare!(PDM);
 }
 
-#[inline]
-pub fn is_active(irq: Interrupt) -> bool {
-    NVIC::is_active(irq)
+#[cfg(feature = "52832")]
+mod irqs {
+    use super::*;
+    declare!(POWER_CLOCK);
+    declare!(RADIO);
+    declare!(UARTE0_UART0);
+    declare!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+    declare!(SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+    declare!(NFCT);
+    declare!(GPIOTE);
+    declare!(SAADC);
+    declare!(TIMER0);
+    declare!(TIMER1);
+    declare!(TIMER2);
+    declare!(RTC0);
+    declare!(TEMP);
+    declare!(RNG);
+    declare!(ECB);
+    declare!(CCM_AAR);
+    declare!(WDT);
+    declare!(RTC1);
+    declare!(QDEC);
+    declare!(COMP_LPCOMP);
+    declare!(SWI0_EGU0);
+    declare!(SWI1_EGU1);
+    declare!(SWI2_EGU2);
+    declare!(SWI3_EGU3);
+    declare!(SWI4_EGU4);
+    declare!(SWI5_EGU5);
+    declare!(TIMER3);
+    declare!(TIMER4);
+    declare!(PWM0);
+    declare!(PDM);
+    declare!(MWU);
+    declare!(PWM1);
+    declare!(PWM2);
+    declare!(SPIM2_SPIS2_SPI2);
+    declare!(RTC2);
+    declare!(I2S);
+    declare!(FPU);
 }
 
-#[inline]
-pub fn is_enabled(irq: Interrupt) -> bool {
-    NVIC::is_enabled(irq)
+#[cfg(feature = "52833")]
+mod irqs {
+    use super::*;
+    declare!(POWER_CLOCK);
+    declare!(RADIO);
+    declare!(UARTE0_UART0);
+    declare!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+    declare!(SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+    declare!(NFCT);
+    declare!(GPIOTE);
+    declare!(SAADC);
+    declare!(TIMER0);
+    declare!(TIMER1);
+    declare!(TIMER2);
+    declare!(RTC0);
+    declare!(TEMP);
+    declare!(RNG);
+    declare!(ECB);
+    declare!(CCM_AAR);
+    declare!(WDT);
+    declare!(RTC1);
+    declare!(QDEC);
+    declare!(COMP_LPCOMP);
+    declare!(SWI0_EGU0);
+    declare!(SWI1_EGU1);
+    declare!(SWI2_EGU2);
+    declare!(SWI3_EGU3);
+    declare!(SWI4_EGU4);
+    declare!(SWI5_EGU5);
+    declare!(TIMER3);
+    declare!(TIMER4);
+    declare!(PWM0);
+    declare!(PDM);
+    declare!(MWU);
+    declare!(PWM1);
+    declare!(PWM2);
+    declare!(SPIM2_SPIS2_SPI2);
+    declare!(RTC2);
+    declare!(I2S);
+    declare!(FPU);
+    declare!(USBD);
+    declare!(UARTE1);
+    declare!(PWM3);
+    declare!(SPIM3);
 }
 
-#[inline]
-pub fn is_pending(irq: Interrupt) -> bool {
-    NVIC::is_pending(irq)
+#[cfg(feature = "52840")]
+mod irqs {
+    use super::*;
+    declare!(POWER_CLOCK);
+    declare!(RADIO);
+    declare!(UARTE0_UART0);
+    declare!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+    declare!(SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+    declare!(NFCT);
+    declare!(GPIOTE);
+    declare!(SAADC);
+    declare!(TIMER0);
+    declare!(TIMER1);
+    declare!(TIMER2);
+    declare!(RTC0);
+    declare!(TEMP);
+    declare!(RNG);
+    declare!(ECB);
+    declare!(CCM_AAR);
+    declare!(WDT);
+    declare!(RTC1);
+    declare!(QDEC);
+    declare!(COMP_LPCOMP);
+    declare!(SWI0_EGU0);
+    declare!(SWI1_EGU1);
+    declare!(SWI2_EGU2);
+    declare!(SWI3_EGU3);
+    declare!(SWI4_EGU4);
+    declare!(SWI5_EGU5);
+    declare!(TIMER3);
+    declare!(TIMER4);
+    declare!(PWM0);
+    declare!(PDM);
+    declare!(MWU);
+    declare!(PWM1);
+    declare!(PWM2);
+    declare!(SPIM2_SPIS2_SPI2);
+    declare!(RTC2);
+    declare!(I2S);
+    declare!(FPU);
+    declare!(USBD);
+    declare!(UARTE1);
+    declare!(QSPI);
+    declare!(CRYPTOCELL);
+    declare!(PWM3);
+    declare!(SPIM3);
 }
 
-#[inline]
-pub fn pend(irq: Interrupt) {
-    NVIC::pend(irq)
-}
-
-#[inline]
-pub fn unpend(irq: Interrupt) {
-    NVIC::unpend(irq)
-}
-
-#[inline]
-pub fn get_priority(irq: Interrupt) -> Priority {
-    Priority::from_nvic(NVIC::get_priority(irq))
-}
-
-#[inline]
-pub fn set_priority(irq: Interrupt, prio: Priority) {
-    unsafe {
-        cortex_m::peripheral::Peripherals::steal()
-            .NVIC
-            .set_priority(irq, prio.to_nvic())
-    }
-}
+pub use irqs::*;

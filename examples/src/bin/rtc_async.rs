@@ -8,13 +8,13 @@ use example_common::*;
 
 use core::mem::MaybeUninit;
 use cortex_m_rt::entry;
-use nrf52840_hal::clocks;
-
+use defmt::panic;
 use embassy::executor::{task, Executor};
 use embassy::time::{Clock, Duration, Timer};
 use embassy::util::Forever;
 use embassy_nrf::pac;
-use embassy_nrf::rtc;
+use embassy_nrf::{interrupt, rtc};
+use nrf52840_hal::clocks;
 
 #[task]
 async fn run1() {
@@ -47,7 +47,7 @@ fn main() -> ! {
         .set_lfclk_src_external(clocks::LfOscConfiguration::NoExternalNoBypass)
         .start_lfclk();
 
-    let rtc = RTC.put(rtc::RTC::new(p.RTC1));
+    let rtc = RTC.put(rtc::RTC::new(p.RTC1, interrupt::take!(RTC1)));
     rtc.start();
 
     unsafe { embassy::time::set_clock(rtc) };
