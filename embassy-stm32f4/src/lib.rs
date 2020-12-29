@@ -2,6 +2,7 @@
 #![feature(generic_associated_types)]
 #![feature(asm)]
 #![feature(type_alias_impl_trait)]
+#![feature(let_chains)]
 
 #[cfg(not(any(
     feature = "stm32f401",

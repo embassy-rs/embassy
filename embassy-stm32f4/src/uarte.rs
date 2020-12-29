@@ -16,11 +16,14 @@ use core::task::{Context, Poll};
 use cortex_m::singleton;
 
 use embassy::util::Signal;
-use embedded_dma::{StaticReadBuffer, StaticWriteBuffer};
+use embedded_dma::{StaticReadBuffer, StaticWriteBuffer, WriteBuffer};
 
 use crate::fmt::assert;
 use crate::hal::dma::config::DmaConfig;
-use crate::hal::dma::{Channel4, PeripheralToMemory, Stream2, StreamsTuple, Transfer};
+use crate::hal::dma::{
+    Channel4, Channel7, MemoryToPeripheral, PeripheralToMemory, Stream2, Stream7, StreamsTuple,
+    Transfer,
+};
 use crate::hal::gpio::gpioa::{PA10, PA9};
 use crate::hal::gpio::{Alternate, AF10, AF7, AF9};
 use crate::hal::gpio::{Floating, Input, Output, PushPull};
@@ -94,44 +97,14 @@ impl Uarte {
         )
         .unwrap();
 
-        let isr = pins.dma.hisr;0
+        // let is_set = dma.hifcr.read().tcif7.bit_is_set();
 
-        Uarte { instance: serial, dma: pins.dma, usart: pins.usart }
+        Uarte {
+            instance: serial,
+            dma: pins.dma,
+            usart: pins.usart,
+        }
     }
-
-    /// Sets the baudrate, parity and assigns the pins to the UARTE peripheral.
-    // TODO: Make it take the same `Pins` structs nrf-hal (with optional RTS/CTS).
-    //    // TODO: #[cfg()] for smaller device variants without port register (nrf52810, ...).
-    //    pub fn configure(
-    //        &mut self,
-    //        rxd: &Pin<Input<Floating>>,
-    //        txd: &mut Pin<Output<PushPull>>,
-    //        parity: Parity,
-    //        baudrate: Baudrate,
-    //    ) {
-    //        let uarte = &self.instance;
-    //        assert!(uarte.enable.read().enable().is_disabled());
-    //
-    //        uarte.psel.rxd.write(|w| {
-    //            let w = unsafe { w.pin().bits(rxd.pin()) };
-    //            let w = w.port().bit(rxd.port().bit());
-    //            w.connect().connected()
-    //        });
-    //
-    //        txd.set_high().unwrap();
-    //        uarte.psel.txd.write(|w| {
-    //            let w = unsafe { w.pin().bits(txd.pin()) };
-    //            let w = w.port().bit(txd.port().bit());
-    //            w.connect().connected()
-    //        });
-    //
-    //        uarte.baudrate.write(|w| w.baudrate().variant(baudrate));
-    //        uarte.config.write(|w| w.parity().variant(parity));
-    //    }
-
-    //    fn enable(&mut self) {
-    //        self.instance.enable.write(|w| w.enable().enabled());
-    //    }
 
     /// Sends serial data.
     ///
@@ -140,23 +113,13 @@ impl Uarte {
     /// reused until the future has finished.
     pub fn send<'a, B>(&'a mut self, tx_buffer: B) -> SendFuture<'a, B>
     where
-        B: StaticReadBuffer<Word = u8>,
+        B: WriteBuffer<Word = u8> + 'static,
     {
-        // Panic if TX is running which can happen if the user has called
-        // `mem::forget()` on a previous future after polling it once.
-        assert!(!self.tx_started());
-
-        self.enable();
-
         SendFuture {
             uarte: self,
             buf: tx_buffer,
+            transfer: None,
         }
-    }
-
-    fn tx_started(&self) -> bool {
-        // self.instance.events_txstarted.read().bits() != 0
-        false
     }
 
     /// Receives serial data.
@@ -171,83 +134,45 @@ impl Uarte {
     /// reused until the future has finished.
     pub fn receive<'a, B>(&'a mut self, rx_buffer: B) -> ReceiveFuture<'a, B>
     where
-        B: StaticWriteBuffer<Word = u8>,
+        B: WriteBuffer<Word = u8> + 'static,
     {
-        // Panic if RX is running which can happen if the user has called
-        // `mem::forget()` on a previous future after polling it once.
-        assert!(!self.rx_started());
-
-        self.enable();
-
         ReceiveFuture {
             uarte: self,
-            buf: Some(rx_buffer),
+            buf: rx_buffer,
+            transfer: None,
         }
-    }
-
-    fn rx_started(&self) -> bool {
-        self.instance.events_rxstarted.read().bits() != 0
     }
 }
 
 /// Future for the [`LowPowerUarte::send()`] method.
-pub struct SendFuture<'a, B> {
+pub struct SendFuture<'a, B: WriteBuffer<Word = u8> + 'static> {
     uarte: &'a Uarte,
+    transfer: Option<&'a Transfer<Stream7<DMA2>, Channel4, USART1, MemoryToPeripheral, B>>,
     buf: B,
 }
 
-impl<'a, B> Drop for SendFuture<'a, B> {
+impl<'a, B> Drop for SendFuture<'a, B>
+where
+    B: WriteBuffer<Word = u8> + 'static,
+{
     fn drop(self: &mut Self) {
-        if self.uarte.tx_started() {
-            trace!("stoptx");
-
-            // Stop the transmitter to minimize the current consumption.
-            self.uarte
-                .instance
-                .tasks_stoptx
-                .write(|w| unsafe { w.bits(1) });
-            self.uarte.instance.events_txstarted.reset();
-        }
+        drop(self.transfer);
     }
 }
 
 impl<'a, B> Future for SendFuture<'a, B>
 where
-    B: StaticReadBuffer<Word = u8>,
+    B: WriteBuffer<Word = u8> + 'static,
 {
     type Output = ();
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        if self.is_ready() {
+        if !self.transfer.is_none() && self.transfer.unwrap().is_done() {
             Poll::Ready(())
         } else {
-            // Start DMA transaction
-            let uarte = &self.uarte.instance;
-
-            STATE.tx_done.reset();
-
-            let (ptr, len) = unsafe { self.buf.read_buffer() };
-            // assert!(len <= EASY_DMA_SIZE);
-            // TODO: panic if buffer is not in SRAM
-
-            compiler_fence(Ordering::SeqCst);
-            // uarte.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
-            // uarte
-            //     .txd
-            //     .maxcnt
-            //     .write(|w| unsafe { w.maxcnt().bits(len as _) });
-
-            // Start the DMA transfer
-            // See https://github.com/mwkroening/async-stm32f1xx/blob/78c46d1bff124eae4ebc7a2f4d40e6ed74def8b5/src/serial.rs#L118-L129
-            //     https://github.com/stm32-rs/stm32f1xx-hal/blob/68fd3d6f282173816fd3181e795988d314cb17d0/src/serial.rs#L649-L671
-
-            // let first_buffer = singleton!(: [u8; 128] = [0; 128]).unwrap();
-            // let second_buffer = singleton!(: [u8; 128] = [0; 128]).unwrap();
-            // let triple_buffer = Some(singleton!(: [u8; 128] = [0; 128]).unwrap());
-
-            let transfer = Transfer::init(
-                StreamsTuple::new(self.dma).2,
-                self.usart,
+            self.transfer = Some(&mut Transfer::init(
+                StreamsTuple::new(self.uarte.dma).7,
+                self.uarte.usart,
                 self.buf,
                 // Some(second_buffer),
                 None,
@@ -255,71 +180,7 @@ where
                     .transfer_complete_interrupt(true)
                     .memory_increment(true)
                     .double_buffer(false),
-            );
-
-            waker_interrupt!(DMA2_STREAM2, cx.waker().clone());
-            Poll::Pending
-        }
-    }
-}
-
-/// Future for the [`Uarte::receive()`] method.
-pub struct ReceiveFuture<'a, B> {
-    uarte: &'a Uarte,
-    buf: Option<B>,
-}
-
-impl<'a, B> Drop for ReceiveFuture<'a, B> {
-    fn drop(self: &mut Self) {
-        if self.uarte.rx_started() {
-            trace!("stoprx");
-
-            self.uarte
-                .instance
-                .tasks_stoprx
-                .write(|w| unsafe { w.bits(1) });
-            self.uarte.instance.events_rxstarted.reset();
-        }
-    }
-}
-
-impl<'a, B> Future for ReceiveFuture<'a, B>
-where
-    B: StaticWriteBuffer<Word = u8>,
-{
-    type Output = B;
-
-    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<B> {
-        if self.is_ready() {
-            Poll::Ready(())
-        } else {
-            // Start DMA transaction
-            compiler_fence(Ordering::SeqCst);
-            // uarte.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
-            // uarte
-            //     .txd
-            //     .maxcnt
-            //     .write(|w| unsafe { w.maxcnt().bits(len as _) });
-
-            // Start the DMA transfer
-            // See https://github.com/mwkroening/async-stm32f1xx/blob/78c46d1bff124eae4ebc7a2f4d40e6ed74def8b5/src/serial.rs#L118-L129
-            //     https://github.com/stm32-rs/stm32f1xx-hal/blob/68fd3d6f282173816fd3181e795988d314cb17d0/src/serial.rs#L649-L671
-
-            // let first_buffer = singleton!(: [u8; 128] = [0; 128]).unwrap();
-            // let second_buffer = singleton!(: [u8; 128] = [0; 128]).unwrap();
-            // let triple_buffer = Some(singleton!(: [u8; 128] = [0; 128]).unwrap());
-
-            let transfer = Transfer::init(
-                StreamsTuple::new(self.dma).7,
-                self.usart,
-                self.buf,
-                // Some(second_buffer),
-                None,
-                DmaConfig::default()
-                    .transfer_complete_interrupt(true)
-                    .memory_increment(true)
-                    .double_buffer(false),
-            );
+            ));
 
             waker_interrupt!(DMA2_STREAM7, cx.waker().clone());
             Poll::Pending
@@ -327,13 +188,46 @@ where
     }
 }
 
-/// Future for the [`receive()`] method.
-impl<'a, B> ReceiveFuture<'a, B> {
-    /// Stops the ongoing reception and returns the number of bytes received.
-    pub async fn stop(mut self) -> (B, usize) {
-        let buf = self.buf.take().unwrap();
-        drop(self);
-        let len = STATE.rx_done.wait().await;
-        (buf, len as _)
+/// Future for the [`Uarte::receive()`] method.
+pub struct ReceiveFuture<'a, B: WriteBuffer<Word = u8> + 'static> {
+    uarte: &'a Uarte,
+    transfer: Option<&'a Transfer<Stream2<DMA2>, Channel4, USART1, PeripheralToMemory, B>>,
+    buf: B,
+}
+
+impl<'a, B> Drop for ReceiveFuture<'a, B>
+where
+    B: WriteBuffer<Word = u8> + 'static,
+{
+    fn drop(self: &mut Self) {
+        drop(self.transfer);
+    }
+}
+
+impl<'a, B> Future for ReceiveFuture<'a, B>
+where
+    B: WriteBuffer<Word = u8> + 'static,
+{
+    type Output = B;
+
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<B> {
+        if !self.transfer.is_none() && self.transfer.unwrap().is_done() {
+            Poll::Ready(self.buf.take());
+        } else {
+            self.transfer = Some(&mut Transfer::init(
+                StreamsTuple::new(self.uarte.dma).2,
+                self.uarte.usart,
+                self.buf,
+                None,
+                DmaConfig::default()
+                    .transfer_complete_interrupt(true)
+                    .half_transfer_interrupt(true)
+                    .memory_increment(true)
+                    .double_buffer(false),
+            ));
+
+            waker_interrupt!(DMA2_STREAM2, cx.waker().clone());
+            Poll::Pending
+        }
     }
 }
