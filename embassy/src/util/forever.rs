@@ -22,7 +22,7 @@ impl<T> Forever<T> {
         if self
             .used
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
+            .is_err()
         {
             panic!("Forever.put() called multiple times");
         }
