@@ -9,6 +9,7 @@ pub(crate) mod fmt;
 
 pub mod executor;
 pub mod flash;
+pub mod interrupt;
 pub mod io;
 pub mod rand;
 pub mod time;

@@ -2,6 +2,7 @@ use crate::fmt::{assert, assert_eq, panic, *};
 use core::future::Future;
 
 use crate::hal::gpio::{Output, Pin as GpioPin, Port as GpioPort, PushPull};
+use crate::interrupt::{OwnedInterrupt, QSPIInterrupt};
 use crate::pac::{Interrupt, QSPI};
 
 pub use crate::pac::qspi::ifconfig0::ADDRMODE_A as AddressMode;
@@ -21,8 +22,6 @@ pub use crate::pac::qspi::ifconfig0::WRITEOC_A as WriteOpcode;
 
 use embassy::flash::{Error, Flash};
 use embassy::util::{DropBomb, Signal};
-
-use crate::interrupt;
 
 pub struct Pins {
     pub sck: GpioPin<Output<PushPull>>,
@@ -59,7 +58,7 @@ fn port_bit(port: GpioPort) -> bool {
 }
 
 impl Qspi {
-    pub fn new(qspi: QSPI, config: Config) -> Self {
+    pub fn new(qspi: QSPI, irq: QSPIInterrupt, config: Config) -> Self {
         qspi.psel.sck.write(|w| {
             let pin = &config.pins.sck;
             let w = unsafe { w.pin().bits(pin.pin()) };
@@ -146,9 +145,10 @@ impl Qspi {
         // Enable READY interrupt
         SIGNAL.reset();
         qspi.intenset.write(|w| w.ready().set());
-        interrupt::set_priority(Interrupt::QSPI, interrupt::Priority::Level7);
-        interrupt::unpend(Interrupt::QSPI);
-        interrupt::enable(Interrupt::QSPI);
+
+        irq.set_handler(irq_handler);
+        irq.unpend();
+        irq.enable();
 
         Self { inner: qspi }
     }
@@ -347,8 +347,7 @@ impl Flash for Qspi {
 
 static SIGNAL: Signal<()> = Signal::new();
 
-#[interrupt]
-unsafe fn QSPI() {
+unsafe fn irq_handler() {
     let p = crate::pac::Peripherals::steal().QSPI;
     if p.events_ready.read().events_ready().bit_is_set() {
         p.events_ready.reset();

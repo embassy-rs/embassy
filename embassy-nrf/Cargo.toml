@@ -26,6 +26,7 @@ log = { version = "0.4.11", optional = true }
 cortex-m-rt = "0.6.13"
 cortex-m        = { version = "0.6.4" }
 embedded-hal    = { version = "0.2.4" }
+embedded-dma    = { version = "0.1.2" }
 
 nrf52810-pac  = { version = "0.9.0", optional = true }
 nrf52811-pac  = { version = "0.9.1", optional = true }

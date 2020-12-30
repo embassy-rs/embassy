@@ -19,7 +19,11 @@ impl<T> Forever<T> {
     }
 
     pub fn put(&'static self, val: T) -> &'static mut T {
-        if self.used.compare_and_swap(false, true, Ordering::SeqCst) {
+        if self
+            .used
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
             panic!("Forever.put() called multiple times");
         }
 

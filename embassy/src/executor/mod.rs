@@ -105,8 +105,8 @@ impl<F: Future + 'static> Task<F> {
             if task
                 .header
                 .state
-                .compare_and_swap(0, state, Ordering::AcqRel)
-                == 0
+                .compare_exchange(0, state, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
             {
                 // Initialize the task
                 task.header.poll_fn.write(Self::poll);
@@ -214,9 +214,12 @@ impl Executor {
     /// Runs the executor until the queue is empty.
     pub fn run(&self) {
         unsafe {
-            self.timer_queue.dequeue_expired(Instant::now(), |p| {
-                self.enqueue(p);
-            });
+            if self.alarm.is_some() {
+                self.timer_queue.dequeue_expired(Instant::now(), |p| {
+                    let header = &*p;
+                    header.enqueue();
+                });
+            }
 
             self.run_queue.dequeue_all(|p| {
                 let header = &*p;

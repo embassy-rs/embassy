@@ -6,11 +6,11 @@
 mod example_common;
 use example_common::*;
 
-use core::mem::MaybeUninit;
+use core::task::Poll;
 use cortex_m_rt::entry;
 use defmt::panic;
 use embassy::executor::{task, Executor};
-use embassy::time::{Clock, Duration, Timer};
+use embassy::time::{Duration, Instant, Timer};
 use embassy::util::Forever;
 use embassy_nrf::pac;
 use embassy_nrf::{interrupt, rtc};
@@ -19,17 +19,25 @@ use nrf52840_hal::clocks;
 #[task]
 async fn run1() {
     loop {
-        info!("BIG INFREQUENT TICK");
-        Timer::after(Duration::from_ticks(64000)).await;
+        info!("DING DONG");
+        Timer::after(Duration::from_ticks(16000)).await;
     }
 }
 
 #[task]
 async fn run2() {
     loop {
-        info!("tick");
-        Timer::after(Duration::from_ticks(13000)).await;
+        Timer::at(Instant::from_ticks(0)).await;
     }
+}
+
+#[task]
+async fn run3() {
+    futures::future::poll_fn(|cx| {
+        cx.waker().wake_by_ref();
+        Poll::<()>::Pending
+    })
+    .await;
 }
 
 static RTC: Forever<rtc::RTC<pac::RTC1>> = Forever::new();
@@ -57,6 +65,7 @@ fn main() -> ! {
 
     unwrap!(executor.spawn(run1()));
     unwrap!(executor.spawn(run2()));
+    unwrap!(executor.spawn(run3()));
 
     loop {
         executor.run();

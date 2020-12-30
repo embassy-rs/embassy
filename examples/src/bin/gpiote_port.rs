@@ -8,11 +8,13 @@ use example_common::*;
 
 use core::mem;
 use cortex_m_rt::entry;
+use defmt::panic;
 use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
 use embassy::util::Forever;
 use embassy_nrf::gpiote::{Gpiote, PortInputPolarity};
+use embassy_nrf::interrupt;
 
 async fn button(g: &Gpiote, n: usize, pin: gpio::Pin<gpio::Input<gpio::PullUp>>) {
     loop {
@@ -28,7 +30,7 @@ async fn run() {
     let p = unwrap!(embassy_nrf::pac::Peripherals::take());
     let port0 = gpio::p0::Parts::new(p.P0);
 
-    let g = Gpiote::new(p.GPIOTE);
+    let g = Gpiote::new(p.GPIOTE, interrupt::take!(GPIOTE));
     info!(
         "sizeof Signal<()> = {:usize}",
         mem::size_of::<embassy::util::Signal<()>>()

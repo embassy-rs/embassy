@@ -61,7 +61,9 @@
 mod example_common;
 use example_common::*;
 
+use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
+use defmt::panic;
 use nrf52840_hal::clocks;
 
 use embassy::executor::{task, Executor};
@@ -130,7 +132,7 @@ fn main() -> ! {
         .set_lfclk_src_external(clocks::LfOscConfiguration::NoExternalNoBypass)
         .start_lfclk();
 
-    let rtc = RTC.put(rtc::RTC::new(p.RTC1));
+    let rtc = RTC.put(rtc::RTC::new(p.RTC1, interrupt::take!(RTC1)));
     rtc.start();
     unsafe { embassy::time::set_clock(rtc) };
 
@@ -138,17 +140,20 @@ fn main() -> ! {
     let executor_low = EXECUTOR_LOW.put(Executor::new_with_alarm(alarm_low, cortex_m::asm::sev));
     let alarm_med = ALARM_MED.put(rtc.alarm1());
     let executor_med = EXECUTOR_MED.put(Executor::new_with_alarm(alarm_med, || {
-        interrupt::pend(interrupt::SWI0_EGU0)
+        NVIC::pend(interrupt::SWI0_EGU0)
     }));
     let alarm_high = ALARM_HIGH.put(rtc.alarm2());
     let executor_high = EXECUTOR_HIGH.put(Executor::new_with_alarm(alarm_high, || {
-        interrupt::pend(interrupt::SWI1_EGU1)
+        NVIC::pend(interrupt::SWI1_EGU1)
     }));
 
-    interrupt::set_priority(interrupt::SWI0_EGU0, interrupt::Priority::Level7);
-    interrupt::set_priority(interrupt::SWI1_EGU1, interrupt::Priority::Level6);
-    interrupt::enable(interrupt::SWI0_EGU0);
-    interrupt::enable(interrupt::SWI1_EGU1);
+    unsafe {
+        let mut nvic: NVIC = core::mem::transmute(());
+        nvic.set_priority(interrupt::SWI0_EGU0, 7 << 5);
+        nvic.set_priority(interrupt::SWI1_EGU1, 6 << 5);
+        NVIC::unmask(interrupt::SWI0_EGU0);
+        NVIC::unmask(interrupt::SWI1_EGU1);
+    }
 
     unwrap!(executor_low.spawn(run_low()));
     unwrap!(executor_med.spawn(run_med()));
