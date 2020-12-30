@@ -105,8 +105,8 @@ impl<F: Future + 'static> Task<F> {
             if task
                 .header
                 .state
-                .compare_and_swap(0, state, Ordering::AcqRel)
-                == 0
+                .compare_exchange(0, state, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
             {
                 // Initialize the task
                 task.header.poll_fn.write(Self::poll);

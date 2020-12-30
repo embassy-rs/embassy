@@ -150,7 +150,7 @@ pub fn interrupt_take(item: TokenStream) -> TokenStream {
 
             static TAKEN: ::core::sync::atomic::AtomicBool = ::core::sync::atomic::AtomicBool::new(false);
 
-            if TAKEN.compare_and_swap(false, true, ::core::sync::atomic::Ordering::AcqRel) {
+            if TAKEN.compare_exchange(false, true, ::core::sync::atomic::Ordering::AcqRel, ::core::sync::atomic::Ordering::Acquire).is_err() {
                 panic!("IRQ Already taken");
             }
 
