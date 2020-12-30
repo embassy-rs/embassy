@@ -207,10 +207,9 @@ where
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         let Self { uarte, tx_transfer } = unsafe { self.get_unchecked_mut() };
-
-        if true {
-            // tx_transfer.unwrap().is_done() {
-            let (tx_stream, usart, buf, _) = tx_transfer.take().unwrap().free();
+        let mut taken = tx_transfer.take().unwrap();
+        if taken.is_done() {
+            let (tx_stream, usart, buf, _) = taken.free();
 
             uarte.tx_stream.replace(tx_stream);
             uarte.usart.replace(usart);
@@ -218,8 +217,6 @@ where
             Poll::Ready(())
         } else {
             waker_interrupt!(DMA2_STREAM7, cx.waker().clone());
-            // tx_transfer.take().start(|usart| {});
-            let mut taken = tx_transfer.take().unwrap();
             taken.start(|usart| {});
             tx_transfer.replace(taken);
 
