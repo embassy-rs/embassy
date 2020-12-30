@@ -132,19 +132,22 @@ impl Uarte {
     {
         let tx_stream = self.tx_stream.take().unwrap();
         let usart = self.usart.take().unwrap();
+        let mut tx_transfer = Transfer::init(
+            tx_stream,
+            usart,
+            tx_buffer,
+            None,
+            DmaConfig::default()
+                .transfer_complete_interrupt(true)
+                .memory_increment(true)
+                .double_buffer(false),
+        );
 
         SendFuture {
             uarte: self,
-            tx_transfer: Transfer::init(
-                tx_stream,
-                usart,
-                tx_buffer,
-                None,
-                DmaConfig::default()
-                    .transfer_complete_interrupt(true)
-                    .memory_increment(true)
-                    .double_buffer(false),
-            ),
+            tx_transfer: Some(tx_transfer),
+            // tx_stream: Some(tx_stream),
+            // usart: Some(usart),
         }
     }
 
@@ -164,28 +167,29 @@ impl Uarte {
     {
         let rx_stream = self.rx_stream.take().unwrap();
         let usart = self.usart.take().unwrap();
+        let mut rx_transfer = Transfer::init(
+            rx_stream,
+            usart,
+            rx_buffer,
+            None,
+            DmaConfig::default()
+                .transfer_complete_interrupt(true)
+                .half_transfer_interrupt(true)
+                .memory_increment(true)
+                .double_buffer(false),
+        );
 
         ReceiveFuture {
             uarte: self,
-            rx_transfer: Transfer::init(
-                rx_stream,
-                usart,
-                rx_buffer,
-                None,
-                DmaConfig::default()
-                    .transfer_complete_interrupt(true)
-                    .half_transfer_interrupt(true)
-                    .memory_increment(true)
-                    .double_buffer(false),
-            ),
+            rx_transfer: Some(rx_transfer),
         }
     }
 }
 
 /// Future for the [`LowPowerUarte::send()`] method.
 pub struct SendFuture<'a, B: WriteBuffer<Word = u8> + 'static> {
-    uarte: &'a Uarte,
-    tx_transfer: Transfer<Stream7<DMA2>, Channel4, USART1, MemoryToPeripheral, B>,
+    uarte: &'a mut Uarte,
+    tx_transfer: Option<Transfer<Stream7<DMA2>, Channel4, USART1, MemoryToPeripheral, B>>,
 }
 
 impl<'a, B> Drop for SendFuture<'a, B>
@@ -202,12 +206,23 @@ where
     type Output = ();
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        if self.tx_transfer.is_done() {
+        let Self { uarte, tx_transfer } = unsafe { self.get_unchecked_mut() };
+
+        if true {
+            // tx_transfer.unwrap().is_done() {
+            let (tx_stream, usart, buf, _) = tx_transfer.take().unwrap().free();
+
+            uarte.tx_stream.replace(tx_stream);
+            uarte.usart.replace(usart);
+
             Poll::Ready(())
         } else {
-            // self.0.as_mut().tx_transfer.start(|usart| {});
-
             waker_interrupt!(DMA2_STREAM7, cx.waker().clone());
+            // tx_transfer.take().start(|usart| {});
+            let mut taken = tx_transfer.take().unwrap();
+            taken.start(|usart| {});
+            tx_transfer.replace(taken);
+
             Poll::Pending
         }
     }
@@ -215,8 +230,8 @@ where
 
 /// Future for the [`Uarte::receive()`] method.
 pub struct ReceiveFuture<'a, B: WriteBuffer<Word = u8> + 'static> {
-    uarte: &'a Uarte,
-    rx_transfer: Transfer<Stream2<DMA2>, Channel4, USART1, PeripheralToMemory, B>,
+    uarte: &'a mut Uarte,
+    rx_transfer: Option<Transfer<Stream2<DMA2>, Channel4, USART1, PeripheralToMemory, B>>,
 }
 
 impl<'a, B> Drop for ReceiveFuture<'a, B>
@@ -228,28 +243,30 @@ where
 
 impl<'a, B> Future for ReceiveFuture<'a, B>
 where
-    B: WriteBuffer<Word = u8> + 'static,
+    B: WriteBuffer<Word = u8> + 'static + Unpin,
 {
-    type Output = B;
+    type Output = ();
 
-    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<B> {
-        //        if !self.transfer.is_none() && self.transfer.unwrap().is_done() {
-        //            Poll::Ready(self.buf.take());
-        //        } else {
-        //            self.transfer = Some(&mut Transfer::init(
-        //                StreamsTuple::new(self.uarte.dma).2,
-        //                self.uarte.usart,
-        //                self.buf,
-        //                None,
-        //                DmaConfig::default()
-        //                    .transfer_complete_interrupt(true)
-        //                    .half_transfer_interrupt(true)
-        //                    .memory_increment(true)
-        //                    .double_buffer(false),
-        //            ));
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let Self { uarte, rx_transfer } = unsafe { self.get_unchecked_mut() };
 
-        waker_interrupt!(DMA2_STREAM2, cx.waker().clone());
-        Poll::Pending
-        //        }
+        if true {
+            // self.rx_transfer.unwrap().is_done() {
+            let (rx_stream, usart, buf, _) = rx_transfer.take().unwrap().free();
+
+            uarte.rx_stream.replace(rx_stream);
+            uarte.usart.replace(usart);
+
+            // Poll::Ready((buf))
+            Poll::Ready(())
+        } else {
+            waker_interrupt!(DMA2_STREAM2, cx.waker().clone());
+
+            let mut taken = rx_transfer.take().unwrap();
+            taken.start(|usart| {});
+            rx_transfer.replace(taken);
+
+            Poll::Pending
+        }
     }
 }
