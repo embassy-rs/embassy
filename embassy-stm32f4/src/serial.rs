@@ -33,7 +33,7 @@ use crate::hal::rcc::Clocks;
 use crate::hal::serial::config::{
     Config as SerialConfig, DmaConfig as SerialDmaConfig, Parity, StopBits, WordLength,
 };
-use crate::hal::serial::Serial;
+use crate::hal::serial::{Event as SerialEvent, Serial};
 use crate::hal::time::Bps;
 
 use crate::interrupt;
@@ -48,9 +48,11 @@ use embedded_hal::digital::v2::OutputPin;
 
 /// Interface to the UARTE peripheral
 pub struct Uarte {
-    instance: Serial<USART1, (PA9<Alternate<AF7>>, PA10<Alternate<AF7>>)>,
-    usart: USART1,
-    dma: DMA2,
+    // tx_transfer: Transfer<Stream7<DMA2>, Channel4, USART1, MemoryToPeripheral, &mut [u8; 20]>,
+    // rx_transfer: Transfer<Stream2<DMA2>, Channel4, USART1, PeripheralToMemory, &mut [u8; 20]>,
+    tx_stream: Option<Stream7<DMA2>>,
+    rx_stream: Option<Stream2<DMA2>>,
+    usart: Option<USART1>,
 }
 
 struct State {
@@ -63,15 +65,16 @@ static STATE: State = State {
     rx_done: Signal::new(),
 };
 
-pub struct Pins {
-    pub rxd: PA10<Alternate<AF7>>,
-    pub txd: PA9<Alternate<AF7>>,
-    pub dma: DMA2,
-    pub usart: USART1,
-}
-
 impl Uarte {
-    pub fn new(mut pins: Pins, parity: Parity, baudrate: Bps, clocks: Clocks) -> Self {
+    pub fn new(
+        rxd: PA10<Alternate<AF7>>,
+        txd: PA9<Alternate<AF7>>,
+        dma: DMA2,
+        usart: USART1,
+        parity: Parity,
+        baudrate: Bps,
+        clocks: Clocks,
+    ) -> Self {
         // // Enable interrupts
         // uarte.events_endtx.reset();
         // uarte.events_endrx.reset();
@@ -83,9 +86,9 @@ impl Uarte {
         // interrupt::enable(interrupt::UARTE0_UART0);
 
         // Serial<USART1, (PA9<Alternate<AF7>>, PA10<Alternate<AF7>>)>
-        let mut serial = Serial::usart1(
-            pins.usart,
-            (pins.txd, pins.rxd),
+        let serial = Serial::usart1(
+            usart,
+            (txd, rxd),
             SerialConfig {
                 baudrate: baudrate,
                 wordlength: WordLength::DataBits8,
@@ -97,12 +100,24 @@ impl Uarte {
         )
         .unwrap();
 
-        // let is_set = dma.hifcr.read().tcif7.bit_is_set();
+        let (usart, _) = serial.release();
+
+        /*
+            Note: for our application, it would be approrpiate to listen for idle events,
+            and to establish a method to capture data until idle.
+        */
+        // serial.listen(SerialEvent::Idle);
+
+        // tx_transfer.start(|usart| {
+        //     // usart.cr2.modify(|_, w| w.swstart().start());
+        // });
+
+        let streams = StreamsTuple::new(dma);
 
         Uarte {
-            instance: serial,
-            dma: pins.dma,
-            usart: pins.usart,
+            tx_stream: Some(streams.7),
+            rx_stream: Some(streams.2),
+            usart: Some(usart),
         }
     }
 
@@ -115,10 +130,21 @@ impl Uarte {
     where
         B: WriteBuffer<Word = u8> + 'static,
     {
+        let tx_stream = self.tx_stream.take().unwrap();
+        let usart = self.usart.take().unwrap();
+
         SendFuture {
             uarte: self,
-            buf: tx_buffer,
-            transfer: None,
+            tx_transfer: Transfer::init(
+                tx_stream,
+                usart,
+                tx_buffer,
+                None,
+                DmaConfig::default()
+                    .transfer_complete_interrupt(true)
+                    .memory_increment(true)
+                    .double_buffer(false),
+            ),
         }
     }
 
@@ -136,10 +162,22 @@ impl Uarte {
     where
         B: WriteBuffer<Word = u8> + 'static,
     {
+        let rx_stream = self.rx_stream.take().unwrap();
+        let usart = self.usart.take().unwrap();
+
         ReceiveFuture {
             uarte: self,
-            buf: rx_buffer,
-            transfer: None,
+            rx_transfer: Transfer::init(
+                rx_stream,
+                usart,
+                rx_buffer,
+                None,
+                DmaConfig::default()
+                    .transfer_complete_interrupt(true)
+                    .half_transfer_interrupt(true)
+                    .memory_increment(true)
+                    .double_buffer(false),
+            ),
         }
     }
 }
@@ -147,17 +185,14 @@ impl Uarte {
 /// Future for the [`LowPowerUarte::send()`] method.
 pub struct SendFuture<'a, B: WriteBuffer<Word = u8> + 'static> {
     uarte: &'a Uarte,
-    transfer: Option<&'a Transfer<Stream7<DMA2>, Channel4, USART1, MemoryToPeripheral, B>>,
-    buf: B,
+    tx_transfer: Transfer<Stream7<DMA2>, Channel4, USART1, MemoryToPeripheral, B>,
 }
 
 impl<'a, B> Drop for SendFuture<'a, B>
 where
     B: WriteBuffer<Word = u8> + 'static,
 {
-    fn drop(self: &mut Self) {
-        drop(self.transfer);
-    }
+    fn drop(self: &mut Self) {}
 }
 
 impl<'a, B> Future for SendFuture<'a, B>
@@ -167,20 +202,10 @@ where
     type Output = ();
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        if !self.transfer.is_none() && self.transfer.unwrap().is_done() {
+        if self.tx_transfer.is_done() {
             Poll::Ready(())
         } else {
-            self.transfer = Some(&mut Transfer::init(
-                StreamsTuple::new(self.uarte.dma).7,
-                self.uarte.usart,
-                self.buf,
-                // Some(second_buffer),
-                None,
-                DmaConfig::default()
-                    .transfer_complete_interrupt(true)
-                    .memory_increment(true)
-                    .double_buffer(false),
-            ));
+            // self.0.as_mut().tx_transfer.start(|usart| {});
 
             waker_interrupt!(DMA2_STREAM7, cx.waker().clone());
             Poll::Pending
@@ -191,17 +216,14 @@ where
 /// Future for the [`Uarte::receive()`] method.
 pub struct ReceiveFuture<'a, B: WriteBuffer<Word = u8> + 'static> {
     uarte: &'a Uarte,
-    transfer: Option<&'a Transfer<Stream2<DMA2>, Channel4, USART1, PeripheralToMemory, B>>,
-    buf: B,
+    rx_transfer: Transfer<Stream2<DMA2>, Channel4, USART1, PeripheralToMemory, B>,
 }
 
 impl<'a, B> Drop for ReceiveFuture<'a, B>
 where
     B: WriteBuffer<Word = u8> + 'static,
 {
-    fn drop(self: &mut Self) {
-        drop(self.transfer);
-    }
+    fn drop(self: &mut Self) {}
 }
 
 impl<'a, B> Future for ReceiveFuture<'a, B>
@@ -211,23 +233,23 @@ where
     type Output = B;
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<B> {
-        if !self.transfer.is_none() && self.transfer.unwrap().is_done() {
-            Poll::Ready(self.buf.take());
-        } else {
-            self.transfer = Some(&mut Transfer::init(
-                StreamsTuple::new(self.uarte.dma).2,
-                self.uarte.usart,
-                self.buf,
-                None,
-                DmaConfig::default()
-                    .transfer_complete_interrupt(true)
-                    .half_transfer_interrupt(true)
-                    .memory_increment(true)
-                    .double_buffer(false),
-            ));
+        //        if !self.transfer.is_none() && self.transfer.unwrap().is_done() {
+        //            Poll::Ready(self.buf.take());
+        //        } else {
+        //            self.transfer = Some(&mut Transfer::init(
+        //                StreamsTuple::new(self.uarte.dma).2,
+        //                self.uarte.usart,
+        //                self.buf,
+        //                None,
+        //                DmaConfig::default()
+        //                    .transfer_complete_interrupt(true)
+        //                    .half_transfer_interrupt(true)
+        //                    .memory_increment(true)
+        //                    .double_buffer(false),
+        //            ));
 
-            waker_interrupt!(DMA2_STREAM2, cx.waker().clone());
-            Poll::Pending
-        }
+        waker_interrupt!(DMA2_STREAM2, cx.waker().clone());
+        Poll::Pending
+        //        }
     }
 }
