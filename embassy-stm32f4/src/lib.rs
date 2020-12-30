@@ -361,6 +361,6 @@ macro_rules! waker_interrupt {
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-pub mod uarte;
+pub mod serial;
 
 pub use cortex_m_rt::interrupt;

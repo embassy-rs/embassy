@@ -6,6 +6,7 @@ members = [
     "embassy-stm32f4",
     "embassy-macros",
     "examples",
+    "examples-stm32f4",
 ]
 
 exclude = [
