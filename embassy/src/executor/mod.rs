@@ -216,7 +216,8 @@ impl Executor {
         unsafe {
             if self.alarm.is_some() {
                 self.timer_queue.dequeue_expired(Instant::now(), |p| {
-                    self.enqueue(p);
+                    let header = &*p;
+                    header.enqueue();
                 });
             }
 
