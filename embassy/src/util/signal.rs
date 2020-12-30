@@ -62,4 +62,13 @@ impl<T: Send> Signal<T> {
     pub fn wait(&self) -> impl Future<Output = T> + '_ {
         futures::future::poll_fn(move |cx| self.poll_wait(cx))
     }
+
+    /// Blocks until the signal has been received.
+    ///
+    /// Returns immediately when [`poll_wait()`] has not been called before.
+    pub fn blocking_wait(&self) {
+        while cortex_m::interrupt::free(|_| {
+            matches!(unsafe { &*self.state.get() }, State::Waiting(_))
+        }) {}
+    }
 }
