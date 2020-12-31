@@ -55,9 +55,9 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
 
     let mut arg_names: syn::punctuated::Punctuated<syn::Ident, syn::Token![,]> =
         syn::punctuated::Punctuated::new();
-    let args = &task_fn.sig.inputs;
+    let mut args = task_fn.sig.inputs.clone();
 
-    for arg in args.iter() {
+    for arg in args.iter_mut() {
         match arg {
             syn::FnArg::Receiver(_) => {
                 arg.span()
@@ -66,8 +66,11 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
                     .emit();
                 fail = true;
             }
-            syn::FnArg::Typed(t) => match t.pat.as_ref() {
-                syn::Pat::Ident(i) => arg_names.push(i.ident.clone()),
+            syn::FnArg::Typed(t) => match t.pat.as_mut() {
+                syn::Pat::Ident(i) => {
+                    arg_names.push(i.ident.clone());
+                    i.mutability = None;
+                }
                 _ => {
                     arg.span()
                         .unwrap()
