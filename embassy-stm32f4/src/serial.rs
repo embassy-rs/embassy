@@ -65,8 +65,10 @@ static STATE: State = State {
 
 impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
     pub fn new(
-        rxd: PA10<Alternate<AF7>>,
         txd: PA9<Alternate<AF7>>,
+        rxd: PA10<Alternate<AF7>>,
+        tx_int: interrupt::DMA2_STREAM2Interrupt,
+        rx_int: interrupt::DMA2_STREAM7Interrupt,
         dma: DMA2,
         usart: USART1,
         parity: Parity,
