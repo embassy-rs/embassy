@@ -27,7 +27,7 @@ cortex-m        = { version = "0.6.3" }
 cortex-m-rt = "0.6.13"
 embedded-hal    = { version = "0.2.4" }
 panic-probe = "0.1.0"
-stm32f4xx-hal  = { version = "0.8.3", features = ["rt", "stm32f405"], git = "https://github.com/xoviat/stm32f4xx-hal.git", branch = "dma-is-done"}
+stm32f4xx-hal  = { version = "0.8.3", features = ["rt", "stm32f405"], git = "https://github.com/stm32-rs/stm32f4xx-hal.git"}
 futures = { version = "0.3.8", default-features = false, features = ["async-await"] }
 cortex-m-rtic = "0.5"
 rtt-target = { version = "0.3", features = ["cortex-m"] }
