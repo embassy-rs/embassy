@@ -1,4 +1,4 @@
-//! Async low power UARTE.
+//! Async low power Serial.
 //!
 //! The peripheral is autmatically enabled and disabled as required to save power.
 //! Lowest power consumption can only be guaranteed if the send receive futures
@@ -34,7 +34,7 @@ use crate::hal::rcc::Clocks;
 use crate::hal::serial::config::{
     Config as SerialConfig, DmaConfig as SerialDmaConfig, Parity, StopBits, WordLength,
 };
-use crate::hal::serial::{Event as SerialEvent, Serial};
+use crate::hal::serial::{Event as SerialEvent, Serial as HalSerial};
 use crate::hal::time::Bps;
 
 use crate::interrupt;
@@ -44,8 +44,8 @@ use crate::pac::{DMA2, USART1};
 
 use embedded_hal::digital::v2::OutputPin;
 
-/// Interface to the UARTE peripheral
-pub struct Uarte<USART: PeriAddress<MemSize = u8>, TSTREAM: Stream, RSTREAM: Stream> {
+/// Interface to the Serial peripheral
+pub struct Serial<USART: PeriAddress<MemSize = u8>, TSTREAM: Stream, RSTREAM: Stream> {
     // tx_transfer: Transfer<Stream7<DMA2>, Channel4, USART1, MemoryToPeripheral, &mut [u8; 20]>,
     // rx_transfer: Transfer<Stream2<DMA2>, Channel4, USART1, PeripheralToMemory, &mut [u8; 20]>,
     tx_stream: Option<TSTREAM>,
@@ -63,7 +63,7 @@ static STATE: State = State {
     rx_done: Signal::new(),
 };
 
-impl Uarte<USART1, Stream7<DMA2>, Stream2<DMA2>> {
+impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
     pub fn new(
         rxd: PA10<Alternate<AF7>>,
         txd: PA9<Alternate<AF7>>,
@@ -73,7 +73,7 @@ impl Uarte<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         baudrate: Bps,
         clocks: Clocks,
     ) -> Self {
-        let serial = Serial::usart1(
+        let serial = HalSerial::usart1(
             usart,
             (txd, rxd),
             SerialConfig {
@@ -93,7 +93,7 @@ impl Uarte<USART1, Stream7<DMA2>, Stream2<DMA2>> {
 
         let streams = StreamsTuple::new(dma);
 
-        Uarte {
+        Serial {
             tx_stream: Some(streams.7),
             rx_stream: Some(streams.2),
             usart: Some(usart),
@@ -126,7 +126,7 @@ impl Uarte<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         );
 
         SendFuture {
-            uarte: self,
+            Serial: self,
             tx_transfer: Some(tx_transfer),
             // tx_stream: Some(tx_stream),
             // usart: Some(usart),
@@ -165,13 +165,13 @@ impl Uarte<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         );
 
         ReceiveFuture {
-            uarte: self,
+            Serial: self,
             rx_transfer: Some(rx_transfer),
         }
     }
 }
 
-/// Future for the [`LowPowerUarte::send()`] method.
+/// Future for the [`LowPowerSerial::send()`] method.
 pub struct SendFuture<
     'a,
     B: WriteBuffer<Word = u8> + 'static,
@@ -180,7 +180,7 @@ pub struct SendFuture<
     RSTREAM: Stream,
     CHANNEL,
 > {
-    uarte: &'a mut Uarte<USART, TSTREAM, RSTREAM>,
+    Serial: &'a mut Serial<USART, TSTREAM, RSTREAM>,
     tx_transfer: Option<Transfer<TSTREAM, CHANNEL, USART, MemoryToPeripheral, B>>,
 }
 
@@ -198,13 +198,16 @@ where
     type Output = ();
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        let Self { uarte, tx_transfer } = unsafe { self.get_unchecked_mut() };
+        let Self {
+            Serial,
+            tx_transfer,
+        } = unsafe { self.get_unchecked_mut() };
         let mut taken = tx_transfer.take().unwrap();
         if Stream7::<DMA2>::get_transfer_complete_flag() {
             let (tx_stream, usart, buf, _) = taken.free();
 
-            uarte.tx_stream.replace(tx_stream);
-            uarte.usart.replace(usart);
+            Serial.tx_stream.replace(tx_stream);
+            Serial.usart.replace(usart);
 
             Poll::Ready(())
         } else {
@@ -217,7 +220,7 @@ where
     }
 }
 
-/// Future for the [`Uarte::receive()`] method.
+/// Future for the [`Serial::receive()`] method.
 pub struct ReceiveFuture<
     'a,
     B: WriteBuffer<Word = u8> + 'static,
@@ -226,7 +229,7 @@ pub struct ReceiveFuture<
     RSTREAM: Stream,
     CHANNEL,
 > {
-    uarte: &'a mut Uarte<USART, TSTREAM, RSTREAM>,
+    Serial: &'a mut Serial<USART, TSTREAM, RSTREAM>,
     rx_transfer: Option<Transfer<RSTREAM, CHANNEL, USART, PeripheralToMemory, B>>,
 }
 
@@ -244,14 +247,17 @@ where
     type Output = B;
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<B> {
-        let Self { uarte, rx_transfer } = unsafe { self.get_unchecked_mut() };
+        let Self {
+            Serial,
+            rx_transfer,
+        } = unsafe { self.get_unchecked_mut() };
         let mut taken = rx_transfer.take().unwrap();
 
         if Stream7::<DMA2>::get_transfer_complete_flag() {
             let (rx_stream, usart, buf, _) = rx_transfer.take().unwrap().free();
 
-            uarte.rx_stream.replace(rx_stream);
-            uarte.usart.replace(usart);
+            Serial.rx_stream.replace(rx_stream);
+            Serial.usart.replace(usart);
 
             Poll::Ready(buf)
         } else {

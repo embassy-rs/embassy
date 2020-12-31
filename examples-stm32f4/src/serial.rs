@@ -26,7 +26,7 @@ async fn run(dp: stm32::Peripherals, cp: cortex_m::Peripherals) {
         .pclk1(24.mhz())
         .freeze();
 
-    let mut serial = serial::Uarte::new(
+    let mut serial = serial::Serial::new(
         gpioa.pa10.into_alternate_af7(),
         gpioa.pa9.into_alternate_af7(),
         dp.DMA2,
