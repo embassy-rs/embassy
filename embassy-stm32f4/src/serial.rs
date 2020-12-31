@@ -20,6 +20,7 @@ use embedded_dma::{StaticReadBuffer, StaticWriteBuffer, WriteBuffer};
 
 use crate::fmt::assert;
 use crate::hal::dma::config::DmaConfig;
+use crate::hal::dma::traits::{PeriAddress, Stream};
 use crate::hal::dma::{
     Channel4, Channel7, MemoryToPeripheral, PeripheralToMemory, Stream2, Stream7, StreamsTuple,
     Transfer,
@@ -161,7 +162,10 @@ impl Uarte {
     /// `rx_buffer` is marked as static as per `embedded-dma` requirements.
     /// It it safe to use a buffer with a non static lifetime if memory is not
     /// reused until the future has finished.
-    pub fn receive<'a, B>(&'a mut self, rx_buffer: B) -> ReceiveFuture<'a, B>
+    pub fn receive<'a, B>(
+        &'a mut self,
+        rx_buffer: B,
+    ) -> ReceiveFuture<'a, B, Stream2<DMA2>, Channel4>
     where
         B: WriteBuffer<Word = u8> + 'static,
     {
@@ -208,7 +212,7 @@ where
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         let Self { uarte, tx_transfer } = unsafe { self.get_unchecked_mut() };
         let mut taken = tx_transfer.take().unwrap();
-        if taken.is_done() {
+        if Stream7::<DMA2>::get_transfer_complete_flag() {
             let (tx_stream, usart, buf, _) = taken.free();
 
             uarte.tx_stream.replace(tx_stream);
@@ -226,19 +230,24 @@ where
 }
 
 /// Future for the [`Uarte::receive()`] method.
-pub struct ReceiveFuture<'a, B: WriteBuffer<Word = u8> + 'static> {
+pub struct ReceiveFuture<'a, B: WriteBuffer<Word = u8> + 'static, STREAM: Stream, CHANNEL> {
     uarte: &'a mut Uarte,
-    rx_transfer: Option<Transfer<Stream2<DMA2>, Channel4, USART1, PeripheralToMemory, B>>,
+    rx_transfer: Option<Transfer<STREAM, CHANNEL, USART1, PeripheralToMemory, B>>,
 }
 
-impl<'a, B> Drop for ReceiveFuture<'a, B>
-where
-    B: WriteBuffer<Word = u8> + 'static,
-{
-    fn drop(self: &mut Self) {}
-}
+// pub struct ReceiveFuture<'a, B: WriteBuffer<Word = u8> + 'static, DMA, STREAM, CHANNEL> {
+//     uarte: &'a mut Uarte,
+//     rx_transfer: Option<Transfer<Stream2<DMA2>, Channel4, USART1, PeripheralToMemory, B>>,
+// }
 
-impl<'a, B> Future for ReceiveFuture<'a, B>
+// impl<'a, B> Drop for ReceiveFuture<'a, B, USART1, Stream7<DMA2>, Channel4>
+// where
+//     B: WriteBuffer<Word = u8> + 'static,
+// {
+//     fn drop(self: &mut Self) {}
+// }
+
+impl<'a, B> Future for ReceiveFuture<'a, B, Stream2<DMA2>, Channel4>
 where
     B: WriteBuffer<Word = u8> + 'static + Unpin,
 {
@@ -247,7 +256,8 @@ where
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<B> {
         let Self { uarte, rx_transfer } = unsafe { self.get_unchecked_mut() };
         let mut taken = rx_transfer.take().unwrap();
-        if taken.is_done() {
+
+        if Stream7::<DMA2>::get_transfer_complete_flag() {
             let (rx_stream, usart, buf, _) = rx_transfer.take().unwrap().free();
 
             uarte.rx_stream.replace(rx_stream);
