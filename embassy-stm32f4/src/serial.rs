@@ -242,20 +242,18 @@ impl<'a, B> Future for ReceiveFuture<'a, B>
 where
     B: WriteBuffer<Word = u8> + 'static + Unpin,
 {
-    type Output = ();
+    type Output = B;
 
-    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<B> {
         let Self { uarte, rx_transfer } = unsafe { self.get_unchecked_mut() };
 
         if true {
-            // self.rx_transfer.unwrap().is_done() {
             let (rx_stream, usart, buf, _) = rx_transfer.take().unwrap().free();
 
             uarte.rx_stream.replace(rx_stream);
             uarte.usart.replace(usart);
 
-            // Poll::Ready((buf))
-            Poll::Ready(())
+            Poll::Ready(buf)
         } else {
             waker_interrupt!(DMA2_STREAM2, cx.waker().clone());
 
