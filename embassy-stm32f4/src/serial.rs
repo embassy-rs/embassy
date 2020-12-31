@@ -44,16 +44,13 @@ use crate::pac::{DMA2, USART1};
 
 use embedded_hal::digital::v2::OutputPin;
 
-// Re-export SVD variants to allow user to directly set values.
-// pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
-
 /// Interface to the UARTE peripheral
-pub struct Uarte {
+pub struct Uarte<USART: PeriAddress<MemSize = u8>, TSTREAM: Stream, RSTREAM: Stream> {
     // tx_transfer: Transfer<Stream7<DMA2>, Channel4, USART1, MemoryToPeripheral, &mut [u8; 20]>,
     // rx_transfer: Transfer<Stream2<DMA2>, Channel4, USART1, PeripheralToMemory, &mut [u8; 20]>,
-    tx_stream: Option<Stream7<DMA2>>,
-    rx_stream: Option<Stream2<DMA2>>,
-    usart: Option<USART1>,
+    tx_stream: Option<TSTREAM>,
+    rx_stream: Option<RSTREAM>,
+    usart: Option<USART>,
 }
 
 struct State {
@@ -66,7 +63,7 @@ static STATE: State = State {
     rx_done: Signal::new(),
 };
 
-impl Uarte {
+impl Uarte<USART1, Stream7<DMA2>, Stream2<DMA2>> {
     pub fn new(
         rxd: PA10<Alternate<AF7>>,
         txd: PA9<Alternate<AF7>>,
@@ -76,17 +73,6 @@ impl Uarte {
         baudrate: Bps,
         clocks: Clocks,
     ) -> Self {
-        // // Enable interrupts
-        // uarte.events_endtx.reset();
-        // uarte.events_endrx.reset();
-        // uarte
-        //     .intenset
-        //     .write(|w| w.endtx().set().txstopped().set().endrx().set().rxto().set());
-        // // TODO: Set interrupt priority?
-        // interrupt::unpend(interrupt::UARTE0_UART0);
-        // interrupt::enable(interrupt::UARTE0_UART0);
-
-        // Serial<USART1, (PA9<Alternate<AF7>>, PA10<Alternate<AF7>>)>
         let serial = Serial::usart1(
             usart,
             (txd, rxd),
@@ -103,15 +89,7 @@ impl Uarte {
 
         let (usart, _) = serial.release();
 
-        /*
-            Note: for our application, it would be approrpiate to listen for idle events,
-            and to establish a method to capture data until idle.
-        */
         // serial.listen(SerialEvent::Idle);
-
-        // tx_transfer.start(|usart| {
-        //     // usart.cr2.modify(|_, w| w.swstart().start());
-        // });
 
         let streams = StreamsTuple::new(dma);
 
@@ -130,7 +108,7 @@ impl Uarte {
     pub fn send<'a, B>(
         &'a mut self,
         tx_buffer: B,
-    ) -> SendFuture<'a, B, USART1, Stream7<DMA2>, Channel4>
+    ) -> SendFuture<'a, B, USART1, Stream7<DMA2>, Stream2<DMA2>, Channel4>
     where
         B: WriteBuffer<Word = u8> + 'static,
     {
@@ -168,7 +146,7 @@ impl Uarte {
     pub fn receive<'a, B>(
         &'a mut self,
         rx_buffer: B,
-    ) -> ReceiveFuture<'a, B, USART1, Stream2<DMA2>, Channel4>
+    ) -> ReceiveFuture<'a, B, USART1, Stream7<DMA2>, Stream2<DMA2>, Channel4>
     where
         B: WriteBuffer<Word = u8> + 'static,
     {
@@ -198,11 +176,12 @@ pub struct SendFuture<
     'a,
     B: WriteBuffer<Word = u8> + 'static,
     USART: PeriAddress<MemSize = u8>,
-    STREAM: Stream,
+    TSTREAM: Stream,
+    RSTREAM: Stream,
     CHANNEL,
 > {
-    uarte: &'a mut Uarte,
-    tx_transfer: Option<Transfer<STREAM, CHANNEL, USART, MemoryToPeripheral, B>>,
+    uarte: &'a mut Uarte<USART, TSTREAM, RSTREAM>,
+    tx_transfer: Option<Transfer<TSTREAM, CHANNEL, USART, MemoryToPeripheral, B>>,
 }
 
 // impl<'a, B> Drop for SendFuture<'a, B>
@@ -212,7 +191,7 @@ pub struct SendFuture<
 //     fn drop(self: &mut Self) {}
 // }
 
-impl<'a, B> Future for SendFuture<'a, B, USART1, Stream7<DMA2>, Channel4>
+impl<'a, B> Future for SendFuture<'a, B, USART1, Stream7<DMA2>, Stream2<DMA2>, Channel4>
 where
     B: WriteBuffer<Word = u8> + 'static,
 {
@@ -243,17 +222,13 @@ pub struct ReceiveFuture<
     'a,
     B: WriteBuffer<Word = u8> + 'static,
     USART: PeriAddress<MemSize = u8>,
-    STREAM: Stream,
+    TSTREAM: Stream,
+    RSTREAM: Stream,
     CHANNEL,
 > {
-    uarte: &'a mut Uarte,
-    rx_transfer: Option<Transfer<STREAM, CHANNEL, USART, PeripheralToMemory, B>>,
+    uarte: &'a mut Uarte<USART, TSTREAM, RSTREAM>,
+    rx_transfer: Option<Transfer<RSTREAM, CHANNEL, USART, PeripheralToMemory, B>>,
 }
-
-// pub struct ReceiveFuture<'a, B: WriteBuffer<Word = u8> + 'static, DMA, STREAM, CHANNEL> {
-//     uarte: &'a mut Uarte,
-//     rx_transfer: Option<Transfer<Stream2<DMA2>, Channel4, USART1, PeripheralToMemory, B>>,
-// }
 
 // impl<'a, B> Drop for ReceiveFuture<'a, B, USART1, Stream7<DMA2>, Channel4>
 // where
@@ -262,7 +237,7 @@ pub struct ReceiveFuture<
 //     fn drop(self: &mut Self) {}
 // }
 
-impl<'a, B> Future for ReceiveFuture<'a, B, USART1, Stream2<DMA2>, Channel4>
+impl<'a, B> Future for ReceiveFuture<'a, B, USART1, Stream7<DMA2>, Stream2<DMA2>, Channel4>
 where
     B: WriteBuffer<Word = u8> + 'static + Unpin,
 {
