@@ -127,7 +127,10 @@ impl Uarte {
     /// `tx_buffer` is marked as static as per `embedded-dma` requirements.
     /// It it safe to use a buffer with a non static lifetime if memory is not
     /// reused until the future has finished.
-    pub fn send<'a, B>(&'a mut self, tx_buffer: B) -> SendFuture<'a, B>
+    pub fn send<'a, B>(
+        &'a mut self,
+        tx_buffer: B,
+    ) -> SendFuture<'a, B, USART1, Stream7<DMA2>, Channel4>
     where
         B: WriteBuffer<Word = u8> + 'static,
     {
@@ -165,7 +168,7 @@ impl Uarte {
     pub fn receive<'a, B>(
         &'a mut self,
         rx_buffer: B,
-    ) -> ReceiveFuture<'a, B, Stream2<DMA2>, Channel4>
+    ) -> ReceiveFuture<'a, B, USART1, Stream2<DMA2>, Channel4>
     where
         B: WriteBuffer<Word = u8> + 'static,
     {
@@ -191,19 +194,25 @@ impl Uarte {
 }
 
 /// Future for the [`LowPowerUarte::send()`] method.
-pub struct SendFuture<'a, B: WriteBuffer<Word = u8> + 'static> {
-    uarte: &'a mut Uarte,
-    tx_transfer: Option<Transfer<Stream7<DMA2>, Channel4, USART1, MemoryToPeripheral, B>>,
-}
-
-impl<'a, B> Drop for SendFuture<'a, B>
-where
+pub struct SendFuture<
+    'a,
     B: WriteBuffer<Word = u8> + 'static,
-{
-    fn drop(self: &mut Self) {}
+    USART: PeriAddress<MemSize = u8>,
+    STREAM: Stream,
+    CHANNEL,
+> {
+    uarte: &'a mut Uarte,
+    tx_transfer: Option<Transfer<STREAM, CHANNEL, USART, MemoryToPeripheral, B>>,
 }
 
-impl<'a, B> Future for SendFuture<'a, B>
+// impl<'a, B> Drop for SendFuture<'a, B>
+// where
+//     B: WriteBuffer<Word = u8> + 'static,
+// {
+//     fn drop(self: &mut Self) {}
+// }
+
+impl<'a, B> Future for SendFuture<'a, B, USART1, Stream7<DMA2>, Channel4>
 where
     B: WriteBuffer<Word = u8> + 'static,
 {
@@ -230,9 +239,15 @@ where
 }
 
 /// Future for the [`Uarte::receive()`] method.
-pub struct ReceiveFuture<'a, B: WriteBuffer<Word = u8> + 'static, STREAM: Stream, CHANNEL> {
+pub struct ReceiveFuture<
+    'a,
+    B: WriteBuffer<Word = u8> + 'static,
+    USART: PeriAddress<MemSize = u8>,
+    STREAM: Stream,
+    CHANNEL,
+> {
     uarte: &'a mut Uarte,
-    rx_transfer: Option<Transfer<STREAM, CHANNEL, USART1, PeripheralToMemory, B>>,
+    rx_transfer: Option<Transfer<STREAM, CHANNEL, USART, PeripheralToMemory, B>>,
 }
 
 // pub struct ReceiveFuture<'a, B: WriteBuffer<Word = u8> + 'static, DMA, STREAM, CHANNEL> {
@@ -247,7 +262,7 @@ pub struct ReceiveFuture<'a, B: WriteBuffer<Word = u8> + 'static, STREAM: Stream
 //     fn drop(self: &mut Self) {}
 // }
 
-impl<'a, B> Future for ReceiveFuture<'a, B, Stream2<DMA2>, Channel4>
+impl<'a, B> Future for ReceiveFuture<'a, B, USART1, Stream2<DMA2>, Channel4>
 where
     B: WriteBuffer<Word = u8> + 'static + Unpin,
 {
