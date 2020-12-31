@@ -4,31 +4,20 @@
 //! Lowest power consumption can only be guaranteed if the send receive futures
 //! are dropped correctly (e.g. not using `mem::forget()`).
 
-use core::cell::UnsafeCell;
-use core::cmp::min;
 use core::future::Future;
-use core::marker::PhantomPinned;
-use core::ops::Deref;
-use core::pin::Pin;
-use core::ptr;
-use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
-use cortex_m::singleton;
 
+use embassy::interrupt::OwnedInterrupt;
 use embassy::util::Signal;
 use embedded_dma::{StaticReadBuffer, StaticWriteBuffer, WriteBuffer};
 
-use crate::fmt::assert;
 use crate::hal::dma::config::DmaConfig;
 use crate::hal::dma::traits::{PeriAddress, Stream};
 use crate::hal::dma::{
-    Channel4, Channel7, MemoryToPeripheral, PeripheralToMemory, Stream2, Stream7, StreamsTuple,
-    Transfer,
+    Channel4, MemoryToPeripheral, PeripheralToMemory, Stream2, Stream7, StreamsTuple, Transfer,
 };
 use crate::hal::gpio::gpioa::{PA10, PA9};
-use crate::hal::gpio::{Alternate, AF10, AF7, AF9};
-use crate::hal::gpio::{Floating, Input, Output, PushPull};
-use crate::hal::pac;
+use crate::hal::gpio::{Alternate, AF7};
 use crate::hal::prelude::*;
 use crate::hal::rcc::Clocks;
 use crate::hal::serial::config::{
@@ -42,8 +31,6 @@ use crate::interrupt;
 use crate::pac::Interrupt;
 use crate::pac::{DMA2, USART1};
 
-use embedded_hal::digital::v2::OutputPin;
-
 /// Interface to the Serial peripheral
 pub struct Serial<USART: PeriAddress<MemSize = u8>, TSTREAM: Stream, RSTREAM: Stream> {
     // tx_transfer: Transfer<Stream7<DMA2>, Channel4, USART1, MemoryToPeripheral, &mut [u8; 20]>,
@@ -55,7 +42,7 @@ pub struct Serial<USART: PeriAddress<MemSize = u8>, TSTREAM: Stream, RSTREAM: St
 
 struct State {
     tx_done: Signal<()>,
-    rx_done: Signal<u32>,
+    rx_done: Signal<()>,
 }
 
 static STATE: State = State {
@@ -93,6 +80,15 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
 
         // serial.listen(SerialEvent::Idle);
 
+        // Register ISR
+        tx_int.set_handler(Self::on_tx_irq);
+        tx_int.unpend();
+        tx_int.enable();
+
+        rx_int.set_handler(Self::on_rx_irq);
+        rx_int.unpend();
+        rx_int.enable();
+
         let streams = StreamsTuple::new(dma);
 
         Serial {
@@ -102,6 +98,13 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         }
     }
 
+    unsafe fn on_tx_irq() {
+        STATE.tx_done.signal(());
+    }
+
+    unsafe fn on_rx_irq() {
+        STATE.rx_done.signal(());
+    }
     /// Sends serial data.
     ///
     /// `tx_buffer` is marked as static as per `embedded-dma` requirements.
@@ -126,6 +129,8 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
                 .memory_increment(true)
                 .double_buffer(false),
         );
+
+        STATE.tx_done.reset();
 
         SendFuture {
             Serial: self,
@@ -165,6 +170,8 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
                 .memory_increment(true)
                 .double_buffer(false),
         );
+
+        STATE.rx_done.reset();
 
         ReceiveFuture {
             Serial: self,
@@ -213,11 +220,12 @@ where
 
             Poll::Ready(())
         } else {
-            waker_interrupt!(DMA2_STREAM7, cx.waker().clone());
-            taken.start(|usart| {});
+            // waker_interrupt!(DMA2_STREAM7, cx.waker().clone());
+            taken.start(|_usart| {});
             tx_transfer.replace(taken);
 
-            Poll::Pending
+            // Poll::Pending
+            STATE.tx_done.poll_wait(cx)
         }
     }
 }
@@ -263,11 +271,18 @@ where
 
             Poll::Ready(buf)
         } else {
-            waker_interrupt!(DMA2_STREAM2, cx.waker().clone());
+            // waker_interrupt!(DMA2_STREAM2, cx.waker().clone());
 
-            taken.start(|usart| {});
+            taken.start(|_usart| {});
             rx_transfer.replace(taken);
 
+            STATE.rx_done.poll_wait(cx);
+
+            /*
+                Note: we have to do this because rx_transfer owns the buffer and we can't
+                      access it until the transfer is completed. Therefore we can't pass
+                      the buffer to poll_wait, but we still need to be woken.
+            */
             Poll::Pending
         }
     }
