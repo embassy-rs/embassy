@@ -27,17 +27,26 @@ async fn run(mut uart: uarte::Uarte<pac::UARTE0>) {
     uart.send(&buf).await;
     info!("wrote hello in uart!");
 
-    info!("reading...");
     loop {
-        let received = match select(
-            uart.receive(&mut buf),
-            Timer::after(Duration::from_millis(10)),
-        )
-        .await
-        {
+        info!("reading...");
+
+        // `receive()` doesn't return until the buffer has been completely filled with
+        // incoming data, which in this case is 8 bytes.
+        //
+        // This example shows how to use `select` to run an uart receive concurrently with a
+        // 1 second timer, effectively adding a timeout to the receive operation.
+        let recv_fut = uart.receive(&mut buf);
+        let timer_fut = Timer::after(Duration::from_millis(1000));
+        let received = match select(recv_fut, timer_fut).await {
+            // recv_fut completed first, so we've received `buf_len` bytes.
             Either::Left((buf, _)) => buf,
-            Either::Right((_, read)) => {
-                let (buf, n) = read.stop().await;
+            // timer_fut completed first. `select` gives us back the future that didn't complete, which
+            // is `recv_fut` in this case, so we can do further stuff with it.
+            //
+            // The recv_fut would stop the uart read automatically when dropped. However, we want to know how
+            // many bytes have been received, so we have to "gracefully stop" it with `.stop()`.
+            Either::Right((_, recv_fut)) => {
+                let (buf, n) = recv_fut.stop().await;
                 &buf[..n]
             }
         };
