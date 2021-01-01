@@ -26,7 +26,7 @@ use crate::pac::{uarte0, UARTE0};
 pub use uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
 use embassy::io::{AsyncBufRead, AsyncWrite, Result};
-use embassy::util::WakerStore;
+use embassy::util::WakerRegistration;
 
 use crate::fmt::{assert, panic, todo, *};
 
@@ -147,11 +147,11 @@ pub struct UarteState<T: Instance> {
 
     rx: RingBuf,
     rx_state: RxState,
-    rx_waker: WakerStore,
+    rx_waker: WakerRegistration,
 
     tx: RingBuf,
     tx_state: TxState,
-    tx_waker: WakerStore,
+    tx_waker: WakerRegistration,
 
     _pin: PhantomPinned,
 }
@@ -233,11 +233,11 @@ impl<T: Instance> BufferedUarte<T> {
 
                 rx: RingBuf::new(),
                 rx_state: RxState::Idle,
-                rx_waker: WakerStore::new(),
+                rx_waker: WakerRegistration::new(),
 
                 tx: RingBuf::new(),
                 tx_state: TxState::Idle,
-                tx_waker: WakerStore::new(),
+                tx_waker: WakerRegistration::new(),
 
                 _pin: PhantomPinned,
             }),
@@ -327,7 +327,7 @@ impl<T: Instance> UarteState<T> {
             this.inner.tasks_stoprx.write(|w| unsafe { w.bits(1) });
         }
 
-        this.rx_waker.store(cx.waker());
+        this.rx_waker.register(cx.waker());
         Poll::Pending
     }
 
@@ -346,7 +346,7 @@ impl<T: Instance> UarteState<T> {
         let tx_buf = this.tx.push_buf();
         if tx_buf.len() == 0 {
             trace!("poll_write: pending");
-            this.tx_waker.store(cx.waker());
+            this.tx_waker.register(cx.waker());
             return Poll::Pending;
         }
 
