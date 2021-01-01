@@ -3,8 +3,8 @@
 members = [
     "embassy",
     "embassy-nrf",
+    "embassy-nrf-examples",
     "embassy-macros",
-    "examples",
 ]
 
 exclude = [

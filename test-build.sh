@@ -2,9 +2,6 @@
 
 set -euxo pipefail
 
-# examples
-(cd examples; cargo build --target thumbv7em-none-eabi --bins)
-
 # embassy std
 (cd embassy; cargo build --features log,std)
 
@@ -14,6 +11,9 @@ set -euxo pipefail
 (cd embassy; cargo build --target thumbv7em-none-eabi --features defmt)
 
 # embassy-nrf
+
+(cd embassy-nrf-examples; cargo build --target thumbv7em-none-eabi --bins)
+
 (cd embassy-nrf; cargo build --target thumbv7em-none-eabi --features 52810)
 #(cd embassy-nrf; cargo build --target thumbv7em-none-eabi --features 52811)  # nrf52811-hal doesn't exist yet
 (cd embassy-nrf; cargo build --target thumbv7em-none-eabi --features 52832)
