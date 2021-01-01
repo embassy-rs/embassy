@@ -43,11 +43,13 @@ pub struct Serial<USART: PeriAddress<MemSize = u8>, TSTREAM: Stream, RSTREAM: St
 struct State {
     tx_done: Signal<()>,
     rx_done: Signal<()>,
+    dma_done: Signal<()>,
 }
 
 static STATE: State = State {
     tx_done: Signal::new(),
     rx_done: Signal::new(),
+    dma_done: Signal::new(),
 };
 
 impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
@@ -56,13 +58,14 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         rxd: PA10<Alternate<AF7>>,
         tx_int: interrupt::DMA2_STREAM2Interrupt,
         rx_int: interrupt::DMA2_STREAM7Interrupt,
+        usart_int: interrupt::USART1Interrupt,
         dma: DMA2,
         usart: USART1,
         parity: Parity,
         baudrate: Bps,
         clocks: Clocks,
     ) -> Self {
-        let serial = HalSerial::usart1(
+        let mut serial = HalSerial::usart1(
             usart,
             (txd, rxd),
             SerialConfig {
@@ -76,9 +79,10 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         )
         .unwrap();
 
-        let (usart, _) = serial.release();
+        serial.listen(SerialEvent::Idle);
+        serial.listen(SerialEvent::Txe);
 
-        // serial.listen(SerialEvent::Idle);
+        let (usart, _) = serial.release();
 
         // Register ISR
         tx_int.set_handler(Self::on_tx_irq);
@@ -88,6 +92,10 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         rx_int.set_handler(Self::on_rx_irq);
         rx_int.unpend();
         rx_int.enable();
+
+        // usart_int.set_handler(Self::on_usart_irq);
+        // usart_int.unpend();
+        // usart_int.enable();
 
         let streams = StreamsTuple::new(dma);
 
@@ -105,38 +113,50 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
     unsafe fn on_rx_irq() {
         STATE.rx_done.signal(());
     }
+
+    unsafe fn on_usart_irq() {
+        /*
+            TODO: Signal tx_done if txe
+        */
+
+        /*
+            TODO: Signal rx_done if idle
+        */
+
+        // STATE.rx_done.signal(());
+    }
     /// Sends serial data.
     ///
     /// `tx_buffer` is marked as static as per `embedded-dma` requirements.
     /// It it safe to use a buffer with a non static lifetime if memory is not
     /// reused until the future has finished.
-    pub fn send<'a, B>(
-        &'a mut self,
-        tx_buffer: B,
-    ) -> SendFuture<'a, B, USART1, Stream7<DMA2>, Stream2<DMA2>, Channel4>
+    pub fn send<'a, B>(&'a mut self, tx_buffer: B) -> impl Future<Output = ()> + 'a
     where
         B: WriteBuffer<Word = u8> + 'static,
     {
         let tx_stream = self.tx_stream.take().unwrap();
         let usart = self.usart.take().unwrap();
-        let mut tx_transfer = Transfer::init(
-            tx_stream,
-            usart,
-            tx_buffer,
-            None,
-            DmaConfig::default()
-                .transfer_complete_interrupt(true)
-                .memory_increment(true)
-                .double_buffer(false),
-        );
-
         STATE.tx_done.reset();
 
-        SendFuture {
-            Serial: self,
-            tx_transfer: Some(tx_transfer),
-            // tx_stream: Some(tx_stream),
-            // usart: Some(usart),
+        async move {
+            let mut tx_transfer = Transfer::init(
+                tx_stream,
+                usart,
+                tx_buffer,
+                None,
+                DmaConfig::default()
+                    .transfer_complete_interrupt(true)
+                    .memory_increment(true)
+                    .double_buffer(false),
+            );
+
+            tx_transfer.start(|_usart| {});
+
+            STATE.tx_done.wait().await;
+
+            let (tx_stream, usart, _buf, _) = tx_transfer.free();
+            self.tx_stream.replace(tx_stream);
+            self.usart.replace(usart);
         }
     }
 
@@ -150,140 +170,35 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
     /// `rx_buffer` is marked as static as per `embedded-dma` requirements.
     /// It it safe to use a buffer with a non static lifetime if memory is not
     /// reused until the future has finished.
-    pub fn receive<'a, B>(
-        &'a mut self,
-        rx_buffer: B,
-    ) -> ReceiveFuture<'a, B, USART1, Stream7<DMA2>, Stream2<DMA2>, Channel4>
+    pub fn receive<'a, B>(&'a mut self, rx_buffer: B) -> impl Future<Output = B> + 'a
     where
-        B: WriteBuffer<Word = u8> + 'static,
+        B: WriteBuffer<Word = u8> + 'static + Unpin,
     {
         let rx_stream = self.rx_stream.take().unwrap();
         let usart = self.usart.take().unwrap();
-        let mut rx_transfer = Transfer::init(
-            rx_stream,
-            usart,
-            rx_buffer,
-            None,
-            DmaConfig::default()
-                .transfer_complete_interrupt(true)
-                .half_transfer_interrupt(true)
-                .memory_increment(true)
-                .double_buffer(false),
-        );
-
         STATE.rx_done.reset();
 
-        ReceiveFuture {
-            Serial: self,
-            rx_transfer: Some(rx_transfer),
-        }
-    }
-}
+        async move {
+            let mut rx_transfer = Transfer::init(
+                rx_stream,
+                usart,
+                rx_buffer,
+                None,
+                DmaConfig::default()
+                    .transfer_complete_interrupt(true)
+                    .memory_increment(true)
+                    .double_buffer(false),
+            );
 
-/// Future for the [`LowPowerSerial::send()`] method.
-pub struct SendFuture<
-    'a,
-    B: WriteBuffer<Word = u8> + 'static,
-    USART: PeriAddress<MemSize = u8>,
-    TSTREAM: Stream,
-    RSTREAM: Stream,
-    CHANNEL,
-> {
-    Serial: &'a mut Serial<USART, TSTREAM, RSTREAM>,
-    tx_transfer: Option<Transfer<TSTREAM, CHANNEL, USART, MemoryToPeripheral, B>>,
-}
+            rx_transfer.start(|_usart| {});
 
-// impl<'a, B> Drop for SendFuture<'a, B>
-// where
-//     B: WriteBuffer<Word = u8> + 'static,
-// {
-//     fn drop(self: &mut Self) {}
-// }
+            STATE.rx_done.wait().await;
 
-impl<'a, B> Future for SendFuture<'a, B, USART1, Stream7<DMA2>, Stream2<DMA2>, Channel4>
-where
-    B: WriteBuffer<Word = u8> + 'static,
-{
-    type Output = ();
+            let (rx_stream, usart, buf, _) = rx_transfer.free();
+            self.rx_stream.replace(rx_stream);
+            self.usart.replace(usart);
 
-    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        let Self {
-            Serial,
-            tx_transfer,
-        } = unsafe { self.get_unchecked_mut() };
-        let mut taken = tx_transfer.take().unwrap();
-        if Stream7::<DMA2>::get_transfer_complete_flag() {
-            let (tx_stream, usart, buf, _) = taken.free();
-
-            Serial.tx_stream.replace(tx_stream);
-            Serial.usart.replace(usart);
-
-            Poll::Ready(())
-        } else {
-            // waker_interrupt!(DMA2_STREAM7, cx.waker().clone());
-            taken.start(|_usart| {});
-            tx_transfer.replace(taken);
-
-            // Poll::Pending
-            STATE.tx_done.poll_wait(cx)
-        }
-    }
-}
-
-/// Future for the [`Serial::receive()`] method.
-pub struct ReceiveFuture<
-    'a,
-    B: WriteBuffer<Word = u8> + 'static,
-    USART: PeriAddress<MemSize = u8>,
-    TSTREAM: Stream,
-    RSTREAM: Stream,
-    CHANNEL,
-> {
-    Serial: &'a mut Serial<USART, TSTREAM, RSTREAM>,
-    rx_transfer: Option<Transfer<RSTREAM, CHANNEL, USART, PeripheralToMemory, B>>,
-}
-
-// impl<'a, B> Drop for ReceiveFuture<'a, B, USART1, Stream7<DMA2>, Channel4>
-// where
-//     B: WriteBuffer<Word = u8> + 'static,
-// {
-//     fn drop(self: &mut Self) {}
-// }
-
-impl<'a, B> Future for ReceiveFuture<'a, B, USART1, Stream7<DMA2>, Stream2<DMA2>, Channel4>
-where
-    B: WriteBuffer<Word = u8> + 'static + Unpin,
-{
-    type Output = B;
-
-    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<B> {
-        let Self {
-            Serial,
-            rx_transfer,
-        } = unsafe { self.get_unchecked_mut() };
-        let mut taken = rx_transfer.take().unwrap();
-
-        if Stream7::<DMA2>::get_transfer_complete_flag() {
-            let (rx_stream, usart, buf, _) = rx_transfer.take().unwrap().free();
-
-            Serial.rx_stream.replace(rx_stream);
-            Serial.usart.replace(usart);
-
-            Poll::Ready(buf)
-        } else {
-            // waker_interrupt!(DMA2_STREAM2, cx.waker().clone());
-
-            taken.start(|_usart| {});
-            rx_transfer.replace(taken);
-
-            STATE.rx_done.poll_wait(cx);
-
-            /*
-                Note: we have to do this because rx_transfer owns the buffer and we can't
-                      access it until the transfer is completed. Therefore we can't pass
-                      the buffer to poll_wait, but we still need to be woken.
-            */
-            Poll::Pending
+            buf
         }
     }
 }

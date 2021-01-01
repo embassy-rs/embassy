@@ -32,6 +32,7 @@ async fn run(dp: stm32::Peripherals, cp: cortex_m::Peripherals) {
         gpioa.pa10.into_alternate_af7(),
         interrupt::take!(DMA2_STREAM2),
         interrupt::take!(DMA2_STREAM7),
+        interrupt::take!(USART1),
         dp.DMA2,
         dp.USART1,
         config::Parity::ParityNone,
