@@ -12,25 +12,18 @@ use core::pin::Pin;
 use core::ptr;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
-
-use embedded_hal::digital::v2::OutputPin;
-
-use crate::hal::gpio::{Floating, Input, Output, Pin as GpioPin, Port as GpioPort, PushPull};
-use crate::interrupt;
-use crate::interrupt::{CriticalSection, OwnedInterrupt};
-#[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
-use crate::pac::UARTE1;
-use crate::pac::{uarte0, UARTE0};
-
-// Re-export SVD variants to allow user to directly set values
-pub use uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
-
 use embassy::io::{AsyncBufRead, AsyncWrite, Result};
 use embassy::util::WakerRegistration;
+use embedded_hal::digital::v2::OutputPin;
 
 use crate::fmt::{assert, panic, todo, *};
+use crate::hal::gpio::Port as GpioPort;
+use crate::interrupt::{self, CriticalSection, OwnedInterrupt};
+use crate::pac::uarte0;
 
-//use crate::trace;
+// Re-export SVD variants to allow user to directly set values
+pub use crate::hal::uarte::Pins;
+pub use uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
 const RINGBUF_SIZE: usize = 512;
 struct RingBuf {
@@ -504,13 +497,6 @@ impl<T: Instance> UarteState<T> {
     }
 }
 
-pub struct Pins {
-    pub rxd: GpioPin<Input<Floating>>,
-    pub txd: GpioPin<Output<PushPull>>,
-    pub cts: Option<GpioPin<Input<Floating>>>,
-    pub rts: Option<GpioPin<Output<PushPull>>>,
-}
-
 mod private {
     pub trait Sealed {}
 
@@ -529,11 +515,11 @@ pub trait Instance: Deref<Target = uarte0::RegisterBlock> + Sized + private::Sea
     fn set_state(_cs: &CriticalSection, state: *mut UarteState<Self>);
 }
 
-static mut UARTE0_STATE: *mut UarteState<UARTE0> = ptr::null_mut();
+static mut UARTE0_STATE: *mut UarteState<crate::pac::UARTE0> = ptr::null_mut();
 #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
-static mut UARTE1_STATE: *mut UarteState<UARTE1> = ptr::null_mut();
+static mut UARTE1_STATE: *mut UarteState<crate::pac::UARTE1> = ptr::null_mut();
 
-impl Instance for UARTE0 {
+impl Instance for crate::pac::UARTE0 {
     type Interrupt = interrupt::UARTE0_UART0Interrupt;
 
     fn get_state(_cs: &CriticalSection) -> *mut UarteState<Self> {
@@ -545,7 +531,7 @@ impl Instance for UARTE0 {
 }
 
 #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
-impl Instance for UARTE1 {
+impl Instance for crate::pac::UARTE1 {
     type Interrupt = interrupt::UARTE1Interrupt;
 
     fn get_state(_cs: &CriticalSection) -> *mut UarteState<Self> {
