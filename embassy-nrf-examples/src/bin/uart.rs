@@ -10,6 +10,7 @@ use cortex_m_rt::entry;
 use defmt::panic;
 use embassy::executor::{task, Executor};
 use embassy::time::{Duration, Timer};
+use embassy::uart::Uart;
 use embassy::util::Forever;
 use embassy_nrf::{interrupt, pac, rtc, uarte};
 use futures::future::{select, Either};
@@ -24,7 +25,7 @@ async fn run(mut uart: uarte::Uarte<pac::UARTE0>) {
     let mut buf = [0; 8];
     buf.copy_from_slice(b"Hello!\r\n");
 
-    uart.send(&buf).await;
+    unwrap!(uart.send(&buf).await);
     info!("wrote hello in uart!");
 
     loop {
@@ -54,7 +55,7 @@ async fn run(mut uart: uarte::Uarte<pac::UARTE0>) {
             info!("read done, got {:[u8]}", received);
 
             // Echo back received data
-            uart.send(received).await;
+            unwrap!(uart.send(received).await);
         }
     }
 }

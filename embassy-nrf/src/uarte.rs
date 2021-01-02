@@ -139,49 +139,8 @@ where
         self.instance.enable.write(|w| w.enable().enabled());
     }
 
-    /// Sends serial data.
-    ///
-    /// `tx_buffer` is marked as static as per `embedded-dma` requirements.
-    /// It it safe to use a buffer with a non static lifetime if memory is not
-    /// reused until the future has finished.
-    pub fn send<'a>(&'a mut self, tx_buffer: &'a [u8]) -> SendFuture<'a, T> {
-        // Panic if TX is running which can happen if the user has called
-        // `mem::forget()` on a previous future after polling it once.
-        assert!(!self.tx_started());
-
-        self.enable();
-
-        SendFuture {
-            uarte: self,
-            buf: tx_buffer,
-        }
-    }
-
     fn tx_started(&self) -> bool {
         self.instance.events_txstarted.read().bits() != 0
-    }
-
-    /// Receives serial data.
-    ///
-    /// The future is pending until the buffer is completely filled.
-    /// A common pattern is to use [`stop()`](ReceiveFuture::stop) to cancel
-    /// unfinished transfers after a timeout to prevent lockup when no more data
-    /// is incoming.
-    ///
-    /// `rx_buffer` is marked as static as per `embedded-dma` requirements.
-    /// It it safe to use a buffer with a non static lifetime if memory is not
-    /// reused until the future has finished.
-    pub fn receive<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> ReceiveFuture<'a, T> {
-        // Panic if RX is running which can happen if the user has called
-        // `mem::forget()` on a previous future after polling it once.
-        assert!(!self.rx_started());
-
-        self.enable();
-
-        ReceiveFuture {
-            uarte: self,
-            buf: rx_buffer,
-        }
     }
 
     fn rx_started(&self) -> bool {
@@ -231,6 +190,52 @@ where
     }
 }
 
+impl<T: Instance> embassy::uart::Uart for Uarte<T> {
+    type ReceiveFuture<'a> = ReceiveFuture<'a, T>;
+    type SendFuture<'a> = SendFuture<'a, T>;
+
+    /// Sends serial data.
+    ///
+    /// `tx_buffer` is marked as static as per `embedded-dma` requirements.
+    /// It it safe to use a buffer with a non static lifetime if memory is not
+    /// reused until the future has finished.
+    fn send<'a>(&'a mut self, tx_buffer: &'a [u8]) -> SendFuture<'a, T> {
+        // Panic if TX is running which can happen if the user has called
+        // `mem::forget()` on a previous future after polling it once.
+        assert!(!self.tx_started());
+
+        self.enable();
+
+        SendFuture {
+            uarte: self,
+            buf: tx_buffer,
+        }
+    }
+
+    /// Receives serial data.
+    ///
+    /// The future is pending until the buffer is completely filled.
+    /// A common pattern is to use [`stop()`](ReceiveFuture::stop) to cancel
+    /// unfinished transfers after a timeout to prevent lockup when no more data
+    /// is incoming.
+    ///
+    /// `rx_buffer` is marked as static as per `embedded-dma` requirements.
+    /// It it safe to use a buffer with a non static lifetime if memory is not
+    /// reused until the future has finished.
+    fn receive<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> ReceiveFuture<'a, T> {
+        // Panic if RX is running which can happen if the user has called
+        // `mem::forget()` on a previous future after polling it once.
+        assert!(!self.rx_started());
+
+        self.enable();
+
+        ReceiveFuture {
+            uarte: self,
+            buf: rx_buffer,
+        }
+    }
+}
+
 /// Future for the [`Uarte::send()`] method.
 pub struct SendFuture<'a, T>
 where
@@ -263,9 +268,9 @@ impl<'a, T> Future for SendFuture<'a, T>
 where
     T: Instance,
 {
-    type Output = ();
+    type Output = Result<(), embassy::uart::Error>;
 
-    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let Self { uarte, buf } = unsafe { self.get_unchecked_mut() };
 
         if !uarte.tx_started() {
@@ -289,7 +294,7 @@ where
             uarte.tasks_starttx.write(|w| unsafe { w.bits(1) });
         }
 
-        T::state().tx_done.poll_wait(cx)
+        T::state().tx_done.poll_wait(cx).map(|()| Ok(()))
     }
 }
 
@@ -324,7 +329,7 @@ impl<'a, T> Future for ReceiveFuture<'a, T>
 where
     T: Instance,
 {
-    type Output = ();
+    type Output = Result<(), embassy::uart::Error>;
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let Self { uarte, buf } = unsafe { self.get_unchecked_mut() };
@@ -349,7 +354,7 @@ where
             uarte.tasks_startrx.write(|w| unsafe { w.bits(1) });
         }
 
-        T::state().rx_done.poll_wait(cx).map(|_| ())
+        T::state().rx_done.poll_wait(cx).map(|_| Ok(()))
     }
 }
 
@@ -370,7 +375,9 @@ mod private {
     pub trait Sealed {}
 }
 
-pub trait Instance: Deref<Target = pac::uarte0::RegisterBlock> + Sized + private::Sealed {
+pub trait Instance:
+    Deref<Target = pac::uarte0::RegisterBlock> + Sized + private::Sealed + 'static
+{
     type Interrupt: OwnedInterrupt;
 
     #[doc(hidden)]
