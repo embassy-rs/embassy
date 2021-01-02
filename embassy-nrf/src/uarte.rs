@@ -10,7 +10,6 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
 use embassy::util::Signal;
-use embedded_dma::{ReadBuffer, WriteBuffer};
 
 use crate::fmt::{assert, *};
 #[cfg(any(feature = "52833", feature = "52840"))]
@@ -145,10 +144,7 @@ where
     /// `tx_buffer` is marked as static as per `embedded-dma` requirements.
     /// It it safe to use a buffer with a non static lifetime if memory is not
     /// reused until the future has finished.
-    pub fn send<'a, B>(&'a mut self, tx_buffer: B) -> SendFuture<'a, T, B>
-    where
-        B: ReadBuffer<Word = u8>,
-    {
+    pub fn send<'a>(&'a mut self, tx_buffer: &'a [u8]) -> SendFuture<'a, T> {
         // Panic if TX is running which can happen if the user has called
         // `mem::forget()` on a previous future after polling it once.
         assert!(!self.tx_started());
@@ -175,10 +171,7 @@ where
     /// `rx_buffer` is marked as static as per `embedded-dma` requirements.
     /// It it safe to use a buffer with a non static lifetime if memory is not
     /// reused until the future has finished.
-    pub fn receive<'a, B>(&'a mut self, rx_buffer: B) -> ReceiveFuture<'a, T, B>
-    where
-        B: WriteBuffer<Word = u8>,
-    {
+    pub fn receive<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> ReceiveFuture<'a, T> {
         // Panic if RX is running which can happen if the user has called
         // `mem::forget()` on a previous future after polling it once.
         assert!(!self.rx_started());
@@ -187,7 +180,7 @@ where
 
         ReceiveFuture {
             uarte: self,
-            buf: Some(rx_buffer),
+            buf: rx_buffer,
         }
     }
 
@@ -239,15 +232,15 @@ where
 }
 
 /// Future for the [`Uarte::send()`] method.
-pub struct SendFuture<'a, T, B>
+pub struct SendFuture<'a, T>
 where
     T: Instance,
 {
     uarte: &'a Uarte<T>,
-    buf: B,
+    buf: &'a [u8],
 }
 
-impl<'a, T, B> Drop for SendFuture<'a, T, B>
+impl<'a, T> Drop for SendFuture<'a, T>
 where
     T: Instance,
 {
@@ -266,10 +259,9 @@ where
     }
 }
 
-impl<'a, T, B> Future for SendFuture<'a, T, B>
+impl<'a, T> Future for SendFuture<'a, T>
 where
     T: Instance,
-    B: ReadBuffer<Word = u8>,
 {
     type Output = ();
 
@@ -281,7 +273,8 @@ where
 
             T::state().tx_done.reset();
 
-            let (ptr, len) = unsafe { buf.read_buffer() };
+            let ptr = buf.as_ptr();
+            let len = buf.len();
             assert!(len <= EASY_DMA_SIZE);
             // TODO: panic if buffer is not in SRAM
 
@@ -301,15 +294,15 @@ where
 }
 
 /// Future for the [`Uarte::receive()`] method.
-pub struct ReceiveFuture<'a, T, B>
+pub struct ReceiveFuture<'a, T>
 where
     T: Instance,
 {
     uarte: &'a Uarte<T>,
-    buf: Option<B>,
+    buf: &'a mut [u8],
 }
 
-impl<'a, T, B> Drop for ReceiveFuture<'a, T, B>
+impl<'a, T> Drop for ReceiveFuture<'a, T>
 where
     T: Instance,
 {
@@ -327,14 +320,13 @@ where
     }
 }
 
-impl<'a, T, B> Future for ReceiveFuture<'a, T, B>
+impl<'a, T> Future for ReceiveFuture<'a, T>
 where
     T: Instance,
-    B: WriteBuffer<Word = u8>,
 {
-    type Output = B;
+    type Output = ();
 
-    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<B> {
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let Self { uarte, buf } = unsafe { self.get_unchecked_mut() };
 
         if !uarte.rx_started() {
@@ -342,7 +334,8 @@ where
 
             T::state().rx_done.reset();
 
-            let (ptr, len) = unsafe { buf.as_mut().unwrap().write_buffer() };
+            let ptr = buf.as_ptr();
+            let len = buf.len();
             assert!(len <= EASY_DMA_SIZE);
 
             compiler_fence(Ordering::SeqCst);
@@ -356,24 +349,20 @@ where
             uarte.tasks_startrx.write(|w| unsafe { w.bits(1) });
         }
 
-        T::state()
-            .rx_done
-            .poll_wait(cx)
-            .map(|_| buf.take().unwrap())
+        T::state().rx_done.poll_wait(cx).map(|_| ())
     }
 }
 
 /// Future for the [`receive()`] method.
-impl<'a, T, B> ReceiveFuture<'a, T, B>
+impl<'a, T> ReceiveFuture<'a, T>
 where
     T: Instance,
 {
     /// Stops the ongoing reception and returns the number of bytes received.
-    pub async fn stop(mut self) -> (B, usize) {
-        let buf = self.buf.take().unwrap();
+    pub async fn stop(self) -> usize {
         drop(self);
         let len = T::state().rx_done.wait().await;
-        (buf, len as _)
+        len as _
     }
 }
 
