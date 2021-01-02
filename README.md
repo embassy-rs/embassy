@@ -11,15 +11,17 @@ Embassy is a project to make async/await a first-class option for embedded devel
 - `embassy::time`: `Clock` and `Alarm` traits. Std-like `Duration` and `Instant`.
 - More traits for SPI, I2C, UART async HAL coming soon.
 
-## Executor with timers
+## Executor
 
-The `embassy::executor` module provides an async/await executor based on [static-executor](https://github.com/Dirbaio/static-executor).
+The `embassy::executor` module provides an async/await executor designed for embedded usage.
 
 - No `alloc`, no heap needed. Task futures are statically allocated.
-- Integrated timer queue allows simple sleeping: `Timer::after(Duration::from_ticks(64000)).await;`.
-- Suitable for low-power operation. Using interrupts or `WFE/SEV` ensures the CPU sleeps when there's no work to do. No busy-loop polling.
+- No "fixed capacity" data structures, executor works with 1 or 1000 tasks without needing config/tuning.
+- Integrated timer queue: sleeping is easy, just do `Timer::after(Duration::from_secs(1)).await;`.
+- No busy-loop polling: CPU sleeps when there's no work to do, using interrupts or `WFE/SEV`.
+- Efficient polling: a wake will only poll the woken task, not all of them.
+- Fair: a task can't monopolize CPU time even if it's constantly being woken. All other tasks get a chance to run before a given task gets polled for the second time.
 - Creating multiple executor instances is supported, to run tasks with multiple priority levels. This allows higher-priority tasks to preempt lower-priority tasks.
-- Compatible with RTIC (example coming soon).
 
 ## Utils
 
@@ -54,9 +56,7 @@ cargo run --bin rtc_async
 
 ## Minimum supported Rust version (MSRV)
 
-`rustc 1.48.0-nightly (1fd5b9d51 2020-09-20)`
-
-Any recent nightly should work. Nightly is required for:
+Only recent nighly supported. Nightly is required for:
 
 - `generic_associated_types`: for trait funcs returning futures.
 - `type_alias_impl_trait`: for trait funcs returning futures implemented with `async{}` blocks, and for `static-executor`.
