@@ -313,7 +313,7 @@ where
 {
     fn drop(self: &mut Self) {
         if self.uarte.rx_started() {
-            trace!("stoprx");
+            trace!("stoprx (drop)");
 
             self.uarte.instance.events_rxstarted.reset();
             self.uarte
@@ -364,9 +364,20 @@ where
     T: Instance,
 {
     /// Stops the ongoing reception and returns the number of bytes received.
-    pub async fn stop(self) -> usize {
-        drop(self);
-        let len = T::state().rx_done.wait().await;
+    pub async fn stop(mut self) -> usize {
+        let len = if self.uarte.rx_started() {
+            trace!("stoprx (stop)");
+
+            self.uarte.instance.events_rxstarted.reset();
+            self.uarte
+                .instance
+                .tasks_stoprx
+                .write(|w| unsafe { w.bits(1) });
+            T::state().rx_done.wait().await
+        } else {
+            // Transfer was stopped before it even started. No bytes were sent.
+            0
+        };
         len as _
     }
 }
