@@ -17,8 +17,8 @@ use crate::hal::gpio::Port as GpioPort;
 use crate::hal::pac;
 use crate::hal::prelude::*;
 use crate::hal::target_constants::EASY_DMA_SIZE;
-use crate::interrupt;
 use crate::interrupt::OwnedInterrupt;
+use crate::{interrupt, util};
 
 pub use crate::hal::uarte::Pins;
 // Re-export SVD variants to allow user to directly set values.
@@ -275,7 +275,9 @@ where
                 .instance
                 .tasks_stoptx
                 .write(|w| unsafe { w.bits(1) });
-            T::state().tx_done.blocking_wait();
+
+            // TX is stopped almost instantly, spinning is fine.
+            while !T::state().tx_done.signaled() {}
         }
     }
 }
@@ -342,7 +344,8 @@ where
                 .instance
                 .tasks_stoprx
                 .write(|w| unsafe { w.bits(1) });
-            T::state().rx_done.blocking_wait();
+
+            util::low_power_wait_until(|| T::state().rx_done.signaled())
         }
     }
 }
@@ -361,7 +364,7 @@ where
                 let ptr = buf.as_ptr();
                 let len = buf.len();
                 assert!(len <= EASY_DMA_SIZE);
-                
+
                 uarte.enable();
 
                 compiler_fence(Ordering::SeqCst);
@@ -394,7 +397,7 @@ where
     T: Instance,
 {
     /// Stops the ongoing reception and returns the number of bytes received.
-    pub async fn stop(mut self) -> usize {
+    pub async fn stop(self) -> usize {
         let len = if self.uarte.rx_started() {
             trace!("stoprx (stop)");
 
