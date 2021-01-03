@@ -131,6 +131,8 @@ where
     }
 
     pub fn free(self) -> (T, T::Interrupt, Pins) {
+        // Wait for the peripheral to be disabled from the ISR.
+        while self.instance.enable.read().enable().is_enabled() {}
         (self.instance, self.irq, self.pins)
     }
 
