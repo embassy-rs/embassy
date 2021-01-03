@@ -430,6 +430,7 @@ impl Instance for pac::UARTE0 {
     }
 }
 
+#[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
 impl Instance for pac::UARTE1 {
     type Interrupt = interrupt::UARTE1Interrupt;
     fn storage() -> &'static peripheral::Store<State<'static, Self>> {
