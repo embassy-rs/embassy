@@ -156,6 +156,13 @@ where
             uarte.events_endtx.reset();
             trace!("endtx");
             compiler_fence(Ordering::SeqCst);
+
+            if uarte.events_txstarted.read().bits() != 0 {
+                // The ENDTX was signal triggered because DMA has finished.
+                uarte.events_txstarted.reset();
+                try_disable = true;
+            }
+
             T::state().tx_done.signal(());
         }
 
@@ -211,6 +218,7 @@ impl<T: Instance> embassy::uart::Uart for Uarte<T> {
         // `mem::forget()` on a previous future after polling it once.
         assert!(!self.tx_started());
 
+        T::state().tx_done.reset();
         self.enable();
 
         SendFuture {
@@ -281,28 +289,28 @@ where
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let Self { uarte, buf } = unsafe { self.get_unchecked_mut() };
 
-        if !uarte.tx_started() {
-            let uarte = &uarte.instance;
+        match T::state().tx_done.poll_wait(cx) {
+            Poll::Pending if !uarte.tx_started() => {
+                let uarte = &uarte.instance;
+                let ptr = buf.as_ptr();
+                let len = buf.len();
+                assert!(len <= EASY_DMA_SIZE);
+                // TODO: panic if buffer is not in SRAM
 
-            T::state().tx_done.reset();
+                compiler_fence(Ordering::SeqCst);
+                uarte.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
+                uarte
+                    .txd
+                    .maxcnt
+                    .write(|w| unsafe { w.maxcnt().bits(len as _) });
 
-            let ptr = buf.as_ptr();
-            let len = buf.len();
-            assert!(len <= EASY_DMA_SIZE);
-            // TODO: panic if buffer is not in SRAM
-
-            compiler_fence(Ordering::SeqCst);
-            uarte.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
-            uarte
-                .txd
-                .maxcnt
-                .write(|w| unsafe { w.maxcnt().bits(len as _) });
-
-            trace!("starttx");
-            uarte.tasks_starttx.write(|w| unsafe { w.bits(1) });
+                trace!("starttx");
+                uarte.tasks_starttx.write(|w| unsafe { w.bits(1) });
+                Poll::Pending
+            }
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(_) => Poll::Ready(Ok(())),
         }
-
-        T::state().tx_done.poll_wait(cx).map(|()| Ok(()))
     }
 }
 
