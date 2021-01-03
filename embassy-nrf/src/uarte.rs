@@ -219,7 +219,6 @@ impl<T: Instance> embassy::uart::Uart for Uarte<T> {
         assert!(!self.tx_started());
 
         T::state().tx_done.reset();
-        self.enable();
 
         SendFuture {
             uarte: self,
@@ -243,7 +242,6 @@ impl<T: Instance> embassy::uart::Uart for Uarte<T> {
         assert!(!self.rx_started());
 
         T::state().rx_done.reset();
-        self.enable();
 
         ReceiveFuture {
             uarte: self,
@@ -257,7 +255,7 @@ pub struct SendFuture<'a, T>
 where
     T: Instance,
 {
-    uarte: &'a Uarte<T>,
+    uarte: &'a mut Uarte<T>,
     buf: &'a [u8],
 }
 
@@ -295,6 +293,8 @@ where
             assert!(len <= EASY_DMA_SIZE);
             // TODO: panic if buffer is not in SRAM
 
+            uarte.enable();
+
             compiler_fence(Ordering::SeqCst);
             uarte
                 .instance
@@ -323,7 +323,7 @@ pub struct ReceiveFuture<'a, T>
 where
     T: Instance,
 {
-    uarte: &'a Uarte<T>,
+    uarte: &'a mut Uarte<T>,
     buf: &'a mut [u8],
 }
 
@@ -359,6 +359,8 @@ where
                 let ptr = buf.as_ptr();
                 let len = buf.len();
                 assert!(len <= EASY_DMA_SIZE);
+                
+                uarte.enable();
 
                 compiler_fence(Ordering::SeqCst);
                 uarte
