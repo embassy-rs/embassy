@@ -289,27 +289,31 @@ where
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let Self { uarte, buf } = unsafe { self.get_unchecked_mut() };
 
-        match T::state().tx_done.poll_wait(cx) {
-            Poll::Pending if !uarte.tx_started() => {
-                let uarte = &uarte.instance;
-                let ptr = buf.as_ptr();
-                let len = buf.len();
-                assert!(len <= EASY_DMA_SIZE);
-                // TODO: panic if buffer is not in SRAM
+        if T::state().tx_done.poll_wait(cx).is_pending() {
+            let ptr = buf.as_ptr();
+            let len = buf.len();
+            assert!(len <= EASY_DMA_SIZE);
+            // TODO: panic if buffer is not in SRAM
 
-                compiler_fence(Ordering::SeqCst);
-                uarte.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
-                uarte
-                    .txd
-                    .maxcnt
-                    .write(|w| unsafe { w.maxcnt().bits(len as _) });
+            compiler_fence(Ordering::SeqCst);
+            uarte
+                .instance
+                .txd
+                .ptr
+                .write(|w| unsafe { w.ptr().bits(ptr as u32) });
+            uarte
+                .instance
+                .txd
+                .maxcnt
+                .write(|w| unsafe { w.maxcnt().bits(len as _) });
 
-                trace!("starttx");
-                uarte.tasks_starttx.write(|w| unsafe { w.bits(1) });
-                Poll::Pending
-            }
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(_) => Poll::Ready(Ok(())),
+            trace!("starttx");
+            uarte.instance.tasks_starttx.write(|w| unsafe { w.bits(1) });
+            while !uarte.tx_started() {} // Make sure transmission has started
+
+            Poll::Pending
+        } else {
+            Poll::Ready(Ok(()))
         }
     }
 }
@@ -352,21 +356,26 @@ where
 
         match T::state().rx_done.poll_wait(cx) {
             Poll::Pending if !uarte.rx_started() => {
-                let uarte = &uarte.instance;
-
                 let ptr = buf.as_ptr();
                 let len = buf.len();
                 assert!(len <= EASY_DMA_SIZE);
 
                 compiler_fence(Ordering::SeqCst);
-                uarte.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
                 uarte
+                    .instance
+                    .rxd
+                    .ptr
+                    .write(|w| unsafe { w.ptr().bits(ptr as u32) });
+                uarte
+                    .instance
                     .rxd
                     .maxcnt
                     .write(|w| unsafe { w.maxcnt().bits(len as _) });
 
                 trace!("startrx");
-                uarte.tasks_startrx.write(|w| unsafe { w.bits(1) });
+                uarte.instance.tasks_startrx.write(|w| unsafe { w.bits(1) });
+                while !uarte.rx_started() {} // Make sure reception has started
+
                 Poll::Pending
             }
             Poll::Pending => Poll::Pending,
