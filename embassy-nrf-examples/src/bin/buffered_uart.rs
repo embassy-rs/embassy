@@ -8,14 +8,16 @@ use example_common::*;
 
 use cortex_m_rt::entry;
 use defmt::panic;
-use futures::pin_mut;
 use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
-use embassy::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
+use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy::util::Forever;
 use embassy_nrf::buffered_uarte;
 use embassy_nrf::interrupt;
+
+static mut TX_BUFFER: [u8; 4096] = [0; 4096];
+static mut RX_BUFFER: [u8; 4096] = [0; 4096];
 
 #[task]
 async fn run() {
@@ -34,14 +36,15 @@ async fn run() {
     };
 
     let irq = interrupt::take!(UARTE0_UART0);
-    let u = buffered_uarte::BufferedUarte::new(
+    let mut u = buffered_uarte::BufferedUarte::new(
         p.UARTE0,
         irq,
+        unsafe { &mut RX_BUFFER },
+        unsafe { &mut TX_BUFFER },
         pins,
         buffered_uarte::Parity::EXCLUDED,
         buffered_uarte::Baudrate::BAUD115200,
     );
-    pin_mut!(u);
 
     info!("uarte initialized!");
 
