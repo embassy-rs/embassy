@@ -117,9 +117,9 @@ pub fn interrupt_declare(item: TokenStream) -> TokenStream {
             fn number(&self) -> u8 {
                 Interrupt::#name as u8
             }
-            unsafe fn __handler(&self) -> &'static ::core::sync::atomic::AtomicPtr<u32> {
+            unsafe fn __handler(&self) -> &'static ::embassy::interrupt::Handler {
                 #[export_name = #name_handler]
-                static HANDLER: ::core::sync::atomic::AtomicPtr<u32> = ::core::sync::atomic::AtomicPtr::new(::core::ptr::null_mut());
+                static HANDLER: ::embassy::interrupt::Handler = ::embassy::interrupt::Handler::new();
                 &HANDLER
             }
         }
@@ -141,13 +141,14 @@ pub fn interrupt_take(item: TokenStream) -> TokenStream {
             pub unsafe extern "C" fn trampoline() {
                 extern "C" {
                     #[link_name = #name_handler]
-                    static HANDLER: ::core::sync::atomic::AtomicPtr<u32>;
+                    static HANDLER: ::embassy::interrupt::Handler;
                 }
 
-                let p = HANDLER.load(::core::sync::atomic::Ordering::Acquire);
-                if !p.is_null() {
-                    let f: fn() = ::core::mem::transmute(p);
-                    f()
+                let func = HANDLER.func.load(::core::sync::atomic::Ordering::Acquire);
+                let ctx = HANDLER.ctx.load(::core::sync::atomic::Ordering::Acquire);
+                if !func.is_null() {
+                    let func: fn(*mut ()) = ::core::mem::transmute(func);
+                    func(ctx)
                 }
             }
 

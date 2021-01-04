@@ -146,7 +146,7 @@ impl Qspi {
         SIGNAL.reset();
         qspi.intenset.write(|w| w.ready().set());
 
-        irq.set_handler(irq_handler);
+        irq.set_handler(irq_handler, core::ptr::null_mut());
         irq.unpend();
         irq.enable();
 
@@ -347,7 +347,7 @@ impl Flash for Qspi {
 
 static SIGNAL: Signal<()> = Signal::new();
 
-unsafe fn irq_handler() {
+unsafe fn irq_handler(_ctx: *mut ()) {
     let p = crate::pac::Peripherals::steal().QSPI;
     if p.events_ready.read().events_ready().bit_is_set() {
         p.events_ready.reset();

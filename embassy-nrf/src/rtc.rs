@@ -105,8 +105,10 @@ impl<T: Instance> RTC<T> {
         while self.rtc.counter.read().bits() != 0 {}
 
         T::set_rtc_instance(self);
-        self.irq
-            .set_handler(|| T::get_rtc_instance().on_interrupt());
+        self.irq.set_handler(
+            |_| T::get_rtc_instance().on_interrupt(),
+            core::ptr::null_mut(),
+        );
         self.irq.unpend();
         self.irq.enable();
     }

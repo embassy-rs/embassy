@@ -55,12 +55,15 @@ impl<P: State> Registration<P> {
         // - therefore it's safe to overwrite it without dropping the previous contents
         unsafe { P::store().write(state) }
 
-        irq.set_handler(|| {
-            // safety:
-            // - If a PeripheralRegistration instance exists, P::storage() is initialized.
-            // - It's OK to get a &mut to it since the irq is disabled.
-            unsafe { P::store().as_mut() }.on_interrupt();
-        });
+        irq.set_handler(
+            |_| {
+                // safety:
+                // - If a PeripheralRegistration instance exists, P::storage() is initialized.
+                // - It's OK to get a &mut to it since the irq is disabled.
+                unsafe { P::store().as_mut() }.on_interrupt();
+            },
+            core::ptr::null_mut(),
+        );
 
         compiler_fence(Ordering::SeqCst);
         irq.enable();
@@ -89,7 +92,7 @@ impl<P: State> Registration<P> {
     pub fn free(self) -> (P::Interrupt, P) {
         let irq = unsafe { ptr::read(&self.irq) };
         irq.disable();
-        irq.set_handler(|| ());
+        irq.remove_handler();
         mem::forget(self);
         let storage = P::store();
         (irq, unsafe { storage.read() })
@@ -99,7 +102,7 @@ impl<P: State> Registration<P> {
 impl<P: State> Drop for Registration<P> {
     fn drop(&mut self) {
         self.irq.disable();
-        self.irq.set_handler(|| ());
+        self.irq.remove_handler();
 
         let storage = P::store();
         unsafe { storage.drop_in_place() };

@@ -75,7 +75,7 @@ impl Gpiote {
         // Enable interrupts
         gpiote.events_port.write(|w| w);
         gpiote.intenset.write(|w| w.port().set());
-        irq.set_handler(Self::on_irq);
+        irq.set_handler(Self::on_irq, core::ptr::null_mut());
         irq.unpend();
         irq.enable();
 
@@ -296,7 +296,7 @@ impl Gpiote {
         })
     }
 
-    unsafe fn on_irq() {
+    unsafe fn on_irq(_ctx: *mut ()) {
         let s = &(*INSTANCE);
 
         for i in 0..8 {

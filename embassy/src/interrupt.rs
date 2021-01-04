@@ -6,6 +6,22 @@ use cortex_m::peripheral::NVIC;
 pub use embassy_macros::interrupt_declare as declare;
 pub use embassy_macros::interrupt_take as take;
 
+/// Implementation detail, do not use outside embassy crates.
+#[doc(hidden)]
+pub struct Handler {
+    pub func: AtomicPtr<()>,
+    pub ctx: AtomicPtr<()>,
+}
+
+impl Handler {
+    pub const fn new() -> Self {
+        Self {
+            func: AtomicPtr::new(ptr::null_mut()),
+            ctx: AtomicPtr::new(ptr::null_mut()),
+        }
+    }
+}
+
 struct NrWrap(u8);
 unsafe impl cortex_m::interrupt::Nr for NrWrap {
     fn nr(&self) -> u8 {
@@ -16,11 +32,20 @@ unsafe impl cortex_m::interrupt::Nr for NrWrap {
 pub unsafe trait OwnedInterrupt {
     type Priority: From<u8> + Into<u8> + Copy;
     fn number(&self) -> u8;
-    #[doc(hidden)]
-    unsafe fn __handler(&self) -> &'static AtomicPtr<u32>;
 
-    fn set_handler(&self, handler: unsafe fn()) {
-        unsafe { self.__handler() }.store(handler as *mut u32, Ordering::Release);
+    /// Implementation detail, do not use outside embassy crates.
+    #[doc(hidden)]
+    unsafe fn __handler(&self) -> &'static Handler;
+
+    fn set_handler(&self, func: unsafe fn(*mut ()), ctx: *mut ()) {
+        let handler = unsafe { self.__handler() };
+        handler.func.store(func as *mut (), Ordering::Release);
+        handler.ctx.store(ctx, Ordering::Release);
+    }
+
+    fn remove_handler(&self) {
+        let handler = unsafe { self.__handler() };
+        handler.func.store(ptr::null_mut(), Ordering::Release);
     }
 
     #[inline]

@@ -119,7 +119,7 @@ where
             .write(|w| w.endtx().set().txstopped().set().endrx().set().rxto().set());
 
         // Register ISR
-        irq.set_handler(Self::on_irq);
+        irq.set_handler(Self::on_irq, core::ptr::null_mut());
         irq.unpend();
         irq.enable();
 
@@ -147,7 +147,7 @@ where
         self.instance.events_rxstarted.read().bits() != 0
     }
 
-    unsafe fn on_irq() {
+    unsafe fn on_irq(_ctx: *mut ()) {
         let uarte = &*pac::UARTE0::ptr();
 
         let mut try_disable = false;
