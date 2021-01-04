@@ -10,6 +10,7 @@ use cortex_m_rt::entry;
 use defmt::panic;
 use embassy::executor::{task, Executor};
 use embassy::time::{Duration, Timer};
+use embassy::uart::Uart;
 use embassy::util::Forever;
 use embassy_nrf::{interrupt, pac, rtc, uarte};
 use futures::future::{select, Either};
@@ -24,29 +25,37 @@ async fn run(mut uart: uarte::Uarte<pac::UARTE0>) {
     let mut buf = [0; 8];
     buf.copy_from_slice(b"Hello!\r\n");
 
-    uart.send(&buf).await;
+    unwrap!(uart.send(&buf).await);
     info!("wrote hello in uart!");
 
-    info!("reading...");
     loop {
-        let received = match select(
-            uart.receive(&mut buf),
-            Timer::after(Duration::from_millis(10)),
-        )
-        .await
-        {
-            Either::Left((buf, _)) => buf,
-            Either::Right((_, read)) => {
-                let (buf, n) = read.stop().await;
-                &buf[..n]
-            }
+        let buf_len = buf.len();
+        info!("reading...");
+
+        // `receive()` doesn't return until the buffer has been completely filled with
+        // incoming data, which in this case is 8 bytes.
+        //
+        // This example shows how to use `select` to run an uart receive concurrently with a
+        // 1 second timer, effectively adding a timeout to the receive operation.
+        let recv_fut = uart.receive(&mut buf);
+        let timer_fut = Timer::after(Duration::from_millis(1000));
+        let received_len = match select(recv_fut, timer_fut).await {
+            // recv_fut completed first, so we've received `buf_len` bytes.
+            Either::Left(_) => buf_len,
+            // timer_fut completed first. `select` gives us back the future that didn't complete, which
+            // is `recv_fut` in this case, so we can do further stuff with it.
+            //
+            // The recv_fut would stop the uart read automatically when dropped. However, we want to know how
+            // many bytes have been received, so we have to "gracefully stop" it with `.stop()`.
+            Either::Right((_, recv_fut)) => recv_fut.stop().await,
         };
+        let received = &mut buf[..received_len];
 
         if received.len() > 0 {
             info!("read done, got {:[u8]}", received);
 
             // Echo back received data
-            uart.send(received).await;
+            unwrap!(uart.send(received).await);
         }
     }
 }

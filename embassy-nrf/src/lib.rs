@@ -50,6 +50,7 @@ pub use nrf52840_hal as hal;
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
+pub(crate) mod util;
 
 pub mod buffered_uarte;
 pub mod gpiote;
