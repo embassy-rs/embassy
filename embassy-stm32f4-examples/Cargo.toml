@@ -1,7 +1,7 @@
 [package]
 authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
-name = "embassy-examples-stm32f4"
+name = "embassy-stm32f4-examples"
 version = "0.1.0"
 
 [features]
