@@ -25,6 +25,14 @@ pub enum Priority {
     Level5 = 5,
     Level6 = 6,
     Level7 = 7,
+    Level8 = 8,
+    Level9 = 9,
+    Level10 = 10,
+    Level11 = 11,
+    Level12 = 12,
+    Level13 = 13,
+    Level14 = 14,
+    Level14 = 15,
 }
 
 impl From<u8> for Priority {
