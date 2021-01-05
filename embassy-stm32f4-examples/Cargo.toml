@@ -1,0 +1,39 @@
+[package]
+authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
+edition = "2018"
+name = "embassy-stm32f4-examples"
+version = "0.1.0"
+
+[features]
+default = [
+    "defmt-default",
+]
+defmt-default = []
+defmt-trace = []
+defmt-debug = []
+defmt-info = []
+defmt-warn = []
+defmt-error = []
+
+
+[dependencies]
+embassy = { version = "0.1.0", path = "../embassy", features = ["defmt", "defmt-trace"] }
+embassy-stm32f4 = { version = "*", path = "../embassy-stm32f4", features = ["stm32f405"] }
+
+defmt = "0.1.3"
+defmt-rtt = "0.1.0"
+
+cortex-m        = { version = "0.6.3" }
+cortex-m-rt = "0.6.13"
+embedded-hal    = { version = "0.2.4" }
+panic-probe = "0.1.0"
+stm32f4xx-hal  = { version = "0.8.3", features = ["rt", "stm32f405"], git = "https://github.com/stm32-rs/stm32f4xx-hal.git"}
+futures = { version = "0.3.8", default-features = false, features = ["async-await"] }
+cortex-m-rtic = "0.5"
+rtt-target = { version = "0.3", features = ["cortex-m"] }
+
+
+
+[[bin]]
+name = "serial"
+path = "src/serial.rs"
