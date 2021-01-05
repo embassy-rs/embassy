@@ -5,7 +5,6 @@
 //! - nrf52832: Section 35
 //! - nrf52840: Section 6.34
 use core::cmp::min;
-use core::marker::PhantomData;
 use core::mem;
 use core::ops::Deref;
 use core::pin::Pin;
@@ -20,7 +19,7 @@ use crate::hal::gpio::Port as GpioPort;
 use crate::interrupt::{self, OwnedInterrupt};
 use crate::pac;
 use crate::pac::uarte0;
-use crate::util::peripheral;
+use crate::util::peripheral::{PeripheralMutex, PeripheralState};
 use crate::util::ring_buffer::RingBuffer;
 
 // Re-export SVD variants to allow user to directly set values
@@ -49,8 +48,7 @@ enum TxState {
 ///     - nrf52832: Section 15.2
 ///     - nrf52840: Section 6.1.2
 pub struct BufferedUarte<'a, T: Instance> {
-    reg: peripheral::Registration<State<'a, T>>,
-    wtf: PhantomData<&'a ()>,
+    inner: PeripheralMutex<T::Interrupt, State<'a, T>>,
 }
 
 impl<'a, T: Instance> Unpin for BufferedUarte<'a, T> {}
@@ -126,10 +124,12 @@ impl<'a, T: Instance> BufferedUarte<'a, T> {
         // Configure frequency
         uarte.baudrate.write(|w| w.baudrate().variant(baudrate));
 
+        // Disable the irq, let the Registration enable it when everything is set up.
+        irq.disable();
         irq.pend();
 
         BufferedUarte {
-            reg: peripheral::Registration::new(
+            inner: PeripheralMutex::new(
                 irq,
                 State {
                     inner: uarte,
@@ -143,7 +143,6 @@ impl<'a, T: Instance> BufferedUarte<'a, T> {
                     tx_waker: WakerRegistration::new(),
                 },
             ),
-            wtf: PhantomData,
         }
     }
 }
@@ -158,7 +157,8 @@ impl<'a, T: Instance> Drop for BufferedUarte<'a, T> {
 impl<'a, T: Instance> AsyncBufRead for BufferedUarte<'a, T> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
         let this = unsafe { self.get_unchecked_mut() };
-        this.reg.with(|state, _| {
+        let reg = unsafe { Pin::new_unchecked(&mut this.inner) };
+        reg.with(|_irq, state| {
             let z: Poll<Result<&[u8]>> = state.poll_fill_buf(cx);
             let z: Poll<Result<&[u8]>> = unsafe { mem::transmute(z) };
             z
@@ -167,14 +167,16 @@ impl<'a, T: Instance> AsyncBufRead for BufferedUarte<'a, T> {
 
     fn consume(self: Pin<&mut Self>, amt: usize) {
         let this = unsafe { self.get_unchecked_mut() };
-        this.reg.with(|state, irq| state.consume(irq, amt))
+        let reg = unsafe { Pin::new_unchecked(&mut this.inner) };
+        reg.with(|irq, state| state.consume(irq, amt))
     }
 }
 
 impl<'a, T: Instance> AsyncWrite for BufferedUarte<'a, T> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
         let this = unsafe { self.get_unchecked_mut() };
-        this.reg.with(|state, irq| state.poll_write(irq, cx, buf))
+        let reg = unsafe { Pin::new_unchecked(&mut this.inner) };
+        reg.with(|irq, state| state.poll_write(irq, cx, buf))
     }
 }
 
@@ -262,12 +264,7 @@ impl<'a, T: Instance> State<'a, T> {
     }
 }
 
-impl<'a, T: Instance> peripheral::State for State<'a, T> {
-    type Interrupt = T::Interrupt;
-    fn store<'b>() -> &'b peripheral::Store<Self> {
-        unsafe { mem::transmute(T::storage()) }
-    }
-
+impl<'a, T: Instance> PeripheralState for State<'a, T> {
     fn on_interrupt(&mut self) {
         trace!("irq: start");
         let mut more_work = true;
@@ -414,28 +411,15 @@ mod private {
     impl Sealed for crate::pac::UARTE1 {}
 }
 
-pub trait Instance:
-    Deref<Target = uarte0::RegisterBlock> + Sized + private::Sealed + 'static
-{
+pub trait Instance: Deref<Target = uarte0::RegisterBlock> + private::Sealed {
     type Interrupt: OwnedInterrupt;
-    fn storage() -> &'static peripheral::Store<State<'static, Self>>;
 }
 
 impl Instance for pac::UARTE0 {
     type Interrupt = interrupt::UARTE0_UART0Interrupt;
-    fn storage() -> &'static peripheral::Store<State<'static, Self>> {
-        static STORAGE: peripheral::Store<State<'static, crate::pac::UARTE0>> =
-            peripheral::Store::uninit();
-        &STORAGE
-    }
 }
 
 #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
 impl Instance for pac::UARTE1 {
     type Interrupt = interrupt::UARTE1Interrupt;
-    fn storage() -> &'static peripheral::Store<State<'static, Self>> {
-        static STORAGE: peripheral::Store<State<'static, crate::pac::UARTE1>> =
-            peripheral::Store::uninit();
-        &STORAGE
-    }
 }

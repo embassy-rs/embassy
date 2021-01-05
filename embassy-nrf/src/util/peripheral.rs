@@ -1,110 +1,70 @@
-use core::mem;
-use core::mem::MaybeUninit;
-use core::ptr;
+use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::{cell::UnsafeCell, marker::PhantomData};
 
+use crate::fmt::*;
 use crate::interrupt::OwnedInterrupt;
 
-pub struct Store<T>(MaybeUninit<UnsafeCell<T>>);
-impl<T> Store<T> {
-    pub const fn uninit() -> Self {
-        Self(MaybeUninit::uninit())
-    }
-
-    unsafe fn as_mut_ptr(&self) -> *mut T {
-        (*self.0.as_ptr()).get()
-    }
-
-    unsafe fn as_mut(&self) -> &mut T {
-        &mut *self.as_mut_ptr()
-    }
-
-    unsafe fn write(&self, val: T) {
-        ptr::write(self.as_mut_ptr(), val)
-    }
-
-    unsafe fn drop_in_place(&self) {
-        ptr::drop_in_place(self.as_mut_ptr())
-    }
-
-    unsafe fn read(&self) -> T {
-        ptr::read(self.as_mut_ptr())
-    }
-}
-unsafe impl<T> Send for Store<T> {}
-unsafe impl<T> Sync for Store<T> {}
-
-pub trait State: Sized {
-    type Interrupt: OwnedInterrupt;
+pub trait PeripheralState {
     fn on_interrupt(&mut self);
-    #[doc(hidden)]
-    fn store<'a>() -> &'a Store<Self>;
 }
 
-pub struct Registration<P: State> {
-    irq: P::Interrupt,
-    not_send: PhantomData<*mut P>,
+pub struct PeripheralMutex<I: OwnedInterrupt, S: PeripheralState> {
+    inner: Option<(I, UnsafeCell<S>)>,
+    not_send: PhantomData<*mut ()>,
 }
 
-impl<P: State> Registration<P> {
-    pub fn new(irq: P::Interrupt, state: P) -> Self {
-        // safety:
-        // - No other PeripheralRegistration can already exist because we have the owned interrupt
-        // - therefore, storage is uninitialized
-        // - therefore it's safe to overwrite it without dropping the previous contents
-        unsafe { P::store().write(state) }
-
-        irq.set_handler(
-            |_| {
-                // safety:
-                // - If a PeripheralRegistration instance exists, P::storage() is initialized.
-                // - It's OK to get a &mut to it since the irq is disabled.
-                unsafe { P::store().as_mut() }.on_interrupt();
-            },
-            core::ptr::null_mut(),
-        );
-
-        compiler_fence(Ordering::SeqCst);
-        irq.enable();
-
+impl<I: OwnedInterrupt, S: PeripheralState> PeripheralMutex<I, S> {
+    pub fn new(irq: I, state: S) -> Self {
         Self {
-            irq,
+            inner: Some((irq, UnsafeCell::new(state))),
             not_send: PhantomData,
         }
     }
 
-    pub fn with<R>(&mut self, f: impl FnOnce(&mut P, &mut P::Interrupt) -> R) -> R {
-        self.irq.disable();
+    pub fn with<R>(self: Pin<&mut Self>, f: impl FnOnce(&mut I, &mut S) -> R) -> R {
+        let this = unsafe { self.get_unchecked_mut() };
+        let (irq, state) = unwrap!(this.inner.as_mut());
+
+        irq.disable();
         compiler_fence(Ordering::SeqCst);
 
-        // safety:
-        // - If a PeripheralRegistration instance exists, P::storage() is initialized.
-        // - It's OK to get a &mut to it since the irq is disabled.
-        let r = f(unsafe { P::store().as_mut() }, &mut self.irq);
+        irq.set_handler(
+            |p| {
+                // Safety: it's OK to get a &mut to the state, since
+                // - We're in the IRQ, no one else can't preempt us
+                // - We can't have preempted a with() call because the irq is disabled during it.
+                let state = unsafe { &mut *(p as *mut S) };
+                state.on_interrupt();
+            },
+            state.get() as *mut (),
+        );
+
+        // Safety: it's OK to get a &mut to the state, since the irq is disabled.
+        let state = unsafe { &mut *state.get() };
+
+        let r = f(irq, state);
 
         compiler_fence(Ordering::SeqCst);
-        self.irq.enable();
+        irq.enable();
 
         r
     }
 
-    pub fn free(self) -> (P::Interrupt, P) {
-        let irq = unsafe { ptr::read(&self.irq) };
+    pub fn free(self: Pin<&mut Self>) -> (I, S) {
+        let this = unsafe { self.get_unchecked_mut() };
+        let (irq, state) = unwrap!(this.inner.take());
         irq.disable();
         irq.remove_handler();
-        mem::forget(self);
-        let storage = P::store();
-        (irq, unsafe { storage.read() })
+        (irq, state.into_inner())
     }
 }
 
-impl<P: State> Drop for Registration<P> {
+impl<I: OwnedInterrupt, S: PeripheralState> Drop for PeripheralMutex<I, S> {
     fn drop(&mut self) {
-        self.irq.disable();
-        self.irq.remove_handler();
-
-        let storage = P::store();
-        unsafe { storage.drop_in_place() };
+        if let Some((irq, state)) = &mut self.inner {
+            irq.disable();
+            irq.remove_handler();
+        }
     }
 }
