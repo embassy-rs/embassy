@@ -46,6 +46,14 @@ impl From<u8> for Priority {
             5 => Self::Level5,
             6 => Self::Level6,
             7 => Self::Level7,
+            8 => Self::Level8,
+            9 => Self::Level9,
+            10 => Self::Level10,
+            11 => Self::Level11,
+            12 => Self::Level12,
+            13 => Self::Level13,
+            14 => Self::Level14,
+            15 => Self::Level15,
             _ => unreachable!(),
         }
     }
