@@ -33,10 +33,23 @@ enum RxState {
     ReceivingReady,
     Stopping,
 }
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum TxState {
     Idle,
     Transmitting(usize),
+}
+
+struct State<'a, T: Instance> {
+    inner: T,
+
+    rx: RingBuffer<'a>,
+    rx_state: RxState,
+    rx_waker: WakerRegistration,
+
+    tx: RingBuffer<'a>,
+    tx_state: TxState,
+    tx_waker: WakerRegistration,
 }
 
 /// Interface to a UARTE instance
@@ -145,6 +158,10 @@ impl<'a, T: Instance> BufferedUarte<'a, T> {
             ),
         }
     }
+
+    fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<T::Interrupt, State<'a, T>>> {
+        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
+    }
 }
 
 impl<'a, T: Instance> Drop for BufferedUarte<'a, T> {
@@ -156,111 +173,71 @@ impl<'a, T: Instance> Drop for BufferedUarte<'a, T> {
 
 impl<'a, T: Instance> AsyncBufRead for BufferedUarte<'a, T> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
-        let this = unsafe { self.get_unchecked_mut() };
-        let reg = unsafe { Pin::new_unchecked(&mut this.inner) };
-        reg.with(|_irq, state| {
-            let z: Poll<Result<&[u8]>> = state.poll_fill_buf(cx);
-            let z: Poll<Result<&[u8]>> = unsafe { mem::transmute(z) };
-            z
+        self.inner().with(|_irq, state| {
+            // Conservative compiler fence to prevent optimizations that do not
+            // take in to account actions by DMA. The fence has been placed here,
+            // before any DMA action has started
+            compiler_fence(Ordering::SeqCst);
+            trace!("poll_read");
+
+            // We have data ready in buffer? Return it.
+            let buf = state.rx.pop_buf();
+            if buf.len() != 0 {
+                trace!("  got {:?} {:?}", buf.as_ptr() as u32, buf.len());
+                let buf: &[u8] = buf;
+                let buf: &[u8] = unsafe { mem::transmute(buf) };
+                return Poll::Ready(Ok(buf));
+            }
+
+            trace!("  empty");
+
+            if state.rx_state == RxState::ReceivingReady {
+                trace!("  stopping");
+                state.rx_state = RxState::Stopping;
+                state.inner.tasks_stoprx.write(|w| unsafe { w.bits(1) });
+            }
+
+            state.rx_waker.register(cx.waker());
+            Poll::<Result<&[u8]>>::Pending
         })
     }
 
     fn consume(self: Pin<&mut Self>, amt: usize) {
-        let this = unsafe { self.get_unchecked_mut() };
-        let reg = unsafe { Pin::new_unchecked(&mut this.inner) };
-        reg.with(|irq, state| state.consume(irq, amt))
+        self.inner().with(|irq, state| {
+            trace!("consume {:?}", amt);
+            state.rx.pop(amt);
+            irq.pend();
+        })
     }
 }
 
 impl<'a, T: Instance> AsyncWrite for BufferedUarte<'a, T> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
-        let this = unsafe { self.get_unchecked_mut() };
-        let reg = unsafe { Pin::new_unchecked(&mut this.inner) };
-        reg.with(|irq, state| state.poll_write(irq, cx, buf))
-    }
-}
+        self.inner().with(|irq, state| {
+            trace!("poll_write: {:?}", buf.len());
 
-// ====================================
-// ====================================
-// ====================================
+            let tx_buf = state.tx.push_buf();
+            if tx_buf.len() == 0 {
+                trace!("poll_write: pending");
+                state.tx_waker.register(cx.waker());
+                return Poll::Pending;
+            }
 
-// public because it needs to be used in Instance trait, but
-// should not be used outside the module
-#[doc(hidden)]
-pub struct State<'a, T: Instance> {
-    inner: T,
+            let n = min(tx_buf.len(), buf.len());
+            tx_buf[..n].copy_from_slice(&buf[..n]);
+            state.tx.push(n);
 
-    rx: RingBuffer<'a>,
-    rx_state: RxState,
-    rx_waker: WakerRegistration,
+            trace!("poll_write: queued {:?}", n);
 
-    tx: RingBuffer<'a>,
-    tx_state: TxState,
-    tx_waker: WakerRegistration,
-}
+            // Conservative compiler fence to prevent optimizations that do not
+            // take in to account actions by DMA. The fence has been placed here,
+            // before any DMA action has started
+            compiler_fence(Ordering::SeqCst);
 
-impl<'a, T: Instance> State<'a, T> {
-    fn poll_fill_buf(&mut self, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // before any DMA action has started
-        compiler_fence(Ordering::SeqCst);
-        trace!("poll_read");
+            irq.pend();
 
-        // We have data ready in buffer? Return it.
-        let buf = self.rx.pop_buf();
-        if buf.len() != 0 {
-            trace!("  got {:?} {:?}", buf.as_ptr() as u32, buf.len());
-            return Poll::Ready(Ok(buf));
-        }
-
-        trace!("  empty");
-
-        if self.rx_state == RxState::ReceivingReady {
-            trace!("  stopping");
-            self.rx_state = RxState::Stopping;
-            self.inner.tasks_stoprx.write(|w| unsafe { w.bits(1) });
-        }
-
-        self.rx_waker.register(cx.waker());
-        Poll::Pending
-    }
-
-    fn consume(&mut self, irq: &mut T::Interrupt, amt: usize) {
-        trace!("consume {:?}", amt);
-        self.rx.pop(amt);
-        irq.pend();
-    }
-
-    fn poll_write(
-        &mut self,
-        irq: &mut T::Interrupt,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<Result<usize>> {
-        trace!("poll_write: {:?}", buf.len());
-
-        let tx_buf = self.tx.push_buf();
-        if tx_buf.len() == 0 {
-            trace!("poll_write: pending");
-            self.tx_waker.register(cx.waker());
-            return Poll::Pending;
-        }
-
-        let n = min(tx_buf.len(), buf.len());
-        tx_buf[..n].copy_from_slice(&buf[..n]);
-        self.tx.push(n);
-
-        trace!("poll_write: queued {:?}", n);
-
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // before any DMA action has started
-        compiler_fence(Ordering::SeqCst);
-
-        irq.pend();
-
-        Poll::Ready(Ok(n))
+            Poll::Ready(Ok(n))
+        })
     }
 }
 
