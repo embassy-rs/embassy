@@ -61,7 +61,7 @@ struct State<'a, U: Instance> {
 ///     - nrf52832: Section 15.2
 ///     - nrf52840: Section 6.1.2
 pub struct BufferedUarte<'a, U: Instance> {
-    inner: PeripheralMutex<U::Interrupt, State<'a, U>>,
+    inner: PeripheralMutex<State<'a, U>>,
 }
 
 impl<'a, U: Instance> Unpin for BufferedUarte<'a, U> {}
@@ -143,7 +143,6 @@ impl<'a, U: Instance> BufferedUarte<'a, U> {
 
         BufferedUarte {
             inner: PeripheralMutex::new(
-                irq,
                 State {
                     inner: uarte,
 
@@ -155,11 +154,12 @@ impl<'a, U: Instance> BufferedUarte<'a, U> {
                     tx_state: TxState::Idle,
                     tx_waker: WakerRegistration::new(),
                 },
+                irq,
             ),
         }
     }
 
-    fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<U::Interrupt, State<'a, U>>> {
+    fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<'a, U>>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
 }
@@ -173,7 +173,7 @@ impl<'a, U: Instance> Drop for BufferedUarte<'a, U> {
 
 impl<'a, U: Instance> AsyncBufRead for BufferedUarte<'a, U> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
-        self.inner().with(|_irq, state| {
+        self.inner().with(|state, _irq| {
             // Conservative compiler fence to prevent optimizations that do not
             // take in to account actions by DMA. The fence has been placed here,
             // before any DMA action has started
@@ -203,7 +203,7 @@ impl<'a, U: Instance> AsyncBufRead for BufferedUarte<'a, U> {
     }
 
     fn consume(self: Pin<&mut Self>, amt: usize) {
-        self.inner().with(|irq, state| {
+        self.inner().with(|state, irq| {
             trace!("consume {:?}", amt);
             state.rx.pop(amt);
             irq.pend();
@@ -213,7 +213,7 @@ impl<'a, U: Instance> AsyncBufRead for BufferedUarte<'a, U> {
 
 impl<'a, U: Instance> AsyncWrite for BufferedUarte<'a, U> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
-        self.inner().with(|irq, state| {
+        self.inner().with(|state, irq| {
             trace!("poll_write: {:?}", buf.len());
 
             let tx_buf = state.tx.push_buf();
@@ -242,6 +242,8 @@ impl<'a, U: Instance> AsyncWrite for BufferedUarte<'a, U> {
 }
 
 impl<'a, U: Instance> PeripheralState for State<'a, U> {
+    type Interrupt = U::Interrupt;
+
     fn on_interrupt(&mut self) {
         trace!("irq: start");
         let mut more_work = true;
