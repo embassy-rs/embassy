@@ -10,8 +10,9 @@ use core::sync::atomic::{self, Ordering};
 use core::task::{Context, Poll};
 
 use embassy::interrupt::OwnedInterrupt;
+use embassy::uart::Uart;
 use embassy::util::Signal;
-use embedded_dma::{StaticReadBuffer, StaticWriteBuffer, WriteBuffer};
+use embedded_dma::StaticWriteBuffer;
 
 use crate::hal::dma::config::DmaConfig;
 use crate::hal::dma::traits::{PeriAddress, Stream};
@@ -135,16 +136,15 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
 
         STATE.rx_int.signal(());
     }
+}
 
+impl Uart for Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
     /// Sends serial data.
     ///
     /// `tx_buffer` is marked as static as per `embedded-dma` requirements.
     /// It it safe to use a buffer with a non static lifetime if memory is not
     /// reused until the future has finished.
-    pub fn send<'a, B: 'a>(&'a mut self, tx_buffer: B) -> impl Future<Output = ()> + 'a
-    where
-        B: StaticWriteBuffer<Word = u8>,
-    {
+    fn send<'a>(&'a mut self, buf: &'a mut [u8]) -> dyn Future<Output = Result<(), Error>> {
         unsafe { INSTANCE = self };
 
         let tx_stream = self.tx_stream.take().unwrap();
@@ -155,7 +155,7 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
             let mut tx_transfer = Transfer::init(
                 tx_stream,
                 usart,
-                tx_buffer,
+                buf,
                 None,
                 DmaConfig::default()
                     .transfer_complete_interrupt(true)
@@ -185,10 +185,7 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
     /// `rx_buffer` is marked as static as per `embedded-dma` requirements.
     /// It it safe to use a buffer with a non static lifetime if memory is not
     /// reused until the future has finished.
-    pub fn receive<'a, B: 'a>(&'a mut self, rx_buffer: B) -> impl Future<Output = B> + 'a
-    where
-        B: StaticWriteBuffer<Word = u8> + Unpin,
-    {
+    fn receive<'a>(&'a mut self, buf: &'a mut [u8]) -> dyn Future<Output = Result<(), Error>> {
         unsafe { INSTANCE = self };
 
         let rx_stream = self.rx_stream.take().unwrap();
@@ -199,7 +196,7 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
             let mut rx_transfer = Transfer::init(
                 rx_stream,
                 usart,
-                rx_buffer,
+                buf.static_write_buffer(),
                 None,
                 DmaConfig::default()
                     .transfer_complete_interrupt(true)
@@ -217,8 +214,6 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
             let (rx_stream, usart, buf, _) = rx_transfer.free();
             self.rx_stream.replace(rx_stream);
             self.usart.replace(usart);
-
-            buf
         }
     }
 }
