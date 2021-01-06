@@ -40,8 +40,8 @@ enum TxState {
     Transmitting(usize),
 }
 
-struct State<'a, T: Instance> {
-    inner: T,
+struct State<'a, U: Instance> {
+    inner: U,
 
     rx: RingBuffer<'a>,
     rx_state: RxState,
@@ -60,11 +60,11 @@ struct State<'a, T: Instance> {
 ///   are disabled before using `Uarte`. See product specification:
 ///     - nrf52832: Section 15.2
 ///     - nrf52840: Section 6.1.2
-pub struct BufferedUarte<'a, T: Instance> {
-    inner: PeripheralMutex<T::Interrupt, State<'a, T>>,
+pub struct BufferedUarte<'a, U: Instance> {
+    inner: PeripheralMutex<U::Interrupt, State<'a, U>>,
 }
 
-impl<'a, T: Instance> Unpin for BufferedUarte<'a, T> {}
+impl<'a, U: Instance> Unpin for BufferedUarte<'a, U> {}
 
 #[cfg(any(feature = "52833", feature = "52840"))]
 fn port_bit(port: GpioPort) -> bool {
@@ -74,10 +74,10 @@ fn port_bit(port: GpioPort) -> bool {
     }
 }
 
-impl<'a, T: Instance> BufferedUarte<'a, T> {
+impl<'a, U: Instance> BufferedUarte<'a, U> {
     pub fn new(
-        uarte: T,
-        irq: T::Interrupt,
+        uarte: U,
+        irq: U::Interrupt,
         rx_buffer: &'a mut [u8],
         tx_buffer: &'a mut [u8],
         mut pins: Pins,
@@ -159,19 +159,19 @@ impl<'a, T: Instance> BufferedUarte<'a, T> {
         }
     }
 
-    fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<T::Interrupt, State<'a, T>>> {
+    fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<U::Interrupt, State<'a, U>>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
 }
 
-impl<'a, T: Instance> Drop for BufferedUarte<'a, T> {
+impl<'a, U: Instance> Drop for BufferedUarte<'a, U> {
     fn drop(&mut self) {
         // stop DMA before dropping, because DMA is using the buffer in `self`.
         todo!()
     }
 }
 
-impl<'a, T: Instance> AsyncBufRead for BufferedUarte<'a, T> {
+impl<'a, U: Instance> AsyncBufRead for BufferedUarte<'a, U> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
         self.inner().with(|_irq, state| {
             // Conservative compiler fence to prevent optimizations that do not
@@ -211,7 +211,7 @@ impl<'a, T: Instance> AsyncBufRead for BufferedUarte<'a, T> {
     }
 }
 
-impl<'a, T: Instance> AsyncWrite for BufferedUarte<'a, T> {
+impl<'a, U: Instance> AsyncWrite for BufferedUarte<'a, U> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
         self.inner().with(|irq, state| {
             trace!("poll_write: {:?}", buf.len());
@@ -241,7 +241,7 @@ impl<'a, T: Instance> AsyncWrite for BufferedUarte<'a, T> {
     }
 }
 
-impl<'a, T: Instance> PeripheralState for State<'a, T> {
+impl<'a, U: Instance> PeripheralState for State<'a, U> {
     fn on_interrupt(&mut self) {
         trace!("irq: start");
         let mut more_work = true;
@@ -380,15 +380,15 @@ impl<'a, T: Instance> PeripheralState for State<'a, T> {
     }
 }
 
-mod private {
-    pub trait Sealed {}
+mod sealed {
+    pub trait Instance {}
 
-    impl Sealed for crate::pac::UARTE0 {}
+    impl Instance for crate::pac::UARTE0 {}
     #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
-    impl Sealed for crate::pac::UARTE1 {}
+    impl Instance for crate::pac::UARTE1 {}
 }
 
-pub trait Instance: Deref<Target = uarte0::RegisterBlock> + private::Sealed {
+pub trait Instance: Deref<Target = uarte0::RegisterBlock> + sealed::Instance {
     type Interrupt: OwnedInterrupt;
 }
 
