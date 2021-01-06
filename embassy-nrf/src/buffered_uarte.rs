@@ -159,7 +159,7 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
         // This gives us the amount of 16M ticks for 20 bits.
         let timeout = 0x8000_0000 / (baudrate as u32 / 40);
 
-        timer.tasks_stop.write(|w| w.tasks_stop().set_bit());
+        timer.tasks_stop.write(|w| unsafe { w.bits(1) });
         timer.bitmode.write(|w| w.bitmode()._32bit());
         timer.prescaler.write(|w| unsafe { w.prescaler().bits(0) });
         timer.cc[0].write(|w| unsafe { w.bits(timeout) });
@@ -322,7 +322,7 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
                 RxState::Receiving => {
                     trace!("  irq_rx: in state receiving");
                     if self.uarte.events_endrx.read().bits() != 0 {
-                        self.timer.tasks_stop.write(|w| w.tasks_stop().set_bit());
+                        self.timer.tasks_stop.write(|w| unsafe { w.bits(1) });
 
                         let n: usize = self.uarte.rxd.amount.read().amount().bits() as usize;
                         trace!("  irq_rx: endrx {:?}", n);
