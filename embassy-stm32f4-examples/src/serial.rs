@@ -8,6 +8,7 @@
 use cortex_m::singleton;
 use cortex_m_rt::entry;
 use embassy::executor::{task, Executor};
+use embassy::uart::Uart;
 use embassy::util::Forever;
 use embassy_stm32f4::interrupt;
 use embassy_stm32f4::serial;
@@ -27,24 +28,24 @@ async fn run(dp: stm32::Peripherals, cp: cortex_m::Peripherals) {
         .pclk1(24.mhz())
         .freeze();
 
-    let mut serial = serial::Serial::new(
-        gpioa.pa9.into_alternate_af7(),
-        gpioa.pa10.into_alternate_af7(),
-        interrupt::take!(DMA2_STREAM7),
-        interrupt::take!(DMA2_STREAM2),
-        interrupt::take!(USART1),
-        dp.DMA2,
-        dp.USART1,
-        config::Parity::ParityNone,
-        9600.bps(),
-        clocks,
-    );
+    unsafe {
+        let mut serial = serial::Serial::new(
+            gpioa.pa9.into_alternate_af7(),
+            gpioa.pa10.into_alternate_af7(),
+            interrupt::take!(DMA2_STREAM7),
+            interrupt::take!(DMA2_STREAM2),
+            interrupt::take!(USART1),
+            dp.DMA2,
+            dp.USART1,
+            config::Parity::ParityNone,
+            9600.bps(),
+            clocks,
+        );
+        let buf = singleton!(: [u8; 30] = [0; 30]).unwrap();
 
-    let buf = singleton!(: [u8; 30] = [0; 30]).unwrap();
-
-    buf[5] = 0x01;
-
-    serial.send(buf).await;
+        buf[5] = 0x01;
+        serial.send(buf).await;
+    }
 }
 
 static EXECUTOR: Forever<Executor> = Forever::new();

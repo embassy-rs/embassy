@@ -57,7 +57,8 @@ static STATE: State = State {
 static mut INSTANCE: *const Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> = ptr::null_mut();
 
 impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
-    pub fn new(
+    // Leaking futures is forbidden!
+    pub unsafe fn new(
         txd: PA9<Alternate<AF7>>,
         rxd: PA10<Alternate<AF7>>,
         tx_int: interrupt::DMA2_STREAM7Interrupt,
