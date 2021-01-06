@@ -88,9 +88,9 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         let (usart, _) = serial.release();
 
         // Register ISR
-        tx_int.set_handler(Self::on_tx_irq);
-        rx_int.set_handler(Self::on_rx_irq);
-        usart_int.set_handler(Self::on_rx_irq);
+        tx_int.set_handler(Self::on_tx_irq, core::ptr::null_mut());
+        rx_int.set_handler(Self::on_rx_irq, core::ptr::null_mut());
+        usart_int.set_handler(Self::on_rx_irq, core::ptr::null_mut());
         // usart_int.unpend();
         // usart_int.enable();
 
@@ -106,7 +106,7 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         }
     }
 
-    unsafe fn on_tx_irq() {
+    unsafe fn on_tx_irq(_ctx: *mut ()) {
         let s = &(*INSTANCE);
 
         s.tx_int.disable();
@@ -114,7 +114,7 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         STATE.tx_int.signal(());
     }
 
-    unsafe fn on_rx_irq() {
+    unsafe fn on_rx_irq(_ctx: *mut ()) {
         let s = &(*INSTANCE);
 
         atomic::compiler_fence(Ordering::Acquire);
@@ -125,7 +125,7 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         STATE.rx_int.signal(());
     }
 
-    unsafe fn on_usart_irq() {
+    unsafe fn on_usart_irq(_ctx: *mut ()) {
         let s = &(*INSTANCE);
 
         atomic::compiler_fence(Ordering::Acquire);
