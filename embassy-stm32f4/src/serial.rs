@@ -10,7 +10,7 @@ use core::sync::atomic::{self, Ordering};
 use core::task::{Context, Poll};
 
 use embassy::interrupt::OwnedInterrupt;
-use embassy::uart::Uart;
+use embassy::uart::{Error, Uart};
 use embassy::util::Signal;
 use embedded_dma::StaticWriteBuffer;
 
@@ -139,39 +139,49 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
 }
 
 impl Uart for Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
+    type SendFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
+    type ReceiveFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
+
     /// Sends serial data.
     ///
     /// `tx_buffer` is marked as static as per `embedded-dma` requirements.
     /// It it safe to use a buffer with a non static lifetime if memory is not
     /// reused until the future has finished.
-    fn send<'a>(&'a mut self, buf: &'a mut [u8]) -> dyn Future<Output = Result<(), Error>> {
+    #[allow(mutable_transmutes)]
+    fn send<'a>(&'a mut self, buf: &'a [u8]) -> Self::SendFuture<'a> {
         unsafe { INSTANCE = self };
 
-        let tx_stream = self.tx_stream.take().unwrap();
-        let usart = self.usart.take().unwrap();
-        STATE.tx_int.reset();
+        unsafe {
+            let static_buf = core::mem::transmute::<&'a [u8], &'static mut [u8]>(buf);
 
-        async move {
-            let mut tx_transfer = Transfer::init(
-                tx_stream,
-                usart,
-                buf,
-                None,
-                DmaConfig::default()
-                    .transfer_complete_interrupt(true)
-                    .memory_increment(true)
-                    .double_buffer(false),
-            );
+            let tx_stream = self.tx_stream.take().unwrap();
+            let usart = self.usart.take().unwrap();
+            STATE.tx_int.reset();
 
-            self.tx_int.unpend();
-            self.tx_int.enable();
-            tx_transfer.start(|_usart| {});
+            async move {
+                let mut tx_transfer = Transfer::init(
+                    tx_stream,
+                    usart,
+                    static_buf,
+                    None,
+                    DmaConfig::default()
+                        .transfer_complete_interrupt(true)
+                        .memory_increment(true)
+                        .double_buffer(false),
+                );
 
-            STATE.tx_int.wait().await;
+                self.tx_int.unpend();
+                self.tx_int.enable();
+                tx_transfer.start(|_usart| {});
 
-            let (tx_stream, usart, _buf, _) = tx_transfer.free();
-            self.tx_stream.replace(tx_stream);
-            self.usart.replace(usart);
+                STATE.tx_int.wait().await;
+
+                let (tx_stream, usart, _buf, _) = tx_transfer.free();
+                self.tx_stream.replace(tx_stream);
+                self.usart.replace(usart);
+
+                Ok(())
+            }
         }
     }
 
@@ -185,35 +195,34 @@ impl Uart for Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
     /// `rx_buffer` is marked as static as per `embedded-dma` requirements.
     /// It it safe to use a buffer with a non static lifetime if memory is not
     /// reused until the future has finished.
-    fn receive<'a>(&'a mut self, buf: &'a mut [u8]) -> dyn Future<Output = Result<(), Error>> {
+    fn receive<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReceiveFuture<'a> {
         unsafe { INSTANCE = self };
 
-        let rx_stream = self.rx_stream.take().unwrap();
-        let usart = self.usart.take().unwrap();
-        STATE.rx_int.reset();
-
-        async move {
-            let mut rx_transfer = Transfer::init(
-                rx_stream,
-                usart,
-                buf.static_write_buffer(),
-                None,
-                DmaConfig::default()
-                    .transfer_complete_interrupt(true)
-                    .memory_increment(true)
-                    .double_buffer(false),
-            );
-
-            self.rx_int.unpend();
-            self.rx_int.enable();
-
-            rx_transfer.start(|_usart| {});
-
-            STATE.rx_int.wait().await;
-
-            let (rx_stream, usart, buf, _) = rx_transfer.free();
-            self.rx_stream.replace(rx_stream);
-            self.usart.replace(usart);
+        unsafe {
+            let static_buf = core::mem::transmute::<&'a mut [u8], &'static mut [u8]>(buf);
+            let rx_stream = self.rx_stream.take().unwrap();
+            let usart = self.usart.take().unwrap();
+            STATE.rx_int.reset();
+            async move {
+                let mut rx_transfer = Transfer::init(
+                    rx_stream,
+                    usart,
+                    static_buf,
+                    None,
+                    DmaConfig::default()
+                        .transfer_complete_interrupt(true)
+                        .memory_increment(true)
+                        .double_buffer(false),
+                );
+                self.rx_int.unpend();
+                self.rx_int.enable();
+                rx_transfer.start(|_usart| {});
+                STATE.rx_int.wait().await;
+                let (rx_stream, usart, buf, _) = rx_transfer.free();
+                self.rx_stream.replace(rx_stream);
+                self.usart.replace(usart);
+                Ok(())
+            }
         }
     }
 }
