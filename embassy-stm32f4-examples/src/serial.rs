@@ -28,8 +28,8 @@ async fn run(dp: stm32::Peripherals, cp: cortex_m::Peripherals) {
         .pclk1(24.mhz())
         .freeze();
 
-    unsafe {
-        let mut serial = serial::Serial::new(
+    let mut serial = unsafe {
+        serial::Serial::new(
             gpioa.pa9.into_alternate_af7(),
             gpioa.pa10.into_alternate_af7(),
             interrupt::take!(DMA2_STREAM7),
@@ -40,12 +40,12 @@ async fn run(dp: stm32::Peripherals, cp: cortex_m::Peripherals) {
             config::Parity::ParityNone,
             9600.bps(),
             clocks,
-        );
-        let buf = singleton!(: [u8; 30] = [0; 30]).unwrap();
+        )
+    };
+    let buf = singleton!(: [u8; 30] = [0; 30]).unwrap();
 
-        buf[5] = 0x01;
-        serial.send(buf).await;
-    }
+    buf[5] = 0x01;
+    serial.send(buf).await;
 }
 
 static EXECUTOR: Forever<Executor> = Forever::new();
