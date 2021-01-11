@@ -52,12 +52,17 @@ impl<S: PeripheralState> PeripheralMutex<S> {
         r
     }
 
-    pub fn free(self: Pin<&mut Self>) -> (S, S::Interrupt) {
+    pub fn try_free(self: Pin<&mut Self>) -> Option<(S, S::Interrupt)> {
         let this = unsafe { self.get_unchecked_mut() };
-        let (state, irq) = unwrap!(this.inner.take());
-        irq.disable();
-        irq.remove_handler();
-        (state.into_inner(), irq)
+        this.inner.take().map(|(state, irq)| {
+            irq.disable();
+            irq.remove_handler();
+            (state.into_inner(), irq)
+        })
+    }
+
+    pub fn free(self: Pin<&mut Self>) -> (S, S::Interrupt) {
+        unwrap!(self.try_free())
     }
 }
 

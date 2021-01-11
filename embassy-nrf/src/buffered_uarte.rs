@@ -14,13 +14,16 @@ use embassy::io::{AsyncBufRead, AsyncWrite, Result};
 use embassy::util::WakerRegistration;
 use embedded_hal::digital::v2::OutputPin;
 
-use crate::fmt::{panic, todo, *};
 use crate::hal::gpio::Port as GpioPort;
 use crate::hal::ppi::ConfigurablePpi;
 use crate::interrupt::{self, OwnedInterrupt};
 use crate::pac;
 use crate::util::peripheral::{PeripheralMutex, PeripheralState};
 use crate::util::ring_buffer::RingBuffer;
+use crate::{
+    fmt::{panic, todo, *},
+    util::low_power_wait_until,
+};
 
 // Re-export SVD variants to allow user to directly set values
 pub use crate::hal::uarte::Pins;
@@ -203,14 +206,28 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
     fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<'a, U, T, P1, P2>>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
+
+    pub fn free(self: Pin<&mut Self>) -> (U, T, P1, P2, U::Interrupt) {
+        let (mut state, irq) = self.inner().free();
+        state.stop();
+        (
+            state.uarte,
+            state.timer,
+            state.ppi_channel_1,
+            state.ppi_channel_2,
+            irq,
+        )
+    }
 }
 
 impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi> Drop
     for BufferedUarte<'a, U, T, P1, P2>
 {
     fn drop(&mut self) {
-        // stop DMA before dropping, because DMA is using the buffer in `self`.
-        todo!()
+        let inner = unsafe { Pin::new_unchecked(&mut self.inner) };
+        if let Some((mut state, _irq)) = inner.try_free() {
+            state.stop();
+        }
     }
 }
 
@@ -278,6 +295,26 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
 
             Poll::Ready(Ok(n))
         })
+    }
+}
+
+impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi>
+    State<'a, U, T, P1, P2>
+{
+    fn stop(&mut self) {
+        self.timer.tasks_stop.write(|w| unsafe { w.bits(1) });
+        if let RxState::Receiving = self.rx_state {
+            self.uarte.tasks_stoprx.write(|w| unsafe { w.bits(1) });
+        }
+        if let TxState::Transmitting(_) = self.tx_state {
+            self.uarte.tasks_stoptx.write(|w| unsafe { w.bits(1) });
+        }
+        if let RxState::Receiving = self.rx_state {
+            low_power_wait_until(|| self.uarte.events_endrx.read().bits() == 0);
+        }
+        if let TxState::Transmitting(_) = self.tx_state {
+            low_power_wait_until(|| self.uarte.events_endtx.read().bits() == 0);
+        }
     }
 }
 
