@@ -203,6 +203,19 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
         }
     }
 
+    pub fn set_baudrate(self: Pin<&mut Self>, baudrate: Baudrate) {
+        self.inner().with(|state, _irq| {
+            let timeout = 0x8000_0000 / (baudrate as u32 / 40);
+            state.timer.cc[0].write(|w| unsafe { w.bits(timeout) });
+            state.timer.tasks_clear.write(|w| unsafe { w.bits(1) });
+
+            state
+                .uarte
+                .baudrate
+                .write(|w| w.baudrate().variant(baudrate));
+        });
+    }
+
     fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<'a, U, T, P1, P2>>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
