@@ -323,10 +323,10 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
             self.uarte.tasks_stoptx.write(|w| unsafe { w.bits(1) });
         }
         if let RxState::Receiving = self.rx_state {
-            low_power_wait_until(|| self.uarte.events_endrx.read().bits() == 0);
+            low_power_wait_until(|| self.uarte.events_endrx.read().bits() == 1);
         }
         if let TxState::Transmitting(_) = self.tx_state {
-            low_power_wait_until(|| self.uarte.events_endtx.read().bits() == 0);
+            low_power_wait_until(|| self.uarte.events_endtx.read().bits() == 1);
         }
     }
 }
