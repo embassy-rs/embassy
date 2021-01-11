@@ -1,3 +1,4 @@
+use core::mem;
 use core::task::Context;
 use core::task::Waker;
 
@@ -19,11 +20,21 @@ impl WakerRegistration {
             // keep the old waker, skipping the clone. (In most executor implementations,
             // cloning a waker is somewhat expensive, comparable to cloning an Arc).
             Some(ref w2) if (w2.will_wake(w)) => {}
-            // In all other cases
-            // - we have no waker registered
-            // - we have a waker registered but it's for a different task.
-            // then clone the new waker and store it
-            _ => self.waker = Some(w.clone()),
+            _ => {
+                // clone the new waker and store it
+                if let Some(old_waker) = mem::replace(&mut self.waker, Some(w.clone())) {
+                    // We had a waker registered for another task. Wake it, so the other task can
+                    // reregister itself if it's still interested.
+                    //
+                    // If two tasks are waiting on the same thing concurrently, this will cause them
+                    // to wake each other in a loop fighting over this WakerRegistration. This wastes
+                    // CPU but things will still work.
+                    //
+                    // If the user wants to have two tasks waiting on the same thing they should use
+                    // a more appropriate primitive that can store multiple wakers.
+                    old_waker.wake()
+                }
+            }
         }
     }
 
