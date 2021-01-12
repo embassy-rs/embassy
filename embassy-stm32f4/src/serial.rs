@@ -152,37 +152,35 @@ impl Uart for Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
     fn send<'a>(&'a mut self, buf: &'a [u8]) -> Self::SendFuture<'a> {
         unsafe { INSTANCE = self };
 
-        unsafe {
-            let static_buf = core::mem::transmute::<&'a [u8], &'static mut [u8]>(buf);
+        let static_buf = unsafe { core::mem::transmute::<&'a [u8], &'static mut [u8]>(buf) };
 
-            let tx_stream = self.tx_stream.take().unwrap();
-            let usart = self.usart.take().unwrap();
-            STATE.tx_int.reset();
+        let tx_stream = self.tx_stream.take().unwrap();
+        let usart = self.usart.take().unwrap();
+        STATE.tx_int.reset();
 
-            async move {
-                let mut tx_transfer = Transfer::init(
-                    tx_stream,
-                    usart,
-                    static_buf,
-                    None,
-                    DmaConfig::default()
-                        .transfer_complete_interrupt(true)
-                        .memory_increment(true)
-                        .double_buffer(false),
-                );
+        async move {
+            let mut tx_transfer = Transfer::init(
+                tx_stream,
+                usart,
+                static_buf,
+                None,
+                DmaConfig::default()
+                    .transfer_complete_interrupt(true)
+                    .memory_increment(true)
+                    .double_buffer(false),
+            );
 
-                self.tx_int.unpend();
-                self.tx_int.enable();
-                tx_transfer.start(|_usart| {});
+            self.tx_int.unpend();
+            self.tx_int.enable();
+            tx_transfer.start(|_usart| {});
 
-                STATE.tx_int.wait().await;
+            STATE.tx_int.wait().await;
 
-                let (tx_stream, usart, _buf, _) = tx_transfer.free();
-                self.tx_stream.replace(tx_stream);
-                self.usart.replace(usart);
+            let (tx_stream, usart, _buf, _) = tx_transfer.free();
+            self.tx_stream.replace(tx_stream);
+            self.usart.replace(usart);
 
-                Ok(())
-            }
+            Ok(())
         }
     }
 
@@ -199,31 +197,29 @@ impl Uart for Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
     fn receive<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReceiveFuture<'a> {
         unsafe { INSTANCE = self };
 
-        unsafe {
-            let static_buf = core::mem::transmute::<&'a mut [u8], &'static mut [u8]>(buf);
-            let rx_stream = self.rx_stream.take().unwrap();
-            let usart = self.usart.take().unwrap();
-            STATE.rx_int.reset();
-            async move {
-                let mut rx_transfer = Transfer::init(
-                    rx_stream,
-                    usart,
-                    static_buf,
-                    None,
-                    DmaConfig::default()
-                        .transfer_complete_interrupt(true)
-                        .memory_increment(true)
-                        .double_buffer(false),
-                );
-                self.rx_int.unpend();
-                self.rx_int.enable();
-                rx_transfer.start(|_usart| {});
-                STATE.rx_int.wait().await;
-                let (rx_stream, usart, buf, _) = rx_transfer.free();
-                self.rx_stream.replace(rx_stream);
-                self.usart.replace(usart);
-                Ok(())
-            }
+        let static_buf = unsafe { core::mem::transmute::<&'a mut [u8], &'static mut [u8]>(buf) };
+        let rx_stream = self.rx_stream.take().unwrap();
+        let usart = self.usart.take().unwrap();
+        STATE.rx_int.reset();
+        async move {
+            let mut rx_transfer = Transfer::init(
+                rx_stream,
+                usart,
+                static_buf,
+                None,
+                DmaConfig::default()
+                    .transfer_complete_interrupt(true)
+                    .memory_increment(true)
+                    .double_buffer(false),
+            );
+            self.rx_int.unpend();
+            self.rx_int.enable();
+            rx_transfer.start(|_usart| {});
+            STATE.rx_int.wait().await;
+            let (rx_stream, usart, _, _) = rx_transfer.free();
+            self.rx_stream.replace(rx_stream);
+            self.usart.replace(usart);
+            Ok(())
         }
     }
 }
