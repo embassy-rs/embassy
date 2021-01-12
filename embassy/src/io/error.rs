@@ -1,9 +1,7 @@
 /// Categories of errors that can occur.
-///
-/// This list is intended to grow over time and it is not recommended to
-/// exhaustively match against it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum Error {
     /// An entity was not found, often a file.
     NotFound,
@@ -142,22 +140,3 @@ impl core::fmt::Display for Error {
 
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
-
-/*
-impl From<smoltcp::Error> for Error {
-    fn from(err: smoltcp::Error) -> Error {
-        match err {
-            smoltcp::Error::Exhausted => Error::Exhausted,
-            smoltcp::Error::Illegal => Error::Illegal,
-            smoltcp::Error::Unaddressable => Error::Unaddressable,
-            smoltcp::Error::Truncated => Error::Truncated,
-            smoltcp::Error::Checksum => Error::Checksum,
-            smoltcp::Error::Unrecognized => Error::Unrecognized,
-            smoltcp::Error::Fragmented => Error::Fragmented,
-            smoltcp::Error::Malformed => Error::Malformed,
-            smoltcp::Error::Dropped => Error::Dropped,
-            _ => Error::Other,
-        }
-    }
-}
-*/

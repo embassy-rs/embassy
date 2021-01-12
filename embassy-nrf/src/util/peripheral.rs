@@ -6,25 +6,26 @@ use crate::fmt::*;
 use crate::interrupt::OwnedInterrupt;
 
 pub trait PeripheralState {
+    type Interrupt: OwnedInterrupt;
     fn on_interrupt(&mut self);
 }
 
-pub struct PeripheralMutex<I: OwnedInterrupt, S: PeripheralState> {
-    inner: Option<(I, UnsafeCell<S>)>,
+pub struct PeripheralMutex<S: PeripheralState> {
+    inner: Option<(UnsafeCell<S>, S::Interrupt)>,
     not_send: PhantomData<*mut ()>,
 }
 
-impl<I: OwnedInterrupt, S: PeripheralState> PeripheralMutex<I, S> {
-    pub fn new(irq: I, state: S) -> Self {
+impl<S: PeripheralState> PeripheralMutex<S> {
+    pub fn new(state: S, irq: S::Interrupt) -> Self {
         Self {
-            inner: Some((irq, UnsafeCell::new(state))),
+            inner: Some((UnsafeCell::new(state), irq)),
             not_send: PhantomData,
         }
     }
 
-    pub fn with<R>(self: Pin<&mut Self>, f: impl FnOnce(&mut I, &mut S) -> R) -> R {
+    pub fn with<R>(self: Pin<&mut Self>, f: impl FnOnce(&mut S, &mut S::Interrupt) -> R) -> R {
         let this = unsafe { self.get_unchecked_mut() };
-        let (irq, state) = unwrap!(this.inner.as_mut());
+        let (state, irq) = unwrap!(this.inner.as_mut());
 
         irq.disable();
         compiler_fence(Ordering::SeqCst);
@@ -43,7 +44,7 @@ impl<I: OwnedInterrupt, S: PeripheralState> PeripheralMutex<I, S> {
         // Safety: it's OK to get a &mut to the state, since the irq is disabled.
         let state = unsafe { &mut *state.get() };
 
-        let r = f(irq, state);
+        let r = f(state, irq);
 
         compiler_fence(Ordering::SeqCst);
         irq.enable();
@@ -51,18 +52,23 @@ impl<I: OwnedInterrupt, S: PeripheralState> PeripheralMutex<I, S> {
         r
     }
 
-    pub fn free(self: Pin<&mut Self>) -> (I, S) {
+    pub fn try_free(self: Pin<&mut Self>) -> Option<(S, S::Interrupt)> {
         let this = unsafe { self.get_unchecked_mut() };
-        let (irq, state) = unwrap!(this.inner.take());
-        irq.disable();
-        irq.remove_handler();
-        (irq, state.into_inner())
+        this.inner.take().map(|(state, irq)| {
+            irq.disable();
+            irq.remove_handler();
+            (state.into_inner(), irq)
+        })
+    }
+
+    pub fn free(self: Pin<&mut Self>) -> (S, S::Interrupt) {
+        unwrap!(self.try_free())
     }
 }
 
-impl<I: OwnedInterrupt, S: PeripheralState> Drop for PeripheralMutex<I, S> {
+impl<S: PeripheralState> Drop for PeripheralMutex<S> {
     fn drop(&mut self) {
-        if let Some((irq, state)) = &mut self.inner {
+        if let Some((state, irq)) = &mut self.inner {
             irq.disable();
             irq.remove_handler();
         }

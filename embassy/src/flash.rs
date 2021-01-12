@@ -2,12 +2,11 @@ use core::future::Future;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum Error {
     Failed,
     AddressMisaligned,
     BufferMisaligned,
-
-    _NonExhaustive,
 }
 
 pub trait Flash {

@@ -8,6 +8,7 @@ use example_common::*;
 
 use cortex_m_rt::entry;
 use defmt::panic;
+use nrf52840_hal as hal;
 use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
@@ -35,9 +36,14 @@ async fn run() {
         rts: None,
     };
 
+    let ppi = hal::ppi::Parts::new(p.PPI);
+
     let irq = interrupt::take!(UARTE0_UART0);
     let mut u = buffered_uarte::BufferedUarte::new(
         p.UARTE0,
+        p.TIMER0,
+        ppi.ppi0,
+        ppi.ppi1,
         irq,
         unsafe { &mut RX_BUFFER },
         unsafe { &mut TX_BUFFER },
