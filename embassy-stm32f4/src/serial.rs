@@ -144,14 +144,10 @@ impl Uart for Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
     type ReceiveFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
 
     /// Sends serial data.
-    ///
-    /// `tx_buffer` is marked as static as per `embedded-dma` requirements.
-    /// It it safe to use a buffer with a non static lifetime if memory is not
-    /// reused until the future has finished.
-    #[allow(mutable_transmutes)]
     fn send<'a>(&'a mut self, buf: &'a [u8]) -> Self::SendFuture<'a> {
         unsafe { INSTANCE = self };
 
+        #[allow(mutable_transmutes)]
         let static_buf = unsafe { core::mem::transmute::<&'a [u8], &'static mut [u8]>(buf) };
 
         let tx_stream = self.tx_stream.take().unwrap();
@@ -190,10 +186,6 @@ impl Uart for Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
     /// A common pattern is to use [`stop()`](ReceiveFuture::stop) to cancel
     /// unfinished transfers after a timeout to prevent lockup when no more data
     /// is incoming.
-    ///
-    /// `rx_buffer` is marked as static as per `embedded-dma` requirements.
-    /// It it safe to use a buffer with a non static lifetime if memory is not
-    /// reused until the future has finished.
     fn receive<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReceiveFuture<'a> {
         unsafe { INSTANCE = self };
 
