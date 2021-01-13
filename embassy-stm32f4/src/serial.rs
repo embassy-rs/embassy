@@ -84,15 +84,15 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         )
         .unwrap();
 
-        serial.listen(SerialEvent::Idle);
-        //        serial.listen(SerialEvent::Txe);
+        // serial.listen(SerialEvent::Idle);
+        serial.listen(SerialEvent::Txe);
 
         let (usart, _) = serial.release();
 
         // Register ISR
         tx_int.set_handler(Self::on_tx_irq, core::ptr::null_mut());
         rx_int.set_handler(Self::on_rx_irq, core::ptr::null_mut());
-        usart_int.set_handler(Self::on_rx_irq, core::ptr::null_mut());
+        usart_int.set_handler(Self::on_usart_irq, core::ptr::null_mut());
         // usart_int.unpend();
         // usart_int.enable();
 
@@ -112,8 +112,8 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         let s = &(*INSTANCE);
 
         s.tx_int.disable();
-
-        STATE.tx_int.signal(());
+        s.usart_int.unpend();
+        s.usart_int.enable();
     }
 
     unsafe fn on_rx_irq(_ctx: *mut ()) {
@@ -129,13 +129,17 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
 
     unsafe fn on_usart_irq(_ctx: *mut ()) {
         let s = &(*INSTANCE);
+        let usart1 = &(*USART1::ptr());
+        
+        let sr = usart1.sr.read();
+        let is_txe = sr.txe().bit_is_set();
+        // let is_idle = sr.idle().bit_is_set();
+        // let is_txe = (bits & 0b10000000) != 0 ;
+        // let is_idle = (bits & 0b00010000) != 0;
 
-        atomic::compiler_fence(Ordering::Acquire);
-        s.rx_int.disable();
         s.usart_int.disable();
-        atomic::compiler_fence(Ordering::Release);
 
-        STATE.rx_int.signal(());
+        STATE.tx_int.signal(());
     }
 }
 
