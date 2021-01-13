@@ -3,7 +3,9 @@
 #![feature(trait_alias)]
 #![feature(type_alias_impl_trait)]
 
-// extern crate panic_halt;
+#[path = "../example_common.rs"]
+mod example_common;
+use example_common::{panic, *};
 
 use cortex_m::singleton;
 use cortex_m_rt::entry;
@@ -45,7 +47,7 @@ async fn run(dp: stm32::Peripherals, cp: cortex_m::Peripherals) {
     let buf = singleton!(: [u8; 30] = [0; 30]).unwrap();
 
     buf[5] = 0x01;
-    serial.send(buf).await;
+    serial.send(buf).await.unwrap();
 }
 
 static EXECUTOR: Forever<Executor> = Forever::new();
@@ -56,7 +58,7 @@ fn main() -> ! {
     let cp = cortex_m::peripheral::Peripherals::take().unwrap();
 
     let executor = EXECUTOR.put(Executor::new(cortex_m::asm::sev));
-    executor.spawn(run(dp, cp));
+    executor.spawn(run(dp, cp)).unwrap();
 
     loop {
         executor.run();
