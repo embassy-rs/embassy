@@ -182,18 +182,13 @@ impl<T: Instance> RTC<T> {
 
             let diff = timestamp - t;
             if diff < 0xc00000 {
-                self.rtc.cc[n].write(|w| unsafe { w.bits(timestamp as u32 & 0xFFFFFF) });
+                // nrf52 docs say:
+                //    If the COUNTER is N, writing N or N+1 to a CC register may not trigger a COMPARE event.
+                // To workaround this, we never write a timestamp smaller than N+3.
+                // N+2 is not safe because rtc can tick from N to N+1 between calling now() and writing cc.
+                let safe_timestamp = timestamp.max(t + 3);
+                self.rtc.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
                 self.rtc.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
-
-                // We may have been preempted for arbitrary time between checking if `at` is in the past
-                // and setting the cc. In that case, we don't know if the cc has triggered.
-                // So, we check again just in case.
-
-                let t = self.now();
-                if timestamp <= t {
-                    self.trigger_alarm(n, cs);
-                    return;
-                }
             } else {
                 self.rtc.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
             }
