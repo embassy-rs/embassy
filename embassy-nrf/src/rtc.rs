@@ -2,14 +2,12 @@ use core::cell::Cell;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use embassy::time::{Clock, Instant};
+use embassy::time::Clock;
 
+use crate::fmt::*;
 use crate::interrupt;
 use crate::interrupt::{CriticalSection, Mutex, OwnedInterrupt};
-use crate::pac::{rtc0, Interrupt, RTC0, RTC1};
-
-#[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-use crate::pac::RTC2;
+use crate::pac::rtc0;
 
 fn calc_now(period: u32, counter: u32) -> u64 {
     let shift = ((period & 1) << 23) + 0x400000;
@@ -104,10 +102,12 @@ impl<T: Instance> RTC<T> {
         // Wait for clear
         while self.rtc.counter.read().bits() != 0 {}
 
-        T::set_rtc_instance(self);
         self.irq.set_handler(
-            |_| T::get_rtc_instance().on_interrupt(),
-            core::ptr::null_mut(),
+            |ptr| unsafe {
+                let this = &*(ptr as *const () as *const Self);
+                this.on_interrupt();
+            },
+            self as *const _ as *mut _,
         );
         self.irq.unpend();
         self.irq.enable();
@@ -238,33 +238,32 @@ impl<T: Instance> embassy::time::Alarm for Alarm<T> {
     }
 }
 
+mod sealed {
+    pub trait Instance {}
+
+    impl Instance for crate::pac::RTC0 {}
+    impl Instance for crate::pac::RTC1 {}
+    #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
+    impl Instance for crate::pac::RTC2 {}
+}
+
 /// Implemented by all RTC instances.
-pub trait Instance: Deref<Target = rtc0::RegisterBlock> + Sized + 'static {
+pub trait Instance:
+    sealed::Instance + Deref<Target = rtc0::RegisterBlock> + Sized + 'static
+{
     /// The interrupt associated with this RTC instance.
     type Interrupt: OwnedInterrupt;
-
-    fn set_rtc_instance(rtc: &'static RTC<Self>);
-    fn get_rtc_instance() -> &'static RTC<Self>;
 }
 
-macro_rules! impl_instance {
-    ($name:ident, $irq_name:path, $static_name:ident) => {
-        static mut $static_name: Option<&'static RTC<$name>> = None;
-
-        impl Instance for $name {
-            type Interrupt = $irq_name;
-            fn set_rtc_instance(rtc: &'static RTC<Self>) {
-                unsafe { $static_name = Some(rtc) }
-            }
-            fn get_rtc_instance() -> &'static RTC<Self> {
-                unsafe { $static_name.unwrap() }
-            }
-        }
-    };
+impl Instance for crate::pac::RTC0 {
+    type Interrupt = interrupt::RTC0Interrupt;
 }
 
-impl_instance!(RTC0, interrupt::RTC0Interrupt, RTC0_INSTANCE);
-impl_instance!(RTC1, interrupt::RTC1Interrupt, RTC1_INSTANCE);
+impl Instance for crate::pac::RTC1 {
+    type Interrupt = interrupt::RTC1Interrupt;
+}
 
 #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-impl_instance!(RTC2, interrupt::RTC2Interrupt, RTC2_INSTANCE);
+impl Instance for crate::pac::RTC2 {
+    type Interrupt = interrupt::RTC2Interrupt;
+}
