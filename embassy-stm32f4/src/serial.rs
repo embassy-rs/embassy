@@ -26,6 +26,7 @@ use crate::hal::rcc::Clocks;
 use crate::hal::serial::config::{
     Config as SerialConfig, DmaConfig as SerialDmaConfig, Parity, StopBits, WordLength,
 };
+use crate::hal::serial::Pins;
 use crate::hal::serial::{Event as SerialEvent, Serial as HalSerial};
 use crate::hal::time::Bps;
 
@@ -58,31 +59,21 @@ static mut INSTANCE: *const Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> = ptr::
 
 impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
     // Leaking futures is forbidden!
-    pub unsafe fn new(
-        txd: PA9<Alternate<AF7>>,
-        rxd: PA10<Alternate<AF7>>,
+    pub unsafe fn new<PINS>(
+        usart: USART1,
+        dma: DMA2,
+        pins: PINS,
         tx_int: interrupt::DMA2_STREAM7Interrupt,
         rx_int: interrupt::DMA2_STREAM2Interrupt,
         usart_int: interrupt::USART1Interrupt,
-        dma: DMA2,
-        usart: USART1,
-        parity: Parity,
-        baudrate: Bps,
+        mut config: SerialConfig,
         clocks: Clocks,
-    ) -> Self {
-        let mut serial = HalSerial::usart1(
-            usart,
-            (txd, rxd),
-            SerialConfig {
-                baudrate: baudrate,
-                wordlength: WordLength::DataBits8,
-                parity: Parity::ParityNone,
-                stopbits: StopBits::STOP1,
-                dma: SerialDmaConfig::TxRx,
-            },
-            clocks,
-        )
-        .unwrap();
+    ) -> Self
+    where
+        PINS: Pins<USART1>,
+    {
+        config.dma = SerialDmaConfig::TxRx;
+        let mut serial = HalSerial::usart1(usart, pins, config, clocks).unwrap();
 
         serial.listen(SerialEvent::Idle);
         //        serial.listen(SerialEvent::Txe);
