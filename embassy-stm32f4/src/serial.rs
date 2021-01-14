@@ -22,8 +22,8 @@ use crate::hal::rcc::Clocks;
 use crate::hal::serial::config::{
     Config as SerialConfig, DmaConfig as SerialDmaConfig, Parity, StopBits, WordLength,
 };
+use crate::hal::serial::Pins;
 use crate::hal::serial::{Event as SerialEvent, Serial as HalSerial};
-use crate::hal::serial::{PinRx, PinTx};
 use crate::hal::time::Bps;
 use crate::interrupt::{
     DMA1_STREAM5Interrupt, DMA1_STREAM6Interrupt, DMA2_STREAM2Interrupt, DMA2_STREAM7Interrupt,
@@ -51,7 +51,7 @@ pub struct Serial<
 }
 
 macro_rules! usart {
-    ($($USART:ident => ($DMA:ident, $TSTREAM:expr, $RSTREAM:expr, $TPIN:ident, $RPIN:ident),)+) => {
+    ($($USART:ident => ($DMA:ident, $TSTREAM:expr, $RSTREAM:expr),)+) => {
         $(
             paste! {
                 static mut [<INSTANCE _ $USART _ $TSTREAM _ $RSTREAM>]: *const Serial<
@@ -70,30 +70,27 @@ macro_rules! usart {
                     [<$DMA _ STREAM $TSTREAM Interrupt>],
                     [<$DMA _ STREAM $RSTREAM Interrupt>],
                     [<$USART Interrupt>]
-                > {
-                    pub unsafe fn new(
-                        txd: $TPIN<Alternate<AF7>>,
-                        rxd: $RPIN<Alternate<AF7>>,
+                >
+                {
+                    pub unsafe fn new<PINS>(
+                        usart: $USART,
+                        pins: PINS,
+                        dma: $DMA,
                         tx_int: [<$DMA _ STREAM $TSTREAM Interrupt>],
                         rx_int: [<$DMA _ STREAM $RSTREAM Interrupt>],
                         usart_int: [<$USART Interrupt>],
-                        dma: $DMA,
-                        usart: $USART,
-                        parity: Parity,
-                        stopbits: StopBits,
-                        baudrate: Bps,
+                        mut config: SerialConfig,
                         clocks: Clocks,
-                    ) -> Self {
+                    ) -> Self
+                    where
+                        PINS: Pins<$USART>,
+                    {
+                        config.dma = SerialDmaConfig::TxRx;
+
                         let mut serial = HalSerial::[<$USART:lower>](
                             usart,
-                            (txd, rxd),
-                            SerialConfig {
-                                baudrate: baudrate,
-                                wordlength: WordLength::DataBits8,
-                                parity: parity,
-                                stopbits: stopbits,
-                                dma: SerialDmaConfig::TxRx,
-                            },
+                            pins,
+                            config,
                             clocks,
                         )
                         .unwrap();
@@ -248,8 +245,8 @@ macro_rules! usart {
     feature = "stm32f479",
 ))]
 usart! {
-    USART1 => (DMA2, 7, 2, PA9, PA10),
-    USART2 => (DMA1, 6, 5, PA2, PA3),
+    USART1 => (DMA2, 7, 2),
+    USART2 => (DMA1, 6, 5),
 }
 
 // ($($USART:ident => ($TSTREAM:ident,$TDMA:ident,  $RSTREAM:ident, $RDMA:ident, $TINT:ident, $RINT:ident, $UINT:ident, $TPIN:ident, $RPIN:ident),)+) => {
