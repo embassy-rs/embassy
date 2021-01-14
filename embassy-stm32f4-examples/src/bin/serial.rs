@@ -14,6 +14,7 @@ use embassy::uart::Uart;
 use embassy::util::Forever;
 use embassy_stm32f4::interrupt;
 use embassy_stm32f4::serial;
+use stm32f4xx_hal::serial::config::Config;
 use stm32f4xx_hal::stm32;
 use stm32f4xx_hal::{prelude::*, serial::config};
 
@@ -31,17 +32,17 @@ async fn run(dp: stm32::Peripherals, cp: cortex_m::Peripherals) {
         .freeze();
 
     let mut serial = unsafe {
-        serial::Serial::new(
-            gpioa.pa9.into_alternate_af7(),
-            gpioa.pa10.into_alternate_af7(),
+        serial::Serial::usart1(
+            dp.USART1,
+            dp.DMA2,
+            (
+                gpioa.pa9.into_alternate_af7(),
+                gpioa.pa10.into_alternate_af7(),
+            ),
             interrupt::take!(DMA2_STREAM7),
             interrupt::take!(DMA2_STREAM2),
             interrupt::take!(USART1),
-            dp.DMA2,
-            dp.USART1,
-            config::Parity::ParityNone,
-            config::StopBits::STOP1,
-            9600.bps(),
+            Config::default().baudrate(9600.bps()),
             clocks,
         )
     };

@@ -72,10 +72,10 @@ macro_rules! usart {
                     [<$USART Interrupt>]
                 >
                 {
-                    pub unsafe fn new<PINS>(
+                    pub unsafe fn [<$USART:lower>]<PINS>(
                         usart: $USART,
-                        pins: PINS,
                         dma: $DMA,
+                        pins: PINS,
                         tx_int: [<$DMA _ STREAM $TSTREAM Interrupt>],
                         rx_int: [<$DMA _ STREAM $RSTREAM Interrupt>],
                         usart_int: [<$USART Interrupt>],
