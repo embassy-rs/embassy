@@ -4,10 +4,10 @@
 //! Lowest power consumption can only be guaranteed if the send receive futures
 //! are dropped correctly (e.g. not using `mem::forget()`).
 
-use concat_idents::concat_idents;
 use core::future::Future;
 use core::ptr;
 use core::sync::atomic::{self, Ordering};
+use paste::paste;
 
 use embassy::interrupt::OwnedInterrupt;
 use embassy::uart::{Error, Uart};
@@ -51,33 +51,40 @@ pub struct Serial<
 }
 
 macro_rules! usart {
-    ($($USART:ident => ($TSTREAM:ident,$TDMA:ident,  $RSTREAM:ident, $X:expr, $Y:expr, $TINT:ident, $RINT:ident, $UINT:ident, $TPIN:ident, $RPIN:ident, $SF:expr ),)+) => {
+    ($($USART:ident => ($DMA:ident, $TSTREAM:expr, $RSTREAM:expr, $TPIN:ident, $RPIN:ident),)+) => {
         $(
-            concat_idents!(INSTANCE = INSTANCE, _, $USART, _, $TSTREAM, _, $TDMA, _, $RSTREAM {
-                static mut INSTANCE: *const Serial<
+            paste! {
+                static mut [<INSTANCE _ $USART _ $TSTREAM _ $RSTREAM>]: *const Serial<
                     $USART,
-                    $TSTREAM<$TDMA>,
-                    $RSTREAM<$TDMA>,
-                    $TINT,
-                    $RINT,
-                    $UINT,
+                    [<Stream $TSTREAM>]<$DMA>,
+                    [<Stream $RSTREAM>]<$DMA>,
+                    [<$DMA _ STREAM $TSTREAM Interrupt>],
+                    [<$DMA _ STREAM $RSTREAM Interrupt>],
+                    [<$USART Interrupt>],
                 > = ptr::null_mut();
 
-                impl Serial<$USART, $TSTREAM<$TDMA>, $RSTREAM<$TDMA>, $TINT, $RINT, $UINT> {
+                impl Serial<
+                    $USART,
+                    [<Stream $TSTREAM>]<$DMA>,
+                    [<Stream $RSTREAM>]<$DMA>,
+                    [<$DMA _ STREAM $TSTREAM Interrupt>],
+                    [<$DMA _ STREAM $RSTREAM Interrupt>],
+                    [<$USART Interrupt>]
+                > {
                     pub unsafe fn new(
                         txd: $TPIN<Alternate<AF7>>,
                         rxd: $RPIN<Alternate<AF7>>,
-                        tx_int: $TINT,
-                        rx_int: $RINT,
-                        usart_int: $UINT,
-                        dma: $TDMA,
+                        tx_int: [<$DMA _ STREAM $TSTREAM Interrupt>],
+                        rx_int: [<$DMA _ STREAM $RSTREAM Interrupt>],
+                        usart_int: [<$USART Interrupt>],
+                        dma: $DMA,
                         usart: $USART,
                         parity: Parity,
                         stopbits: StopBits,
                         baudrate: Bps,
                         clocks: Clocks,
                     ) -> Self {
-                        let mut serial = HalSerial::$SF(
+                        let mut serial = HalSerial::[<$USART:lower>](
                             usart,
                             (txd, rxd),
                             SerialConfig {
@@ -98,8 +105,8 @@ macro_rules! usart {
                         usart_int.set_handler(Self::on_usart_irq, core::ptr::null_mut());
                         let streams = StreamsTuple::new(dma);
                         Serial {
-                            tx_stream: Some(streams.$X),
-                            rx_stream: Some(streams.$Y),
+                            tx_stream: Some(streams.$TSTREAM),
+                            rx_stream: Some(streams.$RSTREAM),
                             usart: Some(usart),
                             tx_int: tx_int,
                             rx_int: rx_int,
@@ -110,7 +117,7 @@ macro_rules! usart {
                     }
 
                     unsafe fn on_tx_irq(_ctx: *mut ()) {
-                        let s = &(*INSTANCE);
+                        let s = &(*[<INSTANCE _ $USART _ $TSTREAM _ $RSTREAM>]);
                         atomic::compiler_fence(Ordering::Acquire);
                         s.tx_int.disable();
                         s.usart_int.unpend();
@@ -118,7 +125,7 @@ macro_rules! usart {
                         atomic::compiler_fence(Ordering::Release);
                     }
                     unsafe fn on_rx_irq(_ctx: *mut ()) {
-                        let s = &(*INSTANCE);
+                        let s = &(*[<INSTANCE _ $USART _ $TSTREAM _ $RSTREAM>]);
                         atomic::compiler_fence(Ordering::Acquire);
                         s.rx_int.disable();
                         s.usart_int.disable();
@@ -126,7 +133,7 @@ macro_rules! usart {
                         s.rx.signal(());
                     }
                     unsafe fn on_usart_irq(_ctx: *mut ()) {
-                        let s = &(*INSTANCE);
+                        let s = &(*[<INSTANCE _ $USART _ $TSTREAM _ $RSTREAM>]);
                         let status = &(*$USART::ptr()).sr.read();
                         let is_txe = status.txe().bit_is_set();
                         let is_idle = status.idle().bit_is_set();
@@ -143,12 +150,19 @@ macro_rules! usart {
                     }
                 }
 
-                impl Uart for Serial<$USART, $TSTREAM<$TDMA>, $RSTREAM<$TDMA>, $TINT, $RINT, $UINT> {
+                impl Uart for Serial<
+                    $USART,
+                    [<Stream $TSTREAM>]<$DMA>,
+                    [<Stream $RSTREAM>]<$DMA>,
+                    [<$DMA _ STREAM $TSTREAM Interrupt>],
+                    [<$DMA _ STREAM $RSTREAM Interrupt>],
+                    [<$USART Interrupt>]
+                > {
                     type SendFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
                     type ReceiveFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
                     /// Sends serial data.
                     fn send<'a>(&'a mut self, buf: &'a [u8]) -> Self::SendFuture<'a> {
-                        unsafe { INSTANCE = self };
+                        unsafe { [<INSTANCE _ $USART _ $TSTREAM _ $RSTREAM>] = self };
                         #[allow(mutable_transmutes)]
                         let static_buf = unsafe { core::mem::transmute::<&'a [u8], &'static mut [u8]>(buf) };
                         let tx_stream = self.tx_stream.take().unwrap();
@@ -182,7 +196,7 @@ macro_rules! usart {
                     /// unfinished transfers after a timeout to prevent lockup when no more data
                     /// is incoming.
                     fn receive<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReceiveFuture<'a> {
-                        unsafe { INSTANCE = self };
+                        unsafe { [<INSTANCE _ $USART _ $TSTREAM _ $RSTREAM>] = self };
                         let static_buf = unsafe { core::mem::transmute::<&'a mut [u8], &'static mut [u8]>(buf) };
                         let rx_stream = self.rx_stream.take().unwrap();
                         let usart = self.usart.take().unwrap();
@@ -209,7 +223,7 @@ macro_rules! usart {
                         }
                     }
                 }
-            });
+            }
         )+
     }
 }
@@ -234,8 +248,8 @@ macro_rules! usart {
     feature = "stm32f479",
 ))]
 usart! {
-    USART1 => (Stream7, DMA2, Stream2, 7, 2, DMA2_STREAM7Interrupt, DMA2_STREAM2Interrupt, USART1Interrupt, PA9, PA10, usart1),
-    USART2 => (Stream6, DMA1, Stream5, 6, 5, DMA1_STREAM6Interrupt, DMA1_STREAM5Interrupt, USART2Interrupt, PA2, PA3, usart2),
+    USART1 => (DMA2, 7, 2, PA9, PA10),
+    USART2 => (DMA1, 6, 5, PA2, PA3),
 }
 
 // ($($USART:ident => ($TSTREAM:ident,$TDMA:ident,  $RSTREAM:ident, $RDMA:ident, $TINT:ident, $RINT:ident, $UINT:ident, $TPIN:ident, $RPIN:ident),)+) => {
