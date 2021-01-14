@@ -31,9 +31,3 @@ stm32f4xx-hal  = { version = "0.8.3", features = ["rt", "stm32f405"], git = "htt
 futures = { version = "0.3.8", default-features = false, features = ["async-await"] }
 cortex-m-rtic = "0.5"
 rtt-target = { version = "0.3", features = ["cortex-m"] }
-
-
-
-[[bin]]
-name = "serial"
-path = "src/serial.rs"

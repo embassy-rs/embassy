@@ -2,14 +2,12 @@ use core::cell::Cell;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use embassy::time::{Clock, Instant};
+use embassy::time::Clock;
 
+use crate::fmt::*;
 use crate::interrupt;
 use crate::interrupt::{CriticalSection, Mutex, OwnedInterrupt};
-use crate::pac::{rtc0, Interrupt, RTC0, RTC1};
-
-#[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-use crate::pac::RTC2;
+use crate::pac::rtc0;
 
 fn calc_now(period: u32, counter: u32) -> u64 {
     let shift = ((period & 1) << 23) + 0x400000;
@@ -104,10 +102,12 @@ impl<T: Instance> RTC<T> {
         // Wait for clear
         while self.rtc.counter.read().bits() != 0 {}
 
-        T::set_rtc_instance(self);
         self.irq.set_handler(
-            |_| T::get_rtc_instance().on_interrupt(),
-            core::ptr::null_mut(),
+            |ptr| unsafe {
+                let this = &*(ptr as *const () as *const Self);
+                this.on_interrupt();
+            },
+            self as *const _ as *mut _,
         );
         self.irq.unpend();
         self.irq.enable();
@@ -182,18 +182,13 @@ impl<T: Instance> RTC<T> {
 
             let diff = timestamp - t;
             if diff < 0xc00000 {
-                self.rtc.cc[n].write(|w| unsafe { w.bits(timestamp as u32 & 0xFFFFFF) });
+                // nrf52 docs say:
+                //    If the COUNTER is N, writing N or N+1 to a CC register may not trigger a COMPARE event.
+                // To workaround this, we never write a timestamp smaller than N+3.
+                // N+2 is not safe because rtc can tick from N to N+1 between calling now() and writing cc.
+                let safe_timestamp = timestamp.max(t + 3);
+                self.rtc.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
                 self.rtc.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
-
-                // We may have been preempted for arbitrary time between checking if `at` is in the past
-                // and setting the cc. In that case, we don't know if the cc has triggered.
-                // So, we check again just in case.
-
-                let t = self.now();
-                if timestamp <= t {
-                    self.trigger_alarm(n, cs);
-                    return;
-                }
             } else {
                 self.rtc.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
             }
@@ -238,33 +233,32 @@ impl<T: Instance> embassy::time::Alarm for Alarm<T> {
     }
 }
 
+mod sealed {
+    pub trait Instance {}
+
+    impl Instance for crate::pac::RTC0 {}
+    impl Instance for crate::pac::RTC1 {}
+    #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
+    impl Instance for crate::pac::RTC2 {}
+}
+
 /// Implemented by all RTC instances.
-pub trait Instance: Deref<Target = rtc0::RegisterBlock> + Sized + 'static {
+pub trait Instance:
+    sealed::Instance + Deref<Target = rtc0::RegisterBlock> + Sized + 'static
+{
     /// The interrupt associated with this RTC instance.
     type Interrupt: OwnedInterrupt;
-
-    fn set_rtc_instance(rtc: &'static RTC<Self>);
-    fn get_rtc_instance() -> &'static RTC<Self>;
 }
 
-macro_rules! impl_instance {
-    ($name:ident, $irq_name:path, $static_name:ident) => {
-        static mut $static_name: Option<&'static RTC<$name>> = None;
-
-        impl Instance for $name {
-            type Interrupt = $irq_name;
-            fn set_rtc_instance(rtc: &'static RTC<Self>) {
-                unsafe { $static_name = Some(rtc) }
-            }
-            fn get_rtc_instance() -> &'static RTC<Self> {
-                unsafe { $static_name.unwrap() }
-            }
-        }
-    };
+impl Instance for crate::pac::RTC0 {
+    type Interrupt = interrupt::RTC0Interrupt;
 }
 
-impl_instance!(RTC0, interrupt::RTC0Interrupt, RTC0_INSTANCE);
-impl_instance!(RTC1, interrupt::RTC1Interrupt, RTC1_INSTANCE);
+impl Instance for crate::pac::RTC1 {
+    type Interrupt = interrupt::RTC1Interrupt;
+}
 
 #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-impl_instance!(RTC2, interrupt::RTC2Interrupt, RTC2_INSTANCE);
+impl Instance for crate::pac::RTC2 {
+    type Interrupt = interrupt::RTC2Interrupt;
+}
