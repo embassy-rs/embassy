@@ -38,6 +38,7 @@ async fn run(dp: stm32::Peripherals, cp: cortex_m::Peripherals) {
             dp.DMA2,
             dp.USART1,
             config::Parity::ParityNone,
+            config::StopBits::STOP1,
             9600.bps(),
             clocks,
         )
