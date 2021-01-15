@@ -28,3 +28,8 @@ set -euxo pipefail
 (cd embassy-stm32f4-examples; cargo build --target thumbv7em-none-eabi --bins)
 (cd embassy-stm32f4; cargo build --target thumbv7em-none-eabi --features stm32f405)
 (cd embassy-stm32f4; cargo build --target thumbv7em-none-eabi --features stm32f405,defmt)
+
+# embassy-stm32wb55
+
+(cd embassy-stm32wb55; cargo build --target thumbv7em-none-eabihf --features 55)
+(cd embassy-stm32wb55; cargo build --target thumbv7em-none-eabihf --features 55,defmt)

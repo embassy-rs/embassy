@@ -1,0 +1,32 @@
+[package]
+name = "embassy-stm32wb55"
+version = "0.1.0"
+authors = ["Evgenii P. <eupn@protonmail.com>"]
+edition = "2018"
+
+[features]
+defmt-trace = [ ]
+defmt-debug = [ ]
+defmt-info = [ ]
+defmt-warn = [ ]
+defmt-error = [ ]
+
+55 = ["stm32wb-hal"]
+
+[dependencies]
+embassy         = { version = "0.1.0", path = "../embassy" }
+
+defmt           = { version = "0.1.3", optional = true }
+log             = { version = "0.4.11", optional = true }
+
+cortex-m-rt     = "0.6.13"
+cortex-m        = { version = "0.6.4" }
+
+embedded-hal    = { version = "0.2.4" }
+embedded-dma    = "0.1"
+
+futures         = { version = "0.3", default-features = false }
+nb              = "1.0"
+void            = { version = "1.0", default-features = false }
+
+stm32wb-hal     = { version = "0.1", features = ["rt"], optional = true }
