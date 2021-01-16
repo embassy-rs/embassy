@@ -8,7 +8,7 @@ rustflags = [
 ]
 
 [build]
-target = "thumbv7em-none-eabihf"
+target = "thumbv7em-none-eabi"
 
 [alias]
 rb = "run --bin"
