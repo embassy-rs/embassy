@@ -14,6 +14,9 @@ defmt-error = [ ]
 55 = ["stm32wb-hal"]
 
 [dependencies]
+bbqueue         = "0.4.12"
+bluetooth-hci   = { version = "0.1.0"}
+
 embassy         = { version = "0.1.0", path = "../embassy" }
 
 defmt           = { version = "0.1.3", optional = true }
@@ -30,3 +33,4 @@ nb              = "1.0"
 void            = { version = "1.0", default-features = false }
 
 stm32wb-hal     = { version = "0.1", features = ["rt"], optional = true }
+stm32wb55       = { git = "https://github.com/eupn/stm32wb55.git" }

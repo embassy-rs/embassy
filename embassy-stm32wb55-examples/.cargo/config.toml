@@ -1,0 +1,15 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+runner = "probe-run --chip STM32WB55CGUx"
+rustflags = [
+  "-C", "linker=flip-link",
+  "-C", "link-arg=-Tlink.x",
+  "-C", "link-arg=-Tdefmt.x",
+  "-C", "link-arg=--nmagic",
+]
+
+[build]
+target = "thumbv7em-none-eabihf"
+
+[alias]
+rb = "run --bin"
+rrb = "run --release --bin"
