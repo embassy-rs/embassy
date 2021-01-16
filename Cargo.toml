@@ -7,6 +7,7 @@ members = [
     "embassy-stm32f4",
     "embassy-stm32f4-examples",
     "embassy-stm32wb55",
+    "embassy-stm32wb55-examples",
     "embassy-macros",
 ]
 
