@@ -79,7 +79,7 @@ impl Ble {
         // Boot coprocessor
         stm32wb_hal::pwr::set_cpu2(true);
 
-        match Self::receive_event(&mut rc).await {
+        match Self::receive_event_helper(&mut rc).await {
             Ok(Packet::Event(Event::Vendor(Stm32Wb5xEvent::CoprocessorReady(
                 FirmwareKind::Wireless,
             )))) => Ok(Self {
@@ -98,7 +98,7 @@ impl Ble {
         let rc = unsafe { RADIO_COPROSESSOR.as_mut() };
         if let Some(rc) = rc {
             cortex_m::interrupt::free(|_| command(rc))?;
-            let response = Self::receive_event(rc).await?;
+            let response = Self::receive_event_helper(rc).await?;
             if let Packet::Event(Event::CommandComplete(CommandComplete {
                 return_params,
                 num_hci_command_packets: _,
@@ -113,7 +113,18 @@ impl Ble {
         }
     }
 
-    async fn receive_event(
+    /// Awaits for a BLE event from the BLE stack.
+    pub async fn receive_event(&self)
+        -> Result<Packet<Stm32Wb5xEvent>, BleError<Error<(), Stm32Wb5xError>>>{
+        let rc = unsafe { RADIO_COPROSESSOR.as_mut() };
+        if let Some(rc) = rc {
+            Ok(Self::receive_event_helper(rc).await?)
+        } else {
+            Err(BleError::NotInitialized)
+        }
+    }
+
+    async fn receive_event_helper(
         rc: &mut Rc,
     ) -> nb::Result<Packet<Stm32Wb5xEvent>, Error<(), Stm32Wb5xError>> {
         loop {
