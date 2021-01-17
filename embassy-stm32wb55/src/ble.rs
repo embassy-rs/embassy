@@ -14,12 +14,9 @@ use stm32wb_hal::{ipcc::Ipcc, tl_mbox::{TlMbox, shci::ShciBleInitCmdParam}};
 
 type BufSize = U514;
 static BB: BBBuffer<BufSize> = BBBuffer(ConstBBBuffer::new());
-pub type Rc = RadioCoprocessor<'static, BufSize>;
 
-pub struct Ble {
-    _rx_int: interrupt::IPCC_C1_RX_ITInterrupt,
-    _tx_int: interrupt::IPCC_C1_TX_ITInterrupt,
-}
+/// Reexport of the BLE stack type with data buffer.
+pub type Rc = RadioCoprocessor<'static, BufSize>;
 
 struct State {
     tx_int: Signal<()>,
@@ -33,6 +30,10 @@ static STATE: State = State {
 
 static mut RADIO_COPROSESSOR: *mut Rc = core::ptr::null_mut();
 
+/// Type alias for the BLE stack's transport layer errors.
+pub type BleTransportLayerError = bluetooth_hci::host::uart::Error<(), Stm32Wb5xError>;
+
+/// BLE stack or system errors.
 #[derive(Debug)]
 pub enum BleError<E: core::fmt::Debug> {
     NbError(nb::Error<E>),
@@ -47,15 +48,22 @@ impl<E: core::fmt::Debug> From<nb::Error<()>> for BleError<E> {
     }
 }
 
-impl From<nb::Error<bluetooth_hci::host::uart::Error<(), Stm32Wb5xError>>>
-    for BleError<bluetooth_hci::host::uart::Error<(), Stm32Wb5xError>>
+impl From<nb::Error<BleTransportLayerError>>
+    for BleError<BleTransportLayerError>
 {
     fn from(e: nb::Error<bluetooth_hci::host::uart::Error<(), Stm32Wb5xError>>) -> Self {
         BleError::NbError(e)
     }
 }
 
+/// Defines BLE stack interactions. It should be instantiated only once.
+pub struct Ble {
+    _rx_int: interrupt::IPCC_C1_RX_ITInterrupt,
+    _tx_int: interrupt::IPCC_C1_TX_ITInterrupt,
+}
+
 impl Ble {
+    /// Initializes the BLE stack and returns a status response from the BLE stack.
     pub async fn init(
         rx_int: interrupt::IPCC_C1_RX_ITInterrupt,
         tx_int: interrupt::IPCC_C1_TX_ITInterrupt,
@@ -91,6 +99,7 @@ impl Ble {
         }
     }
 
+    /// Sends an HCI BLE command and awaits for a response from the BLE stack.
     pub async fn perform_command(
         &mut self,
         command: impl Fn(&mut Rc) -> nb::Result<(), ()>,
