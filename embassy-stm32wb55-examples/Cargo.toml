@@ -29,7 +29,7 @@ cortex-m-rt         = "0.6.13"
 embedded-hal        = { version = "0.2.4" }
 panic-probe         = "0.1.0"
 nb                  = "1.0"
-stm32wb-hal         = { version = "0.1", features = ["rt"] }
+stm32wb-hal         = { version = "0.1", features = ["rt", "xG-package"] }
 stm32wb55           = { git = "https://github.com/eupn/stm32wb55.git" }
 futures             = { version = "0.3.8", default-features = false, features = ["async-await"] }
 rtt-target          = { version = "0.3", features = ["cortex-m"] }

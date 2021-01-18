@@ -32,5 +32,5 @@ futures         = { version = "0.3", default-features = false }
 nb              = "1.0"
 void            = { version = "1.0", default-features = false }
 
-stm32wb-hal     = { version = "0.1", features = ["rt"], optional = true }
+stm32wb-hal     = { version = "0.1", features = ["rt", "xG-package"], optional = true }
 stm32wb55       = { git = "https://github.com/eupn/stm32wb55.git" }
