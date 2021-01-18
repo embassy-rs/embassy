@@ -16,6 +16,7 @@ defmt-error = [ ]
 [dependencies]
 bbqueue         = "0.4.12"
 bluetooth-hci   = { version = "0.1.0"}
+heapless = "0.5.6"
 
 embassy         = { version = "0.1.0", path = "../embassy" }
 

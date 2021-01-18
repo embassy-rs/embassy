@@ -10,10 +10,20 @@ use bluetooth_hci::{
 use embassy::util::Signal;
 use stm32wb55::event::{FirmwareKind, Stm32Wb5xError};
 use stm32wb55::{event::Stm32Wb5xEvent, RadioCoprocessor};
-use stm32wb_hal::{ipcc::Ipcc, tl_mbox::{TlMbox, shci::ShciBleInitCmdParam}};
+use stm32wb_hal::{
+    ipcc::Ipcc,
+    tl_mbox::{shci::ShciBleInitCmdParam, TlMbox},
+};
 
 type BufSize = U514;
 static BB: BBBuffer<BufSize> = BBBuffer(ConstBBBuffer::new());
+
+pub type HeaplessEvtQueue = heapless::spsc::Queue<
+    Packet<Stm32Wb5xEvent>,
+    heapless::consts::U32,
+    u8,
+    heapless::spsc::SingleCore,
+>;
 
 /// Reexport of the BLE stack type with data buffer.
 pub type Rc = RadioCoprocessor<'static, BufSize>;
@@ -48,9 +58,7 @@ impl<E: core::fmt::Debug> From<nb::Error<()>> for BleError<E> {
     }
 }
 
-impl From<nb::Error<BleTransportLayerError>>
-    for BleError<BleTransportLayerError>
-{
+impl From<nb::Error<BleTransportLayerError>> for BleError<BleTransportLayerError> {
     fn from(e: nb::Error<bluetooth_hci::host::uart::Error<(), Stm32Wb5xError>>) -> Self {
         BleError::NbError(e)
     }
@@ -60,6 +68,7 @@ impl From<nb::Error<BleTransportLayerError>>
 pub struct Ble {
     _rx_int: interrupt::IPCC_C1_RX_ITInterrupt,
     _tx_int: interrupt::IPCC_C1_TX_ITInterrupt,
+    deferred_events: HeaplessEvtQueue,
 }
 
 impl Ble {
@@ -87,12 +96,14 @@ impl Ble {
         // Boot coprocessor
         stm32wb_hal::pwr::set_cpu2(true);
 
-        match Self::receive_event_helper(&mut rc).await {
+        let mut evt_queue = unsafe { heapless::spsc::Queue::u8_sc() };
+        match Self::receive_event_helper(&mut evt_queue, &mut rc, false).await {
             Ok(Packet::Event(Event::Vendor(Stm32Wb5xEvent::CoprocessorReady(
                 FirmwareKind::Wireless,
             )))) => Ok(Self {
                 _rx_int: rx_int,
                 _tx_int: tx_int,
+                deferred_events: evt_queue,
             }),
             Err(e) => Err(BleError::NbError(e)),
             _ => Err(BleError::UnexpectedEvent),
@@ -107,7 +118,7 @@ impl Ble {
         let rc = unsafe { RADIO_COPROSESSOR.as_mut() };
         if let Some(rc) = rc {
             cortex_m::interrupt::free(|_| command(rc))?;
-            let response = Self::receive_event_helper(rc).await?;
+            let response = Self::receive_event_helper(&mut self.deferred_events, rc, true).await?;
             if let Packet::Event(Event::CommandComplete(CommandComplete {
                 return_params,
                 num_hci_command_packets: _,
@@ -123,11 +134,12 @@ impl Ble {
     }
 
     /// Awaits for a BLE event from the BLE stack.
-    pub async fn receive_event(&self)
-        -> Result<Packet<Stm32Wb5xEvent>, BleError<Error<(), Stm32Wb5xError>>>{
+    pub async fn receive_event(
+        &mut self,
+    ) -> Result<Packet<Stm32Wb5xEvent>, BleError<Error<(), Stm32Wb5xError>>> {
         let rc = unsafe { RADIO_COPROSESSOR.as_mut() };
         if let Some(rc) = rc {
-            Ok(Self::receive_event_helper(rc).await?)
+            Ok(Self::receive_event_helper(&mut self.deferred_events, rc, false).await?)
         } else {
             Err(BleError::NotInitialized)
         }
@@ -135,11 +147,13 @@ impl Ble {
 
     /// Returns `true` if there are some event(s) to be received.
     pub fn has_events(&self) -> bool {
-        STATE.rx_int.signaled()
+        STATE.rx_int.signaled() || self.deferred_events.peek().is_some()
     }
 
     async fn receive_event_helper(
+        queue: &mut HeaplessEvtQueue,
         rc: &mut Rc,
+        need_cmd_response: bool,
     ) -> nb::Result<Packet<Stm32Wb5xEvent>, Error<(), Stm32Wb5xError>> {
         loop {
             let event = cortex_m::interrupt::free(|_| {
@@ -147,8 +161,27 @@ impl Ble {
                 rc.read().ok()
             });
 
-            if let Some(e) = event {
-                return Ok(e);
+            // If the receiver is only interested in command response events,
+            // it will be an error to return the first event from the event queue since
+            // it is not guaranteed that no events occurred in between of command execution and
+            // response.
+            // Thus we defer all of the non-command-response events into the temporary queue before
+            // we get a command response event that will be returned.
+            if need_cmd_response {
+                if let Some(event) = event {
+                    if let Packet::Event(Event::CommandComplete(_)) = event {
+                        return Ok(event);
+                    } else {
+                        // Defer the currently received event into temporary queue
+                        // for it to be processed later
+                        queue.enqueue(event).unwrap();
+                    }
+                }
+            } else {
+                let event = queue.dequeue().or(event);
+                if let Some(event) = event {
+                    return Ok(event);
+                }
             }
 
             STATE.rx_int.wait().await;
