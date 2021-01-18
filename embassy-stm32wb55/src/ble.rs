@@ -133,6 +133,11 @@ impl Ble {
         }
     }
 
+    /// Returns `true` if there are some event(s) to be received.
+    pub fn has_events(&self) -> bool {
+        STATE.rx_int.signaled()
+    }
+
     async fn receive_event_helper(
         rc: &mut Rc,
     ) -> nb::Result<Packet<Stm32Wb5xEvent>, Error<(), Stm32Wb5xError>> {
