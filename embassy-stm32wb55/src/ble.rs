@@ -1,6 +1,9 @@
 use crate::interrupt::{self, OwnedInterrupt};
 
-use bbqueue::{consts::U514, BBBuffer, ConstBBBuffer};
+use bbqueue::{
+    consts::{U32, U514},
+    BBBuffer, ConstBBBuffer,
+};
 use bluetooth_hci::host::uart::Error;
 use bluetooth_hci::{
     event::command::{CommandComplete, ReturnParameters},
@@ -18,12 +21,9 @@ use stm32wb_hal::{
 type BufSize = U514;
 static BB: BBBuffer<BufSize> = BBBuffer(ConstBBBuffer::new());
 
-pub type HeaplessEvtQueue = heapless::spsc::Queue<
-    Packet<Stm32Wb5xEvent>,
-    heapless::consts::U32,
-    u8,
-    heapless::spsc::SingleCore,
->;
+type EvtQueueSize = U32;
+type HeaplessEvtQueue =
+    heapless::spsc::Queue<Packet<Stm32Wb5xEvent>, EvtQueueSize, u8, heapless::spsc::SingleCore>;
 
 /// Reexport of the BLE stack type with data buffer.
 pub type Rc = RadioCoprocessor<'static, BufSize>;
