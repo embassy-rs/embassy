@@ -259,3 +259,18 @@ pub(crate) unsafe fn register_timer(at: Instant, waker: &Waker) {
     let expires_at = header.expires_at.get();
     header.expires_at.set(min(expires_at, at));
 }
+
+pub mod raw {
+    use super::waker;
+    use core::ptr::NonNull;
+    use core::task::Waker;
+
+    pub fn task_from_waker(waker: &Waker) -> NonNull<()> {
+        unsafe { NonNull::new_unchecked(waker::task_from_waker(waker) as *mut ()) }
+    }
+
+    pub unsafe fn wake_task(task: NonNull<()>) {
+        let header = &*waker::task_from_ptr(task.as_ptr());
+        header.enqueue();
+    }
+}
