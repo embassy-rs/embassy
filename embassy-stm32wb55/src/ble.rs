@@ -66,8 +66,8 @@ impl From<nb::Error<BleTransportLayerError>> for BleError<BleTransportLayerError
 
 /// Defines BLE stack interactions. It should be instantiated only once.
 pub struct Ble {
-    _rx_int: interrupt::IPCC_C1_RX_ITInterrupt,
-    _tx_int: interrupt::IPCC_C1_TX_ITInterrupt,
+    rx_int: interrupt::IPCC_C1_RX_ITInterrupt,
+    tx_int: interrupt::IPCC_C1_TX_ITInterrupt,
     deferred_events: HeaplessEvtQueue,
 }
 
@@ -101,8 +101,8 @@ impl Ble {
             Ok(Packet::Event(Event::Vendor(Stm32Wb5xEvent::CoprocessorReady(
                 FirmwareKind::Wireless,
             )))) => Ok(Self {
-                _rx_int: rx_int,
-                _tx_int: tx_int,
+                rx_int,
+                tx_int,
                 deferred_events: evt_queue,
             }),
             Err(e) => Err(BleError::NbError(e)),
@@ -202,5 +202,18 @@ impl Ble {
         }
 
         STATE.rx_int.signal(());
+    }
+}
+
+impl Drop for Ble {
+    fn drop(&mut self) {
+        self.rx_int.disable();
+        self.rx_int.remove_handler();
+
+        self.tx_int.disable();
+        self.tx_int.remove_handler();
+
+        STATE.rx_int.reset();
+        STATE.tx_int.reset();
     }
 }
