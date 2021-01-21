@@ -2,6 +2,8 @@
 #![feature(generic_associated_types)]
 #![feature(const_fn)]
 #![feature(const_fn_fn_ptr_basics)]
+#![feature(const_in_array_repeat_expressions)]
+#![feature(const_option)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
