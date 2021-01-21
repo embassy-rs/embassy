@@ -29,8 +29,6 @@ stm32f446 = ["stm32f4xx-hal/stm32f446"]
 stm32f469 = ["stm32f4xx-hal/stm32f469"]
 stm32f479 = ["stm32f4xx-hal/stm32f469"]
 
-default = ["stm32f405"]
-
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy" }
 
