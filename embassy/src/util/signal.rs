@@ -1,8 +1,13 @@
+use crate::executor;
 use crate::fmt::panic;
+use crate::interrupt::OwnedInterrupt;
 use core::cell::UnsafeCell;
 use core::future::Future;
 use core::mem;
+use core::ptr;
 use core::task::{Context, Poll, Waker};
+use cortex_m::peripheral::NVIC;
+use cortex_m::peripheral::{scb, SCB};
 
 pub struct Signal<T> {
     state: UnsafeCell<State<T>>,
@@ -65,5 +70,68 @@ impl<T: Send> Signal<T> {
 
     pub fn signaled(&self) -> bool {
         cortex_m::interrupt::free(|_| matches!(unsafe { &*self.state.get() }, State::Signaled(_)))
+    }
+}
+
+struct NrWrap(u8);
+unsafe impl cortex_m::interrupt::Nr for NrWrap {
+    fn nr(&self) -> u8 {
+        self.0
+    }
+}
+
+pub struct InterruptFuture<'a, I: OwnedInterrupt> {
+    interrupt: &'a mut I,
+}
+
+impl<'a, I: OwnedInterrupt> Drop for InterruptFuture<'a, I> {
+    fn drop(&mut self) {
+        self.interrupt.disable();
+        self.interrupt.remove_handler();
+    }
+}
+
+impl<'a, I: OwnedInterrupt> InterruptFuture<'a, I> {
+    pub fn new(interrupt: &'a mut I) -> Self {
+        interrupt.disable();
+        interrupt.set_handler(Self::interrupt_handler, ptr::null_mut());
+        interrupt.unpend();
+        interrupt.enable();
+
+        Self {
+            interrupt: interrupt,
+        }
+    }
+
+    unsafe fn interrupt_handler(ctx: *mut ()) {
+        let irq = match SCB::vect_active() {
+            scb::VectActive::Interrupt { irqn } => irqn,
+            _ => unreachable!(),
+        };
+
+        if ctx as *const _ != ptr::null() {
+            executor::raw::wake_task(ptr::NonNull::new_unchecked(ctx));
+        }
+
+        NVIC::mask(NrWrap(irq));
+    }
+}
+
+impl<'a, I: OwnedInterrupt> Unpin for InterruptFuture<'a, I> {}
+
+impl<'a, I: OwnedInterrupt> Future for InterruptFuture<'a, I> {
+    type Output = ();
+
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let s = unsafe { self.get_unchecked_mut() };
+        s.interrupt.set_handler(
+            Self::interrupt_handler,
+            executor::raw::task_from_waker(&cx.waker()).cast().as_ptr(),
+        );
+        if s.interrupt.is_enabled() {
+            Poll::Pending
+        } else {
+            Poll::Ready(())
+        }
     }
 }
