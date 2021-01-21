@@ -88,34 +88,33 @@ impl<T: Instance> RTC<T> {
     }
 
     pub fn start(&'static mut self) {
-        &(*T::ptr()).cr1.write(|w| {
-            w.arpe()
-                .clear_bit()
-                .cen()
-                .set_bit()
-                .opm()
-                .clear_bit()
-                .udis()
-                .clear_bit()
-                .urs()
-                .set_bit()
-        });
+        unsafe {
+            &(*T::ptr()).cr1.write(|w| {
+                w.arpe()
+                    .clear_bit()
+                    .cen()
+                    .set_bit()
+                    .opm()
+                    .clear_bit()
+                    .udis()
+                    .clear_bit()
+                    .urs()
+                    .set_bit()
+            });
 
-        &(*T::ptr())
-            .dier
-            .write(|w| w.ude().clear_bit().uie().set_bit());
+            &(*T::ptr())
+                .dier
+                .write(|w| w.ude().clear_bit().uie().set_bit());
 
-        &(*T::ptr()).egr.write(|w| w.ug().set_bit());
+            &(*T::ptr()).egr.write(|w| w.ug().set_bit());
 
-        /*
-            prescaler value -- needs adjustment
-        */
-        &(*T::ptr()).psc.write(|w| w.bits(1));
+            /*
+                prescaler value -- needs adjustment
+            */
+            &(*T::ptr()).psc.write(|w| w.bits(1));
+        }
 
-        /*
-            auto reload value -- ticks to wait until interrupt
-        */
-        &(*T::ptr()).arr.write(|w| w.bits(0));
+        self.set_timer_alarm(0xFFFF);
 
         self.irq.set_handler(
             |ptr| unsafe {
@@ -128,12 +127,19 @@ impl<T: Instance> RTC<T> {
         self.irq.enable();
     }
 
+    fn set_timer_alarm(&self, ticks: u32) {
+        /*
+            auto reload value -- ticks to wait until interrupt
+        */
+        unsafe { &(*T::ptr()).arr.write(|w| w.bits(ticks)) };
+    }
+
     fn reset_timer(&self) {
-        &(*T::ptr()).cnt.write(|w| w.bits(0));
+        unsafe { &(*T::ptr()).cnt.write(|w| w.bits(0)) };
     }
 
     fn read_timer(&self) -> u32 {
-        (*T::ptr()).cnt.read().bits()
+        unsafe { (*T::ptr()).cnt.read().bits() }
     }
 
     fn on_interrupt(&self) {
@@ -151,15 +157,15 @@ impl<T: Instance> RTC<T> {
 
                 let diff = at - t;
                 if diff < 0xc00000 {
-                    self.rtc.cc[n].write(|w| unsafe { w.bits(at as u32 & 0xFFFFFF) });
-                    self.rtc.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
+                    // self.rtc.cc[n].write(|w| unsafe { w.bits(at as u32 & 0xFFFFFF) });
+                    // self.rtc.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
                 }
             }
         })
     }
 
     fn trigger_alarm(&self, n: usize, cs: &CriticalSection) {
-        self.rtc.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
+        // self.rtc.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
 
         let alarm = &self.alarms.borrow(cs)[n];
         alarm.timestamp.set(u64::MAX);
@@ -193,10 +199,10 @@ impl<T: Instance> RTC<T> {
                 // To workaround this, we never write a timestamp smaller than N+3.
                 // N+2 is not safe because rtc can tick from N to N+1 between calling now() and writing cc.
                 let safe_timestamp = timestamp.max(t + 3);
-                self.rtc.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
-                self.rtc.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
+                // self.rtc.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
+                // self.rtc.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
             } else {
-                self.rtc.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
+                // self.rtc.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
             }
         })
     }
@@ -214,9 +220,10 @@ impl<T: Instance> RTC<T> {
 
 impl<T: Instance> embassy::time::Clock for RTC<T> {
     fn now(&self) -> u64 {
-        let counter = self.rtc.counter.read().bits();
+        // let counter = self.rtc.counter.read().bits();
         let period = self.period.load(Ordering::Relaxed);
-        calc_now(period, counter)
+        // calc_now(period, counter)
+        0
     }
 }
 
