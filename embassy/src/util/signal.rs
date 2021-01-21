@@ -86,20 +86,17 @@ pub struct InterruptFuture<'a, I: OwnedInterrupt> {
 
 impl<'a, I: OwnedInterrupt> Drop for InterruptFuture<'a, I> {
     fn drop(&mut self) {
-        cortex_m::interrupt::free(|_| {
-            self.interrupt.remove_handler();
-            self.interrupt.disable();
-        });
+        self.interrupt.disable();
+        self.interrupt.remove_handler();
     }
 }
 
 impl<'a, I: OwnedInterrupt> InterruptFuture<'a, I> {
     pub fn new(interrupt: &'a mut I) -> Self {
-        cortex_m::interrupt::free(|_| {
-            interrupt.set_handler(Self::interrupt_handler, ptr::null_mut());
-            interrupt.unpend();
-            interrupt.enable();
-        });
+        interrupt.disable();
+        interrupt.set_handler(Self::interrupt_handler, ptr::null_mut());
+        interrupt.unpend();
+        interrupt.enable();
 
         Self {
             interrupt: interrupt,
@@ -120,22 +117,21 @@ impl<'a, I: OwnedInterrupt> InterruptFuture<'a, I> {
     }
 }
 
+impl<'a, I: OwnedInterrupt> Unpin for InterruptFuture<'a, I> {}
+
 impl<'a, I: OwnedInterrupt> Future for InterruptFuture<'a, I> {
     type Output = ();
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        cortex_m::interrupt::free(|_| unsafe {
-            let s = self.get_unchecked_mut();
-            if s.interrupt.is_enabled() {
-                s.interrupt.set_handler(
-                    Self::interrupt_handler,
-                    executor::raw::task_from_waker(&cx.waker()).cast().as_ptr(),
-                );
-
-                Poll::Pending
-            } else {
-                Poll::Ready(())
-            }
-        })
+        let s = unsafe { self.get_unchecked_mut() };
+        s.interrupt.set_handler(
+            Self::interrupt_handler,
+            executor::raw::task_from_waker(&cx.waker()).cast().as_ptr(),
+        );
+        if s.interrupt.is_enabled() {
+            Poll::Pending
+        } else {
+            Poll::Ready(())
+        }
     }
 }
