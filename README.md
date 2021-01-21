@@ -27,6 +27,10 @@ The `embassy::executor` module provides an async/await executor designed for emb
 
 `embassy::util` contains some lightweight async/await utilities, mainly helpful for async driver development (signaling a task that an interrupt has occured, for example).
 
+## sync primatives
+
+`futures-intrusive` is recommended for sync primatives, such as channels and mutex.
+
 ## embassy-nrf
 
 The `embassy-nrf` crate contains implementations for nRF 52 series SoCs.
