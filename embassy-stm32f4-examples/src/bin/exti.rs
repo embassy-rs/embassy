@@ -10,46 +10,36 @@ use example_common::{panic, *};
 use cortex_m::singleton;
 use cortex_m_rt::entry;
 use embassy::executor::{task, Executor};
-use embassy::uart::Uart;
+use embassy::gpio::*;
 use embassy::util::Forever;
+use embassy_stm32f4::exti;
+use embassy_stm32f4::exti::*;
 use embassy_stm32f4::interrupt;
 use embassy_stm32f4::serial;
+use futures::pin_mut;
 use stm32f4xx_hal::serial::config::Config;
 use stm32f4xx_hal::stm32;
+use stm32f4xx_hal::syscfg;
 use stm32f4xx_hal::{prelude::*, serial::config};
+
+static EXTI: Forever<exti::ExtiManager> = Forever::new();
 
 #[task]
 async fn run(dp: stm32::Peripherals, cp: cortex_m::Peripherals) {
-    // https://gist.github.com/thalesfragoso/a07340c5df6eee3b04c42fdc69ecdcb1
     let gpioa = dp.GPIOA.split();
-    let rcc = dp.RCC.constrain();
 
-    let clocks = rcc
-        .cfgr
-        .use_hse(16.mhz())
-        .sysclk(48.mhz())
-        .pclk1(24.mhz())
-        .freeze();
+    let button = gpioa.pa0.into_pull_up_input();
 
-    let mut serial = unsafe {
-        serial::Serial::new(
-            dp.USART1,
-            dp.DMA2,
-            (
-                gpioa.pa9.into_alternate_af7(),
-                gpioa.pa10.into_alternate_af7(),
-            ),
-            interrupt::take!(DMA2_STREAM7),
-            interrupt::take!(DMA2_STREAM2),
-            interrupt::take!(USART1),
-            Config::default().baudrate(9600.bps()),
-            clocks,
-        )
-    };
-    let buf = singleton!(: [u8; 30] = [0; 30]).unwrap();
+    let exti = EXTI.put(exti::ExtiManager::new(dp.EXTI, dp.SYSCFG.constrain()));
+    let pin = exti.new_pin(button, interrupt::take!(EXTI0));
+    pin_mut!(pin);
 
-    buf[5] = 0x01;
-    serial.send(buf).await.unwrap();
+    info!("Starting loop");
+
+    loop {
+        pin.as_mut().wait_for_rising_edge().await;
+        info!("edge detected!");
+    }
 }
 
 static EXECUTOR: Forever<Executor> = Forever::new();
