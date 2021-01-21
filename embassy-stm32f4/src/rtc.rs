@@ -87,23 +87,35 @@ impl<T: Instance> RTC<T> {
         }
     }
 
-    pub fn start(&'static self) {
-        // (&mut self.rtc).cr1.write(|w| w.arpe());
-        &(*T::ptr()).cr1.write(|w| (&mut w).arpe());
-
-        self.rtc.cc[3].write(|w| unsafe { w.bits(0x800000) });
-
-        self.rtc.intenset.write(|w| {
-            let w = w.ovrflw().set();
-            let w = w.compare3().set();
-            w
+    pub fn start(&'static mut self) {
+        &(*T::ptr()).cr1.write(|w| {
+            w.arpe()
+                .clear_bit()
+                .cen()
+                .set_bit()
+                .opm()
+                .clear_bit()
+                .udis()
+                .clear_bit()
+                .urs()
+                .set_bit()
         });
 
-        self.rtc.tasks_clear.write(|w| unsafe { w.bits(1) });
-        self.rtc.tasks_start.write(|w| unsafe { w.bits(1) });
+        &(*T::ptr())
+            .dier
+            .write(|w| w.ude().clear_bit().uie().set_bit());
 
-        // Wait for clear
-        while self.rtc.counter.read().bits() != 0 {}
+        &(*T::ptr()).egr.write(|w| w.ug().set_bit());
+
+        /*
+            prescaler value -- needs adjustment
+        */
+        &(*T::ptr()).psc.write(|w| w.bits(1));
+
+        /*
+            auto reload value -- ticks to wait until interrupt
+        */
+        &(*T::ptr()).arr.write(|w| w.bits(0));
 
         self.irq.set_handler(
             |ptr| unsafe {
@@ -116,25 +128,16 @@ impl<T: Instance> RTC<T> {
         self.irq.enable();
     }
 
+    fn reset_timer(&self) {
+        &(*T::ptr()).cnt.write(|w| w.bits(0));
+    }
+
+    fn read_timer(&self) -> u32 {
+        (*T::ptr()).cnt.read().bits()
+    }
+
     fn on_interrupt(&self) {
-        if self.rtc.events_ovrflw.read().bits() == 1 {
-            self.rtc.events_ovrflw.write(|w| w);
-            self.next_period();
-        }
-
-        if self.rtc.events_compare[3].read().bits() == 1 {
-            self.rtc.events_compare[3].write(|w| w);
-            self.next_period();
-        }
-
-        for n in 0..ALARM_COUNT {
-            if self.rtc.events_compare[n].read().bits() == 1 {
-                self.rtc.events_compare[n].write(|w| w);
-                interrupt::free(|cs| {
-                    self.trigger_alarm(n, cs);
-                })
-            }
-        }
+        self.next_period();
     }
 
     fn next_period(&self) {
@@ -243,9 +246,7 @@ mod sealed {
 }
 
 /// Implemented by all RTC instances.
-pub trait Instance:
-    sealed::Instance + Deref<Target = tim6::RegisterBlock> + Sized + 'static
-{
+pub trait Instance: sealed::Instance + Sized + 'static {
     /// The interrupt associated with this RTC instance.
     type Interrupt: OwnedInterrupt;
 
