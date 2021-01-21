@@ -1,41 +1,14 @@
 use core::cell::Cell;
-use core::ops::Deref;
-use core::sync::atomic::{AtomicU32, Ordering};
-
+use core::sync::atomic::Ordering;
 use embassy::time::Clock;
 
-use crate::fmt::*;
+use crate::hal::bb;
 use crate::interrupt;
 use crate::interrupt::{CriticalSection, Mutex, OwnedInterrupt};
-use crate::pac::tim6;
-
-fn calc_now(period: u32, counter: u32) -> u64 {
-    let shift = ((period & 1) << 23) + 0x400000;
-    let counter_shifted = (counter + shift) & 0xFFFFFF;
-    ((period as u64) << 23) + counter_shifted as u64 - 0x400000
-}
+use crate::pac::{tim6, RCC};
 
 fn compare_n(n: usize) -> u32 {
     1 << (n + 16)
-}
-
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_calc_now() {
-        assert_eq!(calc_now(0, 0x000000), 0x0_000000);
-        assert_eq!(calc_now(0, 0x000001), 0x0_000001);
-        assert_eq!(calc_now(0, 0x7FFFFF), 0x0_7FFFFF);
-        assert_eq!(calc_now(1, 0x7FFFFF), 0x0_7FFFFF);
-        assert_eq!(calc_now(0, 0x800000), 0x0_800000);
-        assert_eq!(calc_now(1, 0x800000), 0x0_800000);
-        assert_eq!(calc_now(1, 0x800001), 0x0_800001);
-        assert_eq!(calc_now(1, 0xFFFFFF), 0x0_FFFFFF);
-        assert_eq!(calc_now(2, 0xFFFFFF), 0x0_FFFFFF);
-        assert_eq!(calc_now(1, 0x000000), 0x1_000000);
-        assert_eq!(calc_now(2, 0x000000), 0x1_000000);
-    }
 }
 
 struct AlarmState {
@@ -57,18 +30,7 @@ const ALARM_COUNT: usize = 3;
 pub struct RTC<T: Instance> {
     rtc: T,
     irq: T::Interrupt,
-
-    /// Number of 2^23 periods elapsed since boot.
-    ///
-    /// This is incremented by 1
-    /// - on overflow (counter value 0)
-    /// - on "midway" between overflows (at counter value 0x800000)
-    ///
-    /// Therefore: When even, counter is in 0..0x7fffff. When odd, counter is in 0x800000..0xFFFFFF
-    /// This allows for now() to return the correct value even if it races an overflow.
-    ///
-    /// It overflows on 2^32 * 2^23 / 32768 seconds of uptime, which is 34865 years.
-    period: AtomicU32,
+    timestamp: u64,
 
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
     alarms: Mutex<[AlarmState; ALARM_COUNT]>,
@@ -82,43 +44,45 @@ impl<T: Instance> RTC<T> {
         Self {
             rtc,
             irq,
-            period: AtomicU32::new(0),
+            timestamp: 0,
             alarms: Mutex::new([AlarmState::new(), AlarmState::new(), AlarmState::new()]),
         }
     }
 
     pub fn start(&'static mut self) {
         unsafe {
-            &(*T::ptr()).cr1.write(|w| {
-                w.arpe()
-                    .clear_bit()
-                    .cen()
-                    .set_bit()
-                    .opm()
-                    .clear_bit()
-                    .udis()
-                    .clear_bit()
-                    .urs()
-                    .set_bit()
-            });
+            // pause
+            &(*T::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
+            // reset counter
+            &(*T::ptr()).cnt.reset();
 
-            &(*T::ptr())
-                .dier
-                .write(|w| w.ude().clear_bit().uie().set_bit());
+            let frequency = 1; // timeout.into().0;
+            let pclk_mul = 1; // if self.clocks.$ppre() == 1 { 1 } else { 2 };
+            let ticks = 1; // self.clocks.$pclk().0 * pclk_mul / frequency;
 
+            let psc = ((ticks - 1) / (1 << 16)) as u16;
+            &(*T::ptr()).psc.write(|w| w.psc().bits(psc));
+
+            let arr = (ticks / (psc + 1) as u32) as u16;
+            &(*T::ptr()).arr.write(|w| w.bits(arr as u32));
+
+            // Trigger update event to load the registers
+            &(*T::ptr()).cr1.modify(|_, w| w.urs().set_bit());
             &(*T::ptr()).egr.write(|w| w.ug().set_bit());
+            &(*T::ptr()).cr1.modify(|_, w| w.urs().clear_bit());
 
-            /*
-                prescaler value -- needs adjustment
-            */
-            &(*T::ptr()).psc.write(|w| w.bits(1));
+            // enable interrupt
+            &(*T::ptr()).dier.write(|w| w.uie().set_bit());
+
+            // start counter
+            &(*T::ptr()).cr1.modify(|_, w| w.cen().set_bit());
         }
 
         self.set_timer_alarm(0xFFFF);
 
         self.irq.set_handler(
             |ptr| unsafe {
-                let this = &*(ptr as *const () as *const Self);
+                let this = &mut *(ptr as *mut Self);
                 this.on_interrupt();
             },
             self as *const _ as *mut _,
@@ -134,34 +98,15 @@ impl<T: Instance> RTC<T> {
         unsafe { &(*T::ptr()).arr.write(|w| w.bits(ticks)) };
     }
 
-    fn reset_timer(&self) {
-        unsafe { &(*T::ptr()).cnt.write(|w| w.bits(0)) };
-    }
-
     fn read_timer(&self) -> u32 {
         unsafe { (*T::ptr()).cnt.read().bits() }
     }
 
-    fn on_interrupt(&self) {
-        self.next_period();
-    }
+    unsafe fn on_interrupt(&mut self) {
+        // Clear interrupt flag
+        &(*T::ptr()).sr.write(|w| w.uif().clear_bit());
 
-    fn next_period(&self) {
-        interrupt::free(|cs| {
-            let period = self.period.fetch_add(1, Ordering::Relaxed) + 1;
-            let t = (period as u64) << 23;
-
-            for n in 0..ALARM_COUNT {
-                let alarm = &self.alarms.borrow(cs)[n];
-                let at = alarm.timestamp.get();
-
-                let diff = at - t;
-                if diff < 0xc00000 {
-                    // self.rtc.cc[n].write(|w| unsafe { w.bits(at as u32 & 0xFFFFFF) });
-                    // self.rtc.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
-                }
-            }
-        })
+        self.timestamp += self.read_timer() as u64;
     }
 
     fn trigger_alarm(&self, n: usize, cs: &CriticalSection) {
@@ -221,7 +166,7 @@ impl<T: Instance> RTC<T> {
 impl<T: Instance> embassy::time::Clock for RTC<T> {
     fn now(&self) -> u64 {
         // let counter = self.rtc.counter.read().bits();
-        let period = self.period.load(Ordering::Relaxed);
+        // let period = self.period.load(Ordering::Relaxed);
         // calc_now(period, counter)
         0
     }
@@ -258,6 +203,7 @@ pub trait Instance: sealed::Instance + Sized + 'static {
     type Interrupt: OwnedInterrupt;
 
     fn ptr() -> *const tim6::RegisterBlock;
+    fn enable_clock();
 }
 
 impl Instance for crate::pac::TIM7 {
@@ -265,5 +211,16 @@ impl Instance for crate::pac::TIM7 {
 
     fn ptr() -> *const tim6::RegisterBlock {
         crate::pac::TIM7::ptr() as *const _
+    }
+
+    fn enable_clock() {
+        unsafe {
+            //NOTE(unsafe) this reference will only be used for atomic writes with no side effects
+            let rcc = &(*RCC::ptr());
+            // Enable and reset the timer peripheral, it's the same bit position for both registers
+            bb::set(&rcc.apb1enr, 5);
+            bb::set(&rcc.apb1rstr, 5);
+            bb::clear(&rcc.apb1rstr, 5);
+        }
     }
 }
