@@ -82,12 +82,6 @@ impl<T: Instance> RTC<T> {
         // enable interrupt
         self.prtc().dier.write(|w| w.uie().set_bit());
 
-        // set alarm value
-        self.prtc().arr.write(|w| unsafe { w.bits(0xFFFF) });
-
-        // start counter
-        self.prtc().cr1.modify(|_, w| w.cen().set_bit());
-
         self.irq.set_handler(
             |ptr| unsafe {
                 let this = &mut *(ptr as *mut Self);
@@ -97,15 +91,18 @@ impl<T: Instance> RTC<T> {
         );
         self.irq.unpend();
         self.irq.enable();
+
+        self.reset();
     }
 
-    unsafe fn on_interrupt(&mut self) {
-        // Clear interrupt flag
-        self.prtc().sr.write(|w| w.uif().clear_bit());
-
+    /*
+        reset the state and recompute values
+    */
+    fn reset(&mut self) {
+        // pause
+        self.prtc().cr1.modify(|_, w| w.cen().clear_bit());
         self.timestamp = self.now();
-
-        let mut arr = 0xFFFF;
+        let mut arr = u32::MAX;
 
         interrupt::free(|cs| {
             for n in 0..2 {
@@ -114,17 +111,25 @@ impl<T: Instance> RTC<T> {
 
                 if diff < 5 {
                     self.trigger_alarm(n, cs);
-                } else if diff < arr {
-                    arr = diff;
+                } else if diff < arr as u64 {
+                    arr = diff as u32;
                 }
             }
         });
+        // set alarm value
+        self.prtc().arr.write(|w| unsafe { w.bits(0xFFFF) });
 
-        self.prtc().arr.write(|w| unsafe { w.bits(arr as u32) });
+        // reset counter
+        self.prtc().cnt.reset();
+        // start counter
+        self.prtc().cr1.modify(|_, w| w.cen().set_bit());
+    }
 
-        /*
-            iterate through the alarms, and if they are close, trigger them
-        */
+    unsafe fn on_interrupt(&mut self) {
+        // Clear interrupt flag
+        self.prtc().sr.write(|w| w.uif().clear_bit());
+
+        self.reset();
     }
 
     fn trigger_alarm(&self, n: usize, cs: &CriticalSection) {
@@ -144,30 +149,13 @@ impl<T: Instance> RTC<T> {
         })
     }
 
-    fn set_alarm(&self, n: usize, timestamp: u64) {
+    fn set_alarm(&mut self, n: usize, timestamp: u64) {
         interrupt::free(|cs| {
             let alarm = &self.alarms.borrow(cs)[n];
             alarm.timestamp.set(timestamp);
+        });
 
-            let t = self.now();
-
-            /*
-                use 5 ticks for now; later optimize based on testing and docs
-            */
-            if timestamp <= t + 5 {
-                self.trigger_alarm(n, cs);
-                return;
-            }
-
-            let diff = timestamp - t;
-            /*
-                if diff is less than arr, modify arr to end sooner
-            */
-            let arr = self.prtc().arr.read().bits();
-            if diff < arr as u64 {
-                self.prtc().arr.write(|w| unsafe { w.bits(arr as u32) });
-            }
-        })
+        self.reset();
     }
 
     pub fn alarm0(&'static self) -> Alarm<T> {
