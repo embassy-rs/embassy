@@ -159,6 +159,10 @@ pub trait AlarmProvider {
     fn next_alarm(&'static self) -> Option<&'static dyn Alarm>;
 }
 
+pub trait RtClock: crate::time::Clock {
+    fn start(&'static self);
+}
+
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SpawnError {
@@ -193,9 +197,9 @@ impl Executor {
         }
     }
 
-    pub unsafe fn new_from_rtc<P: AlarmProvider>(
-        provider: &'static P,
-        clock: &'static crate::time::Clock,
+    pub unsafe fn new_from_rtc(
+        provider: &'static dyn AlarmProvider,
+        clock: &'static dyn RtClock,
         signal_fn: fn(),
     ) -> Option<Self> {
         let mut alarm: Option<&'static dyn Alarm> = None;
@@ -203,6 +207,7 @@ impl Executor {
         match provider.next_alarm() {
             Some(alarm) => {
                 if crate::time::is_clock_none() {
+                    clock.start();
                     crate::time::set_clock(clock);
                 }
                 Some(Self::new_with_alarm(alarm, signal_fn))

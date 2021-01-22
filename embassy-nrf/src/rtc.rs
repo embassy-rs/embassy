@@ -83,7 +83,7 @@ unsafe impl<T: Instance> Sync for RTC<T> {}
 
 impl<T: Instance> RTC<T> {
     pub fn new(rtc: T, irq: T::Interrupt) -> Self {
-        let mut rtc = Self {
+        Self {
             rtc,
             irq,
             period: AtomicU32::new(0),
@@ -91,9 +91,7 @@ impl<T: Instance> RTC<T> {
             alarm0: UnsafeCell::new(None),
             alarm1: UnsafeCell::new(None),
             alarm2: UnsafeCell::new(None),
-        };
-
-        rtc
+        }
     }
 
     fn on_interrupt(&self) {
