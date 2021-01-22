@@ -96,32 +96,6 @@ impl<T: Instance> RTC<T> {
         rtc
     }
 
-    pub fn start(&'static self) {
-        self.rtc.cc[3].write(|w| unsafe { w.bits(0x800000) });
-
-        self.rtc.intenset.write(|w| {
-            let w = w.ovrflw().set();
-            let w = w.compare3().set();
-            w
-        });
-
-        self.rtc.tasks_clear.write(|w| unsafe { w.bits(1) });
-        self.rtc.tasks_start.write(|w| unsafe { w.bits(1) });
-
-        // Wait for clear
-        while self.rtc.counter.read().bits() != 0 {}
-
-        self.irq.set_handler(
-            |ptr| unsafe {
-                let this = &*(ptr as *const () as *const Self);
-                this.on_interrupt();
-            },
-            self as *const _ as *mut _,
-        );
-        self.irq.unpend();
-        self.irq.enable();
-    }
-
     fn on_interrupt(&self) {
         if self.rtc.events_ovrflw.read().bits() == 1 {
             self.rtc.events_ovrflw.write(|w| w);
@@ -202,6 +176,34 @@ impl<T: Instance> RTC<T> {
                 self.rtc.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
             }
         })
+    }
+}
+
+impl<T: Instance> embassy::executor::RtClock for RTC<T> {
+    pub fn start(&'static self) {
+        self.rtc.cc[3].write(|w| unsafe { w.bits(0x800000) });
+
+        self.rtc.intenset.write(|w| {
+            let w = w.ovrflw().set();
+            let w = w.compare3().set();
+            w
+        });
+
+        self.rtc.tasks_clear.write(|w| unsafe { w.bits(1) });
+        self.rtc.tasks_start.write(|w| unsafe { w.bits(1) });
+
+        // Wait for clear
+        while self.rtc.counter.read().bits() != 0 {}
+
+        self.irq.set_handler(
+            |ptr| unsafe {
+                let this = &*(ptr as *const () as *const Self);
+                this.on_interrupt();
+            },
+            self as *const _ as *mut _,
+        );
+        self.irq.unpend();
+        self.irq.enable();
     }
 }
 

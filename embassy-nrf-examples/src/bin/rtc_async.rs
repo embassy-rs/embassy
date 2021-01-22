@@ -33,7 +33,6 @@ async fn run2() {
 }
 
 static RTC: Forever<rtc::RTC<pac::RTC1>> = Forever::new();
-static ALARM: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
 static EXECUTOR: Forever<Executor> = Forever::new();
 
 #[entry]
@@ -48,12 +47,7 @@ fn main() -> ! {
         .start_lfclk();
 
     let rtc = RTC.put(rtc::RTC::new(p.RTC1, interrupt::take!(RTC1)));
-    rtc.start();
-
-    unsafe { embassy::time::set_clock(rtc) };
-
-    let alarm = ALARM.put(rtc.alarm0());
-    let executor = EXECUTOR.put(Executor::new_with_alarm(alarm, cortex_m::asm::sev));
+    let executor = EXECUTOR.put(Executor::new_from_rtc(rtc, rtc, cortex_m::asm::sev));
 
     unwrap!(executor.spawn(run1()));
     unwrap!(executor.spawn(run2()));

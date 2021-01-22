@@ -34,8 +34,7 @@ fn main() -> ! {
         &*ptr
     };
 
-    let alarm = rtc.alarm0();
-
+    let alarm = rtc.next_alarm();
     rtc.start();
 
     alarm.set_callback(|| info!("ALARM TRIGGERED"));
