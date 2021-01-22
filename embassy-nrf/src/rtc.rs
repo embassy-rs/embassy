@@ -207,7 +207,23 @@ impl<T: Instance> RTC<T> {
 
 impl<T: Instance> embassy::executor::AlarmProvider for RTC<T> {
     fn next_alarm(&'static self) -> Option<&'static dyn embassy::time::Alarm> {
-        Some(unsafe { self.alarm0.get().as_ref().unwrap().as_ref().unwrap() })
+        unsafe {
+            if self.alarm0.get().as_ref().is_none() {
+                *self.alarm0.get() = Some(Alarm { n: 0, rtc: self });
+
+                return Some(unsafe { self.alarm0.get().as_ref().unwrap().as_ref().unwrap() });
+            } else if self.alarm1.get().as_ref().is_none() {
+                *self.alarm1.get() = Some(Alarm { n: 1, rtc: self });
+
+                return Some(unsafe { self.alarm1.get().as_ref().unwrap().as_ref().unwrap() });
+            } else if self.alarm2.get().as_ref().is_none() {
+                *self.alarm2.get() = Some(Alarm { n: 2, rtc: self });
+
+                return Some(unsafe { self.alarm2.get().as_ref().unwrap().as_ref().unwrap() });
+            }
+        }
+
+        None
     }
 }
 
