@@ -73,9 +73,9 @@ pub struct RTC<T: Instance> {
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
     alarms: Mutex<[AlarmState; ALARM_COUNT]>,
 
-    alarm0: Alarm<T>,
-    alarm1: Alarm<T>,
-    alarm2: Alarm<T>,
+    alarm0: Option<Alarm<T>>,
+    alarm1: Option<Alarm<T>>,
+    alarm2: Option<Alarm<T>>,
 }
 
 unsafe impl<T: Instance> Send for RTC<T> {}
@@ -88,9 +88,9 @@ impl<T: Instance> RTC<T> {
             irq,
             period: AtomicU32::new(0),
             alarms: Mutex::new([AlarmState::new(), AlarmState::new(), AlarmState::new()]),
-            alarm0: Alarm { n: 50, rtc: self },
-            alarm1: Alarm { n: 50, rtc: self },
-            alarm2: Alarm { n: 50, rtc: self },
+            alarm0: None,
+            alarm1: None,
+            alarm2: None,
         }
     }
 
@@ -204,17 +204,21 @@ impl<T: Instance> RTC<T> {
 }
 
 impl<T: Instance> embassy::executor::RealTimeClock for RTC<T> {
-    fn alarm0(&'static mut self) -> Option<&'static dyn embassy::time::Alarm> {
-        self.alarm0 = Alarm { n: 0, rtc: self };
-        Some(&self.alarm0)
-    }
-    fn alarm1(&'static mut self) -> Option<&'static dyn embassy::time::Alarm> {
-        self.alarm1 = Alarm { n: 1, rtc: self };
-        Some(&self.alarm1)
-    }
-    fn alarm2(&'static mut self) -> Option<&'static dyn embassy::time::Alarm> {
-        self.alarm2 = Alarm { n: 2, rtc: self };
-        Some(&self.alarm2)
+    fn next_alarm(&'static mut self) -> Option<&'static dyn embassy::time::Alarm> {
+        if self.alarm0.is_none() { {
+            self.alarm0.replace(Alarm { n: 0, rtc: self });
+            return Some(&self.alarm0.as_ref().unwrap());
+        }
+        if self.alarm1.is_none() { {
+            self.alarm1.replace(Alarm { n: 0, rtc: self });
+            return Some(&self.alarm0.as_ref().unwrap());
+        }
+        if self.alarm2.is_none() { {
+            self.alarm2.replace(Alarm { n: 0, rtc: self });
+            return Some(&self.alarm0.as_ref().unwrap());
+        }
+
+        return None;
     }
 }
 
