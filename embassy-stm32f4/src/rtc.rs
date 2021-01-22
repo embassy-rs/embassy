@@ -3,6 +3,7 @@ use core::sync::atomic::Ordering;
 use embassy::time::Clock;
 
 use crate::hal::bb;
+use crate::hal::rcc::Clocks;
 use crate::interrupt;
 use crate::interrupt::{CriticalSection, Mutex, OwnedInterrupt};
 use crate::pac::{tim6, RCC};
@@ -30,7 +31,9 @@ const ALARM_COUNT: usize = 3;
 pub struct RTC<T: Instance> {
     rtc: T,
     irq: T::Interrupt,
+    // Timestamp marks the elapsed time, excluding the current timer.
     timestamp: u64,
+    clocks: Clocks,
 
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
     alarms: Mutex<[AlarmState; ALARM_COUNT]>,
@@ -40,45 +43,50 @@ unsafe impl<T: Instance> Send for RTC<T> {}
 unsafe impl<T: Instance> Sync for RTC<T> {}
 
 impl<T: Instance> RTC<T> {
-    pub fn new(rtc: T, irq: T::Interrupt) -> Self {
+    pub fn new(rtc: T, irq: T::Interrupt, clocks: Clocks) -> Self {
         Self {
             rtc,
             irq,
             timestamp: 0,
+            clocks: clocks,
             alarms: Mutex::new([AlarmState::new(), AlarmState::new(), AlarmState::new()]),
         }
     }
 
+    #[inline(always)]
+    fn prtc(&self) -> &tim6::RegisterBlock {
+        unsafe { &(*T::ptr()) }
+    }
+
     pub fn start(&'static mut self) {
-        unsafe {
-            // pause
-            &(*T::ptr()).cr1.modify(|_, w| w.cen().clear_bit());
-            // reset counter
-            &(*T::ptr()).cnt.reset();
+        // pause
+        self.prtc().cr1.modify(|_, w| w.cen().clear_bit());
+        // reset counter
+        self.prtc().cnt.reset();
 
-            let frequency = 1; // timeout.into().0;
-            let pclk_mul = 1; // if self.clocks.$ppre() == 1 { 1 } else { 2 };
-            let ticks = 1; // self.clocks.$pclk().0 * pclk_mul / frequency;
+        let frequency = 1; // timeout.into().0;
+        let pclk_mul = if T::ppre(self.clocks) == 1 { 1 } else { 2 };
+        let ticks = T::pclk(self.clocks) * pclk_mul / frequency;
 
-            let psc = ((ticks - 1) / (1 << 16)) as u16;
-            &(*T::ptr()).psc.write(|w| w.psc().bits(psc));
+        let psc = ((ticks - 1) / (1 << 16)) as u16;
+        self.prtc().psc.write(|w| w.psc().bits(psc));
 
-            let arr = (ticks / (psc + 1) as u32) as u16;
-            &(*T::ptr()).arr.write(|w| w.bits(arr as u32));
+        let arr = (ticks / (psc + 1) as u32) as u16;
+        self.prtc().arr.write(|w| unsafe { w.bits(arr as u32) });
 
-            // Trigger update event to load the registers
-            &(*T::ptr()).cr1.modify(|_, w| w.urs().set_bit());
-            &(*T::ptr()).egr.write(|w| w.ug().set_bit());
-            &(*T::ptr()).cr1.modify(|_, w| w.urs().clear_bit());
+        // Trigger update event to load the registers
+        self.prtc().cr1.modify(|_, w| w.urs().set_bit());
+        self.prtc().egr.write(|w| w.ug().set_bit());
+        self.prtc().cr1.modify(|_, w| w.urs().clear_bit());
 
-            // enable interrupt
-            &(*T::ptr()).dier.write(|w| w.uie().set_bit());
+        // enable interrupt
+        self.prtc().dier.write(|w| w.uie().set_bit());
 
-            // start counter
-            &(*T::ptr()).cr1.modify(|_, w| w.cen().set_bit());
-        }
+        // set alarm value
+        self.prtc().arr.write(|w| unsafe { w.bits(0xFFFF) });
 
-        self.set_timer_alarm(0xFFFF);
+        // start counter
+        self.prtc().cr1.modify(|_, w| w.cen().set_bit());
 
         self.irq.set_handler(
             |ptr| unsafe {
@@ -91,22 +99,32 @@ impl<T: Instance> RTC<T> {
         self.irq.enable();
     }
 
-    fn set_timer_alarm(&self, ticks: u32) {
-        /*
-            auto reload value -- ticks to wait until interrupt
-        */
-        unsafe { &(*T::ptr()).arr.write(|w| w.bits(ticks)) };
-    }
-
-    fn read_timer(&self) -> u32 {
-        unsafe { (*T::ptr()).cnt.read().bits() }
-    }
-
     unsafe fn on_interrupt(&mut self) {
         // Clear interrupt flag
-        &(*T::ptr()).sr.write(|w| w.uif().clear_bit());
+        self.prtc().sr.write(|w| w.uif().clear_bit());
 
-        self.timestamp += self.read_timer() as u64;
+        self.timestamp = self.now();
+
+        let mut arr = 0xFFFF;
+
+        interrupt::free(|cs| {
+            for n in 0..2 {
+                let alarm = &self.alarms.borrow(cs)[n];
+                let diff = alarm.timestamp.get() - self.timestamp;
+
+                if diff < 5 {
+                    self.trigger_alarm(n, cs);
+                } else if diff < arr {
+                    arr = diff;
+                }
+            }
+        });
+
+        self.prtc().arr.write(|w| unsafe { w.bits(arr as u32) });
+
+        /*
+            iterate through the alarms, and if they are close, trigger them
+        */
     }
 
     fn trigger_alarm(&self, n: usize, cs: &CriticalSection) {
@@ -132,22 +150,22 @@ impl<T: Instance> RTC<T> {
             alarm.timestamp.set(timestamp);
 
             let t = self.now();
-            if timestamp <= t {
+
+            /*
+                use 5 ticks for now; later optimize based on testing and docs
+            */
+            if timestamp <= t + 5 {
                 self.trigger_alarm(n, cs);
                 return;
             }
 
             let diff = timestamp - t;
-            if diff < 0xc00000 {
-                // nrf52 docs say:
-                //    If the COUNTER is N, writing N or N+1 to a CC register may not trigger a COMPARE event.
-                // To workaround this, we never write a timestamp smaller than N+3.
-                // N+2 is not safe because rtc can tick from N to N+1 between calling now() and writing cc.
-                let safe_timestamp = timestamp.max(t + 3);
-                // self.rtc.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
-                // self.rtc.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
-            } else {
-                // self.rtc.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
+            /*
+                if diff is less than arr, modify arr to end sooner
+            */
+            let arr = self.prtc().arr.read().bits();
+            if diff < arr as u64 {
+                self.prtc().arr.write(|w| unsafe { w.bits(arr as u32) });
             }
         })
     }
@@ -165,10 +183,7 @@ impl<T: Instance> RTC<T> {
 
 impl<T: Instance> embassy::time::Clock for RTC<T> {
     fn now(&self) -> u64 {
-        // let counter = self.rtc.counter.read().bits();
-        // let period = self.period.load(Ordering::Relaxed);
-        // calc_now(period, counter)
-        0
+        self.timestamp + unsafe { (*T::ptr()).cnt.read().bits() } as u64
     }
 }
 
@@ -204,6 +219,8 @@ pub trait Instance: sealed::Instance + Sized + 'static {
 
     fn ptr() -> *const tim6::RegisterBlock;
     fn enable_clock();
+    fn ppre(clocks: Clocks) -> u8;
+    fn pclk(clocks: Clocks) -> u32;
 }
 
 impl Instance for crate::pac::TIM7 {
@@ -211,6 +228,14 @@ impl Instance for crate::pac::TIM7 {
 
     fn ptr() -> *const tim6::RegisterBlock {
         crate::pac::TIM7::ptr() as *const _
+    }
+
+    fn ppre(clocks: Clocks) -> u8 {
+        clocks.ppre1()
+    }
+
+    fn pclk(clocks: Clocks) -> u32 {
+        clocks.pclk1().0
     }
 
     fn enable_clock() {
