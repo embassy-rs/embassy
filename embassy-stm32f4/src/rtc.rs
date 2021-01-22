@@ -42,6 +42,8 @@ unsafe impl<T: Instance> Sync for RTC<T> {}
 
 impl<T: Instance> RTC<T> {
     pub fn new(rtc: T, irq: T::Interrupt, clocks: Clocks) -> Self {
+        T::enable_clock();
+
         Self {
             rtc,
             irq,
@@ -51,7 +53,7 @@ impl<T: Instance> RTC<T> {
         }
     }
 
-    pub fn start(&'static mut self) {
+    pub fn start(&mut self) {
         // pause
         self.rtc.deref().cr1.modify(|_, w| w.cen().clear_bit());
         // reset counter
@@ -95,26 +97,24 @@ impl<T: Instance> RTC<T> {
         reset the state and recompute values
     */
     fn reset(&mut self) {
-        // pause
         self.rtc.deref().cr1.modify(|_, w| w.cen().clear_bit());
-        self.timestamp = self.now();
+        self.timestamp += self.rtc.deref().arr.read().bits() as u64;
         let mut arr = u32::MAX;
 
         interrupt::free(|cs| {
             for n in 0..2 {
                 let alarm = &self.alarms.borrow(cs)[n];
-                let diff = alarm.timestamp.get() - self.timestamp;
+                let diff: i64 = alarm.timestamp.get() as i64 - self.timestamp as i64;
 
                 if diff < 5 {
                     self.trigger_alarm(n, cs);
-                } else if diff < arr as u64 {
+                } else if diff < arr as i64 {
                     arr = diff as u32;
                 }
             }
         });
         // set alarm value
         self.rtc.deref().arr.write(|w| unsafe { w.bits(arr) });
-
         // reset counter
         self.rtc.deref().cnt.reset();
         // start counter
@@ -152,12 +152,12 @@ impl<T: Instance> RTC<T> {
         });
 
         let arr = self.rtc.deref().arr.read().bits();
-        let diff = timestamp - self.now();
+        let diff: i64 = timestamp as i64 - self.now() as i64;
         if diff < 5 {
             interrupt::free(|cs| {
                 self.trigger_alarm(n, cs);
             });
-        } else if diff < arr as u64 {
+        } else if diff < arr as i64 {
             // set alarm value
             self.rtc.deref().arr.write(|w| unsafe { w.bits(arr) });
         }
