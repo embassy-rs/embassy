@@ -197,9 +197,9 @@ impl Executor {
         }
     }
 
-    pub unsafe fn new_from_rtc(
+    pub unsafe fn new_from_rtc<C: RtClock + crate::time::Clock>(
         provider: &'static dyn AlarmProvider,
-        clock: &'static dyn RtClock,
+        clock: &'static C,
         signal_fn: fn(),
     ) -> Option<Self> {
         let mut alarm: Option<&'static dyn Alarm> = None;
