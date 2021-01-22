@@ -18,6 +18,10 @@ pub unsafe fn set_clock(clock: &'static dyn Clock) {
     CLOCK = Some(clock);
 }
 
+pub(crate) fn is_clock_none() -> bool {
+    unsafe { CLOCK.is_none() }
+}
+
 pub(crate) fn now() -> u64 {
     unsafe { unwrap!(CLOCK, "No clock set").now() }
 }

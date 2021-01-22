@@ -155,6 +155,12 @@ impl Drop for SpawnToken {
     }
 }
 
+pub trait RealTimeClock: crate::time::Clock {
+    fn alarm0(&'static mut self) -> Option<&'static dyn Alarm>;
+    fn alarm1(&'static mut self) -> Option<&'static dyn Alarm>;
+    fn alarm2(&'static mut self) -> Option<&'static dyn Alarm>;
+}
+
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SpawnError {
@@ -186,6 +192,31 @@ impl Executor {
             timer_queue: TimerQueue::new(),
             signal_fn: signal_fn,
             not_send: PhantomData,
+        }
+    }
+
+    pub unsafe fn new_from_rtc<RTC: RealTimeClock>(
+        rtc: &'static mut RTC,
+        signal_fn: fn(),
+    ) -> Option<Self> {
+        let mut alarm: Option<&'static dyn Alarm> = None;
+
+        alarm = rtc.alarm0();
+        //        if alarm.is_none() {
+        //            alarm = r.alarm1();
+        //        }
+        //        if alarm.is_none() {
+        //            alarm = r.alarm2();
+        //        }
+
+        match alarm {
+            Some(alarm) => {
+                if crate::time::is_clock_none() {
+                    // crate::time::set_clock(rtc);
+                }
+                Some(Self::new_with_alarm(alarm, signal_fn))
+            }
+            None => None,
         }
     }
 

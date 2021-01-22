@@ -72,6 +72,10 @@ pub struct RTC<T: Instance> {
 
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
     alarms: Mutex<[AlarmState; ALARM_COUNT]>,
+
+    alarm0: Alarm<T>,
+    alarm1: Alarm<T>,
+    alarm2: Alarm<T>,
 }
 
 unsafe impl<T: Instance> Send for RTC<T> {}
@@ -84,6 +88,9 @@ impl<T: Instance> RTC<T> {
             irq,
             period: AtomicU32::new(0),
             alarms: Mutex::new([AlarmState::new(), AlarmState::new(), AlarmState::new()]),
+            alarm0: Alarm { n: 50, rtc: self },
+            alarm1: Alarm { n: 50, rtc: self },
+            alarm2: Alarm { n: 50, rtc: self },
         }
     }
 
@@ -194,15 +201,20 @@ impl<T: Instance> RTC<T> {
             }
         })
     }
+}
 
-    pub fn alarm0(&'static self) -> Alarm<T> {
-        Alarm { n: 0, rtc: self }
+impl<T: Instance> embassy::executor::RealTimeClock for RTC<T> {
+    fn alarm0(&'static mut self) -> Option<&'static dyn embassy::time::Alarm> {
+        self.alarm0 = Alarm { n: 0, rtc: self };
+        Some(&self.alarm0)
     }
-    pub fn alarm1(&'static self) -> Alarm<T> {
-        Alarm { n: 1, rtc: self }
+    fn alarm1(&'static mut self) -> Option<&'static dyn embassy::time::Alarm> {
+        self.alarm1 = Alarm { n: 1, rtc: self };
+        Some(&self.alarm1)
     }
-    pub fn alarm2(&'static self) -> Alarm<T> {
-        Alarm { n: 2, rtc: self }
+    fn alarm2(&'static mut self) -> Option<&'static dyn embassy::time::Alarm> {
+        self.alarm2 = Alarm { n: 2, rtc: self };
+        Some(&self.alarm2)
     }
 }
 
