@@ -1,4 +1,4 @@
-use core::cell::Cell;
+use core::cell::{Cell, UnsafeCell};
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -73,9 +73,9 @@ pub struct RTC<T: Instance> {
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
     alarms: Mutex<[AlarmState; ALARM_COUNT]>,
 
-    alarm0: Option<Alarm<T>>,
-    alarm1: Option<Alarm<T>>,
-    alarm2: Option<Alarm<T>>,
+    alarm0: UnsafeCell<Option<Alarm<T>>>,
+    alarm1: UnsafeCell<Option<Alarm<T>>>,
+    alarm2: UnsafeCell<Option<Alarm<T>>>,
 }
 
 unsafe impl<T: Instance> Send for RTC<T> {}
@@ -83,15 +83,17 @@ unsafe impl<T: Instance> Sync for RTC<T> {}
 
 impl<T: Instance> RTC<T> {
     pub fn new(rtc: T, irq: T::Interrupt) -> Self {
-        Self {
+        let mut rtc = Self {
             rtc,
             irq,
             period: AtomicU32::new(0),
             alarms: Mutex::new([AlarmState::new(), AlarmState::new(), AlarmState::new()]),
-            alarm0: None,
-            alarm1: None,
-            alarm2: None,
-        }
+            alarm0: UnsafeCell::new(None),
+            alarm1: UnsafeCell::new(None),
+            alarm2: UnsafeCell::new(None),
+        };
+
+        rtc
     }
 
     pub fn start(&'static self) {
@@ -203,22 +205,9 @@ impl<T: Instance> RTC<T> {
     }
 }
 
-impl<T: Instance> embassy::executor::RealTimeClock for RTC<T> {
-    fn next_alarm(&'static mut self) -> Option<&'static dyn embassy::time::Alarm> {
-        if self.alarm0.is_none() { {
-            self.alarm0.replace(Alarm { n: 0, rtc: self });
-            return Some(&self.alarm0.as_ref().unwrap());
-        }
-        if self.alarm1.is_none() { {
-            self.alarm1.replace(Alarm { n: 0, rtc: self });
-            return Some(&self.alarm0.as_ref().unwrap());
-        }
-        if self.alarm2.is_none() { {
-            self.alarm2.replace(Alarm { n: 0, rtc: self });
-            return Some(&self.alarm0.as_ref().unwrap());
-        }
-
-        return None;
+impl<T: Instance> embassy::executor::AlarmProvider for RTC<T> {
+    fn next_alarm(&'static self) -> Option<&'static dyn embassy::time::Alarm> {
+        Some(unsafe { self.alarm0.get().as_ref().unwrap().as_ref().unwrap() })
     }
 }
 

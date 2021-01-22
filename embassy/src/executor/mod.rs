@@ -155,8 +155,8 @@ impl Drop for SpawnToken {
     }
 }
 
-pub trait RealTimeClock: crate::time::Clock {
-    fn next_alarm(&'static mut self) -> Option<&'static dyn Alarm>;
+pub trait AlarmProvider {
+    fn next_alarm(&'static self) -> Option<&'static dyn Alarm>;
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -193,16 +193,17 @@ impl Executor {
         }
     }
 
-    pub unsafe fn new_from_rtc<RTC: RealTimeClock>(
-        rtc: &'static mut RTC,
+    pub unsafe fn new_from_rtc<P: AlarmProvider>(
+        provider: &'static P,
+        clock: &'static crate::time::Clock,
         signal_fn: fn(),
     ) -> Option<Self> {
         let mut alarm: Option<&'static dyn Alarm> = None;
 
-        match rtc.next_alarm() {
+        match provider.next_alarm() {
             Some(alarm) => {
                 if crate::time::is_clock_none() {
-                    crate::time::set_clock(rtc);
+                    crate::time::set_clock(clock);
                 }
                 Some(Self::new_with_alarm(alarm, signal_fn))
             }
