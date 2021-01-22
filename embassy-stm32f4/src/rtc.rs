@@ -171,7 +171,7 @@ impl<T: Instance> RTC<T> {
 
 impl<T: Instance> embassy::time::Clock for RTC<T> {
     fn now(&self) -> u64 {
-        self.timestamp + unsafe { (*T::ptr()).cnt.read().bits() } as u64
+        self.timestamp + self.prtc().cnt.read().bits() as u64
     }
 }
 
