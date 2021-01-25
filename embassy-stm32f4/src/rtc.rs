@@ -90,10 +90,12 @@ impl<T: Instance> RTC<T> {
         self.irq.unpend();
         self.irq.enable();
 
-        // start counter
-        self.rtc.deref().cr1.modify(|_, w| w.cen().set_bit());
+        // enable "one-pulse" mode
+        self.rtc.deref().cr1.modify(|_, w| w.opm().set_bit());
 
         self.reset();
+
+        self.rtc.deref().cr1.modify(|_, w| w.cen().set_bit());
     }
 
     /*
@@ -101,22 +103,19 @@ impl<T: Instance> RTC<T> {
     */
     fn reset(&mut self) {
         self.timestamp += self.rtc.deref().arr.read().bits() as u64;
-        let mut arr = u32::MAX;
+        let mut arr = u16::MAX as u32;
 
         interrupt::free(|cs| {
             for n in 0..2 {
                 let alarm = &self.alarms.borrow(cs)[n];
                 let alarm_timestamp = alarm.timestamp.get();
-                let self_timestamp = self.timestamp;
-                
+                let now = self.timestamp;
                 let diff: u64;
-                if alarm_timestamp > self_timestamp {
-                    diff = (alarm_timestamp - self_timestamp);
+                if alarm_timestamp > now {
+                    diff = alarm_timestamp - now;
                 } else {
                     diff = 0;
                 }
-
-                let is_greater = alarm_timestamp > self_timestamp;
 
                 if diff < 5 {
                     self.trigger_alarm(n, cs);
@@ -126,33 +125,17 @@ impl<T: Instance> RTC<T> {
             }
         });
 
-
-        // stop counter
-        self.rtc.deref().cr1.modify(|_, w| w.cen().clear_bit());
         // set alarm value
         self.rtc.deref().arr.write(|w| unsafe { w.bits(arr) });
-        // reset counter
-        self.rtc.deref().cnt.reset();
         // start counter
         self.rtc.deref().cr1.modify(|_, w| w.cen().set_bit());
-
-        let cnt = self.rtc.deref().cnt.read().bits();
-
-        let is_geq = cnt > 10;
-        if is_geq {
-            let j = 1;
-        } else {
-            let j = 1;
-        }
     }
 
     unsafe fn on_interrupt(&mut self) {
-        self.irq.unpend();
-
-        self.reset();
-
         // Clear interrupt flag
         self.rtc.deref().sr.write(|w| w.uif().clear_bit());
+
+        self.reset();
     }
 
     fn trigger_alarm(&self, n: usize, cs: &CriticalSection) {
@@ -172,27 +155,31 @@ impl<T: Instance> RTC<T> {
         })
     }
 
-    fn set_alarm(&self, n: usize, timestamp: u64) {
-        let alarm_timestamp = timestamp;
-        let self_timestamp = self.now();
-        
+    fn set_alarm(&self, n: usize, alarm_timestamp: u64) {
+        self.rtc.deref().cr1.modify(|_, w| w.cen().clear_bit());
+
+        let now = self.now();
+        let arr = self.rtc.deref().arr.read().bits();
         let diff: u64;
-        if alarm_timestamp > self_timestamp {
-            diff = (alarm_timestamp - self_timestamp);
+
+        if alarm_timestamp > now {
+            diff = alarm_timestamp - now;
         } else {
             diff = 0;
         }
-
-        let is_greater = alarm_timestamp > self_timestamp;
-        let arr = self.rtc.deref().arr.read().bits() as u64;
 
         if diff < 5 {
             interrupt::free(|cs| {
                 self.trigger_alarm(n, cs);
             });
         } else if diff < arr as u64 {
-            self.rtc.deref().arr.write(|w| unsafe { w.bits(diff as u32) });
+            self.rtc
+                .deref()
+                .arr
+                .write(|w| unsafe { w.bits(diff as u32) });
         }
+
+        self.rtc.deref().cr1.modify(|_, w| w.cen().set_bit());
     }
 
     pub fn alarm0(&'static self) -> Alarm<T> {
