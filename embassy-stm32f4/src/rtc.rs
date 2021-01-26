@@ -177,6 +177,11 @@ impl<T: Instance> RTC<T> {
                 .deref()
                 .arr
                 .write(|w| unsafe { w.bits(diff as u32) });
+
+            // Trigger update event to load the registers
+            self.rtc.deref().cr1.modify(|_, w| w.urs().set_bit());
+            self.rtc.deref().egr.write(|w| w.ug().set_bit());
+            self.rtc.deref().cr1.modify(|_, w| w.urs().clear_bit());
         }
 
         self.rtc.deref().cr1.modify(|_, w| w.cen().set_bit());
