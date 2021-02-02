@@ -40,7 +40,7 @@ mod test {
 
 struct AlarmState {
     timestamp: Cell<u64>,
-    callback: Cell<Option<fn()>>,
+    callback: Cell<Option<(fn(*mut ()), *mut ())>>,
 }
 
 impl AlarmState {
@@ -159,13 +159,13 @@ impl<T: Instance> RTC<T> {
         alarm.timestamp.set(u64::MAX);
 
         // Call after clearing alarm, so the callback can set another alarm.
-        alarm.callback.get().map(|f| f());
+        alarm.callback.get().map(|(f, ctx)| f(ctx));
     }
 
-    fn set_alarm_callback(&self, n: usize, callback: fn()) {
+    fn set_alarm_callback(&self, n: usize, callback: fn(*mut ()), ctx: *mut ()) {
         interrupt::free(|cs| {
             let alarm = &self.alarms.borrow(cs)[n];
-            alarm.callback.set(Some(callback));
+            alarm.callback.set(Some((callback, ctx)));
         })
     }
 
@@ -220,8 +220,8 @@ pub struct Alarm<T: Instance> {
 }
 
 impl<T: Instance> embassy::time::Alarm for Alarm<T> {
-    fn set_callback(&self, callback: fn()) {
-        self.rtc.set_alarm_callback(self.n, callback);
+    fn set_callback(&self, callback: fn(*mut ()), ctx: *mut ()) {
+        self.rtc.set_alarm_callback(self.n, callback, ctx);
     }
 
     fn set(&self, timestamp: u64) {

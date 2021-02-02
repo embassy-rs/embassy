@@ -3,6 +3,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 use futures::Stream;
 
+use super::raw;
 use crate::time::{Duration, Instant};
 
 pub struct Timer {
@@ -34,7 +35,7 @@ impl Future for Timer {
         if self.yielded_once && self.expires_at <= Instant::now() {
             Poll::Ready(())
         } else {
-            unsafe { super::register_timer(self.expires_at, cx.waker()) };
+            unsafe { raw::register_timer(self.expires_at, cx.waker()) };
             self.yielded_once = true;
             Poll::Pending
         }
@@ -66,7 +67,7 @@ impl Stream for Ticker {
             self.expires_at += dur;
             Poll::Ready(Some(()))
         } else {
-            unsafe { super::register_timer(self.expires_at, cx.waker()) };
+            unsafe { raw::register_timer(self.expires_at, cx.waker()) };
             Poll::Pending
         }
     }
