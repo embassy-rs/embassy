@@ -86,8 +86,7 @@ impl<T: Instance> RTC<T> {
         let psc = ((ticks - 1) / (1 << 16)) as u16;
         self.rtc.deref().psc.write(|w| w.psc().bits(psc));
 
-        let arr = (ticks / (psc + 1) as u32) as u32;
-        self.set_arr(arr);
+        self.set_arr(u16::MAX as u32);
 
         // enable interrupt
         self.rtc.deref().dier.write(|w| w.uie().set_bit());
@@ -103,7 +102,7 @@ impl<T: Instance> RTC<T> {
         self.irq.enable();
 
         // enable "one-pulse" mode
-        self.rtc.deref().cr1.modify(|_, w| w.opm().set_bit());
+        // self.rtc.deref().cr1.modify(|_, w| w.opm().set_bit());
 
         self.rtc.deref().cr1.modify(|_, w| w.cen().set_bit());
     }
@@ -142,7 +141,7 @@ impl<T: Instance> RTC<T> {
 
         self.reset_timestamp();
         self.recompute();
-        self.rtc.deref().cr1.modify(|_, w| w.cen().set_bit());
+        // self.rtc.deref().cr1.modify(|_, w| w.cen().set_bit());
     }
 
     fn trigger_alarm(&self, n: usize, cs: &CriticalSection) {
