@@ -9,8 +9,11 @@ members = [
     "embassy-macros",
 ]
 
+# embassy-std enables std-only features. Since Cargo resolves all features
+# for all crates in the workspace together, including it would result in
+# incompatible features enabled in embassy.
 exclude = [
-    "third_party"
+    "embassy-std"
 ]
 
 [profile.dev]
