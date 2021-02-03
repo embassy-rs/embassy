@@ -53,6 +53,19 @@ impl<T: Instance> RTC<T> {
         }
     }
 
+    #[inline(always)]
+    fn set_arr(&self, arr: u32) {
+        self.rtc.deref().arr.write(|w| unsafe { w.bits(arr) });
+        self.update();
+    }
+
+    #[inline(always)]
+    fn update(&self) {
+        self.rtc.deref().cr1.modify(|_, w| w.urs().set_bit());
+        self.rtc.deref().egr.write(|w| w.ug().set_bit());
+        self.rtc.deref().cr1.modify(|_, w| w.urs().clear_bit());
+    }
+
     pub fn start(&mut self) {
         // stop counter
         self.rtc.deref().cr1.modify(|_, w| w.cen().clear_bit());
@@ -66,16 +79,8 @@ impl<T: Instance> RTC<T> {
         let psc = ((ticks - 1) / (1 << 16)) as u16;
         self.rtc.deref().psc.write(|w| w.psc().bits(psc));
 
-        let arr = (ticks / (psc + 1) as u32) as u16;
-        self.rtc
-            .deref()
-            .arr
-            .write(|w| unsafe { w.bits(arr as u32) });
-
-        // Trigger update event to load the registers
-        self.rtc.deref().cr1.modify(|_, w| w.urs().set_bit());
-        self.rtc.deref().egr.write(|w| w.ug().set_bit());
-        self.rtc.deref().cr1.modify(|_, w| w.urs().clear_bit());
+        let arr = (ticks / (psc + 1) as u32) as u32;
+        self.set_arr(arr);
 
         // enable interrupt
         self.rtc.deref().dier.write(|w| w.uie().set_bit());
@@ -126,7 +131,7 @@ impl<T: Instance> RTC<T> {
         });
 
         // set alarm value
-        self.rtc.deref().arr.write(|w| unsafe { w.bits(arr) });
+        self.set_arr(arr);
         // start counter
         self.rtc.deref().cr1.modify(|_, w| w.cen().set_bit());
     }
@@ -210,7 +215,7 @@ pub struct Alarm<T: Instance> {
 }
 
 impl<T: Instance> embassy::time::Alarm for Alarm<T> {
-    fn set_callback(&self, callback: fn(*mut()), ctx: *mut ()) {
+    fn set_callback(&self, callback: fn(*mut ()), ctx: *mut ()) {
         self.rtc.set_alarm_callback(self.n, callback, ctx);
     }
 
