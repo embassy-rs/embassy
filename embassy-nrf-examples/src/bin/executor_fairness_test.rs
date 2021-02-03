@@ -61,14 +61,11 @@ fn main() -> ! {
     unsafe { embassy::time::set_clock(rtc) };
 
     let alarm = ALARM.put(rtc.alarm0());
-    let executor = EXECUTOR.put(Executor::new_with_alarm(alarm, cortex_m::asm::sev));
-
-    unwrap!(executor.spawn(run1()));
-    unwrap!(executor.spawn(run2()));
-    unwrap!(executor.spawn(run3()));
-
-    loop {
-        executor.run();
-        cortex_m::asm::wfe();
-    }
+    let executor = EXECUTOR.put(Executor::new());
+    executor.set_alarm(alarm);
+    executor.run(|spawner| {
+        unwrap!(spawner.spawn(run1()));
+        unwrap!(spawner.spawn(run2()));
+        unwrap!(spawner.spawn(run3()));
+    });
 }

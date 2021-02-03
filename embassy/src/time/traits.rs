@@ -16,7 +16,7 @@ impl<T: Clock + ?Sized> Clock for &T {
 pub trait Alarm {
     /// Sets the callback function to be called when the alarm triggers.
     /// The callback may be called from any context (interrupt or thread mode).
-    fn set_callback(&self, callback: fn());
+    fn set_callback(&self, callback: fn(*mut ()), ctx: *mut ());
 
     /// Sets an alarm at the given timestamp. When the clock reaches that
     /// timestamp, the provided callback funcion will be called.
@@ -32,8 +32,8 @@ pub trait Alarm {
 }
 
 impl<T: Alarm + ?Sized> Alarm for &T {
-    fn set_callback(&self, callback: fn()) {
-        T::set_callback(self, callback);
+    fn set_callback(&self, callback: fn(*mut ()), ctx: *mut ()) {
+        T::set_callback(self, callback, ctx);
     }
     fn set(&self, timestamp: u64) {
         T::set(self, timestamp);

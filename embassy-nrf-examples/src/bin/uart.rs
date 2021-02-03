@@ -18,7 +18,31 @@ use nrf52840_hal::clocks;
 use nrf52840_hal::gpio;
 
 #[task]
-async fn run(mut uart: uarte::Uarte<pac::UARTE0>) {
+async fn run(uart: pac::UARTE0, port: pac::P0) {
+    // Init UART
+    let port0 = gpio::p0::Parts::new(port);
+
+    let pins = uarte::Pins {
+        rxd: port0.p0_08.into_floating_input().degrade(),
+        txd: port0
+            .p0_06
+            .into_push_pull_output(gpio::Level::Low)
+            .degrade(),
+        cts: None,
+        rts: None,
+    };
+
+    // NOTE(unsafe): Safe becasue we do not use `mem::forget` anywhere.
+    let mut uart = unsafe {
+        uarte::Uarte::new(
+            uart,
+            interrupt::take!(UARTE0_UART0),
+            pins,
+            uarte::Parity::EXCLUDED,
+            uarte::Baudrate::BAUD115200,
+        )
+    };
+
     info!("uarte initialized!");
 
     // Message must be in SRAM
@@ -81,36 +105,12 @@ fn main() -> ! {
     unsafe { embassy::time::set_clock(rtc) };
 
     let alarm = ALARM.put(rtc.alarm0());
-    let executor = EXECUTOR.put(Executor::new_with_alarm(alarm, cortex_m::asm::sev));
+    let executor = EXECUTOR.put(Executor::new());
+    executor.set_alarm(alarm);
 
-    // Init UART
-    let port0 = gpio::p0::Parts::new(p.P0);
-
-    let pins = uarte::Pins {
-        rxd: port0.p0_08.into_floating_input().degrade(),
-        txd: port0
-            .p0_06
-            .into_push_pull_output(gpio::Level::Low)
-            .degrade(),
-        cts: None,
-        rts: None,
-    };
-
-    // NOTE(unsafe): Safe becasue we do not use `mem::forget` anywhere.
-    let uart = unsafe {
-        uarte::Uarte::new(
-            p.UARTE0,
-            interrupt::take!(UARTE0_UART0),
-            pins,
-            uarte::Parity::EXCLUDED,
-            uarte::Baudrate::BAUD115200,
-        )
-    };
-
-    unwrap!(executor.spawn(run(uart)));
-
-    loop {
-        executor.run();
-        cortex_m::asm::wfe();
-    }
+    let uarte0 = p.UARTE0;
+    let p0 = p.P0;
+    executor.run(|spawner| {
+        unwrap!(spawner.spawn(run(uarte0, p0)));
+    });
 }

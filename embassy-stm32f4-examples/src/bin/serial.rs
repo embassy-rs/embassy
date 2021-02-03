@@ -59,11 +59,8 @@ fn main() -> ! {
     let dp = stm32::Peripherals::take().unwrap();
     let cp = cortex_m::peripheral::Peripherals::take().unwrap();
 
-    let executor = EXECUTOR.put(Executor::new(cortex_m::asm::sev));
-    executor.spawn(run(dp, cp)).unwrap();
-
-    loop {
-        executor.run();
-        //cortex_m::asm::wfe(); // wfe causes RTT to stop working on stm32
-    }
+    let executor = EXECUTOR.put(Executor::new());
+    executor.run(|spawner| {
+        unwrap!(spawner.spawn(run(dp, cp)));
+    });
 }

@@ -1,7 +1,8 @@
 use core::mem;
+use core::ptr::NonNull;
 use core::task::{RawWaker, RawWakerVTable, Waker};
 
-use super::TaskHeader;
+use super::raw::Task;
 
 const VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake, drop);
 
@@ -10,26 +11,21 @@ unsafe fn clone(p: *const ()) -> RawWaker {
 }
 
 unsafe fn wake(p: *const ()) {
-    let header = &*task_from_ptr(p);
-    header.enqueue();
+    (*(p as *mut Task)).enqueue()
 }
 
 unsafe fn drop(_: *const ()) {
     // nop
 }
 
-pub(crate) unsafe fn from_task(p: *mut TaskHeader) -> Waker {
-    Waker::from_raw(RawWaker::new(p as _, &VTABLE))
+pub(crate) unsafe fn from_task(p: NonNull<Task>) -> Waker {
+    Waker::from_raw(RawWaker::new(p.as_ptr() as _, &VTABLE))
 }
 
-pub(crate) unsafe fn task_from_ptr(p: *const ()) -> *mut TaskHeader {
-    p as *mut TaskHeader
-}
-
-pub(crate) unsafe fn task_from_waker(w: &Waker) -> *mut TaskHeader {
-    let w: &WakerHack = mem::transmute(w);
-    assert_eq!(w.vtable, &VTABLE);
-    task_from_ptr(w.data)
+pub unsafe fn task_from_waker(waker: &Waker) -> NonNull<Task> {
+    let hack: &WakerHack = mem::transmute(waker);
+    assert_eq!(hack.vtable, &VTABLE);
+    NonNull::new_unchecked(hack.data as *mut Task)
 }
 
 struct WakerHack {

@@ -1,10 +1,11 @@
 use core::ptr;
+use core::ptr::NonNull;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
-use super::TaskHeader;
+use super::raw::Task;
 
 pub(crate) struct RunQueueItem {
-    next: AtomicPtr<TaskHeader>,
+    next: AtomicPtr<Task>,
 }
 
 impl RunQueueItem {
@@ -27,7 +28,7 @@ impl RunQueueItem {
 /// current batch is completely processed, so even if a task enqueues itself instantly (for example
 /// by waking its own waker) can't prevent other tasks from running.
 pub(crate) struct RunQueue {
-    head: AtomicPtr<TaskHeader>,
+    head: AtomicPtr<Task>,
 }
 
 impl RunQueue {
@@ -38,7 +39,7 @@ impl RunQueue {
     }
 
     /// Enqueues an item. Returns true if the queue was empty.
-    pub(crate) unsafe fn enqueue(&self, item: *mut TaskHeader) -> bool {
+    pub(crate) unsafe fn enqueue(&self, item: *mut Task) -> bool {
         let mut prev = self.head.load(Ordering::Acquire);
         loop {
             (*item).run_queue_item.next.store(prev, Ordering::Relaxed);
@@ -54,7 +55,7 @@ impl RunQueue {
         prev.is_null()
     }
 
-    pub(crate) unsafe fn dequeue_all(&self, on_task: impl Fn(*mut TaskHeader)) {
+    pub(crate) unsafe fn dequeue_all(&self, on_task: impl Fn(NonNull<Task>)) {
         let mut task = self.head.swap(ptr::null_mut(), Ordering::AcqRel);
 
         while !task.is_null() {
@@ -62,7 +63,7 @@ impl RunQueue {
             // Therefore, first read the next pointer, and only then process the task.
             let next = (*task).run_queue_item.next.load(Ordering::Relaxed);
 
-            on_task(task);
+            on_task(NonNull::new_unchecked(task));
 
             task = next
         }
