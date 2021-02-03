@@ -1,0 +1,48 @@
+
+[workspace]
+members = [
+    "embassy-net",
+    "embassy-net-examples",
+]
+
+exclude = [
+    "third_party"
+]
+
+[profile.dev]
+codegen-units = 1
+debug = 2
+debug-assertions = true
+incremental = false
+opt-level = 3
+overflow-checks = true
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = "fat"
+opt-level = 's'
+overflow-checks = false
+
+# do not optimize proc-macro crates = faster builds from scratch
+[profile.dev.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[profile.release.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[patch.crates-io]
+embassy = { git = "https://github.com/akiles/embassy" }
+embassy-std = { git = "https://github.com/akiles/embassy" }
+embassy-macros = { git = "https://github.com/akiles/embassy" }
+smoltcp = { git = "https://github.com/akiles/smoltcp" }
