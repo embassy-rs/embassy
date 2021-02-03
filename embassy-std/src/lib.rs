@@ -116,6 +116,7 @@ impl Executor {
     /// This function never returns.
     pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
         self.inner.set_signal_ctx(&self.signaler as *const _ as _);
+        self.inner.set_alarm(&StdAlarm);
 
         init(unsafe { self.inner.spawner() });
 
