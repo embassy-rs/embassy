@@ -13,8 +13,11 @@ use crate::fmt::{assert, panic, *};
 pub struct CriticalSectionMutex<T> {
     inner: UnsafeCell<T>,
 }
-unsafe impl<T> Sync for CriticalSectionMutex<T> {}
-unsafe impl<T> Send for CriticalSectionMutex<T> {}
+
+// NOTE: A `CriticalSectionMutex` can be used as a channel so the protected data must be `Send`
+// to prevent sending non-Sendable stuff (e.g. access tokens) across different
+// execution contexts (e.g. interrupts)
+unsafe impl<T> Sync for CriticalSectionMutex<T> where T: Send {}
 
 impl<T> CriticalSectionMutex<T> {
     /// Creates a new mutex
@@ -42,6 +45,10 @@ impl<T> CriticalSectionMutex<T> {
 pub struct ThreadModeMutex<T> {
     inner: UnsafeCell<T>,
 }
+
+// NOTE: ThreadModeMutex only allows borrowing from one execution context ever: thread mode.
+// Therefore it cannot be used to send non-sendable stuff between execution contexts, so it can
+// be Send+Sync even if T is not Send (unlike CriticalSectionMutex)
 unsafe impl<T> Sync for ThreadModeMutex<T> {}
 unsafe impl<T> Send for ThreadModeMutex<T> {}
 
