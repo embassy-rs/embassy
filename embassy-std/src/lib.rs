@@ -1,9 +1,10 @@
-use embassy::executor::Executor;
+use embassy::executor::{raw, Spawner};
 use embassy::time::TICKS_PER_SECOND;
 use embassy::time::{Alarm, Clock};
-use embassy::util::Forever;
 use rand_core::{OsRng, RngCore};
+use std::marker::PhantomData;
 use std::mem::MaybeUninit;
+use std::ptr;
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration as StdDuration, Instant as StdInstant};
 
@@ -29,7 +30,8 @@ static mut ALARM_AT: u64 = u64::MAX;
 
 pub struct StdAlarm;
 impl Alarm for StdAlarm {
-    fn set_callback(&self, _callback: fn()) {}
+    fn set_callback(&self, _callback: fn(*mut ()), _ctx: *mut ()) {}
+
     fn set(&self, timestamp: u64) {
         unsafe { ALARM_AT = timestamp }
     }
@@ -39,57 +41,91 @@ impl Alarm for StdAlarm {
     }
 }
 
-static EXECUTOR: Forever<Executor> = Forever::new();
-
-lazy_static::lazy_static! {
-    static ref MUTEX: Mutex<bool> = Mutex::new(false);
-    static ref CONDVAR: Condvar = Condvar::new();
+struct Signaler {
+    mutex: Mutex<bool>,
+    condvar: Condvar,
 }
 
-pub fn init() -> &'static Executor {
-    unsafe {
-        CLOCK_ZERO.as_mut_ptr().write(StdInstant::now());
-        embassy::time::set_clock(&StdClock);
-        embassy::rand::set_rand(&StdRand);
+impl Signaler {
+    fn new() -> Self {
+        Self {
+            mutex: Mutex::new(false),
+            condvar: Condvar::new(),
+        }
+    }
 
-        EXECUTOR.put(Executor::new_with_alarm(&StdAlarm, || {
-            let mut signaled = MUTEX.lock().unwrap();
-            *signaled = true;
-            CONDVAR.notify_one();
-        }))
+    fn wait(&self) {
+        let mut signaled = self.mutex.lock().unwrap();
+        while !*signaled {
+            let alarm_at = unsafe { ALARM_AT };
+            if alarm_at == u64::MAX {
+                signaled = self.condvar.wait(signaled).unwrap();
+            } else {
+                let now = StdClock.now();
+                if now >= alarm_at {
+                    break;
+                }
+
+                let left = alarm_at - now;
+                let dur = StdDuration::new(
+                    left / (TICKS_PER_SECOND as u64),
+                    (left % (TICKS_PER_SECOND as u64) * 1_000_000_000 / (TICKS_PER_SECOND as u64))
+                        as u32,
+                );
+                let (signaled2, timeout) = self.condvar.wait_timeout(signaled, dur).unwrap();
+                signaled = signaled2;
+                if timeout.timed_out() {
+                    break;
+                }
+            }
+        }
+        *signaled = false;
+    }
+
+    fn signal(ctx: *mut ()) {
+        let this = unsafe { &*(ctx as *mut Self) };
+        let mut signaled = this.mutex.lock().unwrap();
+        *signaled = true;
+        this.condvar.notify_one();
     }
 }
 
-pub fn run(executor: &'static Executor) -> ! {
-    unsafe {
+pub struct Executor {
+    inner: raw::Executor,
+    not_send: PhantomData<*mut ()>,
+    signaler: Signaler,
+}
+
+impl Executor {
+    pub fn new() -> Self {
+        unsafe {
+            CLOCK_ZERO.as_mut_ptr().write(StdInstant::now());
+            embassy::time::set_clock(&StdClock);
+            embassy::rand::set_rand(&StdRand);
+        }
+
+        Self {
+            inner: raw::Executor::new(Signaler::signal, ptr::null_mut()),
+            not_send: PhantomData,
+            signaler: Signaler::new(),
+        }
+    }
+
+    pub fn set_alarm(&mut self, alarm: &'static dyn Alarm) {
+        self.inner.set_alarm(alarm);
+    }
+
+    /// Runs the executor.
+    ///
+    /// This function never returns.
+    pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
+        self.inner.set_signal_ctx(&self.signaler as *const _ as _);
+
+        init(unsafe { self.inner.spawner() });
+
         loop {
-            executor.run();
-
-            let mut signaled = MUTEX.lock().unwrap();
-            while !*signaled {
-                let alarm_at = ALARM_AT;
-                if alarm_at == u64::MAX {
-                    signaled = CONDVAR.wait(signaled).unwrap();
-                } else {
-                    let now = StdClock.now();
-                    if now >= alarm_at {
-                        break;
-                    }
-
-                    let left = alarm_at - now;
-                    let dur = StdDuration::new(
-                        left / (TICKS_PER_SECOND as u64),
-                        (left % (TICKS_PER_SECOND as u64) * 1_000_000_000
-                            / (TICKS_PER_SECOND as u64)) as u32,
-                    );
-                    let (signaled2, timeout) = CONDVAR.wait_timeout(signaled, dur).unwrap();
-                    signaled = signaled2;
-                    if timeout.timed_out() {
-                        break;
-                    }
-                }
-            }
-            *signaled = false;
+            unsafe { self.inner.run_queued() };
+            self.signaler.wait();
         }
     }
 }

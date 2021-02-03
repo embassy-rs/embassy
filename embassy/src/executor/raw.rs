@@ -1,5 +1,6 @@
 use core::cell::Cell;
 use core::cmp::min;
+use core::marker::PhantomData;
 use core::ptr;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -67,7 +68,7 @@ impl Task {
     }
 }
 
-pub(crate) struct Executor {
+pub struct Executor {
     run_queue: RunQueue,
     timer_queue: TimerQueue,
     signal_fn: fn(*mut ()),
@@ -76,7 +77,7 @@ pub(crate) struct Executor {
 }
 
 impl Executor {
-    pub(crate) const fn new(signal_fn: fn(*mut ()), signal_ctx: *mut ()) -> Self {
+    pub const fn new(signal_fn: fn(*mut ()), signal_ctx: *mut ()) -> Self {
         Self {
             run_queue: RunQueue::new(),
             timer_queue: TimerQueue::new(),
@@ -86,8 +87,12 @@ impl Executor {
         }
     }
 
-    pub(crate) fn set_alarm(&mut self, alarm: &'static dyn Alarm) {
+    pub fn set_alarm(&mut self, alarm: &'static dyn Alarm) {
         self.alarm = Some(alarm);
+    }
+
+    pub fn set_signal_ctx(&mut self, signal_ctx: *mut ()) {
+        self.signal_ctx = signal_ctx;
     }
 
     unsafe fn enqueue(&self, item: *mut Task) {
@@ -96,13 +101,13 @@ impl Executor {
         }
     }
 
-    pub(crate) unsafe fn spawn(&'static self, task: NonNull<Task>) {
+    pub unsafe fn spawn(&'static self, task: NonNull<Task>) {
         let task = task.as_ref();
         task.executor.set(self);
         self.enqueue(task as *const _ as _);
     }
 
-    pub(crate) unsafe fn run_queued(&self) {
+    pub unsafe fn run_queued(&'static self) {
         if self.alarm.is_some() {
             self.timer_queue.dequeue_expired(Instant::now(), |p| {
                 p.as_ref().enqueue();
@@ -136,6 +141,13 @@ impl Executor {
             let next_expiration = self.timer_queue.next_expiration();
             alarm.set_callback(self.signal_fn, self.signal_ctx);
             alarm.set(next_expiration.as_ticks());
+        }
+    }
+
+    pub unsafe fn spawner(&'static self) -> super::Spawner {
+        super::Spawner {
+            executor: self,
+            not_send: PhantomData,
         }
     }
 }

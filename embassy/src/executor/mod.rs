@@ -113,13 +113,6 @@ pub struct Spawner {
 }
 
 impl Spawner {
-    fn new(executor: &'static raw::Executor) -> Self {
-        Self {
-            executor,
-            not_send: PhantomData,
-        }
-    }
-
     pub fn spawn<F>(&self, token: SpawnToken<F>) -> Result<(), SpawnError> {
         let task = token.raw_task;
         mem::forget(token);
@@ -165,13 +158,6 @@ unsafe impl Sync for SendSpawner {}
 ///
 /// If you want to spawn tasks from another thread, use [SendSpawner].
 impl SendSpawner {
-    fn new(executor: &'static raw::Executor) -> Self {
-        Self {
-            executor,
-            not_send: PhantomData,
-        }
-    }
-
     pub fn spawn<F: Send>(&self, token: SpawnToken<F>) -> Result<(), SpawnError> {
         let header = token.raw_task;
         mem::forget(token);
@@ -207,7 +193,7 @@ impl Executor {
     ///
     /// This function never returns.
     pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
-        init(Spawner::new(&self.inner));
+        init(unsafe { self.inner.spawner() });
 
         loop {
             unsafe { self.inner.run_queued() };
@@ -253,7 +239,7 @@ impl<I: OwnedInterrupt> IrqExecutor<I> {
     pub fn start(&'static mut self, init: impl FnOnce(Spawner) + Send) {
         self.irq.disable();
 
-        init(Spawner::new(&self.inner));
+        init(unsafe { self.inner.spawner() });
 
         self.irq.set_handler(
             |ctx| unsafe {
