@@ -1,6 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![feature(const_fn)]
-#![feature(const_in_array_repeat_expressions)]
 #![feature(const_generics)]
 #![feature(const_evaluatable_checked)]
 #![allow(incomplete_features)]

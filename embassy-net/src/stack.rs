@@ -146,10 +146,11 @@ impl Stack {
 /// Initialize embassy_net.
 /// This function must be called from thread mode.
 pub fn init(device: &'static mut dyn Device, configurator: &'static mut dyn Configurator) {
+    const NONE_SOCKET: Option<SocketSetItem<'static>> = None;
     let res = STACK_RESOURCES.put(StackResources {
         addresses: [IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 32)],
         neighbor_cache: [None; NEIGHBOR_CACHE_LEN],
-        sockets: [None; SOCKETS_LEN],
+        sockets: [NONE_SOCKET; SOCKETS_LEN],
         routes: [None; 1],
     });
 
