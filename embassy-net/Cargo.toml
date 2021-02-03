@@ -11,6 +11,7 @@ defmt-debug = []
 defmt-info = []
 defmt-warn = []
 defmt-error = []
+defmt = [ "dep:defmt", "smoltcp/defmt" ]
 
 [dependencies]
 

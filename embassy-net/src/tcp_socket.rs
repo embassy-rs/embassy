@@ -112,7 +112,6 @@ impl<'a> TcpSocket<'a> {
 }
 
 fn to_ioerr(e: Error) -> io::Error {
-    warn!("smoltcp err: {:?}", e);
     // todo
     io::Error::Other
 }
