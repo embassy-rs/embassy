@@ -107,6 +107,7 @@ pub enum SpawnError {
 /// only be used in the executor thread (it is not Send itself).
 ///
 /// If you want to spawn tasks from another thread, use [SendSpawner].
+#[derive(Copy, Clone)]
 pub struct Spawner {
     executor: &'static raw::Executor,
     not_send: PhantomData<*mut ()>,
@@ -143,6 +144,7 @@ impl Spawner {
 /// only be used in the executor thread (it is not Send itself).
 ///
 /// If you want to spawn tasks from another thread, use [SendSpawner].
+#[derive(Copy, Clone)]
 pub struct SendSpawner {
     executor: &'static raw::Executor,
     not_send: PhantomData<*mut ()>,
