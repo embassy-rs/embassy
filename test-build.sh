@@ -3,8 +3,7 @@
 set -euxo pipefail
 
 # embassy std
-(cd embassy; cargo build --features log,std)
-(cd embassy-std; cargo build)
+(cd embassy-std-examples; cargo build)
 
 # embassy embedded
 (cd embassy; cargo build --target thumbv7em-none-eabi)

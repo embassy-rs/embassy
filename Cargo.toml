@@ -13,7 +13,8 @@ members = [
 # for all crates in the workspace together, including it would result in
 # incompatible features enabled in embassy.
 exclude = [
-    "embassy-std"
+    "embassy-std",
+    "embassy-std-examples",
 ]
 
 [profile.dev]
