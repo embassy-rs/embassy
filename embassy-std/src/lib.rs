@@ -111,10 +111,6 @@ impl Executor {
         }
     }
 
-    pub fn set_alarm(&mut self, alarm: &'static dyn Alarm) {
-        self.inner.set_alarm(alarm);
-    }
-
     /// Runs the executor.
     ///
     /// This function never returns.
