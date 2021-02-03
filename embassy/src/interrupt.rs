@@ -32,6 +32,7 @@ unsafe impl cortex_m::interrupt::Nr for NrWrap {
 pub unsafe trait OwnedInterrupt {
     type Priority: From<u8> + Into<u8> + Copy;
     fn number(&self) -> u8;
+    unsafe fn steal() -> Self;
 
     /// Implementation detail, do not use outside embassy crates.
     #[doc(hidden)]

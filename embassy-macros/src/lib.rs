@@ -11,21 +11,23 @@ use syn::spanned::Spanned;
 struct MacroArgs {
     #[darling(default)]
     pool_size: Option<usize>,
+    #[darling(default)]
+    send: bool,
 }
 
 #[proc_macro_attribute]
 pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
-    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
+    let macro_args = syn::parse_macro_input!(args as syn::AttributeArgs);
     let mut task_fn = syn::parse_macro_input!(item as syn::ItemFn);
 
-    let args = match MacroArgs::from_list(&args) {
+    let macro_args = match MacroArgs::from_list(&macro_args) {
         Ok(v) => v,
         Err(e) => {
             return TokenStream::from(e.write_errors());
         }
     };
 
-    let pool_size: usize = args.pool_size.unwrap_or(1);
+    let pool_size: usize = macro_args.pool_size.unwrap_or(1);
 
     let mut fail = false;
     if task_fn.sig.asyncness.is_none() {
@@ -90,11 +92,16 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
 
     let visibility = &task_fn.vis;
     task_fn.sig.ident = format_ident!("task");
+    let impl_ty = if macro_args.send {
+        quote!(impl ::core::future::Future + Send + 'static)
+    } else {
+        quote!(impl ::core::future::Future + 'static)
+    };
 
     let result = quote! {
-        #visibility fn #name(#args) -> ::embassy::executor::SpawnToken {
+        #visibility fn #name(#args) -> ::embassy::executor::SpawnToken<#impl_ty> {
             #task_fn
-            type F = impl ::core::future::Future + 'static;
+            type F = #impl_ty;
             static POOL: [::embassy::executor::Task<F>; #pool_size] = [::embassy::executor::Task::new(); #pool_size];
             unsafe { ::embassy::executor::Task::spawn(&POOL, move || task(#arg_names)) }
         }
@@ -118,6 +125,9 @@ pub fn interrupt_declare(item: TokenStream) -> TokenStream {
                 use cortex_m::interrupt::Nr;
                 let irq = Interrupt::#name;
                 irq.nr() as u8
+            }
+            unsafe fn steal() -> Self {
+                Self(())
             }
             unsafe fn __handler(&self) -> &'static ::embassy::interrupt::Handler {
                 #[export_name = #name_handler]

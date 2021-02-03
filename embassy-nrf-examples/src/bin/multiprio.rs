@@ -66,9 +66,10 @@ use cortex_m_rt::entry;
 use defmt::panic;
 use nrf52840_hal::clocks;
 
-use embassy::executor::{task, Executor};
+use embassy::executor::{task, Executor, IrqExecutor};
 use embassy::time::{Duration, Instant, Timer};
 use embassy::util::Forever;
+use embassy_nrf::interrupt::OwnedInterrupt;
 use embassy_nrf::{interrupt, pac, rtc};
 
 #[task]
@@ -114,12 +115,12 @@ async fn run_low() {
 }
 
 static RTC: Forever<rtc::RTC<pac::RTC1>> = Forever::new();
+static ALARM_HIGH: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
+static EXECUTOR_HIGH: Forever<IrqExecutor<interrupt::SWI1_EGU1Interrupt>> = Forever::new();
+static ALARM_MED: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
+static EXECUTOR_MED: Forever<IrqExecutor<interrupt::SWI0_EGU0Interrupt>> = Forever::new();
 static ALARM_LOW: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
 static EXECUTOR_LOW: Forever<Executor> = Forever::new();
-static ALARM_MED: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
-static EXECUTOR_MED: Forever<Executor> = Forever::new();
-static ALARM_HIGH: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
-static EXECUTOR_HIGH: Forever<Executor> = Forever::new();
 
 #[entry]
 fn main() -> ! {
@@ -136,41 +137,31 @@ fn main() -> ! {
     rtc.start();
     unsafe { embassy::time::set_clock(rtc) };
 
-    let alarm_low = ALARM_LOW.put(rtc.alarm0());
-    let executor_low = EXECUTOR_LOW.put(Executor::new_with_alarm(alarm_low, cortex_m::asm::sev));
-    let alarm_med = ALARM_MED.put(rtc.alarm1());
-    let executor_med = EXECUTOR_MED.put(Executor::new_with_alarm(alarm_med, || {
-        NVIC::pend(interrupt::SWI0_EGU0)
-    }));
-    let alarm_high = ALARM_HIGH.put(rtc.alarm2());
-    let executor_high = EXECUTOR_HIGH.put(Executor::new_with_alarm(alarm_high, || {
-        NVIC::pend(interrupt::SWI1_EGU1)
-    }));
+    // High-priority executor: SWI1_EGU1, priority level 6
+    let irq = interrupt::take!(SWI1_EGU1);
+    irq.set_priority(interrupt::Priority::Level6);
+    let alarm = ALARM_HIGH.put(rtc.alarm2());
+    let executor = EXECUTOR_HIGH.put(IrqExecutor::new(irq));
+    executor.set_alarm(alarm);
+    executor.start(|spawner| {
+        unwrap!(spawner.spawn(run_high()));
+    });
 
-    unsafe {
-        let mut nvic: NVIC = core::mem::transmute(());
-        nvic.set_priority(interrupt::SWI0_EGU0, 7 << 5);
-        nvic.set_priority(interrupt::SWI1_EGU1, 6 << 5);
-        NVIC::unmask(interrupt::SWI0_EGU0);
-        NVIC::unmask(interrupt::SWI1_EGU1);
-    }
+    // Medium-priority executor: SWI0_EGU0, priority level 7
+    let irq = interrupt::take!(SWI0_EGU0);
+    irq.set_priority(interrupt::Priority::Level7);
+    let alarm = ALARM_MED.put(rtc.alarm1());
+    let executor = EXECUTOR_MED.put(IrqExecutor::new(irq));
+    executor.set_alarm(alarm);
+    executor.start(|spawner| {
+        unwrap!(spawner.spawn(run_med()));
+    });
 
-    unwrap!(executor_low.spawn(run_low()));
-    unwrap!(executor_med.spawn(run_med()));
-    unwrap!(executor_high.spawn(run_high()));
-
-    loop {
-        executor_low.run();
-        cortex_m::asm::wfe();
-    }
-}
-
-#[interrupt]
-unsafe fn SWI0_EGU0() {
-    EXECUTOR_MED.steal().run()
-}
-
-#[interrupt]
-unsafe fn SWI1_EGU1() {
-    EXECUTOR_HIGH.steal().run()
+    // Low priority executor: runs in thread mode, using WFE/SEV
+    let alarm = ALARM_LOW.put(rtc.alarm0());
+    let executor = EXECUTOR_LOW.put(Executor::new());
+    executor.set_alarm(alarm);
+    executor.run(|spawner| {
+        unwrap!(spawner.spawn(run_low()));
+    });
 }

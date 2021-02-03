@@ -52,11 +52,8 @@ static EXECUTOR: Forever<Executor> = Forever::new();
 fn main() -> ! {
     info!("Hello World!");
 
-    let executor = EXECUTOR.put(Executor::new(cortex_m::asm::sev));
-    unwrap!(executor.spawn(run()));
-
-    loop {
-        executor.run();
-        cortex_m::asm::wfe();
-    }
+    let executor = EXECUTOR.put(Executor::new());
+    executor.run(|spawner| {
+        unwrap!(spawner.spawn(run()));
+    });
 }

@@ -110,7 +110,7 @@ impl<'a, I: OwnedInterrupt> InterruptFuture<'a, I> {
         };
 
         if ctx as *const _ != ptr::null() {
-            executor::raw::wake_task(ptr::NonNull::new_unchecked(ctx));
+            executor::raw::wake_task(ptr::NonNull::new_unchecked(ctx as _));
         }
 
         NVIC::mask(NrWrap(irq));
@@ -124,10 +124,8 @@ impl<'a, I: OwnedInterrupt> Future for InterruptFuture<'a, I> {
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         let s = unsafe { self.get_unchecked_mut() };
-        s.interrupt.set_handler(
-            Self::interrupt_handler,
-            executor::raw::task_from_waker(&cx.waker()).cast().as_ptr(),
-        );
+        let ctx = unsafe { executor::raw::task_from_waker(&cx.waker()).cast().as_ptr() };
+        s.interrupt.set_handler(Self::interrupt_handler, ctx);
         if s.interrupt.is_enabled() {
             Poll::Pending
         } else {
