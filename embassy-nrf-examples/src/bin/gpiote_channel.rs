@@ -12,7 +12,7 @@ use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
 use embassy::util::Forever;
-use embassy_nrf::gpiote;
+use embassy_nrf::gpiote::{Channels, Gpiote, InputChannel, InputChannelPolarity};
 use embassy_nrf::interrupt;
 
 #[task]
@@ -20,46 +20,44 @@ async fn run() {
     let p = unwrap!(embassy_nrf::pac::Peripherals::take());
     let port0 = gpio::p0::Parts::new(p.P0);
 
-    let g = gpiote::Gpiote::new(p.GPIOTE, interrupt::take!(GPIOTE));
+    let (g, chs) = Gpiote::new(p.GPIOTE, interrupt::take!(GPIOTE));
 
     info!("Starting!");
 
     let pin1 = port0.p0_11.into_pullup_input().degrade();
-    let button1 = async {
-        let ch = unwrap!(g.new_input_channel(pin1, gpiote::InputChannelPolarity::HiToLo));
+    let pin2 = port0.p0_12.into_pullup_input().degrade();
+    let pin3 = port0.p0_24.into_pullup_input().degrade();
+    let pin4 = port0.p0_25.into_pullup_input().degrade();
 
+    let ch1 = InputChannel::new(g, chs.ch0, pin1, InputChannelPolarity::HiToLo);
+    let ch2 = InputChannel::new(g, chs.ch1, pin2, InputChannelPolarity::LoToHi);
+    let ch3 = InputChannel::new(g, chs.ch2, pin3, InputChannelPolarity::Toggle);
+    let ch4 = InputChannel::new(g, chs.ch3, pin4, InputChannelPolarity::Toggle);
+
+    let button1 = async {
         loop {
-            ch.wait().await;
+            ch1.wait().await;
             info!("Button 1 pressed")
         }
     };
 
-    let pin2 = port0.p0_12.into_pullup_input().degrade();
     let button2 = async {
-        let ch = unwrap!(g.new_input_channel(pin2, gpiote::InputChannelPolarity::LoToHi));
-
         loop {
-            ch.wait().await;
+            ch2.wait().await;
             info!("Button 2 released")
         }
     };
 
-    let pin3 = port0.p0_24.into_pullup_input().degrade();
     let button3 = async {
-        let ch = unwrap!(g.new_input_channel(pin3, gpiote::InputChannelPolarity::Toggle));
-
         loop {
-            ch.wait().await;
+            ch3.wait().await;
             info!("Button 3 toggled")
         }
     };
 
-    let pin4 = port0.p0_25.into_pullup_input().degrade();
     let button4 = async {
-        let ch = unwrap!(g.new_input_channel(pin4, gpiote::InputChannelPolarity::Toggle));
-
         loop {
-            ch.wait().await;
+            ch4.wait().await;
             info!("Button 4 toggled")
         }
     };
