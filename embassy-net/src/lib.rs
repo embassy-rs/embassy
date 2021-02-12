@@ -28,3 +28,4 @@ pub use smoltcp::time::Instant as SmolInstant;
 pub use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
 pub type Interface = smoltcp::iface::Interface<'static, device::DeviceAdapter>;
 pub type SocketSet = smoltcp::socket::SocketSet<'static>;
+pub use smoltcp::{Error, Result};

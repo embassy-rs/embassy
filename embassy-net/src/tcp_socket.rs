@@ -9,10 +9,10 @@ use smoltcp::socket::TcpSocket as SyncTcpSocket;
 use smoltcp::socket::{TcpSocketBuffer, TcpState};
 use smoltcp::time::Duration;
 use smoltcp::wire::IpEndpoint;
-use smoltcp::{Error, Result};
 
 use super::stack::Stack;
 use crate::fmt::*;
+use crate::{Error, Result};
 
 pub struct TcpSocket<'a> {
     handle: SocketHandle,

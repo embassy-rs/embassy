@@ -2,10 +2,10 @@ use core::task::{Poll, Waker};
 use smoltcp::phy::Device as SmolDevice;
 use smoltcp::phy::DeviceCapabilities;
 use smoltcp::time::Instant as SmolInstant;
-use smoltcp::Result;
 
 use crate::fmt::*;
 use crate::{Packet, PacketBox, PacketBuf};
+use crate::Result;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum LinkState {
