@@ -103,7 +103,7 @@ impl<T: Instance> RTC<T> {
         self.irq.enable();
 
         // enable "one-pulse" mode
-        // self.rtc.deref().cr1.modify(|_, w| w.opm().set_bit());
+        self.rtc.cr1().modify(|_, w| w.opm().set_bit());
 
         self.rtc.cr1().modify(|_, w| w.cen().set_bit());
     }
@@ -124,7 +124,7 @@ impl<T: Instance> RTC<T> {
                     diff = 0;
                 }
 
-                if diff < 5 {
+                if diff < 1 {
                     alarm.timestamp.set(u64::MAX);
                     alarm.callback.get().map(|(f, ctx)| f(ctx));
                 } else if diff < arr as u64 {
@@ -142,17 +142,7 @@ impl<T: Instance> RTC<T> {
 
         self.reset_timestamp();
         self.recompute();
-        // self.rtc.deref().cr1.modify(|_, w| w.cen().set_bit());
-    }
-
-    fn trigger_alarm(&self, n: usize, cs: &CriticalSection) {
-        // self.rtc.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
-
-        let alarm = &self.alarms.borrow(cs)[n];
-        alarm.timestamp.set(u64::MAX);
-
-        // Call after clearing alarm, so the callback can set another alarm.
-        alarm.callback.get().map(|(f, ctx)| f(ctx));
+        self.rtc.cr1().modify(|_, w| w.cen().set_bit());
     }
 
     fn set_alarm_callback(&self, n: usize, callback: fn(*mut ()), ctx: *mut ()) {
