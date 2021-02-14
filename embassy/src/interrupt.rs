@@ -21,16 +21,17 @@ impl Handler {
     }
 }
 
-struct NrWrap(u8);
-unsafe impl cortex_m::interrupt::Nr for NrWrap {
-    fn nr(&self) -> u8 {
+#[derive(Clone, Copy)]
+pub(crate) struct NrWrap(pub(crate) u16);
+unsafe impl cortex_m::interrupt::InterruptNumber for NrWrap {
+    fn number(self) -> u16 {
         self.0
     }
 }
 
 pub unsafe trait OwnedInterrupt {
     type Priority: From<u8> + Into<u8> + Copy;
-    fn number(&self) -> u8;
+    fn number(&self) -> u16;
     unsafe fn steal() -> Self;
 
     /// Implementation detail, do not use outside embassy crates.

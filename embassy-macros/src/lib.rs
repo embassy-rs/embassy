@@ -121,10 +121,10 @@ pub fn interrupt_declare(item: TokenStream) -> TokenStream {
         pub struct #name_interrupt(());
         unsafe impl OwnedInterrupt for #name_interrupt {
             type Priority = Priority;
-            fn number(&self) -> u8 {
-                use cortex_m::interrupt::Nr;
+            fn number(&self) -> u16 {
+                use cortex_m::interrupt::InterruptNumber;
                 let irq = Interrupt::#name;
-                irq.nr() as u8
+                irq.number() as u16
             }
             unsafe fn steal() -> Self {
                 Self(())

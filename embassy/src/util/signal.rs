@@ -110,7 +110,7 @@ impl<'a, I: OwnedInterrupt> InterruptFuture<'a, I> {
             executor::raw::wake_task(ptr::NonNull::new_unchecked(ctx as _));
         }
 
-        NVIC::mask(NrWrap(irq));
+        NVIC::mask(crate::interrupt::NrWrap(irq as u16));
     }
 }
 
