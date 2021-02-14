@@ -8,7 +8,7 @@ use crate::hal::bb;
 use crate::hal::rcc::Clocks;
 use crate::interrupt;
 use crate::interrupt::{CriticalSection, Mutex, OwnedInterrupt};
-use crate::pac::{generic, tim6, RCC};
+use crate::pac::{tim6, RCC};
 
 struct AlarmState {
     timestamp: Cell<u64>,
@@ -221,13 +221,13 @@ pub trait Instance: sealed::Instance + Sized + 'static {
     /// The interrupt associated with this RTC instance.
     type Interrupt: OwnedInterrupt;
 
-    fn cr1(&self) -> generic::Reg<u32, tim6::_CR1>;
-    fn egr(&self) -> generic::Reg<u32, tim6::_EGR>;
-    fn psc(&self) -> generic::Reg<u32, tim6::_PSC>;
-    fn cnt(&self) -> generic::Reg<u32, tim6::_CNT>;
-    fn dier(&self) -> generic::Reg<u32, tim6::_DIER>;
-    fn arr(&self) -> generic::Reg<u32, tim6::_ARR>;
-    fn sr(&self) -> generic::Reg<u32, tim6::_SR>;
+    fn cr1(&self) -> tim6::CR1;
+    fn egr(&self) -> tim6::EGR;
+    fn psc(&self) -> tim6::PSC;
+    fn cnt(&self) -> tim6::CNT;
+    fn dier(&self) -> tim6::DIER;
+    fn arr(&self) -> tim6::ARR;
+    fn sr(&self) -> tim6::SR;
 
     fn enable_clock();
     fn ppre(clocks: Clocks) -> u8;
@@ -237,83 +237,32 @@ pub trait Instance: sealed::Instance + Sized + 'static {
 impl Instance for crate::pac::TIM7 {
     type Interrupt = interrupt::TIM7Interrupt;
 
-    fn arr(&self) -> generic::Reg<u32, tim6::_ARR> {
-        (&(*crate::pac::TIM7::ptr())).arr
+    fn arr(&self) -> tim6::ARR {
+        unsafe { (&(*crate::pac::TIM7::ptr())) }.arr
     }
 
-    fn cr1(&self) -> generic::Reg<u32, tim6::_CR1> {
-        (&(*crate::pac::TIM7::ptr())).cr1
+    fn cr1(&self) -> tim6::CR1 {
+        unsafe { (&(*crate::pac::TIM7::ptr())).cr1 }
     }
 
-    fn egr(&self) -> generic::Reg<u32, tim6::_EGR> {
+    fn egr(&self) -> tim6::EGR {
         (&(*crate::pac::TIM7::ptr())).egr
     }
 
-    fn psc(&self) -> generic::Reg<u32, tim6::_PSC> {
+    fn psc(&self) -> tim6::PSC {
         (&(*crate::pac::TIM7::ptr())).psc
     }
 
-    fn cnt(&self) -> generic::Reg<u32, tim6::_CNT> {
+    fn cnt(&self) -> tim6::CNT {
         (&(*crate::pac::TIM7::ptr())).cnt
     }
 
-    fn dier(&self) -> generic::Reg<u32, tim6::_DIER> {
+    fn dier(&self) -> tim6::DIER {
         (&(*crate::pac::TIM7::ptr())).dier
     }
 
-    fn sr(&self) -> generic::Reg<u32, tim6::_SR> {
+    fn sr(&self) -> tim6::SR {
         (&(*crate::pac::TIM7::ptr())).sr
-    }
-
-    fn ppre(clocks: Clocks) -> u8 {
-        clocks.ppre1()
-    }
-
-    fn pclk(clocks: Clocks) -> u32 {
-        clocks.pclk1().0
-    }
-
-    fn enable_clock() {
-        unsafe {
-            //NOTE(unsafe) this reference will only be used for atomic writes with no side effects
-            let rcc = &(*RCC::ptr());
-            // Enable and reset the timer peripheral, it's the same bit position for both registers
-            bb::set(&rcc.apb1enr, 5);
-            bb::set(&rcc.apb1rstr, 5);
-            bb::clear(&rcc.apb1rstr, 5);
-        }
-    }
-}
-
-impl Instance for crate::pac::TIM2 {
-    type Interrupt = interrupt::TIM2Interrupt;
-
-    fn arr(&self) -> generic::Reg<u32, tim6::_ARR> {
-        (&(*crate::pac::TIM2::ptr())).arr
-    }
-
-    fn cr1(&self) -> generic::Reg<u32, tim6::_CR1> {
-        (&(*crate::pac::TIM2::ptr())).cr1
-    }
-
-    fn egr(&self) -> generic::Reg<u32, tim6::_EGR> {
-        (&(*crate::pac::TIM2::ptr())).egr
-    }
-
-    fn psc(&self) -> generic::Reg<u32, tim6::_PSC> {
-        (&(*crate::pac::TIM2::ptr())).psc
-    }
-
-    fn cnt(&self) -> generic::Reg<u32, tim6::_CNT> {
-        (&(*crate::pac::TIM2::ptr())).cnt
-    }
-
-    fn dier(&self) -> generic::Reg<u32, tim6::_DIER> {
-        (&(*crate::pac::TIM2::ptr())).dier
-    }
-
-    fn sr(&self) -> generic::Reg<u32, tim6::_SR> {
-        (&(*crate::pac::TIM2::ptr())).sr
     }
 
     fn ppre(clocks: Clocks) -> u8 {
