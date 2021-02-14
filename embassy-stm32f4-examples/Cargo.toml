@@ -23,7 +23,7 @@ embassy-stm32f4 = { version = "*", path = "../embassy-stm32f4", features = ["stm
 defmt = "0.1.3"
 defmt-rtt = "0.1.0"
 
-cortex-m        = { version = "0.6.3" }
+cortex-m = "0.7.1"
 cortex-m-rt = "0.6.13"
 embedded-hal    = { version = "0.2.4" }
 panic-probe = "0.1.0"

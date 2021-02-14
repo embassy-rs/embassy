@@ -204,10 +204,11 @@ impl Executor {
     }
 }
 
-fn pend_by_number(n: u8) {
-    struct N(u8);
-    unsafe impl cortex_m::interrupt::Nr for N {
-        fn nr(&self) -> u8 {
+fn pend_by_number(n: u16) {
+    #[derive(Clone, Copy)]
+    struct N(u16);
+    unsafe impl cortex_m::interrupt::InterruptNumber for N {
+        fn number(self) -> u16 {
             self.0
         }
     }
@@ -225,7 +226,7 @@ impl<I: OwnedInterrupt> IrqExecutor<I> {
         let ctx = irq.number() as *mut ();
         Self {
             irq,
-            inner: raw::Executor::new(|ctx| pend_by_number(ctx as u8), ctx),
+            inner: raw::Executor::new(|ctx| pend_by_number(ctx as u16), ctx),
             not_send: PhantomData,
         }
     }
