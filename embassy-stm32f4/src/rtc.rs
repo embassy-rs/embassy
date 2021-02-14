@@ -199,6 +199,10 @@ impl<T: Instance> embassy::time::Alarm for Alarm<T> {
     }
 }
 
+/*
+    TODO: impl. on tim9
+*/
+
 mod sealed {
     pub trait Instance {}
 }
