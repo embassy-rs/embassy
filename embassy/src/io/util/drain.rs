@@ -1,10 +1,8 @@
-use core::iter::Iterator;
 use core::pin::Pin;
 use futures::future::Future;
-use futures::ready;
 use futures::task::{Context, Poll};
 
-use super::super::error::{Error, Result};
+use super::super::error::Result;
 use super::super::traits::AsyncBufRead;
 
 pub struct Drain<'a, R: ?Sized> {

@@ -12,7 +12,7 @@ use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
 use embassy::util::Forever;
-use embassy_nrf::gpiote::{Channels, Gpiote, InputChannel, InputChannelPolarity};
+use embassy_nrf::gpiote::{Gpiote, InputChannel, InputChannelPolarity};
 use embassy_nrf::interrupt;
 
 #[task]

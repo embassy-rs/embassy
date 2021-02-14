@@ -1,6 +1,5 @@
-use core::mem;
 use core::ptr;
-use core::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use core::sync::atomic::{AtomicPtr, Ordering};
 use cortex_m::peripheral::NVIC;
 
 pub use embassy_macros::interrupt_declare as declare;

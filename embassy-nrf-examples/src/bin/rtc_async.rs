@@ -6,11 +6,10 @@
 mod example_common;
 use example_common::*;
 
-use core::mem::MaybeUninit;
 use cortex_m_rt::entry;
 use defmt::panic;
 use embassy::executor::{task, Executor};
-use embassy::time::{Clock, Duration, Timer};
+use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
 use embassy_nrf::pac;
 use embassy_nrf::{interrupt, rtc};

@@ -3,7 +3,7 @@
 extern crate proc_macro;
 
 use darling::FromMeta;
-use proc_macro::{Diagnostic, Level, Span, TokenStream};
+use proc_macro::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 
@@ -39,7 +39,7 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
             .emit();
         fail = true;
     }
-    if task_fn.sig.generics.params.len() != 0 {
+    if !task_fn.sig.generics.params.is_empty() {
         task_fn
             .sig
             .span()

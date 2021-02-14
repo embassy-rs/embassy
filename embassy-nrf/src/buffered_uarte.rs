@@ -20,10 +20,7 @@ use crate::interrupt::{self, OwnedInterrupt};
 use crate::pac;
 use crate::util::peripheral::{PeripheralMutex, PeripheralState};
 use crate::util::ring_buffer::RingBuffer;
-use crate::{
-    fmt::{panic, todo, *},
-    util::low_power_wait_until,
-};
+use crate::{fmt::*, util::low_power_wait_until};
 
 // Re-export SVD variants to allow user to directly set values
 pub use crate::hal::uarte::Pins;
@@ -257,7 +254,7 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
 
             // We have data ready in buffer? Return it.
             let buf = state.rx.pop_buf();
-            if buf.len() != 0 {
+            if !buf.is_empty() {
                 trace!("  got {:?} {:?}", buf.as_ptr() as u32, buf.len());
                 let buf: &[u8] = buf;
                 let buf: &[u8] = unsafe { mem::transmute(buf) };
@@ -287,7 +284,7 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
             trace!("poll_write: {:?}", buf.len());
 
             let tx_buf = state.tx.push_buf();
-            if tx_buf.len() == 0 {
+            if tx_buf.is_empty() {
                 trace!("poll_write: pending");
                 state.tx_waker.register(cx.waker());
                 return Poll::Pending;
@@ -343,7 +340,7 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
                     trace!("  irq_rx: in state idle");
 
                     let buf = self.rx.push_buf();
-                    if buf.len() != 0 {
+                    if !buf.is_empty() {
                         trace!("  irq_rx: starting {:?}", buf.len());
                         self.rx_state = RxState::Receiving;
 
@@ -394,7 +391,7 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
                 TxState::Idle => {
                     trace!("  irq_tx: in state Idle");
                     let buf = self.tx.pop_buf();
-                    if buf.len() != 0 {
+                    if !buf.is_empty() {
                         trace!("  irq_tx: starting {:?}", buf.len());
                         self.tx_state = TxState::Transmitting(buf.len());
 

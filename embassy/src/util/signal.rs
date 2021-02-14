@@ -32,9 +32,8 @@ impl<T: Send> Signal<T> {
     pub fn signal(&self, val: T) {
         cortex_m::interrupt::free(|_| unsafe {
             let state = &mut *self.state.get();
-            match mem::replace(state, State::Signaled(val)) {
-                State::Waiting(waker) => waker.wake(),
-                _ => {}
+            if let State::Waiting(waker) = mem::replace(state, State::Signaled(val)) {
+                waker.wake();
             }
         })
     }
@@ -98,9 +97,7 @@ impl<'a, I: OwnedInterrupt> InterruptFuture<'a, I> {
         interrupt.unpend();
         interrupt.enable();
 
-        Self {
-            interrupt: interrupt,
-        }
+        Self { interrupt }
     }
 
     unsafe fn interrupt_handler(ctx: *mut ()) {
@@ -109,7 +106,7 @@ impl<'a, I: OwnedInterrupt> InterruptFuture<'a, I> {
             _ => unreachable!(),
         };
 
-        if ctx as *const _ != ptr::null() {
+        if !ctx.is_null() {
             executor::raw::wake_task(ptr::NonNull::new_unchecked(ctx as _));
         }
 

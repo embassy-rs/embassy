@@ -61,7 +61,6 @@
 mod example_common;
 use example_common::*;
 
-use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
 use defmt::panic;
 use nrf52840_hal::clocks;

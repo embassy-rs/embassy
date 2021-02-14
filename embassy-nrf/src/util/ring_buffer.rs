@@ -1,4 +1,4 @@
-use crate::fmt::{assert, panic, todo, *};
+use crate::fmt::{assert, *};
 
 pub struct RingBuffer<'a> {
     buf: &'a mut [u8],

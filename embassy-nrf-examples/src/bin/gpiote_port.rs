@@ -6,7 +6,6 @@
 mod example_common;
 use example_common::*;
 
-use core::mem;
 use core::pin::Pin;
 use cortex_m_rt::entry;
 use defmt::panic;

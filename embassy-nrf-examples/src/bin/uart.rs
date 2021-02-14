@@ -75,7 +75,7 @@ async fn run(uart: pac::UARTE0, port: pac::P0) {
         };
         let received = &mut buf[..received_len];
 
-        if received.len() > 0 {
+        if !received.is_empty() {
             info!("read done, got {:[u8]}", received);
 
             // Echo back received data

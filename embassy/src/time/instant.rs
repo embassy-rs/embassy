@@ -1,4 +1,3 @@
-use core::convert::TryInto;
 use core::fmt;
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 
@@ -49,7 +48,7 @@ impl Instant {
 
     pub fn duration_since(&self, earlier: Instant) -> Duration {
         Duration {
-            ticks: (self.ticks - earlier.ticks).try_into().unwrap(),
+            ticks: self.ticks.checked_sub(earlier.ticks).unwrap(),
         }
     }
 
@@ -58,7 +57,7 @@ impl Instant {
             None
         } else {
             Some(Duration {
-                ticks: (self.ticks - earlier.ticks).try_into().unwrap(),
+                ticks: self.ticks - earlier.ticks,
             })
         }
     }
@@ -68,7 +67,7 @@ impl Instant {
             ticks: if self.ticks < earlier.ticks {
                 0
             } else {
-                (self.ticks - earlier.ticks).try_into().unwrap()
+                self.ticks - earlier.ticks
             },
         }
     }
@@ -79,12 +78,12 @@ impl Instant {
 
     pub fn checked_add(&self, duration: Duration) -> Option<Instant> {
         self.ticks
-            .checked_add(duration.ticks.into())
+            .checked_add(duration.ticks)
             .map(|ticks| Instant { ticks })
     }
     pub fn checked_sub(&self, duration: Duration) -> Option<Instant> {
         self.ticks
-            .checked_sub(duration.ticks.into())
+            .checked_sub(duration.ticks)
             .map(|ticks| Instant { ticks })
     }
 }

@@ -7,7 +7,7 @@ mod example_common;
 use example_common::*;
 
 use cortex_m_rt::entry;
-use defmt::{assert_eq, panic, *};
+use defmt::{assert_eq, panic};
 use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};

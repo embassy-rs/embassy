@@ -7,25 +7,20 @@
 mod example_common;
 use example_common::{panic, *};
 
-use cortex_m::singleton;
 use cortex_m_rt::entry;
 use embassy::executor::{task, Executor};
 use embassy::gpio::*;
 use embassy::util::Forever;
 use embassy_stm32f4::exti;
-use embassy_stm32f4::exti::*;
 use embassy_stm32f4::interrupt;
-use embassy_stm32f4::serial;
 use futures::pin_mut;
-use stm32f4xx_hal::serial::config::Config;
+use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::stm32;
-use stm32f4xx_hal::syscfg;
-use stm32f4xx_hal::{prelude::*, serial::config};
 
 static EXTI: Forever<exti::ExtiManager> = Forever::new();
 
 #[task]
-async fn run(dp: stm32::Peripherals, cp: cortex_m::Peripherals) {
+async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
     let gpioa = dp.GPIOA.split();
 
     let button = gpioa.pa0.into_pull_up_input();

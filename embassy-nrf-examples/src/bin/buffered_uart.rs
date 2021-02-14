@@ -66,9 +66,7 @@ async fn run() {
 
         // Reverse buf
         for i in 0..4 {
-            let tmp = buf[i];
-            buf[i] = buf[7 - i];
-            buf[7 - i] = tmp;
+            buf.swap(i, 7 - i);
         }
 
         info!("writing...");

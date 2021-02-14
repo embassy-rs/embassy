@@ -1,7 +1,7 @@
 use core::cell::UnsafeCell;
 use cortex_m::interrupt::CriticalSection;
 
-use crate::fmt::{assert, panic, *};
+use crate::fmt::assert;
 
 /// A "mutex" based on critical sections
 ///

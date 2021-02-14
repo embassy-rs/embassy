@@ -5,18 +5,10 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use example_common::{panic, *};
+use example_common::*;
 
-use cortex_m::singleton;
 use cortex_m_rt::entry;
-use embassy::executor::{task, Executor};
-use embassy::uart::Uart;
-use embassy::util::Forever;
-use embassy_stm32f4::interrupt;
-use embassy_stm32f4::serial;
-use stm32f4xx_hal::serial::config::Config;
-use stm32f4xx_hal::stm32;
-use stm32f4xx_hal::{prelude::*, serial::config};
+use stm32f4xx_hal::prelude::*;
 
 #[entry]
 fn main() -> ! {

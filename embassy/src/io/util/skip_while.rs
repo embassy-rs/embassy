@@ -28,7 +28,7 @@ impl<'a, R: AsyncBufRead + ?Sized + Unpin, F: Fn(u8) -> bool> Future for SkipWhi
         let mut reader = Pin::new(reader);
         loop {
             let buf = ready!(reader.as_mut().poll_fill_buf(cx))?;
-            if buf.len() == 0 {
+            if buf.is_empty() {
                 return Poll::Ready(Err(Error::UnexpectedEof));
             }
 

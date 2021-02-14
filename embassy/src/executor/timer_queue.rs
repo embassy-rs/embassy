@@ -2,7 +2,7 @@ use core::cell::Cell;
 use core::cmp::min;
 use core::ptr;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicPtr, Ordering};
+use core::sync::atomic::Ordering;
 
 use super::raw::{Task, STATE_TIMER_QUEUED};
 use crate::time::Instant;

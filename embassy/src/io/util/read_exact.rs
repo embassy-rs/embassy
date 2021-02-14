@@ -31,7 +31,7 @@ impl<R: AsyncBufRead + ?Sized + Unpin> Future for ReadExact<'_, R> {
         let this = &mut *self;
         while !this.buf.is_empty() {
             let buf = ready!(Pin::new(&mut this.reader).poll_fill_buf(cx))?;
-            if buf.len() == 0 {
+            if buf.is_empty() {
                 return Poll::Ready(Err(Error::UnexpectedEof));
             }
 
