@@ -75,14 +75,14 @@ pub trait AsyncBufReadExt: AsyncBufRead {
         ReadWhile::new(self, f, buf)
     }
 
-    fn skip_while<'a, F: Fn(u8) -> bool>(&'a mut self, f: F) -> SkipWhile<'a, Self, F>
+    fn skip_while<F: Fn(u8) -> bool>(&mut self, f: F) -> SkipWhile<Self, F>
     where
         Self: Unpin,
     {
         SkipWhile::new(self, f)
     }
 
-    fn drain<'a>(&'a mut self) -> Drain<'a, Self>
+    fn drain(&mut self) -> Drain<Self>
     where
         Self: Unpin,
     {
@@ -96,14 +96,14 @@ pub trait AsyncBufReadExt: AsyncBufRead {
         Read::new(self, buf)
     }
 
-    fn read_buf<'a>(&'a mut self) -> ReadBuf<'a, Self>
+    fn read_buf(&mut self) -> ReadBuf<Self>
     where
         Self: Unpin,
     {
         ReadBuf::new(self)
     }
 
-    fn read_byte<'a>(&'a mut self) -> ReadByte<'a, Self>
+    fn read_byte(&mut self) -> ReadByte<Self>
     where
         Self: Unpin,
     {
@@ -147,11 +147,18 @@ pub trait AsyncWriteExt: AsyncWrite {
         WriteAll::new(self, buf)
     }
 
-    fn write_byte<'a>(&'a mut self, byte: u8) -> WriteByte<'a, Self>
+    fn write_byte(&mut self, byte: u8) -> WriteByte<Self>
     where
         Self: Unpin,
     {
         WriteByte::new(self, byte)
+    }
+
+    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Write<'a, Self>
+    where
+        Self: Unpin,
+    {
+        Write::new(self, buf)
     }
 }
 

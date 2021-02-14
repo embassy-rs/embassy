@@ -71,7 +71,7 @@ where
 
             let i = ready!(Pin::new(&mut this.writer).poll_write(cx, buffer))?;
             if i == 0 {
-                return Poll::Ready(Err(Error::WriteZero.into()));
+                return Poll::Ready(Err(Error::WriteZero));
             }
             *this.amt += i;
             this.reader.as_mut().consume(i);

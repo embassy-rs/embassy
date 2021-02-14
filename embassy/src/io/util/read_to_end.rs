@@ -29,7 +29,7 @@ impl<'a, R: AsyncBufRead + ?Sized + Unpin> Future for ReadToEnd<'a, R> {
         let mut reader = Pin::new(reader);
         loop {
             let rbuf = ready!(reader.as_mut().poll_fill_buf(cx))?;
-            if rbuf.len() == 0 {
+            if rbuf.is_empty() {
                 return Poll::Ready(Ok(*n));
             }
 

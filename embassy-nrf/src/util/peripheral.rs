@@ -68,7 +68,7 @@ impl<S: PeripheralState> PeripheralMutex<S> {
 
 impl<S: PeripheralState> Drop for PeripheralMutex<S> {
     fn drop(&mut self) {
-        if let Some((state, irq)) = &mut self.inner {
+        if let Some((_state, irq)) = &mut self.inner {
             irq.disable();
             irq.remove_handler();
         }

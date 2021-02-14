@@ -14,12 +14,12 @@ use embassy::uart::Uart;
 use embassy::util::Forever;
 use embassy_stm32f4::interrupt;
 use embassy_stm32f4::serial;
+use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::serial::config::Config;
 use stm32f4xx_hal::stm32;
-use stm32f4xx_hal::{prelude::*, serial::config};
 
 #[task]
-async fn run(dp: stm32::Peripherals, cp: cortex_m::Peripherals) {
+async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
     // https://gist.github.com/thalesfragoso/a07340c5df6eee3b04c42fdc69ecdcb1
     let gpioa = dp.GPIOA.split();
     let rcc = dp.RCC.constrain();

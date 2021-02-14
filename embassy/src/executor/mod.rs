@@ -16,7 +16,7 @@ mod util;
 mod waker;
 
 use self::util::UninitCell;
-use crate::fmt::{panic, *};
+use crate::fmt::panic;
 use crate::interrupt::OwnedInterrupt;
 use crate::time::Alarm;
 
@@ -56,10 +56,10 @@ impl<F: Future + 'static> Task<F> {
             }
         }
 
-        return SpawnToken {
+        SpawnToken {
             raw_task: None,
             phantom: PhantomData,
-        };
+        }
     }
 
     unsafe fn poll(p: NonNull<raw::Task>) {

@@ -7,7 +7,6 @@ use core::task::{Context, Poll};
 use embassy::gpio::{WaitForHigh, WaitForLow};
 use embassy::util::Signal;
 
-use crate::fmt::{panic, *};
 use crate::hal::gpio::{Input, Level, Output, Pin as GpioPin, Port};
 use crate::interrupt;
 use crate::interrupt::OwnedInterrupt;
@@ -141,10 +140,10 @@ impl Gpiote {
     unsafe fn on_irq(_ctx: *mut ()) {
         let g = &*GPIOTE::ptr();
 
-        for i in 0..8 {
-            if g.events_in[i].read().bits() != 0 {
-                g.events_in[i].write(|w| w);
-                CHANNEL_SIGNALS[i].signal(());
+        for (event_in, signal) in g.events_in.iter().zip(CHANNEL_SIGNALS.iter()) {
+            if event_in.read().bits() != 0 {
+                event_in.write(|w| w);
+                signal.signal(());
             }
         }
 

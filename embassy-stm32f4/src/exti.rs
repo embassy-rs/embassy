@@ -19,7 +19,7 @@ pub struct ExtiManager {
 
 impl<'a> ExtiManager {
     pub fn new(_exti: EXTI, syscfg: SysCfg) -> Self {
-        Self { syscfg: syscfg }
+        Self { syscfg }
     }
 
     pub fn new_pin<T, I>(&'static mut self, mut pin: T, interrupt: I) -> ExtiPin<T, I>
@@ -30,8 +30,8 @@ impl<'a> ExtiManager {
         pin.make_interrupt_source(&mut self.syscfg);
 
         ExtiPin {
-            pin: pin,
-            interrupt: interrupt,
+            pin,
+            interrupt,
             _mgr: self,
         }
     }

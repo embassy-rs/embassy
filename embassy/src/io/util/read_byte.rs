@@ -25,7 +25,7 @@ impl<'a, R: AsyncBufRead + ?Sized + Unpin> Future for ReadByte<'a, R> {
         let Self { reader } = &mut *self;
         let mut reader = Pin::new(reader);
         let rbuf = ready!(reader.as_mut().poll_fill_buf(cx))?;
-        if rbuf.len() == 0 {
+        if rbuf.is_empty() {
             return Poll::Ready(Err(Error::UnexpectedEof));
         }
 

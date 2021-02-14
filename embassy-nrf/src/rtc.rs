@@ -4,7 +4,6 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use embassy::time::Clock;
 
-use crate::fmt::*;
 use crate::interrupt;
 use crate::interrupt::{CriticalSection, Mutex, OwnedInterrupt};
 use crate::pac::rtc0;
@@ -19,6 +18,7 @@ fn compare_n(n: usize) -> u32 {
     1 << (n + 16)
 }
 
+#[cfg(tests)]
 mod test {
     use super::*;
 
@@ -159,7 +159,9 @@ impl<T: Instance> RTC<T> {
         alarm.timestamp.set(u64::MAX);
 
         // Call after clearing alarm, so the callback can set another alarm.
-        alarm.callback.get().map(|(f, ctx)| f(ctx));
+        if let Some((f, ctx)) = alarm.callback.get() {
+            f(ctx);
+        }
     }
 
     fn set_alarm_callback(&self, n: usize, callback: fn(*mut ()), ctx: *mut ()) {

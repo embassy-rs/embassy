@@ -1,9 +1,9 @@
-use crate::fmt::{assert, assert_eq, panic, *};
+use crate::fmt::{assert, assert_eq, *};
 use core::future::Future;
 
 use crate::hal::gpio::{Output, Pin as GpioPin, Port as GpioPort, PushPull};
 use crate::interrupt::{OwnedInterrupt, QSPIInterrupt};
-use crate::pac::{Interrupt, QSPI};
+use crate::pac::QSPI;
 
 pub use crate::pac::qspi::ifconfig0::ADDRMODE_A as AddressMode;
 pub use crate::pac::qspi::ifconfig0::PPSIZE_A as WritePageSize;
@@ -156,7 +156,7 @@ impl Qspi {
     pub fn sleep(&mut self) {
         info!("flash: sleeping");
         info!("flash: state = {:?}", self.inner.status.read().bits());
-        self.inner.ifconfig1.modify(|r, w| w.dpmen().enter());
+        self.inner.ifconfig1.modify(|_, w| w.dpmen().enter());
         info!("flash: state = {:?}", self.inner.status.read().bits());
         cortex_m::asm::delay(1000000);
         info!("flash: state = {:?}", self.inner.status.read().bits());
@@ -166,68 +166,66 @@ impl Qspi {
             .write(|w| w.tasks_deactivate().set_bit());
     }
 
-    pub fn custom_instruction<'a>(
+    pub async fn custom_instruction<'a>(
         &'a mut self,
         opcode: u8,
         req: &'a [u8],
         resp: &'a mut [u8],
-    ) -> impl Future<Output = Result<(), Error>> + 'a {
-        async move {
-            let bomb = DropBomb::new();
+    ) -> Result<(), Error> {
+        let bomb = DropBomb::new();
 
-            assert!(req.len() <= 8);
-            assert!(resp.len() <= 8);
+        assert!(req.len() <= 8);
+        assert!(resp.len() <= 8);
 
-            let mut dat0: u32 = 0;
-            let mut dat1: u32 = 0;
+        let mut dat0: u32 = 0;
+        let mut dat1: u32 = 0;
 
-            for i in 0..4 {
-                if i < req.len() {
-                    dat0 |= (req[i] as u32) << (i * 8);
-                }
+        for i in 0..4 {
+            if i < req.len() {
+                dat0 |= (req[i] as u32) << (i * 8);
             }
-            for i in 0..4 {
-                if i + 4 < req.len() {
-                    dat1 |= (req[i + 4] as u32) << (i * 8);
-                }
-            }
-
-            let len = core::cmp::max(req.len(), resp.len()) as u8;
-
-            self.inner.cinstrdat0.write(|w| unsafe { w.bits(dat0) });
-            self.inner.cinstrdat1.write(|w| unsafe { w.bits(dat1) });
-            self.inner.events_ready.reset();
-            self.inner.cinstrconf.write(|w| {
-                let w = unsafe { w.opcode().bits(opcode) };
-                let w = unsafe { w.length().bits(len + 1) };
-                let w = w.lio2().bit(true);
-                let w = w.lio3().bit(true);
-                let w = w.wipwait().bit(true);
-                let w = w.wren().bit(true);
-                let w = w.lfen().bit(false);
-                let w = w.lfstop().bit(false);
-                w
-            });
-
-            SIGNAL.wait().await;
-
-            let dat0 = self.inner.cinstrdat0.read().bits();
-            let dat1 = self.inner.cinstrdat1.read().bits();
-            for i in 0..4 {
-                if i < resp.len() {
-                    resp[i] = (dat0 >> (i * 8)) as u8;
-                }
-            }
-            for i in 0..4 {
-                if i + 4 < resp.len() {
-                    resp[i] = (dat1 >> (i * 8)) as u8;
-                }
-            }
-
-            bomb.defuse();
-
-            Ok(())
         }
+        for i in 0..4 {
+            if i + 4 < req.len() {
+                dat1 |= (req[i + 4] as u32) << (i * 8);
+            }
+        }
+
+        let len = core::cmp::max(req.len(), resp.len()) as u8;
+
+        self.inner.cinstrdat0.write(|w| unsafe { w.bits(dat0) });
+        self.inner.cinstrdat1.write(|w| unsafe { w.bits(dat1) });
+        self.inner.events_ready.reset();
+        self.inner.cinstrconf.write(|w| {
+            let w = unsafe { w.opcode().bits(opcode) };
+            let w = unsafe { w.length().bits(len + 1) };
+            let w = w.lio2().bit(true);
+            let w = w.lio3().bit(true);
+            let w = w.wipwait().bit(true);
+            let w = w.wren().bit(true);
+            let w = w.lfen().bit(false);
+            let w = w.lfstop().bit(false);
+            w
+        });
+
+        SIGNAL.wait().await;
+
+        let dat0 = self.inner.cinstrdat0.read().bits();
+        let dat1 = self.inner.cinstrdat1.read().bits();
+        for i in 0..4 {
+            if i < resp.len() {
+                resp[i] = (dat0 >> (i * 8)) as u8;
+            }
+        }
+        for i in 0..4 {
+            if i + 4 < resp.len() {
+                resp[i] = (dat1 >> (i * 8)) as u8;
+            }
+        }
+
+        bomb.defuse();
+
+        Ok(())
     }
 }
 

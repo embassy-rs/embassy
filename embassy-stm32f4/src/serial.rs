@@ -7,32 +7,21 @@
 use core::future::Future;
 use core::ptr;
 use core::sync::atomic::{self, Ordering};
-use core::task::{Context, Poll};
 
 use embassy::interrupt::OwnedInterrupt;
 use embassy::uart::{Error, Uart};
 use embassy::util::Signal;
-use embedded_dma::StaticWriteBuffer;
 
 use crate::hal::dma::config::DmaConfig;
 use crate::hal::dma::traits::{PeriAddress, Stream};
-use crate::hal::dma::{
-    Channel4, MemoryToPeripheral, PeripheralToMemory, Stream2, Stream7, StreamsTuple, Transfer,
-};
-use crate::hal::gpio::gpioa::{PA10, PA9};
-use crate::hal::gpio::{Alternate, AF7};
-use crate::hal::prelude::*;
+use crate::hal::dma::{Stream2, Stream7, StreamsTuple, Transfer};
 use crate::hal::rcc::Clocks;
-use crate::hal::serial::config::{
-    Config as SerialConfig, DmaConfig as SerialDmaConfig, Parity, StopBits, WordLength,
-};
+use crate::hal::serial::config::{Config as SerialConfig, DmaConfig as SerialDmaConfig};
 use crate::hal::serial::Pins;
 use crate::hal::serial::{Event as SerialEvent, Serial as HalSerial};
-use crate::hal::time::Bps;
 
 use crate::interrupt;
 
-use crate::pac::Interrupt;
 use crate::pac::{DMA2, USART1};
 
 /// Interface to the Serial peripheral
