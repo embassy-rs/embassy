@@ -68,28 +68,29 @@ impl<T: Instance> RTC<T> {
 
     #[inline(always)]
     fn update(&self) {
-        self.rtc.deref().cr1.modify(|_, w| w.urs().set_bit());
-        self.rtc.deref().egr.write(|w| w.ug().set_bit());
-        self.rtc.deref().cr1.modify(|_, w| w.urs().clear_bit());
+        self.rtc.cr1().modify(|_, w| w.urs().set_bit());
+        self.rtc.egr().write(|w| w.ug().set_bit());
+        self.rtc.cr1().modify(|_, w| w.urs().clear_bit());
     }
 
-    pub fn start(&mut self) {
+    pub fn start(&'static mut self) {
         // stop counter
-        self.rtc.deref().cr1.modify(|_, w| w.cen().clear_bit());
+        self.rtc.cr1().modify(|_, w| w.cen().clear_bit());
         // reset counter
-        self.rtc.deref().cnt.reset();
+        self.rtc.cnt().reset();
 
         let frequency = 1; // timeout.into().0;
         let pclk_mul = if T::ppre(self.clocks) == 1 { 1 } else { 2 };
         let ticks = T::pclk(self.clocks) * pclk_mul / frequency;
 
         let psc = ((ticks - 1) / (1 << 16)) as u16;
-        self.rtc.deref().psc.write(|w| w.psc().bits(psc));
+        self.rtc.psc().write(|w| w.psc().bits(psc));
+        self.update();
 
         self.set_arr(u16::MAX as u32);
 
         // enable interrupt
-        self.rtc.deref().dier.write(|w| w.uie().set_bit());
+        self.rtc.dier().write(|w| w.uie().set_bit());
 
         self.irq.set_handler(
             |ptr| unsafe {
@@ -162,14 +163,14 @@ impl<T: Instance> RTC<T> {
     }
 
     fn set_alarm(&self, n: usize, alarm_timestamp: u64) {
-        self.rtc.deref().cr1.modify(|_, w| w.cen().clear_bit());
+        self.rtc.cr1().modify(|_, w| w.cen().clear_bit());
 
         interrupt::free(|cs| {
             (&self.alarms.borrow(cs)[n]).timestamp.set(alarm_timestamp);
         });
 
         self.recompute();
-        self.rtc.deref().cr1.modify(|_, w| w.cen().set_bit());
+        self.rtc.cr1().modify(|_, w| w.cen().set_bit());
     }
 
     pub fn alarm0(&'static self) -> Alarm<T> {
@@ -185,7 +186,7 @@ impl<T: Instance> RTC<T> {
 
 impl<T: Instance> embassy::time::Clock for RTC<T> {
     fn now(&self) -> u64 {
-        self.timestamp + self.rtc.deref().cnt.read().bits() as u64
+        self.timestamp + self.rtc.cnt().read().bits() as u64
     }
 }
 
@@ -220,8 +221,12 @@ pub trait Instance: sealed::Instance + Sized + 'static {
     /// The interrupt associated with this RTC instance.
     type Interrupt: OwnedInterrupt;
 
-    fn deref(&self) -> &tim6::RegisterBlock;
-    fn ptr() -> *const tim6::RegisterBlock;
+    fn cr1(&self) -> &tim6::RegisterBlock::cr1;
+    fn egr(&self) -> &tim6::RegisterBlock::egr;
+    fn psc(&self) -> &tim6::RegisterBlock::psc;
+    fn cnt(&self) -> &tim6::RegisterBlock::cnt;
+    fn dier(&self) -> &tim6::RegisterBlock::dier;
+
     fn enable_clock();
     fn ppre(clocks: Clocks) -> u8;
     fn pclk(clocks: Clocks) -> u32;
@@ -230,43 +235,20 @@ pub trait Instance: sealed::Instance + Sized + 'static {
 impl Instance for crate::pac::TIM7 {
     type Interrupt = interrupt::TIM7Interrupt;
 
-    fn deref(&self) -> &tim6::RegisterBlock {
-        unsafe { &(*crate::pac::TIM7::ptr()) }
+    fn cr1(&self) -> &tim6::RegisterBlock::cr1 {
+        (&(*crate::pac::TIM7::ptr())).cr1()
     }
 
-    fn ptr() -> *const tim6::RegisterBlock {
-        crate::pac::TIM7::ptr() as *const _
+    fn egr(&self) -> &tim6::RegisterBlock::egr {
+        (&(*crate::pac::TIM7::ptr())).egr()   
     }
 
-    fn ppre(clocks: Clocks) -> u8 {
-        clocks.ppre1()
+    fn psc(&self) -> &tim6::RegisterBlock::psc {
+        (&(*crate::pac::TIM7::ptr())).psc()   
     }
 
-    fn pclk(clocks: Clocks) -> u32 {
-        clocks.pclk1().0
-    }
-
-    fn enable_clock() {
-        unsafe {
-            //NOTE(unsafe) this reference will only be used for atomic writes with no side effects
-            let rcc = &(*RCC::ptr());
-            // Enable and reset the timer peripheral, it's the same bit position for both registers
-            bb::set(&rcc.apb1enr, 5);
-            bb::set(&rcc.apb1rstr, 5);
-            bb::clear(&rcc.apb1rstr, 5);
-        }
-    }
-}
-
-impl Instance for crate::pac::TIM2 {
-    type Interrupt = interrupt::TIM2Interrupt;
-
-    fn deref(&self) -> &tim6::RegisterBlock {
-        unsafe { mem::transmute(&(*crate::pac::TIM2::ptr())) }
-    }
-
-    fn ptr() -> *const tim6::RegisterBlock {
-        crate::pac::TIM2::ptr() as *const _
+    fn cnt(&self) -> &tim6::RegisterBlock::cnt {
+        (&(*crate::pac::TIM7::ptr())).cnt()   
     }
 
     fn ppre(clocks: Clocks) -> u8 {
