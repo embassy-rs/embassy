@@ -103,7 +103,7 @@ impl<T: Instance> RTC<T> {
         self.irq.enable();
 
         // enable "one-pulse" mode
-        self.rtc.cr1().modify(|_, w| w.opm().set_bit());
+        // self.rtc.cr1().modify(|_, w| w.opm().set_bit());
 
         self.rtc.cr1().modify(|_, w| w.cen().set_bit());
     }
@@ -142,7 +142,7 @@ impl<T: Instance> RTC<T> {
 
         self.reset_timestamp();
         self.recompute();
-        self.rtc.cr1().modify(|_, w| w.cen().set_bit());
+        // self.rtc.cr1().modify(|_, w| w.cen().set_bit());
     }
 
     fn set_alarm_callback(&self, n: usize, callback: fn(*mut ()), ctx: *mut ()) {
@@ -153,14 +153,14 @@ impl<T: Instance> RTC<T> {
     }
 
     fn set_alarm(&self, n: usize, alarm_timestamp: u64) {
-        self.rtc.cr1().modify(|_, w| w.cen().clear_bit());
+        // self.rtc.cr1().modify(|_, w| w.cen().clear_bit());
 
         interrupt::free(|cs| {
             (&self.alarms.borrow(cs)[n]).timestamp.set(alarm_timestamp);
         });
 
         self.recompute();
-        self.rtc.cr1().modify(|_, w| w.cen().set_bit());
+        // self.rtc.cr1().modify(|_, w| w.cen().set_bit());
     }
 
     pub fn alarm0(&'static self) -> Alarm<T> {
