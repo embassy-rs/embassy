@@ -221,13 +221,13 @@ pub trait Instance: sealed::Instance + Sized + 'static {
     /// The interrupt associated with this RTC instance.
     type Interrupt: OwnedInterrupt;
 
-    fn cr1(&self) -> tim6::CR1;
-    fn egr(&self) -> tim6::EGR;
-    fn psc(&self) -> tim6::PSC;
-    fn cnt(&self) -> tim6::CNT;
-    fn dier(&self) -> tim6::DIER;
-    fn arr(&self) -> tim6::ARR;
-    fn sr(&self) -> tim6::SR;
+    fn cr1(&self) -> &tim6::CR1;
+    fn egr(&self) -> &tim6::EGR;
+    fn psc(&self) -> &tim6::PSC;
+    fn cnt(&self) -> &tim6::CNT;
+    fn dier(&self) -> &tim6::DIER;
+    fn arr(&self) -> &tim6::ARR;
+    fn sr(&self) -> &tim6::SR;
 
     fn enable_clock();
     fn ppre(clocks: Clocks) -> u8;
@@ -237,32 +237,32 @@ pub trait Instance: sealed::Instance + Sized + 'static {
 impl Instance for crate::pac::TIM7 {
     type Interrupt = interrupt::TIM7Interrupt;
 
-    fn arr(&self) -> tim6::ARR {
-        unsafe { (&(*crate::pac::TIM7::ptr())) }.arr
+    fn arr(&self) -> &tim6::ARR {
+        unsafe { &(&(*crate::pac::TIM7::ptr())).arr }
     }
 
-    fn cr1(&self) -> tim6::CR1 {
-        unsafe { (&(*crate::pac::TIM7::ptr())).cr1 }
+    fn cr1(&self) -> &tim6::CR1 {
+        unsafe { &(&(*crate::pac::TIM7::ptr())).cr1 }
     }
 
-    fn egr(&self) -> tim6::EGR {
-        (&(*crate::pac::TIM7::ptr())).egr
+    fn egr(&self) -> &tim6::EGR {
+        unsafe { &(&(*crate::pac::TIM7::ptr())).egr }
     }
 
-    fn psc(&self) -> tim6::PSC {
-        (&(*crate::pac::TIM7::ptr())).psc
+    fn psc(&self) -> &tim6::PSC {
+        unsafe { &(&(*crate::pac::TIM7::ptr())).psc }
     }
 
-    fn cnt(&self) -> tim6::CNT {
-        (&(*crate::pac::TIM7::ptr())).cnt
+    fn cnt(&self) -> &tim6::CNT {
+        unsafe { &(&(*crate::pac::TIM7::ptr())).cnt }
     }
 
-    fn dier(&self) -> tim6::DIER {
-        (&(*crate::pac::TIM7::ptr())).dier
+    fn dier(&self) -> &tim6::DIER {
+        unsafe { &(&(*crate::pac::TIM7::ptr())).dier }
     }
 
-    fn sr(&self) -> tim6::SR {
-        (&(*crate::pac::TIM7::ptr())).sr
+    fn sr(&self) -> &tim6::SR {
+        unsafe { &(&(*crate::pac::TIM7::ptr())).sr }
     }
 
     fn ppre(clocks: Clocks) -> u8 {
