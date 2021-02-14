@@ -201,9 +201,6 @@ impl<T: Instance> embassy::time::Alarm for Alarm<T> {
 
 mod sealed {
     pub trait Instance {}
-
-    impl Instance for crate::pac::TIM7 {}
-    impl Instance for crate::pac::TIM2 {}
 }
 
 /// Implemented by all RTC instances.
@@ -224,53 +221,55 @@ pub trait Instance: sealed::Instance + Sized + 'static {
     fn pclk(clocks: Clocks) -> u32;
 }
 
-impl Instance for crate::pac::TIM7 {
-    type Interrupt = interrupt::TIM7Interrupt;
+macro_rules! tim {
+    ($($TIM:ident => ($INT:ident, $clk1:ident, $clk2:ident, $enr:ident, $enbit:expr, $rstr:ident, $rstbit:expr),)+) => {
+        $(
+            impl sealed::Instance for crate::pac::$TIM {}
+            impl Instance for crate::pac::$TIM {
+                type Interrupt = interrupt::$INT;
 
-    fn arr(&self) -> &tim6::ARR {
-        unsafe { &(&(*crate::pac::TIM7::ptr())).arr }
+                fn arr(&self) -> &tim6::ARR {
+                    unsafe { &(&(*crate::pac::$TIM::ptr())).arr }
+                }
+                fn cr1(&self) -> &tim6::CR1 {
+                    unsafe { &(&(*crate::pac::$TIM::ptr())).cr1 }
+                }
+                fn egr(&self) -> &tim6::EGR {
+                    unsafe { &(&(*crate::pac::$TIM::ptr())).egr }
+                }
+                fn psc(&self) -> &tim6::PSC {
+                    unsafe { &(&(*crate::pac::$TIM::ptr())).psc }
+                }
+                fn cnt(&self) -> &tim6::CNT {
+                    unsafe { &(&(*crate::pac::$TIM::ptr())).cnt }
+                }
+                fn dier(&self) -> &tim6::DIER {
+                    unsafe { &(&(*crate::pac::$TIM::ptr())).dier }
+                }
+                fn sr(&self) -> &tim6::SR {
+                    unsafe { &(&(*crate::pac::$TIM::ptr())).sr }
+                }
+                fn ppre(clocks: Clocks) -> u8 {
+                    clocks.$clk1()
+                }
+                fn pclk(clocks: Clocks) -> u32 {
+                    clocks.$clk2().0
+                }
+                fn enable_clock() {
+                    unsafe {
+                        //NOTE(unsafe) this reference will only be used for atomic writes with no side effects
+                        let rcc = &(*RCC::ptr());
+                        // Enable and reset the timer peripheral, it's the same bit position for both registers
+                        bb::set(&rcc.$enr, $enbit);
+                        bb::set(&rcc.$rstr, $rstbit);
+                        bb::clear(&rcc.$rstr, $rstbit);
+                    }
+                }
+            }
+        )+
     }
+}
 
-    fn cr1(&self) -> &tim6::CR1 {
-        unsafe { &(&(*crate::pac::TIM7::ptr())).cr1 }
-    }
-
-    fn egr(&self) -> &tim6::EGR {
-        unsafe { &(&(*crate::pac::TIM7::ptr())).egr }
-    }
-
-    fn psc(&self) -> &tim6::PSC {
-        unsafe { &(&(*crate::pac::TIM7::ptr())).psc }
-    }
-
-    fn cnt(&self) -> &tim6::CNT {
-        unsafe { &(&(*crate::pac::TIM7::ptr())).cnt }
-    }
-
-    fn dier(&self) -> &tim6::DIER {
-        unsafe { &(&(*crate::pac::TIM7::ptr())).dier }
-    }
-
-    fn sr(&self) -> &tim6::SR {
-        unsafe { &(&(*crate::pac::TIM7::ptr())).sr }
-    }
-
-    fn ppre(clocks: Clocks) -> u8 {
-        clocks.ppre1()
-    }
-
-    fn pclk(clocks: Clocks) -> u32 {
-        clocks.pclk1().0
-    }
-
-    fn enable_clock() {
-        unsafe {
-            //NOTE(unsafe) this reference will only be used for atomic writes with no side effects
-            let rcc = &(*RCC::ptr());
-            // Enable and reset the timer peripheral, it's the same bit position for both registers
-            bb::set(&rcc.apb1enr, 5);
-            bb::set(&rcc.apb1rstr, 5);
-            bb::clear(&rcc.apb1rstr, 5);
-        }
-    }
+tim! {
+    TIM7 => (TIM7Interrupt, ppre1, pclk1, apb1enr, 5, apb1rstr, 5),
 }
