@@ -8,10 +8,26 @@ use crate::interrupt;
 use crate::interrupt::{CriticalSection, Mutex, OwnedInterrupt};
 use crate::pac::rtc0;
 
+// RTC timekeeping works with something we call "periods", which are time intervals
+// of 2^23 ticks. The RTC counter value is 24 bits, so one "overflow cycle" is 2 periods.
+//
+// A `period` count is maintained in parallel to the RTC hardware `counter`, like this:
+// - `period` and `counter` start at 0
+// - `period` is incremented on overflow (at counter value 0)
+// - `period` is incremented "midway" between overflows (at counter value 0x800000)
+//
+// Therefore, when `period` is even, counter is in 0..0x7fffff. When odd, counter is in 0x800000..0xFFFFFF
+// This allows for now() to return the correct value even if it races an overflow.
+//
+// To get `now()`, `period` is read first, then `counter` is read. If the counter value matches
+// the expected range for the `period` parity, we're done. If it doesn't, this means that
+// a new period start has raced us between reading `period` and `counter`, so we assume the `counter` value
+// corresponds to the next period.
+//
+// `period` is a 32bit integer, so It overflows on 2^32 * 2^23 / 32768 seconds of uptime, which is 34865 years.
+
 fn calc_now(period: u32, counter: u32) -> u64 {
-    let shift = ((period & 1) << 23) + 0x400000;
-    let counter_shifted = (counter + shift) & 0xFFFFFF;
-    ((period as u64) << 23) + counter_shifted as u64 - 0x400000
+    ((period as u64) << 23) + ((counter ^ ((period & 1) << 23)) as u64)
 }
 
 fn compare_n(n: usize) -> u32 {
@@ -27,12 +43,12 @@ mod test {
         assert_eq!(calc_now(0, 0x000000), 0x0_000000);
         assert_eq!(calc_now(0, 0x000001), 0x0_000001);
         assert_eq!(calc_now(0, 0x7FFFFF), 0x0_7FFFFF);
-        assert_eq!(calc_now(1, 0x7FFFFF), 0x0_7FFFFF);
+        assert_eq!(calc_now(1, 0x7FFFFF), 0x1_7FFFFF);
         assert_eq!(calc_now(0, 0x800000), 0x0_800000);
         assert_eq!(calc_now(1, 0x800000), 0x0_800000);
         assert_eq!(calc_now(1, 0x800001), 0x0_800001);
         assert_eq!(calc_now(1, 0xFFFFFF), 0x0_FFFFFF);
-        assert_eq!(calc_now(2, 0xFFFFFF), 0x0_FFFFFF);
+        assert_eq!(calc_now(2, 0xFFFFFF), 0x1_FFFFFF);
         assert_eq!(calc_now(1, 0x000000), 0x1_000000);
         assert_eq!(calc_now(2, 0x000000), 0x1_000000);
     }
@@ -59,15 +75,6 @@ pub struct RTC<T: Instance> {
     irq: T::Interrupt,
 
     /// Number of 2^23 periods elapsed since boot.
-    ///
-    /// This is incremented by 1
-    /// - on overflow (counter value 0)
-    /// - on "midway" between overflows (at counter value 0x800000)
-    ///
-    /// Therefore: When even, counter is in 0..0x7fffff. When odd, counter is in 0x800000..0xFFFFFF
-    /// This allows for now() to return the correct value even if it races an overflow.
-    ///
-    /// It overflows on 2^32 * 2^23 / 32768 seconds of uptime, which is 34865 years.
     period: AtomicU32,
 
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
@@ -177,21 +184,34 @@ impl<T: Instance> RTC<T> {
             alarm.timestamp.set(timestamp);
 
             let t = self.now();
+
+            // If alarm timestamp has passed, trigger it instantly.
             if timestamp <= t {
                 self.trigger_alarm(n, cs);
                 return;
             }
 
+            // If it hasn't triggered yet, setup it in the compare channel.
             let diff = timestamp - t;
             if diff < 0xc00000 {
                 // nrf52 docs say:
                 //    If the COUNTER is N, writing N or N+1 to a CC register may not trigger a COMPARE event.
                 // To workaround this, we never write a timestamp smaller than N+3.
                 // N+2 is not safe because rtc can tick from N to N+1 between calling now() and writing cc.
+                //
+                // It is impossible for rtc to tick more than once because
+                //  - this code takes less time than 1 tick
+                //  - it runs with interrupts disabled so nothing else can preempt it.
+                //
+                // This means that an alarm can be delayed for up to 2 ticks (from t+1 to t+3), but this is allowed
+                // by the Alarm trait contract. What's not allowed is triggering alarms *before* their scheduled time,
+                // and we don't do that here.
                 let safe_timestamp = timestamp.max(t + 3);
                 self.rtc.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
                 self.rtc.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
             } else {
+                // If it's too far in the future, don't setup the compare channel yet.
+                // It will be setup later by `next_period`.
                 self.rtc.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
             }
         })
@@ -210,8 +230,9 @@ impl<T: Instance> RTC<T> {
 
 impl<T: Instance> embassy::time::Clock for RTC<T> {
     fn now(&self) -> u64 {
-        let counter = self.rtc.counter.read().bits();
+        // `period` MUST be read before `counter`, see comment at the top for details.
         let period = self.period.load(Ordering::Relaxed);
+        let counter = self.rtc.counter.read().bits();
         calc_now(period, counter)
     }
 }
