@@ -143,7 +143,7 @@ impl<T: Instance> RTC<T> {
 
     fn next_period(&self) {
         interrupt::free(|cs| {
-            let period = self.period.fetch_add(1, Ordering::Relaxed) + 1;
+            let period = self.period.fetch_add(1, Ordering::SeqCst) + 1;
             let t = (period as u64) << 23;
 
             for n in 0..ALARM_COUNT {
@@ -231,7 +231,7 @@ impl<T: Instance> RTC<T> {
 impl<T: Instance> embassy::time::Clock for RTC<T> {
     fn now(&self) -> u64 {
         // `period` MUST be read before `counter`, see comment at the top for details.
-        let period = self.period.load(Ordering::Relaxed);
+        let period = self.period.load(Ordering::SeqCst);
         let counter = self.rtc.counter.read().bits();
         calc_now(period, counter)
     }
