@@ -94,6 +94,66 @@ where
     }
 }
 
+#[cfg(feature = "stm32f401")]
+mod irqs {
+    use super::*;
+    declare!(PVD);
+    declare!(TAMP_STAMP);
+    declare!(RTC_WKUP);
+    declare!(FLASH);
+    declare!(RCC);
+    declare!(EXTI0);
+    declare!(EXTI1);
+    declare!(EXTI2);
+    declare!(EXTI3);
+    declare!(EXTI4);
+    declare!(DMA1_STREAM0);
+    declare!(DMA1_STREAM1);
+    declare!(DMA1_STREAM2);
+    declare!(DMA1_STREAM3);
+    declare!(DMA1_STREAM4);
+    declare!(DMA1_STREAM5);
+    declare!(DMA1_STREAM6);
+    declare!(ADC);
+    declare!(EXTI9_5);
+    declare!(TIM1_BRK_TIM9);
+    declare!(TIM1_UP_TIM10);
+    declare!(TIM1_TRG_COM_TIM11);
+    declare!(TIM1_CC);
+    declare!(TIM2);
+    declare!(TIM3);
+    declare!(TIM4);
+    declare!(I2C1_EV);
+    declare!(I2C1_ER);
+    declare!(I2C2_EV);
+    declare!(I2C2_ER);
+    declare!(SPI1);
+    declare!(SPI2);
+    declare!(USART1);
+    declare!(USART2);
+    declare!(EXTI15_10);
+    declare!(RTC_ALARM);
+    declare!(OTG_FS_WKUP);
+    declare!(DMA1_STREAM7);
+    declare!(SDIO);
+    declare!(TIM5);
+    declare!(SPI3);
+    declare!(DMA2_STREAM0);
+    declare!(DMA2_STREAM1);
+    declare!(DMA2_STREAM2);
+    declare!(DMA2_STREAM3);
+    declare!(DMA2_STREAM4);
+    declare!(OTG_FS);
+    declare!(DMA2_STREAM5);
+    declare!(DMA2_STREAM6);
+    declare!(DMA2_STREAM7);
+    declare!(USART6);
+    declare!(I2C3_EV);
+    declare!(I2C3_ER);
+    declare!(FPU);
+    declare!(SPI4);
+}
+
 #[cfg(feature = "stm32f405")]
 mod irqs {
     use super::*;

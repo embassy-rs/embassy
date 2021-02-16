@@ -312,6 +312,7 @@ pub(crate) mod fmt;
 
 pub mod exti;
 pub mod interrupt;
+pub mod rtc;
 pub mod serial;
 
 pub use cortex_m_rt::interrupt;
