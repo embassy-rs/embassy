@@ -26,7 +26,6 @@ use crate::interrupt::{CriticalSection, Mutex, OwnedInterrupt};
 // corresponds to the next period.
 //
 // `period` is a 32bit integer, so It overflows on 2^32 * 2^15 / 32768 seconds of uptime, which is 136 years.
-
 fn calc_now(period: u32, counter: u16) -> u64 {
     ((period as u64) << 15) + ((counter as u32 ^ ((period & 1) << 15)) as u64)
 }
@@ -48,6 +47,13 @@ impl AlarmState {
 // TODO: This is sometimes wasteful, try to find a better way
 const ALARM_COUNT: usize = 3;
 
+/// RTC timer that can be used by the executor and to set alarms.
+///
+/// It can work with Timers 2, 3, 4, 5, 9 and 12. Timers 9 and 12 only have one alarm available,
+/// while the others have three each.
+/// This timer works internally with a unit of 2^15 ticks, which means that if a call to
+/// [`embassy::time::Clock::now`] is blocked for that amount of ticks the returned value will be
+/// wrong (an old value). The current default tick rate is 32768 ticks per second.
 pub struct RTC<T: Instance> {
     rtc: T,
     irq: T::Interrupt,
@@ -240,6 +246,7 @@ pub trait Instance: sealed::Sealed + Sized + 'static {
     fn compare_clear_flag(&self, n: usize);
     fn overflow_interrupt_status(&self) -> bool;
     fn overflow_clear_flag(&self);
+    // This method should ensure that the values are really updated before returning
     fn set_psc_arr(&self, psc: u16, arr: u16);
     fn stop_and_reset(&self);
     fn start(&self);
@@ -248,117 +255,251 @@ pub trait Instance: sealed::Sealed + Sized + 'static {
     fn pclk(clocks: &Clocks) -> u32;
 }
 
-mod tim2 {
-    use super::*;
-    use stm32f4xx_hal::pac::{RCC, TIM2};
+#[allow(unused_macros)]
+macro_rules! impl_timer {
+    ($module:ident: ($TYPE:ident, $INT:ident, $apbenr:ident, $enrbit:expr, $apbrstr:ident, $rstrbit:expr, $ppre:ident, $pclk: ident), 3) => {
+        mod $module {
+            use super::*;
+            use stm32f4xx_hal::pac::{$TYPE, RCC};
 
-    impl sealed::Sealed for TIM2 {}
+            impl sealed::Sealed for $TYPE {}
 
-    impl Instance for TIM2 {
-        type Interrupt = interrupt::TIM2Interrupt;
-        const REAL_ALARM_COUNT: usize = 3;
+            impl Instance for $TYPE {
+                type Interrupt = interrupt::$INT;
+                const REAL_ALARM_COUNT: usize = 3;
 
-        fn enable_clock(&self) {
-            // NOTE(unsafe) It will only be used for atomic operations
-            unsafe {
-                let rcc = &*RCC::ptr();
+                fn enable_clock(&self) {
+                    // NOTE(unsafe) It will only be used for atomic operations
+                    unsafe {
+                        let rcc = &*RCC::ptr();
 
-                bb::set(&rcc.apb1enr, 0);
-                bb::set(&rcc.apb1rstr, 0);
-                bb::clear(&rcc.apb1rstr, 0);
-            }
-        }
+                        bb::set(&rcc.$apbenr, $enrbit);
+                        bb::set(&rcc.$apbrstr, $rstrbit);
+                        bb::clear(&rcc.$apbrstr, $rstrbit);
+                    }
+                }
 
-        fn set_compare(&self, n: usize, value: u16) {
-            // NOTE(unsafe) these registers accept all the range of u16 values
-            match n {
-                0 => self.ccr1.write(|w| unsafe { w.bits(value.into()) }),
-                1 => self.ccr2.write(|w| unsafe { w.bits(value.into()) }),
-                2 => self.ccr3.write(|w| unsafe { w.bits(value.into()) }),
-                3 => self.ccr4.write(|w| unsafe { w.bits(value.into()) }),
-                _ => {}
-            }
-        }
+                fn set_compare(&self, n: usize, value: u16) {
+                    // NOTE(unsafe) these registers accept all the range of u16 values
+                    match n {
+                        0 => self.ccr1.write(|w| unsafe { w.bits(value.into()) }),
+                        1 => self.ccr2.write(|w| unsafe { w.bits(value.into()) }),
+                        2 => self.ccr3.write(|w| unsafe { w.bits(value.into()) }),
+                        3 => self.ccr4.write(|w| unsafe { w.bits(value.into()) }),
+                        _ => {}
+                    }
+                }
 
-        fn set_compare_interrupt(&self, n: usize, enable: bool) {
-            if n > 3 {
-                return;
-            }
-            let bit = n as u8 + 1;
-            unsafe {
-                if enable {
-                    bb::set(&self.dier, bit);
-                } else {
-                    bb::clear(&self.dier, bit);
+                fn set_compare_interrupt(&self, n: usize, enable: bool) {
+                    if n > 3 {
+                        return;
+                    }
+                    let bit = n as u8 + 1;
+                    unsafe {
+                        if enable {
+                            bb::set(&self.dier, bit);
+                        } else {
+                            bb::clear(&self.dier, bit);
+                        }
+                    }
+                }
+
+                fn compare_interrupt_status(&self, n: usize) -> bool {
+                    let status = self.sr.read();
+                    match n {
+                        0 => status.cc1if().bit_is_set(),
+                        1 => status.cc2if().bit_is_set(),
+                        2 => status.cc3if().bit_is_set(),
+                        3 => status.cc4if().bit_is_set(),
+                        _ => false,
+                    }
+                }
+
+                fn compare_clear_flag(&self, n: usize) {
+                    if n > 3 {
+                        return;
+                    }
+                    let bit = n as u8 + 1;
+                    unsafe {
+                        bb::clear(&self.sr, bit);
+                    }
+                }
+
+                fn overflow_interrupt_status(&self) -> bool {
+                    self.sr.read().uif().bit_is_set()
+                }
+
+                fn overflow_clear_flag(&self) {
+                    unsafe {
+                        bb::clear(&self.sr, 0);
+                    }
+                }
+
+                fn set_psc_arr(&self, psc: u16, arr: u16) {
+                    // NOTE(unsafe) All u16 values are valid
+                    self.psc.write(|w| unsafe { w.bits(psc.into()) });
+                    self.arr.write(|w| unsafe { w.bits(arr.into()) });
+
+                    unsafe {
+                        // Set URS, generate update, clear URS
+                        bb::set(&self.cr1, 2);
+                        self.egr.write(|w| w.ug().set_bit());
+                        bb::clear(&self.cr1, 2);
+                    }
+                }
+
+                fn stop_and_reset(&self) {
+                    unsafe {
+                        bb::clear(&self.cr1, 0);
+                    }
+                    self.cnt.reset();
+                }
+
+                fn start(&self) {
+                    unsafe { bb::set(&self.cr1, 0) }
+                }
+
+                fn counter(&self) -> u16 {
+                    self.cnt.read().bits() as u16
+                }
+
+                fn ppre(clocks: &Clocks) -> u8 {
+                    clocks.$ppre()
+                }
+
+                fn pclk(clocks: &Clocks) -> u32 {
+                    clocks.$pclk().0
                 }
             }
         }
+    };
 
-        fn compare_interrupt_status(&self, n: usize) -> bool {
-            let status = self.sr.read();
-            match n {
-                0 => status.cc1if().bit_is_set(),
-                1 => status.cc2if().bit_is_set(),
-                2 => status.cc3if().bit_is_set(),
-                3 => status.cc4if().bit_is_set(),
-                _ => false,
+    ($module:ident: ($TYPE:ident, $INT:ident, $apbenr:ident, $enrbit:expr, $apbrstr:ident, $rstrbit:expr, $ppre:ident, $pclk: ident), 1) => {
+        mod $module {
+            use super::*;
+            use stm32f4xx_hal::pac::{$TYPE, RCC};
+
+            impl sealed::Sealed for $TYPE {}
+
+            impl Instance for $TYPE {
+                type Interrupt = interrupt::$INT;
+                const REAL_ALARM_COUNT: usize = 1;
+
+                fn enable_clock(&self) {
+                    // NOTE(unsafe) It will only be used for atomic operations
+                    unsafe {
+                        let rcc = &*RCC::ptr();
+
+                        bb::set(&rcc.$apbenr, $enrbit);
+                        bb::set(&rcc.$apbrstr, $rstrbit);
+                        bb::clear(&rcc.$apbrstr, $rstrbit);
+                    }
+                }
+
+                fn set_compare(&self, n: usize, value: u16) {
+                    // NOTE(unsafe) these registers accept all the range of u16 values
+                    match n {
+                        0 => self.ccr1.write(|w| unsafe { w.bits(value.into()) }),
+                        1 => self.ccr2.write(|w| unsafe { w.bits(value.into()) }),
+                        _ => {}
+                    }
+                }
+
+                fn set_compare_interrupt(&self, n: usize, enable: bool) {
+                    if n > 1 {
+                        return;
+                    }
+                    let bit = n as u8 + 1;
+                    unsafe {
+                        if enable {
+                            bb::set(&self.dier, bit);
+                        } else {
+                            bb::clear(&self.dier, bit);
+                        }
+                    }
+                }
+
+                fn compare_interrupt_status(&self, n: usize) -> bool {
+                    let status = self.sr.read();
+                    match n {
+                        0 => status.cc1if().bit_is_set(),
+                        1 => status.cc2if().bit_is_set(),
+                        _ => false,
+                    }
+                }
+
+                fn compare_clear_flag(&self, n: usize) {
+                    if n > 1 {
+                        return;
+                    }
+                    let bit = n as u8 + 1;
+                    unsafe {
+                        bb::clear(&self.sr, bit);
+                    }
+                }
+
+                fn overflow_interrupt_status(&self) -> bool {
+                    self.sr.read().uif().bit_is_set()
+                }
+
+                fn overflow_clear_flag(&self) {
+                    unsafe {
+                        bb::clear(&self.sr, 0);
+                    }
+                }
+
+                fn set_psc_arr(&self, psc: u16, arr: u16) {
+                    // NOTE(unsafe) All u16 values are valid
+                    self.psc.write(|w| unsafe { w.bits(psc.into()) });
+                    self.arr.write(|w| unsafe { w.bits(arr.into()) });
+
+                    unsafe {
+                        // Set URS, generate update, clear URS
+                        bb::set(&self.cr1, 2);
+                        self.egr.write(|w| w.ug().set_bit());
+                        bb::clear(&self.cr1, 2);
+                    }
+                }
+
+                fn stop_and_reset(&self) {
+                    unsafe {
+                        bb::clear(&self.cr1, 0);
+                    }
+                    self.cnt.reset();
+                }
+
+                fn start(&self) {
+                    unsafe { bb::set(&self.cr1, 0) }
+                }
+
+                fn counter(&self) -> u16 {
+                    self.cnt.read().bits() as u16
+                }
+
+                fn ppre(clocks: &Clocks) -> u8 {
+                    clocks.$ppre()
+                }
+
+                fn pclk(clocks: &Clocks) -> u32 {
+                    clocks.$pclk().0
+                }
             }
         }
-
-        fn compare_clear_flag(&self, n: usize) {
-            if n > 3 {
-                return;
-            }
-            let bit = n as u8 + 1;
-            unsafe {
-                bb::clear(&self.sr, bit);
-            }
-        }
-
-        fn overflow_interrupt_status(&self) -> bool {
-            self.sr.read().uif().bit_is_set()
-        }
-
-        fn overflow_clear_flag(&self) {
-            unsafe {
-                bb::clear(&self.sr, 0);
-            }
-        }
-
-        fn set_psc_arr(&self, psc: u16, arr: u16) {
-            // NOTE(unsafe) All u16 values are valid
-            self.psc.write(|w| unsafe { w.bits(psc.into()) });
-            self.arr.write(|w| unsafe { w.bits(arr.into()) });
-
-            unsafe {
-                // Set URS, generate update, clear URS
-                bb::set(&self.cr1, 2);
-                self.egr.write(|w| w.ug().set_bit());
-                bb::clear(&self.cr1, 2);
-            }
-        }
-
-        fn stop_and_reset(&self) {
-            unsafe {
-                bb::clear(&self.cr1, 0);
-            }
-            self.cnt.reset();
-        }
-
-        fn start(&self) {
-            unsafe { bb::set(&self.cr1, 0) }
-        }
-
-        fn counter(&self) -> u16 {
-            self.cnt.read().bits() as u16
-        }
-
-        fn ppre(clocks: &Clocks) -> u8 {
-            clocks.ppre1()
-        }
-
-        fn pclk(clocks: &Clocks) -> u32 {
-            clocks.pclk1().0
-        }
-    }
+    };
 }
+
+#[cfg(not(feature = "stm32f410"))]
+impl_timer!(tim2: (TIM2, TIM2Interrupt, apb1enr, 0, apb1rstr, 0, ppre1, pclk1), 3);
+
+#[cfg(not(feature = "stm32f410"))]
+impl_timer!(tim3: (TIM3, TIM3Interrupt, apb1enr, 1, apb1rstr, 1, ppre1, pclk1), 3);
+
+#[cfg(not(feature = "stm32f410"))]
+impl_timer!(tim4: (TIM4, TIM4Interrupt, apb1enr, 2, apb1rstr, 2, ppre1, pclk1), 3);
+
+impl_timer!(tim5: (TIM5, TIM5Interrupt, apb1enr, 3, apb1rstr, 3, ppre1, pclk1), 3);
+
+impl_timer!(tim9: (TIM9, TIM1_BRK_TIM9Interrupt, apb2enr, 16, apb2rstr, 16, ppre2, pclk2), 1);
+
+#[cfg(not(any(feature = "stm32f401", feature = "stm32f410", feature = "stm32f411")))]
+impl_timer!(tim12: (TIM12, TIM8_BRK_TIM12Interrupt, apb1enr, 6, apb1rstr, 6, ppre1, pclk1), 1);
