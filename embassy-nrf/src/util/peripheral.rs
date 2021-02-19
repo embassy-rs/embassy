@@ -1,6 +1,7 @@
+use core::cell::UnsafeCell;
+use core::marker::{PhantomData, PhantomPinned};
 use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
-use core::{cell::UnsafeCell, marker::PhantomData};
 
 use crate::fmt::*;
 use crate::interrupt::OwnedInterrupt;
@@ -12,14 +13,16 @@ pub trait PeripheralState {
 
 pub struct PeripheralMutex<S: PeripheralState> {
     inner: Option<(UnsafeCell<S>, S::Interrupt)>,
-    not_send: PhantomData<*mut ()>,
+    _not_send: PhantomData<*mut ()>,
+    _pinned: PhantomPinned,
 }
 
 impl<S: PeripheralState> PeripheralMutex<S> {
     pub fn new(state: S, irq: S::Interrupt) -> Self {
         Self {
             inner: Some((UnsafeCell::new(state), irq)),
-            not_send: PhantomData,
+            _not_send: PhantomData,
+            _pinned: PhantomPinned,
         }
     }
 

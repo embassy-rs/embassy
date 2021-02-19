@@ -8,6 +8,7 @@ use example_common::*;
 
 use cortex_m_rt::entry;
 use defmt::panic;
+use futures::pin_mut;
 use nrf52840_hal as hal;
 use nrf52840_hal::gpio;
 
@@ -51,6 +52,7 @@ async fn run() {
         buffered_uarte::Parity::EXCLUDED,
         buffered_uarte::Baudrate::BAUD115200,
     );
+    pin_mut!(u);
 
     info!("uarte initialized!");
 
