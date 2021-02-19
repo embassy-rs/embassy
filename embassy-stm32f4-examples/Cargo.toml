@@ -46,7 +46,8 @@ cortex-m = "0.7.1"
 cortex-m-rt = "0.6.13"
 embedded-hal    = { version = "0.2.4" }
 panic-probe = "0.1.0"
-stm32f4xx-hal  = { version = "0.8.3", features = ["rt"], git = "https://github.com/stm32-rs/stm32f4xx-hal.git"}
+stm32f4xx-hal  = { version = "0.8.3", features = ["rt", "usb_fs"], git = "https://github.com/stm32-rs/stm32f4xx-hal.git"}
 futures = { version = "0.3.8", default-features = false, features = ["async-await"] }
 rtt-target = { version = "0.3", features = ["cortex-m"] }
 bxcan = "0.5.0"
+usb-device = "0.2.7"

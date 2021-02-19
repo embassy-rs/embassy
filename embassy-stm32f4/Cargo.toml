@@ -41,3 +41,4 @@ embedded-dma    = { version = "0.1.2" }
 stm32f4xx-hal  = { version = "0.8.3", features = ["rt", "can"], git = "https://github.com/stm32-rs/stm32f4xx-hal.git"}
 bxcan = "0.5.0"
 nb = "*"
+usb-device = "0.2.7"
