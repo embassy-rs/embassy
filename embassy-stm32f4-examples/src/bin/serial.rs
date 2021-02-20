@@ -20,6 +20,13 @@ use stm32f4xx_hal::stm32;
 
 #[task]
 async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
+    dp.DBGMCU.cr.modify(|_, w| {
+        w.dbg_sleep().set_bit();
+        w.dbg_standby().set_bit();
+        w.dbg_stop().set_bit()
+    });
+    dp.RCC.ahb1enr.modify(|_, w| w.dma1en().enabled());
+
     // https://gist.github.com/thalesfragoso/a07340c5df6eee3b04c42fdc69ecdcb1
     let gpioa = dp.GPIOA.split();
     let rcc = dp.RCC.constrain();

@@ -15,6 +15,14 @@ fn main() -> ! {
     info!("Hello World!");
 
     let p = stm32f4xx_hal::stm32::Peripherals::take().unwrap();
+
+    p.DBGMCU.cr.modify(|_, w| {
+        w.dbg_sleep().set_bit();
+        w.dbg_standby().set_bit();
+        w.dbg_stop().set_bit()
+    });
+    p.RCC.ahb1enr.modify(|_, w| w.dma1en().enabled());
+
     let gpioa = p.GPIOA.split();
     let gpioc = p.GPIOC.split();
 
