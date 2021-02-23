@@ -102,7 +102,8 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
         #visibility fn #name(#args) -> ::embassy::executor::SpawnToken<#impl_ty> {
             #task_fn
             type F = #impl_ty;
-            static POOL: [::embassy::executor::Task<F>; #pool_size] = [::embassy::executor::Task::new(); #pool_size];
+            const NEW_TASK: ::embassy::executor::Task<F> = ::embassy::executor::Task::new();
+            static POOL: [::embassy::executor::Task<F>; #pool_size] = [NEW_TASK; #pool_size];
             unsafe { ::embassy::executor::Task::spawn(&POOL, move || task(#arg_names)) }
         }
     };
