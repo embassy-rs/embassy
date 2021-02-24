@@ -299,13 +299,10 @@ fn main() -> ! {
     let dp = stm32::Peripherals::take().unwrap();
     let cp = cortex_m::peripheral::Peripherals::take().unwrap();
 
-    let executor = EXECUTOR.put(Executor::new(cortex_m::asm::sev));
-    executor.spawn(run(dp, cp)).unwrap();
-
-    loop {
-        executor.run();
-        cortex_m::asm::wfe();
-    }
+    let executor = EXECUTOR.put(Executor::new());
+    executor.run(|spawner| {
+        spawner.spawn(run(dp, cp)).unwrap();
+    });
 }
 
 // == Utils ==
