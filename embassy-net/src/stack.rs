@@ -154,15 +154,18 @@ pub fn init(device: &'static mut dyn Device, configurator: &'static mut dyn Conf
         routes: [None; 1],
     });
 
-    let ethernet_addr = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
-
     let medium = device.capabilities().medium;
+    let ethernet_addr = if medium == Medium::Ethernet {
+        device.ethernet_address()
+    } else {
+        [0, 0, 0, 0, 0, 0]
+    };
 
     let mut b = InterfaceBuilder::new(DeviceAdapter::new(device));
     b = b.ip_addrs(&mut res.addresses[..]);
 
     if medium == Medium::Ethernet {
-        b = b.ethernet_addr(ethernet_addr);
+        b = b.ethernet_addr(EthernetAddress(ethernet_addr));
         b = b.neighbor_cache(NeighborCache::new(&mut res.neighbor_cache[..]));
         b = b.routes(Routes::new(&mut res.routes[..]));
     }
