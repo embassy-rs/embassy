@@ -70,6 +70,8 @@ macro_rules! impl_async_i2c_dma {
                     data: &[u8],
                     autostop: bool,
                 ) -> Result<($Ci, I2c<$I2Ci, PINS>), ()> {
+                    // Make the static buffer mutable as per `embedded-dma` requirements (`DerefMut`).
+                    // It's safe as long as the buffer isn't used until this future completes.
                     #[allow(mutable_transmutes)]
                     let buf = unsafe {
                         core::mem::transmute::<&'static [u8], &'static mut [u8]>(
@@ -122,6 +124,11 @@ macro_rules! impl_async_i2c_dma {
                 type Error = ();
                 type TransferFuture<'f> = impl core::future::Future<Output = Result<(), ()>>;
 
+                /// 1. The same steps 1 to 4 from `AsyncI2cWrite` are made, and then
+                /// 2. A slice of `rx_data.len()` is made from the static buffer
+                /// 3. A DMA transfer will fill the slice with bytes received from I2C peripheral
+                /// 4. Upon DMA "transfer complete" interrupt the future is woken up
+                /// 5. The `rx_data` slice is filled with the received bytes from the static buffer
                 fn async_transfer<'a>(
                     &'a mut self,
                     address: I2cAddress7Bit,
