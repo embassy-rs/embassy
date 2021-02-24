@@ -48,15 +48,12 @@ fn main() -> ! {
     loop {
         let val2 = rtc.now();
         if val2 < val {
-            info!(
-                "timer ran backwards! {:u32} -> {:u32}",
-                val as u32, val2 as u32
-            );
+            info!("timer ran backwards! {} -> {}", val as u32, val2 as u32);
         }
         val = val2;
 
         if val > printval + 32768 {
-            info!("tick {:u32}", val as u32);
+            info!("tick {}", val as u32);
             printval = val;
         }
     }
