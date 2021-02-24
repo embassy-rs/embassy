@@ -20,8 +20,8 @@ defmt-error = []
 embassy = { version = "0.1.0", path = "../embassy", features = ["defmt", "defmt-trace"] }
 embassy-stm32f4 = { version = "*", path = "../embassy-stm32f4", features = ["stm32f401"] }
 
-defmt = "0.1.3"
-defmt-rtt = "0.1.0"
+defmt = "0.2.0"
+defmt-rtt = "0.2.0"
 
 cortex-m = "0.7.1"
 cortex-m-rt = "0.6.13"

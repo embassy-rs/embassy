@@ -1,5 +1,5 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-run --chip nRF52840_xxAA --defmt"
+runner = "probe-run --chip nRF52840_xxAA"
 
 rustflags = [
   # LLD (shipped with the Rust toolchain) is used as the default linker
