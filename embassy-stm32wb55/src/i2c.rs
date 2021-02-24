@@ -68,7 +68,7 @@ macro_rules! impl_async_i2c_dma {
                     i2c: I2c<$I2Ci, PINS>,
                     address: u8,
                     data: &[u8],
-                    autostop: bool
+                    autostop: bool,
                 ) -> Result<($Ci, I2c<$I2Ci, PINS>), ()> {
                     #[allow(mutable_transmutes)]
                     let buf = unsafe {
@@ -137,7 +137,8 @@ macro_rules! impl_async_i2c_dma {
                         let i2c = unsafe { core::ptr::read(&self.i2c) };
 
                         // Send the data to I2C bus without asserting STOP condition
-                        let (dma_ch, i2c) = self.tx_helper(dma_ch, i2c, address, tx_data, false).await?;
+                        let (dma_ch, i2c) =
+                            self.tx_helper(dma_ch, i2c, address, tx_data, false).await?;
 
                         // Make the static buffer mutable as per `embedded-dma` requirements.
                         // It's safe as long as the buffer isn't used until this future completes.
