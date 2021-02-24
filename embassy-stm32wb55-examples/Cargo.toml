@@ -17,6 +17,7 @@ defmt-error = []
 
 
 [dependencies]
+axp173              = { git = "https://github.com/eupn/axp173-rs.git", branch = "async-api" }
 embassy             = { version = "0.1.0", path = "../embassy", features = ["defmt", "defmt-debug"] }
 embassy-stm32wb55   = { version = "*", path = "../embassy-stm32wb55", features = ["defmt", "defmt-debug", "55"] }
 
