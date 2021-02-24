@@ -27,6 +27,7 @@ cortex-m-rt     = "0.6.13"
 cortex-m        = { version = "0.6.4" }
 
 embedded-hal    = { version = "0.2.4" }
+async-embedded-traits = "0.1.2"
 embedded-dma    = "0.1"
 
 futures         = { version = "0.3", default-features = false }

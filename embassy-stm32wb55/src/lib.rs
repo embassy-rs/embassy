@@ -1,6 +1,7 @@
 #![no_std]
 #![feature(asm)]
 #![feature(type_alias_impl_trait)]
+#![feature(generic_associated_types)]
 
 #[cfg(not(any(feature = "55",)))]
 compile_error!(
@@ -17,5 +18,6 @@ pub use stm32wb_hal::pac;
 pub(crate) mod fmt;
 
 pub mod ble;
+pub mod i2c;
 pub mod interrupt;
 pub use cortex_m_rt::interrupt;
