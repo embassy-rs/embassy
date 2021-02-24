@@ -60,9 +60,9 @@ impl<T: HalExtiPin + 'static, I: OwnedInterrupt + 'static> WaitForRisingEdge for
     fn wait_for_rising_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
         let s = unsafe { self.get_unchecked_mut() };
 
+        s.pin.clear_interrupt_pending_bit();
         async move {
             let fut = InterruptFuture::new(&mut s.interrupt);
-            s.pin.clear_interrupt_pending_bit();
             let mut exti: EXTI = unsafe { mem::transmute(()) };
 
             s.pin.trigger_on_edge(&mut exti, Edge::RISING);
@@ -80,9 +80,9 @@ impl<T: HalExtiPin + 'static, I: OwnedInterrupt + 'static> WaitForFallingEdge fo
     fn wait_for_falling_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
         let s = unsafe { self.get_unchecked_mut() };
 
+        s.pin.clear_interrupt_pending_bit();
         async move {
             let fut = InterruptFuture::new(&mut s.interrupt);
-            s.pin.clear_interrupt_pending_bit();
             let mut exti: EXTI = unsafe { mem::transmute(()) };
 
             s.pin.trigger_on_edge(&mut exti, Edge::FALLING);
