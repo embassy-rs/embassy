@@ -64,7 +64,7 @@ async fn run() {
         info!("reading...");
         let mut buf = [0u8; 8];
         unwrap!(u.read_exact(&mut buf).await);
-        info!("read done, got {:[u8]}", buf);
+        info!("read done, got {}", buf);
 
         // Reverse buf
         for i in 0..4 {

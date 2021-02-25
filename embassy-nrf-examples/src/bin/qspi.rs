@@ -73,7 +73,7 @@ async fn run() {
 
     let mut id = [1; 3];
     q.custom_instruction(0x9F, &[], &mut id).await.unwrap();
-    info!("id: {:[u8]}", id);
+    info!("id: {}", id);
 
     // Read status register
     let mut status = [0; 1];

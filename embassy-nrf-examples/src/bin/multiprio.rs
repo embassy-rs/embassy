@@ -90,7 +90,7 @@ async fn run_med() {
 
         let end = Instant::now();
         let ms = end.duration_since(start).as_ticks() / 33;
-        info!("    [med] done in {:u64} ms", ms);
+        info!("    [med] done in {} ms", ms);
 
         Timer::after(Duration::from_ticks(23421)).await;
     }
@@ -107,7 +107,7 @@ async fn run_low() {
 
         let end = Instant::now();
         let ms = end.duration_since(start).as_ticks() / 33;
-        info!("[low] done in {:u64} ms", ms);
+        info!("[low] done in {} ms", ms);
 
         Timer::after(Duration::from_ticks(32983)).await;
     }
