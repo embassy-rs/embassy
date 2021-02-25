@@ -1,5 +1,5 @@
 use core::cell::RefCell;
-use core::marker::{PhantomData, PhantomPinned};
+use core::marker::{PhantomData, Unpin};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
@@ -14,26 +14,39 @@ use crate::usb::{ClassSet, SerialState, State};
 use crate::util::peripheral::PeripheralMutex;
 use crate::util::ring_buffer::RingBuffer;
 
-pub struct ReadInterface<'a, 'bus, 'c, B: UsbBus, T: SerialState<'bus, 'c, B> + ClassSet<B>> {
+pub struct ReadInterface<'a, 'bus, 'c, I, B, T>
+where
+    I: Unpin,
+    B: UsbBus,
+    T: SerialState<'bus, 'c, B, I> + ClassSet<B>,
+{
     // Don't you dare moving out `PeripheralMutex`
     pub(crate) inner: &'a RefCell<PeripheralMutex<State<'bus, B, T>>>,
     pub(crate) _buf_lifetime: PhantomData<&'c T>,
+    pub(crate) _index: PhantomData<I>,
 }
 
 /// Write interface for USB CDC_ACM
 ///
 /// This interface is buffered, meaning that after the write returns the bytes might not be fully
 /// on the wire just yet
-pub struct WriteInterface<'a, 'bus, 'c, B: UsbBus, T: SerialState<'bus, 'c, B> + ClassSet<B>> {
+pub struct WriteInterface<'a, 'bus, 'c, I, B, T>
+where
+    I: Unpin,
+    B: UsbBus,
+    T: SerialState<'bus, 'c, B, I> + ClassSet<B>,
+{
     // Don't you dare moving out `PeripheralMutex`
     pub(crate) inner: &'a RefCell<PeripheralMutex<State<'bus, B, T>>>,
     pub(crate) _buf_lifetime: PhantomData<&'c T>,
+    pub(crate) _index: PhantomData<I>,
 }
 
-impl<'a, 'bus, 'c, B, T> AsyncBufRead for ReadInterface<'a, 'bus, 'c, B, T>
+impl<'a, 'bus, 'c, I, B, T> AsyncBufRead for ReadInterface<'a, 'bus, 'c, I, B, T>
 where
+    I: Unpin,
     B: UsbBus,
-    T: SerialState<'bus, 'c, B> + ClassSet<B>,
+    T: SerialState<'bus, 'c, B, I> + ClassSet<B>,
 {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
         let this = self.get_mut();
@@ -68,10 +81,11 @@ where
     }
 }
 
-impl<'a, 'bus, 'c, B, T> AsyncWrite for WriteInterface<'a, 'bus, 'c, B, T>
+impl<'a, 'bus, 'c, I, B, T> AsyncWrite for WriteInterface<'a, 'bus, 'c, I, B, T>
 where
+    I: Unpin,
     B: UsbBus,
-    T: SerialState<'bus, 'c, B> + ClassSet<B>,
+    T: SerialState<'bus, 'c, B, I> + ClassSet<B>,
 {
     fn poll_write(
         self: Pin<&mut Self>,
