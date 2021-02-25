@@ -13,7 +13,7 @@
 macro_rules! impl_async_i2c_dma {
     ($i2ci:ident, $I2Ci:ident, $dmaimpl:ident, $DMAi:ident, $Ci:ident, $Cint:path, $tcifi:ident, $ctcifi:ident, $teifi:ident, $cteifi:ident) => {
         pub mod $i2ci {
-            use async_embedded_traits::i2c::{AsyncI2cTransfer, AsyncI2cWrite, I2cAddress7Bit};
+            use async_embedded_traits::i2c::{AsyncI2cRead, AsyncI2cTransfer, AsyncI2cWrite, I2cAddress7Bit};
             use core::convert::TryInto;
             use core::future::Future;
 
@@ -89,6 +89,32 @@ macro_rules! impl_async_i2c_dma {
 
                     Ok(tx_dma.free())
                 }
+
+                async fn rx_helper(
+                    &mut self,
+                    dma_ch: $Ci,
+                    i2c: I2c<$I2Ci, PINS>,
+                    address: u8,
+                    rx_data: &mut [u8],
+                    autostop: bool,
+                ) -> Result<($Ci, I2c<$I2Ci, PINS>), ()> {
+                    // Make the static buffer mutable as per `embedded-dma` requirements.
+                    // It's safe as long as the buffer isn't used until this future completes.
+                    #[allow(mutable_transmutes)]
+                    let rx_buf = unsafe {
+                        core::mem::transmute::<&'static [u8], &'static mut [u8]>(
+                            &self.buf[0..rx_data.len()],
+                        )
+                    };
+                    let rx_transfer = i2c.with_rx_dma(dma_ch, address, autostop);
+                    let transfer = rx_transfer.read(rx_buf);
+                    InterruptFuture::new(&mut self.dma_int).await;
+                    Self::handle_dma_int()?;
+                    let (rx_buf, rx_dma) = transfer.destroy();
+                    rx_data.copy_from_slice(rx_buf);
+
+                    Ok(rx_dma.free())
+                }
             }
 
             impl<PINS> AsyncI2cWrite<I2cAddress7Bit> for AsyncI2c<$I2Ci, PINS, $Cint> {
@@ -114,6 +140,34 @@ macro_rules! impl_async_i2c_dma {
                         let dma_ch = unsafe { core::ptr::read(&self.dma_ch) };
                         let i2c = unsafe { core::ptr::read(&self.i2c) };
                         self.tx_helper(dma_ch, i2c, address, data, true).await?;
+
+                        Ok(())
+                    }
+                }
+            }
+
+            impl<PINS> AsyncI2cRead<I2cAddress7Bit> for AsyncI2c<$I2Ci, PINS, $Cint> {
+                type Error = ();
+                type ReadFuture<'f> = impl Future<Output = Result<(), ()>>;
+
+                /// Reads `data.len()` bytes from I2C slave device with specific `address`.
+                ///
+                /// 1. A slice of `data.len()` is made from the static buffer
+                /// 2. A DMA transfer will fill the slice with bytes received from I2C peripheral
+                /// 3. Upon DMA "transfer complete" interrupt the future is woken up
+                /// 4. The `data` buffer is filled with the received bytes from the static buffer
+                fn async_read<'a>(
+                    &'a mut self,
+                    address: I2cAddress7Bit,
+                    data: &'a mut [u8],
+                ) -> Self::ReadFuture<'a> {
+                    assert!(data.len() <= self.buf.len());
+                    let address = address.try_into().unwrap();
+
+                    async move {
+                        let dma_ch = unsafe { core::ptr::read(&self.dma_ch) };
+                        let i2c = unsafe { core::ptr::read(&self.i2c) };
+                        self.rx_helper(dma_ch, i2c, address, data, true).await?;
 
                         Ok(())
                     }
@@ -146,21 +200,7 @@ macro_rules! impl_async_i2c_dma {
                         // Send the data to I2C bus without asserting STOP condition
                         let (dma_ch, i2c) =
                             self.tx_helper(dma_ch, i2c, address, tx_data, false).await?;
-
-                        // Make the static buffer mutable as per `embedded-dma` requirements.
-                        // It's safe as long as the buffer isn't used until this future completes.
-                        #[allow(mutable_transmutes)]
-                        let rx_buf = unsafe {
-                            core::mem::transmute::<&'static [u8], &'static mut [u8]>(
-                                &self.buf[0..rx_data.len()],
-                            )
-                        };
-                        let rx_transfer = i2c.with_rx_dma(dma_ch, address, true);
-                        let transfer = rx_transfer.read(rx_buf);
-                        InterruptFuture::new(&mut self.dma_int).await;
-                        Self::handle_dma_int()?;
-                        let (rx_buf, _) = transfer.destroy();
-                        rx_data.copy_from_slice(rx_buf);
+                        self.rx_helper(dma_ch, i2c, address, rx_data, true).await?;
 
                         Ok(())
                     }
@@ -173,7 +213,7 @@ macro_rules! impl_async_i2c_dma {
 // Generate implementations for WB55's I2C1 and I2C3.
 // Allocated DMA channels are:
 // DMA1's C1 for I2C1
-// DMA1's C2 for I2C2
+// DMA1's C2 for I2C3
 
 impl_async_i2c_dma!(
     i2c1,
