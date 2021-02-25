@@ -10,12 +10,11 @@ use cortex_m_rt::entry;
 use defmt::panic;
 use embassy::executor::{task, Executor};
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
-use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
 use embassy_stm32f4::interrupt::OwnedInterrupt;
 use embassy_stm32f4::usb::Usb;
 use embassy_stm32f4::usb_serial::UsbSerial;
-use embassy_stm32f4::{interrupt, pac, rtc};
+use embassy_stm32f4::{interrupt, pac};
 use futures::future::{select, Either};
 use futures::pin_mut;
 use stm32f4xx_hal::otg_fs::{UsbBus, USB};
@@ -27,68 +26,81 @@ use usb_device::prelude::*;
 async fn run1(bus: &'static mut UsbBusAllocator<UsbBus<USB>>) {
     info!("Async task");
 
-    let mut read_buf = [0u8; 128];
-    let mut write_buf = [0u8; 128];
-    let serial = UsbSerial::new(bus, &mut read_buf, &mut write_buf);
+    let mut read_buf1 = [0u8; 128];
+    let mut write_buf1 = [0u8; 128];
+    let serial1 = UsbSerial::new(bus, &mut read_buf1, &mut write_buf1);
+
+    let mut read_buf2 = [0u8; 128];
+    let mut write_buf2 = [0u8; 128];
+    let serial2 = UsbSerial::new(bus, &mut read_buf2, &mut write_buf2);
 
     let device = UsbDeviceBuilder::new(bus, UsbVidPid(0x16c0, 0x27dd))
         .manufacturer("Fake company")
         .product("Serial port")
         .serial_number("TEST")
-        .device_class(0x02)
+        //.device_class(0x02)
         .build();
 
     let irq = interrupt::take!(OTG_FS);
     irq.set_priority(interrupt::Priority::Level3);
 
-    let usb = Usb::new(device, serial, irq);
+    let usb = Usb::new(device, (serial1, serial2), irq);
     pin_mut!(usb);
 
-    let (mut read_interface, mut write_interface) = usb.as_ref().take_serial_0();
+    let (mut read_interface1, mut write_interface1) = usb.as_ref().take_serial_0();
+    let (mut read_interface2, mut write_interface2) = usb.as_ref().take_serial_1();
 
-    let mut buf = [0u8; 64];
+    let mut buf1 = [0u8; 64];
+    let mut buf2 = [0u8; 64];
+
     loop {
-        let mut n = 0;
+        let mut n1 = 0;
+        let mut n2 = 0;
         let left = {
-            let recv_fut = async {
+            let read_line1 = async {
                 loop {
-                    let byte = unwrap!(read_interface.read_byte().await);
-                    unwrap!(write_interface.write_byte(byte).await);
-                    buf[n] = byte;
+                    let byte = unwrap!(read_interface1.read_byte().await);
+                    unwrap!(write_interface1.write_byte(byte).await);
+                    buf1[n1] = byte;
 
-                    n += 1;
-                    if byte == b'\n' || byte == b'\r' || n == buf.len() {
+                    n1 += 1;
+                    if byte == b'\n' || byte == b'\r' || n1 == buf1.len() {
                         break;
                     }
                 }
             };
-            pin_mut!(recv_fut);
+            pin_mut!(read_line1);
 
-            let timeout = Timer::after(Duration::from_ticks(32768 * 10));
+            let read_line2 = async {
+                loop {
+                    let byte = unwrap!(read_interface2.read_byte().await);
+                    unwrap!(write_interface2.write_byte(byte).await);
+                    buf2[n2] = byte;
 
-            match select(recv_fut, timeout).await {
+                    n2 += 1;
+                    if byte == b'\n' || byte == b'\r' || n2 == buf2.len() {
+                        break;
+                    }
+                }
+            };
+            pin_mut!(read_line2);
+
+            match select(read_line1, read_line2).await {
                 Either::Left(_) => true,
                 Either::Right(_) => false,
             }
         };
 
         if left {
-            for c in buf[..n].iter_mut() {
-                if 0x61 <= *c && *c <= 0x7a {
-                    *c &= !0x20;
-                }
-            }
-            unwrap!(write_interface.write_byte(b'\n').await);
-            unwrap!(write_interface.write_all(&buf[..n]).await);
-            unwrap!(write_interface.write_byte(b'\n').await);
+            unwrap!(write_interface2.write_all(b"\r\n").await);
+            unwrap!(write_interface2.write_all(&buf1[..n1]).await);
         } else {
-            unwrap!(write_interface.write_all(b"\r\nSend something\r\n").await);
+            unwrap!(write_interface1.write_all(b"\r\n").await);
+            unwrap!(write_interface1.write_all(&buf2[..n2]).await);
         }
     }
 }
 
-static RTC: Forever<rtc::RTC<pac::TIM2>> = Forever::new();
-static ALARM: Forever<rtc::Alarm<pac::TIM2>> = Forever::new();
 static EXECUTOR: Forever<Executor> = Forever::new();
 static USB_BUS: Forever<UsbBusAllocator<UsbBus<USB>>> = Forever::new();
 
@@ -115,14 +127,7 @@ fn main() -> ! {
         w.dbg_stop().set_bit()
     });
 
-    let rtc = RTC.put(rtc::RTC::new(p.TIM2, interrupt::take!(TIM2), clocks));
-    rtc.start();
-
-    unsafe { embassy::time::set_clock(rtc) };
-
-    let alarm = ALARM.put(rtc.alarm1());
     let executor = EXECUTOR.put(Executor::new());
-    executor.set_alarm(alarm);
 
     let gpioa = p.GPIOA.split();
     let usb = USB {
