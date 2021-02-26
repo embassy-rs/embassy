@@ -5,7 +5,7 @@ use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 use embassy::time::Clock;
 
 use crate::interrupt;
-use crate::interrupt::{CriticalSection, Mutex, OwnedInterrupt};
+use crate::interrupt::{CriticalSection, Interrupt, Mutex};
 use crate::pac::rtc0;
 
 // RTC timekeeping works with something we call "periods", which are time intervals
@@ -271,18 +271,18 @@ pub trait Instance:
     sealed::Instance + Deref<Target = rtc0::RegisterBlock> + Sized + 'static
 {
     /// The interrupt associated with this RTC instance.
-    type Interrupt: OwnedInterrupt;
+    type Interrupt: Interrupt;
 }
 
 impl Instance for crate::pac::RTC0 {
-    type Interrupt = interrupt::RTC0Interrupt;
+    type Interrupt = interrupt::RTC0;
 }
 
 impl Instance for crate::pac::RTC1 {
-    type Interrupt = interrupt::RTC1Interrupt;
+    type Interrupt = interrupt::RTC1;
 }
 
 #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
 impl Instance for crate::pac::RTC2 {
-    type Interrupt = interrupt::RTC2Interrupt;
+    type Interrupt = interrupt::RTC2;
 }

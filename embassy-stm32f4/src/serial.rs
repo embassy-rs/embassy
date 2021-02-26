@@ -8,7 +8,7 @@ use core::future::Future;
 use core::ptr;
 use core::sync::atomic::{self, Ordering};
 
-use embassy::interrupt::OwnedInterrupt;
+use embassy::interrupt::Interrupt;
 use embassy::uart::{Error, Uart};
 use embassy::util::Signal;
 
@@ -29,9 +29,9 @@ pub struct Serial<USART: PeriAddress<MemSize = u8>, TSTREAM: Stream, RSTREAM: St
     tx_stream: Option<TSTREAM>,
     rx_stream: Option<RSTREAM>,
     usart: Option<USART>,
-    tx_int: interrupt::DMA2_STREAM7Interrupt,
-    rx_int: interrupt::DMA2_STREAM2Interrupt,
-    usart_int: interrupt::USART1Interrupt,
+    tx_int: interrupt::DMA2_STREAM7,
+    rx_int: interrupt::DMA2_STREAM2,
+    usart_int: interrupt::USART1,
 }
 
 struct State {
@@ -52,9 +52,9 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         usart: USART1,
         dma: DMA2,
         pins: PINS,
-        tx_int: interrupt::DMA2_STREAM7Interrupt,
-        rx_int: interrupt::DMA2_STREAM2Interrupt,
-        usart_int: interrupt::USART1Interrupt,
+        tx_int: interrupt::DMA2_STREAM7,
+        rx_int: interrupt::DMA2_STREAM2,
+        usart_int: interrupt::USART1,
         mut config: SerialConfig,
         clocks: Clocks,
     ) -> Self

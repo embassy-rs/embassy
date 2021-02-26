@@ -1,6 +1,6 @@
 use crate::executor;
 use crate::fmt::panic;
-use crate::interrupt::OwnedInterrupt;
+use crate::interrupt::Interrupt;
 use core::cell::UnsafeCell;
 use core::future::Future;
 use core::mem;
@@ -79,18 +79,18 @@ unsafe impl cortex_m::interrupt::Nr for NrWrap {
     }
 }
 
-pub struct InterruptFuture<'a, I: OwnedInterrupt> {
+pub struct InterruptFuture<'a, I: Interrupt> {
     interrupt: &'a mut I,
 }
 
-impl<'a, I: OwnedInterrupt> Drop for InterruptFuture<'a, I> {
+impl<'a, I: Interrupt> Drop for InterruptFuture<'a, I> {
     fn drop(&mut self) {
         self.interrupt.disable();
         self.interrupt.remove_handler();
     }
 }
 
-impl<'a, I: OwnedInterrupt> InterruptFuture<'a, I> {
+impl<'a, I: Interrupt> InterruptFuture<'a, I> {
     pub fn new(interrupt: &'a mut I) -> Self {
         interrupt.disable();
         interrupt.set_handler(Self::interrupt_handler, ptr::null_mut());
@@ -114,9 +114,9 @@ impl<'a, I: OwnedInterrupt> InterruptFuture<'a, I> {
     }
 }
 
-impl<'a, I: OwnedInterrupt> Unpin for InterruptFuture<'a, I> {}
+impl<'a, I: Interrupt> Unpin for InterruptFuture<'a, I> {}
 
-impl<'a, I: OwnedInterrupt> Future for InterruptFuture<'a, I> {
+impl<'a, I: Interrupt> Future for InterruptFuture<'a, I> {
     type Output = ();
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {

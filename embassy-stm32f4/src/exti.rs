@@ -3,7 +3,7 @@ use core::mem;
 use core::pin::Pin;
 
 use embassy::gpio::{WaitForFallingEdge, WaitForRisingEdge};
-use embassy::interrupt::OwnedInterrupt;
+use embassy::interrupt::Interrupt;
 use embassy::util::InterruptFuture;
 
 use crate::hal::gpio;
@@ -25,7 +25,7 @@ impl<'a> ExtiManager {
     pub fn new_pin<T, I>(&'static mut self, mut pin: T, interrupt: I) -> ExtiPin<T, I>
     where
         T: HalExtiPin + WithInterrupt<Instance = I>,
-        I: OwnedInterrupt,
+        I: Interrupt,
     {
         pin.make_interrupt_source(&mut self.syscfg);
 
@@ -37,7 +37,7 @@ impl<'a> ExtiManager {
     }
 }
 
-pub struct ExtiPin<T: HalExtiPin, I: OwnedInterrupt> {
+pub struct ExtiPin<T: HalExtiPin, I: Interrupt> {
     pin: T,
     interrupt: I,
     _mgr: &'static ExtiManager,
@@ -54,7 +54,7 @@ pub struct ExtiPin<T: HalExtiPin, I: OwnedInterrupt> {
     EXTI15_10_IRQn	EXTI15_10_IRQHandler	Handler for pins connected to line 10 to 15
 */
 
-impl<T: HalExtiPin + 'static, I: OwnedInterrupt + 'static> WaitForRisingEdge for ExtiPin<T, I> {
+impl<T: HalExtiPin + 'static, I: Interrupt + 'static> WaitForRisingEdge for ExtiPin<T, I> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
     fn wait_for_rising_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
@@ -74,7 +74,7 @@ impl<T: HalExtiPin + 'static, I: OwnedInterrupt + 'static> WaitForRisingEdge for
     }
 }
 
-impl<T: HalExtiPin + 'static, I: OwnedInterrupt + 'static> WaitForFallingEdge for ExtiPin<T, I> {
+impl<T: HalExtiPin + 'static, I: Interrupt + 'static> WaitForFallingEdge for ExtiPin<T, I> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
     fn wait_for_falling_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
@@ -133,22 +133,22 @@ macro_rules! exti {
     feature = "stm32f479"
 ))]
 exti! {
-    EXTI0Interrupt => (gpioa, PA0),
-    EXTI1Interrupt => (gpioa, PA1),
-    EXTI2Interrupt => (gpioa, PA2),
-    EXTI3Interrupt => (gpioa, PA3),
-    EXTI4Interrupt => (gpioa, PA4),
-    EXTI9_5Interrupt => (gpioa, PA5),
-    EXTI9_5Interrupt => (gpioa, PA6),
-    EXTI9_5Interrupt => (gpioa, PA7),
-    EXTI9_5Interrupt => (gpioa, PA8),
-    EXTI9_5Interrupt => (gpioa, PA9),
-    EXTI15_10Interrupt => (gpioa, PA10),
-    EXTI15_10Interrupt => (gpioa, PA11),
-    EXTI15_10Interrupt => (gpioa, PA12),
-    EXTI15_10Interrupt => (gpioa, PA13),
-    EXTI15_10Interrupt => (gpioa, PA14),
-    EXTI15_10Interrupt => (gpioa, PA15),
+    EXTI0 => (gpioa, PA0),
+    EXTI1 => (gpioa, PA1),
+    EXTI2 => (gpioa, PA2),
+    EXTI3 => (gpioa, PA3),
+    EXTI4 => (gpioa, PA4),
+    EXTI9_5 => (gpioa, PA5),
+    EXTI9_5 => (gpioa, PA6),
+    EXTI9_5 => (gpioa, PA7),
+    EXTI9_5 => (gpioa, PA8),
+    EXTI9_5 => (gpioa, PA9),
+    EXTI15_10 => (gpioa, PA10),
+    EXTI15_10 => (gpioa, PA11),
+    EXTI15_10 => (gpioa, PA12),
+    EXTI15_10 => (gpioa, PA13),
+    EXTI15_10 => (gpioa, PA14),
+    EXTI15_10 => (gpioa, PA15),
 }
 
 #[cfg(any(
@@ -171,22 +171,22 @@ exti! {
     feature = "stm32f479"
 ))]
 exti! {
-    EXTI0Interrupt => (gpiob, PB0),
-    EXTI1Interrupt => (gpiob, PB1),
-    EXTI2Interrupt => (gpiob, PB2),
-    EXTI3Interrupt => (gpiob, PB3),
-    EXTI4Interrupt => (gpiob, PB4),
-    EXTI9_5Interrupt => (gpiob, PB5),
-    EXTI9_5Interrupt => (gpiob, PB6),
-    EXTI9_5Interrupt => (gpiob, PB7),
-    EXTI9_5Interrupt => (gpiob, PB8),
-    EXTI9_5Interrupt => (gpiob, PB9),
-    EXTI15_10Interrupt => (gpiob, PB10),
-    EXTI15_10Interrupt => (gpiob, PB11),
-    EXTI15_10Interrupt => (gpiob, PB12),
-    EXTI15_10Interrupt => (gpiob, PB13),
-    EXTI15_10Interrupt => (gpiob, PB14),
-    EXTI15_10Interrupt => (gpiob, PB15),
+    EXTI0 => (gpiob, PB0),
+    EXTI1 => (gpiob, PB1),
+    EXTI2 => (gpiob, PB2),
+    EXTI3 => (gpiob, PB3),
+    EXTI4 => (gpiob, PB4),
+    EXTI9_5 => (gpiob, PB5),
+    EXTI9_5 => (gpiob, PB6),
+    EXTI9_5 => (gpiob, PB7),
+    EXTI9_5 => (gpiob, PB8),
+    EXTI9_5 => (gpiob, PB9),
+    EXTI15_10 => (gpiob, PB10),
+    EXTI15_10 => (gpiob, PB11),
+    EXTI15_10 => (gpiob, PB12),
+    EXTI15_10 => (gpiob, PB13),
+    EXTI15_10 => (gpiob, PB14),
+    EXTI15_10 => (gpiob, PB15),
 }
 
 #[cfg(any(
@@ -209,22 +209,22 @@ exti! {
     feature = "stm32f479"
 ))]
 exti! {
-    EXTI0Interrupt => (gpioc, PC0),
-    EXTI1Interrupt => (gpioc, PC1),
-    EXTI2Interrupt => (gpioc, PC2),
-    EXTI3Interrupt => (gpioc, PC3),
-    EXTI4Interrupt => (gpioc, PC4),
-    EXTI9_5Interrupt => (gpioc, PC5),
-    EXTI9_5Interrupt => (gpioc, PC6),
-    EXTI9_5Interrupt => (gpioc, PC7),
-    EXTI9_5Interrupt => (gpioc, PC8),
-    EXTI9_5Interrupt => (gpioc, PC9),
-    EXTI15_10Interrupt => (gpioc, PC10),
-    EXTI15_10Interrupt => (gpioc, PC11),
-    EXTI15_10Interrupt => (gpioc, PC12),
-    EXTI15_10Interrupt => (gpioc, PC13),
-    EXTI15_10Interrupt => (gpioc, PC14),
-    EXTI15_10Interrupt => (gpioc, PC15),
+    EXTI0 => (gpioc, PC0),
+    EXTI1 => (gpioc, PC1),
+    EXTI2 => (gpioc, PC2),
+    EXTI3 => (gpioc, PC3),
+    EXTI4 => (gpioc, PC4),
+    EXTI9_5 => (gpioc, PC5),
+    EXTI9_5 => (gpioc, PC6),
+    EXTI9_5 => (gpioc, PC7),
+    EXTI9_5 => (gpioc, PC8),
+    EXTI9_5 => (gpioc, PC9),
+    EXTI15_10 => (gpioc, PC10),
+    EXTI15_10 => (gpioc, PC11),
+    EXTI15_10 => (gpioc, PC12),
+    EXTI15_10 => (gpioc, PC13),
+    EXTI15_10 => (gpioc, PC14),
+    EXTI15_10 => (gpioc, PC15),
 }
 
 #[cfg(any(
@@ -246,22 +246,22 @@ exti! {
     feature = "stm32f479"
 ))]
 exti! {
-    EXTI0Interrupt => (gpiod, PD0),
-    EXTI1Interrupt => (gpiod, PD1),
-    EXTI2Interrupt => (gpiod, PD2),
-    EXTI3Interrupt => (gpiod, PD3),
-    EXTI4Interrupt => (gpiod, PD4),
-    EXTI9_5Interrupt => (gpiod, PD5),
-    EXTI9_5Interrupt => (gpiod, PD6),
-    EXTI9_5Interrupt => (gpiod, PD7),
-    EXTI9_5Interrupt => (gpiod, PD8),
-    EXTI9_5Interrupt => (gpiod, PD9),
-    EXTI15_10Interrupt => (gpiod, PD10),
-    EXTI15_10Interrupt => (gpiod, PD11),
-    EXTI15_10Interrupt => (gpiod, PD12),
-    EXTI15_10Interrupt => (gpiod, PD13),
-    EXTI15_10Interrupt => (gpiod, PD14),
-    EXTI15_10Interrupt => (gpiod, PD15),
+    EXTI0 => (gpiod, PD0),
+    EXTI1 => (gpiod, PD1),
+    EXTI2 => (gpiod, PD2),
+    EXTI3 => (gpiod, PD3),
+    EXTI4 => (gpiod, PD4),
+    EXTI9_5 => (gpiod, PD5),
+    EXTI9_5 => (gpiod, PD6),
+    EXTI9_5 => (gpiod, PD7),
+    EXTI9_5 => (gpiod, PD8),
+    EXTI9_5 => (gpiod, PD9),
+    EXTI15_10 => (gpiod, PD10),
+    EXTI15_10 => (gpiod, PD11),
+    EXTI15_10 => (gpiod, PD12),
+    EXTI15_10 => (gpiod, PD13),
+    EXTI15_10 => (gpiod, PD14),
+    EXTI15_10 => (gpiod, PD15),
 }
 
 #[cfg(any(
@@ -283,22 +283,22 @@ exti! {
     feature = "stm32f479"
 ))]
 exti! {
-    EXTI0Interrupt => (gpioe, PE0),
-    EXTI1Interrupt => (gpioe, PE1),
-    EXTI2Interrupt => (gpioe, PE2),
-    EXTI3Interrupt => (gpioe, PE3),
-    EXTI4Interrupt => (gpioe, PE4),
-    EXTI9_5Interrupt => (gpioe, PE5),
-    EXTI9_5Interrupt => (gpioe, PE6),
-    EXTI9_5Interrupt => (gpioe, PE7),
-    EXTI9_5Interrupt => (gpioe, PE8),
-    EXTI9_5Interrupt => (gpioe, PE9),
-    EXTI15_10Interrupt => (gpioe, PE10),
-    EXTI15_10Interrupt => (gpioe, PE11),
-    EXTI15_10Interrupt => (gpioe, PE12),
-    EXTI15_10Interrupt => (gpioe, PE13),
-    EXTI15_10Interrupt => (gpioe, PE14),
-    EXTI15_10Interrupt => (gpioe, PE15),
+    EXTI0 => (gpioe, PE0),
+    EXTI1 => (gpioe, PE1),
+    EXTI2 => (gpioe, PE2),
+    EXTI3 => (gpioe, PE3),
+    EXTI4 => (gpioe, PE4),
+    EXTI9_5 => (gpioe, PE5),
+    EXTI9_5 => (gpioe, PE6),
+    EXTI9_5 => (gpioe, PE7),
+    EXTI9_5 => (gpioe, PE8),
+    EXTI9_5 => (gpioe, PE9),
+    EXTI15_10 => (gpioe, PE10),
+    EXTI15_10 => (gpioe, PE11),
+    EXTI15_10 => (gpioe, PE12),
+    EXTI15_10 => (gpioe, PE13),
+    EXTI15_10 => (gpioe, PE14),
+    EXTI15_10 => (gpioe, PE15),
 }
 
 #[cfg(any(
@@ -318,22 +318,22 @@ exti! {
     feature = "stm32f479"
 ))]
 exti! {
-    EXTI0Interrupt => (gpiof, PF0),
-    EXTI1Interrupt => (gpiof, PF1),
-    EXTI2Interrupt => (gpiof, PF2),
-    EXTI3Interrupt => (gpiof, PF3),
-    EXTI4Interrupt => (gpiof, PF4),
-    EXTI9_5Interrupt => (gpiof, PF5),
-    EXTI9_5Interrupt => (gpiof, PF6),
-    EXTI9_5Interrupt => (gpiof, PF7),
-    EXTI9_5Interrupt => (gpiof, PF8),
-    EXTI9_5Interrupt => (gpiof, PF9),
-    EXTI15_10Interrupt => (gpiof, PF10),
-    EXTI15_10Interrupt => (gpiof, PF11),
-    EXTI15_10Interrupt => (gpiof, PF12),
-    EXTI15_10Interrupt => (gpiof, PF13),
-    EXTI15_10Interrupt => (gpiof, PF14),
-    EXTI15_10Interrupt => (gpiof, PF15),
+    EXTI0 => (gpiof, PF0),
+    EXTI1 => (gpiof, PF1),
+    EXTI2 => (gpiof, PF2),
+    EXTI3 => (gpiof, PF3),
+    EXTI4 => (gpiof, PF4),
+    EXTI9_5 => (gpiof, PF5),
+    EXTI9_5 => (gpiof, PF6),
+    EXTI9_5 => (gpiof, PF7),
+    EXTI9_5 => (gpiof, PF8),
+    EXTI9_5 => (gpiof, PF9),
+    EXTI15_10 => (gpiof, PF10),
+    EXTI15_10 => (gpiof, PF11),
+    EXTI15_10 => (gpiof, PF12),
+    EXTI15_10 => (gpiof, PF13),
+    EXTI15_10 => (gpiof, PF14),
+    EXTI15_10 => (gpiof, PF15),
 }
 
 #[cfg(any(
@@ -353,22 +353,22 @@ exti! {
     feature = "stm32f479"
 ))]
 exti! {
-    EXTI0Interrupt => (gpiog, PG0),
-    EXTI1Interrupt => (gpiog, PG1),
-    EXTI2Interrupt => (gpiog, PG2),
-    EXTI3Interrupt => (gpiog, PG3),
-    EXTI4Interrupt => (gpiog, PG4),
-    EXTI9_5Interrupt => (gpiog, PG5),
-    EXTI9_5Interrupt => (gpiog, PG6),
-    EXTI9_5Interrupt => (gpiog, PG7),
-    EXTI9_5Interrupt => (gpiog, PG8),
-    EXTI9_5Interrupt => (gpiog, PG9),
-    EXTI15_10Interrupt => (gpiog, PG10),
-    EXTI15_10Interrupt => (gpiog, PG11),
-    EXTI15_10Interrupt => (gpiog, PG12),
-    EXTI15_10Interrupt => (gpiog, PG13),
-    EXTI15_10Interrupt => (gpiog, PG14),
-    EXTI15_10Interrupt => (gpiog, PG15),
+    EXTI0 => (gpiog, PG0),
+    EXTI1 => (gpiog, PG1),
+    EXTI2 => (gpiog, PG2),
+    EXTI3 => (gpiog, PG3),
+    EXTI4 => (gpiog, PG4),
+    EXTI9_5 => (gpiog, PG5),
+    EXTI9_5 => (gpiog, PG6),
+    EXTI9_5 => (gpiog, PG7),
+    EXTI9_5 => (gpiog, PG8),
+    EXTI9_5 => (gpiog, PG9),
+    EXTI15_10 => (gpiog, PG10),
+    EXTI15_10 => (gpiog, PG11),
+    EXTI15_10 => (gpiog, PG12),
+    EXTI15_10 => (gpiog, PG13),
+    EXTI15_10 => (gpiog, PG14),
+    EXTI15_10 => (gpiog, PG15),
 }
 
 #[cfg(any(
@@ -390,28 +390,28 @@ exti! {
     feature = "stm32f479"
 ))]
 exti! {
-    EXTI0Interrupt => (gpioh, PH0),
-    EXTI1Interrupt => (gpioh, PH1),
-    EXTI2Interrupt => (gpioh, PH2),
-    EXTI3Interrupt => (gpioh, PH3),
-    EXTI4Interrupt => (gpioh, PH4),
-    EXTI9_5Interrupt => (gpioh, PH5),
-    EXTI9_5Interrupt => (gpioh, PH6),
-    EXTI9_5Interrupt => (gpioh, PH7),
-    EXTI9_5Interrupt => (gpioh, PH8),
-    EXTI9_5Interrupt => (gpioh, PH9),
-    EXTI15_10Interrupt => (gpioh, PH10),
-    EXTI15_10Interrupt => (gpioh, PH11),
-    EXTI15_10Interrupt => (gpioh, PH12),
-    EXTI15_10Interrupt => (gpioh, PH13),
-    EXTI15_10Interrupt => (gpioh, PH14),
-    EXTI15_10Interrupt => (gpioh, PH15),
+    EXTI0 => (gpioh, PH0),
+    EXTI1 => (gpioh, PH1),
+    EXTI2 => (gpioh, PH2),
+    EXTI3 => (gpioh, PH3),
+    EXTI4 => (gpioh, PH4),
+    EXTI9_5 => (gpioh, PH5),
+    EXTI9_5 => (gpioh, PH6),
+    EXTI9_5 => (gpioh, PH7),
+    EXTI9_5 => (gpioh, PH8),
+    EXTI9_5 => (gpioh, PH9),
+    EXTI15_10 => (gpioh, PH10),
+    EXTI15_10 => (gpioh, PH11),
+    EXTI15_10 => (gpioh, PH12),
+    EXTI15_10 => (gpioh, PH13),
+    EXTI15_10 => (gpioh, PH14),
+    EXTI15_10 => (gpioh, PH15),
 }
 
 #[cfg(any(feature = "stm32f401"))]
 exti! {
-    EXTI0Interrupt => (gpioh, PH0),
-    EXTI1Interrupt => (gpioh, PH1),
+    EXTI0 => (gpioh, PH0),
+    EXTI1 => (gpioh, PH1),
 }
 
 #[cfg(any(
@@ -427,22 +427,22 @@ exti! {
     feature = "stm32f479"
 ))]
 exti! {
-    EXTI0Interrupt => (gpioi, PI0),
-    EXTI1Interrupt => (gpioi, PI1),
-    EXTI2Interrupt => (gpioi, PI2),
-    EXTI3Interrupt => (gpioi, PI3),
-    EXTI4Interrupt => (gpioi, PI4),
-    EXTI9_5Interrupt => (gpioi, PI5),
-    EXTI9_5Interrupt => (gpioi, PI6),
-    EXTI9_5Interrupt => (gpioi, PI7),
-    EXTI9_5Interrupt => (gpioi, PI8),
-    EXTI9_5Interrupt => (gpioi, PI9),
-    EXTI15_10Interrupt => (gpioi, PI10),
-    EXTI15_10Interrupt => (gpioi, PI11),
-    EXTI15_10Interrupt => (gpioi, PI12),
-    EXTI15_10Interrupt => (gpioi, PI13),
-    EXTI15_10Interrupt => (gpioi, PI14),
-    EXTI15_10Interrupt => (gpioi, PI15),
+    EXTI0 => (gpioi, PI0),
+    EXTI1 => (gpioi, PI1),
+    EXTI2 => (gpioi, PI2),
+    EXTI3 => (gpioi, PI3),
+    EXTI4 => (gpioi, PI4),
+    EXTI9_5 => (gpioi, PI5),
+    EXTI9_5 => (gpioi, PI6),
+    EXTI9_5 => (gpioi, PI7),
+    EXTI9_5 => (gpioi, PI8),
+    EXTI9_5 => (gpioi, PI9),
+    EXTI15_10 => (gpioi, PI10),
+    EXTI15_10 => (gpioi, PI11),
+    EXTI15_10 => (gpioi, PI12),
+    EXTI15_10 => (gpioi, PI13),
+    EXTI15_10 => (gpioi, PI14),
+    EXTI15_10 => (gpioi, PI15),
 }
 
 #[cfg(any(
@@ -454,22 +454,22 @@ exti! {
     feature = "stm32f479"
 ))]
 exti! {
-    EXTI0Interrupt => (gpioj, PJ0),
-    EXTI1Interrupt => (gpioj, PJ1),
-    EXTI2Interrupt => (gpioj, PJ2),
-    EXTI3Interrupt => (gpioj, PJ3),
-    EXTI4Interrupt => (gpioj, PJ4),
-    EXTI9_5Interrupt => (gpioj, PJ5),
-    EXTI9_5Interrupt => (gpioj, PJ6),
-    EXTI9_5Interrupt => (gpioj, PJ7),
-    EXTI9_5Interrupt => (gpioj, PJ8),
-    EXTI9_5Interrupt => (gpioj, PJ9),
-    EXTI15_10Interrupt => (gpioj, PJ10),
-    EXTI15_10Interrupt => (gpioj, PJ11),
-    EXTI15_10Interrupt => (gpioj, PJ12),
-    EXTI15_10Interrupt => (gpioj, PJ13),
-    EXTI15_10Interrupt => (gpioj, PJ14),
-    EXTI15_10Interrupt => (gpioj, PJ15),
+    EXTI0 => (gpioj, PJ0),
+    EXTI1 => (gpioj, PJ1),
+    EXTI2 => (gpioj, PJ2),
+    EXTI3 => (gpioj, PJ3),
+    EXTI4 => (gpioj, PJ4),
+    EXTI9_5 => (gpioj, PJ5),
+    EXTI9_5 => (gpioj, PJ6),
+    EXTI9_5 => (gpioj, PJ7),
+    EXTI9_5 => (gpioj, PJ8),
+    EXTI9_5 => (gpioj, PJ9),
+    EXTI15_10 => (gpioj, PJ10),
+    EXTI15_10 => (gpioj, PJ11),
+    EXTI15_10 => (gpioj, PJ12),
+    EXTI15_10 => (gpioj, PJ13),
+    EXTI15_10 => (gpioj, PJ14),
+    EXTI15_10 => (gpioj, PJ15),
 }
 
 #[cfg(any(
@@ -481,12 +481,12 @@ exti! {
     feature = "stm32f479"
 ))]
 exti! {
-    EXTI0Interrupt => (gpiok, PK0),
-    EXTI1Interrupt => (gpiok, PK1),
-    EXTI2Interrupt => (gpiok, PK2),
-    EXTI3Interrupt => (gpiok, PK3),
-    EXTI4Interrupt => (gpiok, PK4),
-    EXTI9_5Interrupt => (gpiok, PK5),
-    EXTI9_5Interrupt => (gpiok, PK6),
-    EXTI9_5Interrupt => (gpiok, PK7),
+    EXTI0 => (gpiok, PK0),
+    EXTI1 => (gpiok, PK1),
+    EXTI2 => (gpiok, PK2),
+    EXTI3 => (gpiok, PK3),
+    EXTI4 => (gpiok, PK4),
+    EXTI9_5 => (gpiok, PK5),
+    EXTI9_5 => (gpiok, PK6),
+    EXTI9_5 => (gpiok, PK7),
 }

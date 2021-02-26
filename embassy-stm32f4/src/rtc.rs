@@ -7,7 +7,7 @@ use stm32f4xx_hal::bb;
 use stm32f4xx_hal::rcc::Clocks;
 
 use crate::interrupt;
-use crate::interrupt::{CriticalSection, Mutex, OwnedInterrupt};
+use crate::interrupt::{CriticalSection, Interrupt, Mutex};
 
 // RTC timekeeping works with something we call "periods", which are time intervals
 // of 2^15 ticks. The RTC counter value is 16 bits, so one "overflow cycle" is 2 periods.
@@ -236,7 +236,7 @@ mod sealed {
 }
 
 pub trait Instance: sealed::Sealed + Sized + 'static {
-    type Interrupt: OwnedInterrupt;
+    type Interrupt: Interrupt;
     const REAL_ALARM_COUNT: usize;
 
     fn enable_clock(&self);
@@ -489,17 +489,17 @@ macro_rules! impl_timer {
 }
 
 #[cfg(not(feature = "stm32f410"))]
-impl_timer!(tim2: (TIM2, TIM2Interrupt, apb1enr, 0, apb1rstr, 0, ppre1, pclk1), 3);
+impl_timer!(tim2: (TIM2, TIM2, apb1enr, 0, apb1rstr, 0, ppre1, pclk1), 3);
 
 #[cfg(not(feature = "stm32f410"))]
-impl_timer!(tim3: (TIM3, TIM3Interrupt, apb1enr, 1, apb1rstr, 1, ppre1, pclk1), 3);
+impl_timer!(tim3: (TIM3, TIM3, apb1enr, 1, apb1rstr, 1, ppre1, pclk1), 3);
 
 #[cfg(not(feature = "stm32f410"))]
-impl_timer!(tim4: (TIM4, TIM4Interrupt, apb1enr, 2, apb1rstr, 2, ppre1, pclk1), 3);
+impl_timer!(tim4: (TIM4, TIM4, apb1enr, 2, apb1rstr, 2, ppre1, pclk1), 3);
 
-impl_timer!(tim5: (TIM5, TIM5Interrupt, apb1enr, 3, apb1rstr, 3, ppre1, pclk1), 3);
+impl_timer!(tim5: (TIM5, TIM5, apb1enr, 3, apb1rstr, 3, ppre1, pclk1), 3);
 
-impl_timer!(tim9: (TIM9, TIM1_BRK_TIM9Interrupt, apb2enr, 16, apb2rstr, 16, ppre2, pclk2), 1);
+impl_timer!(tim9: (TIM9, TIM1_BRK_TIM9, apb2enr, 16, apb2rstr, 16, ppre2, pclk2), 1);
 
 #[cfg(not(any(feature = "stm32f401", feature = "stm32f410", feature = "stm32f411")))]
-impl_timer!(tim12: (TIM12, TIM8_BRK_TIM12Interrupt, apb1enr, 6, apb1rstr, 6, ppre1, pclk1), 1);
+impl_timer!(tim12: (TIM12, TIM8_BRK_TIM12, apb1enr, 6, apb1rstr, 6, ppre1, pclk1), 1);

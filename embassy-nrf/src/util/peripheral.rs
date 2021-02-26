@@ -4,10 +4,10 @@ use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 
 use crate::fmt::*;
-use crate::interrupt::OwnedInterrupt;
+use crate::interrupt::Interrupt;
 
 pub trait PeripheralState {
-    type Interrupt: OwnedInterrupt;
+    type Interrupt: Interrupt;
     fn on_interrupt(&mut self);
 }
 

@@ -17,7 +17,7 @@ use crate::hal::gpio::Port as GpioPort;
 use crate::hal::pac;
 use crate::hal::prelude::*;
 use crate::hal::target_constants::EASY_DMA_SIZE;
-use crate::interrupt::OwnedInterrupt;
+use crate::interrupt::Interrupt;
 use crate::{interrupt, util};
 
 pub use crate::hal::uarte::Pins;
@@ -422,7 +422,7 @@ mod private {
 pub trait Instance:
     Deref<Target = pac::uarte0::RegisterBlock> + Sized + private::Sealed + 'static
 {
-    type Interrupt: OwnedInterrupt;
+    type Interrupt: Interrupt;
 
     #[doc(hidden)]
     fn state() -> &'static State;
@@ -434,7 +434,7 @@ static UARTE0_STATE: State = State {
 };
 impl private::Sealed for pac::UARTE0 {}
 impl Instance for pac::UARTE0 {
-    type Interrupt = interrupt::UARTE0_UART0Interrupt;
+    type Interrupt = interrupt::UARTE0_UART0;
 
     fn state() -> &'static State {
         &UARTE0_STATE
@@ -450,7 +450,7 @@ static UARTE1_STATE: State = State {
 impl private::Sealed for pac::UARTE1 {}
 #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
 impl Instance for pac::UARTE1 {
-    type Interrupt = interrupt::UARTE1Interrupt;
+    type Interrupt = interrupt::UARTE1;
 
     fn state() -> &'static State {
         &UARTE1_STATE

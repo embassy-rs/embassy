@@ -17,7 +17,7 @@ mod waker;
 
 use self::util::UninitCell;
 use crate::fmt::panic;
-use crate::interrupt::OwnedInterrupt;
+use crate::interrupt::Interrupt;
 use crate::time::Alarm;
 
 // repr(C) is needed to guarantee that the raw::Task is located at offset 0
@@ -215,13 +215,13 @@ fn pend_by_number(n: u16) {
     cortex_m::peripheral::NVIC::pend(N(n))
 }
 
-pub struct IrqExecutor<I: OwnedInterrupt> {
+pub struct IrqExecutor<I: Interrupt> {
     irq: I,
     inner: raw::Executor,
     not_send: PhantomData<*mut ()>,
 }
 
-impl<I: OwnedInterrupt> IrqExecutor<I> {
+impl<I: Interrupt> IrqExecutor<I> {
     pub fn new(irq: I) -> Self {
         let ctx = irq.number() as *mut ();
         Self {

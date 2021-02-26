@@ -68,7 +68,7 @@ use nrf52840_hal::clocks;
 use embassy::executor::{task, Executor, IrqExecutor};
 use embassy::time::{Duration, Instant, Timer};
 use embassy::util::Forever;
-use embassy_nrf::interrupt::OwnedInterrupt;
+use embassy_nrf::interrupt::Interrupt;
 use embassy_nrf::{interrupt, pac, rtc};
 
 #[task]
@@ -115,9 +115,9 @@ async fn run_low() {
 
 static RTC: Forever<rtc::RTC<pac::RTC1>> = Forever::new();
 static ALARM_HIGH: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
-static EXECUTOR_HIGH: Forever<IrqExecutor<interrupt::SWI1_EGU1Interrupt>> = Forever::new();
+static EXECUTOR_HIGH: Forever<IrqExecutor<interrupt::SWI1_EGU1>> = Forever::new();
 static ALARM_MED: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
-static EXECUTOR_MED: Forever<IrqExecutor<interrupt::SWI0_EGU0Interrupt>> = Forever::new();
+static EXECUTOR_MED: Forever<IrqExecutor<interrupt::SWI0_EGU0>> = Forever::new();
 static ALARM_LOW: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
 static EXECUTOR_LOW: Forever<Executor> = Forever::new();
 

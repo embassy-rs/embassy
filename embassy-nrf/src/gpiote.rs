@@ -9,7 +9,7 @@ use embassy::util::Signal;
 
 use crate::hal::gpio::{Input, Level, Output, Pin as GpioPin, Port};
 use crate::interrupt;
-use crate::interrupt::OwnedInterrupt;
+use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::pac::generic::Reg;
 use crate::pac::gpiote::_TASKS_OUT;
@@ -102,7 +102,7 @@ pub struct Channels {
 }
 
 impl Gpiote {
-    pub fn new(gpiote: GPIOTE, irq: interrupt::GPIOTEInterrupt) -> (Self, Channels) {
+    pub fn new(gpiote: GPIOTE, irq: interrupt::GPIOTE) -> (Self, Channels) {
         #[cfg(any(feature = "52833", feature = "52840"))]
         let ports = unsafe { &[&*pac::P0::ptr(), &*pac::P1::ptr()] };
         #[cfg(not(any(feature = "52833", feature = "52840")))]

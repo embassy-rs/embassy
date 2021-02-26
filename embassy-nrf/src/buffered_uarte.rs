@@ -16,7 +16,7 @@ use embedded_hal::digital::v2::OutputPin;
 
 use crate::hal::gpio::Port as GpioPort;
 use crate::hal::ppi::ConfigurablePpi;
-use crate::interrupt::{self, OwnedInterrupt};
+use crate::interrupt::{self, Interrupt};
 use crate::pac;
 use crate::util::peripheral::{PeripheralMutex, PeripheralState};
 use crate::util::ring_buffer::RingBuffer;
@@ -449,16 +449,16 @@ mod sealed {
 }
 
 pub trait Instance: Deref<Target = pac::uarte0::RegisterBlock> + sealed::Instance {
-    type Interrupt: OwnedInterrupt;
+    type Interrupt: Interrupt;
 }
 
 impl Instance for pac::UARTE0 {
-    type Interrupt = interrupt::UARTE0_UART0Interrupt;
+    type Interrupt = interrupt::UARTE0_UART0;
 }
 
 #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
 impl Instance for pac::UARTE1 {
-    type Interrupt = interrupt::UARTE1Interrupt;
+    type Interrupt = interrupt::UARTE1;
 }
 
 pub trait TimerInstance:

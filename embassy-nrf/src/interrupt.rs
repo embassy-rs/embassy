@@ -8,10 +8,8 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use crate::pac::NVIC_PRIO_BITS;
 
 // Re-exports
-pub use crate::pac::Interrupt;
-pub use crate::pac::Interrupt::*; // needed for cortex-m-rt #[interrupt]
 pub use cortex_m::interrupt::{CriticalSection, Mutex};
-pub use embassy::interrupt::{declare, take, OwnedInterrupt};
+pub use embassy::interrupt::{declare, take, Interrupt};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

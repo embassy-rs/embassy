@@ -2,7 +2,7 @@ use crate::fmt::{assert, assert_eq, *};
 use core::future::Future;
 
 use crate::hal::gpio::{Output, Pin as GpioPin, Port as GpioPort, PushPull};
-use crate::interrupt::{OwnedInterrupt, QSPIInterrupt};
+use crate::interrupt::{self, Interrupt};
 use crate::pac::QSPI;
 
 pub use crate::pac::qspi::ifconfig0::ADDRMODE_A as AddressMode;
@@ -58,7 +58,7 @@ fn port_bit(port: GpioPort) -> bool {
 }
 
 impl Qspi {
-    pub fn new(qspi: QSPI, irq: QSPIInterrupt, config: Config) -> Self {
+    pub fn new(qspi: QSPI, irq: interrupt::QSPI, config: Config) -> Self {
         qspi.psel.sck.write(|w| {
             let pin = &config.pins.sck;
             let w = unsafe { w.pin().bits(pin.pin()) };

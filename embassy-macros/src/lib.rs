@@ -114,17 +114,17 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
 pub fn interrupt_declare(item: TokenStream) -> TokenStream {
     let name = syn::parse_macro_input!(item as syn::Ident);
     let name = format_ident!("{}", name);
-    let name_interrupt = format_ident!("{}Interrupt", name);
+    let name_interrupt = format_ident!("{}", name);
     let name_handler = format!("__EMBASSY_{}_HANDLER", name);
 
     let result = quote! {
         #[allow(non_camel_case_types)]
         pub struct #name_interrupt(());
-        unsafe impl OwnedInterrupt for #name_interrupt {
-            type Priority = Priority;
+        unsafe impl Interrupt for #name_interrupt {
+            type Priority = crate::interrupt::Priority;
             fn number(&self) -> u16 {
                 use cortex_m::interrupt::InterruptNumber;
-                let irq = Interrupt::#name;
+                let irq = crate::pac::interrupt::#name;
                 irq.number() as u16
             }
             unsafe fn steal() -> Self {
@@ -144,7 +144,7 @@ pub fn interrupt_declare(item: TokenStream) -> TokenStream {
 pub fn interrupt_take(item: TokenStream) -> TokenStream {
     let name = syn::parse_macro_input!(item as syn::Ident);
     let name = format!("{}", name);
-    let name_interrupt = format_ident!("{}Interrupt", name);
+    let name_interrupt = format_ident!("{}", name);
     let name_handler = format!("__EMBASSY_{}_HANDLER", name);
 
     let result = quote! {
