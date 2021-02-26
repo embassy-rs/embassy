@@ -1,7 +1,6 @@
 use embassy::executor::{raw, Spawner};
 use embassy::time::TICKS_PER_SECOND;
 use embassy::time::{Alarm, Clock};
-use rand_core::{OsRng, RngCore};
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -16,13 +15,6 @@ impl Clock for StdClock {
         let dur = StdInstant::now().duration_since(zero);
         dur.as_secs() * (TICKS_PER_SECOND as u64)
             + (dur.subsec_nanos() as u64) * (TICKS_PER_SECOND as u64) / 1_000_000_000
-    }
-}
-
-struct StdRand;
-impl embassy::rand::Rand for StdRand {
-    fn rand(&self, buf: &mut [u8]) {
-        OsRng.fill_bytes(buf);
     }
 }
 
@@ -101,7 +93,6 @@ impl Executor {
         unsafe {
             CLOCK_ZERO.as_mut_ptr().write(StdInstant::now());
             embassy::time::set_clock(&StdClock);
-            embassy::rand::set_rand(&StdRand);
         }
 
         Self {

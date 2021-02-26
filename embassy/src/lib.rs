@@ -13,7 +13,6 @@ pub mod flash;
 pub mod gpio;
 pub mod interrupt;
 pub mod io;
-pub mod rand;
 pub mod time;
 pub mod uart;
 pub mod util;
