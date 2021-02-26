@@ -3,6 +3,7 @@
 #![feature(const_fn)]
 #![feature(const_fn_fn_ptr_basics)]
 #![feature(const_option)]
+#![allow(incomplete_features)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;

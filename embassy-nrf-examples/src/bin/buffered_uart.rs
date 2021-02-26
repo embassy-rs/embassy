@@ -40,7 +40,7 @@ async fn run() {
     let ppi = hal::ppi::Parts::new(p.PPI);
 
     let irq = interrupt::take!(UARTE0_UART0);
-    let mut u = buffered_uarte::BufferedUarte::new(
+    let u = buffered_uarte::BufferedUarte::new(
         p.UARTE0,
         p.TIMER0,
         ppi.ppi0,
