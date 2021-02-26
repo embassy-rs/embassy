@@ -93,7 +93,8 @@ impl<'a, I: Interrupt> Drop for InterruptFuture<'a, I> {
 impl<'a, I: Interrupt> InterruptFuture<'a, I> {
     pub fn new(interrupt: &'a mut I) -> Self {
         interrupt.disable();
-        interrupt.set_handler(Self::interrupt_handler, ptr::null_mut());
+        interrupt.set_handler(Self::interrupt_handler);
+        interrupt.set_handler_context(ptr::null_mut());
         interrupt.unpend();
         interrupt.enable();
 
@@ -121,8 +122,10 @@ impl<'a, I: Interrupt> Future for InterruptFuture<'a, I> {
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         let s = unsafe { self.get_unchecked_mut() };
-        let ctx = unsafe { executor::raw::task_from_waker(&cx.waker()).cast().as_ptr() };
-        s.interrupt.set_handler(Self::interrupt_handler, ctx);
+        s.interrupt.set_handler(Self::interrupt_handler);
+        s.interrupt.set_handler_context(unsafe {
+            executor::raw::task_from_waker(&cx.waker()).cast().as_ptr()
+        });
         if s.interrupt.is_enabled() {
             Poll::Pending
         } else {

@@ -146,7 +146,7 @@ impl Qspi {
         SIGNAL.reset();
         qspi.intenset.write(|w| w.ready().set());
 
-        irq.set_handler(irq_handler, core::ptr::null_mut());
+        irq.set_handler(irq_handler);
         irq.unpend();
         irq.enable();
 

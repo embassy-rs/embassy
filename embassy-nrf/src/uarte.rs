@@ -119,7 +119,7 @@ where
             .write(|w| w.endtx().set().txstopped().set().endrx().set().rxto().set());
 
         // Register ISR
-        irq.set_handler(Self::on_irq, core::ptr::null_mut());
+        irq.set_handler(Self::on_irq);
         irq.unpend();
         irq.enable();
 

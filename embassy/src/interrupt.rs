@@ -38,15 +38,19 @@ pub unsafe trait Interrupt {
     #[doc(hidden)]
     unsafe fn __handler(&self) -> &'static Handler;
 
-    fn set_handler(&self, func: unsafe fn(*mut ()), ctx: *mut ()) {
+    fn set_handler(&self, func: unsafe fn(*mut ())) {
         let handler = unsafe { self.__handler() };
         handler.func.store(func as *mut (), Ordering::Release);
-        handler.ctx.store(ctx, Ordering::Release);
     }
 
     fn remove_handler(&self) {
         let handler = unsafe { self.__handler() };
         handler.func.store(ptr::null_mut(), Ordering::Release);
+    }
+
+    fn set_handler_context(&self, ctx: *mut ()) {
+        let handler = unsafe { self.__handler() };
+        handler.ctx.store(ctx, Ordering::Release);
     }
 
     #[inline]

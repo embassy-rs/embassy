@@ -92,13 +92,11 @@ impl<T: Instance> RTC<T> {
         self.rtc.set_compare(0, 0x8000);
         self.rtc.set_compare_interrupt(0, true);
 
-        self.irq.set_handler(
-            |ptr| unsafe {
-                let this = &*(ptr as *const () as *const Self);
-                this.on_interrupt();
-            },
-            self as *const _ as *mut _,
-        );
+        self.irq.set_handler(|ptr| unsafe {
+            let this = &*(ptr as *const () as *const Self);
+            this.on_interrupt();
+        });
+        self.irq.set_handler_context(self as *const _ as *mut _);
         self.irq.unpend();
         self.irq.enable();
 

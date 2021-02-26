@@ -33,16 +33,14 @@ impl<S: PeripheralState> PeripheralMutex<S> {
         irq.disable();
         compiler_fence(Ordering::SeqCst);
 
-        irq.set_handler(
-            |p| {
-                // Safety: it's OK to get a &mut to the state, since
-                // - We're in the IRQ, no one else can't preempt us
-                // - We can't have preempted a with() call because the irq is disabled during it.
-                let state = unsafe { &mut *(p as *mut S) };
-                state.on_interrupt();
-            },
-            state.get() as *mut (),
-        );
+        irq.set_handler(|p| {
+            // Safety: it's OK to get a &mut to the state, since
+            // - We're in the IRQ, no one else can't preempt us
+            // - We can't have preempted a with() call because the irq is disabled during it.
+            let state = unsafe { &mut *(p as *mut S) };
+            state.on_interrupt();
+        });
+        irq.set_handler_context(state.get() as *mut ());
 
         // Safety: it's OK to get a &mut to the state, since the irq is disabled.
         let state = unsafe { &mut *state.get() };

@@ -109,13 +109,11 @@ impl<T: Instance> RTC<T> {
         // Wait for clear
         while self.rtc.counter.read().bits() != 0 {}
 
-        self.irq.set_handler(
-            |ptr| unsafe {
-                let this = &*(ptr as *const () as *const Self);
-                this.on_interrupt();
-            },
-            self as *const _ as *mut _,
-        );
+        self.irq.set_handler(|ptr| unsafe {
+            let this = &*(ptr as *const () as *const Self);
+            this.on_interrupt();
+        });
+        self.irq.set_handler_context(self as *const _ as *mut _);
         self.irq.unpend();
         self.irq.enable();
     }

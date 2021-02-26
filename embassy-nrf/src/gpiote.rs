@@ -118,7 +118,7 @@ impl Gpiote {
         // Enable interrupts
         gpiote.events_port.write(|w| w);
         gpiote.intenset.write(|w| w.port().set());
-        irq.set_handler(Self::on_irq, core::ptr::null_mut());
+        irq.set_handler(Self::on_irq);
         irq.unpend();
         irq.enable();
 

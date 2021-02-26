@@ -244,13 +244,11 @@ impl<I: Interrupt> IrqExecutor<I> {
 
         init(unsafe { self.inner.spawner() });
 
-        self.irq.set_handler(
-            |ctx| unsafe {
-                let executor = &*(ctx as *const raw::Executor);
-                executor.run_queued();
-            },
-            &self.inner as *const _ as _,
-        );
+        self.irq.set_handler(|ctx| unsafe {
+            let executor = &*(ctx as *const raw::Executor);
+            executor.run_queued();
+        });
+        self.irq.set_handler_context(&self.inner as *const _ as _);
         self.irq.enable();
     }
 }

@@ -70,9 +70,9 @@ impl Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> {
         let (usart, _) = serial.release();
 
         // Register ISR
-        tx_int.set_handler(Self::on_tx_irq, core::ptr::null_mut());
-        rx_int.set_handler(Self::on_rx_irq, core::ptr::null_mut());
-        usart_int.set_handler(Self::on_rx_irq, core::ptr::null_mut());
+        tx_int.set_handler(Self::on_tx_irq);
+        rx_int.set_handler(Self::on_rx_irq);
+        usart_int.set_handler(Self::on_rx_irq);
         // usart_int.unpend();
         // usart_int.enable();
 
