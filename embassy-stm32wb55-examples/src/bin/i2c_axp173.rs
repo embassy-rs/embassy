@@ -71,10 +71,12 @@ async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
     let _ = pull_ups.set_high();
 
     let scl = gpiob
-        .pb6.into_open_drain_output(&mut gpiob.moder, &mut gpiob.otyper);
+        .pb6
+        .into_open_drain_output(&mut gpiob.moder, &mut gpiob.otyper);
     let scl = scl.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
     let sda = gpiob
-        .pb7.into_open_drain_output(&mut gpiob.moder, &mut gpiob.otyper);
+        .pb7
+        .into_open_drain_output(&mut gpiob.moder, &mut gpiob.otyper);
     let sda = sda.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
     let i2c = I2c::i2c1(dp.I2C1, (scl, sda), 100.khz(), &mut rcc);
 

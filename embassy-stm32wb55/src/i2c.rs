@@ -13,7 +13,9 @@
 macro_rules! impl_async_i2c_dma {
     ($i2ci:ident, $I2Ci:ident, $dmaimpl:ident, $DMAi:ident, $Ci:ident, $Cint:path, $tcifi:ident, $ctcifi:ident, $teifi:ident, $cteifi:ident) => {
         pub mod $i2ci {
-            use async_embedded_traits::i2c::{AsyncI2cRead, AsyncI2cTransfer, AsyncI2cWrite, I2cAddress7Bit};
+            use async_embedded_traits::i2c::{
+                AsyncI2cRead, AsyncI2cTransfer, AsyncI2cWrite, I2cAddress7Bit,
+            };
             use core::convert::TryInto;
             use core::future::Future;
 
@@ -24,17 +26,17 @@ macro_rules! impl_async_i2c_dma {
             use crate::hal::pac::Peripherals;
             use crate::hal::{dma::$dmaimpl::$Ci, i2c::I2c, pac::$I2Ci};
 
-            pub struct AsyncI2c<I2C, PINS, I: Interrupt> {
+            pub struct AsyncI2c<I2C, SCL, SDA, I: Interrupt> {
                 buf: &'static [u8],
-                i2c: I2c<I2C, PINS>,
+                i2c: I2c<I2C, (SCL, SDA)>,
                 dma_int: I,
                 dma_ch: $Ci,
             }
 
-            impl<PINS> AsyncI2c<$I2Ci, PINS, $Cint> {
+            impl<SCL, SDA> AsyncI2c<$I2Ci, SCL, SDA, $Cint> {
                 pub fn new(
                     buf: &'static [u8],
-                    i2c: I2c<$I2Ci, PINS>,
+                    i2c: I2c<$I2Ci, (SCL, SDA)>,
                     dma_int: $Cint,
                     dma_ch: $Ci,
                 ) -> Self {
@@ -44,6 +46,10 @@ macro_rules! impl_async_i2c_dma {
                         dma_int,
                         dma_ch,
                     }
+                }
+
+                pub fn free(self) -> ($I2Ci, (SCL, SDA)) {
+                    self.i2c.free()
                 }
 
                 fn handle_dma_int() -> Result<(), ()> {
@@ -65,11 +71,11 @@ macro_rules! impl_async_i2c_dma {
                 async fn tx_helper(
                     &mut self,
                     dma_ch: $Ci,
-                    i2c: I2c<$I2Ci, PINS>,
+                    i2c: I2c<$I2Ci, (SCL, SDA)>,
                     address: u8,
                     data: &[u8],
                     autostop: bool,
-                ) -> Result<($Ci, I2c<$I2Ci, PINS>), ()> {
+                ) -> Result<($Ci, I2c<$I2Ci, (SCL, SDA)>), ()> {
                     // Make the static buffer mutable as per `embedded-dma` requirements (`DerefMut`).
                     // It's safe as long as the buffer isn't used until this future completes.
                     #[allow(mutable_transmutes)]
@@ -93,11 +99,11 @@ macro_rules! impl_async_i2c_dma {
                 async fn rx_helper(
                     &mut self,
                     dma_ch: $Ci,
-                    i2c: I2c<$I2Ci, PINS>,
+                    i2c: I2c<$I2Ci, (SCL, SDA)>,
                     address: u8,
                     rx_data: &mut [u8],
                     autostop: bool,
-                ) -> Result<($Ci, I2c<$I2Ci, PINS>), ()> {
+                ) -> Result<($Ci, I2c<$I2Ci, (SCL, SDA)>), ()> {
                     // Make the static buffer mutable as per `embedded-dma` requirements.
                     // It's safe as long as the buffer isn't used until this future completes.
                     #[allow(mutable_transmutes)]
@@ -117,7 +123,7 @@ macro_rules! impl_async_i2c_dma {
                 }
             }
 
-            impl<PINS> AsyncI2cWrite<I2cAddress7Bit> for AsyncI2c<$I2Ci, PINS, $Cint> {
+            impl<SCL, SDA> AsyncI2cWrite<I2cAddress7Bit> for AsyncI2c<$I2Ci, SCL, SDA, $Cint> {
                 type Error = ();
                 type WriteFuture<'f> = impl Future<Output = Result<(), ()>>;
 
@@ -146,7 +152,7 @@ macro_rules! impl_async_i2c_dma {
                 }
             }
 
-            impl<PINS> AsyncI2cRead<I2cAddress7Bit> for AsyncI2c<$I2Ci, PINS, $Cint> {
+            impl<SCL, SDA> AsyncI2cRead<I2cAddress7Bit> for AsyncI2c<$I2Ci, SCL, SDA, $Cint> {
                 type Error = ();
                 type ReadFuture<'f> = impl Future<Output = Result<(), ()>>;
 
@@ -174,7 +180,7 @@ macro_rules! impl_async_i2c_dma {
                 }
             }
 
-            impl<PINS> AsyncI2cTransfer<I2cAddress7Bit> for AsyncI2c<$I2Ci, PINS, $Cint> {
+            impl<SCL, SDA> AsyncI2cTransfer<I2cAddress7Bit> for AsyncI2c<$I2Ci, SCL, SDA, $Cint> {
                 type Error = ();
                 type TransferFuture<'f> = impl core::future::Future<Output = Result<(), ()>>;
 
