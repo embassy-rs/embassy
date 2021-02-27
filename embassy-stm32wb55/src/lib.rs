@@ -19,6 +19,8 @@ pub use stm32wb_hal::pac;
 pub(crate) mod fmt;
 
 pub mod ble;
+pub mod delay;
 pub mod i2c;
 pub mod interrupt;
+
 pub use cortex_m_rt::interrupt;
