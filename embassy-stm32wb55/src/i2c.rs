@@ -17,14 +17,14 @@ macro_rules! impl_async_i2c_dma {
             use core::convert::TryInto;
             use core::future::Future;
 
-            use embassy::interrupt::OwnedInterrupt;
+            use embassy::interrupt::Interrupt;
             use embassy::util::InterruptFuture;
 
             use crate::hal::dma::{ReadDma, WriteDma};
             use crate::hal::pac::Peripherals;
             use crate::hal::{dma::$dmaimpl::$Ci, i2c::I2c, pac::$I2Ci};
 
-            pub struct AsyncI2c<I2C, PINS, I: OwnedInterrupt> {
+            pub struct AsyncI2c<I2C, PINS, I: Interrupt> {
                 buf: &'static [u8],
                 i2c: I2c<I2C, PINS>,
                 dma_int: I,
@@ -221,7 +221,7 @@ impl_async_i2c_dma!(
     dma1impl,
     DMA1,
     C1,
-    crate::interrupt::DMA1_CHANNEL1Interrupt,
+    crate::interrupt::DMA1_CHANNEL1,
     tcif1,
     ctcif1,
     teif1,
@@ -234,7 +234,7 @@ impl_async_i2c_dma!(
     dma1impl,
     DMA1,
     C2,
-    crate::interrupt::DMA1_CHANNEL2Interrupt,
+    crate::interrupt::DMA1_CHANNEL2,
     tcif2,
     ctcif2,
     teif2,

@@ -1,4 +1,4 @@
-use crate::interrupt::{self, OwnedInterrupt};
+use crate::interrupt::{self, Interrupt};
 
 use bbqueue::{
     consts::{U32, U514},
@@ -66,16 +66,16 @@ impl From<nb::Error<BleTransportLayerError>> for BleError<BleTransportLayerError
 
 /// Defines BLE stack interactions. It should be instantiated only once.
 pub struct Ble {
-    rx_int: interrupt::IPCC_C1_RX_ITInterrupt,
-    tx_int: interrupt::IPCC_C1_TX_ITInterrupt,
+    rx_int: interrupt::IPCC_C1_RX_IT,
+    tx_int: interrupt::IPCC_C1_TX_IT,
     deferred_events: HeaplessEvtQueue,
 }
 
 impl Ble {
     /// Initializes the BLE stack and returns a status response from the BLE stack.
     pub async fn init(
-        rx_int: interrupt::IPCC_C1_RX_ITInterrupt,
-        tx_int: interrupt::IPCC_C1_TX_ITInterrupt,
+        rx_int: interrupt::IPCC_C1_RX_IT,
+        tx_int: interrupt::IPCC_C1_TX_IT,
         ble_config: ShciBleInitCmdParam,
         mbox: TlMbox,
         ipcc: Ipcc,
@@ -84,8 +84,10 @@ impl Ble {
         STATE.rx_int.reset();
 
         // Register ISRs
-        tx_int.set_handler(Self::on_tx_irq, core::ptr::null_mut());
-        rx_int.set_handler(Self::on_rx_irq, core::ptr::null_mut());
+        tx_int.set_handler(Self::on_tx_irq);
+        rx_int.set_handler_context(core::ptr::null_mut());
+        rx_int.set_handler(Self::on_rx_irq);
+        rx_int.set_handler_context(core::ptr::null_mut());
 
         let (producer, consumer) = BB.try_split().unwrap();
         let mut rc = RadioCoprocessor::new(producer, consumer, mbox, ipcc, ble_config);
