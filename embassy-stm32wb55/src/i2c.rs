@@ -24,7 +24,7 @@ macro_rules! impl_async_i2c_dma {
 
             use crate::hal::dma::{ReadDma, WriteDma};
             use crate::hal::pac::Peripherals;
-            use crate::hal::{dma::$dmaimpl::$Ci, i2c::I2c, pac::$I2Ci};
+            use crate::hal::{dma::$dmaimpl::$Ci, i2c::{I2c, Error as I2cError}, pac::$I2Ci};
 
             pub struct AsyncI2c<I2C, SCL, SDA, I: Interrupt> {
                 buf: &'static [u8],
@@ -52,7 +52,7 @@ macro_rules! impl_async_i2c_dma {
                     self.i2c.free()
                 }
 
-                fn handle_dma_int() -> Result<(), ()> {
+                fn handle_dma_int() -> Result<(), I2cError> {
                     let dma = unsafe { Peripherals::steal().$DMAi };
                     let tc_flag = dma.isr.read().$tcifi().bit();
                     if tc_flag {
@@ -62,7 +62,7 @@ macro_rules! impl_async_i2c_dma {
                     let te_flag = dma.isr.read().$teifi().bit();
                     if te_flag {
                         dma.ifcr.write(|w| w.$cteifi().set_bit());
-                        return Err(());
+                        return Err(I2cError::Bus);
                     }
 
                     Ok(())
@@ -75,7 +75,7 @@ macro_rules! impl_async_i2c_dma {
                     address: u8,
                     data: &[u8],
                     autostop: bool,
-                ) -> Result<($Ci, I2c<$I2Ci, (SCL, SDA)>), ()> {
+                ) -> Result<($Ci, I2c<$I2Ci, (SCL, SDA)>), I2cError> {
                     // Make the static buffer mutable as per `embedded-dma` requirements (`DerefMut`).
                     // It's safe as long as the buffer isn't used until this future completes.
                     #[allow(mutable_transmutes)]
@@ -103,7 +103,7 @@ macro_rules! impl_async_i2c_dma {
                     address: u8,
                     rx_data: &mut [u8],
                     autostop: bool,
-                ) -> Result<($Ci, I2c<$I2Ci, (SCL, SDA)>), ()> {
+                ) -> Result<($Ci, I2c<$I2Ci, (SCL, SDA)>), I2cError> {
                     // Make the static buffer mutable as per `embedded-dma` requirements.
                     // It's safe as long as the buffer isn't used until this future completes.
                     #[allow(mutable_transmutes)]
@@ -124,8 +124,8 @@ macro_rules! impl_async_i2c_dma {
             }
 
             impl<SCL, SDA> AsyncI2cWrite<I2cAddress7Bit> for AsyncI2c<$I2Ci, SCL, SDA, $Cint> {
-                type Error = ();
-                type WriteFuture<'f> = impl Future<Output = Result<(), ()>>;
+                type Error = I2cError;
+                type WriteFuture<'f> = impl Future<Output = Result<(), Self::Error>>;
 
                 /// Writes `data.len()` bytes into I2C slave device with specific `address`.
                 ///
@@ -153,8 +153,8 @@ macro_rules! impl_async_i2c_dma {
             }
 
             impl<SCL, SDA> AsyncI2cRead<I2cAddress7Bit> for AsyncI2c<$I2Ci, SCL, SDA, $Cint> {
-                type Error = ();
-                type ReadFuture<'f> = impl Future<Output = Result<(), ()>>;
+                type Error = I2cError;
+                type ReadFuture<'f> = impl Future<Output = Result<(), Self::Error>>;
 
                 /// Reads `data.len()` bytes from I2C slave device with specific `address`.
                 ///
@@ -181,8 +181,8 @@ macro_rules! impl_async_i2c_dma {
             }
 
             impl<SCL, SDA> AsyncI2cTransfer<I2cAddress7Bit> for AsyncI2c<$I2Ci, SCL, SDA, $Cint> {
-                type Error = ();
-                type TransferFuture<'f> = impl core::future::Future<Output = Result<(), ()>>;
+                type Error = I2cError;
+                type TransferFuture<'f> = impl core::future::Future<Output = Result<(), Self::Error>>;
 
                 /// 1. The same steps 1 to 4 from `AsyncI2cWrite` are made, and then
                 /// 2. A slice of `rx_data.len()` is made from the static buffer
