@@ -146,48 +146,48 @@ async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
     }
 
     let vbus = axp173.vbus_voltage().await.unwrap();
-    defmt::info!("VBUS: {:f32}", vbus.as_volts());
+    defmt::info!("VBUS: {}", vbus.as_volts());
 
     let vbus = axp173.vbus_current().await.unwrap();
-    defmt::info!("VBUS current: {:f32} mA", vbus.as_milliamps());
+    defmt::info!("VBUS current: {} mA", vbus.as_milliamps());
 
     let batt = axp173.batt_voltage().await.unwrap();
-    defmt::info!("Batt: {:f32} V", batt.as_volts());
+    defmt::info!("Batt: {} V", batt.as_volts());
 
     let batt_charge = axp173.batt_charge_current().await.unwrap();
     let batt_discharge = axp173.batt_discharge_current().await.unwrap();
     defmt::info!(
-        "Batt: ^ {:f32} mA | v {:f32} mA",
+        "Batt: ^ {} mA | v {} mA",
         batt_charge.as_milliamps(),
         batt_discharge.as_milliamps()
     );
 
     defmt::info!(
-        "Charge coulombs: {:?}",
+        "Charge coulombs: {}",
         axp173.read_charge_coulomb_counter().await.unwrap()
     );
     defmt::info!(
-        "Discharge coulombs: {:?}",
+        "Discharge coulombs: {}",
         axp173.read_discharge_coulomb_counter().await.unwrap()
     );
 
     let ldo = axp173.read_ldo(LdoKind::LDO2).await.unwrap();
     defmt::info!(
-        "LDO2: enabled: {:bool}, voltage: {:f32} V",
+        "LDO2: enabled: {}, voltage: {} V",
         ldo.enabled(),
         ldo.voltage().0 as f32 / 1000.0,
     );
 
     let ldo = axp173.read_ldo(LdoKind::LDO3).await.unwrap();
     defmt::info!(
-        "LDO3: enabled: {:bool}, voltage: {:f32} V",
+        "LDO3: enabled: {}, voltage: {} V",
         ldo.enabled(),
         ldo.voltage().0 as f32 / 1000.0,
     );
 
     let ldo = axp173.read_ldo(LdoKind::LDO4).await.unwrap();
     defmt::info!(
-        "LDO4: enabled: {:bool}, voltage: {:f32} V",
+        "LDO4: enabled: {}, voltage: {} V",
         ldo.enabled(),
         ldo.voltage().0 as f32 / 1000.0,
     );
