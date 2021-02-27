@@ -24,7 +24,11 @@ macro_rules! impl_async_i2c_dma {
 
             use crate::hal::dma::{ReadDma, WriteDma};
             use crate::hal::pac::Peripherals;
-            use crate::hal::{dma::$dmaimpl::$Ci, i2c::{I2c, Error as I2cError}, pac::$I2Ci};
+            use crate::hal::{
+                dma::$dmaimpl::$Ci,
+                i2c::{Error as I2cError, I2c},
+                pac::$I2Ci,
+            };
 
             pub struct AsyncI2c<I2C, SCL, SDA, I: Interrupt> {
                 buf: &'static [u8],
@@ -182,7 +186,8 @@ macro_rules! impl_async_i2c_dma {
 
             impl<SCL, SDA> AsyncI2cTransfer<I2cAddress7Bit> for AsyncI2c<$I2Ci, SCL, SDA, $Cint> {
                 type Error = I2cError;
-                type TransferFuture<'f> = impl core::future::Future<Output = Result<(), Self::Error>>;
+                type TransferFuture<'f> =
+                    impl core::future::Future<Output = Result<(), Self::Error>>;
 
                 /// 1. The same steps 1 to 4 from `AsyncI2cWrite` are made, and then
                 /// 2. A slice of `rx_data.len()` is made from the static buffer

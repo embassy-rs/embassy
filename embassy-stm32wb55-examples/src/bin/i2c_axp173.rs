@@ -18,6 +18,7 @@ use embassy_stm32wb55::i2c::i2c1::AsyncI2c as AsyncI2c1;
 use embassy_stm32wb55::interrupt;
 
 use axp173::*;
+
 use stm32wb_hal::dma::DmaExt;
 use stm32wb_hal::flash::FlashExt;
 use stm32wb_hal::prelude::*;
