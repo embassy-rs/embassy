@@ -1,6 +1,7 @@
 #![no_std]
 #![feature(asm)]
 #![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
 #![feature(generic_associated_types)]
 
 #[cfg(not(any(feature = "55",)))]
