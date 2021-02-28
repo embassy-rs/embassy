@@ -8,7 +8,7 @@ use core::future::Future;
 use core::ptr;
 use core::sync::atomic::{self, Ordering};
 
-use embassy::interrupt::Interrupt;
+use embassy::interrupt::InterruptExt;
 use embassy::uart::{Error, Uart};
 use embassy::util::Signal;
 
@@ -19,9 +19,7 @@ use crate::hal::rcc::Clocks;
 use crate::hal::serial::config::{Config as SerialConfig, DmaConfig as SerialDmaConfig};
 use crate::hal::serial::Pins;
 use crate::hal::serial::{Event as SerialEvent, Serial as HalSerial};
-
 use crate::interrupt;
-
 use crate::pac::{DMA2, USART1};
 
 /// Interface to the Serial peripheral

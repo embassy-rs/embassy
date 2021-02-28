@@ -66,9 +66,9 @@ use defmt::panic;
 use nrf52840_hal::clocks;
 
 use embassy::executor::{task, Executor, IrqExecutor};
+use embassy::interrupt::InterruptExt;
 use embassy::time::{Duration, Instant, Timer};
 use embassy::util::Forever;
-use embassy_nrf::interrupt::Interrupt;
 use embassy_nrf::{interrupt, pac, rtc};
 
 #[task]

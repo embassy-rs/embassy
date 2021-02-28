@@ -37,7 +37,24 @@ pub unsafe trait Interrupt {
     /// Implementation detail, do not use outside embassy crates.
     #[doc(hidden)]
     unsafe fn __handler(&self) -> &'static Handler;
+}
 
+pub trait InterruptExt: Interrupt {
+    fn set_handler(&self, func: unsafe fn(*mut ()));
+    fn remove_handler(&self);
+    fn set_handler_context(&self, ctx: *mut ());
+    fn enable(&self);
+    fn disable(&self);
+    fn is_active(&self) -> bool;
+    fn is_enabled(&self) -> bool;
+    fn is_pending(&self) -> bool;
+    fn pend(&self);
+    fn unpend(&self);
+    fn get_priority(&self) -> Self::Priority;
+    fn set_priority(&self, prio: Self::Priority);
+}
+
+impl<T: Interrupt + ?Sized> InterruptExt for T {
     fn set_handler(&self, func: unsafe fn(*mut ())) {
         let handler = unsafe { self.__handler() };
         handler.func.store(func as *mut (), Ordering::Release);

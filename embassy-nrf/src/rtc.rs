@@ -2,6 +2,7 @@ use core::cell::Cell;
 use core::ops::Deref;
 use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 
+use embassy::interrupt::InterruptExt;
 use embassy::time::Clock;
 
 use crate::interrupt;
