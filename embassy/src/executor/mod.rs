@@ -17,7 +17,7 @@ mod waker;
 
 use self::util::UninitCell;
 use crate::fmt::panic;
-use crate::interrupt::Interrupt;
+use crate::interrupt::{Interrupt, InterruptExt};
 use crate::time::Alarm;
 
 // repr(C) is needed to guarantee that the raw::Task is located at offset 0

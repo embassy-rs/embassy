@@ -5,11 +5,11 @@ use core::pin::Pin;
 use core::ptr;
 use core::task::{Context, Poll};
 use embassy::gpio::{WaitForHigh, WaitForLow};
+use embassy::interrupt::InterruptExt;
 use embassy::util::Signal;
 
 use crate::hal::gpio::{Input, Level, Output, Pin as GpioPin, Port};
 use crate::interrupt;
-use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::pac::generic::Reg;
 use crate::pac::gpiote::_TASKS_OUT;

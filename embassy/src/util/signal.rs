@@ -1,6 +1,3 @@
-use crate::executor;
-use crate::fmt::panic;
-use crate::interrupt::Interrupt;
 use core::cell::UnsafeCell;
 use core::future::Future;
 use core::mem;
@@ -8,6 +5,10 @@ use core::ptr;
 use core::task::{Context, Poll, Waker};
 use cortex_m::peripheral::NVIC;
 use cortex_m::peripheral::{scb, SCB};
+
+use crate::executor;
+use crate::fmt::panic;
+use crate::interrupt::{Interrupt, InterruptExt};
 
 pub struct Signal<T> {
     state: UnsafeCell<State<T>>,

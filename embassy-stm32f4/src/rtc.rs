@@ -1,10 +1,11 @@
 use core::cell::Cell;
 use core::convert::TryInto;
 use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
-
-use embassy::time::{Clock, TICKS_PER_SECOND};
 use stm32f4xx_hal::bb;
 use stm32f4xx_hal::rcc::Clocks;
+
+use embassy::interrupt::InterruptExt;
+use embassy::time::{Clock, TICKS_PER_SECOND};
 
 use crate::interrupt;
 use crate::interrupt::{CriticalSection, Interrupt, Mutex};

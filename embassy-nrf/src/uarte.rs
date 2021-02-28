@@ -9,6 +9,7 @@ use core::ops::Deref;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
+use embassy::interrupt::InterruptExt;
 use embassy::util::Signal;
 
 use crate::fmt::{assert, *};
