@@ -8,6 +8,7 @@ use example_common::*;
 
 use cortex_m_rt::entry;
 use defmt::{assert_eq, panic};
+use futures::pin_mut;
 use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
@@ -69,22 +70,32 @@ async fn run() {
     };
 
     let irq = interrupt::take!(QSPI);
-    let mut q = qspi::Qspi::new(p.QSPI, irq, config);
+    let q = qspi::Qspi::new(p.QSPI, irq, config);
+    pin_mut!(q);
 
     let mut id = [1; 3];
-    q.custom_instruction(0x9F, &[], &mut id).await.unwrap();
+    q.as_mut()
+        .custom_instruction(0x9F, &[], &mut id)
+        .await
+        .unwrap();
     info!("id: {}", id);
 
     // Read status register
     let mut status = [0; 1];
-    q.custom_instruction(0x05, &[], &mut status).await.unwrap();
+    q.as_mut()
+        .custom_instruction(0x05, &[], &mut status)
+        .await
+        .unwrap();
 
     info!("status: {:?}", status[0]);
 
     if status[0] & 0x40 == 0 {
         status[0] |= 0x40;
 
-        q.custom_instruction(0x01, &status, &mut []).await.unwrap();
+        q.as_mut()
+            .custom_instruction(0x01, &status, &mut [])
+            .await
+            .unwrap();
 
         info!("enabled quad in status");
     }
@@ -95,19 +106,19 @@ async fn run() {
 
     for i in 0..8 {
         info!("page {:?}: erasing... ", i);
-        q.erase(i * PAGE_SIZE).await.unwrap();
+        q.as_mut().erase(i * PAGE_SIZE).await.unwrap();
 
         for j in 0..PAGE_SIZE {
             buf.0[j] = pattern((j + i * PAGE_SIZE) as u32);
         }
 
         info!("programming...");
-        q.write(i * PAGE_SIZE, &buf.0).await.unwrap();
+        q.as_mut().write(i * PAGE_SIZE, &buf.0).await.unwrap();
     }
 
     for i in 0..8 {
         info!("page {:?}: reading... ", i);
-        q.read(i * PAGE_SIZE, &mut buf.0).await.unwrap();
+        q.as_mut().read(i * PAGE_SIZE, &mut buf.0).await.unwrap();
 
         info!("verifying...");
         for j in 0..PAGE_SIZE {
