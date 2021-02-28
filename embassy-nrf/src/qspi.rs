@@ -1,11 +1,10 @@
 use core::future::Future;
 use core::pin::Pin;
-use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use crate::fmt::{assert, assert_eq, *};
 use crate::hal::gpio::{Output, Pin as GpioPin, Port as GpioPort, PushPull};
-use crate::interrupt::{self, Interrupt};
+use crate::interrupt::{self};
 use crate::pac::QSPI;
 
 pub use crate::pac::qspi::ifconfig0::ADDRMODE_A as AddressMode;
@@ -258,7 +257,7 @@ impl Qspi {
 
     fn wait_ready<'a>(mut self: Pin<&'a mut Self>) -> impl Future<Output = ()> + 'a {
         poll_fn(move |cx| {
-            self.as_mut().inner().with(|s, irq| {
+            self.as_mut().inner().with(|s, _irq| {
                 if s.inner.events_ready.read().bits() != 0 {
                     return Poll::Ready(());
                 }

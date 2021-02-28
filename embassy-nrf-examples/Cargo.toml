@@ -17,8 +17,8 @@ defmt-error = []
 
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../embassy", features = ["defmt"] }
-embassy-nrf = { version = "0.1.0", path = "../embassy-nrf", features = ["defmt", "52840"] }
+embassy = { version = "0.1.0", path = "../embassy", features = ["defmt", "defmt-trace"] }
+embassy-nrf = { version = "0.1.0", path = "../embassy-nrf", features = ["defmt", "defmt-trace", "52840"] }
 
 defmt = "0.2.0"
 defmt-rtt = "0.2.0"

@@ -1,4 +1,3 @@
-use core::array::IntoIter;
 use core::cell::UnsafeCell;
 use core::marker::{PhantomData, PhantomPinned};
 use core::mem::MaybeUninit;
