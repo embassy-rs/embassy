@@ -2,6 +2,8 @@
 
 set -euxo pipefail
 
+export RUSTFLAGS="-D warnings"
+
 # embassy std
 (cd embassy-std-examples; cargo build)
 
