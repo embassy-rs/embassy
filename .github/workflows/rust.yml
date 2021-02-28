@@ -19,6 +19,7 @@ jobs:
         with:
           toolchain: nightly
           target: thumbv7em-none-eabi
+          components: rust-src
           override: true
       - name: Build
         run: ./test-build.sh
