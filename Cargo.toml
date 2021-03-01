@@ -2,6 +2,7 @@
 [workspace]
 members = [
     "embassy",
+    "embassy-traits",
     "embassy-nrf",
     "embassy-stm32f4",
     "embassy-nrf-examples",

@@ -5,13 +5,6 @@
 #![feature(const_option)]
 #![allow(incomplete_features)]
 
-// This mod MUST go first, so that the others see its macros.
-pub(crate) mod fmt;
-
-pub mod executor;
-pub mod interrupt;
-pub mod io;
-pub mod time;
-pub mod util;
-
-pub use embassy_traits as traits;
+pub mod flash;
+pub mod gpio;
+pub mod uart;

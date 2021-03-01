@@ -9,7 +9,7 @@ use core::ptr;
 use core::sync::atomic::{self, Ordering};
 
 use embassy::interrupt::InterruptExt;
-use embassy::uart::{Error, Uart};
+use embassy::traits::uart::{Error, Uart};
 use embassy::util::Signal;
 
 use crate::hal::dma::config::DmaConfig;

@@ -12,7 +12,7 @@ use futures::pin_mut;
 use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
-use embassy::flash::Flash;
+use embassy::traits::flash::Flash;
 use embassy::util::Forever;
 use embassy_nrf::{interrupt, qspi};
 
