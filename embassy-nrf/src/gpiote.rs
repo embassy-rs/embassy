@@ -4,7 +4,7 @@ use core::ops::Deref;
 use core::pin::Pin;
 use core::ptr;
 use core::task::{Context, Poll};
-use embassy::gpio::{WaitForHigh, WaitForLow};
+use embassy::traits::gpio::{WaitForHigh, WaitForLow};
 use embassy::interrupt::InterruptExt;
 use embassy::util::Signal;
 

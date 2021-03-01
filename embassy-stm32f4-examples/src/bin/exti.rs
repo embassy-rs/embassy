@@ -9,7 +9,7 @@ use example_common::{panic, *};
 
 use cortex_m_rt::entry;
 use embassy::executor::{task, Executor};
-use embassy::gpio::*;
+use embassy::traits::gpio::*;
 use embassy::util::Forever;
 use embassy_stm32f4::exti;
 use embassy_stm32f4::interrupt;

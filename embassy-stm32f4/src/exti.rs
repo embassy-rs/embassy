@@ -2,8 +2,8 @@ use core::future::Future;
 use core::mem;
 use core::pin::Pin;
 
-use embassy::gpio::{WaitForFallingEdge, WaitForRisingEdge};
 use embassy::interrupt::Interrupt;
+use embassy::traits::gpio::{WaitForFallingEdge, WaitForRisingEdge};
 use embassy::util::InterruptFuture;
 
 use crate::hal::gpio;

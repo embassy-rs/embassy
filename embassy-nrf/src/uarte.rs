@@ -207,7 +207,7 @@ where
     }
 }
 
-impl<T: Instance> embassy::uart::Uart for Uarte<T> {
+impl<T: Instance> embassy::traits::uart::Uart for Uarte<T> {
     type ReceiveFuture<'a> = ReceiveFuture<'a, T>;
     type SendFuture<'a> = SendFuture<'a, T>;
 
@@ -287,7 +287,7 @@ impl<'a, T> Future for SendFuture<'a, T>
 where
     T: Instance,
 {
-    type Output = Result<(), embassy::uart::Error>;
+    type Output = Result<(), embassy::traits::uart::Error>;
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let Self { uarte, buf } = unsafe { self.get_unchecked_mut() };
@@ -355,7 +355,7 @@ impl<'a, T> Future for ReceiveFuture<'a, T>
 where
     T: Instance,
 {
-    type Output = Result<(), embassy::uart::Error>;
+    type Output = Result<(), embassy::traits::uart::Error>;
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let Self { uarte, buf } = unsafe { self.get_unchecked_mut() };

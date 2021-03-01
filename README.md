@@ -7,7 +7,7 @@ Embassy is a project to make async/await a first-class option for embedded devel
 `embassy` provides a set of traits and types specifically designed for `async` usage.
 
 - `embassy::io`: `AsyncBufRead`, `AsyncWrite`. Traits for byte-stream IO, essentially `no_std` compatible versions of `futures::io`.
-- `embassy::flash`: Flash device trait.
+- `embassy::traits::flash`: Flash device trait.
 - `embassy::time`: `Clock` and `Alarm` traits. Std-like `Duration` and `Instant`.
 - More traits for SPI, I2C, UART async HAL coming soon.
 

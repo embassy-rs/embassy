@@ -10,7 +10,7 @@ use example_common::{panic, *};
 use cortex_m::singleton;
 use cortex_m_rt::entry;
 use embassy::executor::{task, Executor};
-use embassy::uart::Uart;
+use embassy::traits::uart::Uart;
 use embassy::util::Forever;
 use embassy_stm32f4::interrupt;
 use embassy_stm32f4::serial;

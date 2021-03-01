@@ -23,7 +23,7 @@ use crate::util::peripheral::{PeripheralMutex, PeripheralState};
 // - activate/deactivate
 // - set gpio in high drive
 
-use embassy::flash::{Error, Flash};
+use embassy::traits::flash::{Error, Flash};
 use embassy::util::{DropBomb, WakerRegistration};
 use futures::future::poll_fn;
 

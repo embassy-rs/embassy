@@ -12,7 +12,7 @@ use defmt::panic;
 use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
-use embassy::gpio::{WaitForHigh, WaitForLow};
+use embassy::traits::gpio::{WaitForHigh, WaitForLow};
 use embassy::util::Forever;
 use embassy_nrf::gpiote::{Gpiote, GpiotePin};
 use embassy_nrf::interrupt;

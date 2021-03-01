@@ -10,7 +10,7 @@ use cortex_m_rt::entry;
 use defmt::panic;
 use embassy::executor::{task, Executor};
 use embassy::time::{Duration, Timer};
-use embassy::uart::Uart;
+use embassy::traits::uart::Uart;
 use embassy::util::Forever;
 use embassy_nrf::{interrupt, pac, rtc, uarte};
 use futures::future::{select, Either};
