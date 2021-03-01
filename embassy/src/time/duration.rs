@@ -38,6 +38,15 @@ impl Duration {
         }
     }
 
+    /*
+        NOTE: us delays may not be as accurate
+    */
+    pub const fn from_us(millis: u64) -> Duration {
+        Duration {
+            ticks: millis * TICKS_PER_SECOND / 1_000_000,
+        }
+    }
+
     pub fn checked_add(self, rhs: Duration) -> Option<Duration> {
         self.ticks
             .checked_add(rhs.ticks)
