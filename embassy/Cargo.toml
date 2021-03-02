@@ -6,12 +6,12 @@ edition = "2018"
 
 [features]
 std = ["futures/std", "embassy-traits/std"]
-defmt = ["embassy-traits/defmt", "dep:defmt"]
-defmt-trace = ["embassy-traits/defmt-trace"]
-defmt-debug = ["embassy-traits/defmt-debug"]
-defmt-info = ["embassy-traits/defmt-info"]
-defmt-warn = ["embassy-traits/defmt-warn"]
-defmt-error = ["embassy-traits/defmt-error"]
+
+defmt-trace = []
+defmt-debug = []
+defmt-info = []
+defmt-warn = []
+defmt-error = []
 
 [dependencies]
 defmt = { version = "0.2.0", optional = true }

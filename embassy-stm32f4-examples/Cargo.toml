@@ -18,6 +18,7 @@ defmt-error = []
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy", features = ["defmt", "defmt-trace"] }
+embassy-traits = { version = "0.1.0", path = "../embassy-traits", features = ["defmt"] }
 embassy-stm32f4 = { version = "*", path = "../embassy-stm32f4", features = ["stm32f401"] }
 
 defmt = "0.2.0"

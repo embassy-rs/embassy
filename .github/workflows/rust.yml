@@ -22,4 +22,4 @@ jobs:
           components: rust-src
           override: true
       - name: Build
-        run: ./test-build.sh
+        run: ./ci.sh
