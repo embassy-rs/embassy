@@ -5,6 +5,7 @@
 #![feature(const_option)]
 #![allow(incomplete_features)]
 
+pub mod delay;
 pub mod flash;
 pub mod gpio;
 pub mod uart;
