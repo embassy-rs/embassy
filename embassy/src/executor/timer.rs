@@ -1,10 +1,34 @@
 use core::future::Future;
+use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use futures::Stream;
 
 use super::raw;
 use crate::time::{Duration, Instant};
+
+pub struct Delay {
+    _data: PhantomData<bool>,
+}
+
+impl Delay {
+    pub fn new() -> Self {
+        Delay {
+            _data: PhantomData {},
+        }
+    }
+}
+
+impl crate::traits::delay::Delay for Delay {
+    type DelayFuture<'a> = impl Future<Output = ()> + 'a;
+
+    fn delay_ms<'a>(self: Pin<&'a mut Self>, millis: u64) -> Self::DelayFuture<'a> {
+        Timer::after(Duration::from_millis(millis))
+    }
+    fn delay_us<'a>(self: Pin<&'a mut Self>, micros: u64) -> Self::DelayFuture<'a> {
+        Timer::after(Duration::from_micros(micros))
+    }
+}
 
 pub struct Timer {
     expires_at: Instant,
