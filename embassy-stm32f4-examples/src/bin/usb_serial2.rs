@@ -11,7 +11,7 @@ use defmt::panic;
 use embassy::executor::{task, Executor};
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy::util::Forever;
-use embassy_stm32f4::interrupt::OwnedInterrupt;
+use embassy_stm32f4::interrupt::InterruptExt;
 use embassy_stm32f4::usb::Usb;
 use embassy_stm32f4::usb_serial::UsbSerial;
 use embassy_stm32f4::{interrupt, pac};

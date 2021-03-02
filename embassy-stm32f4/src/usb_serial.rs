@@ -11,8 +11,8 @@ use usb_device::UsbError;
 
 use crate::cdc_acm::CdcAcmClass;
 use crate::usb::{ClassSet, SerialState, State};
-use crate::util::peripheral::PeripheralMutex;
-use crate::util::ring_buffer::RingBuffer;
+use embassy_extras::peripheral::PeripheralMutex;
+use embassy_extras::ring_buffer::RingBuffer;
 
 pub struct ReadInterface<'a, 'bus, 'c, I, B, T>
 where

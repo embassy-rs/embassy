@@ -8,7 +8,7 @@ use usb_device::device::UsbDevice;
 
 use crate::interrupt;
 use crate::usb_serial::{ReadInterface, UsbSerial, WriteInterface};
-use crate::util::peripheral::{PeripheralMutex, PeripheralState};
+use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
 
 pub struct State<'bus, B, T>
 where
@@ -36,7 +36,7 @@ where
     pub fn new<S: IntoClassSet<B, T>>(
         device: UsbDevice<'bus, B>,
         class_set: S,
-        irq: interrupt::OTG_FSInterrupt,
+        irq: interrupt::OTG_FS,
     ) -> Self {
         let state = State {
             device,
@@ -54,7 +54,7 @@ where
         let mutex = unsafe { Pin::new_unchecked(&mut *mutex) };
 
         // Use inner to register the irq
-        mutex.with(|_, _| {});
+        mutex.register_interrupt();
     }
 }
 
@@ -119,7 +119,7 @@ where
     B: UsbBus,
     T: ClassSet<B>,
 {
-    type Interrupt = interrupt::OTG_FSInterrupt;
+    type Interrupt = interrupt::OTG_FS;
     fn on_interrupt(&mut self) {
         self.classes.poll_all(&mut self.device);
     }

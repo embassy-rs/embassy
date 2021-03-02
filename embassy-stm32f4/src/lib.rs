@@ -318,7 +318,6 @@ pub mod rtc;
 pub mod serial;
 pub mod usb;
 pub mod usb_serial;
-pub mod util;
 
 pub(crate) mod cdc_acm;
 

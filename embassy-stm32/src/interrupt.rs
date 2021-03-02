@@ -9,7 +9,7 @@ use crate::pac::NVIC_PRIO_BITS;
 
 // Re-exports
 pub use cortex_m::interrupt::{CriticalSection, Mutex};
-pub use embassy::interrupt::{declare, take, Interrupt};
+pub use embassy::interrupt::{declare, take, Interrupt, InterruptExt};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
