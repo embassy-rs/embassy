@@ -1,11 +1,11 @@
 use async_io::Async;
 use embassy::util::WakerRegistration;
 use libc;
+use log::*;
 use smoltcp::wire::EthernetFrame;
 use std::io;
 use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
-use log::*;
 
 pub const SIOCGIFMTU: libc::c_ulong = 0x8921;
 pub const SIOCGIFINDEX: libc::c_ulong = 0x8933;
@@ -142,8 +142,8 @@ impl TunTapDevice {
     }
 }
 
-use embassy_net::{LinkState, DeviceCapabilities, Packet, PacketBox, PacketBuf};
 use core::task::Waker;
+use embassy_net::{DeviceCapabilities, LinkState, Packet, PacketBox, PacketBuf};
 
 impl crate::Device for TunTapDevice {
     fn is_transmit_ready(&mut self) -> bool {
@@ -196,5 +196,9 @@ impl crate::Device for TunTapDevice {
 
     fn link_state(&mut self) -> LinkState {
         LinkState::Up
+    }
+
+    fn ethernet_address(&mut self) -> [u8; 6] {
+        [0x02, 0x03, 0x04, 0x05, 0x06, 0x07]
     }
 }

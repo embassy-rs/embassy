@@ -1,11 +1,11 @@
-use core::task::{Poll, Waker};
+use core::task::Waker;
 use smoltcp::phy::Device as SmolDevice;
 use smoltcp::phy::DeviceCapabilities;
 use smoltcp::time::Instant as SmolInstant;
 
 use crate::fmt::*;
-use crate::{Packet, PacketBox, PacketBuf};
 use crate::Result;
+use crate::{Packet, PacketBox, PacketBuf};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum LinkState {
@@ -21,7 +21,7 @@ pub trait Device {
     fn register_waker(&mut self, waker: &Waker);
     fn capabilities(&mut self) -> DeviceCapabilities;
     fn link_state(&mut self) -> LinkState;
-    fn ethernet_address(&mut self) -> [u8;6];
+    fn ethernet_address(&mut self) -> [u8; 6];
 }
 
 pub struct DeviceAdapter {
@@ -92,7 +92,7 @@ pub struct TxToken<'a> {
 }
 
 impl<'a> smoltcp::phy::TxToken for TxToken<'a> {
-    fn consume<R, F>(mut self, _timestamp: SmolInstant, len: usize, f: F) -> Result<R>
+    fn consume<R, F>(self, _timestamp: SmolInstant, len: usize, f: F) -> Result<R>
     where
         F: FnOnce(&mut [u8]) -> Result<R>,
     {

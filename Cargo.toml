@@ -45,4 +45,5 @@ overflow-checks = false
 embassy = { git = "https://github.com/akiles/embassy" }
 embassy-std = { git = "https://github.com/akiles/embassy" }
 embassy-macros = { git = "https://github.com/akiles/embassy" }
+embassy-traits = { git = "https://github.com/akiles/embassy" }
 smoltcp = { git = "https://github.com/akiles/smoltcp" }

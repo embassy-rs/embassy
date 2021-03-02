@@ -1,8 +1,7 @@
 #![feature(type_alias_impl_trait)]
 
-use embassy::executor::{Spawner, task};
-use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
-use embassy::time::{Duration, Timer};
+use embassy::executor::{task, Spawner};
+use embassy::io::AsyncWriteExt;
 use embassy::util::Forever;
 use embassy_net::*;
 use embassy_std::Executor;

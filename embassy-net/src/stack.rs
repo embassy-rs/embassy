@@ -1,7 +1,7 @@
+use core::cell::RefCell;
 use core::future::Future;
 use core::task::Context;
 use core::task::Poll;
-use core::{cell::RefCell, future};
 use embassy::time::{Instant, Timer};
 use embassy::util::ThreadModeMutex;
 use embassy::util::{Forever, WakerRegistration};
@@ -110,7 +110,7 @@ impl Stack {
         self.waker.register(cx.waker());
 
         let timestamp = instant_to_smoltcp(Instant::now());
-        if let Err(e) = self.iface.poll(&mut self.sockets, timestamp) {
+        if let Err(_) = self.iface.poll(&mut self.sockets, timestamp) {
             // If poll() returns error, it may not be done yet, so poll again later.
             cx.waker().wake_by_ref();
             return;
@@ -174,6 +174,9 @@ pub fn init(device: &'static mut dyn Device, configurator: &'static mut dyn Conf
 
     let sockets = SocketSet::new(&mut res.sockets[..]);
 
+    let local_port = LOCAL_PORT_MIN;
+
+    /*
     let local_port = loop {
         let mut res = [0u8; 2];
         embassy::rand::rand(&mut res);
@@ -182,6 +185,7 @@ pub fn init(device: &'static mut dyn Device, configurator: &'static mut dyn Conf
             break port;
         }
     };
+     */
 
     let stack = Stack {
         iface,

@@ -1,0 +1,6 @@
+{
+    "editor.formatOnSave": true,
+    "rust-analyzer.procMacro.enable": true,
+    "rust-analyzer.cargo.loadOutDirsFromCheck": true,
+    "rust-analyzer.assist.importMergeBehavior": "last",
+}

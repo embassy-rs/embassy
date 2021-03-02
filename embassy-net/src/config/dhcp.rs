@@ -1,13 +1,13 @@
 use embassy::util::Forever;
-use heapless::consts::*;
 use heapless::Vec;
 use smoltcp::dhcp::Dhcpv4Client;
 use smoltcp::socket::{RawPacketMetadata, RawSocketBuffer};
 use smoltcp::time::Instant;
-use smoltcp::wire::{Ipv4Address, Ipv4Cidr};
+use smoltcp::wire::Ipv4Address;
 
 use super::*;
-use crate::{device::LinkState, fmt::*};
+use crate::device::LinkState;
+use crate::fmt::*;
 use crate::{Interface, SocketSet};
 
 pub struct DhcpResources {

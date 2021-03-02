@@ -21,4 +21,4 @@ jobs:
           target: thumbv7em-none-eabi
           override: true
       - name: Build
-        run: ./test-build.sh
+        run: ./ci.sh

@@ -7,7 +7,7 @@ set -euxo pipefail
 
 # build for embedded
 (cd embassy-net; cargo build --target thumbv7em-none-eabi --features log)
-(cd embassy-net; cargo build --target thumbv7em-none-eabi --features defmt)
+(cd embassy-net; cargo build --target thumbv7em-none-eabi --features defmt,smoltcp/defmt)
 
 # build examples
 (cd embassy-net-examples; cargo build)

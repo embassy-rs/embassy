@@ -111,7 +111,7 @@ impl<'a> TcpSocket<'a> {
     }
 }
 
-fn to_ioerr(e: Error) -> io::Error {
+fn to_ioerr(_err: Error) -> io::Error {
     // todo
     io::Error::Other
 }
