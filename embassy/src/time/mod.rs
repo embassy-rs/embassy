@@ -2,7 +2,7 @@ mod duration;
 mod instant;
 mod traits;
 
-pub use crate::executor::timer::{Ticker, Timer};
+pub use crate::executor::timer::{Delay, Ticker, Timer};
 pub use duration::Duration;
 pub use instant::Instant;
 pub use traits::*;
