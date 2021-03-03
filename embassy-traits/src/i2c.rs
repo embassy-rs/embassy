@@ -1,4 +1,4 @@
-//! Blocking I2C API
+//! Async I2C API
 //!
 //! This API supports 7-bit and 10-bit addresses. Traits feature an `AddressMode`
 //! marker type parameter. Two implementation of the `AddressMode` exist:
@@ -15,37 +15,6 @@
 //!
 //! Since 7-bit addressing is the mode of the majority of I2C devices,
 //! `SevenBitAddress` has been set as default mode and thus can be omitted if desired.
-//!
-//! ## Examples
-//!
-//! ### `embedded-hal` implementation for an MCU
-//! Here is an example of an embedded-hal implementation of the `Write` trait
-//! for both modes:
-//! ```
-//! # use embedded_hal::blocking::i2c::{SevenBitAddress, TenBitAddress, Write};
-//! /// I2C0 hardware peripheral which supports both 7-bit and 10-bit addressing.
-//! pub struct I2c0;
-//!
-//! impl Write<SevenBitAddress> for I2c0
-//! {
-//! #   type Error = ();
-//! #
-//!     fn try_write(&mut self, addr: u8, output: &[u8]) -> Result<(), Self::Error> {
-//!         // ...
-//! #       Ok(())
-//!     }
-//! }
-//!
-//! impl Write<TenBitAddress> for I2c0
-//! {
-//! #   type Error = ();
-//! #
-//!     fn try_write(&mut self, addr: u16, output: &[u8]) -> Result<(), Self::Error> {
-//!         // ...
-//! #       Ok(())
-//!     }
-//! }
-//! ```
 //!
 //! ### Device driver compatible only with 7-bit addresses
 //!
@@ -66,7 +35,8 @@
 //!     pub fn read_temperature(&mut self) -> Result<u8, E> {
 //!         let mut temp = [0];
 //!         self.i2c
-//!             .try_write_read(ADDR, &[TEMP_REGISTER], &mut temp)
+//!             .write_read(ADDR, &[TEMP_REGISTER], &mut temp)
+//!             .await
 //!             .and(Ok(temp[0]))
 //!     }
 //! }
@@ -89,13 +59,15 @@
 //!     pub fn read_temperature(&mut self) -> Result<u8, E> {
 //!         let mut temp = [0];
 //!         self.i2c
-//!             .try_write_read(ADDR, &[TEMP_REGISTER], &mut temp)
+//!             .write_read(ADDR, &[TEMP_REGISTER], &mut temp)
+//!             .await
 //!             .and(Ok(temp[0]))
 //!     }
 //! }
 //! ```
 
 use core::future::Future;
+use core::pin::Pin;
 
 mod private {
     pub trait Sealed {}
@@ -144,7 +116,7 @@ pub trait Read<A: AddressMode = SevenBitAddress> {
     /// - `MAK` = master acknowledge
     /// - `NMAK` = master no acknowledge
     /// - `SP` = stop condition
-    fn read<'a>(&mut self, address: A, buffer: &mut [u8]) -> Self::ReadFuture<'a>;
+    fn read<'a>(self: Pin<&'a mut Self>, address: A, buffer: &mut [u8]) -> Self::ReadFuture<'a>;
 }
 
 /// Blocking write
@@ -170,7 +142,7 @@ pub trait Write<A: AddressMode = SevenBitAddress> {
     /// - `SAK` = slave acknowledge
     /// - `Bi` = ith byte of data
     /// - `SP` = stop condition
-    fn write<'a>(&mut self, address: A, bytes: &[u8]) -> Self::WriteFuture<'a>;
+    fn write<'a>(self: Pin<&'a mut Self>, address: A, bytes: &[u8]) -> Self::WriteFuture<'a>;
 }
 
 /// Blocking write (iterator version)
@@ -185,7 +157,11 @@ pub trait WriteIter<A: AddressMode = SevenBitAddress> {
     /// # I2C Events (contract)
     ///
     /// Same as `Write`
-    fn write_iter<'a, B>(&mut self, address: A, bytes: B) -> Self::WriteIterFuture<'a>
+    fn write_iter<'a, B>(
+        self: Pin<&'a mut Self>,
+        address: A,
+        bytes: B,
+    ) -> Self::WriteIterFuture<'a>
     where
         B: IntoIterator<Item = u8>;
 }
@@ -220,7 +196,7 @@ pub trait WriteRead<A: AddressMode = SevenBitAddress> {
     /// - `NMAK` = master no acknowledge
     /// - `SP` = stop condition
     fn write_read<'a>(
-        &mut self,
+        self: Pin<&'a mut Self>,
         address: A,
         bytes: &[u8],
         buffer: &mut [u8],
@@ -241,7 +217,7 @@ pub trait WriteIterRead<A: AddressMode = SevenBitAddress> {
     ///
     /// Same as the `WriteRead` trait
     fn write_iter_read<'a, B>(
-        &mut self,
+        self: Pin<&'a mut Self>,
         address: A,
         bytes: B,
         buffer: &mut [u8],
