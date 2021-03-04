@@ -2,9 +2,9 @@ use core::cell::Cell;
 use core::cmp::min;
 use core::ptr;
 use core::ptr::NonNull;
-use core::sync::atomic::Ordering;
 
 use super::raw::{Task, STATE_TIMER_QUEUED};
+use crate::atomic::{AtomicPtr, Ordering};
 use crate::time::Instant;
 
 pub(crate) struct TimerQueueItem {

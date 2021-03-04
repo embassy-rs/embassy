@@ -16,3 +16,4 @@ pub mod time;
 pub mod util;
 
 pub use embassy_traits as traits;
+pub use atomic_polyfill as atomic;

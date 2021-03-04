@@ -4,7 +4,6 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::ptr::NonNull;
-use core::sync::atomic::Ordering;
 use core::task::{Context, Poll};
 use core::{mem, ptr};
 
@@ -16,6 +15,7 @@ mod util;
 mod waker;
 
 use self::util::UninitCell;
+use crate::atomic::Ordering;
 use crate::fmt::panic;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::time::Alarm;
