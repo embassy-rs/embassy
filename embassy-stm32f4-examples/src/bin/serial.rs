@@ -14,6 +14,7 @@ use embassy::traits::uart::Uart;
 use embassy::util::Forever;
 use embassy_stm32f4::interrupt;
 use embassy_stm32f4::serial;
+use stm32f4xx_hal::dma::StreamsTuple;
 use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::serial::config::Config;
 use stm32f4xx_hal::stm32;
@@ -38,10 +39,12 @@ async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
         .pclk1(24.mhz())
         .freeze();
 
+    let streams = StreamsTuple::new(dp.DMA2);
+
     let mut serial = unsafe {
         serial::Serial::new(
             dp.USART1,
-            dp.DMA2,
+            (streams.7, streams.2),
             (
                 gpioa.pa9.into_alternate_af7(),
                 gpioa.pa10.into_alternate_af7(),
@@ -49,6 +52,24 @@ async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
             interrupt::take!(DMA2_STREAM7),
             interrupt::take!(DMA2_STREAM2),
             interrupt::take!(USART1),
+            Config::default().baudrate(9600.bps()),
+            clocks,
+        )
+    };
+
+    let streams = StreamsTuple::new(dp.DMA1);
+
+    let mut serial = unsafe {
+        serial::Serial::new(
+            dp.USART2,
+            (streams.6, streams.5),
+            (
+                gpioa.pa2.into_alternate_af7(),
+                gpioa.pa3.into_alternate_af7(),
+            ),
+            interrupt::take!(DMA1_STREAM6),
+            interrupt::take!(DMA1_STREAM5),
+            interrupt::take!(USART2),
             Config::default().baudrate(9600.bps()),
             clocks,
         )
