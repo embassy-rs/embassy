@@ -9,6 +9,7 @@ set -euxo pipefail
 (cd embassy; cargo build --target thumbv7em-none-eabi)
 (cd embassy; cargo build --target thumbv7em-none-eabi --features log)
 (cd embassy; cargo build --target thumbv7em-none-eabi --features defmt)
+(cd embassy; cargo build --target thumbv6m-none-eabi --features defmt)
 
 # embassy-nrf
 

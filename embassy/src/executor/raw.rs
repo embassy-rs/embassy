@@ -3,13 +3,13 @@ use core::cmp::min;
 use core::marker::PhantomData;
 use core::ptr;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicU32, Ordering};
 use core::task::Waker;
 
 use super::run_queue::{RunQueue, RunQueueItem};
 use super::timer_queue::{TimerQueue, TimerQueueItem};
 use super::util::UninitCell;
 use super::waker;
+use crate::atomic::{AtomicU32, Ordering};
 use crate::time::{Alarm, Instant};
 
 /// Task is spawned (has a future)

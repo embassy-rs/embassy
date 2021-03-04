@@ -1,8 +1,8 @@
 use core::ptr;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicPtr, Ordering};
 
 use super::raw::Task;
+use crate::atomic::{AtomicPtr, Ordering};
 
 pub(crate) struct RunQueueItem {
     next: AtomicPtr<Task>,
