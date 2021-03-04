@@ -217,6 +217,7 @@ macro_rules! usart {
     }
 }
 
+#[cfg(any(feature = "stm32f405",))]
 dma! {
     DMA2_STREAM0 => (DMA2, Stream0),
     DMA2_STREAM1 => (DMA2, Stream1),
@@ -235,6 +236,7 @@ dma! {
     DMA1_STREAM6 => (DMA1, Stream6),
 }
 
+#[cfg(any(feature = "stm32f405",))]
 usart! {
     USART1 => (USART1),
     USART2 => (USART2),
