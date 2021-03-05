@@ -35,8 +35,8 @@ nrf52832-pac  = { version = "0.9.0", optional = true }
 nrf52833-pac  = { version = "0.9.0", optional = true }
 nrf52840-pac  = { version = "0.9.0", optional = true }
 
-nrf52810-hal  = { version = "0.12.0", optional = true }
-#nrf52811-hal  = { version = "0.12.0", optional = true }  # doesn't exist yet
-nrf52832-hal  = { version = "0.12.0", optional = true }
-nrf52833-hal  = { version = "0.12.0", optional = true }
-nrf52840-hal  = { version = "0.12.0", optional = true }
+nrf52810-hal  = { version = "0.12.1", optional = true }
+#nrf52811-hal  = { version = "0.12.1", optional = true }  # doesn't exist yet
+nrf52832-hal  = { version = "0.12.1", optional = true }
+nrf52833-hal  = { version = "0.12.1", optional = true }
+nrf52840-hal  = { version = "0.12.1", optional = true }

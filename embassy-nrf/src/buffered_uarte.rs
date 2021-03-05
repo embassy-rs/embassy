@@ -15,7 +15,6 @@ use embassy::io::{AsyncBufRead, AsyncWrite, Result};
 use embassy::util::WakerRegistration;
 use embedded_hal::digital::v2::OutputPin;
 
-use crate::hal::gpio::Port as GpioPort;
 use crate::hal::ppi::ConfigurablePpi;
 use crate::interrupt::{self, Interrupt};
 use crate::pac;
@@ -72,14 +71,6 @@ pub struct BufferedUarte<
     inner: PeripheralMutex<State<'a, U, T, P1, P2>>,
 }
 
-#[cfg(any(feature = "52833", feature = "52840"))]
-fn port_bit(port: GpioPort) -> bool {
-    match port {
-        GpioPort::Port0 => false,
-        GpioPort::Port1 => true,
-    }
-}
-
 impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi>
     BufferedUarte<'a, U, T, P1, P2>
 {
@@ -97,25 +88,19 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
     ) -> Self {
         // Select pins
         uarte.psel.rxd.write(|w| {
-            let w = unsafe { w.pin().bits(pins.rxd.pin()) };
-            #[cfg(any(feature = "52833", feature = "52840"))]
-            let w = w.port().bit(port_bit(pins.rxd.port()));
+            unsafe { w.bits(pins.rxd.psel_bits()) };
             w.connect().connected()
         });
         pins.txd.set_high().unwrap();
         uarte.psel.txd.write(|w| {
-            let w = unsafe { w.pin().bits(pins.txd.pin()) };
-            #[cfg(any(feature = "52833", feature = "52840"))]
-            let w = w.port().bit(port_bit(pins.txd.port()));
+            unsafe { w.bits(pins.txd.psel_bits()) };
             w.connect().connected()
         });
 
         // Optional pins
         uarte.psel.cts.write(|w| {
             if let Some(ref pin) = pins.cts {
-                let w = unsafe { w.pin().bits(pin.pin()) };
-                #[cfg(any(feature = "52833", feature = "52840"))]
-                let w = w.port().bit(port_bit(pin.port()));
+                unsafe { w.bits(pin.psel_bits()) };
                 w.connect().connected()
             } else {
                 w.connect().disconnected()
@@ -124,14 +109,13 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
 
         uarte.psel.rts.write(|w| {
             if let Some(ref pin) = pins.rts {
-                let w = unsafe { w.pin().bits(pin.pin()) };
-                #[cfg(any(feature = "52833", feature = "52840"))]
-                let w = w.port().bit(port_bit(pin.port()));
+                unsafe { w.bits(pin.psel_bits()) };
                 w.connect().connected()
             } else {
                 w.connect().disconnected()
             }
         });
+
 
         // Enable UARTE instance
         uarte.enable.write(|w| w.enable().enabled());
