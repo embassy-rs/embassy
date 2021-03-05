@@ -3,7 +3,7 @@ use core::pin::Pin;
 use core::task::Poll;
 
 use crate::fmt::{assert, assert_eq, *};
-use crate::hal::gpio::{Output, Pin as GpioPin, Port as GpioPort, PushPull};
+use crate::hal::gpio::{Output, Pin as GpioPin, PushPull};
 use crate::interrupt::{self};
 use crate::pac::QSPI;
 
@@ -59,43 +59,31 @@ pub struct Qspi {
     inner: PeripheralMutex<State>,
 }
 
-fn port_bit(port: GpioPort) -> bool {
-    match port {
-        GpioPort::Port0 => false,
-        GpioPort::Port1 => true,
-    }
-}
-
 impl Qspi {
     pub fn new(qspi: QSPI, irq: interrupt::QSPI, config: Config) -> Self {
         qspi.psel.sck.write(|w| {
             let pin = &config.pins.sck;
-            let w = unsafe { w.pin().bits(pin.pin()) };
-            let w = w.port().bit(port_bit(pin.port()));
+            unsafe { w.bits(pin.psel_bits()) };
             w.connect().connected()
         });
         qspi.psel.csn.write(|w| {
             let pin = &config.pins.csn;
-            let w = unsafe { w.pin().bits(pin.pin()) };
-            let w = w.port().bit(port_bit(pin.port()));
+            unsafe { w.bits(pin.psel_bits()) };
             w.connect().connected()
         });
         qspi.psel.io0.write(|w| {
             let pin = &config.pins.io0;
-            let w = unsafe { w.pin().bits(pin.pin()) };
-            let w = w.port().bit(port_bit(pin.port()));
+            unsafe { w.bits(pin.psel_bits()) };
             w.connect().connected()
         });
         qspi.psel.io1.write(|w| {
             let pin = &config.pins.io1;
-            let w = unsafe { w.pin().bits(pin.pin()) };
-            let w = w.port().bit(port_bit(pin.port()));
+            unsafe { w.bits(pin.psel_bits()) };
             w.connect().connected()
         });
         qspi.psel.io2.write(|w| {
             if let Some(ref pin) = config.pins.io2 {
-                let w = unsafe { w.pin().bits(pin.pin()) };
-                let w = w.port().bit(port_bit(pin.port()));
+                unsafe { w.bits(pin.psel_bits()) };
                 w.connect().connected()
             } else {
                 w.connect().disconnected()
@@ -103,8 +91,7 @@ impl Qspi {
         });
         qspi.psel.io3.write(|w| {
             if let Some(ref pin) = config.pins.io3 {
-                let w = unsafe { w.pin().bits(pin.pin()) };
-                let w = w.port().bit(port_bit(pin.port()));
+                unsafe { w.bits(pin.psel_bits()) };
                 w.connect().connected()
             } else {
                 w.connect().disconnected()

@@ -13,8 +13,6 @@ use embassy::interrupt::InterruptExt;
 use embassy::util::Signal;
 
 use crate::fmt::{assert, *};
-#[cfg(any(feature = "52833", feature = "52840"))]
-use crate::hal::gpio::Port as GpioPort;
 use crate::hal::pac;
 use crate::hal::prelude::*;
 use crate::hal::target_constants::EASY_DMA_SIZE;
@@ -40,15 +38,6 @@ pub struct State {
     rx_done: Signal<u32>,
 }
 
-// TODO: Remove when https://github.com/nrf-rs/nrf-hal/pull/276 has landed
-#[cfg(any(feature = "52833", feature = "52840"))]
-fn port_bit(port: GpioPort) -> bool {
-    match port {
-        GpioPort::Port0 => false,
-        GpioPort::Port1 => true,
-    }
-}
-
 impl<T> Uarte<T>
 where
     T: Instance,
@@ -72,26 +61,20 @@ where
         assert!(uarte.enable.read().enable().is_disabled());
 
         uarte.psel.rxd.write(|w| {
-            let w = unsafe { w.pin().bits(pins.rxd.pin()) };
-            #[cfg(any(feature = "52833", feature = "52840"))]
-            let w = w.port().bit(port_bit(pins.rxd.port()));
+            unsafe { w.bits(pins.rxd.psel_bits()) };
             w.connect().connected()
         });
 
         pins.txd.set_high().unwrap();
         uarte.psel.txd.write(|w| {
-            let w = unsafe { w.pin().bits(pins.txd.pin()) };
-            #[cfg(any(feature = "52833", feature = "52840"))]
-            let w = w.port().bit(port_bit(pins.txd.port()));
+            unsafe { w.bits(pins.txd.psel_bits()) };
             w.connect().connected()
         });
 
         // Optional pins
         uarte.psel.cts.write(|w| {
             if let Some(ref pin) = pins.cts {
-                let w = unsafe { w.pin().bits(pin.pin()) };
-                #[cfg(any(feature = "52833", feature = "52840"))]
-                let w = w.port().bit(port_bit(pin.port()));
+                unsafe { w.bits(pin.psel_bits()) };
                 w.connect().connected()
             } else {
                 w.connect().disconnected()
@@ -100,9 +83,7 @@ where
 
         uarte.psel.rts.write(|w| {
             if let Some(ref pin) = pins.rts {
-                let w = unsafe { w.pin().bits(pin.pin()) };
-                #[cfg(any(feature = "52833", feature = "52840"))]
-                let w = w.port().bit(port_bit(pin.port()));
+                unsafe { w.bits(pin.psel_bits()) };
                 w.connect().connected()
             } else {
                 w.connect().disconnected()

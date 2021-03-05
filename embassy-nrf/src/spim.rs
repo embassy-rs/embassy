@@ -5,7 +5,6 @@ use core::task::Poll;
 use embassy::util::WakerRegistration;
 use futures::future::poll_fn;
 
-use crate::hal::gpio::Port as GpioPort;
 use crate::interrupt::{self, Interrupt};
 use crate::util::peripheral::{PeripheralMutex, PeripheralState};
 use crate::{pac, slice_in_ram_or};
@@ -33,14 +32,6 @@ pub struct Spim<T: Instance> {
     inner: PeripheralMutex<State<T>>,
 }
 
-#[cfg(any(feature = "52833", feature = "52840"))]
-fn port_bit(port: GpioPort) -> bool {
-    match port {
-        GpioPort::Port0 => false,
-        GpioPort::Port1 => true,
-    }
-}
-
 pub struct Config {
     pub pins: Pins,
     pub frequency: Frequency,
@@ -54,26 +45,20 @@ impl<T: Instance> Spim<T> {
 
         // Select pins.
         r.psel.sck.write(|w| {
-            let w = unsafe { w.pin().bits(config.pins.sck.pin()) };
-            #[cfg(any(feature = "52833", feature = "52840"))]
-            let w = w.port().bit(port_bit(config.pins.sck.port()));
+            unsafe { w.bits(config.pins.sck.psel_bits()) };
             w.connect().connected()
         });
 
         match config.pins.mosi {
             Some(mosi) => r.psel.mosi.write(|w| {
-                let w = unsafe { w.pin().bits(mosi.pin()) };
-                #[cfg(any(feature = "52833", feature = "52840"))]
-                let w = w.port().bit(port_bit(mosi.port()));
+                unsafe { w.bits(mosi.psel_bits()) };
                 w.connect().connected()
             }),
             None => r.psel.mosi.write(|w| w.connect().disconnected()),
         }
         match config.pins.miso {
             Some(miso) => r.psel.miso.write(|w| {
-                let w = unsafe { w.pin().bits(miso.pin()) };
-                #[cfg(any(feature = "52833", feature = "52840"))]
-                let w = w.port().bit(port_bit(miso.port()));
+                unsafe { w.bits(miso.psel_bits()) };
                 w.connect().connected()
             }),
             None => r.psel.miso.write(|w| w.connect().disconnected()),
