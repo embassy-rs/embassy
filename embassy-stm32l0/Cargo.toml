@@ -1,0 +1,26 @@
+[package]
+name = "embassy-stm32l0"
+version = "0.1.0"
+authors = ["Michael Beaumont <mjboamail@gmail.com>"]
+edition = "2018"
+
+[features]
+defmt-trace = [ ]
+defmt-debug = [ ]
+defmt-info = [ ]
+defmt-warn = [ ]
+defmt-error = [ ]
+
+stm32l0x1 = ["stm32l0xx-hal/stm32l0x1"]
+stm32l0x2 = ["stm32l0xx-hal/stm32l0x2"]
+stm32l0x3 = ["stm32l0xx-hal/stm32l0x3"]
+
+[dependencies]
+embassy = { version = "0.1.0", path = "../embassy" }
+defmt = { version = "0.2.0", optional = true }
+log = { version = "0.4.11", optional = true }
+cortex-m-rt = "0.6.13"
+cortex-m = "0.7.1"
+embedded-hal = { version = "0.2.4" }
+embedded-dma = { version = "0.1.2" }
+stm32l0xx-hal = { version = "0.6.2", features = ["rt"], git = "https://github.com/stm32-rs/stm32l0xx-hal.git"}

@@ -5,6 +5,7 @@ members = [
     "embassy-traits",
     "embassy-nrf",
     "embassy-stm32f4",
+    "embassy-stm32l0",
     "embassy-nrf-examples",
     "embassy-stm32f4-examples",
     "embassy-macros",
