@@ -5,6 +5,7 @@
 //! are dropped correctly (e.g. not using `mem::forget()`).
 
 use core::future::Future;
+use core::marker::PhantomData;
 use core::ptr;
 use core::sync::atomic::{self, Ordering};
 
@@ -12,62 +13,56 @@ use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::traits::uart::{Error, Uart};
 use embassy::util::InterruptFuture;
 
-use crate::hal::dma;
-use crate::hal::dma::config::DmaConfig;
-use crate::hal::dma::traits::{PeriAddress, Stream};
-use crate::hal::dma::{MemoryToPeripheral, PeripheralToMemory, Transfer};
-use crate::hal::rcc::Clocks;
-use crate::hal::serial;
-use crate::hal::serial::config::{Config as SerialConfig, DmaConfig as SerialDmaConfig};
-use crate::hal::serial::Pins;
-use crate::hal::serial::{Event as SerialEvent, Serial as HalSerial};
+use crate::hal::{
+    dma,
+    dma::config::DmaConfig,
+    dma::traits::{Channel, DMASet, PeriAddress, Stream},
+    dma::{MemoryToPeripheral, PeripheralToMemory, Transfer},
+    rcc::Clocks,
+    serial,
+    serial::config::{Config as SerialConfig, DmaConfig as SerialDmaConfig},
+    serial::{Event as SerialEvent, Pins, Serial as HalSerial},
+};
 use crate::interrupt;
 use crate::pac;
 
 /// Interface to the Serial peripheral
 pub struct Serial<
-    USART: PeriAddress<MemSize = u8>,
-    TSTREAM: Stream,
-    RSTREAM: Stream,
+    USART: PeriAddress<MemSize = u8> + WithInterrupt,
+    TSTREAM: Stream + WithInterrupt,
+    RSTREAM: Stream + WithInterrupt,
     CHANNEL: dma::traits::Channel,
-    TINT: Interrupt,
-    RINT: Interrupt,
-    UINT: Interrupt,
 > {
     tx_stream: Option<TSTREAM>,
     rx_stream: Option<RSTREAM>,
     usart: Option<USART>,
-    tx_int: TINT,
-    rx_int: RINT,
-    usart_int: UINT,
-    channel: core::marker::PhantomData<CHANNEL>,
+    tx_int: TSTREAM::Interrupt,
+    rx_int: RSTREAM::Interrupt,
+    usart_int: USART::Interrupt,
+    channel: PhantomData<CHANNEL>,
 }
 
 // static mut INSTANCE: *const Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> = ptr::null_mut();
 
-impl<USART, TSTREAM, RSTREAM, CHANNEL, TINT, RINT, UINT>
-    Serial<USART, TSTREAM, RSTREAM, CHANNEL, TINT, RINT, UINT>
+impl<USART, TSTREAM, RSTREAM, CHANNEL> Serial<USART, TSTREAM, RSTREAM, CHANNEL>
 where
     USART: serial::Instance
-        + dma::traits::PeriAddress<MemSize = u8>
-        + dma::traits::DMASet<TSTREAM, CHANNEL, MemoryToPeripheral>
-        + dma::traits::DMASet<RSTREAM, CHANNEL, PeripheralToMemory>
-        + WithInterrupt<Instance = UINT>,
-    TSTREAM: Stream + WithInterrupt<Instance = TINT>,
-    RSTREAM: Stream + WithInterrupt<Instance = RINT>,
-    CHANNEL: dma::traits::Channel,
-    TINT: Interrupt,
-    RINT: Interrupt,
-    UINT: Interrupt,
+        + PeriAddress<MemSize = u8>
+        + DMASet<TSTREAM, CHANNEL, MemoryToPeripheral>
+        + DMASet<RSTREAM, CHANNEL, PeripheralToMemory>
+        + WithInterrupt,
+    TSTREAM: Stream + WithInterrupt,
+    RSTREAM: Stream + WithInterrupt,
+    CHANNEL: Channel,
 {
     // Leaking futures is forbidden!
     pub unsafe fn new<PINS>(
         usart: USART,
         streams: (TSTREAM, RSTREAM),
         pins: PINS,
-        tx_int: TINT,
-        rx_int: RINT,
-        usart_int: UINT,
+        tx_int: TSTREAM::Interrupt,
+        rx_int: RSTREAM::Interrupt,
+        usart_int: USART::Interrupt,
         mut config: SerialConfig,
         clocks: Clocks,
     ) -> Self
@@ -96,21 +91,17 @@ where
     }
 }
 
-impl<USART, TSTREAM, RSTREAM, CHANNEL, TINT, RINT, UINT> Uart
-    for Serial<USART, TSTREAM, RSTREAM, CHANNEL, TINT, RINT, UINT>
+impl<USART, TSTREAM, RSTREAM, CHANNEL> Uart for Serial<USART, TSTREAM, RSTREAM, CHANNEL>
 where
     USART: serial::Instance
-        + dma::traits::PeriAddress<MemSize = u8>
-        + dma::traits::DMASet<TSTREAM, CHANNEL, MemoryToPeripheral>
-        + dma::traits::DMASet<RSTREAM, CHANNEL, PeripheralToMemory>
-        + WithInterrupt<Instance = UINT>
+        + PeriAddress<MemSize = u8>
+        + DMASet<TSTREAM, CHANNEL, MemoryToPeripheral>
+        + DMASet<RSTREAM, CHANNEL, PeripheralToMemory>
+        + WithInterrupt
         + 'static,
-    TSTREAM: Stream + WithInterrupt<Instance = TINT> + 'static,
-    RSTREAM: Stream + WithInterrupt<Instance = RINT> + 'static,
-    CHANNEL: dma::traits::Channel + 'static,
-    TINT: Interrupt + 'static,
-    RINT: Interrupt + 'static,
-    UINT: Interrupt + 'static,
+    TSTREAM: Stream + WithInterrupt + 'static,
+    RSTREAM: Stream + WithInterrupt + 'static,
+    CHANNEL: Channel + 'static,
 {
     type SendFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
     type ReceiveFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
@@ -192,7 +183,7 @@ mod private {
 }
 
 pub trait WithInterrupt: private::Sealed {
-    type Instance;
+    type Interrupt: Interrupt;
 }
 
 macro_rules! dma {
@@ -200,7 +191,7 @@ macro_rules! dma {
          $(
              impl private::Sealed for dma::$stream<pac::$dma> {}
              impl WithInterrupt for dma::$stream<pac::$dma> {
-                 type Instance = interrupt::$PER;
+                 type Interrupt = interrupt::$PER;
              }
          )+
      }
@@ -211,7 +202,7 @@ macro_rules! usart {
         $(
             impl private::Sealed for pac::$usart {}
             impl WithInterrupt for pac::$usart {
-                type Instance = interrupt::$PER;
+                type Interrupt = interrupt::$PER;
             }
         )+
     }
