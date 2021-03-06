@@ -22,10 +22,9 @@ impl<'a> ExtiManager {
         Self { syscfg }
     }
 
-    pub fn new_pin<T, I>(&'static mut self, mut pin: T, interrupt: I) -> ExtiPin<T, I>
+    pub fn new_pin<T>(&'static mut self, mut pin: T, interrupt: T::Interrupt) -> ExtiPin<T>
     where
-        T: HalExtiPin + WithInterrupt<Instance = I>,
-        I: Interrupt,
+        T: HalExtiPin + WithInterrupt,
     {
         pin.make_interrupt_source(&mut self.syscfg);
 
@@ -37,9 +36,9 @@ impl<'a> ExtiManager {
     }
 }
 
-pub struct ExtiPin<T: HalExtiPin, I: Interrupt> {
+pub struct ExtiPin<T: HalExtiPin + WithInterrupt> {
     pin: T,
-    interrupt: I,
+    interrupt: T::Interrupt,
     _mgr: &'static ExtiManager,
 }
 
@@ -54,7 +53,7 @@ pub struct ExtiPin<T: HalExtiPin, I: Interrupt> {
     EXTI15_10_IRQn	EXTI15_10_IRQHandler	Handler for pins connected to line 10 to 15
 */
 
-impl<T: HalExtiPin + 'static, I: Interrupt + 'static> WaitForRisingEdge for ExtiPin<T, I> {
+impl<T: HalExtiPin + WithInterrupt + 'static> WaitForRisingEdge for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
     fn wait_for_rising_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
@@ -74,7 +73,7 @@ impl<T: HalExtiPin + 'static, I: Interrupt + 'static> WaitForRisingEdge for Exti
     }
 }
 
-impl<T: HalExtiPin + 'static, I: Interrupt + 'static> WaitForFallingEdge for ExtiPin<T, I> {
+impl<T: HalExtiPin + WithInterrupt + 'static> WaitForFallingEdge for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
     fn wait_for_falling_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
@@ -99,18 +98,21 @@ mod private {
 }
 
 pub trait WithInterrupt: private::Sealed {
-    type Instance;
+    type Interrupt: interrupt::Interrupt;
 }
 
 macro_rules! exti {
-    ($($PER:ident => ($set:ident, $pin:ident),)+) => {
+    ($set:ident, [
+        $($INT:ident => $pin:ident,)+
+    ]) => {
         $(
             impl<T> private::Sealed for gpio::$set::$pin<T> {}
             impl<T> WithInterrupt for gpio::$set::$pin<T> {
-                type Instance = interrupt::$PER;
+                type Interrupt = interrupt::$INT;
             }
         )+
-    }
+
+    };
 }
 
 #[cfg(any(
@@ -132,24 +134,24 @@ macro_rules! exti {
     feature = "stm32f469",
     feature = "stm32f479"
 ))]
-exti! {
-    EXTI0 => (gpioa, PA0),
-    EXTI1 => (gpioa, PA1),
-    EXTI2 => (gpioa, PA2),
-    EXTI3 => (gpioa, PA3),
-    EXTI4 => (gpioa, PA4),
-    EXTI9_5 => (gpioa, PA5),
-    EXTI9_5 => (gpioa, PA6),
-    EXTI9_5 => (gpioa, PA7),
-    EXTI9_5 => (gpioa, PA8),
-    EXTI9_5 => (gpioa, PA9),
-    EXTI15_10 => (gpioa, PA10),
-    EXTI15_10 => (gpioa, PA11),
-    EXTI15_10 => (gpioa, PA12),
-    EXTI15_10 => (gpioa, PA13),
-    EXTI15_10 => (gpioa, PA14),
-    EXTI15_10 => (gpioa, PA15),
-}
+exti!(gpioa, [
+    EXTI0 => PA0,
+    EXTI1 => PA1,
+    EXTI2 => PA2,
+    EXTI3 => PA3,
+    EXTI4 => PA4,
+    EXTI9_5 => PA5,
+    EXTI9_5 => PA6,
+    EXTI9_5 => PA7,
+    EXTI9_5 => PA8,
+    EXTI9_5 => PA9,
+    EXTI15_10 => PA10,
+    EXTI15_10 => PA11,
+    EXTI15_10 => PA12,
+    EXTI15_10 => PA13,
+    EXTI15_10 => PA14,
+    EXTI15_10 => PA15,
+]);
 
 #[cfg(any(
     feature = "stm32f401",
@@ -170,24 +172,24 @@ exti! {
     feature = "stm32f469",
     feature = "stm32f479"
 ))]
-exti! {
-    EXTI0 => (gpiob, PB0),
-    EXTI1 => (gpiob, PB1),
-    EXTI2 => (gpiob, PB2),
-    EXTI3 => (gpiob, PB3),
-    EXTI4 => (gpiob, PB4),
-    EXTI9_5 => (gpiob, PB5),
-    EXTI9_5 => (gpiob, PB6),
-    EXTI9_5 => (gpiob, PB7),
-    EXTI9_5 => (gpiob, PB8),
-    EXTI9_5 => (gpiob, PB9),
-    EXTI15_10 => (gpiob, PB10),
-    EXTI15_10 => (gpiob, PB11),
-    EXTI15_10 => (gpiob, PB12),
-    EXTI15_10 => (gpiob, PB13),
-    EXTI15_10 => (gpiob, PB14),
-    EXTI15_10 => (gpiob, PB15),
-}
+exti!(gpiob, [
+    EXTI0 => PB0,
+    EXTI1 => PB1,
+    EXTI2 => PB2,
+    EXTI3 => PB3,
+    EXTI4 => PB4,
+    EXTI9_5 => PB5,
+    EXTI9_5 => PB6,
+    EXTI9_5 => PB7,
+    EXTI9_5 => PB8,
+    EXTI9_5 => PB9,
+    EXTI15_10 => PB10,
+    EXTI15_10 => PB11,
+    EXTI15_10 => PB12,
+    EXTI15_10 => PB13,
+    EXTI15_10 => PB14,
+    EXTI15_10 => PB15,
+]);
 
 #[cfg(any(
     feature = "stm32f401",
@@ -208,24 +210,24 @@ exti! {
     feature = "stm32f469",
     feature = "stm32f479"
 ))]
-exti! {
-    EXTI0 => (gpioc, PC0),
-    EXTI1 => (gpioc, PC1),
-    EXTI2 => (gpioc, PC2),
-    EXTI3 => (gpioc, PC3),
-    EXTI4 => (gpioc, PC4),
-    EXTI9_5 => (gpioc, PC5),
-    EXTI9_5 => (gpioc, PC6),
-    EXTI9_5 => (gpioc, PC7),
-    EXTI9_5 => (gpioc, PC8),
-    EXTI9_5 => (gpioc, PC9),
-    EXTI15_10 => (gpioc, PC10),
-    EXTI15_10 => (gpioc, PC11),
-    EXTI15_10 => (gpioc, PC12),
-    EXTI15_10 => (gpioc, PC13),
-    EXTI15_10 => (gpioc, PC14),
-    EXTI15_10 => (gpioc, PC15),
-}
+exti!(gpioc, [
+    EXTI0 => PC0,
+    EXTI1 => PC1,
+    EXTI2 => PC2,
+    EXTI3 => PC3,
+    EXTI4 => PC4,
+    EXTI9_5 => PC5,
+    EXTI9_5 => PC6,
+    EXTI9_5 => PC7,
+    EXTI9_5 => PC8,
+    EXTI9_5 => PC9,
+    EXTI15_10 => PC10,
+    EXTI15_10 => PC11,
+    EXTI15_10 => PC12,
+    EXTI15_10 => PC13,
+    EXTI15_10 => PC14,
+    EXTI15_10 => PC15,
+]);
 
 #[cfg(any(
     feature = "stm32f401",
@@ -245,24 +247,24 @@ exti! {
     feature = "stm32f469",
     feature = "stm32f479"
 ))]
-exti! {
-    EXTI0 => (gpiod, PD0),
-    EXTI1 => (gpiod, PD1),
-    EXTI2 => (gpiod, PD2),
-    EXTI3 => (gpiod, PD3),
-    EXTI4 => (gpiod, PD4),
-    EXTI9_5 => (gpiod, PD5),
-    EXTI9_5 => (gpiod, PD6),
-    EXTI9_5 => (gpiod, PD7),
-    EXTI9_5 => (gpiod, PD8),
-    EXTI9_5 => (gpiod, PD9),
-    EXTI15_10 => (gpiod, PD10),
-    EXTI15_10 => (gpiod, PD11),
-    EXTI15_10 => (gpiod, PD12),
-    EXTI15_10 => (gpiod, PD13),
-    EXTI15_10 => (gpiod, PD14),
-    EXTI15_10 => (gpiod, PD15),
-}
+exti!(gpiod, [
+    EXTI0 => PD0,
+    EXTI1 => PD1,
+    EXTI2 => PD2,
+    EXTI3 => PD3,
+    EXTI4 => PD4,
+    EXTI9_5 => PD5,
+    EXTI9_5 => PD6,
+    EXTI9_5 => PD7,
+    EXTI9_5 => PD8,
+    EXTI9_5 => PD9,
+    EXTI15_10 => PD10,
+    EXTI15_10 => PD11,
+    EXTI15_10 => PD12,
+    EXTI15_10 => PD13,
+    EXTI15_10 => PD14,
+    EXTI15_10 => PD15,
+]);
 
 #[cfg(any(
     feature = "stm32f401",
@@ -282,24 +284,24 @@ exti! {
     feature = "stm32f469",
     feature = "stm32f479"
 ))]
-exti! {
-    EXTI0 => (gpioe, PE0),
-    EXTI1 => (gpioe, PE1),
-    EXTI2 => (gpioe, PE2),
-    EXTI3 => (gpioe, PE3),
-    EXTI4 => (gpioe, PE4),
-    EXTI9_5 => (gpioe, PE5),
-    EXTI9_5 => (gpioe, PE6),
-    EXTI9_5 => (gpioe, PE7),
-    EXTI9_5 => (gpioe, PE8),
-    EXTI9_5 => (gpioe, PE9),
-    EXTI15_10 => (gpioe, PE10),
-    EXTI15_10 => (gpioe, PE11),
-    EXTI15_10 => (gpioe, PE12),
-    EXTI15_10 => (gpioe, PE13),
-    EXTI15_10 => (gpioe, PE14),
-    EXTI15_10 => (gpioe, PE15),
-}
+exti!(gpioe, [
+    EXTI0 => PE0,
+    EXTI1 => PE1,
+    EXTI2 => PE2,
+    EXTI3 => PE3,
+    EXTI4 => PE4,
+    EXTI9_5 => PE5,
+    EXTI9_5 => PE6,
+    EXTI9_5 => PE7,
+    EXTI9_5 => PE8,
+    EXTI9_5 => PE9,
+    EXTI15_10 => PE10,
+    EXTI15_10 => PE11,
+    EXTI15_10 => PE12,
+    EXTI15_10 => PE13,
+    EXTI15_10 => PE14,
+    EXTI15_10 => PE15,
+]);
 
 #[cfg(any(
     feature = "stm32f405",
@@ -317,24 +319,24 @@ exti! {
     feature = "stm32f469",
     feature = "stm32f479"
 ))]
-exti! {
-    EXTI0 => (gpiof, PF0),
-    EXTI1 => (gpiof, PF1),
-    EXTI2 => (gpiof, PF2),
-    EXTI3 => (gpiof, PF3),
-    EXTI4 => (gpiof, PF4),
-    EXTI9_5 => (gpiof, PF5),
-    EXTI9_5 => (gpiof, PF6),
-    EXTI9_5 => (gpiof, PF7),
-    EXTI9_5 => (gpiof, PF8),
-    EXTI9_5 => (gpiof, PF9),
-    EXTI15_10 => (gpiof, PF10),
-    EXTI15_10 => (gpiof, PF11),
-    EXTI15_10 => (gpiof, PF12),
-    EXTI15_10 => (gpiof, PF13),
-    EXTI15_10 => (gpiof, PF14),
-    EXTI15_10 => (gpiof, PF15),
-}
+exti!(gpiof, [
+    EXTI0 => PF0,
+    EXTI1 => PF1,
+    EXTI2 => PF2,
+    EXTI3 => PF3,
+    EXTI4 => PF4,
+    EXTI9_5 => PF5,
+    EXTI9_5 => PF6,
+    EXTI9_5 => PF7,
+    EXTI9_5 => PF8,
+    EXTI9_5 => PF9,
+    EXTI15_10 => PF10,
+    EXTI15_10 => PF11,
+    EXTI15_10 => PF12,
+    EXTI15_10 => PF13,
+    EXTI15_10 => PF14,
+    EXTI15_10 => PF15,
+]);
 
 #[cfg(any(
     feature = "stm32f405",
@@ -352,24 +354,24 @@ exti! {
     feature = "stm32f469",
     feature = "stm32f479"
 ))]
-exti! {
-    EXTI0 => (gpiog, PG0),
-    EXTI1 => (gpiog, PG1),
-    EXTI2 => (gpiog, PG2),
-    EXTI3 => (gpiog, PG3),
-    EXTI4 => (gpiog, PG4),
-    EXTI9_5 => (gpiog, PG5),
-    EXTI9_5 => (gpiog, PG6),
-    EXTI9_5 => (gpiog, PG7),
-    EXTI9_5 => (gpiog, PG8),
-    EXTI9_5 => (gpiog, PG9),
-    EXTI15_10 => (gpiog, PG10),
-    EXTI15_10 => (gpiog, PG11),
-    EXTI15_10 => (gpiog, PG12),
-    EXTI15_10 => (gpiog, PG13),
-    EXTI15_10 => (gpiog, PG14),
-    EXTI15_10 => (gpiog, PG15),
-}
+exti!(gpiog, [
+    EXTI0 => PG0,
+    EXTI1 => PG1,
+    EXTI2 => PG2,
+    EXTI3 => PG3,
+    EXTI4 => PG4,
+    EXTI9_5 => PG5,
+    EXTI9_5 => PG6,
+    EXTI9_5 => PG7,
+    EXTI9_5 => PG8,
+    EXTI9_5 => PG9,
+    EXTI15_10 => PG10,
+    EXTI15_10 => PG11,
+    EXTI15_10 => PG12,
+    EXTI15_10 => PG13,
+    EXTI15_10 => PG14,
+    EXTI15_10 => PG15,
+]);
 
 #[cfg(any(
     feature = "stm32f405",
@@ -389,30 +391,30 @@ exti! {
     feature = "stm32f469",
     feature = "stm32f479"
 ))]
-exti! {
-    EXTI0 => (gpioh, PH0),
-    EXTI1 => (gpioh, PH1),
-    EXTI2 => (gpioh, PH2),
-    EXTI3 => (gpioh, PH3),
-    EXTI4 => (gpioh, PH4),
-    EXTI9_5 => (gpioh, PH5),
-    EXTI9_5 => (gpioh, PH6),
-    EXTI9_5 => (gpioh, PH7),
-    EXTI9_5 => (gpioh, PH8),
-    EXTI9_5 => (gpioh, PH9),
-    EXTI15_10 => (gpioh, PH10),
-    EXTI15_10 => (gpioh, PH11),
-    EXTI15_10 => (gpioh, PH12),
-    EXTI15_10 => (gpioh, PH13),
-    EXTI15_10 => (gpioh, PH14),
-    EXTI15_10 => (gpioh, PH15),
-}
+exti!(gpioh, [
+    EXTI0 => PH0,
+    EXTI1 => PH1,
+    EXTI2 => PH2,
+    EXTI3 => PH3,
+    EXTI4 => PH4,
+    EXTI9_5 => PH5,
+    EXTI9_5 => PH6,
+    EXTI9_5 => PH7,
+    EXTI9_5 => PH8,
+    EXTI9_5 => PH9,
+    EXTI15_10 => PH10,
+    EXTI15_10 => PH11,
+    EXTI15_10 => PH12,
+    EXTI15_10 => PH13,
+    EXTI15_10 => PH14,
+    EXTI15_10 => PH15,
+]);
 
 #[cfg(any(feature = "stm32f401"))]
-exti! {
-    EXTI0 => (gpioh, PH0),
-    EXTI1 => (gpioh, PH1),
-}
+exti!(gpioh, [
+    EXTI0 => PH0,
+    EXTI1 => PH1,
+]);
 
 #[cfg(any(
     feature = "stm32f405",
@@ -426,24 +428,24 @@ exti! {
     feature = "stm32f469",
     feature = "stm32f479"
 ))]
-exti! {
-    EXTI0 => (gpioi, PI0),
-    EXTI1 => (gpioi, PI1),
-    EXTI2 => (gpioi, PI2),
-    EXTI3 => (gpioi, PI3),
-    EXTI4 => (gpioi, PI4),
-    EXTI9_5 => (gpioi, PI5),
-    EXTI9_5 => (gpioi, PI6),
-    EXTI9_5 => (gpioi, PI7),
-    EXTI9_5 => (gpioi, PI8),
-    EXTI9_5 => (gpioi, PI9),
-    EXTI15_10 => (gpioi, PI10),
-    EXTI15_10 => (gpioi, PI11),
-    EXTI15_10 => (gpioi, PI12),
-    EXTI15_10 => (gpioi, PI13),
-    EXTI15_10 => (gpioi, PI14),
-    EXTI15_10 => (gpioi, PI15),
-}
+exti!(gpioi, [
+    EXTI0 => PI0,
+    EXTI1 => PI1,
+    EXTI2 => PI2,
+    EXTI3 => PI3,
+    EXTI4 => PI4,
+    EXTI9_5 => PI5,
+    EXTI9_5 => PI6,
+    EXTI9_5 => PI7,
+    EXTI9_5 => PI8,
+    EXTI9_5 => PI9,
+    EXTI15_10 => PI10,
+    EXTI15_10 => PI11,
+    EXTI15_10 => PI12,
+    EXTI15_10 => PI13,
+    EXTI15_10 => PI14,
+    EXTI15_10 => PI15,
+]);
 
 #[cfg(any(
     feature = "stm32f427",
@@ -453,24 +455,24 @@ exti! {
     feature = "stm32f469",
     feature = "stm32f479"
 ))]
-exti! {
-    EXTI0 => (gpioj, PJ0),
-    EXTI1 => (gpioj, PJ1),
-    EXTI2 => (gpioj, PJ2),
-    EXTI3 => (gpioj, PJ3),
-    EXTI4 => (gpioj, PJ4),
-    EXTI9_5 => (gpioj, PJ5),
-    EXTI9_5 => (gpioj, PJ6),
-    EXTI9_5 => (gpioj, PJ7),
-    EXTI9_5 => (gpioj, PJ8),
-    EXTI9_5 => (gpioj, PJ9),
-    EXTI15_10 => (gpioj, PJ10),
-    EXTI15_10 => (gpioj, PJ11),
-    EXTI15_10 => (gpioj, PJ12),
-    EXTI15_10 => (gpioj, PJ13),
-    EXTI15_10 => (gpioj, PJ14),
-    EXTI15_10 => (gpioj, PJ15),
-}
+exti!(gpioj, [
+    EXTI0 => PJ0,
+    EXTI1 => PJ1,
+    EXTI2 => PJ2,
+    EXTI3 => PJ3,
+    EXTI4 => PJ4,
+    EXTI9_5 => PJ5,
+    EXTI9_5 => PJ6,
+    EXTI9_5 => PJ7,
+    EXTI9_5 => PJ8,
+    EXTI9_5 => PJ9,
+    EXTI15_10 => PJ10,
+    EXTI15_10 => PJ11,
+    EXTI15_10 => PJ12,
+    EXTI15_10 => PJ13,
+    EXTI15_10 => PJ14,
+    EXTI15_10 => PJ15,
+]);
 
 #[cfg(any(
     feature = "stm32f427",
@@ -480,13 +482,13 @@ exti! {
     feature = "stm32f469",
     feature = "stm32f479"
 ))]
-exti! {
-    EXTI0 => (gpiok, PK0),
-    EXTI1 => (gpiok, PK1),
-    EXTI2 => (gpiok, PK2),
-    EXTI3 => (gpiok, PK3),
-    EXTI4 => (gpiok, PK4),
-    EXTI9_5 => (gpiok, PK5),
-    EXTI9_5 => (gpiok, PK6),
-    EXTI9_5 => (gpiok, PK7),
-}
+exti!(gpioj, [
+    EXTI0 => PK0,
+    EXTI1 => PK1,
+    EXTI2 => PK2,
+    EXTI3 => PK3,
+    EXTI4 => PK4,
+    EXTI9_5 => PK5,
+    EXTI9_5 => PK6,
+    EXTI9_5 => PK7,
+]);
