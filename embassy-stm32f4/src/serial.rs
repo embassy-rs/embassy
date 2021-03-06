@@ -5,6 +5,7 @@
 //! are dropped correctly (e.g. not using `mem::forget()`).
 
 use core::future::Future;
+use core::marker::PhantomData;
 use core::ptr;
 use core::sync::atomic::{self, Ordering};
 
@@ -12,15 +13,16 @@ use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::traits::uart::{Error, Uart};
 use embassy::util::InterruptFuture;
 
-use crate::hal::dma;
-use crate::hal::dma::config::DmaConfig;
-use crate::hal::dma::traits::{PeriAddress, Stream};
-use crate::hal::dma::{MemoryToPeripheral, PeripheralToMemory, Transfer};
-use crate::hal::rcc::Clocks;
-use crate::hal::serial;
-use crate::hal::serial::config::{Config as SerialConfig, DmaConfig as SerialDmaConfig};
-use crate::hal::serial::Pins;
-use crate::hal::serial::{Event as SerialEvent, Serial as HalSerial};
+use crate::hal::{
+    dma,
+    dma::config::DmaConfig,
+    dma::traits::{Channel, DMASet, PeriAddress, Stream},
+    dma::{MemoryToPeripheral, PeripheralToMemory, Transfer},
+    rcc::Clocks,
+    serial,
+    serial::config::{Config as SerialConfig, DmaConfig as SerialDmaConfig},
+    serial::{Event as SerialEvent, Pins, Serial as HalSerial},
+};
 use crate::interrupt;
 use crate::pac;
 
@@ -37,7 +39,7 @@ pub struct Serial<
     tx_int: TSTREAM::Interrupt,
     rx_int: RSTREAM::Interrupt,
     usart_int: USART::Interrupt,
-    channel: core::marker::PhantomData<CHANNEL>,
+    channel: PhantomData<CHANNEL>,
 }
 
 // static mut INSTANCE: *const Serial<USART1, Stream7<DMA2>, Stream2<DMA2>> = ptr::null_mut();
@@ -45,13 +47,13 @@ pub struct Serial<
 impl<USART, TSTREAM, RSTREAM, CHANNEL> Serial<USART, TSTREAM, RSTREAM, CHANNEL>
 where
     USART: serial::Instance
-        + dma::traits::PeriAddress<MemSize = u8>
-        + dma::traits::DMASet<TSTREAM, CHANNEL, MemoryToPeripheral>
-        + dma::traits::DMASet<RSTREAM, CHANNEL, PeripheralToMemory>
+        + PeriAddress<MemSize = u8>
+        + DMASet<TSTREAM, CHANNEL, MemoryToPeripheral>
+        + DMASet<RSTREAM, CHANNEL, PeripheralToMemory>
         + WithInterrupt,
     TSTREAM: Stream + WithInterrupt,
     RSTREAM: Stream + WithInterrupt,
-    CHANNEL: dma::traits::Channel,
+    CHANNEL: Channel,
 {
     // Leaking futures is forbidden!
     pub unsafe fn new<PINS>(
@@ -92,14 +94,14 @@ where
 impl<USART, TSTREAM, RSTREAM, CHANNEL> Uart for Serial<USART, TSTREAM, RSTREAM, CHANNEL>
 where
     USART: serial::Instance
-        + dma::traits::PeriAddress<MemSize = u8>
-        + dma::traits::DMASet<TSTREAM, CHANNEL, MemoryToPeripheral>
-        + dma::traits::DMASet<RSTREAM, CHANNEL, PeripheralToMemory>
+        + PeriAddress<MemSize = u8>
+        + DMASet<TSTREAM, CHANNEL, MemoryToPeripheral>
+        + DMASet<RSTREAM, CHANNEL, PeripheralToMemory>
         + WithInterrupt
         + 'static,
     TSTREAM: Stream + WithInterrupt + 'static,
     RSTREAM: Stream + WithInterrupt + 'static,
-    CHANNEL: dma::traits::Channel + 'static,
+    CHANNEL: Channel + 'static,
 {
     type SendFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
     type ReceiveFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
