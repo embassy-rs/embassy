@@ -69,30 +69,10 @@
 use core::future::Future;
 use core::pin::Pin;
 
-mod private {
-    pub trait Sealed {}
-}
-
-/// Address mode (7-bit / 10-bit)
-///
-/// Note: This trait is sealed and should not be implemented outside of this crate.
-pub trait AddressMode: private::Sealed {}
-
-/// 7-bit address mode type
-pub type SevenBitAddress = u8;
-
-/// 10-bit address mode type
-pub type TenBitAddress = u16;
-
-impl private::Sealed for SevenBitAddress {}
-impl private::Sealed for TenBitAddress {}
-
-impl AddressMode for SevenBitAddress {}
-
-impl AddressMode for TenBitAddress {}
+pub use embedded_hal::i2c::{AddressMode, SevenBitAddress, TenBitAddress};
 
 /// Blocking read
-pub trait Read<A: AddressMode = SevenBitAddress> {
+pub trait ReadWrite<A: AddressMode = SevenBitAddress> {
     /// Error type
     type Error;
 
