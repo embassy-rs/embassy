@@ -86,7 +86,14 @@ async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
 
     let buf = singleton!(: [u8; 128] = [0; 128]).unwrap();
 
-    let async_i2c = AsyncI2c1::new(buf, i2c, interrupt::take!(DMA1_CHANNEL1), dma_c1);
+    let async_i2c = AsyncI2c1::new(
+        buf,
+        i2c,
+        interrupt::take!(I2C1_EV),
+        interrupt::take!(I2C1_ER),
+        interrupt::take!(DMA1_CHANNEL1),
+        dma_c1,
+    );
 
     let mut axp173 = axp173::Axp173::new(async_i2c);
     axp173.init().await.unwrap();

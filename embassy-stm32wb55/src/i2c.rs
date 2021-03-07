@@ -10,14 +10,22 @@
 //! [`AsyncI2cWrite`]: https://docs.rs/async-embedded-traits/0.1.2/async_embedded_traits/i2c/trait.AsyncI2cWrite.html
 //! [`AsyncI2cTransfer`]: https://docs.rs/async-embedded-traits/0.1.2/async_embedded_traits/i2c/trait.AsyncI2cTransfer.html
 
+pub trait StopDma {
+    fn stop_dma(&mut self);
+}
+
 macro_rules! impl_async_i2c_dma {
-    ($i2ci:ident, $I2Ci:ident, $dmaimpl:ident, $DMAi:ident, $Ci:ident, $Cint:path, $tcifi:ident, $ctcifi:ident, $teifi:ident, $cteifi:ident) => {
+    ($i2ci:ident, $I2Ci:ident, $I2CintEV:path, $I2CintER:path, $dmaimpl:ident, $DMAi:ident, $Ci:ident, $Cint:path, $tcifi:ident, $ctcifi:ident, $teifi:ident, $cteifi:ident) => {
         pub mod $i2ci {
+            use super::StopDma;
+
             use async_embedded_traits::i2c::{
                 AsyncI2cRead, AsyncI2cTransfer, AsyncI2cWrite, I2cAddress7Bit,
             };
             use core::convert::TryInto;
             use core::future::Future;
+
+            use futures::future::{self, Either};
 
             use embassy::interrupt::Interrupt;
             use embassy::util::InterruptFuture;
@@ -30,25 +38,43 @@ macro_rules! impl_async_i2c_dma {
                 pac::$I2Ci,
             };
 
-            pub struct AsyncI2c<I2C, SCL, SDA, I: Interrupt> {
+            pub struct AsyncI2c<
+                I2C,
+                SCL,
+                SDA,
+                DMAINT: Interrupt,
+                I2CINTER: Interrupt,
+                I2CINTEV: Interrupt,
+            > {
                 buf: &'static [u8],
                 i2c: I2c<I2C, (SCL, SDA)>,
-                dma_int: I,
+                dma_int: DMAINT,
                 dma_ch: $Ci,
+                i2c_int_er: I2CINTER,
+                i2c_int_ev: I2CINTEV,
+                stopped: bool,
             }
 
-            impl<SCL, SDA> AsyncI2c<$I2Ci, SCL, SDA, $Cint> {
+            impl<SCL, SDA> AsyncI2c<$I2Ci, SCL, SDA, $Cint, $I2CintER, $I2CintEV> {
                 pub fn new(
                     buf: &'static [u8],
-                    i2c: I2c<$I2Ci, (SCL, SDA)>,
+                    mut i2c: I2c<$I2Ci, (SCL, SDA)>,
+                    i2c_int_ev: $I2CintEV,
+                    i2c_int_er: $I2CintER,
                     dma_int: $Cint,
                     dma_ch: $Ci,
                 ) -> Self {
+                    i2c.set_error_interrupt(true);
+                    i2c.set_nack_interrupt(true);
+
                     Self {
                         buf,
                         i2c,
+                        i2c_int_ev,
+                        i2c_int_er,
                         dma_int,
                         dma_ch,
+                        stopped: false,
                     }
                 }
 
@@ -66,7 +92,34 @@ macro_rules! impl_async_i2c_dma {
                     let te_flag = dma.isr.read().$teifi().bit();
                     if te_flag {
                         dma.ifcr.write(|w| w.$cteifi().set_bit());
+                        return Err(I2cError::DmaTransferError);
+                    }
+
+                    Ok(())
+                }
+
+                fn handle_i2c_er_int() -> Result<(), I2cError> {
+                    let i2c = unsafe { Peripherals::steal().$I2Ci };
+                    let isr = i2c.isr.read();
+
+                    if isr.berr().bit_is_set() {
+                        i2c.icr.write(|w| w.berrcf().set_bit());
                         return Err(I2cError::Bus);
+                    } else if isr.arlo().bit_is_set() {
+                        i2c.icr.write(|w| w.arlocf().set_bit());
+                        return Err(I2cError::Arbitration);
+                    }
+
+                    Ok(())
+                }
+
+                fn handle_i2c_ev_int() -> Result<(), I2cError> {
+                    let i2c = unsafe { Peripherals::steal().$I2Ci };
+                    let isr = i2c.isr.read();
+
+                    if isr.nackf().bit_is_set() {
+                        i2c.icr.write(|w| w.nackcf().set_bit());
+                        return Err(I2cError::Nack);
                     }
 
                     Ok(())
@@ -80,6 +133,8 @@ macro_rules! impl_async_i2c_dma {
                     data: &[u8],
                     autostop: bool,
                 ) -> Result<($Ci, I2c<$I2Ci, (SCL, SDA)>), I2cError> {
+                    self.stopped = false;
+
                     // Make the static buffer mutable as per `embedded-dma` requirements (`DerefMut`).
                     // It's safe as long as the buffer isn't used until this future completes.
                     #[allow(mutable_transmutes)]
@@ -93,8 +148,20 @@ macro_rules! impl_async_i2c_dma {
                     let tx_transfer =
                         i2c.with_tx_dma(dma_ch, address.try_into().unwrap(), autostop);
                     let transfer = tx_transfer.write(buf);
-                    InterruptFuture::new(&mut self.dma_int).await;
-                    Self::handle_dma_int()?;
+                    let dma_int_future = InterruptFuture::new(&mut self.dma_int);
+                    let i2c_futures = future::select(
+                        InterruptFuture::new(&mut self.i2c_int_ev),
+                        InterruptFuture::new(&mut self.i2c_int_er),
+                    );
+                    match future::select(dma_int_future, i2c_futures).await {
+                        Either::Left(_) => Self::handle_dma_int()?,
+                        Either::Right((Either::Left(_), _)) => Self::handle_i2c_ev_int()?,
+                        Either::Right((Either::Right(_), _)) => Self::handle_i2c_er_int()?,
+                    }
+                    if self.stopped {
+                        defmt::debug!("TX was forced to stop");
+                        return Err(I2cError::DmaTransferError);
+                    }
                     let (_, tx_dma) = transfer.destroy();
 
                     Ok(tx_dma.free())
@@ -108,6 +175,8 @@ macro_rules! impl_async_i2c_dma {
                     rx_data: &mut [u8],
                     autostop: bool,
                 ) -> Result<($Ci, I2c<$I2Ci, (SCL, SDA)>), I2cError> {
+                    self.stopped = false;
+
                     // Make the static buffer mutable as per `embedded-dma` requirements.
                     // It's safe as long as the buffer isn't used until this future completes.
                     #[allow(mutable_transmutes)]
@@ -118,8 +187,20 @@ macro_rules! impl_async_i2c_dma {
                     };
                     let rx_transfer = i2c.with_rx_dma(dma_ch, address, autostop);
                     let transfer = rx_transfer.read(rx_buf);
-                    InterruptFuture::new(&mut self.dma_int).await;
-                    Self::handle_dma_int()?;
+                    let dma_int_future = InterruptFuture::new(&mut self.dma_int);
+                    let i2c_futures = future::select(
+                        InterruptFuture::new(&mut self.i2c_int_ev),
+                        InterruptFuture::new(&mut self.i2c_int_er),
+                    );
+                    match future::select(dma_int_future, i2c_futures).await {
+                        Either::Left(_) => Self::handle_dma_int()?,
+                        Either::Right((Either::Left(_), _)) => Self::handle_i2c_ev_int()?,
+                        Either::Right((Either::Right(_), _)) => Self::handle_i2c_er_int()?,
+                    }
+                    if self.stopped {
+                        defmt::debug!("RX was forced to stop");
+                        return Err(I2cError::DmaTransferError);
+                    }
                     let (rx_buf, rx_dma) = transfer.destroy();
                     rx_data.copy_from_slice(rx_buf);
 
@@ -127,7 +208,9 @@ macro_rules! impl_async_i2c_dma {
                 }
             }
 
-            impl<SCL, SDA> AsyncI2cWrite<I2cAddress7Bit> for AsyncI2c<$I2Ci, SCL, SDA, $Cint> {
+            impl<SCL, SDA> AsyncI2cWrite<I2cAddress7Bit>
+                for AsyncI2c<$I2Ci, SCL, SDA, $Cint, $I2CintER, $I2CintEV>
+            {
                 type Error = I2cError;
                 type WriteFuture<'f> = impl Future<Output = Result<(), Self::Error>>;
 
@@ -156,7 +239,18 @@ macro_rules! impl_async_i2c_dma {
                 }
             }
 
-            impl<SCL, SDA> AsyncI2cRead<I2cAddress7Bit> for AsyncI2c<$I2Ci, SCL, SDA, $Cint> {
+            impl<SCL, SDA> StopDma for AsyncI2c<$I2Ci, SCL, SDA, $Cint, $I2CintER, $I2CintEV> {
+                fn stop_dma(&mut self) {
+                    self.stopped = true;
+                    self.dma_ch.stop();
+                    // Fire interrupt in case if it's being awaited on
+                    self.dma_int.pend();
+                }
+            }
+
+            impl<SCL, SDA> AsyncI2cRead<I2cAddress7Bit>
+                for AsyncI2c<$I2Ci, SCL, SDA, $Cint, $I2CintER, $I2CintEV>
+            {
                 type Error = I2cError;
                 type ReadFuture<'f> = impl Future<Output = Result<(), Self::Error>>;
 
@@ -184,7 +278,9 @@ macro_rules! impl_async_i2c_dma {
                 }
             }
 
-            impl<SCL, SDA> AsyncI2cTransfer<I2cAddress7Bit> for AsyncI2c<$I2Ci, SCL, SDA, $Cint> {
+            impl<SCL, SDA> AsyncI2cTransfer<I2cAddress7Bit>
+                for AsyncI2c<$I2Ci, SCL, SDA, $Cint, $I2CintER, $I2CintEV>
+            {
                 type Error = I2cError;
                 type TransferFuture<'f> =
                     impl core::future::Future<Output = Result<(), Self::Error>>;
@@ -229,6 +325,8 @@ macro_rules! impl_async_i2c_dma {
 impl_async_i2c_dma!(
     i2c1,
     I2C1,
+    crate::interrupt::I2C1_EV,
+    crate::interrupt::I2C1_ER,
     dma1impl,
     DMA1,
     C1,
@@ -242,6 +340,8 @@ impl_async_i2c_dma!(
 impl_async_i2c_dma!(
     i2c3,
     I2C3,
+    crate::interrupt::I2C3_EV,
+    crate::interrupt::I2C3_ER,
     dma1impl,
     DMA1,
     C2,

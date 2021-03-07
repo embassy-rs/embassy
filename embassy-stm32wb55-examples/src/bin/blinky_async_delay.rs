@@ -18,7 +18,7 @@ use embassy::util::Forever;
 use embassy_stm32wb55::interrupt;
 
 use stm32wb_hal::flash::FlashExt;
-use stm32wb_hal::lptim::{lptim1::LpTimer as LpTimer1, lptim2::LpTimer as LpTimer2};
+use stm32wb_hal::lptim::lptim2::LpTimer as LpTimer2;
 use stm32wb_hal::prelude::*;
 use stm32wb_hal::rcc::{
     ApbDivider, Config, HDivider, HseDivider, LptimClkSrc, PllConfig, PllSrc, RfWakeupClock,
