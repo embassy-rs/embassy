@@ -2,6 +2,8 @@ use core::future::Future;
 use core::pin::Pin;
 use core::task::Poll;
 
+use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
+
 use crate::fmt::{assert, assert_eq, *};
 use crate::hal::gpio::{Output, Pin as GpioPin, PushPull};
 use crate::interrupt::{self};
@@ -11,7 +13,6 @@ pub use crate::pac::qspi::ifconfig0::ADDRMODE_A as AddressMode;
 pub use crate::pac::qspi::ifconfig0::PPSIZE_A as WritePageSize;
 pub use crate::pac::qspi::ifconfig0::READOC_A as ReadOpcode;
 pub use crate::pac::qspi::ifconfig0::WRITEOC_A as WriteOpcode;
-use crate::util::peripheral::{PeripheralMutex, PeripheralState};
 
 // TODO
 // - config:

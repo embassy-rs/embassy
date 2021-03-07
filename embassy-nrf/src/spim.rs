@@ -3,10 +3,10 @@ use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 use embassy::util::WakerRegistration;
+use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
 use futures::future::poll_fn;
 
 use crate::interrupt::{self, Interrupt};
-use crate::util::peripheral::{PeripheralMutex, PeripheralState};
 use crate::{pac, slice_in_ram_or};
 
 pub use crate::hal::spim::{

@@ -13,14 +13,15 @@ use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
 use embassy::io::{AsyncBufRead, AsyncWrite, Result};
 use embassy::util::WakerRegistration;
+use embassy_extras::low_power_wait_until;
+use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
+use embassy_extras::ring_buffer::RingBuffer;
 use embedded_hal::digital::v2::OutputPin;
 
+use crate::fmt::*;
 use crate::hal::ppi::ConfigurablePpi;
 use crate::interrupt::{self, Interrupt};
 use crate::pac;
-use crate::util::peripheral::{PeripheralMutex, PeripheralState};
-use crate::util::ring_buffer::RingBuffer;
-use crate::{fmt::*, util::low_power_wait_until};
 
 // Re-export SVD variants to allow user to directly set values
 pub use crate::hal::uarte::Pins;
@@ -115,7 +116,6 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
                 w.connect().disconnected()
             }
         });
-
 
         // Enable UARTE instance
         uarte.enable.write(|w| w.enable().enabled());

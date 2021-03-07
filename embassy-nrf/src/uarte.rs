@@ -16,8 +16,8 @@ use crate::fmt::{assert, *};
 use crate::hal::pac;
 use crate::hal::prelude::*;
 use crate::hal::target_constants::EASY_DMA_SIZE;
+use crate::interrupt;
 use crate::interrupt::Interrupt;
-use crate::{interrupt, util};
 
 pub use crate::hal::uarte::Pins;
 // Re-export SVD variants to allow user to directly set values.
@@ -45,7 +45,7 @@ where
     /// Creates the interface to a UARTE instance.
     /// Sets the baud rate, parity and assigns the pins to the UARTE peripheral.
     ///
-    /// # Unsafe
+    /// # Safety
     ///
     /// The returned API is safe unless you use `mem::forget` (or similar safe mechanisms)
     /// on stack allocated buffers which which have been passed to [`send()`](Uarte::send)
@@ -327,7 +327,7 @@ where
                 .tasks_stoprx
                 .write(|w| unsafe { w.bits(1) });
 
-            util::low_power_wait_until(|| T::state().rx_done.signaled())
+            embassy_extras::low_power_wait_until(|| T::state().rx_done.signaled())
         }
     }
 }

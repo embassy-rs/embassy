@@ -90,7 +90,6 @@ pub(crate) fn slice_in_ram_or<T>(slice: &[u8], err: T) -> Result<(), T> {
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
-pub(crate) mod util;
 
 pub mod buffered_uarte;
 pub mod gpiote;

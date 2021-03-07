@@ -4,10 +4,9 @@ use core::mem::MaybeUninit;
 use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use embassy::interrupt::InterruptExt;
+use embassy::interrupt::{Interrupt, InterruptExt};
 
-use crate::fmt::{assert, *};
-use crate::interrupt::Interrupt;
+use crate::fmt::assert;
 
 pub trait PeripheralState {
     type Interrupt: Interrupt;
