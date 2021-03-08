@@ -8,6 +8,7 @@ members = [
     "embassy-nrf-examples",
     "embassy-stm32f4-examples",
     "embassy-macros",
+    "embassy-extras",
 ]
 
 # embassy-std enables std-only features. Since Cargo resolves all features
