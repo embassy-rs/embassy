@@ -3,7 +3,7 @@ use core::mem;
 use core::pin::Pin;
 
 use embassy::interrupt::Interrupt;
-use embassy::traits::gpio::{WaitForFallingEdge, WaitForRisingEdge};
+use embassy::traits::gpio::{WaitForAnyEdge, WaitForFallingEdge, WaitForRisingEdge};
 use embassy::util::InterruptFuture;
 
 use crate::hal::{
@@ -89,6 +89,16 @@ impl<T: PinWithInterrupt<Interrupt = I> + 'static, I: Interrupt + 'static> WaitF
 
     fn wait_for_falling_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
         self.wait_for_edge(TriggerEdge::Falling)
+    }
+}
+
+impl<T: PinWithInterrupt<Interrupt = I> + 'static, I: Interrupt + 'static> WaitForAnyEdge
+    for ExtiPin<T, I>
+{
+    type Future<'a> = impl Future<Output = ()> + 'a;
+
+    fn wait_for_any_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+        self.wait_for_edge(TriggerEdge::Both)
     }
 }
 
