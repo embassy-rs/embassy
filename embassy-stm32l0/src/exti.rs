@@ -39,7 +39,37 @@ impl<'a> ExtiManager {
 pub struct ExtiPin<T, I> {
     pin: T,
     interrupt: I,
-    mgr: &'static mut ExtiManager,
+    mgr: &'static ExtiManager,
+}
+
+impl<T: PinWithInterrupt<Interrupt = I> + 'static, I: Interrupt + 'static> ExtiPin<T, I> {
+    fn wait_for_edge<'a>(
+        self: Pin<&'a mut Self>,
+        edge: TriggerEdge,
+    ) -> impl Future<Output = ()> + 'a {
+        let line = self.pin.line();
+        let s = unsafe { self.get_unchecked_mut() };
+
+        Exti::unpend(line);
+
+        async move {
+            let exti: EXTI = unsafe { mem::transmute(()) };
+            let mut exti = Exti::new(exti);
+
+            let fut = InterruptFuture::new(&mut s.interrupt);
+
+            let port = s.pin.port();
+            let syscfg = &s.mgr.syscfg as *const _ as *mut SYSCFG;
+            cortex_m::interrupt::free(|_| {
+                let syscfg = unsafe { &mut *syscfg };
+                exti.listen_gpio(syscfg, port, line, edge);
+            });
+
+            fut.await;
+
+            Exti::unpend(line);
+        }
+    }
 }
 
 impl<T: PinWithInterrupt<Interrupt = I> + 'static, I: Interrupt + 'static> WaitForRisingEdge
@@ -48,21 +78,7 @@ impl<T: PinWithInterrupt<Interrupt = I> + 'static, I: Interrupt + 'static> WaitF
     type Future<'a> = impl Future<Output = ()> + 'a;
 
     fn wait_for_rising_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
-        let s = unsafe { self.get_unchecked_mut() };
-
-        let line = s.pin.line();
-        Exti::unpend(line);
-
-        async move {
-            let exti: EXTI = unsafe { mem::transmute(()) };
-            let mut exti = Exti::new(exti);
-            let fut = InterruptFuture::new(&mut s.interrupt);
-
-            exti.listen_gpio(&mut s.mgr.syscfg, s.pin.port(), line, TriggerEdge::Rising);
-            fut.await;
-
-            Exti::unpend(line);
-        }
+        self.wait_for_edge(TriggerEdge::Rising)
     }
 }
 
@@ -72,21 +88,7 @@ impl<T: PinWithInterrupt<Interrupt = I> + 'static, I: Interrupt + 'static> WaitF
     type Future<'a> = impl Future<Output = ()> + 'a;
 
     fn wait_for_falling_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
-        let s = unsafe { self.get_unchecked_mut() };
-
-        let line = s.pin.line();
-        Exti::unpend(line);
-
-        async move {
-            let exti: EXTI = unsafe { mem::transmute(()) };
-            let mut exti = Exti::new(exti);
-            let fut = InterruptFuture::new(&mut s.interrupt);
-
-            exti.listen_gpio(&mut s.mgr.syscfg, s.pin.port(), line, TriggerEdge::Falling);
-            fut.await;
-
-            Exti::unpend(line);
-        }
+        self.wait_for_edge(TriggerEdge::Falling)
     }
 }
 

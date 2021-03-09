@@ -4,11 +4,7 @@
 #![feature(type_alias_impl_trait)]
 #![allow(incomplete_features)]
 
-#[cfg(not(any(
-    feature = "stm32l0x1",
-    feature = "stm32l0x2",
-    feature = "stm32l0x3",
-)))]
+#[cfg(not(any(feature = "stm32l0x1", feature = "stm32l0x2", feature = "stm32l0x3",)))]
 compile_error!(
     "No chip feature activated. You must activate exactly one of the following features: "
 );
