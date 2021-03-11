@@ -9,5 +9,6 @@
 pub mod delay;
 pub mod flash;
 pub mod gpio;
+pub mod qei;
 pub mod i2c;
 pub mod uart;
