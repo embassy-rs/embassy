@@ -482,7 +482,7 @@ exti!(gpioj, [
     feature = "stm32f469",
     feature = "stm32f479"
 ))]
-exti!(gpioj, [
+exti!(gpiok, [
     EXTI0 => PK0,
     EXTI1 => PK1,
     EXTI2 => PK2,
