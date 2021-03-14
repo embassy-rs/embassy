@@ -45,7 +45,7 @@ GPIO pins are set up for the `nrf52840-dk` board (PCA10056)
 - Install `probe-run` with defmt support.
 
 ```
-cargo install --git https://github.com/knurling-rs/probe-run --branch main --features defmt
+cargo install probe-run
 ```
 
 - Run the example
