@@ -10,6 +10,7 @@ use crate::hal::gpio;
 use crate::hal::gpio::{Edge, ExtiPin as HalExtiPin};
 use crate::hal::syscfg::SysCfg;
 use crate::pac::EXTI;
+use embedded_hal::digital::v2 as digital;
 
 use crate::interrupt;
 
@@ -40,6 +41,52 @@ pub struct ExtiPin<T: HalExtiPin + WithInterrupt> {
     pin: T,
     interrupt: T::Interrupt,
     _mgr: &'static ExtiManager,
+}
+
+impl<T: HalExtiPin + WithInterrupt + digital::OutputPin> digital::OutputPin for ExtiPin<T> {
+    type Error = T::Error;
+
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        self.pin.set_low()
+    }
+
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        self.pin.set_high()
+    }
+}
+
+impl<T: HalExtiPin + WithInterrupt + digital::StatefulOutputPin> digital::StatefulOutputPin
+    for ExtiPin<T>
+{
+    fn is_set_low(&self) -> Result<bool, Self::Error> {
+        self.pin.is_set_low()
+    }
+
+    fn is_set_high(&self) -> Result<bool, Self::Error> {
+        self.pin.is_set_high()
+    }
+}
+
+impl<T: HalExtiPin + WithInterrupt + digital::ToggleableOutputPin> digital::ToggleableOutputPin
+    for ExtiPin<T>
+{
+    type Error = T::Error;
+
+    fn toggle(&mut self) -> Result<(), Self::Error> {
+        self.pin.toggle()
+    }
+}
+
+impl<T: HalExtiPin + WithInterrupt + digital::InputPin> digital::InputPin for ExtiPin<T> {
+    type Error = T::Error;
+
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        self.pin.is_high()
+    }
+
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        self.pin.is_low()
+    }
 }
 
 /*
