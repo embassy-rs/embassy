@@ -313,5 +313,6 @@ pub(crate) mod fmt;
 
 pub mod exti;
 pub mod interrupt;
+pub mod qei;
 pub mod rtc;
 pub mod serial;
