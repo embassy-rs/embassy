@@ -311,6 +311,7 @@ pub use stm32f4xx_hal::stm32 as pac;
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+pub mod can;
 pub mod exti;
 pub mod interrupt;
 pub mod qei;
