@@ -87,8 +87,8 @@ pub trait Instance: bxcan::Instance + private::Sealed {
 macro_rules! can {
     ($($can:ident => ($tint:ident, $rint:ident),)+) => {
         $(
-            impl<T> private::Sealed for crate::hal::can::Can<crate::pac::$can> {}
-            impl<T> Instance for crate::hal::can::Can<crate::pac::$can> {
+            impl private::Sealed for crate::hal::can::Can<crate::pac::$can> {}
+            impl Instance for crate::hal::can::Can<crate::pac::$can> {
                 type TInterrupt = interrupt::$tint;
                 type RInterrupt = interrupt::$rint;
             }
