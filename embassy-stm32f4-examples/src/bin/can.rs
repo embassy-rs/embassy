@@ -7,21 +7,22 @@
 mod example_common;
 use example_common::{panic, *};
 
+use bxcan::filter::Mask32;
 use cortex_m_rt::entry;
 use embassy::executor::{task, Executor};
 use embassy::traits::gpio::*;
 use embassy::util::Forever;
-use embassy_stm32f4::can;
-use embassy_stm32f4::exti;
-use embassy_stm32f4::interrupt;
+use embassy_stm32f4::{can, exti, interrupt};
 use futures::pin_mut;
 use stm32f4xx_hal::prelude::*;
-use stm32f4xx_hal::stm32;
+use stm32f4xx_hal::{can::Can, stm32};
 
 static EXTI: Forever<exti::ExtiManager> = Forever::new();
 
 #[task]
 async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
+    let gpioa = dp.GPIOA.split();
+
     let rx = gpioa.pa11.into_alternate_af9();
     let tx = gpioa.pa12.into_alternate_af9();
     let mut can = bxcan::Can::new(Can::new(dp.CAN1, (tx, rx)));
@@ -32,13 +33,7 @@ async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
     // Configure filters so that can frames can be received.
     can.modify_filters().enable_bank(0, Mask32::accept_all());
 
-    block!(can.enable()).unwrap();
-
-    let can = can::Can::new(
-        can,
-        interrupt::take!(CAN1_TX),
-        interrupt::take!(CAN1_RX0),
-    ));
+    let mut can = can::Can::new(can, interrupt::take!(CAN1_TX), interrupt::take!(CAN1_RX0));
 
     let frame = can.receive().await;
 }
