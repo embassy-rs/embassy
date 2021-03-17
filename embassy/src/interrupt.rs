@@ -1,7 +1,7 @@
 use core::ptr;
 use cortex_m::peripheral::NVIC;
 
-use atomic_polyfill::{AtomicBool, AtomicPtr, Ordering};
+use atomic_polyfill::{AtomicPtr, Ordering};
 
 pub use embassy_macros::interrupt_declare as declare;
 pub use embassy_macros::interrupt_take as take;

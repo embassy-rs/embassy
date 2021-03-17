@@ -87,23 +87,10 @@ impl<F: Future + 'static> Task<F> {
         }
     }
 
-    pub unsafe fn spawn(pool: &'static [Self], future: impl FnOnce() -> F) -> SpawnToken<F> {
+    pub fn spawn_pool(pool: &'static [Self], future: impl FnOnce() -> F) -> SpawnToken<F> {
         for task in pool {
-            let state = STATE_SPAWNED | STATE_RUN_QUEUED;
-            if task
-                .raw
-                .state
-                .compare_exchange(0, state, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                // Initialize the task
-                task.raw.poll_fn.write(Self::poll);
-                task.future.write(future());
-
-                return SpawnToken {
-                    raw_task: Some(NonNull::new_unchecked(&task.raw as *const TaskHeader as _)),
-                    phantom: PhantomData,
-                };
+            if task.spawn_allocate() {
+                return unsafe { task.spawn_initialize(future) };
             }
         }
 
@@ -111,6 +98,36 @@ impl<F: Future + 'static> Task<F> {
             raw_task: None,
             phantom: PhantomData,
         }
+    }
+
+    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<F> {
+        if self.spawn_allocate() {
+            unsafe { self.spawn_initialize(future) }
+        } else {
+            SpawnToken {
+                raw_task: None,
+                phantom: PhantomData,
+            }
+        }
+    }
+
+    fn spawn_allocate(&'static self) -> bool {
+        let state = STATE_SPAWNED | STATE_RUN_QUEUED;
+        self.raw
+            .state
+            .compare_exchange(0, state, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    unsafe fn spawn_initialize(&'static self, future: impl FnOnce() -> F) -> SpawnToken<F> {
+        // Initialize the task
+        self.raw.poll_fn.write(Self::poll);
+        self.future.write(future());
+
+        return SpawnToken {
+            raw_task: Some(NonNull::new_unchecked(&self.raw as *const TaskHeader as _)),
+            phantom: PhantomData,
+        };
     }
 
     unsafe fn poll(p: NonNull<TaskHeader>) {

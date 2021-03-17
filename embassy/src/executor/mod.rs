@@ -1,11 +1,7 @@
 pub use embassy_macros::task;
 
-use atomic_polyfill::Ordering;
-use core::future::Future;
 use core::marker::PhantomData;
-use core::pin::Pin;
 use core::ptr::NonNull;
-use core::task::{Context, Poll};
 use core::{mem, ptr};
 
 pub mod raw;
@@ -15,7 +11,6 @@ mod timer_queue;
 mod util;
 mod waker;
 
-use self::util::UninitCell;
 use crate::fmt::panic;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::time::Alarm;

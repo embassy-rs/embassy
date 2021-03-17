@@ -105,7 +105,7 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
             type F = #impl_ty;
             const NEW_TASK: Task<F> = Task::new();
             static POOL: [Task<F>; #pool_size] = [NEW_TASK; #pool_size];
-            unsafe { Task::spawn(&POOL, move || task(#arg_names)) }
+            unsafe { Task::spawn_pool(&POOL, move || task(#arg_names)) }
         }
     };
     result.into()

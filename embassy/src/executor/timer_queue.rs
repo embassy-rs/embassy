@@ -1,4 +1,4 @@
-use atomic_polyfill::{AtomicPtr, Ordering};
+use atomic_polyfill::Ordering;
 use core::cell::Cell;
 use core::cmp::min;
 use core::ptr;
