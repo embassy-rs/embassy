@@ -100,11 +100,12 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
 
     let result = quote! {
         #visibility fn #name(#args) -> ::embassy::executor::SpawnToken<#impl_ty> {
+            use ::embassy::executor::raw::Task;
             #task_fn
             type F = #impl_ty;
-            const NEW_TASK: ::embassy::executor::Task<F> = ::embassy::executor::Task::new();
-            static POOL: [::embassy::executor::Task<F>; #pool_size] = [NEW_TASK; #pool_size];
-            unsafe { ::embassy::executor::Task::spawn(&POOL, move || task(#arg_names)) }
+            const NEW_TASK: Task<F> = Task::new();
+            static POOL: [Task<F>; #pool_size] = [NEW_TASK; #pool_size];
+            unsafe { Task::spawn(&POOL, move || task(#arg_names)) }
         }
     };
     result.into()

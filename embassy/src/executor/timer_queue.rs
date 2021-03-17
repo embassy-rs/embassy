@@ -4,11 +4,11 @@ use core::cmp::min;
 use core::ptr;
 use core::ptr::NonNull;
 
-use super::raw::{Task, STATE_TIMER_QUEUED};
+use super::raw::{TaskHeader, STATE_TIMER_QUEUED};
 use crate::time::Instant;
 
 pub(crate) struct TimerQueueItem {
-    next: Cell<*mut Task>,
+    next: Cell<*mut TaskHeader>,
 }
 
 impl TimerQueueItem {
@@ -20,7 +20,7 @@ impl TimerQueueItem {
 }
 
 pub(crate) struct TimerQueue {
-    head: Cell<*mut Task>,
+    head: Cell<*mut TaskHeader>,
 }
 
 impl TimerQueue {
@@ -30,7 +30,7 @@ impl TimerQueue {
         }
     }
 
-    pub(crate) unsafe fn update(&self, p: NonNull<Task>) {
+    pub(crate) unsafe fn update(&self, p: NonNull<TaskHeader>) {
         let task = p.as_ref();
         if task.expires_at.get() != Instant::MAX {
             let old_state = task.state.fetch_or(STATE_TIMER_QUEUED, Ordering::AcqRel);
@@ -54,7 +54,11 @@ impl TimerQueue {
         res
     }
 
-    pub(crate) unsafe fn dequeue_expired(&self, now: Instant, on_task: impl Fn(NonNull<Task>)) {
+    pub(crate) unsafe fn dequeue_expired(
+        &self,
+        now: Instant,
+        on_task: impl Fn(NonNull<TaskHeader>),
+    ) {
         self.retain(|p| {
             let task = p.as_ref();
             if task.expires_at.get() <= now {
@@ -66,7 +70,7 @@ impl TimerQueue {
         });
     }
 
-    pub(crate) unsafe fn retain(&self, mut f: impl FnMut(NonNull<Task>) -> bool) {
+    pub(crate) unsafe fn retain(&self, mut f: impl FnMut(NonNull<TaskHeader>) -> bool) {
         let mut prev = &self.head;
         while !prev.get().is_null() {
             let p = NonNull::new_unchecked(prev.get());

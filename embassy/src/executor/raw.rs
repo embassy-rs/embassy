@@ -1,15 +1,18 @@
 use atomic_polyfill::{AtomicU32, Ordering};
 use core::cell::Cell;
 use core::cmp::min;
+use core::future::Future;
 use core::marker::PhantomData;
+use core::pin::Pin;
 use core::ptr;
 use core::ptr::NonNull;
-use core::task::Waker;
+use core::task::{Context, Poll, Waker};
 
 use super::run_queue::{RunQueue, RunQueueItem};
 use super::timer_queue::{TimerQueue, TimerQueueItem};
 use super::util::UninitCell;
 use super::waker;
+use super::SpawnToken;
 use crate::time::{Alarm, Instant};
 
 /// Task is spawned (has a future)
@@ -19,16 +22,16 @@ pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
 /// Task is in the executor timer queue
 pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
 
-pub struct Task {
+pub struct TaskHeader {
     pub(crate) state: AtomicU32,
     pub(crate) run_queue_item: RunQueueItem,
     pub(crate) expires_at: Cell<Instant>,
     pub(crate) timer_queue_item: TimerQueueItem,
     pub(crate) executor: Cell<*const Executor>, // Valid if state != 0
-    pub(crate) poll_fn: UninitCell<unsafe fn(NonNull<Task>)>, // Valid if STATE_SPAWNED
+    pub(crate) poll_fn: UninitCell<unsafe fn(NonNull<TaskHeader>)>, // Valid if STATE_SPAWNED
 }
 
-impl Task {
+impl TaskHeader {
     pub(crate) const fn new() -> Self {
         Self {
             state: AtomicU32::new(0),
@@ -64,9 +67,69 @@ impl Task {
 
         // We have just marked the task as scheduled, so enqueue it.
         let executor = &*self.executor.get();
-        executor.enqueue(self as *const Task as *mut Task);
+        executor.enqueue(self as *const TaskHeader as *mut TaskHeader);
     }
 }
+
+// repr(C) is needed to guarantee that the Task is located at offset 0
+// This makes it safe to cast between Task and Task pointers.
+#[repr(C)]
+pub struct Task<F: Future + 'static> {
+    raw: TaskHeader,
+    future: UninitCell<F>, // Valid if STATE_SPAWNED
+}
+
+impl<F: Future + 'static> Task<F> {
+    pub const fn new() -> Self {
+        Self {
+            raw: TaskHeader::new(),
+            future: UninitCell::uninit(),
+        }
+    }
+
+    pub unsafe fn spawn(pool: &'static [Self], future: impl FnOnce() -> F) -> SpawnToken<F> {
+        for task in pool {
+            let state = STATE_SPAWNED | STATE_RUN_QUEUED;
+            if task
+                .raw
+                .state
+                .compare_exchange(0, state, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                // Initialize the task
+                task.raw.poll_fn.write(Self::poll);
+                task.future.write(future());
+
+                return SpawnToken {
+                    raw_task: Some(NonNull::new_unchecked(&task.raw as *const TaskHeader as _)),
+                    phantom: PhantomData,
+                };
+            }
+        }
+
+        SpawnToken {
+            raw_task: None,
+            phantom: PhantomData,
+        }
+    }
+
+    unsafe fn poll(p: NonNull<TaskHeader>) {
+        let this = &*(p.as_ptr() as *const Task<F>);
+
+        let future = Pin::new_unchecked(this.future.as_mut());
+        let waker = waker::from_task(p);
+        let mut cx = Context::from_waker(&waker);
+        match future.poll(&mut cx) {
+            Poll::Ready(_) => {
+                this.future.drop_in_place();
+                this.raw.state.fetch_and(!STATE_SPAWNED, Ordering::AcqRel);
+            }
+            Poll::Pending => {}
+        }
+    }
+}
+
+unsafe impl<F: Future + 'static> Sync for Task<F> {}
 
 pub struct Executor {
     run_queue: RunQueue,
@@ -95,13 +158,13 @@ impl Executor {
         self.signal_ctx = signal_ctx;
     }
 
-    unsafe fn enqueue(&self, item: *mut Task) {
+    unsafe fn enqueue(&self, item: *mut TaskHeader) {
         if self.run_queue.enqueue(item) {
             (self.signal_fn)(self.signal_ctx)
         }
     }
 
-    pub unsafe fn spawn(&'static self, task: NonNull<Task>) {
+    pub unsafe fn spawn(&'static self, task: NonNull<TaskHeader>) {
         let task = task.as_ref();
         task.executor.set(self);
         self.enqueue(task as *const _ as _);
@@ -154,7 +217,7 @@ impl Executor {
 
 pub use super::waker::task_from_waker;
 
-pub unsafe fn wake_task(task: NonNull<Task>) {
+pub unsafe fn wake_task(task: NonNull<TaskHeader>) {
     task.as_ref().enqueue();
 }
 

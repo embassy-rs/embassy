@@ -3,12 +3,12 @@ use core::task::Waker;
 
 use atomic_polyfill::{AtomicPtr, Ordering};
 
-use crate::executor::raw::{task_from_waker, wake_task, Task};
+use crate::executor::raw::{task_from_waker, wake_task, TaskHeader};
 
 /// Utility struct to register and wake a waker.
 #[derive(Debug)]
 pub struct WakerRegistration {
-    waker: Option<NonNull<Task>>,
+    waker: Option<NonNull<TaskHeader>>,
 }
 
 impl WakerRegistration {
@@ -49,7 +49,7 @@ impl WakerRegistration {
 }
 
 pub struct AtomicWakerRegistration {
-    waker: AtomicPtr<Task>,
+    waker: AtomicPtr<TaskHeader>,
 }
 
 impl AtomicWakerRegistration {

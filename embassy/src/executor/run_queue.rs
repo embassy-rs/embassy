@@ -2,10 +2,10 @@ use atomic_polyfill::{AtomicPtr, Ordering};
 use core::ptr;
 use core::ptr::NonNull;
 
-use super::raw::Task;
+use super::raw::TaskHeader;
 
 pub(crate) struct RunQueueItem {
-    next: AtomicPtr<Task>,
+    next: AtomicPtr<TaskHeader>,
 }
 
 impl RunQueueItem {
@@ -28,7 +28,7 @@ impl RunQueueItem {
 /// current batch is completely processed, so even if a task enqueues itself instantly (for example
 /// by waking its own waker) can't prevent other tasks from running.
 pub(crate) struct RunQueue {
-    head: AtomicPtr<Task>,
+    head: AtomicPtr<TaskHeader>,
 }
 
 impl RunQueue {
@@ -39,7 +39,7 @@ impl RunQueue {
     }
 
     /// Enqueues an item. Returns true if the queue was empty.
-    pub(crate) unsafe fn enqueue(&self, item: *mut Task) -> bool {
+    pub(crate) unsafe fn enqueue(&self, item: *mut TaskHeader) -> bool {
         let mut prev = self.head.load(Ordering::Acquire);
         loop {
             (*item).run_queue_item.next.store(prev, Ordering::Relaxed);
@@ -55,7 +55,7 @@ impl RunQueue {
         prev.is_null()
     }
 
-    pub(crate) unsafe fn dequeue_all(&self, on_task: impl Fn(NonNull<Task>)) {
+    pub(crate) unsafe fn dequeue_all(&self, on_task: impl Fn(NonNull<TaskHeader>)) {
         let mut task = self.head.swap(ptr::null_mut(), Ordering::AcqRel);
 
         while !task.is_null() {
