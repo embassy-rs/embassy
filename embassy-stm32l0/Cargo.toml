@@ -23,4 +23,4 @@ cortex-m-rt = "0.6.13"
 cortex-m = "0.7.1"
 embedded-hal = { version = "0.2.4" }
 embedded-dma = { version = "0.1.2" }
-stm32l0xx-hal = { version = "0.6.2", features = ["rt"], git = "https://github.com/stm32-rs/stm32l0xx-hal.git"}
+stm32l0xx-hal = { version = "0.7.0", features = ["rt"], git = "https://github.com/stm32-rs/stm32l0xx-hal.git"}
