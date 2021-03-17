@@ -1,3 +1,5 @@
+#![feature(min_type_alias_impl_trait)]
+#![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
 
 use embassy::executor::task;
