@@ -215,13 +215,13 @@ fn pend_by_number(n: u16) {
     cortex_m::peripheral::NVIC::pend(N(n))
 }
 
-pub struct IrqExecutor<I: Interrupt> {
+pub struct InterruptExecutor<I: Interrupt> {
     irq: I,
     inner: raw::Executor,
     not_send: PhantomData<*mut ()>,
 }
 
-impl<I: Interrupt> IrqExecutor<I> {
+impl<I: Interrupt> InterruptExecutor<I> {
     pub fn new(irq: I) -> Self {
         let ctx = irq.number() as *mut ();
         Self {

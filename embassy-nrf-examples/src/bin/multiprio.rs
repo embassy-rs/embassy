@@ -67,7 +67,7 @@ use cortex_m_rt::entry;
 use defmt::panic;
 use nrf52840_hal::clocks;
 
-use embassy::executor::{task, Executor, IrqExecutor};
+use embassy::executor::{task, Executor, InterruptExecutor};
 use embassy::interrupt::InterruptExt;
 use embassy::time::{Duration, Instant, Timer};
 use embassy::util::Forever;
@@ -117,9 +117,9 @@ async fn run_low() {
 
 static RTC: Forever<rtc::RTC<pac::RTC1>> = Forever::new();
 static ALARM_HIGH: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
-static EXECUTOR_HIGH: Forever<IrqExecutor<interrupt::SWI1_EGU1>> = Forever::new();
+static EXECUTOR_HIGH: Forever<InterruptExecutor<interrupt::SWI1_EGU1>> = Forever::new();
 static ALARM_MED: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
-static EXECUTOR_MED: Forever<IrqExecutor<interrupt::SWI0_EGU0>> = Forever::new();
+static EXECUTOR_MED: Forever<InterruptExecutor<interrupt::SWI0_EGU0>> = Forever::new();
 static ALARM_LOW: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
 static EXECUTOR_LOW: Forever<Executor> = Forever::new();
 
@@ -142,7 +142,7 @@ fn main() -> ! {
     let irq = interrupt::take!(SWI1_EGU1);
     irq.set_priority(interrupt::Priority::Level6);
     let alarm = ALARM_HIGH.put(rtc.alarm2());
-    let executor = EXECUTOR_HIGH.put(IrqExecutor::new(irq));
+    let executor = EXECUTOR_HIGH.put(InterruptExecutor::new(irq));
     executor.set_alarm(alarm);
     executor.start(|spawner| {
         unwrap!(spawner.spawn(run_high()));
@@ -152,7 +152,7 @@ fn main() -> ! {
     let irq = interrupt::take!(SWI0_EGU0);
     irq.set_priority(interrupt::Priority::Level7);
     let alarm = ALARM_MED.put(rtc.alarm1());
-    let executor = EXECUTOR_MED.put(IrqExecutor::new(irq));
+    let executor = EXECUTOR_MED.put(InterruptExecutor::new(irq));
     executor.set_alarm(alarm);
     executor.start(|spawner| {
         unwrap!(spawner.spawn(run_med()));
