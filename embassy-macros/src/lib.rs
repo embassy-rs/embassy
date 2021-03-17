@@ -157,17 +157,17 @@ pub fn interrupt_take(item: TokenStream) -> TokenStream {
                     static HANDLER: ::embassy::interrupt::Handler;
                 }
 
-                let func = HANDLER.func.load(::embassy::atomic::Ordering::Acquire);
-                let ctx = HANDLER.ctx.load(::embassy::atomic::Ordering::Acquire);
+                let func = HANDLER.func.load(::embassy::export::atomic::Ordering::Acquire);
+                let ctx = HANDLER.ctx.load(::embassy::export::atomic::Ordering::Acquire);
                 if !func.is_null() {
                     let func: fn(*mut ()) = ::core::mem::transmute(func);
                     func(ctx)
                 }
             }
 
-            static TAKEN: ::embassy::atomic::AtomicBool = ::embassy::atomic::AtomicBool::new(false);
+            static TAKEN: ::embassy::export::atomic::AtomicBool = ::embassy::export::atomic::AtomicBool::new(false);
 
-            if TAKEN.compare_exchange(false, true, ::embassy::atomic::Ordering::AcqRel, ::embassy::atomic::Ordering::Acquire).is_err() {
+            if TAKEN.compare_exchange(false, true, ::embassy::export::atomic::Ordering::AcqRel, ::embassy::export::atomic::Ordering::Acquire).is_err() {
                 panic!("IRQ Already taken");
             }
 

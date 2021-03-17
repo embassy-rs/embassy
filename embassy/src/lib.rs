@@ -18,4 +18,9 @@ pub mod time;
 pub mod util;
 
 pub use embassy_traits as traits;
-pub use atomic_polyfill as atomic;
+
+#[doc(hidden)]
+/// Implementation details for embassy macros. DO NOT USE.
+pub mod export {
+    pub use atomic_polyfill as atomic;
+}

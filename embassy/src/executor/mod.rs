@@ -1,5 +1,6 @@
 pub use embassy_macros::task;
 
+use atomic_polyfill::Ordering;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
@@ -15,7 +16,6 @@ mod util;
 mod waker;
 
 use self::util::UninitCell;
-use crate::atomic::Ordering;
 use crate::fmt::panic;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::time::Alarm;
