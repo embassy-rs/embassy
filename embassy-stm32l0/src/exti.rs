@@ -2,7 +2,6 @@ use core::future::Future;
 use core::mem;
 use core::pin::Pin;
 
-use embassy::interrupt::Interrupt;
 use embassy::traits::gpio::{WaitForAnyEdge, WaitForFallingEdge, WaitForRisingEdge};
 use embassy::util::InterruptFuture;
 
@@ -23,10 +22,9 @@ impl<'a> ExtiManager {
         Self { syscfg }
     }
 
-    pub fn new_pin<T, I>(&'static mut self, pin: T, interrupt: I) -> ExtiPin<T, I>
+    pub fn new_pin<T>(&'static mut self, pin: T, interrupt: T::Interrupt) -> ExtiPin<T>
     where
-        T: PinWithInterrupt<Interrupt = I>,
-        I: Interrupt,
+        T: PinWithInterrupt,
     {
         ExtiPin {
             pin,
@@ -36,13 +34,13 @@ impl<'a> ExtiManager {
     }
 }
 
-pub struct ExtiPin<T, I> {
+pub struct ExtiPin<T: PinWithInterrupt> {
     pin: T,
-    interrupt: I,
+    interrupt: T::Interrupt,
     mgr: &'static ExtiManager,
 }
 
-impl<T: PinWithInterrupt<Interrupt = I> + 'static, I: Interrupt + 'static> ExtiPin<T, I> {
+impl<T: PinWithInterrupt + 'static> ExtiPin<T> {
     fn wait_for_edge<'a>(
         self: Pin<&'a mut Self>,
         edge: TriggerEdge,
@@ -72,9 +70,7 @@ impl<T: PinWithInterrupt<Interrupt = I> + 'static, I: Interrupt + 'static> ExtiP
     }
 }
 
-impl<T: PinWithInterrupt<Interrupt = I> + 'static, I: Interrupt + 'static> WaitForRisingEdge
-    for ExtiPin<T, I>
-{
+impl<T: PinWithInterrupt + 'static> WaitForRisingEdge for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
     fn wait_for_rising_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
@@ -82,9 +78,7 @@ impl<T: PinWithInterrupt<Interrupt = I> + 'static, I: Interrupt + 'static> WaitF
     }
 }
 
-impl<T: PinWithInterrupt<Interrupt = I> + 'static, I: Interrupt + 'static> WaitForFallingEdge
-    for ExtiPin<T, I>
-{
+impl<T: PinWithInterrupt + 'static> WaitForFallingEdge for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
     fn wait_for_falling_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
@@ -92,9 +86,7 @@ impl<T: PinWithInterrupt<Interrupt = I> + 'static, I: Interrupt + 'static> WaitF
     }
 }
 
-impl<T: PinWithInterrupt<Interrupt = I> + 'static, I: Interrupt + 'static> WaitForAnyEdge
-    for ExtiPin<T, I>
-{
+impl<T: PinWithInterrupt + 'static> WaitForAnyEdge for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
     fn wait_for_any_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
@@ -107,7 +99,7 @@ mod private {
 }
 
 pub trait PinWithInterrupt: private::Sealed {
-    type Interrupt;
+    type Interrupt: interrupt::Interrupt;
     fn port(&self) -> gpio::Port;
     fn line(&self) -> GpioLine;
 }
