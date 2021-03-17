@@ -1,3 +1,4 @@
+use atomic_polyfill::{AtomicU32, Ordering};
 use core::cell::Cell;
 use core::cmp::min;
 use core::marker::PhantomData;
@@ -9,7 +10,6 @@ use super::run_queue::{RunQueue, RunQueueItem};
 use super::timer_queue::{TimerQueue, TimerQueueItem};
 use super::util::UninitCell;
 use super::waker;
-use crate::atomic::{AtomicU32, Ordering};
 use crate::time::{Alarm, Instant};
 
 /// Task is spawned (has a future)
