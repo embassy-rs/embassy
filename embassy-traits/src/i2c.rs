@@ -91,8 +91,7 @@ impl AddressMode for SevenBitAddress {}
 
 impl AddressMode for TenBitAddress {}
 
-/// Blocking read
-pub trait Read<A: AddressMode = SevenBitAddress> {
+pub trait I2c<A: AddressMode = SevenBitAddress> {
     /// Error type
     type Error;
 

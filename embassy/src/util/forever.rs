@@ -1,7 +1,7 @@
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 
-use crate::atomic::{AtomicBool, Ordering};
+use atomic_polyfill::{AtomicBool, Ordering};
 
 pub struct Forever<T> {
     used: AtomicBool,

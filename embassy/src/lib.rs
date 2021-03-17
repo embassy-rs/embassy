@@ -4,6 +4,8 @@
 #![feature(const_fn_fn_ptr_basics)]
 #![feature(const_option)]
 #![allow(incomplete_features)]
+#![feature(min_type_alias_impl_trait)]
+#![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
 
 // This mod MUST go first, so that the others see its macros.
@@ -16,4 +18,9 @@ pub mod time;
 pub mod util;
 
 pub use embassy_traits as traits;
-pub use atomic_polyfill as atomic;
+
+#[doc(hidden)]
+/// Implementation details for embassy macros. DO NOT USE.
+pub mod export {
+    pub use atomic_polyfill as atomic;
+}
