@@ -2,6 +2,8 @@
 #![no_main]
 #![feature(trait_alias)]
 #![feature(type_alias_impl_trait)]
+#![feature(min_type_alias_impl_trait)]
+#![feature(impl_trait_in_bindings)]
 
 #[path = "../example_common.rs"]
 mod example_common;
