@@ -3,6 +3,8 @@ mod forever;
 mod mutex;
 mod portal;
 mod signal;
+
+#[cfg_attr(feature = "executor-agnostic", path = "waker_agnostic.rs")]
 mod waker;
 
 pub use drop_bomb::*;
