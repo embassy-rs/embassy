@@ -18,7 +18,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
-          components: rust-src
+          components: rust-src, rustfmt
           override: true
       - name: install
         run: rustup target add thumbv7em-none-eabi thumbv6m-none-eabi

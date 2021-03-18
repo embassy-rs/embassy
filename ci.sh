@@ -4,6 +4,8 @@ set -euxo pipefail
 
 cd $(dirname $0)
 
+cargo fmt --all -- --check
+
 # embassy std
 (cd embassy-std-examples; cargo build)
 
