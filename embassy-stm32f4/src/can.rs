@@ -9,11 +9,9 @@ use bxcan::Interrupts;
 use core::future::Future;
 use embassy::interrupt::Interrupt;
 use embassy::util::InterruptFuture;
-use embassy::util::Signal;
 use nb;
 use nb::block;
 
-use crate::hal::prelude::*;
 use crate::interrupt;
 
 /// Interface to the Serial peripheral
@@ -53,9 +51,9 @@ impl<T: Instance> Can<T> {
     /// Receive can frame.
     ///
     /// This method async-blocks until the frame is received.
-    pub fn receive<'a>(&'a mut self) -> impl Future<Output = (bxcan::Frame)> + 'a {
+    pub fn receive<'a>(&'a mut self) -> impl Future<Output = bxcan::Frame> + 'a {
         async move {
-            let mut frame: Option<bxcan::Frame> = None;
+            let mut frame: Option<bxcan::Frame>;
 
             loop {
                 let fut = InterruptFuture::new(&mut self.rx_int);

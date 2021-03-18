@@ -6,10 +6,9 @@
 
 use core::future::Future;
 use core::marker::PhantomData;
-use core::ptr;
 use core::sync::atomic::{self, Ordering};
 
-use embassy::interrupt::{Interrupt, InterruptExt};
+use embassy::interrupt::Interrupt;
 use embassy::traits::uart::{Error, Uart};
 use embassy::util::InterruptFuture;
 

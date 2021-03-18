@@ -14,12 +14,10 @@ use cortex_m_rt::entry;
 use embassy::executor::{task, Executor};
 use embassy::traits::gpio::*;
 use embassy::util::Forever;
-use embassy_stm32f4::{can, exti, interrupt};
+use embassy_stm32f4::{can, interrupt};
 use futures::pin_mut;
 use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::{can::Can, stm32};
-
-static EXTI: Forever<exti::ExtiManager> = Forever::new();
 
 #[task]
 async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
