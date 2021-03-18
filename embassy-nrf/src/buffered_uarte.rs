@@ -207,7 +207,9 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
     for BufferedUarte<'a, U, T, P1, P2>
 {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
-        self.inner().with(|state, _irq| {
+        let mut inner = self.inner();
+        inner.as_mut().register_interrupt();
+        inner.with(|state, _irq| {
             // Conservative compiler fence to prevent optimizations that do not
             // take in to account actions by DMA. The fence has been placed here,
             // before any DMA action has started
@@ -230,7 +232,9 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
     }
 
     fn consume(self: Pin<&mut Self>, amt: usize) {
-        self.inner().with(|state, irq| {
+        let mut inner = self.inner();
+        inner.as_mut().register_interrupt();
+        inner.with(|state, irq| {
             trace!("consume {:?}", amt);
             state.rx.pop(amt);
             irq.pend();
@@ -242,7 +246,9 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
     for BufferedUarte<'a, U, T, P1, P2>
 {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
-        self.inner().with(|state, irq| {
+        let mut inner = self.inner();
+        inner.as_mut().register_interrupt();
+        inner.with(|state, irq| {
             trace!("poll_write: {:?}", buf.len());
 
             let tx_buf = state.tx.push_buf();

@@ -32,32 +32,33 @@ impl<S: PeripheralState> PeripheralMutex<S> {
         }
     }
 
-    /// safety: self must be pinned.
-    unsafe fn setup(&mut self) {
-        self.irq.disable();
+    pub fn register_interrupt(self: Pin<&mut Self>) {
+        let this = unsafe { self.get_unchecked_mut() };
+        if this.irq_setup_done {
+            return;
+        }
+
+        this.irq.disable();
         compiler_fence(Ordering::SeqCst);
 
-        self.irq.set_handler(|p| {
+        this.irq.set_handler(|p| {
             // Safety: it's OK to get a &mut to the state, since
             // - We're in the IRQ, no one else can't preempt us
             // - We can't have preempted a with() call because the irq is disabled during it.
-            let state = &mut *(p as *mut S);
+            let state = unsafe { &mut *(p as *mut S) };
             state.on_interrupt();
         });
-        self.irq
-            .set_handler_context((&mut self.state) as *mut _ as *mut ());
+        this.irq
+            .set_handler_context((&mut this.state) as *mut _ as *mut ());
 
         compiler_fence(Ordering::SeqCst);
-        self.irq.enable();
+        this.irq.enable();
 
-        self.irq_setup_done = true;
+        this.irq_setup_done = true;
     }
 
     pub fn with<R>(self: Pin<&mut Self>, f: impl FnOnce(&mut S, &mut S::Interrupt) -> R) -> R {
         let this = unsafe { self.get_unchecked_mut() };
-        if !this.irq_setup_done {
-            unsafe { this.setup() }
-        }
 
         this.irq.disable();
         compiler_fence(Ordering::SeqCst);

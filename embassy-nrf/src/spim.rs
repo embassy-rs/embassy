@@ -148,6 +148,7 @@ impl<T: Instance> FullDuplex<u8> for Spim<T> {
             slice_in_ram_or(rx, Error::DMABufferNotInDataMemory)?;
             slice_in_ram_or(tx, Error::DMABufferNotInDataMemory)?;
 
+            self.as_mut().inner().register_interrupt();
             self.as_mut().inner().with(|s, _irq| {
                 // Conservative compiler fence to prevent optimizations that do not
                 // take in to account actions by DMA. The fence has been placed here,
