@@ -215,59 +215,40 @@ impl<U: Instance> PeripheralState for State<U> {
 }
 
 mod sealed {
-    pub trait Instance {}
+    use super::*;
+
+    pub trait Instance {
+        fn regs(&mut self) -> &pac::spim0::RegisterBlock;
+    }
 }
 
 pub trait Instance: sealed::Instance {
     type Interrupt: Interrupt;
-    fn regs(&mut self) -> &pac::spim0::RegisterBlock;
 }
 
-impl sealed::Instance for pac::SPIM0 {}
-impl Instance for pac::SPIM0 {
-    #[cfg(feature = "52810")]
-    type Interrupt = interrupt::SPIM0_SPIS0_SPI0;
-    #[cfg(not(feature = "52810"))]
-    type Interrupt = interrupt::SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0;
-    fn regs(&mut self) -> &pac::spim0::RegisterBlock {
-        self
-    }
+macro_rules! make_impl {
+    ($SPIMx:ident, $IRQ:ident) => {
+        impl sealed::Instance for pac::$SPIMx {
+            fn regs(&mut self) -> &pac::spim0::RegisterBlock {
+                self
+            }
+        }
+        impl Instance for pac::$SPIMx {
+            type Interrupt = interrupt::$IRQ;
+        }
+    };
 }
 
-#[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-impl sealed::Instance for pac::SPIM1 {}
-#[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-impl Instance for pac::SPIM1 {
-    type Interrupt = interrupt::SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1;
-    fn regs(&mut self) -> &pac::spim0::RegisterBlock {
-        self
-    }
-}
+#[cfg(feature = "52810")]
+make_impl!(SPIM0, SPIM0_SPIS0_SPI0);
+#[cfg(not(feature = "52810"))]
+make_impl!(SPIM0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
 
 #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-impl sealed::Instance for pac::SPIM2 {}
+make_impl!(SPIM1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+
 #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-impl Instance for pac::SPIM2 {
-    type Interrupt = interrupt::SPIM2_SPIS2_SPI2;
-    fn regs(&mut self) -> &pac::spim0::RegisterBlock {
-        self
-    }
-}
+make_impl!(SPIM2, SPIM2_SPIS2_SPI2);
 
 #[cfg(any(feature = "52833", feature = "52840"))]
-impl sealed::Instance for pac::SPIM3 {}
-#[cfg(any(feature = "52833", feature = "52840"))]
-impl Instance for pac::SPIM3 {
-    type Interrupt = interrupt::SPIM3;
-    fn regs(&mut self) -> &pac::spim0::RegisterBlock {
-        self
-    }
-}
-
-impl<T: sealed::Instance> sealed::Instance for &mut T {}
-impl<T: Instance> Instance for &mut T {
-    type Interrupt = T::Interrupt;
-    fn regs(&mut self) -> &pac::spim0::RegisterBlock {
-        T::regs(*self)
-    }
-}
+make_impl!(SPIM3, SPIM3);
