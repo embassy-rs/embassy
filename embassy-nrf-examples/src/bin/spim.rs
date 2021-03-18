@@ -24,7 +24,7 @@ use embassy_nrf::{interrupt, pac, rtc, spim};
 async fn run() {
     info!("running!");
 
-    let p = unsafe { embassy_nrf::pac::Peripherals::steal() };
+    let mut p = unsafe { embassy_nrf::pac::Peripherals::steal() };
     let p0 = gpio::p0::Parts::new(p.P0);
 
     let pins = spim::Pins {
@@ -40,7 +40,10 @@ async fn run() {
     };
 
     let mut ncs = p0.p0_31.into_push_pull_output(gpio::Level::High);
-    let spim = spim::Spim::new(p.SPIM3, interrupt::take!(SPIM3), config);
+
+    let mut irq = interrupt::take!(SPIM3);
+
+    let spim: spim::Spim<'_, pac::SPIM3> = spim::Spim::new(&mut p.SPIM3, &mut irq, config);
     pin_mut!(spim);
 
     // Example on how to talk to an ENC28J60 chip

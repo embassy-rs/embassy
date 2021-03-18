@@ -1,4 +1,6 @@
+use core::borrow::BorrowMut;
 use core::future::Future;
+use core::marker::PhantomData;
 use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
@@ -30,8 +32,9 @@ struct State<T: Instance> {
     waker: WakerRegistration,
 }
 
-pub struct Spim<T: Instance> {
+pub struct Spim<'d, T: Instance> {
     inner: PeripheralMutex<State<T>>,
+    phantom: PhantomData<&'d mut T>,
 }
 
 pub struct Config {
@@ -41,8 +44,19 @@ pub struct Config {
     pub orc: u8,
 }
 
-impl<T: Instance> Spim<T> {
-    pub fn new(mut spim: T, irq: T::Interrupt, config: Config) -> Self {
+unsafe fn unborrow<T>(mut val: impl BorrowMut<T>) -> T {
+    core::ptr::read(val.borrow_mut())
+}
+
+impl<'d, T: Instance> Spim<'d, T> {
+    pub fn new(
+        spim: impl BorrowMut<T> + 'd,
+        irq: impl BorrowMut<T::Interrupt> + 'd,
+        config: Config,
+    ) -> Self {
+        let mut spim = unsafe { unborrow(spim) };
+        let irq = unsafe { unborrow(irq) };
+
         let r = spim.regs();
 
         // Select pins.
@@ -114,6 +128,7 @@ impl<T: Instance> Spim<T> {
                 },
                 irq,
             ),
+            phantom: PhantomData,
         }
     }
 
@@ -122,7 +137,7 @@ impl<T: Instance> Spim<T> {
     }
 }
 
-impl<T: Instance> FullDuplex<u8> for Spim<T> {
+impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
     type Error = Error;
 
     #[rustfmt::skip]
