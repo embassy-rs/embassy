@@ -22,7 +22,7 @@ impl<'a> ExtiManager {
         Self { syscfg }
     }
 
-    pub fn new_pin<T>(&'static mut self, pin: T, interrupt: T::Interrupt) -> ExtiPin<T>
+    pub fn new_pin<T>(&'static self, pin: T, interrupt: T::Interrupt) -> ExtiPin<T>
     where
         T: PinWithInterrupt,
     {
