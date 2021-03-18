@@ -89,7 +89,7 @@ impl<S: PeripheralState> PeripheralMutex<S> {
     pub fn try_free(self: Pin<&mut Self>) -> Option<(S, S::Interrupt)> {
         let this = unsafe { self.get_unchecked_mut() };
 
-        if this.life != Life::Freed {
+        if this.life == Life::Freed {
             return None;
         }
 
