@@ -2,6 +2,8 @@
 
 set -euxo pipefail
 
+cd $(dirname $0)
+
 # embassy std
 (cd embassy-std-examples; cargo build)
 
