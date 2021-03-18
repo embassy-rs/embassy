@@ -1,6 +1,7 @@
 //! Async SPI API
 
 use core::future::Future;
+use core::pin::Pin;
 
 /// Full duplex (master mode)
 ///
@@ -22,15 +23,21 @@ pub trait FullDuplex<Word> {
     /// An enumeration of SPI errors
     type Error;
 
-    type WriteFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a;
-    type ReadFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a;
-    type WriteReadFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a;
+    type WriteFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a
+    where
+        Self: 'a;
+    type ReadFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a
+    where
+        Self: 'a;
+    type WriteReadFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a
+    where
+        Self: 'a;
 
-    fn read<'a>(&'a mut self, data: &'a mut [Word]) -> Self::ReadFuture<'_>;
-    fn write<'a>(&'a mut self, data: &'a [Word]) -> Self::WriteFuture<'_>;
+    fn read<'a>(self: Pin<&'a mut Self>, data: &'a mut [Word]) -> Self::ReadFuture<'a>;
+    fn write<'a>(self: Pin<&'a mut Self>, data: &'a [Word]) -> Self::WriteFuture<'a>;
     fn read_write<'a>(
-        &mut self,
+        self: Pin<&'a mut Self>,
         read: &'a mut [Word],
         write: &'a [Word],
-    ) -> Self::WriteReadFuture<'_>;
+    ) -> Self::WriteReadFuture<'a>;
 }

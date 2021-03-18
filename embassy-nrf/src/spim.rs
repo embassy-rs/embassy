@@ -2,9 +2,11 @@ use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
+use embassy::traits;
 use embassy::util::WakerRegistration;
 use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
 use futures::future::poll_fn;
+use traits::spi::FullDuplex;
 
 use crate::interrupt::{self, Interrupt};
 use crate::{pac, slice_in_ram_or};
@@ -123,15 +125,33 @@ impl<T: Instance> Spim<T> {
         let (state, irq) = self.inner().free();
         (state.spim, irq)
     }
+}
 
-    pub fn send_receive<'a>(
+impl<T: Instance> FullDuplex<u8> for Spim<T> {
+    type Error = Error;
+
+    #[rustfmt::skip]
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+    #[rustfmt::skip]
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+    #[rustfmt::skip]
+    type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+    fn read<'a>(self: Pin<&'a mut Self>, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        async move { todo!() }
+    }
+    fn write<'a>(self: Pin<&'a mut Self>, data: &'a [u8]) -> Self::WriteFuture<'a> {
+        async move { todo!() }
+    }
+
+    fn read_write<'a>(
         mut self: Pin<&'a mut Self>,
-        tx: &'a [u8],
         rx: &'a mut [u8],
-    ) -> impl Future<Output = Result<(), Error>> + 'a {
+        tx: &'a [u8],
+    ) -> Self::WriteReadFuture<'a> {
         async move {
-            slice_in_ram_or(tx, Error::DMABufferNotInDataMemory)?;
             slice_in_ram_or(rx, Error::DMABufferNotInDataMemory)?;
+            slice_in_ram_or(tx, Error::DMABufferNotInDataMemory)?;
 
             self.as_mut().inner().with(|s, _irq| {
                 // Conservative compiler fence to prevent optimizations that do not

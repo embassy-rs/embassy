@@ -6,6 +6,7 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
+use embassy_traits::spi::FullDuplex;
 use example_common::*;
 
 use cortex_m_rt::entry;
@@ -49,7 +50,7 @@ async fn run() {
     ncs.set_low().unwrap();
     cortex_m::asm::delay(5);
     let tx = [0xFF];
-    unwrap!(spim.as_mut().send_receive(&tx, &mut []).await);
+    unwrap!(spim.as_mut().read_write(&mut [], &tx).await);
     cortex_m::asm::delay(10);
     ncs.set_high().unwrap();
 
@@ -62,7 +63,7 @@ async fn run() {
     ncs.set_low().unwrap();
     cortex_m::asm::delay(5000);
     let tx = [0b000_11101, 0];
-    unwrap!(spim.as_mut().send_receive(&tx, &mut rx).await);
+    unwrap!(spim.as_mut().read_write(&mut rx, &tx).await);
     cortex_m::asm::delay(5000);
     ncs.set_high().unwrap();
     info!("estat: {=[?]}", rx);
@@ -72,7 +73,7 @@ async fn run() {
     ncs.set_low().unwrap();
     cortex_m::asm::delay(5);
     let tx = [0b100_11111, 0b11];
-    unwrap!(spim.as_mut().send_receive(&tx, &mut rx).await);
+    unwrap!(spim.as_mut().read_write(&mut rx, &tx).await);
     cortex_m::asm::delay(10);
     ncs.set_high().unwrap();
 
@@ -81,7 +82,7 @@ async fn run() {
     ncs.set_low().unwrap();
     cortex_m::asm::delay(5);
     let tx = [0b000_10010, 0];
-    unwrap!(spim.as_mut().send_receive(&tx, &mut rx).await);
+    unwrap!(spim.as_mut().read_write(&mut rx, &tx).await);
     cortex_m::asm::delay(10);
     ncs.set_high().unwrap();
 
