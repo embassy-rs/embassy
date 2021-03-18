@@ -33,11 +33,24 @@ unsafe impl cortex_m::interrupt::InterruptNumber for NrWrap {
 pub unsafe trait Interrupt {
     type Priority: From<u8> + Into<u8> + Copy;
     fn number(&self) -> u16;
-    unsafe fn steal() -> Self;
 
     /// Implementation detail, do not use outside embassy crates.
     #[doc(hidden)]
     unsafe fn __handler(&self) -> &'static Handler;
+}
+
+unsafe impl<'a, T: Interrupt> Interrupt for &'a mut T {
+    type Priority = T::Priority;
+
+    fn number(&self) -> u16 {
+        T::number(self)
+    }
+
+    /// Implementation detail, do not use outside embassy crates.
+    #[doc(hidden)]
+    unsafe fn __handler(&self) -> &'static Handler {
+        T::__handler(self)
+    }
 }
 
 pub trait InterruptExt: Interrupt {

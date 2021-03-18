@@ -128,9 +128,6 @@ pub fn interrupt_declare(item: TokenStream) -> TokenStream {
                 let irq = crate::pac::interrupt::#name;
                 irq.number() as u16
             }
-            unsafe fn steal() -> Self {
-                Self(())
-            }
             unsafe fn __handler(&self) -> &'static ::embassy::interrupt::Handler {
                 #[export_name = #name_handler]
                 static HANDLER: ::embassy::interrupt::Handler = ::embassy::interrupt::Handler::new();

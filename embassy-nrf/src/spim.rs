@@ -252,3 +252,12 @@ make_impl!(SPIM2, SPIM2_SPIS2_SPI2);
 
 #[cfg(any(feature = "52833", feature = "52840"))]
 make_impl!(SPIM3, SPIM3);
+
+impl<T: sealed::Instance> sealed::Instance for &mut T {
+    fn regs(&mut self) -> &pac::spim0::RegisterBlock {
+        T::regs(*self)
+    }
+}
+impl<'a, T: Instance> Instance for &'a mut T {
+    type Interrupt = &'a mut T::Interrupt;
+}
