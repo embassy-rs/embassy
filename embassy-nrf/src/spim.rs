@@ -120,11 +120,6 @@ impl<T: Instance> Spim<T> {
     fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<T>>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
-
-    pub fn free(self: Pin<&mut Self>) -> (T, T::Interrupt) {
-        let (state, irq) = self.inner().free();
-        (state.spim, irq)
-    }
 }
 
 impl<T: Instance> FullDuplex<u8> for Spim<T> {

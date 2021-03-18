@@ -238,11 +238,6 @@ impl Qspi {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
 
-    pub fn free(self: Pin<&mut Self>) -> (QSPI, interrupt::QSPI) {
-        let (state, irq) = self.inner().free();
-        (state.inner, irq)
-    }
-
     fn wait_ready<'a>(mut self: Pin<&'a mut Self>) -> impl Future<Output = ()> + 'a {
         poll_fn(move |cx| {
             self.as_mut().inner().with(|s, _irq| {

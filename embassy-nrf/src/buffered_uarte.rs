@@ -201,29 +201,6 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
     fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<'a, U, T, P1, P2>>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
-
-    pub fn free(self: Pin<&mut Self>) -> (U, T, P1, P2, U::Interrupt) {
-        let (mut state, irq) = self.inner().free();
-        state.stop();
-        (
-            state.uarte,
-            state.timer,
-            state.ppi_channel_1,
-            state.ppi_channel_2,
-            irq,
-        )
-    }
-}
-
-impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi> Drop
-    for BufferedUarte<'a, U, T, P1, P2>
-{
-    fn drop(&mut self) {
-        let inner = unsafe { Pin::new_unchecked(&mut self.inner) };
-        if let Some((mut state, _irq)) = inner.try_free() {
-            state.stop();
-        }
-    }
 }
 
 impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi> AsyncBufRead
@@ -293,10 +270,10 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
     }
 }
 
-impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi>
-    State<'a, U, T, P1, P2>
+impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi> Drop
+    for State<'a, U, T, P1, P2>
 {
-    fn stop(&mut self) {
+    fn drop(&mut self) {
         self.timer.tasks_stop.write(|w| unsafe { w.bits(1) });
         if let RxState::Receiving = self.rx_state {
             self.uarte.tasks_stoprx.write(|w| unsafe { w.bits(1) });
