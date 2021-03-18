@@ -2,6 +2,7 @@
 #![feature(generic_associated_types)]
 #![feature(asm)]
 #![feature(type_alias_impl_trait)]
+#![feature(min_type_alias_impl_trait)]
 #![allow(incomplete_features)]
 
 #[cfg(not(any(feature = "stm32l0x1", feature = "stm32l0x2", feature = "stm32l0x3",)))]
