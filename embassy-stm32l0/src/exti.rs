@@ -105,11 +105,13 @@ pub trait PinWithInterrupt: private::Sealed {
 }
 
 macro_rules! exti {
-    ($($PER:ident => ($set:ident, $pin:ident),)+) => {
+    ($set:ident, [
+        $($INT:ident => $pin:ident,)+
+    ]) => {
         $(
             impl<T> private::Sealed for gpio::$set::$pin<T> {}
             impl<T> PinWithInterrupt for gpio::$set::$pin<T> {
-                type Interrupt = interrupt::$PER;
+                type Interrupt = interrupt::$INT;
                 fn port(&self) -> gpio::Port {
                     self.port()
                 }
@@ -118,107 +120,108 @@ macro_rules! exti {
                 }
             }
         )+
-    }
+
+    };
 }
 
-exti! {
-    EXTI0_1 => (gpioa, PA0),
-    EXTI0_1 => (gpioa, PA1),
-    EXTI2_3 => (gpioa, PA2),
-    EXTI2_3 => (gpioa, PA3),
-    EXTI4_15 => (gpioa, PA4),
-    EXTI4_15 => (gpioa, PA5),
-    EXTI4_15 => (gpioa, PA6),
-    EXTI4_15 => (gpioa, PA7),
-    EXTI4_15 => (gpioa, PA8),
-    EXTI4_15 => (gpioa, PA9),
-    EXTI4_15 => (gpioa, PA10),
-    EXTI4_15 => (gpioa, PA11),
-    EXTI4_15 => (gpioa, PA12),
-    EXTI4_15 => (gpioa, PA13),
-    EXTI4_15 => (gpioa, PA14),
-    EXTI4_15 => (gpioa, PA15),
-}
+exti!(gpioa, [
+    EXTI0_1 => PA0,
+    EXTI0_1 => PA1,
+    EXTI2_3 => PA2,
+    EXTI2_3 => PA3,
+    EXTI4_15 => PA4,
+    EXTI4_15 => PA5,
+    EXTI4_15 => PA6,
+    EXTI4_15 => PA7,
+    EXTI4_15 => PA8,
+    EXTI4_15 => PA9,
+    EXTI4_15 => PA10,
+    EXTI4_15 => PA11,
+    EXTI4_15 => PA12,
+    EXTI4_15 => PA13,
+    EXTI4_15 => PA14,
+    EXTI4_15 => PA15,
+]);
 
-exti! {
-    EXTI0_1 => (gpiob, PB0),
-    EXTI0_1 => (gpiob, PB1),
-    EXTI2_3 => (gpiob, PB2),
-    EXTI2_3 => (gpiob, PB3),
-    EXTI4_15 => (gpiob, PB4),
-    EXTI4_15 => (gpiob, PB5),
-    EXTI4_15 => (gpiob, PB6),
-    EXTI4_15 => (gpiob, PB7),
-    EXTI4_15 => (gpiob, PB8),
-    EXTI4_15 => (gpiob, PB9),
-    EXTI4_15 => (gpiob, PB10),
-    EXTI4_15 => (gpiob, PB11),
-    EXTI4_15 => (gpiob, PB12),
-    EXTI4_15 => (gpiob, PB13),
-    EXTI4_15 => (gpiob, PB14),
-    EXTI4_15 => (gpiob, PB15),
-}
+exti!(gpiob, [
+    EXTI0_1 => PB0,
+    EXTI0_1 => PB1,
+    EXTI2_3 => PB2,
+    EXTI2_3 => PB3,
+    EXTI4_15 => PB4,
+    EXTI4_15 => PB5,
+    EXTI4_15 => PB6,
+    EXTI4_15 => PB7,
+    EXTI4_15 => PB8,
+    EXTI4_15 => PB9,
+    EXTI4_15 => PB10,
+    EXTI4_15 => PB11,
+    EXTI4_15 => PB12,
+    EXTI4_15 => PB13,
+    EXTI4_15 => PB14,
+    EXTI4_15 => PB15,
+]);
 
-exti! {
-    EXTI0_1 => (gpioc, PC0),
-    EXTI0_1 => (gpioc, PC1),
-    EXTI2_3 => (gpioc, PC2),
-    EXTI2_3 => (gpioc, PC3),
-    EXTI4_15 => (gpioc, PC4),
-    EXTI4_15 => (gpioc, PC5),
-    EXTI4_15 => (gpioc, PC6),
-    EXTI4_15 => (gpioc, PC7),
-    EXTI4_15 => (gpioc, PC8),
-    EXTI4_15 => (gpioc, PC9),
-    EXTI4_15 => (gpioc, PC10),
-    EXTI4_15 => (gpioc, PC11),
-    EXTI4_15 => (gpioc, PC12),
-    EXTI4_15 => (gpioc, PC13),
-    EXTI4_15 => (gpioc, PC14),
-    EXTI4_15 => (gpioc, PC15),
-}
+exti!(gpioc, [
+    EXTI0_1 => PC0,
+    EXTI0_1 => PC1,
+    EXTI2_3 => PC2,
+    EXTI2_3 => PC3,
+    EXTI4_15 => PC4,
+    EXTI4_15 => PC5,
+    EXTI4_15 => PC6,
+    EXTI4_15 => PC7,
+    EXTI4_15 => PC8,
+    EXTI4_15 => PC9,
+    EXTI4_15 => PC10,
+    EXTI4_15 => PC11,
+    EXTI4_15 => PC12,
+    EXTI4_15 => PC13,
+    EXTI4_15 => PC14,
+    EXTI4_15 => PC15,
+]);
 
-exti! {
-    EXTI0_1 => (gpiod, PD0),
-    EXTI0_1 => (gpiod, PD1),
-    EXTI2_3 => (gpiod, PD2),
-    EXTI2_3 => (gpiod, PD3),
-    EXTI4_15 => (gpiod, PD4),
-    EXTI4_15 => (gpiod, PD5),
-    EXTI4_15 => (gpiod, PD6),
-    EXTI4_15 => (gpiod, PD7),
-    EXTI4_15 => (gpiod, PD8),
-    EXTI4_15 => (gpiod, PD9),
-    EXTI4_15 => (gpiod, PD10),
-    EXTI4_15 => (gpiod, PD11),
-    EXTI4_15 => (gpiod, PD12),
-    EXTI4_15 => (gpiod, PD13),
-    EXTI4_15 => (gpiod, PD14),
-    EXTI4_15 => (gpiod, PD15),
-}
+exti!(gpiod, [
+    EXTI0_1 => PD0,
+    EXTI0_1 => PD1,
+    EXTI2_3 => PD2,
+    EXTI2_3 => PD3,
+    EXTI4_15 => PD4,
+    EXTI4_15 => PD5,
+    EXTI4_15 => PD6,
+    EXTI4_15 => PD7,
+    EXTI4_15 => PD8,
+    EXTI4_15 => PD9,
+    EXTI4_15 => PD10,
+    EXTI4_15 => PD11,
+    EXTI4_15 => PD12,
+    EXTI4_15 => PD13,
+    EXTI4_15 => PD14,
+    EXTI4_15 => PD15,
+]);
 
-exti! {
-    EXTI0_1 => (gpioe, PE0),
-    EXTI0_1 => (gpioe, PE1),
-    EXTI2_3 => (gpioe, PE2),
-    EXTI2_3 => (gpioe, PE3),
-    EXTI4_15 => (gpioe, PE4),
-    EXTI4_15 => (gpioe, PE5),
-    EXTI4_15 => (gpioe, PE6),
-    EXTI4_15 => (gpioe, PE7),
-    EXTI4_15 => (gpioe, PE8),
-    EXTI4_15 => (gpioe, PE9),
-    EXTI4_15 => (gpioe, PE10),
-    EXTI4_15 => (gpioe, PE11),
-    EXTI4_15 => (gpioe, PE12),
-    EXTI4_15 => (gpioe, PE13),
-    EXTI4_15 => (gpioe, PE14),
-    EXTI4_15 => (gpioe, PE15),
-}
+exti!(gpioe, [
+    EXTI0_1 => PE0,
+    EXTI0_1 => PE1,
+    EXTI2_3 => PE2,
+    EXTI2_3 => PE3,
+    EXTI4_15 => PE4,
+    EXTI4_15 => PE5,
+    EXTI4_15 => PE6,
+    EXTI4_15 => PE7,
+    EXTI4_15 => PE8,
+    EXTI4_15 => PE9,
+    EXTI4_15 => PE10,
+    EXTI4_15 => PE11,
+    EXTI4_15 => PE12,
+    EXTI4_15 => PE13,
+    EXTI4_15 => PE14,
+    EXTI4_15 => PE15,
+]);
 
-exti! {
-    EXTI0_1 => (gpioh, PH0),
-    EXTI0_1 => (gpioh, PH1),
-    EXTI4_15 => (gpioh, PH9),
-    EXTI4_15 => (gpioh, PH10),
-}
+exti!(gpioh, [
+    EXTI0_1 => PH0,
+    EXTI0_1 => PH1,
+    EXTI4_15 => PH9,
+    EXTI4_15 => PH10,
+]);
