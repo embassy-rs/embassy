@@ -1,21 +1,19 @@
 use crate::interrupt;
 use core::future::Future;
 use core::pin::Pin;
-use embassy::interrupt::Interrupt;
 use embassy::traits::qei::WaitForRotate;
 use embedded_hal::Direction;
-use embedded_hal::Qei as THQei;
 use stm32f4xx_hal::pac::TIM2;
-use stm32f4xx_hal::qei::{Pins, Qei as HalQei};
+use stm32f4xx_hal::{qei, qei::Pins};
 
 pub struct Qei<T: Instance, PINS> {
-    qei: HalQei<T, PINS>,
+    qei: qei::Qei<T, PINS>,
     int: T::Interrupt,
 }
 
 impl<PINS: Pins<TIM2>> Qei<TIM2, PINS> {
     pub fn tim2(tim: TIM2, pins: PINS, interrupt: interrupt::TIM2) -> Self {
-        let qei = HalQei::tim2(tim, pins);
+        let qei = qei::Qei::tim2(tim, pins);
 
         let tim = unsafe {
             &mut *(stm32f4xx_hal::stm32::TIM2::ptr()
