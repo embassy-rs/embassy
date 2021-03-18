@@ -22,7 +22,7 @@ pub struct ExtiPin<T: gpio::ExtiPin + WithInterrupt> {
 }
 
 impl<T: gpio::ExtiPin + WithInterrupt> ExtiPin<T> {
-    fn new(mut pin: T, interrupt: T::Interrupt) -> Self {
+    pub fn new(mut pin: T, interrupt: T::Interrupt) -> Self {
         let mut syscfg: SysCfg = unsafe { mem::transmute(()) };
 
         cortex_m::interrupt::free(|_| {

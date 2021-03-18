@@ -13,34 +13,16 @@ use crate::hal::{
 use crate::interrupt;
 use crate::pac::EXTI;
 
-pub struct ExtiManager {
-    syscfg: SYSCFG,
-}
-
-impl<'a> ExtiManager {
-    pub fn new(_exti: Exti, syscfg: SYSCFG) -> Self {
-        Self { syscfg }
-    }
-
-    pub fn new_pin<T>(&'static self, pin: T, interrupt: T::Interrupt) -> ExtiPin<T>
-    where
-        T: PinWithInterrupt,
-    {
-        ExtiPin {
-            pin,
-            interrupt,
-            mgr: self,
-        }
-    }
-}
-
 pub struct ExtiPin<T: PinWithInterrupt> {
     pin: T,
     interrupt: T::Interrupt,
-    mgr: &'static ExtiManager,
 }
 
 impl<T: PinWithInterrupt + 'static> ExtiPin<T> {
+    pub fn new(pin: T, interrupt: T::Interrupt) -> ExtiPin<T> {
+        ExtiPin { pin, interrupt }
+    }
+
     fn wait_for_edge<'a>(
         self: Pin<&'a mut Self>,
         edge: TriggerEdge,
@@ -57,10 +39,9 @@ impl<T: PinWithInterrupt + 'static> ExtiPin<T> {
             let fut = InterruptFuture::new(&mut s.interrupt);
 
             let port = s.pin.port();
-            let syscfg = &s.mgr.syscfg as *const _ as *mut SYSCFG;
             cortex_m::interrupt::free(|_| {
-                let syscfg = unsafe { &mut *syscfg };
-                exti.listen_gpio(syscfg, port, line, edge);
+                let mut syscfg: SYSCFG = unsafe { mem::transmute(()) };
+                exti.listen_gpio(&mut syscfg, port, line, edge);
             });
 
             fut.await;
