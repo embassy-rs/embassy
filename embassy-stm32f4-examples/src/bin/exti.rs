@@ -13,13 +13,11 @@ use cortex_m_rt::entry;
 use embassy::executor::{task, Executor};
 use embassy::traits::gpio::*;
 use embassy::util::Forever;
-use embassy_stm32f4::exti;
+use embassy_stm32f4::exti::ExtiPin;
 use embassy_stm32f4::interrupt;
 use futures::pin_mut;
 use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::stm32;
-
-static EXTI: Forever<exti::ExtiManager> = Forever::new();
 
 #[task]
 async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
@@ -27,8 +25,7 @@ async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
 
     let button = gpioa.pa0.into_pull_up_input();
 
-    let exti = EXTI.put(exti::ExtiManager::new(dp.EXTI, dp.SYSCFG.constrain()));
-    let pin = exti.new_pin(button, interrupt::take!(EXTI0));
+    let pin = ExtiPin::new(button, interrupt::take!(EXTI0));
     pin_mut!(pin);
 
     info!("Starting loop");

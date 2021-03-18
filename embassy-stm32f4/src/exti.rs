@@ -1,48 +1,38 @@
+use core::cell::UnsafeCell;
 use core::future::Future;
 use core::mem;
 use core::pin::Pin;
+use cortex_m;
 
 use embassy::traits::gpio::{WaitForFallingEdge, WaitForRisingEdge};
 use embassy::util::InterruptFuture;
 
 use crate::hal::gpio;
-use crate::hal::gpio::{Edge, ExtiPin as HalExtiPin};
+use crate::hal::gpio::Edge;
 use crate::hal::syscfg::SysCfg;
 use crate::pac::EXTI;
 use embedded_hal::digital::v2 as digital;
 
 use crate::interrupt;
 
-pub struct ExtiManager {
-    syscfg: SysCfg,
-}
-
-impl<'a> ExtiManager {
-    pub fn new(_exti: EXTI, syscfg: SysCfg) -> Self {
-        Self { syscfg }
-    }
-
-    pub fn new_pin<T>(&'static mut self, mut pin: T, interrupt: T::Interrupt) -> ExtiPin<T>
-    where
-        T: HalExtiPin + WithInterrupt,
-    {
-        pin.make_interrupt_source(&mut self.syscfg);
-
-        ExtiPin {
-            pin,
-            interrupt,
-            _mgr: self,
-        }
-    }
-}
-
-pub struct ExtiPin<T: HalExtiPin + WithInterrupt> {
+pub struct ExtiPin<T: gpio::ExtiPin + WithInterrupt> {
     pin: T,
     interrupt: T::Interrupt,
-    _mgr: &'static ExtiManager,
 }
 
-impl<T: HalExtiPin + WithInterrupt + digital::OutputPin> digital::OutputPin for ExtiPin<T> {
+impl<T: gpio::ExtiPin + WithInterrupt> ExtiPin<T> {
+    pub fn new(mut pin: T, interrupt: T::Interrupt) -> Self {
+        let mut syscfg: SysCfg = unsafe { mem::transmute(()) };
+
+        cortex_m::interrupt::free(|_| {
+            pin.make_interrupt_source(&mut syscfg);
+        });
+
+        Self { pin, interrupt }
+    }
+}
+
+impl<T: gpio::ExtiPin + WithInterrupt + digital::OutputPin> digital::OutputPin for ExtiPin<T> {
     type Error = T::Error;
 
     fn set_low(&mut self) -> Result<(), Self::Error> {
@@ -54,7 +44,7 @@ impl<T: HalExtiPin + WithInterrupt + digital::OutputPin> digital::OutputPin for 
     }
 }
 
-impl<T: HalExtiPin + WithInterrupt + digital::StatefulOutputPin> digital::StatefulOutputPin
+impl<T: gpio::ExtiPin + WithInterrupt + digital::StatefulOutputPin> digital::StatefulOutputPin
     for ExtiPin<T>
 {
     fn is_set_low(&self) -> Result<bool, Self::Error> {
@@ -66,7 +56,7 @@ impl<T: HalExtiPin + WithInterrupt + digital::StatefulOutputPin> digital::Statef
     }
 }
 
-impl<T: HalExtiPin + WithInterrupt + digital::ToggleableOutputPin> digital::ToggleableOutputPin
+impl<T: gpio::ExtiPin + WithInterrupt + digital::ToggleableOutputPin> digital::ToggleableOutputPin
     for ExtiPin<T>
 {
     type Error = T::Error;
@@ -76,7 +66,7 @@ impl<T: HalExtiPin + WithInterrupt + digital::ToggleableOutputPin> digital::Togg
     }
 }
 
-impl<T: HalExtiPin + WithInterrupt + digital::InputPin> digital::InputPin for ExtiPin<T> {
+impl<T: gpio::ExtiPin + WithInterrupt + digital::InputPin> digital::InputPin for ExtiPin<T> {
     type Error = T::Error;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
@@ -99,7 +89,7 @@ impl<T: HalExtiPin + WithInterrupt + digital::InputPin> digital::InputPin for Ex
     EXTI15_10_IRQn	EXTI15_10_IRQHandler	Handler for pins connected to line 10 to 15
 */
 
-impl<T: HalExtiPin + WithInterrupt + 'static> WaitForRisingEdge for ExtiPin<T> {
+impl<T: gpio::ExtiPin + WithInterrupt + 'static> WaitForRisingEdge for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
     fn wait_for_rising_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
@@ -108,10 +98,13 @@ impl<T: HalExtiPin + WithInterrupt + 'static> WaitForRisingEdge for ExtiPin<T> {
         s.pin.clear_interrupt_pending_bit();
         async move {
             let fut = InterruptFuture::new(&mut s.interrupt);
-            let mut exti: EXTI = unsafe { mem::transmute(()) };
+            let pin = &mut s.pin;
+            cortex_m::interrupt::free(|_| {
+                let mut exti: EXTI = unsafe { mem::transmute(()) };
 
-            s.pin.trigger_on_edge(&mut exti, Edge::RISING);
-            s.pin.enable_interrupt(&mut exti);
+                pin.trigger_on_edge(&mut exti, Edge::RISING);
+                pin.enable_interrupt(&mut exti);
+            });
             fut.await;
 
             s.pin.clear_interrupt_pending_bit();
@@ -119,7 +112,7 @@ impl<T: HalExtiPin + WithInterrupt + 'static> WaitForRisingEdge for ExtiPin<T> {
     }
 }
 
-impl<T: HalExtiPin + WithInterrupt + 'static> WaitForFallingEdge for ExtiPin<T> {
+impl<T: gpio::ExtiPin + WithInterrupt + 'static> WaitForFallingEdge for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
     fn wait_for_falling_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
@@ -128,10 +121,13 @@ impl<T: HalExtiPin + WithInterrupt + 'static> WaitForFallingEdge for ExtiPin<T> 
         s.pin.clear_interrupt_pending_bit();
         async move {
             let fut = InterruptFuture::new(&mut s.interrupt);
-            let mut exti: EXTI = unsafe { mem::transmute(()) };
+            let pin = &mut s.pin;
+            cortex_m::interrupt::free(|_| {
+                let mut exti: EXTI = unsafe { mem::transmute(()) };
 
-            s.pin.trigger_on_edge(&mut exti, Edge::FALLING);
-            s.pin.enable_interrupt(&mut exti);
+                pin.trigger_on_edge(&mut exti, Edge::FALLING);
+                pin.enable_interrupt(&mut exti);
+            });
             fut.await;
 
             s.pin.clear_interrupt_pending_bit();
