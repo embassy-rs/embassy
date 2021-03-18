@@ -2,7 +2,9 @@ use core::future::Future;
 use core::mem;
 use core::pin::Pin;
 
-use embassy::traits::gpio::{WaitForAnyEdge, WaitForFallingEdge, WaitForRisingEdge};
+use embassy::traits::gpio::{
+    WaitForAnyEdge, WaitForFallingEdge, WaitForHigh, WaitForLow, WaitForRisingEdge,
+};
 use embassy::util::InterruptFuture;
 
 use crate::hal::{
@@ -12,6 +14,7 @@ use crate::hal::{
 };
 use crate::interrupt;
 use crate::pac::EXTI;
+use embedded_hal::digital::v2::InputPin;
 
 pub struct ExtiPin<T: PinWithInterrupt> {
     pin: T,
@@ -51,6 +54,47 @@ impl<T: PinWithInterrupt + 'static> ExtiPin<T> {
     }
 }
 
+impl<T: InputPin + PinWithInterrupt + 'static> ExtiPin<T> {
+    fn wait_for_state<'a>(self: Pin<&'a mut Self>, state: bool) -> impl Future<Output = ()> + 'a {
+        let line = self.pin.line();
+        let s = unsafe { self.get_unchecked_mut() };
+
+        Exti::unpend(line);
+
+        async move {
+            let exti: EXTI = unsafe { mem::transmute(()) };
+            let mut exti = Exti::new(exti);
+
+            let fut = InterruptFuture::new(&mut s.interrupt);
+
+            let port = s.pin.port();
+            cortex_m::interrupt::free(|_| {
+                let mut syscfg: SYSCFG = unsafe { mem::transmute(()) };
+                let edge = if state {
+                    TriggerEdge::Rising
+                } else {
+                    TriggerEdge::Falling
+                };
+                exti.listen_gpio(&mut syscfg, port, line, edge);
+            });
+
+            let pin_has_state = if state {
+                s.pin.is_high()
+            } else {
+                s.pin.is_low()
+            }
+            .unwrap_or(false);
+            if pin_has_state {
+                return ();
+            }
+
+            fut.await;
+
+            Exti::unpend(line);
+        }
+    }
+}
+
 impl<T: PinWithInterrupt + 'static> WaitForRisingEdge for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
@@ -72,6 +116,22 @@ impl<T: PinWithInterrupt + 'static> WaitForAnyEdge for ExtiPin<T> {
 
     fn wait_for_any_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
         self.wait_for_edge(TriggerEdge::Both)
+    }
+}
+
+impl<T: InputPin + PinWithInterrupt + 'static> WaitForHigh for ExtiPin<T> {
+    type Future<'a> = impl Future<Output = ()> + 'a;
+
+    fn wait_for_high<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+        self.wait_for_state(true)
+    }
+}
+
+impl<T: InputPin + PinWithInterrupt + 'static> WaitForLow for ExtiPin<T> {
+    type Future<'a> = impl Future<Output = ()> + 'a;
+
+    fn wait_for_low<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+        self.wait_for_state(false)
     }
 }
 
