@@ -99,11 +99,12 @@ impl<T: gpio::ExtiPin + WithInterrupt + 'static> WaitForRisingEdge for ExtiPin<T
         s.pin.clear_interrupt_pending_bit();
         async move {
             let fut = InterruptFuture::new(&mut s.interrupt);
+            let pin = &mut s.pin;
             cortex_m::interrupt::free(|_| {
                 let mut exti: EXTI = unsafe { mem::transmute(()) };
 
-                s.pin.trigger_on_edge(&mut exti, Edge::RISING);
-                s.pin.enable_interrupt(&mut exti);
+                pin.trigger_on_edge(&mut exti, Edge::RISING);
+                pin.enable_interrupt(&mut exti);
             });
             fut.await;
 
@@ -121,11 +122,12 @@ impl<T: gpio::ExtiPin + WithInterrupt + 'static> WaitForFallingEdge for ExtiPin<
         s.pin.clear_interrupt_pending_bit();
         async move {
             let fut = InterruptFuture::new(&mut s.interrupt);
+            let pin = &mut s.pin;
             cortex_m::interrupt::free(|_| {
                 let mut exti: EXTI = unsafe { mem::transmute(()) };
 
-                s.pin.trigger_on_edge(&mut exti, Edge::FALLING);
-                s.pin.enable_interrupt(&mut exti);
+                pin.trigger_on_edge(&mut exti, Edge::FALLING);
+                pin.enable_interrupt(&mut exti);
             });
             fut.await;
 
