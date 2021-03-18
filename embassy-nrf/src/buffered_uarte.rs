@@ -201,36 +201,15 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
     fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<'a, U, T, P1, P2>>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
-
-    pub fn free(self: Pin<&mut Self>) -> (U, T, P1, P2, U::Interrupt) {
-        let (mut state, irq) = self.inner().free();
-        state.stop();
-        (
-            state.uarte,
-            state.timer,
-            state.ppi_channel_1,
-            state.ppi_channel_2,
-            irq,
-        )
-    }
-}
-
-impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi> Drop
-    for BufferedUarte<'a, U, T, P1, P2>
-{
-    fn drop(&mut self) {
-        let inner = unsafe { Pin::new_unchecked(&mut self.inner) };
-        if let Some((mut state, _irq)) = inner.try_free() {
-            state.stop();
-        }
-    }
 }
 
 impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi> AsyncBufRead
     for BufferedUarte<'a, U, T, P1, P2>
 {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
-        self.inner().with(|state, _irq| {
+        let mut inner = self.inner();
+        inner.as_mut().register_interrupt();
+        inner.with(|state, _irq| {
             // Conservative compiler fence to prevent optimizations that do not
             // take in to account actions by DMA. The fence has been placed here,
             // before any DMA action has started
@@ -253,7 +232,9 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
     }
 
     fn consume(self: Pin<&mut Self>, amt: usize) {
-        self.inner().with(|state, irq| {
+        let mut inner = self.inner();
+        inner.as_mut().register_interrupt();
+        inner.with(|state, irq| {
             trace!("consume {:?}", amt);
             state.rx.pop(amt);
             irq.pend();
@@ -265,7 +246,9 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
     for BufferedUarte<'a, U, T, P1, P2>
 {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
-        self.inner().with(|state, irq| {
+        let mut inner = self.inner();
+        inner.as_mut().register_interrupt();
+        inner.with(|state, irq| {
             trace!("poll_write: {:?}", buf.len());
 
             let tx_buf = state.tx.push_buf();
@@ -293,10 +276,10 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
     }
 }
 
-impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi>
-    State<'a, U, T, P1, P2>
+impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi> Drop
+    for State<'a, U, T, P1, P2>
 {
-    fn stop(&mut self) {
+    fn drop(&mut self) {
         self.timer.tasks_stop.write(|w| unsafe { w.bits(1) });
         if let RxState::Receiving = self.rx_state {
             self.uarte.tasks_stoprx.write(|w| unsafe { w.bits(1) });
