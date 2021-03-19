@@ -10,17 +10,100 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  ci:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - package: embassy
+            target: thumbv7em-none-eabi
+          - package: embassy
+            target: thumbv7em-none-eabi
+            features: log
+          - package: embassy
+            target: thumbv7em-none-eabi
+            features: defmt
+          - package: embassy
+            target: thumbv6m-none-eabi
+            features: defmt
+#          - package: embassy-nrf-examples
+#            target: thumbv7em-none-eabi
+          - package: embassy-nrf
+            target: thumbv7em-none-eabi
+            features: 52810
+          - package: embassy-nrf
+            target: thumbv7em-none-eabi
+            features: 52832
+          - package: embassy-nrf
+            target: thumbv7em-none-eabi
+            features: 52833
+          - package: embassy-nrf
+            target: thumbv7em-none-eabi
+            features: 52840
+          - package: embassy-nrf
+            target: thumbv7em-none-eabi
+            features: 52840,log
+          - package: embassy-nrf
+            target: thumbv7em-none-eabi
+            features: 52840,defmt
+          - package: embassy-stm32f4-examples
+            target: thumbv7em-none-eabi
+            features: stm32f405
+          - package: embassy-stm32f4
+            target: thumbv7em-none-eabi
+            features: stm32f405
+          - package: embassy-stm32f4
+            target: thumbv7em-none-eabi
+            features: stm32f405,defmt
+          - package: embassy-stm32l0
+            target: thumbv6m-none-eabi
+            features: stm32l0x2
+          - package: embassy-stm32l0
+            target: thumbv6m-none-eabi
+            features: stm32l0x2,defmt
 
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
+          target: ${{ matrix.target }}
           components: rust-src, rustfmt
           override: true
-      - name: install
-        run: rustup target add thumbv7em-none-eabi thumbv6m-none-eabi
+      - name: cache
+        id: cache-target
+        uses: actions/cache@v2
+        with:
+          path: target
+          key: ${{ runner.os }}-${{ matrix.target }}
+      - uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --package ${{ matrix.package }} --features=${{ matrix.features }}
+
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: rustfmt
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+
+  nrf_examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: rust-src, rustfmt
+          target: thumbv7em-none-eabi
+          override: true
       - name: Build
         run: ./ci.sh
