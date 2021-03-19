@@ -149,6 +149,13 @@ where
 
             fut.await;
 
+            let fut = InterruptFuture::new(&mut s.i2c_int);
+            // Send a STOP condition
+            s.i2c.cr1.modify(|_, w| w.stop().set_bit());
+
+            // Wait for STOP condition to transmit.
+            fut.await;
+
             let (tx_stream, i2c, _buf, _) = tx_transfer.free();
             s.tx_stream.replace(tx_stream);
             s.i2c.replace(i2c);
@@ -272,6 +279,23 @@ macro_rules! dma {
          )+
      }
  }
+
+macro_rules! i2c {
+    ($($INT:ident => ($i2c:ident),)+) => {
+        $(
+            impl private::Sealed for pac::$i2c {}
+            impl WithInterrupt for pac::$i2c {
+                type Interrupt = interrupt::$INT;
+            }
+        )+
+    }
+}
+
+i2c! {
+    I2C1 => (I2C1_EV),
+    I2C2 => (I2C2_EV),
+    I2C3 => (I2C3_EV),
+}
 
 #[cfg(any(feature = "stm32f405",))]
 dma! {
