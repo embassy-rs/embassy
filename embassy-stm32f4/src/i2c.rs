@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{self, Ordering};
 
 use embassy::interrupt::Interrupt;
-use embassy::traits::uart::{Error, Uart};
+use embassy::traits::i2c::I2c;
 use embassy::util::InterruptFuture;
 
 use crate::hal::{
@@ -12,6 +12,7 @@ use crate::hal::{
     dma::traits::{Channel, DMASet, PeriAddress, Stream},
     dma::{MemoryToPeripheral, PeripheralToMemory, Transfer},
     i2c,
+    i2c::Pins,
     rcc::Clocks,
     time::KiloHertz,
 };
@@ -53,11 +54,10 @@ where
         streams: (TSTREAM, RSTREAM),
         pins: PINS,
         speed: KiloHertz,
+        clocks: Clocks,
         tx_int: TSTREAM::Interrupt,
         rx_int: RSTREAM::Interrupt,
-        I2C_int: I2C::Interrupt,
-        mut config: SerialConfig,
-        clocks: Clocks,
+        i2c_int: I2C::Interrupt,
     ) -> Self
     where
         PINS: Pins<I2C>,
@@ -69,16 +69,16 @@ where
         Self {
             tx_stream: Some(tx_stream),
             rx_stream: Some(rx_stream),
-            I2C: Some(I2C),
+            i2c: Some(i2c),
             tx_int: tx_int,
             rx_int: rx_int,
-            I2C_int: I2C_int,
+            i2c_int: i2c_int,
             channel: core::marker::PhantomData,
         }
     }
 }
 
-impl<I2C, TSTREAM, RSTREAM, CHANNEL> I2C for I2C<I2C, TSTREAM, RSTREAM, CHANNEL>
+impl<I2C, TSTREAM, RSTREAM, CHANNEL> I2c for I2C<I2C, TSTREAM, RSTREAM, CHANNEL>
 where
     I2C: i2c::Instance
         + PeriAddress<MemSize = u8>
@@ -184,17 +184,6 @@ macro_rules! dma {
      }
  }
 
-macro_rules! I2C {
-    ($($PER:ident => ($I2C:ident),)+) => {
-        $(
-            impl private::Sealed for pac::$I2C {}
-            impl WithInterrupt for pac::$I2C {
-                type Interrupt = interrupt::$PER;
-            }
-        )+
-    }
-}
-
 #[cfg(any(feature = "stm32f405",))]
 dma! {
     DMA2_STREAM0 => (DMA2, Stream0),
@@ -212,14 +201,4 @@ dma! {
     DMA1_STREAM4 => (DMA1, Stream4),
     DMA1_STREAM5 => (DMA1, Stream5),
     DMA1_STREAM6 => (DMA1, Stream6),
-}
-
-#[cfg(any(feature = "stm32f405",))]
-I2C! {
-    I2C1 => (I2C1),
-    I2C2 => (I2C2),
-    I2C3 => (I2C3),
-    UART4 => (UART4),
-    UART5 => (UART5),
-    I2C6 => (I2C6),
 }
