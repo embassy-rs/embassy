@@ -316,9 +316,3 @@ pub mod exti;
 pub mod qei;
 pub mod rtc;
 pub mod serial;
-pub mod usb;
-pub mod usb_serial;
-
-pub(crate) mod cdc_acm;
-
-pub use cortex_m_rt::interrupt;

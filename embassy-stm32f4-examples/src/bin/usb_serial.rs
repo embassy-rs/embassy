@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+#![feature(min_type_alias_impl_trait)]
+#![feature(impl_trait_in_bindings)]
 
 #[path = "../example_common.rs"]
 mod example_common;
@@ -9,12 +11,12 @@ use example_common::*;
 use cortex_m_rt::entry;
 use defmt::panic;
 use embassy::executor::{task, Executor};
+use embassy::interrupt::InterruptExt;
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
-use embassy_stm32f4::interrupt::InterruptExt;
-use embassy_stm32f4::usb::Usb;
-use embassy_stm32f4::usb_serial::UsbSerial;
+use embassy_extras::usb::usb_serial::UsbSerial;
+use embassy_extras::usb::Usb;
 use embassy_stm32f4::{interrupt, pac, rtc};
 use futures::future::{select, Either};
 use futures::pin_mut;
@@ -43,6 +45,7 @@ async fn run1(bus: &'static mut UsbBusAllocator<UsbBus<USB>>) {
 
     let usb = Usb::new(device, serial, irq);
     pin_mut!(usb);
+    usb.as_mut().start();
 
     let (mut read_interface, mut write_interface) = usb.as_ref().take_serial_0();
 

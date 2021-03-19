@@ -9,19 +9,20 @@ use usb_device::bus::UsbBus;
 use usb_device::class_prelude::*;
 use usb_device::UsbError;
 
-use crate::cdc_acm::CdcAcmClass;
-use crate::usb::{ClassSet, SerialState, State};
-use embassy_extras::peripheral::PeripheralMutex;
-use embassy_extras::ring_buffer::RingBuffer;
+use super::cdc_acm::CdcAcmClass;
+use crate::peripheral::PeripheralMutex;
+use crate::ring_buffer::RingBuffer;
+use crate::usb::{ClassSet, SerialState, State, USBInterrupt};
 
-pub struct ReadInterface<'a, 'bus, 'c, I, B, T>
+pub struct ReadInterface<'a, 'bus, 'c, I, B, T, INT>
 where
     I: Unpin,
     B: UsbBus,
     T: SerialState<'bus, 'c, B, I> + ClassSet<B>,
+    INT: USBInterrupt,
 {
     // Don't you dare moving out `PeripheralMutex`
-    pub(crate) inner: &'a RefCell<PeripheralMutex<State<'bus, B, T>>>,
+    pub(crate) inner: &'a RefCell<PeripheralMutex<State<'bus, B, T, INT>>>,
     pub(crate) _buf_lifetime: PhantomData<&'c T>,
     pub(crate) _index: PhantomData<I>,
 }
@@ -30,23 +31,25 @@ where
 ///
 /// This interface is buffered, meaning that after the write returns the bytes might not be fully
 /// on the wire just yet
-pub struct WriteInterface<'a, 'bus, 'c, I, B, T>
+pub struct WriteInterface<'a, 'bus, 'c, I, B, T, INT>
 where
     I: Unpin,
     B: UsbBus,
     T: SerialState<'bus, 'c, B, I> + ClassSet<B>,
+    INT: USBInterrupt,
 {
     // Don't you dare moving out `PeripheralMutex`
-    pub(crate) inner: &'a RefCell<PeripheralMutex<State<'bus, B, T>>>,
+    pub(crate) inner: &'a RefCell<PeripheralMutex<State<'bus, B, T, INT>>>,
     pub(crate) _buf_lifetime: PhantomData<&'c T>,
     pub(crate) _index: PhantomData<I>,
 }
 
-impl<'a, 'bus, 'c, I, B, T> AsyncBufRead for ReadInterface<'a, 'bus, 'c, I, B, T>
+impl<'a, 'bus, 'c, I, B, T, INT> AsyncBufRead for ReadInterface<'a, 'bus, 'c, I, B, T, INT>
 where
     I: Unpin,
     B: UsbBus,
     T: SerialState<'bus, 'c, B, I> + ClassSet<B>,
+    INT: USBInterrupt,
 {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
         let this = self.get_mut();
@@ -59,6 +62,8 @@ where
             match serial.poll_fill_buf(cx) {
                 Poll::Ready(Ok(buf)) => {
                     let buf: &[u8] = buf;
+                    // NOTE(unsafe) This part of the buffer won't be modified until the user calls
+                    // consume, which will invalidate this ref
                     let buf: &[u8] = unsafe { core::mem::transmute(buf) };
                     Poll::Ready(Ok(buf))
                 }
@@ -81,11 +86,12 @@ where
     }
 }
 
-impl<'a, 'bus, 'c, I, B, T> AsyncWrite for WriteInterface<'a, 'bus, 'c, I, B, T>
+impl<'a, 'bus, 'c, I, B, T, INT> AsyncWrite for WriteInterface<'a, 'bus, 'c, I, B, T, INT>
 where
     I: Unpin,
     B: UsbBus,
     T: SerialState<'bus, 'c, B, I> + ClassSet<B>,
+    INT: USBInterrupt,
 {
     fn poll_write(
         self: Pin<&mut Self>,

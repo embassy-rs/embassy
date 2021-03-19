@@ -6,41 +6,48 @@ use usb_device::bus::UsbBus;
 use usb_device::class::UsbClass;
 use usb_device::device::UsbDevice;
 
-use crate::interrupt;
-use crate::usb_serial::{ReadInterface, UsbSerial, WriteInterface};
-use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
+mod cdc_acm;
+pub mod usb_serial;
 
-pub struct State<'bus, B, T>
+use crate::peripheral::{PeripheralMutex, PeripheralState};
+use embassy::interrupt::Interrupt;
+use usb_serial::{ReadInterface, UsbSerial, WriteInterface};
+
+/// Marker trait to mark an interrupt to be used with the [`Usb`] abstraction.
+pub unsafe trait USBInterrupt: Interrupt {}
+
+pub(crate) struct State<'bus, B, T, I>
 where
     B: UsbBus,
     T: ClassSet<B>,
+    I: USBInterrupt,
 {
     device: UsbDevice<'bus, B>,
     pub(crate) classes: T,
+    _interrupt: PhantomData<I>,
 }
 
-pub struct Usb<'bus, B, T>
+pub struct Usb<'bus, B, T, I>
 where
     B: UsbBus,
     T: ClassSet<B>,
+    I: USBInterrupt,
 {
     // Don't you dare moving out `PeripheralMutex`
-    inner: RefCell<PeripheralMutex<State<'bus, B, T>>>,
+    inner: RefCell<PeripheralMutex<State<'bus, B, T, I>>>,
 }
 
-impl<'bus, B, T> Usb<'bus, B, T>
+impl<'bus, B, T, I> Usb<'bus, B, T, I>
 where
     B: UsbBus,
     T: ClassSet<B>,
+    I: USBInterrupt,
 {
-    pub fn new<S: IntoClassSet<B, T>>(
-        device: UsbDevice<'bus, B>,
-        class_set: S,
-        irq: interrupt::OTG_FS,
-    ) -> Self {
+    pub fn new<S: IntoClassSet<B, T>>(device: UsbDevice<'bus, B>, class_set: S, irq: I) -> Self {
         let state = State {
             device,
             classes: class_set.into_class_set(),
+            _interrupt: PhantomData,
         };
         let mutex = PeripheralMutex::new(state, irq);
         Self {
@@ -58,16 +65,18 @@ where
     }
 }
 
-impl<'bus, 'c, B, T> Usb<'bus, B, T>
+impl<'bus, 'c, B, T, I> Usb<'bus, B, T, I>
 where
     B: UsbBus,
     T: ClassSet<B> + SerialState<'bus, 'c, B, Index0>,
+    I: USBInterrupt,
 {
+    /// Take a serial class that was passed as the first class in a tuple
     pub fn take_serial_0<'a>(
         self: Pin<&'a Self>,
     ) -> (
-        ReadInterface<'a, 'bus, 'c, Index0, B, T>,
-        WriteInterface<'a, 'bus, 'c, Index0, B, T>,
+        ReadInterface<'a, 'bus, 'c, Index0, B, T, I>,
+        WriteInterface<'a, 'bus, 'c, Index0, B, T, I>,
     ) {
         let this = self.get_ref();
 
@@ -86,16 +95,18 @@ where
     }
 }
 
-impl<'bus, 'c, B, T> Usb<'bus, B, T>
+impl<'bus, 'c, B, T, I> Usb<'bus, B, T, I>
 where
     B: UsbBus,
     T: ClassSet<B> + SerialState<'bus, 'c, B, Index1>,
+    I: USBInterrupt,
 {
+    /// Take a serial class that was passed as the second class in a tuple
     pub fn take_serial_1<'a>(
         self: Pin<&'a Self>,
     ) -> (
-        ReadInterface<'a, 'bus, 'c, Index1, B, T>,
-        WriteInterface<'a, 'bus, 'c, Index1, B, T>,
+        ReadInterface<'a, 'bus, 'c, Index1, B, T, I>,
+        WriteInterface<'a, 'bus, 'c, Index1, B, T, I>,
     ) {
         let this = self.get_ref();
 
@@ -114,12 +125,13 @@ where
     }
 }
 
-impl<'bus, B, T> PeripheralState for State<'bus, B, T>
+impl<'bus, B, T, I> PeripheralState for State<'bus, B, T, I>
 where
     B: UsbBus,
     T: ClassSet<B>,
+    I: USBInterrupt,
 {
-    type Interrupt = interrupt::OTG_FS;
+    type Interrupt = I;
     fn on_interrupt(&mut self) {
         self.classes.poll_all(&mut self.device);
     }
@@ -153,7 +165,10 @@ where
     _bus: PhantomData<B>,
 }
 
+/// The first class into a [`ClassSet`]
 pub struct Index0;
+
+/// The second class into a [`ClassSet`]
 pub struct Index1;
 
 impl<B, C1> ClassSet<B> for ClassSet1<B, C1>
@@ -205,6 +220,7 @@ where
     }
 }
 
+/// Trait for a USB State that has a serial class inside
 pub trait SerialState<'bus, 'a, B: UsbBus, I> {
     fn get_serial(&mut self) -> &mut UsbSerial<'bus, 'a, B>;
 }
