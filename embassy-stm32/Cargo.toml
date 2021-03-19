@@ -1,0 +1,46 @@
+[package]
+name = "embassy-stm32"
+version = "0.1.0"
+authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
+edition = "2018"
+
+[features]
+defmt-trace = [ ]
+defmt-debug = [ ]
+defmt-info = [ ]
+defmt-warn = [ ]
+defmt-error = [ ]
+
+stm32f401 = ["stm32f4xx-hal/stm32f401"]
+stm32f405 = ["stm32f4xx-hal/stm32f405"]
+stm32f407 = ["stm32f4xx-hal/stm32f407"]
+stm32f410 = ["stm32f4xx-hal/stm32f410"]
+stm32f411 = ["stm32f4xx-hal/stm32f411"]
+stm32f412 = ["stm32f4xx-hal/stm32f412"]
+stm32f413 = ["stm32f4xx-hal/stm32f413"]
+stm32f415 = ["stm32f4xx-hal/stm32f405"]
+stm32f417 = ["stm32f4xx-hal/stm32f407"]
+stm32f423 = ["stm32f4xx-hal/stm32f413"]
+stm32f427 = ["stm32f4xx-hal/stm32f427"]
+stm32f429 = ["stm32f4xx-hal/stm32f429"]
+stm32f437 = ["stm32f4xx-hal/stm32f427"]
+stm32f439 = ["stm32f4xx-hal/stm32f429"]
+stm32f446 = ["stm32f4xx-hal/stm32f446"]
+stm32f469 = ["stm32f4xx-hal/stm32f469"]
+stm32f479 = ["stm32f4xx-hal/stm32f469"]
+
+stm32l0x1 = ["stm32l0xx-hal/stm32l0x1"]
+stm32l0x2 = ["stm32l0xx-hal/stm32l0x2"]
+stm32l0x3 = ["stm32l0xx-hal/stm32l0x3"]
+
+[dependencies]
+embassy = { version = "0.1.0", path = "../embassy" }
+
+defmt = { version = "0.2.0", optional = true }
+log = { version = "0.4.11", optional = true }
+cortex-m-rt = "0.6.13"
+cortex-m = "0.7.1"
+embedded-hal    = { version = "0.2.4" }
+embedded-dma    = { version = "0.1.2" }
+stm32f4xx-hal  = { version = "0.8.3", features = ["rt", "can"], git = "https://github.com/stm32-rs/stm32f4xx-hal.git", optional = true }
+stm32l0xx-hal = { version = "0.7.0", features = ["rt"], git = "https://github.com/stm32-rs/stm32l0xx-hal.git", optional = true }

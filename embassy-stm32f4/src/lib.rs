@@ -307,16 +307,11 @@ compile_error!(
     "Multile chip features activated. You must activate exactly one of the following features: "
 );
 
-pub use stm32f4xx_hal as hal;
-pub use stm32f4xx_hal::stm32 as pac;
-
-// This mod MUST go first, so that the others see its macros.
-pub(crate) mod fmt;
+pub use embassy_stm32::{fmt, hal, interrupt, pac};
 
 #[cfg(not(any(feature = "stm32f401", feature = "stm32f410", feature = "stm32f411",)))]
 pub mod can;
 pub mod exti;
-pub mod interrupt;
 #[cfg(not(feature = "stm32f410"))]
 pub mod qei;
 pub mod rtc;
