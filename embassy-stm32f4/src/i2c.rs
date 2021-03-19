@@ -125,14 +125,14 @@ where
 
             // Also wait until signalled we're master and everything is waiting for us
             while {
-                let sr2 = self.i2c.sr2.read();
+                let sr2 = i2c.sr2.read();
                 sr2.msl().bit_is_clear() && sr2.busy().bit_is_clear()
             } {}
 
             let fut = InterruptFuture::new(&mut s.i2c_int);
             // Set up current address, we're trying to talk to
             i2c.dr
-                .write(|w| unsafe { w.bits((u32::from(addr) << 1) + 1) });
+                .write(|w| unsafe { w.bits((u32::from(address) << 1) + 1) });
 
             // Wait until address was sent
             //            while {
