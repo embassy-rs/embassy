@@ -106,4 +106,4 @@ jobs:
           target: thumbv7em-none-eabi
           override: true
       - name: Build
-        run: ./ci.sh
+        run: (cd embassy-nrf-examples; cargo build --target thumbv7em-none-eabi --bins)
