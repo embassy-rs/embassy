@@ -6,6 +6,8 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
+use embassy_nrf::gpio::{Level, Output};
+use embassy_nrf::peripherals::Peripherals;
 use embassy_traits::spi::FullDuplex;
 use example_common::*;
 
@@ -16,7 +18,6 @@ use embassy::util::Forever;
 use embedded_hal::digital::v2::*;
 use futures::pin_mut;
 use nrf52840_hal::clocks;
-use nrf52840_hal::gpio;
 
 use embassy_nrf::{interrupt, pac, rtc, spim};
 
@@ -24,24 +25,19 @@ use embassy_nrf::{interrupt, pac, rtc, spim};
 async fn run() {
     info!("running!");
 
-    let p = unsafe { embassy_nrf::pac::Peripherals::steal() };
-    let p0 = gpio::p0::Parts::new(p.P0);
+    let mut p = unsafe { Peripherals::steal() };
 
-    let pins = spim::Pins {
-        sck: p0.p0_29.into_push_pull_output(gpio::Level::Low).degrade(),
-        miso: Some(p0.p0_28.into_floating_input().degrade()),
-        mosi: Some(p0.p0_30.into_push_pull_output(gpio::Level::Low).degrade()),
-    };
     let config = spim::Config {
-        pins,
         frequency: spim::Frequency::M16,
         mode: spim::MODE_0,
         orc: 0x00,
     };
 
-    let mut ncs = p0.p0_31.into_push_pull_output(gpio::Level::High);
-    let spim = spim::Spim::new(p.SPIM3, interrupt::take!(SPIM3), config);
+    let mut irq = interrupt::take!(SPIM3);
+    let spim = spim::Spim::new(p.spim3, irq, p.p0_29, p.p0_28, p.p0_30, config);
     pin_mut!(spim);
+
+    let mut ncs = Output::new(p.p0_31, Level::High);
 
     // Example on how to talk to an ENC28J60 chip
 

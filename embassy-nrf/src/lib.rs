@@ -94,8 +94,10 @@ pub(crate) fn slice_in_ram_or<T>(slice: &[u8], err: T) -> Result<(), T> {
 pub(crate) mod fmt;
 
 pub mod buffered_uarte;
+pub mod gpio;
 pub mod gpiote;
 pub mod interrupt;
+pub mod peripherals;
 #[cfg(feature = "52840")]
 pub mod qspi;
 pub mod rtc;
