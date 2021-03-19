@@ -14,3 +14,8 @@ pub use mutex::*;
 pub use portal::*;
 pub use signal::*;
 pub use waker::*;
+
+pub trait PeripheralBorrow {
+    type Target;
+    unsafe fn unborrow(self) -> Self::Target;
+}
