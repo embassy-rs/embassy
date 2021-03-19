@@ -109,9 +109,28 @@ where
     ) -> Self::ReadFuture<'a> {
         let s = unsafe { self.get_unchecked_mut() };
 
+        let static_buf: &'static mut [u8] = unsafe { core::mem::transmute(buffer) };
+
         let rx_stream = s.rx_stream.take().unwrap();
         let i2c = s.i2c.take().unwrap();
         async move {
+            let mut rx_transfer = Transfer::init(
+                rx_stream,
+                i2c,
+                static_buf,
+                None,
+                DmaConfig::default()
+                    .transfer_complete_interrupt(true)
+                    .memory_increment(true)
+                    .double_buffer(false),
+            );
+
+            let fut = InterruptFuture::new(&mut s.rx_int);
+
+            rx_transfer.start(|_i2c| {});
+            fut.await;
+            let (rx_stream, i2c, _, _) = rx_transfer.free();
+
             s.rx_stream.replace(rx_stream);
             s.i2c.replace(i2c);
 
@@ -122,12 +141,12 @@ where
     fn write<'a>(
         self: Pin<&'a mut Self>,
         address: SevenBitAddress,
-        bytes: &[u8],
+        buffer: &[u8],
     ) -> Self::WriteFuture<'a> {
         let s = unsafe { self.get_unchecked_mut() };
 
         #[allow(mutable_transmutes)]
-        let static_buf: &'static mut [u8] = unsafe { core::mem::transmute(bytes) };
+        let static_buf: &'static mut [u8] = unsafe { core::mem::transmute(buffer) };
 
         let tx_stream = s.tx_stream.take().unwrap();
         let i2c = s.i2c.take().unwrap();
