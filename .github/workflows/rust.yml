@@ -79,7 +79,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --package ${{ matrix.package }} --features=${{ matrix.features }}
+          args: --package ${{ matrix.package }} --features=${{ matrix.features }} --target=${{ matrix.target }}
 
   fmt:
     runs-on: ubuntu-latest
