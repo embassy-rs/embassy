@@ -1,4 +1,3 @@
-use core::cell::UnsafeCell;
 use core::future::Future;
 use core::mem;
 use core::pin::Pin;

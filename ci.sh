@@ -30,7 +30,7 @@ cargo fmt --all -- --check
 
 # embassy-stm32f4
 
-(cd embassy-stm32f4-examples; cargo build --target thumbv7em-none-eabi --bins)
+(cd embassy-stm32f4-examples; cargo build --target thumbv7em-none-eabi --bins --features stm32f405)
 (cd embassy-stm32f4; cargo build --target thumbv7em-none-eabi --features stm32f405)
 (cd embassy-stm32f4; cargo build --target thumbv7em-none-eabi --features stm32f405,defmt)
 

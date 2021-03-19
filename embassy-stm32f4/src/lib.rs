@@ -313,9 +313,11 @@ pub use stm32f4xx_hal::stm32 as pac;
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+#[cfg(not(any(feature = "stm32f401", feature = "stm32f410", feature = "stm32f411",)))]
 pub mod can;
 pub mod exti;
 pub mod interrupt;
+#[cfg(not(feature = "stm32f410"))]
 pub mod qei;
 pub mod rtc;
 pub mod serial;
