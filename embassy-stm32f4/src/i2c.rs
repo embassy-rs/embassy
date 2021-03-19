@@ -114,6 +114,36 @@ where
         let rx_stream = s.rx_stream.take().unwrap();
         let i2c = s.i2c.take().unwrap();
         async move {
+            let fut = InterruptFuture::new(&mut s.i2c_int);
+            // Send a START condition and set ACK bit
+            i2c.cr1.modify(|_, w| w.start().set_bit().ack().set_bit());
+
+            // Wait until START condition was generated
+            fut.await;
+
+            // TODO: fix this so as not to lose time
+
+            // Also wait until signalled we're master and everything is waiting for us
+            while {
+                let sr2 = self.i2c.sr2.read();
+                sr2.msl().bit_is_clear() && sr2.busy().bit_is_clear()
+            } {}
+
+            let fut = InterruptFuture::new(&mut s.i2c_int);
+            // Set up current address, we're trying to talk to
+            i2c.dr
+                .write(|w| unsafe { w.bits((u32::from(addr) << 1) + 1) });
+
+            // Wait until address was sent
+            //            while {
+            //                self.check_and_clear_error_flags()?;
+            //                self.i2c.sr1.read().addr().bit_is_clear()
+            //            } {}
+            fut.await;
+
+            // Clear condition by reading SR2
+            i2c.sr2.read();
+
             let mut rx_transfer = Transfer::init(
                 rx_stream,
                 i2c,
@@ -130,6 +160,11 @@ where
             rx_transfer.start(|_i2c| {});
             fut.await;
             let (rx_stream, i2c, _, _) = rx_transfer.free();
+
+            let fut = InterruptFuture::new(&mut s.i2c_int);
+            // Prepare to send NACK then STOP after next byte
+            i2c.cr1.modify(|_, w| w.ack().clear_bit().stop().set_bit());
+            fut.await;
 
             s.rx_stream.replace(rx_stream);
             s.i2c.replace(i2c);
