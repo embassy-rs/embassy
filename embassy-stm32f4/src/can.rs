@@ -42,7 +42,8 @@ impl<T: Instance> Can<T> {
     pub fn transmit<'a>(&'a mut self, frame: &'a bxcan::Frame) -> impl Future<Output = ()> + 'a {
         async move {
             let fut = InterruptFuture::new(&mut self.tx_int);
-            self.can.transmit(frame);
+            // Infallible
+            self.can.transmit(frame).unwrap();
 
             fut.await;
         }
@@ -94,7 +95,6 @@ macro_rules! can {
     }
 }
 
-#[cfg(any(feature = "stm32f405",))]
 can! {
     CAN1 => (CAN1_TX, CAN1_RX0),
     CAN2 => (CAN2_TX, CAN2_RX0),
