@@ -7,7 +7,7 @@ use stm32f4xx_hal::pac::TIM2;
 use stm32f4xx_hal::{qei, qei::Pins};
 
 pub struct Qei<T: Instance, PINS> {
-    qei: qei::Qei<T, PINS>,
+    _qei: qei::Qei<T, PINS>,
     int: T::Interrupt,
 }
 
@@ -25,7 +25,7 @@ impl<PINS: Pins<TIM2>> Qei<TIM2, PINS> {
         tim.dier.write(|w| w.uie().set_bit());
 
         Qei {
-            qei: qei,
+            _qei: qei,
             int: interrupt,
         }
     }
@@ -85,9 +85,7 @@ pub trait Instance: sealed::Sealed {
     type Interrupt: interrupt::Interrupt;
 }
 
-#[cfg(feature = "stm32f405")]
 impl sealed::Sealed for TIM2 {}
-#[cfg(feature = "stm32f405")]
 impl Instance for TIM2 {
     type Interrupt = interrupt::TIM2;
 }

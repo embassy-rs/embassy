@@ -1,4 +1,4 @@
-use super::super::error::{Result};
+use super::super::error::Result;
 use super::super::traits::AsyncBufRead;
 
 use core::pin::Pin;

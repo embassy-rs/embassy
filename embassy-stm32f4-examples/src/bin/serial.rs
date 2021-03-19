@@ -43,7 +43,7 @@ async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
 
     let streams = StreamsTuple::new(dp.DMA2);
 
-    let mut serial = unsafe {
+    let _serial = unsafe {
         serial::Serial::new(
             dp.USART1,
             (streams.7, streams.2),

@@ -6,7 +6,6 @@
 
 use core::future::Future;
 use core::marker::PhantomData;
-use core::sync::atomic::{self, Ordering};
 
 use embassy::interrupt::Interrupt;
 use embassy::traits::uart::{Error, Uart};
@@ -37,7 +36,7 @@ pub struct Serial<
     usart: Option<USART>,
     tx_int: TSTREAM::Interrupt,
     rx_int: RSTREAM::Interrupt,
-    usart_int: USART::Interrupt,
+    _usart_int: USART::Interrupt,
     channel: PhantomData<CHANNEL>,
 }
 
@@ -84,7 +83,7 @@ where
             usart: Some(usart),
             tx_int: tx_int,
             rx_int: rx_int,
-            usart_int: usart_int,
+            _usart_int: usart_int,
             channel: core::marker::PhantomData,
         }
     }
@@ -207,7 +206,6 @@ macro_rules! usart {
     }
 }
 
-#[cfg(any(feature = "stm32f405",))]
 dma! {
     DMA2_STREAM0 => (DMA2, Stream0),
     DMA2_STREAM1 => (DMA2, Stream1),
@@ -226,12 +224,60 @@ dma! {
     DMA1_STREAM6 => (DMA1, Stream6),
 }
 
-#[cfg(any(feature = "stm32f405",))]
+#[cfg(any(feature = "stm32f401", feature = "stm32f410", feature = "stm32f411",))]
+usart! {
+    USART1 => (USART1),
+    USART2 => (USART2),
+    USART6 => (USART6),
+}
+
+#[cfg(any(feature = "stm32f405", feature = "stm32f407"))]
 usart! {
     USART1 => (USART1),
     USART2 => (USART2),
     USART3 => (USART3),
+    USART6 => (USART6),
+
     UART4 => (UART4),
     UART5 => (UART5),
+}
+
+#[cfg(feature = "stm32f412")]
+usart! {
+    USART1 => (USART1),
+    USART2 => (USART2),
+    USART3 => (USART3),
     USART6 => (USART6),
+}
+
+#[cfg(feature = "stm32f413")]
+usart! {
+    USART1 => (USART1),
+    USART2 => (USART2),
+    USART3 => (USART3),
+    USART6 => (USART6),
+    USART7 => (USART7),
+    USART8 => (USART8),
+
+    UART5 => (UART5),
+    UART9 => (UART9),
+    UART10 => (UART10),
+}
+
+#[cfg(any(
+    feature = "stm32f427",
+    feature = "stm32f429",
+    feature = "stm32f446",
+    feature = "stm32f469"
+))]
+usart! {
+    USART1 => (USART1),
+    USART2 => (USART2),
+    USART3 => (USART3),
+    USART6 => (USART6),
+
+    UART4 => (UART4),
+    UART5 => (UART5),
+    UART7 => (UART7),
+    UART8 => (UART8),
 }
