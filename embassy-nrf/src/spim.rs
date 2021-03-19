@@ -1,19 +1,20 @@
 use core::future::Future;
+use core::marker::PhantomData;
 use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 use embassy::traits;
-use embassy::util::WakerRegistration;
+use embassy::util::{PeripheralBorrow, WakerRegistration};
 use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
 use futures::future::poll_fn;
 use traits::spi::FullDuplex;
 
+use crate::gpio::Pin as GpioPin;
 use crate::interrupt::{self, Interrupt};
-use crate::{pac, slice_in_ram_or};
+use crate::{pac, peripherals, slice_in_ram_or};
 
-pub use crate::hal::spim::{
-    Frequency, Mode, Phase, Pins, Polarity, MODE_0, MODE_1, MODE_2, MODE_3,
-};
+pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
+pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -30,41 +31,63 @@ struct State<T: Instance> {
     waker: WakerRegistration,
 }
 
-pub struct Spim<T: Instance> {
+pub struct Spim<'d, T: Instance> {
     inner: PeripheralMutex<State<T>>,
+    phantom: PhantomData<&'d mut T>,
 }
 
 pub struct Config {
-    pub pins: Pins,
     pub frequency: Frequency,
     pub mode: Mode,
     pub orc: u8,
 }
 
-impl<T: Instance> Spim<T> {
-    pub fn new(mut spim: T, irq: T::Interrupt, config: Config) -> Self {
+impl<'d, T: Instance> Spim<'d, T> {
+    pub fn new(
+        spim: impl PeripheralBorrow<Target = T> + 'd,
+        irq: impl PeripheralBorrow<Target = T::Interrupt> + 'd,
+        sck: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
+        miso: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
+        mosi: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Self {
+        let mut spim = unsafe { spim.unborrow() };
+        let irq = unsafe { irq.unborrow() };
+        let sck = unsafe { sck.unborrow() };
+        let miso = unsafe { miso.unborrow() };
+        let mosi = unsafe { mosi.unborrow() };
+
         let r = spim.regs();
+
+        // Configure pins
+        sck.conf().write(|w| w.dir().output());
+        mosi.conf().write(|w| w.dir().output());
+        miso.conf().write(|w| w.input().connect());
+
+        match config.mode.polarity {
+            Polarity::IdleHigh => {
+                sck.set_high();
+                mosi.set_high();
+            }
+            Polarity::IdleLow => {
+                sck.set_low();
+                mosi.set_low();
+            }
+        }
 
         // Select pins.
         r.psel.sck.write(|w| {
-            unsafe { w.bits(config.pins.sck.psel_bits()) };
+            unsafe { w.bits(sck.psel_bits()) };
             w.connect().connected()
         });
-
-        match config.pins.mosi {
-            Some(mosi) => r.psel.mosi.write(|w| {
-                unsafe { w.bits(mosi.psel_bits()) };
-                w.connect().connected()
-            }),
-            None => r.psel.mosi.write(|w| w.connect().disconnected()),
-        }
-        match config.pins.miso {
-            Some(miso) => r.psel.miso.write(|w| {
-                unsafe { w.bits(miso.psel_bits()) };
-                w.connect().connected()
-            }),
-            None => r.psel.miso.write(|w| w.connect().disconnected()),
-        }
+        r.psel.mosi.write(|w| {
+            unsafe { w.bits(mosi.psel_bits()) };
+            w.connect().connected()
+        });
+        r.psel.miso.write(|w| {
+            unsafe { w.bits(miso.psel_bits()) };
+            w.connect().connected()
+        });
 
         // Enable SPIM instance.
         r.enable.write(|w| w.enable().enabled());
@@ -114,6 +137,7 @@ impl<T: Instance> Spim<T> {
                 },
                 irq,
             ),
+            phantom: PhantomData,
         }
     }
 
@@ -122,7 +146,7 @@ impl<T: Instance> Spim<T> {
     }
 }
 
-impl<T: Instance> FullDuplex<u8> for Spim<T> {
+impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
     type Error = Error;
 
     #[rustfmt::skip]
@@ -222,19 +246,19 @@ mod sealed {
     }
 }
 
-pub trait Instance: sealed::Instance {
+pub trait Instance: sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 
 macro_rules! make_impl {
-    ($SPIMx:ident, $IRQ:ident) => {
-        impl sealed::Instance for pac::$SPIMx {
+    ($type:ident, $irq:ident) => {
+        impl sealed::Instance for peripherals::$type {
             fn regs(&mut self) -> &pac::spim0::RegisterBlock {
-                self
+                unsafe { &*pac::$type::ptr() }
             }
         }
-        impl Instance for pac::$SPIMx {
-            type Interrupt = interrupt::$IRQ;
+        impl Instance for peripherals::$type {
+            type Interrupt = interrupt::$irq;
         }
     };
 }
