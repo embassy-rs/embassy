@@ -26,8 +26,8 @@ jobs:
           - package: embassy
             target: thumbv6m-none-eabi
             features: defmt
-#          - package: embassy-nrf-examples
-#            target: thumbv7em-none-eabi
+          - package: embassy-nrf-examples
+            target: thumbv7em-none-eabi
           - package: embassy-nrf
             target: thumbv7em-none-eabi
             features: 52810
@@ -94,16 +94,3 @@ jobs:
         with:
           command: fmt
           args: --all -- --check
-
-  nrf_examples:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          components: rust-src, rustfmt
-          target: thumbv7em-none-eabi
-          override: true
-      - name: Build
-        run: (cd embassy-nrf-examples; cargo build --target thumbv7em-none-eabi --bins)
