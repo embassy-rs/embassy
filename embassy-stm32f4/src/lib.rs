@@ -315,6 +315,7 @@ pub(crate) mod fmt;
 
 pub mod can;
 pub mod exti;
+pub mod i2c;
 pub mod interrupt;
 pub mod qei;
 pub mod rtc;
