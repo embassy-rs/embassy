@@ -4,8 +4,7 @@ use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 use embassy::traits;
-use embassy::util::{PeripheralBorrow, WakerRegistration};
-use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
+use embassy::util::{wake_on_interrupt, PeripheralBorrow};
 use futures::future::poll_fn;
 use traits::spi::FullDuplex;
 
@@ -26,13 +25,9 @@ pub enum Error {
     DMABufferNotInDataMemory,
 }
 
-struct State<T: Instance> {
-    spim: T,
-    waker: WakerRegistration,
-}
-
 pub struct Spim<'d, T: Instance> {
-    inner: PeripheralMutex<State<T>>,
+    spim: T,
+    irq: T::Interrupt,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -130,19 +125,10 @@ impl<'d, T: Instance> Spim<'d, T> {
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
 
         Self {
-            inner: PeripheralMutex::new(
-                State {
-                    spim,
-                    waker: WakerRegistration::new(),
-                },
-                irq,
-            ),
+            spim,
+            irq,
             phantom: PhantomData,
         }
-    }
-
-    fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<T>>> {
-        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
 }
 
@@ -157,83 +143,73 @@ impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
     type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read<'a>(self: Pin<&'a mut Self>, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        async move { todo!() }
+        self.read_write(data, &[])
     }
     fn write<'a>(self: Pin<&'a mut Self>, data: &'a [u8]) -> Self::WriteFuture<'a> {
-        async move { todo!() }
+        self.read_write(&mut [], data)
     }
 
     fn read_write<'a>(
-        mut self: Pin<&'a mut Self>,
+        self: Pin<&'a mut Self>,
         rx: &'a mut [u8],
         tx: &'a [u8],
     ) -> Self::WriteReadFuture<'a> {
         async move {
+            let this = unsafe { self.get_unchecked_mut() };
             slice_in_ram_or(rx, Error::DMABufferNotInDataMemory)?;
             slice_in_ram_or(tx, Error::DMABufferNotInDataMemory)?;
 
-            self.as_mut().inner().register_interrupt();
-            self.as_mut().inner().with(|s, _irq| {
-                // Conservative compiler fence to prevent optimizations that do not
-                // take in to account actions by DMA. The fence has been placed here,
-                // before any DMA action has started.
-                compiler_fence(Ordering::SeqCst);
+            // Conservative compiler fence to prevent optimizations that do not
+            // take in to account actions by DMA. The fence has been placed here,
+            // before any DMA action has started.
+            compiler_fence(Ordering::SeqCst);
 
-                let r = s.spim.regs();
+            let r = this.spim.regs();
 
-                // Set up the DMA write.
-                r.txd
-                    .ptr
-                    .write(|w| unsafe { w.ptr().bits(tx.as_ptr() as u32) });
-                r.txd
-                    .maxcnt
-                    .write(|w| unsafe { w.maxcnt().bits(tx.len() as _) });
+            // Set up the DMA write.
+            r.txd
+                .ptr
+                .write(|w| unsafe { w.ptr().bits(tx.as_ptr() as u32) });
+            r.txd
+                .maxcnt
+                .write(|w| unsafe { w.maxcnt().bits(tx.len() as _) });
 
-                // Set up the DMA read.
-                r.rxd
-                    .ptr
-                    .write(|w| unsafe { w.ptr().bits(rx.as_mut_ptr() as u32) });
-                r.rxd
-                    .maxcnt
-                    .write(|w| unsafe { w.maxcnt().bits(rx.len() as _) });
+            // Set up the DMA read.
+            r.rxd
+                .ptr
+                .write(|w| unsafe { w.ptr().bits(rx.as_mut_ptr() as u32) });
+            r.rxd
+                .maxcnt
+                .write(|w| unsafe { w.maxcnt().bits(rx.len() as _) });
 
-                // Reset and enable the event
-                r.events_end.reset();
-                r.intenset.write(|w| w.end().set());
+            // Reset and enable the event
+            r.events_end.reset();
+            r.intenset.write(|w| w.end().set());
 
-                // Start SPI transaction.
-                r.tasks_start.write(|w| unsafe { w.bits(1) });
+            // Start SPI transaction.
+            r.tasks_start.write(|w| unsafe { w.bits(1) });
 
-                // Conservative compiler fence to prevent optimizations that do not
-                // take in to account actions by DMA. The fence has been placed here,
-                // after all possible DMA actions have completed.
-                compiler_fence(Ordering::SeqCst);
-            });
+            // Conservative compiler fence to prevent optimizations that do not
+            // take in to account actions by DMA. The fence has been placed here,
+            // after all possible DMA actions have completed.
+            compiler_fence(Ordering::SeqCst);
 
             // Wait for 'end' event.
             poll_fn(|cx| {
-                self.as_mut().inner().with(|s, _irq| {
-                    let r = s.spim.regs();
-                    if r.events_end.read().bits() != 0 {
-                        return Poll::Ready(());
-                    }
-                    s.waker.register(cx.waker());
-                    Poll::Pending
-                })
+                let r = this.spim.regs();
+
+                if r.events_end.read().bits() != 0 {
+                    r.events_end.reset();
+                    return Poll::Ready(());
+                }
+
+                wake_on_interrupt(&mut this.irq, cx.waker());
+
+                Poll::Pending
             })
             .await;
 
             Ok(())
-        }
-    }
-}
-
-impl<U: Instance> PeripheralState for State<U> {
-    type Interrupt = U::Interrupt;
-    fn on_interrupt(&mut self) {
-        if self.spim.regs().events_end.read().bits() != 0 {
-            self.spim.regs().intenclr.write(|w| w.end().clear());
-            self.waker.wake()
         }
     }
 }
