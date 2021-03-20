@@ -4,6 +4,7 @@ macro_rules! peripherals {
     ($($(#[$cfg:meta])? $name:ident: $type:ident),*$(,)?) => {
         $(
             $(#[$cfg])?
+            #[allow(non_camel_case_types)]
             pub struct $type { _private: () }
 
             $(#[$cfg])?
@@ -73,6 +74,14 @@ peripherals! {
 
     // GPIOTE
     gpiote: GPIOTE,
+    gpiote_ch_0: GPIOTE_CH0,
+    gpiote_ch_1: GPIOTE_CH1,
+    gpiote_ch_2: GPIOTE_CH2,
+    gpiote_ch_3: GPIOTE_CH3,
+    gpiote_ch_4: GPIOTE_CH4,
+    gpiote_ch_5: GPIOTE_CH5,
+    gpiote_ch_6: GPIOTE_CH6,
+    gpiote_ch_7: GPIOTE_CH7,
 
     // GPIO port 0
     p0_00: P0_00,
