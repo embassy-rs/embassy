@@ -3,35 +3,33 @@ use core::mem;
 use core::pin::Pin;
 use cortex_m;
 
-use embassy::traits::gpio::{WaitForFallingEdge, WaitForRisingEdge};
+use crate::hal::gpio;
+
+use embassy::traits::gpio::{
+    WaitForAnyEdge, WaitForFallingEdge, WaitForHigh, WaitForLow, WaitForRisingEdge,
+};
 use embassy::util::InterruptFuture;
 
-use crate::hal::gpio;
-use crate::hal::gpio::Edge;
-use crate::hal::syscfg::SysCfg;
-use crate::pac::EXTI;
 use embedded_hal::digital::v2 as digital;
 
 use crate::interrupt;
 
-pub struct ExtiPin<T: gpio::ExtiPin + WithInterrupt> {
+pub struct ExtiPin<T: Instance> {
     pin: T,
     interrupt: T::Interrupt,
 }
 
-impl<T: gpio::ExtiPin + WithInterrupt> ExtiPin<T> {
+impl<T: Instance> ExtiPin<T> {
     pub fn new(mut pin: T, interrupt: T::Interrupt) -> Self {
-        let mut syscfg: SysCfg = unsafe { mem::transmute(()) };
-
         cortex_m::interrupt::free(|_| {
-            pin.make_interrupt_source(&mut syscfg);
+            pin.make_source();
         });
 
         Self { pin, interrupt }
     }
 }
 
-impl<T: gpio::ExtiPin + WithInterrupt + digital::OutputPin> digital::OutputPin for ExtiPin<T> {
+impl<T: Instance + digital::OutputPin> digital::OutputPin for ExtiPin<T> {
     type Error = T::Error;
 
     fn set_low(&mut self) -> Result<(), Self::Error> {
@@ -43,9 +41,7 @@ impl<T: gpio::ExtiPin + WithInterrupt + digital::OutputPin> digital::OutputPin f
     }
 }
 
-impl<T: gpio::ExtiPin + WithInterrupt + digital::StatefulOutputPin> digital::StatefulOutputPin
-    for ExtiPin<T>
-{
+impl<T: Instance + digital::StatefulOutputPin> digital::StatefulOutputPin for ExtiPin<T> {
     fn is_set_low(&self) -> Result<bool, Self::Error> {
         self.pin.is_set_low()
     }
@@ -55,9 +51,7 @@ impl<T: gpio::ExtiPin + WithInterrupt + digital::StatefulOutputPin> digital::Sta
     }
 }
 
-impl<T: gpio::ExtiPin + WithInterrupt + digital::ToggleableOutputPin> digital::ToggleableOutputPin
-    for ExtiPin<T>
-{
+impl<T: Instance + digital::ToggleableOutputPin> digital::ToggleableOutputPin for ExtiPin<T> {
     type Error = T::Error;
 
     fn toggle(&mut self) -> Result<(), Self::Error> {
@@ -65,7 +59,7 @@ impl<T: gpio::ExtiPin + WithInterrupt + digital::ToggleableOutputPin> digital::T
     }
 }
 
-impl<T: gpio::ExtiPin + WithInterrupt + digital::InputPin> digital::InputPin for ExtiPin<T> {
+impl<T: Instance + digital::InputPin> digital::InputPin for ExtiPin<T> {
     type Error = T::Error;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
@@ -74,6 +68,73 @@ impl<T: gpio::ExtiPin + WithInterrupt + digital::InputPin> digital::InputPin for
 
     fn is_low(&self) -> Result<bool, Self::Error> {
         self.pin.is_low()
+    }
+}
+
+impl<T: Instance + digital::InputPin + 'static> ExtiPin<T> {
+    fn wait_for_state<'a>(self: Pin<&'a mut Self>, state: bool) -> impl Future<Output = ()> + 'a {
+        let s = unsafe { self.get_unchecked_mut() };
+
+        s.pin.clear_pending_bit();
+        async move {
+            let fut = InterruptFuture::new(&mut s.interrupt);
+            let pin = &mut s.pin;
+            cortex_m::interrupt::free(|_| {
+                pin.trigger_edge(if state {
+                    EdgeOption::Rising
+                } else {
+                    EdgeOption::Falling
+                });
+            });
+
+            if (state && s.pin.is_high().unwrap_or(false))
+                || (!state && s.pin.is_low().unwrap_or(false))
+            {
+                return;
+            }
+
+            fut.await;
+
+            s.pin.clear_pending_bit();
+        }
+    }
+}
+
+impl<T: Instance + 'static> ExtiPin<T> {
+    fn wait_for_edge<'a>(
+        self: Pin<&'a mut Self>,
+        state: EdgeOption,
+    ) -> impl Future<Output = ()> + 'a {
+        let s = unsafe { self.get_unchecked_mut() };
+
+        s.pin.clear_pending_bit();
+        async move {
+            let fut = InterruptFuture::new(&mut s.interrupt);
+            let pin = &mut s.pin;
+            cortex_m::interrupt::free(|_| {
+                pin.trigger_edge(state);
+            });
+
+            fut.await;
+
+            s.pin.clear_pending_bit();
+        }
+    }
+}
+
+impl<T: Instance + digital::InputPin + 'static> WaitForHigh for ExtiPin<T> {
+    type Future<'a> = impl Future<Output = ()> + 'a;
+
+    fn wait_for_high<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+        self.wait_for_state(true)
+    }
+}
+
+impl<T: Instance + digital::InputPin + 'static> WaitForLow for ExtiPin<T> {
+    type Future<'a> = impl Future<Output = ()> + 'a;
+
+    fn wait_for_low<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+        self.wait_for_state(false)
     }
 }
 
@@ -88,49 +149,27 @@ impl<T: gpio::ExtiPin + WithInterrupt + digital::InputPin> digital::InputPin for
     EXTI15_10_IRQn	EXTI15_10_IRQHandler	Handler for pins connected to line 10 to 15
 */
 
-impl<T: gpio::ExtiPin + WithInterrupt + 'static> WaitForRisingEdge for ExtiPin<T> {
+impl<T: Instance + 'static> WaitForRisingEdge for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
     fn wait_for_rising_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
-        let s = unsafe { self.get_unchecked_mut() };
-
-        s.pin.clear_interrupt_pending_bit();
-        async move {
-            let fut = InterruptFuture::new(&mut s.interrupt);
-            let pin = &mut s.pin;
-            cortex_m::interrupt::free(|_| {
-                let mut exti: EXTI = unsafe { mem::transmute(()) };
-
-                pin.trigger_on_edge(&mut exti, Edge::RISING);
-                pin.enable_interrupt(&mut exti);
-            });
-            fut.await;
-
-            s.pin.clear_interrupt_pending_bit();
-        }
+        self.wait_for_edge(EdgeOption::Rising)
     }
 }
 
-impl<T: gpio::ExtiPin + WithInterrupt + 'static> WaitForFallingEdge for ExtiPin<T> {
+impl<T: Instance + 'static> WaitForFallingEdge for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
     fn wait_for_falling_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
-        let s = unsafe { self.get_unchecked_mut() };
+        self.wait_for_edge(EdgeOption::Falling)
+    }
+}
 
-        s.pin.clear_interrupt_pending_bit();
-        async move {
-            let fut = InterruptFuture::new(&mut s.interrupt);
-            let pin = &mut s.pin;
-            cortex_m::interrupt::free(|_| {
-                let mut exti: EXTI = unsafe { mem::transmute(()) };
+impl<T: Instance + 'static> WaitForAnyEdge for ExtiPin<T> {
+    type Future<'a> = impl Future<Output = ()> + 'a;
 
-                pin.trigger_on_edge(&mut exti, Edge::FALLING);
-                pin.enable_interrupt(&mut exti);
-            });
-            fut.await;
-
-            s.pin.clear_interrupt_pending_bit();
-        }
+    fn wait_for_any_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+        self.wait_for_edge(EdgeOption::RisingFalling)
     }
 }
 
@@ -138,8 +177,21 @@ mod private {
     pub trait Sealed {}
 }
 
+#[derive(Copy, Clone)]
+pub enum EdgeOption {
+    Rising,
+    Falling,
+    RisingFalling,
+}
+
 pub trait WithInterrupt: private::Sealed {
     type Interrupt: interrupt::Interrupt;
+}
+
+pub trait Instance: WithInterrupt {
+    fn make_source(&mut self);
+    fn clear_pending_bit(&mut self);
+    fn trigger_edge(&mut self, edge: EdgeOption);
 }
 
 macro_rules! exti {
@@ -151,8 +203,90 @@ macro_rules! exti {
             impl<T> WithInterrupt for gpio::$set::$pin<T> {
                 type Interrupt = interrupt::$INT;
             }
-        )+
 
+            #[cfg(any(
+                feature = "stm32f401",
+                feature = "stm32f405",
+                feature = "stm32f407",
+                feature = "stm32f410",
+                feature = "stm32f411",
+                feature = "stm32f412",
+                feature = "stm32f413",
+                feature = "stm32f415",
+                feature = "stm32f417",
+                feature = "stm32f423",
+                feature = "stm32f427",
+                feature = "stm32f429",
+                feature = "stm32f437",
+                feature = "stm32f439",
+                feature = "stm32f446",
+                feature = "stm32f469",
+                feature = "stm32f479",
+            ))]
+            impl<T> Instance for gpio::$set::$pin<gpio::Input<T>> {
+                fn make_source(&mut self) {
+                    use crate::hal::{gpio::Edge, gpio::ExtiPin, syscfg::SysCfg};
+                    use crate::pac::EXTI;
+                    let mut syscfg: SysCfg = unsafe { mem::transmute(()) };
+                    self.make_interrupt_source(&mut syscfg);
+                }
+
+                fn clear_pending_bit(&mut self) {
+                    use crate::hal::{gpio::Edge, gpio::ExtiPin, syscfg::SysCfg};
+
+                    self.clear_interrupt_pending_bit();
+                }
+
+                fn trigger_edge(&mut self, edge: EdgeOption) {
+                    use crate::hal::{gpio::Edge, gpio::ExtiPin, syscfg::SysCfg};
+                    use crate::pac::EXTI;
+                    let mut exti: EXTI = unsafe { mem::transmute(()) };
+                    let edge = match edge {
+                        EdgeOption::Falling => Edge::FALLING,
+                        EdgeOption::Rising => Edge::RISING,
+                        EdgeOption::RisingFalling => Edge::RISING_FALLING,
+                    };
+                    self.trigger_on_edge(&mut exti, edge);
+                    self.enable_interrupt(&mut exti);
+                }
+            }
+
+            #[cfg(any(feature = "stm32l0x1", feature = "stm32l0x2", feature = "stm32l0x3",))]
+            impl<T> Instance for gpio::$set::$pin<T> {
+                fn make_source(&mut self) {}
+
+                fn clear_pending_bit(&mut self) {
+                    use crate::hal::{
+                        exti::{Exti, ExtiLine, GpioLine, TriggerEdge},
+                        syscfg::SYSCFG,
+                    };
+
+                    Exti::unpend(GpioLine::from_raw_line(self.pin_number()).unwrap());
+                }
+
+                fn trigger_edge(&mut self, edge: EdgeOption) {
+                    use crate::hal::{
+                        exti::{Exti, ExtiLine, GpioLine, TriggerEdge},
+                        syscfg::SYSCFG,
+                    };
+
+                    use crate::pac::EXTI;
+
+                    let edge = match edge {
+                        EdgeOption::Falling => TriggerEdge::Falling,
+                        EdgeOption::Rising => TriggerEdge::Rising,
+                        EdgeOption::RisingFalling => TriggerEdge::Both,
+                    };
+
+                    let exti: EXTI = unsafe { mem::transmute(()) };
+                    let mut exti = Exti::new(exti);
+                    let port = self.port();
+                    let mut syscfg: SYSCFG = unsafe { mem::transmute(()) };
+                    let line = GpioLine::from_raw_line(self.pin_number()).unwrap();
+                    exti.listen_gpio(&mut syscfg, port, line, edge);
+                }
+            }
+        )+
     };
 }
 
@@ -532,4 +666,112 @@ exti!(gpiok, [
     EXTI9_5 => PK5,
     EXTI9_5 => PK6,
     EXTI9_5 => PK7,
+]);
+
+#[cfg(any(feature = "stm32l0x1", feature = "stm32l0x2", feature = "stm32l0x3",))]
+exti!(gpioa, [
+    EXTI0_1 => PA0,
+    EXTI0_1 => PA1,
+    EXTI2_3 => PA2,
+    EXTI2_3 => PA3,
+    EXTI4_15 => PA4,
+    EXTI4_15 => PA5,
+    EXTI4_15 => PA6,
+    EXTI4_15 => PA7,
+    EXTI4_15 => PA8,
+    EXTI4_15 => PA9,
+    EXTI4_15 => PA10,
+    EXTI4_15 => PA11,
+    EXTI4_15 => PA12,
+    EXTI4_15 => PA13,
+    EXTI4_15 => PA14,
+    EXTI4_15 => PA15,
+]);
+
+#[cfg(any(feature = "stm32l0x1", feature = "stm32l0x2", feature = "stm32l0x3",))]
+exti!(gpiob, [
+    EXTI0_1 => PB0,
+    EXTI0_1 => PB1,
+    EXTI2_3 => PB2,
+    EXTI2_3 => PB3,
+    EXTI4_15 => PB4,
+    EXTI4_15 => PB5,
+    EXTI4_15 => PB6,
+    EXTI4_15 => PB7,
+    EXTI4_15 => PB8,
+    EXTI4_15 => PB9,
+    EXTI4_15 => PB10,
+    EXTI4_15 => PB11,
+    EXTI4_15 => PB12,
+    EXTI4_15 => PB13,
+    EXTI4_15 => PB14,
+    EXTI4_15 => PB15,
+]);
+
+#[cfg(any(feature = "stm32l0x1", feature = "stm32l0x2", feature = "stm32l0x3",))]
+exti!(gpioc, [
+    EXTI0_1 => PC0,
+    EXTI0_1 => PC1,
+    EXTI2_3 => PC2,
+    EXTI2_3 => PC3,
+    EXTI4_15 => PC4,
+    EXTI4_15 => PC5,
+    EXTI4_15 => PC6,
+    EXTI4_15 => PC7,
+    EXTI4_15 => PC8,
+    EXTI4_15 => PC9,
+    EXTI4_15 => PC10,
+    EXTI4_15 => PC11,
+    EXTI4_15 => PC12,
+    EXTI4_15 => PC13,
+    EXTI4_15 => PC14,
+    EXTI4_15 => PC15,
+]);
+
+#[cfg(any(feature = "stm32l0x1", feature = "stm32l0x2", feature = "stm32l0x3",))]
+exti!(gpiod, [
+    EXTI0_1 => PD0,
+    EXTI0_1 => PD1,
+    EXTI2_3 => PD2,
+    EXTI2_3 => PD3,
+    EXTI4_15 => PD4,
+    EXTI4_15 => PD5,
+    EXTI4_15 => PD6,
+    EXTI4_15 => PD7,
+    EXTI4_15 => PD8,
+    EXTI4_15 => PD9,
+    EXTI4_15 => PD10,
+    EXTI4_15 => PD11,
+    EXTI4_15 => PD12,
+    EXTI4_15 => PD13,
+    EXTI4_15 => PD14,
+    EXTI4_15 => PD15,
+]);
+
+#[cfg(any(feature = "stm32l0x1", feature = "stm32l0x2", feature = "stm32l0x3",))]
+exti!(gpioe, [
+    EXTI0_1 => PE0,
+    EXTI0_1 => PE1,
+    EXTI2_3 => PE2,
+    EXTI2_3 => PE3,
+    EXTI4_15 => PE4,
+    EXTI4_15 => PE5,
+    EXTI4_15 => PE6,
+    EXTI4_15 => PE7,
+    EXTI4_15 => PE8,
+    EXTI4_15 => PE9,
+    EXTI4_15 => PE10,
+    EXTI4_15 => PE11,
+    EXTI4_15 => PE12,
+    EXTI4_15 => PE13,
+    EXTI4_15 => PE14,
+    EXTI4_15 => PE15,
+]);
+
+#[cfg(any(feature = "stm32l0x1", feature = "stm32l0x2", feature = "stm32l0x3",))]
+exti!(gpioh, [
+    EXTI0_1 => PH0,
+    EXTI0_1 => PH1,
+    EXTI4_15 => PH9,
+    EXTI4_15 => PH10,
 ]);

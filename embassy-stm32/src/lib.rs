@@ -32,4 +32,5 @@ pub use {stm32l0xx_hal as hal, stm32l0xx_hal::pac};
 
 pub mod fmt;
 
+pub mod exti;
 pub mod interrupt;
