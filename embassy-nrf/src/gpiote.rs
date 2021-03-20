@@ -1,19 +1,24 @@
+use core::convert::Infallible;
 use core::future::Future;
-use core::mem::ManuallyDrop;
+use core::intrinsics::transmute;
+use core::marker::PhantomData;
+use core::mem::{self, ManuallyDrop};
 use core::ops::Deref;
 use core::pin::Pin;
 use core::ptr;
 use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
 use embassy::traits::gpio::{WaitForHigh, WaitForLow};
-use embassy::util::Signal;
+use embassy::util::{AtomicWakerRegistration, Signal};
+use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 
-use crate::hal::gpio::{Input, Level, Output, Pin as GpioPin, Port};
-use crate::interrupt;
+use crate::gpio::sealed::Pin as _;
+use crate::gpio::{AnyPin, Input, Pin as GpioPin, Pull};
 use crate::pac;
 use crate::pac::generic::Reg;
 use crate::pac::gpiote::_TASKS_OUT;
-use crate::pac::{p0 as pac_gpio, GPIOTE};
+use crate::pac::p0 as pac_gpio;
+use crate::{interrupt, peripherals};
 
 #[cfg(not(feature = "51"))]
 use crate::pac::gpiote::{_TASKS_CLR, _TASKS_SET};
@@ -63,12 +68,9 @@ impl ChannelID for ChAny {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct Gpiote(());
-
-const NEW_SIGNAL: Signal<()> = Signal::new();
-static CHANNEL_SIGNALS: [Signal<()>; CHANNEL_COUNT] = [NEW_SIGNAL; CHANNEL_COUNT];
-static PORT_SIGNALS: [Signal<()>; PIN_COUNT] = [NEW_SIGNAL; PIN_COUNT];
+const NEW_AWR: AtomicWakerRegistration = AtomicWakerRegistration::new();
+static CHANNEL_WAKERS: [AtomicWakerRegistration; CHANNEL_COUNT] = [NEW_AWR; CHANNEL_COUNT];
+static PORT_WAKERS: [AtomicWakerRegistration; PIN_COUNT] = [NEW_AWR; PIN_COUNT];
 
 pub enum InputChannelPolarity {
     None,
@@ -84,117 +86,84 @@ pub enum OutputChannelPolarity {
     Toggle,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum NewChannelError {
-    NoFreeChannels,
+/// Token indicating GPIOTE has been correctly initialized.
+///
+/// This is not an owned singleton, it is Copy. Drivers that make use of GPIOTE require it.
+#[derive(Clone, Copy)]
+pub struct Initialized {
+    _private: (),
 }
 
-pub struct Channels {
-    pub ch0: Ch0,
-    pub ch1: Ch1,
-    pub ch2: Ch2,
-    pub ch3: Ch3,
-    pub ch4: Ch4,
-    pub ch5: Ch5,
-    pub ch6: Ch6,
-    pub ch7: Ch7,
+pub fn initialize(gpiote: peripherals::GPIOTE, irq: interrupt::GPIOTE) -> Initialized {
+    #[cfg(any(feature = "52833", feature = "52840"))]
+    let ports = unsafe { &[&*pac::P0::ptr(), &*pac::P1::ptr()] };
+    #[cfg(not(any(feature = "52833", feature = "52840")))]
+    let ports = unsafe { &[&*pac::P0::ptr()] };
+
+    for &p in ports {
+        // Enable latched detection
+        p.detectmode.write(|w| w.detectmode().ldetect());
+        // Clear latch
+        p.latch.write(|w| unsafe { w.bits(0xFFFFFFFF) })
+    }
+
+    // Enable interrupts
+    let g = unsafe { &*pac::GPIOTE::ptr() };
+    g.events_port.write(|w| w);
+    g.intenset.write(|w| w.port().set());
+    irq.set_handler(on_irq);
+    irq.unpend();
+    irq.enable();
+
+    Initialized { _private: () }
 }
 
-impl Gpiote {
-    pub fn new(gpiote: GPIOTE, irq: interrupt::GPIOTE) -> (Self, Channels) {
+unsafe fn on_irq(_ctx: *mut ()) {
+    let g = &*pac::GPIOTE::ptr();
+
+    for i in 0..CHANNEL_COUNT {
+        if g.events_in[i].read().bits() != 0 {
+            g.events_in[i].write(|w| w);
+            CHANNEL_WAKERS[i].wake();
+        }
+    }
+
+    if g.events_port.read().bits() != 0 {
+        g.events_port.write(|w| w);
+
         #[cfg(any(feature = "52833", feature = "52840"))]
-        let ports = unsafe { &[&*pac::P0::ptr(), &*pac::P1::ptr()] };
+        let ports = &[&*pac::P0::ptr(), &*pac::P1::ptr()];
         #[cfg(not(any(feature = "52833", feature = "52840")))]
-        let ports = unsafe { &[&*pac::P0::ptr()] };
+        let ports = &[&*pac::P0::ptr()];
 
-        for &p in ports {
-            // Enable latched detection
-            p.detectmode.write(|w| w.detectmode().ldetect());
-            // Clear latch
-            p.latch.write(|w| unsafe { w.bits(0xFFFFFFFF) })
-        }
-
-        // Enable interrupts
-        gpiote.events_port.write(|w| w);
-        gpiote.intenset.write(|w| w.port().set());
-        irq.set_handler(Self::on_irq);
-        irq.unpend();
-        irq.enable();
-
-        (
-            Self(()),
-            Channels {
-                ch0: Ch0(()),
-                ch1: Ch1(()),
-                ch2: Ch2(()),
-                ch3: Ch3(()),
-                ch4: Ch4(()),
-                ch5: Ch5(()),
-                ch6: Ch6(()),
-                ch7: Ch7(()),
-            },
-        )
-    }
-
-    unsafe fn on_irq(_ctx: *mut ()) {
-        let g = &*GPIOTE::ptr();
-
-        for (event_in, signal) in g.events_in.iter().zip(CHANNEL_SIGNALS.iter()) {
-            if event_in.read().bits() != 0 {
-                event_in.write(|w| w);
-                signal.signal(());
+        for (port, &p) in ports.iter().enumerate() {
+            let bits = p.latch.read().bits();
+            for pin in BitIter(bits) {
+                p.pin_cnf[pin as usize].modify(|_, w| w.sense().disabled());
+                PORT_WAKERS[port * 32 + pin as usize].wake();
             }
+            p.latch.write(|w| w.bits(bits));
         }
+    }
+}
 
-        if g.events_port.read().bits() != 0 {
-            g.events_port.write(|w| w);
+struct BitIter(u32);
 
-            #[cfg(any(feature = "52833", feature = "52840"))]
-            let ports = &[&*pac::P0::ptr(), &*pac::P1::ptr()];
-            #[cfg(not(any(feature = "52833", feature = "52840")))]
-            let ports = &[&*pac::P0::ptr()];
+impl Iterator for BitIter {
+    type Item = u32;
 
-            let mut work = true;
-            while work {
-                work = false;
-                for (port, &p) in ports.iter().enumerate() {
-                    for pin in BitIter(p.latch.read().bits()) {
-                        work = true;
-                        p.pin_cnf[pin as usize].modify(|_, w| w.sense().disabled());
-                        p.latch.write(|w| w.bits(1 << pin));
-                        PORT_SIGNALS[port * 32 + pin as usize].signal(());
-                    }
-                }
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.0.trailing_zeros() {
+            32 => None,
+            b => {
+                self.0 &= !(1 << b);
+                Some(b)
             }
         }
     }
 }
 
-fn pin_num<T>(pin: &GpioPin<T>) -> usize {
-    let port = match pin.port() {
-        Port::Port0 => 0,
-        #[cfg(any(feature = "52833", feature = "52840"))]
-        Port::Port1 => 32,
-    };
-
-    port + pin.pin() as usize
-}
-
-fn pin_block<T>(pin: &GpioPin<T>) -> &pac_gpio::RegisterBlock {
-    let ptr = match pin.port() {
-        Port::Port0 => pac::P0::ptr(),
-        #[cfg(any(feature = "52833", feature = "52840"))]
-        Port::Port1 => pac::P1::ptr(),
-    };
-
-    unsafe { &*ptr }
-}
-
-fn pin_conf<T>(pin: &GpioPin<T>) -> &pac_gpio::PIN_CNF {
-    &pin_block(pin).pin_cnf[pin.pin() as usize]
-}
-
+/*
 pub struct InputChannel<C: ChannelID, T> {
     ch: C,
     pin: GpioPin<Input<T>>,
@@ -211,7 +180,7 @@ impl<C: ChannelID, T> Drop for InputChannel<C, T> {
 
 impl<C: ChannelID, T> InputChannel<C, T> {
     pub fn new(
-        _gpiote: Gpiote,
+        _init: Initialized,
         ch: C,
         pin: GpioPin<Input<T>>,
         polarity: InputChannelPolarity,
@@ -234,7 +203,7 @@ impl<C: ChannelID, T> InputChannel<C, T> {
             unsafe { w.psel().bits(pin.pin()) }
         });
 
-        CHANNEL_SIGNALS[index].reset();
+        CHANNEL_WAKERS[index].reset();
 
         // Enable interrupt
         g.intenset.write(|w| unsafe { w.bits(1 << index) });
@@ -251,7 +220,7 @@ impl<C: ChannelID, T> InputChannel<C, T> {
 
     pub async fn wait(&self) {
         let index = self.ch.number();
-        CHANNEL_SIGNALS[index].wait().await;
+        CHANNEL_WAKERS[index].wait().await;
     }
 
     pub fn pin(&self) -> &GpioPin<Input<T>> {
@@ -366,89 +335,87 @@ impl<C: ChannelID, T> OutputChannel<C, T> {
         &g.tasks_set[index]
     }
 }
+ */
 
-struct BitIter(u32);
-
-impl Iterator for BitIter {
-    type Item = u32;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.0.trailing_zeros() {
-            32 => None,
-            b => {
-                self.0 &= !(1 << b);
-                Some(b)
-            }
-        }
-    }
+/// GPIO input driver with support
+pub struct GpioteInput<T: GpioPin> {
+    pin: Input<T>,
 }
+impl<T: GpioPin> Unpin for GpioteInput<T> {}
 
-pub struct GpiotePin<T> {
-    pin: GpioPin<Input<T>>,
-}
-
-impl<T> Unpin for GpiotePin<T> {}
-
-impl<T> GpiotePin<T> {
-    pub fn new(_gpiote: Gpiote, pin: GpioPin<Input<T>>) -> Self {
+impl<T: GpioPin> GpioteInput<T> {
+    pub fn new(_init: Initialized, pin: Input<T>) -> Self {
         Self { pin }
     }
 }
 
-impl<T: 'static> WaitForHigh for GpiotePin<T> {
-    type Future<'a> = PortInputFuture<'a, T>;
+impl<T: GpioPin> InputPin for GpioteInput<T> {
+    type Error = Infallible;
+
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        self.pin.is_high()
+    }
+
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        self.pin.is_low()
+    }
+}
+
+impl<T: GpioPin> WaitForHigh for GpioteInput<T> {
+    type Future<'a> = PortInputFuture<'a>;
 
     fn wait_for_high<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+        self.pin.pin.conf().modify(|_, w| w.sense().high());
+
         PortInputFuture {
-            pin: &self.get_mut().pin,
-            polarity: PortInputPolarity::High,
+            pin_port: self.pin.pin.pin_port(),
+            phantom: PhantomData,
         }
     }
 }
 
-impl<T: 'static> WaitForLow for GpiotePin<T> {
-    type Future<'a> = PortInputFuture<'a, T>;
+impl<T: GpioPin> WaitForLow for GpioteInput<T> {
+    type Future<'a> = PortInputFuture<'a>;
 
     fn wait_for_low<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+        self.pin.pin.conf().modify(|_, w| w.sense().low());
+
         PortInputFuture {
-            pin: &self.get_mut().pin,
-            polarity: PortInputPolarity::Low,
+            pin_port: self.pin.pin.pin_port(),
+            phantom: PhantomData,
         }
     }
 }
 
-impl<T> Deref for GpiotePin<T> {
-    type Target = GpioPin<Input<T>>;
-    fn deref(&self) -> &Self::Target {
-        &self.pin
-    }
+pub struct PortInputFuture<'a> {
+    pin_port: u8,
+    phantom: PhantomData<&'a mut AnyPin>,
 }
 
-enum PortInputPolarity {
-    High,
-    Low,
-}
-
-pub struct PortInputFuture<'a, T> {
-    pin: &'a GpioPin<Input<T>>,
-    polarity: PortInputPolarity,
-}
-
-impl<'a, T> Drop for PortInputFuture<'a, T> {
+impl<'a> Drop for PortInputFuture<'a> {
     fn drop(&mut self) {
-        pin_conf(&self.pin).modify(|_, w| w.sense().disabled());
-        PORT_SIGNALS[pin_num(&self.pin)].reset();
+        unsafe { AnyPin::steal(self.pin_port) }
+            .conf()
+            .modify(|_, w| w.sense().disabled());
     }
 }
 
-impl<'a, T> Future for PortInputFuture<'a, T> {
+impl<'a> Future for PortInputFuture<'a> {
     type Output = ();
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        pin_conf(&self.pin).modify(|_, w| match self.polarity {
-            PortInputPolarity::Low => w.sense().low(),
-            PortInputPolarity::High => w.sense().high(),
-        });
-        PORT_SIGNALS[pin_num(&self.pin)].poll_wait(cx)
+        let dis = unsafe { AnyPin::steal(self.pin_port) }
+            .conf()
+            .read()
+            .sense()
+            .is_disabled();
+
+        if dis {
+            return Poll::Ready(());
+        }
+
+        PORT_WAKERS[self.pin_port as usize].register(cx.waker());
+
+        Poll::Pending
     }
 }
