@@ -6,7 +6,9 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
+use embassy_nrf::gpio::{AnyPin, Input, Pin as _, Pull};
 use example_common::*;
+use gpiote::GpioteInput;
 
 use core::pin::Pin;
 use cortex_m_rt::entry;
@@ -16,10 +18,10 @@ use nrf52840_hal::gpio;
 use embassy::executor::{task, Executor};
 use embassy::traits::gpio::{WaitForHigh, WaitForLow};
 use embassy::util::Forever;
-use embassy_nrf::gpiote::{Gpiote, GpiotePin};
+use embassy_nrf::gpiote;
 use embassy_nrf::interrupt;
 
-async fn button(n: usize, mut pin: GpiotePin<gpio::PullUp>) {
+async fn button(n: usize, mut pin: GpioteInput<AnyPin>) {
     loop {
         Pin::new(&mut pin).wait_for_low().await;
         info!("Button {:?} pressed!", n);
@@ -30,26 +32,25 @@ async fn button(n: usize, mut pin: GpiotePin<gpio::PullUp>) {
 
 #[task]
 async fn run() {
-    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
-    let port0 = gpio::p0::Parts::new(p.P0);
+    let p = unsafe { embassy_nrf::peripherals::Peripherals::steal() };
 
-    let (g, _) = Gpiote::new(p.GPIOTE, interrupt::take!(GPIOTE));
+    let g = gpiote::initialize(p.gpiote, interrupt::take!(GPIOTE));
 
     let button1 = button(
         1,
-        GpiotePin::new(g, port0.p0_11.into_pullup_input().degrade()),
+        GpioteInput::new(g, Input::new(p.p0_11.degrade(), Pull::Up)),
     );
     let button2 = button(
         2,
-        GpiotePin::new(g, port0.p0_12.into_pullup_input().degrade()),
+        GpioteInput::new(g, Input::new(p.p0_12.degrade(), Pull::Up)),
     );
     let button3 = button(
         3,
-        GpiotePin::new(g, port0.p0_24.into_pullup_input().degrade()),
+        GpioteInput::new(g, Input::new(p.p0_24.degrade(), Pull::Up)),
     );
     let button4 = button(
         4,
-        GpiotePin::new(g, port0.p0_25.into_pullup_input().degrade()),
+        GpioteInput::new(g, Input::new(p.p0_25.degrade(), Pull::Up)),
     );
     futures::join!(button1, button2, button3, button4);
 }

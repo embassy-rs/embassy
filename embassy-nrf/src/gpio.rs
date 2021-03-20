@@ -30,7 +30,7 @@ pub enum Pull {
 
 /// GPIO input driver.
 pub struct Input<T: Pin> {
-    pin: T,
+    pub(crate) pin: T,
 }
 
 impl<T: Pin> Input<T> {
@@ -273,10 +273,8 @@ pub struct AnyPin {
 }
 
 impl AnyPin {
-    pub unsafe fn steal_from_psel_bits(psel_bits: u32) -> Self {
-        Self {
-            pin_port: psel_bits as u8,
-        }
+    pub unsafe fn steal(pin_port: u8) -> Self {
+        Self { pin_port }
     }
 }
 
