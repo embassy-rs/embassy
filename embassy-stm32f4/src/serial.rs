@@ -278,6 +278,6 @@ usart! {
 
     UART4 => (UART4),
     UART5 => (UART5),
-    UART7 => (UART7),
-    UART8 => (UART8),
+//    UART7 => (UART7),
+//    UART8 => (UART8),
 }

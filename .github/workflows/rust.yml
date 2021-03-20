@@ -54,6 +54,9 @@ jobs:
             features: stm32f405
           - package: embassy-stm32f4
             target: thumbv7em-none-eabi
+            features: stm32f446
+          - package: embassy-stm32f4
+            target: thumbv7em-none-eabi
             features: stm32f405,defmt
           - package: embassy-stm32l0
             target: thumbv6m-none-eabi
