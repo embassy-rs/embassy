@@ -311,6 +311,7 @@ pub use embassy_stm32::{exti, fmt, hal, interrupt, pac};
 
 #[cfg(not(any(feature = "stm32f401", feature = "stm32f410", feature = "stm32f411",)))]
 pub mod can;
+pub mod i2c;
 #[cfg(not(feature = "stm32f410"))]
 pub mod qei;
 pub mod rtc;
