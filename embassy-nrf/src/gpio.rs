@@ -2,25 +2,11 @@ use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
+use gpio::pin_cnf::DRIVE_A;
 
 use crate::pac;
 use crate::pac::p0 as gpio;
 use crate::peripherals;
-
-/// Represents a digital input or output level.
-#[derive(Debug, Eq, PartialEq)]
-pub enum Level {
-    Low,
-    High,
-}
-
-/// Represents a pull setting for an input.
-#[derive(Debug, Eq, PartialEq)]
-pub enum Pull {
-    None,
-    Up,
-    Down,
-}
 
 /// A GPIO port with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]
@@ -33,6 +19,16 @@ pub enum Port {
     Port1,
 }
 
+/// Pull setting for an input.
+#[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Pull {
+    None,
+    Up,
+    Down,
+}
+
+/// GPIO input driver.
 pub struct Input<T: Pin> {
     pin: T,
 }
@@ -80,18 +76,64 @@ impl<T: Pin> InputPin for Input<T> {
     }
 }
 
+/// Digital input or output level.
+#[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Level {
+    Low,
+    High,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum OutputDrive {
+    /// Standard '0', standard '1'
+    Standard = 0,
+    /// High drive '0', standard '1'
+    HighDrive0Standard1 = 1,
+    /// Standard '0', high drive '1'
+    Standard0HighDrive1 = 2,
+    /// High drive '0', high 'drive '1'
+    HighDrive = 3,
+    /// Disconnect '0' standard '1' (normally used for wired-or connections)
+    Disconnect0Standard1 = 4,
+    /// Disconnect '0', high drive '1' (normally used for wired-or connections)
+    Disconnect0HighDrive1 = 5,
+    /// Standard '0'. disconnect '1' (also known as "open drain", normally used for wired-and connections)
+    Standard0Disconnect1 = 6,
+    /// High drive '0', disconnect '1' (also known as "open drain", normally used for wired-and connections)
+    HighDrive0Disconnect1 = 7,
+}
+
+/// GPIO output driver.
 pub struct Output<T: Pin> {
     pin: T,
 }
 
 impl<T: Pin> Output<T> {
-    // TODO opendrain
-    pub fn new(pin: T, initial_output: Level) -> Self {
+    pub fn new(pin: T, initial_output: Level, drive: OutputDrive) -> Self {
+        match initial_output {
+            Level::High => pin.set_high(),
+            Level::Low => pin.set_low(),
+        }
+
+        let drive = match drive {
+            OutputDrive::Standard => DRIVE_A::S0S1,
+            OutputDrive::HighDrive0Standard1 => DRIVE_A::H0S1,
+            OutputDrive::Standard0HighDrive1 => DRIVE_A::S0H1,
+            OutputDrive::HighDrive => DRIVE_A::H0H1,
+            OutputDrive::Disconnect0Standard1 => DRIVE_A::D0S1,
+            OutputDrive::Disconnect0HighDrive1 => DRIVE_A::D0H1,
+            OutputDrive::Standard0Disconnect1 => DRIVE_A::S0D1,
+            OutputDrive::HighDrive0Disconnect1 => DRIVE_A::H0D1,
+        };
+
         pin.conf().write(|w| {
             w.dir().output();
             w.input().disconnect();
             w.pull().disabled();
-            w.drive().s0s1();
+            w.drive().variant(drive);
             w.sense().disabled();
             w
         });
@@ -195,11 +237,13 @@ pub(crate) mod sealed {
 }
 
 pub trait Pin: sealed::Pin + Sized {
+    /// Number of the pin within the port (0..31)
     #[inline]
     fn pin(&self) -> u8 {
         self._pin()
     }
 
+    /// Port of the pin
     #[inline]
     fn port(&self) -> Port {
         match self.pin_port() / 32 {
@@ -215,6 +259,7 @@ pub trait Pin: sealed::Pin + Sized {
         self.pin_port() as u32
     }
 
+    /// Convert from concrete pin type PX_XX to type erased `AnyPin`.
     fn degrade(self) -> AnyPin {
         AnyPin {
             pin_port: self.pin_port(),
@@ -222,12 +267,13 @@ pub trait Pin: sealed::Pin + Sized {
     }
 }
 
+// Type-erased GPIO pin
 pub struct AnyPin {
     pin_port: u8,
 }
 
 impl AnyPin {
-    pub unsafe fn from_psel_bits(psel_bits: u32) -> Self {
+    pub unsafe fn steal_from_psel_bits(psel_bits: u32) -> Self {
         Self {
             pin_port: psel_bits as u8,
         }
