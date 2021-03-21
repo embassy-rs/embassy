@@ -338,18 +338,18 @@ impl<C: ChannelID, T> OutputChannel<C, T> {
  */
 
 /// GPIO input driver with support
-pub struct GpioteInput<T: GpioPin> {
+pub struct PortInput<T: GpioPin> {
     pin: Input<T>,
 }
-impl<T: GpioPin> Unpin for GpioteInput<T> {}
+impl<T: GpioPin> Unpin for PortInput<T> {}
 
-impl<T: GpioPin> GpioteInput<T> {
+impl<T: GpioPin> PortInput<T> {
     pub fn new(_init: Initialized, pin: Input<T>) -> Self {
         Self { pin }
     }
 }
 
-impl<T: GpioPin> InputPin for GpioteInput<T> {
+impl<T: GpioPin> InputPin for PortInput<T> {
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
@@ -361,7 +361,7 @@ impl<T: GpioPin> InputPin for GpioteInput<T> {
     }
 }
 
-impl<T: GpioPin> WaitForHigh for GpioteInput<T> {
+impl<T: GpioPin> WaitForHigh for PortInput<T> {
     type Future<'a> = PortInputFuture<'a>;
 
     fn wait_for_high<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
@@ -374,7 +374,7 @@ impl<T: GpioPin> WaitForHigh for GpioteInput<T> {
     }
 }
 
-impl<T: GpioPin> WaitForLow for GpioteInput<T> {
+impl<T: GpioPin> WaitForLow for PortInput<T> {
     type Future<'a> = PortInputFuture<'a>;
 
     fn wait_for_low<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {

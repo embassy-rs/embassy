@@ -8,7 +8,7 @@
 mod example_common;
 use embassy_nrf::gpio::{AnyPin, Input, Pin as _, Pull};
 use example_common::*;
-use gpiote::GpioteInput;
+use gpiote::PortInput;
 
 use core::pin::Pin;
 use cortex_m_rt::entry;
@@ -21,7 +21,7 @@ use embassy::util::Forever;
 use embassy_nrf::gpiote;
 use embassy_nrf::interrupt;
 
-async fn button(n: usize, mut pin: GpioteInput<AnyPin>) {
+async fn button(n: usize, mut pin: PortInput<AnyPin>) {
     loop {
         Pin::new(&mut pin).wait_for_low().await;
         info!("Button {:?} pressed!", n);
@@ -38,19 +38,19 @@ async fn run() {
 
     let button1 = button(
         1,
-        GpioteInput::new(g, Input::new(p.p0_11.degrade(), Pull::Up)),
+        PortInput::new(g, Input::new(p.p0_11.degrade(), Pull::Up)),
     );
     let button2 = button(
         2,
-        GpioteInput::new(g, Input::new(p.p0_12.degrade(), Pull::Up)),
+        PortInput::new(g, Input::new(p.p0_12.degrade(), Pull::Up)),
     );
     let button3 = button(
         3,
-        GpioteInput::new(g, Input::new(p.p0_24.degrade(), Pull::Up)),
+        PortInput::new(g, Input::new(p.p0_24.degrade(), Pull::Up)),
     );
     let button4 = button(
         4,
-        GpioteInput::new(g, Input::new(p.p0_25.degrade(), Pull::Up)),
+        PortInput::new(g, Input::new(p.p0_25.degrade(), Pull::Up)),
     );
     futures::join!(button1, button2, button3, button4);
 }
