@@ -5,6 +5,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 use embassy::traits;
 use embassy::util::{wake_on_interrupt, PeripheralBorrow};
+use embassy_extras::unborrow;
 use futures::future::poll_fn;
 use traits::spi::FullDuplex;
 
@@ -46,11 +47,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         mosi: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        let mut spim = unsafe { spim.unborrow() };
-        let irq = unsafe { irq.unborrow() };
-        let sck = unsafe { sck.unborrow() };
-        let miso = unsafe { miso.unborrow() };
-        let mosi = unsafe { mosi.unborrow() };
+        unborrow!(spim, irq, sck, miso, mosi);
 
         let r = spim.regs();
 
@@ -209,7 +206,7 @@ mod sealed {
     use super::*;
 
     pub trait Instance {
-        fn regs(&mut self) -> &pac::spim0::RegisterBlock;
+        fn regs(&self) -> &pac::spim0::RegisterBlock;
     }
 }
 
@@ -220,7 +217,7 @@ pub trait Instance: sealed::Instance + 'static {
 macro_rules! make_impl {
     ($type:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$type {
-            fn regs(&mut self) -> &pac::spim0::RegisterBlock {
+            fn regs(&self) -> &pac::spim0::RegisterBlock {
                 unsafe { &*pac::$type::ptr() }
             }
         }

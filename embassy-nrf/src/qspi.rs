@@ -5,6 +5,7 @@ use core::task::Poll;
 
 use embassy::interrupt::Interrupt;
 use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
+use embassy_extras::unborrow;
 
 use crate::fmt::{assert, assert_eq, *};
 use crate::gpio::Pin as GpioPin;
@@ -61,14 +62,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
         io3: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        let mut qspi = unsafe { qspi.unborrow() };
-        let irq = unsafe { irq.unborrow() };
-        let sck = unsafe { sck.unborrow() };
-        let csn = unsafe { csn.unborrow() };
-        let io0 = unsafe { io0.unborrow() };
-        let io1 = unsafe { io1.unborrow() };
-        let io2 = unsafe { io2.unborrow() };
-        let io3 = unsafe { io3.unborrow() };
+        unborrow!(qspi, irq, sck, csn, io0, io1, io2, io3);
 
         let r = qspi.regs();
 
@@ -361,7 +355,7 @@ mod sealed {
     use super::*;
 
     pub trait Instance {
-        fn regs(&mut self) -> &pac::qspi::RegisterBlock;
+        fn regs(&self) -> &pac::qspi::RegisterBlock;
     }
 }
 
@@ -372,7 +366,7 @@ pub trait Instance: sealed::Instance + 'static {
 macro_rules! make_impl {
     ($type:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$type {
-            fn regs(&mut self) -> &pac::qspi::RegisterBlock {
+            fn regs(&self) -> &pac::qspi::RegisterBlock {
                 unsafe { &*pac::$type::ptr() }
             }
         }
