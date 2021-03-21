@@ -6,12 +6,12 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
+use embassy_nrf::peripherals::Peripherals;
 use example_common::*;
 
 use cortex_m_rt::entry;
 use defmt::{assert_eq, panic};
 use futures::pin_mut;
-use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
 use embassy::traits::flash::Flash;
@@ -27,43 +27,16 @@ struct AlignedBuf([u8; 4096]);
 
 #[task]
 async fn run() {
-    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
+    let p = unsafe { Peripherals::steal() };
 
-    let port0 = gpio::p0::Parts::new(p.P0);
-
-    let pins = qspi::Pins {
-        csn: port0
-            .p0_17
-            .into_push_pull_output(gpio::Level::High)
-            .degrade(),
-        sck: port0
-            .p0_19
-            .into_push_pull_output(gpio::Level::High)
-            .degrade(),
-        io0: port0
-            .p0_20
-            .into_push_pull_output(gpio::Level::High)
-            .degrade(),
-        io1: port0
-            .p0_21
-            .into_push_pull_output(gpio::Level::High)
-            .degrade(),
-        io2: Some(
-            port0
-                .p0_22
-                .into_push_pull_output(gpio::Level::High)
-                .degrade(),
-        ),
-        io3: Some(
-            port0
-                .p0_23
-                .into_push_pull_output(gpio::Level::High)
-                .degrade(),
-        ),
-    };
+    let csn = p.p0_17;
+    let sck = p.p0_19;
+    let io0 = p.p0_20;
+    let io1 = p.p0_21;
+    let io2 = p.p0_22;
+    let io3 = p.p0_23;
 
     let config = qspi::Config {
-        pins,
         read_opcode: qspi::ReadOpcode::READ4IO,
         write_opcode: qspi::WriteOpcode::PP4IO,
         xip_offset: 0,
@@ -72,7 +45,7 @@ async fn run() {
     };
 
     let irq = interrupt::take!(QSPI);
-    let q = qspi::Qspi::new(p.QSPI, irq, config);
+    let q = qspi::Qspi::new(p.qspi, irq, sck, csn, io0, io1, io2, io3, config);
     pin_mut!(q);
 
     let mut id = [1; 3];
@@ -83,7 +56,7 @@ async fn run() {
     info!("id: {}", id);
 
     // Read status register
-    let mut status = [0; 1];
+    let mut status = [4; 1];
     q.as_mut()
         .custom_instruction(0x05, &[], &mut status)
         .await
