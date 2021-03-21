@@ -73,3 +73,12 @@ macro_rules! peripherals {
 
     };
 }
+
+#[macro_export]
+macro_rules! unborrow {
+    ($($name:ident),*) => {
+        $(
+            let $name = unsafe { $name.unborrow() };
+        )*
+    }
+}
