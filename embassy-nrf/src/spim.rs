@@ -26,7 +26,7 @@ pub enum Error {
 }
 
 pub struct Spim<'d, T: Instance> {
-    spim: T,
+    peri: T,
     irq: T::Interrupt,
     phantom: PhantomData<&'d mut T>,
 }
@@ -116,7 +116,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
 
         Self {
-            spim,
+            peri: spim,
             irq,
             phantom: PhantomData,
         }
@@ -155,7 +155,7 @@ impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
             // before any DMA action has started.
             compiler_fence(Ordering::SeqCst);
 
-            let r = this.spim.regs();
+            let r = this.peri.regs();
 
             // Set up the DMA write.
             r.txd
@@ -187,7 +187,7 @@ impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
 
             // Wait for 'end' event.
             poll_fn(|cx| {
-                let r = this.spim.regs();
+                let r = this.peri.regs();
 
                 if r.events_end.read().bits() != 0 {
                     r.events_end.reset();
