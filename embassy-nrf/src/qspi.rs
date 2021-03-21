@@ -44,7 +44,7 @@ pub struct Config {
 }
 
 pub struct Qspi<'d, T: Instance> {
-    qspi: T,
+    peri: T,
     irq: T::Interrupt,
     phantom: PhantomData<&'d mut T>,
 }
@@ -131,14 +131,14 @@ impl<'d, T: Instance> Qspi<'d, T> {
         r.events_ready.reset();
 
         Self {
-            qspi,
+            peri: qspi,
             irq,
             phantom: PhantomData,
         }
     }
 
     pub fn sleep(mut self: Pin<&mut Self>) {
-        let r = unsafe { self.as_mut().get_unchecked_mut() }.qspi.regs();
+        let r = unsafe { self.as_mut().get_unchecked_mut() }.peri.regs();
 
         info!("flash: sleeping");
         info!("flash: state = {:?}", r.status.read().bits());
@@ -177,7 +177,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
 
         let len = core::cmp::max(req.len(), resp.len()) as u8;
 
-        let r = unsafe { self.as_mut().get_unchecked_mut() }.qspi.regs();
+        let r = unsafe { self.as_mut().get_unchecked_mut() }.peri.regs();
         r.cinstrdat0.write(|w| unsafe { w.bits(dat0) });
         r.cinstrdat1.write(|w| unsafe { w.bits(dat1) });
 
@@ -198,7 +198,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
 
         self.as_mut().wait_ready().await;
 
-        let r = unsafe { self.as_mut().get_unchecked_mut() }.qspi.regs();
+        let r = unsafe { self.as_mut().get_unchecked_mut() }.peri.regs();
 
         let dat0 = r.cinstrdat0.read().bits();
         let dat1 = r.cinstrdat1.read().bits();
@@ -222,7 +222,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
         let this = unsafe { self.get_unchecked_mut() };
 
         poll_fn(move |cx| {
-            let r = this.qspi.regs();
+            let r = this.peri.regs();
 
             if r.events_ready.read().bits() != 0 {
                 r.events_ready.reset();
@@ -257,7 +257,7 @@ impl<'d, T: Instance> Flash for Qspi<'d, T> {
             assert_eq!(data.len() as u32 % 4, 0);
             assert_eq!(address as u32 % 4, 0);
 
-            let r = unsafe { self.as_mut().get_unchecked_mut() }.qspi.regs();
+            let r = unsafe { self.as_mut().get_unchecked_mut() }.peri.regs();
 
             r.read
                 .src
@@ -293,7 +293,7 @@ impl<'d, T: Instance> Flash for Qspi<'d, T> {
             assert_eq!(data.len() as u32 % 4, 0);
             assert_eq!(address as u32 % 4, 0);
 
-            let r = unsafe { self.as_mut().get_unchecked_mut() }.qspi.regs();
+            let r = unsafe { self.as_mut().get_unchecked_mut() }.peri.regs();
             r.write
                 .src
                 .write(|w| unsafe { w.src().bits(data.as_ptr() as u32) });
@@ -322,7 +322,7 @@ impl<'d, T: Instance> Flash for Qspi<'d, T> {
 
             assert_eq!(address as u32 % 4096, 0);
 
-            let r = unsafe { self.as_mut().get_unchecked_mut() }.qspi.regs();
+            let r = unsafe { self.as_mut().get_unchecked_mut() }.peri.regs();
             r.erase
                 .ptr
                 .write(|w| unsafe { w.ptr().bits(address as u32) });
