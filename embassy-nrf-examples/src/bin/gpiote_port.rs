@@ -6,19 +6,17 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy_nrf::gpio::{AnyPin, Input, Pin as _, Pull};
 use example_common::*;
-use gpiote::PortInput;
 
 use core::pin::Pin;
 use cortex_m_rt::entry;
 use defmt::panic;
-use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
 use embassy::traits::gpio::{WaitForHigh, WaitForLow};
 use embassy::util::Forever;
-use embassy_nrf::gpiote;
+use embassy_nrf::gpio::{AnyPin, Input, Pin as _, Pull};
+use embassy_nrf::gpiote::{self, PortInput};
 use embassy_nrf::interrupt;
 
 async fn button(n: usize, mut pin: PortInput<AnyPin>) {
