@@ -6,18 +6,18 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use example_common::*;
 
 use core::pin::Pin;
 use cortex_m_rt::entry;
 use defmt::panic;
-
 use embassy::executor::{task, Executor};
 use embassy::traits::gpio::{WaitForHigh, WaitForLow};
 use embassy::util::Forever;
 use embassy_nrf::gpio::{AnyPin, Input, Pin as _, Pull};
 use embassy_nrf::gpiote::{self, PortInput};
 use embassy_nrf::interrupt;
+use embassy_nrf::Peripherals;
+use example_common::*;
 
 async fn button(n: usize, mut pin: PortInput<AnyPin>) {
     loop {
@@ -30,7 +30,7 @@ async fn button(n: usize, mut pin: PortInput<AnyPin>) {
 
 #[task]
 async fn run() {
-    let p = unsafe { embassy_nrf::peripherals::Peripherals::steal() };
+    let p = Peripherals::take().unwrap();
 
     let g = gpiote::initialize(p.gpiote, interrupt::take!(GPIOTE));
 

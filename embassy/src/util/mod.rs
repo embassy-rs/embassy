@@ -18,3 +18,7 @@ pub trait PeripheralBorrow {
     type Target;
     unsafe fn unborrow(self) -> Self::Target;
 }
+
+pub trait Steal {
+    unsafe fn steal() -> Self;
+}

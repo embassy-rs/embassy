@@ -6,17 +6,16 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy_nrf::peripherals::Peripherals;
-use example_common::*;
 
 use cortex_m_rt::entry;
 use defmt::{assert_eq, panic};
-use futures::pin_mut;
-
 use embassy::executor::{task, Executor};
 use embassy::traits::flash::Flash;
 use embassy::util::Forever;
+use embassy_nrf::Peripherals;
 use embassy_nrf::{interrupt, qspi};
+use example_common::*;
+use futures::pin_mut;
 
 const PAGE_SIZE: usize = 4096;
 
@@ -27,7 +26,7 @@ struct AlignedBuf([u8; 4096]);
 
 #[task]
 async fn run() {
-    let p = unsafe { Peripherals::steal() };
+    let p = Peripherals::take().unwrap();
 
     let csn = p.p0_17;
     let sck = p.p0_19;

@@ -6,26 +6,25 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy_nrf::gpio::{Level, Output, OutputDrive};
-use embassy_nrf::peripherals::Peripherals;
-use embassy_traits::spi::FullDuplex;
-use example_common::*;
 
 use cortex_m_rt::entry;
 use defmt::panic;
 use embassy::executor::{task, Executor};
 use embassy::util::Forever;
+use embassy_nrf::gpio::{Level, Output, OutputDrive};
+use embassy_nrf::Peripherals;
+use embassy_nrf::{interrupt, pac, rtc, spim};
+use embassy_traits::spi::FullDuplex;
 use embedded_hal::digital::v2::*;
+use example_common::*;
 use futures::pin_mut;
 use nrf52840_hal::clocks;
-
-use embassy_nrf::{interrupt, pac, rtc, spim};
 
 #[task]
 async fn run() {
     info!("running!");
 
-    let mut p = unsafe { Peripherals::steal() };
+    let p = Peripherals::take().unwrap();
 
     let config = spim::Config {
         frequency: spim::Frequency::M16,
@@ -33,7 +32,7 @@ async fn run() {
         orc: 0x00,
     };
 
-    let mut irq = interrupt::take!(SPIM3);
+    let irq = interrupt::take!(SPIM3);
     let spim = spim::Spim::new(p.spim3, irq, p.p0_29, p.p0_28, p.p0_30, config);
     pin_mut!(spim);
 
