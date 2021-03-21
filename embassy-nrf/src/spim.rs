@@ -55,9 +55,9 @@ impl<'d, T: Instance> Spim<'d, T> {
         let r = spim.regs();
 
         // Configure pins
-        sck.conf().write(|w| w.dir().output());
-        mosi.conf().write(|w| w.dir().output());
-        miso.conf().write(|w| w.input().connect());
+        sck.conf().write(|w| w.dir().output().drive().h0h1());
+        mosi.conf().write(|w| w.dir().output().drive().h0h1());
+        miso.conf().write(|w| w.input().connect().drive().h0h1());
 
         match config.mode.polarity {
             Polarity::IdleHigh => {
@@ -71,18 +71,9 @@ impl<'d, T: Instance> Spim<'d, T> {
         }
 
         // Select pins.
-        r.psel.sck.write(|w| {
-            unsafe { w.bits(sck.psel_bits()) };
-            w.connect().connected()
-        });
-        r.psel.mosi.write(|w| {
-            unsafe { w.bits(mosi.psel_bits()) };
-            w.connect().connected()
-        });
-        r.psel.miso.write(|w| {
-            unsafe { w.bits(miso.psel_bits()) };
-            w.connect().connected()
-        });
+        r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
+        r.psel.mosi.write(|w| unsafe { w.bits(mosi.psel_bits()) });
+        r.psel.miso.write(|w| unsafe { w.bits(miso.psel_bits()) });
 
         // Enable SPIM instance.
         r.enable.write(|w| w.enable().enabled());
