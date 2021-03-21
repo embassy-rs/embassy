@@ -26,16 +26,18 @@ impl Duration {
         self.ticks * 1_000_000 / TICKS_PER_SECOND
     }
 
+    /// Creates a duration from the specified number of clock ticks
     pub const fn from_ticks(ticks: u64) -> Duration {
         Duration { ticks }
     }
 
+    /// Creates a duration from the specified number of seconds
     pub const fn from_secs(secs: u64) -> Duration {
         Duration {
             ticks: secs * TICKS_PER_SECOND,
         }
     }
-
+    /// Creates a duration from the specified number of milliseconds
     pub const fn from_millis(millis: u64) -> Duration {
         Duration {
             ticks: millis * TICKS_PER_SECOND / 1000,
@@ -45,30 +47,34 @@ impl Duration {
     /*
         NOTE: us delays may not be as accurate
     */
+    /// Creates a duration from the specified number of microseconds
+    /// NOTE: Delays this small may be inaccurate.
     pub const fn from_micros(micros: u64) -> Duration {
         Duration {
             ticks: micros * TICKS_PER_SECOND / 1_000_000,
         }
     }
 
+    /// Adds one Duration to another, returning a new Duration or None in the event of an overflow.
     pub fn checked_add(self, rhs: Duration) -> Option<Duration> {
         self.ticks
             .checked_add(rhs.ticks)
             .map(|ticks| Duration { ticks })
     }
-
+    /// Subtracts one Duration to another, returning a new Duration or None in the event of an overflow.
     pub fn checked_sub(self, rhs: Duration) -> Option<Duration> {
         self.ticks
             .checked_sub(rhs.ticks)
             .map(|ticks| Duration { ticks })
     }
+    /// Multiplies one Duration to another, returning a new Duration or None in the event of an overflow.
 
     pub fn checked_mul(self, rhs: u32) -> Option<Duration> {
         self.ticks
             .checked_mul(rhs as _)
             .map(|ticks| Duration { ticks })
     }
-
+    /// Divides one Duration against another, returning a new Duration or None in the event of an overflow.
     pub fn checked_div(self, rhs: u32) -> Option<Duration> {
         self.ticks
             .checked_div(rhs as _)
