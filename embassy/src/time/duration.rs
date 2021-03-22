@@ -5,6 +5,7 @@ use super::TICKS_PER_SECOND;
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Represents the difference between [Instant::now()](struct.Instant.html#method.now) and some other Instant
 pub struct Duration {
     pub(crate) ticks: u64,
 }
