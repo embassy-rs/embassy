@@ -5,6 +5,30 @@ use cortex_m;
 
 use crate::hal::gpio;
 
+#[cfg(any(
+    feature = "stm32f401",
+    feature = "stm32f405",
+    feature = "stm32f407",
+    feature = "stm32f410",
+    feature = "stm32f411",
+    feature = "stm32f412",
+    feature = "stm32f413",
+    feature = "stm32f415",
+    feature = "stm32f417",
+    feature = "stm32f423",
+    feature = "stm32f427",
+    feature = "stm32f429",
+    feature = "stm32f437",
+    feature = "stm32f439",
+    feature = "stm32f446",
+    feature = "stm32f469",
+    feature = "stm32f479",
+))]
+use crate::hal::syscfg::SysCfg;
+
+#[cfg(any(feature = "stm32l0x1", feature = "stm32l0x2", feature = "stm32l0x3",))]
+use crate::hal::syscfg::SYSCFG as SysCfg;
+
 use embassy::traits::gpio::{
     WaitForAnyEdge, WaitForFallingEdge, WaitForHigh, WaitForLow, WaitForRisingEdge,
 };
@@ -20,9 +44,9 @@ pub struct ExtiPin<T: Instance> {
 }
 
 impl<T: Instance> ExtiPin<T> {
-    pub fn new(mut pin: T, interrupt: T::Interrupt) -> Self {
+    pub fn new(mut pin: T, interrupt: T::Interrupt, syscfg: &mut SysCfg) -> Self {
         cortex_m::interrupt::free(|_| {
-            pin.make_source();
+            pin.make_source(syscfg);
         });
 
         Self { pin, interrupt }
@@ -189,7 +213,7 @@ pub trait WithInterrupt: private::Sealed {
 }
 
 pub trait Instance: WithInterrupt {
-    fn make_source(&mut self);
+    fn make_source(&mut self, syscfg: &mut SysCfg);
     fn clear_pending_bit(&mut self);
     fn trigger_edge(&mut self, edge: EdgeOption);
 }
@@ -224,11 +248,9 @@ macro_rules! exti {
                 feature = "stm32f479",
             ))]
             impl<T> Instance for gpio::$set::$pin<gpio::Input<T>> {
-                fn make_source(&mut self) {
-                    use crate::hal::{gpio::Edge, gpio::ExtiPin, syscfg::SysCfg};
-                    use crate::pac::EXTI;
-                    let mut syscfg: SysCfg = unsafe { mem::transmute(()) };
-                    self.make_interrupt_source(&mut syscfg);
+                fn make_source(&mut self, syscfg: &mut SysCfg) {
+                    use crate::hal::gpio::ExtiPin;
+                    self.make_interrupt_source(syscfg);
                 }
 
                 fn clear_pending_bit(&mut self) {
@@ -253,7 +275,7 @@ macro_rules! exti {
 
             #[cfg(any(feature = "stm32l0x1", feature = "stm32l0x2", feature = "stm32l0x3",))]
             impl<T> Instance for gpio::$set::$pin<T> {
-                fn make_source(&mut self) {}
+                fn make_source(&mut self, syscfg: &mut SysCfg) {}
 
                 fn clear_pending_bit(&mut self) {
                     use crate::hal::{
