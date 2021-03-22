@@ -24,8 +24,9 @@ async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
     let gpioa = dp.GPIOA.split();
 
     let button = gpioa.pa0.into_pull_up_input();
+    let mut syscfg = dp.SYSCFG.constrain();
 
-    let pin = ExtiPin::new(button, interrupt::take!(EXTI0));
+    let pin = ExtiPin::new(button, interrupt::take!(EXTI0), &mut syscfg);
     pin_mut!(pin);
 
     info!("Starting loop");
