@@ -5,43 +5,49 @@
 //! are dropped correctly (e.g. not using `mem::forget()`).
 
 use core::future::Future;
-use core::ops::Deref;
+use core::marker::PhantomData;
+use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
-use core::task::{Context, Poll};
-
-use embassy::interrupt::InterruptExt;
-use embassy::util::Signal;
+use core::task::Poll;
+use embassy::traits::uart::{Error, Read, Write};
+use embassy::util::{wake_on_interrupt, OnDrop, PeripheralBorrow, Signal};
+use embassy_extras::unborrow;
+use futures::future::poll_fn;
 
 use crate::fmt::{assert, *};
+use crate::gpio::Pin as GpioPin;
 use crate::hal::pac;
-use crate::hal::prelude::*;
 use crate::hal::target_constants::EASY_DMA_SIZE;
 use crate::interrupt;
 use crate::interrupt::Interrupt;
+use crate::peripherals;
 
-pub use crate::hal::uarte::Pins;
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
+#[non_exhaustive]
+pub struct Config {
+    pub parity: Parity,
+    pub baudrate: Baudrate,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            parity: Parity::EXCLUDED,
+            baudrate: Baudrate::BAUD115200,
+        }
+    }
+}
+
 /// Interface to the UARTE peripheral
-pub struct Uarte<T>
-where
-    T: Instance,
-{
-    instance: T,
+pub struct Uarte<'d, T: Instance> {
+    peri: T,
     irq: T::Interrupt,
-    pins: Pins,
+    phantom: PhantomData<&'d mut T>,
 }
 
-pub struct State {
-    tx_done: Signal<()>,
-    rx_done: Signal<u32>,
-}
-
-impl<T> Uarte<T>
-where
-    T: Instance,
-{
+impl<'d, T: Instance> Uarte<'d, T> {
     /// Creates the interface to a UARTE instance.
     /// Sets the baud rate, parity and assigns the pins to the UARTE peripheral.
     ///
@@ -52,85 +58,48 @@ where
     /// or [`receive`](Uarte::receive).
     #[allow(unused_unsafe)]
     pub unsafe fn new(
-        uarte: T,
-        irq: T::Interrupt,
-        mut pins: Pins,
-        parity: Parity,
-        baudrate: Baudrate,
+        uarte: impl PeripheralBorrow<Target = T> + 'd,
+        irq: impl PeripheralBorrow<Target = T::Interrupt> + 'd,
+        rxd: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
+        txd: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
+        cts: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
+        rts: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
+        config: Config,
     ) -> Self {
-        assert!(uarte.enable.read().enable().is_disabled());
+        unborrow!(uarte, irq, rxd, txd, cts, rts);
 
-        uarte.psel.rxd.write(|w| {
-            unsafe { w.bits(pins.rxd.psel_bits()) };
-            w.connect().connected()
-        });
+        let r = uarte.regs();
 
-        pins.txd.set_high().unwrap();
-        uarte.psel.txd.write(|w| {
-            unsafe { w.bits(pins.txd.psel_bits()) };
-            w.connect().connected()
-        });
+        assert!(r.enable.read().enable().is_disabled());
 
-        // Optional pins
-        uarte.psel.cts.write(|w| {
-            if let Some(ref pin) = pins.cts {
-                unsafe { w.bits(pin.psel_bits()) };
-                w.connect().connected()
-            } else {
-                w.connect().disconnected()
-            }
-        });
+        // TODO OptionalPin for RTS/CTS.
 
-        uarte.psel.rts.write(|w| {
-            if let Some(ref pin) = pins.rts {
-                unsafe { w.bits(pin.psel_bits()) };
-                w.connect().connected()
-            } else {
-                w.connect().disconnected()
-            }
-        });
+        txd.set_high();
+        rts.set_high();
+        rxd.conf().write(|w| w.input().connect().drive().h0h1());
+        txd.conf().write(|w| w.dir().output().drive().h0h1());
+        //cts.conf().write(|w| w.input().connect().drive().h0h1());
+        //rts.conf().write(|w| w.dir().output().drive().h0h1());
 
-        uarte.baudrate.write(|w| w.baudrate().variant(baudrate));
-        uarte.config.write(|w| w.parity().variant(parity));
+        r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
+        r.psel.txd.write(|w| unsafe { w.bits(txd.psel_bits()) });
+        //r.psel.cts.write(|w| unsafe { w.bits(cts.psel_bits()) });
+        //r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
 
-        // Enable interrupts
-        uarte.events_endtx.reset();
-        uarte.events_endrx.reset();
-        uarte
-            .intenset
-            .write(|w| w.endtx().set().txstopped().set().endrx().set().rxto().set());
+        r.baudrate.write(|w| w.baudrate().variant(config.baudrate));
+        r.config.write(|w| w.parity().variant(config.parity));
 
-        // Register ISR
-        irq.set_handler(Self::on_irq);
-        irq.unpend();
-        irq.enable();
+        // Enable
+        r.enable.write(|w| w.enable().enabled());
 
-        Uarte {
-            instance: uarte,
+        Self {
+            peri: uarte,
             irq,
-            pins,
+            phantom: PhantomData,
         }
     }
 
-    pub fn free(self) -> (T, T::Interrupt, Pins) {
-        // Wait for the peripheral to be disabled from the ISR.
-        while self.instance.enable.read().enable().is_enabled() {}
-        (self.instance, self.irq, self.pins)
-    }
-
-    fn enable(&mut self) {
-        trace!("enable");
-        self.instance.enable.write(|w| w.enable().enabled());
-    }
-
-    fn tx_started(&self) -> bool {
-        self.instance.events_txstarted.read().bits() != 0
-    }
-
-    fn rx_started(&self) -> bool {
-        self.instance.events_rxstarted.read().bits() != 0
-    }
-
+    /*
     unsafe fn on_irq(_ctx: *mut ()) {
         let uarte = &*pac::UARTE0::ptr();
 
@@ -186,54 +155,127 @@ where
             uarte.enable.write(|w| w.enable().disabled());
         }
     }
+     */
 }
 
-impl<T: Instance> embassy::traits::uart::Uart for Uarte<T> {
-    type ReceiveFuture<'a> = ReceiveFuture<'a, T>;
-    type SendFuture<'a> = SendFuture<'a, T>;
+impl<'d, T: Instance> Read for Uarte<'d, T> {
+    #[rustfmt::skip]
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Error>> + 'a;
 
-    /// Sends serial data.
-    ///
-    /// `tx_buffer` is marked as static as per `embedded-dma` requirements.
-    /// It it safe to use a buffer with a non static lifetime if memory is not
-    /// reused until the future has finished.
-    fn send<'a>(&'a mut self, tx_buffer: &'a [u8]) -> SendFuture<'a, T> {
-        // Panic if TX is running which can happen if the user has called
-        // `mem::forget()` on a previous future after polling it once.
-        assert!(!self.tx_started());
+    fn read<'a>(self: Pin<&'a mut Self>, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        async move {
+            let this = unsafe { self.get_unchecked_mut() };
 
-        T::state().tx_done.reset();
+            let ptr = rx_buffer.as_ptr();
+            let len = rx_buffer.len();
+            assert!(len <= EASY_DMA_SIZE);
 
-        SendFuture {
-            uarte: self,
-            buf: tx_buffer,
-        }
-    }
+            let r = this.peri.regs();
 
-    /// Receives serial data.
-    ///
-    /// The future is pending until the buffer is completely filled.
-    /// A common pattern is to use [`stop()`](ReceiveFuture::stop) to cancel
-    /// unfinished transfers after a timeout to prevent lockup when no more data
-    /// is incoming.
-    ///
-    /// `rx_buffer` is marked as static as per `embedded-dma` requirements.
-    /// It it safe to use a buffer with a non static lifetime if memory is not
-    /// reused until the future has finished.
-    fn receive<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> ReceiveFuture<'a, T> {
-        // Panic if RX is running which can happen if the user has called
-        // `mem::forget()` on a previous future after polling it once.
-        assert!(!self.rx_started());
+            let drop = OnDrop::new(move || {
+                info!("read drop: stopping");
 
-        T::state().rx_done.reset();
+                r.intenclr.write(|w| w.endrx().clear());
+                r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
 
-        ReceiveFuture {
-            uarte: self,
-            buf: rx_buffer,
+                // TX is stopped almost instantly, spinning is fine.
+                while r.events_endrx.read().bits() == 0 {}
+                info!("read drop: stopped");
+            });
+
+            r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
+            r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+
+            r.events_endrx.reset();
+            r.intenset.write(|w| w.endrx().set());
+
+            compiler_fence(Ordering::SeqCst);
+
+            trace!("startrx");
+            r.tasks_startrx.write(|w| unsafe { w.bits(1) });
+
+            let irq = &mut this.irq;
+            poll_fn(|cx| {
+                if r.events_endrx.read().bits() != 0 {
+                    r.events_endrx.reset();
+                    return Poll::Ready(());
+                }
+
+                wake_on_interrupt(irq, cx.waker());
+
+                Poll::Pending
+            })
+            .await;
+
+            compiler_fence(Ordering::SeqCst);
+            r.intenclr.write(|w| w.endrx().clear());
+            drop.defuse();
+
+            Ok(())
         }
     }
 }
 
+impl<'d, T: Instance> Write for Uarte<'d, T> {
+    #[rustfmt::skip]
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Error>> + 'a;
+
+    fn write<'a>(self: Pin<&'a mut Self>, tx_buffer: &'a [u8]) -> Self::WriteFuture<'a> {
+        async move {
+            let this = unsafe { self.get_unchecked_mut() };
+
+            let ptr = tx_buffer.as_ptr();
+            let len = tx_buffer.len();
+            assert!(len <= EASY_DMA_SIZE);
+            // TODO: panic if buffer is not in SRAM
+
+            let r = this.peri.regs();
+
+            let drop = OnDrop::new(move || {
+                info!("write drop: stopping");
+
+                r.intenclr.write(|w| w.endtx().clear());
+                r.tasks_stoptx.write(|w| unsafe { w.bits(1) });
+
+                // TX is stopped almost instantly, spinning is fine.
+                while r.events_endtx.read().bits() == 0 {}
+                info!("write drop: stopped");
+            });
+
+            r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
+            r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+
+            r.events_endtx.reset();
+            r.intenset.write(|w| w.endtx().set());
+
+            compiler_fence(Ordering::SeqCst);
+
+            trace!("starttx");
+            r.tasks_starttx.write(|w| unsafe { w.bits(1) });
+
+            let irq = &mut this.irq;
+            poll_fn(|cx| {
+                if r.events_endtx.read().bits() != 0 {
+                    r.events_endtx.reset();
+                    return Poll::Ready(());
+                }
+
+                wake_on_interrupt(irq, cx.waker());
+
+                Poll::Pending
+            })
+            .await;
+
+            compiler_fence(Ordering::SeqCst);
+            r.intenclr.write(|w| w.endtx().clear());
+            drop.defuse();
+
+            Ok(())
+        }
+    }
+}
+
+/*
 /// Future for the [`Uarte::send()`] method.
 pub struct SendFuture<'a, T>
 where
@@ -252,54 +294,11 @@ where
             trace!("stoptx");
 
             // Stop the transmitter to minimize the current consumption.
-            self.uarte.instance.events_txstarted.reset();
-            self.uarte
-                .instance
-                .tasks_stoptx
-                .write(|w| unsafe { w.bits(1) });
+            self.uarte.peri.events_txstarted.reset();
+            self.uarte.peri.tasks_stoptx.write(|w| unsafe { w.bits(1) });
 
             // TX is stopped almost instantly, spinning is fine.
             while !T::state().tx_done.signaled() {}
-        }
-    }
-}
-
-impl<'a, T> Future for SendFuture<'a, T>
-where
-    T: Instance,
-{
-    type Output = Result<(), embassy::traits::uart::Error>;
-
-    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let Self { uarte, buf } = unsafe { self.get_unchecked_mut() };
-
-        if T::state().tx_done.poll_wait(cx).is_pending() {
-            let ptr = buf.as_ptr();
-            let len = buf.len();
-            assert!(len <= EASY_DMA_SIZE);
-            // TODO: panic if buffer is not in SRAM
-
-            uarte.enable();
-
-            compiler_fence(Ordering::SeqCst);
-            uarte
-                .instance
-                .txd
-                .ptr
-                .write(|w| unsafe { w.ptr().bits(ptr as u32) });
-            uarte
-                .instance
-                .txd
-                .maxcnt
-                .write(|w| unsafe { w.maxcnt().bits(len as _) });
-
-            trace!("starttx");
-            uarte.instance.tasks_starttx.write(|w| unsafe { w.bits(1) });
-            while !uarte.tx_started() {} // Make sure transmission has started
-
-            Poll::Pending
-        } else {
-            Poll::Ready(Ok(()))
         }
     }
 }
@@ -321,11 +320,8 @@ where
         if self.uarte.rx_started() {
             trace!("stoprx (drop)");
 
-            self.uarte.instance.events_rxstarted.reset();
-            self.uarte
-                .instance
-                .tasks_stoprx
-                .write(|w| unsafe { w.bits(1) });
+            self.uarte.peri.events_rxstarted.reset();
+            self.uarte.peri.tasks_stoprx.write(|w| unsafe { w.bits(1) });
 
             embassy_extras::low_power_wait_until(|| T::state().rx_done.signaled())
         }
@@ -350,19 +346,11 @@ where
                 uarte.enable();
 
                 compiler_fence(Ordering::SeqCst);
-                uarte
-                    .instance
-                    .rxd
-                    .ptr
-                    .write(|w| unsafe { w.ptr().bits(ptr as u32) });
-                uarte
-                    .instance
-                    .rxd
-                    .maxcnt
-                    .write(|w| unsafe { w.maxcnt().bits(len as _) });
+                r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
+                r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 
                 trace!("startrx");
-                uarte.instance.tasks_startrx.write(|w| unsafe { w.bits(1) });
+                uarte.peri.tasks_startrx.write(|w| unsafe { w.bits(1) });
                 while !uarte.rx_started() {} // Make sure reception has started
 
                 Poll::Pending
@@ -383,11 +371,8 @@ where
         let len = if self.uarte.rx_started() {
             trace!("stoprx (stop)");
 
-            self.uarte.instance.events_rxstarted.reset();
-            self.uarte
-                .instance
-                .tasks_stoprx
-                .write(|w| unsafe { w.bits(1) });
+            self.uarte.peri.events_rxstarted.reset();
+            self.uarte.peri.tasks_stoprx.write(|w| unsafe { w.bits(1) });
             T::state().rx_done.wait().await
         } else {
             // Transfer was stopped before it even started. No bytes were sent.
@@ -396,45 +381,33 @@ where
         len as _
     }
 }
+ */
 
-mod private {
-    pub trait Sealed {}
+mod sealed {
+    use super::*;
+
+    pub trait Instance {
+        fn regs(&self) -> &pac::uarte0::RegisterBlock;
+    }
 }
 
-pub trait Instance:
-    Deref<Target = pac::uarte0::RegisterBlock> + Sized + private::Sealed + 'static
-{
+pub trait Instance: sealed::Instance + 'static {
     type Interrupt: Interrupt;
-
-    #[doc(hidden)]
-    fn state() -> &'static State;
 }
 
-static UARTE0_STATE: State = State {
-    tx_done: Signal::new(),
-    rx_done: Signal::new(),
-};
-impl private::Sealed for pac::UARTE0 {}
-impl Instance for pac::UARTE0 {
-    type Interrupt = interrupt::UARTE0_UART0;
-
-    fn state() -> &'static State {
-        &UARTE0_STATE
-    }
+macro_rules! make_impl {
+    ($type:ident, $irq:ident) => {
+        impl sealed::Instance for peripherals::$type {
+            fn regs(&self) -> &pac::uarte0::RegisterBlock {
+                unsafe { &*pac::$type::ptr() }
+            }
+        }
+        impl Instance for peripherals::$type {
+            type Interrupt = interrupt::$irq;
+        }
+    };
 }
 
+make_impl!(UARTE0, UARTE0_UART0);
 #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
-static UARTE1_STATE: State = State {
-    tx_done: Signal::new(),
-    rx_done: Signal::new(),
-};
-#[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
-impl private::Sealed for pac::UARTE1 {}
-#[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
-impl Instance for pac::UARTE1 {
-    type Interrupt = interrupt::UARTE1;
-
-    fn state() -> &'static State {
-        &UARTE1_STATE
-    }
-}
+make_impl!(UARTE1, UARTE1);

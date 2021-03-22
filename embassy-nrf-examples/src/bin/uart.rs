@@ -12,38 +12,26 @@ use cortex_m_rt::entry;
 use defmt::panic;
 use embassy::executor::{task, Executor};
 use embassy::time::{Duration, Timer};
-use embassy::traits::uart::Uart;
+use embassy::traits::uart::{Read, Write};
 use embassy::util::Forever;
-use embassy_nrf::{interrupt, pac, rtc, uarte};
+use embassy_nrf::{interrupt, pac, rtc, uarte, Peripherals};
 use futures::future::{select, Either};
+use futures::pin_mut;
 use nrf52840_hal::clocks;
 use nrf52840_hal::gpio;
 
 #[task]
-async fn run(uart: pac::UARTE0, port: pac::P0) {
-    // Init UART
-    let port0 = gpio::p0::Parts::new(port);
+async fn run() {
+    let p = Peripherals::take().unwrap();
 
-    let pins = uarte::Pins {
-        rxd: port0.p0_08.into_floating_input().degrade(),
-        txd: port0
-            .p0_06
-            .into_push_pull_output(gpio::Level::Low)
-            .degrade(),
-        cts: None,
-        rts: None,
-    };
+    let mut config = uarte::Config::default();
+    config.parity = uarte::Parity::EXCLUDED;
+    config.baudrate = uarte::Baudrate::BAUD115200;
 
-    // NOTE(unsafe): Safe becasue we do not use `mem::forget` anywhere.
-    let mut uart = unsafe {
-        uarte::Uarte::new(
-            uart,
-            interrupt::take!(UARTE0_UART0),
-            pins,
-            uarte::Parity::EXCLUDED,
-            uarte::Baudrate::BAUD115200,
-        )
-    };
+    let irq = interrupt::take!(UARTE0_UART0);
+    let uart =
+        unsafe { uarte::Uarte::new(p.uarte0, irq, p.p0_08, p.p0_06, p.p0_07, p.p0_05, config) };
+    pin_mut!(uart);
 
     info!("uarte initialized!");
 
@@ -51,19 +39,22 @@ async fn run(uart: pac::UARTE0, port: pac::P0) {
     let mut buf = [0; 8];
     buf.copy_from_slice(b"Hello!\r\n");
 
-    unwrap!(uart.send(&buf).await);
+    unwrap!(uart.as_mut().write(&buf).await);
     info!("wrote hello in uart!");
 
     loop {
-        let buf_len = buf.len();
         info!("reading...");
+        unwrap!(uart.as_mut().read(&mut buf).await);
+        info!("writing...");
+        unwrap!(uart.as_mut().write(&buf).await);
 
+        /*
         // `receive()` doesn't return until the buffer has been completely filled with
         // incoming data, which in this case is 8 bytes.
         //
         // This example shows how to use `select` to run an uart receive concurrently with a
         // 1 second timer, effectively adding a timeout to the receive operation.
-        let recv_fut = uart.receive(&mut buf);
+        let recv_fut = uart.read(&mut buf);
         let timer_fut = Timer::after(Duration::from_millis(1000));
         let received_len = match select(recv_fut, timer_fut).await {
             // recv_fut completed first, so we've received `buf_len` bytes.
@@ -81,8 +72,9 @@ async fn run(uart: pac::UARTE0, port: pac::P0) {
             info!("read done, got {}", received);
 
             // Echo back received data
-            unwrap!(uart.send(received).await);
+            unwrap!(uart.write(received).await);
         }
+         */
     }
 }
 
@@ -110,9 +102,7 @@ fn main() -> ! {
     let executor = EXECUTOR.put(Executor::new());
     executor.set_alarm(alarm);
 
-    let uarte0 = p.UARTE0;
-    let p0 = p.P0;
     executor.run(|spawner| {
-        unwrap!(spawner.spawn(run(uarte0, p0)));
+        unwrap!(spawner.spawn(run()));
     });
 }
