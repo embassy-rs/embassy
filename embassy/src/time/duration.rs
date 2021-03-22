@@ -5,7 +5,7 @@ use super::TICKS_PER_SECOND;
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Represents the difference between [Instant::now()](struct.Instant.html#method.now) and some other Instant
+/// Represents the difference between two [Instant](struct.Instant.html)s
 pub struct Duration {
     pub(crate) ticks: u64,
 }
@@ -68,14 +68,14 @@ impl Duration {
             .map(|ticks| Duration { ticks })
     }
 
-    /// Multiplies one Duration to another, returning a new Duration or None in the event of an overflow.
+    /// Multiplies one Duration by a scalar u32, returning a new Duration or None in the event of an overflow.
     pub fn checked_mul(self, rhs: u32) -> Option<Duration> {
         self.ticks
             .checked_mul(rhs as _)
             .map(|ticks| Duration { ticks })
     }
 
-    /// Divides one Duration against another, returning a new Duration or None in the event of an overflow.
+    /// Divides one Duration a scalar u32, returning a new Duration or None in the event of an overflow.
     pub fn checked_div(self, rhs: u32) -> Option<Duration> {
         self.ticks
             .checked_div(rhs as _)
