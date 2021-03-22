@@ -78,7 +78,7 @@ macro_rules! peripherals {
 macro_rules! unborrow {
     ($($name:ident),*) => {
         $(
-            let $name = unsafe { $name.unborrow() };
+            let mut $name = unsafe { $name.unborrow() };
         )*
     }
 }

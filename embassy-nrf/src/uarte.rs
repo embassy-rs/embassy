@@ -1,8 +1,4 @@
-//! Async low power UARTE.
-//!
-//! The peripheral is automatically enabled and disabled as required to save power.
-//! Lowest power consumption can only be guaranteed if the send receive futures
-//! are dropped correctly (e.g. not using `mem::forget()`).
+//! Async UART
 
 use core::future::Future;
 use core::marker::PhantomData;
@@ -10,12 +6,13 @@ use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 use embassy::traits::uart::{Error, Read, Write};
-use embassy::util::{wake_on_interrupt, OnDrop, PeripheralBorrow, Signal};
+use embassy::util::{wake_on_interrupt, OnDrop, PeripheralBorrow};
 use embassy_extras::unborrow;
 use futures::future::poll_fn;
 
 use crate::fmt::{assert, *};
-use crate::gpio::Pin as GpioPin;
+use crate::gpio::sealed::Pin as _;
+use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
 use crate::hal::pac;
 use crate::hal::target_constants::EASY_DMA_SIZE;
 use crate::interrupt;
@@ -62,8 +59,8 @@ impl<'d, T: Instance> Uarte<'d, T> {
         irq: impl PeripheralBorrow<Target = T::Interrupt> + 'd,
         rxd: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
         txd: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        cts: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        rts: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
+        cts: impl PeripheralBorrow<Target = impl GpioOptionalPin> + 'd,
+        rts: impl PeripheralBorrow<Target = impl GpioOptionalPin> + 'd,
         config: Config,
     ) -> Self {
         unborrow!(uarte, irq, rxd, txd, cts, rts);
@@ -72,19 +69,23 @@ impl<'d, T: Instance> Uarte<'d, T> {
 
         assert!(r.enable.read().enable().is_disabled());
 
-        // TODO OptionalPin for RTS/CTS.
+        rxd.conf().write(|w| w.input().connect().drive().h0h1());
+        r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
 
         txd.set_high();
-        rts.set_high();
-        rxd.conf().write(|w| w.input().connect().drive().h0h1());
         txd.conf().write(|w| w.dir().output().drive().h0h1());
-        //cts.conf().write(|w| w.input().connect().drive().h0h1());
-        //rts.conf().write(|w| w.dir().output().drive().h0h1());
-
-        r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
         r.psel.txd.write(|w| unsafe { w.bits(txd.psel_bits()) });
-        //r.psel.cts.write(|w| unsafe { w.bits(cts.psel_bits()) });
-        //r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
+
+        if let Some(pin) = rts.pin_mut() {
+            pin.set_high();
+            pin.conf().write(|w| w.dir().output().drive().h0h1());
+        }
+        r.psel.cts.write(|w| unsafe { w.bits(cts.psel_bits()) });
+
+        if let Some(pin) = cts.pin_mut() {
+            pin.conf().write(|w| w.input().connect().drive().h0h1());
+        }
+        r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
 
         r.baudrate.write(|w| w.baudrate().variant(config.baudrate));
         r.config.write(|w| w.parity().variant(config.parity));
@@ -98,64 +99,15 @@ impl<'d, T: Instance> Uarte<'d, T> {
             phantom: PhantomData,
         }
     }
+}
 
-    /*
-    unsafe fn on_irq(_ctx: *mut ()) {
-        let uarte = &*pac::UARTE0::ptr();
+impl<'d, T: Instance> Drop for Uarte<'d, T> {
+    fn drop(&mut self) {
+        let r = self.peri.regs();
+        r.enable.write(|w| w.enable().disabled());
 
-        let mut try_disable = false;
-
-        if uarte.events_endtx.read().bits() != 0 {
-            uarte.events_endtx.reset();
-            trace!("endtx");
-            compiler_fence(Ordering::SeqCst);
-
-            if uarte.events_txstarted.read().bits() != 0 {
-                // The ENDTX was signal triggered because DMA has finished.
-                uarte.events_txstarted.reset();
-                try_disable = true;
-            }
-
-            T::state().tx_done.signal(());
-        }
-
-        if uarte.events_txstopped.read().bits() != 0 {
-            uarte.events_txstopped.reset();
-            trace!("txstopped");
-            try_disable = true;
-        }
-
-        if uarte.events_endrx.read().bits() != 0 {
-            uarte.events_endrx.reset();
-            trace!("endrx");
-            let len = uarte.rxd.amount.read().bits();
-            compiler_fence(Ordering::SeqCst);
-
-            if uarte.events_rxstarted.read().bits() != 0 {
-                // The ENDRX was signal triggered because DMA buffer is full.
-                uarte.events_rxstarted.reset();
-                try_disable = true;
-            }
-
-            T::state().rx_done.signal(len);
-        }
-
-        if uarte.events_rxto.read().bits() != 0 {
-            uarte.events_rxto.reset();
-            trace!("rxto");
-            try_disable = true;
-        }
-
-        // Disable the peripheral if not active.
-        if try_disable
-            && uarte.events_txstarted.read().bits() == 0
-            && uarte.events_rxstarted.read().bits() == 0
-        {
-            trace!("disable");
-            uarte.enable.write(|w| w.enable().disabled());
-        }
+        // todo disable pins
     }
-     */
 }
 
 impl<'d, T: Instance> Read for Uarte<'d, T> {
