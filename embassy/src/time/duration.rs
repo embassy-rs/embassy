@@ -37,6 +37,7 @@ impl Duration {
             ticks: secs * TICKS_PER_SECOND,
         }
     }
+
     /// Creates a duration from the specified number of milliseconds
     pub const fn from_millis(millis: u64) -> Duration {
         Duration {
@@ -61,19 +62,21 @@ impl Duration {
             .checked_add(rhs.ticks)
             .map(|ticks| Duration { ticks })
     }
+
     /// Subtracts one Duration to another, returning a new Duration or None in the event of an overflow.
     pub fn checked_sub(self, rhs: Duration) -> Option<Duration> {
         self.ticks
             .checked_sub(rhs.ticks)
             .map(|ticks| Duration { ticks })
     }
-    /// Multiplies one Duration to another, returning a new Duration or None in the event of an overflow.
 
+    /// Multiplies one Duration to another, returning a new Duration or None in the event of an overflow.
     pub fn checked_mul(self, rhs: u32) -> Option<Duration> {
         self.ticks
             .checked_mul(rhs as _)
             .map(|ticks| Duration { ticks })
     }
+
     /// Divides one Duration against another, returning a new Duration or None in the event of an overflow.
     pub fn checked_div(self, rhs: u32) -> Option<Duration> {
         self.ticks

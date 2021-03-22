@@ -31,6 +31,7 @@ impl Instant {
             ticks: millis * TICKS_PER_SECOND as u64 / 1000,
         }
     }
+
     /// Instant representing seconds since MCU start.
     pub const fn from_secs(seconds: u64) -> Self {
         Self {
