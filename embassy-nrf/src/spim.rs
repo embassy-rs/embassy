@@ -9,7 +9,7 @@ use embassy_extras::unborrow;
 use futures::future::poll_fn;
 use traits::spi::FullDuplex;
 
-use crate::gpio::Pin as GpioPin;
+use crate::gpio::{sealed::Pin as SealedPin, OptionalPin, Pin as GpioPin};
 use crate::interrupt::{self, Interrupt};
 use crate::{pac, peripherals, slice_in_ram_or};
 
@@ -43,8 +43,8 @@ impl<'d, T: Instance> Spim<'d, T> {
         spim: impl PeripheralBorrow<Target = T> + 'd,
         irq: impl PeripheralBorrow<Target = T::Interrupt> + 'd,
         sck: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        miso: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        mosi: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
+        miso: impl PeripheralBorrow<Target = impl OptionalPin> + 'd,
+        mosi: impl PeripheralBorrow<Target = impl OptionalPin> + 'd,
         config: Config,
     ) -> Self {
         unborrow!(spim, irq, sck, miso, mosi);
@@ -53,21 +53,30 @@ impl<'d, T: Instance> Spim<'d, T> {
 
         // Configure pins
         sck.conf().write(|w| w.dir().output().drive().h0h1());
-        mosi.conf().write(|w| w.dir().output().drive().h0h1());
-        miso.conf().write(|w| w.input().connect().drive().h0h1());
+        if let Some(mosi) = mosi.pin_mut() {
+            mosi.conf().write(|w| w.dir().output().drive().h0h1());
+        }
+        if let Some(miso) = miso.pin_mut() {
+            miso.conf().write(|w| w.input().connect().drive().h0h1());
+        }
 
         match config.mode.polarity {
             Polarity::IdleHigh => {
                 sck.set_high();
-                mosi.set_high();
+                if let Some(mosi) = mosi.pin_mut() {
+                    mosi.set_high();
+                }
             }
             Polarity::IdleLow => {
                 sck.set_low();
-                mosi.set_low();
+                if let Some(mosi) = mosi.pin_mut() {
+                    mosi.set_low();
+                }
             }
         }
 
         // Select pins.
+        // Note: OptionalPin reports 'disabled' for psel_bits when no pin was selected.
         r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
         r.psel.mosi.write(|w| unsafe { w.bits(mosi.psel_bits()) });
         r.psel.miso.write(|w| unsafe { w.bits(miso.psel_bits()) });
@@ -117,6 +126,66 @@ impl<'d, T: Instance> Spim<'d, T> {
             irq,
             phantom: PhantomData,
         }
+    }
+
+    /// Spins waiting for SPI operation to complete. Should only be used for short messages.
+    pub fn read_write_blocking(
+        self: Pin<&mut Self>,
+        rx: &mut [u8],
+        tx: &[u8],
+    ) -> Result<(), Error> {
+        let this = unsafe { self.get_unchecked_mut() };
+        slice_in_ram_or(rx, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(tx, Error::DMABufferNotInDataMemory)?;
+
+        compiler_fence(Ordering::SeqCst);
+
+        let r = this.peri.regs();
+
+        // Set up the DMA write.
+        r.txd
+            .ptr
+            .write(|w| unsafe { w.ptr().bits(tx.as_ptr() as u32) });
+        r.txd
+            .maxcnt
+            .write(|w| unsafe { w.maxcnt().bits(tx.len() as _) });
+
+        // Set up the DMA read.
+        r.rxd
+            .ptr
+            .write(|w| unsafe { w.ptr().bits(rx.as_mut_ptr() as u32) });
+        r.rxd
+            .maxcnt
+            .write(|w| unsafe { w.maxcnt().bits(rx.len() as _) });
+
+        // Reset the event
+        r.events_end.reset();
+
+        // Start SPI transaction.
+        r.tasks_start.write(|w| unsafe { w.bits(1) });
+
+        // must start the task before testing for task end.
+        compiler_fence(Ordering::SeqCst);
+
+        // Spin until finished
+        while r.events_end.read().bits() == 0 {}
+
+        r.events_end.reset();
+
+        // Conservative compiler fence to prevent optimizations that do not
+        // take in to account actions by DMA. The fence has been placed here,
+        // after all possible DMA actions have completed.
+        compiler_fence(Ordering::SeqCst);
+
+        Ok(())
+    }
+
+    pub fn read_blocking(self: Pin<&mut Self>, rx: &mut [u8]) -> Result<(), Error> {
+        self.read_write_blocking(rx, &[])
+    }
+
+    pub fn write_blocking(self: Pin<&mut Self>, tx: &[u8]) -> Result<(), Error> {
+        self.read_write_blocking(&mut [], tx)
     }
 }
 
@@ -184,19 +253,20 @@ impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
 
             // Wait for 'end' event.
             poll_fn(|cx| {
-                let r = this.peri.regs();
+                interrupt::free(|_cs| {
+                    let r = this.peri.regs();
+                    if r.events_end.read().bits() != 0 {
+                        r.events_end.reset();
+                        return Poll::Ready(());
+                    }
 
-                if r.events_end.read().bits() != 0 {
-                    r.events_end.reset();
-                    return Poll::Ready(());
-                }
-
-                wake_on_interrupt(&mut this.irq, cx.waker());
-
-                Poll::Pending
+                    wake_on_interrupt(&mut this.irq, cx.waker());
+                    Poll::Pending
+                })
             })
             .await;
 
+            compiler_fence(Ordering::SeqCst);
             Ok(())
         }
     }

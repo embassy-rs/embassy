@@ -405,18 +405,21 @@ impl<'a> Future for PortInputFuture<'a> {
     type Output = ();
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let dis = unsafe { AnyPin::steal(self.pin_port) }
-            .conf()
-            .read()
-            .sense()
-            .is_disabled();
+        // critical section to avoid irq in between sense check and waker registration.
+        interrupt::free(|_cs| {
+            let dis = unsafe { AnyPin::steal(self.pin_port) }
+                .conf()
+                .read()
+                .sense()
+                .is_disabled();
 
-        if dis {
-            return Poll::Ready(());
-        }
+            if dis {
+                return Poll::Ready(());
+            }
 
-        PORT_WAKERS[self.pin_port as usize].register(cx.waker());
+            PORT_WAKERS[self.pin_port as usize].register(cx.waker());
 
-        Poll::Pending
+            Poll::Pending
+        })
     }
 }
