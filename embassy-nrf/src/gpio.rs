@@ -1,6 +1,7 @@
 use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 
+use embassy::util::PeripheralBorrow;
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 use gpio::pin_cnf::DRIVE_A;
 
@@ -205,6 +206,7 @@ pub(crate) mod sealed {
             }
         }
 
+        #[inline]
         fn block(&self) -> &gpio::RegisterBlock {
             unsafe {
                 match self.pin_port() / 32 {
@@ -216,11 +218,13 @@ pub(crate) mod sealed {
             }
         }
 
+        #[inline]
         fn conf(&self) -> &gpio::PIN_CNF {
             &self.block().pin_cnf[self._pin() as usize]
         }
 
         /// Set the output as high.
+        #[inline]
         fn set_high(&self) {
             unsafe {
                 self.block().outset.write(|w| w.bits(1u32 << self._pin()));
@@ -228,12 +232,15 @@ pub(crate) mod sealed {
         }
 
         /// Set the output as low.
+        #[inline]
         fn set_low(&self) {
             unsafe {
                 self.block().outclr.write(|w| w.bits(1u32 << self._pin()));
             }
         }
     }
+
+    pub trait OptionalPin {}
 }
 
 pub trait Pin: sealed::Pin + Sized {
@@ -247,7 +254,7 @@ pub trait Pin: sealed::Pin + Sized {
     #[inline]
     fn port(&self) -> Port {
         match self.pin_port() / 32 {
-            1 => Port::Port0,
+            0 => Port::Port0,
             #[cfg(any(feature = "52833", feature = "52840"))]
             1 => Port::Port1,
             _ => unsafe { unreachable_unchecked() },
@@ -260,6 +267,7 @@ pub trait Pin: sealed::Pin + Sized {
     }
 
     /// Convert from concrete pin type PX_XX to type erased `AnyPin`.
+    #[inline]
     fn degrade(self) -> AnyPin {
         AnyPin {
             pin_port: self.pin_port(),
@@ -273,6 +281,7 @@ pub struct AnyPin {
 }
 
 impl AnyPin {
+    #[inline]
     pub unsafe fn steal(pin_port: u8) -> Self {
         Self { pin_port }
     }
@@ -280,15 +289,108 @@ impl AnyPin {
 
 impl Pin for AnyPin {}
 impl sealed::Pin for AnyPin {
+    #[inline]
     fn pin_port(&self) -> u8 {
         self.pin_port
     }
 }
 
+impl PeripheralBorrow for AnyPin {
+    type Target = AnyPin;
+    #[inline]
+    unsafe fn unborrow(self) -> Self::Target {
+        self
+    }
+}
+
+impl<'a> PeripheralBorrow for &'a mut AnyPin {
+    type Target = AnyPin;
+    #[inline]
+    unsafe fn unborrow(self) -> Self::Target {
+        AnyPin {
+            pin_port: self.pin_port,
+        }
+    }
+}
+
+// ====================
+
+pub trait OptionalPin: sealed::OptionalPin + Sized {
+    type Pin: Pin;
+    fn pin(&self) -> Option<&Self::Pin>;
+    fn pin_mut(&mut self) -> Option<&mut Self::Pin>;
+
+    #[inline]
+    fn psel_bits(&self) -> u32 {
+        self.pin().map_or(1u32 << 31, |pin| Pin::psel_bits(pin))
+    }
+
+    /// Convert from concrete pin type PX_XX to type erased `Option<AnyPin>`.
+    #[inline]
+    fn degrade_optional(mut self) -> Option<AnyPin> {
+        self.pin_mut()
+            .map(|pin| unsafe { core::ptr::read(pin) }.degrade())
+    }
+}
+
+impl<T: Pin> sealed::OptionalPin for T {}
+impl<T: Pin> OptionalPin for T {
+    type Pin = T;
+
+    #[inline]
+    fn pin(&self) -> Option<&T> {
+        Some(self)
+    }
+
+    #[inline]
+    fn pin_mut(&mut self) -> Option<&mut T> {
+        Some(self)
+    }
+}
+
+// Uninhabited enum, so it's actually impossible to create a DummyPin value.
+#[doc(hidden)]
+pub enum DummyPin {}
+impl Pin for DummyPin {}
+impl sealed::Pin for DummyPin {
+    #[inline]
+    fn pin_port(&self) -> u8 {
+        unreachable!()
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct NoPin;
+impl sealed::OptionalPin for NoPin {}
+impl OptionalPin for NoPin {
+    type Pin = DummyPin;
+
+    #[inline]
+    fn pin(&self) -> Option<&DummyPin> {
+        None
+    }
+
+    #[inline]
+    fn pin_mut(&mut self) -> Option<&mut DummyPin> {
+        None
+    }
+}
+
+impl PeripheralBorrow for NoPin {
+    type Target = NoPin;
+    #[inline]
+    unsafe fn unborrow(self) -> Self::Target {
+        self
+    }
+}
+
+// ====================
+
 macro_rules! make_impl {
     ($type:ident, $port_num:expr, $pin_num:expr) => {
         impl Pin for peripherals::$type {}
         impl sealed::Pin for peripherals::$type {
+            #[inline]
             fn pin_port(&self) -> u8 {
                 $port_num * 32 + $pin_num
             }
