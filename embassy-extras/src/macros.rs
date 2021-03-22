@@ -7,6 +7,7 @@ macro_rules! peripherals {
                 #[allow(non_camel_case_types)]
                 pub struct $type { _private: () }
 
+                $(#[$cfg])?
                 impl embassy::util::Steal for $type {
                     #[inline]
                     unsafe fn steal() -> Self {
