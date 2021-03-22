@@ -6,6 +6,7 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
+use embassy_nrf::gpio::NoPin;
 use example_common::*;
 
 use cortex_m_rt::entry;
@@ -29,8 +30,7 @@ async fn run() {
     config.baudrate = uarte::Baudrate::BAUD115200;
 
     let irq = interrupt::take!(UARTE0_UART0);
-    let uart =
-        unsafe { uarte::Uarte::new(p.uarte0, irq, p.p0_08, p.p0_06, p.p0_07, p.p0_05, config) };
+    let uart = unsafe { uarte::Uarte::new(p.uarte0, irq, p.p0_08, p.p0_06, NoPin, NoPin, config) };
     pin_mut!(uart);
 
     info!("uarte initialized!");
