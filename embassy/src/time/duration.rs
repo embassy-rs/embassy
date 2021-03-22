@@ -46,9 +46,6 @@ impl Duration {
         }
     }
 
-    /*
-        NOTE: us delays may not be as accurate
-    */
     /// Creates a duration from the specified number of microseconds
     /// NOTE: Delays this small may be inaccurate.
     pub const fn from_micros(micros: u64) -> Duration {
