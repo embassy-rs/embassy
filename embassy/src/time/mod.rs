@@ -1,6 +1,6 @@
-/// Time abstractions
-/// To use these abstractions, first call `set_clock` with an instance of an monotonic `Clock`.
-///
+//! Time abstractions
+//! To use these abstractions, first call `set_clock` with an instance of an [Clock](trait.Clock.html).
+//!
 mod duration;
 mod instant;
 mod traits;
