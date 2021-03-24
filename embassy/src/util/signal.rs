@@ -10,6 +10,9 @@ use crate::executor;
 use crate::fmt::panic;
 use crate::interrupt::{Interrupt, InterruptExt};
 
+/// Synchronization primitive. Allows creating awaitable signals that may be passed between tasks.
+///
+/// For more advanced use cases, please consider [futures-intrusive](https://crates.io/crates/futures-intrusive) channels or mutexes.
 pub struct Signal<T> {
     state: UnsafeCell<State<T>>,
 }
@@ -29,7 +32,7 @@ impl<T: Send> Signal<T> {
             state: UnsafeCell::new(State::None),
         }
     }
-
+    /// Mark this Signal as completed.
     pub fn signal(&self, val: T) {
         cortex_m::interrupt::free(|_| unsafe {
             let state = &mut *self.state.get();
@@ -64,10 +67,12 @@ impl<T: Send> Signal<T> {
         })
     }
 
+    /// Future that completes when this Signal has been signaled.
     pub fn wait(&self) -> impl Future<Output = T> + '_ {
         futures::future::poll_fn(move |cx| self.poll_wait(cx))
     }
 
+    /// non-blocking method to check whether this signal has been signaled.
     pub fn signaled(&self) -> bool {
         cortex_m::interrupt::free(|_| matches!(unsafe { &*self.state.get() }, State::Signaled(_)))
     }
