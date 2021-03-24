@@ -24,7 +24,7 @@ pub enum Error {}
 
 /// Interface to the I2C peripheral
 pub struct I2C<
-    I2C: PeriAddress<MemSize = u8> + WithInterrupt,
+    I2C: PeriAddress<MemSize = u8> + WithTwoInterrupts,
     TSTREAM: Stream + WithInterrupt,
     RSTREAM: Stream + WithInterrupt,
     CHANNEL: dma::traits::Channel,
@@ -34,7 +34,8 @@ pub struct I2C<
     i2c: Option<I2C>,
     tx_int: TSTREAM::Interrupt,
     rx_int: RSTREAM::Interrupt,
-    i2c_int: I2C::Interrupt,
+    i2c_tint: I2C::TInterrupt,
+    i2c_eint: I2C::EInterrupt,
     channel: PhantomData<CHANNEL>,
 }
 
@@ -46,7 +47,7 @@ where
         + PeriAddress<MemSize = u8>
         + DMASet<TSTREAM, CHANNEL, MemoryToPeripheral>
         + DMASet<RSTREAM, CHANNEL, PeripheralToMemory>
-        + WithInterrupt,
+        + WithTwoInterrupts,
     TSTREAM: Stream + WithInterrupt,
     RSTREAM: Stream + WithInterrupt,
     CHANNEL: Channel,
@@ -60,7 +61,8 @@ where
         clocks: Clocks,
         tx_int: TSTREAM::Interrupt,
         rx_int: RSTREAM::Interrupt,
-        i2c_int: TI2C::Interrupt,
+        i2c_tint: TI2C::TInterrupt,
+        i2c_eint: TI2C::EInterrupt,
     ) -> Self
     where
         PINS: Pins<TI2C>,
@@ -77,7 +79,8 @@ where
             i2c: Some(i2c),
             tx_int: tx_int,
             rx_int: rx_int,
-            i2c_int: i2c_int,
+            i2c_tint: i2c_tint,
+            i2c_eint: i2c_eint,
             channel: core::marker::PhantomData,
         }
     }
@@ -89,7 +92,7 @@ where
         + PeriAddress<MemSize = u8>
         + DMASet<TSTREAM, CHANNEL, MemoryToPeripheral>
         + DMASet<RSTREAM, CHANNEL, PeripheralToMemory>
-        + WithInterrupt
+        + WithTwoInterrupts
         + 'static,
     TSTREAM: Stream + WithInterrupt + 'static,
     RSTREAM: Stream + WithInterrupt + 'static,
@@ -114,7 +117,7 @@ where
         let rx_stream = s.rx_stream.take().unwrap();
         let i2c = s.i2c.take().unwrap();
         async move {
-            let fut = InterruptFuture::new(&mut s.i2c_int);
+            let fut = InterruptFuture::new(&mut s.i2c_tint);
             // Send a START condition and set ACK bit
             i2c.cr1.modify(|_, w| w.start().set_bit().ack().set_bit());
 
@@ -129,7 +132,7 @@ where
                 sr2.msl().bit_is_clear() && sr2.busy().bit_is_clear()
             } {}
 
-            let fut = InterruptFuture::new(&mut s.i2c_int);
+            let fut = InterruptFuture::new(&mut s.i2c_tint);
             // Set up current address, we're trying to talk to
             i2c.dr
                 .write(|w| unsafe { w.bits((u32::from(address) << 1) + 1) });
@@ -161,7 +164,7 @@ where
             fut.await;
             let (rx_stream, i2c, _, _) = rx_transfer.free();
 
-            let fut = InterruptFuture::new(&mut s.i2c_int);
+            let fut = InterruptFuture::new(&mut s.i2c_tint);
             // Prepare to send NACK then STOP after next byte
             i2c.cr1.modify(|_, w| w.ack().clear_bit().stop().set_bit());
             fut.await;
@@ -205,7 +208,7 @@ where
 
             let (tx_stream, i2c, _buf, _) = tx_transfer.free();
 
-            let fut = InterruptFuture::new(&mut s.i2c_int);
+            let fut = InterruptFuture::new(&mut s.i2c_tint);
 
             // Send a STOP condition
             i2c.cr1.modify(|_, w| w.stop().set_bit());
@@ -324,6 +327,11 @@ pub trait WithInterrupt: private::Sealed {
     type Interrupt: Interrupt;
 }
 
+pub trait WithTwoInterrupts: private::Sealed {
+    type TInterrupt: Interrupt;
+    type EInterrupt: Interrupt;
+}
+
 macro_rules! dma {
      ($($PER:ident => ($dma:ident, $stream:ident),)+) => {
          $(
@@ -336,20 +344,21 @@ macro_rules! dma {
  }
 
 macro_rules! i2c {
-    ($($INT:ident => ($i2c:ident),)+) => {
+    ($(($TINT:ident, $EINT:ident) => ($i2c:ident),)+) => {
         $(
             impl private::Sealed for pac::$i2c {}
-            impl WithInterrupt for pac::$i2c {
-                type Interrupt = interrupt::$INT;
+            impl WithTwoInterrupts for pac::$i2c {
+                type TInterrupt = interrupt::$TINT;
+                type EInterrupt = interrupt::$EINT;
             }
         )+
     }
 }
 
 i2c! {
-    I2C1_EV => (I2C1),
-    I2C2_EV => (I2C2),
-    I2C3_EV => (I2C3),
+    (I2C1_EV, I2C1_ER) => (I2C1),
+    (I2C2_EV, I2C2_ER) => (I2C2),
+    (I2C3_EV, I2C3_ER) => (I2C3),
 }
 
 #[cfg(any(feature = "stm32f405",))]
