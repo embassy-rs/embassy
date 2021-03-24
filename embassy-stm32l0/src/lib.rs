@@ -19,11 +19,4 @@ compile_error!(
     "Multile chip features activated. You must activate exactly one of the following features: "
 );
 
-pub use stm32l0xx_hal as hal;
-pub use stm32l0xx_hal::pac;
-
-// This mod MUST go first, so that the others see its macros.
-pub(crate) mod fmt;
-
-pub mod exti;
-pub mod interrupt;
+pub use embassy_stm32::{exti, fmt, hal, interrupt, pac};

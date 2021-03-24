@@ -1022,4 +1022,106 @@ mod irqs {
     declare!(DSIHOST);
 }
 
+#[cfg(feature = "stm32l0x1")]
+mod irqs {
+    use super::*;
+    declare!(WWDG);
+    declare!(PVD);
+    declare!(RTC);
+    declare!(FLASH);
+    declare!(RCC);
+    declare!(EXTI0_1);
+    declare!(EXTI2_3);
+    declare!(EXTI4_15);
+    declare!(DMA1_CHANNEL1);
+    declare!(DMA1_CHANNEL2_3);
+    declare!(DMA1_CHANNEL4_7);
+    declare!(ADC_COMP);
+    declare!(LPTIM1);
+    declare!(USART4_USART5);
+    declare!(TIM2);
+    declare!(TIM3);
+    declare!(TIM6);
+    declare!(TIM7);
+    declare!(TIM21);
+    declare!(I2C3);
+    declare!(TIM22);
+    declare!(I2C1);
+    declare!(I2C2);
+    declare!(SPI1);
+    declare!(SPI2);
+    declare!(USART1);
+    declare!(USART2);
+    declare!(AES_RNG_LPUART1);
+}
+
+#[cfg(feature = "stm32l0x2")]
+mod irqs {
+    use super::*;
+    declare!(WWDG);
+    declare!(PVD);
+    declare!(RTC);
+    declare!(RCC);
+    declare!(EXTI0_1);
+    declare!(EXTI2_3);
+    declare!(EXTI4_15);
+    declare!(TSC);
+    declare!(DMA1_CHANNEL1);
+    declare!(DMA1_CHANNEL2_3);
+    declare!(DMA1_CHANNEL4_7);
+    declare!(ADC_COMP);
+    declare!(LPTIM1);
+    declare!(USART4_USART5);
+    declare!(TIM2);
+    declare!(TIM3);
+    declare!(TIM6_DAC);
+    declare!(TIM7);
+    declare!(TIM21);
+    declare!(I2C3);
+    declare!(TIM22);
+    declare!(I2C1);
+    declare!(I2C2);
+    declare!(SPI1);
+    declare!(SPI2);
+    declare!(USART1);
+    declare!(USART2);
+    declare!(AES_RNG_LPUART1);
+    declare!(USB);
+}
+
+#[cfg(feature = "stm32l0x3")]
+mod irqs {
+    use super::*;
+    declare!(WWDG);
+    declare!(PVD);
+    declare!(RTC);
+    declare!(RCC);
+    declare!(EXTI0_1);
+    declare!(EXTI2_3);
+    declare!(EXTI4_15);
+    declare!(TSC);
+    declare!(DMA1_CHANNEL1);
+    declare!(DMA1_CHANNEL2_3);
+    declare!(DMA1_CHANNEL4_7);
+    declare!(ADC_COMP);
+    declare!(LPTIM1);
+    declare!(USART4_USART5);
+    declare!(TIM2);
+    declare!(TIM3);
+    declare!(TIM6_DAC);
+    declare!(TIM7);
+    declare!(TIM21);
+    declare!(I2C3);
+    declare!(TIM22);
+    declare!(I2C1);
+    declare!(I2C2);
+    declare!(SPI1);
+    declare!(SPI2);
+    declare!(USART1);
+    declare!(USART2);
+    declare!(AES_RNG_LPUART1);
+    declare!(LCD);
+    declare!(USB);
+}
+
 pub use irqs::*;

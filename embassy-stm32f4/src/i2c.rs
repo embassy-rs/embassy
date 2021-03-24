@@ -27,7 +27,7 @@ pub struct I2C<
     I2C: PeriAddress<MemSize = u8> + WithTwoInterrupts,
     TSTREAM: Stream + WithInterrupt,
     RSTREAM: Stream + WithInterrupt,
-    CHANNEL: dma::traits::Channel,
+    CHANNEL: Channel,
 > {
     tx_stream: Option<TSTREAM>,
     rx_stream: Option<RSTREAM>,
@@ -81,7 +81,7 @@ where
             rx_int: rx_int,
             i2c_tint: i2c_tint,
             i2c_eint: i2c_eint,
-            channel: core::marker::PhantomData,
+            channel: PhantomData,
         }
     }
 }
@@ -117,32 +117,42 @@ where
         let rx_stream = s.rx_stream.take().unwrap();
         let i2c = s.i2c.take().unwrap();
         async move {
-            let fut = InterruptFuture::new(&mut s.i2c_tint);
             // Send a START condition and set ACK bit
             i2c.cr1.modify(|_, w| w.start().set_bit().ack().set_bit());
 
             // Wait until START condition was generated
-            fut.await;
-
-            // TODO: fix this so as not to lose time
+            loop {
+                let fut = InterruptFuture::new(&mut s.i2c_tint);
+                if !i2c.sr1.read().sb().bit_is_clear() {
+                    break;
+                }
+                fut.await;
+            }
 
             // Also wait until signalled we're master and everything is waiting for us
-            while {
+            loop {
+                let fut = InterruptFuture::new(&mut s.i2c_tint);
                 let sr2 = i2c.sr2.read();
-                sr2.msl().bit_is_clear() && sr2.busy().bit_is_clear()
-            } {}
+                if !(sr2.msl().bit_is_clear() && sr2.busy().bit_is_clear()) {
+                    break;
+                }
+                fut.await;
+            }
 
-            let fut = InterruptFuture::new(&mut s.i2c_tint);
             // Set up current address, we're trying to talk to
             i2c.dr
                 .write(|w| unsafe { w.bits((u32::from(address) << 1) + 1) });
 
-            // Wait until address was sent
-            //            while {
-            //                self.check_and_clear_error_flags()?;
-            //                self.i2c.sr1.read().addr().bit_is_clear()
-            //            } {}
-            fut.await;
+            loop {
+                let fut = InterruptFuture::new(&mut s.i2c_tint);
+                let sr2 = i2c.sr2.read();
+                // self.check_and_clear_error_flags()?;
+
+                if !(i2c.sr1.read().addr().bit_is_clear()) {
+                    break;
+                }
+                fut.await;
+            }
 
             // Clear condition by reading SR2
             i2c.sr2.read();
@@ -164,10 +174,16 @@ where
             fut.await;
             let (rx_stream, i2c, _, _) = rx_transfer.free();
 
-            let fut = InterruptFuture::new(&mut s.i2c_tint);
             // Prepare to send NACK then STOP after next byte
             i2c.cr1.modify(|_, w| w.ack().clear_bit().stop().set_bit());
-            fut.await;
+
+            loop {
+                let fut = InterruptFuture::new(&mut s.i2c_tint);
+                if !i2c.cr1.read().stop().bit_is_set() {
+                    break;
+                }
+                fut.await;
+            }
 
             s.rx_stream.replace(rx_stream);
             s.i2c.replace(i2c);
@@ -208,12 +224,17 @@ where
 
             let (tx_stream, i2c, _buf, _) = tx_transfer.free();
 
-            let fut = InterruptFuture::new(&mut s.i2c_tint);
-
             // Send a STOP condition
             i2c.cr1.modify(|_, w| w.stop().set_bit());
+
             // Wait for STOP condition to transmit.
-            fut.await;
+            loop {
+                let fut = InterruptFuture::new(&mut s.i2c_tint);
+                if !i2c.cr1.read().stop().bit_is_set() {
+                    break;
+                }
+                fut.await;
+            }
 
             s.tx_stream.replace(tx_stream);
             s.i2c.replace(i2c);
@@ -231,93 +252,6 @@ where
         async move { Ok(()) }
     }
 }
-
-// impl<I2C, TSTREAM, RSTREAM, CHANNEL> I2c for I2C<I2C, TSTREAM, RSTREAM, CHANNEL>
-// where
-//     I2C: i2c::Instance
-//         + PeriAddress<MemSize = u8>
-//         + DMASet<TSTREAM, CHANNEL, MemoryToPeripheral>
-//         + DMASet<RSTREAM, CHANNEL, PeripheralToMemory>
-//         + WithInterrupt
-//         + 'static,
-//     TSTREAM: Stream + WithInterrupt + 'static,
-//     RSTREAM: Stream + WithInterrupt + 'static,
-//     CHANNEL: Channel + 'static,
-// {
-//     type SendFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
-//     type ReceiveFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
-//
-//     /// Sends serial data.
-//     fn send<'a>(&'a mut self, buf: &'a [u8]) -> Self::SendFuture<'a> {
-//         #[allow(mutable_transmutes)]
-//         let static_buf = unsafe { core::mem::transmute::<&'a [u8], &'static mut [u8]>(buf) };
-//
-//         let tx_stream = self.tx_stream.take().unwrap();
-//         let I2C = self.I2C.take().unwrap();
-//
-//         async move {
-//             let mut tx_transfer = Transfer::init(
-//                 tx_stream,
-//                 I2C,
-//                 static_buf,
-//                 None,
-//                 DmaConfig::default()
-//                     .transfer_complete_interrupt(true)
-//                     .memory_increment(true)
-//                     .double_buffer(false),
-//             );
-//
-//             let fut = InterruptFuture::new(&mut self.tx_int);
-//
-//             tx_transfer.start(|_I2C| {});
-//
-//             fut.await;
-//
-//             let (tx_stream, I2C, _buf, _) = tx_transfer.free();
-//             self.tx_stream.replace(tx_stream);
-//             self.I2C.replace(I2C);
-//
-//             Ok(())
-//         }
-//     }
-//
-//     /// Receives serial data.
-//     ///
-//     /// The future is pending until the buffer is completely filled.
-//     /// A common pattern is to use [`stop()`](ReceiveFuture::stop) to cancel
-//     /// unfinished transfers after a timeout to prevent lockup when no more data
-//     /// is incoming.
-//     fn receive<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReceiveFuture<'a> {
-//         let static_buf = unsafe { core::mem::transmute::<&'a mut [u8], &'static mut [u8]>(buf) };
-//
-//         let rx_stream = self.rx_stream.take().unwrap();
-//         let I2C = self.I2C.take().unwrap();
-//
-//         async move {
-//             let mut rx_transfer = Transfer::init(
-//                 rx_stream,
-//                 I2C,
-//                 static_buf,
-//                 None,
-//                 DmaConfig::default()
-//                     .transfer_complete_interrupt(true)
-//                     .memory_increment(true)
-//                     .double_buffer(false),
-//             );
-//
-//             let fut = InterruptFuture::new(&mut self.rx_int);
-//
-//             rx_transfer.start(|_I2C| {});
-//             fut.await;
-//
-//             let (rx_stream, I2C, _, _) = rx_transfer.free();
-//             self.rx_stream.replace(rx_stream);
-//             self.I2C.replace(I2C);
-//
-//             Ok(())
-//         }
-//     }
-// }
 
 mod private {
     pub trait Sealed {}
