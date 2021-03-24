@@ -80,6 +80,25 @@ unsafe impl cortex_m::interrupt::Nr for NrWrap {
     }
 }
 
+/// Creates a future that completes when the specified Interrupt is triggered.
+///
+/// The input handler is unregistered when this Future is dropped.
+///
+/// Example:
+/// ``` no_compile
+/// use embassy::traits::*;
+/// use embassy::util::InterruptFuture;
+/// use embassy::executor::task;
+/// use embassy_stm32f4::interrupt; // Adjust this to your MCU's embassy HAL.
+/// #[task]
+/// async fn demo_interrupt_future() {
+///     // Using STM32f446 interrupt names, adjust this to your application as necessary.
+///     // Wait for TIM2 to tick.
+///     let mut tim2_interrupt = interrupt::take!(TIM2);
+///     InterruptFuture::new(&mut tim2_interrupt).await;
+///     // TIM2 interrupt went off, do something...
+/// }
+/// ```
 pub struct InterruptFuture<'a, I: Interrupt> {
     interrupt: &'a mut I,
 }
