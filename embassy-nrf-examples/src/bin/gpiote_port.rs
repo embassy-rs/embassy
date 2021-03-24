@@ -19,7 +19,7 @@ use embassy_nrf::interrupt;
 use embassy_nrf::Peripherals;
 use example_common::*;
 
-async fn button(n: usize, mut pin: PortInput<AnyPin>) {
+async fn button(n: usize, mut pin: PortInput<'static, AnyPin>) {
     loop {
         Pin::new(&mut pin).wait_for_low().await;
         info!("Button {:?} pressed!", n);
