@@ -9,7 +9,7 @@ use core::ptr;
 use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
 use embassy::traits::gpio::{WaitForHigh, WaitForLow};
-use embassy::util::{AtomicWakerRegistration, Signal};
+use embassy::util::{AtomicWakerRegistration, PeripheralBorrow, Signal};
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 
 use crate::gpio::sealed::Pin as _;
@@ -338,18 +338,19 @@ impl<C: ChannelID, T> OutputChannel<C, T> {
  */
 
 /// GPIO input driver with support
-pub struct PortInput<T: GpioPin> {
-    pin: Input<T>,
+pub struct PortInput<'d, T: GpioPin> {
+    pin: Input<'d, T>,
 }
-impl<T: GpioPin> Unpin for PortInput<T> {}
 
-impl<T: GpioPin> PortInput<T> {
-    pub fn new(_init: Initialized, pin: Input<T>) -> Self {
+impl<'d, T: GpioPin> Unpin for PortInput<'d, T> {}
+
+impl<'d, T: GpioPin> PortInput<'d, T> {
+    pub fn new(_init: Initialized, pin: Input<'d, T>) -> Self {
         Self { pin }
     }
 }
 
-impl<T: GpioPin> InputPin for PortInput<T> {
+impl<'d, T: GpioPin> InputPin for PortInput<'d, T> {
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
@@ -361,7 +362,7 @@ impl<T: GpioPin> InputPin for PortInput<T> {
     }
 }
 
-impl<T: GpioPin> WaitForHigh for PortInput<T> {
+impl<'d, T: GpioPin> WaitForHigh for PortInput<'d, T> {
     type Future<'a> = PortInputFuture<'a>;
 
     fn wait_for_high<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
@@ -374,7 +375,7 @@ impl<T: GpioPin> WaitForHigh for PortInput<T> {
     }
 }
 
-impl<T: GpioPin> WaitForLow for PortInput<T> {
+impl<'d, T: GpioPin> WaitForLow for PortInput<'d, T> {
     type Future<'a> = PortInputFuture<'a>;
 
     fn wait_for_low<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {

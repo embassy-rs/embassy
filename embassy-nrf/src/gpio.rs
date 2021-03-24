@@ -1,7 +1,9 @@
 use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
+use core::marker::PhantomData;
 
 use embassy::util::PeripheralBorrow;
+use embassy_extras::unborrow;
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 use gpio::pin_cnf::DRIVE_A;
 
@@ -30,12 +32,15 @@ pub enum Pull {
 }
 
 /// GPIO input driver.
-pub struct Input<T: Pin> {
+pub struct Input<'d, T: Pin> {
     pub(crate) pin: T,
+    phantom: PhantomData<&'d mut T>,
 }
 
-impl<T: Pin> Input<T> {
-    pub fn new(pin: T, pull: Pull) -> Self {
+impl<'d, T: Pin> Input<'d, T> {
+    pub fn new(pin: impl PeripheralBorrow<Target = T> + 'd, pull: Pull) -> Self {
+        unborrow!(pin);
+
         pin.conf().write(|w| {
             w.dir().input();
             w.input().connect();
@@ -55,17 +60,20 @@ impl<T: Pin> Input<T> {
             w
         });
 
-        Self { pin }
+        Self {
+            pin,
+            phantom: PhantomData,
+        }
     }
 }
 
-impl<T: Pin> Drop for Input<T> {
+impl<'d, T: Pin> Drop for Input<'d, T> {
     fn drop(&mut self) {
         self.pin.conf().reset();
     }
 }
 
-impl<T: Pin> InputPin for Input<T> {
+impl<'d, T: Pin> InputPin for Input<'d, T> {
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
@@ -108,12 +116,19 @@ pub enum OutputDrive {
 }
 
 /// GPIO output driver.
-pub struct Output<T: Pin> {
+pub struct Output<'d, T: Pin> {
     pin: T,
+    phantom: PhantomData<&'d mut T>,
 }
 
-impl<T: Pin> Output<T> {
-    pub fn new(pin: T, initial_output: Level, drive: OutputDrive) -> Self {
+impl<'d, T: Pin> Output<'d, T> {
+    pub fn new(
+        pin: impl PeripheralBorrow<Target = T> + 'd,
+        initial_output: Level,
+        drive: OutputDrive,
+    ) -> Self {
+        unborrow!(pin);
+
         match initial_output {
             Level::High => pin.set_high(),
             Level::Low => pin.set_low(),
@@ -139,17 +154,20 @@ impl<T: Pin> Output<T> {
             w
         });
 
-        Self { pin }
+        Self {
+            pin,
+            phantom: PhantomData,
+        }
     }
 }
 
-impl<T: Pin> Drop for Output<T> {
+impl<'d, T: Pin> Drop for Output<'d, T> {
     fn drop(&mut self) {
         self.pin.conf().reset();
     }
 }
 
-impl<T: Pin> OutputPin for Output<T> {
+impl<'d, T: Pin> OutputPin for Output<'d, T> {
     type Error = Infallible;
 
     /// Set the output as high.
@@ -175,7 +193,7 @@ impl<T: Pin> OutputPin for Output<T> {
     }
 }
 
-impl<T: Pin> StatefulOutputPin for Output<T> {
+impl<'d, T: Pin> StatefulOutputPin for Output<'d, T> {
     /// Is the output pin set as high?
     fn is_set_high(&self) -> Result<bool, Self::Error> {
         self.is_set_low().map(|v| !v)
