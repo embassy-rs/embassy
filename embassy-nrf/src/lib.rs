@@ -100,6 +100,7 @@ pub mod interrupt;
 #[cfg(feature = "52840")]
 pub mod qspi;
 pub mod rtc;
+pub mod saadc;
 pub mod spim;
 pub mod uarte;
 
@@ -129,6 +130,9 @@ embassy_extras::peripherals! {
     spim2: SPIM2,
     #[cfg(any(feature = "52833", feature = "52840"))]
     spim3: SPIM3,
+
+    // SAADC
+    saadc: SAADC,
 
     // GPIOTE
     gpiote: GPIOTE,
