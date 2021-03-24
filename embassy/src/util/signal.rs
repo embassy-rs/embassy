@@ -32,6 +32,7 @@ impl<T: Send> Signal<T> {
             state: UnsafeCell::new(State::None),
         }
     }
+
     /// Mark this Signal as completed.
     pub fn signal(&self, val: T) {
         cortex_m::interrupt::free(|_| unsafe {
