@@ -1,3 +1,4 @@
+//! Async utilities
 mod drop_bomb;
 mod forever;
 mod mutex;
