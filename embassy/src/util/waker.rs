@@ -48,11 +48,11 @@ impl WakerRegistration {
     }
 }
 
-pub struct AtomicWakerRegistration {
+pub struct AtomicWaker {
     waker: AtomicPtr<TaskHeader>,
 }
 
-impl AtomicWakerRegistration {
+impl AtomicWaker {
     pub const fn new() -> Self {
         Self {
             waker: AtomicPtr::new(ptr::null_mut()),
@@ -62,17 +62,14 @@ impl AtomicWakerRegistration {
     /// Register a waker. Overwrites the previous waker, if any.
     pub fn register(&self, w: &Waker) {
         let w = unsafe { task_from_waker(w) };
-        let w2 = self.waker.swap(w.as_ptr(), Ordering::Relaxed);
-        if !w2.is_null() && w2 != w.as_ptr() {
-            unsafe { wake_task(NonNull::new_unchecked(w2)) };
-        }
+        self.waker.store(w.as_ptr(), Ordering::Relaxed);
     }
 
     /// Wake the registered waker, if any.
     pub fn wake(&self) {
-        let w2 = self.waker.swap(ptr::null_mut(), Ordering::Relaxed);
-        if !w2.is_null() {
-            unsafe { wake_task(NonNull::new_unchecked(w2)) };
+        let w2 = self.waker.load(Ordering::Relaxed);
+        if let Some(w2) = NonNull::new(w2) {
+            unsafe { wake_task(w2) };
         }
     }
 }

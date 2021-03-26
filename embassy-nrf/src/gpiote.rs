@@ -9,7 +9,7 @@ use core::ptr;
 use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
 use embassy::traits::gpio::{WaitForHigh, WaitForLow};
-use embassy::util::{AtomicWakerRegistration, PeripheralBorrow, Signal};
+use embassy::util::{AtomicWaker, PeripheralBorrow, Signal};
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 
 use crate::gpio::sealed::Pin as _;
@@ -68,9 +68,9 @@ impl ChannelID for ChAny {
     }
 }
 
-const NEW_AWR: AtomicWakerRegistration = AtomicWakerRegistration::new();
-static CHANNEL_WAKERS: [AtomicWakerRegistration; CHANNEL_COUNT] = [NEW_AWR; CHANNEL_COUNT];
-static PORT_WAKERS: [AtomicWakerRegistration; PIN_COUNT] = [NEW_AWR; PIN_COUNT];
+const NEW_AWR: AtomicWaker = AtomicWaker::new();
+static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AWR; CHANNEL_COUNT];
+static PORT_WAKERS: [AtomicWaker; PIN_COUNT] = [NEW_AWR; PIN_COUNT];
 
 pub enum InputChannelPolarity {
     None,
