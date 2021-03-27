@@ -3,7 +3,7 @@ use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
 
 use embassy::util::PeripheralBorrow;
-use embassy_extras::unborrow;
+use embassy_extras::{impl_unborrow, unborrow};
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 use gpio::pin_cnf::DRIVE_A;
 
@@ -305,29 +305,12 @@ impl AnyPin {
     }
 }
 
+impl_unborrow!(AnyPin);
 impl Pin for AnyPin {}
 impl sealed::Pin for AnyPin {
     #[inline]
     fn pin_port(&self) -> u8 {
         self.pin_port
-    }
-}
-
-impl PeripheralBorrow for AnyPin {
-    type Target = AnyPin;
-    #[inline]
-    unsafe fn unborrow(self) -> Self::Target {
-        self
-    }
-}
-
-impl<'a> PeripheralBorrow for &'a mut AnyPin {
-    type Target = AnyPin;
-    #[inline]
-    unsafe fn unborrow(self) -> Self::Target {
-        AnyPin {
-            pin_port: self.pin_port,
-        }
     }
 }
 
@@ -379,6 +362,7 @@ impl sealed::Pin for DummyPin {
 
 #[derive(Clone, Copy, Debug)]
 pub struct NoPin;
+impl_unborrow!(NoPin);
 impl sealed::OptionalPin for NoPin {}
 impl OptionalPin for NoPin {
     type Pin = DummyPin;
@@ -391,14 +375,6 @@ impl OptionalPin for NoPin {
     #[inline]
     fn pin_mut(&mut self) -> Option<&mut DummyPin> {
         None
-    }
-}
-
-impl PeripheralBorrow for NoPin {
-    type Target = NoPin;
-    #[inline]
-    unsafe fn unborrow(self) -> Self::Target {
-        self
     }
 }
 

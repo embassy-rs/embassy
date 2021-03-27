@@ -84,3 +84,24 @@ macro_rules! unborrow {
         )*
     }
 }
+
+#[macro_export]
+macro_rules! impl_unborrow {
+    ($type:ident) => {
+        impl PeripheralBorrow for $type {
+            type Target = $type;
+            #[inline]
+            unsafe fn unborrow(self) -> Self::Target {
+                self
+            }
+        }
+
+        impl<'a> PeripheralBorrow for &'a mut $type {
+            type Target = $type;
+            #[inline]
+            unsafe fn unborrow(self) -> Self::Target {
+                unsafe { ::core::ptr::read(self) }
+            }
+        }
+    };
+}
