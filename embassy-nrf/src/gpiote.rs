@@ -10,10 +10,12 @@ use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
 use embassy::traits::gpio::{WaitForHigh, WaitForLow};
 use embassy::util::{AtomicWaker, PeripheralBorrow, Signal};
+use embassy_extras::impl_unborrow;
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
+use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, Input, Pin as GpioPin, Pull};
+use crate::gpio::{AnyPin, Input, Pin as GpioPin, Port, Pull};
 use crate::pac;
 use crate::pac::generic::Reg;
 use crate::pac::gpiote::_TASKS_OUT;
@@ -29,44 +31,6 @@ pub const CHANNEL_COUNT: usize = 8;
 pub const PIN_COUNT: usize = 48;
 #[cfg(not(any(feature = "52833", feature = "52840")))]
 pub const PIN_COUNT: usize = 32;
-
-pub trait ChannelID {
-    fn number(&self) -> usize;
-}
-
-macro_rules! impl_channel {
-    ($ChX:ident, $n:expr) => {
-        pub struct $ChX(());
-        impl $ChX {
-            pub fn degrade(self) -> ChAny {
-                ChAny($n)
-            }
-        }
-
-        impl ChannelID for $ChX {
-            fn number(&self) -> usize {
-                $n
-            }
-        }
-    };
-}
-
-impl_channel!(Ch0, 0);
-impl_channel!(Ch1, 1);
-impl_channel!(Ch2, 2);
-impl_channel!(Ch3, 3);
-impl_channel!(Ch4, 4);
-impl_channel!(Ch5, 5);
-impl_channel!(Ch6, 6);
-impl_channel!(Ch7, 7);
-
-pub struct ChAny(u8);
-
-impl ChannelID for ChAny {
-    fn number(&self) -> usize {
-        self.0 as usize
-    }
-}
 
 const NEW_AWR: AtomicWaker = AtomicWaker::new();
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AWR; CHANNEL_COUNT];
@@ -123,7 +87,7 @@ unsafe fn on_irq(_ctx: *mut ()) {
 
     for i in 0..CHANNEL_COUNT {
         if g.events_in[i].read().bits() != 0 {
-            g.events_in[i].write(|w| w);
+            g.intenclr.write(|w| unsafe { w.bits(1 << i) });
             CHANNEL_WAKERS[i].wake();
         }
     }
@@ -163,32 +127,31 @@ impl Iterator for BitIter {
     }
 }
 
-/*
-pub struct InputChannel<C: ChannelID, T> {
+pub struct InputChannel<'d, C: Channel, T: GpioPin> {
     ch: C,
-    pin: GpioPin<Input<T>>,
+    pin: Input<'d, T>,
 }
 
-impl<C: ChannelID, T> Drop for InputChannel<C, T> {
+impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
     fn drop(&mut self) {
-        let g = unsafe { &*GPIOTE::ptr() };
-        let index = self.ch.number();
-        g.config[index].write(|w| w.mode().disabled());
-        g.intenclr.write(|w| unsafe { w.bits(1 << index) });
+        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let num = self.ch.number() as usize;
+        g.config[num].write(|w| w.mode().disabled());
+        g.intenclr.write(|w| unsafe { w.bits(1 << num) });
     }
 }
 
-impl<C: ChannelID, T> InputChannel<C, T> {
+impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
     pub fn new(
         _init: Initialized,
         ch: C,
-        pin: GpioPin<Input<T>>,
+        pin: Input<'d, T>,
         polarity: InputChannelPolarity,
     ) -> Self {
-        let g = unsafe { &*GPIOTE::ptr() };
-        let index = ch.number();
+        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let num = ch.number() as usize;
 
-        g.config[index].write(|w| {
+        g.config[num].write(|w| {
             match polarity {
                 InputChannelPolarity::HiToLo => w.mode().event().polarity().hi_to_lo(),
                 InputChannelPolarity::LoToHi => w.mode().event().polarity().lo_to_hi(),
@@ -196,38 +159,52 @@ impl<C: ChannelID, T> InputChannel<C, T> {
                 InputChannelPolarity::Toggle => w.mode().event().polarity().toggle(),
             };
             #[cfg(any(feature = "52833", feature = "52840"))]
-            w.port().bit(match pin.port() {
+            w.port().bit(match pin.pin.port() {
                 Port::Port0 => false,
                 Port::Port1 => true,
             });
-            unsafe { w.psel().bits(pin.pin()) }
+            unsafe { w.psel().bits(pin.pin.pin()) }
         });
 
-        CHANNEL_WAKERS[index].reset();
-
-        // Enable interrupt
-        g.intenset.write(|w| unsafe { w.bits(1 << index) });
+        g.events_in[num].reset();
 
         InputChannel { ch, pin }
     }
 
-    pub fn free(self) -> (C, GpioPin<Input<T>>) {
-        let m = ManuallyDrop::new(self);
-        let ch = unsafe { ptr::read(&m.ch) };
-        let pin = unsafe { ptr::read(&m.pin) };
-        (ch, pin)
-    }
-
     pub async fn wait(&self) {
-        let index = self.ch.number();
-        CHANNEL_WAKERS[index].wait().await;
-    }
+        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let num = self.ch.number() as usize;
 
-    pub fn pin(&self) -> &GpioPin<Input<T>> {
-        &self.pin
+        // Enable interrupt
+        g.events_in[num].reset();
+        g.intenset.write(|w| unsafe { w.bits(1 << num) });
+
+        poll_fn(|cx| {
+            CHANNEL_WAKERS[num].register(cx.waker());
+
+            if g.events_in[num].read().bits() != 0 {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
     }
 }
 
+impl<'d, C: Channel, T: GpioPin> InputPin for InputChannel<'d, C, T> {
+    type Error = Infallible;
+
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        self.pin.is_high()
+    }
+
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        self.pin.is_low()
+    }
+}
+
+/*
 pub struct OutputChannel<C: ChannelID, T> {
     ch: C,
     pin: GpioPin<Output<T>>,
@@ -414,3 +391,48 @@ impl<'a> Future for PortInputFuture<'a> {
         }
     }
 }
+
+mod sealed {
+    pub trait Channel {
+        fn number(&self) -> u8;
+    }
+}
+
+pub trait Channel: sealed::Channel + Sized {
+    fn degrade(self) -> AnyChannel {
+        AnyChannel {
+            number: self.number(),
+        }
+    }
+}
+
+pub struct AnyChannel {
+    number: u8,
+}
+impl_unborrow!(AnyChannel);
+impl Channel for AnyChannel {}
+impl sealed::Channel for AnyChannel {
+    fn number(&self) -> u8 {
+        self.number
+    }
+}
+
+macro_rules! impl_channel {
+    ($type:ident, $number:expr) => {
+        impl sealed::Channel for peripherals::$type {
+            fn number(&self) -> u8 {
+                $number
+            }
+        }
+        impl Channel for peripherals::$type {}
+    };
+}
+
+impl_channel!(GPIOTE_CH0, 0);
+impl_channel!(GPIOTE_CH1, 1);
+impl_channel!(GPIOTE_CH2, 2);
+impl_channel!(GPIOTE_CH3, 3);
+impl_channel!(GPIOTE_CH4, 4);
+impl_channel!(GPIOTE_CH5, 5);
+impl_channel!(GPIOTE_CH6, 6);
+impl_channel!(GPIOTE_CH7, 7);

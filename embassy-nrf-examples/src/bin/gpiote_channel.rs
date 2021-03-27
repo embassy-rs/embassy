@@ -11,31 +11,44 @@ use example_common::*;
 
 use cortex_m_rt::entry;
 use defmt::panic;
-use nrf52840_hal::gpio;
 
 use embassy::executor::{task, Executor};
 use embassy::util::Forever;
-use embassy_nrf::gpiote::{Gpiote, InputChannel, InputChannelPolarity};
-use embassy_nrf::interrupt;
+use embassy_nrf::gpio::{Input, Pull};
+use embassy_nrf::gpiote::{self, InputChannel, InputChannelPolarity};
+use embassy_nrf::{interrupt, Peripherals};
 
 #[task]
 async fn run() {
-    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
-    let port0 = gpio::p0::Parts::new(p.P0);
-
-    let (g, chs) = Gpiote::new(p.GPIOTE, interrupt::take!(GPIOTE));
+    let p = Peripherals::take().unwrap();
+    let g = gpiote::initialize(p.GPIOTE, interrupt::take!(GPIOTE));
 
     info!("Starting!");
 
-    let pin1 = port0.p0_11.into_pullup_input().degrade();
-    let pin2 = port0.p0_12.into_pullup_input().degrade();
-    let pin3 = port0.p0_24.into_pullup_input().degrade();
-    let pin4 = port0.p0_25.into_pullup_input().degrade();
-
-    let ch1 = InputChannel::new(g, chs.ch0, pin1, InputChannelPolarity::HiToLo);
-    let ch2 = InputChannel::new(g, chs.ch1, pin2, InputChannelPolarity::LoToHi);
-    let ch3 = InputChannel::new(g, chs.ch2, pin3, InputChannelPolarity::Toggle);
-    let ch4 = InputChannel::new(g, chs.ch3, pin4, InputChannelPolarity::Toggle);
+    let ch1 = InputChannel::new(
+        g,
+        p.GPIOTE_CH0,
+        Input::new(p.P0_11, Pull::Up),
+        InputChannelPolarity::HiToLo,
+    );
+    let ch2 = InputChannel::new(
+        g,
+        p.GPIOTE_CH1,
+        Input::new(p.P0_12, Pull::Up),
+        InputChannelPolarity::LoToHi,
+    );
+    let ch3 = InputChannel::new(
+        g,
+        p.GPIOTE_CH2,
+        Input::new(p.P0_24, Pull::Up),
+        InputChannelPolarity::Toggle,
+    );
+    let ch4 = InputChannel::new(
+        g,
+        p.GPIOTE_CH3,
+        Input::new(p.P0_25, Pull::Up),
+        InputChannelPolarity::Toggle,
+    );
 
     let button1 = async {
         loop {
