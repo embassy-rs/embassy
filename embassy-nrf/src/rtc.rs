@@ -1,13 +1,12 @@
 use core::cell::Cell;
-use core::ops::Deref;
 use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 
 use embassy::interrupt::InterruptExt;
 use embassy::time::Clock;
 
-use crate::interrupt;
 use crate::interrupt::{CriticalSection, Interrupt, Mutex};
-use crate::pac::rtc0;
+use crate::pac;
+use crate::{interrupt, peripherals};
 
 // RTC timekeeping works with something we call "periods", which are time intervals
 // of 2^23 ticks. The RTC counter value is 24 bits, so one "overflow cycle" is 2 periods.
@@ -96,19 +95,20 @@ impl<T: Instance> RTC<T> {
     }
 
     pub fn start(&'static self) {
-        self.rtc.cc[3].write(|w| unsafe { w.bits(0x800000) });
+        let r = self.rtc.regs();
+        r.cc[3].write(|w| unsafe { w.bits(0x800000) });
 
-        self.rtc.intenset.write(|w| {
+        r.intenset.write(|w| {
             let w = w.ovrflw().set();
             let w = w.compare3().set();
             w
         });
 
-        self.rtc.tasks_clear.write(|w| unsafe { w.bits(1) });
-        self.rtc.tasks_start.write(|w| unsafe { w.bits(1) });
+        r.tasks_clear.write(|w| unsafe { w.bits(1) });
+        r.tasks_start.write(|w| unsafe { w.bits(1) });
 
         // Wait for clear
-        while self.rtc.counter.read().bits() != 0 {}
+        while r.counter.read().bits() != 0 {}
 
         self.irq.set_handler(|ptr| unsafe {
             let this = &*(ptr as *const () as *const Self);
@@ -120,19 +120,20 @@ impl<T: Instance> RTC<T> {
     }
 
     fn on_interrupt(&self) {
-        if self.rtc.events_ovrflw.read().bits() == 1 {
-            self.rtc.events_ovrflw.write(|w| w);
+        let r = self.rtc.regs();
+        if r.events_ovrflw.read().bits() == 1 {
+            r.events_ovrflw.write(|w| w);
             self.next_period();
         }
 
-        if self.rtc.events_compare[3].read().bits() == 1 {
-            self.rtc.events_compare[3].write(|w| w);
+        if r.events_compare[3].read().bits() == 1 {
+            r.events_compare[3].write(|w| w);
             self.next_period();
         }
 
         for n in 0..ALARM_COUNT {
-            if self.rtc.events_compare[n].read().bits() == 1 {
-                self.rtc.events_compare[n].write(|w| w);
+            if r.events_compare[n].read().bits() == 1 {
+                r.events_compare[n].write(|w| w);
                 interrupt::free(|cs| {
                     self.trigger_alarm(n, cs);
                 })
@@ -142,6 +143,7 @@ impl<T: Instance> RTC<T> {
 
     fn next_period(&self) {
         interrupt::free(|cs| {
+            let r = self.rtc.regs();
             let period = self.period.fetch_add(1, Ordering::Relaxed) + 1;
             let t = (period as u64) << 23;
 
@@ -151,15 +153,16 @@ impl<T: Instance> RTC<T> {
 
                 let diff = at - t;
                 if diff < 0xc00000 {
-                    self.rtc.cc[n].write(|w| unsafe { w.bits(at as u32 & 0xFFFFFF) });
-                    self.rtc.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
+                    r.cc[n].write(|w| unsafe { w.bits(at as u32 & 0xFFFFFF) });
+                    r.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
                 }
             }
         })
     }
 
     fn trigger_alarm(&self, n: usize, cs: &CriticalSection) {
-        self.rtc.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
+        let r = self.rtc.regs();
+        r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
 
         let alarm = &self.alarms.borrow(cs)[n];
         alarm.timestamp.set(u64::MAX);
@@ -190,6 +193,8 @@ impl<T: Instance> RTC<T> {
                 return;
             }
 
+            let r = self.rtc.regs();
+
             // If it hasn't triggered yet, setup it in the compare channel.
             let diff = timestamp - t;
             if diff < 0xc00000 {
@@ -206,12 +211,12 @@ impl<T: Instance> RTC<T> {
                 // by the Alarm trait contract. What's not allowed is triggering alarms *before* their scheduled time,
                 // and we don't do that here.
                 let safe_timestamp = timestamp.max(t + 3);
-                self.rtc.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
-                self.rtc.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
+                r.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
+                r.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
             } else {
                 // If it's too far in the future, don't setup the compare channel yet.
                 // It will be setup later by `next_period`.
-                self.rtc.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
+                r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
             }
         })
     }
@@ -232,7 +237,7 @@ impl<T: Instance> embassy::time::Clock for RTC<T> {
         // `period` MUST be read before `counter`, see comment at the top for details.
         let period = self.period.load(Ordering::Relaxed);
         compiler_fence(Ordering::Acquire);
-        let counter = self.rtc.counter.read().bits();
+        let counter = self.rtc.regs().counter.read().bits();
         calc_now(period, counter)
     }
 }
@@ -257,31 +262,32 @@ impl<T: Instance> embassy::time::Alarm for Alarm<T> {
 }
 
 mod sealed {
-    pub trait Instance {}
+    use super::*;
+    pub trait Instance {
+        fn regs(&self) -> &pac::rtc0::RegisterBlock;
+    }
+}
 
-    impl Instance for crate::pac::RTC0 {}
-    impl Instance for crate::pac::RTC1 {}
-    #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-    impl Instance for crate::pac::RTC2 {}
+macro_rules! make_impl {
+    ($type:ident, $irq:ident) => {
+        impl sealed::Instance for peripherals::$type {
+            fn regs(&self) -> &pac::rtc0::RegisterBlock {
+                unsafe { &*pac::$type::ptr() }
+            }
+        }
+        impl Instance for peripherals::$type {
+            type Interrupt = interrupt::$irq;
+        }
+    };
 }
 
 /// Implemented by all RTC instances.
-pub trait Instance:
-    sealed::Instance + Deref<Target = rtc0::RegisterBlock> + Sized + 'static
-{
+pub trait Instance: sealed::Instance + 'static {
     /// The interrupt associated with this RTC instance.
     type Interrupt: Interrupt;
 }
 
-impl Instance for crate::pac::RTC0 {
-    type Interrupt = interrupt::RTC0;
-}
-
-impl Instance for crate::pac::RTC1 {
-    type Interrupt = interrupt::RTC1;
-}
-
+make_impl!(RTC0, RTC0);
+make_impl!(RTC1, RTC1);
 #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-impl Instance for crate::pac::RTC2 {
-    type Interrupt = interrupt::RTC2;
-}
+make_impl!(RTC2, RTC2);

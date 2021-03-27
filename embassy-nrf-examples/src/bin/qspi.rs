@@ -3,6 +3,7 @@
 #![feature(min_type_alias_impl_trait)]
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
 
 #[path = "../example_common.rs"]
 mod example_common;
@@ -28,12 +29,12 @@ struct AlignedBuf([u8; 4096]);
 async fn run() {
     let p = Peripherals::take().unwrap();
 
-    let csn = p.p0_17;
-    let sck = p.p0_19;
-    let io0 = p.p0_20;
-    let io1 = p.p0_21;
-    let io2 = p.p0_22;
-    let io3 = p.p0_23;
+    let csn = p.P0_17;
+    let sck = p.P0_19;
+    let io0 = p.P0_20;
+    let io1 = p.P0_21;
+    let io2 = p.P0_22;
+    let io3 = p.P0_23;
 
     let config = qspi::Config {
         read_opcode: qspi::ReadOpcode::READ4IO,
@@ -44,7 +45,7 @@ async fn run() {
     };
 
     let irq = interrupt::take!(QSPI);
-    let q = qspi::Qspi::new(p.qspi, irq, sck, csn, io0, io1, io2, io3, config);
+    let q = qspi::Qspi::new(p.QSPI, irq, sck, csn, io0, io1, io2, io3, config);
     pin_mut!(q);
 
     let mut id = [1; 3];

@@ -3,6 +3,7 @@
 #![feature(min_type_alias_impl_trait)]
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
 
 #[path = "../example_common.rs"]
 mod example_common;
@@ -32,23 +33,23 @@ async fn button(n: usize, mut pin: PortInput<'static, AnyPin>) {
 async fn run() {
     let p = Peripherals::take().unwrap();
 
-    let g = gpiote::initialize(p.gpiote, interrupt::take!(GPIOTE));
+    let g = gpiote::initialize(p.GPIOTE, interrupt::take!(GPIOTE));
 
     let button1 = button(
         1,
-        PortInput::new(g, Input::new(p.p0_11.degrade(), Pull::Up)),
+        PortInput::new(g, Input::new(p.P0_11.degrade(), Pull::Up)),
     );
     let button2 = button(
         2,
-        PortInput::new(g, Input::new(p.p0_12.degrade(), Pull::Up)),
+        PortInput::new(g, Input::new(p.P0_12.degrade(), Pull::Up)),
     );
     let button3 = button(
         3,
-        PortInput::new(g, Input::new(p.p0_24.degrade(), Pull::Up)),
+        PortInput::new(g, Input::new(p.P0_24.degrade(), Pull::Up)),
     );
     let button4 = button(
         4,
-        PortInput::new(g, Input::new(p.p0_25.degrade(), Pull::Up)),
+        PortInput::new(g, Input::new(p.P0_25.degrade(), Pull::Up)),
     );
     futures::join!(button1, button2, button3, button4);
 }

@@ -58,9 +58,12 @@
 #![feature(min_type_alias_impl_trait)]
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
 
 #[path = "../example_common.rs"]
 mod example_common;
+use core::mem;
+
 use example_common::*;
 
 use cortex_m_rt::entry;
@@ -71,7 +74,7 @@ use embassy::executor::{task, Executor, InterruptExecutor};
 use embassy::interrupt::InterruptExt;
 use embassy::time::{Duration, Instant, Timer};
 use embassy::util::Forever;
-use embassy_nrf::{interrupt, pac, rtc};
+use embassy_nrf::{interrupt, peripherals, rtc};
 
 #[task]
 async fn run_high() {
@@ -115,21 +118,21 @@ async fn run_low() {
     }
 }
 
-static RTC: Forever<rtc::RTC<pac::RTC1>> = Forever::new();
-static ALARM_HIGH: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
+static RTC: Forever<rtc::RTC<peripherals::RTC1>> = Forever::new();
+static ALARM_HIGH: Forever<rtc::Alarm<peripherals::RTC1>> = Forever::new();
 static EXECUTOR_HIGH: Forever<InterruptExecutor<interrupt::SWI1_EGU1>> = Forever::new();
-static ALARM_MED: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
+static ALARM_MED: Forever<rtc::Alarm<peripherals::RTC1>> = Forever::new();
 static EXECUTOR_MED: Forever<InterruptExecutor<interrupt::SWI0_EGU0>> = Forever::new();
-static ALARM_LOW: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
+static ALARM_LOW: Forever<rtc::Alarm<peripherals::RTC1>> = Forever::new();
 static EXECUTOR_LOW: Forever<Executor> = Forever::new();
 
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
 
-    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
+    let p = unwrap!(embassy_nrf::Peripherals::take());
 
-    clocks::Clocks::new(p.CLOCK)
+    clocks::Clocks::new(unsafe { mem::transmute(()) })
         .enable_ext_hfosc()
         .set_lfclk_src_external(clocks::LfOscConfiguration::NoExternalNoBypass)
         .start_lfclk();

@@ -13,7 +13,7 @@ use defmt::panic;
 use embassy::executor::Executor;
 use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
-use embassy_nrf::pac;
+use embassy_nrf::peripherals;
 use embassy_nrf::{interrupt, rtc};
 use nrf52840_hal::clocks;
 
@@ -31,17 +31,17 @@ async fn run2() {
     }
 }
 
-static RTC: Forever<rtc::RTC<pac::RTC1>> = Forever::new();
-static ALARM: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
+static RTC: Forever<rtc::RTC<peripherals::RTC1>> = Forever::new();
+static ALARM: Forever<rtc::Alarm<peripherals::RTC1>> = Forever::new();
 static EXECUTOR: Forever<Executor> = Forever::new();
 
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
 
-    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
+    let p = unwrap!(embassy_nrf::Peripherals::take());
 
-    clocks::Clocks::new(p.CLOCK)
+    clocks::Clocks::new(unsafe { mem::transmute(()) })
         .enable_ext_hfosc()
         .set_lfclk_src_external(clocks::LfOscConfiguration::NoExternalNoBypass)
         .start_lfclk();

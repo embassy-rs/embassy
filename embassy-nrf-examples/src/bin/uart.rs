@@ -3,34 +3,34 @@
 #![feature(min_type_alias_impl_trait)]
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
 
 #[path = "../example_common.rs"]
 mod example_common;
+use core::mem;
+
 use embassy_nrf::gpio::NoPin;
 use example_common::*;
 
 use cortex_m_rt::entry;
 use defmt::panic;
 use embassy::executor::{task, Executor};
-use embassy::time::{Duration, Timer};
 use embassy::traits::uart::{Read, Write};
-use embassy::util::Forever;
-use embassy_nrf::{interrupt, pac, rtc, uarte, Peripherals};
-use futures::future::{select, Either};
+use embassy::util::{Forever, Steal};
+use embassy_nrf::{interrupt, peripherals, rtc, uarte, Peripherals};
 use futures::pin_mut;
 use nrf52840_hal::clocks;
-use nrf52840_hal::gpio;
 
 #[task]
 async fn run() {
-    let p = Peripherals::take().unwrap();
+    let p = unsafe { Peripherals::steal() };
 
     let mut config = uarte::Config::default();
     config.parity = uarte::Parity::EXCLUDED;
     config.baudrate = uarte::Baudrate::BAUD115200;
 
     let irq = interrupt::take!(UARTE0_UART0);
-    let uart = unsafe { uarte::Uarte::new(p.uarte0, irq, p.p0_08, p.p0_06, NoPin, NoPin, config) };
+    let uart = unsafe { uarte::Uarte::new(p.UARTE0, irq, p.P0_08, p.P0_06, NoPin, NoPin, config) };
     pin_mut!(uart);
 
     info!("uarte initialized!");
@@ -78,17 +78,17 @@ async fn run() {
     }
 }
 
-static RTC: Forever<rtc::RTC<pac::RTC1>> = Forever::new();
-static ALARM: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
+static RTC: Forever<rtc::RTC<peripherals::RTC1>> = Forever::new();
+static ALARM: Forever<rtc::Alarm<peripherals::RTC1>> = Forever::new();
 static EXECUTOR: Forever<Executor> = Forever::new();
 
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
 
-    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
+    let p = unwrap!(embassy_nrf::Peripherals::take());
 
-    clocks::Clocks::new(p.CLOCK)
+    clocks::Clocks::new(unsafe { mem::transmute(()) })
         .enable_ext_hfosc()
         .set_lfclk_src_external(clocks::LfOscConfiguration::NoExternalNoBypass)
         .start_lfclk();

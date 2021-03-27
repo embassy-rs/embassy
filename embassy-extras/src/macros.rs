@@ -1,14 +1,14 @@
 #[macro_export]
 macro_rules! peripherals {
-    ($($(#[$cfg:meta])? $name:ident: $type:ident),*$(,)?) => {
+    ($($(#[$cfg:meta])? $name:ident),*$(,)?) => {
         pub mod peripherals {
             $(
                 $(#[$cfg])?
                 #[allow(non_camel_case_types)]
-                pub struct $type { _private: () }
+                pub struct $name { _private: () }
 
                 $(#[$cfg])?
-                impl embassy::util::Steal for $type {
+                impl embassy::util::Steal for $name {
                     #[inline]
                     unsafe fn steal() -> Self {
                         Self{ _private: ()}
@@ -16,29 +16,30 @@ macro_rules! peripherals {
                 }
 
                 $(#[$cfg])?
-                impl embassy::util::PeripheralBorrow for $type {
-                    type Target = $type;
+                impl embassy::util::PeripheralBorrow for $name {
+                    type Target = $name;
                     #[inline]
-                    unsafe fn unborrow(self) -> $type {
+                    unsafe fn unborrow(self) -> $name {
                         self
                     }
                 }
 
                 $(#[$cfg])?
-                impl embassy::util::PeripheralBorrow for &mut $type {
-                    type Target = $type;
+                impl embassy::util::PeripheralBorrow for &mut $name {
+                    type Target = $name;
                     #[inline]
-                    unsafe fn unborrow(self) -> $type {
+                    unsafe fn unborrow(self) -> $name {
                         ::core::ptr::read(self)
                     }
                 }
             )*
         }
 
+        #[allow(non_snake_case)]
         pub struct Peripherals {
             $(
                 $(#[$cfg])?
-                pub $name: peripherals::$type,
+                pub $name: peripherals::$name,
             )*
         }
 
@@ -66,7 +67,7 @@ macro_rules! peripherals {
                 Self {
                     $(
                         $(#[$cfg])?
-                        $name: <peripherals::$type as embassy::util::Steal>::steal(),
+                        $name: <peripherals::$name as embassy::util::Steal>::steal(),
                     )*
                 }
             }

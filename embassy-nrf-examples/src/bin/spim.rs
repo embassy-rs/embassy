@@ -3,17 +3,21 @@
 #![feature(min_type_alias_impl_trait)]
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
 
 #[path = "../example_common.rs"]
 mod example_common;
+
+use core::mem;
 
 use cortex_m_rt::entry;
 use defmt::panic;
 use embassy::executor::{task, Executor};
 use embassy::util::Forever;
+use embassy::util::Steal;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
-use embassy_nrf::Peripherals;
-use embassy_nrf::{interrupt, pac, rtc, spim};
+use embassy_nrf::{interrupt, rtc, spim};
+use embassy_nrf::{peripherals, Peripherals};
 use embassy_traits::spi::FullDuplex;
 use embedded_hal::digital::v2::*;
 use example_common::*;
@@ -24,7 +28,7 @@ use nrf52840_hal::clocks;
 async fn run() {
     info!("running!");
 
-    let p = Peripherals::take().unwrap();
+    let p = unsafe { Peripherals::steal() };
 
     let config = spim::Config {
         frequency: spim::Frequency::M16,
@@ -33,10 +37,10 @@ async fn run() {
     };
 
     let irq = interrupt::take!(SPIM3);
-    let spim = spim::Spim::new(p.spim3, irq, p.p0_29, p.p0_28, p.p0_30, config);
+    let spim = spim::Spim::new(p.SPIM3, irq, p.P0_29, p.P0_28, p.P0_30, config);
     pin_mut!(spim);
 
-    let mut ncs = Output::new(p.p0_31, Level::High, OutputDrive::Standard);
+    let mut ncs = Output::new(p.P0_31, Level::High, OutputDrive::Standard);
 
     // Example on how to talk to an ENC28J60 chip
 
@@ -84,17 +88,17 @@ async fn run() {
     info!("erevid: {=[?]}", rx);
 }
 
-static RTC: Forever<rtc::RTC<pac::RTC1>> = Forever::new();
-static ALARM: Forever<rtc::Alarm<pac::RTC1>> = Forever::new();
+static RTC: Forever<rtc::RTC<peripherals::RTC1>> = Forever::new();
+static ALARM: Forever<rtc::Alarm<peripherals::RTC1>> = Forever::new();
 static EXECUTOR: Forever<Executor> = Forever::new();
 
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
 
-    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
+    let p = unwrap!(embassy_nrf::Peripherals::take());
 
-    clocks::Clocks::new(p.CLOCK)
+    clocks::Clocks::new(unsafe { mem::transmute(()) })
         .enable_ext_hfosc()
         .set_lfclk_src_external(clocks::LfOscConfiguration::NoExternalNoBypass)
         .start_lfclk();
