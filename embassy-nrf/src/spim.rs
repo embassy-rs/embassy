@@ -9,7 +9,8 @@ use embassy_extras::unborrow;
 use futures::future::poll_fn;
 use traits::spi::FullDuplex;
 
-use crate::gpio::Pin as GpioPin;
+use crate::gpio::sealed::Pin as _;
+use crate::gpio::{OptionalPin, Pin as GpioPin};
 use crate::interrupt::{self, Interrupt};
 use crate::{pac, peripherals, slice_in_ram_or};
 
@@ -43,8 +44,8 @@ impl<'d, T: Instance> Spim<'d, T> {
         spim: impl PeripheralBorrow<Target = T> + 'd,
         irq: impl PeripheralBorrow<Target = T::Interrupt> + 'd,
         sck: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        miso: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        mosi: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
+        miso: impl PeripheralBorrow<Target = impl OptionalPin> + 'd,
+        mosi: impl PeripheralBorrow<Target = impl OptionalPin> + 'd,
         config: Config,
     ) -> Self {
         unborrow!(spim, irq, sck, miso, mosi);
@@ -53,21 +54,30 @@ impl<'d, T: Instance> Spim<'d, T> {
 
         // Configure pins
         sck.conf().write(|w| w.dir().output().drive().h0h1());
-        mosi.conf().write(|w| w.dir().output().drive().h0h1());
-        miso.conf().write(|w| w.input().connect().drive().h0h1());
+        if let Some(mosi) = mosi.pin_mut() {
+            mosi.conf().write(|w| w.dir().output().drive().h0h1());
+        }
+        if let Some(miso) = miso.pin_mut() {
+            miso.conf().write(|w| w.input().connect().drive().h0h1());
+        }
 
         match config.mode.polarity {
             Polarity::IdleHigh => {
                 sck.set_high();
-                mosi.set_high();
+                if let Some(mosi) = mosi.pin_mut() {
+                    mosi.set_high();
+                }
             }
             Polarity::IdleLow => {
                 sck.set_low();
-                mosi.set_low();
+                if let Some(mosi) = mosi.pin_mut() {
+                    mosi.set_low();
+                }
             }
         }
 
         // Select pins.
+        // Note: OptionalPin reports 'disabled' for psel_bits when no pin was selected.
         r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
         r.psel.mosi.write(|w| unsafe { w.bits(mosi.psel_bits()) });
         r.psel.miso.write(|w| unsafe { w.bits(miso.psel_bits()) });
