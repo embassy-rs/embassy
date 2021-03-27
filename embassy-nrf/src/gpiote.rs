@@ -7,18 +7,14 @@ use embassy::interrupt::InterruptExt;
 use embassy::traits::gpio::{WaitForHigh, WaitForLow};
 use embassy::util::AtomicWaker;
 use embassy_extras::impl_unborrow;
-use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
+use embedded_hal::digital::v2::{InputPin, StatefulOutputPin};
 use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, Input, Output, Pin as GpioPin, Port, Pull};
+use crate::gpio::{AnyPin, Input, Output, Pin as GpioPin, Port};
 use crate::pac;
-use crate::pac::generic::Reg;
-use crate::pac::gpiote::_TASKS_OUT;
+use crate::ppi::{Event, Task};
 use crate::{interrupt, peripherals};
-
-#[cfg(not(feature = "51"))]
-use crate::pac::gpiote::{_TASKS_CLR, _TASKS_SET};
 
 pub const CHANNEL_COUNT: usize = 8;
 
@@ -53,7 +49,7 @@ pub struct Initialized {
     _private: (),
 }
 
-pub fn initialize(gpiote: peripherals::GPIOTE, irq: interrupt::GPIOTE) -> Initialized {
+pub fn initialize(_gpiote: peripherals::GPIOTE, irq: interrupt::GPIOTE) -> Initialized {
     #[cfg(any(feature = "52833", feature = "52840"))]
     let ports = unsafe { &[&*pac::P0::ptr(), &*pac::P1::ptr()] };
     #[cfg(not(any(feature = "52833", feature = "52840")))]
@@ -122,6 +118,7 @@ impl Iterator for BitIter {
     }
 }
 
+/// GPIOTE channel driver in input mode
 pub struct InputChannel<'d, C: Channel, T: GpioPin> {
     ch: C,
     pin: Input<'d, T>,
@@ -185,6 +182,12 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
         })
         .await;
     }
+
+    /// Returns the IN event, for use with PPI.
+    pub fn event_in(&self) -> Event {
+        let g = unsafe { &*pac::GPIOTE::ptr() };
+        Event::from_reg(&g.events_in[self.ch.number()])
+    }
 }
 
 impl<'d, C: Channel, T: GpioPin> InputPin for InputChannel<'d, C, T> {
@@ -199,9 +202,10 @@ impl<'d, C: Channel, T: GpioPin> InputPin for InputChannel<'d, C, T> {
     }
 }
 
+/// GPIOTE channel driver in output mode
 pub struct OutputChannel<'d, C: Channel, T: GpioPin> {
     ch: C,
-    pin: Output<'d, T>,
+    _pin: Output<'d, T>,
 }
 
 impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
@@ -242,7 +246,7 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
             unsafe { w.psel().bits(pin.pin.pin()) }
         });
 
-        OutputChannel { ch, pin }
+        OutputChannel { ch, _pin: pin }
     }
 
     /// Triggers `task out` (as configured with task_out_polarity, defaults to Toggle).
@@ -265,28 +269,28 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
         g.tasks_clr[self.ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
-    /// Returns reference to task_out endpoint for PPI.
-    pub fn task_out(&self) -> &Reg<u32, _TASKS_OUT> {
+    /// Returns the OUT task, for use with PPI.
+    pub fn task_out(&self) -> Task {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        &g.tasks_out[self.ch.number()]
+        Task::from_reg(&g.tasks_out[self.ch.number()])
     }
 
-    /// Returns reference to task_clr endpoint for PPI.
+    /// Returns the CLR task, for use with PPI.
     #[cfg(not(feature = "51"))]
-    pub fn task_clr(&self) -> &Reg<u32, _TASKS_CLR> {
+    pub fn task_clr(&self) -> Task {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        &g.tasks_clr[self.ch.number()]
+        Task::from_reg(&g.tasks_clr[self.ch.number()])
     }
 
-    /// Returns reference to task_set endpoint for PPI.
+    /// Returns the SET task, for use with PPI.
     #[cfg(not(feature = "51"))]
-    pub fn task_set(&self) -> &Reg<u32, _TASKS_SET> {
+    pub fn task_set(&self) -> Task {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        &g.tasks_set[self.ch.number()]
+        Task::from_reg(&g.tasks_set[self.ch.number()])
     }
 }
 
-/// GPIO input driver with support
+/// GPIOTE port input driver
 pub struct PortInput<'d, T: GpioPin> {
     pin: Input<'d, T>,
 }
