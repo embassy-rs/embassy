@@ -88,7 +88,7 @@ macro_rules! unborrow {
 #[macro_export]
 macro_rules! impl_unborrow {
     ($type:ident) => {
-        impl PeripheralBorrow for $type {
+        impl ::embassy::util::PeripheralBorrow for $type {
             type Target = $type;
             #[inline]
             unsafe fn unborrow(self) -> Self::Target {
@@ -96,7 +96,7 @@ macro_rules! impl_unborrow {
             }
         }
 
-        impl<'a> PeripheralBorrow for &'a mut $type {
+        impl<'a> ::embassy::util::PeripheralBorrow for &'a mut $type {
             type Target = $type;
             #[inline]
             unsafe fn unborrow(self) -> Self::Target {
