@@ -1,15 +1,11 @@
 use core::convert::Infallible;
 use core::future::Future;
-use core::intrinsics::transmute;
 use core::marker::PhantomData;
-use core::mem::{self, ManuallyDrop};
-use core::ops::Deref;
 use core::pin::Pin;
-use core::ptr;
 use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
 use embassy::traits::gpio::{WaitForHigh, WaitForLow};
-use embassy::util::{AtomicWaker, PeripheralBorrow, Signal};
+use embassy::util::AtomicWaker;
 use embassy_extras::impl_unborrow;
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 use futures::future::poll_fn;
@@ -19,7 +15,6 @@ use crate::gpio::{AnyPin, Input, Output, Pin as GpioPin, Port, Pull};
 use crate::pac;
 use crate::pac::generic::Reg;
 use crate::pac::gpiote::_TASKS_OUT;
-use crate::pac::p0 as pac_gpio;
 use crate::{interrupt, peripherals};
 
 #[cfg(not(feature = "51"))]
@@ -32,9 +27,9 @@ pub const PIN_COUNT: usize = 48;
 #[cfg(not(any(feature = "52833", feature = "52840")))]
 pub const PIN_COUNT: usize = 32;
 
-const NEW_AWR: AtomicWaker = AtomicWaker::new();
-static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AWR; CHANNEL_COUNT];
-static PORT_WAKERS: [AtomicWaker; PIN_COUNT] = [NEW_AWR; PIN_COUNT];
+const NEW_AW: AtomicWaker = AtomicWaker::new();
+static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AW; CHANNEL_COUNT];
+static PORT_WAKERS: [AtomicWaker; PIN_COUNT] = [NEW_AW; PIN_COUNT];
 
 pub enum InputChannelPolarity {
     None,
@@ -135,7 +130,7 @@ pub struct InputChannel<'d, C: Channel, T: GpioPin> {
 impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
     fn drop(&mut self) {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        let num = self.ch.number() as usize;
+        let num = self.ch.number();
         g.config[num].write(|w| w.mode().disabled());
         g.intenclr.write(|w| unsafe { w.bits(1 << num) });
     }
@@ -149,7 +144,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
         polarity: InputChannelPolarity,
     ) -> Self {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        let num = ch.number() as usize;
+        let num = ch.number();
 
         g.config[num].write(|w| {
             match polarity {
@@ -173,7 +168,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
 
     pub async fn wait(&self) {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        let num = self.ch.number() as usize;
+        let num = self.ch.number();
 
         // Enable interrupt
         g.events_in[num].reset();
@@ -212,7 +207,7 @@ pub struct OutputChannel<'d, C: Channel, T: GpioPin> {
 impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
     fn drop(&mut self) {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        let num = self.ch.number() as usize;
+        let num = self.ch.number();
         g.config[num].write(|w| w.mode().disabled());
         g.intenclr.write(|w| unsafe { w.bits(1 << num) });
     }
@@ -226,7 +221,7 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
         polarity: OutputChannelPolarity,
     ) -> Self {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        let num = ch.number() as usize;
+        let num = ch.number();
 
         g.config[num].write(|w| {
             w.mode().task();
@@ -253,41 +248,41 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
     /// Triggers `task out` (as configured with task_out_polarity, defaults to Toggle).
     pub fn out(&self) {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        g.tasks_out[self.ch.number() as usize].write(|w| unsafe { w.bits(1) });
+        g.tasks_out[self.ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
     /// Triggers `task set` (set associated pin high).
     #[cfg(not(feature = "51"))]
     pub fn set(&self) {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        g.tasks_set[self.ch.number() as usize].write(|w| unsafe { w.bits(1) });
+        g.tasks_set[self.ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
     /// Triggers `task clear` (set associated pin low).
     #[cfg(not(feature = "51"))]
     pub fn clear(&self) {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        g.tasks_clr[self.ch.number() as usize].write(|w| unsafe { w.bits(1) });
+        g.tasks_clr[self.ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
     /// Returns reference to task_out endpoint for PPI.
     pub fn task_out(&self) -> &Reg<u32, _TASKS_OUT> {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        &g.tasks_out[self.ch.number() as usize]
+        &g.tasks_out[self.ch.number()]
     }
 
     /// Returns reference to task_clr endpoint for PPI.
     #[cfg(not(feature = "51"))]
     pub fn task_clr(&self) -> &Reg<u32, _TASKS_CLR> {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        &g.tasks_clr[self.ch.number() as usize]
+        &g.tasks_clr[self.ch.number()]
     }
 
     /// Returns reference to task_set endpoint for PPI.
     #[cfg(not(feature = "51"))]
     pub fn task_set(&self) -> &Reg<u32, _TASKS_SET> {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        &g.tasks_set[self.ch.number() as usize]
+        &g.tasks_set[self.ch.number()]
     }
 }
 
@@ -370,15 +365,14 @@ impl<'a> Future for PortInputFuture<'a> {
 }
 
 mod sealed {
-    pub trait Channel {
-        fn number(&self) -> u8;
-    }
+    pub trait Channel {}
 }
 
 pub trait Channel: sealed::Channel + Sized {
+    fn number(&self) -> usize;
     fn degrade(self) -> AnyChannel {
         AnyChannel {
-            number: self.number(),
+            number: self.number() as u8,
         }
     }
 }
@@ -387,21 +381,21 @@ pub struct AnyChannel {
     number: u8,
 }
 impl_unborrow!(AnyChannel);
-impl Channel for AnyChannel {}
-impl sealed::Channel for AnyChannel {
-    fn number(&self) -> u8 {
-        self.number
+impl sealed::Channel for AnyChannel {}
+impl Channel for AnyChannel {
+    fn number(&self) -> usize {
+        self.number as usize
     }
 }
 
 macro_rules! impl_channel {
     ($type:ident, $number:expr) => {
-        impl sealed::Channel for peripherals::$type {
-            fn number(&self) -> u8 {
-                $number
+        impl sealed::Channel for peripherals::$type {}
+        impl Channel for peripherals::$type {
+            fn number(&self) -> usize {
+                $number as usize
             }
         }
-        impl Channel for peripherals::$type {}
     };
 }
 
