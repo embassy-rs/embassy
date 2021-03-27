@@ -395,9 +395,8 @@ pub struct PortInputFuture<'a> {
 
 impl<'a> Drop for PortInputFuture<'a> {
     fn drop(&mut self) {
-        unsafe { AnyPin::steal(self.pin_port) }
-            .conf()
-            .modify(|_, w| w.sense().disabled());
+        let pin = unsafe { AnyPin::steal(self.pin_port) };
+        pin.conf().modify(|_, w| w.sense().disabled());
     }
 }
 
@@ -405,18 +404,13 @@ impl<'a> Future for PortInputFuture<'a> {
     type Output = ();
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let dis = unsafe { AnyPin::steal(self.pin_port) }
-            .conf()
-            .read()
-            .sense()
-            .is_disabled();
-
-        if dis {
-            return Poll::Ready(());
-        }
-
         PORT_WAKERS[self.pin_port as usize].register(cx.waker());
 
-        Poll::Pending
+        let pin = unsafe { AnyPin::steal(self.pin_port) };
+        if pin.conf().read().sense().is_disabled() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
     }
 }

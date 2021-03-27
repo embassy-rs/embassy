@@ -1,7 +1,7 @@
 use core::ptr::{self, NonNull};
 use core::task::Waker;
 
-use atomic_polyfill::{AtomicPtr, Ordering};
+use atomic_polyfill::{compiler_fence, AtomicPtr, Ordering};
 
 use crate::executor::raw::{task_from_waker, wake_task, TaskHeader};
 
@@ -63,6 +63,7 @@ impl AtomicWaker {
     pub fn register(&self, w: &Waker) {
         let w = unsafe { task_from_waker(w) };
         self.waker.store(w.as_ptr(), Ordering::Relaxed);
+        compiler_fence(Ordering::SeqCst);
     }
 
     /// Wake the registered waker, if any.
