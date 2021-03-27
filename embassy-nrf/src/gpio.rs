@@ -117,7 +117,7 @@ pub enum OutputDrive {
 
 /// GPIO output driver.
 pub struct Output<'d, T: Pin> {
-    pin: T,
+    pub(crate) pin: T,
     phantom: PhantomData<&'d mut T>,
 }
 

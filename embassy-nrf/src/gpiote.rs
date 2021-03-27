@@ -15,7 +15,7 @@ use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, Input, Pin as GpioPin, Port, Pull};
+use crate::gpio::{AnyPin, Input, Output, Pin as GpioPin, Port, Pull};
 use crate::pac;
 use crate::pac::generic::Reg;
 use crate::pac::gpiote::_TASKS_OUT;
@@ -204,37 +204,35 @@ impl<'d, C: Channel, T: GpioPin> InputPin for InputChannel<'d, C, T> {
     }
 }
 
-/*
-pub struct OutputChannel<C: ChannelID, T> {
+pub struct OutputChannel<'d, C: Channel, T: GpioPin> {
     ch: C,
-    pin: GpioPin<Output<T>>,
+    pin: Output<'d, T>,
 }
 
-impl<C: ChannelID, T> Drop for OutputChannel<C, T> {
+impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
     fn drop(&mut self) {
-        let g = unsafe { &*GPIOTE::ptr() };
-        let index = self.ch.number();
-        g.config[index].write(|w| w.mode().disabled());
-        g.intenclr.write(|w| unsafe { w.bits(1 << index) });
+        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let num = self.ch.number() as usize;
+        g.config[num].write(|w| w.mode().disabled());
+        g.intenclr.write(|w| unsafe { w.bits(1 << num) });
     }
 }
 
-impl<C: ChannelID, T> OutputChannel<C, T> {
+impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
     pub fn new(
-        _gpiote: Gpiote,
+        _init: Initialized,
         ch: C,
-        pin: GpioPin<Output<T>>,
-        level: Level,
+        pin: Output<'d, T>,
         polarity: OutputChannelPolarity,
     ) -> Self {
-        let g = unsafe { &*GPIOTE::ptr() };
-        let index = ch.number();
+        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let num = ch.number() as usize;
 
-        g.config[index].write(|w| {
+        g.config[num].write(|w| {
             w.mode().task();
-            match level {
-                Level::High => w.outinit().high(),
-                Level::Low => w.outinit().low(),
+            match pin.is_set_high().unwrap() {
+                true => w.outinit().high(),
+                false => w.outinit().low(),
             };
             match polarity {
                 OutputChannelPolarity::Set => w.polarity().lo_to_hi(),
@@ -242,77 +240,56 @@ impl<C: ChannelID, T> OutputChannel<C, T> {
                 OutputChannelPolarity::Toggle => w.polarity().toggle(),
             };
             #[cfg(any(feature = "52833", feature = "52840"))]
-            w.port().bit(match pin.port() {
+            w.port().bit(match pin.pin.port() {
                 Port::Port0 => false,
                 Port::Port1 => true,
             });
-            unsafe { w.psel().bits(pin.pin()) }
+            unsafe { w.psel().bits(pin.pin.pin()) }
         });
-
-        // Enable interrupt
-        g.intenset.write(|w| unsafe { w.bits(1 << index) });
 
         OutputChannel { ch, pin }
     }
 
-    pub fn free(self) -> (C, GpioPin<Output<T>>) {
-        let m = ManuallyDrop::new(self);
-        let ch = unsafe { ptr::read(&m.ch) };
-        let pin = unsafe { ptr::read(&m.pin) };
-        (ch, pin)
-    }
-
     /// Triggers `task out` (as configured with task_out_polarity, defaults to Toggle).
     pub fn out(&self) {
-        let g = unsafe { &*GPIOTE::ptr() };
-        let index = self.ch.number();
-
-        g.tasks_out[index].write(|w| unsafe { w.bits(1) });
+        let g = unsafe { &*pac::GPIOTE::ptr() };
+        g.tasks_out[self.ch.number() as usize].write(|w| unsafe { w.bits(1) });
     }
+
     /// Triggers `task set` (set associated pin high).
     #[cfg(not(feature = "51"))]
     pub fn set(&self) {
-        let g = unsafe { &*GPIOTE::ptr() };
-        let index = self.ch.number();
-
-        g.tasks_set[index].write(|w| unsafe { w.bits(1) });
+        let g = unsafe { &*pac::GPIOTE::ptr() };
+        g.tasks_set[self.ch.number() as usize].write(|w| unsafe { w.bits(1) });
     }
+
     /// Triggers `task clear` (set associated pin low).
     #[cfg(not(feature = "51"))]
     pub fn clear(&self) {
-        let g = unsafe { &*GPIOTE::ptr() };
-        let index = self.ch.number();
-
-        g.tasks_clr[index].write(|w| unsafe { w.bits(1) });
+        let g = unsafe { &*pac::GPIOTE::ptr() };
+        g.tasks_clr[self.ch.number() as usize].write(|w| unsafe { w.bits(1) });
     }
 
     /// Returns reference to task_out endpoint for PPI.
     pub fn task_out(&self) -> &Reg<u32, _TASKS_OUT> {
-        let g = unsafe { &*GPIOTE::ptr() };
-        let index = self.ch.number();
-
-        &g.tasks_out[index]
+        let g = unsafe { &*pac::GPIOTE::ptr() };
+        &g.tasks_out[self.ch.number() as usize]
     }
 
     /// Returns reference to task_clr endpoint for PPI.
     #[cfg(not(feature = "51"))]
     pub fn task_clr(&self) -> &Reg<u32, _TASKS_CLR> {
-        let g = unsafe { &*GPIOTE::ptr() };
-        let index = self.ch.number();
-
-        &g.tasks_clr[index]
+        let g = unsafe { &*pac::GPIOTE::ptr() };
+        &g.tasks_clr[self.ch.number() as usize]
     }
 
     /// Returns reference to task_set endpoint for PPI.
     #[cfg(not(feature = "51"))]
     pub fn task_set(&self) -> &Reg<u32, _TASKS_SET> {
-        let g = unsafe { &*GPIOTE::ptr() };
-        let index = self.ch.number();
-
-        &g.tasks_set[index]
+        let g = unsafe { &*pac::GPIOTE::ptr() };
+        &g.tasks_set[self.ch.number() as usize]
     }
 }
- */
 
 /// GPIO input driver with support
 pub struct PortInput<'d, T: GpioPin> {
