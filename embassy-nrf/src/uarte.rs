@@ -40,8 +40,6 @@ impl Default for Config {
 
 struct State<T: Instance> {
     peri: T,
-    did_stoprx: AtomicBool,
-    did_stoptx: AtomicBool,
 
     endrx_waker: AtomicWaker,
     endtx_waker: AtomicWaker,
@@ -102,6 +100,11 @@ impl<'d, T: Instance> Uarte<'d, T> {
         // Disable all interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
 
+        // Reset rxstarted, txstarted. These are used by drop to know whether a transfer was
+        // stopped midway or not.
+        r.events_rxstarted.reset();
+        r.events_txstarted.reset();
+
         // Enable
         r.enable.write(|w| w.enable().enabled());
 
@@ -109,8 +112,6 @@ impl<'d, T: Instance> Uarte<'d, T> {
             inner: Peripheral::new(
                 irq,
                 State {
-                    did_stoprx: AtomicBool::new(false),
-                    did_stoptx: AtomicBool::new(false),
                     peri: uarte,
                     endrx_waker: AtomicWaker::new(),
                     endtx_waker: AtomicWaker::new(),
@@ -129,8 +130,6 @@ impl<T: Instance> PeripheralState for State<T> {
     type Interrupt = T::Interrupt;
 
     fn on_interrupt(&self) {
-        info!("irq");
-
         let r = self.peri.regs();
         if r.events_endrx.read().bits() != 0 {
             self.endrx_waker.wake();
@@ -157,8 +156,8 @@ impl<'a, T: Instance> Drop for Uarte<'a, T> {
         let s = unsafe { Pin::new_unchecked(&mut self.inner) }.state();
         let r = s.peri.regs();
 
-        let did_stoprx = s.did_stoprx.load(Ordering::Relaxed);
-        let did_stoptx = s.did_stoptx.load(Ordering::Relaxed);
+        let did_stoprx = r.events_rxstarted.read().bits() != 0;
+        let did_stoptx = r.events_txstarted.read().bits() != 0;
         info!("did_stoprx {} did_stoptx {}", did_stoprx, did_stoptx);
 
         // Wait for rxto or txstopped, if needed.
@@ -196,7 +195,6 @@ impl<'d, T: Instance> Read for Uarte<'d, T> {
             let s = self.inner().state();
             let r = s.peri.regs();
 
-            let did_stoprx = &s.did_stoprx;
             let drop = OnDrop::new(move || {
                 info!("read drop: stopping");
 
@@ -207,7 +205,6 @@ impl<'d, T: Instance> Read for Uarte<'d, T> {
                 while r.events_endrx.read().bits() == 0 {}
 
                 info!("read drop: stopped");
-                did_stoprx.store(true, Ordering::Relaxed);
             });
 
             r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
@@ -231,7 +228,7 @@ impl<'d, T: Instance> Read for Uarte<'d, T> {
             .await;
 
             compiler_fence(Ordering::SeqCst);
-            s.did_stoprx.store(false, Ordering::Relaxed);
+            r.events_rxstarted.reset();
             drop.defuse();
 
             Ok(())
@@ -255,7 +252,6 @@ impl<'d, T: Instance> Write for Uarte<'d, T> {
             let s = self.inner().state();
             let r = s.peri.regs();
 
-            let did_stoptx = &s.did_stoptx;
             let drop = OnDrop::new(move || {
                 info!("write drop: stopping");
 
@@ -266,7 +262,6 @@ impl<'d, T: Instance> Write for Uarte<'d, T> {
                 // TX is stopped almost instantly, spinning is fine.
                 while r.events_endtx.read().bits() == 0 {}
                 info!("write drop: stopped");
-                did_stoptx.store(true, Ordering::Relaxed);
             });
 
             r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
@@ -290,7 +285,7 @@ impl<'d, T: Instance> Write for Uarte<'d, T> {
             .await;
 
             compiler_fence(Ordering::SeqCst);
-            s.did_stoptx.store(false, Ordering::Relaxed);
+            r.events_txstarted.reset();
             drop.defuse();
 
             Ok(())
