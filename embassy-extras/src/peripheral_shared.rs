@@ -1,7 +1,6 @@
 use core::cell::UnsafeCell;
 use core::marker::{PhantomData, PhantomPinned};
 use core::pin::Pin;
-use core::sync::atomic::{compiler_fence, Ordering};
 
 use embassy::interrupt::{Interrupt, InterruptExt};
 
@@ -39,16 +38,12 @@ impl<S: PeripheralState> Peripheral<S> {
         }
 
         this.irq.disable();
-        compiler_fence(Ordering::SeqCst);
-
         this.irq.set_handler(|p| {
             let state = unsafe { &*(p as *const S) };
             state.on_interrupt();
         });
         this.irq
             .set_handler_context((&this.state) as *const _ as *mut ());
-
-        compiler_fence(Ordering::SeqCst);
         this.irq.enable();
 
         this.irq_setup_done = true;

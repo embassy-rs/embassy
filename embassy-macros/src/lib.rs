@@ -172,12 +172,10 @@ pub fn interrupt_take(item: TokenStream) -> TokenStream {
                     static HANDLER: ::embassy::interrupt::Handler;
                 }
 
-                let func = HANDLER.func.load(::embassy::export::atomic::Ordering::Acquire);
-                let ctx = HANDLER.ctx.load(::embassy::export::atomic::Ordering::Acquire);
-                if !func.is_null() {
-                    let func: fn(*mut ()) = ::core::mem::transmute(func);
-                    func(ctx)
-                }
+                let func = HANDLER.func.load(::embassy::export::atomic::Ordering::Relaxed);
+                let ctx = HANDLER.ctx.load(::embassy::export::atomic::Ordering::Relaxed);
+                let func: fn(*mut ()) = ::core::mem::transmute(func);
+                func(ctx)
             }
 
             static TAKEN: ::embassy::export::atomic::AtomicBool = ::embassy::export::atomic::AtomicBool::new(false);
