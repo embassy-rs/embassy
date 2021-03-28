@@ -36,6 +36,7 @@ stm32l0x3 = ["stm32l0xx-hal/stm32l0x3"]
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy" }
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["stm32"]}
+embassy-extras = {version = "0.1.0", path = "../embassy-extras" }
 
 defmt = { version = "0.2.0", optional = true }
 log = { version = "0.4.11", optional = true }
