@@ -49,11 +49,11 @@ impl WakerRegistration {
 }
 
 /// Utility struct to register and wake a waker.
-pub struct AtomicWakerRegistration {
+pub struct AtomicWaker {
     waker: Mutex<Cell<Option<Waker>>>,
 }
 
-impl AtomicWakerRegistration {
+impl AtomicWaker {
     pub const fn new() -> Self {
         Self {
             waker: Mutex::new(Cell::new(None)),
@@ -66,11 +66,7 @@ impl AtomicWakerRegistration {
             let cell = self.waker.borrow(cs);
             cell.set(match cell.replace(None) {
                 Some(w2) if (w2.will_wake(w)) => Some(w2),
-                Some(w2) => {
-                    w2.wake();
-                    Some(w.clone())
-                }
-                None => Some(w.clone()),
+                _ => Some(w.clone()),
             })
         })
     }
@@ -80,7 +76,8 @@ impl AtomicWakerRegistration {
         cortex_m::interrupt::free(|cs| {
             let cell = self.waker.borrow(cs);
             if let Some(w) = cell.replace(None) {
-                w.wake()
+                w.wake_by_ref();
+                cell.set(Some(w));
             }
         })
     }

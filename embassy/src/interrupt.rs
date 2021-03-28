@@ -1,7 +1,7 @@
 use core::ptr;
 use cortex_m::peripheral::NVIC;
 
-use atomic_polyfill::{AtomicPtr, Ordering};
+use atomic_polyfill::{compiler_fence, AtomicPtr, Ordering};
 
 pub use embassy_macros::interrupt_declare as declare;
 pub use embassy_macros::interrupt_take as take;
@@ -58,22 +58,27 @@ pub trait InterruptExt: Interrupt {
 
 impl<T: Interrupt + ?Sized> InterruptExt for T {
     fn set_handler(&self, func: unsafe fn(*mut ())) {
+        compiler_fence(Ordering::SeqCst);
         let handler = unsafe { self.__handler() };
-        handler.func.store(func as *mut (), Ordering::Release);
+        handler.func.store(func as *mut (), Ordering::Relaxed);
+        compiler_fence(Ordering::SeqCst);
     }
 
     fn remove_handler(&self) {
+        compiler_fence(Ordering::SeqCst);
         let handler = unsafe { self.__handler() };
-        handler.func.store(ptr::null_mut(), Ordering::Release);
+        handler.func.store(ptr::null_mut(), Ordering::Relaxed);
+        compiler_fence(Ordering::SeqCst);
     }
 
     fn set_handler_context(&self, ctx: *mut ()) {
         let handler = unsafe { self.__handler() };
-        handler.ctx.store(ctx, Ordering::Release);
+        handler.ctx.store(ctx, Ordering::Relaxed);
     }
 
     #[inline]
     fn enable(&self) {
+        compiler_fence(Ordering::SeqCst);
         unsafe {
             NVIC::unmask(NrWrap(self.number()));
         }
@@ -82,6 +87,7 @@ impl<T: Interrupt + ?Sized> InterruptExt for T {
     #[inline]
     fn disable(&self) {
         NVIC::mask(NrWrap(self.number()));
+        compiler_fence(Ordering::SeqCst);
     }
 
     #[inline]

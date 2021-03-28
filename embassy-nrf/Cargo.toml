@@ -11,11 +11,11 @@ defmt-info = [ ]
 defmt-warn = [ ]
 defmt-error = [ ]
 
-52810 = ["nrf52810-pac", "nrf52810-hal"]
-52811 = ["nrf52811-pac"] #, "nrf52811-hal"]
-52832 = ["nrf52832-pac", "nrf52832-hal"]
-52833 = ["nrf52833-pac", "nrf52833-hal"]
-52840 = ["nrf52840-pac", "nrf52840-hal"]
+52810 = ["nrf52810-pac"]
+52811 = ["nrf52811-pac"]
+52832 = ["nrf52832-pac"]
+52833 = ["nrf52833-pac"]
+52840 = ["nrf52840-pac"]
 
 
 [dependencies]
@@ -31,14 +31,8 @@ embedded-hal    = { version = "0.2.4" }
 embedded-dma    = { version = "0.1.2" }
 futures     = { version = "0.3.5", default-features = false }
 
-nrf52810-pac  = { version = "0.9.0", optional = true }
-nrf52811-pac  = { version = "0.9.1", optional = true }
-nrf52832-pac  = { version = "0.9.0", optional = true }
-nrf52833-pac  = { version = "0.9.0", optional = true }
-nrf52840-pac  = { version = "0.9.0", optional = true }
-
-nrf52810-hal  = { version = "0.12.1", optional = true }
-#nrf52811-hal  = { version = "0.12.1", optional = true }  # doesn't exist yet
-nrf52832-hal  = { version = "0.12.1", optional = true }
-nrf52833-hal  = { version = "0.12.1", optional = true }
-nrf52840-hal  = { version = "0.12.1", optional = true }
+nrf52810-pac  = { version = "0.9.0", optional = true, features = [ "rt" ]}
+nrf52811-pac  = { version = "0.9.1", optional = true, features = [ "rt" ]}
+nrf52832-pac  = { version = "0.9.0", optional = true, features = [ "rt" ]}
+nrf52833-pac  = { version = "0.9.0", optional = true, features = [ "rt" ]}
+nrf52840-pac  = { version = "0.9.0", optional = true, features = [ "rt" ]}

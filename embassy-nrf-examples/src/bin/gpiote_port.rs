@@ -3,23 +3,24 @@
 #![feature(min_type_alias_impl_trait)]
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
 
 #[path = "../example_common.rs"]
 mod example_common;
-use example_common::*;
 
 use core::pin::Pin;
 use cortex_m_rt::entry;
 use defmt::panic;
-use nrf52840_hal::gpio;
-
 use embassy::executor::{task, Executor};
 use embassy::traits::gpio::{WaitForHigh, WaitForLow};
 use embassy::util::Forever;
-use embassy_nrf::gpiote::{Gpiote, GpiotePin};
+use embassy_nrf::gpio::{AnyPin, Input, Pin as _, Pull};
+use embassy_nrf::gpiote::{self, PortInput};
 use embassy_nrf::interrupt;
+use embassy_nrf::Peripherals;
+use example_common::*;
 
-async fn button(n: usize, mut pin: GpiotePin<gpio::PullUp>) {
+async fn button(n: usize, mut pin: PortInput<'static, AnyPin>) {
     loop {
         Pin::new(&mut pin).wait_for_low().await;
         info!("Button {:?} pressed!", n);
@@ -30,26 +31,25 @@ async fn button(n: usize, mut pin: GpiotePin<gpio::PullUp>) {
 
 #[task]
 async fn run() {
-    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
-    let port0 = gpio::p0::Parts::new(p.P0);
+    let p = Peripherals::take().unwrap();
 
-    let (g, _) = Gpiote::new(p.GPIOTE, interrupt::take!(GPIOTE));
+    let g = gpiote::initialize(p.GPIOTE, interrupt::take!(GPIOTE));
 
     let button1 = button(
         1,
-        GpiotePin::new(g, port0.p0_11.into_pullup_input().degrade()),
+        PortInput::new(g, Input::new(p.P0_11.degrade(), Pull::Up)),
     );
     let button2 = button(
         2,
-        GpiotePin::new(g, port0.p0_12.into_pullup_input().degrade()),
+        PortInput::new(g, Input::new(p.P0_12.degrade(), Pull::Up)),
     );
     let button3 = button(
         3,
-        GpiotePin::new(g, port0.p0_24.into_pullup_input().degrade()),
+        PortInput::new(g, Input::new(p.P0_24.degrade(), Pull::Up)),
     );
     let button4 = button(
         4,
-        GpiotePin::new(g, port0.p0_25.into_pullup_input().degrade()),
+        PortInput::new(g, Input::new(p.P0_25.degrade(), Pull::Up)),
     );
     futures::join!(button1, button2, button3, button4);
 }

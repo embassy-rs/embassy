@@ -4,9 +4,9 @@ use core::cmp::min;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
-use core::ptr;
 use core::ptr::NonNull;
 use core::task::{Context, Poll, Waker};
+use core::{mem, ptr};
 
 use super::run_queue::{RunQueue, RunQueueItem};
 use super::timer_queue::{TimerQueue, TimerQueueItem};
@@ -143,6 +143,10 @@ impl<F: Future + 'static> Task<F> {
             }
             Poll::Pending => {}
         }
+
+        // the compiler is emitting a virtual call for waker drop, but we know
+        // it's a noop for our waker.
+        mem::forget(waker);
     }
 }
 

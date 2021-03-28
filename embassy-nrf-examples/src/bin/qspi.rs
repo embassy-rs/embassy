@@ -3,20 +3,20 @@
 #![feature(min_type_alias_impl_trait)]
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
 
 #[path = "../example_common.rs"]
 mod example_common;
-use example_common::*;
 
 use cortex_m_rt::entry;
 use defmt::{assert_eq, panic};
-use futures::pin_mut;
-use nrf52840_hal::gpio;
-
 use embassy::executor::{task, Executor};
 use embassy::traits::flash::Flash;
 use embassy::util::Forever;
+use embassy_nrf::Peripherals;
 use embassy_nrf::{interrupt, qspi};
+use example_common::*;
+use futures::pin_mut;
 
 const PAGE_SIZE: usize = 4096;
 
@@ -27,52 +27,18 @@ struct AlignedBuf([u8; 4096]);
 
 #[task]
 async fn run() {
-    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
+    let p = Peripherals::take().unwrap();
 
-    let port0 = gpio::p0::Parts::new(p.P0);
+    let csn = p.P0_17;
+    let sck = p.P0_19;
+    let io0 = p.P0_20;
+    let io1 = p.P0_21;
+    let io2 = p.P0_22;
+    let io3 = p.P0_23;
 
-    let pins = qspi::Pins {
-        csn: port0
-            .p0_17
-            .into_push_pull_output(gpio::Level::High)
-            .degrade(),
-        sck: port0
-            .p0_19
-            .into_push_pull_output(gpio::Level::High)
-            .degrade(),
-        io0: port0
-            .p0_20
-            .into_push_pull_output(gpio::Level::High)
-            .degrade(),
-        io1: port0
-            .p0_21
-            .into_push_pull_output(gpio::Level::High)
-            .degrade(),
-        io2: Some(
-            port0
-                .p0_22
-                .into_push_pull_output(gpio::Level::High)
-                .degrade(),
-        ),
-        io3: Some(
-            port0
-                .p0_23
-                .into_push_pull_output(gpio::Level::High)
-                .degrade(),
-        ),
-    };
-
-    let config = qspi::Config {
-        pins,
-        read_opcode: qspi::ReadOpcode::READ4IO,
-        write_opcode: qspi::WriteOpcode::PP4IO,
-        xip_offset: 0,
-        write_page_size: qspi::WritePageSize::_256BYTES,
-        deep_power_down: None,
-    };
-
+    let config = qspi::Config::default();
     let irq = interrupt::take!(QSPI);
-    let q = qspi::Qspi::new(p.QSPI, irq, config);
+    let q = qspi::Qspi::new(p.QSPI, irq, sck, csn, io0, io1, io2, io3, config);
     pin_mut!(q);
 
     let mut id = [1; 3];
@@ -83,7 +49,7 @@ async fn run() {
     info!("id: {}", id);
 
     // Read status register
-    let mut status = [0; 1];
+    let mut status = [4; 1];
     q.as_mut()
         .custom_instruction(0x05, &[], &mut status)
         .await

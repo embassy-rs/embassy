@@ -5,6 +5,8 @@ use core::ptr;
 use core::task::{Context, Poll, Waker};
 use cortex_m::peripheral::NVIC;
 use cortex_m::peripheral::{scb, SCB};
+use executor::raw::TaskHeader;
+use ptr::NonNull;
 
 use crate::executor;
 use crate::fmt::panic;
@@ -79,6 +81,30 @@ impl<T: Send> Signal<T> {
     }
 }
 
+// ==========
+
+pub fn wake_on_interrupt(interrupt: &mut impl Interrupt, waker: &Waker) {
+    interrupt.disable();
+    interrupt.set_handler(irq_wake_handler);
+    interrupt.set_handler_context(unsafe { executor::raw::task_from_waker(waker) }.as_ptr() as _);
+    interrupt.enable();
+}
+
+unsafe fn irq_wake_handler(ctx: *mut ()) {
+    if let Some(task) = NonNull::new(ctx as *mut TaskHeader) {
+        executor::raw::wake_task(task);
+    }
+
+    let irq = match SCB::vect_active() {
+        scb::VectActive::Interrupt { irqn } => irqn,
+        _ => unreachable!(),
+    };
+
+    NVIC::mask(crate::interrupt::NrWrap(irq as u16));
+}
+
+// ==========
+
 struct NrWrap(u8);
 unsafe impl cortex_m::interrupt::Nr for NrWrap {
     fn nr(&self) -> u8 {
@@ -119,25 +145,12 @@ impl<'a, I: Interrupt> Drop for InterruptFuture<'a, I> {
 impl<'a, I: Interrupt> InterruptFuture<'a, I> {
     pub fn new(interrupt: &'a mut I) -> Self {
         interrupt.disable();
-        interrupt.set_handler(Self::interrupt_handler);
+        interrupt.set_handler(irq_wake_handler);
         interrupt.set_handler_context(ptr::null_mut());
         interrupt.unpend();
         interrupt.enable();
 
         Self { interrupt }
-    }
-
-    unsafe fn interrupt_handler(ctx: *mut ()) {
-        let irq = match SCB::vect_active() {
-            scb::VectActive::Interrupt { irqn } => irqn,
-            _ => unreachable!(),
-        };
-
-        if !ctx.is_null() {
-            executor::raw::wake_task(ptr::NonNull::new_unchecked(ctx as _));
-        }
-
-        NVIC::mask(crate::interrupt::NrWrap(irq as u16));
     }
 }
 
@@ -148,7 +161,6 @@ impl<'a, I: Interrupt> Future for InterruptFuture<'a, I> {
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         let s = unsafe { self.get_unchecked_mut() };
-        s.interrupt.set_handler(Self::interrupt_handler);
         s.interrupt.set_handler_context(unsafe {
             executor::raw::task_from_waker(&cx.waker()).cast().as_ptr()
         });

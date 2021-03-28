@@ -3,57 +3,49 @@
 #![feature(min_type_alias_impl_trait)]
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
 
 #[path = "../example_common.rs"]
 mod example_common;
-use example_common::*;
 
 use cortex_m_rt::entry;
 use defmt::panic;
-use futures::pin_mut;
-use nrf52840_hal as hal;
-use nrf52840_hal::gpio;
-
 use embassy::executor::{task, Executor};
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
-use embassy::util::Forever;
-use embassy_nrf::buffered_uarte;
-use embassy_nrf::interrupt;
-
-static mut TX_BUFFER: [u8; 4096] = [0; 4096];
-static mut RX_BUFFER: [u8; 4096] = [0; 4096];
+use embassy::util::{Forever, Steal};
+use embassy_nrf::gpio::NoPin;
+use embassy_nrf::{buffered_uarte::BufferedUarte, interrupt, peripherals, rtc, uarte, Peripherals};
+use example_common::*;
+use futures::pin_mut;
 
 #[task]
 async fn run() {
-    let p = unwrap!(embassy_nrf::pac::Peripherals::take());
+    let p = unsafe { Peripherals::steal() };
 
-    let port0 = gpio::p0::Parts::new(p.P0);
+    let mut config = uarte::Config::default();
+    config.parity = uarte::Parity::EXCLUDED;
+    config.baudrate = uarte::Baudrate::BAUD115200;
 
-    let pins = buffered_uarte::Pins {
-        rxd: port0.p0_08.into_floating_input().degrade(),
-        txd: port0
-            .p0_06
-            .into_push_pull_output(gpio::Level::Low)
-            .degrade(),
-        cts: None,
-        rts: None,
-    };
-
-    let ppi = hal::ppi::Parts::new(p.PPI);
+    let mut tx_buffer = [0u8; 4096];
+    let mut rx_buffer = [0u8; 4096];
 
     let irq = interrupt::take!(UARTE0_UART0);
-    let u = buffered_uarte::BufferedUarte::new(
-        p.UARTE0,
-        p.TIMER0,
-        ppi.ppi0,
-        ppi.ppi1,
-        irq,
-        unsafe { &mut RX_BUFFER },
-        unsafe { &mut TX_BUFFER },
-        pins,
-        buffered_uarte::Parity::EXCLUDED,
-        buffered_uarte::Baudrate::BAUD115200,
-    );
+    let u = unsafe {
+        BufferedUarte::new(
+            p.UARTE0,
+            p.TIMER0,
+            p.PPI_CH0,
+            p.PPI_CH1,
+            irq,
+            p.P0_08,
+            p.P0_06,
+            NoPin,
+            NoPin,
+            config,
+            &mut rx_buffer,
+            &mut tx_buffer,
+        )
+    };
     pin_mut!(u);
 
     info!("uarte initialized!");
@@ -79,13 +71,25 @@ async fn run() {
     }
 }
 
+static RTC: Forever<rtc::RTC<peripherals::RTC1>> = Forever::new();
+static ALARM: Forever<rtc::Alarm<peripherals::RTC1>> = Forever::new();
 static EXECUTOR: Forever<Executor> = Forever::new();
 
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
 
+    let p = unwrap!(embassy_nrf::Peripherals::take());
+
+    unsafe { embassy_nrf::system::configure(Default::default()) };
+    let rtc = RTC.put(rtc::RTC::new(p.RTC1, interrupt::take!(RTC1)));
+    rtc.start();
+    unsafe { embassy::time::set_clock(rtc) };
+
+    let alarm = ALARM.put(rtc.alarm0());
     let executor = EXECUTOR.put(Executor::new());
+    executor.set_alarm(alarm);
+
     executor.run(|spawner| {
         unwrap!(spawner.spawn(run()));
     });

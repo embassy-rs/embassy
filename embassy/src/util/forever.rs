@@ -31,6 +31,7 @@ unsafe impl<T> Send for Forever<T> {}
 unsafe impl<T> Sync for Forever<T> {}
 
 impl<T> Forever<T> {
+    #[inline(always)]
     pub const fn new() -> Self {
         Self {
             used: AtomicBool::new(false),
@@ -43,10 +44,11 @@ impl<T> Forever<T> {
     /// Panics if this `Forever` already has a value.
     ///
     /// Returns a mutable reference to the stored value.
+    #[inline(always)]
     pub fn put(&'static self, val: T) -> &'static mut T {
         if self
             .used
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
             .is_err()
         {
             panic!("Forever.put() called multiple times");
@@ -60,6 +62,25 @@ impl<T> Forever<T> {
         }
     }
 
+    #[inline(always)]
+    pub fn put_with(&'static self, val: impl FnOnce() -> T) -> &'static mut T {
+        if self
+            .used
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
+            panic!("Forever.put() called multiple times");
+        }
+
+        unsafe {
+            let p = self.t.get();
+            let p = (&mut *p).as_mut_ptr();
+            p.write(val());
+            &mut *p
+        }
+    }
+
+    #[inline(always)]
     pub unsafe fn steal(&'static self) -> &'static mut T {
         let p = self.t.get();
         let p = (&mut *p).as_mut_ptr();

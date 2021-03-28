@@ -6,10 +6,10 @@ use embassy::interrupt::{Interrupt, InterruptExt};
 
 pub trait PeripheralState {
     type Interrupt: Interrupt;
-    fn on_interrupt(&mut self);
+    fn on_interrupt(&self);
 }
 
-pub struct PeripheralMutex<S: PeripheralState> {
+pub struct Peripheral<S: PeripheralState> {
     state: UnsafeCell<S>,
 
     irq_setup_done: bool,
@@ -19,8 +19,8 @@ pub struct PeripheralMutex<S: PeripheralState> {
     _pinned: PhantomPinned,
 }
 
-impl<S: PeripheralState> PeripheralMutex<S> {
-    pub fn new(state: S, irq: S::Interrupt) -> Self {
+impl<S: PeripheralState> Peripheral<S> {
+    pub fn new(irq: S::Interrupt, state: S) -> Self {
         Self {
             irq,
             irq_setup_done: false,
@@ -39,35 +39,23 @@ impl<S: PeripheralState> PeripheralMutex<S> {
 
         this.irq.disable();
         this.irq.set_handler(|p| {
-            // Safety: it's OK to get a &mut to the state, since
-            // - We're in the IRQ, no one else can't preempt us
-            // - We can't have preempted a with() call because the irq is disabled during it.
-            let state = unsafe { &mut *(p as *mut S) };
+            let state = unsafe { &*(p as *const S) };
             state.on_interrupt();
         });
         this.irq
-            .set_handler_context((&mut this.state) as *mut _ as *mut ());
+            .set_handler_context((&this.state) as *const _ as *mut ());
         this.irq.enable();
 
         this.irq_setup_done = true;
     }
 
-    pub fn with<R>(self: Pin<&mut Self>, f: impl FnOnce(&mut S, &mut S::Interrupt) -> R) -> R {
+    pub fn state(self: Pin<&mut Self>) -> &S {
         let this = unsafe { self.get_unchecked_mut() };
-
-        this.irq.disable();
-
-        // Safety: it's OK to get a &mut to the state, since the irq is disabled.
-        let state = unsafe { &mut *this.state.get() };
-        let r = f(state, &mut this.irq);
-
-        this.irq.enable();
-
-        r
+        unsafe { &*this.state.get() }
     }
 }
 
-impl<S: PeripheralState> Drop for PeripheralMutex<S> {
+impl<S: PeripheralState> Drop for Peripheral<S> {
     fn drop(&mut self) {
         self.irq.disable();
         self.irq.remove_handler();

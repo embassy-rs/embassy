@@ -11,9 +11,17 @@ pub enum Error {
 }
 
 pub trait Flash {
-    type ReadFuture<'a>: Future<Output = Result<(), Error>>;
-    type WriteFuture<'a>: Future<Output = Result<(), Error>>;
-    type ErasePageFuture<'a>: Future<Output = Result<(), Error>>;
+    type ReadFuture<'a>: Future<Output = Result<(), Error>>
+    where
+        Self: 'a;
+
+    type WriteFuture<'a>: Future<Output = Result<(), Error>>
+    where
+        Self: 'a;
+
+    type ErasePageFuture<'a>: Future<Output = Result<(), Error>>
+    where
+        Self: 'a;
 
     /// Reads data from the flash device.
     ///

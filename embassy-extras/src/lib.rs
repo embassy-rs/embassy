@@ -3,7 +3,9 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+mod macros;
 pub mod peripheral;
+pub mod peripheral_shared;
 pub mod ring_buffer;
 pub mod usb;
 
