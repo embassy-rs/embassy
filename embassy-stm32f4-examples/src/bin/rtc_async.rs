@@ -34,7 +34,7 @@ async fn run2() {
 
 #[embassy::main(use_hse = 16)]
 async fn main(spawner: Spawner) {
-    let (dp, clocks) = embassy_stm32::Peripherals::take().unwrap();
+    let (dp, clocks) = embassy_stm32::Peripherals::take_with_clocks().unwrap();
 
     spawner.spawn(run1()).unwrap();
 }

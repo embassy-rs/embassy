@@ -100,39 +100,21 @@ use core::option::Option;
 use hal::prelude::*;
 use hal::rcc::Clocks;
 
-macro_rules! peripherals {
-    ($($PER:ident,)+) => {
-        #[doc = r"All the peripherals"]
-        #[allow(non_snake_case)]
-        pub struct Peripherals {
-            $(
-                pub $PER: pac::$PER,
-            )+
-        }
+static mut CLOCKS: Option<Clocks> = None;
 
-        static mut GLOBAL_PERIPHERALS: Option<(Peripherals, Clocks)> = None;
+#[cfg(any(feature = "stm32f446", feature = "stm32f405"))]
+impl Peripherals {
+    pub fn take_with_clocks() -> Option<(Peripherals, Clocks)> {
+        unsafe { Some((Self::take().unwrap(), CLOCKS.take().unwrap())) }
+    }
 
-        impl Peripherals {
-            pub fn take() -> Option<(Peripherals, Clocks)> {
-                unsafe { GLOBAL_PERIPHERALS.take() }
-            }
-
-            pub unsafe fn set_peripherals(clocks: Clocks) {
-                let dp = pac::Peripherals::steal();
-                let peripherals = Peripherals {
-                    $(
-                        $PER: dp.$PER,
-                    )+
-                };
-
-                GLOBAL_PERIPHERALS.replace((peripherals, clocks));
-            }
-        }
-    };
+    pub unsafe fn set_clocks(clocks: Clocks) {
+        CLOCKS.replace(clocks);
+    }
 }
 
 #[cfg(feature = "stm32f446")]
-peripherals! {
+embassy_extras::peripherals! {
     DCMI,
     FMC,
     DBGMCU,
@@ -211,7 +193,7 @@ peripherals! {
 }
 
 #[cfg(feature = "stm32f405")]
-peripherals! {
+embassy_extras::peripherals! {
     RNG,
     DCMI,
     FSMC,

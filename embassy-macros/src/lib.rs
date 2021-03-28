@@ -289,7 +289,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
             let rcc = dp.RCC.constrain();
             let clocks = rcc.cfgr#clock_cfg_args.freeze();
 
-            unsafe { Peripherals::set_peripherals(clocks) };
+            unsafe { Peripherals::set_clocks(clocks) };
 
             let rtc = __embassy_rtc.put(rtc::RTC::new(dp.TIM3, interrupt::take!(TIM3), clocks));
             rtc.start();
