@@ -1,17 +1,12 @@
-//! Async low power Serial.
-//!
-//! The peripheral is autmatically enabled and disabled as required to save power.
-//! Lowest power consumption can only be guaranteed if the send receive futures
-//! are dropped correctly (e.g. not using `mem::forget()`).
+//! Async Serial.
 
 use core::future::Future;
 use core::marker::PhantomData;
-
-use futures::{select_biased, FutureExt};
-
+use core::pin::Pin;
 use embassy::interrupt::Interrupt;
-use embassy::traits::uart::{Error, IdleUart, Uart};
+use embassy::traits::uart::{Error, Read, ReadUntilIdle, Write};
 use embassy::util::InterruptFuture;
+use futures::{select_biased, FutureExt};
 
 use crate::hal::{
     dma,
@@ -89,7 +84,7 @@ where
     }
 }
 
-impl<USART, TSTREAM, RSTREAM, CHANNEL> Uart for Serial<USART, TSTREAM, RSTREAM, CHANNEL>
+impl<USART, TSTREAM, RSTREAM, CHANNEL> Read for Serial<USART, TSTREAM, RSTREAM, CHANNEL>
 where
     USART: serial::Instance
         + PeriAddress<MemSize = u8>
@@ -101,56 +96,19 @@ where
     RSTREAM: Stream + WithInterrupt + 'static,
     CHANNEL: Channel + 'static,
 {
-    type SendFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
-    type ReceiveFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
-
-    /// Sends serial data.
-    fn send<'a>(&'a mut self, buf: &'a [u8]) -> Self::SendFuture<'a> {
-        #[allow(mutable_transmutes)]
-        let static_buf = unsafe { core::mem::transmute::<&'a [u8], &'static mut [u8]>(buf) };
-
-        let tx_stream = self.tx_stream.take().unwrap();
-        let usart = self.usart.take().unwrap();
-
-        async move {
-            let mut tx_transfer = Transfer::init(
-                tx_stream,
-                usart,
-                static_buf,
-                None,
-                DmaConfig::default()
-                    .transfer_complete_interrupt(true)
-                    .memory_increment(true)
-                    .double_buffer(false),
-            );
-
-            let fut = InterruptFuture::new(&mut self.tx_int);
-
-            tx_transfer.start(|_usart| {});
-            fut.await;
-
-            let (tx_stream, usart, _buf, _) = tx_transfer.free();
-
-            self.tx_stream.replace(tx_stream);
-            self.usart.replace(usart);
-
-            Ok(())
-        }
-    }
+    type ReadFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
 
     /// Receives serial data.
     ///
     /// The future is pending until the buffer is completely filled.
-    /// A common pattern is to use [`stop()`](ReceiveFuture::stop) to cancel
-    /// unfinished transfers after a timeout to prevent lockup when no more data
-    /// is incoming.
-    fn receive<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReceiveFuture<'a> {
+    fn read<'a>(self: Pin<&'a mut Self>, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        let this = unsafe { self.get_unchecked_mut() };
         let static_buf = unsafe { core::mem::transmute::<&'a mut [u8], &'static mut [u8]>(buf) };
 
-        let rx_stream = self.rx_stream.take().unwrap();
-        let usart = self.usart.take().unwrap();
-
         async move {
+            let rx_stream = this.rx_stream.take().unwrap();
+            let usart = this.usart.take().unwrap();
+
             let mut rx_transfer = Transfer::init(
                 rx_stream,
                 usart,
@@ -162,20 +120,20 @@ where
                     .double_buffer(false),
             );
 
-            let fut = InterruptFuture::new(&mut self.rx_int);
+            let fut = InterruptFuture::new(&mut this.rx_int);
             rx_transfer.start(|_usart| {});
             fut.await;
 
             let (rx_stream, usart, _, _) = rx_transfer.free();
-            self.rx_stream.replace(rx_stream);
-            self.usart.replace(usart);
+            this.rx_stream.replace(rx_stream);
+            this.usart.replace(usart);
 
             Ok(())
         }
     }
 }
 
-impl<USART, TSTREAM, RSTREAM, CHANNEL> IdleUart for Serial<USART, TSTREAM, RSTREAM, CHANNEL>
+impl<USART, TSTREAM, RSTREAM, CHANNEL> Write for Serial<USART, TSTREAM, RSTREAM, CHANNEL>
 where
     USART: serial::Instance
         + PeriAddress<MemSize = u8>
@@ -187,20 +145,74 @@ where
     RSTREAM: Stream + WithInterrupt + 'static,
     CHANNEL: Channel + 'static,
 {
-    type ReceiveFuture<'a> = impl Future<Output = Result<usize, Error>> + 'a;
+    type WriteFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
+
+    /// Sends serial data.
+    fn write<'a>(self: Pin<&'a mut Self>, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+        let this = unsafe { self.get_unchecked_mut() };
+        #[allow(mutable_transmutes)]
+        let static_buf = unsafe { core::mem::transmute::<&'a [u8], &'static mut [u8]>(buf) };
+
+        async move {
+            let tx_stream = this.tx_stream.take().unwrap();
+            let usart = this.usart.take().unwrap();
+
+            let mut tx_transfer = Transfer::init(
+                tx_stream,
+                usart,
+                static_buf,
+                None,
+                DmaConfig::default()
+                    .transfer_complete_interrupt(true)
+                    .memory_increment(true)
+                    .double_buffer(false),
+            );
+
+            let fut = InterruptFuture::new(&mut this.tx_int);
+
+            tx_transfer.start(|_usart| {});
+            fut.await;
+
+            let (tx_stream, usart, _buf, _) = tx_transfer.free();
+
+            this.tx_stream.replace(tx_stream);
+            this.usart.replace(usart);
+
+            Ok(())
+        }
+    }
+}
+
+impl<USART, TSTREAM, RSTREAM, CHANNEL> ReadUntilIdle for Serial<USART, TSTREAM, RSTREAM, CHANNEL>
+where
+    USART: serial::Instance
+        + PeriAddress<MemSize = u8>
+        + DMASet<TSTREAM, CHANNEL, MemoryToPeripheral>
+        + DMASet<RSTREAM, CHANNEL, PeripheralToMemory>
+        + WithInterrupt
+        + 'static,
+    TSTREAM: Stream + WithInterrupt + 'static,
+    RSTREAM: Stream + WithInterrupt + 'static,
+    CHANNEL: Channel + 'static,
+{
+    type ReadUntilIdleFuture<'a> = impl Future<Output = Result<usize, Error>> + 'a;
 
     /// Receives serial data.
     ///
     /// The future is pending until either the buffer is completely full, or the RX line falls idle after receiving some data.
     ///
     /// Returns the number of bytes read.
-    fn receive_until_idle<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReceiveFuture<'a> {
+    fn read_until_idle<'a>(
+        self: Pin<&'a mut Self>,
+        buf: &'a mut [u8],
+    ) -> Self::ReadUntilIdleFuture<'a> {
+        let this = unsafe { self.get_unchecked_mut() };
         let static_buf = unsafe { core::mem::transmute::<&'a mut [u8], &'static mut [u8]>(buf) };
 
-        let rx_stream = self.rx_stream.take().unwrap();
-        let usart = self.usart.take().unwrap();
-
         async move {
+            let rx_stream = this.rx_stream.take().unwrap();
+            let usart = this.usart.take().unwrap();
+
             unsafe {
                 /*  __HAL_UART_ENABLE_IT(&uart->UartHandle, UART_IT_IDLE); */
                 (*USART::ptr()).cr1.modify(|_, w| w.idleie().set_bit());
@@ -223,15 +235,12 @@ where
 
             let total_bytes = RSTREAM::get_number_of_transfers() as usize;
 
-            let fut = InterruptFuture::new(&mut self.rx_int);
-            let fut_idle = InterruptFuture::new(&mut self.usart_int);
+            let fut = InterruptFuture::new(&mut this.rx_int);
+            let fut_idle = InterruptFuture::new(&mut this.usart_int);
 
             rx_transfer.start(|_usart| {});
 
-            select_biased! {
-                () = fut.fuse() => {},
-                () = fut_idle.fuse() => {},
-            }
+            futures::future::select(fut, fut_idle).await;
 
             let (rx_stream, usart, _, _) = rx_transfer.free();
 
@@ -240,8 +249,8 @@ where
             unsafe {
                 (*USART::ptr()).cr1.modify(|_, w| w.idleie().clear_bit());
             }
-            self.rx_stream.replace(rx_stream);
-            self.usart.replace(usart);
+            this.rx_stream.replace(rx_stream);
+            this.usart.replace(usart);
 
             Ok(total_bytes - remaining_bytes)
         }
