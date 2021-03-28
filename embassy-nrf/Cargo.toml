@@ -20,6 +20,7 @@ defmt-error = [ ]
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy" }
+embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["nrf"]}
 embassy-extras = {version = "0.1.0", path = "../embassy-extras" }
 
 defmt = { version = "0.2.0", optional = true }

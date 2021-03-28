@@ -11,3 +11,7 @@ darling = "0.10.2"
 
 [lib]
 proc-macro = true
+
+[features]
+stm32 = []
+nrf = []
