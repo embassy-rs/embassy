@@ -105,7 +105,16 @@ static mut CLOCKS: Option<Clocks> = None;
 #[cfg(any(feature = "stm32f446", feature = "stm32f405"))]
 impl Peripherals {
     pub fn take_with_clocks() -> Option<(Peripherals, Clocks)> {
-        unsafe { Some((Self::take().unwrap(), CLOCKS.take().unwrap())) }
+        if unsafe { CLOCKS.is_none() } {
+            return None;
+        }
+
+        let peripherals = Self::take();
+        if peripherals.is_none() {
+            return None;
+        }
+
+        unsafe { Some((peripherals.unwrap(), CLOCKS.take().unwrap())) }
     }
 
     pub unsafe fn set_clocks(clocks: Clocks) {
