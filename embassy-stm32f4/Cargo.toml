@@ -32,6 +32,7 @@ stm32f479 = ["stm32f4xx-hal/stm32f469", "embassy-stm32/stm32f479"]
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy" }
 embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32" }
+
 defmt = { version = "0.2.0", optional = true }
 log = { version = "0.4.11", optional = true }
 cortex-m-rt = "0.6.13"

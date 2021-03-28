@@ -36,6 +36,7 @@ pub mod exti;
 pub mod interrupt;
 
 #[cfg(any(
+    feature = "stm32f401",
     feature = "stm32f405",
     feature = "stm32f407",
     feature = "stm32f412",
@@ -73,3 +74,5 @@ pub mod can;
     feature = "stm32f479",
 ))]
 pub mod rtc;
+
+unsafe impl embassy_extras::usb::USBInterrupt for interrupt::OTG_FS {}

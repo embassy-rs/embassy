@@ -69,6 +69,12 @@ impl<'a> RingBuffer<'a> {
         self.empty = self.start == self.end;
     }
 
+    pub fn clear(&mut self) {
+        self.start = 0;
+        self.end = 0;
+        self.empty = true;
+    }
+
     fn wrap(&self, n: usize) -> usize {
         assert!(n <= self.buf.len());
         if n == self.buf.len() {
