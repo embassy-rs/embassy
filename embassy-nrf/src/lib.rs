@@ -103,6 +103,7 @@ pub mod qspi;
 pub mod rtc;
 pub mod saadc;
 pub mod spim;
+pub mod timer;
 pub mod uarte;
 
 embassy_extras::peripherals! {
@@ -134,6 +135,15 @@ embassy_extras::peripherals! {
 
     // SAADC
     SAADC,
+
+    // TIMER
+    TIMER0,
+    TIMER1,
+    TIMER2,
+    #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
+    TIMER3,
+    #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
+    TIMER4,
 
     // GPIOTE
     GPIOTE,
