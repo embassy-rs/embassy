@@ -1,30 +1,24 @@
-//! HAL interface to the UARTE peripheral
-//!
-//! See product specification:
-//!
-//! - nrf52832: Section 35
-//! - nrf52840: Section 6.34
 use core::cmp::min;
 use core::mem;
-use core::ops::Deref;
 use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
 use embassy::io::{AsyncBufRead, AsyncWrite, Result};
-use embassy::util::WakerRegistration;
-use embassy_extras::low_power_wait_until;
+use embassy::util::{PeripheralBorrow, WakerRegistration};
 use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
 use embassy_extras::ring_buffer::RingBuffer;
-use embedded_hal::digital::v2::OutputPin;
+use embassy_extras::{low_power_wait_until, unborrow};
 
-use crate::fmt::*;
-use crate::hal::ppi::ConfigurablePpi;
-use crate::interrupt::{self, Interrupt};
+use crate::fmt::{panic, *};
+use crate::gpio::sealed::Pin as _;
+use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
 use crate::pac;
+use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
+use crate::timer::Instance as TimerInstance;
+use crate::uarte::{Config, Instance as UarteInstance};
 
 // Re-export SVD variants to allow user to directly set values
-pub use crate::hal::uarte::Pins;
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -39,17 +33,17 @@ enum TxState {
     Transmitting(usize),
 }
 
-struct State<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi> {
+struct State<'d, U: UarteInstance, T: TimerInstance> {
     uarte: U,
     timer: T,
-    ppi_channel_1: P1,
-    ppi_channel_2: P2,
+    _ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
+    _ppi_ch2: Ppi<'d, AnyConfigurableChannel>,
 
-    rx: RingBuffer<'a>,
+    rx: RingBuffer<'d>,
     rx_state: RxState,
     rx_waker: WakerRegistration,
 
-    tx: RingBuffer<'a>,
+    tx: RingBuffer<'d>,
     tx_state: TxState,
     tx_waker: WakerRegistration,
 }
@@ -62,79 +56,74 @@ struct State<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: Configu
 ///   are disabled before using `Uarte`. See product specification:
 ///     - nrf52832: Section 15.2
 ///     - nrf52840: Section 6.1.2
-pub struct BufferedUarte<
-    'a,
-    U: Instance,
-    T: TimerInstance,
-    P1: ConfigurablePpi,
-    P2: ConfigurablePpi,
-> {
-    inner: PeripheralMutex<State<'a, U, T, P1, P2>>,
+pub struct BufferedUarte<'d, U: UarteInstance, T: TimerInstance> {
+    inner: PeripheralMutex<State<'d, U, T>>,
 }
 
-impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi>
-    BufferedUarte<'a, U, T, P1, P2>
-{
-    pub fn new(
-        uarte: U,
-        timer: T,
-        mut ppi_channel_1: P1,
-        mut ppi_channel_2: P2,
-        irq: U::Interrupt,
-        rx_buffer: &'a mut [u8],
-        tx_buffer: &'a mut [u8],
-        mut pins: Pins,
-        parity: Parity,
-        baudrate: Baudrate,
+impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
+    /// unsafe: may not leak self or futures
+    pub unsafe fn new(
+        uarte: impl PeripheralBorrow<Target = U> + 'd,
+        timer: impl PeripheralBorrow<Target = T> + 'd,
+        ppi_ch1: impl PeripheralBorrow<Target = impl ConfigurableChannel> + 'd,
+        ppi_ch2: impl PeripheralBorrow<Target = impl ConfigurableChannel> + 'd,
+        irq: impl PeripheralBorrow<Target = U::Interrupt> + 'd,
+        rxd: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
+        txd: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
+        cts: impl PeripheralBorrow<Target = impl GpioOptionalPin> + 'd,
+        rts: impl PeripheralBorrow<Target = impl GpioOptionalPin> + 'd,
+        config: Config,
+        rx_buffer: &'d mut [u8],
+        tx_buffer: &'d mut [u8],
     ) -> Self {
-        // Select pins
-        uarte.psel.rxd.write(|w| {
-            unsafe { w.bits(pins.rxd.psel_bits()) };
-            w.connect().connected()
-        });
-        pins.txd.set_high().unwrap();
-        uarte.psel.txd.write(|w| {
-            unsafe { w.bits(pins.txd.psel_bits()) };
-            w.connect().connected()
-        });
+        unborrow!(uarte, timer, ppi_ch1, ppi_ch2, irq, rxd, txd, cts, rts);
 
-        // Optional pins
-        uarte.psel.cts.write(|w| {
-            if let Some(ref pin) = pins.cts {
-                unsafe { w.bits(pin.psel_bits()) };
-                w.connect().connected()
-            } else {
-                w.connect().disconnected()
-            }
-        });
+        let r = uarte.regs();
+        let rt = timer.regs();
 
-        uarte.psel.rts.write(|w| {
-            if let Some(ref pin) = pins.rts {
-                unsafe { w.bits(pin.psel_bits()) };
-                w.connect().connected()
-            } else {
-                w.connect().disconnected()
-            }
-        });
+        rxd.conf().write(|w| w.input().connect().drive().h0h1());
+        r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
 
-        // Enable UARTE instance
-        uarte.enable.write(|w| w.enable().enabled());
+        txd.set_high();
+        txd.conf().write(|w| w.dir().output().drive().h0h1());
+        r.psel.txd.write(|w| unsafe { w.bits(txd.psel_bits()) });
 
-        // Enable interrupts
-        uarte.intenset.write(|w| w.endrx().set().endtx().set());
+        if let Some(pin) = rts.pin_mut() {
+            pin.set_high();
+            pin.conf().write(|w| w.dir().output().drive().h0h1());
+        }
+        r.psel.cts.write(|w| unsafe { w.bits(cts.psel_bits()) });
+
+        if let Some(pin) = cts.pin_mut() {
+            pin.conf().write(|w| w.input().connect().drive().h0h1());
+        }
+        r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
+
+        r.baudrate.write(|w| w.baudrate().variant(config.baudrate));
+        r.config.write(|w| w.parity().variant(config.parity));
 
         // Configure
-        let hardware_flow_control = pins.rts.is_some() && pins.cts.is_some();
-        uarte
-            .config
-            .write(|w| w.hwfc().bit(hardware_flow_control).parity().variant(parity));
+        let hardware_flow_control = match (rts.pin().is_some(), cts.pin().is_some()) {
+            (false, false) => false,
+            (true, true) => true,
+            _ => panic!("RTS and CTS pins must be either both set or none set."),
+        };
+        r.config.write(|w| {
+            w.hwfc().bit(hardware_flow_control);
+            w.parity().variant(config.parity);
+            w
+        });
+        r.baudrate.write(|w| w.baudrate().variant(config.baudrate));
 
-        // Configure frequency
-        uarte.baudrate.write(|w| w.baudrate().variant(baudrate));
+        // Enable interrupts
+        r.intenset.write(|w| w.endrx().set().endtx().set());
 
         // Disable the irq, let the Registration enable it when everything is set up.
         irq.disable();
         irq.pend();
+
+        // Enable UARTE instance
+        r.enable.write(|w| w.enable().enabled());
 
         // BAUDRATE register values are `baudrate * 2^32 / 16000000`
         // source: https://devzone.nordicsemi.com/f/nordic-q-a/391/uart-baudrate-register-values
@@ -142,35 +131,37 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
         // We want to stop RX if line is idle for 2 bytes worth of time
         // That is 20 bits (each byte is 1 start bit + 8 data bits + 1 stop bit)
         // This gives us the amount of 16M ticks for 20 bits.
-        let timeout = 0x8000_0000 / (baudrate as u32 / 40);
+        let timeout = 0x8000_0000 / (config.baudrate as u32 / 40);
 
-        timer.tasks_stop.write(|w| unsafe { w.bits(1) });
-        timer.bitmode.write(|w| w.bitmode()._32bit());
-        timer.prescaler.write(|w| unsafe { w.prescaler().bits(0) });
-        timer.cc[0].write(|w| unsafe { w.bits(timeout) });
-        timer.mode.write(|w| w.mode().timer());
-        timer.shorts.write(|w| {
+        rt.tasks_stop.write(|w| unsafe { w.bits(1) });
+        rt.bitmode.write(|w| w.bitmode()._32bit());
+        rt.prescaler.write(|w| unsafe { w.prescaler().bits(0) });
+        rt.cc[0].write(|w| unsafe { w.bits(timeout) });
+        rt.mode.write(|w| w.mode().timer());
+        rt.shorts.write(|w| {
             w.compare0_clear().set_bit();
             w.compare0_stop().set_bit();
             w
         });
 
-        ppi_channel_1.set_event_endpoint(&uarte.events_rxdrdy);
-        ppi_channel_1.set_task_endpoint(&timer.tasks_clear);
-        ppi_channel_1.set_fork_task_endpoint(&timer.tasks_start);
-        ppi_channel_1.enable();
+        let mut ppi_ch1 = Ppi::new(ppi_ch1.degrade_configurable());
+        ppi_ch1.set_event(Event::from_reg(&r.events_rxdrdy));
+        ppi_ch1.set_task(Task::from_reg(&rt.tasks_clear));
+        ppi_ch1.set_fork_task(Task::from_reg(&rt.tasks_start));
+        ppi_ch1.enable();
 
-        ppi_channel_2.set_event_endpoint(&timer.events_compare[0]);
-        ppi_channel_2.set_task_endpoint(&uarte.tasks_stoprx);
-        ppi_channel_2.enable();
+        let mut ppi_ch2 = Ppi::new(ppi_ch2.degrade_configurable());
+        ppi_ch2.set_event(Event::from_reg(&rt.events_compare[0]));
+        ppi_ch2.set_task(Task::from_reg(&r.tasks_stoprx));
+        ppi_ch2.enable();
 
         BufferedUarte {
             inner: PeripheralMutex::new(
                 State {
                     uarte,
                     timer,
-                    ppi_channel_1,
-                    ppi_channel_2,
+                    _ppi_ch1: ppi_ch1,
+                    _ppi_ch2: ppi_ch2,
 
                     rx: RingBuffer::new(rx_buffer),
                     rx_state: RxState::Idle,
@@ -187,25 +178,23 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
 
     pub fn set_baudrate(self: Pin<&mut Self>, baudrate: Baudrate) {
         self.inner().with(|state, _irq| {
-            let timeout = 0x8000_0000 / (baudrate as u32 / 40);
-            state.timer.cc[0].write(|w| unsafe { w.bits(timeout) });
-            state.timer.tasks_clear.write(|w| unsafe { w.bits(1) });
+            let r = state.uarte.regs();
+            let rt = state.timer.regs();
 
-            state
-                .uarte
-                .baudrate
-                .write(|w| w.baudrate().variant(baudrate));
+            let timeout = 0x8000_0000 / (baudrate as u32 / 40);
+            rt.cc[0].write(|w| unsafe { w.bits(timeout) });
+            rt.tasks_clear.write(|w| unsafe { w.bits(1) });
+
+            r.baudrate.write(|w| w.baudrate().variant(baudrate));
         });
     }
 
-    fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<'a, U, T, P1, P2>>> {
+    fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<'d, U, T>>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
 }
 
-impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi> AsyncBufRead
-    for BufferedUarte<'a, U, T, P1, P2>
-{
+impl<'d, U: UarteInstance, T: TimerInstance> AsyncBufRead for BufferedUarte<'d, U, T> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
         let mut inner = self.inner();
         inner.as_mut().register_interrupt();
@@ -242,9 +231,7 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
     }
 }
 
-impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi> AsyncWrite
-    for BufferedUarte<'a, U, T, P1, P2>
-{
+impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U, T> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
         let mut inner = self.inner();
         inner.as_mut().register_interrupt();
@@ -276,32 +263,36 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
     }
 }
 
-impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi> Drop
-    for State<'a, U, T, P1, P2>
-{
+impl<'a, U: UarteInstance, T: TimerInstance> Drop for State<'a, U, T> {
     fn drop(&mut self) {
-        self.timer.tasks_stop.write(|w| unsafe { w.bits(1) });
+        let r = self.uarte.regs();
+        let rt = self.timer.regs();
+
+        // TODO this probably deadlocks. do like Uarte instead.
+
+        rt.tasks_stop.write(|w| unsafe { w.bits(1) });
         if let RxState::Receiving = self.rx_state {
-            self.uarte.tasks_stoprx.write(|w| unsafe { w.bits(1) });
+            r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
         }
         if let TxState::Transmitting(_) = self.tx_state {
-            self.uarte.tasks_stoptx.write(|w| unsafe { w.bits(1) });
+            r.tasks_stoptx.write(|w| unsafe { w.bits(1) });
         }
         if let RxState::Receiving = self.rx_state {
-            low_power_wait_until(|| self.uarte.events_endrx.read().bits() == 1);
+            low_power_wait_until(|| r.events_endrx.read().bits() == 1);
         }
         if let TxState::Transmitting(_) = self.tx_state {
-            low_power_wait_until(|| self.uarte.events_endtx.read().bits() == 1);
+            low_power_wait_until(|| r.events_endtx.read().bits() == 1);
         }
     }
 }
 
-impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi> PeripheralState
-    for State<'a, U, T, P1, P2>
-{
+impl<'a, U: UarteInstance, T: TimerInstance> PeripheralState for State<'a, U, T> {
     type Interrupt = U::Interrupt;
     fn on_interrupt(&mut self) {
         trace!("irq: start");
+        let r = self.uarte.regs();
+        let rt = self.timer.regs();
+
         loop {
             match self.rx_state {
                 RxState::Idle => {
@@ -313,11 +304,11 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
                         self.rx_state = RxState::Receiving;
 
                         // Set up the DMA read
-                        self.uarte.rxd.ptr.write(|w|
+                        r.rxd.ptr.write(|w|
                             // The PTR field is a full 32 bits wide and accepts the full range
                             // of values.
                             unsafe { w.ptr().bits(buf.as_ptr() as u32) });
-                        self.uarte.rxd.maxcnt.write(|w|
+                        r.rxd.maxcnt.write(|w|
                             // We're giving it the length of the buffer, so no danger of
                             // accessing invalid memory. We have verified that the length of the
                             // buffer fits in an `u8`, so the cast to `u8` is also fine.
@@ -328,7 +319,7 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
                         trace!("  irq_rx: buf {:?} {:?}", buf.as_ptr() as u32, buf.len());
 
                         // Start UARTE Receive transaction
-                        self.uarte.tasks_startrx.write(|w|
+                        r.tasks_startrx.write(|w|
                             // `1` is a valid value to write to task registers.
                             unsafe { w.bits(1) });
                     }
@@ -336,14 +327,14 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
                 }
                 RxState::Receiving => {
                     trace!("  irq_rx: in state receiving");
-                    if self.uarte.events_endrx.read().bits() != 0 {
-                        self.timer.tasks_stop.write(|w| unsafe { w.bits(1) });
+                    if r.events_endrx.read().bits() != 0 {
+                        rt.tasks_stop.write(|w| unsafe { w.bits(1) });
 
-                        let n: usize = self.uarte.rxd.amount.read().amount().bits() as usize;
+                        let n: usize = r.rxd.amount.read().amount().bits() as usize;
                         trace!("  irq_rx: endrx {:?}", n);
                         self.rx.push(n);
 
-                        self.uarte.events_endrx.reset();
+                        r.events_endrx.reset();
 
                         self.rx_waker.wake();
                         self.rx_state = RxState::Idle;
@@ -364,11 +355,11 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
                         self.tx_state = TxState::Transmitting(buf.len());
 
                         // Set up the DMA write
-                        self.uarte.txd.ptr.write(|w|
+                        r.txd.ptr.write(|w|
                             // The PTR field is a full 32 bits wide and accepts the full range
                             // of values.
                             unsafe { w.ptr().bits(buf.as_ptr() as u32) });
-                        self.uarte.txd.maxcnt.write(|w|
+                        r.txd.maxcnt.write(|w|
                             // We're giving it the length of the buffer, so no danger of
                             // accessing invalid memory. We have verified that the length of the
                             // buffer fits in an `u8`, so the cast to `u8` is also fine.
@@ -378,7 +369,7 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
                             unsafe { w.maxcnt().bits(buf.len() as _) });
 
                         // Start UARTE Transmit transaction
-                        self.uarte.tasks_starttx.write(|w|
+                        r.tasks_starttx.write(|w|
                             // `1` is a valid value to write to task registers.
                             unsafe { w.bits(1) });
                     }
@@ -386,8 +377,8 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
                 }
                 TxState::Transmitting(n) => {
                     trace!("  irq_tx: in state Transmitting");
-                    if self.uarte.events_endtx.read().bits() != 0 {
-                        self.uarte.events_endtx.reset();
+                    if r.events_endtx.read().bits() != 0 {
+                        r.events_endtx.reset();
 
                         trace!("  irq_tx: endtx {:?}", n);
                         self.tx.pop(n);
@@ -402,37 +393,3 @@ impl<'a, U: Instance, T: TimerInstance, P1: ConfigurablePpi, P2: ConfigurablePpi
         trace!("irq: end");
     }
 }
-
-mod sealed {
-    pub trait Instance {}
-
-    impl Instance for crate::pac::UARTE0 {}
-    #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
-    impl Instance for crate::pac::UARTE1 {}
-
-    pub trait TimerInstance {}
-    impl TimerInstance for crate::pac::TIMER0 {}
-    impl TimerInstance for crate::pac::TIMER1 {}
-    impl TimerInstance for crate::pac::TIMER2 {}
-}
-
-pub trait Instance: Deref<Target = pac::uarte0::RegisterBlock> + sealed::Instance {
-    type Interrupt: Interrupt;
-}
-
-impl Instance for pac::UARTE0 {
-    type Interrupt = interrupt::UARTE0_UART0;
-}
-
-#[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
-impl Instance for pac::UARTE1 {
-    type Interrupt = interrupt::UARTE1;
-}
-
-pub trait TimerInstance:
-    Deref<Target = pac::timer0::RegisterBlock> + sealed::TimerInstance
-{
-}
-impl TimerInstance for crate::pac::TIMER0 {}
-impl TimerInstance for crate::pac::TIMER1 {}
-impl TimerInstance for crate::pac::TIMER2 {}

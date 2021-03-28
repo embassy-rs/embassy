@@ -40,17 +40,6 @@ pub use nrf52833_pac as pac;
 #[cfg(feature = "52840")]
 pub use nrf52840_pac as pac;
 
-#[cfg(feature = "52810")]
-pub use nrf52810_hal as hal;
-#[cfg(feature = "52811")]
-pub use nrf52811_hal as hal;
-#[cfg(feature = "52832")]
-pub use nrf52832_hal as hal;
-#[cfg(feature = "52833")]
-pub use nrf52833_hal as hal;
-#[cfg(feature = "52840")]
-pub use nrf52840_hal as hal;
-
 /// Length of Nordic EasyDMA differs for MCUs
 #[cfg(any(
     feature = "52810",
