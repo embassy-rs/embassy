@@ -123,7 +123,13 @@ pub trait Channel: sealed::Channel + Sized {
         }
     }
 }
-pub trait ConfigurableChannel: Channel + sealed::ConfigurableChannel {}
+pub trait ConfigurableChannel: Channel + sealed::ConfigurableChannel {
+    fn degrade_configurable(self) -> AnyConfigurableChannel {
+        AnyConfigurableChannel {
+            number: self.number() as u8,
+        }
+    }
+}
 
 pub trait Group: sealed::Group + Sized {
     fn number(&self) -> usize;
@@ -143,6 +149,19 @@ pub struct AnyChannel {
 impl_unborrow!(AnyChannel);
 impl sealed::Channel for AnyChannel {}
 impl Channel for AnyChannel {
+    fn number(&self) -> usize {
+        self.number as usize
+    }
+}
+
+pub struct AnyConfigurableChannel {
+    number: u8,
+}
+impl_unborrow!(AnyConfigurableChannel);
+impl sealed::Channel for AnyConfigurableChannel {}
+impl sealed::ConfigurableChannel for AnyConfigurableChannel {}
+impl ConfigurableChannel for AnyConfigurableChannel {}
+impl Channel for AnyConfigurableChannel {
     fn number(&self) -> usize {
         self.number as usize
     }
