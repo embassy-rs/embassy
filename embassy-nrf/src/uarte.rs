@@ -11,14 +11,14 @@ use embassy_extras::peripheral_shared::{Peripheral, PeripheralState};
 use embassy_extras::unborrow;
 use futures::future::poll_fn;
 
-use crate::fmt::{assert, *};
+use crate::fmt::{assert, panic, *};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
-use crate::hal::pac;
-use crate::hal::target_constants::EASY_DMA_SIZE;
 use crate::interrupt;
 use crate::interrupt::Interrupt;
+use crate::pac;
 use crate::peripherals;
+use crate::target_constants::EASY_DMA_SIZE;
 
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
@@ -94,8 +94,18 @@ impl<'d, T: Instance> Uarte<'d, T> {
         }
         r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
 
+        // Configure
+        let hardware_flow_control = match (rts.pin().is_some(), cts.pin().is_some()) {
+            (false, false) => false,
+            (true, true) => true,
+            _ => panic!("RTS and CTS pins must be either both set or none set."),
+        };
+        r.config.write(|w| {
+            w.hwfc().bit(hardware_flow_control);
+            w.parity().variant(config.parity);
+            w
+        });
         r.baudrate.write(|w| w.baudrate().variant(config.baudrate));
-        r.config.write(|w| w.parity().variant(config.parity));
 
         // Disable all interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
