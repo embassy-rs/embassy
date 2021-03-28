@@ -124,3 +124,29 @@ impl<T: Interrupt + ?Sized> InterruptExt for T {
         }
     }
 }
+
+pub struct InterruptTable {}
+
+impl InterruptTable {
+    /*
+        Register the interrupt table with the NVIC
+    */
+    pub fn register_table() {
+        // unsafe { p.core.SCB.vtor.write(0x4000) }
+    }
+
+    /*
+        JIT a trampoline function, given a fn and ctx
+    */
+    pub fn generate_fn(func: unsafe fn(*mut ()), ctx: *mut ()) -> [u8] {}
+
+    /*
+        Set the handler in the interrupt table
+    */
+    pub fn set_handler(irq: u8, func: unsafe fn(*mut ())) {}
+
+    /*
+        Remove the handler in the interrupt table
+    */
+    pub fn remove_handler(irq: u8) {}
+}
