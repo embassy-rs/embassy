@@ -125,6 +125,16 @@ impl<T: Interrupt + ?Sized> InterruptExt for T {
     }
 }
 
+#[repr(C, align(VECTORTABLE_ALIGNMENT))]
+#[no_mangle]
+static mut INTERRUPT_TABLE: [unsafe extern "C" fn(); 240] = [{
+    extern "C" {
+        fn DefaultHandler();
+    }
+
+    DefaultHandler
+}; 240];
+
 pub struct InterruptTable {}
 
 impl InterruptTable {
@@ -132,7 +142,7 @@ impl InterruptTable {
         Register the interrupt table with the NVIC
     */
     pub fn register_table() {
-        // unsafe { p.core.SCB.vtor.write(0x4000) }
+        unsafe { p.core.SCB.vtor.write(*INTERRUPT_TABLE) }
     }
 
     /*
