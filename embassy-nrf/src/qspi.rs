@@ -36,12 +36,25 @@ pub struct DeepPowerDownConfig {
     pub exit_time: u16,
 }
 
+#[non_exhaustive]
 pub struct Config {
     pub xip_offset: u32,
     pub read_opcode: ReadOpcode,
     pub write_opcode: WriteOpcode,
     pub write_page_size: WritePageSize,
     pub deep_power_down: Option<DeepPowerDownConfig>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            read_opcode: ReadOpcode::READ4IO,
+            write_opcode: WriteOpcode::PP4IO,
+            xip_offset: 0,
+            write_page_size: WritePageSize::_256BYTES,
+            deep_power_down: None,
+        }
+    }
 }
 
 pub struct Qspi<'d, T: Instance> {

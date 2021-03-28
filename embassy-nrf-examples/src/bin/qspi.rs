@@ -36,14 +36,7 @@ async fn run() {
     let io2 = p.P0_22;
     let io3 = p.P0_23;
 
-    let config = qspi::Config {
-        read_opcode: qspi::ReadOpcode::READ4IO,
-        write_opcode: qspi::WriteOpcode::PP4IO,
-        xip_offset: 0,
-        write_page_size: qspi::WritePageSize::_256BYTES,
-        deep_power_down: None,
-    };
-
+    let config = qspi::Config::default();
     let irq = interrupt::take!(QSPI);
     let q = qspi::Qspi::new(p.QSPI, irq, sck, csn, io0, io1, io2, io3, config);
     pin_mut!(q);
