@@ -9,7 +9,6 @@
 mod example_common;
 use example_common::*;
 
-use core::mem;
 use core::task::Poll;
 use cortex_m_rt::entry;
 use defmt::panic;
@@ -18,7 +17,6 @@ use embassy::time::{Duration, Instant, Timer};
 use embassy::util::Forever;
 use embassy_nrf::peripherals;
 use embassy_nrf::{interrupt, rtc};
-use nrf52840_hal::clocks;
 
 #[task]
 async fn run1() {
@@ -54,14 +52,9 @@ fn main() -> ! {
 
     let p = unwrap!(embassy_nrf::Peripherals::take());
 
-    clocks::Clocks::new(unsafe { mem::transmute(()) })
-        .enable_ext_hfosc()
-        .set_lfclk_src_external(clocks::LfOscConfiguration::NoExternalNoBypass)
-        .start_lfclk();
-
+    unsafe { embassy_nrf::system::configure(Default::default()) };
     let rtc = RTC.put(rtc::RTC::new(p.RTC1, interrupt::take!(RTC1)));
     rtc.start();
-
     unsafe { embassy::time::set_clock(rtc) };
 
     let alarm = ALARM.put(rtc.alarm0());

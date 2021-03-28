@@ -1,7 +1,6 @@
 #![macro_use]
 
 use defmt_rtt as _; // global logger
-use nrf52840_hal as _;
 use panic_probe as _;
 
 pub use defmt::*;

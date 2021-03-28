@@ -7,20 +7,16 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use core::mem;
-
-use embassy_nrf::gpio::NoPin;
-use example_common::*;
 
 use cortex_m_rt::entry;
 use defmt::panic;
-use futures::pin_mut;
-use nrf52840_hal::clocks;
-
 use embassy::executor::{task, Executor};
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy::util::{Forever, Steal};
+use embassy_nrf::gpio::NoPin;
 use embassy_nrf::{buffered_uarte::BufferedUarte, interrupt, peripherals, rtc, uarte, Peripherals};
+use example_common::*;
+use futures::pin_mut;
 
 #[task]
 async fn run() {
@@ -85,14 +81,9 @@ fn main() -> ! {
 
     let p = unwrap!(embassy_nrf::Peripherals::take());
 
-    clocks::Clocks::new(unsafe { mem::transmute(()) })
-        .enable_ext_hfosc()
-        .set_lfclk_src_external(clocks::LfOscConfiguration::NoExternalNoBypass)
-        .start_lfclk();
-
+    unsafe { embassy_nrf::system::configure(Default::default()) };
     let rtc = RTC.put(rtc::RTC::new(p.RTC1, interrupt::take!(RTC1)));
     rtc.start();
-
     unsafe { embassy::time::set_clock(rtc) };
 
     let alarm = ALARM.put(rtc.alarm0());

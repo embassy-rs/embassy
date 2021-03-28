@@ -7,8 +7,6 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use core::mem;
-
 use example_common::*;
 
 use cortex_m_rt::entry;
@@ -16,9 +14,7 @@ use defmt::panic;
 use embassy::executor::{task, Executor};
 use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
-use embassy_nrf::peripherals;
-use embassy_nrf::{interrupt, rtc};
-use nrf52840_hal::clocks;
+use embassy_nrf::{interrupt, peripherals, rtc};
 
 #[task]
 async fn run1() {
@@ -44,16 +40,11 @@ static EXECUTOR: Forever<Executor> = Forever::new();
 fn main() -> ! {
     info!("Hello World!");
 
-    clocks::Clocks::new(unsafe { mem::transmute(()) })
-        .enable_ext_hfosc()
-        .set_lfclk_src_external(clocks::LfOscConfiguration::NoExternalNoBypass)
-        .start_lfclk();
-
     let p = unwrap!(embassy_nrf::Peripherals::take());
 
+    unsafe { embassy_nrf::system::configure(Default::default()) };
     let rtc = RTC.put(rtc::RTC::new(p.RTC1, interrupt::take!(RTC1)));
     rtc.start();
-
     unsafe { embassy::time::set_clock(rtc) };
 
     let alarm = ALARM.put(rtc.alarm0());

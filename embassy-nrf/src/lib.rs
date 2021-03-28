@@ -92,6 +92,7 @@ pub mod qspi;
 pub mod rtc;
 pub mod saadc;
 pub mod spim;
+pub mod system;
 pub mod timer;
 pub mod uarte;
 

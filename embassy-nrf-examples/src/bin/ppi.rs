@@ -20,7 +20,6 @@ use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::gpiote::{self, InputChannel, InputChannelPolarity};
 use embassy_nrf::ppi::Ppi;
 use embassy_nrf::{interrupt, Peripherals};
-use futures::future;
 use gpiote::{OutputChannel, OutputChannelPolarity};
 
 #[task]

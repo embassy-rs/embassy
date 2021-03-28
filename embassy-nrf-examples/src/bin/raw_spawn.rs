@@ -3,19 +3,17 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use core::mem;
-
-use embassy::executor::raw::Task;
 use example_common::*;
 
+use core::mem;
 use cortex_m_rt::entry;
 use defmt::panic;
+use embassy::executor::raw::Task;
 use embassy::executor::Executor;
 use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
 use embassy_nrf::peripherals;
 use embassy_nrf::{interrupt, rtc};
-use nrf52840_hal::clocks;
 
 async fn run1() {
     loop {
@@ -41,14 +39,9 @@ fn main() -> ! {
 
     let p = unwrap!(embassy_nrf::Peripherals::take());
 
-    clocks::Clocks::new(unsafe { mem::transmute(()) })
-        .enable_ext_hfosc()
-        .set_lfclk_src_external(clocks::LfOscConfiguration::NoExternalNoBypass)
-        .start_lfclk();
-
+    unsafe { embassy_nrf::system::configure(Default::default()) };
     let rtc = RTC.put(rtc::RTC::new(p.RTC1, interrupt::take!(RTC1)));
     rtc.start();
-
     unsafe { embassy::time::set_clock(rtc) };
 
     let alarm = ALARM.put(rtc.alarm0());
