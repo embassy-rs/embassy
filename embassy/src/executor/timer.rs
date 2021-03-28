@@ -7,6 +7,7 @@ use futures::Stream;
 use super::raw;
 use crate::time::{Duration, Instant};
 
+/// Delay abstraction using embassy's clock.
 pub struct Delay {
     _data: PhantomData<bool>,
 }
@@ -30,12 +31,14 @@ impl crate::traits::delay::Delay for Delay {
     }
 }
 
+/// A future that completes at a specified [Instant](struct.Instant.html).
 pub struct Timer {
     expires_at: Instant,
     yielded_once: bool,
 }
 
 impl Timer {
+    /// Expire at specified [Instant](struct.Instant.html)
     pub fn at(expires_at: Instant) -> Self {
         Self {
             expires_at,
@@ -43,6 +46,26 @@ impl Timer {
         }
     }
 
+    /// Expire after specified [Duration](struct.Duration.html).
+    /// This can be used as a `sleep` abstraction.
+    ///
+    /// Example:
+    /// ``` no_run
+    /// # #![feature(trait_alias)]
+    /// # #![feature(min_type_alias_impl_trait)]
+    /// # #![feature(impl_trait_in_bindings)]
+    /// # #![feature(type_alias_impl_trait)]
+    /// #
+    /// # fn foo() {}
+    /// use embassy::executor::task;
+    /// use embassy::time::{Duration, Timer};
+    ///
+    /// #[task]
+    /// async fn demo_sleep_seconds() {
+    ///     // suspend this task for one second.
+    ///     Timer::after(Duration::from_secs(1)).await;
+    /// }
+    /// ```
     pub fn after(duration: Duration) -> Self {
         Self {
             expires_at: Instant::now() + duration,
@@ -66,12 +89,62 @@ impl Future for Timer {
     }
 }
 
+/// Asynchronous stream that yields every Duration, indefinitely.
+///
+/// This stream will tick at uniform intervals, even if blocking work is performed between ticks.
+///
+/// For instance, consider the following code fragment.
+/// ``` no_run
+/// # #![feature(trait_alias)]
+/// # #![feature(min_type_alias_impl_trait)]
+/// # #![feature(impl_trait_in_bindings)]
+/// # #![feature(type_alias_impl_trait)]
+/// #
+/// use embassy::executor::task;
+/// use embassy::time::{Duration, Timer};
+/// # fn foo() {}
+///
+/// #[task]
+/// async fn ticker_example_0() {
+///     loop {
+///         foo();
+///         Timer::after(Duration::from_secs(1)).await;
+///     }
+/// }
+/// ```
+///
+/// This fragment will not call `foo` every second.
+/// Instead, it will call it every second + the time it took to previously call `foo`.
+///
+/// Example using ticker, which will consistently call `foo` once a second.
+///
+/// ``` no_run
+/// # #![feature(trait_alias)]
+/// # #![feature(min_type_alias_impl_trait)]
+/// # #![feature(impl_trait_in_bindings)]
+/// # #![feature(type_alias_impl_trait)]
+/// #
+/// use embassy::executor::task;
+/// use embassy::time::{Duration, Ticker};
+/// use futures::StreamExt;
+/// # fn foo(){}
+///
+/// #[task]
+/// async fn ticker_example_1() {
+///     let mut ticker = Ticker::every(Duration::from_secs(1));
+///     loop {
+///         foo();
+///         ticker.next().await;
+///     }
+/// }
+/// ```
 pub struct Ticker {
     expires_at: Instant,
     duration: Duration,
 }
 
 impl Ticker {
+    /// Creates a new ticker that ticks at the specified duration interval.
     pub fn every(duration: Duration) -> Self {
         let expires_at = Instant::now() + duration;
         Self {

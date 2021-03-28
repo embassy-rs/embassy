@@ -889,7 +889,7 @@ mod irqs {
     declare!(TIM8_CC);
     declare!(DMA1_STREAM7);
     declare!(FMC);
-    declare!(SDIO);
+    //    declare!(SDIO);
     declare!(TIM5);
     declare!(SPI3);
     declare!(UART4);

@@ -307,12 +307,11 @@ compile_error!(
     "Multile chip features activated. You must activate exactly one of the following features: "
 );
 
-pub use embassy_stm32::{fmt, hal, interrupt, pac};
+pub use embassy_stm32::{exti, fmt, hal, interrupt, pac, rtc};
 
 #[cfg(not(any(feature = "stm32f401", feature = "stm32f410", feature = "stm32f411",)))]
-pub mod can;
-pub mod exti;
+pub use embassy_stm32::can;
+
 #[cfg(not(feature = "stm32f410"))]
 pub mod qei;
-pub mod rtc;
 pub mod serial;

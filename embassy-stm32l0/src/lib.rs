@@ -19,6 +19,4 @@ compile_error!(
     "Multile chip features activated. You must activate exactly one of the following features: "
 );
 
-pub use embassy_stm32::{fmt, hal, interrupt, pac};
-
-pub mod exti;
+pub use embassy_stm32::{exti, fmt, hal, interrupt, pac};

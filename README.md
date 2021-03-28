@@ -1,6 +1,7 @@
 # Embassy
 
-Embassy is a project to make async/await a first-class option for embedded development.
+Embassy is a project to make async/await a first-class option for embedded development. For more information and instructions to
+get started, click [here](https://github.com/embassy-rs/embassy/wiki).
 
 ## Traits and types
 

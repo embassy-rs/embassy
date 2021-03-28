@@ -7,8 +7,10 @@
 use core::future::Future;
 use core::marker::PhantomData;
 
+use futures::{select_biased, FutureExt};
+
 use embassy::interrupt::Interrupt;
-use embassy::traits::uart::{Error, Uart};
+use embassy::traits::uart::{Error, IdleUart, Uart};
 use embassy::util::InterruptFuture;
 
 use crate::hal::{
@@ -19,7 +21,7 @@ use crate::hal::{
     rcc::Clocks,
     serial,
     serial::config::{Config as SerialConfig, DmaConfig as SerialDmaConfig},
-    serial::{Event as SerialEvent, Pins, Serial as HalSerial},
+    serial::{Event as SerialEvent, Pins},
 };
 use crate::interrupt;
 use crate::pac;
@@ -29,14 +31,14 @@ pub struct Serial<
     USART: PeriAddress<MemSize = u8> + WithInterrupt,
     TSTREAM: Stream + WithInterrupt,
     RSTREAM: Stream + WithInterrupt,
-    CHANNEL: dma::traits::Channel,
+    CHANNEL: Channel,
 > {
     tx_stream: Option<TSTREAM>,
     rx_stream: Option<RSTREAM>,
     usart: Option<USART>,
     tx_int: TSTREAM::Interrupt,
     rx_int: RSTREAM::Interrupt,
-    _usart_int: USART::Interrupt,
+    usart_int: USART::Interrupt,
     channel: PhantomData<CHANNEL>,
 }
 
@@ -68,12 +70,10 @@ where
         PINS: Pins<USART>,
     {
         config.dma = SerialDmaConfig::TxRx;
-        let mut serial = HalSerial::new(usart, pins, config, clocks).unwrap();
 
-        serial.listen(SerialEvent::Idle);
-        //        serial.listen(SerialEvent::Txe);
-
-        let (usart, _) = serial.release();
+        let (usart, _) = serial::Serial::new(usart, pins, config, clocks)
+            .unwrap()
+            .release();
 
         let (tx_stream, rx_stream) = streams;
 
@@ -83,8 +83,8 @@ where
             usart: Some(usart),
             tx_int: tx_int,
             rx_int: rx_int,
-            _usart_int: usart_int,
-            channel: core::marker::PhantomData,
+            usart_int: usart_int,
+            channel: PhantomData,
         }
     }
 }
@@ -127,10 +127,10 @@ where
             let fut = InterruptFuture::new(&mut self.tx_int);
 
             tx_transfer.start(|_usart| {});
-
             fut.await;
 
             let (tx_stream, usart, _buf, _) = tx_transfer.free();
+
             self.tx_stream.replace(tx_stream);
             self.usart.replace(usart);
 
@@ -163,7 +163,6 @@ where
             );
 
             let fut = InterruptFuture::new(&mut self.rx_int);
-
             rx_transfer.start(|_usart| {});
             fut.await;
 
@@ -172,6 +171,79 @@ where
             self.usart.replace(usart);
 
             Ok(())
+        }
+    }
+}
+
+impl<USART, TSTREAM, RSTREAM, CHANNEL> IdleUart for Serial<USART, TSTREAM, RSTREAM, CHANNEL>
+where
+    USART: serial::Instance
+        + PeriAddress<MemSize = u8>
+        + DMASet<TSTREAM, CHANNEL, MemoryToPeripheral>
+        + DMASet<RSTREAM, CHANNEL, PeripheralToMemory>
+        + WithInterrupt
+        + 'static,
+    TSTREAM: Stream + WithInterrupt + 'static,
+    RSTREAM: Stream + WithInterrupt + 'static,
+    CHANNEL: Channel + 'static,
+{
+    type ReceiveFuture<'a> = impl Future<Output = Result<usize, Error>> + 'a;
+
+    /// Receives serial data.
+    ///
+    /// The future is pending until either the buffer is completely full, or the RX line falls idle after receiving some data.
+    ///
+    /// Returns the number of bytes read.
+    fn receive_until_idle<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReceiveFuture<'a> {
+        let static_buf = unsafe { core::mem::transmute::<&'a mut [u8], &'static mut [u8]>(buf) };
+
+        let rx_stream = self.rx_stream.take().unwrap();
+        let usart = self.usart.take().unwrap();
+
+        async move {
+            unsafe {
+                /*  __HAL_UART_ENABLE_IT(&uart->UartHandle, UART_IT_IDLE); */
+                (*USART::ptr()).cr1.modify(|_, w| w.idleie().set_bit());
+
+                /* __HAL_UART_CLEAR_IDLEFLAG(&uart->UartHandle); */
+                (*USART::ptr()).sr.read();
+                (*USART::ptr()).dr.read();
+            };
+
+            let mut rx_transfer = Transfer::init(
+                rx_stream,
+                usart,
+                static_buf,
+                None,
+                DmaConfig::default()
+                    .transfer_complete_interrupt(true)
+                    .memory_increment(true)
+                    .double_buffer(false),
+            );
+
+            let total_bytes = RSTREAM::get_number_of_transfers() as usize;
+
+            let fut = InterruptFuture::new(&mut self.rx_int);
+            let fut_idle = InterruptFuture::new(&mut self.usart_int);
+
+            rx_transfer.start(|_usart| {});
+
+            select_biased! {
+                () = fut.fuse() => {},
+                () = fut_idle.fuse() => {},
+            }
+
+            let (rx_stream, usart, _, _) = rx_transfer.free();
+
+            let remaining_bytes = RSTREAM::get_number_of_transfers() as usize;
+
+            unsafe {
+                (*USART::ptr()).cr1.modify(|_, w| w.idleie().clear_bit());
+            }
+            self.rx_stream.replace(rx_stream);
+            self.usart.replace(usart);
+
+            Ok(total_bytes - remaining_bytes)
         }
     }
 }
@@ -278,6 +350,6 @@ usart! {
 
     UART4 => (UART4),
     UART5 => (UART5),
-    UART7 => (UART7),
-    UART8 => (UART8),
+//    UART7 => (UART7),
+//    UART8 => (UART8),
 }
