@@ -268,7 +268,7 @@ mod sealed {
     }
 }
 
-macro_rules! make_impl {
+macro_rules! impl_instance {
     ($type:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$type {
             fn regs(&self) -> &pac::rtc0::RegisterBlock {
@@ -287,7 +287,7 @@ pub trait Instance: sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 
-make_impl!(RTC0, RTC0);
-make_impl!(RTC1, RTC1);
+impl_instance!(RTC0, RTC0);
+impl_instance!(RTC1, RTC1);
 #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-make_impl!(RTC2, RTC2);
+impl_instance!(RTC2, RTC2);

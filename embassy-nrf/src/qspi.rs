@@ -363,7 +363,7 @@ pub trait Instance: sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 
-macro_rules! make_impl {
+macro_rules! impl_instance {
     ($type:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$type {
             fn regs(&self) -> &pac::qspi::RegisterBlock {
@@ -376,4 +376,4 @@ macro_rules! make_impl {
     };
 }
 
-make_impl!(QSPI, QSPI);
+impl_instance!(QSPI, QSPI);

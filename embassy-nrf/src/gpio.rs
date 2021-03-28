@@ -380,7 +380,7 @@ impl OptionalPin for NoPin {
 
 // ====================
 
-macro_rules! make_impl {
+macro_rules! impl_pin {
     ($type:ident, $port_num:expr, $pin_num:expr) => {
         impl Pin for peripherals::$type {}
         impl sealed::Pin for peripherals::$type {
@@ -392,56 +392,56 @@ macro_rules! make_impl {
     };
 }
 
-make_impl!(P0_00, 0, 0);
-make_impl!(P0_01, 0, 1);
-make_impl!(P0_02, 0, 2);
-make_impl!(P0_03, 0, 3);
-make_impl!(P0_04, 0, 4);
-make_impl!(P0_05, 0, 5);
-make_impl!(P0_06, 0, 6);
-make_impl!(P0_07, 0, 7);
-make_impl!(P0_08, 0, 8);
-make_impl!(P0_09, 0, 9);
-make_impl!(P0_10, 0, 10);
-make_impl!(P0_11, 0, 11);
-make_impl!(P0_12, 0, 12);
-make_impl!(P0_13, 0, 13);
-make_impl!(P0_14, 0, 14);
-make_impl!(P0_15, 0, 15);
-make_impl!(P0_16, 0, 16);
-make_impl!(P0_17, 0, 17);
-make_impl!(P0_18, 0, 18);
-make_impl!(P0_19, 0, 19);
-make_impl!(P0_20, 0, 20);
-make_impl!(P0_21, 0, 21);
-make_impl!(P0_22, 0, 22);
-make_impl!(P0_23, 0, 23);
-make_impl!(P0_24, 0, 24);
-make_impl!(P0_25, 0, 25);
-make_impl!(P0_26, 0, 26);
-make_impl!(P0_27, 0, 27);
-make_impl!(P0_28, 0, 28);
-make_impl!(P0_29, 0, 29);
-make_impl!(P0_30, 0, 30);
-make_impl!(P0_31, 0, 31);
+impl_pin!(P0_00, 0, 0);
+impl_pin!(P0_01, 0, 1);
+impl_pin!(P0_02, 0, 2);
+impl_pin!(P0_03, 0, 3);
+impl_pin!(P0_04, 0, 4);
+impl_pin!(P0_05, 0, 5);
+impl_pin!(P0_06, 0, 6);
+impl_pin!(P0_07, 0, 7);
+impl_pin!(P0_08, 0, 8);
+impl_pin!(P0_09, 0, 9);
+impl_pin!(P0_10, 0, 10);
+impl_pin!(P0_11, 0, 11);
+impl_pin!(P0_12, 0, 12);
+impl_pin!(P0_13, 0, 13);
+impl_pin!(P0_14, 0, 14);
+impl_pin!(P0_15, 0, 15);
+impl_pin!(P0_16, 0, 16);
+impl_pin!(P0_17, 0, 17);
+impl_pin!(P0_18, 0, 18);
+impl_pin!(P0_19, 0, 19);
+impl_pin!(P0_20, 0, 20);
+impl_pin!(P0_21, 0, 21);
+impl_pin!(P0_22, 0, 22);
+impl_pin!(P0_23, 0, 23);
+impl_pin!(P0_24, 0, 24);
+impl_pin!(P0_25, 0, 25);
+impl_pin!(P0_26, 0, 26);
+impl_pin!(P0_27, 0, 27);
+impl_pin!(P0_28, 0, 28);
+impl_pin!(P0_29, 0, 29);
+impl_pin!(P0_30, 0, 30);
+impl_pin!(P0_31, 0, 31);
 
 #[cfg(any(feature = "52833", feature = "52840"))]
 mod _p1 {
     use super::*;
-    make_impl!(P1_00, 1, 0);
-    make_impl!(P1_01, 1, 1);
-    make_impl!(P1_02, 1, 2);
-    make_impl!(P1_03, 1, 3);
-    make_impl!(P1_04, 1, 4);
-    make_impl!(P1_05, 1, 5);
-    make_impl!(P1_06, 1, 6);
-    make_impl!(P1_07, 1, 7);
-    make_impl!(P1_08, 1, 8);
-    make_impl!(P1_09, 1, 9);
-    make_impl!(P1_10, 1, 10);
-    make_impl!(P1_11, 1, 11);
-    make_impl!(P1_12, 1, 12);
-    make_impl!(P1_13, 1, 13);
-    make_impl!(P1_14, 1, 14);
-    make_impl!(P1_15, 1, 15);
+    impl_pin!(P1_00, 1, 0);
+    impl_pin!(P1_01, 1, 1);
+    impl_pin!(P1_02, 1, 2);
+    impl_pin!(P1_03, 1, 3);
+    impl_pin!(P1_04, 1, 4);
+    impl_pin!(P1_05, 1, 5);
+    impl_pin!(P1_06, 1, 6);
+    impl_pin!(P1_07, 1, 7);
+    impl_pin!(P1_08, 1, 8);
+    impl_pin!(P1_09, 1, 9);
+    impl_pin!(P1_10, 1, 10);
+    impl_pin!(P1_11, 1, 11);
+    impl_pin!(P1_12, 1, 12);
+    impl_pin!(P1_13, 1, 13);
+    impl_pin!(P1_14, 1, 14);
+    impl_pin!(P1_15, 1, 15);
 }

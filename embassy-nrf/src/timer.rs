@@ -16,7 +16,7 @@ pub trait Instance: sealed::Instance + 'static {
 }
 pub trait ExtendedInstance: Instance + sealed::ExtendedInstance {}
 
-macro_rules! make_impl {
+macro_rules! impl_instance {
     ($type:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$type {
             fn regs(&self) -> &pac::timer0::RegisterBlock {
@@ -28,16 +28,16 @@ macro_rules! make_impl {
         }
     };
     ($type:ident, $irq:ident, extended) => {
-        make_impl!($type, $irq);
+        impl_instance!($type, $irq);
         impl sealed::ExtendedInstance for peripherals::$type {}
         impl ExtendedInstance for peripherals::$type {}
     };
 }
 
-make_impl!(TIMER0, TIMER0);
-make_impl!(TIMER1, TIMER1);
-make_impl!(TIMER2, TIMER2);
+impl_instance!(TIMER0, TIMER0);
+impl_instance!(TIMER1, TIMER1);
+impl_instance!(TIMER2, TIMER2);
 #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-make_impl!(TIMER3, TIMER3, extended);
+impl_instance!(TIMER3, TIMER3, extended);
 #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-make_impl!(TIMER4, TIMER4, extended);
+impl_instance!(TIMER4, TIMER4, extended);

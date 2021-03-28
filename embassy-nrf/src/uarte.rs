@@ -315,7 +315,7 @@ pub trait Instance: sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 
-macro_rules! make_impl {
+macro_rules! impl_instance {
     ($type:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$type {
             fn regs(&self) -> &pac::uarte0::RegisterBlock {
@@ -328,6 +328,6 @@ macro_rules! make_impl {
     };
 }
 
-make_impl!(UARTE0, UARTE0_UART0);
+impl_instance!(UARTE0, UARTE0_UART0);
 #[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
-make_impl!(UARTE1, UARTE1);
+impl_instance!(UARTE1, UARTE1);

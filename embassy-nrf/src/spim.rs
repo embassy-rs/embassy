@@ -224,7 +224,7 @@ pub trait Instance: sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 
-macro_rules! make_impl {
+macro_rules! impl_instance {
     ($type:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$type {
             fn regs(&self) -> &pac::spim0::RegisterBlock {
@@ -238,15 +238,15 @@ macro_rules! make_impl {
 }
 
 #[cfg(feature = "52810")]
-make_impl!(SPIM0, SPIM0_SPIS0_SPI0);
+impl_instance!(SPIM0, SPIM0_SPIS0_SPI0);
 #[cfg(not(feature = "52810"))]
-make_impl!(SPIM0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+impl_instance!(SPIM0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
 
 #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-make_impl!(SPIM1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+impl_instance!(SPIM1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
 
 #[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-make_impl!(SPIM2, SPIM2_SPIS2_SPI2);
+impl_instance!(SPIM2, SPIM2_SPIS2_SPI2);
 
 #[cfg(any(feature = "52833", feature = "52840"))]
-make_impl!(SPIM3, SPIM3);
+impl_instance!(SPIM3, SPIM3);
