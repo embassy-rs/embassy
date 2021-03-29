@@ -93,7 +93,5 @@ jobs:
           toolchain: nightly
           components: rustfmt
           override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+      - name: Check fmt
+        run: for i in embassy-*; do (cd $i; cargo fmt -- --check); done
