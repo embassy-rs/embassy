@@ -1,5 +1,9 @@
 use crate::{pac, pll, resets};
 
+#[link_section = ".boot2"]
+#[used]
+pub static BOOT2: [u8; 256] = *include_bytes!("boot2.bin");
+
 #[non_exhaustive]
 pub struct Config {}
 
