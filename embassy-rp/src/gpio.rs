@@ -40,7 +40,24 @@ impl<'d, T: Pin> Input<'d, T> {
     pub fn new(pin: impl PeripheralBorrow<Target = T> + 'd, pull: Pull) -> Self {
         unborrow!(pin);
 
-        // todo
+        unsafe {
+            pin.pad_ctrl().write(|w| {
+                w.set_ie(true);
+                match pull {
+                    Pull::Up => w.set_pue(true),
+                    Pull::Down => w.set_pde(true),
+                    Pull::None => {}
+                }
+            });
+
+            // disable output in SIO, to use it as input
+            pin.sio_oe().value_clr().write_value(1 << pin.pin());
+
+            pin.io().ctrl().write(|w| {
+                w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::SIO_0.0);
+            });
+        }
+
         Self {
             pin,
             phantom: PhantomData,
@@ -62,8 +79,8 @@ impl<'d, T: Pin> InputPin for Input<'d, T> {
     }
 
     fn is_low(&self) -> Result<bool, Self::Error> {
-        // todo
-        Ok(true)
+        let val = 1 << self.pin.pin();
+        Ok(unsafe { self.pin.sio_in().read() } & val == 0)
     }
 }
 
