@@ -18,7 +18,8 @@ use embassy_nrf::interrupt;
 use embassy_nrf::Peripherals;
 use example_common::*;
 
-async fn button(n: usize, mut pin: PortInput<'static, AnyPin>) {
+#[embassy::task(pool_size = 4)]
+async fn button_task(n: usize, mut pin: PortInput<'static, AnyPin>) {
     loop {
         Pin::new(&mut pin).wait_for_low().await;
         info!("Button {:?} pressed!", n);
@@ -33,21 +34,13 @@ async fn main(spawner: Spawner) {
 
     let g = gpiote::initialize(p.GPIOTE, interrupt::take!(GPIOTE));
 
-    let button1 = button(
-        1,
-        PortInput::new(g, Input::new(p.P0_11.degrade(), Pull::Up)),
-    );
-    let button2 = button(
-        2,
-        PortInput::new(g, Input::new(p.P0_12.degrade(), Pull::Up)),
-    );
-    let button3 = button(
-        3,
-        PortInput::new(g, Input::new(p.P0_24.degrade(), Pull::Up)),
-    );
-    let button4 = button(
-        4,
-        PortInput::new(g, Input::new(p.P0_25.degrade(), Pull::Up)),
-    );
-    futures::join!(button1, button2, button3, button4);
+    let btn1 = PortInput::new(g, Input::new(p.P0_11.degrade(), Pull::Up));
+    let btn2 = PortInput::new(g, Input::new(p.P0_12.degrade(), Pull::Up));
+    let btn3 = PortInput::new(g, Input::new(p.P0_24.degrade(), Pull::Up));
+    let btn4 = PortInput::new(g, Input::new(p.P0_25.degrade(), Pull::Up));
+
+    spawner.spawn(button_task(1, btn1)).unwrap();
+    spawner.spawn(button_task(2, btn2)).unwrap();
+    spawner.spawn(button_task(3, btn3)).unwrap();
+    spawner.spawn(button_task(4, btn4)).unwrap();
 }
