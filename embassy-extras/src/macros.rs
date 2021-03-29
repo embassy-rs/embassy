@@ -122,7 +122,7 @@ macro_rules! std_peripherals {
 
         impl Peripherals {
             pub fn take() -> Option<(Peripherals, Clocks)> {
-                match unsafe {GLOBAL_CLOCKS} {
+                match unsafe {GLOBAL_CLOCKS.take()} {
                     Some(clocks) => {
                         let dp = unsafe { pac::Peripherals::steal() };
                         let peripherals = Peripherals {

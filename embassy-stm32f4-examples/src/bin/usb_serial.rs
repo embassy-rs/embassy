@@ -10,7 +10,7 @@ use example_common::*;
 
 use cortex_m_rt::entry;
 use defmt::panic;
-use embassy::executor::Executor;
+use embassy::executor::{Executor, Spawner};
 use embassy::interrupt::InterruptExt;
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy::time::{Duration, Timer};
@@ -90,42 +90,15 @@ async fn run1(bus: &'static mut UsbBusAllocator<UsbBus<USB>>) {
     }
 }
 
-static RTC: Forever<rtc::RTC<pac::TIM2>> = Forever::new();
-static ALARM: Forever<rtc::Alarm<pac::TIM2>> = Forever::new();
-static EXECUTOR: Forever<Executor> = Forever::new();
 static USB_BUS: Forever<UsbBusAllocator<UsbBus<USB>>> = Forever::new();
 
-#[entry]
-fn main() -> ! {
+#[embassy::main(use_hse = 25, sysclk = 48, require_pll48clk)]
+async fn main(spawner: Spawner) -> ! {
     static mut EP_MEMORY: [u32; 1024] = [0; 1024];
 
     info!("Hello World!");
 
-    let p = unwrap!(pac::Peripherals::take());
-
-    p.RCC.ahb1enr.modify(|_, w| w.dma1en().enabled());
-    let rcc = p.RCC.constrain();
-    let clocks = rcc
-        .cfgr
-        .use_hse(25.mhz())
-        .sysclk(48.mhz())
-        .require_pll48clk()
-        .freeze();
-
-    p.DBGMCU.cr.modify(|_, w| {
-        w.dbg_sleep().set_bit();
-        w.dbg_standby().set_bit();
-        w.dbg_stop().set_bit()
-    });
-
-    let rtc = RTC.put(rtc::RTC::new(p.TIM2, interrupt::take!(TIM2), clocks));
-    rtc.start();
-
-    unsafe { embassy::time::set_clock(rtc) };
-
-    let alarm = ALARM.put(rtc.alarm1());
-    let executor = EXECUTOR.put(Executor::new());
-    executor.set_alarm(alarm);
+    let (p, clocks) = embassy_stm32::Peripherals::take().unwrap();
 
     let gpioa = p.GPIOA.split();
     let usb = USB {
@@ -138,9 +111,7 @@ fn main() -> ! {
     };
     // Rust analyzer isn't recognizing the static ref magic `cortex-m` does
     #[allow(unused_unsafe)]
-    let usb_bus = USB_BUS.put(UsbBus::new(usb, unsafe { EP_MEMORY }));
+    let usb_bus = USB_BUS.put(UsbBus::new(usb, unsafe { &mut EP_MEMORY }));
 
-    executor.run(move |spawner| {
-        unwrap!(spawner.spawn(run1(usb_bus)));
-    });
+    spawner.spawn(run1(usb_bus)).unwrap();
 }

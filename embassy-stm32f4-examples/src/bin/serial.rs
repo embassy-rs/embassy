@@ -11,7 +11,7 @@ use example_common::{panic, *};
 
 use cortex_m::singleton;
 use cortex_m_rt::entry;
-use embassy::executor::Executor;
+use embassy::executor::{Executor, Spawner};
 use embassy::traits::uart::{Read, Write};
 use embassy::util::Forever;
 use embassy_stm32f4::interrupt;
@@ -22,26 +22,19 @@ use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::serial::config::Config;
 use stm32f4xx_hal::stm32;
 
-#[embassy::task]
-async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
+#[embassy::main(use_hse = 16, sysclk = 48, pclk1 = 24)]
+async fn main(spawner: Spawner) {
+    let (dp, clocks) = embassy_stm32::Peripherals::take().unwrap();
+    let cp = cortex_m::peripheral::Peripherals::take().unwrap();
+
     dp.DBGMCU.cr.modify(|_, w| {
         w.dbg_sleep().set_bit();
         w.dbg_standby().set_bit();
         w.dbg_stop().set_bit()
     });
-    dp.RCC.ahb1enr.modify(|_, w| w.dma1en().enabled());
 
     // https://gist.github.com/thalesfragoso/a07340c5df6eee3b04c42fdc69ecdcb1
     let gpioa = dp.GPIOA.split();
-    let rcc = dp.RCC.constrain();
-
-    let clocks = rcc
-        .cfgr
-        .use_hse(16.mhz())
-        .sysclk(48.mhz())
-        .pclk1(24.mhz())
-        .freeze();
-
     let streams = StreamsTuple::new(dp.DMA2);
 
     let _serial = unsafe {
@@ -83,17 +76,4 @@ async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
 
     buf[5] = 0x01;
     serial.write(buf).await.unwrap();
-}
-
-static EXECUTOR: Forever<Executor> = Forever::new();
-
-#[entry]
-fn main() -> ! {
-    let dp = stm32::Peripherals::take().unwrap();
-    let cp = cortex_m::peripheral::Peripherals::take().unwrap();
-
-    let executor = EXECUTOR.put(Executor::new());
-    executor.run(|spawner| {
-        unwrap!(spawner.spawn(run(dp, cp)));
-    });
 }

@@ -11,6 +11,8 @@ pub struct Args {
     pub sysclk: Option<u32>,
     #[darling(default)]
     pub pclk1: Option<u32>,
+    #[darling(default)]
+    pub require_pll48clk: bool,
 }
 
 pub fn generate(args: Args) -> TokenStream {
@@ -28,6 +30,10 @@ pub fn generate(args: Args) -> TokenStream {
     if args.pclk1.is_some() {
         let mhz = args.pclk1.unwrap();
         clock_cfg_args = quote! { #clock_cfg_args.pclk1(#mhz.mhz()) };
+    }
+
+    if args.require_pll48clk {
+        clock_cfg_args = quote! { #clock_cfg_args.require_pll48clk() };
     }
 
     quote!(
