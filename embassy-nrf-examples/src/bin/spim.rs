@@ -8,21 +8,19 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use cortex_m_rt::entry;
 use defmt::panic;
-use embassy::executor::{task, Executor};
-use embassy::util::Forever;
+use embassy::executor::Spawner;
 use embassy::util::Steal;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
-use embassy_nrf::{interrupt, rtc, spim};
-use embassy_nrf::{peripherals, Peripherals};
+use embassy_nrf::Peripherals;
+use embassy_nrf::{interrupt, spim};
 use embassy_traits::spi::FullDuplex;
 use embedded_hal::digital::v2::*;
 use example_common::*;
 use futures::pin_mut;
 
-#[task]
-async fn run() {
+#[embassy::main]
+async fn main(spawner: Spawner) {
     info!("running!");
 
     let p = unsafe { Peripherals::steal() };
@@ -83,30 +81,4 @@ async fn run() {
     ncs.set_high().unwrap();
 
     info!("erevid: {=[?]}", rx);
-}
-
-static RTC: Forever<rtc::RTC<peripherals::RTC1>> = Forever::new();
-static ALARM: Forever<rtc::Alarm<peripherals::RTC1>> = Forever::new();
-static EXECUTOR: Forever<Executor> = Forever::new();
-
-#[entry]
-fn main() -> ! {
-    info!("Hello World!");
-
-    let p = unwrap!(embassy_nrf::Peripherals::take());
-
-    unsafe { embassy_nrf::system::configure(Default::default()) };
-    let rtc = RTC.put(rtc::RTC::new(p.RTC1, interrupt::take!(RTC1)));
-    rtc.start();
-    unsafe { embassy::time::set_clock(rtc) };
-
-    unsafe { embassy::time::set_clock(rtc) };
-
-    let alarm = ALARM.put(rtc.alarm0());
-    let executor = EXECUTOR.put(Executor::new());
-    executor.set_alarm(alarm);
-
-    executor.run(|spawner| {
-        unwrap!(spawner.spawn(run()));
-    });
 }

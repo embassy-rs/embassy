@@ -9,11 +9,9 @@
 mod example_common;
 
 use core::pin::Pin;
-use cortex_m_rt::entry;
 use defmt::panic;
-use embassy::executor::{task, Executor};
+use embassy::executor::Spawner;
 use embassy::traits::gpio::{WaitForHigh, WaitForLow};
-use embassy::util::Forever;
 use embassy_nrf::gpio::{AnyPin, Input, Pin as _, Pull};
 use embassy_nrf::gpiote::{self, PortInput};
 use embassy_nrf::interrupt;
@@ -29,8 +27,8 @@ async fn button(n: usize, mut pin: PortInput<'static, AnyPin>) {
     }
 }
 
-#[task]
-async fn run() {
+#[embassy::main]
+async fn main(spawner: Spawner) {
     let p = Peripherals::take().unwrap();
 
     let g = gpiote::initialize(p.GPIOTE, interrupt::take!(GPIOTE));
@@ -52,16 +50,4 @@ async fn run() {
         PortInput::new(g, Input::new(p.P0_25.degrade(), Pull::Up)),
     );
     futures::join!(button1, button2, button3, button4);
-}
-
-static EXECUTOR: Forever<Executor> = Forever::new();
-
-#[entry]
-fn main() -> ! {
-    info!("Hello World!");
-
-    let executor = EXECUTOR.put(Executor::new());
-    executor.run(|spawner| {
-        unwrap!(spawner.spawn(run()));
-    });
 }
