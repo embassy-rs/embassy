@@ -100,39 +100,8 @@ use core::option::Option;
 use hal::prelude::*;
 use hal::rcc::Clocks;
 
-macro_rules! peripherals {
-    ($($PER:ident,)+) => {
-        #[doc = r"All the peripherals"]
-        #[allow(non_snake_case)]
-        pub struct Peripherals {
-            $(
-                pub $PER: pac::$PER,
-            )+
-        }
-
-        static mut GLOBAL_PERIPHERALS: Option<(Peripherals, Clocks)> = None;
-
-        impl Peripherals {
-            pub fn take() -> Option<(Peripherals, Clocks)> {
-                unsafe { GLOBAL_PERIPHERALS.take() }
-            }
-
-            pub unsafe fn set_peripherals(clocks: Clocks) {
-                let dp = pac::Peripherals::steal();
-                let peripherals = Peripherals {
-                    $(
-                        $PER: dp.$PER,
-                    )+
-                };
-
-                GLOBAL_PERIPHERALS.replace((peripherals, clocks));
-            }
-        }
-    };
-}
-
 #[cfg(feature = "stm32f446")]
-peripherals! {
+embassy_extras::std_peripherals! {
     DCMI,
     FMC,
     DBGMCU,
@@ -211,7 +180,7 @@ peripherals! {
 }
 
 #[cfg(feature = "stm32f405")]
-peripherals! {
+embassy_extras::std_peripherals! {
     RNG,
     DCMI,
     FSMC,
