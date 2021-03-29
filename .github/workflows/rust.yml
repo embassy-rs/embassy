@@ -81,10 +81,8 @@ jobs:
         with:
           path: target
           key: ${{ runner.os }}-${{ matrix.target }}
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --package ${{ matrix.package }} --features=${{ matrix.features }} --target=${{ matrix.target }}
+      - name: Check
+        run: cd ${{ matrix.package }} &&  cargo check --features=${{ matrix.features }} --target=${{ matrix.target }}
 
   fmt:
     runs-on: ubuntu-latest
