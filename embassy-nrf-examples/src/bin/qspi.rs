@@ -8,11 +8,9 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use cortex_m_rt::entry;
 use defmt::{assert_eq, panic};
-use embassy::executor::{task, Executor};
+use embassy::executor::Spawner;
 use embassy::traits::flash::Flash;
-use embassy::util::Forever;
 use embassy_nrf::Peripherals;
 use embassy_nrf::{interrupt, qspi};
 use example_common::*;
@@ -25,8 +23,8 @@ const PAGE_SIZE: usize = 4096;
 #[repr(C, align(4))]
 struct AlignedBuf([u8; 4096]);
 
-#[task]
-async fn run() {
+#[embassy::main]
+async fn main(spawner: Spawner) {
     let p = Peripherals::take().unwrap();
 
     let csn = p.P0_17;
@@ -95,16 +93,4 @@ async fn run() {
     }
 
     info!("done!")
-}
-
-static EXECUTOR: Forever<Executor> = Forever::new();
-
-#[entry]
-fn main() -> ! {
-    info!("Hello World!");
-
-    let executor = EXECUTOR.put(Executor::new());
-    executor.run(|spawner| {
-        unwrap!(spawner.spawn(run()));
-    });
 }

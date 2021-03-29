@@ -60,7 +60,7 @@ impl Timer {
     /// use embassy::executor::task;
     /// use embassy::time::{Duration, Timer};
     ///
-    /// #[task]
+    /// #[embassy::task]
     /// async fn demo_sleep_seconds() {
     ///     // suspend this task for one second.
     ///     Timer::after(Duration::from_secs(1)).await;
@@ -104,7 +104,7 @@ impl Future for Timer {
 /// use embassy::time::{Duration, Timer};
 /// # fn foo() {}
 ///
-/// #[task]
+/// #[embassy::task]
 /// async fn ticker_example_0() {
 ///     loop {
 ///         foo();
@@ -129,7 +129,7 @@ impl Future for Timer {
 /// use futures::StreamExt;
 /// # fn foo(){}
 ///
-/// #[task]
+/// #[embassy::task]
 /// async fn ticker_example_1() {
 ///     let mut ticker = Ticker::every(Duration::from_secs(1));
 ///     loop {

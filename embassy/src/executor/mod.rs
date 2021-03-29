@@ -1,5 +1,3 @@
-pub use embassy_macros::{main, task};
-
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use core::{mem, ptr};

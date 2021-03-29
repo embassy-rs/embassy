@@ -191,22 +191,21 @@ pub fn interrupt_take(item: TokenStream) -> TokenStream {
     result.into()
 }
 
-#[derive(Debug, FromMeta)]
-struct MainMacroArgs {
-    #[darling(default)]
-    use_hse: Option<u32>,
-    #[darling(default)]
-    sysclk: Option<u32>,
-    #[darling(default)]
-    pclk1: Option<u32>,
-}
+#[cfg(feature = "nrf")]
+#[path = "chip/nrf.rs"]
+mod chip;
 
+#[cfg(feature = "stm32")]
+#[path = "chip/stm32.rs"]
+mod chip;
+
+#[cfg(any(feature = "nrf", feature = "stm32"))]
 #[proc_macro_attribute]
 pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let macro_args = syn::parse_macro_input!(args as syn::AttributeArgs);
     let mut task_fn = syn::parse_macro_input!(item as syn::ItemFn);
 
-    let macro_args = match MainMacroArgs::from_list(&macro_args) {
+    let macro_args = match chip::Args::from_list(&macro_args) {
         Ok(v) => v,
         Err(e) => {
             return TokenStream::from(e.write_errors());
@@ -254,55 +253,30 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let name = task_fn.sig.ident.clone();
     let task_fn_body = task_fn.block.clone();
 
-    let mut clock_cfg_args = quote! {};
-    if macro_args.use_hse.is_some() {
-        let mhz = macro_args.use_hse.unwrap();
-        clock_cfg_args = quote! { #clock_cfg_args.use_hse(#mhz.mhz()) };
-    }
-
-    if macro_args.sysclk.is_some() {
-        let mhz = macro_args.sysclk.unwrap();
-        clock_cfg_args = quote! { #clock_cfg_args.sysclk(#mhz.mhz()) };
-    }
-
-    if macro_args.pclk1.is_some() {
-        let mhz = macro_args.pclk1.unwrap();
-        clock_cfg_args = quote! { #clock_cfg_args.pclk1(#mhz.mhz()) };
-    }
+    let chip_setup = chip::generate(macro_args);
 
     let result = quote! {
-        static __embassy_rtc: embassy::util::Forever<embassy_stm32::rtc::RTC<embassy_stm32::pac::TIM3>> = embassy::util::Forever::new();
-        static __embassy_alarm: embassy::util::Forever<embassy_stm32::rtc::Alarm<embassy_stm32::pac::TIM3>> = embassy::util::Forever::new();
-        static __embassy_executor: embassy::util::Forever<embassy::executor::Executor> = embassy::util::Forever::new();
-
-        #[embassy::executor::task]
+        #[embassy::task]
         async fn __embassy_main(#args) {
             #task_fn_body
         }
 
         #[cortex_m_rt::entry]
         fn main() -> ! {
-            use embassy::executor::Executor;
-            use embassy_stm32::{rtc, interrupt, Peripherals, pac, hal::rcc::RccExt, hal::time::U32Ext};
+            unsafe fn make_static<T>(t: &mut T) -> &'static mut T {
+                ::core::mem::transmute(t)
+            }
 
-            let dp = pac::Peripherals::take().unwrap();
-            let rcc = dp.RCC.constrain();
-            let clocks = rcc.cfgr#clock_cfg_args.freeze();
+            #chip_setup
 
-            unsafe { Peripherals::set_peripherals(clocks) };
-
-            let rtc = __embassy_rtc.put(rtc::RTC::new(dp.TIM3, interrupt::take!(TIM3), clocks));
-            rtc.start();
-
-            unsafe { embassy::time::set_clock(rtc) };
-
-            let alarm = __embassy_alarm.put(rtc.alarm1());
-            let executor = __embassy_executor.put(Executor::new());
+            let mut executor = ::embassy::executor::Executor::new();
+            let executor = unsafe { make_static(&mut executor) };
             executor.set_alarm(alarm);
 
             executor.run(|spawner| {
                 spawner.spawn(__embassy_main(spawner)).unwrap();
             })
+
         }
     };
     result.into()

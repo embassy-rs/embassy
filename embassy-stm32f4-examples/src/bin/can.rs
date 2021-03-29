@@ -11,13 +11,13 @@ use example_common::{panic, *};
 
 use bxcan::filter::Mask32;
 use cortex_m_rt::entry;
-use embassy::executor::{task, Executor};
+use embassy::executor::Executor;
 use embassy::util::Forever;
 use embassy_stm32f4::{can, interrupt};
 use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::{can::Can, stm32};
 
-#[task]
+#[embassy::task]
 async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
     let gpioa = dp.GPIOA.split();
 

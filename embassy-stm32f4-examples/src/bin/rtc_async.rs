@@ -11,12 +11,11 @@ use example_common::*;
 use defmt::panic;
 use embassy;
 use embassy::executor::Spawner;
-use embassy::task;
 use embassy::time::{Duration, Timer};
 use embassy_stm32f4;
 use embassy_stm32f4::hal;
 
-#[task]
+#[embassy::task]
 async fn run1() {
     loop {
         info!("BIG INFREQUENT TICK");
@@ -24,7 +23,7 @@ async fn run1() {
     }
 }
 
-#[task]
+#[embassy::task]
 async fn run2() {
     loop {
         info!("tick");

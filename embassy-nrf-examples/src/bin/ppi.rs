@@ -7,23 +7,19 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use core::future::pending;
-
 use example_common::*;
 
-use cortex_m_rt::entry;
+use core::future::pending;
 use defmt::panic;
-
-use embassy::executor::{task, Executor};
-use embassy::util::Forever;
+use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::gpiote::{self, InputChannel, InputChannelPolarity};
 use embassy_nrf::ppi::Ppi;
 use embassy_nrf::{interrupt, Peripherals};
 use gpiote::{OutputChannel, OutputChannelPolarity};
 
-#[task]
-async fn run() {
+#[embassy::main]
+async fn main(spawner: Spawner) {
     let p = Peripherals::take().unwrap();
     let g = gpiote::initialize(p.GPIOTE, interrupt::take!(GPIOTE));
 
@@ -94,18 +90,7 @@ async fn run() {
     info!("Press button 2 to turn on LED 1");
     info!("Press button 3 to turn off LED 1");
     info!("Press button 4 to toggle LEDs 1 and 2");
+
     // Block forever so the above drivers don't get dropped
     pending::<()>().await;
-}
-
-static EXECUTOR: Forever<Executor> = Forever::new();
-
-#[entry]
-fn main() -> ! {
-    info!("Hello World!");
-
-    let executor = EXECUTOR.put(Executor::new());
-    executor.run(|spawner| {
-        unwrap!(spawner.spawn(run()));
-    });
 }

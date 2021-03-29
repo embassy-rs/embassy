@@ -9,17 +9,14 @@
 mod example_common;
 use example_common::*;
 
-use cortex_m_rt::entry;
 use defmt::panic;
-
-use embassy::executor::{task, Executor};
-use embassy::util::Forever;
+use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Input, Pull};
 use embassy_nrf::gpiote::{self, InputChannel, InputChannelPolarity};
 use embassy_nrf::{interrupt, Peripherals};
 
-#[task]
-async fn run() {
+#[embassy::main]
+async fn main(spawner: Spawner) {
     let p = Peripherals::take().unwrap();
     let g = gpiote::initialize(p.GPIOTE, interrupt::take!(GPIOTE));
 
@@ -79,16 +76,4 @@ async fn run() {
     };
 
     futures::join!(button1, button2, button3, button4);
-}
-
-static EXECUTOR: Forever<Executor> = Forever::new();
-
-#[entry]
-fn main() -> ! {
-    info!("Hello World!");
-
-    let executor = EXECUTOR.put(Executor::new());
-    executor.run(|spawner| {
-        unwrap!(spawner.spawn(run()));
-    });
 }

@@ -11,7 +11,7 @@ use example_common::{panic, *};
 
 use cortex_m::singleton;
 use cortex_m_rt::entry;
-use embassy::executor::{task, Executor};
+use embassy::executor::Executor;
 use embassy::traits::uart::{Read, Write};
 use embassy::util::Forever;
 use embassy_stm32f4::interrupt;
@@ -22,7 +22,7 @@ use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::serial::config::Config;
 use stm32f4xx_hal::stm32;
 
-#[task]
+#[embassy::task]
 async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
     dp.DBGMCU.cr.modify(|_, w| {
         w.dbg_sleep().set_bit();

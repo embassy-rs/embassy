@@ -2,13 +2,12 @@
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
 
-use embassy::executor::task;
 use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
 use embassy_std::Executor;
 use log::*;
 
-#[task]
+#[embassy::task]
 async fn run() {
     loop {
         info!("tick");
