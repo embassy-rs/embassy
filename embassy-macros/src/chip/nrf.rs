@@ -58,5 +58,6 @@ pub fn generate(args: Args) -> TokenStream {
         unsafe { embassy::time::set_clock(rtc) };
 
         let alarm = unsafe { make_static(&mut alarm) };
+        executor.set_alarm(alarm);
     )
 }

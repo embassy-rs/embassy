@@ -125,7 +125,7 @@ pub fn interrupt_declare(item: TokenStream) -> TokenStream {
             type Priority = crate::interrupt::Priority;
             fn number(&self) -> u16 {
                 use cortex_m::interrupt::InterruptNumber;
-                let irq = crate::pac::interrupt::#name;
+                let irq = crate::pac::Interrupt::#name;
                 irq.number() as u16
             }
             unsafe fn steal() -> Self {
@@ -199,11 +199,15 @@ mod chip;
 #[path = "chip/stm32.rs"]
 mod chip;
 
-#[cfg(any(feature = "nrf", feature = "stm32"))]
+#[cfg(feature = "rp")]
+#[path = "chip/rp.rs"]
+mod chip;
+
+#[cfg(any(feature = "nrf", feature = "stm32", feature = "rp"))]
 #[proc_macro_attribute]
 pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let macro_args = syn::parse_macro_input!(args as syn::AttributeArgs);
-    let mut task_fn = syn::parse_macro_input!(item as syn::ItemFn);
+    let task_fn = syn::parse_macro_input!(item as syn::ItemFn);
 
     let macro_args = match chip::Args::from_list(&macro_args) {
         Ok(v) => v,
@@ -232,9 +236,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
         fail = true;
     }
 
-    let mut arg_names: syn::punctuated::Punctuated<syn::Ident, syn::Token![,]> =
-        syn::punctuated::Punctuated::new();
-    let mut args = task_fn.sig.inputs.clone();
+    let args = task_fn.sig.inputs.clone();
 
     if args.len() != 1 {
         task_fn
@@ -250,9 +252,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
         return TokenStream::new();
     }
 
-    let name = task_fn.sig.ident.clone();
     let task_fn_body = task_fn.block.clone();
-
     let chip_setup = chip::generate(macro_args);
 
     let result = quote! {
@@ -267,11 +267,10 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
                 ::core::mem::transmute(t)
             }
 
-            #chip_setup
-
             let mut executor = ::embassy::executor::Executor::new();
             let executor = unsafe { make_static(&mut executor) };
-            executor.set_alarm(alarm);
+
+            #chip_setup
 
             executor.run(|spawner| {
                 spawner.spawn(__embassy_main(spawner)).unwrap();

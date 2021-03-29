@@ -1,0 +1,75 @@
+# This file is a template for a Cargo workspace for developer convenience.
+#
+# Since Cargo resolves all features for all crates in the workspace together, 
+# it is not possible to have a workspace with all the crates together, since they
+# enable incompatible features. For example, nrf crates enable embassy-macros/nrf
+# and stm32 crates enable embassy-macros/stm32. embassy-macros doesn't support having
+# both of these features on at the same time, because it makes no sense.
+#
+# Instead, we provide this template so you can enable only the crates you're going to
+# work on. This makes eg rust-analyzer check-on-save and autocomplete work, but only 
+# in these crates, without any feature conflict.
+#
+# Copy this file to `Cargo.toml` and uncomment one group of crates below.
+#
+# `/Cargo.toml` is already in .gitignore, so you don't commit it accidentally.
+
+[workspace]
+members = [
+    "embassy",
+    "embassy-traits",
+    "embassy-macros",
+    "embassy-extras",
+
+    # Uncomment ONLY ONE of the groups below.
+
+    # nRF
+    #"embassy-nrf",
+    #"embassy-nrf-examples",
+
+    # stm32
+    #"embassy-stm32",
+    #"embassy-stm32f4",
+    #"embassy-stm32l0",
+    #"embassy-stm32f4-examples",
+
+    # rp2040
+    #"embassy-rp",
+    #"embassy-rp-examples",
+
+    # std
+    #"embassy-std",
+    #"embassy-std-examples",
+]
+
+[profile.dev]
+codegen-units = 1
+debug = 2
+debug-assertions = true
+incremental = false
+opt-level = 3
+overflow-checks = true
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = "fat"
+opt-level = 's'
+overflow-checks = false
+
+# do not optimize proc-macro crates = faster builds from scratch
+[profile.dev.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[profile.release.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
