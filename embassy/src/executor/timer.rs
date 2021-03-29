@@ -2,7 +2,7 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use futures::Stream;
+use futures::{future::select, future::Either, pin_mut, Stream};
 
 use super::raw;
 use crate::time::{Duration, Instant};
@@ -28,6 +28,16 @@ impl crate::traits::delay::Delay for Delay {
     }
     fn delay_us<'a>(self: Pin<&'a mut Self>, micros: u64) -> Self::DelayFuture<'a> {
         Timer::after(Duration::from_micros(micros))
+    }
+}
+
+pub struct TimeoutError;
+pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Output, TimeoutError> {
+    let timeout_fut = Timer::after(timeout);
+    pin_mut!(fut);
+    match select(fut, timeout_fut).await {
+        Either::Left((r, _)) => Ok(r),
+        Either::Right(_) => Err(TimeoutError),
     }
 }
 
