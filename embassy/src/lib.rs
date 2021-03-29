@@ -17,8 +17,8 @@ pub mod io;
 pub mod time;
 pub mod util;
 
+pub use embassy_macros::*;
 pub use embassy_traits as traits;
-pub use executor::{main, task};
 
 #[doc(hidden)]
 /// Implementation details for embassy macros. DO NOT USE.

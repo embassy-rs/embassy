@@ -256,7 +256,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let chip_setup = chip::generate(macro_args);
 
     let result = quote! {
-        #[embassy::executor::task]
+        #[embassy::task]
         async fn __embassy_main(#args) {
             #task_fn_body
         }

@@ -11,11 +11,11 @@ use example_common::*;
 
 use core::task::Poll;
 use defmt::panic;
-use embassy::executor::{task, Spawner};
+use embassy::executor::Spawner;
 use embassy::time::{Duration, Instant, Timer};
 use embassy_nrf::interrupt;
 
-#[task]
+#[embassy::task]
 async fn run1() {
     loop {
         info!("DING DONG");
@@ -23,14 +23,14 @@ async fn run1() {
     }
 }
 
-#[task]
+#[embassy::task]
 async fn run2() {
     loop {
         Timer::at(Instant::from_ticks(0)).await;
     }
 }
 
-#[task]
+#[embassy::task]
 async fn run3() {
     futures::future::poll_fn(|cx| {
         cx.waker().wake_by_ref();

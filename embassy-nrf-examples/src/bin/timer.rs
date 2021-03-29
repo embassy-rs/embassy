@@ -10,10 +10,10 @@ mod example_common;
 use example_common::*;
 
 use defmt::panic;
-use embassy::executor::{task, Spawner};
+use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 
-#[task]
+#[embassy::task]
 async fn run1() {
     loop {
         info!("BIG INFREQUENT TICK");
@@ -21,7 +21,7 @@ async fn run1() {
     }
 }
 
-#[task]
+#[embassy::task]
 async fn run2() {
     loop {
         info!("tick");

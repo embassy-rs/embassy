@@ -122,7 +122,7 @@ unsafe impl cortex_m::interrupt::Nr for NrWrap {
 /// use embassy::util::InterruptFuture;
 /// use embassy::executor::task;
 /// use embassy_stm32f4::interrupt; // Adjust this to your MCU's embassy HAL.
-/// #[task]
+/// #[embassy::task]
 /// async fn demo_interrupt_future() {
 ///     // Using STM32f446 interrupt names, adjust this to your application as necessary.
 ///     // Wait for TIM2 to tick.

@@ -10,7 +10,7 @@ use example_common::*;
 
 use cortex_m_rt::entry;
 use defmt::panic;
-use embassy::executor::{task, Executor};
+use embassy::executor::Executor;
 use embassy::interrupt::InterruptExt;
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy::time::{Duration, Timer};
@@ -25,7 +25,7 @@ use stm32f4xx_hal::prelude::*;
 use usb_device::bus::UsbBusAllocator;
 use usb_device::prelude::*;
 
-#[task]
+#[embassy::task]
 async fn run1(bus: &'static mut UsbBusAllocator<UsbBus<USB>>) {
     info!("Async task");
 
