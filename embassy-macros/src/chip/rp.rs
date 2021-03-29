@@ -1,12 +1,11 @@
 use darling::FromMeta;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
-use syn::spanned::Spanned;
+use quote::quote;
 
 #[derive(Debug, FromMeta)]
 pub struct Args {}
 
-pub fn generate(args: Args) -> TokenStream {
+pub fn generate(_args: Args) -> TokenStream {
     quote!(
         use embassy_rp::{interrupt, peripherals};
 

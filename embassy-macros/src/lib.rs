@@ -207,7 +207,7 @@ mod chip;
 #[proc_macro_attribute]
 pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let macro_args = syn::parse_macro_input!(args as syn::AttributeArgs);
-    let mut task_fn = syn::parse_macro_input!(item as syn::ItemFn);
+    let task_fn = syn::parse_macro_input!(item as syn::ItemFn);
 
     let macro_args = match chip::Args::from_list(&macro_args) {
         Ok(v) => v,
@@ -236,9 +236,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
         fail = true;
     }
 
-    let mut arg_names: syn::punctuated::Punctuated<syn::Ident, syn::Token![,]> =
-        syn::punctuated::Punctuated::new();
-    let mut args = task_fn.sig.inputs.clone();
+    let args = task_fn.sig.inputs.clone();
 
     if args.len() != 1 {
         task_fn
@@ -254,9 +252,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
         return TokenStream::new();
     }
 
-    let name = task_fn.sig.ident.clone();
     let task_fn_body = task_fn.block.clone();
-
     let chip_setup = chip::generate(macro_args);
 
     let result = quote! {
