@@ -1,0 +1,30 @@
+[unstable]
+build-std = ["core"]
+build-std-features = ["panic_immediate_abort"]
+
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+runner = "probe-run-rp --chip RP2040"
+
+rustflags = [
+  # LLD (shipped with the Rust toolchain) is used as the default linker
+  "-C", "link-arg=--nmagic",
+  "-C", "link-arg=-Tlink.x",
+  "-C", "link-arg=-Tdefmt.x",
+
+  # if you run into problems with LLD switch to the GNU linker by commenting out
+  # this line
+  # "-C", "linker=arm-none-eabi-ld",
+
+  # if you need to link to pre-compiled C libraries provided by a C toolchain
+  # use GCC as the linker by commenting out both lines above and then
+  # uncommenting the three lines below
+  # "-C", "linker=arm-none-eabi-gcc",
+  # "-C", "link-arg=-Wl,-Tlink.x",
+  # "-C", "link-arg=-nostartfiles",
+
+  # Code-size optimizations.
+  "-Z", "trap-unreachable=no",
+]
+
+[build]
+target = "thumbv6m-none-eabi"        # Cortex-M0 and Cortex-M0+

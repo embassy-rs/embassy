@@ -19,6 +19,8 @@ members = [
 exclude = [
     "embassy-std",
     "embassy-std-examples",
+    "embassy-rp",
+    "embassy-rp-examples",
 ]
 
 [profile.dev]
@@ -52,3 +54,5 @@ debug = false
 debug-assertions = false
 opt-level = 0
 overflow-checks = false
+
+[patch.crates-io]

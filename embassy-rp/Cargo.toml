@@ -1,0 +1,25 @@
+[package]
+name = "embassy-rp"
+version = "0.1.0"
+authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
+edition = "2018"
+
+[features]
+defmt-trace = [ ]
+defmt-debug = [ ]
+defmt-info = [ ]
+defmt-warn = [ ]
+defmt-error = [ ]
+
+[dependencies]
+embassy = { version = "0.1.0", path = "../embassy" }
+embassy-extras = {version = "0.1.0", path = "../embassy-extras" }
+embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["rp"]}
+
+defmt = { version = "0.2.0", optional = true }
+log = { version = "0.4.11", optional = true }
+cortex-m-rt = "0.6.13"
+cortex-m = "0.7.1"
+
+rp2040-pac2 = { git = "https://github.com/Dirbaio/rp2040-pac", rev="254f4677937801155ca3cb17c7bb9d38eb62683e", features = ["rt"] }
+embedded-hal = { version = "0.2.4", features = [ "unproven" ] }

@@ -1,0 +1,33 @@
+[package]
+authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
+edition = "2018"
+name = "embassy-rp-examples"
+version = "0.1.0"
+
+[features]
+default = [
+    "defmt-default",
+]
+defmt-default = []
+defmt-trace = []
+defmt-debug = []
+defmt-info = []
+defmt-warn = []
+defmt-error = []
+
+
+[dependencies]
+embassy = { version = "0.1.0", path = "../embassy", features = ["defmt", "defmt-trace"] }
+embassy-rp = { version = "0.1.0", path = "../embassy-rp", features = ["defmt", "defmt-trace"] }
+rp2040-boot2 = { git = "https://github.com/rp-rs/rp2040-boot2-rs", branch="main" }
+rp2040-pac2 = { git = "https://github.com/Dirbaio/rp2040-pac", rev="254f4677937801155ca3cb17c7bb9d38eb62683e" }
+atomic-polyfill = { version = "0.1.1" }
+
+defmt = "0.2.0"
+defmt-rtt = "0.2.0"
+
+cortex-m = { version = "0.7.1", features = ["inline-asm"] }
+cortex-m-rt = "0.6.13"
+embedded-hal    = { version = "0.2.4" }
+panic-probe = "0.1.0"
+futures = { version = "0.3.8", default-features = false, features = ["async-await", "cfg-target-has-atomic", "unstable"] }
