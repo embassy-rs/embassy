@@ -46,22 +46,22 @@ jobs:
           - package: embassy-nrf
             target: thumbv7em-none-eabi
             features: 52840,defmt
-          - package: embassy-stm32f4-examples
+          - package: embassy-stm32-examples
             target: thumbv7em-none-eabi
             features: stm32f405
-          - package: embassy-stm32f4
+          - package: embassy-stm32
             target: thumbv7em-none-eabi
             features: stm32f405
-          - package: embassy-stm32f4
+          - package: embassy-stm32
             target: thumbv7em-none-eabi
             features: stm32f446
-          - package: embassy-stm32f4
+          - package: embassy-stm32
             target: thumbv7em-none-eabi
             features: stm32f405,defmt
-          - package: embassy-stm32l0
+          - package: embassy-stm32
             target: thumbv6m-none-eabi
             features: stm32l0x2
-          - package: embassy-stm32l0
+          - package: embassy-stm32
             target: thumbv6m-none-eabi
             features: stm32l0x2,defmt
           - package: embassy-rp-examples
