@@ -12,8 +12,8 @@ use defmt::panic;
 use embassy;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_stm32f4;
-use embassy_stm32f4::hal;
+use embassy_stm32;
+use embassy_stm32::hal;
 
 #[embassy::task]
 async fn run1() {
