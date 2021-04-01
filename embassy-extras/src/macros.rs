@@ -55,6 +55,7 @@ macro_rules! peripherals {
                     if unsafe { _EMBASSY_DEVICE_PERIPHERALS } {
                         None
                     } else {
+                        unsafe { _EMBASSY_DEVICE_PERIPHERALS = true };
                         Some(unsafe { <Self as embassy::util::Steal>::steal() })
                     }
                 })
