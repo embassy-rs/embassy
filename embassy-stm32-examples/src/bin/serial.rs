@@ -12,7 +12,7 @@ use example_common::{panic, *};
 use cortex_m::singleton;
 use cortex_m_rt::entry;
 use embassy::executor::{Executor, Spawner};
-use embassy::traits::uart::{Read, Write};
+use embassy::traits::uart::{Read, Write, ReadUntilIdle};
 use embassy::util::Forever;
 use embassy_stm32::interrupt;
 use embassy_stm32::serial;
@@ -75,5 +75,6 @@ async fn main(spawner: Spawner) {
     let buf = singleton!(: [u8; 30] = [0; 30]).unwrap();
 
     buf[5] = 0x01;
-    serial.write(buf).await.unwrap();
+    serial.as_mut().write(buf).await.unwrap();
+    serial.as_mut().read_until_idle(buf);
 }
