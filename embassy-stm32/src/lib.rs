@@ -109,7 +109,7 @@ pub mod rtc;
     feature = "stm32f469",
     feature = "stm32f479",
 ))]
-pub use f4::{qei, serial};
+pub use f4::serial;
 
 #[cfg(any(
     feature = "stm32f401",
