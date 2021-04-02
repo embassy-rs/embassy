@@ -76,5 +76,5 @@ async fn main(spawner: Spawner) {
 
     buf[5] = 0x01;
     serial.as_mut().write(buf).await.unwrap();
-    serial.as_mut().read_until_idle(buf);
+    serial.as_mut().read_until_idle(buf).await.unwrap();
 }
