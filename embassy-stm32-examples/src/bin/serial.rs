@@ -12,7 +12,7 @@ use example_common::{panic, *};
 use cortex_m::singleton;
 use cortex_m_rt::entry;
 use embassy::executor::{Executor, Spawner};
-use embassy::traits::uart::{Read, Write, ReadUntilIdle};
+use embassy::traits::uart::{Read, ReadUntilIdle, Write};
 use embassy::util::Forever;
 use embassy_stm32::interrupt;
 use embassy_stm32::serial;
