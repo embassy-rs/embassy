@@ -7,6 +7,7 @@ version = "0.1.0"
 [features]
 default = [
     "defmt-default",
+    "f429",
 ]
 defmt-default = []
 defmt-trace = []
@@ -15,23 +16,23 @@ defmt-info = []
 defmt-warn = []
 defmt-error = []
 
-stm32f401 = ["embassy-stm32/stm32f401"]
-stm32f405 = ["embassy-stm32/stm32f405"]
-stm32f407 = ["embassy-stm32/stm32f407"]
-stm32f410 = ["embassy-stm32/stm32f410"]
-stm32f411 = ["embassy-stm32/stm32f411"]
-stm32f412 = ["embassy-stm32/stm32f412"]
-stm32f413 = ["embassy-stm32/stm32f413"]
-stm32f415 = ["embassy-stm32/stm32f405"]
-stm32f417 = ["embassy-stm32/stm32f407"]
-stm32f423 = ["embassy-stm32/stm32f413"]
-stm32f427 = ["embassy-stm32/stm32f427"]
-stm32f429 = ["embassy-stm32/stm32f429"]
-stm32f437 = ["embassy-stm32/stm32f427"]
-stm32f439 = ["embassy-stm32/stm32f429"]
-stm32f446 = ["embassy-stm32/stm32f446"]
-stm32f469 = ["embassy-stm32/stm32f469"]
-stm32f479 = ["embassy-stm32/stm32f469"]
+f401 = ["embassy-stm32/f401"]
+f405 = ["embassy-stm32/f405"]
+f407 = ["embassy-stm32/f407"]
+f410 = ["embassy-stm32/f410"]
+f411 = ["embassy-stm32/f411"]
+f412 = ["embassy-stm32/f412"]
+f413 = ["embassy-stm32/f413"]
+f415 = ["embassy-stm32/f405"]
+f417 = ["embassy-stm32/f407"]
+f423 = ["embassy-stm32/f413"]
+f427 = ["embassy-stm32/f427"]
+f429 = ["embassy-stm32/f429"]
+f437 = ["embassy-stm32/f427"]
+f439 = ["embassy-stm32/f429"]
+f446 = ["embassy-stm32/f446"]
+f469 = ["embassy-stm32/f469"]
+f479 = ["embassy-stm32/f469"]
 
 
 [dependencies]
@@ -39,6 +40,7 @@ embassy = { version = "0.1.0", path = "../embassy", features = ["defmt", "defmt-
 embassy-traits = { version = "0.1.0", path = "../embassy-traits", features = ["defmt"] }
 embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32" }
 embassy-extras = {version = "0.1.0", path = "../embassy-extras" }
+stm32f4 = { version = "0.13", features = ["stm32f429"] }
 
 defmt = "0.2.0"
 defmt-rtt = "0.2.0"
@@ -49,5 +51,3 @@ embedded-hal    = { version = "0.2.4" }
 panic-probe = "0.1.0"
 futures = { version = "0.3.8", default-features = false, features = ["async-await"] }
 rtt-target = { version = "0.3", features = ["cortex-m"] }
-bxcan = "0.5.0"
-usb-device = "0.2.7"
