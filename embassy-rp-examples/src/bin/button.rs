@@ -11,18 +11,22 @@ mod example_common;
 
 use defmt::*;
 use embassy::executor::Spawner;
-use embassy_rp::gpio::{Input, Pull};
+use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::Peripherals;
-use embedded_hal::digital::v2::InputPin;
+use embedded_hal::digital::v2::{InputPin, OutputPin};
 
 #[embassy::main]
 async fn main(_spawner: Spawner) {
     let p = unwrap!(Peripherals::take());
 
     let button = Input::new(p.PIN_28, Pull::Up);
+    let mut led = Output::new(p.PIN_25, Level::Low);
 
     loop {
-        info!("high? {=bool}", button.is_high().unwrap());
-        cortex_m::asm::delay(1_000_000);
+        if button.is_high().unwrap() {
+            led.set_high().unwrap();
+        } else {
+            led.set_low().unwrap();
+        }
     }
 }

@@ -13,12 +13,13 @@ use defmt::*;
 use embassy::executor::Spawner;
 use embassy_rp::{gpio, Peripherals};
 use embedded_hal::digital::v2::OutputPin;
+use gpio::{Level, Output};
 
 #[embassy::main]
 async fn main(_spawner: Spawner) {
     let p = unwrap!(Peripherals::take());
 
-    let mut led = gpio::Output::new(p.PIN_25, gpio::Level::Low);
+    let mut led = Output::new(p.PIN_25, Level::Low);
 
     loop {
         info!("led on!");
