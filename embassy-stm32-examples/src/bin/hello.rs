@@ -10,7 +10,7 @@ mod example_common;
 use example_common::*;
 
 use cortex_m_rt::entry;
-use stm32f4xx_hal::prelude::*;
+use embassy_stm32::hal::prelude::*;
 
 #[entry]
 fn main() -> ! {

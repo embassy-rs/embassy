@@ -14,13 +14,13 @@ use cortex_m_rt::entry;
 use embassy::executor::{Executor, Spawner};
 use embassy::traits::uart::{Read, ReadUntilIdle, Write};
 use embassy::util::Forever;
+use embassy_stm32::hal::dma::StreamsTuple;
+use embassy_stm32::hal::prelude::*;
+use embassy_stm32::hal::serial::config::Config;
 use embassy_stm32::interrupt;
+use embassy_stm32::pac as stm32;
 use embassy_stm32::serial;
 use futures::pin_mut;
-use stm32f4xx_hal::dma::StreamsTuple;
-use stm32f4xx_hal::prelude::*;
-use stm32f4xx_hal::serial::config::Config;
-use stm32f4xx_hal::stm32;
 
 #[embassy::main(use_hse = 16, sysclk = 48, pclk1 = 24)]
 async fn main(spawner: Spawner) {
