@@ -1,8 +1,8 @@
+use crate::hal::bb;
+use crate::hal::rcc::Clocks;
 use core::cell::Cell;
 use core::convert::TryInto;
 use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
-use stm32f4xx_hal::bb;
-use stm32f4xx_hal::rcc::Clocks;
 
 use embassy::interrupt::InterruptExt;
 use embassy::time::{Clock, TICKS_PER_SECOND};
@@ -259,7 +259,7 @@ macro_rules! impl_timer {
     ($module:ident: ($TYPE:ident, $INT:ident, $apbenr:ident, $enrbit:expr, $apbrstr:ident, $rstrbit:expr, $ppre:ident, $pclk: ident), 3) => {
         mod $module {
             use super::*;
-            use stm32f4xx_hal::pac::{$TYPE, RCC};
+            use crate::hal::pac::{$TYPE, RCC};
 
             impl sealed::Sealed for $TYPE {}
 
@@ -376,7 +376,7 @@ macro_rules! impl_timer {
     ($module:ident: ($TYPE:ident, $INT:ident, $apbenr:ident, $enrbit:expr, $apbrstr:ident, $rstrbit:expr, $ppre:ident, $pclk: ident), 1) => {
         mod $module {
             use super::*;
-            use stm32f4xx_hal::pac::{$TYPE, RCC};
+            use crate::hal::pac::{$TYPE, RCC};
 
             impl sealed::Sealed for $TYPE {}
 

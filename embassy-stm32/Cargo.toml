@@ -46,6 +46,6 @@ embedded-hal    = { version = "0.2.4" }
 embedded-dma    = { version = "0.1.2" }
 bxcan = "0.5.0"
 nb = "*"
-stm32f4xx-hal = { version = "0.9.0", features = ["rt", "can"], optional = true }
+stm32f4xx-hal = { version = "0.9.0", features = ["rt", "can", "usb_fs"], optional = true }
 stm32l0xx-hal = { version = "0.7.0", features = ["rt"], optional = true }
 futures = { version = "0.3.5", default-features = false, features = ["async-await"] }
