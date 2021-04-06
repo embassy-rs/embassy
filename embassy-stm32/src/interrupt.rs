@@ -243,8 +243,8 @@ mod irqs {
     //    declare!(SPI5);
     //    declare!(SPI6);
     //    declare!(SAI1);
-    declare!(LCD_TFT);
-    declare!(LCD_TFT_1);
+    //    declare!(LCD_TFT);
+    //    declare!(LCD_TFT_1);
     //    declare!(DMA2D);
 }
 
