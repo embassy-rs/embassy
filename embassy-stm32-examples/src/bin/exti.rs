@@ -14,10 +14,10 @@ use embassy::executor::Executor;
 use embassy::traits::gpio::*;
 use embassy::util::Forever;
 use embassy_stm32::exti::ExtiPin;
+use embassy_stm32::hal::prelude::*;
 use embassy_stm32::interrupt;
+use embassy_stm32::pac as stm32;
 use futures::pin_mut;
-use stm32f4xx_hal::prelude::*;
-use stm32f4xx_hal::stm32;
 
 #[embassy::task]
 async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {

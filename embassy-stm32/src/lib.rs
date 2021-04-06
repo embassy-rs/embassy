@@ -206,7 +206,7 @@ embassy_extras::std_peripherals! {
     PWR,
     QUADSPI,
     SPDIFRX,
-    SDMMC,
+//    SDMMC,
     HDMI_CEC,
     FPU,
     STK,

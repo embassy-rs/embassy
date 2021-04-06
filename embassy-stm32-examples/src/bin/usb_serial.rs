@@ -17,11 +17,11 @@ use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
 use embassy_extras::usb::usb_serial::UsbSerial;
 use embassy_extras::usb::Usb;
+use embassy_stm32::hal::otg_fs::{UsbBus, USB};
+use embassy_stm32::hal::prelude::*;
 use embassy_stm32::{interrupt, pac, rtc};
 use futures::future::{select, Either};
 use futures::pin_mut;
-use stm32f4xx_hal::otg_fs::{UsbBus, USB};
-use stm32f4xx_hal::prelude::*;
 use usb_device::bus::UsbBusAllocator;
 use usb_device::prelude::*;
 

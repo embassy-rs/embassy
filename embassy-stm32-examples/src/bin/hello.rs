@@ -10,13 +10,13 @@ mod example_common;
 use example_common::*;
 
 use cortex_m_rt::entry;
-use stm32f4xx_hal::prelude::*;
+use embassy_stm32::hal::prelude::*;
 
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
 
-    let p = stm32f4xx_hal::stm32::Peripherals::take().unwrap();
+    let p = embassy_stm32::pac::Peripherals::take().unwrap();
 
     p.DBGMCU.cr.modify(|_, w| {
         w.dbg_sleep().set_bit();

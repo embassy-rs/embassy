@@ -13,9 +13,9 @@ use bxcan::filter::Mask32;
 use cortex_m_rt::entry;
 use embassy::executor::Executor;
 use embassy::util::Forever;
+use embassy_stm32::hal::prelude::*;
+use embassy_stm32::hal::{can::Can, stm32};
 use embassy_stm32::{can, interrupt};
-use stm32f4xx_hal::prelude::*;
-use stm32f4xx_hal::{can::Can, stm32};
 
 #[embassy::task]
 async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
