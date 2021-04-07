@@ -7,18 +7,19 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-mod pool; // TODO extract to embassy, or to own crate
-
 mod config;
 mod device;
 mod packet_pool;
 mod stack;
-mod tcp_socket;
 
-pub use config::{Config, Configurator, DhcpConfigurator, StaticConfigurator, UpConfig};
+pub use config::{Config, Configurator, DhcpConfigurator, StaticConfigurator};
 pub use device::{Device, LinkState};
-pub use packet_pool::{Packet, PacketBox, PacketBuf};
+pub use packet_pool::{Packet, PacketBox, PacketBoxExt, PacketBuf};
 pub use stack::{init, is_init, run};
+
+#[cfg(feature = "tcp")]
+mod tcp_socket;
+#[cfg(feature = "tcp")]
 pub use tcp_socket::TcpSocket;
 
 // smoltcp reexports

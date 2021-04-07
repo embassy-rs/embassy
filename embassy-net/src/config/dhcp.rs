@@ -1,80 +1,59 @@
-use embassy::util::Forever;
 use heapless::Vec;
-use smoltcp::dhcp::Dhcpv4Client;
-use smoltcp::socket::{RawPacketMetadata, RawSocketBuffer};
+use smoltcp::socket::{Dhcpv4Event, Dhcpv4Socket, SocketHandle};
 use smoltcp::time::Instant;
-use smoltcp::wire::Ipv4Address;
 
 use super::*;
 use crate::device::LinkState;
 use crate::fmt::*;
 use crate::{Interface, SocketSet};
 
-pub struct DhcpResources {
-    rx_buffer: [u8; 900],
-    tx_buffer: [u8; 600],
-    rx_meta: [RawPacketMetadata; 1],
-    tx_meta: [RawPacketMetadata; 1],
-}
-
 pub struct DhcpConfigurator {
-    client: Option<Dhcpv4Client>,
+    handle: Option<SocketHandle>,
 }
 
 impl DhcpConfigurator {
     pub fn new() -> Self {
-        Self { client: None }
+        Self { handle: None }
     }
 }
-
-static DHCP_RESOURCES: Forever<DhcpResources> = Forever::new();
 
 impl Configurator for DhcpConfigurator {
     fn poll(
         &mut self,
         iface: &mut Interface,
         sockets: &mut SocketSet,
-        timestamp: Instant,
-    ) -> Option<Config> {
-        if self.client.is_none() {
-            let res = DHCP_RESOURCES.put(DhcpResources {
-                rx_buffer: [0; 900],
-                tx_buffer: [0; 600],
-                rx_meta: [RawPacketMetadata::EMPTY; 1],
-                tx_meta: [RawPacketMetadata::EMPTY; 1],
-            });
-            let rx_buffer = RawSocketBuffer::new(&mut res.rx_meta[..], &mut res.rx_buffer[..]);
-            let tx_buffer = RawSocketBuffer::new(&mut res.tx_meta[..], &mut res.tx_buffer[..]);
-            let dhcp = Dhcpv4Client::new(sockets, rx_buffer, tx_buffer, timestamp);
-            info!("created dhcp");
-            self.client = Some(dhcp)
+        _timestamp: Instant,
+    ) -> Event {
+        if self.handle.is_none() {
+            let handle = sockets.add(Dhcpv4Socket::new());
+            self.handle = Some(handle)
         }
 
-        let client = self.client.as_mut().unwrap();
+        let mut socket = sockets.get::<Dhcpv4Socket>(self.handle.unwrap());
 
         let link_up = iface.device_mut().device.link_state() == LinkState::Up;
         if !link_up {
-            client.reset(timestamp);
-            return Some(Config::Down);
+            socket.reset();
+            return Event::Deconfigured;
         }
 
-        let config = client.poll(iface, sockets, timestamp).unwrap_or(None)?;
+        match socket.poll() {
+            Dhcpv4Event::NoChange => Event::NoChange,
+            Dhcpv4Event::Deconfigured => Event::Deconfigured,
+            Dhcpv4Event::Configured(config) => {
+                let mut dns_servers = Vec::new();
+                for s in &config.dns_servers {
+                    if let Some(addr) = s {
+                        dns_servers.push(addr.clone()).unwrap();
+                    }
+                }
 
-        if config.address.is_none() {
-            return Some(Config::Down);
-        }
-
-        let mut dns_servers = Vec::new();
-        for s in &config.dns_servers {
-            if let Some(addr) = s {
-                dns_servers.push(addr.clone()).unwrap();
+                Event::Configured(Config {
+                    address: config.address,
+                    gateway: config.router,
+                    dns_servers,
+                })
             }
         }
-
-        return Some(Config::Up(UpConfig {
-            address: config.address.unwrap(),
-            gateway: config.router.unwrap_or(Ipv4Address::UNSPECIFIED),
-            dns_servers,
-        }));
     }
 }

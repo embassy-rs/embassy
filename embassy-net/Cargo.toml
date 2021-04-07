@@ -12,6 +12,9 @@ defmt-info = []
 defmt-warn = []
 defmt-error = []
 
+tcp = ["smoltcp/socket-tcp"]
+dhcpv4 = ["smoltcp/socket-dhcpv4"]
+
 [dependencies]
 
 defmt = { version = "0.2.0", optional = true }
@@ -25,9 +28,10 @@ as-slice            = { version = "0.1.4" }
 generic-array       = { version = "0.14.4", default-features = false }
 stable_deref_trait  = { version = "1.2.0", default-features = false }
 futures             = { version = "0.3.5", default-features = false, features = [ "async-await" ]}
+atomic-pool = "0.1.0"
 
 [dependencies.smoltcp]
-version = "0.6.0"
+version = "0.7.0"
 #git = "https://github.com/akiles/smoltcp"
 #rev = "00952e2c5cdf5667a1dfb6142258055f58d3851c"
 default-features = false
@@ -35,12 +39,12 @@ features = [
   "medium-ethernet",
   "medium-ip",
   "proto-ipv4",
-  "proto-dhcpv4",
+  #"proto-dhcpv4",
   #"proto-igmp",
   #"proto-ipv6",
   #"socket-raw",
   #"socket-icmp",
   #"socket-udp",
-  "socket-tcp",
+  #"socket-tcp",
   "async",
 ]

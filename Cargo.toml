@@ -42,8 +42,8 @@ opt-level = 0
 overflow-checks = false
 
 [patch.crates-io]
-embassy = { git = "https://github.com/akiles/embassy" }
-embassy-std = { git = "https://github.com/akiles/embassy" }
-embassy-macros = { git = "https://github.com/akiles/embassy" }
-embassy-traits = { git = "https://github.com/akiles/embassy" }
-smoltcp = { git = "https://github.com/akiles/smoltcp" }
+embassy = { git = "https://github.com/embassy-rs/embassy" }
+embassy-std = { git = "https://github.com/embassy-rs/embassy" }
+embassy-macros = { git = "https://github.com/embassy-rs/embassy" }
+embassy-traits = { git = "https://github.com/embassy-rs/embassy" }
+smoltcp = { git = "https://github.com/smoltcp-rs/smoltcp", rev="9ce3d9505ef5455bb049713b9262561d78ebf330" }

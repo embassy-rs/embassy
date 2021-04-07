@@ -1,6 +1,10 @@
 #![feature(type_alias_impl_trait)]
+#![feature(min_type_alias_impl_trait)]
+#![feature(impl_trait_in_bindings)]
+#![allow(incomplete_features)]
 
-use embassy::executor::{task, Spawner};
+use clap::{AppSettings, Clap};
+use embassy::executor::Spawner;
 use embassy::io::AsyncWriteExt;
 use embassy::util::Forever;
 use embassy_net::*;
@@ -13,24 +17,38 @@ mod tuntap;
 use crate::tuntap::TunTapDevice;
 
 static DEVICE: Forever<TunTapDevice> = Forever::new();
-static CONFIG: Forever<StaticConfigurator> = Forever::new();
+static CONFIG: Forever<DhcpConfigurator> = Forever::new();
 
-#[task]
+#[derive(Clap)]
+#[clap(version = "1.0")]
+#[clap(setting = AppSettings::ColoredHelp)]
+struct Opts {
+    /// TAP device name
+    #[clap(long, default_value = "tap0")]
+    tap: String,
+}
+
+#[embassy::task]
 async fn net_task() {
     embassy_net::run().await
 }
 
-#[task]
+#[embassy::task]
 async fn main_task(spawner: Spawner) {
+    let opts: Opts = Opts::parse();
+
     // Init network device
-    let device = TunTapDevice::new("tap0").unwrap();
+    let device = TunTapDevice::new(&opts.tap).unwrap();
 
     // Static IP configuration
-    let config = StaticConfigurator::new(UpConfig {
-        address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 1), 24),
+    let config = StaticConfigurator::new(Config {
+        address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 2), 24),
         dns_servers: Vec::new(),
-        gateway: Ipv4Address::new(192, 168, 69, 100),
+        gateway: Some(Ipv4Address::new(192, 168, 69, 1)),
     });
+
+    // DHCP configruation
+    let config = DhcpConfigurator::new();
 
     // Init network stack
     embassy_net::init(DEVICE.put(device), CONFIG.put(config));
@@ -45,7 +63,7 @@ async fn main_task(spawner: Spawner) {
 
     socket.set_timeout(Some(embassy_net::SmolDuration::from_secs(10)));
 
-    let remote_endpoint = (Ipv4Address::new(192, 168, 69, 100), 8000);
+    let remote_endpoint = (Ipv4Address::new(192, 168, 69, 74), 8000);
     info!("connecting to {:?}...", remote_endpoint);
     let r = socket.connect(remote_endpoint).await;
     if let Err(e) = r {

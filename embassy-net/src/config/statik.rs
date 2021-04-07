@@ -5,12 +5,16 @@ use crate::fmt::*;
 use crate::{Interface, SocketSet};
 
 pub struct StaticConfigurator {
-    config: UpConfig,
+    config: Config,
+    returned: bool,
 }
 
 impl StaticConfigurator {
-    pub fn new(config: UpConfig) -> Self {
-        Self { config }
+    pub fn new(config: Config) -> Self {
+        Self {
+            config,
+            returned: false,
+        }
     }
 }
 
@@ -20,7 +24,12 @@ impl Configurator for StaticConfigurator {
         _iface: &mut Interface,
         _sockets: &mut SocketSet,
         _timestamp: Instant,
-    ) -> Option<Config> {
-        Some(Config::Up(self.config.clone()))
+    ) -> Event {
+        if self.returned {
+            Event::NoChange
+        } else {
+            self.returned = true;
+            Event::Configured(self.config.clone())
+        }
     }
 }

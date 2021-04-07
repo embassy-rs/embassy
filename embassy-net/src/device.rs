@@ -4,6 +4,7 @@ use smoltcp::phy::DeviceCapabilities;
 use smoltcp::time::Instant as SmolInstant;
 
 use crate::fmt::*;
+use crate::packet_pool::PacketBoxExt;
 use crate::Result;
 use crate::{Packet, PacketBox, PacketBuf};
 

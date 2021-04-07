@@ -1,7 +1,7 @@
 use as_slice::{AsMutSlice, AsSlice};
 use core::ops::{Deref, DerefMut, Range};
 
-use super::pool::{BitPool, Box, StaticPool};
+use atomic_pool::{pool, Box};
 
 pub const MTU: usize = 1514;
 pub const PACKET_POOL_SIZE: usize = 4;
@@ -17,8 +17,12 @@ impl Packet {
     }
 }
 
-impl Box<PacketPool> {
-    pub fn slice(self, range: Range<usize>) -> PacketBuf {
+pub trait PacketBoxExt {
+    fn slice(self, range: Range<usize>) -> PacketBuf;
+}
+
+impl PacketBoxExt for PacketBox {
+    fn slice(self, range: Range<usize>) -> PacketBuf {
         PacketBuf {
             packet: self,
             range,

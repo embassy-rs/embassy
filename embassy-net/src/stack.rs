@@ -11,14 +11,12 @@ use smoltcp::phy::Device as _;
 use smoltcp::phy::Medium;
 use smoltcp::socket::SocketSetItem;
 use smoltcp::time::Instant as SmolInstant;
-use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address};
+use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
 
-use crate::device::{Device, DeviceAdapter};
+use crate::config::Configurator;
+use crate::config::Event;
+use crate::device::{Device, DeviceAdapter, LinkState};
 use crate::fmt::*;
-use crate::{
-    config::{Config, Configurator},
-    device::LinkState,
-};
 use crate::{Interface, SocketSet};
 
 const ADDRESSES_LEN: usize = 1;
@@ -68,39 +66,41 @@ impl Stack {
     }
 
     fn poll_configurator(&mut self, timestamp: SmolInstant) {
-        if let Some(config) = self
+        let medium = self.iface.device().capabilities().medium;
+
+        match self
             .configurator
             .poll(&mut self.iface, &mut self.sockets, timestamp)
         {
-            let medium = self.iface.device().capabilities().medium;
+            Event::NoChange => {}
+            Event::Configured(config) => {
+                debug!("Acquired IP configuration:");
 
-            let (addr, gateway) = match config {
-                Config::Up(config) => (config.address.into(), Some(config.gateway)),
-                Config::Down => (IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 32), None),
-            };
+                debug!("   IP address:      {}", config.address);
+                set_ipv4_addr(&mut self.iface, config.address);
 
-            self.iface.update_ip_addrs(|addrs| {
-                let curr_addr = &mut addrs[0];
-                if *curr_addr != addr {
-                    info!("IPv4 address: {:?} -> {:?}", *curr_addr, addr);
-                    *curr_addr = addr;
-                }
-            });
-
-            if medium == Medium::Ethernet {
-                self.iface.routes_mut().update(|r| {
-                    let cidr = IpCidr::new(IpAddress::v4(0, 0, 0, 0), 0);
-                    let curr_gateway = r.get(&cidr).map(|r| r.via_router);
-
-                    if curr_gateway != gateway.map(|a| a.into()) {
-                        info!("IPv4 gateway: {:?} -> {:?}", curr_gateway, gateway);
-                        if let Some(gateway) = gateway {
-                            r.insert(cidr, Route::new_ipv4_gateway(gateway)).unwrap();
-                        } else {
-                            r.remove(&cidr);
-                        }
+                if medium == Medium::Ethernet {
+                    if let Some(gateway) = config.gateway {
+                        debug!("   Default gateway: {}", gateway);
+                        self.iface
+                            .routes_mut()
+                            .add_default_ipv4_route(gateway)
+                            .unwrap();
+                    } else {
+                        debug!("   Default gateway: None");
+                        self.iface.routes_mut().remove_default_ipv4_route();
                     }
-                });
+                }
+                for (i, s) in config.dns_servers.iter().enumerate() {
+                    debug!("   DNS server {}:    {}", i, s);
+                }
+            }
+            Event::Deconfigured => {
+                debug!("Lost IP configuration");
+                set_ipv4_addr(&mut self.iface, Ipv4Cidr::new(Ipv4Address::UNSPECIFIED, 0));
+                if medium == Medium::Ethernet {
+                    self.iface.routes_mut().remove_default_ipv4_route();
+                }
             }
         }
     }
@@ -141,6 +141,13 @@ impl Stack {
             }
         }
     }
+}
+
+fn set_ipv4_addr(iface: &mut Interface, cidr: Ipv4Cidr) {
+    iface.update_ip_addrs(|addrs| {
+        let dest = addrs.iter_mut().next().unwrap();
+        *dest = IpCidr::Ipv4(cidr);
+    });
 }
 
 /// Initialize embassy_net.

@@ -1,5 +1,4 @@
 use async_io::Async;
-use embassy::util::WakerRegistration;
 use libc;
 use log::*;
 use smoltcp::wire::EthernetFrame;
@@ -130,20 +129,21 @@ impl io::Write for TunTap {
 
 pub struct TunTapDevice {
     device: Async<TunTap>,
-    waker: WakerRegistration,
+    waker: Option<Waker>,
 }
 
 impl TunTapDevice {
     pub fn new(name: &str) -> io::Result<TunTapDevice> {
         Ok(Self {
             device: Async::new(TunTap::new(name)?)?,
-            waker: WakerRegistration::new(),
+            waker: None,
         })
     }
 }
 
 use core::task::Waker;
-use embassy_net::{DeviceCapabilities, LinkState, Packet, PacketBox, PacketBuf};
+use embassy_net::{DeviceCapabilities, LinkState, Packet, PacketBox, PacketBoxExt, PacketBuf};
+use std::task::Context;
 
 impl crate::Device for TunTapDevice {
     fn is_transmit_ready(&mut self) -> bool {
@@ -169,7 +169,8 @@ impl crate::Device for TunTapDevice {
                     return Some(pkt.slice(0..n));
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    let ready = if let Some(mut cx) = self.waker.context() {
+                    let ready = if let Some(w) = self.waker.as_ref() {
+                        let mut cx = Context::from_waker(w);
                         let ready = self.device.poll_readable(&mut cx).is_ready();
                         ready
                     } else {
@@ -184,8 +185,28 @@ impl crate::Device for TunTapDevice {
         }
     }
 
-    fn register_waker(&mut self, waker: &Waker) {
-        self.waker.register(waker)
+    fn register_waker(&mut self, w: &Waker) {
+        match self.waker {
+            // Optimization: If both the old and new Wakers wake the same task, we can simply
+            // keep the old waker, skipping the clone. (In most executor implementations,
+            // cloning a waker is somewhat expensive, comparable to cloning an Arc).
+            Some(ref w2) if (w2.will_wake(w)) => {}
+            _ => {
+                // clone the new waker and store it
+                if let Some(old_waker) = core::mem::replace(&mut self.waker, Some(w.clone())) {
+                    // We had a waker registered for another task. Wake it, so the other task can
+                    // reregister itself if it's still interested.
+                    //
+                    // If two tasks are waiting on the same thing concurrently, this will cause them
+                    // to wake each other in a loop fighting over this WakerRegistration. This wastes
+                    // CPU but things will still work.
+                    //
+                    // If the user wants to have two tasks waiting on the same thing they should use
+                    // a more appropriate primitive that can store multiple wakers.
+                    old_waker.wake()
+                }
+            }
+        }
     }
 
     fn capabilities(&mut self) -> DeviceCapabilities {
