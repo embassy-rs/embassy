@@ -17,6 +17,8 @@ use crate::interrupt::{Interrupt, InterruptExt};
 /// For more advanced use cases, please consider [futures-intrusive](https://crates.io/crates/futures-intrusive) channels or mutexes.
 pub struct Signal<T> {
     state: UnsafeCell<State<T>>,
+    #[cfg(feature = "std")]
+    lock: std::sync::Mutex<()>,
 }
 
 enum State<T> {
@@ -29,15 +31,41 @@ unsafe impl<T: Send> Send for Signal<T> {}
 unsafe impl<T: Send> Sync for Signal<T> {}
 
 impl<T: Send> Signal<T> {
+    #[cfg(not(feature = "std"))]
     pub const fn new() -> Self {
         Self {
             state: UnsafeCell::new(State::None),
         }
     }
 
+    #[cfg(feature = "std")]
+    pub fn new() -> Self {
+        Self {
+            state: UnsafeCell::new(State::None),
+            lock: std::sync::Mutex::new(()),
+        }
+    }
+
+    #[cfg(feature = "std")]
+    fn critical_section<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        let _guard = self.lock.lock().unwrap();
+        f()
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn critical_section<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        cortex_m::interrupt::free(|_| f())
+    }
+
     /// Mark this Signal as completed.
     pub fn signal(&self, val: T) {
-        cortex_m::interrupt::free(|_| unsafe {
+        self.critical_section(|| unsafe {
             let state = &mut *self.state.get();
             if let State::Waiting(waker) = mem::replace(state, State::Signaled(val)) {
                 waker.wake();
@@ -46,14 +74,14 @@ impl<T: Send> Signal<T> {
     }
 
     pub fn reset(&self) {
-        cortex_m::interrupt::free(|_| unsafe {
+        self.critical_section(|| unsafe {
             let state = &mut *self.state.get();
             *state = State::None
         })
     }
 
     pub fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
-        cortex_m::interrupt::free(|_| unsafe {
+        self.critical_section(|| unsafe {
             let state = &mut *self.state.get();
             match state {
                 State::None => {
@@ -77,7 +105,7 @@ impl<T: Send> Signal<T> {
 
     /// non-blocking method to check whether this signal has been signaled.
     pub fn signaled(&self) -> bool {
-        cortex_m::interrupt::free(|_| matches!(unsafe { &*self.state.get() }, State::Signaled(_)))
+        self.critical_section(|| matches!(unsafe { &*self.state.get() }, State::Signaled(_)))
     }
 }
 
