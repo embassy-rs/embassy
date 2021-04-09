@@ -5,9 +5,8 @@ use core::marker::PhantomData;
 use embassy::util::PeripheralBorrow;
 use embassy_extras::{impl_unborrow, unborrow};
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
-use gpio::vals::{self, Pupdr};
+use gpio::vals;
 
-use crate::pac;
 use crate::pac::gpio_v2 as gpio;
 use crate::peripherals;
 
@@ -27,7 +26,6 @@ pub enum Pull {
     Down,
 }
 
-/*
 /// GPIO input driver.
 pub struct Input<'d, T: Pin> {
     pub(crate) pin: T,
@@ -38,23 +36,17 @@ impl<'d, T: Pin> Input<'d, T> {
     pub fn new(pin: impl PeripheralBorrow<Target = T> + 'd, pull: Pull) -> Self {
         unborrow!(pin);
 
-        pin.conf().write(|w| {
-            w.dir().input();
-            w.input().connect();
-            match pull {
-                Pull::None => {
-                    w.pull().disabled();
-                }
-                Pull::Up => {
-                    w.pull().pullup();
-                }
-                Pull::Down => {
-                    w.pull().pulldown();
-                }
-            }
-            w.drive().s0s1();
-            w.sense().disabled();
-            w
+        cortex_m::interrupt::free(|_| unsafe {
+            let r = pin.block();
+            let n = pin.pin() as usize;
+            let val = match pull {
+                Pull::None => vals::Pupdr::FLOATING,
+                Pull::Up => vals::Pupdr::PULLUP,
+                Pull::Down => vals::Pupdr::PULLDOWN,
+            };
+            r.pupdr().modify(|w| w.set_pupdr(n, val));
+            r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
+            r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
         });
 
         Self {
@@ -66,7 +58,11 @@ impl<'d, T: Pin> Input<'d, T> {
 
 impl<'d, T: Pin> Drop for Input<'d, T> {
     fn drop(&mut self) {
-        self.pin.conf().reset();
+        cortex_m::interrupt::free(|_| unsafe {
+            let r = self.pin.block();
+            let n = self.pin.pin() as usize;
+            r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
+        });
     }
 }
 
@@ -78,11 +74,10 @@ impl<'d, T: Pin> InputPin for Input<'d, T> {
     }
 
     fn is_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.pin.block().in_.read().bits() & (1 << self.pin.pin()) == 0)
+        let state = unsafe { self.pin.block().idr().read().idr(self.pin.pin() as _) };
+        Ok(state == vals::Idr::LOW)
     }
 }
-
-*/
 
 /// Digital input or output level.
 #[derive(Debug, Eq, PartialEq)]
@@ -111,7 +106,6 @@ impl<'d, T: Pin> Output<'d, T> {
             let r = pin.block();
             let n = pin.pin() as usize;
             r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
-            r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
             r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
         });
 
@@ -127,6 +121,7 @@ impl<'d, T: Pin> Drop for Output<'d, T> {
         cortex_m::interrupt::free(|_| unsafe {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
+            r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
             r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
         });
     }
@@ -368,3 +363,19 @@ impl_pin!(PB12, 1, 12);
 impl_pin!(PB13, 1, 13);
 impl_pin!(PB14, 1, 14);
 impl_pin!(PB15, 1, 15);
+impl_pin!(PC0, 2, 0);
+impl_pin!(PC1, 2, 1);
+impl_pin!(PC2, 2, 2);
+impl_pin!(PC3, 2, 3);
+impl_pin!(PC4, 2, 4);
+impl_pin!(PC5, 2, 5);
+impl_pin!(PC6, 2, 6);
+impl_pin!(PC7, 2, 7);
+impl_pin!(PC8, 2, 8);
+impl_pin!(PC9, 2, 9);
+impl_pin!(PC10, 2, 10);
+impl_pin!(PC11, 2, 11);
+impl_pin!(PC12, 2, 12);
+impl_pin!(PC13, 2, 13);
+impl_pin!(PC14, 2, 14);
+impl_pin!(PC15, 2, 15);

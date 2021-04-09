@@ -7,8 +7,8 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy_stm32::gpio::{Level, Output};
-use embedded_hal::digital::v2::OutputPin;
+use embassy_stm32::gpio::{Input, Level, Output, Pull};
+use embedded_hal::digital::v2::{InputPin, OutputPin};
 use example_common::*;
 
 use cortex_m_rt::entry;
@@ -38,15 +38,20 @@ fn main() -> ! {
     });
 
     let p = embassy_stm32::Peripherals::take().unwrap();
-    let mut led = Output::new(p.PB7, Level::High);
+    let button = Input::new(p.PC13, Pull::Down);
+    let mut led1 = Output::new(p.PB0, Level::High);
+    let _led2 = Output::new(p.PB7, Level::High);
+    let mut led3 = Output::new(p.PB14, Level::High);
 
     loop {
-        info!("high");
-        led.set_high().unwrap();
-        cortex_m::asm::delay(10_000_000);
-
-        info!("low");
-        led.set_low().unwrap();
-        cortex_m::asm::delay(10_000_000);
+        if button.is_high().unwrap() {
+            info!("high");
+            led1.set_high().unwrap();
+            led3.set_low().unwrap();
+        } else {
+            info!("low");
+            led1.set_low().unwrap();
+            led3.set_high().unwrap();
+        }
     }
 }
