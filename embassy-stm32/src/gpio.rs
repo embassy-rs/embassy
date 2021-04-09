@@ -1,21 +1,12 @@
 use core::convert::Infallible;
-use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
-
-use embassy::util::PeripheralBorrow;
+use embassy::util::Unborrow;
 use embassy_extras::{impl_unborrow, unborrow};
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 use gpio::vals;
 
 use crate::pac::gpio_v2 as gpio;
 use crate::peripherals;
-
-/// A GPIO port with up to 16 pins.
-#[derive(Debug, Eq, PartialEq)]
-pub enum Port {
-    PortA,
-    PortB,
-}
 
 /// Pull setting for an input.
 #[derive(Debug, Eq, PartialEq)]
@@ -33,7 +24,7 @@ pub struct Input<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Input<'d, T> {
-    pub fn new(pin: impl PeripheralBorrow<Target = T> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
         unborrow!(pin);
 
         cortex_m::interrupt::free(|_| unsafe {
@@ -94,7 +85,7 @@ pub struct Output<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Output<'d, T> {
-    pub fn new(pin: impl PeripheralBorrow<Target = T> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level) -> Self {
         unborrow!(pin);
 
         match initial_output {
@@ -173,6 +164,7 @@ pub(crate) mod sealed {
 
         #[inline]
         fn block(&self) -> gpio::Gpio {
+            // TODO hardcoding peripheral addrs until we figure out how these are handled in the metapac
             let p = 0x4002_0000 + (self._port() as u32) * 0x400;
             gpio::Gpio(p as *mut u8)
         }
@@ -181,9 +173,8 @@ pub(crate) mod sealed {
         #[inline]
         fn set_high(&self) {
             unsafe {
-                self.block()
-                    .bsrr()
-                    .write(|w| w.set_bs(self._pin() as _, true));
+                let n = self._pin() as _;
+                self.block().bsrr().write(|w| w.set_bs(n, true));
             }
         }
 
@@ -191,9 +182,8 @@ pub(crate) mod sealed {
         #[inline]
         fn set_low(&self) {
             unsafe {
-                self.block()
-                    .bsrr()
-                    .write(|w| w.set_br(self._pin() as _, true));
+                let n = self._pin() as _;
+                self.block().bsrr().write(|w| w.set_br(n, true));
             }
         }
     }
@@ -202,6 +192,8 @@ pub(crate) mod sealed {
 }
 
 pub trait Pin: sealed::Pin + Sized {
+    type ExtiChannel: crate::exti::Channel;
+
     /// Number of the pin within the port (0..31)
     #[inline]
     fn pin(&self) -> u8 {
@@ -210,12 +202,8 @@ pub trait Pin: sealed::Pin + Sized {
 
     /// Port of the pin
     #[inline]
-    fn port(&self) -> Port {
-        match self.pin_port() / 16 {
-            0 => Port::PortA,
-            1 => Port::PortB,
-            _ => unsafe { unreachable_unchecked() },
-        }
+    fn port(&self) -> u8 {
+        self._port()
     }
 
     #[inline]
@@ -245,7 +233,9 @@ impl AnyPin {
 }
 
 impl_unborrow!(AnyPin);
-impl Pin for AnyPin {}
+impl Pin for AnyPin {
+    type ExtiChannel = crate::exti::AnyChannel;
+}
 impl sealed::Pin for AnyPin {
     #[inline]
     fn pin_port(&self) -> u8 {
@@ -288,31 +278,20 @@ impl<T: Pin> OptionalPin for T {
     }
 }
 
-// Uninhabited enum, so it's actually impossible to create a DummyPin value.
-#[doc(hidden)]
-pub enum DummyPin {}
-impl Pin for DummyPin {}
-impl sealed::Pin for DummyPin {
-    #[inline]
-    fn pin_port(&self) -> u8 {
-        unreachable!()
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct NoPin;
 impl_unborrow!(NoPin);
 impl sealed::OptionalPin for NoPin {}
 impl OptionalPin for NoPin {
-    type Pin = DummyPin;
+    type Pin = AnyPin;
 
     #[inline]
-    fn pin(&self) -> Option<&DummyPin> {
+    fn pin(&self) -> Option<&AnyPin> {
         None
     }
 
     #[inline]
-    fn pin_mut(&mut self) -> Option<&mut DummyPin> {
+    fn pin_mut(&mut self) -> Option<&mut AnyPin> {
         None
     }
 }
@@ -320,8 +299,10 @@ impl OptionalPin for NoPin {
 // ====================
 
 macro_rules! impl_pin {
-    ($type:ident, $port_num:expr, $pin_num:expr) => {
-        impl Pin for peripherals::$type {}
+    ($type:ident, $port_num:expr, $pin_num:expr, $exti_ch:ident) => {
+        impl Pin for peripherals::$type {
+            type ExtiChannel = peripherals::$exti_ch;
+        }
         impl sealed::Pin for peripherals::$type {
             #[inline]
             fn pin_port(&self) -> u8 {
@@ -331,51 +312,51 @@ macro_rules! impl_pin {
     };
 }
 
-impl_pin!(PA0, 0, 0);
-impl_pin!(PA1, 0, 1);
-impl_pin!(PA2, 0, 2);
-impl_pin!(PA3, 0, 3);
-impl_pin!(PA4, 0, 4);
-impl_pin!(PA5, 0, 5);
-impl_pin!(PA6, 0, 6);
-impl_pin!(PA7, 0, 7);
-impl_pin!(PA8, 0, 8);
-impl_pin!(PA9, 0, 9);
-impl_pin!(PA10, 0, 10);
-impl_pin!(PA11, 0, 11);
-impl_pin!(PA12, 0, 12);
-impl_pin!(PA13, 0, 13);
-impl_pin!(PA14, 0, 14);
-impl_pin!(PA15, 0, 15);
-impl_pin!(PB0, 1, 0);
-impl_pin!(PB1, 1, 1);
-impl_pin!(PB2, 1, 2);
-impl_pin!(PB3, 1, 3);
-impl_pin!(PB4, 1, 4);
-impl_pin!(PB5, 1, 5);
-impl_pin!(PB6, 1, 6);
-impl_pin!(PB7, 1, 7);
-impl_pin!(PB8, 1, 8);
-impl_pin!(PB9, 1, 9);
-impl_pin!(PB10, 1, 10);
-impl_pin!(PB11, 1, 11);
-impl_pin!(PB12, 1, 12);
-impl_pin!(PB13, 1, 13);
-impl_pin!(PB14, 1, 14);
-impl_pin!(PB15, 1, 15);
-impl_pin!(PC0, 2, 0);
-impl_pin!(PC1, 2, 1);
-impl_pin!(PC2, 2, 2);
-impl_pin!(PC3, 2, 3);
-impl_pin!(PC4, 2, 4);
-impl_pin!(PC5, 2, 5);
-impl_pin!(PC6, 2, 6);
-impl_pin!(PC7, 2, 7);
-impl_pin!(PC8, 2, 8);
-impl_pin!(PC9, 2, 9);
-impl_pin!(PC10, 2, 10);
-impl_pin!(PC11, 2, 11);
-impl_pin!(PC12, 2, 12);
-impl_pin!(PC13, 2, 13);
-impl_pin!(PC14, 2, 14);
-impl_pin!(PC15, 2, 15);
+impl_pin!(PA0, 0, 0, EXTI0);
+impl_pin!(PA1, 0, 1, EXTI1);
+impl_pin!(PA2, 0, 2, EXTI2);
+impl_pin!(PA3, 0, 3, EXTI3);
+impl_pin!(PA4, 0, 4, EXTI4);
+impl_pin!(PA5, 0, 5, EXTI5);
+impl_pin!(PA6, 0, 6, EXTI6);
+impl_pin!(PA7, 0, 7, EXTI7);
+impl_pin!(PA8, 0, 8, EXTI8);
+impl_pin!(PA9, 0, 9, EXTI9);
+impl_pin!(PA10, 0, 10, EXTI10);
+impl_pin!(PA11, 0, 11, EXTI11);
+impl_pin!(PA12, 0, 12, EXTI12);
+impl_pin!(PA13, 0, 13, EXTI13);
+impl_pin!(PA14, 0, 14, EXTI14);
+impl_pin!(PA15, 0, 15, EXTI15);
+impl_pin!(PB0, 1, 0, EXTI0);
+impl_pin!(PB1, 1, 1, EXTI1);
+impl_pin!(PB2, 1, 2, EXTI2);
+impl_pin!(PB3, 1, 3, EXTI3);
+impl_pin!(PB4, 1, 4, EXTI4);
+impl_pin!(PB5, 1, 5, EXTI5);
+impl_pin!(PB6, 1, 6, EXTI6);
+impl_pin!(PB7, 1, 7, EXTI7);
+impl_pin!(PB8, 1, 8, EXTI8);
+impl_pin!(PB9, 1, 9, EXTI9);
+impl_pin!(PB10, 1, 10, EXTI10);
+impl_pin!(PB11, 1, 11, EXTI11);
+impl_pin!(PB12, 1, 12, EXTI12);
+impl_pin!(PB13, 1, 13, EXTI13);
+impl_pin!(PB14, 1, 14, EXTI14);
+impl_pin!(PB15, 1, 15, EXTI15);
+impl_pin!(PC0, 2, 0, EXTI0);
+impl_pin!(PC1, 2, 1, EXTI1);
+impl_pin!(PC2, 2, 2, EXTI2);
+impl_pin!(PC3, 2, 3, EXTI3);
+impl_pin!(PC4, 2, 4, EXTI4);
+impl_pin!(PC5, 2, 5, EXTI5);
+impl_pin!(PC6, 2, 6, EXTI6);
+impl_pin!(PC7, 2, 7, EXTI7);
+impl_pin!(PC8, 2, 8, EXTI8);
+impl_pin!(PC9, 2, 9, EXTI9);
+impl_pin!(PC10, 2, 10, EXTI10);
+impl_pin!(PC11, 2, 11, EXTI11);
+impl_pin!(PC12, 2, 12, EXTI12);
+impl_pin!(PC13, 2, 13, EXTI13);
+impl_pin!(PC14, 2, 14, EXTI14);
+impl_pin!(PC15, 2, 15, EXTI15);

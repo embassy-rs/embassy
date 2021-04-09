@@ -38,9 +38,9 @@ f479 = ["embassy-stm32/f469"]
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy", features = ["defmt", "defmt-trace"] }
 embassy-traits = { version = "0.1.0", path = "../embassy-traits", features = ["defmt"] }
-embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32" }
+embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32", features = ["defmt", "defmt-trace"]  }
 embassy-extras = {version = "0.1.0", path = "../embassy-extras" }
-stm32f4 = { version = "0.13", features = ["stm32f429"] }
+stm32f4 = { version = "0.13", features = ["stm32f429", "rt"] }
 
 defmt = "0.2.0"
 defmt-rtt = "0.2.0"

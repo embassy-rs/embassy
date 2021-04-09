@@ -28,8 +28,9 @@ pub mod fmt;
 mod chip;
 pub use chip::{peripherals, Peripherals};
 
+pub mod exti;
 pub mod gpio;
-//pub mod exti;
+//pub mod rtc;
 //pub mod interrupt;
 
 pub(crate) use stm32_metapac as pac;
