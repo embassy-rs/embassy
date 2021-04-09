@@ -349,31 +349,20 @@ impl<T: Pin> OptionalPin for T {
     }
 }
 
-// Uninhabited enum, so it's actually impossible to create a DummyPin value.
-#[doc(hidden)]
-pub enum DummyPin {}
-impl Pin for DummyPin {}
-impl sealed::Pin for DummyPin {
-    #[inline]
-    fn pin_port(&self) -> u8 {
-        unreachable!()
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct NoPin;
 impl_unborrow!(NoPin);
 impl sealed::OptionalPin for NoPin {}
 impl OptionalPin for NoPin {
-    type Pin = DummyPin;
+    type Pin = AnyPin;
 
     #[inline]
-    fn pin(&self) -> Option<&DummyPin> {
+    fn pin(&self) -> Option<&AnyPin> {
         None
     }
 
     #[inline]
-    fn pin_mut(&mut self) -> Option<&mut DummyPin> {
+    fn pin_mut(&mut self) -> Option<&mut AnyPin> {
         None
     }
 }
