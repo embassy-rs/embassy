@@ -11,6 +11,7 @@ use ptr::NonNull;
 use crate::executor;
 use crate::fmt::panic;
 use crate::interrupt::{Interrupt, InterruptExt};
+use crate::util::critical_section::critical_section;
 
 /// Synchronization primitive. Allows creating awaitable signals that may be passed between tasks.
 ///
@@ -37,7 +38,7 @@ impl<T: Send> Signal<T> {
 
     /// Mark this Signal as completed.
     pub fn signal(&self, val: T) {
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section(|_| unsafe {
             let state = &mut *self.state.get();
             if let State::Waiting(waker) = mem::replace(state, State::Signaled(val)) {
                 waker.wake();
@@ -46,14 +47,14 @@ impl<T: Send> Signal<T> {
     }
 
     pub fn reset(&self) {
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section(|_| unsafe {
             let state = &mut *self.state.get();
             *state = State::None
         })
     }
 
     pub fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section(|_| unsafe {
             let state = &mut *self.state.get();
             match state {
                 State::None => {
@@ -77,7 +78,7 @@ impl<T: Send> Signal<T> {
 
     /// non-blocking method to check whether this signal has been signaled.
     pub fn signaled(&self) -> bool {
-        cortex_m::interrupt::free(|_| matches!(unsafe { &*self.state.get() }, State::Signaled(_)))
+        critical_section(|_| matches!(unsafe { &*self.state.get() }, State::Signaled(_)))
     }
 }
 
