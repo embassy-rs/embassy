@@ -25,7 +25,7 @@ pub enum Event {
     Configured(Config),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub address: Ipv4Cidr,
     pub gateway: Option<Ipv4Address>,
