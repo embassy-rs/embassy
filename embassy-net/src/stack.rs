@@ -181,18 +181,14 @@ pub fn init(device: &'static mut dyn Device, configurator: &'static mut dyn Conf
 
     let sockets = SocketSet::new(&mut res.sockets[..]);
 
-    let local_port = LOCAL_PORT_MIN;
-
-    /*
     let local_port = loop {
         let mut res = [0u8; 2];
-        embassy::rand::rand(&mut res);
+        rand(&mut res);
         let port = u16::from_le_bytes(res);
         if port >= LOCAL_PORT_MIN && port <= LOCAL_PORT_MAX {
             break port;
         }
     };
-     */
 
     let stack = Stack {
         iface,
@@ -224,4 +220,12 @@ fn instant_to_smoltcp(instant: Instant) -> SmolInstant {
 
 fn instant_from_smoltcp(instant: SmolInstant) -> Instant {
     Instant::from_millis(instant.total_millis() as u64)
+}
+
+extern "Rust" {
+    fn _embassy_rand(buf: &mut [u8]);
+}
+
+fn rand(buf: &mut [u8]) {
+    unsafe { _embassy_rand(buf) }
 }
