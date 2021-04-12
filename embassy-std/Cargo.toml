@@ -6,4 +6,5 @@ edition = "2018"
 
 [dependencies]
 embassy     = { version = "0.1.0", path = "../embassy", features = ["std"] }
+embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["std"]}
 lazy_static = "1.4.0"
