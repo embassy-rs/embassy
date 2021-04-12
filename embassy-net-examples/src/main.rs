@@ -80,6 +80,12 @@ async fn main_task(spawner: Spawner) {
     }
 }
 
+#[no_mangle]
+fn _embassy_rand(buf: &mut [u8]) {
+    use rand_core::{OsRng, RngCore};
+    OsRng.fill_bytes(buf);
+}
+
 static EXECUTOR: Forever<Executor> = Forever::new();
 
 fn main() {
