@@ -12,7 +12,9 @@ mod device;
 mod packet_pool;
 mod stack;
 
-pub use config::{Config, Configurator, DhcpConfigurator, StaticConfigurator};
+pub use config::{
+    Config, Configurator, DhcpConfigurator, Event as ConfigEvent, StaticConfigurator,
+};
 pub use device::{Device, LinkState};
 pub use packet_pool::{Packet, PacketBox, PacketBoxExt, PacketBuf};
 pub use stack::{init, is_init, run};
