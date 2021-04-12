@@ -13,7 +13,9 @@ defmt-warn = []
 defmt-error = []
 
 tcp = ["smoltcp/socket-tcp"]
-dhcpv4 = ["smoltcp/socket-dhcpv4"]
+dhcpv4 = ["medium-ethernet", "smoltcp/socket-dhcpv4"]
+medium-ethernet = ["smoltcp/medium-ethernet"]
+medium-ip = ["smoltcp/medium-ip"]
 
 [dependencies]
 
@@ -36,15 +38,7 @@ version = "0.7.0"
 #rev = "00952e2c5cdf5667a1dfb6142258055f58d3851c"
 default-features = false
 features = [
-  "medium-ethernet",
-  "medium-ip",
   "proto-ipv4",
-  #"proto-dhcpv4",
-  #"proto-igmp",
-  #"proto-ipv6",
-  #"socket-raw",
-  #"socket-icmp",
-  #"socket-udp",
-  #"socket-tcp",
+  "socket",
   "async",
 ]

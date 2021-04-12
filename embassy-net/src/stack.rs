@@ -6,12 +6,16 @@ use embassy::time::{Instant, Timer};
 use embassy::util::ThreadModeMutex;
 use embassy::util::{Forever, WakerRegistration};
 use futures::pin_mut;
-use smoltcp::iface::{InterfaceBuilder, Neighbor, NeighborCache, Route, Routes};
+use smoltcp::iface::InterfaceBuilder;
+#[cfg(feature = "medium-ethernet")]
+use smoltcp::iface::{Neighbor, NeighborCache, Route, Routes};
 use smoltcp::phy::Device as _;
 use smoltcp::phy::Medium;
 use smoltcp::socket::SocketSetItem;
 use smoltcp::time::Instant as SmolInstant;
-use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
+#[cfg(feature = "medium-ethernet")]
+use smoltcp::wire::EthernetAddress;
+use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
 
 use crate::config::Configurator;
 use crate::config::Event;
@@ -27,9 +31,12 @@ const LOCAL_PORT_MAX: u16 = 65535;
 
 struct StackResources {
     addresses: [IpCidr; ADDRESSES_LEN],
-    neighbor_cache: [Option<(IpAddress, Neighbor)>; NEIGHBOR_CACHE_LEN],
     sockets: [Option<SocketSetItem<'static>>; SOCKETS_LEN],
+
+    #[cfg(feature = "medium-ethernet")]
     routes: [Option<(IpCidr, Route)>; 1],
+    #[cfg(feature = "medium-ethernet")]
+    neighbor_cache: [Option<(IpAddress, Neighbor)>; NEIGHBOR_CACHE_LEN],
 }
 
 static STACK_RESOURCES: Forever<StackResources> = Forever::new();
@@ -79,6 +86,7 @@ impl Stack {
                 debug!("   IP address:      {}", config.address);
                 set_ipv4_addr(&mut self.iface, config.address);
 
+                #[cfg(feature = "medium-ethernet")]
                 if medium == Medium::Ethernet {
                     if let Some(gateway) = config.gateway {
                         debug!("   Default gateway: {}", gateway);
@@ -98,6 +106,7 @@ impl Stack {
             Event::Deconfigured => {
                 debug!("Lost IP configuration");
                 set_ipv4_addr(&mut self.iface, Ipv4Cidr::new(Ipv4Address::UNSPECIFIED, 0));
+                #[cfg(feature = "medium-ethernet")]
                 if medium == Medium::Ethernet {
                     self.iface.routes_mut().remove_default_ipv4_route();
                 }
@@ -156,12 +165,17 @@ pub fn init(device: &'static mut dyn Device, configurator: &'static mut dyn Conf
     const NONE_SOCKET: Option<SocketSetItem<'static>> = None;
     let res = STACK_RESOURCES.put(StackResources {
         addresses: [IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 32)],
-        neighbor_cache: [None; NEIGHBOR_CACHE_LEN],
         sockets: [NONE_SOCKET; SOCKETS_LEN],
+
+        #[cfg(feature = "medium-ethernet")]
         routes: [None; 1],
+        #[cfg(feature = "medium-ethernet")]
+        neighbor_cache: [None; NEIGHBOR_CACHE_LEN],
     });
 
     let medium = device.capabilities().medium;
+
+    #[cfg(feature = "medium-ethernet")]
     let ethernet_addr = if medium == Medium::Ethernet {
         device.ethernet_address()
     } else {
@@ -171,6 +185,7 @@ pub fn init(device: &'static mut dyn Device, configurator: &'static mut dyn Conf
     let mut b = InterfaceBuilder::new(DeviceAdapter::new(device));
     b = b.ip_addrs(&mut res.addresses[..]);
 
+    #[cfg(feature = "medium-ethernet")]
     if medium == Medium::Ethernet {
         b = b.ethernet_addr(EthernetAddress(ethernet_addr));
         b = b.neighbor_cache(NeighborCache::new(&mut res.neighbor_cache[..]));

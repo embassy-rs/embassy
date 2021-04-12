@@ -12,9 +12,10 @@ mod device;
 mod packet_pool;
 mod stack;
 
-pub use config::{
-    Config, Configurator, DhcpConfigurator, Event as ConfigEvent, StaticConfigurator,
-};
+#[cfg(feature = "dhcpv4")]
+pub use config::DhcpConfigurator;
+pub use config::{Config, Configurator, Event as ConfigEvent, StaticConfigurator};
+
 pub use device::{Device, LinkState};
 pub use packet_pool::{Packet, PacketBox, PacketBoxExt, PacketBuf};
 pub use stack::{init, is_init, run};
