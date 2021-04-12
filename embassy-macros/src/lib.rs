@@ -280,3 +280,69 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     };
     result.into()
 }
+
+#[cfg(not(any(feature = "nrf", feature = "stm32", feature = "rp")))]
+#[proc_macro_attribute]
+pub fn main(_: TokenStream, item: TokenStream) -> TokenStream {
+    let task_fn = syn::parse_macro_input!(item as syn::ItemFn);
+
+    let mut fail = false;
+    if task_fn.sig.asyncness.is_none() {
+        task_fn
+            .sig
+            .span()
+            .unwrap()
+            .error("task functions must be async")
+            .emit();
+        fail = true;
+    }
+    if !task_fn.sig.generics.params.is_empty() {
+        task_fn
+            .sig
+            .span()
+            .unwrap()
+            .error("main function must not be generic")
+            .emit();
+        fail = true;
+    }
+
+    let args = task_fn.sig.inputs.clone();
+
+    if args.len() != 1 {
+        task_fn
+            .sig
+            .span()
+            .unwrap()
+            .error("main function must have one argument")
+            .emit();
+        fail = true;
+    }
+
+    if fail {
+        return TokenStream::new();
+    }
+
+    let task_fn_body = task_fn.block.clone();
+
+    let result = quote! {
+        #[embassy::task]
+        async fn __embassy_main(#args) {
+            #task_fn_body
+        }
+
+        fn main() -> ! {
+            unsafe fn make_static<T>(t: &mut T) -> &'static mut T {
+                ::core::mem::transmute(t)
+            }
+
+            let mut executor = ::embassy_std::Executor::new();
+            let executor = unsafe { make_static(&mut executor) };
+
+            executor.run(|spawner| {
+                spawner.spawn(__embassy_main(spawner)).unwrap();
+            })
+
+        }
+    };
+    result.into()
+}
