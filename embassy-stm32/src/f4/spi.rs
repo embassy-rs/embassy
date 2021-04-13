@@ -6,8 +6,8 @@ use core::{future::Future, marker::PhantomData, mem, ops::Deref, pin::Pin, ptr};
 use embassy::{interrupt::Interrupt, traits::spi::FullDuplex, util::InterruptFuture};
 use nb;
 
-pub use embassy_stm32::hal::spi::{Mode, Phase, Polarity};
-use embassy_stm32::hal::{
+pub use crate::hal::spi::{Mode, Phase, Polarity};
+use crate::hal::{
     bb, dma,
     dma::config::DmaConfig,
     dma::traits::{Channel, DMASet, PeriAddress, Stream},
@@ -16,8 +16,8 @@ use embassy_stm32::hal::{
     spi::Pins,
     time::Hertz,
 };
-use embassy_stm32::interrupt;
-use embassy_stm32::pac;
+use crate::interrupt;
+use crate::pac;
 use futures::future;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
