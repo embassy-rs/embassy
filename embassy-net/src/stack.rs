@@ -46,6 +46,7 @@ pub(crate) struct Stack {
     iface: Interface,
     pub sockets: SocketSet,
     link_up: bool,
+    config_up: bool,
     next_local_port: u16,
     configurator: &'static mut dyn Configurator,
     waker: WakerRegistration,
@@ -102,6 +103,8 @@ impl Stack {
                 for (i, s) in config.dns_servers.iter().enumerate() {
                     debug!("   DNS server {}:    {}", i, s);
                 }
+
+                self.config_up = true;
             }
             Event::Deconfigured => {
                 debug!("Lost IP configuration");
@@ -110,6 +113,7 @@ impl Stack {
                 if medium == Medium::Ethernet {
                     self.iface.routes_mut().remove_default_ipv4_route();
                 }
+                self.config_up = false;
             }
         }
     }
@@ -209,6 +213,7 @@ pub fn init(device: &'static mut dyn Device, configurator: &'static mut dyn Conf
         iface,
         sockets,
         link_up: false,
+        config_up: false,
         configurator,
         next_local_port: local_port,
         waker: WakerRegistration::new(),
@@ -219,6 +224,14 @@ pub fn init(device: &'static mut dyn Device, configurator: &'static mut dyn Conf
 
 pub fn is_init() -> bool {
     STACK.borrow().borrow().is_some()
+}
+
+pub fn is_link_up() -> bool {
+    STACK.borrow().borrow().as_ref().unwrap().link_up
+}
+
+pub fn is_config_up() -> bool {
+    STACK.borrow().borrow().as_ref().unwrap().config_up
 }
 
 pub async fn run() {

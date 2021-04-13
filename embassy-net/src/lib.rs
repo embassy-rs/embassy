@@ -18,7 +18,7 @@ pub use config::{Config, Configurator, Event as ConfigEvent, StaticConfigurator}
 
 pub use device::{Device, LinkState};
 pub use packet_pool::{Packet, PacketBox, PacketBoxExt, PacketBuf};
-pub use stack::{init, is_init, run};
+pub use stack::{init, is_config_up, is_init, is_link_up, run};
 
 #[cfg(feature = "tcp")]
 mod tcp_socket;
