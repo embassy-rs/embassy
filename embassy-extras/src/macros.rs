@@ -16,7 +16,7 @@ macro_rules! peripherals {
                 }
 
                 $(#[$cfg])?
-                impl embassy::util::PeripheralBorrow for $name {
+                impl embassy::util::Unborrow for $name {
                     type Target = $name;
                     #[inline]
                     unsafe fn unborrow(self) -> $name {
@@ -25,7 +25,7 @@ macro_rules! peripherals {
                 }
 
                 $(#[$cfg])?
-                impl embassy::util::PeripheralBorrow for &mut $name {
+                impl embassy::util::Unborrow for &mut $name {
                     type Target = $name;
                     #[inline]
                     unsafe fn unborrow(self) -> $name {
@@ -89,7 +89,7 @@ macro_rules! unborrow {
 #[macro_export]
 macro_rules! impl_unborrow {
     ($type:ident) => {
-        impl ::embassy::util::PeripheralBorrow for $type {
+        impl ::embassy::util::Unborrow for $type {
             type Target = $type;
             #[inline]
             unsafe fn unborrow(self) -> Self::Target {
@@ -97,7 +97,7 @@ macro_rules! impl_unborrow {
             }
         }
 
-        impl<'a> ::embassy::util::PeripheralBorrow for &'a mut $type {
+        impl<'a> ::embassy::util::Unborrow for &'a mut $type {
             type Target = $type;
             #[inline]
             unsafe fn unborrow(self) -> Self::Target {

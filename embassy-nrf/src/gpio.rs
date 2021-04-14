@@ -2,7 +2,7 @@ use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
 
-use embassy::util::PeripheralBorrow;
+use embassy::util::Unborrow;
 use embassy_extras::{impl_unborrow, unborrow};
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 use gpio::pin_cnf::DRIVE_A;
@@ -38,7 +38,7 @@ pub struct Input<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Input<'d, T> {
-    pub fn new(pin: impl PeripheralBorrow<Target = T> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
         unborrow!(pin);
 
         pin.conf().write(|w| {
@@ -123,7 +123,7 @@ pub struct Output<'d, T: Pin> {
 
 impl<'d, T: Pin> Output<'d, T> {
     pub fn new(
-        pin: impl PeripheralBorrow<Target = T> + 'd,
+        pin: impl Unborrow<Target = T> + 'd,
         initial_output: Level,
         drive: OutputDrive,
     ) -> Self {

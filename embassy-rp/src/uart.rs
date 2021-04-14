@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy::util::PeripheralBorrow;
+use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 use gpio::Pin;
 
@@ -30,11 +30,11 @@ pub struct Uart<'d, T: Instance> {
 
 impl<'d, T: Instance> Uart<'d, T> {
     pub fn new(
-        inner: impl PeripheralBorrow<Target = T>,
-        tx: impl PeripheralBorrow<Target = impl TxPin<T>>,
-        rx: impl PeripheralBorrow<Target = impl RxPin<T>>,
-        cts: impl PeripheralBorrow<Target = impl CtsPin<T>>,
-        rts: impl PeripheralBorrow<Target = impl RtsPin<T>>,
+        inner: impl Unborrow<Target = T>,
+        tx: impl Unborrow<Target = impl TxPin<T>>,
+        rx: impl Unborrow<Target = impl RxPin<T>>,
+        cts: impl Unborrow<Target = impl CtsPin<T>>,
+        rts: impl Unborrow<Target = impl RtsPin<T>>,
         config: Config,
     ) -> Self {
         unborrow!(inner, tx, rx, cts, rts);

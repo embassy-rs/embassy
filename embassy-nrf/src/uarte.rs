@@ -6,7 +6,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 use embassy::interrupt::InterruptExt;
 use embassy::traits::uart::{Error, Read, Write};
-use embassy::util::{AtomicWaker, OnDrop, PeripheralBorrow};
+use embassy::util::{AtomicWaker, OnDrop, Unborrow};
 use embassy_extras::unborrow;
 use futures::future::poll_fn;
 
@@ -54,12 +54,12 @@ impl<'d, T: Instance> Uarte<'d, T> {
     /// or [`receive`](Uarte::receive).
     #[allow(unused_unsafe)]
     pub unsafe fn new(
-        uarte: impl PeripheralBorrow<Target = T> + 'd,
-        irq: impl PeripheralBorrow<Target = T::Interrupt> + 'd,
-        rxd: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        txd: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        cts: impl PeripheralBorrow<Target = impl GpioOptionalPin> + 'd,
-        rts: impl PeripheralBorrow<Target = impl GpioOptionalPin> + 'd,
+        uarte: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
+        txd: impl Unborrow<Target = impl GpioPin> + 'd,
+        cts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
+        rts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: Config,
     ) -> Self {
         unborrow!(uarte, irq, rxd, txd, cts, rts);

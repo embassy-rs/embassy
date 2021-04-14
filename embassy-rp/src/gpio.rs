@@ -5,7 +5,7 @@ use crate::pac::generic::{Reg, RW};
 use crate::pac::SIO;
 use crate::peripherals;
 
-use embassy::util::PeripheralBorrow;
+use embassy::util::Unborrow;
 use embassy_extras::{impl_unborrow, unborrow};
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 
@@ -37,7 +37,7 @@ pub struct Input<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Input<'d, T> {
-    pub fn new(pin: impl PeripheralBorrow<Target = T> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
         unborrow!(pin);
 
         unsafe {
@@ -91,7 +91,7 @@ pub struct Output<'d, T: Pin> {
 
 impl<'d, T: Pin> Output<'d, T> {
     // TODO opendrain
-    pub fn new(pin: impl PeripheralBorrow<Target = T> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level) -> Self {
         unborrow!(pin);
 
         unsafe {

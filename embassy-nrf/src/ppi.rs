@@ -11,7 +11,7 @@
 
 use core::marker::PhantomData;
 use core::ptr::NonNull;
-use embassy::util::PeripheralBorrow;
+use embassy::util::Unborrow;
 use embassy_extras::{impl_unborrow, unborrow};
 
 use crate::{pac, peripherals};
@@ -25,7 +25,7 @@ pub struct Ppi<'d, C: Channel> {
 }
 
 impl<'d, C: Channel> Ppi<'d, C> {
-    pub fn new(ch: impl PeripheralBorrow<Target = C> + 'd) -> Self {
+    pub fn new(ch: impl Unborrow<Target = C> + 'd) -> Self {
         unborrow!(ch);
         let mut this = Self {
             ch,

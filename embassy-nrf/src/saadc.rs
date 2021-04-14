@@ -3,15 +3,12 @@ use core::marker::PhantomData;
 use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
-use embassy::traits;
-use embassy::util::{wake_on_interrupt, PeripheralBorrow};
+use embassy::util::{wake_on_interrupt, Unborrow};
 use embassy_extras::unborrow;
 use futures::future::poll_fn;
-use traits::spi::FullDuplex;
 
-use crate::gpio::Pin as GpioPin;
-use crate::interrupt::{self, Interrupt};
-use crate::{pac, peripherals, slice_in_ram_or};
+use crate::interrupt;
+use crate::{pac, peripherals};
 
 #[cfg(feature = "9160")]
 use pac::{saadc_ns as saadc, SAADC_NS as SAADC};
@@ -74,9 +71,9 @@ impl Default for Config {
 
 impl<'d, T: PositivePin> OneShot<'d, T> {
     pub fn new(
-        saadc: impl PeripheralBorrow<Target = peripherals::SAADC> + 'd,
-        irq: impl PeripheralBorrow<Target = interrupt::SAADC> + 'd,
-        positive_pin: impl PeripheralBorrow<Target = T> + 'd,
+        saadc: impl Unborrow<Target = peripherals::SAADC> + 'd,
+        irq: impl Unborrow<Target = interrupt::SAADC> + 'd,
+        positive_pin: impl Unborrow<Target = T> + 'd,
         config: Config,
     ) -> Self {
         unborrow!(saadc, irq, positive_pin);

@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::traits::flash::{Error, Flash};
-use embassy::util::{AtomicWaker, DropBomb, PeripheralBorrow};
+use embassy::util::{AtomicWaker, DropBomb, Unborrow};
 use embassy_extras::unborrow;
 use futures::future::poll_fn;
 
@@ -61,14 +61,14 @@ pub struct Qspi<'d, T: Instance> {
 
 impl<'d, T: Instance> Qspi<'d, T> {
     pub fn new(
-        qspi: impl PeripheralBorrow<Target = T> + 'd,
-        irq: impl PeripheralBorrow<Target = T::Interrupt> + 'd,
-        sck: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        csn: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        io0: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        io1: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        io2: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        io3: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
+        qspi: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        sck: impl Unborrow<Target = impl GpioPin> + 'd,
+        csn: impl Unborrow<Target = impl GpioPin> + 'd,
+        io0: impl Unborrow<Target = impl GpioPin> + 'd,
+        io1: impl Unborrow<Target = impl GpioPin> + 'd,
+        io2: impl Unborrow<Target = impl GpioPin> + 'd,
+        io3: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
         unborrow!(qspi, irq, sck, csn, io0, io1, io2, io3);

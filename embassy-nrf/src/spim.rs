@@ -4,7 +4,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 use embassy::interrupt::InterruptExt;
 use embassy::traits;
-use embassy::util::{AtomicWaker, PeripheralBorrow};
+use embassy::util::{AtomicWaker, Unborrow};
 use embassy_extras::unborrow;
 use futures::future::poll_fn;
 use traits::spi::FullDuplex;
@@ -41,11 +41,11 @@ pub struct Config {
 
 impl<'d, T: Instance> Spim<'d, T> {
     pub fn new(
-        spim: impl PeripheralBorrow<Target = T> + 'd,
-        irq: impl PeripheralBorrow<Target = T::Interrupt> + 'd,
-        sck: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        miso: impl PeripheralBorrow<Target = impl OptionalPin> + 'd,
-        mosi: impl PeripheralBorrow<Target = impl OptionalPin> + 'd,
+        spim: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        sck: impl Unborrow<Target = impl GpioPin> + 'd,
+        miso: impl Unborrow<Target = impl OptionalPin> + 'd,
+        mosi: impl Unborrow<Target = impl OptionalPin> + 'd,
         config: Config,
     ) -> Self {
         unborrow!(spim, irq, sck, miso, mosi);

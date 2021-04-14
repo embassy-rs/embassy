@@ -5,7 +5,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
 use embassy::io::{AsyncBufRead, AsyncWrite, Result};
-use embassy::util::{PeripheralBorrow, WakerRegistration};
+use embassy::util::{Unborrow, WakerRegistration};
 use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
 use embassy_extras::ring_buffer::RingBuffer;
 use embassy_extras::{low_power_wait_until, unborrow};
@@ -63,15 +63,15 @@ pub struct BufferedUarte<'d, U: UarteInstance, T: TimerInstance> {
 impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     /// unsafe: may not leak self or futures
     pub unsafe fn new(
-        uarte: impl PeripheralBorrow<Target = U> + 'd,
-        timer: impl PeripheralBorrow<Target = T> + 'd,
-        ppi_ch1: impl PeripheralBorrow<Target = impl ConfigurableChannel> + 'd,
-        ppi_ch2: impl PeripheralBorrow<Target = impl ConfigurableChannel> + 'd,
-        irq: impl PeripheralBorrow<Target = U::Interrupt> + 'd,
-        rxd: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        txd: impl PeripheralBorrow<Target = impl GpioPin> + 'd,
-        cts: impl PeripheralBorrow<Target = impl GpioOptionalPin> + 'd,
-        rts: impl PeripheralBorrow<Target = impl GpioOptionalPin> + 'd,
+        uarte: impl Unborrow<Target = U> + 'd,
+        timer: impl Unborrow<Target = T> + 'd,
+        ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel> + 'd,
+        ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel> + 'd,
+        irq: impl Unborrow<Target = U::Interrupt> + 'd,
+        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
+        txd: impl Unborrow<Target = impl GpioPin> + 'd,
+        cts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
+        rts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: Config,
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],

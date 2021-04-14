@@ -147,14 +147,14 @@ pub fn interrupt_declare(item: TokenStream) -> TokenStream {
             }
         }
 
-        impl ::embassy::util::PeripheralBorrow for #name_interrupt {
+        impl ::embassy::util::Unborrow for #name_interrupt {
             type Target = #name_interrupt;
             unsafe fn unborrow(self) -> #name_interrupt {
                 self
             }
         }
 
-        impl ::embassy::util::PeripheralBorrow for &mut #name_interrupt {
+        impl ::embassy::util::Unborrow for &mut #name_interrupt {
             type Target = #name_interrupt;
             unsafe fn unborrow(self) -> #name_interrupt {
                 ::core::ptr::read(self)
