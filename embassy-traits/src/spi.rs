@@ -33,10 +33,10 @@ pub trait FullDuplex<Word> {
     where
         Self: 'a;
 
-    fn read<'a>(self: Pin<&'a mut Self>, data: &'a mut [Word]) -> Self::ReadFuture<'a>;
-    fn write<'a>(self: Pin<&'a mut Self>, data: &'a [Word]) -> Self::WriteFuture<'a>;
+    fn read<'a>(&'a mut self, data: &'a mut [Word]) -> Self::ReadFuture<'a>;
+    fn write<'a>(&'a mut self, data: &'a [Word]) -> Self::WriteFuture<'a>;
     fn read_write<'a>(
-        self: Pin<&'a mut Self>,
+        &'a mut self,
         read: &'a mut [Word],
         write: &'a [Word],
     ) -> Self::WriteReadFuture<'a>;

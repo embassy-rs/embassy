@@ -17,7 +17,6 @@ use embassy_nrf::{interrupt, spim};
 use embassy_traits::spi::FullDuplex;
 use embedded_hal::digital::v2::*;
 use example_common::*;
-use futures::pin_mut;
 
 #[embassy::main]
 async fn main(spawner: Spawner) {
@@ -32,8 +31,7 @@ async fn main(spawner: Spawner) {
     };
 
     let irq = interrupt::take!(SPIM3);
-    let spim = spim::Spim::new(p.SPIM3, irq, p.P0_29, p.P0_28, p.P0_30, config);
-    pin_mut!(spim);
+    let mut spim = spim::Spim::new(p.SPIM3, irq, p.P0_29, p.P0_28, p.P0_30, config);
 
     let mut ncs = Output::new(p.P0_31, Level::High, OutputDrive::Standard);
 
@@ -44,7 +42,7 @@ async fn main(spawner: Spawner) {
     ncs.set_low().unwrap();
     cortex_m::asm::delay(5);
     let tx = [0xFF];
-    unwrap!(spim.as_mut().read_write(&mut [], &tx).await);
+    unwrap!(spim.read_write(&mut [], &tx).await);
     cortex_m::asm::delay(10);
     ncs.set_high().unwrap();
 
@@ -57,7 +55,7 @@ async fn main(spawner: Spawner) {
     ncs.set_low().unwrap();
     cortex_m::asm::delay(5000);
     let tx = [0b000_11101, 0];
-    unwrap!(spim.as_mut().read_write(&mut rx, &tx).await);
+    unwrap!(spim.read_write(&mut rx, &tx).await);
     cortex_m::asm::delay(5000);
     ncs.set_high().unwrap();
     info!("estat: {=[?]}", rx);
@@ -67,7 +65,7 @@ async fn main(spawner: Spawner) {
     ncs.set_low().unwrap();
     cortex_m::asm::delay(5);
     let tx = [0b100_11111, 0b11];
-    unwrap!(spim.as_mut().read_write(&mut rx, &tx).await);
+    unwrap!(spim.read_write(&mut rx, &tx).await);
     cortex_m::asm::delay(10);
     ncs.set_high().unwrap();
 
@@ -76,7 +74,7 @@ async fn main(spawner: Spawner) {
     ncs.set_low().unwrap();
     cortex_m::asm::delay(5);
     let tx = [0b000_10010, 0];
-    unwrap!(spim.as_mut().read_write(&mut rx, &tx).await);
+    unwrap!(spim.read_write(&mut rx, &tx).await);
     cortex_m::asm::delay(10);
     ncs.set_high().unwrap();
 
