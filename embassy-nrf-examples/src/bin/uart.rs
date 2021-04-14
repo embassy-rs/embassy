@@ -15,7 +15,6 @@ use embassy::traits::uart::{Read, Write};
 use embassy::util::Steal;
 use embassy_nrf::gpio::NoPin;
 use embassy_nrf::{interrupt, uarte, Peripherals};
-use futures::pin_mut;
 
 #[embassy::main]
 async fn main(spawner: Spawner) {
@@ -26,8 +25,8 @@ async fn main(spawner: Spawner) {
     config.baudrate = uarte::Baudrate::BAUD115200;
 
     let irq = interrupt::take!(UARTE0_UART0);
-    let uart = unsafe { uarte::Uarte::new(p.UARTE0, irq, p.P0_08, p.P0_06, NoPin, NoPin, config) };
-    pin_mut!(uart);
+    let mut uart =
+        unsafe { uarte::Uarte::new(p.UARTE0, irq, p.P0_08, p.P0_06, NoPin, NoPin, config) };
 
     info!("uarte initialized!");
 
@@ -35,14 +34,14 @@ async fn main(spawner: Spawner) {
     let mut buf = [0; 8];
     buf.copy_from_slice(b"Hello!\r\n");
 
-    unwrap!(uart.as_mut().write(&buf).await);
+    unwrap!(uart.write(&buf).await);
     info!("wrote hello in uart!");
 
     loop {
         info!("reading...");
-        unwrap!(uart.as_mut().read(&mut buf).await);
+        unwrap!(uart.read(&mut buf).await);
         info!("writing...");
-        unwrap!(uart.as_mut().write(&buf).await);
+        unwrap!(uart.write(&buf).await);
 
         /*
         // `receive()` doesn't return until the buffer has been completely filled with

@@ -13,7 +13,7 @@ pub trait Read {
     where
         Self: 'a;
 
-    fn read<'a>(self: Pin<&'a mut Self>, buf: &'a mut [u8]) -> Self::ReadFuture<'a>;
+    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a>;
 }
 
 pub trait ReadUntilIdle {
@@ -23,10 +23,7 @@ pub trait ReadUntilIdle {
 
     /// Receive into the buffer until the buffer is full or the line is idle after some bytes are received
     /// Return the number of bytes received
-    fn read_until_idle<'a>(
-        self: Pin<&'a mut Self>,
-        buf: &'a mut [u8],
-    ) -> Self::ReadUntilIdleFuture<'a>;
+    fn read_until_idle<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadUntilIdleFuture<'a>;
 }
 
 pub trait Write {
@@ -34,5 +31,5 @@ pub trait Write {
     where
         Self: 'a;
 
-    fn write<'a>(self: Pin<&'a mut Self>, buf: &'a [u8]) -> Self::WriteFuture<'a>;
+    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a>;
 }

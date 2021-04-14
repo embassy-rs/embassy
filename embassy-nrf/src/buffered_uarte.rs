@@ -78,7 +78,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     ) -> Self {
         unborrow!(uarte, timer, ppi_ch1, ppi_ch2, irq, rxd, txd, cts, rts);
 
-        let r = uarte.regs();
+        let r = U::regs();
         let rt = timer.regs();
 
         rxd.conf().write(|w| w.input().connect().drive().h0h1());
@@ -178,7 +178,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 
     pub fn set_baudrate(self: Pin<&mut Self>, baudrate: Baudrate) {
         self.inner().with(|state, _irq| {
-            let r = state.uarte.regs();
+            let r = U::regs();
             let rt = state.timer.regs();
 
             let timeout = 0x8000_0000 / (baudrate as u32 / 40);
@@ -265,7 +265,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U,
 
 impl<'a, U: UarteInstance, T: TimerInstance> Drop for State<'a, U, T> {
     fn drop(&mut self) {
-        let r = self.uarte.regs();
+        let r = U::regs();
         let rt = self.timer.regs();
 
         // TODO this probably deadlocks. do like Uarte instead.
@@ -290,7 +290,7 @@ impl<'a, U: UarteInstance, T: TimerInstance> PeripheralState for State<'a, U, T>
     type Interrupt = U::Interrupt;
     fn on_interrupt(&mut self) {
         trace!("irq: start");
-        let r = self.uarte.regs();
+        let r = U::regs();
         let rt = self.timer.regs();
 
         loop {
