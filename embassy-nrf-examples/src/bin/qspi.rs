@@ -14,7 +14,6 @@ use embassy::traits::flash::Flash;
 use embassy_nrf::Peripherals;
 use embassy_nrf::{interrupt, qspi};
 use example_common::*;
-use futures::pin_mut;
 
 const PAGE_SIZE: usize = 4096;
 
@@ -36,32 +35,22 @@ async fn main(spawner: Spawner) {
 
     let config = qspi::Config::default();
     let irq = interrupt::take!(QSPI);
-    let q = qspi::Qspi::new(p.QSPI, irq, sck, csn, io0, io1, io2, io3, config);
-    pin_mut!(q);
+    let mut q = qspi::Qspi::new(p.QSPI, irq, sck, csn, io0, io1, io2, io3, config);
 
     let mut id = [1; 3];
-    q.as_mut()
-        .custom_instruction(0x9F, &[], &mut id)
-        .await
-        .unwrap();
+    q.custom_instruction(0x9F, &[], &mut id).await.unwrap();
     info!("id: {}", id);
 
     // Read status register
     let mut status = [4; 1];
-    q.as_mut()
-        .custom_instruction(0x05, &[], &mut status)
-        .await
-        .unwrap();
+    q.custom_instruction(0x05, &[], &mut status).await.unwrap();
 
     info!("status: {:?}", status[0]);
 
     if status[0] & 0x40 == 0 {
         status[0] |= 0x40;
 
-        q.as_mut()
-            .custom_instruction(0x01, &status, &mut [])
-            .await
-            .unwrap();
+        q.custom_instruction(0x01, &status, &mut []).await.unwrap();
 
         info!("enabled quad in status");
     }
@@ -72,19 +61,19 @@ async fn main(spawner: Spawner) {
 
     for i in 0..8 {
         info!("page {:?}: erasing... ", i);
-        q.as_mut().erase(i * PAGE_SIZE).await.unwrap();
+        q.erase(i * PAGE_SIZE).await.unwrap();
 
         for j in 0..PAGE_SIZE {
             buf.0[j] = pattern((j + i * PAGE_SIZE) as u32);
         }
 
         info!("programming...");
-        q.as_mut().write(i * PAGE_SIZE, &buf.0).await.unwrap();
+        q.write(i * PAGE_SIZE, &buf.0).await.unwrap();
     }
 
     for i in 0..8 {
         info!("page {:?}: reading... ", i);
-        q.as_mut().read(i * PAGE_SIZE, &mut buf.0).await.unwrap();
+        q.read(i * PAGE_SIZE, &mut buf.0).await.unwrap();
 
         info!("verifying...");
         for j in 0..PAGE_SIZE {
