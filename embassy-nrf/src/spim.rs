@@ -1,10 +1,10 @@
 use core::future::Future;
 use core::marker::PhantomData;
-use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
+use embassy::interrupt::InterruptExt;
 use embassy::traits;
-use embassy::util::{wake_on_interrupt, PeripheralBorrow};
+use embassy::util::{AtomicWaker, PeripheralBorrow};
 use embassy_extras::unborrow;
 use futures::future::poll_fn;
 use traits::spi::FullDuplex;
@@ -50,7 +50,7 @@ impl<'d, T: Instance> Spim<'d, T> {
     ) -> Self {
         unborrow!(spim, irq, sck, miso, mosi);
 
-        let r = spim.regs();
+        let r = T::regs();
 
         // Configure pins
         sck.conf().write(|w| w.dir().output().drive().h0h1());
@@ -122,10 +122,24 @@ impl<'d, T: Instance> Spim<'d, T> {
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
 
+        irq.set_handler(Self::on_interrupt);
+        irq.unpend();
+        irq.enable();
+
         Self {
             peri: spim,
             irq,
             phantom: PhantomData,
+        }
+    }
+
+    fn on_interrupt(_: *mut ()) {
+        let r = T::regs();
+        let s = T::state();
+
+        if r.events_end.read().bits() != 0 {
+            s.end_waker.wake();
+            r.intenclr.write(|w| w.end().clear());
         }
     }
 }
@@ -140,20 +154,15 @@ impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
     #[rustfmt::skip]
     type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
 
-    fn read<'a>(self: Pin<&'a mut Self>, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
+    fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
         self.read_write(data, &[])
     }
-    fn write<'a>(self: Pin<&'a mut Self>, data: &'a [u8]) -> Self::WriteFuture<'a> {
+    fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
         self.read_write(&mut [], data)
     }
 
-    fn read_write<'a>(
-        self: Pin<&'a mut Self>,
-        rx: &'a mut [u8],
-        tx: &'a [u8],
-    ) -> Self::WriteReadFuture<'a> {
+    fn read_write<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::WriteReadFuture<'a> {
         async move {
-            let this = unsafe { self.get_unchecked_mut() };
             slice_in_ram_or(rx, Error::DMABufferNotInDataMemory)?;
             slice_in_ram_or(tx, Error::DMABufferNotInDataMemory)?;
 
@@ -162,7 +171,8 @@ impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
             // before any DMA action has started.
             compiler_fence(Ordering::SeqCst);
 
-            let r = this.peri.regs();
+            let r = T::regs();
+            let s = T::state();
 
             // Set up the DMA write.
             r.txd
@@ -194,14 +204,10 @@ impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
 
             // Wait for 'end' event.
             poll_fn(|cx| {
-                let r = this.peri.regs();
-
+                s.end_waker.register(cx.waker());
                 if r.events_end.read().bits() != 0 {
-                    r.events_end.reset();
                     return Poll::Ready(());
                 }
-
-                wake_on_interrupt(&mut this.irq, cx.waker());
 
                 Poll::Pending
             })
@@ -215,8 +221,21 @@ impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
 mod sealed {
     use super::*;
 
+    pub struct State {
+        pub end_waker: AtomicWaker,
+    }
+
+    impl State {
+        pub const fn new() -> Self {
+            Self {
+                end_waker: AtomicWaker::new(),
+            }
+        }
+    }
+
     pub trait Instance {
-        fn regs(&self) -> &pac::spim0::RegisterBlock;
+        fn regs() -> &'static pac::spim0::RegisterBlock;
+        fn state() -> &'static State;
     }
 }
 
@@ -227,8 +246,12 @@ pub trait Instance: sealed::Instance + 'static {
 macro_rules! impl_instance {
     ($type:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$type {
-            fn regs(&self) -> &pac::spim0::RegisterBlock {
+            fn regs() -> &'static pac::spim0::RegisterBlock {
                 unsafe { &*pac::$type::ptr() }
+            }
+            fn state() -> &'static sealed::State {
+                static STATE: sealed::State = sealed::State::new();
+                &STATE
             }
         }
         impl Instance for peripherals::$type {

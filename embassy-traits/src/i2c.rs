@@ -67,7 +67,6 @@
 //! ```
 
 use core::future::Future;
-use core::pin::Pin;
 
 mod private {
     pub trait Sealed {}
@@ -117,7 +116,7 @@ pub trait I2c<A: AddressMode = SevenBitAddress> {
     /// - `MAK` = master acknowledge
     /// - `NMAK` = master no acknowledge
     /// - `SP` = stop condition
-    fn read<'a>(self: Pin<&'a mut Self>, address: A, buffer: &mut [u8]) -> Self::ReadFuture<'a>;
+    fn read<'a>(&'a mut self, address: A, buffer: &mut [u8]) -> Self::ReadFuture<'a>;
 
     /// Sends bytes to slave with address `address`
     ///
@@ -135,7 +134,7 @@ pub trait I2c<A: AddressMode = SevenBitAddress> {
     /// - `SAK` = slave acknowledge
     /// - `Bi` = ith byte of data
     /// - `SP` = stop condition
-    fn write<'a>(self: Pin<&'a mut Self>, address: A, bytes: &[u8]) -> Self::WriteFuture<'a>;
+    fn write<'a>(&'a mut self, address: A, bytes: &[u8]) -> Self::WriteFuture<'a>;
 
     /// Sends bytes to slave with address `address` and then reads enough bytes to fill `buffer` *in a
     /// single transaction*
@@ -160,7 +159,7 @@ pub trait I2c<A: AddressMode = SevenBitAddress> {
     /// - `NMAK` = master no acknowledge
     /// - `SP` = stop condition
     fn write_read<'a>(
-        self: Pin<&'a mut Self>,
+        &'a mut self,
         address: A,
         bytes: &[u8],
         buffer: &mut [u8],

@@ -2,12 +2,11 @@
 
 use core::future::Future;
 use core::marker::PhantomData;
-use core::pin::Pin;
-use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
+use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
+use embassy::interrupt::InterruptExt;
 use embassy::traits::uart::{Error, Read, Write};
 use embassy::util::{AtomicWaker, OnDrop, PeripheralBorrow};
-use embassy_extras::peripheral_shared::{Peripheral, PeripheralState};
 use embassy_extras::unborrow;
 use futures::future::poll_fn;
 
@@ -38,16 +37,9 @@ impl Default for Config {
     }
 }
 
-struct State<T: Instance> {
-    peri: T,
-
-    endrx_waker: AtomicWaker,
-    endtx_waker: AtomicWaker,
-}
-
 /// Interface to the UARTE peripheral
 pub struct Uarte<'d, T: Instance> {
-    inner: Peripheral<State<T>>,
+    peri: T,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -72,7 +64,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
     ) -> Self {
         unborrow!(uarte, irq, rxd, txd, cts, rts);
 
-        let r = uarte.regs();
+        let r = T::regs();
 
         assert!(r.enable.read().enable().is_disabled());
 
@@ -115,38 +107,29 @@ impl<'d, T: Instance> Uarte<'d, T> {
         r.events_rxstarted.reset();
         r.events_txstarted.reset();
 
+        irq.set_handler(Self::on_interrupt);
+        irq.unpend();
+        irq.enable();
+
         // Enable
         r.enable.write(|w| w.enable().enabled());
 
         Self {
-            inner: Peripheral::new(
-                irq,
-                State {
-                    peri: uarte,
-                    endrx_waker: AtomicWaker::new(),
-                    endtx_waker: AtomicWaker::new(),
-                },
-            ),
+            peri: uarte,
             phantom: PhantomData,
         }
     }
 
-    fn inner(self: Pin<&mut Self>) -> Pin<&mut Peripheral<State<T>>> {
-        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
-    }
-}
+    fn on_interrupt(_: *mut ()) {
+        let r = T::regs();
+        let s = T::state();
 
-impl<T: Instance> PeripheralState for State<T> {
-    type Interrupt = T::Interrupt;
-
-    fn on_interrupt(&self) {
-        let r = self.peri.regs();
         if r.events_endrx.read().bits() != 0 {
-            self.endrx_waker.wake();
+            s.endrx_waker.wake();
             r.intenclr.write(|w| w.endrx().clear());
         }
         if r.events_endtx.read().bits() != 0 {
-            self.endtx_waker.wake();
+            s.endtx_waker.wake();
             r.intenclr.write(|w| w.endtx().clear());
         }
 
@@ -163,8 +146,7 @@ impl<'a, T: Instance> Drop for Uarte<'a, T> {
     fn drop(&mut self) {
         info!("uarte drop");
 
-        let s = unsafe { Pin::new_unchecked(&mut self.inner) }.state();
-        let r = s.peri.regs();
+        let r = T::regs();
 
         let did_stoprx = r.events_rxstarted.read().bits() != 0;
         let did_stoptx = r.events_txstarted.read().bits() != 0;
@@ -194,16 +176,14 @@ impl<'d, T: Instance> Read for Uarte<'d, T> {
     #[rustfmt::skip]
     type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Error>> + 'a;
 
-    fn read<'a>(mut self: Pin<&'a mut Self>, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.as_mut().inner().register_interrupt();
-
+    fn read<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
         async move {
             let ptr = rx_buffer.as_ptr();
             let len = rx_buffer.len();
             assert!(len <= EASY_DMA_SIZE);
 
-            let s = self.inner().state();
-            let r = s.peri.regs();
+            let r = T::regs();
+            let s = T::state();
 
             let drop = OnDrop::new(move || {
                 info!("read drop: stopping");
@@ -250,17 +230,15 @@ impl<'d, T: Instance> Write for Uarte<'d, T> {
     #[rustfmt::skip]
     type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Error>> + 'a;
 
-    fn write<'a>(mut self: Pin<&'a mut Self>, tx_buffer: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.as_mut().inner().register_interrupt();
-
+    fn write<'a>(&'a mut self, tx_buffer: &'a [u8]) -> Self::WriteFuture<'a> {
         async move {
             let ptr = tx_buffer.as_ptr();
             let len = tx_buffer.len();
             assert!(len <= EASY_DMA_SIZE);
             // TODO: panic if buffer is not in SRAM
 
-            let s = self.inner().state();
-            let r = s.peri.regs();
+            let r = T::regs();
+            let s = T::state();
 
             let drop = OnDrop::new(move || {
                 info!("write drop: stopping");
@@ -306,8 +284,22 @@ impl<'d, T: Instance> Write for Uarte<'d, T> {
 mod sealed {
     use super::*;
 
+    pub struct State {
+        pub endrx_waker: AtomicWaker,
+        pub endtx_waker: AtomicWaker,
+    }
+    impl State {
+        pub const fn new() -> Self {
+            Self {
+                endrx_waker: AtomicWaker::new(),
+                endtx_waker: AtomicWaker::new(),
+            }
+        }
+    }
+
     pub trait Instance {
-        fn regs(&self) -> &pac::uarte0::RegisterBlock;
+        fn regs() -> &'static pac::uarte0::RegisterBlock;
+        fn state() -> &'static State;
     }
 }
 
@@ -318,8 +310,12 @@ pub trait Instance: sealed::Instance + 'static {
 macro_rules! impl_instance {
     ($type:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$type {
-            fn regs(&self) -> &pac::uarte0::RegisterBlock {
+            fn regs() -> &'static pac::uarte0::RegisterBlock {
                 unsafe { &*pac::$type::ptr() }
+            }
+            fn state() -> &'static sealed::State {
+                static STATE: sealed::State = sealed::State::new();
+                &STATE
             }
         }
         impl Instance for peripherals::$type {

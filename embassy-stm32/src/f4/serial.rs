@@ -2,7 +2,6 @@
 
 use core::future::Future;
 use core::marker::PhantomData;
-use core::pin::Pin;
 use embassy::interrupt::Interrupt;
 use embassy::traits::uart::{Error, Read, ReadUntilIdle, Write};
 use embassy::util::InterruptFuture;
@@ -101,13 +100,12 @@ where
     /// Receives serial data.
     ///
     /// The future is pending until the buffer is completely filled.
-    fn read<'a>(self: Pin<&'a mut Self>, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        let this = unsafe { self.get_unchecked_mut() };
+    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
         let static_buf = unsafe { core::mem::transmute::<&'a mut [u8], &'static mut [u8]>(buf) };
 
         async move {
-            let rx_stream = this.rx_stream.take().unwrap();
-            let usart = this.usart.take().unwrap();
+            let rx_stream = self.rx_stream.take().unwrap();
+            let usart = self.usart.take().unwrap();
 
             let mut rx_transfer = Transfer::init(
                 rx_stream,
@@ -120,13 +118,13 @@ where
                     .double_buffer(false),
             );
 
-            let fut = InterruptFuture::new(&mut this.rx_int);
+            let fut = InterruptFuture::new(&mut self.rx_int);
             rx_transfer.start(|_usart| {});
             fut.await;
 
             let (rx_stream, usart, _, _) = rx_transfer.free();
-            this.rx_stream.replace(rx_stream);
-            this.usart.replace(usart);
+            self.rx_stream.replace(rx_stream);
+            self.usart.replace(usart);
 
             Ok(())
         }
@@ -148,14 +146,13 @@ where
     type WriteFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
 
     /// Sends serial data.
-    fn write<'a>(self: Pin<&'a mut Self>, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        let this = unsafe { self.get_unchecked_mut() };
+    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
         #[allow(mutable_transmutes)]
         let static_buf = unsafe { core::mem::transmute::<&'a [u8], &'static mut [u8]>(buf) };
 
         async move {
-            let tx_stream = this.tx_stream.take().unwrap();
-            let usart = this.usart.take().unwrap();
+            let tx_stream = self.tx_stream.take().unwrap();
+            let usart = self.usart.take().unwrap();
 
             let mut tx_transfer = Transfer::init(
                 tx_stream,
@@ -168,15 +165,15 @@ where
                     .double_buffer(false),
             );
 
-            let fut = InterruptFuture::new(&mut this.tx_int);
+            let fut = InterruptFuture::new(&mut self.tx_int);
 
             tx_transfer.start(|_usart| {});
             fut.await;
 
             let (tx_stream, usart, _buf, _) = tx_transfer.free();
 
-            this.tx_stream.replace(tx_stream);
-            this.usart.replace(usart);
+            self.tx_stream.replace(tx_stream);
+            self.usart.replace(usart);
 
             Ok(())
         }
@@ -202,16 +199,12 @@ where
     /// The future is pending until either the buffer is completely full, or the RX line falls idle after receiving some data.
     ///
     /// Returns the number of bytes read.
-    fn read_until_idle<'a>(
-        self: Pin<&'a mut Self>,
-        buf: &'a mut [u8],
-    ) -> Self::ReadUntilIdleFuture<'a> {
-        let this = unsafe { self.get_unchecked_mut() };
+    fn read_until_idle<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadUntilIdleFuture<'a> {
         let static_buf = unsafe { core::mem::transmute::<&'a mut [u8], &'static mut [u8]>(buf) };
 
         async move {
-            let rx_stream = this.rx_stream.take().unwrap();
-            let usart = this.usart.take().unwrap();
+            let rx_stream = self.rx_stream.take().unwrap();
+            let usart = self.usart.take().unwrap();
 
             unsafe {
                 /*  __HAL_UART_ENABLE_IT(&uart->UartHandle, UART_IT_IDLE); */
@@ -235,8 +228,8 @@ where
 
             let total_bytes = RSTREAM::get_number_of_transfers() as usize;
 
-            let fut = InterruptFuture::new(&mut this.rx_int);
-            let fut_idle = InterruptFuture::new(&mut this.usart_int);
+            let fut = InterruptFuture::new(&mut self.rx_int);
+            let fut_idle = InterruptFuture::new(&mut self.usart_int);
 
             rx_transfer.start(|_usart| {});
 
@@ -249,8 +242,8 @@ where
             unsafe {
                 (*USART::ptr()).cr1.modify(|_, w| w.idleie().clear_bit());
             }
-            this.rx_stream.replace(rx_stream);
-            this.usart.replace(usart);
+            self.rx_stream.replace(rx_stream);
+            self.usart.replace(usart);
 
             Ok(total_bytes - remaining_bytes)
         }

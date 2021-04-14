@@ -21,9 +21,9 @@ use example_common::*;
 #[embassy::task(pool_size = 4)]
 async fn button_task(n: usize, mut pin: PortInput<'static, AnyPin>) {
     loop {
-        Pin::new(&mut pin).wait_for_low().await;
+        pin.wait_for_low().await;
         info!("Button {:?} pressed!", n);
-        Pin::new(&mut pin).wait_for_high().await;
+        pin.wait_for_high().await;
         info!("Button {:?} released!", n);
     }
 }

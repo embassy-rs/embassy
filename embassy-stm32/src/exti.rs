@@ -1,6 +1,5 @@
 use core::future::Future;
 use core::mem;
-use core::pin::Pin;
 use cortex_m;
 
 use crate::hal::gpio;
@@ -96,13 +95,10 @@ impl<T: Instance + digital::InputPin> digital::InputPin for ExtiPin<T> {
 }
 
 impl<T: Instance + digital::InputPin + 'static> ExtiPin<T> {
-    fn wait_for_state<'a>(self: Pin<&'a mut Self>, state: bool) -> impl Future<Output = ()> + 'a {
-        let s = unsafe { self.get_unchecked_mut() };
-
-        s.pin.clear_pending_bit();
+    fn wait_for_state<'a>(&'a mut self, state: bool) -> impl Future<Output = ()> + 'a {
         async move {
-            let fut = InterruptFuture::new(&mut s.interrupt);
-            let pin = &mut s.pin;
+            let fut = InterruptFuture::new(&mut self.interrupt);
+            let pin = &mut self.pin;
             cortex_m::interrupt::free(|_| {
                 pin.trigger_edge(if state {
                     EdgeOption::Rising
@@ -111,37 +107,32 @@ impl<T: Instance + digital::InputPin + 'static> ExtiPin<T> {
                 });
             });
 
-            if (state && s.pin.is_high().unwrap_or(false))
-                || (!state && s.pin.is_low().unwrap_or(false))
+            if (state && self.pin.is_high().unwrap_or(false))
+                || (!state && self.pin.is_low().unwrap_or(false))
             {
                 return;
             }
 
             fut.await;
 
-            s.pin.clear_pending_bit();
+            self.pin.clear_pending_bit();
         }
     }
 }
 
 impl<T: Instance + 'static> ExtiPin<T> {
-    fn wait_for_edge<'a>(
-        self: Pin<&'a mut Self>,
-        state: EdgeOption,
-    ) -> impl Future<Output = ()> + 'a {
-        let s = unsafe { self.get_unchecked_mut() };
-
-        s.pin.clear_pending_bit();
+    fn wait_for_edge<'a>(&'a mut self, state: EdgeOption) -> impl Future<Output = ()> + 'a {
+        self.pin.clear_pending_bit();
         async move {
-            let fut = InterruptFuture::new(&mut s.interrupt);
-            let pin = &mut s.pin;
+            let fut = InterruptFuture::new(&mut self.interrupt);
+            let pin = &mut self.pin;
             cortex_m::interrupt::free(|_| {
                 pin.trigger_edge(state);
             });
 
             fut.await;
 
-            s.pin.clear_pending_bit();
+            self.pin.clear_pending_bit();
         }
     }
 }
@@ -149,7 +140,7 @@ impl<T: Instance + 'static> ExtiPin<T> {
 impl<T: Instance + digital::InputPin + 'static> WaitForHigh for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
-    fn wait_for_high<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
         self.wait_for_state(true)
     }
 }
@@ -157,7 +148,7 @@ impl<T: Instance + digital::InputPin + 'static> WaitForHigh for ExtiPin<T> {
 impl<T: Instance + digital::InputPin + 'static> WaitForLow for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
-    fn wait_for_low<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
         self.wait_for_state(false)
     }
 }
@@ -176,7 +167,7 @@ impl<T: Instance + digital::InputPin + 'static> WaitForLow for ExtiPin<T> {
 impl<T: Instance + 'static> WaitForRisingEdge for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
-    fn wait_for_rising_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+    fn wait_for_rising_edge<'a>(&'a mut self) -> Self::Future<'a> {
         self.wait_for_edge(EdgeOption::Rising)
     }
 }
@@ -184,7 +175,7 @@ impl<T: Instance + 'static> WaitForRisingEdge for ExtiPin<T> {
 impl<T: Instance + 'static> WaitForFallingEdge for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
-    fn wait_for_falling_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+    fn wait_for_falling_edge<'a>(&'a mut self) -> Self::Future<'a> {
         self.wait_for_edge(EdgeOption::Falling)
     }
 }
@@ -192,7 +183,7 @@ impl<T: Instance + 'static> WaitForFallingEdge for ExtiPin<T> {
 impl<T: Instance + 'static> WaitForAnyEdge for ExtiPin<T> {
     type Future<'a> = impl Future<Output = ()> + 'a;
 
-    fn wait_for_any_edge<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+    fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
         self.wait_for_edge(EdgeOption::RisingFalling)
     }
 }

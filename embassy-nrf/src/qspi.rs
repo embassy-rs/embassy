@@ -1,11 +1,11 @@
 use core::future::Future;
 use core::marker::PhantomData;
-use core::pin::Pin;
 use core::task::Poll;
-
-use embassy::interrupt::Interrupt;
-use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
+use embassy::interrupt::{Interrupt, InterruptExt};
+use embassy::traits::flash::{Error, Flash};
+use embassy::util::{AtomicWaker, DropBomb, PeripheralBorrow};
 use embassy_extras::unborrow;
+use futures::future::poll_fn;
 
 use crate::fmt::{assert, assert_eq, *};
 use crate::gpio::Pin as GpioPin;
@@ -26,10 +26,6 @@ pub use crate::pac::qspi::ifconfig0::WRITEOC_A as WriteOpcode;
 //   - SPI mode 3
 // - activate/deactivate
 // - set gpio in high drive
-
-use embassy::traits::flash::{Error, Flash};
-use embassy::util::{wake_on_interrupt, DropBomb, PeripheralBorrow, WakerRegistration};
-use futures::future::poll_fn;
 
 pub struct DeepPowerDownConfig {
     pub enter_time: u16,
@@ -77,7 +73,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
     ) -> Self {
         unborrow!(qspi, irq, sck, csn, io0, io1, io2, io3);
 
-        let r = qspi.regs();
+        let r = T::regs();
 
         for cnf in &[
             sck.conf(),
@@ -137,6 +133,10 @@ impl<'d, T: Instance> Qspi<'d, T> {
         while r.events_ready.read().bits() == 0 {}
         r.events_ready.reset();
 
+        irq.set_handler(Self::on_interrupt);
+        irq.unpend();
+        irq.enable();
+
         Self {
             peri: qspi,
             irq,
@@ -144,8 +144,18 @@ impl<'d, T: Instance> Qspi<'d, T> {
         }
     }
 
-    pub fn sleep(mut self: Pin<&mut Self>) {
-        let r = unsafe { self.as_mut().get_unchecked_mut() }.peri.regs();
+    fn on_interrupt(_: *mut ()) {
+        let r = T::regs();
+        let s = T::state();
+
+        if r.events_ready.read().bits() != 0 {
+            s.ready_waker.wake();
+            r.intenclr.write(|w| w.ready().clear());
+        }
+    }
+
+    pub fn sleep(&mut self) {
+        let r = T::regs();
 
         info!("flash: sleeping");
         info!("flash: state = {:?}", r.status.read().bits());
@@ -158,7 +168,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
     }
 
     pub async fn custom_instruction(
-        mut self: Pin<&mut Self>,
+        &mut self,
         opcode: u8,
         req: &[u8],
         resp: &mut [u8],
@@ -184,7 +194,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
 
         let len = core::cmp::max(req.len(), resp.len()) as u8;
 
-        let r = unsafe { self.as_mut().get_unchecked_mut() }.peri.regs();
+        let r = T::regs();
         r.cinstrdat0.write(|w| unsafe { w.bits(dat0) });
         r.cinstrdat1.write(|w| unsafe { w.bits(dat1) });
 
@@ -203,9 +213,9 @@ impl<'d, T: Instance> Qspi<'d, T> {
             w
         });
 
-        self.as_mut().wait_ready().await;
+        self.wait_ready().await;
 
-        let r = unsafe { self.as_mut().get_unchecked_mut() }.peri.regs();
+        let r = T::regs();
 
         let dat0 = r.cinstrdat0.read().bits();
         let dat1 = r.cinstrdat1.read().bits();
@@ -225,19 +235,14 @@ impl<'d, T: Instance> Qspi<'d, T> {
         Ok(())
     }
 
-    async fn wait_ready(self: Pin<&mut Self>) {
-        let this = unsafe { self.get_unchecked_mut() };
-
+    async fn wait_ready(&mut self) {
         poll_fn(move |cx| {
-            let r = this.peri.regs();
-
+            let r = T::regs();
+            let s = T::state();
+            s.ready_waker.register(cx.waker());
             if r.events_ready.read().bits() != 0 {
-                r.events_ready.reset();
                 return Poll::Ready(());
             }
-
-            wake_on_interrupt(&mut this.irq, cx.waker());
-
             Poll::Pending
         })
         .await
@@ -252,11 +257,7 @@ impl<'d, T: Instance> Flash for Qspi<'d, T> {
     #[rustfmt::skip]
     type ErasePageFuture<'a> where Self: 'a = impl Future<Output = Result<(), Error>> + 'a;
 
-    fn read<'a>(
-        mut self: Pin<&'a mut Self>,
-        address: usize,
-        data: &'a mut [u8],
-    ) -> Self::ReadFuture<'a> {
+    fn read<'a>(&'a mut self, address: usize, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
         async move {
             let bomb = DropBomb::new();
 
@@ -264,7 +265,7 @@ impl<'d, T: Instance> Flash for Qspi<'d, T> {
             assert_eq!(data.len() as u32 % 4, 0);
             assert_eq!(address as u32 % 4, 0);
 
-            let r = unsafe { self.as_mut().get_unchecked_mut() }.peri.regs();
+            let r = T::regs();
 
             r.read
                 .src
@@ -280,7 +281,7 @@ impl<'d, T: Instance> Flash for Qspi<'d, T> {
             r.intenset.write(|w| w.ready().set());
             r.tasks_readstart.write(|w| w.tasks_readstart().bit(true));
 
-            self.as_mut().wait_ready().await;
+            self.wait_ready().await;
 
             bomb.defuse();
 
@@ -288,11 +289,7 @@ impl<'d, T: Instance> Flash for Qspi<'d, T> {
         }
     }
 
-    fn write<'a>(
-        mut self: Pin<&'a mut Self>,
-        address: usize,
-        data: &'a [u8],
-    ) -> Self::WriteFuture<'a> {
+    fn write<'a>(&'a mut self, address: usize, data: &'a [u8]) -> Self::WriteFuture<'a> {
         async move {
             let bomb = DropBomb::new();
 
@@ -300,7 +297,7 @@ impl<'d, T: Instance> Flash for Qspi<'d, T> {
             assert_eq!(data.len() as u32 % 4, 0);
             assert_eq!(address as u32 % 4, 0);
 
-            let r = unsafe { self.as_mut().get_unchecked_mut() }.peri.regs();
+            let r = T::regs();
             r.write
                 .src
                 .write(|w| unsafe { w.src().bits(data.as_ptr() as u32) });
@@ -315,7 +312,7 @@ impl<'d, T: Instance> Flash for Qspi<'d, T> {
             r.intenset.write(|w| w.ready().set());
             r.tasks_writestart.write(|w| w.tasks_writestart().bit(true));
 
-            self.as_mut().wait_ready().await;
+            self.wait_ready().await;
 
             bomb.defuse();
 
@@ -323,13 +320,13 @@ impl<'d, T: Instance> Flash for Qspi<'d, T> {
         }
     }
 
-    fn erase<'a>(mut self: Pin<&'a mut Self>, address: usize) -> Self::ErasePageFuture<'a> {
+    fn erase<'a>(&'a mut self, address: usize) -> Self::ErasePageFuture<'a> {
         async move {
             let bomb = DropBomb::new();
 
             assert_eq!(address as u32 % 4096, 0);
 
-            let r = unsafe { self.as_mut().get_unchecked_mut() }.peri.regs();
+            let r = T::regs();
             r.erase
                 .ptr
                 .write(|w| unsafe { w.ptr().bits(address as u32) });
@@ -339,7 +336,7 @@ impl<'d, T: Instance> Flash for Qspi<'d, T> {
             r.intenset.write(|w| w.ready().set());
             r.tasks_erasestart.write(|w| w.tasks_erasestart().bit(true));
 
-            self.as_mut().wait_ready().await;
+            self.wait_ready().await;
 
             bomb.defuse();
 
@@ -367,8 +364,20 @@ impl<'d, T: Instance> Flash for Qspi<'d, T> {
 mod sealed {
     use super::*;
 
+    pub struct State {
+        pub ready_waker: AtomicWaker,
+    }
+    impl State {
+        pub const fn new() -> Self {
+            Self {
+                ready_waker: AtomicWaker::new(),
+            }
+        }
+    }
+
     pub trait Instance {
-        fn regs(&self) -> &pac::qspi::RegisterBlock;
+        fn regs() -> &'static pac::qspi::RegisterBlock;
+        fn state() -> &'static State;
     }
 }
 
@@ -379,8 +388,12 @@ pub trait Instance: sealed::Instance + 'static {
 macro_rules! impl_instance {
     ($type:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$type {
-            fn regs(&self) -> &pac::qspi::RegisterBlock {
+            fn regs() -> &'static pac::qspi::RegisterBlock {
                 unsafe { &*pac::$type::ptr() }
+            }
+            fn state() -> &'static sealed::State {
+                static STATE: sealed::State = sealed::State::new();
+                &STATE
             }
         }
         impl Instance for peripherals::$type {

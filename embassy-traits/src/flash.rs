@@ -27,19 +27,18 @@ pub trait Flash {
     ///
     /// address must be a multiple of self.read_size().
     /// buf.len() must be a multiple of self.read_size().
-    fn read<'a>(self: Pin<&'a mut Self>, address: usize, buf: &'a mut [u8])
-        -> Self::ReadFuture<'a>;
+    fn read<'a>(&'a mut self, address: usize, buf: &'a mut [u8]) -> Self::ReadFuture<'a>;
 
     /// Writes data to the flash device.
     ///
     /// address must be a multiple of self.write_size().
     /// buf.len() must be a multiple of self.write_size().
-    fn write<'a>(self: Pin<&'a mut Self>, address: usize, buf: &'a [u8]) -> Self::WriteFuture<'a>;
+    fn write<'a>(&'a mut self, address: usize, buf: &'a [u8]) -> Self::WriteFuture<'a>;
 
     /// Erases a single page from the flash device.
     ///
     /// address must be a multiple of self.erase_size().
-    fn erase<'a>(self: Pin<&'a mut Self>, address: usize) -> Self::ErasePageFuture<'a>;
+    fn erase<'a>(&'a mut self, address: usize) -> Self::ErasePageFuture<'a>;
 
     /// Returns the total size, in bytes.
     /// This is not guaranteed to be a power of 2.

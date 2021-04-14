@@ -214,14 +214,13 @@ where
     type ReadFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
     type WriteReadFuture<'a> = impl Future<Output = Result<(), Error>> + 'a;
 
-    fn read<'a>(self: Pin<&'a mut Self>, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        let this = unsafe { self.get_unchecked_mut() };
+    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
         #[allow(mutable_transmutes)]
         let static_buf: &'static mut [u8] = unsafe { mem::transmute(buf) };
 
         async move {
-            let rx_stream = this.rx_stream.take().unwrap();
-            let spi = this.spi.take().unwrap();
+            let rx_stream = self.rx_stream.take().unwrap();
+            let spi = self.spi.take().unwrap();
 
             spi.cr2.modify(|_, w| w.errie().set_bit());
 
@@ -236,8 +235,8 @@ where
                     .double_buffer(false),
             );
 
-            let fut = InterruptFuture::new(&mut this.rx_int);
-            let fut_err = InterruptFuture::new(&mut this.spi_int);
+            let fut = InterruptFuture::new(&mut self.rx_int);
+            let fut_err = InterruptFuture::new(&mut self.spi_int);
 
             rx_transfer.start(|_spi| {});
             future::select(fut, fut_err).await;
@@ -245,21 +244,20 @@ where
             let (rx_stream, spi, _buf, _) = rx_transfer.free();
 
             spi.cr2.modify(|_, w| w.errie().clear_bit());
-            this.rx_stream.replace(rx_stream);
-            this.spi.replace(spi);
+            self.rx_stream.replace(rx_stream);
+            self.spi.replace(spi);
 
             Ok(())
         }
     }
 
-    fn write<'a>(self: Pin<&'a mut Self>, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        let this = unsafe { self.get_unchecked_mut() };
+    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
         #[allow(mutable_transmutes)]
         let static_buf: &'static mut [u8] = unsafe { mem::transmute(buf) };
 
         async move {
-            let tx_stream = this.tx_stream.take().unwrap();
-            let spi = this.spi.take().unwrap();
+            let tx_stream = self.tx_stream.take().unwrap();
+            let spi = self.spi.take().unwrap();
 
             //            let mut tx_transfer = Transfer::init(
             //                tx_stream,
@@ -272,7 +270,7 @@ where
             //                    .double_buffer(false),
             //            );
             //
-            //            let fut = InterruptFuture::new(&mut this.tx_int);
+            //            let fut = InterruptFuture::new(&mut self.tx_int);
             //
             //            tx_transfer.start(|_spi| {});
             //            fut.await;
@@ -284,28 +282,26 @@ where
                 nb::block!(write_sr(&spi, byte));
             }
 
-            this.tx_stream.replace(tx_stream);
-            this.spi.replace(spi);
+            self.tx_stream.replace(tx_stream);
+            self.spi.replace(spi);
 
             Ok(())
         }
     }
 
     fn read_write<'a>(
-        self: Pin<&'a mut Self>,
+        &'a mut self,
         read_buf: &'a mut [u8],
         write_buf: &'a [u8],
     ) -> Self::WriteReadFuture<'a> {
-        let this = unsafe { self.get_unchecked_mut() };
-
         #[allow(mutable_transmutes)]
         let write_static_buf: &'static mut [u8] = unsafe { mem::transmute(write_buf) };
         let read_static_buf: &'static mut [u8] = unsafe { mem::transmute(read_buf) };
 
         async move {
-            let tx_stream = this.tx_stream.take().unwrap();
-            let rx_stream = this.rx_stream.take().unwrap();
-            let spi_tx = this.spi.take().unwrap();
+            let tx_stream = self.tx_stream.take().unwrap();
+            let rx_stream = self.rx_stream.take().unwrap();
+            let spi_tx = self.spi.take().unwrap();
             let spi_rx: SPI = unsafe { mem::transmute_copy(&spi_tx) };
 
             spi_rx
@@ -334,9 +330,9 @@ where
             //                    .double_buffer(false),
             //            );
             //
-            //            let tx_fut = InterruptFuture::new(&mut this.tx_int);
-            //            let rx_fut = InterruptFuture::new(&mut this.rx_int);
-            //            let rx_fut_err = InterruptFuture::new(&mut this.spi_int);
+            //            let tx_fut = InterruptFuture::new(&mut self.tx_int);
+            //            let rx_fut = InterruptFuture::new(&mut self.rx_int);
+            //            let rx_fut_err = InterruptFuture::new(&mut self.spi_int);
             //
             //            rx_transfer.start(|_spi| {});
             //            tx_transfer.start(|_spi| {});
@@ -352,7 +348,7 @@ where
             for i in 0..(read_static_buf.len() - 1) {
                 let byte = write_static_buf[i];
                 loop {
-                    let fut = InterruptFuture::new(&mut this.spi_int);
+                    let fut = InterruptFuture::new(&mut self.spi_int);
                     match write_sr(&spi_tx, byte) {
                         Ok(()) => break,
                         _ => {}
@@ -361,7 +357,7 @@ where
                 }
 
                 loop {
-                    let fut = InterruptFuture::new(&mut this.spi_int);
+                    let fut = InterruptFuture::new(&mut self.spi_int);
                     match read_sr(&spi_tx) {
                         Ok(byte) => {
                             read_static_buf[i] = byte;
@@ -381,9 +377,9 @@ where
                     .rxneie()
                     .clear_bit()
             });
-            this.rx_stream.replace(rx_stream);
-            this.tx_stream.replace(tx_stream);
-            this.spi.replace(spi_rx);
+            self.rx_stream.replace(rx_stream);
+            self.tx_stream.replace(tx_stream);
+            self.spi.replace(spi_rx);
 
             Ok(())
         }
@@ -421,7 +417,7 @@ macro_rules! spi {
             impl Instance for pac::$SPI {
                 unsafe fn enable_clock() {
                     const EN_BIT: u8 = $en;
-                    // NOTE(unsafe) this reference will only be used for atomic writes with no side effects.
+                    // NOTE(unsafe) self reference will only be used for atomic writes with no side effects.
                     let rcc = &(*pac::RCC::ptr());
                     // Enable clock.
                     bb::set(&rcc.$apbXenr, EN_BIT);
