@@ -7,12 +7,18 @@ use proc_macro::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 
+mod path;
+
+use path::ModulePrefix;
+
 #[derive(Debug, FromMeta)]
-struct MacroArgs {
+struct TaskArgs {
     #[darling(default)]
     pool_size: Option<usize>,
     #[darling(default)]
     send: bool,
+    #[darling(default)]
+    embassy_prefix: ModulePrefix,
 }
 
 #[proc_macro_attribute]
@@ -20,12 +26,15 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
     let macro_args = syn::parse_macro_input!(args as syn::AttributeArgs);
     let mut task_fn = syn::parse_macro_input!(item as syn::ItemFn);
 
-    let macro_args = match MacroArgs::from_list(&macro_args) {
+    let macro_args = match TaskArgs::from_list(&macro_args) {
         Ok(v) => v,
         Err(e) => {
             return TokenStream::from(e.write_errors());
         }
     };
+
+    let embassy_prefix = macro_args.embassy_prefix.append("embassy");
+    let embassy_path = embassy_prefix.path();
 
     let pool_size: usize = macro_args.pool_size.unwrap_or(1);
 
@@ -99,8 +108,8 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let result = quote! {
-        #visibility fn #name(#args) -> ::embassy::executor::SpawnToken<#impl_ty> {
-            use ::embassy::executor::raw::Task;
+        #visibility fn #name(#args) -> #embassy_path::executor::SpawnToken<#impl_ty> {
+            use #embassy_path::executor::raw::Task;
             #task_fn
             type F = #impl_ty;
             const NEW_TASK: Task<F> = Task::new();
@@ -203,6 +212,15 @@ mod chip;
 #[path = "chip/rp.rs"]
 mod chip;
 
+#[cfg(feature = "std")]
+mod chip {
+    #[derive(Debug, darling::FromMeta, Default)]
+    pub struct Args {
+        #[darling(default)]
+        pub embassy_prefix: crate::path::ModulePrefix,
+    }
+}
+
 #[cfg(any(feature = "nrf", feature = "stm32", feature = "rp"))]
 #[proc_macro_attribute]
 pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
@@ -252,11 +270,13 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
         return TokenStream::new();
     }
 
+    let embassy_prefix_lit = macro_args.embassy_prefix.literal();
+    let embassy_path = macro_args.embassy_prefix.append("embassy").path();
     let task_fn_body = task_fn.block.clone();
-    let chip_setup = chip::generate(macro_args);
+    let chip_setup = chip::generate(&macro_args);
 
     let result = quote! {
-        #[embassy::task]
+        #[#embassy_path::task(embassy_prefix = #embassy_prefix_lit)]
         async fn __embassy_main(#args) {
             #task_fn_body
         }
@@ -267,7 +287,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
                 ::core::mem::transmute(t)
             }
 
-            let mut executor = ::embassy::executor::Executor::new();
+            let mut executor = #embassy_path::executor::Executor::new();
             let executor = unsafe { make_static(&mut executor) };
 
             #chip_setup
@@ -283,8 +303,19 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
 
 #[cfg(feature = "std")]
 #[proc_macro_attribute]
-pub fn main(_: TokenStream, item: TokenStream) -> TokenStream {
+pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
+    let macro_args = syn::parse_macro_input!(args as syn::AttributeArgs);
     let task_fn = syn::parse_macro_input!(item as syn::ItemFn);
+
+    let macro_args = match chip::Args::from_list(&macro_args) {
+        Ok(v) => v,
+        Err(e) => {
+            return TokenStream::from(e.write_errors());
+        }
+    };
+
+    let embassy_path = macro_args.embassy_prefix.append("embassy");
+    let embassy_std_path = macro_args.embassy_prefix.append("embassy_std");
 
     let mut fail = false;
     if task_fn.sig.asyncness.is_none() {
@@ -324,8 +355,12 @@ pub fn main(_: TokenStream, item: TokenStream) -> TokenStream {
 
     let task_fn_body = task_fn.block.clone();
 
+    let embassy_path = embassy_path.path();
+    let embassy_std_path = embassy_std_path.path();
+    let embassy_prefix_lit = macro_args.embassy_prefix.literal();
+
     let result = quote! {
-        #[embassy::task]
+        #[#embassy_path::task(embassy_prefix = #embassy_prefix_lit)]
         async fn __embassy_main(#args) {
             #task_fn_body
         }
@@ -335,7 +370,7 @@ pub fn main(_: TokenStream, item: TokenStream) -> TokenStream {
                 ::core::mem::transmute(t)
             }
 
-            let mut executor = ::embassy_std::Executor::new();
+            let mut executor = #embassy_std_path::Executor::new();
             let executor = unsafe { make_static(&mut executor) };
 
             executor.run(|spawner| {

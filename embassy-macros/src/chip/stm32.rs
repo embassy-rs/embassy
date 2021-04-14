@@ -1,10 +1,13 @@
+use crate::path::ModulePrefix;
 use darling::FromMeta;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 
-#[derive(Debug, FromMeta)]
+#[derive(Debug, FromMeta, Default)]
 pub struct Args {
+    #[darling(default)]
+    pub embassy_prefix: ModulePrefix,
     #[darling(default)]
     pub use_hse: Option<u32>,
     #[darling(default)]
@@ -15,7 +18,10 @@ pub struct Args {
     pub require_pll48clk: bool,
 }
 
-pub fn generate(args: Args) -> TokenStream {
+pub fn generate(args: &Args) -> TokenStream {
+    let embassy_path = args.embassy_prefix.append("embassy").path();
+    let embassy_stm32_path = args.embassy_prefix.append("embassy_stm32").path();
+
     let mut clock_cfg_args = quote! {};
     if args.use_hse.is_some() {
         let mhz = args.use_hse.unwrap();
@@ -37,7 +43,7 @@ pub fn generate(args: Args) -> TokenStream {
     }
 
     quote!(
-        use embassy_stm32::{rtc, interrupt, Peripherals, pac, hal::rcc::RccExt, hal::time::U32Ext};
+        use #embassy_stm32_path::{rtc, interrupt, Peripherals, pac, hal::rcc::RccExt, hal::time::U32Ext};
 
         let dp = pac::Peripherals::take().unwrap();
         let rcc = dp.RCC.constrain();
@@ -50,7 +56,7 @@ pub fn generate(args: Args) -> TokenStream {
         rtc.start();
         let mut alarm = rtc.alarm1();
 
-        unsafe { embassy::time::set_clock(rtc) };
+        unsafe { #embassy_path::time::set_clock(rtc) };
 
         let alarm = unsafe { make_static(&mut alarm) };
         executor.set_alarm(alarm);
