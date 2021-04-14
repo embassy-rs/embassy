@@ -32,5 +32,6 @@ pub mod exti;
 pub mod gpio;
 //pub mod rtc;
 //pub mod interrupt;
+pub mod usart;
 
 pub(crate) use stm32_metapac as pac;

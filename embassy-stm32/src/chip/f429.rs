@@ -1,5 +1,6 @@
 use embassy_extras::peripherals;
 
+#[rustfmt::skip]
 peripherals!(
     // GPIO Port A
     PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7, PA8, PA9, PA10, PA11, PA12, PA13, PA14, PA15,
@@ -10,6 +11,12 @@ peripherals!(
     // todo more ports
 
     // EXTI
-    EXTI0, EXTI1, EXTI2, EXTI3, EXTI4, EXTI5, EXTI6, EXTI7, EXTI8, EXTI9, EXTI10, EXTI11, EXTI12,
-    EXTI13, EXTI14, EXTI15,
+    EXTI0, EXTI1, EXTI2, EXTI3, EXTI4, EXTI5, EXTI6, EXTI7, EXTI8, EXTI9, EXTI10, EXTI11, EXTI12, EXTI13, EXTI14, EXTI15,
+
+    // USART
+    USART1,
+    USART2,
+    USART3,
+    USART6,
+
 );
