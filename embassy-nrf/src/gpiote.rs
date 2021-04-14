@@ -1,7 +1,6 @@
 use core::convert::Infallible;
 use core::future::Future;
 use core::marker::PhantomData;
-use core::pin::Pin;
 use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
 use embassy::traits::gpio::{WaitForHigh, WaitForLow};
@@ -318,7 +317,7 @@ impl<'d, T: GpioPin> InputPin for PortInput<'d, T> {
 impl<'d, T: GpioPin> WaitForHigh for PortInput<'d, T> {
     type Future<'a> = PortInputFuture<'a>;
 
-    fn wait_for_high<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
         self.pin.pin.conf().modify(|_, w| w.sense().high());
 
         PortInputFuture {
@@ -331,7 +330,7 @@ impl<'d, T: GpioPin> WaitForHigh for PortInput<'d, T> {
 impl<'d, T: GpioPin> WaitForLow for PortInput<'d, T> {
     type Future<'a> = PortInputFuture<'a>;
 
-    fn wait_for_low<'a>(self: Pin<&'a mut Self>) -> Self::Future<'a> {
+    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
         self.pin.pin.conf().modify(|_, w| w.sense().low());
 
         PortInputFuture {

@@ -26,13 +26,12 @@ async fn run(dp: stm32::Peripherals, _cp: cortex_m::Peripherals) {
     let button = gpioa.pa0.into_pull_up_input();
     let mut syscfg = dp.SYSCFG.constrain();
 
-    let pin = ExtiPin::new(button, interrupt::take!(EXTI0), &mut syscfg);
-    pin_mut!(pin);
+    let mut pin = ExtiPin::new(button, interrupt::take!(EXTI0), &mut syscfg);
 
     info!("Starting loop");
 
     loop {
-        pin.as_mut().wait_for_rising_edge().await;
+        pin.wait_for_rising_edge().await;
         info!("edge detected!");
     }
 }
