@@ -3,7 +3,7 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
-use embassy::traits::gpio::{WaitForHigh, WaitForLow};
+use embassy::traits::gpio::{WaitForRisingEdge, WaitForFallingEdge, WaitForAnyEdge, WaitForHigh, WaitForLow};
 use embassy::util::AtomicWaker;
 use embassy_extras::impl_unborrow;
 use embedded_hal::digital::v2::{InputPin, StatefulOutputPin};
@@ -26,12 +26,6 @@ const NEW_AW: AtomicWaker = AtomicWaker::new();
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AW; CHANNEL_COUNT];
 static PORT_WAKERS: [AtomicWaker; PIN_COUNT] = [NEW_AW; PIN_COUNT];
 
-pub enum InputChannelPolarity {
-    None,
-    HiToLo,
-    LoToHi,
-    Toggle,
-}
 
 /// Polarity of the `task out` operation.
 pub enum OutputChannelPolarity {
@@ -118,12 +112,125 @@ impl Iterator for BitIter {
 }
 
 /// GPIOTE channel driver in input mode
-pub struct InputChannel<'d, C: Channel, T: GpioPin> {
+pub struct InputChannel<'d, C: Channel, T: GpioPin, P: InputChannelPolarity> {
     ch: C,
     pin: Input<'d, T>,
+    _polarity: core::marker::PhantomData<P>
 }
 
-impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
+pub trait InputChannelPolarity {}
+
+macro_rules! impl_input_channel {
+    ($polarity:ident, $mode:ident) => {
+        pub struct $polarity;
+        impl InputChannelPolarity for $polarity {}
+        impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T, $polarity> {
+            pub fn new(
+                _init: Initialized,
+                ch: C,
+                pin: Input<'d, T>,
+            ) -> Self {
+                let g = unsafe { &*pac::GPIOTE::ptr() };
+                let num = ch.number();
+
+                g.config[num].write(|w| {
+                    w.mode().event().polarity().$mode();
+                    #[cfg(any(feature = "52833", feature = "52840"))]
+                    w.port().bit(match pin.pin.port() {
+                        Port::Port0 => false,
+                        Port::Port1 => true,
+                    });
+                    unsafe { w.psel().bits(pin.pin.pin()) }
+                });
+
+                g.events_in[num].reset();
+
+                InputChannel { ch, pin, _polarity: core::marker::PhantomData, }
+            }
+
+            fn prepare_wait(&self) {
+
+            }
+
+            pub fn wait(&self) -> InputChannelWaitFuture<'d, C> {
+                let g = unsafe { &*pac::GPIOTE::ptr() };
+                let num = self.ch.number();
+
+                // Enable interrupt
+                g.events_in[num].reset();
+                g.intenset.write(|w| unsafe { w.bits(1 << num) });
+
+                InputChannelWaitFuture {
+                    num,
+                    _channel: core::marker::PhantomData,
+                }
+            }
+
+            /// Returns the IN event, for use with PPI.
+            pub fn event_in(&self) -> Event {
+                let g = unsafe { &*pac::GPIOTE::ptr() };
+                Event::from_reg(&g.events_in[self.ch.number()])
+            }
+        }
+    }
+}
+
+impl_input_channel!(InputChannelPolarityNone, none);
+impl_input_channel!(InputChannelPolarityHiToLo, hi_to_lo);
+impl_input_channel!(InputChannelPolarityLoToHi, lo_to_hi);
+impl_input_channel!(InputChannelPolarityToggle, toggle);
+
+pub struct InputChannelWaitFuture<'d, C: Channel + 'd> {
+    num: usize,
+    _channel: core::marker::PhantomData<&'d C>,
+}
+
+/*
+ TODO:
+impl<C: Channel> Drop for InputChannelWaitFuture<C> {
+    fn drop(&mut self) {
+    }
+}
+*/
+
+impl<'d, C: Channel> Future for InputChannelWaitFuture<'d, C> {
+    type Output = ();
+
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let g = unsafe { &*pac::GPIOTE::ptr() };
+        CHANNEL_WAKERS[self.num].register(cx.waker());
+        if g.events_in[self.num].read().bits() != 0 {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+// 'static -> ?
+impl<'d, C: Channel + 'static, T: GpioPin> WaitForRisingEdge for InputChannel<'d, C, T, InputChannelPolarityLoToHi> {
+    type Future<'a> = InputChannelWaitFuture<'a, C>;
+    fn wait_for_rising_edge<'a>(&'a mut self) -> Self::Future<'a> {
+        self.wait()
+    }
+}
+
+impl<'d, C: Channel + 'static, T: GpioPin> WaitForFallingEdge for InputChannel<'d, C, T, InputChannelPolarityHiToLo> {
+    type Future<'a> = InputChannelWaitFuture<'a, C>;
+    fn wait_for_falling_edge<'a>(&'a mut self) -> Self::Future<'a> {
+        self.wait()
+    }
+}
+
+impl<'d, C: Channel + 'static, T: GpioPin> WaitForAnyEdge for InputChannel<'d, C, T, InputChannelPolarityToggle> {
+    type Future<'a> = InputChannelWaitFuture<'a, C>;
+    fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
+        self.wait()
+    }
+}
+
+
+impl<'d, C: Channel, T: GpioPin, P: InputChannelPolarity> Drop for InputChannel<'d, C, T, P> {
     fn drop(&mut self) {
         let g = unsafe { &*pac::GPIOTE::ptr() };
         let num = self.ch.number();
@@ -132,64 +239,7 @@ impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
     }
 }
 
-impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
-    pub fn new(
-        _init: Initialized,
-        ch: C,
-        pin: Input<'d, T>,
-        polarity: InputChannelPolarity,
-    ) -> Self {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
-        let num = ch.number();
-
-        g.config[num].write(|w| {
-            match polarity {
-                InputChannelPolarity::HiToLo => w.mode().event().polarity().hi_to_lo(),
-                InputChannelPolarity::LoToHi => w.mode().event().polarity().lo_to_hi(),
-                InputChannelPolarity::None => w.mode().event().polarity().none(),
-                InputChannelPolarity::Toggle => w.mode().event().polarity().toggle(),
-            };
-            #[cfg(any(feature = "52833", feature = "52840"))]
-            w.port().bit(match pin.pin.port() {
-                Port::Port0 => false,
-                Port::Port1 => true,
-            });
-            unsafe { w.psel().bits(pin.pin.pin()) }
-        });
-
-        g.events_in[num].reset();
-
-        InputChannel { ch, pin }
-    }
-
-    pub async fn wait(&self) {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
-        let num = self.ch.number();
-
-        // Enable interrupt
-        g.events_in[num].reset();
-        g.intenset.write(|w| unsafe { w.bits(1 << num) });
-
-        poll_fn(|cx| {
-            CHANNEL_WAKERS[num].register(cx.waker());
-
-            if g.events_in[num].read().bits() != 0 {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-    }
-
-    /// Returns the IN event, for use with PPI.
-    pub fn event_in(&self) -> Event {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
-        Event::from_reg(&g.events_in[self.ch.number()])
-    }
-}
-
-impl<'d, C: Channel, T: GpioPin> InputPin for InputChannel<'d, C, T> {
+impl<'d, C: Channel, T: GpioPin, P: InputChannelPolarity> InputPin for InputChannel<'d, C, T, P> {
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
@@ -366,6 +416,7 @@ impl<'a> Future for PortInputFuture<'a> {
         }
     }
 }
+
 
 mod sealed {
     pub trait Channel {}
