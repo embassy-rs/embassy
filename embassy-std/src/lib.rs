@@ -1,6 +1,7 @@
 use embassy::executor::{raw, Spawner};
 use embassy::time::TICKS_PER_SECOND;
 use embassy::time::{Alarm, Clock};
+use std::cell::UnsafeCell;
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -83,7 +84,7 @@ impl Signaler {
 }
 
 pub struct Executor {
-    inner: raw::Executor,
+    inner: UnsafeCell<raw::Executor>,
     not_send: PhantomData<*mut ()>,
     signaler: Signaler,
 }
@@ -96,7 +97,7 @@ impl Executor {
         }
 
         Self {
-            inner: raw::Executor::new(Signaler::signal, ptr::null_mut()),
+            inner: UnsafeCell::new(raw::Executor::new(Signaler::signal, ptr::null_mut())),
             not_send: PhantomData,
             signaler: Signaler::new(),
         }
@@ -105,15 +106,23 @@ impl Executor {
     /// Runs the executor.
     ///
     /// This function never returns.
-    pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
-        self.inner.set_signal_ctx(&self.signaler as *const _ as _);
-        self.inner.set_alarm(&StdAlarm);
-
-        init(unsafe { self.inner.spawner() });
+    pub fn run(&'static self, init: impl FnOnce(Spawner)) -> ! {
+        self.initialize(init);
 
         loop {
-            unsafe { self.inner.run_queued() };
+            self.run_until_idle();
             self.signaler.wait();
         }
+    }
+
+    pub fn initialize(&'static self, init: impl FnOnce(Spawner)) {
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.set_signal_ctx(&self.signaler as *const _ as _);
+        inner.set_alarm(&StdAlarm);
+        init(unsafe { inner.spawner() });
+    }
+
+    pub fn run_until_idle(&'static self) {
+        while !unsafe { (&mut *self.inner.get()).run_queued() } {}
     }
 }

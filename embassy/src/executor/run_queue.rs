@@ -68,4 +68,9 @@ impl RunQueue {
             task = next
         }
     }
+
+    pub(crate) unsafe fn is_empty(&self) -> bool {
+        let mut prev = self.head.load(Ordering::Acquire);
+        prev.is_null()
+    }
 }

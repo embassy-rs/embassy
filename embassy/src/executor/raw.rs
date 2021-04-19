@@ -191,7 +191,7 @@ impl Executor {
         self.enqueue(task as *const _ as _);
     }
 
-    pub unsafe fn run_queued(&'static self) {
+    pub unsafe fn run_queued(&'static self) -> bool {
         if self.alarm.is_some() {
             self.timer_queue.dequeue_expired(Instant::now(), |p| {
                 p.as_ref().enqueue();
@@ -226,6 +226,8 @@ impl Executor {
             alarm.set_callback(self.signal_fn, self.signal_ctx);
             alarm.set(next_expiration.as_ticks());
         }
+
+        self.run_queue.is_empty()
     }
 
     pub unsafe fn spawner(&'static self) -> super::Spawner {
