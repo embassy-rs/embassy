@@ -7,7 +7,6 @@ version = "0.1.0"
 [features]
 default = [
     "defmt-default",
-    "f429",
 ]
 defmt-default = []
 defmt-trace = []
@@ -16,29 +15,10 @@ defmt-info = []
 defmt-warn = []
 defmt-error = []
 
-f401 = ["embassy-stm32/f401"]
-f405 = ["embassy-stm32/f405"]
-f407 = ["embassy-stm32/f407"]
-f410 = ["embassy-stm32/f410"]
-f411 = ["embassy-stm32/f411"]
-f412 = ["embassy-stm32/f412"]
-f413 = ["embassy-stm32/f413"]
-f415 = ["embassy-stm32/f405"]
-f417 = ["embassy-stm32/f407"]
-f423 = ["embassy-stm32/f413"]
-f427 = ["embassy-stm32/f427"]
-f429 = ["embassy-stm32/f429"]
-f437 = ["embassy-stm32/f427"]
-f439 = ["embassy-stm32/f429"]
-f446 = ["embassy-stm32/f446"]
-f469 = ["embassy-stm32/f469"]
-f479 = ["embassy-stm32/f469"]
-
-
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy", features = ["defmt", "defmt-trace"] }
 embassy-traits = { version = "0.1.0", path = "../embassy-traits", features = ["defmt"] }
-embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32", features = ["defmt", "defmt-trace"]  }
+embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32", features = ["defmt", "defmt-trace", "stm32f429zi"]  }
 embassy-extras = {version = "0.1.0", path = "../embassy-extras" }
 stm32f4 = { version = "0.13", features = ["stm32f429", "rt"] }
 
