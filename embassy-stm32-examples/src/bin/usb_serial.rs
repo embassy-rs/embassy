@@ -92,7 +92,9 @@ async fn run1(bus: &'static mut UsbBusAllocator<UsbBus<USB>>) {
 
 static USB_BUS: Forever<UsbBusAllocator<UsbBus<USB>>> = Forever::new();
 
-#[embassy::main(use_hse = 25, sysclk = 48, require_pll48clk)]
+#[embassy::main(
+    config = "embassy_stm32::system::Config::new().use_hse(25).sysclk(48).require_pll48clk()"
+)]
 async fn main(spawner: Spawner) -> ! {
     static mut EP_MEMORY: [u32; 1024] = [0; 1024];
 

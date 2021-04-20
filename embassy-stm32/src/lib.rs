@@ -49,6 +49,12 @@ pub use {stm32f4xx_hal as hal, stm32f4xx_hal::stm32 as pac};
 #[cfg(any(feature = "stm32l0x1", feature = "stm32l0x2", feature = "stm32l0x3",))]
 pub use {stm32l0xx_hal as hal, stm32l0xx_hal::pac};
 
+#[cfg(any(feature = "stm32l0x1", feature = "stm32l0x2", feature = "stm32l0x3",))]
+mod l0;
+
+#[cfg(any(feature = "stm32l0x1", feature = "stm32l0x2", feature = "stm32l0x3",))]
+pub use l0::{rtc, system};
+
 pub mod fmt;
 
 pub mod exti;
@@ -90,26 +96,7 @@ pub mod can;
     feature = "stm32f469",
     feature = "stm32f479",
 ))]
-pub mod rtc;
-
-#[cfg(any(
-    feature = "stm32f401",
-    feature = "stm32f405",
-    feature = "stm32f407",
-    feature = "stm32f412",
-    feature = "stm32f413",
-    feature = "stm32f415",
-    feature = "stm32f417",
-    feature = "stm32f423",
-    feature = "stm32f427",
-    feature = "stm32f429",
-    feature = "stm32f437",
-    feature = "stm32f439",
-    feature = "stm32f446",
-    feature = "stm32f469",
-    feature = "stm32f479",
-))]
-pub use f4::{serial, spi};
+pub use f4::{rtc, serial, spi, system};
 
 #[cfg(any(
     feature = "stm32f401",
@@ -397,4 +384,41 @@ embassy_extras::std_peripherals! {
     NVIC_STIR,
     FPU_CPACR,
     SCB_ACTRL,
+}
+
+#[cfg(feature = "stm32l0x2")]
+embassy_extras::std_peripherals! {
+    SPI1,
+    SPI2,
+    USART1,
+    USART2,
+    USART4,
+    USART5,
+    I2C1,
+    I2C2,
+    I2C3,
+    RNG,
+    TIM2,
+    TIM3,
+    TIM6,
+    TIM7,
+    TIM21,
+    TIM22,
+    DAC,
+    RTC,
+    PWR,
+    CRC,
+    GPIOA,
+    GPIOB,
+    GPIOC,
+    GPIOD,
+    GPIOE,
+    GPIOH,
+    SYSCFG,
+    DMA1,
+    EXTI,
+    ADC,
+    IWDG,
+    WWDG,
+    DBG,
 }
