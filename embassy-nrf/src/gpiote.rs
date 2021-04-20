@@ -3,7 +3,7 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
-use embassy::traits::gpio::{WaitForHigh, WaitForLow};
+use embassy::traits::gpio::{WaitForAnyEdge, WaitForHigh, WaitForLow};
 use embassy::util::AtomicWaker;
 use embassy_extras::impl_unborrow;
 use embedded_hal::digital::v2::{InputPin, StatefulOutputPin};
@@ -333,6 +333,21 @@ impl<'d, T: GpioPin> WaitForLow for PortInput<'d, T> {
     fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
         self.pin.pin.conf().modify(|_, w| w.sense().low());
 
+        PortInputFuture {
+            pin_port: self.pin.pin.pin_port(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d, T: GpioPin> WaitForAnyEdge for PortInput<'d, T> {
+    type Future<'a> = PortInputFuture<'a>;
+    fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
+        if self.is_high().ok().unwrap() {
+            self.pin.pin.conf().modify(|_, w| w.sense().low());
+        } else {
+            self.pin.pin.conf().modify(|_, w| w.sense().high());
+        }
         PortInputFuture {
             pin_port: self.pin.pin.pin_port(),
             phantom: PhantomData,
