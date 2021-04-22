@@ -68,4 +68,8 @@ impl RunQueue {
             task = next
         }
     }
+
+    pub(crate) unsafe fn is_empty(&self) -> bool {
+        self.head.load(Ordering::Acquire).is_null()
+    }
 }
