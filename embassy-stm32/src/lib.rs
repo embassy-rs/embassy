@@ -28,6 +28,7 @@
 mod f4;
 
 #[cfg(any(
+    feature = "stm32f401",
     feature = "stm32f405",
     feature = "stm32f407",
     feature = "stm32f412",
@@ -54,7 +55,6 @@ pub mod exti;
 pub mod interrupt;
 
 #[cfg(any(
-    feature = "stm32f401",
     feature = "stm32f405",
     feature = "stm32f407",
     feature = "stm32f412",
