@@ -10,6 +10,7 @@ use example_common::*;
 
 use defmt::panic;
 use embassy;
+
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_stm32;
@@ -31,7 +32,7 @@ async fn run2() {
     }
 }
 
-#[embassy::main(use_hse = 16)]
+#[embassy::main(config = "embassy_stm32::system::Config::new().use_hse(16)")]
 async fn main(spawner: Spawner) {
     let (dp, clocks) = embassy_stm32::Peripherals::take().unwrap();
 

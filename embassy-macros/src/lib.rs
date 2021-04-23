@@ -212,13 +212,13 @@ mod chip;
 #[path = "chip/rp.rs"]
 mod chip;
 
-#[cfg(feature = "std")]
-mod chip {
-    #[derive(Debug, darling::FromMeta, Default)]
-    pub struct Args {
-        #[darling(default)]
-        pub embassy_prefix: crate::path::ModulePrefix,
-    }
+#[derive(Debug, FromMeta)]
+struct MainArgs {
+    #[darling(default)]
+    embassy_prefix: ModulePrefix,
+
+    #[darling(default)]
+    config: Option<syn::LitStr>,
 }
 
 #[cfg(any(feature = "nrf", feature = "stm32", feature = "rp"))]
@@ -227,7 +227,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let macro_args = syn::parse_macro_input!(args as syn::AttributeArgs);
     let task_fn = syn::parse_macro_input!(item as syn::ItemFn);
 
-    let macro_args = match chip::Args::from_list(&macro_args) {
+    let macro_args = match MainArgs::from_list(&macro_args) {
         Ok(v) => v,
         Err(e) => {
             return TokenStream::from(e.write_errors());
@@ -270,10 +270,21 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
         return TokenStream::new();
     }
 
-    let embassy_prefix_lit = macro_args.embassy_prefix.literal();
-    let embassy_path = macro_args.embassy_prefix.append("embassy").path();
-    let task_fn_body = task_fn.block.clone();
-    let chip_setup = chip::generate(&macro_args);
+    let embassy_prefix = macro_args.embassy_prefix;
+    let embassy_prefix_lit = embassy_prefix.literal();
+    let embassy_path = embassy_prefix.append("embassy").path();
+    let task_fn_body = task_fn.block;
+
+    let config = macro_args
+        .config
+        .map(|s| s.parse::<syn::Expr>().unwrap())
+        .unwrap_or_else(|| {
+            syn::Expr::Verbatim(quote! {
+                Default::default()
+            })
+        });
+
+    let chip_setup = chip::generate(&embassy_prefix, config);
 
     let result = quote! {
         #[#embassy_path::task(embassy_prefix = #embassy_prefix_lit)]
@@ -288,6 +299,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
             }
 
             let mut executor = #embassy_path::executor::Executor::new();
+
             let executor = unsafe { make_static(&mut executor) };
 
             #chip_setup
@@ -307,7 +319,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let macro_args = syn::parse_macro_input!(args as syn::AttributeArgs);
     let task_fn = syn::parse_macro_input!(item as syn::ItemFn);
 
-    let macro_args = match chip::Args::from_list(&macro_args) {
+    let macro_args = match MainArgs::from_list(&macro_args) {
         Ok(v) => v,
         Err(e) => {
             return TokenStream::from(e.write_errors());

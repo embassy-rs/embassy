@@ -22,7 +22,7 @@ use embassy_stm32::pac as stm32;
 use embassy_stm32::serial;
 use futures::pin_mut;
 
-#[embassy::main(use_hse = 16, sysclk = 48, pclk1 = 24)]
+#[embassy::main(config = "embassy_stm32::system::Config::new().use_hse(16).sysclk(48).pclk1(24)")]
 async fn main(spawner: Spawner) {
     let (dp, clocks) = embassy_stm32::Peripherals::take().unwrap();
     let cp = cortex_m::peripheral::Peripherals::take().unwrap();
