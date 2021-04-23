@@ -6,15 +6,19 @@
 #![feature(type_alias_impl_trait)]
 #![allow(incomplete_features)]
 
+// This must go FIRST so that all the other modules see its macros.
 pub mod fmt;
 
-mod chip;
-pub use chip::{peripherals, Peripherals};
+pub(crate) use stm32_metapac as pac;
 
+#[macro_use]
 pub mod exti;
+#[macro_use]
 pub mod gpio;
 //pub mod rtc;
 //pub mod interrupt;
 //pub mod usart;
 
-pub(crate) use stm32_metapac as pac;
+// This must go LAST so that it sees the `impl_foo!` macros
+mod chip;
+pub use chip::{peripherals, Peripherals};
