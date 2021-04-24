@@ -259,6 +259,9 @@ where
             let tx_stream = self.tx_stream.take().unwrap();
             let spi = self.spi.take().unwrap();
 
+            spi.cr2
+                .modify(|_, w| w.errie().set_bit().txeie().set_bit().rxneie().set_bit());
+
             //            let mut tx_transfer = Transfer::init(
             //                tx_stream,
             //                spi,
@@ -279,9 +282,24 @@ where
 
             for i in 0..(static_buf.len() - 1) {
                 let byte = static_buf[i];
-                nb::block!(write_sr(&spi, byte));
+                loop {
+                    let fut = InterruptFuture::new(&mut self.spi_int);
+                    match write_sr(&spi, byte) {
+                        Ok(()) => break,
+                        _ => {}
+                    }
+                    fut.await;
+                }
             }
 
+            spi.cr2.modify(|_, w| {
+                w.errie()
+                    .clear_bit()
+                    .txeie()
+                    .clear_bit()
+                    .rxneie()
+                    .clear_bit()
+            });
             self.tx_stream.replace(tx_stream);
             self.spi.replace(spi);
 
