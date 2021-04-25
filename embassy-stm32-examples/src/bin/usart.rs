@@ -10,9 +10,8 @@ mod example_common;
 use embassy::executor::Executor;
 use embassy::time::Clock;
 use embassy::util::Forever;
-use embassy_stm32::exti::{self, ExtiInput};
-use embassy_stm32::gpio::{Input, Pull};
-use embassy_traits::gpio::{WaitForFallingEdge, WaitForRisingEdge};
+use embassy_stm32::gpio::NoPin;
+use embassy_stm32::usart::{Config, Uart};
 use example_common::*;
 
 use cortex_m_rt::entry;
@@ -22,17 +21,11 @@ use stm32f4::stm32f429 as pac;
 #[embassy::task]
 async fn main_task() {
     let p = embassy_stm32::Peripherals::take().unwrap();
-    let button = Input::new(p.PC13, Pull::Down);
-    let mut button = ExtiInput::new(button, p.EXTI13);
 
-    info!("Press the USER button...");
+    let config = Config::default();
+    let usart = Uart::new(p.USART3, p.PD9, p.PD8, NoPin, NoPin, config);
 
-    loop {
-        button.wait_for_rising_edge().await;
-        info!("Pressed!");
-        button.wait_for_falling_edge().await;
-        info!("Released!");
-    }
+    // TODO make it actually do something
 }
 
 struct ZeroClock;
@@ -68,63 +61,16 @@ fn main() -> ! {
         w
     });
     pp.RCC.apb2enr.modify(|_, w| {
-        w.usart1en().enabled();
+        w.usart3en().enabled();
         w.syscfgen().enabled();
         w
     });
 
     unsafe { embassy::time::set_clock(&ZeroClock) };
 
-    unsafe {
-        NVIC::unmask(interrupt::EXTI0);
-        NVIC::unmask(interrupt::EXTI1);
-        NVIC::unmask(interrupt::EXTI2);
-        NVIC::unmask(interrupt::EXTI3);
-        NVIC::unmask(interrupt::EXTI4);
-        NVIC::unmask(interrupt::EXTI9_5);
-        NVIC::unmask(interrupt::EXTI15_10);
-    }
-
     let executor = EXECUTOR.put(Executor::new());
 
     executor.run(|spawner| {
         unwrap!(spawner.spawn(main_task()));
     })
-}
-
-// TODO for now irq handling is done by user code using the old pac, until we figure out how interrupts work in the metapac
-
-#[interrupt]
-unsafe fn EXTI0() {
-    exti::on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI1() {
-    exti::on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI2() {
-    exti::on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI3() {
-    exti::on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI4() {
-    exti::on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI9_5() {
-    exti::on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI15_10() {
-    exti::on_irq()
 }

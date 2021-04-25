@@ -11,6 +11,7 @@ abspath = os.path.abspath(__file__)
 dname = os.path.dirname(abspath)
 os.chdir(dname)
 
+# ======= load chips
 chips = {}
 for f in sorted(glob('stm32-data/data/chips/*.yaml')):
     if 'STM32F4' not in f:
@@ -20,6 +21,14 @@ for f in sorted(glob('stm32-data/data/chips/*.yaml')):
     chip['name'] = chip['name'].lower()
     print(chip['name'])
     chips[chip['name']] = chip
+
+# ======= load GPIO AF
+gpio_afs = {}
+for f in sorted(glob('stm32-data/data/gpio_af/*.yaml')):
+    name = f.split('/')[-1].split('.')[0]
+    with open(f, 'r') as f:
+        af = yaml.load(f, Loader=yaml.SafeLoader)
+    gpio_afs[name] = af
 
 # ========= Update chip/mod.rs
 
@@ -49,6 +58,7 @@ with open('Cargo.toml', 'w') as f:
 
 for chip in chips.values():
     print(f'generating {chip["name"]}')
+    af = gpio_afs[chip['gpio_af']]
     peripherals = []
     impls = []
     pins = set()
@@ -71,12 +81,29 @@ for chip in chips.values():
                 pin = f'P{port}{pin_num}'
                 pins.add(pin)
                 peripherals.append(pin)
-                impls.append(
-                    f'impl_gpio_pin!({pin}, {port_num}, {pin_num}, EXTI{pin_num});')
+                impls.append(f'impl_gpio_pin!({pin}, {port_num}, {pin_num}, EXTI{pin_num});')
             continue
 
         # TODO maybe we should only autogenerate the known ones...??
         peripherals.append(name)
+
+        if 'block' not in peri:
+            continue
+
+        if peri['block'] == 'usart_v1/USART':
+            impls.append(f'impl_usart!({name}, 0x{peri["address"]:x});')
+            for pin, funcs in af.items():
+                if pin in pins:
+                    if func := funcs.get(f'{name}_RX'):
+                        impls.append(f'impl_usart_pin!({name}, RxPin, {pin}, {func});')
+                    if func := funcs.get(f'{name}_TX'):
+                        impls.append(f'impl_usart_pin!({name}, TxPin, {pin}, {func});')
+                    if func := funcs.get(f'{name}_CTS'):
+                        impls.append(f'impl_usart_pin!({name}, CtsPin, {pin}, {func});')
+                    if func := funcs.get(f'{name}_RTS'):
+                        impls.append(f'impl_usart_pin!({name}, RtsPin, {pin}, {func});')
+                    if func := funcs.get(f'{name}_CK'):
+                        impls.append(f'impl_usart_pin!({name}, CkPin, {pin}, {func});')
 
     with open(f'src/chip/{chip["name"]}.rs', 'w') as f:
         # TODO uart etc

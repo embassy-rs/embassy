@@ -1,15 +1,11 @@
+use core::marker::PhantomData;
+
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 
+use crate::gpio::{NoPin, Pin};
 use crate::pac::usart_v1::{regs, vals, Usart};
 use crate::peripherals;
-
-mod sealed {
-    use super::*;
-    pub trait Instance {
-        fn regs(&self) -> Usart;
-    }
-}
 
 #[non_exhaustive]
 pub struct Config {
@@ -36,30 +32,88 @@ pub struct Uart<'d, T: Instance> {
 impl<'d, T: Instance> Uart<'d, T> {
     pub fn new(
         inner: impl Unborrow<Target = T>,
-        tx: impl Unborrow<Target = impl TxPin<T>>,
         rx: impl Unborrow<Target = impl RxPin<T>>,
+        tx: impl Unborrow<Target = impl TxPin<T>>,
         cts: impl Unborrow<Target = impl CtsPin<T>>,
         rts: impl Unborrow<Target = impl RtsPin<T>>,
         config: Config,
     ) -> Self {
-        unborrow!(inner, tx, rx, cts, rts);
+        unborrow!(inner, rx, tx, cts, rts);
+
+        Self {
+            inner,
+            phantom: PhantomData,
+        }
     }
 }
 
-pub trait Instance: sealed::Instance {}
+pub(crate) mod sealed {
+    use crate::gpio::{OptionalPin, Pin};
 
-macro_rules! impl_instance {
-    ($type:ident, $addr:expr) => {
-        impl sealed::Instance for peripherals::$type {
-            fn regs(&self) -> Usart {
-                Usart($addr as _)
+    use super::*;
+    pub trait Instance {
+        fn regs(&self) -> Usart;
+    }
+    pub trait RxPin<T: Instance>: OptionalPin {
+        const AF_NUM: u8;
+    }
+    pub trait TxPin<T: Instance>: OptionalPin {
+        const AF_NUM: u8;
+    }
+    pub trait CtsPin<T: Instance>: OptionalPin {
+        const AF_NUM: u8;
+    }
+    pub trait RtsPin<T: Instance>: OptionalPin {
+        const AF_NUM: u8;
+    }
+    pub trait CkPin<T: Instance>: OptionalPin {
+        const AF_NUM: u8;
+    }
+}
+pub trait Instance: sealed::Instance {}
+pub trait RxPin<T: Instance>: sealed::RxPin<T> {}
+pub trait TxPin<T: Instance>: sealed::TxPin<T> {}
+pub trait CtsPin<T: Instance>: sealed::CtsPin<T> {}
+pub trait RtsPin<T: Instance>: sealed::RtsPin<T> {}
+pub trait CkPin<T: Instance>: sealed::CkPin<T> {}
+
+impl<T: Instance> sealed::RxPin<T> for NoPin {
+    const AF_NUM: u8 = 0;
+}
+impl<T: Instance> RxPin<T> for NoPin {}
+impl<T: Instance> sealed::TxPin<T> for NoPin {
+    const AF_NUM: u8 = 0;
+}
+impl<T: Instance> TxPin<T> for NoPin {}
+impl<T: Instance> sealed::CtsPin<T> for NoPin {
+    const AF_NUM: u8 = 0;
+}
+impl<T: Instance> CtsPin<T> for NoPin {}
+impl<T: Instance> sealed::RtsPin<T> for NoPin {
+    const AF_NUM: u8 = 0;
+}
+impl<T: Instance> RtsPin<T> for NoPin {}
+impl<T: Instance> sealed::CkPin<T> for NoPin {
+    const AF_NUM: u8 = 0;
+}
+impl<T: Instance> CkPin<T> for NoPin {}
+
+macro_rules! impl_usart {
+    ($inst:ident, $addr:expr) => {
+        impl crate::usart::sealed::Instance for peripherals::$inst {
+            fn regs(&self) -> crate::pac::usart_v1::Usart {
+                crate::pac::usart_v1::Usart($addr as _)
             }
         }
-        impl Instance for peripherals::$type {}
+        impl crate::usart::Instance for peripherals::$inst {}
     };
 }
 
-impl_instance!(USART1, 0x40011000);
-impl_instance!(USART2, 0x40004400);
-impl_instance!(USART3, 0x40004800);
-impl_instance!(USART6, 0x40011400);
+macro_rules! impl_usart_pin {
+    ($inst:ident, $func:ident, $pin:ident, $num:expr) => {
+        impl crate::usart::sealed::$func<peripherals::$inst> for peripherals::$pin {
+            const AF_NUM: u8 = $num;
+        }
+        impl crate::usart::$func<peripherals::$inst> for peripherals::$pin {}
+    };
+}

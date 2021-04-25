@@ -17,7 +17,8 @@ pub mod exti;
 pub mod gpio;
 //pub mod rtc;
 //pub mod interrupt;
-//pub mod usart;
+#[macro_use]
+pub mod usart;
 
 // This must go LAST so that it sees the `impl_foo!` macros
 mod chip;
