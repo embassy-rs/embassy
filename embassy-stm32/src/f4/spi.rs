@@ -283,12 +283,11 @@ where
             for i in 0..(static_buf.len() - 1) {
                 let byte = static_buf[i];
                 loop {
-                    let fut = InterruptFuture::new(&mut self.spi_int);
                     match write_sr(&spi, byte) {
                         Ok(()) => break,
                         _ => {}
                     }
-                    fut.await;
+                    InterruptFuture::new(&mut self.spi_int).await;
                 }
             }
 
