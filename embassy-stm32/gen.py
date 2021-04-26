@@ -14,7 +14,7 @@ os.chdir(dname)
 # ======= load chips
 chips = {}
 for f in sorted(glob('stm32-data/data/chips/*.yaml')):
-    if 'STM32F4' not in f:
+    if 'STM32F4' not in f and 'STM32L4' not in f:
         continue
     with open(f, 'r') as f:
         chip = yaml.load(f, Loader=yaml.SafeLoader)
@@ -104,6 +104,9 @@ for chip in chips.values():
                         impls.append(f'impl_usart_pin!({name}, RtsPin, {pin}, {func});')
                     if func := funcs.get(f'{name}_CK'):
                         impls.append(f'impl_usart_pin!({name}, CkPin, {pin}, {func});')
+
+        if peri['block'] == 'rng_v1/RNG':
+            impls.append(f'impl_rng!(0x{peri["address"]:x});')
 
     with open(f'src/chip/{chip["name"]}.rs', 'w') as f:
         # TODO uart etc
