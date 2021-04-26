@@ -160,6 +160,7 @@ impl_gpio_pin!(PI12, 8, 12, EXTI12);
 impl_gpio_pin!(PI13, 8, 13, EXTI13);
 impl_gpio_pin!(PI14, 8, 14, EXTI14);
 impl_gpio_pin!(PI15, 8, 15, EXTI15);
+impl_rng!(0x50060800);
 impl_usart!(USART1, 0x40011000);
 impl_usart_pin!(USART1, RxPin, PA10, 7);
 impl_usart_pin!(USART1, CtsPin, PA11, 7);

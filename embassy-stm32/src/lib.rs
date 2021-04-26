@@ -20,6 +20,9 @@ pub mod gpio;
 #[macro_use]
 pub mod usart;
 
+#[macro_use]
+pub mod rng;
+
 // This must go LAST so that it sees the `impl_foo!` macros
 mod chip;
 pub use chip::{peripherals, Peripherals};
