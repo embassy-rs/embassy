@@ -26,7 +26,7 @@ static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 const RNG: pac::rng_v1::Rng = pac::rng_v1::Rng( <peripherals::RNG as sealed::Instance>::ADDR as _);
 
 pub unsafe fn on_irq() {
-    if is_ready() {
+    if is_ready() || is_seed_error() || is_clock_error() {
         RNG_WAKER.wake();
     }
 }
