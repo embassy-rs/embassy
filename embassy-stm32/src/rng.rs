@@ -4,14 +4,14 @@ use embassy::util::{Unborrow, AtomicWaker};
 use embassy_extras::unborrow;
 
 pub struct Random<T: Instance> {
-    inner: T,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> Random<T> {
     pub fn new(inner: impl Unborrow<Target=T>) -> Self {
         unborrow!(inner);
         Self {
-            inner,
+            _marker: PhantomData
         }
     }
 }
@@ -23,50 +23,44 @@ use core::task::{Context, Poll};
 use core::pin::Pin;
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
-const RNG: pac::rng_v1::Rng = pac::rng_v1::Rng( <peripherals::RNG as sealed::Instance>::ADDR as _);
 
-pub unsafe fn on_irq() {
-    if is_ready() || is_seed_error() || is_clock_error() {
+pub unsafe fn on_irq<T:Instance>() {
+    let bits = T::regs().sr().read();
+    if bits.drdy() || bits.seis() || bits.ceis() {
+        T::regs().cr().write( |reg| reg.set_ie(false));
         RNG_WAKER.wake();
     }
 }
 
-unsafe fn is_ready() -> bool {
-    RNG.sr().read().drdy()
+struct RngInterruptFuture<T:Instance> {
+    _marker: PhantomData<T>,
 }
 
-unsafe fn is_seed_error() -> bool {
-    RNG.sr().read().seis()
-}
-
-unsafe fn is_clock_error() -> bool {
-    RNG.sr().read().ceis()
-}
-
-struct RngInterruptFuture {
-
-}
-
-impl Future for RngInterruptFuture {
+impl<T:Instance> Future for RngInterruptFuture<T> {
     type Output = Result<(),Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        RNG_WAKER.register(cx.waker());
-        if unsafe{ is_ready() } {
+        let bits = unsafe { T::regs().sr().read() };
+
+        if bits.drdy() {
             Poll::Ready(Ok(()))
-        } else if unsafe { is_seed_error() } {
+        } else if bits.seis() {
             Poll::Ready(Err(Error::SeedError))
-        } else if unsafe { is_clock_error() } {
+        } else if bits.ceis() {
             Poll::Ready(Err(Error::ClockError))
         } else {
+            RNG_WAKER.register(cx.waker());
+            unsafe { T::regs().cr().write( |reg| reg.set_ie(true)) };
             Poll::Pending
         }
     }
 }
 
-impl RngInterruptFuture {
-    async fn entropy_filled() -> Result<(), Error> {
-        RngInterruptFuture { }.await
+impl<T:Instance> RngInterruptFuture<T> {
+    async fn new() -> Result<(), Error> {
+        Self {
+            _marker: PhantomData
+        }.await
     }
 }
 
@@ -82,8 +76,8 @@ impl<T:Instance> RngTrait for Random<T> {
     fn fill<'a>(&'a mut self, dest: &'a mut [u8]) -> Self::RngFuture<'a> {
         async move {
             for chunk in dest.chunks_mut(4) {
-                RngInterruptFuture::entropy_filled().await?;
-                let random_bytes = unsafe { self.inner.regs().dr().read() }.to_be_bytes();
+                RngInterruptFuture::<T>::new().await?;
+                let random_bytes = unsafe { T::regs().dr().read() }.to_be_bytes();
                 for ( dest, src ) in chunk.iter_mut().zip(random_bytes.iter()) {
                     *dest = *src
                 }
@@ -97,8 +91,7 @@ pub(crate) mod sealed {
     use super::*;
 
     pub trait Instance {
-        const ADDR: u32;
-        fn regs(&self) -> Rng;
+        fn regs() -> Rng;
     }
 }
 
@@ -107,8 +100,7 @@ pub trait Instance: sealed::Instance {}
 macro_rules! impl_rng {
     ($addr:expr) => {
         impl crate::rng::sealed::Instance for peripherals::RNG {
-            const ADDR: u32 = $addr;
-            fn regs(&self) -> crate::pac::rng_v1::Rng {
+            fn regs() -> crate::pac::rng_v1::Rng {
                 crate::pac::rng_v1::Rng($addr as _)
             }
         }
