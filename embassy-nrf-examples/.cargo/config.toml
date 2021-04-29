@@ -1,13 +1,11 @@
-# [unstable]
-# build-std = ["core"]
-# build-std-features = ["panic_immediate_abort"]
+[unstable]
+build-std = ["core"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-run --chip nRF52832_xxAB" # xxAA: 512 Flash/64 RAM
+runner = "probe-run --chip nRF52832_xxAA"
 
 rustflags = [
   # LLD (shipped with the Rust toolchain) is used as the default linker
-  "-C", "linker=flip-link",
   "-C", "link-arg=--nmagic",
   "-C", "link-arg=-Tlink.x",
   "-C", "link-arg=-Tdefmt.x",
@@ -19,4 +17,4 @@ rustflags = [
 ]
 
 [build]
-target = "thumbv7em-none-eabihf"
+target = "thumbv7em-none-eabi"
