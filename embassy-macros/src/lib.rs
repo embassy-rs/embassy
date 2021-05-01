@@ -131,10 +131,10 @@ pub fn interrupt_declare(item: TokenStream) -> TokenStream {
         #[allow(non_camel_case_types)]
         pub struct #name_interrupt(());
         unsafe impl Interrupt for #name_interrupt {
-            type Priority = crate::interrupt::Priority;
+            type Priority = Priority;
             fn number(&self) -> u16 {
                 use cortex_m::interrupt::InterruptNumber;
-                let irq = crate::pac::Interrupt::#name;
+                let irq = InterruptEnum::#name;
                 irq.number() as u16
             }
             unsafe fn steal() -> Self {
