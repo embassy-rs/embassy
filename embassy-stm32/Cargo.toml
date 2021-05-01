@@ -11,11 +11,14 @@ embassy-extras = {version = "0.1.0", path = "../embassy-extras" }
 
 defmt = { version = "0.2.0", optional = true }
 log = { version = "0.4.11", optional = true }
-cortex-m-rt = "0.6.13"
+cortex-m-rt = { version = "0.6.13", features = ["device"] }
 cortex-m = "0.7.1"
 embedded-hal    = { version = "0.2.4" }
 futures = { version = "0.3.5", default-features = false, features = ["async-await"] }
 stm32-metapac = { path = "../../stm32-metapac"}
+
+[build-dependencies]
+regex = "1.4.6"
 
 [features]
 defmt-trace = [ ]

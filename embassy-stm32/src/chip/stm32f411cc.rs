@@ -12,6 +12,339 @@ peripherals!(
 );
 pub const GPIO_BASE: usize = 0x40020000;
 pub const GPIO_STRIDE: usize = 0x400;
+
+pub mod interrupt {
+    pub use cortex_m::interrupt::{CriticalSection, Mutex};
+    pub use embassy::interrupt::{declare, take, Interrupt};
+    pub use embassy_extras::interrupt::Priority4 as Priority;
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[allow(non_camel_case_types)]
+    enum InterruptEnum {
+        ADC = 18,
+        DMA1_Stream0 = 11,
+        DMA1_Stream1 = 12,
+        DMA1_Stream2 = 13,
+        DMA1_Stream3 = 14,
+        DMA1_Stream4 = 15,
+        DMA1_Stream5 = 16,
+        DMA1_Stream6 = 17,
+        DMA1_Stream7 = 47,
+        DMA2_Stream0 = 56,
+        DMA2_Stream1 = 57,
+        DMA2_Stream2 = 58,
+        DMA2_Stream3 = 59,
+        DMA2_Stream4 = 60,
+        DMA2_Stream5 = 68,
+        DMA2_Stream6 = 69,
+        DMA2_Stream7 = 70,
+        EXTI0 = 6,
+        EXTI1 = 7,
+        EXTI15_10 = 40,
+        EXTI2 = 8,
+        EXTI3 = 9,
+        EXTI4 = 10,
+        EXTI9_5 = 23,
+        FLASH = 4,
+        FPU = 81,
+        I2C1_ER = 32,
+        I2C1_EV = 31,
+        I2C2_ER = 34,
+        I2C2_EV = 33,
+        I2C3_ER = 73,
+        I2C3_EV = 72,
+        OTG_FS = 67,
+        OTG_FS_WKUP = 42,
+        PVD = 1,
+        RCC = 5,
+        RTC_Alarm = 41,
+        RTC_WKUP = 3,
+        SDIO = 49,
+        SPI1 = 35,
+        SPI2 = 36,
+        SPI3 = 51,
+        SPI4 = 84,
+        SPI5 = 85,
+        TAMP_STAMP = 2,
+        TIM1_BRK_TIM9 = 24,
+        TIM1_CC = 27,
+        TIM1_TRG_COM_TIM11 = 26,
+        TIM1_UP_TIM10 = 25,
+        TIM2 = 28,
+        TIM3 = 29,
+        TIM4 = 30,
+        TIM5 = 50,
+        USART1 = 37,
+        USART2 = 38,
+        USART6 = 71,
+        WWDG = 0,
+    }
+    unsafe impl cortex_m::interrupt::InterruptNumber for InterruptEnum {
+        #[inline(always)]
+        fn number(self) -> u16 {
+            self as u16
+        }
+    }
+
+    declare!(ADC);
+    declare!(DMA1_Stream0);
+    declare!(DMA1_Stream1);
+    declare!(DMA1_Stream2);
+    declare!(DMA1_Stream3);
+    declare!(DMA1_Stream4);
+    declare!(DMA1_Stream5);
+    declare!(DMA1_Stream6);
+    declare!(DMA1_Stream7);
+    declare!(DMA2_Stream0);
+    declare!(DMA2_Stream1);
+    declare!(DMA2_Stream2);
+    declare!(DMA2_Stream3);
+    declare!(DMA2_Stream4);
+    declare!(DMA2_Stream5);
+    declare!(DMA2_Stream6);
+    declare!(DMA2_Stream7);
+    declare!(EXTI0);
+    declare!(EXTI1);
+    declare!(EXTI15_10);
+    declare!(EXTI2);
+    declare!(EXTI3);
+    declare!(EXTI4);
+    declare!(EXTI9_5);
+    declare!(FLASH);
+    declare!(FPU);
+    declare!(I2C1_ER);
+    declare!(I2C1_EV);
+    declare!(I2C2_ER);
+    declare!(I2C2_EV);
+    declare!(I2C3_ER);
+    declare!(I2C3_EV);
+    declare!(OTG_FS);
+    declare!(OTG_FS_WKUP);
+    declare!(PVD);
+    declare!(RCC);
+    declare!(RTC_Alarm);
+    declare!(RTC_WKUP);
+    declare!(SDIO);
+    declare!(SPI1);
+    declare!(SPI2);
+    declare!(SPI3);
+    declare!(SPI4);
+    declare!(SPI5);
+    declare!(TAMP_STAMP);
+    declare!(TIM1_BRK_TIM9);
+    declare!(TIM1_CC);
+    declare!(TIM1_TRG_COM_TIM11);
+    declare!(TIM1_UP_TIM10);
+    declare!(TIM2);
+    declare!(TIM3);
+    declare!(TIM4);
+    declare!(TIM5);
+    declare!(USART1);
+    declare!(USART2);
+    declare!(USART6);
+    declare!(WWDG);
+}
+mod interrupt_vector {
+    extern "C" {
+        fn ADC();
+        fn DMA1_Stream0();
+        fn DMA1_Stream1();
+        fn DMA1_Stream2();
+        fn DMA1_Stream3();
+        fn DMA1_Stream4();
+        fn DMA1_Stream5();
+        fn DMA1_Stream6();
+        fn DMA1_Stream7();
+        fn DMA2_Stream0();
+        fn DMA2_Stream1();
+        fn DMA2_Stream2();
+        fn DMA2_Stream3();
+        fn DMA2_Stream4();
+        fn DMA2_Stream5();
+        fn DMA2_Stream6();
+        fn DMA2_Stream7();
+        fn EXTI0();
+        fn EXTI1();
+        fn EXTI15_10();
+        fn EXTI2();
+        fn EXTI3();
+        fn EXTI4();
+        fn EXTI9_5();
+        fn FLASH();
+        fn FPU();
+        fn I2C1_ER();
+        fn I2C1_EV();
+        fn I2C2_ER();
+        fn I2C2_EV();
+        fn I2C3_ER();
+        fn I2C3_EV();
+        fn OTG_FS();
+        fn OTG_FS_WKUP();
+        fn PVD();
+        fn RCC();
+        fn RTC_Alarm();
+        fn RTC_WKUP();
+        fn SDIO();
+        fn SPI1();
+        fn SPI2();
+        fn SPI3();
+        fn SPI4();
+        fn SPI5();
+        fn TAMP_STAMP();
+        fn TIM1_BRK_TIM9();
+        fn TIM1_CC();
+        fn TIM1_TRG_COM_TIM11();
+        fn TIM1_UP_TIM10();
+        fn TIM2();
+        fn TIM3();
+        fn TIM4();
+        fn TIM5();
+        fn USART1();
+        fn USART2();
+        fn USART6();
+        fn WWDG();
+    }
+    pub union Vector {
+        _handler: unsafe extern "C" fn(),
+        _reserved: u32,
+    }
+    #[link_section = ".vector_table.interrupts"]
+    #[no_mangle]
+    pub static __INTERRUPTS: [Vector; 86] = [
+        Vector { _handler: WWDG },
+        Vector { _handler: PVD },
+        Vector {
+            _handler: TAMP_STAMP,
+        },
+        Vector { _handler: RTC_WKUP },
+        Vector { _handler: FLASH },
+        Vector { _handler: RCC },
+        Vector { _handler: EXTI0 },
+        Vector { _handler: EXTI1 },
+        Vector { _handler: EXTI2 },
+        Vector { _handler: EXTI3 },
+        Vector { _handler: EXTI4 },
+        Vector {
+            _handler: DMA1_Stream0,
+        },
+        Vector {
+            _handler: DMA1_Stream1,
+        },
+        Vector {
+            _handler: DMA1_Stream2,
+        },
+        Vector {
+            _handler: DMA1_Stream3,
+        },
+        Vector {
+            _handler: DMA1_Stream4,
+        },
+        Vector {
+            _handler: DMA1_Stream5,
+        },
+        Vector {
+            _handler: DMA1_Stream6,
+        },
+        Vector { _handler: ADC },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _handler: EXTI9_5 },
+        Vector {
+            _handler: TIM1_BRK_TIM9,
+        },
+        Vector {
+            _handler: TIM1_UP_TIM10,
+        },
+        Vector {
+            _handler: TIM1_TRG_COM_TIM11,
+        },
+        Vector { _handler: TIM1_CC },
+        Vector { _handler: TIM2 },
+        Vector { _handler: TIM3 },
+        Vector { _handler: TIM4 },
+        Vector { _handler: I2C1_EV },
+        Vector { _handler: I2C1_ER },
+        Vector { _handler: I2C2_EV },
+        Vector { _handler: I2C2_ER },
+        Vector { _handler: SPI1 },
+        Vector { _handler: SPI2 },
+        Vector { _handler: USART1 },
+        Vector { _handler: USART2 },
+        Vector { _reserved: 0 },
+        Vector {
+            _handler: EXTI15_10,
+        },
+        Vector {
+            _handler: RTC_Alarm,
+        },
+        Vector {
+            _handler: OTG_FS_WKUP,
+        },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector {
+            _handler: DMA1_Stream7,
+        },
+        Vector { _reserved: 0 },
+        Vector { _handler: SDIO },
+        Vector { _handler: TIM5 },
+        Vector { _handler: SPI3 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector {
+            _handler: DMA2_Stream0,
+        },
+        Vector {
+            _handler: DMA2_Stream1,
+        },
+        Vector {
+            _handler: DMA2_Stream2,
+        },
+        Vector {
+            _handler: DMA2_Stream3,
+        },
+        Vector {
+            _handler: DMA2_Stream4,
+        },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _handler: OTG_FS },
+        Vector {
+            _handler: DMA2_Stream5,
+        },
+        Vector {
+            _handler: DMA2_Stream6,
+        },
+        Vector {
+            _handler: DMA2_Stream7,
+        },
+        Vector { _handler: USART6 },
+        Vector { _handler: I2C3_EV },
+        Vector { _handler: I2C3_ER },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _handler: FPU },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _handler: SPI4 },
+        Vector { _handler: SPI5 },
+    ];
+}
 impl_gpio_pin!(PA0, 0, 0, EXTI0);
 impl_gpio_pin!(PA1, 0, 1, EXTI1);
 impl_gpio_pin!(PA2, 0, 2, EXTI2);

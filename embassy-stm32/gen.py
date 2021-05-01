@@ -90,7 +90,7 @@ for chip in chips.values():
         if 'block' not in peri:
             continue
 
-        if peri['block'] == 'usart_v1/USART':
+        if peri['block'] in ('usart_v1/USART', 'usart_v1/UART'):
             impls.append(f'impl_usart!({name}, 0x{peri["address"]:x});')
             for pin, funcs in af.items():
                 if pin in pins:
@@ -108,22 +108,66 @@ for chip in chips.values():
         if peri['block'] == 'rng_v1/RNG':
             impls.append(f'impl_rng!(0x{peri["address"]:x});')
 
-    with open(f'src/chip/{chip["name"]}.rs', 'w') as f:
-        # TODO uart etc
-        # TODO import the right GPIO AF map mod
-        # TODO impl traits for the periperals
+    irq_variants = []
+    irq_vectors = []
+    irq_fns = []
+    irq_declares = []
 
+    irqs = {num: name for name, num in chip['interrupts'].items()}
+    irq_count = max(irqs.keys()) + 1
+    for num, name in irqs.items():
+        irq_variants.append(f'{name} = {num},')
+        irq_fns.append(f'fn {name}();')
+        irq_declares.append(f'declare!({name});')
+    for num in range(irq_count):
+        if name := irqs.get(num):
+            irq_vectors.append(f'Vector {{ _handler: {name} }},')
+        else:
+            irq_vectors.append(f'Vector {{ _reserved: 0 }},')
+
+    with open(f'src/chip/{chip["name"]}.rs', 'w') as f:
         f.write(f"""
-        use embassy_extras::peripherals;
-        peripherals!({','.join(peripherals)});
-        pub const GPIO_BASE: usize = 0x{gpio_base:x};
-        pub const GPIO_STRIDE: usize = 0x{gpio_stride:x};
+            use embassy_extras::peripherals;
+            peripherals!({','.join(peripherals)});
+            pub const GPIO_BASE: usize = 0x{gpio_base:x};
+            pub const GPIO_STRIDE: usize = 0x{gpio_stride:x};
+
+            pub mod interrupt {{
+                pub use cortex_m::interrupt::{{CriticalSection, Mutex}};
+                pub use embassy::interrupt::{{declare, take, Interrupt}};
+                pub use embassy_extras::interrupt::Priority4 as Priority;
+
+                #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+                #[allow(non_camel_case_types)]
+                enum InterruptEnum {{
+                    {''.join(irq_variants)}
+                }}
+                unsafe impl cortex_m::interrupt::InterruptNumber for InterruptEnum {{
+                    #[inline(always)]
+                    fn number(self) -> u16 {{
+                        self as u16
+                    }}
+                }}
+
+                {''.join(irq_declares)}
+            }}
+            mod interrupt_vector {{
+                extern "C" {{
+                    {''.join(irq_fns)} 
+                }}
+                pub union Vector {{
+                    _handler: unsafe extern "C" fn(),
+                    _reserved: u32,
+                }}
+                #[link_section = ".vector_table.interrupts"]
+                #[no_mangle]
+                pub static __INTERRUPTS: [Vector; {irq_count}] = [
+                    {''.join(irq_vectors)}
+                ];
+            }}
         """)
         for i in impls:
             f.write(i)
-
-
-# TODO generate GPIO AF map mods
 
 
 # format

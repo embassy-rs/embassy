@@ -15,12 +15,11 @@ use embassy_stm32::usart::{Config, Uart};
 use example_common::*;
 
 use cortex_m_rt::entry;
-use pac::{interrupt, NVIC};
 use stm32f4::stm32f429 as pac;
 
 #[embassy::task]
 async fn main_task() {
-    let p = embassy_stm32::Peripherals::take().unwrap();
+    let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
     let usart = Uart::new(p.USART3, p.PD9, p.PD8, NoPin, NoPin, config);
@@ -61,8 +60,11 @@ fn main() -> ! {
         w
     });
     pp.RCC.apb2enr.modify(|_, w| {
-        w.usart3en().enabled();
         w.syscfgen().enabled();
+        w
+    });
+    pp.RCC.apb1enr.modify(|_, w| {
+        w.usart3en().enabled();
         w
     });
 

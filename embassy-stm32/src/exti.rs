@@ -7,11 +7,11 @@ use embassy::traits::gpio::{WaitForAnyEdge, WaitForFallingEdge, WaitForRisingEdg
 use embassy::util::{AtomicWaker, Unborrow};
 use embassy_extras::impl_unborrow;
 use embedded_hal::digital::v2::InputPin;
-use futures::future::Select;
 use pac::exti::{regs, vals};
 
 use crate::fmt::*;
 use crate::gpio::{AnyPin, Input, Pin as GpioPin};
+use crate::interrupt;
 use crate::pac;
 use crate::peripherals;
 
@@ -23,7 +23,41 @@ const EXTI_COUNT: usize = 16;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [NEW_AW; EXTI_COUNT];
 
-// TODO for now delegate irq handling to user code until we figure out how interrupts work in the metapac
+#[interrupt]
+unsafe fn EXTI0() {
+    on_irq()
+}
+
+#[interrupt]
+unsafe fn EXTI1() {
+    on_irq()
+}
+
+#[interrupt]
+unsafe fn EXTI2() {
+    on_irq()
+}
+
+#[interrupt]
+unsafe fn EXTI3() {
+    on_irq()
+}
+
+#[interrupt]
+unsafe fn EXTI4() {
+    on_irq()
+}
+
+#[interrupt]
+unsafe fn EXTI9_5() {
+    on_irq()
+}
+
+#[interrupt]
+unsafe fn EXTI15_10() {
+    on_irq()
+}
+
 pub unsafe fn on_irq() {
     let bits = EXTI.pr().read().0;
 

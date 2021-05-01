@@ -37,7 +37,8 @@ fn main() -> ! {
         w
     });
 
-    let p = embassy_stm32::Peripherals::take().unwrap();
+    let p = embassy_stm32::init(Default::default());
+
     let mut led = Output::new(p.PB7, Level::High);
 
     loop {

@@ -16,12 +16,12 @@ use embassy_traits::gpio::{WaitForFallingEdge, WaitForRisingEdge};
 use example_common::*;
 
 use cortex_m_rt::entry;
-use pac::{interrupt, NVIC};
 use stm32f4::stm32f429 as pac;
 
 #[embassy::task]
 async fn main_task() {
-    let p = embassy_stm32::Peripherals::take().unwrap();
+    let p = embassy_stm32::init(Default::default());
+
     let button = Input::new(p.PC13, Pull::Down);
     let mut button = ExtiInput::new(button, p.EXTI13);
 
@@ -74,56 +74,9 @@ fn main() -> ! {
 
     unsafe { embassy::time::set_clock(&ZeroClock) };
 
-    unsafe {
-        NVIC::unmask(interrupt::EXTI0);
-        NVIC::unmask(interrupt::EXTI1);
-        NVIC::unmask(interrupt::EXTI2);
-        NVIC::unmask(interrupt::EXTI3);
-        NVIC::unmask(interrupt::EXTI4);
-        NVIC::unmask(interrupt::EXTI9_5);
-        NVIC::unmask(interrupt::EXTI15_10);
-    }
-
     let executor = EXECUTOR.put(Executor::new());
 
     executor.run(|spawner| {
         unwrap!(spawner.spawn(main_task()));
     })
-}
-
-// TODO for now irq handling is done by user code using the old pac, until we figure out how interrupts work in the metapac
-
-#[interrupt]
-unsafe fn EXTI0() {
-    exti::on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI1() {
-    exti::on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI2() {
-    exti::on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI3() {
-    exti::on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI4() {
-    exti::on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI9_5() {
-    exti::on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI15_10() {
-    exti::on_irq()
 }

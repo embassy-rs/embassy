@@ -9,6 +9,7 @@
 // This must go FIRST so that all the other modules see its macros.
 pub mod fmt;
 
+use embassy::interrupt::{Interrupt, InterruptExt};
 pub(crate) use stm32_metapac as pac;
 
 #[macro_use]
@@ -16,7 +17,6 @@ pub mod exti;
 #[macro_use]
 pub mod gpio;
 //pub mod rtc;
-//pub mod interrupt;
 #[macro_use]
 pub mod usart;
 
@@ -25,4 +25,33 @@ pub mod rng;
 
 // This must go LAST so that it sees the `impl_foo!` macros
 mod chip;
-pub use chip::{peripherals, Peripherals};
+pub use chip::{interrupt, peripherals, Peripherals};
+pub use embassy_macros::interrupt;
+
+#[non_exhaustive]
+pub struct Config {
+    _private: (),
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { _private: () }
+    }
+}
+
+/// Initialize embassy.
+pub fn init(_config: Config) -> Peripherals {
+    let p = Peripherals::take();
+
+    unsafe {
+        interrupt::EXTI0::steal().enable();
+        interrupt::EXTI1::steal().enable();
+        interrupt::EXTI2::steal().enable();
+        interrupt::EXTI3::steal().enable();
+        interrupt::EXTI4::steal().enable();
+        interrupt::EXTI9_5::steal().enable();
+        interrupt::EXTI15_10::steal().enable();
+    }
+
+    p
+}

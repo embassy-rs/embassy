@@ -46,17 +46,17 @@ macro_rules! peripherals {
         impl Peripherals {
             ///Returns all the peripherals *once*
             #[inline]
-            pub fn take() -> Option<Self> {
+            pub(crate) fn take() -> Self {
 
                 #[no_mangle]
                 static mut _EMBASSY_DEVICE_PERIPHERALS: bool = false;
 
-                cortex_m::interrupt::free(|_| {
-                    if unsafe { _EMBASSY_DEVICE_PERIPHERALS } {
-                        None
+                cortex_m::interrupt::free(|_| unsafe {
+                    if  _EMBASSY_DEVICE_PERIPHERALS  {
+                        panic!("init called twice")
                     } else {
-                        unsafe { _EMBASSY_DEVICE_PERIPHERALS = true };
-                        Some(unsafe { <Self as embassy::util::Steal>::steal() })
+                        _EMBASSY_DEVICE_PERIPHERALS = true;
+                        <Self as embassy::util::Steal>::steal()
                     }
                 })
             }
