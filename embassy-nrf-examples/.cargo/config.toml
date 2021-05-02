@@ -1,20 +1,20 @@
 [unstable]
 build-std = ["core"]
-build-std-features = ["panic_immediate_abort"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-run-rp --chip RP2040"
+runner = "probe-run --chip nRF52840_xxAA"
 
 rustflags = [
   # LLD (shipped with the Rust toolchain) is used as the default linker
   "-C", "link-arg=--nmagic",
   "-C", "link-arg=-Tlink.x",
-  "-C", "link-arg=-Tlink-rp.x",
   "-C", "link-arg=-Tdefmt.x",
 
   # Code-size optimizations.
   "-Z", "trap-unreachable=no",
+  "-C", "inline-threshold=5",
+  "-C", "no-vectorize-loops",
 ]
 
 [build]
-target = "thumbv6m-none-eabi"        # Cortex-M0 and Cortex-M0+
+target = "thumbv7em-none-eabi"

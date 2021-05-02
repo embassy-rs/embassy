@@ -27,5 +27,5 @@ defmt-rtt = "0.2.0"
 cortex-m = { version = "0.7.1", features = ["inline-asm"] }
 cortex-m-rt = "0.6.13"
 embedded-hal    = { version = "0.2.4" }
-panic-probe = "0.1.0"
+panic-probe = { version = "0.2.0", features = ["print-defmt"] }
 futures = { version = "0.3.8", default-features = false, features = ["async-await"] }
