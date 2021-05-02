@@ -14,7 +14,7 @@ os.chdir(dname)
 # ======= load chips
 chips = {}
 for f in sorted(glob('stm32-data/data/chips/*.yaml')):
-    if 'STM32F4' not in f and 'STM32L4' not in f:
+    if 'STM32F4' not in f and 'STM32L4' not in f and 'STM32H7' not in f:
         continue
     with open(f, 'r') as f:
         chip = yaml.load(f, Loader=yaml.CSafeLoader)
@@ -149,6 +149,31 @@ for chip in chips.values():
                     channel = f'{name}_CH{ch_num}'
                     peripheral_names.append(channel)
                     f.write(f'impl_dma_channel!({channel}, {name}, {ch_num});')
+
+            if peri['block'] == 'sdmmc_v2/SDMMC':
+                f.write(f'impl_sdmmc!({name}, 0x{peri["address"]:x});')
+                for pin, funcs in af.items():
+                    if pin in pins:
+                        if func := funcs.get(f'{name}_CK'):
+                            f.write(f'impl_sdmmc_pin!({name}, CkPin, {pin}, {func});')
+                        if func := funcs.get(f'{name}_CMD'):
+                            f.write(f'impl_sdmmc_pin!({name}, CmdPin, {pin}, {func});')
+                        if func := funcs.get(f'{name}_D0'):
+                            f.write(f'impl_sdmmc_pin!({name}, D0Pin, {pin}, {func});')
+                        if func := funcs.get(f'{name}_D1'):
+                            f.write(f'impl_sdmmc_pin!({name}, D1Pin, {pin}, {func});')
+                        if func := funcs.get(f'{name}_D2'):
+                            f.write(f'impl_sdmmc_pin!({name}, D2Pin, {pin}, {func});')
+                        if func := funcs.get(f'{name}_D3'):
+                            f.write(f'impl_sdmmc_pin!({name}, D3Pin, {pin}, {func});')
+                        if func := funcs.get(f'{name}_D4'):
+                            f.write(f'impl_sdmmc_pin!({name}, D4Pin, {pin}, {func});')
+                        if func := funcs.get(f'{name}_D5'):
+                            f.write(f'impl_sdmmc_pin!({name}, D5Pin, {pin}, {func});')
+                        if func := funcs.get(f'{name}_D6'):
+                            f.write(f'impl_sdmmc_pin!({name}, D6Pin, {pin}, {func});')
+                        if func := funcs.get(f'{name}_D7'):
+                            f.write(f'impl_sdmmc_pin!({name}, D7Pin, {pin}, {func});')
 
             if not custom_singletons:
                 peripheral_names.append(name)

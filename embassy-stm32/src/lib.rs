@@ -22,6 +22,19 @@ pub mod spi;
 #[cfg(feature = "_usart")]
 pub mod usart;
 
+#[macro_use]
+pub mod sdmmc_v2;
+
+#[cfg(feature = "_sdmmc_v2")]
+pub use sdmmc_v2 as sdmmc;
+
+pub mod time;
+
+#[cfg(feature = "stm32h750vb")]
+mod h7;
+#[cfg(feature = "stm32h750vb")]
+pub use h7::rcc;
+
 // This must go LAST so that it sees the `impl_foo!` macros
 mod pac;
 pub mod time;
