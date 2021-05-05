@@ -113,7 +113,12 @@ impl<'d, T: Pin> Output<'d, T> {
     ) -> Self {
         unborrow!(pin);
 
-        init_output(&pin, initial_output, drive);
+        match initial_output {
+            Level::High => pin.set_high(),
+            Level::Low => pin.set_low(),
+        }
+
+        init_output(&pin, drive);
 
         Self {
             pin,
@@ -168,7 +173,9 @@ impl<'d, T: Pin> StatefulOutputPin for Output<'d, T> {
 
 /// GPIO flexible pin.
 ///
-/// This pin can either be a disconnected, input, or output pin.
+/// This pin can either be a disconnected, input, or output pin. The level register bit will remain
+/// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
+/// mode.
 pub struct FlexPin<'d, T: Pin> {
     pub(crate) pin: T,
     phantom: PhantomData<&'d mut T>,
@@ -177,7 +184,8 @@ pub struct FlexPin<'d, T: Pin> {
 impl<'d, T: Pin> FlexPin<'d, T> {
     /// Wrap the pin in a `FlexPin`.
     ///
-    /// The pin remains disconnected.
+    /// The pin remains disconnected. The initial output level is unspecified, but can be changed
+    /// before the pin is put into output mode.
     pub fn new(pin: impl Unborrow<Target = T> + 'd) -> Self {
         unborrow!(pin);
         // Pin will be in disconnected state.
@@ -187,17 +195,21 @@ impl<'d, T: Pin> FlexPin<'d, T> {
         }
     }
 
-    pub fn to_input(&self, pull: Pull) {
-        self.pin.conf().reset(); // TODO is this necessary?
+    /// Put the pin into input mode.
+    pub fn set_as_input(&mut self, pull: Pull) {
         init_input(&self.pin, pull);
     }
 
-    pub fn to_output(&self, initial_output: Level, drive: OutputDrive) {
-        self.pin.conf().reset(); // TODO is this necessary?
-        init_output(&self.pin, initial_output, drive);
+    /// Put the pin into output mode.
+    ///
+    /// The pin level will be whatever was set before (or low by default). If you want it to begin
+    /// at a specific level, call `set_high`/`set_low` on the pin first.
+    pub fn set_as_output(&mut self, drive: OutputDrive) {
+        init_output(&self.pin, drive);
     }
 
-    pub fn disconnect(&self) {
+    /// Put the pin into disconnected mode.
+    pub fn set_as_disconnected(&mut self) {
         self.pin.conf().reset();
     }
 }
@@ -397,12 +409,7 @@ fn init_input<T: Pin>(pin: &T, pull: Pull) {
 
 /// Set up a pin for output
 #[inline]
-fn init_output<T: Pin>(pin: &T, initial_output: Level, drive: OutputDrive) {
-    match initial_output {
-        Level::High => pin.set_high(),
-        Level::Low => pin.set_low(),
-    }
-
+fn init_output<T: Pin>(pin: &T, drive: OutputDrive) {
     let drive = match drive {
         OutputDrive::Standard => DRIVE_A::S0S1,
         OutputDrive::HighDrive0Standard1 => DRIVE_A::H0S1,
