@@ -280,7 +280,6 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spim<'d, T> {
         compiler_fence(Ordering::SeqCst);
 
         let r = T::regs();
-        let s = T::state();
 
         // Set up the DMA write.
         r.txd
@@ -298,22 +297,19 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spim<'d, T> {
             .maxcnt
             .write(|w| unsafe { w.maxcnt().bits(recv.len() as _) });
 
-        // Reset and enable the event
+        // Disable the end event since we are busy-polling.
         r.events_end.reset();
-        r.intenset.write(|w| w.end().set());
 
         // Start SPI transaction.
         r.tasks_start.write(|w| unsafe { w.bits(1) });
+
+        // Wait for 'end' event.
+        while r.events_end.read().bits() == 0 {}
 
         // Conservative compiler fence to prevent optimizations that do not
         // take in to account actions by DMA. The fence has been placed here,
         // after all possible DMA actions have completed.
         compiler_fence(Ordering::SeqCst);
-
-        // Wait for 'end' event.
-        while r.events_end.read().bits() == 0 {
-            continue;
-        }
 
         Ok(())
     }
