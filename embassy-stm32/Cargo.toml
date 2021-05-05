@@ -26,6 +26,10 @@ defmt-debug = [ ]
 defmt-info = [ ]
 defmt-warn = [ ]
 defmt-error = [ ]
+_syscfg_f4 = []
+_syscfg_l4 = []
+_usart_v1 = []
+_rng_v1 = []
 
 # BEGIN GENERATED FEATURES
 stm32f401cb = [ "_syscfg_f4", "_usart_v1",]
