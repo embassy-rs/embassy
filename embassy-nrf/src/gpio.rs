@@ -41,24 +41,7 @@ impl<'d, T: Pin> Input<'d, T> {
     pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
         unborrow!(pin);
 
-        pin.conf().write(|w| {
-            w.dir().input();
-            w.input().connect();
-            match pull {
-                Pull::None => {
-                    w.pull().disabled();
-                }
-                Pull::Up => {
-                    w.pull().pullup();
-                }
-                Pull::Down => {
-                    w.pull().pulldown();
-                }
-            }
-            w.drive().s0s1();
-            w.sense().disabled();
-            w
-        });
+        init_input(&pin, pull);
 
         Self {
             pin,
@@ -93,6 +76,7 @@ pub enum Level {
     High,
 }
 
+// These numbers match DRIVE_A exactly so hopefully the compiler will unify them.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
@@ -134,25 +118,7 @@ impl<'d, T: Pin> Output<'d, T> {
             Level::Low => pin.set_low(),
         }
 
-        let drive = match drive {
-            OutputDrive::Standard => DRIVE_A::S0S1,
-            OutputDrive::HighDrive0Standard1 => DRIVE_A::H0S1,
-            OutputDrive::Standard0HighDrive1 => DRIVE_A::S0H1,
-            OutputDrive::HighDrive => DRIVE_A::H0H1,
-            OutputDrive::Disconnect0Standard1 => DRIVE_A::D0S1,
-            OutputDrive::Disconnect0HighDrive1 => DRIVE_A::D0H1,
-            OutputDrive::Standard0Disconnect1 => DRIVE_A::S0D1,
-            OutputDrive::HighDrive0Disconnect1 => DRIVE_A::H0D1,
-        };
-
-        pin.conf().write(|w| {
-            w.dir().output();
-            w.input().disconnect();
-            w.pull().disabled();
-            w.drive().variant(drive);
-            w.sense().disabled();
-            w
-        });
+        init_output(&pin, drive);
 
         Self {
             pin,
@@ -194,6 +160,108 @@ impl<'d, T: Pin> OutputPin for Output<'d, T> {
 }
 
 impl<'d, T: Pin> StatefulOutputPin for Output<'d, T> {
+    /// Is the output pin set as high?
+    fn is_set_high(&self) -> Result<bool, Self::Error> {
+        self.is_set_low().map(|v| !v)
+    }
+
+    /// Is the output pin set as low?
+    fn is_set_low(&self) -> Result<bool, Self::Error> {
+        Ok(self.pin.block().out.read().bits() & (1 << self.pin.pin()) == 0)
+    }
+}
+
+/// GPIO flexible pin.
+///
+/// This pin can either be a disconnected, input, or output pin. The level register bit will remain
+/// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
+/// mode.
+pub struct FlexPin<'d, T: Pin> {
+    pub(crate) pin: T,
+    phantom: PhantomData<&'d mut T>,
+}
+
+impl<'d, T: Pin> FlexPin<'d, T> {
+    /// Wrap the pin in a `FlexPin`.
+    ///
+    /// The pin remains disconnected. The initial output level is unspecified, but can be changed
+    /// before the pin is put into output mode.
+    pub fn new(pin: impl Unborrow<Target = T> + 'd) -> Self {
+        unborrow!(pin);
+        // Pin will be in disconnected state.
+        Self {
+            pin,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Put the pin into input mode.
+    pub fn set_as_input(&mut self, pull: Pull) {
+        init_input(&self.pin, pull);
+    }
+
+    /// Put the pin into output mode.
+    ///
+    /// The pin level will be whatever was set before (or low by default). If you want it to begin
+    /// at a specific level, call `set_high`/`set_low` on the pin first.
+    pub fn set_as_output(&mut self, drive: OutputDrive) {
+        init_output(&self.pin, drive);
+    }
+
+    /// Put the pin into disconnected mode.
+    pub fn set_as_disconnected(&mut self) {
+        self.pin.conf().reset();
+    }
+}
+
+impl<'d, T: Pin> Drop for FlexPin<'d, T> {
+    fn drop(&mut self) {
+        self.pin.conf().reset();
+    }
+}
+
+/// Implement [`InputPin`] for [`FlexPin`];
+///
+/// If the pin is not in input mode the result is unspecified.
+impl<'d, T: Pin> InputPin for FlexPin<'d, T> {
+    type Error = Infallible;
+
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        self.is_low().map(|v| !v)
+    }
+
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        Ok(self.pin.block().in_.read().bits() & (1 << self.pin.pin()) == 0)
+    }
+}
+
+impl<'d, T: Pin> OutputPin for FlexPin<'d, T> {
+    type Error = Infallible;
+
+    /// Set the output as high.
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        unsafe {
+            self.pin
+                .block()
+                .outset
+                .write(|w| w.bits(1u32 << self.pin.pin()));
+        }
+        Ok(())
+    }
+
+    /// Set the output as low.
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        unsafe {
+            self.pin
+                .block()
+                .outclr
+                .write(|w| w.bits(1u32 << self.pin.pin()));
+        }
+        Ok(())
+    }
+}
+
+impl<'d, T: Pin> StatefulOutputPin for FlexPin<'d, T> {
     /// Is the output pin set as high?
     fn is_set_high(&self) -> Result<bool, Self::Error> {
         self.is_set_low().map(|v| !v)
@@ -312,6 +380,55 @@ impl sealed::Pin for AnyPin {
     fn pin_port(&self) -> u8 {
         self.pin_port
     }
+}
+
+// =====================
+
+/// Set up a pin for input
+#[inline]
+fn init_input<T: Pin>(pin: &T, pull: Pull) {
+    pin.conf().write(|w| {
+        w.dir().input();
+        w.input().connect();
+        match pull {
+            Pull::None => {
+                w.pull().disabled();
+            }
+            Pull::Up => {
+                w.pull().pullup();
+            }
+            Pull::Down => {
+                w.pull().pulldown();
+            }
+        }
+        w.drive().s0s1();
+        w.sense().disabled();
+        w
+    });
+}
+
+/// Set up a pin for output
+#[inline]
+fn init_output<T: Pin>(pin: &T, drive: OutputDrive) {
+    let drive = match drive {
+        OutputDrive::Standard => DRIVE_A::S0S1,
+        OutputDrive::HighDrive0Standard1 => DRIVE_A::H0S1,
+        OutputDrive::Standard0HighDrive1 => DRIVE_A::S0H1,
+        OutputDrive::HighDrive => DRIVE_A::H0H1,
+        OutputDrive::Disconnect0Standard1 => DRIVE_A::D0S1,
+        OutputDrive::Disconnect0HighDrive1 => DRIVE_A::D0H1,
+        OutputDrive::Standard0Disconnect1 => DRIVE_A::S0D1,
+        OutputDrive::HighDrive0Disconnect1 => DRIVE_A::H0D1,
+    };
+
+    pin.conf().write(|w| {
+        w.dir().output();
+        w.input().disconnect();
+        w.pull().disabled();
+        w.drive().variant(drive);
+        w.sense().disabled();
+        w
+    });
 }
 
 // ====================
