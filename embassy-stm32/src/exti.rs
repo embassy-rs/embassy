@@ -15,8 +15,7 @@ use crate::interrupt;
 use crate::pac;
 use crate::peripherals;
 
-// TODO hardcoding peripheral addrs until we figure out how these are handled in the metapac
-const SYSCFG: pac::syscfg_f4::Syscfg = pac::syscfg_f4::Syscfg(0x40013800 as *mut _);
+const SYSCFG: pac::syscfg::Syscfg = pac::syscfg::Syscfg(crate::chip::SYSCFG_BASE as *mut _);
 const   EXTI: pac::exti::Exti = pac::exti::Exti(crate::chip::EXTI_BASE as *mut _);
 
 const EXTI_COUNT: usize = 16;
