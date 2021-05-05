@@ -12,7 +12,7 @@ pub mod fmt;
 use embassy::interrupt::{Interrupt, InterruptExt};
 //pub(crate) use stm32_metapac as pac;
 
-pub mod pac {
+pub(crate) mod pac {
     pub use stm32_metapac::*;
 
     #[cfg(any(feature = "_syscfg_f4"))]
