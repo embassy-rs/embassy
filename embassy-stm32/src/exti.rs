@@ -17,7 +17,7 @@ use crate::peripherals;
 
 // TODO hardcoding peripheral addrs until we figure out how these are handled in the metapac
 const SYSCFG: pac::syscfg_f4::Syscfg = pac::syscfg_f4::Syscfg(0x40013800 as *mut _);
-const EXTI: pac::exti::Exti = pac::exti::Exti(0x40013c00 as *mut _);
+const   EXTI: pac::exti::Exti = pac::exti::Exti(crate::chip::EXTI_BASE as *mut _);
 
 const EXTI_COUNT: usize = 16;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
