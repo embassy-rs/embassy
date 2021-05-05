@@ -19,6 +19,7 @@ for f in sorted(glob('stm32-data/data/chips/*.yaml')):
     with open(f, 'r') as f:
         chip = yaml.load(f, Loader=yaml.SafeLoader)
     chip['name'] = chip['name'].lower()
+    chip['features'] = []
     print(chip['name'])
     chips[chip['name']] = chip
 
@@ -38,21 +39,6 @@ with open('src/chip/mod.rs', 'w') as f:
             f'#[cfg_attr(feature="{chip["name"]}", path="{chip["name"]}.rs")]\n')
     f.write('mod chip;\n')
     f.write('pub use chip::*;\n')
-
-# ========= Update Cargo features
-
-features = {name: [] for name, chip in chips.items()}
-
-SEPARATOR_START = '# BEGIN GENERATED FEATURES\n'
-SEPARATOR_END = '# END GENERATED FEATURES\n'
-
-with open('Cargo.toml', 'r') as f:
-    cargo = f.read()
-before, cargo = cargo.split(SEPARATOR_START, maxsplit=1)
-_, after = cargo.split(SEPARATOR_END, maxsplit=1)
-cargo = before + SEPARATOR_START + toml.dumps(features) + SEPARATOR_END + after
-with open('Cargo.toml', 'w') as f:
-    f.write(cargo)
 
 # ========= Generate per-chip mod
 
@@ -93,6 +79,7 @@ for chip in chips.values():
             continue
 
         if peri['block'] in ('usart_v1/USART', 'usart_v1/UART'):
+            chip['features'].append("_usart_v1")
             impls.append(f'impl_usart!({name}, 0x{peri["address"]:x});')
             for pin, funcs in af.items():
                 if pin in pins:
@@ -109,6 +96,13 @@ for chip in chips.values():
 
         if peri['block'] == 'rng_v1/RNG':
             impls.append(f'impl_rng!(0x{peri["address"]:x});')
+            chip['features'].append("_rng_v1")
+
+        if peri['block'] == 'syscfg_f4/SYSCFG':
+            chip['features'].append("_syscfg_f4")
+
+        if peri['block'] == 'syscfg_l4/SYSCFG':
+            chip['features'].append("_syscfg_l4")
 
     irq_variants = []
     irq_vectors = []
@@ -172,6 +166,23 @@ for chip in chips.values():
         """)
         for i in impls:
             f.write(i)
+
+
+
+# ========= Update Cargo features
+
+features = {name: list(set(chip['features'])) for name, chip in chips.items()}
+
+SEPARATOR_START = '# BEGIN GENERATED FEATURES\n'
+SEPARATOR_END = '# END GENERATED FEATURES\n'
+
+with open('Cargo.toml', 'r') as f:
+    cargo = f.read()
+before, cargo = cargo.split(SEPARATOR_START, maxsplit=1)
+_, after = cargo.split(SEPARATOR_END, maxsplit=1)
+cargo = before + SEPARATOR_START + toml.dumps(features) + SEPARATOR_END + after
+with open('Cargo.toml', 'w') as f:
+    f.write(cargo)
 
 
 # format
