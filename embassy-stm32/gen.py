@@ -67,6 +67,8 @@ for chip in chips.values():
     # We don't want to hardcode the EXTI peripheral addr
     peripherals.extend((f'EXTI{x}' for x in range(16)))
 
+    exti_base = chip['peripherals']['EXTI']['address']
+    syscfg_base = chip['peripherals']['SYSCFG']['address']
     gpio_base = chip['peripherals']['GPIOA']['address']
     gpio_stride = 0x400
 
@@ -129,6 +131,8 @@ for chip in chips.values():
         f.write(f"""
             use embassy_extras::peripherals;
             peripherals!({','.join(peripherals)});
+            pub const SYSCFG_BASE: usize = 0x{syscfg_base:x};
+            pub const EXTI_BASE: usize = 0x{exti_base:x};
             pub const GPIO_BASE: usize = 0x{gpio_base:x};
             pub const GPIO_STRIDE: usize = 0x{gpio_stride:x};
 

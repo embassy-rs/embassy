@@ -1,8 +1,8 @@
 use embassy_extras::peripherals;
 peripherals!(
     EXTI0, EXTI1, EXTI2, EXTI3, EXTI4, EXTI5, EXTI6, EXTI7, EXTI8, EXTI9, EXTI10, EXTI11, EXTI12,
-    EXTI13, EXTI14, EXTI15, ADC1, ADC2, AES, COMP1, PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7, PA8,
-    PA9, PA10, PA11, PA12, PA13, PA14, PA15, PB0, PB1, PB2, PB3, PB4, PB5, PB6, PB7, PB8, PB9,
+    EXTI13, EXTI14, EXTI15, ADC1, ADC2, AES, COMP1, EXTI, PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7,
+    PA8, PA9, PA10, PA11, PA12, PA13, PA14, PA15, PB0, PB1, PB2, PB3, PB4, PB5, PB6, PB7, PB8, PB9,
     PB10, PB11, PB12, PB13, PB14, PB15, PC0, PC1, PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC10,
     PC11, PC12, PC13, PC14, PC15, PD0, PD1, PD2, PD3, PD4, PD5, PD6, PD7, PD8, PD9, PD10, PD11,
     PD12, PD13, PD14, PD15, PH0, PH1, PH2, PH3, PH4, PH5, PH6, PH7, PH8, PH9, PH10, PH11, PH12,
@@ -10,8 +10,334 @@ peripherals!(
     RTC, SPI1, SPI2, SYSCFG, TIM1, TIM15, TIM16, TIM2, TIM6, TSC, USART1, USART2, USART3, USB,
     WWDG
 );
+pub const SYSCFG_BASE: usize = 0x40010000;
+pub const EXTI_BASE: usize = 0x40010400;
 pub const GPIO_BASE: usize = 0x48000000;
 pub const GPIO_STRIDE: usize = 0x400;
+
+pub mod interrupt {
+    pub use cortex_m::interrupt::{CriticalSection, Mutex};
+    pub use embassy::interrupt::{declare, take, Interrupt};
+    pub use embassy_extras::interrupt::Priority4 as Priority;
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[allow(non_camel_case_types)]
+    enum InterruptEnum {
+        ADC1_2 = 18,
+        AES = 79,
+        COMP = 64,
+        CRS = 82,
+        DMA1_Channel1 = 11,
+        DMA1_Channel2 = 12,
+        DMA1_Channel3 = 13,
+        DMA1_Channel4 = 14,
+        DMA1_Channel5 = 15,
+        DMA1_Channel6 = 16,
+        DMA1_Channel7 = 17,
+        DMA2_Channel1 = 56,
+        DMA2_Channel2 = 57,
+        DMA2_Channel3 = 58,
+        DMA2_Channel4 = 59,
+        DMA2_Channel5 = 60,
+        DMA2_Channel6 = 68,
+        DMA2_Channel7 = 69,
+        EXTI0 = 6,
+        EXTI1 = 7,
+        EXTI15_10 = 40,
+        EXTI2 = 8,
+        EXTI3 = 9,
+        EXTI4 = 10,
+        EXTI9_5 = 23,
+        FLASH = 4,
+        FPU = 81,
+        I2C1_ER = 32,
+        I2C1_EV = 31,
+        I2C2_ER = 34,
+        I2C2_EV = 33,
+        I2C3_ER = 73,
+        I2C3_EV = 72,
+        LPTIM1 = 65,
+        LPTIM2 = 66,
+        LPUART1 = 70,
+        PVD_PVM = 1,
+        QUADSPI = 71,
+        RCC = 5,
+        RNG = 80,
+        RTC_Alarm = 41,
+        RTC_WKUP = 3,
+        SPI1 = 35,
+        SPI2 = 36,
+        TAMP_STAMP = 2,
+        TIM1_BRK_TIM15 = 24,
+        TIM1_CC = 27,
+        TIM1_TRG_COM = 26,
+        TIM1_UP_TIM16 = 25,
+        TIM2 = 28,
+        TIM6 = 54,
+        TSC = 77,
+        USART1 = 37,
+        USART2 = 38,
+        USART3 = 39,
+        USB = 67,
+        WWDG = 0,
+    }
+    unsafe impl cortex_m::interrupt::InterruptNumber for InterruptEnum {
+        #[inline(always)]
+        fn number(self) -> u16 {
+            self as u16
+        }
+    }
+
+    declare!(ADC1_2);
+    declare!(AES);
+    declare!(COMP);
+    declare!(CRS);
+    declare!(DMA1_Channel1);
+    declare!(DMA1_Channel2);
+    declare!(DMA1_Channel3);
+    declare!(DMA1_Channel4);
+    declare!(DMA1_Channel5);
+    declare!(DMA1_Channel6);
+    declare!(DMA1_Channel7);
+    declare!(DMA2_Channel1);
+    declare!(DMA2_Channel2);
+    declare!(DMA2_Channel3);
+    declare!(DMA2_Channel4);
+    declare!(DMA2_Channel5);
+    declare!(DMA2_Channel6);
+    declare!(DMA2_Channel7);
+    declare!(EXTI0);
+    declare!(EXTI1);
+    declare!(EXTI15_10);
+    declare!(EXTI2);
+    declare!(EXTI3);
+    declare!(EXTI4);
+    declare!(EXTI9_5);
+    declare!(FLASH);
+    declare!(FPU);
+    declare!(I2C1_ER);
+    declare!(I2C1_EV);
+    declare!(I2C2_ER);
+    declare!(I2C2_EV);
+    declare!(I2C3_ER);
+    declare!(I2C3_EV);
+    declare!(LPTIM1);
+    declare!(LPTIM2);
+    declare!(LPUART1);
+    declare!(PVD_PVM);
+    declare!(QUADSPI);
+    declare!(RCC);
+    declare!(RNG);
+    declare!(RTC_Alarm);
+    declare!(RTC_WKUP);
+    declare!(SPI1);
+    declare!(SPI2);
+    declare!(TAMP_STAMP);
+    declare!(TIM1_BRK_TIM15);
+    declare!(TIM1_CC);
+    declare!(TIM1_TRG_COM);
+    declare!(TIM1_UP_TIM16);
+    declare!(TIM2);
+    declare!(TIM6);
+    declare!(TSC);
+    declare!(USART1);
+    declare!(USART2);
+    declare!(USART3);
+    declare!(USB);
+    declare!(WWDG);
+}
+mod interrupt_vector {
+    extern "C" {
+        fn ADC1_2();
+        fn AES();
+        fn COMP();
+        fn CRS();
+        fn DMA1_Channel1();
+        fn DMA1_Channel2();
+        fn DMA1_Channel3();
+        fn DMA1_Channel4();
+        fn DMA1_Channel5();
+        fn DMA1_Channel6();
+        fn DMA1_Channel7();
+        fn DMA2_Channel1();
+        fn DMA2_Channel2();
+        fn DMA2_Channel3();
+        fn DMA2_Channel4();
+        fn DMA2_Channel5();
+        fn DMA2_Channel6();
+        fn DMA2_Channel7();
+        fn EXTI0();
+        fn EXTI1();
+        fn EXTI15_10();
+        fn EXTI2();
+        fn EXTI3();
+        fn EXTI4();
+        fn EXTI9_5();
+        fn FLASH();
+        fn FPU();
+        fn I2C1_ER();
+        fn I2C1_EV();
+        fn I2C2_ER();
+        fn I2C2_EV();
+        fn I2C3_ER();
+        fn I2C3_EV();
+        fn LPTIM1();
+        fn LPTIM2();
+        fn LPUART1();
+        fn PVD_PVM();
+        fn QUADSPI();
+        fn RCC();
+        fn RNG();
+        fn RTC_Alarm();
+        fn RTC_WKUP();
+        fn SPI1();
+        fn SPI2();
+        fn TAMP_STAMP();
+        fn TIM1_BRK_TIM15();
+        fn TIM1_CC();
+        fn TIM1_TRG_COM();
+        fn TIM1_UP_TIM16();
+        fn TIM2();
+        fn TIM6();
+        fn TSC();
+        fn USART1();
+        fn USART2();
+        fn USART3();
+        fn USB();
+        fn WWDG();
+    }
+    pub union Vector {
+        _handler: unsafe extern "C" fn(),
+        _reserved: u32,
+    }
+    #[link_section = ".vector_table.interrupts"]
+    #[no_mangle]
+    pub static __INTERRUPTS: [Vector; 83] = [
+        Vector { _handler: WWDG },
+        Vector { _handler: PVD_PVM },
+        Vector {
+            _handler: TAMP_STAMP,
+        },
+        Vector { _handler: RTC_WKUP },
+        Vector { _handler: FLASH },
+        Vector { _handler: RCC },
+        Vector { _handler: EXTI0 },
+        Vector { _handler: EXTI1 },
+        Vector { _handler: EXTI2 },
+        Vector { _handler: EXTI3 },
+        Vector { _handler: EXTI4 },
+        Vector {
+            _handler: DMA1_Channel1,
+        },
+        Vector {
+            _handler: DMA1_Channel2,
+        },
+        Vector {
+            _handler: DMA1_Channel3,
+        },
+        Vector {
+            _handler: DMA1_Channel4,
+        },
+        Vector {
+            _handler: DMA1_Channel5,
+        },
+        Vector {
+            _handler: DMA1_Channel6,
+        },
+        Vector {
+            _handler: DMA1_Channel7,
+        },
+        Vector { _handler: ADC1_2 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _handler: EXTI9_5 },
+        Vector {
+            _handler: TIM1_BRK_TIM15,
+        },
+        Vector {
+            _handler: TIM1_UP_TIM16,
+        },
+        Vector {
+            _handler: TIM1_TRG_COM,
+        },
+        Vector { _handler: TIM1_CC },
+        Vector { _handler: TIM2 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _handler: I2C1_EV },
+        Vector { _handler: I2C1_ER },
+        Vector { _handler: I2C2_EV },
+        Vector { _handler: I2C2_ER },
+        Vector { _handler: SPI1 },
+        Vector { _handler: SPI2 },
+        Vector { _handler: USART1 },
+        Vector { _handler: USART2 },
+        Vector { _handler: USART3 },
+        Vector {
+            _handler: EXTI15_10,
+        },
+        Vector {
+            _handler: RTC_Alarm,
+        },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _handler: TIM6 },
+        Vector { _reserved: 0 },
+        Vector {
+            _handler: DMA2_Channel1,
+        },
+        Vector {
+            _handler: DMA2_Channel2,
+        },
+        Vector {
+            _handler: DMA2_Channel3,
+        },
+        Vector {
+            _handler: DMA2_Channel4,
+        },
+        Vector {
+            _handler: DMA2_Channel5,
+        },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _handler: COMP },
+        Vector { _handler: LPTIM1 },
+        Vector { _handler: LPTIM2 },
+        Vector { _handler: USB },
+        Vector {
+            _handler: DMA2_Channel6,
+        },
+        Vector {
+            _handler: DMA2_Channel7,
+        },
+        Vector { _handler: LPUART1 },
+        Vector { _handler: QUADSPI },
+        Vector { _handler: I2C3_EV },
+        Vector { _handler: I2C3_ER },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _reserved: 0 },
+        Vector { _handler: TSC },
+        Vector { _reserved: 0 },
+        Vector { _handler: AES },
+        Vector { _handler: RNG },
+        Vector { _handler: FPU },
+        Vector { _handler: CRS },
+    ];
+}
 impl_gpio_pin!(PA0, 0, 0, EXTI0);
 impl_gpio_pin!(PA1, 0, 1, EXTI1);
 impl_gpio_pin!(PA2, 0, 2, EXTI2);
