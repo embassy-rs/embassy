@@ -15,6 +15,7 @@ pub mod exti;
 pub mod gpio;
 #[cfg(feature = "_rng")]
 pub mod rng;
+#[cfg(feature = "_usart")]
 pub mod usart;
 
 // This must go LAST so that it sees the `impl_foo!` macros
