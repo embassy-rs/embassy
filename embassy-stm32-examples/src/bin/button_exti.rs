@@ -16,8 +16,7 @@ use embassy_traits::gpio::{WaitForFallingEdge, WaitForRisingEdge};
 use example_common::*;
 
 use cortex_m_rt::entry;
-//use stm32f4::stm32f429 as pac;
-use stm32l4::stm32l4x5 as pac;
+use stm32f4::stm32f429 as pac;
 
 #[embassy::task]
 async fn main_task() {
@@ -57,20 +56,19 @@ fn main() -> ! {
         w.dbg_standby().set_bit();
         w.dbg_stop().set_bit()
     });
+    pp.RCC.ahb1enr.modify(|_, w| w.dma1en().enabled());
 
-    pp.RCC.ahb1enr.modify(|_, w| w.dma1en().set_bit());
-
-    pp.RCC.ahb2enr.modify(|_, w| {
-        w.gpioaen().set_bit();
-        w.gpioben().set_bit();
-        w.gpiocen().set_bit();
-        w.gpioden().set_bit();
-        w.gpioeen().set_bit();
-        w.gpiofen().set_bit();
+    pp.RCC.ahb1enr.modify(|_, w| {
+        w.gpioaen().enabled();
+        w.gpioben().enabled();
+        w.gpiocen().enabled();
+        w.gpioden().enabled();
+        w.gpioeen().enabled();
+        w.gpiofen().enabled();
         w
     });
     pp.RCC.apb2enr.modify(|_, w| {
-        w.syscfgen().set_bit();
+        w.syscfgen().enabled();
         w
     });
 

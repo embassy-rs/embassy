@@ -13,5 +13,5 @@ pub trait Rng {
     /// May result in delays if entropy is exhausted prior to completely
     /// filling the buffer. Upon completion, the buffer will be completely
     /// filled or an error will have been reported.
-    fn fill<'a>(&'a mut self, dest: &'a mut [u8]) -> Self::RngFuture<'a>;
+    fn fill_bytes<'a>(&'a mut self, dest: &'a mut [u8]) -> Self::RngFuture<'a>;
 }

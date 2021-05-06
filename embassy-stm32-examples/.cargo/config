@@ -1,8 +1,5 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-#runner = "probe-run --chip STM32F401CCUx"
-#runner = "probe-run --chip STM32L4S5VITx"
-#runner = "probe-run --chip ${PROBE_RUN_CHIP}"
-runner = "probe-run"
+runner = "probe-run --chip STM32F401CCUx"
 
 rustflags = [
   # LLD (shipped with the Rust toolchain) is used as the default linker
@@ -28,5 +25,4 @@ rustflags = [
 ]
 
 [build]
-#target = "thumbv7em-none-eabihf"
-target = "thumbv7em-none-eabi"
+target = "thumbv7em-none-eabihf"
