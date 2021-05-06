@@ -194,7 +194,7 @@ pub const GPIOI: gpio::Gpio = gpio::Gpio(0x40022000 as _);
 pub const GPIOJ: gpio::Gpio = gpio::Gpio(0x40022400 as _);
 pub const GPIOK: gpio::Gpio = gpio::Gpio(0x40022800 as _);
 pub const RNG: rng::Rng = rng::Rng(0x50060800 as _);
-impl_rng!();
+impl_rng!(RNG);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40013800 as _);
 pub const USART1: usart::Usart = usart::Usart(0x40011000 as _);
 impl_usart!(USART1);

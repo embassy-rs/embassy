@@ -29,7 +29,24 @@ pub struct Random<T: Instance> {
 impl<T: Instance> Random<T> {
     pub fn new(inner: impl Unborrow<Target=T>) -> Self {
         unborrow!(inner);
-        Self { inner }
+        let mut random = Self { inner };
+        random.reset();
+        random
+    }
+
+    pub fn reset(&mut self) {
+        unsafe {
+            T::regs().cr().modify(|reg| {
+                reg.set_rngen(true);
+                reg.set_ie(true);
+            });
+            T::regs().sr().modify(|reg| {
+                reg.set_seis(false);
+                reg.set_ceis(false);
+            });
+        }
+        // Reference manual says to discard the first.
+        let _ = self.next_u32();
     }
 }
 
@@ -87,7 +104,6 @@ impl<T: Instance> traits::rng::Rng for Random<T> {
                 reg.set_rngen(true);
             });
         }
-
         async move {
             for chunk in dest.chunks_mut(4) {
                 poll_fn(|cx| {
@@ -103,18 +119,10 @@ impl<T: Instance> traits::rng::Rng for Random<T> {
                     if bits.drdy() {
                         Poll::Ready(Ok(()))
                     } else if bits.seis() {
-                        unsafe {
-                            T::regs().sr().modify(|reg| {
-                                reg.set_seis(false);
-                            });
-                        }
+                        self.reset();
                         Poll::Ready(Err(Error::SeedError))
                     } else if bits.ceis() {
-                        unsafe {
-                            T::regs().sr().modify(|reg| {
-                                reg.set_ceis(false);
-                            });
-                        }
+                        self.reset();
                         Poll::Ready(Err(Error::ClockError))
                     } else {
                         Poll::Pending
@@ -141,7 +149,7 @@ pub(crate) mod sealed {
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_rng {
-    () => {
+    ($inst:ident) => {
         impl crate::rng::sealed::Instance for peripherals::RNG {
             fn regs() -> crate::pac::chip::rng::Rng {
                 crate::pac::RNG

@@ -131,7 +131,7 @@ for chip in chips.values():
                             f.write(f'impl_usart_pin!({name}, CkPin, {pin}, {func});')
 
             if peri['block'] == 'rng_v1/RNG':
-                f.write(f'impl_rng!();')
+                f.write(f'impl_rng!({name});')
 
         for mod, version in peripheral_versions.items():
             f.write(f'pub use regs::{mod}_{version} as {mod};')

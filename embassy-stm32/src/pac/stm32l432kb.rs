@@ -75,7 +75,7 @@ pub const GPIOB: gpio::Gpio = gpio::Gpio(0x48000400 as _);
 pub const GPIOC: gpio::Gpio = gpio::Gpio(0x48000800 as _);
 pub const GPIOH: gpio::Gpio = gpio::Gpio(0x48001c00 as _);
 pub const RNG: rng::Rng = rng::Rng(0x50060800 as _);
-impl_rng!();
+impl_rng!(RNG);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40010000 as _);
 pub const USART1: usart::Usart = usart::Usart(0x40013800 as _);
 pub const USART2: usart::Usart = usart::Usart(0x40004400 as _);
