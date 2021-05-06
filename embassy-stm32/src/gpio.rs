@@ -3,10 +3,9 @@ use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_extras::{impl_unborrow, unborrow};
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
-use gpio::vals;
 
-use crate::chip;
-use crate::pac::gpio_v2 as gpio;
+use crate::pac;
+use crate::pac::gpio::{self, vals};
 
 /// Pull setting for an input.
 #[derive(Debug, Eq, PartialEq)]
@@ -164,9 +163,7 @@ pub(crate) mod sealed {
 
         #[inline]
         fn block(&self) -> gpio::Gpio {
-            // TODO hardcoding peripheral addrs until we figure out how these are handled in the metapac
-            let p = chip::GPIO_BASE + (self._port() as usize) * chip::GPIO_STRIDE;
-            gpio::Gpio(p as *mut u8)
+            pac::GPIO(self._port() as _)
         }
 
         /// Set the output as high.

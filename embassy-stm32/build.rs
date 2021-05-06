@@ -16,7 +16,7 @@ fn main() {
 
     let mut device_x = String::new();
 
-    let chip_rs = fs::read_to_string(format!("src/chip/{}.rs", chip)).unwrap();
+    let chip_rs = fs::read_to_string(format!("src/pac/{}.rs", chip)).unwrap();
     let re = Regex::new("declare!\\(([a-zA-Z0-9_]+)\\)").unwrap();
     for c in re.captures_iter(&chip_rs) {
         let name = c.get(1).unwrap().as_str();
@@ -29,6 +29,6 @@ fn main() {
         .write_all(device_x.as_bytes())
         .unwrap();
     println!("cargo:rustc-link-search={}", out.display());
-    println!("cargo:rerun-if-changed=src/chip/{}.rs", chip);
+    println!("cargo:rerun-if-changed=src/pac/{}.rs", chip);
     println!("cargo:rerun-if-changed=build.rs");
 }

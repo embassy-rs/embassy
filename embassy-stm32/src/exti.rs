@@ -13,10 +13,8 @@ use crate::fmt::*;
 use crate::gpio::{AnyPin, Input, Pin as GpioPin};
 use crate::interrupt;
 use crate::pac;
+use crate::pac::{EXTI, SYSCFG};
 use crate::peripherals;
-
-const SYSCFG: pac::syscfg::Syscfg = pac::syscfg::Syscfg(crate::chip::SYSCFG_BASE as *mut _);
-const   EXTI: pac::exti::Exti = pac::exti::Exti(crate::chip::EXTI_BASE as *mut _);
 
 const EXTI_COUNT: usize = 16;
 const NEW_AW: AtomicWaker = AtomicWaker::new();

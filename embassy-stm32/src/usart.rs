@@ -4,7 +4,7 @@ use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 
 use crate::gpio::{NoPin, Pin};
-use crate::pac::usart_v1::{regs, vals, Usart};
+use crate::pac::usart::{regs, vals, Usart};
 use crate::peripherals;
 
 #[non_exhaustive]
@@ -99,10 +99,10 @@ impl<T: Instance> sealed::CkPin<T> for NoPin {
 impl<T: Instance> CkPin<T> for NoPin {}
 
 macro_rules! impl_usart {
-    ($inst:ident, $addr:expr) => {
+    ($inst:ident) => {
         impl crate::usart::sealed::Instance for peripherals::$inst {
-            fn regs(&self) -> crate::pac::usart_v1::Usart {
-                crate::pac::usart_v1::Usart($addr as _)
+            fn regs(&self) -> crate::pac::usart::Usart {
+                crate::pac::$inst
             }
         }
         impl crate::usart::Instance for peripherals::$inst {}

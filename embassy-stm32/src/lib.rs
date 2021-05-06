@@ -10,18 +10,6 @@
 pub mod fmt;
 
 use embassy::interrupt::{Interrupt, InterruptExt};
-//pub(crate) use stm32_metapac as pac;
-
-pub(crate) mod pac {
-    pub use stm32_metapac::*;
-
-    #[cfg(any(feature = "_syscfg_f4"))]
-    pub use stm32_metapac::syscfg_f4 as syscfg;
-
-    #[cfg(any(feature = "_syscfg_l4"))]
-    pub use stm32_metapac::syscfg_l4 as syscfg;
-}
-
 
 #[macro_use]
 pub mod exti;
@@ -35,9 +23,12 @@ pub mod usart;
 pub mod rng;
 
 // This must go LAST so that it sees the `impl_foo!` macros
-mod chip;
-pub use chip::{interrupt, peripherals, Peripherals};
+mod pac;
 pub use embassy_macros::interrupt;
+pub use pac::{interrupt, peripherals, Peripherals};
+
+// workaround for svd2rust-generated code using `use crate::generic::*;`
+pub(crate) use pac::generic;
 
 #[non_exhaustive]
 pub struct Config {

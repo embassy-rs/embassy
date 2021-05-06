@@ -17,7 +17,7 @@ for f in sorted(glob('stm32-data/data/chips/*.yaml')):
     if 'STM32F4' not in f and 'STM32L4' not in f:
         continue
     with open(f, 'r') as f:
-        chip = yaml.load(f, Loader=yaml.SafeLoader)
+        chip = yaml.load(f, Loader=yaml.CSafeLoader)
     chip['name'] = chip['name'].lower()
     chip['features'] = []
     print(chip['name'])
@@ -28,38 +28,54 @@ gpio_afs = {}
 for f in sorted(glob('stm32-data/data/gpio_af/*.yaml')):
     name = f.split('/')[-1].split('.')[0]
     with open(f, 'r') as f:
-        af = yaml.load(f, Loader=yaml.SafeLoader)
+        af = yaml.load(f, Loader=yaml.CSafeLoader)
     gpio_afs[name] = af
 
-# ========= Update chip/mod.rs
+# ========= Generate pac/mod.rs
 
-with open('src/chip/mod.rs', 'w') as f:
+with open('src/pac/mod.rs', 'w') as f:
     for chip in chips.values():
         f.write(
             f'#[cfg_attr(feature="{chip["name"]}", path="{chip["name"]}.rs")]\n')
     f.write('mod chip;\n')
     f.write('pub use chip::*;\n')
 
-# ========= Generate per-chip mod
+# ========= Generate pac/stm32xxx.rs
 
 for chip in chips.values():
     print(f'generating {chip["name"]}')
-    af = gpio_afs[chip['gpio_af']]
-    peripherals = []
-    impls = []
-    pins = set()
+    with open(f'src/pac/{chip["name"]}.rs', 'w') as f:
 
-    # TODO this should probably come from the yamls?
-    # We don't want to hardcode the EXTI peripheral addr
-    peripherals.extend((f'EXTI{x}' for x in range(16)))
+        f.write("""
+            #![allow(dead_code)]
+            #![allow(unused_imports)]
+            #![allow(non_snake_case)]
+        """)
 
-    exti_base = chip['peripherals']['EXTI']['address']
-    syscfg_base = chip['peripherals']['SYSCFG']['address']
-    gpio_base = chip['peripherals']['GPIOA']['address']
-    gpio_stride = 0x400
+        af = gpio_afs[chip['gpio_af']]
+        peripheral_names = []  # USART1, PA5, EXTI8
+        peripheral_versions = {}  # usart -> v1, syscfg -> f4
+        pins = set()  # set of all present pins. PA4, PA5...
 
-    for (name, peri) in chip['peripherals'].items():
-        if name.startswith('GPIO'):
+        # TODO this should probably come from the yamls?
+        # We don't want to hardcode the EXTI peripheral addr
+
+        gpio_base = chip['peripherals']['GPIOA']['address']
+        gpio_stride = 0x400
+        f.write(f"""
+            pub fn GPIO(n: usize) -> gpio::Gpio {{
+                gpio::Gpio((0x{gpio_base:x} + 0x{gpio_stride:x}*n) as _)
+            }}
+        """)
+
+        # ========= GPIO
+
+        peripheral_names.extend((f'EXTI{x}' for x in range(16)))
+
+        for (name, peri) in chip['peripherals'].items():
+            if not name.startswith('GPIO'):
+                continue
+
             port = name[4:]
             port_num = ord(port) - ord('A')
 
@@ -68,68 +84,80 @@ for chip in chips.values():
             for pin_num in range(16):
                 pin = f'P{port}{pin_num}'
                 pins.add(pin)
-                peripherals.append(pin)
-                impls.append(f'impl_gpio_pin!({pin}, {port_num}, {pin_num}, EXTI{pin_num});')
-            continue
+                peripheral_names.append(pin)
+                f.write(f'impl_gpio_pin!({pin}, {port_num}, {pin_num}, EXTI{pin_num});')
 
-        # TODO maybe we should only autogenerate the known ones...??
-        peripherals.append(name)
+        # ========= peripherals
 
-        if 'block' not in peri:
-            continue
+        for (name, peri) in chip['peripherals'].items():
+            if 'block' not in peri:
+                continue
 
-        if peri['block'] in ('usart_v1/USART', 'usart_v1/UART'):
-            chip['features'].append("_usart_v1")
-            impls.append(f'impl_usart!({name}, 0x{peri["address"]:x});')
-            for pin, funcs in af.items():
-                if pin in pins:
-                    if func := funcs.get(f'{name}_RX'):
-                        impls.append(f'impl_usart_pin!({name}, RxPin, {pin}, {func});')
-                    if func := funcs.get(f'{name}_TX'):
-                        impls.append(f'impl_usart_pin!({name}, TxPin, {pin}, {func});')
-                    if func := funcs.get(f'{name}_CTS'):
-                        impls.append(f'impl_usart_pin!({name}, CtsPin, {pin}, {func});')
-                    if func := funcs.get(f'{name}_RTS'):
-                        impls.append(f'impl_usart_pin!({name}, RtsPin, {pin}, {func});')
-                    if func := funcs.get(f'{name}_CK'):
-                        impls.append(f'impl_usart_pin!({name}, CkPin, {pin}, {func});')
+            if not name.startswith('GPIO'):
+                peripheral_names.append(name)
 
-        if peri['block'] == 'rng_v1/RNG':
-            impls.append(f'impl_rng!(0x{peri["address"]:x});')
-            chip['features'].append("_rng_v1")
+            block = peri['block']
+            block_mod, block_name = block.rsplit('/')
+            block_mod, block_version = block_mod.rsplit('_')
+            block_name = block_name.capitalize()
 
-        if peri['block'] == 'syscfg_f4/SYSCFG':
-            chip['features'].append("_syscfg_f4")
+            # Check all peripherals have the same version: it's not OK for the same chip to use both usart_v1 and usart_v2
+            if old_version := peripheral_versions.get(block_mod):
+                if old_version != block_version:
+                    raise Exception(f'Peripheral {block_mod} has two versions: {old_version} and {block_version}')
+            peripheral_versions[block_mod] = block_version
 
-        if peri['block'] == 'syscfg_l4/SYSCFG':
-            chip['features'].append("_syscfg_l4")
+            f.write(f'pub const {name}: {block_mod}::{block_name} = {block_mod}::{block_name}(0x{peri["address"]:x} as _);')
 
-    irq_variants = []
-    irq_vectors = []
-    irq_fns = []
-    irq_declares = []
+            if peri['block'] in ('usart_v1/USART', 'usart_v1/UART'):
+                chip['features'].append("_usart_v1")
+                f.write(f'impl_usart!({name});')
+                for pin, funcs in af.items():
+                    if pin in pins:
+                        if func := funcs.get(f'{name}_RX'):
+                            f.write(f'impl_usart_pin!({name}, RxPin, {pin}, {func});')
+                        if func := funcs.get(f'{name}_TX'):
+                            f.write(f'impl_usart_pin!({name}, TxPin, {pin}, {func});')
+                        if func := funcs.get(f'{name}_CTS'):
+                            f.write(f'impl_usart_pin!({name}, CtsPin, {pin}, {func});')
+                        if func := funcs.get(f'{name}_RTS'):
+                            f.write(f'impl_usart_pin!({name}, RtsPin, {pin}, {func});')
+                        if func := funcs.get(f'{name}_CK'):
+                            f.write(f'impl_usart_pin!({name}, CkPin, {pin}, {func});')
 
-    irqs = {num: name for name, num in chip['interrupts'].items()}
-    irq_count = max(irqs.keys()) + 1
-    for num, name in irqs.items():
-        irq_variants.append(f'{name} = {num},')
-        irq_fns.append(f'fn {name}();')
-        irq_declares.append(f'declare!({name});')
-    for num in range(irq_count):
-        if name := irqs.get(num):
-            irq_vectors.append(f'Vector {{ _handler: {name} }},')
-        else:
-            irq_vectors.append(f'Vector {{ _reserved: 0 }},')
+            if peri['block'] == 'rng_v1/RNG':
+                f.write(f'impl_rng!({name});')
 
-    with open(f'src/chip/{chip["name"]}.rs', 'w') as f:
+        for mod, version in peripheral_versions.items():
+            f.write(f'pub use regs::{mod}_{version} as {mod};')
+
         f.write(f"""
+            mod regs;
+            pub use regs::generic;
             use embassy_extras::peripherals;
-            peripherals!({','.join(peripherals)});
-            pub const SYSCFG_BASE: usize = 0x{syscfg_base:x};
-            pub const EXTI_BASE: usize = 0x{exti_base:x};
-            pub const GPIO_BASE: usize = 0x{gpio_base:x};
-            pub const GPIO_STRIDE: usize = 0x{gpio_stride:x};
+            peripherals!({','.join(peripheral_names)});
+        """)
 
+        # ========= interrupts
+
+        irq_variants = []
+        irq_vectors = []
+        irq_fns = []
+        irq_declares = []
+
+        irqs = {num: name for name, num in chip['interrupts'].items()}
+        irq_count = max(irqs.keys()) + 1
+        for num, name in irqs.items():
+            irq_variants.append(f'{name} = {num},')
+            irq_fns.append(f'fn {name}();')
+            irq_declares.append(f'declare!({name});')
+        for num in range(irq_count):
+            if name := irqs.get(num):
+                irq_vectors.append(f'Vector {{ _handler: {name} }},')
+            else:
+                irq_vectors.append(f'Vector {{ _reserved: 0 }},')
+
+        f.write(f"""
             pub mod interrupt {{
                 pub use cortex_m::interrupt::{{CriticalSection, Mutex}};
                 pub use embassy::interrupt::{{declare, take, Interrupt}};
@@ -164,9 +192,6 @@ for chip in chips.values():
                 ];
             }}
         """)
-        for i in impls:
-            f.write(i)
-
 
 
 # ========= Update Cargo features
@@ -184,6 +209,9 @@ cargo = before + SEPARATOR_START + toml.dumps(features) + SEPARATOR_END + after
 with open('Cargo.toml', 'w') as f:
     f.write(cargo)
 
+# ========= Generate pac/regs.rs
+os.system('cargo run --manifest-path ../../svd2rust/Cargo.toml -- generate --dir stm32-data/data/registers')
+os.system('mv lib.rs src/pac/regs.rs')
 
-# format
-os.system('rustfmt src/chip/*')
+# ========= Update Cargo features
+os.system('rustfmt src/pac/*')
