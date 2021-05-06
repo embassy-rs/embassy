@@ -4,6 +4,7 @@
 use crate::pac;
 use crate::peripherals;
 use crate::interrupt;
+use futures::future::poll_fn;
 use embassy::util::{Unborrow, AtomicWaker};
 use embassy_extras::unborrow;
 use rand_core::{RngCore, CryptoRng};
@@ -71,53 +72,6 @@ use embassy::traits;
 use core::task::{Poll, Context};
 use core::pin::Pin;
 
-struct RngInterruptFuture<T: Instance> {
-    _marker: PhantomData<T>,
-}
-
-impl<T: Instance> Future for RngInterruptFuture<T> {
-    type Output = Result<(), Error>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        RNG_WAKER.register(cx.waker());
-
-        let bits = unsafe { T::regs().sr().read() };
-
-        if bits.drdy() {
-            return Poll::Ready(Ok(()));
-        } else if bits.seis() {
-            unsafe {
-                T::regs().sr().modify(|reg| {
-                    reg.set_seis(false);
-                });
-            }
-        } else if bits.ceis() {
-            unsafe {
-                T::regs().sr().modify(|reg| {
-                    reg.set_ceis(false);
-                });
-            }
-        }
-
-        Poll::Pending
-    }
-}
-
-impl<T: Instance> RngInterruptFuture<T> {
-    async fn new() -> Result<(), Error> {
-        unsafe {
-            T::regs().cr().modify(|reg| {
-                reg.set_ie(true);
-                //reg.set_rngen(true);
-            });
-        }
-
-        Self {
-            _marker: PhantomData
-        }.await
-    }
-}
-
 pub enum Error {
     SeedError,
     ClockError,
@@ -136,7 +90,36 @@ impl<T: Instance> traits::rng::Rng for Random<T> {
 
         async move {
             for chunk in dest.chunks_mut(4) {
-                RngInterruptFuture::<T>::new().await?;
+                poll_fn(|cx| {
+                    RNG_WAKER.register(cx.waker());
+                    unsafe {
+                        T::regs().cr().modify(|reg| {
+                            reg.set_ie(true);
+                        });
+                    }
+
+                    let bits = unsafe { T::regs().sr().read() };
+
+                    if bits.drdy() {
+                        Poll::Ready(Ok(()))
+                    } else if bits.seis() {
+                        unsafe {
+                            T::regs().sr().modify(|reg| {
+                                reg.set_seis(false);
+                            });
+                        }
+                        Poll::Ready(Err(Error::SeedError))
+                    } else if bits.ceis() {
+                        unsafe {
+                            T::regs().sr().modify(|reg| {
+                                reg.set_ceis(false);
+                            });
+                        }
+                        Poll::Ready(Err(Error::ClockError))
+                    } else {
+                        Poll::Pending
+                    }
+                } ).await?;
                 let random_bytes = unsafe { T::regs().dr().read() }.to_be_bytes();
                 for (dest, src) in chunk.iter_mut().zip(random_bytes.iter()) {
                     *dest = *src
@@ -158,7 +141,7 @@ pub(crate) mod sealed {
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_rng {
-    ($addr:ident) => {
+    () => {
         impl crate::rng::sealed::Instance for peripherals::RNG {
             fn regs() -> crate::pac::chip::rng::Rng {
                 crate::pac::RNG

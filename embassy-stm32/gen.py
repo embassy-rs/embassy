@@ -131,7 +131,7 @@ for chip in chips.values():
                             f.write(f'impl_usart_pin!({name}, CkPin, {pin}, {func});')
 
             if peri['block'] == 'rng_v1/RNG':
-                f.write(f'impl_rng!({name});')
+                f.write(f'impl_rng!();')
 
         for mod, version in peripheral_versions.items():
             f.write(f'pub use regs::{mod}_{version} as {mod};')
@@ -211,10 +211,7 @@ for name, chip in chips.items():
     for feature in chip['features']:
         extra_features.add(feature)
 for feature in sorted(list(extra_features)):
-    if feature in feature_optional_deps:
-        features[feature] = feature_optional_deps[feature]
-    else:
-        features[feature] = []
+    features[feature] = feature_optional_deps.get(feature) or []
 
 SEPARATOR_START = '# BEGIN GENERATED FEATURES\n'
 SEPARATOR_END = '# END GENERATED FEATURES\n'

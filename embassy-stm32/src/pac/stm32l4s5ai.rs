@@ -160,7 +160,7 @@ pub const GPIOG: gpio::Gpio = gpio::Gpio(0x48001800 as _);
 pub const GPIOH: gpio::Gpio = gpio::Gpio(0x48001c00 as _);
 pub const GPIOI: gpio::Gpio = gpio::Gpio(0x48002000 as _);
 pub const RNG: rng::Rng = rng::Rng(0x50060800 as _);
-impl_rng!(RNG);
+impl_rng!();
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40010000 as _);
 pub use regs::exti_v1 as exti;
 pub use regs::gpio_v2 as gpio;
