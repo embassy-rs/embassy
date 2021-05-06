@@ -201,6 +201,9 @@ for chip in chips.values():
 
 # ========= Update Cargo features
 
+feature_optional_deps = {}
+feature_optional_deps['_rng'] = ['rand_core']
+
 features = {}
 extra_features = set()
 for name, chip in chips.items():
@@ -208,7 +211,10 @@ for name, chip in chips.items():
     for feature in chip['features']:
         extra_features.add(feature)
 for feature in sorted(list(extra_features)):
-    features[feature] = []
+    if feature in feature_optional_deps:
+        features[feature] = feature_optional_deps[feature]
+    else:
+        features[feature] = []
 
 SEPARATOR_START = '# BEGIN GENERATED FEATURES\n'
 SEPARATOR_END = '# END GENERATED FEATURES\n'
