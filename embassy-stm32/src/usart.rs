@@ -1,3 +1,5 @@
+#![macro_use]
+
 use core::marker::PhantomData;
 
 use embassy::util::Unborrow;

@@ -1,3 +1,4 @@
+#![macro_use]
 use crate::pac::rng::{regs, Rng};
 use crate::peripherals;
 use embassy::util::Unborrow;

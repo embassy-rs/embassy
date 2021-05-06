@@ -11,16 +11,11 @@ pub mod fmt;
 
 use embassy::interrupt::{Interrupt, InterruptExt};
 
-#[macro_use]
 pub mod exti;
-#[macro_use]
 pub mod gpio;
-//pub mod rtc;
-#[macro_use]
-pub mod usart;
-
-#[macro_use]
+#[cfg(feature = "_rng")]
 pub mod rng;
+pub mod usart;
 
 // This must go LAST so that it sees the `impl_foo!` macros
 mod pac;

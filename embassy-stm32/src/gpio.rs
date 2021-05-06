@@ -1,3 +1,4 @@
+#![macro_use]
 use core::convert::Infallible;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;

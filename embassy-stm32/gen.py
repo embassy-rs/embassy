@@ -19,7 +19,9 @@ for f in sorted(glob('stm32-data/data/chips/*.yaml')):
     with open(f, 'r') as f:
         chip = yaml.load(f, Loader=yaml.CSafeLoader)
     chip['name'] = chip['name'].lower()
-    chip['features'] = []
+    chip['features'] = set()
+    family = chip["family"].lower().replace('+', 'p')
+    chip['features'].add(f'_{family}')
     print(chip['name'])
     chips[chip['name']] = chip
 
@@ -107,10 +109,13 @@ for chip in chips.values():
                     raise Exception(f'Peripheral {block_mod} has two versions: {old_version} and {block_version}')
             peripheral_versions[block_mod] = block_version
 
+            # Set features
+            chip['features'].add(f'_{block_mod}')
+            chip['features'].add(f'_{block_mod}_{block_version}')
+
             f.write(f'pub const {name}: {block_mod}::{block_name} = {block_mod}::{block_name}(0x{peri["address"]:x} as _);')
 
             if peri['block'] in ('usart_v1/USART', 'usart_v1/UART'):
-                chip['features'].append("_usart_v1")
                 f.write(f'impl_usart!({name});')
                 for pin, funcs in af.items():
                     if pin in pins:
@@ -196,7 +201,14 @@ for chip in chips.values():
 
 # ========= Update Cargo features
 
-features = {name: list(set(chip['features'])) for name, chip in chips.items()}
+features = {}
+extra_features = set()
+for name, chip in chips.items():
+    features[name] = sorted(list(chip['features']))
+    for feature in chip['features']:
+        extra_features.add(feature)
+for feature in sorted(list(extra_features)):
+    features[feature] = []
 
 SEPARATOR_START = '# BEGIN GENERATED FEATURES\n'
 SEPARATOR_END = '# END GENERATED FEATURES\n'
