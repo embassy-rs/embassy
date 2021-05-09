@@ -1,15 +1,16 @@
 #![macro_use]
 
-//use crate::pac::rng::{regs, Rng};
-use crate::pac;
-use crate::peripherals;
-use crate::interrupt;
-use futures::future::poll_fn;
-use embassy::util::{Unborrow, AtomicWaker};
-use embassy_extras::unborrow;
-use rand_core::{RngCore, CryptoRng};
-
+use core::future::Future;
+use core::task::Poll;
 use defmt::*;
+use embassy::traits;
+use embassy::util::{AtomicWaker, Unborrow};
+use embassy_extras::unborrow;
+use futures::future::poll_fn;
+use rand_core::{CryptoRng, RngCore};
+
+use crate::interrupt;
+use crate::pac;
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -27,7 +28,7 @@ pub struct Random<T: Instance> {
 }
 
 impl<T: Instance> Random<T> {
-    pub fn new(inner: impl Unborrow<Target=T>) -> Self {
+    pub fn new(inner: impl Unborrow<Target = T>) -> Self {
         unborrow!(inner);
         let mut random = Self { inner };
         random.reset();
@@ -55,7 +56,7 @@ impl<T: Instance> RngCore for Random<T> {
         loop {
             let bits = unsafe { T::regs().sr().read() };
             if bits.drdy() {
-                return unsafe{ T::regs().dr().read() }
+                return unsafe { T::regs().dr().read() };
             }
         }
     }
@@ -76,18 +77,12 @@ impl<T: Instance> RngCore for Random<T> {
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.fill_bytes( dest );
+        self.fill_bytes(dest);
         Ok(())
     }
 }
 
-impl<T: Instance> CryptoRng for Random<T> { }
-
-use core::future::Future;
-use core::marker::PhantomData;
-use embassy::traits;
-use core::task::{Poll, Context};
-use core::pin::Pin;
+impl<T: Instance> CryptoRng for Random<T> {}
 
 pub enum Error {
     SeedError,
@@ -96,6 +91,7 @@ pub enum Error {
 
 impl<T: Instance> traits::rng::Rng for Random<T> {
     type Error = Error;
+    #[rustfmt::skip]
     type RngFuture<'a> where Self: 'a = impl Future<Output=Result<(), Self::Error>>;
 
     fn fill_bytes<'a>(&'a mut self, dest: &'a mut [u8]) -> Self::RngFuture<'a> {
@@ -127,7 +123,8 @@ impl<T: Instance> traits::rng::Rng for Random<T> {
                     } else {
                         Poll::Pending
                     }
-                } ).await?;
+                })
+                .await?;
                 let random_bytes = unsafe { T::regs().dr().read() }.to_be_bytes();
                 for (dest, src) in chunk.iter_mut().zip(random_bytes.iter()) {
                     *dest = *src
