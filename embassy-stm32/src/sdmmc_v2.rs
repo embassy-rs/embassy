@@ -1,14 +1,13 @@
 use core::marker::PhantomData;
 use core::task::{Context, Poll};
 
+use embassy::interrupt::InterruptExt;
 use embassy::util::{AtomicWaker, OnDrop, Unborrow};
 use embassy_extras::unborrow;
 use futures::future::poll_fn;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
 use crate::fmt::*;
-use crate::gpio::AnyPin;
-use crate::interrupt;
 use crate::pac;
 use crate::pac::gpio::Gpio;
 use crate::pac::interrupt::{Interrupt, InterruptEnum};
@@ -132,117 +131,113 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(u16, Hertz), Error> {
     }
 }
 
-struct SdmmcPins {
-    clk: AnyPin,
-    cmd: AnyPin,
-    d0: AnyPin,
-    d1: Option<AnyPin>,
-    d2: Option<AnyPin>,
-    d3: Option<AnyPin>,
-}
-
-impl SdmmcPins {
-    /// # Safety
-    ///
-    /// Must have exclusive access to the gpio(s)' registers
-    unsafe fn deconfigure(&mut self) {
-        use crate::gpio::sealed::Pin as _;
-        use crate::gpio::Pin;
-        use pac::gpio::vals::Moder;
-
-        let n = self.clk.pin().into();
-        self.clk
-            .block()
-            .moder()
-            .modify(|w| w.set_moder(n, Moder::ANALOG));
-
-        let n = self.cmd.pin().into();
-        self.cmd
-            .block()
-            .moder()
-            .modify(|w| w.set_moder(n, Moder::ANALOG));
-
-        let n = self.d0.pin().into();
-        self.d0
-            .block()
-            .moder()
-            .modify(|w| w.set_moder(n, Moder::ANALOG));
-
-        if let Some(pin) = &self.d1 {
-            let n = pin.pin().into();
-            pin.block()
-                .moder()
-                .modify(|w| w.set_moder(n, Moder::ANALOG));
-        }
-
-        if let Some(pin) = &self.d2 {
-            let n = pin.pin().into();
-            pin.block()
-                .moder()
-                .modify(|w| w.set_moder(n, Moder::ANALOG));
-        }
-
-        if let Some(pin) = &self.d3 {
-            let n = pin.pin().into();
-            pin.block()
-                .moder()
-                .modify(|w| w.set_moder(n, Moder::ANALOG));
-        }
-    }
-}
-
-#[repr(transparent)]
-pub struct DataBlock {
-    pub buf: [u32; 128],
-}
-
 /// Sdmmc device
-pub struct Sdmmc<'d> {
-    sdmmc: PhantomData<&'d mut ()>,
-    regs_addr: u32,
+pub struct Sdmmc<'d, T: Instance, P: Pins<T>> {
+    sdmmc: PhantomData<&'d mut T>,
+    pins: P,
+    irq: T::Interrupt,
     /// SDMMC kernel clock
     ker_ck: Hertz,
     /// AHB clock
     hclk: Hertz,
-    /// Data bus width
-    bus_width: BusWidth,
     /// Current clock to card
     clock: Hertz,
     /// Current signalling scheme to card
     signalling: Signalling,
     /// Card
     card: Option<Card>,
-    pins: SdmmcPins,
-    interrupt_sdmmc1: bool,
 }
 
-impl<'d> Sdmmc<'d> {
-    #[inline(always)]
-    fn regs(&mut self) -> RegBlock {
-        RegBlock(self.regs_addr as _)
-    }
-
+impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
     /// # Safety
     ///
-    /// Access to `block` registers should be exclusive
-    unsafe fn configure_pin(block: Gpio, n: usize, afr_num: u8, pup: bool) {
-        use pac::gpio::vals::{Afr, Moder, Ospeedr, Pupdr};
+    /// Futures that borrow this type can't be leaked
+    #[inline(always)]
+    pub unsafe fn new(
+        _peripheral: impl Unborrow<Target = T> + 'd,
+        pins: impl Unborrow<Target = P> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt>,
+        hclk: Hertz,
+        kernel_clk: Hertz,
+    ) -> Self {
+        unborrow!(irq, pins);
+        pins.configure();
 
-        let (afr, n_af) = if n < 8 { (0, n) } else { (1, n - 8) };
-        block.afr(afr).modify(|w| w.set_afr(n_af, Afr(afr_num)));
-        block.moder().modify(|w| w.set_moder(n, Moder::ALTERNATE));
-        if pup {
-            block.pupdr().modify(|w| w.set_pupdr(n, Pupdr::PULLUP));
+        let inner = T::inner();
+        let clock = inner.new_inner(kernel_clk);
+
+        irq.set_handler(Self::on_interrupt);
+        irq.unpend();
+        irq.enable();
+
+        Self {
+            sdmmc: PhantomData,
+            pins,
+            irq,
+            ker_ck: kernel_clk,
+            hclk,
+            clock,
+            signalling: Default::default(),
+            card: None,
         }
-        block
-            .ospeedr()
-            .modify(|w| w.set_ospeedr(n, Ospeedr::VERYHIGHSPEED));
     }
 
+    #[inline(always)]
+    pub async fn init_card(&mut self, freq: impl Into<Hertz>) -> Result<(), Error> {
+        let inner = T::inner();
+        let freq = freq.into();
+
+        inner
+            .init_card(
+                freq,
+                P::BUSWIDTH,
+                &mut self.card,
+                &mut self.signalling,
+                self.hclk,
+                self.ker_ck,
+                &mut self.clock,
+                T::state(),
+            )
+            .await
+    }
+
+    /// Get a reference to the initialized card
+    ///
+    /// # Errors
+    ///
+    /// Returns Error::NoCard if [`init_card`](#method.init_card)
+    /// has not previously succeeded
+    pub fn card(&self) -> Result<&Card, Error> {
+        self.card.as_ref().ok_or(Error::NoCard)
+    }
+
+    fn on_interrupt(_: *mut ()) {
+        let regs = T::inner();
+        let state = T::state();
+
+        regs.data_interrupts(false);
+        state.wake();
+    }
+}
+
+impl<'d, T: Instance, P: Pins<T>> Drop for Sdmmc<'d, T, P> {
+    fn drop(&mut self) {
+        self.irq.disable();
+        let inner = T::inner();
+        unsafe { inner.on_drop() };
+        self.pins.deconfigure();
+    }
+}
+
+pub struct SdmmcInner(pub(crate) RegBlock);
+
+impl SdmmcInner {
     /// # Safety
     ///
     /// Access to `regs` registers should be exclusive
-    unsafe fn new_inner(regs: RegBlock, kernel_clk: Hertz) -> Hertz {
+    unsafe fn new_inner(&self, kernel_clk: Hertz) -> Hertz {
+        let regs = self.0;
+
         // While the SD/SDIO card or eMMC is in identification mode,
         // the SDMMC_CK frequency must be less than 400 kHz.
         let (clkdiv, clock) = unwrap!(clk_div(kernel_clk, 400_000));
@@ -262,103 +257,21 @@ impl<'d> Sdmmc<'d> {
         clock
     }
 
-    /// # Safety
-    ///
-    /// Futures that borrow this type can't be leaked
-    #[allow(clippy::too_many_arguments)]
-    pub unsafe fn new_four_width<T, CLK, CMD, D0, D1, D2, D3>(
-        _peripheral: impl Unborrow<Target = T> + 'd,
-        interrupt: u16,
-        clk_pin: impl Unborrow<Target = CLK> + 'd,
-        cmd_pin: impl Unborrow<Target = CMD> + 'd,
-        d0_pin: impl Unborrow<Target = D0> + 'd,
-        d1_pin: impl Unborrow<Target = D1> + 'd,
-        d2_pin: impl Unborrow<Target = D2> + 'd,
-        d3_pin: impl Unborrow<Target = D3> + 'd,
-        hclk: Hertz,
-        kernel_clk: Hertz,
-    ) -> Self
-    where
-        T: Instance,
-        CLK: CkPin<T>,
-        CMD: CmdPin<T>,
-        D0: D0Pin<T>,
-        D1: D1Pin<T>,
-        D2: D2Pin<T>,
-        D3: D3Pin<T>,
-    {
-        unborrow!(clk_pin, cmd_pin, d0_pin, d1_pin, d2_pin, d3_pin);
-
-        // Configure Pins
-        cortex_m::interrupt::free(|_| {
-            // clk
-            let block = clk_pin.block();
-            let n = clk_pin.pin() as usize;
-            let afr_num = CLK::AF_NUM;
-            Self::configure_pin(block, n, afr_num, false);
-
-            // cmd
-            let block = cmd_pin.block();
-            let n = cmd_pin.pin() as usize;
-            let afr_num = CMD::AF_NUM;
-            Self::configure_pin(block, n, afr_num, true);
-
-            // d0
-            let block = d0_pin.block();
-            let n = d0_pin.pin() as usize;
-            let afr_num = D0::AF_NUM;
-            Self::configure_pin(block, n, afr_num, true);
-
-            // d1
-            let block = d1_pin.block();
-            let n = d1_pin.pin() as usize;
-            let afr_num = D1::AF_NUM;
-            Self::configure_pin(block, n, afr_num, true);
-
-            // d2
-            let block = d2_pin.block();
-            let n = d2_pin.pin() as usize;
-            let afr_num = D2::AF_NUM;
-            Self::configure_pin(block, n, afr_num, true);
-
-            // d3
-            let block = d3_pin.block();
-            let n = d3_pin.pin() as usize;
-            let afr_num = D3::AF_NUM;
-            Self::configure_pin(block, n, afr_num, true);
-        });
-
-        let regs = RegBlock(T::ADDR as _);
-        let clock = Self::new_inner(regs, kernel_clk);
-
-        let pins = SdmmcPins {
-            cmd: cmd_pin.degrade(),
-            clk: clk_pin.degrade(),
-            d0: d0_pin.degrade(),
-            d1: Some(d1_pin.degrade()),
-            d2: Some(d2_pin.degrade()),
-            d3: Some(d3_pin.degrade()),
-        };
-
-        Self {
-            sdmmc: PhantomData,
-            regs_addr: T::ADDR,
-            bus_width: BusWidth::Four,
-            ker_ck: kernel_clk,
-            hclk,
-            clock,
-            signalling: Default::default(),
-            card: None,
-            pins,
-            interrupt_sdmmc1: interrupt == SDMMC1_INR,
-        }
-    }
-
     /// Initializes card (if present) and sets the bus at the
     /// specified frequency.
-    pub async fn init_card(&mut self, freq: impl Into<Hertz>) -> Result<(), Error> {
-        let freq = freq.into();
-        let regs = self.regs();
+    #[allow(clippy::too_many_arguments)]
+    pub async fn init_card(
+        &self,
+        freq: Hertz,
+        bus_width: BusWidth,
+        old_card: &mut Option<Card>,
+        signalling: &mut Signalling,
+        hclk: Hertz,
+        ker_ck: Hertz,
+        clock: &mut Hertz,
+        waker_reg: &AtomicWaker,
+    ) -> Result<(), Error> {
+        let regs = self.0;
 
         // NOTE(unsafe) We have exclusive access to the peripheral
         unsafe {
@@ -426,10 +339,10 @@ impl<'d> Sdmmc<'d> {
             card.csd = csd.into();
 
             self.select_card(Some(&card))?;
-            self.get_scr(&mut card).await?;
+            self.get_scr(&mut card, waker_reg).await?;
 
             // Set bus width
-            let (width, acmd_arg) = match self.bus_width {
+            let (width, acmd_arg) = match bus_width {
                 BusWidth::Eight => unimplemented!(),
                 BusWidth::Four if card.scr.bus_width_four() => (BusWidth::Four, 2),
                 _ => (BusWidth::One, 0),
@@ -452,72 +365,51 @@ impl<'d> Sdmmc<'d> {
             // Set Clock
             if freq.0 <= 25_000_000 {
                 // Final clock frequency
-                self.clkcr_set_clkdiv(freq.0, width)?;
+                self.clkcr_set_clkdiv(freq.0, width, hclk, ker_ck, clock)?;
             } else {
                 // Switch to max clock for SDR12
-                self.clkcr_set_clkdiv(25_000_000, width)?;
+                self.clkcr_set_clkdiv(25_000_000, width, hclk, ker_ck, clock)?;
             }
 
             // Read status
-            self.card.replace(card);
-            self.read_sd_status().await?;
+            self.read_sd_status(&mut card, waker_reg).await?;
 
             if freq.0 > 25_000_000 {
                 // Switch to SDR25
-                self.signalling = self.switch_signalling_mode(Signalling::SDR25).await?;
+                *signalling = self
+                    .switch_signalling_mode(Signalling::SDR25, waker_reg)
+                    .await?;
 
-                if self.signalling == Signalling::SDR25 {
+                if *signalling == Signalling::SDR25 {
                     // Set final clock frequency
-                    self.clkcr_set_clkdiv(freq.0, width)?;
+                    self.clkcr_set_clkdiv(freq.0, width, hclk, ker_ck, clock)?;
 
-                    if self.read_status()?.state() != CurrentState::Transfer {
+                    if self.read_status(&card)?.state() != CurrentState::Transfer {
                         return Err(Error::SignalingSwitchFailed);
                     }
                 }
             }
             // Read status after signalling change
-            self.read_sd_status().await?;
+            self.read_sd_status(&mut card, waker_reg).await?;
+            old_card.replace(card);
         }
+
         Ok(())
     }
 
-    /// Get a reference to the initialized card
-    ///
-    /// # Errors
-    ///
-    /// Returns Error::NoCard if [`init_card`](#method.init_card)
-    /// has not previously succeeded
-    pub fn card(&self) -> Result<&Card, Error> {
-        self.card.as_ref().ok_or(Error::NoCard)
-    }
-
-    /// Get a mutable reference to the initialized card
-    ///
-    /// # Errors
-    ///
-    /// Returns Error::NoCard if [`init_card`](#method.init_card)
-    /// has not previously succeeded
-    pub fn card_mut(&mut self) -> Result<&mut Card, Error> {
-        self.card.as_mut().ok_or(Error::NoCard)
-    }
-
-    pub async fn read_block(
-        &mut self,
-        block_idx: u32,
-        buffer: &mut DataBlock,
-    ) -> Result<(), Error> {
+    async fn read_block(&mut self, block_idx: u32, buffer: &mut [u32; 128]) -> Result<(), Error> {
         self::todo!()
     }
 
     /// Get the current SDMMC bus clock
-    pub fn clock(&self) -> Hertz {
-        self.clock
-    }
+    //pub fn clock(&self) -> Hertz {
+    //    self.clock
+    //}
 
     /// Wait idle on DOSNACT and CPSMACT
     #[inline(always)]
-    fn wait_idle(&mut self) {
-        let regs = self.regs();
+    fn wait_idle(&self) {
+        let regs = self.0;
 
         // NOTE(unsafe) Atomic read with no side-effects
         unsafe {
@@ -532,14 +424,14 @@ impl<'d> Sdmmc<'d> {
     ///
     /// `buffer_addr` must be valid for the whole transfer and word aligned
     unsafe fn prepare_datapath_transfer(
-        &mut self,
+        &self,
         buffer_addr: u32,
         length_bytes: u32,
         block_size: u8,
         direction: Dir,
     ) {
         self::assert!(block_size <= 14, "Block size up to 2^14 bytes");
-        let regs = self.regs();
+        let regs = self.0;
 
         let dtdir = match direction {
             Dir::CardToHost => true,
@@ -548,7 +440,7 @@ impl<'d> Sdmmc<'d> {
 
         // Command AND Data state machines must be idle
         self.wait_idle();
-        Self::clear_interrupt_flags(regs);
+        self.clear_interrupt_flags();
 
         // NOTE(unsafe) We have exclusive access to the regisers
 
@@ -565,15 +457,22 @@ impl<'d> Sdmmc<'d> {
     }
 
     /// Sets the CLKDIV field in CLKCR. Updates clock field in self
-    fn clkcr_set_clkdiv(&mut self, freq: u32, width: BusWidth) -> Result<(), Error> {
-        let regs = self.regs();
+    fn clkcr_set_clkdiv(
+        &self,
+        freq: u32,
+        width: BusWidth,
+        hclk: Hertz,
+        ker_ck: Hertz,
+        clock: &mut Hertz,
+    ) -> Result<(), Error> {
+        let regs = self.0;
 
-        let (clkdiv, new_clock) = clk_div(self.ker_ck, freq)?;
+        let (clkdiv, new_clock) = clk_div(ker_ck, freq)?;
         // Enforce AHB and SDMMC_CK clock relation. See RM0433 Rev 7
         // Section 55.5.8
         let sdmmc_bus_bandwidth = new_clock.0 * (width as u32);
-        self::assert!(self.hclk.0 > 3 * sdmmc_bus_bandwidth / 32);
-        self.clock = new_clock;
+        self::assert!(hclk.0 > 3 * sdmmc_bus_bandwidth / 32);
+        *clock = new_clock;
 
         // NOTE(unsafe) We have exclusive access to the regblock
         unsafe {
@@ -591,8 +490,9 @@ impl<'d> Sdmmc<'d> {
     /// signalling mode is returned. Expects the current clock
     /// frequency to be > 12.5MHz.
     async fn switch_signalling_mode(
-        &mut self,
+        &self,
         signalling: Signalling,
+        waker_reg: &AtomicWaker,
     ) -> Result<Signalling, Error> {
         // NB PLSS v7_10 4.3.10.4: "the use of SET_BLK_LEN command is not
         // necessary"
@@ -611,17 +511,17 @@ impl<'d> Sdmmc<'d> {
         let status_addr = &mut status as *mut [u32; 16] as u32;
 
         // Arm `OnDrop` after the buffer, so it will be dropped first
-        let regs = self.regs();
-        let on_drop = OnDrop::new(move || unsafe { Self::on_drop(regs) });
+        let regs = self.0;
+        let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
 
         unsafe {
             self.prepare_datapath_transfer(status_addr, 64, 6, Dir::CardToHost);
-            Self::data_interrupts(regs, true);
+            self.data_interrupts(true);
         }
         self.cmd(Cmd::cmd6(set_function), true)?; // CMD6
 
         let res = poll_fn(|cx| {
-            self.store_waker_and_unmask(&cx);
+            waker_reg.register(cx.waker());
             let status = unsafe { regs.star().read() };
 
             if status.dcrcfail() {
@@ -634,11 +534,7 @@ impl<'d> Sdmmc<'d> {
             Poll::Pending
         })
         .await;
-
-        unsafe {
-            Self::data_interrupts(regs, false);
-        }
-        Self::clear_interrupt_flags(regs);
+        self.clear_interrupt_flags();
 
         // Host is allowed to use the new functions at least 8
         // clocks after the end of the switch command
@@ -672,9 +568,9 @@ impl<'d> Sdmmc<'d> {
 
     /// Query the card status (CMD13, returns R1)
     ///
-    fn read_status(&mut self) -> Result<CardStatus, Error> {
-        let regs = self.regs();
-        let rca = self.card()?.rca;
+    fn read_status(&self, card: &Card) -> Result<CardStatus, Error> {
+        let regs = self.0;
+        let rca = card.rca;
 
         self.cmd(Cmd::card_status(rca << 16), false)?; // CMD13
 
@@ -684,8 +580,7 @@ impl<'d> Sdmmc<'d> {
     }
 
     /// Reads the SD Status (ACMD13)
-    async fn read_sd_status(&mut self) -> Result<(), Error> {
-        let card = self.card()?;
+    async fn read_sd_status(&self, card: &mut Card, waker_reg: &AtomicWaker) -> Result<(), Error> {
         let rca = card.rca;
         self.cmd(Cmd::set_block_length(64), false)?; // CMD16
         self.cmd(Cmd::app_cmd(rca << 16), false)?; // APP
@@ -694,17 +589,17 @@ impl<'d> Sdmmc<'d> {
         let status_addr = &mut status as *mut [u32; 16] as u32;
 
         // Arm `OnDrop` after the buffer, so it will be dropped first
-        let regs = self.regs();
-        let on_drop = OnDrop::new(move || unsafe { Self::on_drop(regs) });
+        let regs = self.0;
+        let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
 
         unsafe {
             self.prepare_datapath_transfer(status_addr, 64, 6, Dir::CardToHost);
-            Self::data_interrupts(regs, true);
+            self.data_interrupts(true);
         }
         self.cmd(Cmd::card_status(0), true)?;
 
         let res = poll_fn(|cx| {
-            self.store_waker_and_unmask(&cx);
+            waker_reg.register(cx.waker());
             let status = unsafe { regs.star().read() };
 
             if status.dcrcfail() {
@@ -717,13 +612,9 @@ impl<'d> Sdmmc<'d> {
             Poll::Pending
         })
         .await;
+        self.clear_interrupt_flags();
 
-        unsafe {
-            Self::data_interrupts(regs, false);
-        }
-        Self::clear_interrupt_flags(regs);
-
-        if let Ok(_) = &res {
+        if res.is_ok() {
             on_drop.defuse();
             unsafe {
                 regs.idmactrlr().modify(|w| w.set_idmaen(false));
@@ -731,7 +622,7 @@ impl<'d> Sdmmc<'d> {
             for byte in status.iter_mut() {
                 *byte = u32::from_be(*byte);
             }
-            self.card_mut()?.status = status.into();
+            card.status = status.into();
         }
         res
     }
@@ -740,7 +631,7 @@ impl<'d> Sdmmc<'d> {
     ///
     /// If `None` is specifed for `card`, all cards are put back into
     /// _Stand-by State_
-    fn select_card(&mut self, card: Option<&Card>) -> Result<(), Error> {
+    fn select_card(&self, card: Option<&Card>) -> Result<(), Error> {
         // Determine Relative Card Address (RCA) of given card
         let rca = card.map(|c| c.rca << 16).unwrap_or(0);
 
@@ -753,7 +644,8 @@ impl<'d> Sdmmc<'d> {
 
     /// Clear flags in interrupt clear register
     #[inline(always)]
-    fn clear_interrupt_flags(regs: RegBlock) {
+    fn clear_interrupt_flags(&self) {
+        let regs = self.0;
         // NOTE(unsafe) Atomic write
         unsafe {
             regs.icr().write(|w| {
@@ -782,21 +674,21 @@ impl<'d> Sdmmc<'d> {
     }
 
     /// Enables the interrupts for data transfer
-    ///
-    /// # Safety
-    ///
-    /// Access to `regs` must be exclusive
     #[inline(always)]
-    unsafe fn data_interrupts(regs: RegBlock, enable: bool) {
-        regs.maskr().modify(|w| {
-            w.set_dcrcfailie(enable);
-            w.set_dtimeoutie(enable);
-            w.set_dataendie(enable);
-            w.set_dabortie(enable);
-        });
+    fn data_interrupts(&self, enable: bool) {
+        let regs = self.0;
+        // NOTE(unsafe) Atomic write
+        unsafe {
+            regs.maskr().write(|w| {
+                w.set_dcrcfailie(enable);
+                w.set_dtimeoutie(enable);
+                w.set_dataendie(enable);
+                w.set_dabortie(enable);
+            });
+        }
     }
 
-    async fn get_scr(&mut self, card: &mut Card) -> Result<(), Error> {
+    async fn get_scr(&self, card: &mut Card, waker_reg: &AtomicWaker) -> Result<(), Error> {
         // Read the the 64-bit SCR register
         self.cmd(Cmd::set_block_length(8), false)?; // CMD16
         self.cmd(Cmd::app_cmd(card.rca << 16), false)?;
@@ -805,17 +697,17 @@ impl<'d> Sdmmc<'d> {
         let scr_addr = &mut scr as *mut u32 as u32;
 
         // Arm `OnDrop` after the buffer, so it will be dropped first
-        let regs = self.regs();
-        let on_drop = OnDrop::new(move || unsafe { Self::on_drop(regs) });
+        let regs = self.0;
+        let on_drop = OnDrop::new(move || unsafe { self.on_drop() });
 
         unsafe {
             self.prepare_datapath_transfer(scr_addr, 8, 3, Dir::CardToHost);
-            Self::data_interrupts(regs, true);
+            self.data_interrupts(true);
         }
         self.cmd(Cmd::cmd51(), true)?;
 
         let res = poll_fn(|cx| {
-            self.store_waker_and_unmask(&cx);
+            waker_reg.register(cx.waker());
             let status = unsafe { regs.star().read() };
 
             if status.dcrcfail() {
@@ -828,13 +720,9 @@ impl<'d> Sdmmc<'d> {
             Poll::Pending
         })
         .await;
+        self.clear_interrupt_flags();
 
-        unsafe {
-            Self::data_interrupts(regs, false);
-        }
-        Self::clear_interrupt_flags(regs);
-
-        if let Ok(_) = &res {
+        if res.is_ok() {
             on_drop.defuse();
 
             unsafe {
@@ -847,10 +735,10 @@ impl<'d> Sdmmc<'d> {
     }
 
     /// Send command to card
-    fn cmd(&mut self, cmd: Cmd, data: bool) -> Result<(), Error> {
-        let regs = self.regs();
+    fn cmd(&self, cmd: Cmd, data: bool) -> Result<(), Error> {
+        let regs = self.0;
 
-        Self::clear_interrupt_flags(regs);
+        self.clear_interrupt_flags();
         // NOTE(safety) Atomic operations
         unsafe {
             // CP state machine must be idle
@@ -907,16 +795,21 @@ impl<'d> Sdmmc<'d> {
         }
     }
 
-    fn store_waker_and_unmask(&self, cx: &Context) {
+    fn store_waker_and_unmask(
+        &self,
+        cx: &Context,
+        interrupt_sdmmc1: bool,
+        waker_reg: &AtomicWaker,
+    ) {
         use cortex_m::peripheral::NVIC;
 
         // NOTE(unsafe) We own the interrupt and can unmask it, it won't cause unsoundness
         unsafe {
-            if self.interrupt_sdmmc1 {
-                WAKER_1.register(cx.waker());
+            if interrupt_sdmmc1 {
+                waker_reg.register(cx.waker());
                 NVIC::unmask(InterruptEnum::SDMMC1);
             } else {
-                WAKER_2.register(cx.waker());
+                waker_reg.register(cx.waker());
                 NVIC::unmask(InterruptEnum::SDMMC2);
             }
         }
@@ -925,7 +818,8 @@ impl<'d> Sdmmc<'d> {
     /// # Safety
     ///
     /// Ensure that `regs` has exclusive access to the regblocks
-    unsafe fn on_drop(regs: RegBlock) {
+    unsafe fn on_drop(&self) {
+        let regs = self.0;
         if regs.star().read().dpsmact() {
             // Send abort
             // CP state machine must be idle
@@ -947,22 +841,9 @@ impl<'d> Sdmmc<'d> {
             // Wait for the abort
             while regs.star().read().dpsmact() {}
         }
-        Self::data_interrupts(regs, false);
-        Self::clear_interrupt_flags(regs);
+        self.data_interrupts(false);
+        self.clear_interrupt_flags();
         regs.idmactrlr().modify(|w| w.set_idmaen(false));
-    }
-}
-
-impl<'d> Drop for Sdmmc<'d> {
-    fn drop(&mut self) {
-        unsafe {
-            Self::on_drop(self.regs());
-        }
-
-        // NOTE(unsafe) With `free` we will have exclusive access to the registers
-        cortex_m::interrupt::free(|_| unsafe {
-            self.pins.deconfigure();
-        })
     }
 }
 
@@ -1055,30 +936,15 @@ impl Cmd {
 
 //////////////////////////////////////////////////////
 
-const SDMMC1_INR: u16 = 49;
-static WAKER_1: AtomicWaker = AtomicWaker::new();
-static WAKER_2: AtomicWaker = AtomicWaker::new();
-
-#[interrupt]
-unsafe fn SDMMC1() {
-    cortex_m::peripheral::NVIC::mask(InterruptEnum::SDMMC1);
-    WAKER_1.wake();
-}
-
-#[cfg(feature = "2sdmmc")]
-#[interrupt]
-unsafe fn SDMMC2() {
-    cortex_m::peripheral::NVIC::mask(InterruptEnum::SDMMC2);
-    WAKER_2.wake();
-}
-
 pub(crate) mod sealed {
     use super::*;
     use crate::gpio::Pin as GpioPin;
 
     pub trait Instance {
-        const ADDR: u32;
         type Interrupt: Interrupt;
+
+        fn inner() -> SdmmcInner;
+        fn state() -> &'static AtomicWaker;
     }
     pub trait CkPin<T: Instance>: GpioPin {
         const AF_NUM: u8;
@@ -1110,25 +976,248 @@ pub(crate) mod sealed {
     pub trait D7Pin<T: Instance>: GpioPin {
         const AF_NUM: u8;
     }
+
+    pub trait Pins<T: Instance> {}
 }
 
-pub trait Instance: sealed::Instance {}
-pub trait CkPin<T: Instance>: sealed::CkPin<T> {}
-pub trait CmdPin<T: Instance>: sealed::CmdPin<T> {}
-pub trait D0Pin<T: Instance>: sealed::D0Pin<T> {}
-pub trait D1Pin<T: Instance>: sealed::D1Pin<T> {}
-pub trait D2Pin<T: Instance>: sealed::D2Pin<T> {}
-pub trait D3Pin<T: Instance>: sealed::D3Pin<T> {}
-pub trait D4Pin<T: Instance>: sealed::D4Pin<T> {}
-pub trait D5Pin<T: Instance>: sealed::D5Pin<T> {}
-pub trait D6Pin<T: Instance>: sealed::D6Pin<T> {}
-pub trait D7Pin<T: Instance>: sealed::D7Pin<T> {}
+pub trait Instance: sealed::Instance + 'static {}
+pub trait CkPin<T: Instance>: sealed::CkPin<T> + 'static {}
+pub trait CmdPin<T: Instance>: sealed::CmdPin<T> + 'static {}
+pub trait D0Pin<T: Instance>: sealed::D0Pin<T> + 'static {}
+pub trait D1Pin<T: Instance>: sealed::D1Pin<T> + 'static {}
+pub trait D2Pin<T: Instance>: sealed::D2Pin<T> + 'static {}
+pub trait D3Pin<T: Instance>: sealed::D3Pin<T> + 'static {}
+pub trait D4Pin<T: Instance>: sealed::D4Pin<T> + 'static {}
+pub trait D5Pin<T: Instance>: sealed::D5Pin<T> + 'static {}
+pub trait D6Pin<T: Instance>: sealed::D6Pin<T> + 'static {}
+pub trait D7Pin<T: Instance>: sealed::D7Pin<T> + 'static {}
+
+pub trait Pins<T: Instance>: sealed::Pins<T> + 'static {
+    const BUSWIDTH: BusWidth;
+
+    fn configure(&mut self);
+    fn deconfigure(&mut self);
+}
+
+impl<T, CLK, CMD, D0, D1, D2, D3> sealed::Pins<T> for (CLK, CMD, D0, D1, D2, D3)
+where
+    T: Instance,
+    CLK: CkPin<T>,
+    CMD: CmdPin<T>,
+    D0: D0Pin<T>,
+    D1: D1Pin<T>,
+    D2: D2Pin<T>,
+    D3: D3Pin<T>,
+{
+}
+
+impl<T, CLK, CMD, D0> sealed::Pins<T> for (CLK, CMD, D0)
+where
+    T: Instance,
+    CLK: CkPin<T>,
+    CMD: CmdPin<T>,
+    D0: D0Pin<T>,
+{
+}
+
+/// # Safety
+///
+/// Access to `block` registers should be exclusive
+unsafe fn configure_pin(block: Gpio, n: usize, afr_num: u8, pup: bool) {
+    use pac::gpio::vals::{Afr, Moder, Ospeedr, Pupdr};
+
+    let (afr, n_af) = if n < 8 { (0, n) } else { (1, n - 8) };
+    block.afr(afr).modify(|w| w.set_afr(n_af, Afr(afr_num)));
+    block.moder().modify(|w| w.set_moder(n, Moder::ALTERNATE));
+    if pup {
+        block.pupdr().modify(|w| w.set_pupdr(n, Pupdr::PULLUP));
+    }
+    block
+        .ospeedr()
+        .modify(|w| w.set_ospeedr(n, Ospeedr::VERYHIGHSPEED));
+}
+
+impl<T, CLK, CMD, D0, D1, D2, D3> Pins<T> for (CLK, CMD, D0, D1, D2, D3)
+where
+    T: Instance,
+    CLK: CkPin<T>,
+    CMD: CmdPin<T>,
+    D0: D0Pin<T>,
+    D1: D1Pin<T>,
+    D2: D2Pin<T>,
+    D3: D3Pin<T>,
+{
+    const BUSWIDTH: BusWidth = BusWidth::Four;
+
+    fn configure(&mut self) {
+        let (clk_pin, cmd_pin, d0_pin, d1_pin, d2_pin, d3_pin) = self;
+
+        cortex_m::interrupt::free(|_| unsafe {
+            // clk
+            let block = clk_pin.block();
+            let n = clk_pin.pin() as usize;
+            let afr_num = CLK::AF_NUM;
+            configure_pin(block, n, afr_num, false);
+
+            // cmd
+            let block = cmd_pin.block();
+            let n = cmd_pin.pin() as usize;
+            let afr_num = CMD::AF_NUM;
+            configure_pin(block, n, afr_num, true);
+
+            // d0
+            let block = d0_pin.block();
+            let n = d0_pin.pin() as usize;
+            let afr_num = D0::AF_NUM;
+            configure_pin(block, n, afr_num, true);
+
+            // d1
+            let block = d1_pin.block();
+            let n = d1_pin.pin() as usize;
+            let afr_num = D1::AF_NUM;
+            configure_pin(block, n, afr_num, true);
+
+            // d2
+            let block = d2_pin.block();
+            let n = d2_pin.pin() as usize;
+            let afr_num = D2::AF_NUM;
+            configure_pin(block, n, afr_num, true);
+
+            // d3
+            let block = d3_pin.block();
+            let n = d3_pin.pin() as usize;
+            let afr_num = D3::AF_NUM;
+            configure_pin(block, n, afr_num, true);
+        });
+    }
+
+    fn deconfigure(&mut self) {
+        use pac::gpio::vals::{Moder, Ospeedr, Pupdr};
+
+        let (clk_pin, cmd_pin, d0_pin, d1_pin, d2_pin, d3_pin) = self;
+
+        cortex_m::interrupt::free(|_| unsafe {
+            // clk
+            let n = clk_pin.pin().into();
+            clk_pin
+                .block()
+                .moder()
+                .modify(|w| w.set_moder(n, Moder::ANALOG));
+            clk_pin
+                .block()
+                .ospeedr()
+                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
+
+            // cmd
+            let n = cmd_pin.pin().into();
+            cmd_pin
+                .block()
+                .moder()
+                .modify(|w| w.set_moder(n, Moder::ANALOG));
+            cmd_pin
+                .block()
+                .ospeedr()
+                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
+            cmd_pin
+                .block()
+                .pupdr()
+                .modify(|w| w.set_pupdr(n, Pupdr::FLOATING));
+
+            // d0
+            let n = d0_pin.pin().into();
+            d0_pin
+                .block()
+                .moder()
+                .modify(|w| w.set_moder(n, Moder::ANALOG));
+            d0_pin
+                .block()
+                .ospeedr()
+                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
+            d0_pin
+                .block()
+                .pupdr()
+                .modify(|w| w.set_pupdr(n, Pupdr::FLOATING));
+
+            // d1
+            let n = d1_pin.pin().into();
+            d1_pin
+                .block()
+                .moder()
+                .modify(|w| w.set_moder(n, Moder::ANALOG));
+            d1_pin
+                .block()
+                .ospeedr()
+                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
+            d1_pin
+                .block()
+                .pupdr()
+                .modify(|w| w.set_pupdr(n, Pupdr::FLOATING));
+
+            // d2
+            let n = d2_pin.pin().into();
+            d2_pin
+                .block()
+                .moder()
+                .modify(|w| w.set_moder(n, Moder::ANALOG));
+            d2_pin
+                .block()
+                .ospeedr()
+                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
+            d2_pin
+                .block()
+                .pupdr()
+                .modify(|w| w.set_pupdr(n, Pupdr::FLOATING));
+
+            // d3
+            let n = d3_pin.pin().into();
+            d3_pin
+                .block()
+                .moder()
+                .modify(|w| w.set_moder(n, Moder::ANALOG));
+            d3_pin
+                .block()
+                .ospeedr()
+                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
+            d3_pin
+                .block()
+                .pupdr()
+                .modify(|w| w.set_pupdr(n, Pupdr::FLOATING));
+        });
+    }
+}
+
+impl<T, CLK, CMD, D0> Pins<T> for (CLK, CMD, D0)
+where
+    T: Instance,
+    CLK: CkPin<T>,
+    CMD: CmdPin<T>,
+    D0: D0Pin<T>,
+{
+    const BUSWIDTH: BusWidth = BusWidth::One;
+
+    fn configure(&mut self) {
+        self::todo!()
+    }
+
+    fn deconfigure(&mut self) {
+        self::todo!()
+    }
+}
 
 macro_rules! impl_sdmmc {
-    ($inst:ident, $addr:expr) => {
+    ($inst:ident) => {
         impl crate::sdmmc_v2::sealed::Instance for peripherals::$inst {
-            const ADDR: u32 = $addr;
             type Interrupt = interrupt::$inst;
+
+            fn inner() -> crate::sdmmc_v2::SdmmcInner {
+                const INNER: crate::sdmmc_v2::SdmmcInner = crate::sdmmc_v2::SdmmcInner($inst);
+                INNER
+            }
+
+            fn state() -> &'static ::embassy::util::AtomicWaker {
+                static WAKER: ::embassy::util::AtomicWaker = ::embassy::util::AtomicWaker::new();
+                &WAKER
+            }
         }
 
         impl crate::sdmmc_v2::Instance for peripherals::$inst {}

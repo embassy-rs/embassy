@@ -151,7 +151,7 @@ for chip in chips.values():
                     f.write(f'impl_dma_channel!({channel}, {name}, {ch_num});')
 
             if peri['block'] == 'sdmmc_v2/SDMMC':
-                f.write(f'impl_sdmmc!({name}, 0x{peri["address"]:x});')
+                f.write(f'impl_sdmmc!({name});')
                 for pin, funcs in af.items():
                     if pin in pins:
                         if func := funcs.get(f'{name}_CK'):
@@ -215,7 +215,7 @@ for chip in chips.values():
 
                 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
                 #[allow(non_camel_case_types)]
-                enum InterruptEnum {{
+                pub enum InterruptEnum {{
                     {''.join(irq_variants)}
                 }}
                 unsafe impl cortex_m::interrupt::InterruptNumber for InterruptEnum {{

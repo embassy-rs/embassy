@@ -196,7 +196,7 @@ pub const GPIOK: gpio::Gpio = gpio::Gpio(0x58022800 as _);
 pub const RNG: rng::Rng = rng::Rng(0x48021800 as _);
 impl_rng!(RNG);
 pub const SDMMC1: sdmmc::Sdmmc = sdmmc::Sdmmc(0x52007000 as _);
-impl_sdmmc!(SDMMC1, 0x52007000);
+impl_sdmmc!(SDMMC1);
 impl_sdmmc_pin!(SDMMC1, D0Pin, PB13, 12);
 impl_sdmmc_pin!(SDMMC1, D4Pin, PB8, 12);
 impl_sdmmc_pin!(SDMMC1, D5Pin, PB9, 12);
@@ -209,7 +209,7 @@ impl_sdmmc_pin!(SDMMC1, D0Pin, PC8, 12);
 impl_sdmmc_pin!(SDMMC1, D1Pin, PC9, 12);
 impl_sdmmc_pin!(SDMMC1, CmdPin, PD2, 12);
 pub const SDMMC2: sdmmc::Sdmmc = sdmmc::Sdmmc(0x48022400 as _);
-impl_sdmmc!(SDMMC2, 0x48022400);
+impl_sdmmc!(SDMMC2);
 impl_sdmmc_pin!(SDMMC2, CmdPin, PA0, 9);
 impl_sdmmc_pin!(SDMMC2, D0Pin, PB14, 9);
 impl_sdmmc_pin!(SDMMC2, D1Pin, PB15, 9);
@@ -259,7 +259,7 @@ pub mod interrupt {
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     #[allow(non_camel_case_types)]
-    enum InterruptEnum {
+    pub enum InterruptEnum {
         ADC = 18,
         BDMA1 = 154,
         BDMA2_Channel0 = 129,
