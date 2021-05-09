@@ -363,7 +363,6 @@ impl<'d> Sdmmc<'d> {
         // NOTE(unsafe) We have exclusive access to the peripheral
         unsafe {
             regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
-            defmt::info!("pwr");
             self.cmd(Cmd::idle(), false)?;
 
             // Check if cards supports CMD8 (with pattern)
@@ -376,8 +375,6 @@ impl<'d> Sdmmc<'d> {
             } else {
                 return Err(Error::UnsupportedCardVersion);
             };
-
-            defmt::info!("CMD8");
 
             let ocr = loop {
                 // Signal that next command is a app command
@@ -408,7 +405,6 @@ impl<'d> Sdmmc<'d> {
                 card.card_type = CardCapacity::SDSC;
             }
             card.ocr = ocr;
-            defmt::info!("OCR");
 
             self.cmd(Cmd::all_send_cid(), false)?; // CMD2
             let cid0 = regs.respr(0).read().cardstatus1() as u128;
@@ -430,11 +426,7 @@ impl<'d> Sdmmc<'d> {
             card.csd = csd.into();
 
             self.select_card(Some(&card))?;
-
-            defmt::info!("select");
             self.get_scr(&mut card).await?;
-
-            defmt::info!("scr");
 
             // Set bus width
             let (width, acmd_arg) = match self.bus_width {
@@ -472,7 +464,7 @@ impl<'d> Sdmmc<'d> {
 
             if freq.0 > 25_000_000 {
                 // Switch to SDR25
-                self.signalling = self.switch_signalling_mode(Signalling::SDR25)?;
+                self.signalling = self.switch_signalling_mode(Signalling::SDR25).await?;
 
                 if self.signalling == Signalling::SDR25 {
                     // Set final clock frequency
@@ -598,8 +590,84 @@ impl<'d> Sdmmc<'d> {
     /// Attempt to set a new signalling mode. The selected
     /// signalling mode is returned. Expects the current clock
     /// frequency to be > 12.5MHz.
-    fn switch_signalling_mode(&self, signalling: Signalling) -> Result<Signalling, Error> {
-        self::todo!()
+    async fn switch_signalling_mode(
+        &mut self,
+        signalling: Signalling,
+    ) -> Result<Signalling, Error> {
+        // NB PLSS v7_10 4.3.10.4: "the use of SET_BLK_LEN command is not
+        // necessary"
+
+        let set_function = 0x8000_0000
+            | match signalling {
+                // See PLSS v7_10 Table 4-11
+                Signalling::DDR50 => 0xFF_FF04,
+                Signalling::SDR104 => 0xFF_1F03,
+                Signalling::SDR50 => 0xFF_1F02,
+                Signalling::SDR25 => 0xFF_FF01,
+                Signalling::SDR12 => 0xFF_FF00,
+            };
+
+        let mut status = [0u32; 16];
+        let status_addr = &mut status as *mut [u32; 16] as u32;
+
+        // Arm `OnDrop` after the buffer, so it will be dropped first
+        let regs = self.regs();
+        let on_drop = OnDrop::new(move || unsafe { Self::on_drop(regs) });
+
+        unsafe {
+            self.prepare_datapath_transfer(status_addr, 64, 6, Dir::CardToHost);
+            Self::data_interrupts(regs, true);
+        }
+        self.cmd(Cmd::cmd6(set_function), true)?; // CMD6
+
+        let res = poll_fn(|cx| {
+            self.store_waker_and_unmask(&cx);
+            let status = unsafe { regs.star().read() };
+
+            if status.dcrcfail() {
+                return Poll::Ready(Err(Error::Crc));
+            } else if status.dtimeout() {
+                return Poll::Ready(Err(Error::Timeout));
+            } else if status.dataend() {
+                return Poll::Ready(Ok(()));
+            }
+            Poll::Pending
+        })
+        .await;
+
+        unsafe {
+            Self::data_interrupts(regs, false);
+        }
+        Self::clear_interrupt_flags(regs);
+
+        // Host is allowed to use the new functions at least 8
+        // clocks after the end of the switch command
+        // transaction. We know the current clock period is < 80ns,
+        // so a total delay of 640ns is required here
+        for _ in 0..300 {
+            cortex_m::asm::nop();
+        }
+
+        match res {
+            Ok(_) => {
+                on_drop.defuse();
+                unsafe {
+                    regs.idmactrlr().modify(|w| w.set_idmaen(false));
+                }
+                // Function Selection of Function Group 1
+                let selection = (u32::from_be(status[4]) >> 24) & 0xF;
+
+                match selection {
+                    0 => Ok(Signalling::SDR12),
+                    1 => Ok(Signalling::SDR25),
+                    2 => Ok(Signalling::SDR50),
+                    3 => Ok(Signalling::SDR104),
+                    4 => Ok(Signalling::DDR50),
+                    _ => Err(Error::UnsupportedCardType),
+                }
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Query the card status (CMD13, returns R1)
@@ -695,6 +763,7 @@ impl<'d> Sdmmc<'d> {
                 w.set_dtimeoutc(true);
                 w.set_txunderrc(true);
                 w.set_rxoverrc(true);
+                w.set_cmdrendc(true);
                 w.set_cmdsentc(true);
                 w.set_dataendc(true);
                 w.set_dholdc(true);
@@ -786,7 +855,6 @@ impl<'d> Sdmmc<'d> {
         unsafe {
             // CP state machine must be idle
             while regs.star().read().cpsmact() {}
-            defmt::info!("cpsma idle");
 
             // Command arg
             regs.argr().write(|w| w.set_cmdarg(cmd.arg));
