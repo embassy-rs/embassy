@@ -5,6 +5,26 @@
 pub fn GPIO(n: usize) -> gpio::Gpio {
     gpio::Gpio((0x40020000 + 0x400 * n) as _)
 }
+pub const DMA1: dma::Dma = dma::Dma(0x40026000 as _);
+impl_dma_channel!(DMA1_CH0, 1, 0);
+impl_dma_channel!(DMA1_CH1, 1, 1);
+impl_dma_channel!(DMA1_CH2, 1, 2);
+impl_dma_channel!(DMA1_CH3, 1, 3);
+impl_dma_channel!(DMA1_CH4, 1, 4);
+impl_dma_channel!(DMA1_CH5, 1, 5);
+impl_dma_channel!(DMA1_CH6, 1, 6);
+impl_dma_channel!(DMA1_CH7, 1, 7);
+pub const DMA2: dma::Dma = dma::Dma(0x40026400 as _);
+impl_dma_channel!(DMA2_CH0, 2, 0);
+impl_dma_channel!(DMA2_CH1, 2, 1);
+impl_dma_channel!(DMA2_CH2, 2, 2);
+impl_dma_channel!(DMA2_CH3, 2, 3);
+impl_dma_channel!(DMA2_CH4, 2, 4);
+impl_dma_channel!(DMA2_CH5, 2, 5);
+impl_dma_channel!(DMA2_CH6, 2, 6);
+impl_dma_channel!(DMA2_CH7, 2, 7);
+pub const EXTI: exti::Exti = exti::Exti(0x40013c00 as _);
+pub const GPIOA: gpio::Gpio = gpio::Gpio(0x40020000 as _);
 impl_gpio_pin!(PA0, 0, 0, EXTI0);
 impl_gpio_pin!(PA1, 0, 1, EXTI1);
 impl_gpio_pin!(PA2, 0, 2, EXTI2);
@@ -21,6 +41,7 @@ impl_gpio_pin!(PA12, 0, 12, EXTI12);
 impl_gpio_pin!(PA13, 0, 13, EXTI13);
 impl_gpio_pin!(PA14, 0, 14, EXTI14);
 impl_gpio_pin!(PA15, 0, 15, EXTI15);
+pub const GPIOB: gpio::Gpio = gpio::Gpio(0x40020400 as _);
 impl_gpio_pin!(PB0, 1, 0, EXTI0);
 impl_gpio_pin!(PB1, 1, 1, EXTI1);
 impl_gpio_pin!(PB2, 1, 2, EXTI2);
@@ -37,6 +58,7 @@ impl_gpio_pin!(PB12, 1, 12, EXTI12);
 impl_gpio_pin!(PB13, 1, 13, EXTI13);
 impl_gpio_pin!(PB14, 1, 14, EXTI14);
 impl_gpio_pin!(PB15, 1, 15, EXTI15);
+pub const GPIOC: gpio::Gpio = gpio::Gpio(0x40020800 as _);
 impl_gpio_pin!(PC0, 2, 0, EXTI0);
 impl_gpio_pin!(PC1, 2, 1, EXTI1);
 impl_gpio_pin!(PC2, 2, 2, EXTI2);
@@ -53,6 +75,7 @@ impl_gpio_pin!(PC12, 2, 12, EXTI12);
 impl_gpio_pin!(PC13, 2, 13, EXTI13);
 impl_gpio_pin!(PC14, 2, 14, EXTI14);
 impl_gpio_pin!(PC15, 2, 15, EXTI15);
+pub const GPIOD: gpio::Gpio = gpio::Gpio(0x40020c00 as _);
 impl_gpio_pin!(PD0, 3, 0, EXTI0);
 impl_gpio_pin!(PD1, 3, 1, EXTI1);
 impl_gpio_pin!(PD2, 3, 2, EXTI2);
@@ -69,6 +92,7 @@ impl_gpio_pin!(PD12, 3, 12, EXTI12);
 impl_gpio_pin!(PD13, 3, 13, EXTI13);
 impl_gpio_pin!(PD14, 3, 14, EXTI14);
 impl_gpio_pin!(PD15, 3, 15, EXTI15);
+pub const GPIOE: gpio::Gpio = gpio::Gpio(0x40021000 as _);
 impl_gpio_pin!(PE0, 4, 0, EXTI0);
 impl_gpio_pin!(PE1, 4, 1, EXTI1);
 impl_gpio_pin!(PE2, 4, 2, EXTI2);
@@ -85,6 +109,7 @@ impl_gpio_pin!(PE12, 4, 12, EXTI12);
 impl_gpio_pin!(PE13, 4, 13, EXTI13);
 impl_gpio_pin!(PE14, 4, 14, EXTI14);
 impl_gpio_pin!(PE15, 4, 15, EXTI15);
+pub const GPIOH: gpio::Gpio = gpio::Gpio(0x40021c00 as _);
 impl_gpio_pin!(PH0, 7, 0, EXTI0);
 impl_gpio_pin!(PH1, 7, 1, EXTI1);
 impl_gpio_pin!(PH2, 7, 2, EXTI2);
@@ -101,13 +126,6 @@ impl_gpio_pin!(PH12, 7, 12, EXTI12);
 impl_gpio_pin!(PH13, 7, 13, EXTI13);
 impl_gpio_pin!(PH14, 7, 14, EXTI14);
 impl_gpio_pin!(PH15, 7, 15, EXTI15);
-pub const EXTI: exti::Exti = exti::Exti(0x40013c00 as _);
-pub const GPIOA: gpio::Gpio = gpio::Gpio(0x40020000 as _);
-pub const GPIOB: gpio::Gpio = gpio::Gpio(0x40020400 as _);
-pub const GPIOC: gpio::Gpio = gpio::Gpio(0x40020800 as _);
-pub const GPIOD: gpio::Gpio = gpio::Gpio(0x40020c00 as _);
-pub const GPIOE: gpio::Gpio = gpio::Gpio(0x40021000 as _);
-pub const GPIOH: gpio::Gpio = gpio::Gpio(0x40021c00 as _);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40013800 as _);
 pub const USART1: usart::Usart = usart::Usart(0x40011000 as _);
 impl_usart!(USART1);
@@ -137,6 +155,7 @@ impl_usart_pin!(USART6, RxPin, PA12, 8);
 impl_usart_pin!(USART6, TxPin, PC6, 8);
 impl_usart_pin!(USART6, RxPin, PC7, 8);
 impl_usart_pin!(USART6, CkPin, PC8, 8);
+pub use regs::dma_v2 as dma;
 pub use regs::exti_v1 as exti;
 pub use regs::gpio_v2 as gpio;
 pub use regs::syscfg_f4 as syscfg;
@@ -146,13 +165,14 @@ use embassy_extras::peripherals;
 pub use regs::generic;
 peripherals!(
     EXTI0, EXTI1, EXTI2, EXTI3, EXTI4, EXTI5, EXTI6, EXTI7, EXTI8, EXTI9, EXTI10, EXTI11, EXTI12,
-    EXTI13, EXTI14, EXTI15, PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7, PA8, PA9, PA10, PA11, PA12,
-    PA13, PA14, PA15, PB0, PB1, PB2, PB3, PB4, PB5, PB6, PB7, PB8, PB9, PB10, PB11, PB12, PB13,
-    PB14, PB15, PC0, PC1, PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC10, PC11, PC12, PC13, PC14,
-    PC15, PD0, PD1, PD2, PD3, PD4, PD5, PD6, PD7, PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15,
-    PE0, PE1, PE2, PE3, PE4, PE5, PE6, PE7, PE8, PE9, PE10, PE11, PE12, PE13, PE14, PE15, PH0, PH1,
-    PH2, PH3, PH4, PH5, PH6, PH7, PH8, PH9, PH10, PH11, PH12, PH13, PH14, PH15, EXTI, SYSCFG,
-    USART1, USART2, USART6
+    EXTI13, EXTI14, EXTI15, DMA1_CH0, DMA1_CH1, DMA1_CH2, DMA1_CH3, DMA1_CH4, DMA1_CH5, DMA1_CH6,
+    DMA1_CH7, DMA2_CH0, DMA2_CH1, DMA2_CH2, DMA2_CH3, DMA2_CH4, DMA2_CH5, DMA2_CH6, DMA2_CH7, EXTI,
+    PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7, PA8, PA9, PA10, PA11, PA12, PA13, PA14, PA15, PB0, PB1,
+    PB2, PB3, PB4, PB5, PB6, PB7, PB8, PB9, PB10, PB11, PB12, PB13, PB14, PB15, PC0, PC1, PC2, PC3,
+    PC4, PC5, PC6, PC7, PC8, PC9, PC10, PC11, PC12, PC13, PC14, PC15, PD0, PD1, PD2, PD3, PD4, PD5,
+    PD6, PD7, PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15, PE0, PE1, PE2, PE3, PE4, PE5, PE6, PE7,
+    PE8, PE9, PE10, PE11, PE12, PE13, PE14, PE15, PH0, PH1, PH2, PH3, PH4, PH5, PH6, PH7, PH8, PH9,
+    PH10, PH11, PH12, PH13, PH14, PH15, SYSCFG, USART1, USART2, USART6
 );
 
 pub mod interrupt {

@@ -70,33 +70,13 @@ for chip in chips.values():
             }}
         """)
 
-        # ========= GPIO
+        # ========= peripherals
 
         peripheral_names.extend((f'EXTI{x}' for x in range(16)))
 
         for (name, peri) in chip['peripherals'].items():
-            if not name.startswith('GPIO'):
-                continue
-
-            port = name[4:]
-            port_num = ord(port) - ord('A')
-
-            assert peri['address'] == gpio_base + gpio_stride*port_num
-
-            for pin_num in range(16):
-                pin = f'P{port}{pin_num}'
-                pins.add(pin)
-                peripheral_names.append(pin)
-                f.write(f'impl_gpio_pin!({pin}, {port_num}, {pin_num}, EXTI{pin_num});')
-
-        # ========= peripherals
-
-        for (name, peri) in chip['peripherals'].items():
             if 'block' not in peri:
                 continue
-
-            if not name.startswith('GPIO'):
-                peripheral_names.append(name)
 
             block = peri['block']
             block_mod, block_name = block.rsplit('/')
@@ -115,7 +95,9 @@ for chip in chips.values():
 
             f.write(f'pub const {name}: {block_mod}::{block_name} = {block_mod}::{block_name}(0x{peri["address"]:x} as _);')
 
-            if peri['block'] in ('usart_v1/USART', 'usart_v1/UART'):
+            custom_singletons = False
+
+            if block_mod == 'usart':
                 f.write(f'impl_usart!({name});')
                 for pin, funcs in af.items():
                     if pin in pins:
@@ -130,8 +112,32 @@ for chip in chips.values():
                         if func := funcs.get(f'{name}_CK'):
                             f.write(f'impl_usart_pin!({name}, CkPin, {pin}, {func});')
 
-            if peri['block'] == 'rng_v1/RNG':
+            if block_mod == 'rng':
                 f.write(f'impl_rng!({name});')
+
+            if block_mod == 'gpio':
+                custom_singletons = True
+                port = name[4:]
+                port_num = ord(port) - ord('A')
+
+                assert peri['address'] == gpio_base + gpio_stride*port_num
+
+                for pin_num in range(16):
+                    pin = f'P{port}{pin_num}'
+                    pins.add(pin)
+                    peripheral_names.append(pin)
+                    f.write(f'impl_gpio_pin!({pin}, {port_num}, {pin_num}, EXTI{pin_num});')
+
+            if block_mod == 'dma':
+                custom_singletons = True
+                inst_num = int(name[3:])
+                for ch_num in range(8):
+                    channel = f'{name}_CH{ch_num}'
+                    peripheral_names.append(channel)
+                    f.write(f'impl_dma_channel!({channel}, {inst_num}, {ch_num});')
+
+            if not custom_singletons:
+                peripheral_names.append(name)
 
         for mod, version in peripheral_versions.items():
             f.write(f'pub use regs::{mod}_{version} as {mod};')

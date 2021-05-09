@@ -11,6 +11,8 @@ pub mod fmt;
 
 use embassy::interrupt::{Interrupt, InterruptExt};
 
+#[cfg(feature = "_dma")]
+pub mod dma;
 pub mod exti;
 pub mod gpio;
 #[cfg(feature = "_rng")]
