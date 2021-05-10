@@ -41,7 +41,7 @@ async fn run1(bus: &'static mut UsbBusAllocator<UsbBus<USB>>) {
         .build();
 
     let irq = interrupt::take!(OTG_FS);
-    irq.set_priority(interrupt::Priority::Level3);
+    irq.set_priority(interrupt::Priority::P3);
 
     let usb = Usb::new(device, serial, irq);
     pin_mut!(usb);

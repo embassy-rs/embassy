@@ -135,7 +135,7 @@ fn main() -> ! {
 
     // High-priority executor: SWI1_EGU1, priority level 6
     let irq = interrupt::take!(SWI1_EGU1);
-    irq.set_priority(interrupt::Priority::Level6);
+    irq.set_priority(interrupt::Priority::P6);
     let alarm = ALARM_HIGH.put(rtc.alarm2());
     let executor = EXECUTOR_HIGH.put(InterruptExecutor::new(irq));
     executor.set_alarm(alarm);
@@ -145,7 +145,7 @@ fn main() -> ! {
 
     // Medium-priority executor: SWI0_EGU0, priority level 7
     let irq = interrupt::take!(SWI0_EGU0);
-    irq.set_priority(interrupt::Priority::Level7);
+    irq.set_priority(interrupt::Priority::P7);
     let alarm = ALARM_MED.put(rtc.alarm1());
     let executor = EXECUTOR_MED.put(InterruptExecutor::new(irq));
     executor.set_alarm(alarm);

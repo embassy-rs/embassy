@@ -3,48 +3,9 @@
 //! This module implements an API for managing interrupts compatible with
 //! nrf_softdevice::interrupt. Intended for switching between the two at compile-time.
 
-use core::sync::atomic::{compiler_fence, Ordering};
-
-use crate::pac::NVIC_PRIO_BITS;
-
 // Re-exports
 pub use embassy::interrupt::{declare, take, Interrupt};
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
-pub enum Priority {
-    Level0 = 0,
-    Level1 = 1,
-    Level2 = 2,
-    Level3 = 3,
-    Level4 = 4,
-    Level5 = 5,
-    Level6 = 6,
-    Level7 = 7,
-}
-
-impl From<u8> for Priority {
-    fn from(priority: u8) -> Self {
-        match priority >> (8 - NVIC_PRIO_BITS) {
-            0 => Self::Level0,
-            1 => Self::Level1,
-            2 => Self::Level2,
-            3 => Self::Level3,
-            4 => Self::Level4,
-            5 => Self::Level5,
-            6 => Self::Level6,
-            7 => Self::Level7,
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl From<Priority> for u8 {
-    fn from(p: Priority) -> Self {
-        (p as u8) << (8 - NVIC_PRIO_BITS)
-    }
-}
+pub use embassy_extras::interrupt::Priority3 as Priority;
 
 #[cfg(feature = "52810")]
 mod irqs {
