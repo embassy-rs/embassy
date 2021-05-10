@@ -71,10 +71,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly
-          target: ${{ matrix.target }}
-          components: rust-src, rustfmt
-          override: true
+          toolchain: stable
       - name: cache
         id: cache-target
         uses: actions/cache@v2
@@ -90,8 +87,6 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly
-          components: rustfmt
-          override: true
+          toolchain: stable
       - name: Check fmt
         run: for i in embassy-*; do (cd $i; cargo fmt -- --check); done
