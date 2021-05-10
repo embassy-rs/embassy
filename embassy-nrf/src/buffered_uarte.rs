@@ -6,6 +6,7 @@ use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
 use embassy::io::{AsyncBufRead, AsyncWrite, Result};
 use embassy::util::{Unborrow, WakerRegistration};
+use embassy_extras::buffered_uart::*;
 use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
 use embassy_extras::ring_buffer::RingBuffer;
 use embassy_extras::{low_power_wait_until, unborrow};
@@ -33,22 +34,6 @@ enum TxState {
     Transmitting(usize),
 }
 
-struct State<'d, U: UarteInstance, T: TimerInstance> {
-    uarte: U,
-    timer: T,
-    _ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
-    _ppi_ch2: Ppi<'d, AnyConfigurableChannel>,
-
-    rx: RingBuffer<'d>,
-    rx_state: RxState,
-    rx_waker: WakerRegistration,
-
-    tx: RingBuffer<'d>,
-    tx_state: TxState,
-    tx_waker: WakerRegistration,
-}
-
-/// Interface to a UARTE instance
 ///
 /// This is a very basic interface that comes with the following limitations:
 /// - The UARTE instances share the same address space with instances of UART.
@@ -57,7 +42,9 @@ struct State<'d, U: UarteInstance, T: TimerInstance> {
 ///     - nrf52832: Section 15.2
 ///     - nrf52840: Section 6.1.2
 pub struct BufferedUarte<'d, U: UarteInstance, T: TimerInstance> {
-    inner: PeripheralMutex<State<'d, U, T>>,
+    inner: BufferedUart<'d, Uarte<U>, UarteTimer<T>>,
+    _ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
+    _ppi_ch2: Ppi<'d, AnyConfigurableChannel>,
 }
 
 impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
@@ -155,31 +142,18 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch2.set_task(Task::from_reg(&r.tasks_stoprx));
         ppi_ch2.enable();
 
+        let uart = BufferedUart::new(Uarte(uarte), UarteTimer(timer), rx_buffer, tx_buffer, irq);
         BufferedUarte {
-            inner: PeripheralMutex::new(
-                State {
-                    uarte,
-                    timer,
-                    _ppi_ch1: ppi_ch1,
-                    _ppi_ch2: ppi_ch2,
-
-                    rx: RingBuffer::new(rx_buffer),
-                    rx_state: RxState::Idle,
-                    rx_waker: WakerRegistration::new(),
-
-                    tx: RingBuffer::new(tx_buffer),
-                    tx_state: TxState::Idle,
-                    tx_waker: WakerRegistration::new(),
-                },
-                irq,
-            ),
+            inner: uart,
+            _ppi_ch1: ppi_ch1,
+            _ppi_ch2: ppi_ch2,
         }
     }
 
     pub fn set_baudrate(self: Pin<&mut Self>, baudrate: Baudrate) {
-        self.inner().with(|state, _irq| {
+        self.inner().with_peripherals(|_uart, timer| {
             let r = U::regs();
-            let rt = state.timer.regs();
+            let rt = timer.0.regs();
 
             let timeout = 0x8000_0000 / (baudrate as u32 / 40);
             rt.cc[0].write(|w| unsafe { w.bits(timeout) });
@@ -189,207 +163,129 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         });
     }
 
-    fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<'d, U, T>>> {
+    fn inner(self: Pin<&mut Self>) -> Pin<&mut BufferedUart<'d, Uarte<U>, UarteTimer<T>>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
+    }
+
+    /// Split uart into an independent writer and reader parts.
+    pub unsafe fn split(
+        &'d mut self,
+    ) -> (
+        BufferedWriter<'d, Uarte<U>, UarteTimer<T>>,
+        BufferedReader<'d, Uarte<U>, UarteTimer<T>>,
+    ) {
+        // Using a shared reference to the underlying uart is OK, the BufferedWriter and BufferedReader
+        // will operate on separate paths of the peripheral.
+        let inner = &mut self.inner as *mut BufferedUart<'d, Uarte<U>, UarteTimer<T>>;
+        (
+            BufferedWriter::new(&mut *inner),
+            BufferedReader::new(&mut *inner),
+        )
     }
 }
 
 impl<'d, U: UarteInstance, T: TimerInstance> AsyncBufRead for BufferedUarte<'d, U, T> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
-        let mut inner = self.inner();
-        inner.as_mut().register_interrupt();
-        inner.with(|state, _irq| {
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // before any DMA action has started
-            compiler_fence(Ordering::SeqCst);
-            trace!("poll_read");
-
-            // We have data ready in buffer? Return it.
-            let buf = state.rx.pop_buf();
-            if !buf.is_empty() {
-                trace!("  got {:?} {:?}", buf.as_ptr() as u32, buf.len());
-                let buf: &[u8] = buf;
-                let buf: &[u8] = unsafe { mem::transmute(buf) };
-                return Poll::Ready(Ok(buf));
-            }
-
-            trace!("  empty");
-            state.rx_waker.register(cx.waker());
-            Poll::<Result<&[u8]>>::Pending
-        })
+        self.inner().poll_fill_buf(cx)
     }
 
     fn consume(self: Pin<&mut Self>, amt: usize) {
-        let mut inner = self.inner();
-        inner.as_mut().register_interrupt();
-        inner.with(|state, irq| {
-            trace!("consume {:?}", amt);
-            state.rx.pop(amt);
-            irq.pend();
-        })
+        self.inner().consume(amt)
     }
 }
 
 impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U, T> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
-        let mut inner = self.inner();
-        inner.as_mut().register_interrupt();
-        inner.with(|state, irq| {
-            trace!("poll_write: {:?}", buf.len());
-
-            let tx_buf = state.tx.push_buf();
-            if tx_buf.is_empty() {
-                trace!("poll_write: pending");
-                state.tx_waker.register(cx.waker());
-                return Poll::Pending;
-            }
-
-            let n = min(tx_buf.len(), buf.len());
-            tx_buf[..n].copy_from_slice(&buf[..n]);
-            state.tx.push(n);
-
-            trace!("poll_write: queued {:?}", n);
-
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // before any DMA action has started
-            compiler_fence(Ordering::SeqCst);
-
-            irq.pend();
-
-            Poll::Ready(Ok(n))
-        })
+        self.inner().poll_write(cx, buf)
     }
 }
 
-impl<'a, U: UarteInstance, T: TimerInstance> Drop for State<'a, U, T> {
-    fn drop(&mut self) {
-        let r = U::regs();
-        let rt = self.timer.regs();
-
-        // TODO this probably deadlocks. do like Uarte instead.
-
+pub struct UarteTimer<T: TimerInstance>(pub T);
+impl<T: TimerInstance> TimerPeripheral for UarteTimer<T> {
+    // Start is handled using PPI
+    fn start(&self) {}
+    fn stop(&self) {
+        let rt = self.0.regs();
         rt.tasks_stop.write(|w| unsafe { w.bits(1) });
-        if let RxState::Receiving = self.rx_state {
-            r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
-        }
-        if let TxState::Transmitting(_) = self.tx_state {
-            r.tasks_stoptx.write(|w| unsafe { w.bits(1) });
-        }
-        if let RxState::Receiving = self.rx_state {
-            low_power_wait_until(|| r.events_endrx.read().bits() == 1);
-        }
-        if let TxState::Transmitting(_) = self.tx_state {
-            low_power_wait_until(|| r.events_endtx.read().bits() == 1);
-        }
     }
 }
 
-impl<'a, U: UarteInstance, T: TimerInstance> PeripheralState for State<'a, U, T> {
+pub struct Uarte<U: UarteInstance>(pub U);
+
+impl<U: UarteInstance> UartPeripheral for Uarte<U> {
     type Interrupt = U::Interrupt;
-    fn on_interrupt(&mut self) {
-        trace!("irq: start");
+
+    fn start_rx(&self, buf: &mut [u8]) {
         let r = U::regs();
-        let rt = self.timer.regs();
 
-        loop {
-            match self.rx_state {
-                RxState::Idle => {
-                    trace!("  irq_rx: in state idle");
+        // Set up the DMA read
+        r.rxd.ptr.write(|w|
+            // The PTR field is a full 32 bits wide and accepts the full range
+            // of values.
+            unsafe { w.ptr().bits(buf.as_ptr() as u32) });
+        r.rxd.maxcnt.write(|w|
+            // We're giving it the length of the buffer, so no danger of
+            // accessing invalid memory. We have verified that the length of the
+            // buffer fits in an `u8`, so the cast to `u8` is also fine.
+            //
+            // The MAXCNT field is at least 8 bits wide and accepts the full
+            // range of values.
+            unsafe { w.maxcnt().bits(buf.len() as _) });
+        trace!("  irq_rx: buf {:?} {:?}", buf.as_ptr() as u32, buf.len());
 
-                    let buf = self.rx.push_buf();
-                    if !buf.is_empty() {
-                        trace!("  irq_rx: starting {:?}", buf.len());
-                        self.rx_state = RxState::Receiving;
+        // Start UARTE Receive transaction
+        r.tasks_startrx.write(|w|
+            // `1` is a valid value to write to task registers.
+            unsafe { w.bits(1) });
+    }
 
-                        // Set up the DMA read
-                        r.rxd.ptr.write(|w|
-                            // The PTR field is a full 32 bits wide and accepts the full range
-                            // of values.
-                            unsafe { w.ptr().bits(buf.as_ptr() as u32) });
-                        r.rxd.maxcnt.write(|w|
-                            // We're giving it the length of the buffer, so no danger of
-                            // accessing invalid memory. We have verified that the length of the
-                            // buffer fits in an `u8`, so the cast to `u8` is also fine.
-                            //
-                            // The MAXCNT field is at least 8 bits wide and accepts the full
-                            // range of values.
-                            unsafe { w.maxcnt().bits(buf.len() as _) });
-                        trace!("  irq_rx: buf {:?} {:?}", buf.as_ptr() as u32, buf.len());
+    fn clear_rx(&self) -> usize {
+        let r = U::regs();
+        let n = r.rxd.amount.read().amount().bits() as usize;
+        r.events_endrx.reset();
+        n
+    }
+    fn stop_rx(&self) {
+        let r = U::regs();
+        r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
+    }
+    fn rx_done(&self) -> bool {
+        let r = U::regs();
+        r.events_endrx.read().bits() != 0
+    }
 
-                        // Start UARTE Receive transaction
-                        r.tasks_startrx.write(|w|
-                            // `1` is a valid value to write to task registers.
-                            unsafe { w.bits(1) });
-                    }
-                    break;
-                }
-                RxState::Receiving => {
-                    trace!("  irq_rx: in state receiving");
-                    if r.events_endrx.read().bits() != 0 {
-                        rt.tasks_stop.write(|w| unsafe { w.bits(1) });
+    fn start_tx(&self, buf: &[u8]) {
+        let r = U::regs();
+        // Set up the DMA write
+        r.txd.ptr.write(|w|
+            // The PTR field is a full 32 bits wide and accepts the full range
+            // of values.
+            unsafe { w.ptr().bits(buf.as_ptr() as u32) });
+        r.txd.maxcnt.write(|w|
+            // We're giving it the length of the buffer, so no danger of
+            // accessing invalid memory. We have verified that the length of the
+            // buffer fits in an `u8`, so the cast to `u8` is also fine.
+            //
+            // The MAXCNT field is 8 bits wide and accepts the full range of
+            // values.
+            unsafe { w.maxcnt().bits(buf.len() as _) });
 
-                        let n: usize = r.rxd.amount.read().amount().bits() as usize;
-                        trace!("  irq_rx: endrx {:?}", n);
-                        self.rx.push(n);
+        // Start UARTE Transmit transaction
+        r.tasks_starttx.write(|w|
+            // `1` is a valid value to write to task registers.
+            unsafe { w.bits(1) });
+    }
 
-                        r.events_endrx.reset();
-
-                        self.rx_waker.wake();
-                        self.rx_state = RxState::Idle;
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-
-        loop {
-            match self.tx_state {
-                TxState::Idle => {
-                    trace!("  irq_tx: in state Idle");
-                    let buf = self.tx.pop_buf();
-                    if !buf.is_empty() {
-                        trace!("  irq_tx: starting {:?}", buf.len());
-                        self.tx_state = TxState::Transmitting(buf.len());
-
-                        // Set up the DMA write
-                        r.txd.ptr.write(|w|
-                            // The PTR field is a full 32 bits wide and accepts the full range
-                            // of values.
-                            unsafe { w.ptr().bits(buf.as_ptr() as u32) });
-                        r.txd.maxcnt.write(|w|
-                            // We're giving it the length of the buffer, so no danger of
-                            // accessing invalid memory. We have verified that the length of the
-                            // buffer fits in an `u8`, so the cast to `u8` is also fine.
-                            //
-                            // The MAXCNT field is 8 bits wide and accepts the full range of
-                            // values.
-                            unsafe { w.maxcnt().bits(buf.len() as _) });
-
-                        // Start UARTE Transmit transaction
-                        r.tasks_starttx.write(|w|
-                            // `1` is a valid value to write to task registers.
-                            unsafe { w.bits(1) });
-                    }
-                    break;
-                }
-                TxState::Transmitting(n) => {
-                    trace!("  irq_tx: in state Transmitting");
-                    if r.events_endtx.read().bits() != 0 {
-                        r.events_endtx.reset();
-
-                        trace!("  irq_tx: endtx {:?}", n);
-                        self.tx.pop(n);
-                        self.tx_waker.wake();
-                        self.tx_state = TxState::Idle;
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-        trace!("irq: end");
+    fn clear_tx(&self) {
+        let r = U::regs();
+        r.events_endtx.reset();
+    }
+    fn stop_tx(&self) {
+        let r = U::regs();
+        r.tasks_stoptx.write(|w| unsafe { w.bits(1) });
+    }
+    fn tx_done(&self) -> bool {
+        let r = U::regs();
+        r.events_endtx.read().bits() != 0
     }
 }

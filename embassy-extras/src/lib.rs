@@ -4,6 +4,7 @@
 pub(crate) mod fmt;
 
 pub mod interrupt;
+pub mod buffered_uart;
 mod macros;
 pub mod peripheral;
 pub mod peripheral_shared;
