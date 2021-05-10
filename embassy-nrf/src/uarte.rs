@@ -400,11 +400,10 @@ impl<'d, U: Instance, T: TimerInstance> ReadUntilIdle for UarteWithIdle<'d, U, T
             trace!("startrx");
             r.tasks_startrx.write(|w| unsafe { w.bits(1) });
 
-            let n: usize = poll_fn(|cx| {
+            poll_fn(|cx| {
                 s.endrx_waker.register(cx.waker());
                 if r.events_endrx.read().bits() != 0 {
-                    let n: usize = r.rxd.amount.read().amount().bits() as usize;
-                    return Poll::Ready(n);
+                    return Poll::Ready(());
                 }
                 Poll::Pending
             })
@@ -412,6 +411,8 @@ impl<'d, U: Instance, T: TimerInstance> ReadUntilIdle for UarteWithIdle<'d, U, T
 
             compiler_fence(Ordering::SeqCst);
             r.events_rxstarted.reset();
+            let n = r.rxd.amount.read().amount().bits() as usize;
+
             // Stop timer
             rt.tasks_stop.write(|w| unsafe { w.bits(1) });
             drop.defuse();
