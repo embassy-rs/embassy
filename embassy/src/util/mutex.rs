@@ -1,5 +1,5 @@
 use core::cell::UnsafeCell;
-use cortex_m::interrupt::CriticalSection;
+use critical_section::CriticalSection;
 
 use crate::fmt::assert;
 
@@ -30,7 +30,7 @@ impl<T> CriticalSectionMutex<T> {
 
 impl<T> CriticalSectionMutex<T> {
     /// Borrows the data for the duration of the critical section
-    pub fn borrow<'cs>(&'cs self, _cs: &'cs CriticalSection) -> &'cs T {
+    pub fn borrow<'cs>(&'cs self, _cs: CriticalSection<'cs>) -> &'cs T {
         unsafe { &*self.inner.get() }
     }
 }

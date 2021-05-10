@@ -39,6 +39,7 @@ embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["s
 embassy-extras = {version = "0.1.0", path = "../embassy-extras" }
 
 atomic-polyfill = "0.1.1"
+critical-section = "0.2.0"
 defmt = { version = "0.2.0", optional = true }
 log = { version = "0.4.11", optional = true }
 cortex-m-rt = "0.6.13"

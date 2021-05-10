@@ -62,7 +62,7 @@ impl AtomicWaker {
 
     /// Register a waker. Overwrites the previous waker, if any.
     pub fn register(&mut self, w: &Waker) {
-        cortex_m::interrupt::free(|cs| {
+        critical_section::with(|cs| {
             let cell = self.waker.borrow(cs);
             cell.set(match cell.replace(None) {
                 Some(w2) if (w2.will_wake(w)) => Some(w2),
@@ -73,7 +73,7 @@ impl AtomicWaker {
 
     /// Wake the registered waker, if any.
     pub fn wake(&mut self) {
-        cortex_m::interrupt::free(|cs| {
+        critical_section::with(|cs| {
             let cell = self.waker.borrow(cs);
             if let Some(w) = cell.replace(None) {
                 w.wake_by_ref();

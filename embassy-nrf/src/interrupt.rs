@@ -8,7 +8,6 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use crate::pac::NVIC_PRIO_BITS;
 
 // Re-exports
-pub use cortex_m::interrupt::{CriticalSection, Mutex};
 pub use embassy::interrupt::{declare, take, Interrupt};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
@@ -44,35 +43,6 @@ impl From<u8> for Priority {
 impl From<Priority> for u8 {
     fn from(p: Priority) -> Self {
         (p as u8) << (8 - NVIC_PRIO_BITS)
-    }
-}
-
-#[inline]
-pub fn free<F, R>(f: F) -> R
-where
-    F: FnOnce(&CriticalSection) -> R,
-{
-    unsafe {
-        // TODO: assert that we're in privileged level
-        // Needed because disabling irqs in non-privileged level is a noop, which would break safety.
-
-        let primask: u32;
-        asm!("mrs {}, PRIMASK", out(reg) primask);
-
-        asm!("cpsid i");
-
-        // Prevent compiler from reordering operations inside/outside the critical section.
-        compiler_fence(Ordering::SeqCst);
-
-        let r = f(&CriticalSection::new());
-
-        compiler_fence(Ordering::SeqCst);
-
-        if primask & 1 == 0 {
-            asm!("cpsie i");
-        }
-
-        r
     }
 }
 

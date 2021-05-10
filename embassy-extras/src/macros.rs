@@ -51,7 +51,7 @@ macro_rules! peripherals {
                 #[no_mangle]
                 static mut _EMBASSY_DEVICE_PERIPHERALS: bool = false;
 
-                cortex_m::interrupt::free(|_| {
+                critical_section::with(|_| {
                     if unsafe { _EMBASSY_DEVICE_PERIPHERALS } {
                         None
                     } else {
