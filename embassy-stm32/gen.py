@@ -115,6 +115,9 @@ for chip in chips.values():
             if block_mod == 'rng':
                 f.write(f'impl_rng!({name});')
 
+            if block_mod == 'spi':
+                f.write(f'impl_spi!({name});')
+
             if block_mod == 'gpio':
                 custom_singletons = True
                 port = name[4:]

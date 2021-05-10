@@ -17,11 +17,13 @@ pub mod exti;
 pub mod gpio;
 #[cfg(feature = "_rng")]
 pub mod rng;
+pub mod spi;
 #[cfg(feature = "_usart")]
 pub mod usart;
 
 // This must go LAST so that it sees the `impl_foo!` macros
 mod pac;
+
 pub use embassy_macros::interrupt;
 pub use pac::{interrupt, peripherals, Peripherals};
 
