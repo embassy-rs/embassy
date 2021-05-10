@@ -283,8 +283,8 @@ impl<'d, T: Instance> Write for Uarte<'d, T> {
     }
 }
 
-/// Interface to an UARTE peripheral that uses timers and PPI to emulate
-/// ReadUntilIdle.
+/// Interface to an UARTE peripheral that uses an additional timer and two PPI channels,
+/// allowing it to implement the ReadUntilIdle trait.
 pub struct UarteWithIdle<'d, U: Instance, T: TimerInstance> {
     uarte: Uarte<'d, U>,
     timer: T,
