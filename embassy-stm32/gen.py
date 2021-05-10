@@ -130,11 +130,10 @@ for chip in chips.values():
 
             if block_mod == 'dma':
                 custom_singletons = True
-                inst_num = int(name[3:])
                 for ch_num in range(8):
                     channel = f'{name}_CH{ch_num}'
                     peripheral_names.append(channel)
-                    f.write(f'impl_dma_channel!({channel}, {inst_num}, {ch_num});')
+                    f.write(f'impl_dma_channel!({channel}, {name}, {ch_num});')
 
             if not custom_singletons:
                 peripheral_names.append(name)
