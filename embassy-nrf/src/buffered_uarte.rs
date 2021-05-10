@@ -42,7 +42,7 @@ enum TxState {
 ///     - nrf52832: Section 15.2
 ///     - nrf52840: Section 6.1.2
 pub struct BufferedUarte<'d, U: UarteInstance, T: TimerInstance> {
-    inner: BufferedUart<'d, Uarte<U>, UarteTimer<T>>,
+    inner: BufferedUart<'d, Uarte<U, T>>,
     _ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
     _ppi_ch2: Ppi<'d, AnyConfigurableChannel>,
 }
@@ -142,7 +142,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch2.set_task(Task::from_reg(&r.tasks_stoprx));
         ppi_ch2.enable();
 
-        let uart = BufferedUart::new(Uarte(uarte), UarteTimer(timer), rx_buffer, tx_buffer, irq);
+        let uart = BufferedUart::new(Uarte { uarte, timer }, rx_buffer, tx_buffer, irq);
         BufferedUarte {
             inner: uart,
             _ppi_ch1: ppi_ch1,
@@ -151,9 +151,9 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     }
 
     pub fn set_baudrate(self: Pin<&mut Self>, baudrate: Baudrate) {
-        self.inner().with_peripherals(|_uart, timer| {
+        self.inner().with_peripherals(|uart| {
             let r = U::regs();
-            let rt = timer.0.regs();
+            let rt = uart.timer.regs();
 
             let timeout = 0x8000_0000 / (baudrate as u32 / 40);
             rt.cc[0].write(|w| unsafe { w.bits(timeout) });
@@ -163,7 +163,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         });
     }
 
-    fn inner(self: Pin<&mut Self>) -> Pin<&mut BufferedUart<'d, Uarte<U>, UarteTimer<T>>> {
+    fn inner(self: Pin<&mut Self>) -> Pin<&mut BufferedUart<'d, Uarte<U, T>>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
 
@@ -171,12 +171,12 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     pub unsafe fn split(
         &'d mut self,
     ) -> (
-        BufferedWriter<'d, Uarte<U>, UarteTimer<T>>,
-        BufferedReader<'d, Uarte<U>, UarteTimer<T>>,
+        BufferedWriter<'d, Uarte<U, T>>,
+        BufferedReader<'d, Uarte<U, T>>,
     ) {
         // Using a shared reference to the underlying uart is OK, the BufferedWriter and BufferedReader
         // will operate on separate paths of the peripheral.
-        let inner = &mut self.inner as *mut BufferedUart<'d, Uarte<U>, UarteTimer<T>>;
+        let inner = &mut self.inner as *mut BufferedUart<'d, Uarte<U, T>>;
         (
             BufferedWriter::new(&mut *inner),
             BufferedReader::new(&mut *inner),
@@ -200,19 +200,20 @@ impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U,
     }
 }
 
-pub struct UarteTimer<T: TimerInstance>(pub T);
-impl<T: TimerInstance> TimerPeripheral for UarteTimer<T> {
-    // Start is handled using PPI
-    fn start(&self) {}
-    fn stop(&self) {
-        let rt = self.0.regs();
+pub struct Uarte<U: UarteInstance, T: TimerInstance> {
+    uarte: U,
+    timer: T,
+}
+
+impl<U: UarteInstance, T: TimerInstance> Drop for Uarte<U, T> {
+    fn drop(&mut self) {
+        // Stop timer simulating read idle
+        let rt = self.timer.regs();
         rt.tasks_stop.write(|w| unsafe { w.bits(1) });
     }
 }
 
-pub struct Uarte<U: UarteInstance>(pub U);
-
-impl<U: UarteInstance> UartPeripheral for Uarte<U> {
+impl<U: UarteInstance, T: TimerInstance> UartPeripheral for Uarte<U, T> {
     type Interrupt = U::Interrupt;
 
     fn start_rx(&self, buf: &mut [u8]) {
@@ -240,6 +241,10 @@ impl<U: UarteInstance> UartPeripheral for Uarte<U> {
     }
 
     fn clear_rx(&self) -> usize {
+        // Stop timer simulating read idle
+        let rt = self.timer.regs();
+        rt.tasks_stop.write(|w| unsafe { w.bits(1) });
+
         let r = U::regs();
         let n = r.rxd.amount.read().amount().bits() as usize;
         r.events_endrx.reset();

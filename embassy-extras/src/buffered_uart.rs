@@ -24,11 +24,6 @@ enum TxState {
     Transmitting(usize),
 }
 
-pub trait TimerPeripheral {
-    fn start(&self);
-    fn stop(&self);
-}
-
 pub trait UartPeripheral {
     type Interrupt: embassy::interrupt::Interrupt;
 
@@ -45,9 +40,8 @@ pub trait UartPeripheral {
     fn tx_done(&self) -> bool;
 }
 
-struct State<'d, U: UartPeripheral, T: TimerPeripheral> {
+struct State<'d, U: UartPeripheral> {
     uart: U,
-    timer: T,
 
     rx: RingBuffer<'d>,
     rx_state: RxState,
@@ -58,15 +52,14 @@ struct State<'d, U: UartPeripheral, T: TimerPeripheral> {
     tx_waker: WakerRegistration,
 }
 
-pub struct BufferedUart<'d, U: UartPeripheral, T: TimerPeripheral> {
-    inner: PeripheralMutex<State<'d, U, T>>,
+pub struct BufferedUart<'d, U: UartPeripheral> {
+    inner: PeripheralMutex<State<'d, U>>,
 }
 
-impl<'d, U: UartPeripheral, T: TimerPeripheral> BufferedUart<'d, U, T> {
+impl<'d, U: UartPeripheral> BufferedUart<'d, U> {
     /// unsafe: may not leak self or futures
     pub unsafe fn new(
         uart: U,
-        timer: T,
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
         irq: U::Interrupt,
@@ -75,7 +68,6 @@ impl<'d, U: UartPeripheral, T: TimerPeripheral> BufferedUart<'d, U, T> {
             inner: PeripheralMutex::new(
                 State {
                     uart,
-                    timer,
                     rx: RingBuffer::new(rx_buffer),
                     rx_state: RxState::Idle,
                     rx_waker: WakerRegistration::new(),
@@ -89,19 +81,19 @@ impl<'d, U: UartPeripheral, T: TimerPeripheral> BufferedUart<'d, U, T> {
         }
     }
 
-    fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<'d, U, T>>> {
+    fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<'d, U>>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
 
-    pub fn with_peripherals<F: FnOnce(&mut U, &mut T)>(self: Pin<&mut Self>, f: F) {
+    pub fn with_peripherals<F: FnOnce(&mut U)>(self: Pin<&mut Self>, f: F) {
         let mut inner = self.inner();
         inner.with(|state, _irq| {
-            f(&mut state.uart, &mut state.timer);
+            f(&mut state.uart);
         });
     }
 }
 
-impl<'d, U: UartPeripheral, T: TimerPeripheral> AsyncBufRead for BufferedUart<'d, U, T> {
+impl<'d, U: UartPeripheral> AsyncBufRead for BufferedUart<'d, U> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
         let mut inner = self.inner();
         inner.as_mut().register_interrupt();
@@ -138,7 +130,7 @@ impl<'d, U: UartPeripheral, T: TimerPeripheral> AsyncBufRead for BufferedUart<'d
     }
 }
 
-impl<'d, U: UartPeripheral, T: TimerPeripheral> AsyncWrite for BufferedUart<'d, U, T> {
+impl<'d, U: UartPeripheral> AsyncWrite for BufferedUart<'d, U> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
         let mut inner = self.inner();
         inner.as_mut().register_interrupt();
@@ -170,9 +162,8 @@ impl<'d, U: UartPeripheral, T: TimerPeripheral> AsyncWrite for BufferedUart<'d, 
     }
 }
 
-impl<'d, U: UartPeripheral, T: TimerPeripheral> Drop for State<'d, U, T> {
+impl<'d, U: UartPeripheral> Drop for State<'d, U> {
     fn drop(&mut self) {
-        self.timer.stop();
         if let RxState::Receiving = self.rx_state {
             self.uart.stop_rx();
         }
@@ -188,7 +179,7 @@ impl<'d, U: UartPeripheral, T: TimerPeripheral> Drop for State<'d, U, T> {
     }
 }
 
-impl<'a, U: UartPeripheral, T: TimerPeripheral> PeripheralState for State<'a, U, T> {
+impl<'a, U: UartPeripheral> PeripheralState for State<'a, U> {
     type Interrupt = U::Interrupt;
     fn on_interrupt(&mut self) {
         trace!("irq: start");
@@ -203,14 +194,12 @@ impl<'a, U: UartPeripheral, T: TimerPeripheral> PeripheralState for State<'a, U,
                         trace!("  irq_rx: starting {:?}", buf.len());
                         self.rx_state = RxState::Receiving;
                         self.uart.start_rx(buf);
-                        self.timer.start();
                     }
                     break;
                 }
                 RxState::Receiving => {
                     trace!("  irq_rx: in state receiving");
                     if self.uart.rx_done() {
-                        self.timer.stop();
                         let n = self.uart.clear_rx();
                         self.rx.push(n);
                         self.rx_waker.wake();
@@ -250,21 +239,21 @@ impl<'a, U: UartPeripheral, T: TimerPeripheral> PeripheralState for State<'a, U,
     }
 }
 
-pub struct BufferedReader<'d, U: UartPeripheral, T: TimerPeripheral> {
-    inner: &'d mut BufferedUart<'d, U, T>,
+pub struct BufferedReader<'d, U: UartPeripheral> {
+    inner: &'d mut BufferedUart<'d, U>,
 }
 
-impl<'d, U: UartPeripheral, T: TimerPeripheral> BufferedReader<'d, U, T> {
-    pub fn new(inner: &'d mut BufferedUart<'d, U, T>) -> Self {
+impl<'d, U: UartPeripheral> BufferedReader<'d, U> {
+    pub fn new(inner: &'d mut BufferedUart<'d, U>) -> Self {
         Self { inner }
     }
 
-    fn inner(self: Pin<&mut Self>) -> Pin<&mut BufferedUart<'d, U, T>> {
+    fn inner(self: Pin<&mut Self>) -> Pin<&mut BufferedUart<'d, U>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
 }
 
-impl<'d, U: UartPeripheral, T: TimerPeripheral> AsyncBufRead for BufferedReader<'d, U, T> {
+impl<'d, U: UartPeripheral> AsyncBufRead for BufferedReader<'d, U> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
         self.inner().poll_fill_buf(cx)
     }
@@ -274,21 +263,21 @@ impl<'d, U: UartPeripheral, T: TimerPeripheral> AsyncBufRead for BufferedReader<
     }
 }
 
-pub struct BufferedWriter<'d, U: UartPeripheral, T: TimerPeripheral> {
-    inner: &'d mut BufferedUart<'d, U, T>,
+pub struct BufferedWriter<'d, U: UartPeripheral> {
+    inner: &'d mut BufferedUart<'d, U>,
 }
 
-impl<'d, U: UartPeripheral, T: TimerPeripheral> BufferedWriter<'d, U, T> {
-    pub fn new(inner: &'d mut BufferedUart<'d, U, T>) -> Self {
+impl<'d, U: UartPeripheral> BufferedWriter<'d, U> {
+    pub fn new(inner: &'d mut BufferedUart<'d, U>) -> Self {
         Self { inner }
     }
 
-    fn inner(self: Pin<&mut Self>) -> Pin<&mut BufferedUart<'d, U, T>> {
+    fn inner(self: Pin<&mut Self>) -> Pin<&mut BufferedUart<'d, U>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
 }
 
-impl<'d, U: UartPeripheral, T: TimerPeripheral> AsyncWrite for BufferedWriter<'d, U, T> {
+impl<'d, U: UartPeripheral> AsyncWrite for BufferedWriter<'d, U> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
         self.inner().poll_write(cx, buf)
     }
