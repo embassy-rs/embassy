@@ -288,7 +288,7 @@ impl<'d, T: Instance> Write for Uarte<'d, T> {
 pub struct UarteWithIdle<'d, U: Instance, T: TimerInstance> {
     uarte: Uarte<'d, U>,
     timer: T,
-    _ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
+    ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
     _ppi_ch2: Ppi<'d, AnyConfigurableChannel>,
 }
 
@@ -355,7 +355,7 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         Self {
             uarte,
             timer,
-            _ppi_ch1: ppi_ch1,
+            ppi_ch1: ppi_ch1,
             _ppi_ch2: ppi_ch2,
         }
     }
@@ -410,11 +410,12 @@ impl<'d, U: Instance, T: TimerInstance> ReadUntilIdle for UarteWithIdle<'d, U, T
             .await;
 
             compiler_fence(Ordering::SeqCst);
-            r.events_rxstarted.reset();
             let n = r.rxd.amount.read().amount().bits() as usize;
 
             // Stop timer
             rt.tasks_stop.write(|w| unsafe { w.bits(1) });
+            r.events_rxstarted.reset();
+
             drop.defuse();
 
             Ok(n)
@@ -426,7 +427,12 @@ impl<'d, U: Instance, T: TimerInstance> Read for UarteWithIdle<'d, U, T> {
     #[rustfmt::skip]
     type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Error>> + 'a;
     fn read<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.uarte.read(rx_buffer)
+        async move {
+            self.ppi_ch1.disable();
+            let result = self.uarte.read(rx_buffer).await;
+            self.ppi_ch1.enable();
+            result
+        }
     }
 }
 
