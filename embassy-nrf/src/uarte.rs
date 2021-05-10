@@ -342,7 +342,7 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         });
 
         let mut ppi_ch1 = Ppi::new(ppi_ch1.degrade_configurable());
-        ppi_ch1.set_event(Event::from_reg(&r.events_rxstarted));
+        ppi_ch1.set_event(Event::from_reg(&r.events_rxdrdy));
         ppi_ch1.set_task(Task::from_reg(&rt.tasks_clear));
         ppi_ch1.set_fork_task(Task::from_reg(&rt.tasks_start));
         ppi_ch1.enable();
