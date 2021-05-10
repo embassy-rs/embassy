@@ -25,6 +25,7 @@ pin-project = { version = "1.0.2", default-features = false }
 embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
 embassy-traits  = { version = "0.1.0", path = "../embassy-traits"}
 atomic-polyfill  = { version = "0.1.1" }
+critical-section = "0.2.0"
 
 # Workaround https://github.com/japaric/cast.rs/pull/27
 cast = { version = "=0.2.3", default-features = false }

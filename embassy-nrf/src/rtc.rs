@@ -1,10 +1,11 @@
 use core::cell::Cell;
 use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
-
+use critical_section::CriticalSection;
 use embassy::interrupt::InterruptExt;
 use embassy::time::Clock;
+use embassy::util::CriticalSectionMutex as Mutex;
 
-use crate::interrupt::{CriticalSection, Interrupt, Mutex};
+use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::{interrupt, peripherals};
 
@@ -134,7 +135,7 @@ impl<T: Instance> RTC<T> {
         for n in 0..ALARM_COUNT {
             if r.events_compare[n].read().bits() == 1 {
                 r.events_compare[n].write(|w| w);
-                interrupt::free(|cs| {
+                critical_section::with(|cs| {
                     self.trigger_alarm(n, cs);
                 })
             }
@@ -142,7 +143,7 @@ impl<T: Instance> RTC<T> {
     }
 
     fn next_period(&self) {
-        interrupt::free(|cs| {
+        critical_section::with(|cs| {
             let r = self.rtc.regs();
             let period = self.period.fetch_add(1, Ordering::Relaxed) + 1;
             let t = (period as u64) << 23;
@@ -160,7 +161,7 @@ impl<T: Instance> RTC<T> {
         })
     }
 
-    fn trigger_alarm(&self, n: usize, cs: &CriticalSection) {
+    fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
         let r = self.rtc.regs();
         r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
 
@@ -174,14 +175,14 @@ impl<T: Instance> RTC<T> {
     }
 
     fn set_alarm_callback(&self, n: usize, callback: fn(*mut ()), ctx: *mut ()) {
-        interrupt::free(|cs| {
+        critical_section::with(|cs| {
             let alarm = &self.alarms.borrow(cs)[n];
             alarm.callback.set(Some((callback, ctx)));
         })
     }
 
     fn set_alarm(&self, n: usize, timestamp: u64) {
-        interrupt::free(|cs| {
+        critical_section::with(|cs| {
             let alarm = &self.alarms.borrow(cs)[n];
             alarm.timestamp.set(timestamp);
 
@@ -289,5 +290,5 @@ pub trait Instance: sealed::Instance + 'static {
 
 impl_instance!(RTC0, RTC0);
 impl_instance!(RTC1, RTC1);
-#[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
+#[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
 impl_instance!(RTC2, RTC2);

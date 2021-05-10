@@ -1,5 +1,4 @@
 //! Async utilities
-mod critical_section;
 mod drop_bomb;
 mod forever;
 mod mutex;
@@ -10,7 +9,6 @@ mod signal;
 #[cfg_attr(feature = "executor-agnostic", path = "waker_agnostic.rs")]
 mod waker;
 
-pub use critical_section::*;
 pub use drop_bomb::*;
 pub use forever::*;
 pub use mutex::*;

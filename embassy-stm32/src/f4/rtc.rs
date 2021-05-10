@@ -3,12 +3,13 @@ use crate::hal::rcc::Clocks;
 use core::cell::Cell;
 use core::convert::TryInto;
 use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
-
+use critical_section::CriticalSection;
 use embassy::interrupt::InterruptExt;
 use embassy::time::{Clock, TICKS_PER_SECOND};
+use embassy::util::CriticalSectionMutex as Mutex;
 
 use crate::interrupt;
-use crate::interrupt::{CriticalSection, Interrupt, Mutex};
+use crate::interrupt::Interrupt;
 
 // RTC timekeeping works with something we call "periods", which are time intervals
 // of 2^15 ticks. The RTC counter value is 16 bits, so one "overflow cycle" is 2 periods.
@@ -119,13 +120,13 @@ impl<T: Instance> RTC<T> {
         for n in 1..=ALARM_COUNT {
             if self.rtc.compare_interrupt_status(n) {
                 self.rtc.compare_clear_flag(n);
-                interrupt::free(|cs| self.trigger_alarm(n, cs));
+                critical_section::with(|cs| self.trigger_alarm(n, cs));
             }
         }
     }
 
     fn next_period(&self) {
-        interrupt::free(|cs| {
+        critical_section::with(|cs| {
             let period = self.period.fetch_add(1, Ordering::Relaxed) + 1;
             let t = (period as u64) << 15;
 
@@ -142,7 +143,7 @@ impl<T: Instance> RTC<T> {
         })
     }
 
-    fn trigger_alarm(&self, n: usize, cs: &CriticalSection) {
+    fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
         self.rtc.set_compare_interrupt(n, false);
 
         let alarm = &self.alarms.borrow(cs)[n - 1];
@@ -155,14 +156,14 @@ impl<T: Instance> RTC<T> {
     }
 
     fn set_alarm_callback(&self, n: usize, callback: fn(*mut ()), ctx: *mut ()) {
-        interrupt::free(|cs| {
+        critical_section::with(|cs| {
             let alarm = &self.alarms.borrow(cs)[n - 1];
             alarm.callback.set(Some((callback, ctx)));
         })
     }
 
     fn set_alarm(&self, n: usize, timestamp: u64) {
-        interrupt::free(|cs| {
+        critical_section::with(|cs| {
             let alarm = &self.alarms.borrow(cs)[n - 1];
             alarm.timestamp.set(timestamp);
 

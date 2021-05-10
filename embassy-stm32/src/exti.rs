@@ -44,7 +44,7 @@ pub struct ExtiPin<T: Instance> {
 
 impl<T: Instance> ExtiPin<T> {
     pub fn new(mut pin: T, interrupt: T::Interrupt, syscfg: &mut SysCfg) -> Self {
-        cortex_m::interrupt::free(|_| {
+        critical_section::with(|_| {
             pin.make_source(syscfg);
         });
 
@@ -99,7 +99,7 @@ impl<T: Instance + digital::InputPin + 'static> ExtiPin<T> {
         async move {
             let fut = InterruptFuture::new(&mut self.interrupt);
             let pin = &mut self.pin;
-            cortex_m::interrupt::free(|_| {
+            critical_section::with(|_| {
                 pin.trigger_edge(if state {
                     EdgeOption::Rising
                 } else {
@@ -126,7 +126,7 @@ impl<T: Instance + 'static> ExtiPin<T> {
         async move {
             let fut = InterruptFuture::new(&mut self.interrupt);
             let pin = &mut self.pin;
-            cortex_m::interrupt::free(|_| {
+            critical_section::with(|_| {
                 pin.trigger_edge(state);
             });
 
