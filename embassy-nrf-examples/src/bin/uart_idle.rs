@@ -1,0 +1,49 @@
+#![no_std]
+#![no_main]
+#![feature(min_type_alias_impl_trait)]
+#![feature(impl_trait_in_bindings)]
+#![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
+
+#[path = "../example_common.rs"]
+mod example_common;
+use embassy_traits::uart::ReadUntilIdle;
+use example_common::*;
+
+use defmt::panic;
+use embassy::executor::Spawner;
+use embassy::traits::uart::{Read, Write};
+use embassy::util::Steal;
+use embassy_nrf::gpio::NoPin;
+use embassy_nrf::{interrupt, uarte, Peripherals};
+
+#[embassy::main]
+async fn main(spawner: Spawner) {
+    let p = unsafe { Peripherals::steal() };
+
+    let mut config = uarte::Config::default();
+    config.parity = uarte::Parity::EXCLUDED;
+    config.baudrate = uarte::Baudrate::BAUD115200;
+
+    let irq = interrupt::take!(UARTE0_UART0);
+    let mut uart = unsafe {
+        uarte::UarteWithIdle::new(
+            p.UARTE0, p.TIMER0, p.PPI_CH0, p.PPI_CH1, irq, p.P0_08, p.P0_06, NoPin, NoPin, config,
+        )
+    };
+
+    info!("uarte initialized!");
+
+    // Message must be in SRAM
+    let mut buf = [0; 8];
+    buf.copy_from_slice(b"Hello!\r\n");
+
+    unwrap!(uart.write(&buf).await);
+    info!("wrote hello in uart!");
+
+    loop {
+        info!("reading...");
+        let n = unwrap!(uart.read_until_idle(&mut buf).await);
+        info!("got {} bytes", n);
+    }
+}
