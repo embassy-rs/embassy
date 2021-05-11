@@ -7,6 +7,8 @@ use std::ptr;
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration as StdDuration, Instant as StdInstant};
 
+mod critical_section;
+
 static mut CLOCK_ZERO: MaybeUninit<StdInstant> = MaybeUninit::uninit();
 struct StdClock;
 impl Clock for StdClock {

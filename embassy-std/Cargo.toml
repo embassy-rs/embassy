@@ -8,3 +8,4 @@ edition = "2018"
 embassy     = { version = "0.1.0", path = "../embassy", features = ["std"] }
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["std"]}
 lazy_static = "1.4.0"
+critical-section = { version = "0.2.0", features = ["custom-impl"] }
