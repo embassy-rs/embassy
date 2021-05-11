@@ -1,3 +1,5 @@
+#![macro_use]
+
 use core::future::Future;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -12,7 +14,7 @@ use traits::spi::FullDuplex;
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin, Pin as GpioPin};
 use crate::interrupt::{self, Interrupt};
-use crate::{pac, peripherals, slice_in_ram_or};
+use crate::{pac, peripherals, util::slice_in_ram_or};
 
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
@@ -33,10 +35,21 @@ pub struct Spim<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
 
+#[non_exhaustive]
 pub struct Config {
     pub frequency: Frequency,
     pub mode: Mode,
     pub orc: u8,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            frequency: Frequency::M1,
+            mode: MODE_0,
+            orc: 0x00,
+        }
+    }
 }
 
 impl<'d, T: Instance> Spim<'d, T> {
@@ -315,7 +328,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spim<'d, T> {
     }
 }
 
-mod sealed {
+pub(crate) mod sealed {
     use super::*;
 
     pub struct State {
@@ -340,33 +353,19 @@ pub trait Instance: sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 
-macro_rules! impl_instance {
-    ($type:ident, $irq:ident) => {
-        impl sealed::Instance for peripherals::$type {
+macro_rules! impl_spim {
+    ($type:ident, $pac_type:ident, $irq:ident) => {
+        impl crate::spim::sealed::Instance for peripherals::$type {
             fn regs() -> &'static pac::spim0::RegisterBlock {
-                unsafe { &*pac::$type::ptr() }
+                unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static sealed::State {
-                static STATE: sealed::State = sealed::State::new();
+            fn state() -> &'static crate::spim::sealed::State {
+                static STATE: crate::spim::sealed::State = crate::spim::sealed::State::new();
                 &STATE
             }
         }
-        impl Instance for peripherals::$type {
-            type Interrupt = interrupt::$irq;
+        impl crate::spim::Instance for peripherals::$type {
+            type Interrupt = crate::interrupt::$irq;
         }
     };
 }
-
-#[cfg(feature = "52810")]
-impl_instance!(SPIM0, SPIM0_SPIS0_SPI0);
-#[cfg(not(feature = "52810"))]
-impl_instance!(SPIM0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-
-#[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-impl_instance!(SPIM1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
-
-#[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-impl_instance!(SPIM2, SPIM2_SPIS2_SPI2);
-
-#[cfg(any(feature = "52833", feature = "52840"))]
-impl_instance!(SPIM3, SPIM3);

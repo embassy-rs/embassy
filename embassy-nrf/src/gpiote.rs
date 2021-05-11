@@ -17,9 +17,9 @@ use crate::{interrupt, peripherals};
 
 pub const CHANNEL_COUNT: usize = 8;
 
-#[cfg(any(feature = "52833", feature = "52840"))]
+#[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
 pub const PIN_COUNT: usize = 48;
-#[cfg(not(any(feature = "52833", feature = "52840")))]
+#[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
 pub const PIN_COUNT: usize = 32;
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
@@ -49,9 +49,9 @@ pub struct Initialized {
 }
 
 pub fn initialize(_gpiote: peripherals::GPIOTE, irq: interrupt::GPIOTE) -> Initialized {
-    #[cfg(any(feature = "52833", feature = "52840"))]
+    #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
     let ports = unsafe { &[&*pac::P0::ptr(), &*pac::P1::ptr()] };
-    #[cfg(not(any(feature = "52833", feature = "52840")))]
+    #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
     let ports = unsafe { &[&*pac::P0::ptr()] };
 
     for &p in ports {
@@ -85,9 +85,9 @@ unsafe fn on_irq(_ctx: *mut ()) {
     if g.events_port.read().bits() != 0 {
         g.events_port.write(|w| w);
 
-        #[cfg(any(feature = "52833", feature = "52840"))]
+        #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
         let ports = &[&*pac::P0::ptr(), &*pac::P1::ptr()];
-        #[cfg(not(any(feature = "52833", feature = "52840")))]
+        #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
         let ports = &[&*pac::P0::ptr()];
 
         for (port, &p) in ports.iter().enumerate() {
@@ -149,7 +149,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
                 InputChannelPolarity::None => w.mode().event().polarity().none(),
                 InputChannelPolarity::Toggle => w.mode().event().polarity().toggle(),
             };
-            #[cfg(any(feature = "52833", feature = "52840"))]
+            #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
             w.port().bit(match pin.pin.port() {
                 Port::Port0 => false,
                 Port::Port1 => true,
@@ -237,7 +237,7 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
                 OutputChannelPolarity::Clear => w.polarity().hi_to_lo(),
                 OutputChannelPolarity::Toggle => w.polarity().toggle(),
             };
-            #[cfg(any(feature = "52833", feature = "52840"))]
+            #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
             w.port().bit(match pin.pin.port() {
                 Port::Port0 => false,
                 Port::Port1 => true,

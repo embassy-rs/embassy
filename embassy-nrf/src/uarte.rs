@@ -1,3 +1,5 @@
+#![macro_use]
+
 //! Async UART
 
 use core::future::Future;
@@ -10,6 +12,7 @@ use embassy::util::{AtomicWaker, OnDrop, Unborrow};
 use embassy_extras::unborrow;
 use futures::future::poll_fn;
 
+use crate::chip::EASY_DMA_SIZE;
 use crate::fmt::{assert, panic, *};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
@@ -18,7 +21,6 @@ use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::peripherals;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
-use crate::target_constants::EASY_DMA_SIZE;
 use crate::timer::Instance as TimerInstance;
 
 // Re-export SVD variants to allow user to directly set values.
@@ -445,7 +447,7 @@ impl<'d, U: Instance, T: TimerInstance> Write for UarteWithIdle<'d, U, T> {
     }
 }
 
-mod sealed {
+pub(crate) mod sealed {
     use super::*;
 
     pub struct State {
@@ -471,23 +473,19 @@ pub trait Instance: sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 
-macro_rules! impl_instance {
-    ($type:ident, $irq:ident) => {
-        impl sealed::Instance for peripherals::$type {
+macro_rules! impl_uarte {
+    ($type:ident, $pac_type:ident, $irq:ident) => {
+        impl crate::uarte::sealed::Instance for peripherals::$type {
             fn regs() -> &'static pac::uarte0::RegisterBlock {
-                unsafe { &*pac::$type::ptr() }
+                unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static sealed::State {
-                static STATE: sealed::State = sealed::State::new();
+            fn state() -> &'static crate::uarte::sealed::State {
+                static STATE: crate::uarte::sealed::State = crate::uarte::sealed::State::new();
                 &STATE
             }
         }
-        impl Instance for peripherals::$type {
-            type Interrupt = interrupt::$irq;
+        impl crate::uarte::Instance for peripherals::$type {
+            type Interrupt = crate::interrupt::$irq;
         }
     };
 }
-
-impl_instance!(UARTE0, UARTE0_UART0);
-#[cfg(any(feature = "52833", feature = "52840", feature = "9160"))]
-impl_instance!(UARTE1, UARTE1);
