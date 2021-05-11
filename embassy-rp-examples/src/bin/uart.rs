@@ -14,9 +14,7 @@ use embassy::executor::Spawner;
 use embassy_rp::{uart, Peripherals};
 
 #[embassy::main]
-async fn main(_spanwer: Spawner) {
-    let p = unwrap!(Peripherals::take());
-
+async fn main(_spawner: Spawner, p: Peripherals) {
     let config = uart::Config::default();
     let mut uart = uart::Uart::new(p.UART0, p.PIN_0, p.PIN_1, p.PIN_2, p.PIN_3, config);
     uart.send("Hello World!\r\n".as_bytes());

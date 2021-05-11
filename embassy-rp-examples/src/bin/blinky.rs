@@ -16,9 +16,7 @@ use embedded_hal::digital::v2::OutputPin;
 use gpio::{Level, Output};
 
 #[embassy::main]
-async fn main(_spawner: Spawner) {
-    let p = unwrap!(Peripherals::take());
-
+async fn main(_spawner: Spawner, p: Peripherals) {
     let mut led = Output::new(p.PIN_25, Level::Low);
 
     loop {

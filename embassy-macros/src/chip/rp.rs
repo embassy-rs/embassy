@@ -7,6 +7,6 @@ pub fn generate(embassy_prefix: &ModulePrefix, config: syn::Expr) -> TokenStream
     quote!(
         use #embassy_rp_path::{interrupt, peripherals};
 
-        unsafe { #embassy_rp_path::system::configure(#config) };
+        let p = #embassy_rp_path::init(#config);
     )
 }

@@ -12,13 +12,11 @@ use example_common::*;
 use defmt::panic;
 use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Input, Pull};
-use embassy_nrf::gpiote::{self, InputChannel, InputChannelPolarity};
+use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
 use embassy_nrf::{interrupt, Peripherals};
 
 #[embassy::main]
-async fn main(spawner: Spawner) {
-    let p = Peripherals::take().unwrap();
-
+async fn main(spawner: Spawner, p: Peripherals) {
     info!("Starting!");
 
     let ch1 = InputChannel::new(

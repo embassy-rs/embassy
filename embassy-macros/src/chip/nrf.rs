@@ -9,7 +9,7 @@ pub fn generate(embassy_prefix: &ModulePrefix, config: syn::Expr) -> TokenStream
     quote!(
         use #embassy_nrf_path::{interrupt, peripherals, rtc};
 
-        unsafe { #embassy_nrf_path::system::configure(#config) };
+        let p = #embassy_nrf_path::init(#config);
 
         let mut rtc = rtc::RTC::new(unsafe { <peripherals::RTC1 as #embassy_path::util::Steal>::steal() }, interrupt::take!(RTC1));
         let rtc = unsafe { make_static(&mut rtc) };

@@ -315,12 +315,12 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
 
     let args = task_fn.sig.inputs.clone();
 
-    if args.len() != 1 {
+    if args.len() != 2 {
         task_fn
             .sig
             .span()
             .unwrap()
-            .error("main function must have one argument")
+            .error("main function must have 2 arguments")
             .emit();
         fail = true;
     }
@@ -364,7 +364,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
             #chip_setup
 
             executor.run(|spawner| {
-                spawner.spawn(__embassy_main(spawner)).unwrap();
+                spawner.spawn(__embassy_main(spawner, p)).unwrap();
             })
 
         }

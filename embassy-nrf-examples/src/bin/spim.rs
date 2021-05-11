@@ -19,10 +19,8 @@ use embedded_hal::digital::v2::*;
 use example_common::*;
 
 #[embassy::main]
-async fn main(spawner: Spawner) {
+async fn main(spawner: Spawner, p: Peripherals) {
     info!("running!");
-
-    let p = unsafe { Peripherals::steal() };
 
     let mut config = spim::Config::default();
     config.frequency = spim::Frequency::M16;

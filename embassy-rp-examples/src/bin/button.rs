@@ -16,9 +16,7 @@ use embassy_rp::Peripherals;
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 
 #[embassy::main]
-async fn main(_spawner: Spawner) {
-    let p = unwrap!(Peripherals::take());
-
+async fn main(_spawner: Spawner, p: Peripherals) {
     let button = Input::new(p.PIN_28, Pull::Up);
     let mut led = Output::new(p.PIN_25, Level::Low);
 

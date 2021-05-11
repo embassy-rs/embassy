@@ -28,9 +28,7 @@ async fn button_task(n: usize, mut pin: PortInput<'static, AnyPin>) {
 }
 
 #[embassy::main]
-async fn main(spawner: Spawner) {
-    let p = Peripherals::take().unwrap();
-
+async fn main(spawner: Spawner, p: Peripherals) {
     info!("Starting!");
 
     let btn1 = PortInput::new(Input::new(p.P0_11.degrade(), Pull::Up));

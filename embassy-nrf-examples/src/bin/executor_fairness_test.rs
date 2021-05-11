@@ -13,7 +13,7 @@ use core::task::Poll;
 use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Instant, Timer};
-use embassy_nrf::interrupt;
+use embassy_nrf::{interrupt, Peripherals};
 
 #[embassy::task]
 async fn run1() {
@@ -40,7 +40,7 @@ async fn run3() {
 }
 
 #[embassy::main]
-async fn main(spawner: Spawner) {
+async fn main(spawner: Spawner, p: Peripherals) {
     unwrap!(spawner.spawn(run1()));
     unwrap!(spawner.spawn(run2()));
     unwrap!(spawner.spawn(run3()));
