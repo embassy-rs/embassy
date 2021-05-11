@@ -72,3 +72,4 @@ pub mod interrupt {
     pub use embassy::interrupt::{declare, take, Interrupt};
     pub use embassy_extras::interrupt::Priority3 as Priority;
 }
+pub use embassy_macros::interrupt;
