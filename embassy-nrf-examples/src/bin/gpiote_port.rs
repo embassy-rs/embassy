@@ -8,12 +8,11 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use core::pin::Pin;
 use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::traits::gpio::{WaitForHigh, WaitForLow};
 use embassy_nrf::gpio::{AnyPin, Input, Pin as _, Pull};
-use embassy_nrf::gpiote::{self, PortInput};
+use embassy_nrf::gpiote::PortInput;
 use embassy_nrf::interrupt;
 use embassy_nrf::Peripherals;
 use example_common::*;
@@ -32,12 +31,12 @@ async fn button_task(n: usize, mut pin: PortInput<'static, AnyPin>) {
 async fn main(spawner: Spawner) {
     let p = Peripherals::take().unwrap();
 
-    let g = gpiote::initialize(p.GPIOTE, interrupt::take!(GPIOTE));
+    info!("Starting!");
 
-    let btn1 = PortInput::new(g, Input::new(p.P0_11.degrade(), Pull::Up));
-    let btn2 = PortInput::new(g, Input::new(p.P0_12.degrade(), Pull::Up));
-    let btn3 = PortInput::new(g, Input::new(p.P0_24.degrade(), Pull::Up));
-    let btn4 = PortInput::new(g, Input::new(p.P0_25.degrade(), Pull::Up));
+    let btn1 = PortInput::new(Input::new(p.P0_11.degrade(), Pull::Up));
+    let btn2 = PortInput::new(Input::new(p.P0_12.degrade(), Pull::Up));
+    let btn3 = PortInput::new(Input::new(p.P0_24.degrade(), Pull::Up));
+    let btn4 = PortInput::new(Input::new(p.P0_25.degrade(), Pull::Up));
 
     spawner.spawn(button_task(1, btn1)).unwrap();
     spawner.spawn(button_task(2, btn2)).unwrap();

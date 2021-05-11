@@ -73,4 +73,7 @@ pub unsafe fn configure(config: Config) {
     r.events_lfclkstarted.write(|w| unsafe { w.bits(0) });
     r.tasks_lfclkstart.write(|w| unsafe { w.bits(1) });
     while r.events_lfclkstarted.read().bits() == 0 {}
+
+    // Init GPIOTE
+    crate::gpiote::init();
 }

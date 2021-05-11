@@ -21,44 +21,37 @@ use gpiote::{OutputChannel, OutputChannelPolarity};
 #[embassy::main]
 async fn main(spawner: Spawner) {
     let p = Peripherals::take().unwrap();
-    let g = gpiote::initialize(p.GPIOTE, interrupt::take!(GPIOTE));
 
     info!("Starting!");
 
     let button1 = InputChannel::new(
-        g,
         p.GPIOTE_CH0,
         Input::new(p.P0_11, Pull::Up),
         InputChannelPolarity::HiToLo,
     );
     let button2 = InputChannel::new(
-        g,
         p.GPIOTE_CH1,
         Input::new(p.P0_12, Pull::Up),
         InputChannelPolarity::HiToLo,
     );
     let button3 = InputChannel::new(
-        g,
         p.GPIOTE_CH2,
         Input::new(p.P0_24, Pull::Up),
         InputChannelPolarity::HiToLo,
     );
     let button4 = InputChannel::new(
-        g,
         p.GPIOTE_CH3,
         Input::new(p.P0_25, Pull::Up),
         InputChannelPolarity::HiToLo,
     );
 
     let led1 = OutputChannel::new(
-        g,
         p.GPIOTE_CH4,
         Output::new(p.P0_13, Level::Low, OutputDrive::Standard),
         OutputChannelPolarity::Toggle,
     );
 
     let led2 = OutputChannel::new(
-        g,
         p.GPIOTE_CH5,
         Output::new(p.P0_14, Level::Low, OutputDrive::Standard),
         OutputChannelPolarity::Toggle,

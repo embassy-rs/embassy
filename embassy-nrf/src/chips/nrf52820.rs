@@ -25,7 +25,6 @@ embassy_extras::peripherals! {
     TIMER3,
 
     // GPIOTE
-    GPIOTE,
     GPIOTE_CH0,
     GPIOTE_CH1,
     GPIOTE_CH2,
