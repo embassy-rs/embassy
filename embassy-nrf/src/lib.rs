@@ -37,6 +37,7 @@ pub mod saadc;
 pub mod spim;
 pub mod system;
 pub mod timer;
+pub mod twim;
 pub mod uarte;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
