@@ -1,5 +1,4 @@
 use crate::low_power_wait_until;
-use crate::peripheral::{PeripheralMutex, PeripheralState};
 use crate::ring_buffer::RingBuffer;
 use core::cmp::min;
 use core::mem;
@@ -25,8 +24,6 @@ enum TxState {
 }
 
 pub trait UartPeripheral {
-    type Interrupt: embassy::interrupt::Interrupt;
-
     // RX methods
     fn start_rx(&self, buf: &mut [u8]);
     fn stop_rx(&self);
@@ -40,7 +37,7 @@ pub trait UartPeripheral {
     fn tx_done(&self) -> bool;
 }
 
-struct State<'d, U: UartPeripheral> {
+struct BufferedUart<'d, U: UartPeripheral> {
     uart: U,
 
     rx: RingBuffer<'d>,
@@ -52,138 +49,28 @@ struct State<'d, U: UartPeripheral> {
     tx_waker: WakerRegistration,
 }
 
-pub struct BufferedUart<'d, U: UartPeripheral> {
-    inner: PeripheralMutex<State<'d, U>>,
-}
-
 impl<'d, U: UartPeripheral> BufferedUart<'d, U> {
     /// unsafe: may not leak self or futures
-    pub unsafe fn new(
-        uart: U,
-        rx_buffer: &'d mut [u8],
-        tx_buffer: &'d mut [u8],
-        irq: U::Interrupt,
-    ) -> Self {
+    pub unsafe fn new(uart: U, rx_buffer: &'d mut [u8], tx_buffer: &'d mut [u8]) -> Self {
         Self {
-            inner: PeripheralMutex::new(
-                State {
-                    uart,
-                    rx: RingBuffer::new(rx_buffer),
-                    rx_state: RxState::Idle,
-                    rx_waker: WakerRegistration::new(),
+            uart,
+            rx: RingBuffer::new(rx_buffer),
+            rx_state: RxState::Idle,
+            rx_waker: WakerRegistration::new(),
 
-                    tx: RingBuffer::new(tx_buffer),
-                    tx_state: TxState::Idle,
-                    tx_waker: WakerRegistration::new(),
-                },
-                irq,
-            ),
+            tx: RingBuffer::new(tx_buffer),
+            tx_state: TxState::Idle,
+            tx_waker: WakerRegistration::new(),
         }
     }
 
-    fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<'d, U>>> {
-        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
+    pub fn with_peripheral<F: FnOnce(&mut U)>(&mut self, f: F) {
+        f(&mut self.uart);
     }
 
-    pub fn with_peripherals<F: FnOnce(&mut U)>(self: Pin<&mut Self>, f: F) {
-        let mut inner = self.inner();
-        inner.with(|state, _irq| {
-            f(&mut state.uart);
-        });
-    }
-}
-
-impl<'d, U: UartPeripheral> AsyncBufRead for BufferedUart<'d, U> {
-    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
-        let mut inner = self.inner();
-        inner.as_mut().register_interrupt();
-        inner.with(|state, _irq| {
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // before any DMA action has started
-            compiler_fence(Ordering::SeqCst);
-            trace!("poll_read");
-
-            // We have data ready in buffer? Return it.
-            let buf = state.rx.pop_buf();
-            if !buf.is_empty() {
-                trace!("  got {:?} {:?}", buf.as_ptr() as u32, buf.len());
-                let buf: &[u8] = buf;
-                let buf: &[u8] = unsafe { mem::transmute(buf) };
-                return Poll::Ready(Ok(buf));
-            }
-
-            trace!("  empty");
-            state.rx_waker.register(cx.waker());
-            Poll::<Result<&[u8]>>::Pending
-        })
-    }
-
-    fn consume(self: Pin<&mut Self>, amt: usize) {
-        let mut inner = self.inner();
-        inner.as_mut().register_interrupt();
-        inner.with(|state, irq| {
-            trace!("consume {:?}", amt);
-            state.rx.pop(amt);
-            irq.pend();
-        })
-    }
-}
-
-impl<'d, U: UartPeripheral> AsyncWrite for BufferedUart<'d, U> {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
-        let mut inner = self.inner();
-        inner.as_mut().register_interrupt();
-        inner.with(|state, irq| {
-            trace!("poll_write: {:?}", buf.len());
-
-            let tx_buf = state.tx.push_buf();
-            if tx_buf.is_empty() {
-                trace!("poll_write: pending");
-                state.tx_waker.register(cx.waker());
-                return Poll::Pending;
-            }
-
-            let n = min(tx_buf.len(), buf.len());
-            tx_buf[..n].copy_from_slice(&buf[..n]);
-            state.tx.push(n);
-
-            trace!("poll_write: queued {:?}", n);
-
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // before any DMA action has started
-            compiler_fence(Ordering::SeqCst);
-
-            irq.pend();
-
-            Poll::Ready(Ok(n))
-        })
-    }
-}
-
-impl<'d, U: UartPeripheral> Drop for State<'d, U> {
-    fn drop(&mut self) {
-        if let RxState::Receiving = self.rx_state {
-            self.uart.stop_rx();
-        }
-        if let TxState::Transmitting(_) = self.tx_state {
-            self.uart.stop_tx();
-        }
-        if let RxState::Receiving = self.rx_state {
-            low_power_wait_until(|| self.uart.rx_done());
-        }
-        if let TxState::Transmitting(_) = self.tx_state {
-            low_power_wait_until(|| self.uart.tx_done());
-        }
-    }
-}
-
-impl<'a, U: UartPeripheral> PeripheralState for State<'a, U> {
-    type Interrupt = U::Interrupt;
-    fn on_interrupt(&mut self) {
+    /// Invoke when IRQ for the underlying peripheral is raised
+    pub fn on_interrupt(&mut self) {
         trace!("irq: start");
-
         loop {
             match self.rx_state {
                 RxState::Idle => {
@@ -236,6 +123,80 @@ impl<'a, U: UartPeripheral> PeripheralState for State<'a, U> {
             }
         }
         trace!("irq: end");
+    }
+}
+
+impl<'d, U: UartPeripheral> AsyncBufRead for BufferedUart<'d, U> {
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
+        // Conservative compiler fence to prevent optimizations that do not
+        // take in to account actions by DMA. The fence has been placed here,
+        // before any DMA action has started
+        compiler_fence(Ordering::SeqCst);
+        trace!("poll_read");
+
+        // We have data ready in buffer? Return it.
+        let buf = self.rx.pop_buf();
+        if !buf.is_empty() {
+            trace!("  got {:?} {:?}", buf.as_ptr() as u32, buf.len());
+            let buf: &[u8] = buf;
+            let buf: &[u8] = unsafe { mem::transmute(buf) };
+            return Poll::Ready(Ok(buf));
+        }
+
+        trace!("  empty");
+        self.rx_waker.register(cx.waker());
+        Poll::<Result<&[u8]>>::Pending
+    }
+
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        trace!("consume {:?}", amt);
+        self.rx.pop(amt);
+        //    irq.pend();
+    }
+}
+
+impl<'d, U: UartPeripheral> AsyncWrite for BufferedUart<'d, U> {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
+        trace!("poll_write: {:?}", buf.len());
+
+        let tx_buf = self.tx.push_buf();
+        if tx_buf.is_empty() {
+            trace!("poll_write: pending");
+            self.tx_waker.register(cx.waker());
+            return Poll::Pending;
+        }
+
+        let n = min(tx_buf.len(), buf.len());
+        tx_buf[..n].copy_from_slice(&buf[..n]);
+        self.tx.push(n);
+
+        trace!("poll_write: queued {:?}", n);
+
+        // Conservative compiler fence to prevent optimizations that do not
+        // take in to account actions by DMA. The fence has been placed here,
+        // before any DMA action has started
+        //    compiler_fence(Ordering::SeqCst);
+
+        // irq.pend();
+
+        Poll::Ready(Ok(n))
+    }
+}
+
+impl<'d, U: UartPeripheral> Drop for BufferedUart<'d, U> {
+    fn drop(&mut self) {
+        if let RxState::Receiving = self.rx_state {
+            self.uart.stop_rx();
+        }
+        if let TxState::Transmitting(_) = self.tx_state {
+            self.uart.stop_tx();
+        }
+        if let RxState::Receiving = self.rx_state {
+            low_power_wait_until(|| self.uart.rx_done());
+        }
+        if let TxState::Transmitting(_) = self.tx_state {
+            low_power_wait_until(|| self.uart.tx_done());
+        }
     }
 }
 

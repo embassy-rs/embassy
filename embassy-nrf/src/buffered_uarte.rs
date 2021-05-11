@@ -22,16 +22,8 @@ use crate::uarte::{Config, Instance as UarteInstance};
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-enum RxState {
-    Idle,
-    Receiving,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-enum TxState {
-    Idle,
-    Transmitting(usize),
+struct State<'d, U: UarteInstance, T: TimerInstance> {
+    uart: BufferedUart<'d, Uarte<U, T>>,
 }
 
 ///
@@ -42,7 +34,7 @@ enum TxState {
 ///     - nrf52832: Section 15.2
 ///     - nrf52840: Section 6.1.2
 pub struct BufferedUarte<'d, U: UarteInstance, T: TimerInstance> {
-    inner: BufferedUart<'d, Uarte<U, T>>,
+    inner: PeripheralMutex<State<'d, Uarte<U, T>>>,
     _ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
     _ppi_ch2: Ppi<'d, AnyConfigurableChannel>,
 }
@@ -142,16 +134,16 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch2.set_task(Task::from_reg(&r.tasks_stoprx));
         ppi_ch2.enable();
 
-        let uart = BufferedUart::new(Uarte { uarte, timer }, rx_buffer, tx_buffer, irq);
+        let uart = BufferedUart::new(Uarte { uarte, timer }, rx_buffer, tx_buffer);
         BufferedUarte {
-            inner: uart,
+            inner: PeripheralMutex::new(State { uart }, irq),
             _ppi_ch1: ppi_ch1,
             _ppi_ch2: ppi_ch2,
         }
     }
 
     pub fn set_baudrate(self: Pin<&mut Self>, baudrate: Baudrate) {
-        self.inner().with_peripherals(|uart| {
+        self.inner().with_peripheral(|uart| {
             let r = U::regs();
             let rt = uart.timer.regs();
 
@@ -163,7 +155,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         });
     }
 
-    fn inner(self: Pin<&mut Self>) -> Pin<&mut BufferedUart<'d, Uarte<U, T>>> {
+    fn inner(self: Pin<&mut Self>) -> Pin<&mut State<'d, Uarte<U, T>>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
     }
 
@@ -176,7 +168,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     ) {
         // Using a shared reference to the underlying uart is OK, the BufferedWriter and BufferedReader
         // will operate on separate paths of the peripheral.
-        let inner = &mut self.inner as *mut BufferedUart<'d, Uarte<U, T>>;
+        let inner = &mut self.inner.uart as *mut BufferedUart<'d, Uarte<U, T>>;
         (
             BufferedWriter::new(&mut *inner),
             BufferedReader::new(&mut *inner),
@@ -214,8 +206,6 @@ impl<U: UarteInstance, T: TimerInstance> Drop for Uarte<U, T> {
 }
 
 impl<U: UarteInstance, T: TimerInstance> UartPeripheral for Uarte<U, T> {
-    type Interrupt = U::Interrupt;
-
     fn start_rx(&self, buf: &mut [u8]) {
         let r = U::regs();
 
@@ -292,5 +282,12 @@ impl<U: UarteInstance, T: TimerInstance> UartPeripheral for Uarte<U, T> {
     fn tx_done(&self) -> bool {
         let r = U::regs();
         r.events_endtx.read().bits() != 0
+    }
+}
+
+impl<'d, U: UartInstance, T: TimerInstance> PeripheralState for State<'d, U, T> {
+    type Interrupt = U::Interrupt;
+    fn on_interrupt(&mut self) {
+        self.uart.on_interrupt();
     }
 }
