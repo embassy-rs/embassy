@@ -19,13 +19,13 @@ pub enum Error {
 }
 
 pub struct Random<T: Instance> {
-    inner: T,
+    _inner: T,
 }
 
 impl<T: Instance> Random<T> {
     pub fn new(inner: impl Unborrow<Target = T>) -> Self {
         unborrow!(inner);
-        let mut random = Self { inner };
+        let mut random = Self { _inner: inner };
         random.reset();
         random
     }

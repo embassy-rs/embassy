@@ -1,7 +1,6 @@
 //! Async SPI API
 
 use core::future::Future;
-use core::pin::Pin;
 
 /// Full duplex (master mode)
 ///
