@@ -117,6 +117,14 @@ for chip in chips.values():
 
             if block_mod == 'spi':
                 f.write(f'impl_spi!({name});')
+                for pin, funcs in af.items():
+                    if pin in pins:
+                        if func := funcs.get(f'{name}_SCK'):
+                            f.write(f'impl_spi_pin!({name}, Sck, {pin}, {func});')
+                        if func := funcs.get(f'{name}_MOSI'):
+                            f.write(f'impl_spi_pin!({name}, Mosi, {pin}, {func});')
+                        if func := funcs.get(f'{name}_MISO'):
+                            f.write(f'impl_spi_pin!({name}, Miso, {pin}, {func});')
 
             if block_mod == 'gpio':
                 custom_singletons = True

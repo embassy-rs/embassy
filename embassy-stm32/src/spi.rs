@@ -4,12 +4,54 @@ pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_
 use core::marker::PhantomData;
 use embassy::interrupt::Interrupt;
 use embedded_hal::blocking::spi::{Write, Transfer};
+use embassy::util::Unborrow;
+use embassy_extras::{impl_unborrow, unborrow};
+use crate::gpio::{Pin, AnyPin};
+use crate::pac::gpio::vals::Afr;
+use crate::pac::gpio::Gpio;
 //use crate::pac::spi;
 
 pub struct Spi<'d, T: Instance> {
     peri: T,
+    sck: AnyPin,
+    mosi: AnyPin,
+    miso: AnyPin,
     //irq: T::Interrupt,
     phantom: PhantomData<&'d mut T>,
+}
+
+impl<'d, T: Instance> Spi<'d, T> {
+    pub fn new(peri: impl Unborrow<Target=T> + 'd,
+               sck: impl Unborrow<Target=impl Sck<T>>,
+               mosi: impl Unborrow<Target=impl Mosi<T>>,
+               miso: impl Unborrow<Target=impl Miso<T>>,
+    ) -> Self {
+        unborrow!(peri);
+        unborrow!(sck, mosi, miso);
+
+        unsafe {
+            Self::configure_pin( sck.block(), sck.pin() as usize, sck.af() );
+            Self::configure_pin( mosi.block(), mosi.pin() as usize, mosi.af() );
+            Self::configure_pin( miso.block(), miso.pin() as usize, miso.af() );
+        }
+
+        let sck = sck.degrade();
+        let mosi = mosi.degrade();
+        let miso = miso.degrade();
+
+        Self {
+            peri,
+            sck,
+            mosi,
+            miso,
+            phantom: PhantomData,
+        }
+    }
+
+    unsafe fn configure_pin(block: Gpio, pin: usize, af_num: u8) {
+        let (afr, n_af) = if pin < 8 { (0, pin) } else { (1, pin - 8) };
+        block.afr(afr).modify(|w| w.set_afr(n_af, Afr(af_num)));
+    }
 }
 
 pub enum Error {
@@ -111,10 +153,43 @@ pub(crate) mod sealed {
         fn regs() -> &'static crate::pac::spi::Spi;
         //fn state() -> &'static State;
     }
+
+    pub trait Sck<T: Instance> : Pin {
+        const AF: u8;
+        fn af(&self) -> u8 {
+            Self::AF
+        }
+    }
+
+    pub trait Mosi<T: Instance> : Pin {
+        const AF: u8;
+        fn af(&self) -> u8 {
+            Self::AF
+        }
+    }
+
+    pub trait Miso<T: Instance> : Pin {
+        const AF: u8;
+        fn af(&self) -> u8 {
+            Self::AF
+        }
+    }
 }
 
 pub trait Instance: sealed::Instance + 'static {
     //type Interrupt: Interrupt;
+}
+
+pub trait Sck<T:Instance>: sealed::Sck<T> + 'static {
+
+}
+
+pub trait Mosi<T:Instance>: sealed::Mosi<T> + 'static {
+
+}
+
+pub trait Miso<T:Instance>: sealed::Miso<T> + 'static {
+
 }
 
 macro_rules! impl_spi {
@@ -127,4 +202,15 @@ macro_rules! impl_spi {
 
         impl crate::spi::Instance for peripherals::$inst {}
     };
+}
+
+macro_rules! impl_spi_pin {
+    ($inst:ident, $pin_func:ident, $pin:ident, $af:expr) => {
+        impl crate::spi::$pin_func<peripherals::$inst> for peripherals::$pin {
+        }
+
+        impl crate::spi::sealed::$pin_func<peripherals::$inst> for peripherals::$pin {
+            const AF: u8 = $af;
+        }
+    }
 }
