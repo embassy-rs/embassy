@@ -3,8 +3,8 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-pub mod interrupt;
 pub mod buffered_uart;
+pub mod interrupt;
 mod macros;
 pub mod peripheral;
 pub mod peripheral_shared;

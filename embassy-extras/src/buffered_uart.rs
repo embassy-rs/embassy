@@ -37,7 +37,7 @@ pub trait UartPeripheral {
     fn tx_done(&self) -> bool;
 }
 
-struct BufferedUart<'d, U: UartPeripheral> {
+pub struct BufferedUart<'d, U: UartPeripheral> {
     uart: U,
 
     rx: RingBuffer<'d>,
@@ -124,19 +124,11 @@ impl<'d, U: UartPeripheral> BufferedUart<'d, U> {
         }
         trace!("irq: end");
     }
-}
 
-impl<'d, U: UartPeripheral> AsyncBufRead for BufferedUart<'d, U> {
-    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
-        let this = unsafe { self.get_unchecked_mut() };
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // before any DMA action has started
-        compiler_fence(Ordering::SeqCst);
+    pub fn poll_fill_buf(&mut self, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
         trace!("poll_read");
-
         // We have data ready in buffer? Return it.
-        let buf = this.rx.pop_buf();
+        let buf = self.rx.pop_buf();
         if !buf.is_empty() {
             trace!("  got {:?} {:?}", buf.as_ptr() as u32, buf.len());
             let buf: &[u8] = buf;
@@ -145,42 +137,30 @@ impl<'d, U: UartPeripheral> AsyncBufRead for BufferedUart<'d, U> {
         }
 
         trace!("  empty");
-        this.rx_waker.register(cx.waker());
+        self.rx_waker.register(cx.waker());
         Poll::<Result<&[u8]>>::Pending
     }
 
-    fn consume(self: Pin<&mut Self>, amt: usize) {
-        let this = unsafe { self.get_unchecked_mut() };
+    pub fn consume(&mut self, amt: usize) {
         trace!("consume {:?}", amt);
-        this.rx.pop(amt);
-        //    irq.pend();
+        self.rx.pop(amt);
     }
-}
 
-impl<'d, U: UartPeripheral> AsyncWrite for BufferedUart<'d, U> {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
-        let this = unsafe { self.get_unchecked_mut() };
+    pub fn poll_write(&mut self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
         trace!("poll_write: {:?}", buf.len());
 
-        let tx_buf = this.tx.push_buf();
+        let tx_buf = self.tx.push_buf();
         if tx_buf.is_empty() {
             trace!("poll_write: pending");
-            this.tx_waker.register(cx.waker());
+            self.tx_waker.register(cx.waker());
             return Poll::Pending;
         }
 
         let n = min(tx_buf.len(), buf.len());
         tx_buf[..n].copy_from_slice(&buf[..n]);
-        this.tx.push(n);
+        self.tx.push(n);
 
         trace!("poll_write: queued {:?}", n);
-
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // before any DMA action has started
-        //    compiler_fence(Ordering::SeqCst);
-
-        // irq.pend();
 
         Poll::Ready(Ok(n))
     }
@@ -203,6 +183,7 @@ impl<'d, U: UartPeripheral> Drop for BufferedUart<'d, U> {
     }
 }
 
+/*
 pub struct BufferedReader<'d, U: UartPeripheral> {
     inner: &'d mut BufferedUart<'d, U>,
 }
@@ -246,3 +227,4 @@ impl<'d, U: UartPeripheral> AsyncWrite for BufferedWriter<'d, U> {
         self.inner().poll_write(cx, buf)
     }
 }
+*/

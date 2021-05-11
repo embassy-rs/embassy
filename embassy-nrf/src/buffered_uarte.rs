@@ -34,7 +34,7 @@ struct State<'d, U: UarteInstance, T: TimerInstance> {
 ///     - nrf52832: Section 15.2
 ///     - nrf52840: Section 6.1.2
 pub struct BufferedUarte<'d, U: UarteInstance, T: TimerInstance> {
-    inner: PeripheralMutex<State<'d, Uarte<U, T>>>,
+    inner: PeripheralMutex<State<'d, U, T>>,
     _ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
     _ppi_ch2: Ppi<'d, AnyConfigurableChannel>,
 }
@@ -143,52 +143,66 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     }
 
     pub fn set_baudrate(self: Pin<&mut Self>, baudrate: Baudrate) {
-        self.inner().with_peripheral(|uart| {
-            let r = U::regs();
-            let rt = uart.timer.regs();
+        self.inner().with(|state, _irq| {
+            state.uart.with_peripheral(|uart| {
+                let r = U::regs();
+                let rt = uart.timer.regs();
 
-            let timeout = 0x8000_0000 / (baudrate as u32 / 40);
-            rt.cc[0].write(|w| unsafe { w.bits(timeout) });
-            rt.tasks_clear.write(|w| unsafe { w.bits(1) });
+                let timeout = 0x8000_0000 / (baudrate as u32 / 40);
+                rt.cc[0].write(|w| unsafe { w.bits(timeout) });
+                rt.tasks_clear.write(|w| unsafe { w.bits(1) });
 
-            r.baudrate.write(|w| w.baudrate().variant(baudrate));
+                r.baudrate.write(|w| w.baudrate().variant(baudrate));
+            });
         });
     }
 
-    fn inner(self: Pin<&mut Self>) -> Pin<&mut State<'d, Uarte<U, T>>> {
+    fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<'d, U, T>>> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
-    }
-
-    /// Split uart into an independent writer and reader parts.
-    pub unsafe fn split(
-        &'d mut self,
-    ) -> (
-        BufferedWriter<'d, Uarte<U, T>>,
-        BufferedReader<'d, Uarte<U, T>>,
-    ) {
-        // Using a shared reference to the underlying uart is OK, the BufferedWriter and BufferedReader
-        // will operate on separate paths of the peripheral.
-        let inner = &mut self.inner.uart as *mut BufferedUart<'d, Uarte<U, T>>;
-        (
-            BufferedWriter::new(&mut *inner),
-            BufferedReader::new(&mut *inner),
-        )
     }
 }
 
 impl<'d, U: UarteInstance, T: TimerInstance> AsyncBufRead for BufferedUarte<'d, U, T> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
-        self.inner().poll_fill_buf(cx)
+        let mut inner = self.inner();
+        inner.as_mut().register_interrupt();
+        inner.with(|state, _irq| {
+            // Conservative compiler fence to prevent optimizations that do not
+            // take in to account actions by DMA. The fence has been placed here,
+            // before any DMA action has started
+            compiler_fence(Ordering::SeqCst);
+            state
+                .uart
+                .poll_fill_buf(cx)
+                .map(|buf| unsafe { core::mem::transmute(buf) })
+        })
     }
 
     fn consume(self: Pin<&mut Self>, amt: usize) {
-        self.inner().consume(amt)
+        let mut inner = self.inner();
+        inner.as_mut().register_interrupt();
+        inner.with(|state, irq| {
+            state.uart.consume(amt);
+            irq.pend();
+        })
     }
 }
 
 impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U, T> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
-        self.inner().poll_write(cx, buf)
+        let mut inner = self.inner();
+        inner.as_mut().register_interrupt();
+        inner.with(|state, irq| {
+            let result = state.uart.poll_write(cx, buf);
+
+            // Conservative compiler fence to prevent optimizations that do not
+            // take in to account actions by DMA. The fence has been placed here,
+            // before any DMA action has started
+            compiler_fence(Ordering::SeqCst);
+
+            irq.pend();
+            result
+        })
     }
 }
 
@@ -285,7 +299,7 @@ impl<U: UarteInstance, T: TimerInstance> UartPeripheral for Uarte<U, T> {
     }
 }
 
-impl<'d, U: UartInstance, T: TimerInstance> PeripheralState for State<'d, U, T> {
+impl<'d, U: UarteInstance, T: TimerInstance> PeripheralState for State<'d, U, T> {
     type Interrupt = U::Interrupt;
     fn on_interrupt(&mut self) {
         self.uart.on_interrupt();
