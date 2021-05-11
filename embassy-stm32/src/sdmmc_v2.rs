@@ -1,5 +1,5 @@
 use core::marker::PhantomData;
-use core::task::{Context, Poll};
+use core::task::Poll;
 
 use embassy::interrupt::InterruptExt;
 use embassy::util::{AtomicWaker, OnDrop, Unborrow};
@@ -10,7 +10,7 @@ use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID,
 use crate::fmt::*;
 use crate::pac;
 use crate::pac::gpio::Gpio;
-use crate::pac::interrupt::{Interrupt, InterruptEnum};
+use crate::pac::interrupt::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::time::Hertz;
 
@@ -31,6 +31,9 @@ impl Default for Signalling {
         Signalling::SDR12
     }
 }
+
+#[repr(align(4))]
+pub struct DataBlock([u8; 512]);
 
 /// Errors
 #[non_exhaustive]
@@ -201,16 +204,43 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
             .await
     }
 
+    #[inline(always)]
+    pub async fn read_block(
+        &mut self,
+        block_idx: u32,
+        buffer: &mut DataBlock,
+    ) -> Result<(), Error> {
+        let card_capacity = self.card()?.card_type;
+        let inner = T::inner();
+        let state = T::state();
+
+        // NOTE(unsafe) DataBlock uses align 4
+        let buf = unsafe { &mut *((&mut buffer.0) as *mut [u8; 512] as *mut [u32; 128]) };
+        inner.read_block(block_idx, buf, card_capacity, state).await
+    }
+
+    pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error> {
+        let card = self.card.as_mut().ok_or(Error::NoCard)?;
+        let inner = T::inner();
+        let state = T::state();
+
+        // NOTE(unsafe) DataBlock uses align 4
+        let buf = unsafe { &*((&buffer.0) as *const [u8; 512] as *const [u32; 128]) };
+        inner.write_block(block_idx, buf, card, state).await
+    }
+
     /// Get a reference to the initialized card
     ///
     /// # Errors
     ///
     /// Returns Error::NoCard if [`init_card`](#method.init_card)
     /// has not previously succeeded
+    #[inline(always)]
     pub fn card(&self) -> Result<&Card, Error> {
         self.card.as_ref().ok_or(Error::NoCard)
     }
 
+    #[inline(always)]
     fn on_interrupt(_: *mut ()) {
         let regs = T::inner();
         let state = T::state();
@@ -260,7 +290,7 @@ impl SdmmcInner {
     /// Initializes card (if present) and sets the bus at the
     /// specified frequency.
     #[allow(clippy::too_many_arguments)]
-    pub async fn init_card(
+    async fn init_card(
         &self,
         freq: Hertz,
         bus_width: BusWidth,
@@ -397,8 +427,120 @@ impl SdmmcInner {
         Ok(())
     }
 
-    async fn read_block(&mut self, block_idx: u32, buffer: &mut [u32; 128]) -> Result<(), Error> {
-        self::todo!()
+    async fn read_block(
+        &self,
+        block_idx: u32,
+        buffer: &mut [u32; 128],
+        capacity: CardCapacity,
+        waker_reg: &AtomicWaker,
+    ) -> Result<(), Error> {
+        // Always read 1 block of 512 bytes
+        // SDSC cards are byte addressed hence the blockaddress is in multiples of 512 bytes
+        let address = match capacity {
+            CardCapacity::SDSC => block_idx * 512,
+            _ => block_idx,
+        };
+        self.cmd(Cmd::set_block_length(512), false)?; // CMD16
+
+        let regs = self.0;
+        let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
+
+        let buf_addr = buffer as *mut [u32; 128] as u32;
+        unsafe {
+            self.prepare_datapath_transfer(buf_addr, 512, 9, Dir::CardToHost);
+            self.data_interrupts(true);
+        }
+        self.cmd(Cmd::read_single_block(address), true)?;
+
+        let res = poll_fn(|cx| {
+            waker_reg.register(cx.waker());
+            let status = unsafe { regs.star().read() };
+
+            if status.dcrcfail() {
+                return Poll::Ready(Err(Error::Crc));
+            } else if status.dtimeout() {
+                return Poll::Ready(Err(Error::Timeout));
+            } else if status.dataend() {
+                return Poll::Ready(Ok(()));
+            }
+            Poll::Pending
+        })
+        .await;
+        self.clear_interrupt_flags();
+
+        if res.is_ok() {
+            on_drop.defuse();
+            unsafe {
+                regs.idmactrlr().modify(|w| w.set_idmaen(false));
+            }
+        }
+        res
+    }
+
+    async fn write_block(
+        &self,
+        block_idx: u32,
+        buffer: &[u32; 128],
+        card: &mut Card,
+        waker_reg: &AtomicWaker,
+    ) -> Result<(), Error> {
+        // Always read 1 block of 512 bytes
+        // SDSC cards are byte addressed hence the blockaddress is in multiples of 512 bytes
+        let address = match card.card_type {
+            CardCapacity::SDSC => block_idx * 512,
+            _ => block_idx,
+        };
+        self.cmd(Cmd::set_block_length(512), false)?; // CMD16
+
+        let regs = self.0;
+        let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
+
+        let buf_addr = buffer as *const [u32; 128] as u32;
+        unsafe {
+            self.prepare_datapath_transfer(buf_addr, 512, 9, Dir::HostToCard);
+            self.data_interrupts(true);
+        }
+        self.cmd(Cmd::write_single_block(address), true)?;
+
+        let res = poll_fn(|cx| {
+            waker_reg.register(cx.waker());
+            let status = unsafe { regs.star().read() };
+
+            if status.dcrcfail() {
+                return Poll::Ready(Err(Error::Crc));
+            } else if status.dtimeout() {
+                return Poll::Ready(Err(Error::Timeout));
+            } else if status.dataend() {
+                return Poll::Ready(Ok(()));
+            }
+            Poll::Pending
+        })
+        .await;
+        self.clear_interrupt_flags();
+
+        match res {
+            Ok(_) => {
+                on_drop.defuse();
+                unsafe {
+                    regs.idmactrlr().modify(|w| w.set_idmaen(false));
+                }
+                // TODO: Make this configurable
+                let mut timeout: u32 = 0xFFFF_FFFF;
+
+                // Try to read card status (ACMD13)
+                while timeout > 0 {
+                    match self.read_sd_status(card, waker_reg).await {
+                        Ok(_) => return Ok(()),
+                        Err(Error::Timeout) => (), // Try again
+                        Err(e) => return Err(e),
+                    }
+
+                    timeout -= 1;
+                }
+                Err(Error::SoftwareTimeout)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Get the current SDMMC bus clock
@@ -795,32 +937,13 @@ impl SdmmcInner {
         }
     }
 
-    fn store_waker_and_unmask(
-        &self,
-        cx: &Context,
-        interrupt_sdmmc1: bool,
-        waker_reg: &AtomicWaker,
-    ) {
-        use cortex_m::peripheral::NVIC;
-
-        // NOTE(unsafe) We own the interrupt and can unmask it, it won't cause unsoundness
-        unsafe {
-            if interrupt_sdmmc1 {
-                waker_reg.register(cx.waker());
-                NVIC::unmask(InterruptEnum::SDMMC1);
-            } else {
-                waker_reg.register(cx.waker());
-                NVIC::unmask(InterruptEnum::SDMMC2);
-            }
-        }
-    }
-
     /// # Safety
     ///
     /// Ensure that `regs` has exclusive access to the regblocks
     unsafe fn on_drop(&self) {
         let regs = self.0;
         if regs.star().read().dpsmact() {
+            self.clear_interrupt_flags();
             // Send abort
             // CP state machine must be idle
             while regs.star().read().cpsmact() {}
@@ -890,9 +1013,9 @@ impl Cmd {
     }
 
     /// CMD12:
-    const fn stop_transmission() -> Cmd {
-        Cmd::new(12, 0, Response::Short)
-    }
+    //const fn stop_transmission() -> Cmd {
+    //    Cmd::new(12, 0, Response::Short)
+    //}
 
     /// CMD13: Ask card to send status register
     /// ACMD13: SD Status
@@ -911,9 +1034,9 @@ impl Cmd {
     }
 
     /// CMD18: Multiple Block Read
-    const fn read_multiple_blocks(addr: u32) -> Cmd {
-        Cmd::new(18, addr, Response::Short)
-    }
+    //const fn read_multiple_blocks(addr: u32) -> Cmd {
+    //    Cmd::new(18, addr, Response::Short)
+    //}
 
     /// CMD24: Block Write
     const fn write_single_block(addr: u32) -> Cmd {
