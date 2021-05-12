@@ -228,6 +228,16 @@ impl AnyPin {
     pub unsafe fn steal(pin_port: u8) -> Self {
         Self { pin_port }
     }
+
+    #[inline]
+    fn _port(&self) -> u8 {
+        self.pin_port / 16
+    }
+
+    #[inline]
+    pub fn block(&self) -> gpio::Gpio {
+        pac::GPIO(self._port() as _)
+    }
 }
 
 impl_unborrow!(AnyPin);

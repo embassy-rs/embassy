@@ -116,7 +116,8 @@ for chip in chips.values():
                 f.write(f'impl_rng!({name});')
 
             if block_mod == 'spi':
-                f.write(f'impl_spi!({name});')
+                clock = peri['clock']
+                f.write(f'impl_spi!({name}, {clock});')
                 for pin, funcs in af.items():
                     if pin in pins:
                         if func := funcs.get(f'{name}_SCK'):

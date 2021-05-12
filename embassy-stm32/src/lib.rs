@@ -23,6 +23,7 @@ pub mod usart;
 
 // This must go LAST so that it sees the `impl_foo!` macros
 mod pac;
+mod time;
 
 pub use embassy_macros::interrupt;
 pub use pac::{interrupt, peripherals, Peripherals};

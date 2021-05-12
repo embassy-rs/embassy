@@ -7,9 +7,17 @@ use embedded_hal::blocking::spi::{Write, Transfer};
 use embassy::util::Unborrow;
 use embassy_extras::{impl_unborrow, unborrow};
 use crate::gpio::{Pin, AnyPin};
-use crate::pac::gpio::vals::Afr;
+use crate::pac::gpio::vals::{Afr, Moder};
+use crate::pac::spi;
 use crate::pac::gpio::Gpio;
+use crate::time::Hertz;
 //use crate::pac::spi;
+
+// TODO move upwards in the tree
+pub enum ByteOrder {
+    LsbFirst,
+    MsbFirst
+}
 
 pub struct Spi<'d, T: Instance> {
     peri: T,
@@ -21,23 +29,77 @@ pub struct Spi<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Spi<'d, T> {
-    pub fn new(peri: impl Unborrow<Target=T> + 'd,
-               sck: impl Unborrow<Target=impl Sck<T>>,
-               mosi: impl Unborrow<Target=impl Mosi<T>>,
-               miso: impl Unborrow<Target=impl Miso<T>>,
-    ) -> Self {
+    pub fn new<F>(pclk: Hertz,
+                  peri: impl Unborrow<Target=T> + 'd,
+                  sck: impl Unborrow<Target=impl Sck<T>>,
+                  mosi: impl Unborrow<Target=impl Mosi<T>>,
+                  miso: impl Unborrow<Target=impl Miso<T>>,
+                  mode: Mode,
+                  byte_order: ByteOrder,
+                  freq: F,
+    ) -> Self
+        where
+            F: Into<Hertz>
+    {
         unborrow!(peri);
         unborrow!(sck, mosi, miso);
 
         unsafe {
-            Self::configure_pin( sck.block(), sck.pin() as usize, sck.af() );
-            Self::configure_pin( mosi.block(), mosi.pin() as usize, mosi.af() );
-            Self::configure_pin( miso.block(), miso.pin() as usize, miso.af() );
+            Self::configure_pin(sck.block(), sck.pin() as _, sck.af());
+            Self::configure_pin(mosi.block(), mosi.pin() as _, mosi.af());
+            Self::configure_pin(miso.block(), miso.pin() as _, miso.af());
         }
 
         let sck = sck.degrade();
         let mosi = mosi.degrade();
         let miso = miso.degrade();
+
+        // FRXTH: RXNE event is generated if the FIFO level is greater than or equal to
+        //        8-bit
+        // DS: 8-bit data size
+        // SSOE: Slave Select output disabled
+        unsafe {
+            T::regs().cr2()
+                .write(|w| {
+                    // 8-bit transfers
+                    w.set_ds( spi::vals::Ds(0b0111));
+                    w.set_frxth( spi::vals::Frxth::QUARTER);
+                    w.set_ssoe(false);
+                });
+        }
+
+        let br = Self::compute_baud_rate(pclk, freq.into());
+
+        unsafe {
+            T::regs().cr1().write(|w| {
+                w.set_cpha(
+                    match mode.phase == Phase::CaptureOnSecondTransition {
+                        true => spi::vals::Cpha::SECONDEDGE,
+                        false => spi::vals::Cpha::FIRSTEDGE,
+                    }
+                );
+                w.set_cpol(match mode.polarity == Polarity::IdleHigh {
+                    true => spi::vals::Cpol::IDLEHIGH,
+                    false => spi::vals::Cpol::IDLELOW,
+                });
+
+                w.set_mstr(spi::vals::Mstr::MASTER);
+                w.set_br(spi::vals::Br(br));
+                w.set_spe(true);
+                w.set_lsbfirst(
+                    match byte_order {
+                        ByteOrder::LsbFirst => spi::vals::Lsbfirst::LSBFIRST,
+                        ByteOrder::MsbFirst => spi::vals::Lsbfirst::MSBFIRST,
+                    }
+                );
+                w.set_ssi(true);
+                w.set_ssm(true);
+                w.set_crcen(false);
+                w.set_bidimode(spi::vals::Bidimode::UNIDIRECTIONAL);
+            });
+            T::regs().cr2().write(|w| {
+            })
+        }
 
         Self {
             peri,
@@ -50,7 +112,37 @@ impl<'d, T: Instance> Spi<'d, T> {
 
     unsafe fn configure_pin(block: Gpio, pin: usize, af_num: u8) {
         let (afr, n_af) = if pin < 8 { (0, pin) } else { (1, pin - 8) };
+        block.moder().modify(|w| w.set_moder(pin, Moder::ALTERNATE));
         block.afr(afr).modify(|w| w.set_afr(n_af, Afr(af_num)));
+    }
+
+    unsafe fn unconfigure_pin(block: Gpio, pin: usize) {
+        let (afr, n_af) = if pin < 8 { (0, pin) } else { (1, pin - 8) };
+        block.moder().modify(|w| w.set_moder(pin, Moder::ANALOG));
+    }
+
+    fn compute_baud_rate(clocks: Hertz, freq: Hertz) -> u8 {
+        match clocks.0 / freq.0 {
+            0 => unreachable!(),
+            1..=2 => 0b000,
+            3..=5 => 0b001,
+            6..=11 => 0b010,
+            12..=23 => 0b011,
+            24..=39 => 0b100,
+            40..=95 => 0b101,
+            96..=191 => 0b110,
+            _ => 0b111,
+        }
+    }
+}
+
+impl<'d, T: Instance> Drop for Spi<'d, T> {
+    fn drop(&mut self) {
+        unsafe {
+            Self::unconfigure_pin(self.sck.block(), self.sck.pin() as _);
+            Self::unconfigure_pin(self.mosi.block(), self.mosi.pin() as _);
+            Self::unconfigure_pin(self.miso.block(), self.miso.pin() as _);
+        }
     }
 }
 
@@ -150,25 +242,25 @@ pub(crate) mod sealed {
     //}
 
     pub trait Instance {
-        fn regs() -> &'static crate::pac::spi::Spi;
+        fn regs() -> &'static spi::Spi;
         //fn state() -> &'static State;
     }
 
-    pub trait Sck<T: Instance> : Pin {
+    pub trait Sck<T: Instance>: Pin {
         const AF: u8;
         fn af(&self) -> u8 {
             Self::AF
         }
     }
 
-    pub trait Mosi<T: Instance> : Pin {
+    pub trait Mosi<T: Instance>: Pin {
         const AF: u8;
         fn af(&self) -> u8 {
             Self::AF
         }
     }
 
-    pub trait Miso<T: Instance> : Pin {
+    pub trait Miso<T: Instance>: Pin {
         const AF: u8;
         fn af(&self) -> u8 {
             Self::AF
@@ -180,20 +272,14 @@ pub trait Instance: sealed::Instance + 'static {
     //type Interrupt: Interrupt;
 }
 
-pub trait Sck<T:Instance>: sealed::Sck<T> + 'static {
+pub trait Sck<T: Instance>: sealed::Sck<T> + 'static {}
 
-}
+pub trait Mosi<T: Instance>: sealed::Mosi<T> + 'static {}
 
-pub trait Mosi<T:Instance>: sealed::Mosi<T> + 'static {
-
-}
-
-pub trait Miso<T:Instance>: sealed::Miso<T> + 'static {
-
-}
+pub trait Miso<T: Instance>: sealed::Miso<T> + 'static {}
 
 macro_rules! impl_spi {
-    ($inst:ident) => {
+    ($inst:ident, $clk:ident) => {
         impl crate::spi::sealed::Instance for peripherals::$inst {
             fn regs() -> &'static crate::pac::spi::Spi {
                 &crate::pac::$inst
