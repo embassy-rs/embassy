@@ -21,6 +21,11 @@ embassy_extras::peripherals! {
     // SAADC
     SAADC,
 
+    // PWM
+    PWM0,
+    PWM1,
+    PWM2,
+
     // TIMER
     TIMER0,
     TIMER1,
@@ -122,6 +127,10 @@ impl_spim!(SPI2, SPIM2, SPIM2_SPIS2_SPI2);
 
 impl_twim!(TWISPI0, TWIM0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
 impl_twim!(TWISPI1, TWIM1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+
+impl_pwm!(PWM0, PWM0, PWM0);
+impl_pwm!(PWM1, PWM1, PWM1);
+impl_pwm!(PWM2, PWM2, PWM2);
 
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
