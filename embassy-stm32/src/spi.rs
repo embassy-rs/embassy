@@ -11,12 +11,48 @@ use crate::pac::gpio::vals::{Afr, Moder};
 use crate::pac::spi;
 use crate::pac::gpio::Gpio;
 use crate::time::Hertz;
-//use crate::pac::spi;
+use term::terminfo::parm::Param::Words;
+
+#[non_exhaustive]
+pub struct Config {
+    pub mode: Mode,
+    pub byte_order: ByteOrder,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            mode: MODE_0,
+            byte_order: ByteOrder::MsbFirst,
+        }
+    }
+}
 
 // TODO move upwards in the tree
 pub enum ByteOrder {
     LsbFirst,
-    MsbFirst
+    MsbFirst,
+}
+
+enum WordSize {
+    EightBit,
+    SixteenBit,
+}
+
+impl WordSize {
+    fn ds(&self) -> spi::vals::Ds {
+        match self {
+            WordSize::EightBit => spi::vals::Ds::EIGHTBIT,
+            WordSize::SixteenBit => spi::vals::Ds::SIXTEENBIT,
+        }
+    }
+
+    fn frxth(&self) -> spi::vals::Frxth {
+        match self {
+            WordSize::EightBit => spi::vals::Frxth::QUARTER,
+            WordSize::SixteenBit => spi::vals::Frxth::HALF,
+        }
+    }
 }
 
 pub struct Spi<'d, T: Instance> {
@@ -34,9 +70,8 @@ impl<'d, T: Instance> Spi<'d, T> {
                   sck: impl Unborrow<Target=impl Sck<T>>,
                   mosi: impl Unborrow<Target=impl Mosi<T>>,
                   miso: impl Unborrow<Target=impl Miso<T>>,
-                  mode: Mode,
-                  byte_order: ByteOrder,
                   freq: F,
+                  config: Config,
     ) -> Self
         where
             F: Into<Hertz>
@@ -54,16 +89,9 @@ impl<'d, T: Instance> Spi<'d, T> {
         let mosi = mosi.degrade();
         let miso = miso.degrade();
 
-        // FRXTH: RXNE event is generated if the FIFO level is greater than or equal to
-        //        8-bit
-        // DS: 8-bit data size
-        // SSOE: Slave Select output disabled
         unsafe {
             T::regs().cr2()
                 .write(|w| {
-                    // 8-bit transfers
-                    w.set_ds( spi::vals::Ds(0b0111));
-                    w.set_frxth( spi::vals::Frxth::QUARTER);
                     w.set_ssoe(false);
                 });
         }
@@ -73,12 +101,12 @@ impl<'d, T: Instance> Spi<'d, T> {
         unsafe {
             T::regs().cr1().write(|w| {
                 w.set_cpha(
-                    match mode.phase == Phase::CaptureOnSecondTransition {
+                    match config.mode.phase == Phase::CaptureOnSecondTransition {
                         true => spi::vals::Cpha::SECONDEDGE,
                         false => spi::vals::Cpha::FIRSTEDGE,
                     }
                 );
-                w.set_cpol(match mode.polarity == Polarity::IdleHigh {
+                w.set_cpol(match config.mode.polarity == Polarity::IdleHigh {
                     true => spi::vals::Cpol::IDLEHIGH,
                     false => spi::vals::Cpol::IDLELOW,
                 });
@@ -87,7 +115,7 @@ impl<'d, T: Instance> Spi<'d, T> {
                 w.set_br(spi::vals::Br(br));
                 w.set_spe(true);
                 w.set_lsbfirst(
-                    match byte_order {
+                    match config.byte_order {
                         ByteOrder::LsbFirst => spi::vals::Lsbfirst::LSBFIRST,
                         ByteOrder::MsbFirst => spi::vals::Lsbfirst::MSBFIRST,
                     }
@@ -97,8 +125,7 @@ impl<'d, T: Instance> Spi<'d, T> {
                 w.set_crcen(false);
                 w.set_bidimode(spi::vals::Bidimode::UNIDIRECTIONAL);
             });
-            T::regs().cr2().write(|w| {
-            })
+            T::regs().cr2().write(|w| {})
         }
 
         Self {
@@ -134,6 +161,16 @@ impl<'d, T: Instance> Spi<'d, T> {
             _ => 0b111,
         }
     }
+
+    fn set_word_size(word_size: WordSize) {
+        unsafe {
+            T::regs().cr2()
+                .write(|w| {
+                    w.set_ds(word_size.ds());
+                    w.set_frxth(word_size.frxth());
+                });
+        }
+    }
 }
 
 impl<'d, T: Instance> Drop for Spi<'d, T> {
@@ -156,6 +193,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T> {
     type Error = Error;
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
+        Self::set_word_size(WordSize::EightBit);
         let regs = T::regs();
 
         for word in words.iter() {
@@ -190,6 +228,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
     type Error = Error;
 
     fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
+        Self::set_word_size(WordSize::EightBit);
         let regs = T::regs();
 
         for word in words.iter_mut() {
@@ -203,6 +242,36 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
                 // spin waiting for inbound to shift in.
             }
             *word = unsafe { regs.dr().read().0 as u8 };
+            let sr = unsafe { regs.sr().read() };
+            if sr.fre() {
+                return Err(Error::Framing);
+            }
+            if sr.ovr() {
+                return Err(Error::Overrun);
+            }
+            if sr.crcerr() {
+                return Err(Error::Crc);
+            }
+        }
+
+        Ok(words)
+    }
+}
+
+impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T> {
+    type Error = Error;
+
+    fn write(&mut self, words: &[u16]) -> Result<(), Self::Error> {
+        Self::set_word_size(WordSize::SixteenBit);
+        let regs = T::regs();
+
+        for word in words.iter() {
+            while unsafe { !regs.sr().read().txe() } {
+                // spin
+            }
+            unsafe {
+                regs.dr().write(|reg| reg.0 = *word as u32);
+            }
             loop {
                 let sr = unsafe { regs.sr().read() };
                 if sr.fre() {
@@ -220,6 +289,40 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
             }
         }
 
+        Ok(())
+    }
+}
+
+impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T> {
+    type Error = Error;
+
+    fn transfer<'w>(&mut self, words: &'w mut [u16]) -> Result<&'w [u16], Self::Error> {
+        Self::set_word_size(WordSize::SixteenBit);
+        let regs = T::regs();
+
+        for word in words.iter_mut() {
+            while unsafe { !regs.sr().read().txe() } {
+                // spin
+            }
+            unsafe {
+                regs.dr().write(|reg| reg.0 = *word as u32);
+            }
+            while unsafe { !regs.sr().read().rxne() } {
+                // spin waiting for inbound to shift in.
+            }
+            *word = unsafe { regs.dr().read().0 as u16 };
+            let sr = unsafe { regs.sr().read() };
+            if sr.fre() {
+                return Err(Error::Framing);
+            }
+            if sr.ovr() {
+                return Err(Error::Overrun);
+            }
+            if sr.crcerr() {
+                return Err(Error::Crc);
+            }
+        }
+
         Ok(words)
     }
 }
@@ -229,21 +332,8 @@ pub(crate) mod sealed {
     use super::*;
     use embassy::util::AtomicWaker;
 
-    //pub struct State {
-    //pub end_waker: AtomicWaker,
-    //}
-
-    //impl State {
-    //pub const fn new() -> Self {
-    //Self {
-    //end_waker: AtomicWaker::new(),
-    //}
-    //}
-    //}
-
     pub trait Instance {
         fn regs() -> &'static spi::Spi;
-        //fn state() -> &'static State;
     }
 
     pub trait Sck<T: Instance>: Pin {
@@ -268,9 +358,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: sealed::Instance + 'static {
-    //type Interrupt: Interrupt;
-}
+pub trait Instance: sealed::Instance + 'static {}
 
 pub trait Sck<T: Instance>: sealed::Sck<T> + 'static {}
 
