@@ -161,7 +161,58 @@ impl_gpio_pin!(PH13, 7, 13, EXTI13);
 impl_gpio_pin!(PH14, 7, 14, EXTI14);
 impl_gpio_pin!(PH15, 7, 15, EXTI15);
 pub const RNG: rng::Rng = rng::Rng(0x50060800 as _);
-impl_rng!(RNG);
+impl_rng!(RNG, RNG);
+pub const SPI1: spi::Spi = spi::Spi(0x40013000 as _);
+impl_spi!(SPI1, APB2);
+impl_spi_pin!(SPI1, Sck, PA5, 5);
+impl_spi_pin!(SPI1, Miso, PA6, 5);
+impl_spi_pin!(SPI1, Mosi, PA7, 5);
+impl_spi_pin!(SPI1, Sck, PB3, 5);
+impl_spi_pin!(SPI1, Miso, PB4, 5);
+impl_spi_pin!(SPI1, Mosi, PB5, 5);
+pub const SPI2: spi::Spi = spi::Spi(0x40003800 as _);
+impl_spi!(SPI2, APB1);
+impl_spi_pin!(SPI2, Sck, PB10, 5);
+impl_spi_pin!(SPI2, Sck, PB13, 5);
+impl_spi_pin!(SPI2, Miso, PB14, 5);
+impl_spi_pin!(SPI2, Mosi, PB15, 5);
+impl_spi_pin!(SPI2, Miso, PC2, 5);
+impl_spi_pin!(SPI2, Mosi, PC3, 5);
+impl_spi_pin!(SPI2, Sck, PC7, 5);
+impl_spi_pin!(SPI2, Sck, PD3, 5);
+pub const SPI3: spi::Spi = spi::Spi(0x40003c00 as _);
+impl_spi!(SPI3, APB1);
+impl_spi_pin!(SPI3, Sck, PB12, 7);
+impl_spi_pin!(SPI3, Sck, PB3, 6);
+impl_spi_pin!(SPI3, Miso, PB4, 6);
+impl_spi_pin!(SPI3, Mosi, PB5, 6);
+impl_spi_pin!(SPI3, Sck, PC10, 6);
+impl_spi_pin!(SPI3, Miso, PC11, 6);
+impl_spi_pin!(SPI3, Mosi, PC12, 6);
+impl_spi_pin!(SPI3, Mosi, PD6, 5);
+pub const SPI4: spi::Spi = spi::Spi(0x40013400 as _);
+impl_spi!(SPI4, APB2);
+impl_spi_pin!(SPI4, Mosi, PA1, 5);
+impl_spi_pin!(SPI4, Miso, PA11, 6);
+impl_spi_pin!(SPI4, Sck, PB13, 6);
+impl_spi_pin!(SPI4, Sck, PE12, 5);
+impl_spi_pin!(SPI4, Miso, PE13, 5);
+impl_spi_pin!(SPI4, Mosi, PE14, 5);
+impl_spi_pin!(SPI4, Sck, PE2, 5);
+impl_spi_pin!(SPI4, Miso, PE5, 5);
+impl_spi_pin!(SPI4, Mosi, PE6, 5);
+pub const SPI5: spi::Spi = spi::Spi(0x40015000 as _);
+impl_spi!(SPI5, APB2);
+impl_spi_pin!(SPI5, Mosi, PA10, 6);
+impl_spi_pin!(SPI5, Miso, PA12, 6);
+impl_spi_pin!(SPI5, Sck, PB0, 6);
+impl_spi_pin!(SPI5, Mosi, PB8, 6);
+impl_spi_pin!(SPI5, Sck, PE12, 6);
+impl_spi_pin!(SPI5, Miso, PE13, 6);
+impl_spi_pin!(SPI5, Mosi, PE14, 6);
+impl_spi_pin!(SPI5, Sck, PE2, 6);
+impl_spi_pin!(SPI5, Miso, PE5, 6);
+impl_spi_pin!(SPI5, Mosi, PE6, 6);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40013800 as _);
 pub const USART1: usart::Usart = usart::Usart(0x40011000 as _);
 impl_usart!(USART1);
@@ -220,6 +271,7 @@ pub use regs::dma_v2 as dma;
 pub use regs::exti_v1 as exti;
 pub use regs::gpio_v2 as gpio;
 pub use regs::rng_v1 as rng;
+pub use regs::spi_v1 as spi;
 pub use regs::syscfg_f4 as syscfg;
 pub use regs::usart_v1 as usart;
 mod regs;
@@ -236,7 +288,8 @@ peripherals!(
     PE8, PE9, PE10, PE11, PE12, PE13, PE14, PE15, PF0, PF1, PF2, PF3, PF4, PF5, PF6, PF7, PF8, PF9,
     PF10, PF11, PF12, PF13, PF14, PF15, PG0, PG1, PG2, PG3, PG4, PG5, PG6, PG7, PG8, PG9, PG10,
     PG11, PG12, PG13, PG14, PG15, PH0, PH1, PH2, PH3, PH4, PH5, PH6, PH7, PH8, PH9, PH10, PH11,
-    PH12, PH13, PH14, PH15, RNG, SYSCFG, USART1, USART2, USART3, USART6
+    PH12, PH13, PH14, PH15, RNG, SPI1, SPI2, SPI3, SPI4, SPI5, SYSCFG, USART1, USART2, USART3,
+    USART6
 );
 
 pub mod interrupt {

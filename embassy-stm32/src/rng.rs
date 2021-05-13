@@ -9,19 +9,10 @@ use embassy_extras::unborrow;
 use futures::future::poll_fn;
 use rand_core::{CryptoRng, RngCore};
 
-use crate::interrupt;
+//Guse crate::interrupt;
 use crate::pac;
 
-static RNG_WAKER: AtomicWaker = AtomicWaker::new();
-
-#[interrupt]
-unsafe fn RNG() {
-    let bits = crate::pac::RNG.sr().read();
-    if bits.drdy() || bits.seis() || bits.ceis() {
-        crate::pac::RNG.cr().write(|reg| reg.set_ie(false));
-        RNG_WAKER.wake();
-    }
-}
+pub(crate) static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
 pub struct Random<T: Instance> {
     inner: T,
@@ -146,7 +137,7 @@ pub(crate) mod sealed {
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_rng {
-    ($inst:ident) => {
+    ($inst:ident, $irq:ident) => {
         impl crate::rng::sealed::Instance for peripherals::RNG {
             fn regs() -> crate::pac::chip::rng::Rng {
                 crate::pac::RNG
@@ -154,5 +145,14 @@ macro_rules! impl_rng {
         }
 
         impl crate::rng::Instance for peripherals::RNG {}
+
+        #[$crate::interrupt]
+        unsafe fn $irq() {
+            let bits = $crate::pac::RNG.sr().read();
+            if bits.drdy() || bits.seis() || bits.ceis() {
+                $crate::pac::RNG.cr().write(|reg| reg.set_ie(false));
+                $crate::rng::RNG_WAKER.wake();
+            }
+        }
     };
 }

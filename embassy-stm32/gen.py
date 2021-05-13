@@ -113,7 +113,10 @@ for chip in chips.values():
                             f.write(f'impl_usart_pin!({name}, CkPin, {pin}, {func});')
 
             if block_mod == 'rng':
-                f.write(f'impl_rng!({name});')
+                if 'RNG' in chip['interrupts']:
+                    f.write(f'impl_rng!({name}, RNG);')
+                else:
+                    f.write(f'impl_rng!({name}, HASH_RNG);')
 
             if block_mod == 'spi':
                 clock = peri['clock']

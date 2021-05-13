@@ -11,46 +11,13 @@ use crate::pac::gpio::vals::{Afr, Moder};
 use crate::pac::spi;
 use crate::pac::gpio::Gpio;
 use crate::time::Hertz;
-use term::terminfo::parm::Param::Words;
-
-#[non_exhaustive]
-pub struct Config {
-    pub mode: Mode,
-    pub byte_order: ByteOrder,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            mode: MODE_0,
-            byte_order: ByteOrder::MsbFirst,
-        }
-    }
-}
-
-// TODO move upwards in the tree
-pub enum ByteOrder {
-    LsbFirst,
-    MsbFirst,
-}
-
-enum WordSize {
-    EightBit,
-    SixteenBit,
-}
+use crate::spi::{WordSize, Config, ByteOrder};
 
 impl WordSize {
-    fn ds(&self) -> spi::vals::Ds {
+    fn dff(&self) -> spi::vals::Dff {
         match self {
-            WordSize::EightBit => spi::vals::Ds::EIGHTBIT,
-            WordSize::SixteenBit => spi::vals::Ds::SIXTEENBIT,
-        }
-    }
-
-    fn frxth(&self) -> spi::vals::Frxth {
-        match self {
-            WordSize::EightBit => spi::vals::Frxth::QUARTER,
-            WordSize::SixteenBit => spi::vals::Frxth::HALF,
+            WordSize::EightBit => spi::vals::Dff::EIGHTBIT,
+            WordSize::SixteenBit => spi::vals::Dff::SIXTEENBIT,
         }
     }
 }
@@ -60,7 +27,7 @@ pub struct Spi<'d, T: Instance> {
     sck: AnyPin,
     mosi: AnyPin,
     miso: AnyPin,
-    //irq: T::Interrupt,
+    current_word_size: WordSize,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -124,8 +91,8 @@ impl<'d, T: Instance> Spi<'d, T> {
                 w.set_ssm(true);
                 w.set_crcen(false);
                 w.set_bidimode(spi::vals::Bidimode::UNIDIRECTIONAL);
+                w.set_dff( WordSize::EightBit.dff() )
             });
-            T::regs().cr2().write(|w| {})
         }
 
         Self {
@@ -133,6 +100,7 @@ impl<'d, T: Instance> Spi<'d, T> {
             sck,
             mosi,
             miso,
+            current_word_size: WordSize::EightBit,
             phantom: PhantomData,
         }
     }
@@ -162,13 +130,19 @@ impl<'d, T: Instance> Spi<'d, T> {
         }
     }
 
-    fn set_word_size(word_size: WordSize) {
+    fn set_word_size(&mut self, word_size: WordSize) {
+        if self.current_word_size == word_size {
+            return
+        }
         unsafe {
-            T::regs().cr2()
-                .write(|w| {
-                    w.set_ds(word_size.ds());
-                    w.set_frxth(word_size.frxth());
-                });
+            T::regs().cr1().modify( |reg| {
+                reg.set_spe(false);
+                reg.set_dff( word_size.dff() )
+            });
+            T::regs().cr1().modify( |reg| {
+                reg.set_spe(true);
+            });
+            self.current_word_size = word_size;
         }
     }
 }
@@ -193,7 +167,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T> {
     type Error = Error;
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        Self::set_word_size(WordSize::EightBit);
+        self.set_word_size(WordSize::EightBit);
         let regs = T::regs();
 
         for word in words.iter() {
@@ -228,7 +202,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
     type Error = Error;
 
     fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
-        Self::set_word_size(WordSize::EightBit);
+        self.set_word_size(WordSize::EightBit);
         let regs = T::regs();
 
         for word in words.iter_mut() {
@@ -262,7 +236,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T> {
     type Error = Error;
 
     fn write(&mut self, words: &[u16]) -> Result<(), Self::Error> {
-        Self::set_word_size(WordSize::SixteenBit);
+        self.set_word_size(WordSize::SixteenBit);
         let regs = T::regs();
 
         for word in words.iter() {
@@ -297,7 +271,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T> 
     type Error = Error;
 
     fn transfer<'w>(&mut self, words: &'w mut [u16]) -> Result<&'w [u16], Self::Error> {
-        Self::set_word_size(WordSize::SixteenBit);
+        self.set_word_size(WordSize::SixteenBit);
         let regs = T::regs();
 
         for word in words.iter_mut() {

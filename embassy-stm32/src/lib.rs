@@ -17,6 +17,7 @@ pub mod exti;
 pub mod gpio;
 #[cfg(feature = "_rng")]
 pub mod rng;
+#[cfg(feature = "_spi")]
 pub mod spi;
 #[cfg(feature = "_usart")]
 pub mod usart;
