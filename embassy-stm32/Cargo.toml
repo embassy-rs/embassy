@@ -17,7 +17,8 @@ cortex-m = "0.7.1"
 embedded-hal    = { version = "0.2.4" }
 futures = { version = "0.3.5", default-features = false, features = ["async-await"] }
 rand_core = { version = "0.6.2", optional = true }
-sdio-host = "0.5.0"
+sdio-host = { version = "0.5.0", optional = true }
+embedded-sdmmc = { git = "https://github.com/thalesfragoso/embedded-sdmmc-rs", branch = "async", optional = true }
 
 [build-dependencies]
 regex = "1.4.6"
@@ -333,6 +334,8 @@ _rng_v1 = []
 _spi = []
 _spi_v1 = []
 _spi_v2 = []
+_sdmmc = [ "sdio-host",]
+_sdmmc_v2 = []
 _stm32f4 = []
 _stm32l4 = []
 _stm32l4p = []

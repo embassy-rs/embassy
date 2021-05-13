@@ -1,9 +1,11 @@
+use core::future::Future;
 use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy::interrupt::InterruptExt;
 use embassy::util::{AtomicWaker, OnDrop, Unborrow};
 use embassy_extras::unborrow;
+use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
 use futures::future::poll_fn;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
@@ -1355,4 +1357,65 @@ macro_rules! impl_sdmmc_pin {
 
         impl crate::sdmmc_v2::$func<peripherals::$inst> for peripherals::$pin {}
     };
+}
+
+impl<'d, T: Instance, P: Pins<T>> BlockDevice for Sdmmc<'d, T, P> {
+    type Error = Error;
+    #[rustfmt::skip]
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+    #[rustfmt::skip]
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+    fn read<'a>(
+        &'a mut self,
+        blocks: &'a mut [Block],
+        start_block_idx: BlockIdx,
+        _reason: &str,
+    ) -> Self::ReadFuture<'a> {
+        async move {
+            let card_capacity = self.card()?.card_type;
+            let inner = T::inner();
+            let state = T::state();
+            let mut address = start_block_idx.0;
+
+            for block in blocks.iter_mut() {
+                let block: &mut [u8; 512] = &mut block.contents;
+
+                // NOTE(unsafe) Block uses align(4)
+                let buf = unsafe { &mut *(block as *mut [u8; 512] as *mut [u32; 128]) };
+                inner.read_block(address, buf, card_capacity, state).await?;
+                address += 1;
+            }
+            Ok(())
+        }
+    }
+
+    fn write<'a>(
+        &'a mut self,
+        blocks: &'a [Block],
+        start_block_idx: BlockIdx,
+    ) -> Self::WriteFuture<'a> {
+        async move {
+            let card = self.card.as_mut().ok_or(Error::NoCard)?;
+            let inner = T::inner();
+            let state = T::state();
+            let mut address = start_block_idx.0;
+
+            for block in blocks.iter() {
+                let block: &[u8; 512] = &block.contents;
+
+                // NOTE(unsafe) DataBlock uses align 4
+                let buf = unsafe { &*(block as *const [u8; 512] as *const [u32; 128]) };
+                inner.write_block(address, buf, card, state).await?;
+                address += 1;
+            }
+            Ok(())
+        }
+    }
+
+    fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
+        let card = self.card()?;
+        let count = card.csd.block_count();
+        Ok(BlockCount(count))
+    }
 }

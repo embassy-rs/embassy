@@ -248,6 +248,7 @@ for chip in chips.values():
 
 feature_optional_deps = {}
 feature_optional_deps['_rng'] = ['rand_core']
+feature_optional_deps['_sdmmc'] = ['sdio-host']
 
 features = {}
 extra_features = set()
