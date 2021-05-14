@@ -53,19 +53,19 @@ impl<'d, T: Instance> Pwm<'d, T> {
         let s = T::state();
 
         if let Some(pin) = ch0.pin_mut() {
-            pin.set_high();
+            pin.set_low();
             pin.conf().write(|w| w.dir().output());
         }
         if let Some(pin) = ch1.pin_mut() {
-            pin.set_high();
+            pin.set_low();
             pin.conf().write(|w| w.dir().output());
         }
         if let Some(pin) = ch2.pin_mut() {
-            pin.set_high();
+            pin.set_low();
             pin.conf().write(|w| w.dir().output());
         }
         if let Some(pin) = ch3.pin_mut() {
-            pin.set_high();
+            pin.set_low();
             pin.conf().write(|w| w.dir().output());
         }
         r.psel.out[0].write(|w| unsafe { w.bits(ch0.psel_bits()) });
