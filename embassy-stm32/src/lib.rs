@@ -17,12 +17,18 @@ pub mod exti;
 pub mod gpio;
 #[cfg(feature = "_rng")]
 pub mod rng;
+#[cfg(feature = "_spi")]
+pub mod spi;
 #[cfg(feature = "_usart")]
 pub mod usart;
 
 // This must go LAST so that it sees the `impl_foo!` macros
 mod pac;
+pub mod time;
+
+pub use embassy_macros;
 pub use embassy_macros::interrupt;
+pub use embassy_macros::interrupt as irq;
 pub use pac::{interrupt, peripherals, Peripherals};
 
 // workaround for svd2rust-generated code using `use crate::generic::*;`

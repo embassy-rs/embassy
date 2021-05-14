@@ -212,7 +212,7 @@ impl_gpio_pin!(PK13, 10, 13, EXTI13);
 impl_gpio_pin!(PK14, 10, 14, EXTI14);
 impl_gpio_pin!(PK15, 10, 15, EXTI15);
 pub const RNG: rng::Rng = rng::Rng(0x50060800 as _);
-impl_rng!(RNG);
+impl_rng!(RNG, HASH_RNG);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40013800 as _);
 pub const USART1: usart::Usart = usart::Usart(0x40011000 as _);
 impl_usart!(USART1);

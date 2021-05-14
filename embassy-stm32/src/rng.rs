@@ -2,7 +2,6 @@
 
 use core::future::Future;
 use core::task::Poll;
-use defmt::*;
 use embassy::traits;
 use embassy::util::{AtomicWaker, Unborrow};
 use embassy_extras::unborrow;
@@ -12,15 +11,11 @@ use rand_core::{CryptoRng, RngCore};
 use crate::interrupt;
 use crate::pac;
 
-static RNG_WAKER: AtomicWaker = AtomicWaker::new();
+pub(crate) static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
-#[interrupt]
-unsafe fn RNG() {
-    let bits = crate::pac::RNG.sr().read();
-    if bits.drdy() || bits.seis() || bits.ceis() {
-        crate::pac::RNG.cr().write(|reg| reg.set_ie(false));
-        RNG_WAKER.wake();
-    }
+pub enum Error {
+    SeedError,
+    ClockError,
 }
 
 pub struct Random<T: Instance> {
@@ -84,11 +79,6 @@ impl<T: Instance> RngCore for Random<T> {
 
 impl<T: Instance> CryptoRng for Random<T> {}
 
-pub enum Error {
-    SeedError,
-    ClockError,
-}
-
 impl<T: Instance> traits::rng::Rng for Random<T> {
     type Error = Error;
     #[rustfmt::skip]
@@ -146,7 +136,7 @@ pub(crate) mod sealed {
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_rng {
-    ($inst:ident) => {
+    ($inst:ident, $irq:ident) => {
         impl crate::rng::sealed::Instance for peripherals::RNG {
             fn regs() -> crate::pac::chip::rng::Rng {
                 crate::pac::RNG
@@ -154,5 +144,18 @@ macro_rules! impl_rng {
         }
 
         impl crate::rng::Instance for peripherals::RNG {}
+
+        mod rng_irq {
+            use crate::interrupt;
+
+            #[interrupt]
+            unsafe fn $irq() {
+                let bits = $crate::pac::RNG.sr().read();
+                if bits.drdy() || bits.seis() || bits.ceis() {
+                    $crate::pac::RNG.cr().write(|reg| reg.set_ie(false));
+                    $crate::rng::RNG_WAKER.wake();
+                }
+            }
+        }
     };
 }
