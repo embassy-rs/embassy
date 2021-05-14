@@ -161,6 +161,7 @@ impl_gpio_pin!(PH13, 7, 13, EXTI13);
 impl_gpio_pin!(PH14, 7, 14, EXTI14);
 impl_gpio_pin!(PH15, 7, 15, EXTI15);
 pub const RNG: rng::Rng = rng::Rng(0x50060800 as _);
+<<<<<<< HEAD
 impl_rng!(RNG, RNG);
 pub const SPI1: spi::Spi = spi::Spi(0x40013000 as _);
 impl_spi!(SPI1, APB2);
@@ -216,6 +217,14 @@ impl_spi_pin!(SPI5, MosiPin, PE14, 6);
 impl_spi_pin!(SPI5, SckPin, PE2, 6);
 impl_spi_pin!(SPI5, MisoPin, PE5, 6);
 impl_spi_pin!(SPI5, MosiPin, PE6, 6);
+=======
+impl_rng!(RNG);
+pub const SPI1: spi::Spi = spi::Spi(0x40013000 as _);
+pub const SPI2: spi::Spi = spi::Spi(0x40003800 as _);
+pub const SPI3: spi::Spi = spi::Spi(0x40003c00 as _);
+pub const SPI4: spi::Spi = spi::Spi(0x40013400 as _);
+pub const SPI5: spi::Spi = spi::Spi(0x40015000 as _);
+>>>>>>> 546082a (Update generated code)
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40013800 as _);
 pub const USART1: usart::Usart = usart::Usart(0x40011000 as _);
 impl_usart!(USART1);
