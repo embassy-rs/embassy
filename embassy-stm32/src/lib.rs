@@ -26,7 +26,9 @@ pub mod usart;
 mod pac;
 pub mod time;
 
+pub use embassy_macros;
 pub use embassy_macros::interrupt;
+pub use embassy_macros::interrupt as irq;
 pub use pac::{interrupt, peripherals, Peripherals};
 
 // workaround for svd2rust-generated code using `use crate::generic::*;`

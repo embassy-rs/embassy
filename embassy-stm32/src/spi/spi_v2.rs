@@ -1,17 +1,15 @@
 #![macro_use]
 
-pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-use core::marker::PhantomData;
-use embassy::interrupt::Interrupt;
-use embedded_hal::blocking::spi::{Write, Transfer};
-use embassy::util::Unborrow;
-use embassy_extras::{impl_unborrow, unborrow};
-use crate::gpio::{Pin, AnyPin};
+use crate::gpio::{AnyPin, Pin};
 use crate::pac::gpio::vals::{Afr, Moder};
-use crate::pac::spi;
 use crate::pac::gpio::Gpio;
+use crate::pac::spi;
+use crate::spi::{ByteOrder, Config, Instance, MisoPin, MosiPin, SckPin, WordSize};
 use crate::time::Hertz;
-use crate::spi::{WordSize, Config, ByteOrder};
+use core::marker::PhantomData;
+use embassy::util::Unborrow;
+use embassy_extras::unborrow;
+pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
 impl WordSize {
     fn ds(&self) -> spi::vals::Ds {
@@ -30,25 +28,25 @@ impl WordSize {
 }
 
 pub struct Spi<'d, T: Instance> {
-    peri: T,
+    //peri: T,
     sck: AnyPin,
     mosi: AnyPin,
     miso: AnyPin,
-    //irq: T::Interrupt,
     phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance> Spi<'d, T> {
-    pub fn new<F>(pclk: Hertz,
-                  peri: impl Unborrow<Target=T> + 'd,
-                  sck: impl Unborrow<Target=impl Sck<T>>,
-                  mosi: impl Unborrow<Target=impl Mosi<T>>,
-                  miso: impl Unborrow<Target=impl Miso<T>>,
-                  freq: F,
-                  config: Config,
+    pub fn new<F>(
+        pclk: Hertz,
+        peri: impl Unborrow<Target = T> + 'd,
+        sck: impl Unborrow<Target = impl SckPin<T>>,
+        mosi: impl Unborrow<Target = impl MosiPin<T>>,
+        miso: impl Unborrow<Target = impl MisoPin<T>>,
+        freq: F,
+        config: Config,
     ) -> Self
-        where
-            F: Into<Hertz>
+    where
+        F: Into<Hertz>,
     {
         unborrow!(peri);
         unborrow!(sck, mosi, miso);
@@ -64,10 +62,9 @@ impl<'d, T: Instance> Spi<'d, T> {
         let miso = miso.degrade();
 
         unsafe {
-            T::regs().cr2()
-                .write(|w| {
-                    w.set_ssoe(false);
-                });
+            T::regs().cr2().write(|w| {
+                w.set_ssoe(false);
+            });
         }
 
         let br = Self::compute_baud_rate(pclk, freq.into());
@@ -78,7 +75,7 @@ impl<'d, T: Instance> Spi<'d, T> {
                     match config.mode.phase == Phase::CaptureOnSecondTransition {
                         true => spi::vals::Cpha::SECONDEDGE,
                         false => spi::vals::Cpha::FIRSTEDGE,
-                    }
+                    },
                 );
                 w.set_cpol(match config.mode.polarity == Polarity::IdleHigh {
                     true => spi::vals::Cpol::IDLEHIGH,
@@ -88,12 +85,10 @@ impl<'d, T: Instance> Spi<'d, T> {
                 w.set_mstr(spi::vals::Mstr::MASTER);
                 w.set_br(spi::vals::Br(br));
                 w.set_spe(true);
-                w.set_lsbfirst(
-                    match config.byte_order {
-                        ByteOrder::LsbFirst => spi::vals::Lsbfirst::LSBFIRST,
-                        ByteOrder::MsbFirst => spi::vals::Lsbfirst::MSBFIRST,
-                    }
-                );
+                w.set_lsbfirst(match config.byte_order {
+                    ByteOrder::LsbFirst => spi::vals::Lsbfirst::LSBFIRST,
+                    ByteOrder::MsbFirst => spi::vals::Lsbfirst::MSBFIRST,
+                });
                 w.set_ssi(true);
                 w.set_ssm(true);
                 w.set_crcen(false);
@@ -102,7 +97,7 @@ impl<'d, T: Instance> Spi<'d, T> {
         }
 
         Self {
-            peri,
+            //peri,
             sck,
             mosi,
             miso,
@@ -117,7 +112,6 @@ impl<'d, T: Instance> Spi<'d, T> {
     }
 
     unsafe fn unconfigure_pin(block: Gpio, pin: usize) {
-        let (afr, n_af) = if pin < 8 { (0, pin) } else { (1, pin - 8) };
         block.moder().modify(|w| w.set_moder(pin, Moder::ANALOG));
     }
 
@@ -137,11 +131,10 @@ impl<'d, T: Instance> Spi<'d, T> {
 
     fn set_word_size(word_size: WordSize) {
         unsafe {
-            T::regs().cr2()
-                .write(|w| {
-                    w.set_ds(word_size.ds());
-                    w.set_frxth(word_size.frxth());
-                });
+            T::regs().cr2().write(|w| {
+                w.set_ds(word_size.ds());
+                w.set_frxth(word_size.frxth());
+            });
         }
     }
 }
@@ -297,67 +290,5 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T> 
         }
 
         Ok(words)
-    }
-}
-
-
-pub(crate) mod sealed {
-    use super::*;
-    use embassy::util::AtomicWaker;
-
-    pub trait Instance {
-        fn regs() -> &'static spi::Spi;
-    }
-
-    pub trait Sck<T: Instance>: Pin {
-        const AF: u8;
-        fn af(&self) -> u8 {
-            Self::AF
-        }
-    }
-
-    pub trait Mosi<T: Instance>: Pin {
-        const AF: u8;
-        fn af(&self) -> u8 {
-            Self::AF
-        }
-    }
-
-    pub trait Miso<T: Instance>: Pin {
-        const AF: u8;
-        fn af(&self) -> u8 {
-            Self::AF
-        }
-    }
-}
-
-pub trait Instance: sealed::Instance + 'static {}
-
-pub trait Sck<T: Instance>: sealed::Sck<T> + 'static {}
-
-pub trait Mosi<T: Instance>: sealed::Mosi<T> + 'static {}
-
-pub trait Miso<T: Instance>: sealed::Miso<T> + 'static {}
-
-macro_rules! impl_spi {
-    ($inst:ident, $clk:ident) => {
-        impl crate::spi::sealed::Instance for peripherals::$inst {
-            fn regs() -> &'static crate::pac::spi::Spi {
-                &crate::pac::$inst
-            }
-        }
-
-        impl crate::spi::Instance for peripherals::$inst {}
-    };
-}
-
-macro_rules! impl_spi_pin {
-    ($inst:ident, $pin_func:ident, $pin:ident, $af:expr) => {
-        impl crate::spi::$pin_func<peripherals::$inst> for peripherals::$pin {
-        }
-
-        impl crate::spi::sealed::$pin_func<peripherals::$inst> for peripherals::$pin {
-            const AF: u8 = $af;
-        }
     }
 }
