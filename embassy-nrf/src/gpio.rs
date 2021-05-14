@@ -331,7 +331,7 @@ pub(crate) mod sealed {
     pub trait OptionalPin {}
 }
 
-pub trait Pin: sealed::Pin + Sized {
+pub trait Pin: Unborrow<Target = Self> + sealed::Pin + Sized {
     /// Number of the pin within the port (0..31)
     #[inline]
     fn pin(&self) -> u8 {
@@ -435,7 +435,7 @@ fn init_output<T: Pin>(pin: &T, drive: OutputDrive) {
 
 // ====================
 
-pub trait OptionalPin: sealed::OptionalPin + Sized {
+pub trait OptionalPin: Unborrow<Target = Self> + sealed::OptionalPin + Sized {
     type Pin: Pin;
     fn pin(&self) -> Option<&Self::Pin>;
     fn pin_mut(&mut self) -> Option<&mut Self::Pin>;

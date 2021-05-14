@@ -1,6 +1,7 @@
 #![macro_use]
 
 use embassy::interrupt::Interrupt;
+use embassy::util::Unborrow;
 
 use crate::pac;
 
@@ -13,7 +14,7 @@ pub(crate) mod sealed {
     pub trait ExtendedInstance {}
 }
 
-pub trait Instance: sealed::Instance + 'static {
+pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 pub trait ExtendedInstance: Instance + sealed::ExtendedInstance {}

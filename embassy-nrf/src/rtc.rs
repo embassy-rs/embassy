@@ -3,7 +3,7 @@ use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 use critical_section::CriticalSection;
 use embassy::interrupt::InterruptExt;
 use embassy::time::Clock;
-use embassy::util::CriticalSectionMutex as Mutex;
+use embassy::util::{CriticalSectionMutex as Mutex, Unborrow};
 
 use crate::interrupt::Interrupt;
 use crate::pac;
@@ -283,7 +283,7 @@ macro_rules! impl_instance {
 }
 
 /// Implemented by all RTC instances.
-pub trait Instance: sealed::Instance + 'static {
+pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static {
     /// The interrupt associated with this RTC instance.
     type Interrupt: Interrupt;
 }

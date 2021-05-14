@@ -349,7 +349,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: sealed::Instance + 'static {
+pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 
