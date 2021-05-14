@@ -5,7 +5,6 @@ use core::task::Poll;
 use embassy::interrupt::InterruptExt;
 use embassy::util::{AtomicWaker, OnDrop, Unborrow};
 use embassy_extras::unborrow;
-use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
 use futures::future::poll_fn;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
@@ -151,6 +150,8 @@ pub struct Sdmmc<'d, T: Instance, P: Pins<T>> {
     signalling: Signalling,
     /// Card
     card: Option<Card>,
+    /// The timeout to be set for data transfers, in card bus clock periods
+    data_transfer_timeout: u32,
 }
 
 impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
@@ -164,6 +165,7 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
         irq: impl Unborrow<Target = T::Interrupt>,
         hclk: Hertz,
         kernel_clk: Hertz,
+        data_transfer_timeout: u32,
     ) -> Self {
         unborrow!(irq, pins);
         pins.configure();
@@ -184,6 +186,7 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
             clock,
             signalling: Default::default(),
             card: None,
+            data_transfer_timeout,
         }
     }
 
@@ -202,6 +205,7 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
                 self.ker_ck,
                 &mut self.clock,
                 T::state(),
+                self.data_transfer_timeout,
             )
             .await
     }
@@ -218,7 +222,15 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
 
         // NOTE(unsafe) DataBlock uses align 4
         let buf = unsafe { &mut *((&mut buffer.0) as *mut [u8; 512] as *mut [u32; 128]) };
-        inner.read_block(block_idx, buf, card_capacity, state).await
+        inner
+            .read_block(
+                block_idx,
+                buf,
+                card_capacity,
+                state,
+                self.data_transfer_timeout,
+            )
+            .await
     }
 
     pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error> {
@@ -228,7 +240,9 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
 
         // NOTE(unsafe) DataBlock uses align 4
         let buf = unsafe { &*((&buffer.0) as *const [u8; 512] as *const [u32; 128]) };
-        inner.write_block(block_idx, buf, card, state).await
+        inner
+            .write_block(block_idx, buf, card, state, self.data_transfer_timeout)
+            .await
     }
 
     /// Get a reference to the initialized card
@@ -302,6 +316,7 @@ impl SdmmcInner {
         ker_ck: Hertz,
         clock: &mut Hertz,
         waker_reg: &AtomicWaker,
+        data_transfer_timeout: u32,
     ) -> Result<(), Error> {
         let regs = self.0;
 
@@ -371,7 +386,8 @@ impl SdmmcInner {
             card.csd = csd.into();
 
             self.select_card(Some(&card))?;
-            self.get_scr(&mut card, waker_reg).await?;
+            self.get_scr(&mut card, waker_reg, data_transfer_timeout)
+                .await?;
 
             // Set bus width
             let (width, acmd_arg) = match bus_width {
@@ -404,12 +420,13 @@ impl SdmmcInner {
             }
 
             // Read status
-            self.read_sd_status(&mut card, waker_reg).await?;
+            self.read_sd_status(&mut card, waker_reg, data_transfer_timeout)
+                .await?;
 
             if freq.0 > 25_000_000 {
                 // Switch to SDR25
                 *signalling = self
-                    .switch_signalling_mode(Signalling::SDR25, waker_reg)
+                    .switch_signalling_mode(Signalling::SDR25, waker_reg, data_transfer_timeout)
                     .await?;
 
                 if *signalling == Signalling::SDR25 {
@@ -422,7 +439,8 @@ impl SdmmcInner {
                 }
             }
             // Read status after signalling change
-            self.read_sd_status(&mut card, waker_reg).await?;
+            self.read_sd_status(&mut card, waker_reg, data_transfer_timeout)
+                .await?;
             old_card.replace(card);
         }
 
@@ -435,6 +453,7 @@ impl SdmmcInner {
         buffer: &mut [u32; 128],
         capacity: CardCapacity,
         waker_reg: &AtomicWaker,
+        data_transfer_timeout: u32,
     ) -> Result<(), Error> {
         // Always read 1 block of 512 bytes
         // SDSC cards are byte addressed hence the blockaddress is in multiples of 512 bytes
@@ -449,7 +468,13 @@ impl SdmmcInner {
 
         let buf_addr = buffer as *mut [u32; 128] as u32;
         unsafe {
-            self.prepare_datapath_transfer(buf_addr, 512, 9, Dir::CardToHost);
+            self.prepare_datapath_transfer(
+                buf_addr,
+                512,
+                9,
+                Dir::CardToHost,
+                data_transfer_timeout,
+            );
             self.data_interrupts(true);
         }
         self.cmd(Cmd::read_single_block(address), true)?;
@@ -485,6 +510,7 @@ impl SdmmcInner {
         buffer: &[u32; 128],
         card: &mut Card,
         waker_reg: &AtomicWaker,
+        data_transfer_timeout: u32,
     ) -> Result<(), Error> {
         // Always read 1 block of 512 bytes
         // SDSC cards are byte addressed hence the blockaddress is in multiples of 512 bytes
@@ -499,7 +525,13 @@ impl SdmmcInner {
 
         let buf_addr = buffer as *const [u32; 128] as u32;
         unsafe {
-            self.prepare_datapath_transfer(buf_addr, 512, 9, Dir::HostToCard);
+            self.prepare_datapath_transfer(
+                buf_addr,
+                512,
+                9,
+                Dir::HostToCard,
+                data_transfer_timeout,
+            );
             self.data_interrupts(true);
         }
         self.cmd(Cmd::write_single_block(address), true)?;
@@ -527,16 +559,18 @@ impl SdmmcInner {
                     regs.idmactrlr().modify(|w| w.set_idmaen(false));
                 }
                 // TODO: Make this configurable
-                let mut timeout: u32 = 0xFFFF_FFFF;
+                let mut timeout: u32 = 0x00FF_FFFF;
 
                 // Try to read card status (ACMD13)
                 while timeout > 0 {
-                    match self.read_sd_status(card, waker_reg).await {
+                    match self
+                        .read_sd_status(card, waker_reg, data_transfer_timeout)
+                        .await
+                    {
                         Ok(_) => return Ok(()),
                         Err(Error::Timeout) => (), // Try again
                         Err(e) => return Err(e),
                     }
-
                     timeout -= 1;
                 }
                 Err(Error::SoftwareTimeout)
@@ -573,6 +607,7 @@ impl SdmmcInner {
         length_bytes: u32,
         block_size: u8,
         direction: Dir,
+        data_transfer_timeout: u32,
     ) {
         self::assert!(block_size <= 14, "Block size up to 2^14 bytes");
         let regs = self.0;
@@ -588,8 +623,8 @@ impl SdmmcInner {
 
         // NOTE(unsafe) We have exclusive access to the regisers
 
-        // TODO: Make this configurable
-        regs.dtimer().write(|w| w.set_datatime(5_000_000));
+        regs.dtimer()
+            .write(|w| w.set_datatime(data_transfer_timeout));
         regs.dlenr().write(|w| w.set_datalength(length_bytes));
 
         regs.idmabase0r().write(|w| w.set_idmabase0(buffer_addr));
@@ -637,6 +672,7 @@ impl SdmmcInner {
         &self,
         signalling: Signalling,
         waker_reg: &AtomicWaker,
+        data_transfer_timeout: u32,
     ) -> Result<Signalling, Error> {
         // NB PLSS v7_10 4.3.10.4: "the use of SET_BLK_LEN command is not
         // necessary"
@@ -659,7 +695,13 @@ impl SdmmcInner {
         let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
 
         unsafe {
-            self.prepare_datapath_transfer(status_addr, 64, 6, Dir::CardToHost);
+            self.prepare_datapath_transfer(
+                status_addr,
+                64,
+                6,
+                Dir::CardToHost,
+                data_transfer_timeout,
+            );
             self.data_interrupts(true);
         }
         self.cmd(Cmd::cmd6(set_function), true)?; // CMD6
@@ -724,7 +766,12 @@ impl SdmmcInner {
     }
 
     /// Reads the SD Status (ACMD13)
-    async fn read_sd_status(&self, card: &mut Card, waker_reg: &AtomicWaker) -> Result<(), Error> {
+    async fn read_sd_status(
+        &self,
+        card: &mut Card,
+        waker_reg: &AtomicWaker,
+        data_transfer_timeout: u32,
+    ) -> Result<(), Error> {
         let rca = card.rca;
         self.cmd(Cmd::set_block_length(64), false)?; // CMD16
         self.cmd(Cmd::app_cmd(rca << 16), false)?; // APP
@@ -737,7 +784,13 @@ impl SdmmcInner {
         let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
 
         unsafe {
-            self.prepare_datapath_transfer(status_addr, 64, 6, Dir::CardToHost);
+            self.prepare_datapath_transfer(
+                status_addr,
+                64,
+                6,
+                Dir::CardToHost,
+                data_transfer_timeout,
+            );
             self.data_interrupts(true);
         }
         self.cmd(Cmd::card_status(0), true)?;
@@ -832,7 +885,12 @@ impl SdmmcInner {
         }
     }
 
-    async fn get_scr(&self, card: &mut Card, waker_reg: &AtomicWaker) -> Result<(), Error> {
+    async fn get_scr(
+        &self,
+        card: &mut Card,
+        waker_reg: &AtomicWaker,
+        data_transfer_timeout: u32,
+    ) -> Result<(), Error> {
         // Read the the 64-bit SCR register
         self.cmd(Cmd::set_block_length(8), false)?; // CMD16
         self.cmd(Cmd::app_cmd(card.rca << 16), false)?;
@@ -845,7 +903,7 @@ impl SdmmcInner {
         let on_drop = OnDrop::new(move || unsafe { self.on_drop() });
 
         unsafe {
-            self.prepare_datapath_transfer(scr_addr, 8, 3, Dir::CardToHost);
+            self.prepare_datapath_transfer(scr_addr, 8, 3, Dir::CardToHost, data_transfer_timeout);
             self.data_interrupts(true);
         }
         self.cmd(Cmd::cmd51(), true)?;
@@ -905,36 +963,26 @@ impl SdmmcInner {
                 w.set_cmdtrans(data);
             });
 
-            // TODO: Check if this timeout is necessary
-            let mut timeout: u32 = 0xFFFF_FFFF;
-
             let mut status;
             if cmd.resp == Response::None {
                 // Wait for CMDSENT or a timeout
                 while {
                     status = regs.star().read();
-                    !(status.ctimeout() || status.cmdsent()) && timeout > 0
-                } {
-                    timeout -= 1;
-                }
+                    !(status.ctimeout() || status.cmdsent())
+                } {}
             } else {
                 // Wait for CMDREND or CCRCFAIL or a timeout
                 while {
                     status = regs.star().read();
-                    !(status.ctimeout() || status.cmdrend() || status.ccrcfail()) && timeout > 0
-                } {
-                    timeout -= 1;
-                }
+                    !(status.ctimeout() || status.cmdrend() || status.ccrcfail())
+                } {}
             }
 
             if status.ctimeout() {
                 return Err(Error::Timeout);
-            } else if timeout == 0 {
-                return Err(Error::SoftwareTimeout);
             } else if status.ccrcfail() {
                 return Err(Error::Crc);
             }
-
             Ok(())
         }
     }
@@ -1321,11 +1369,76 @@ where
     const BUSWIDTH: BusWidth = BusWidth::One;
 
     fn configure(&mut self) {
-        self::todo!()
+        let (clk_pin, cmd_pin, d0_pin) = self;
+
+        cortex_m::interrupt::free(|_| unsafe {
+            // clk
+            let block = clk_pin.block();
+            let n = clk_pin.pin() as usize;
+            let afr_num = CLK::AF_NUM;
+            configure_pin(block, n, afr_num, false);
+
+            // cmd
+            let block = cmd_pin.block();
+            let n = cmd_pin.pin() as usize;
+            let afr_num = CMD::AF_NUM;
+            configure_pin(block, n, afr_num, true);
+
+            // d0
+            let block = d0_pin.block();
+            let n = d0_pin.pin() as usize;
+            let afr_num = D0::AF_NUM;
+            configure_pin(block, n, afr_num, true);
+        });
     }
 
     fn deconfigure(&mut self) {
-        self::todo!()
+        use pac::gpio::vals::{Moder, Ospeedr, Pupdr};
+
+        let (clk_pin, cmd_pin, d0_pin) = self;
+
+        cortex_m::interrupt::free(|_| unsafe {
+            // clk
+            let n = clk_pin.pin().into();
+            clk_pin
+                .block()
+                .moder()
+                .modify(|w| w.set_moder(n, Moder::ANALOG));
+            clk_pin
+                .block()
+                .ospeedr()
+                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
+
+            // cmd
+            let n = cmd_pin.pin().into();
+            cmd_pin
+                .block()
+                .moder()
+                .modify(|w| w.set_moder(n, Moder::ANALOG));
+            cmd_pin
+                .block()
+                .ospeedr()
+                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
+            cmd_pin
+                .block()
+                .pupdr()
+                .modify(|w| w.set_pupdr(n, Pupdr::FLOATING));
+
+            // d0
+            let n = d0_pin.pin().into();
+            d0_pin
+                .block()
+                .moder()
+                .modify(|w| w.set_moder(n, Moder::ANALOG));
+            d0_pin
+                .block()
+                .ospeedr()
+                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
+            d0_pin
+                .block()
+                .pupdr()
+                .modify(|w| w.set_pupdr(n, Pupdr::FLOATING));
+        });
     }
 }
 
@@ -1359,63 +1472,79 @@ macro_rules! impl_sdmmc_pin {
     };
 }
 
-impl<'d, T: Instance, P: Pins<T>> BlockDevice for Sdmmc<'d, T, P> {
-    type Error = Error;
-    #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
-    #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+#[cfg(feature = "sdmmc-rs")]
+mod sdmmc_rs {
+    use super::*;
+    use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
 
-    fn read<'a>(
-        &'a mut self,
-        blocks: &'a mut [Block],
-        start_block_idx: BlockIdx,
-        _reason: &str,
-    ) -> Self::ReadFuture<'a> {
-        async move {
-            let card_capacity = self.card()?.card_type;
-            let inner = T::inner();
-            let state = T::state();
-            let mut address = start_block_idx.0;
+    impl<'d, T: Instance, P: Pins<T>> BlockDevice for Sdmmc<'d, T, P> {
+        type Error = Error;
+        #[rustfmt::skip]
+        type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+        #[rustfmt::skip]
+        type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
 
-            for block in blocks.iter_mut() {
-                let block: &mut [u8; 512] = &mut block.contents;
+        fn read<'a>(
+            &'a mut self,
+            blocks: &'a mut [Block],
+            start_block_idx: BlockIdx,
+            _reason: &str,
+        ) -> Self::ReadFuture<'a> {
+            async move {
+                let card_capacity = self.card()?.card_type;
+                let inner = T::inner();
+                let state = T::state();
+                let mut address = start_block_idx.0;
 
-                // NOTE(unsafe) Block uses align(4)
-                let buf = unsafe { &mut *(block as *mut [u8; 512] as *mut [u32; 128]) };
-                inner.read_block(address, buf, card_capacity, state).await?;
-                address += 1;
+                for block in blocks.iter_mut() {
+                    let block: &mut [u8; 512] = &mut block.contents;
+
+                    // NOTE(unsafe) Block uses align(4)
+                    let buf = unsafe { &mut *(block as *mut [u8; 512] as *mut [u32; 128]) };
+                    inner
+                        .read_block(
+                            address,
+                            buf,
+                            card_capacity,
+                            state,
+                            self.data_transfer_timeout,
+                        )
+                        .await?;
+                    address += 1;
+                }
+                Ok(())
             }
-            Ok(())
         }
-    }
 
-    fn write<'a>(
-        &'a mut self,
-        blocks: &'a [Block],
-        start_block_idx: BlockIdx,
-    ) -> Self::WriteFuture<'a> {
-        async move {
-            let card = self.card.as_mut().ok_or(Error::NoCard)?;
-            let inner = T::inner();
-            let state = T::state();
-            let mut address = start_block_idx.0;
+        fn write<'a>(
+            &'a mut self,
+            blocks: &'a [Block],
+            start_block_idx: BlockIdx,
+        ) -> Self::WriteFuture<'a> {
+            async move {
+                let card = self.card.as_mut().ok_or(Error::NoCard)?;
+                let inner = T::inner();
+                let state = T::state();
+                let mut address = start_block_idx.0;
 
-            for block in blocks.iter() {
-                let block: &[u8; 512] = &block.contents;
+                for block in blocks.iter() {
+                    let block: &[u8; 512] = &block.contents;
 
-                // NOTE(unsafe) DataBlock uses align 4
-                let buf = unsafe { &*(block as *const [u8; 512] as *const [u32; 128]) };
-                inner.write_block(address, buf, card, state).await?;
-                address += 1;
+                    // NOTE(unsafe) DataBlock uses align 4
+                    let buf = unsafe { &*(block as *const [u8; 512] as *const [u32; 128]) };
+                    inner
+                        .write_block(address, buf, card, state, self.data_transfer_timeout)
+                        .await?;
+                    address += 1;
+                }
+                Ok(())
             }
-            Ok(())
         }
-    }
 
-    fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
-        let card = self.card()?;
-        let count = card.csd.block_count();
-        Ok(BlockCount(count))
+        fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
+            let card = self.card()?;
+            let count = card.csd.block_count();
+            Ok(BlockCount(count))
+        }
     }
 }

@@ -24,12 +24,13 @@ embedded-sdmmc = { git = "https://github.com/thalesfragoso/embedded-sdmmc-rs", b
 regex = "1.4.6"
 
 [features]
-default = ["stm32h750vb", "defmt-debug", "defmt"]
+default = ["stm32h750vb", "defmt-debug", "defmt", "sdmmc-rs"]
 defmt-trace = [ ]
 defmt-debug = [ ]
 defmt-info = [ ]
 defmt-warn = [ ]
 defmt-error = [ ]
+sdmmc-rs = ["embedded-sdmmc"]
 
 # BEGIN GENERATED FEATURES
 stm32f401cb = [ "_dma", "_dma_v2", "_exti", "_exti_v1", "_gpio", "_gpio_v2", "_spi", "_spi_v1", "_stm32f4", "_syscfg", "_syscfg_f4", "_usart", "_usart_v1",]
