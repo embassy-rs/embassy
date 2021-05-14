@@ -212,7 +212,7 @@ impl_gpio_pin!(PK13, 10, 13, EXTI13);
 impl_gpio_pin!(PK14, 10, 14, EXTI14);
 impl_gpio_pin!(PK15, 10, 15, EXTI15);
 pub const RNG: rng::Rng = rng::Rng(0x48021800 as _);
-impl_rng!(RNG);
+impl_rng!(RNG, RNG);
 pub const SDMMC1: sdmmc::Sdmmc = sdmmc::Sdmmc(0x52007000 as _);
 impl_sdmmc!(SDMMC1);
 impl_sdmmc_pin!(SDMMC1, D4Pin, PB8, 12);

@@ -24,7 +24,6 @@ embedded-sdmmc = { git = "https://github.com/thalesfragoso/embedded-sdmmc-rs", b
 regex = "1.4.6"
 
 [features]
-default = ["stm32h750vb", "defmt-debug", "defmt", "sdmmc-rs"]
 defmt-trace = [ ]
 defmt-debug = [ ]
 defmt-info = [ ]
