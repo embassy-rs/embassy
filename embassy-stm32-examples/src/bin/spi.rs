@@ -8,14 +8,14 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use embassy_stm32::gpio::{Level, Output, Input, Pull};
-use embedded_hal::digital::v2::{OutputPin, InputPin};
+use embassy_stm32::gpio::{Input, Level, Output, Pull};
+use embedded_hal::digital::v2::{InputPin, OutputPin};
 use example_common::*;
 
 use cortex_m_rt::entry;
 use stm32f4::stm32f429 as pac;
 //use stm32l4::stm32l4x5 as pac;
-use embassy_stm32::spi::{Spi, MODE_0, ByteOrder, Config};
+use embassy_stm32::spi::{ByteOrder, Config, Spi, MODE_0};
 use embassy_stm32::time::Hertz;
 use embedded_hal::blocking::spi::Transfer;
 
@@ -48,10 +48,8 @@ fn main() -> ! {
     });
 
     let rc = pp.RCC.cfgr.read().sws().bits();
-    info!("rcc -> {}", rc);
     let p = embassy_stm32::init(Default::default());
 
-    let mut led = Output::new(p.PA5, Level::High);
     let mut spi = Spi::new(
         Hertz(16_000_000),
         p.SPI3,
@@ -62,33 +60,13 @@ fn main() -> ! {
         Config::default(),
     );
 
-    let mut cs = Output::new( p.PE0, Level::High);
-    cs.set_low();
-
-    let mut rdy = Input::new(p.PE1, Pull::Down);
-    let mut wake = Output::new( p.PB13, Level::Low);
-    let mut reset = Output::new( p.PE8, Level::Low);
-
-    wake.set_high().unwrap();
-    reset.set_high().unwrap();
+    let mut cs = Output::new(p.PE0, Level::High);
 
     loop {
-        info!("loop");
-        while rdy.is_low().unwrap() {
-            info!("await ready")
-        }
-        info!("ready");
-        let mut buf = [0x0A;4];
+        let mut buf = [0x0A; 4];
+        cs.set_low();
         spi.transfer(&mut buf);
+        cs.set_high();
         info!("xfer {=[u8]:x}", buf);
-    }
-
-    loop {
-        info!("high");
-        led.set_high().unwrap();
-        cortex_m::asm::delay(10_000_000);
-        info!("low");
-        led.set_low().unwrap();
-        cortex_m::asm::delay(10_000_000);
     }
 }
