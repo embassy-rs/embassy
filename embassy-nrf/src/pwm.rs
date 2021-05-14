@@ -102,6 +102,20 @@ impl<'d, T: Instance> Pwm<'d, T> {
         }
     }
 
+    /// Enables the PWM generator.
+    #[inline(always)]
+    pub fn enable(&self) {
+        let r = T::regs();
+        r.enable.write(|w| w.enable().enabled());
+    }
+
+    /// Disables the PWM generator.
+    #[inline(always)]
+    pub fn disable(&self) {
+        let r = T::regs();
+        r.enable.write(|w| w.enable().disabled());
+    }
+
     /// Sets duty cycle (15 bit) for a PWM channel.
     pub fn set_duty(&self, channel: usize, duty: u16) {
         let s = T::state();
