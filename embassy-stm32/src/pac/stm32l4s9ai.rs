@@ -178,8 +178,6 @@ impl_gpio_pin!(PI13, 8, 13, EXTI13);
 impl_gpio_pin!(PI14, 8, 14, EXTI14);
 impl_gpio_pin!(PI15, 8, 15, EXTI15);
 pub const RNG: rng::Rng = rng::Rng(0x50060800 as _);
-<<<<<<< HEAD
-<<<<<<< HEAD
 impl_rng!(RNG, RNG);
 pub const SPI1: spi::Spi = spi::Spi(0x40013000 as _);
 impl_spi!(SPI1, APB2);
@@ -227,15 +225,6 @@ impl_spi_pin!(SPI3, MosiPin, PD6, 5);
 impl_spi_pin!(SPI3, MisoPin, PG10, 6);
 impl_spi_pin!(SPI3, MosiPin, PG11, 6);
 impl_spi_pin!(SPI3, SckPin, PG9, 6);
-=======
-impl_rng!(RNG);
-=======
-impl_rng!(RNG, RNG);
->>>>>>> cbbaaa9 (Fix RNG interrupt name)
-pub const SPI1: spi::Spi = spi::Spi(0x40013000 as _);
-pub const SPI2: spi::Spi = spi::Spi(0x40003800 as _);
-pub const SPI3: spi::Spi = spi::Spi(0x40003c00 as _);
->>>>>>> 546082a (Update generated code)
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40010000 as _);
 pub use regs::dma_v1 as dma;
 pub use regs::exti_v1 as exti;
