@@ -74,12 +74,12 @@ impl TaskHeader {
 // repr(C) is needed to guarantee that the Task is located at offset 0
 // This makes it safe to cast between Task and Task pointers.
 #[repr(C)]
-pub struct Task<F: Future + 'static> {
+pub struct Task<F: Future> {
     raw: TaskHeader,
     future: UninitCell<F>, // Valid if STATE_SPAWNED
 }
 
-impl<F: Future + 'static> Task<F> {
+impl<F: Future> Task<F> {
     pub const fn new() -> Self {
         Self {
             raw: TaskHeader::new(),
@@ -87,7 +87,7 @@ impl<F: Future + 'static> Task<F> {
         }
     }
 
-    pub fn spawn_pool(pool: &'static [Self], future: impl FnOnce() -> F) -> SpawnToken<F> {
+    pub fn spawn_pool<'a>(pool: &'a [Self], future: impl FnOnce() -> F) -> SpawnToken<F> {
         for task in pool {
             if task.spawn_allocate() {
                 return unsafe { task.spawn_initialize(future) };
@@ -100,7 +100,7 @@ impl<F: Future + 'static> Task<F> {
         }
     }
 
-    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<F> {
+    pub fn spawn<'a>(&'a self, future: impl FnOnce() -> F) -> SpawnToken<F> {
         if self.spawn_allocate() {
             unsafe { self.spawn_initialize(future) }
         } else {
@@ -111,7 +111,7 @@ impl<F: Future + 'static> Task<F> {
         }
     }
 
-    fn spawn_allocate(&'static self) -> bool {
+    fn spawn_allocate<'a>(&'a self) -> bool {
         let state = STATE_SPAWNED | STATE_RUN_QUEUED;
         self.raw
             .state
@@ -119,7 +119,7 @@ impl<F: Future + 'static> Task<F> {
             .is_ok()
     }
 
-    unsafe fn spawn_initialize(&'static self, future: impl FnOnce() -> F) -> SpawnToken<F> {
+    unsafe fn spawn_initialize<'a>(&'a self, future: impl FnOnce() -> F) -> SpawnToken<F> {
         // Initialize the task
         self.raw.poll_fn.write(Self::poll);
         self.future.write(future());
@@ -150,7 +150,7 @@ impl<F: Future + 'static> Task<F> {
     }
 }
 
-unsafe impl<F: Future + 'static> Sync for Task<F> {}
+unsafe impl<F: Future> Sync for Task<F> {}
 
 pub struct Executor {
     run_queue: RunQueue,
