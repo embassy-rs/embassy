@@ -102,6 +102,34 @@ impl<'d, T: Instance> Uart<'d, T> {
             phantom: PhantomData,
         }
     }
+
+    pub fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        unsafe {
+            let r = self.inner.regs();
+            for b in buffer {
+                loop {
+                    let sr = r.sr().read();
+                    if sr.pe() {
+                        r.dr().read();
+                        return Err(Error::Parity);
+                    } else if sr.fe() {
+                        r.dr().read();
+                        return Err(Error::Framing);
+                    } else if sr.ne() {
+                        r.dr().read();
+                        return Err(Error::Noise);
+                    } else if sr.ore() {
+                        r.dr().read();
+                        return Err(Error::Overrun);
+                    } else if sr.rxne() {
+                        break;
+                    }
+                }
+                *b = r.dr().read().0 as u8;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl<'d, T: Instance> embedded_hal::blocking::serial::Write<u8> for Uart<'d, T> {

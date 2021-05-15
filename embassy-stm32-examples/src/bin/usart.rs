@@ -25,9 +25,13 @@ async fn main_task() {
     let config = Config::default();
     let mut usart = Uart::new(p.USART3, p.PD9, p.PD8, config, 16_000_000);
 
+    usart.bwrite_all(b"Hello Embassy World!\r\n").unwrap();
+    info!("wrote Hello, starting echo");
+
+    let mut buf = [0u8; 1];
     loop {
-        info!("wrote");
-        usart.bwrite_all(b"Hello Embassy World!\r\n").unwrap();
+        usart.read(&mut buf).unwrap();
+        usart.bwrite_all(&buf).unwrap();
     }
 }
 
