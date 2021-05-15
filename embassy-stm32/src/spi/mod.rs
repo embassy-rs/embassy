@@ -6,6 +6,8 @@ mod spi;
 
 pub use spi::*;
 
+use crate::gpio::Pin;
+
 pub enum Error {
     Framing,
     Crc,
@@ -41,32 +43,21 @@ impl Default for Config {
 
 pub(crate) mod sealed {
     use super::*;
-    use crate::gpio::Pin;
-    use embassy::util::AtomicWaker;
 
     pub trait Instance {
         fn regs() -> &'static crate::pac::spi::Spi;
     }
 
     pub trait SckPin<T: Instance>: Pin {
-        const AF: u8;
-        fn af(&self) -> u8 {
-            Self::AF
-        }
+        fn af_num(&self) -> u8;
     }
 
     pub trait MosiPin<T: Instance>: Pin {
-        const AF: u8;
-        fn af(&self) -> u8 {
-            Self::AF
-        }
+        fn af_num(&self) -> u8;
     }
 
     pub trait MisoPin<T: Instance>: Pin {
-        const AF: u8;
-        fn af(&self) -> u8 {
-            Self::AF
-        }
+        fn af_num(&self) -> u8;
     }
 }
 
@@ -95,7 +86,9 @@ macro_rules! impl_spi_pin {
         impl crate::spi::$pin_func<peripherals::$inst> for peripherals::$pin {}
 
         impl crate::spi::sealed::$pin_func<peripherals::$inst> for peripherals::$pin {
-            const AF: u8 = $af;
+            fn af_num(&self) -> u8 {
+                $af
+            }
         }
     };
 }

@@ -56,20 +56,20 @@ pub(crate) mod sealed {
     pub trait Instance {
         fn regs(&self) -> Usart;
     }
-    pub trait RxPin<T: Instance>: OptionalPin {
-        const AF_NUM: u8;
+    pub trait RxPin<T: Instance>: Pin {
+        fn af_num(&self) -> u8;
     }
-    pub trait TxPin<T: Instance>: OptionalPin {
-        const AF_NUM: u8;
+    pub trait TxPin<T: Instance>: Pin {
+        fn af_num(&self) -> u8;
     }
-    pub trait CtsPin<T: Instance>: OptionalPin {
-        const AF_NUM: u8;
+    pub trait CtsPin<T: Instance>: Pin {
+        fn af_num(&self) -> u8;
     }
-    pub trait RtsPin<T: Instance>: OptionalPin {
-        const AF_NUM: u8;
+    pub trait RtsPin<T: Instance>: Pin {
+        fn af_num(&self) -> u8;
     }
-    pub trait CkPin<T: Instance>: OptionalPin {
-        const AF_NUM: u8;
+    pub trait CkPin<T: Instance>: Pin {
+        fn af_num(&self) -> u8;
     }
 }
 pub trait Instance: sealed::Instance {}
@@ -78,27 +78,6 @@ pub trait TxPin<T: Instance>: sealed::TxPin<T> {}
 pub trait CtsPin<T: Instance>: sealed::CtsPin<T> {}
 pub trait RtsPin<T: Instance>: sealed::RtsPin<T> {}
 pub trait CkPin<T: Instance>: sealed::CkPin<T> {}
-
-impl<T: Instance> sealed::RxPin<T> for NoPin {
-    const AF_NUM: u8 = 0;
-}
-impl<T: Instance> RxPin<T> for NoPin {}
-impl<T: Instance> sealed::TxPin<T> for NoPin {
-    const AF_NUM: u8 = 0;
-}
-impl<T: Instance> TxPin<T> for NoPin {}
-impl<T: Instance> sealed::CtsPin<T> for NoPin {
-    const AF_NUM: u8 = 0;
-}
-impl<T: Instance> CtsPin<T> for NoPin {}
-impl<T: Instance> sealed::RtsPin<T> for NoPin {
-    const AF_NUM: u8 = 0;
-}
-impl<T: Instance> RtsPin<T> for NoPin {}
-impl<T: Instance> sealed::CkPin<T> for NoPin {
-    const AF_NUM: u8 = 0;
-}
-impl<T: Instance> CkPin<T> for NoPin {}
 
 macro_rules! impl_usart {
     ($inst:ident) => {
@@ -112,9 +91,11 @@ macro_rules! impl_usart {
 }
 
 macro_rules! impl_usart_pin {
-    ($inst:ident, $func:ident, $pin:ident, $num:expr) => {
+    ($inst:ident, $func:ident, $pin:ident, $af:expr) => {
         impl crate::usart::sealed::$func<peripherals::$inst> for peripherals::$pin {
-            const AF_NUM: u8 = $num;
+            fn af_num(&self) -> u8 {
+                $af
+            }
         }
         impl crate::usart::$func<peripherals::$inst> for peripherals::$pin {}
     };

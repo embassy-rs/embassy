@@ -43,9 +43,9 @@ impl<'d, T: Instance> Spi<'d, T> {
         unborrow!(peri, sck, mosi, miso);
 
         unsafe {
-            sck.set_as_af(sck.af());
-            mosi.set_as_af(mosi.af());
-            miso.set_as_af(miso.af());
+            sck.set_as_af(sck.af_num());
+            mosi.set_as_af(mosi.af_num());
+            miso.set_as_af(miso.af_num());
         }
 
         let sck = sck.degrade();
