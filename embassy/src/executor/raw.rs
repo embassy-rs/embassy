@@ -87,7 +87,7 @@ impl<F: Future> Task<F> {
         }
     }
 
-    pub fn spawn_pool<'a>(pool: &'a [Self], future: impl FnOnce() -> F) -> SpawnToken<F> {
+    pub fn spawn_pool(pool: &'static [Self], future: impl FnOnce() -> F) -> SpawnToken<F> {
         for task in pool {
             if task.spawn_allocate() {
                 return unsafe { task.spawn_initialize(future) };
@@ -100,7 +100,7 @@ impl<F: Future> Task<F> {
         }
     }
 
-    pub fn spawn<'a>(&'a self, future: impl FnOnce() -> F) -> SpawnToken<F> {
+    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<F> {
         if self.spawn_allocate() {
             unsafe { self.spawn_initialize(future) }
         } else {
@@ -111,7 +111,7 @@ impl<F: Future> Task<F> {
         }
     }
 
-    fn spawn_allocate<'a>(&'a self) -> bool {
+    fn spawn_allocate(&'static self) -> bool {
         let state = STATE_SPAWNED | STATE_RUN_QUEUED;
         self.raw
             .state
@@ -119,7 +119,7 @@ impl<F: Future> Task<F> {
             .is_ok()
     }
 
-    unsafe fn spawn_initialize<'a>(&'a self, future: impl FnOnce() -> F) -> SpawnToken<F> {
+    unsafe fn spawn_initialize(&'static self, future: impl FnOnce() -> F) -> SpawnToken<F> {
         // Initialize the task
         self.raw.poll_fn.write(Self::poll);
         self.future.write(future());
