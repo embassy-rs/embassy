@@ -223,11 +223,6 @@ pub trait Pin: sealed::Pin + Sized {
         self._port()
     }
 
-    #[inline]
-    fn psel_bits(&self) -> u32 {
-        self.pin_port() as u32
-    }
-
     /// Convert from concrete pin type PX_XX to type erased `AnyPin`.
     #[inline]
     fn degrade(self) -> AnyPin {
@@ -276,11 +271,6 @@ pub trait OptionalPin: sealed::OptionalPin + Sized {
     type Pin: Pin;
     fn pin(&self) -> Option<&Self::Pin>;
     fn pin_mut(&mut self) -> Option<&mut Self::Pin>;
-
-    #[inline]
-    fn psel_bits(&self) -> u32 {
-        self.pin().map_or(1u32 << 31, |pin| Pin::psel_bits(pin))
-    }
 
     /// Convert from concrete pin type PX_XX to type erased `Option<AnyPin>`.
     #[inline]
