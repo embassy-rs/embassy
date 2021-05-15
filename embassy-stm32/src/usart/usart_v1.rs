@@ -1,0 +1,126 @@
+use core::marker::PhantomData;
+
+use embassy::util::Unborrow;
+use embassy_extras::unborrow;
+
+use crate::gpio::{NoPin, Pin};
+use crate::pac::usart::{regs, vals, Usart};
+use crate::peripherals;
+
+use super::*;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DataBits {
+    DataBits8,
+    DataBits9,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Parity {
+    ParityNone,
+    ParityEven,
+    ParityOdd,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StopBits {
+    #[doc = "1 stop bit"]
+    STOP1,
+    #[doc = "0.5 stop bits"]
+    STOP0P5,
+    #[doc = "2 stop bits"]
+    STOP2,
+    #[doc = "1.5 stop bits"]
+    STOP1P5,
+}
+
+#[non_exhaustive]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Config {
+    pub baudrate: u32,
+    pub data_bits: DataBits,
+    pub stop_bits: StopBits,
+    pub parity: Parity,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            baudrate: 115200,
+            data_bits: DataBits::DataBits8,
+            stop_bits: StopBits::STOP1,
+            parity: Parity::ParityNone,
+        }
+    }
+}
+
+pub struct Uart<'d, T: Instance> {
+    inner: T,
+    phantom: PhantomData<&'d mut T>,
+}
+
+impl<'d, T: Instance> Uart<'d, T> {
+    pub fn new(
+        inner: impl Unborrow<Target = T>,
+        rx: impl Unborrow<Target = impl RxPin<T>>,
+        tx: impl Unborrow<Target = impl TxPin<T>>,
+        config: Config,
+        pclk_freq: u32,
+    ) -> Self {
+        unborrow!(inner, rx, tx);
+
+        // TODO: enable in RCC
+
+        // TODO: better calculation, including error checking and OVER8 if possible.
+        let div = (pclk_freq + (config.baudrate / 2)) / config.baudrate;
+
+        let r = inner.regs();
+
+        unsafe {
+            rx.set_as_af(rx.af_num());
+            tx.set_as_af(tx.af_num());
+
+            r.brr().write_value(regs::Brr(div));
+            r.cr1().write(|w| {
+                w.set_ue(true);
+                w.set_te(true);
+                w.set_re(true);
+                w.set_m(vals::M::M8);
+                w.set_pce(config.parity != Parity::ParityNone);
+                w.set_ps(match config.parity {
+                    Parity::ParityOdd => vals::Ps::ODD,
+                    Parity::ParityEven => vals::Ps::EVEN,
+                    _ => vals::Ps::EVEN,
+                });
+            });
+            r.cr2().write(|_w| {});
+            r.cr3().write(|_w| {});
+        }
+
+        Self {
+            inner,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d, T: Instance> embedded_hal::blocking::serial::Write<u8> for Uart<'d, T> {
+    type Error = Error;
+    fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+        unsafe {
+            let r = self.inner.regs();
+            for &b in buffer {
+                while !r.sr().read().txe() {}
+                r.dr().write_value(regs::Dr(b as u32))
+            }
+        }
+        Ok(())
+    }
+    fn bflush(&mut self) -> Result<(), Self::Error> {
+        unsafe {
+            let r = self.inner.regs();
+            while !r.sr().read().tc() {}
+        }
+        Ok(())
+    }
+}

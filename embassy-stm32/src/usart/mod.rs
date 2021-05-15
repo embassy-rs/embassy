@@ -1,58 +1,31 @@
 #![macro_use]
 
-use core::marker::PhantomData;
+#[cfg_attr(feature = "_usart_v1", path = "usart_v1.rs")]
+#[cfg_attr(feature = "_usart_v2", path = "usart_v2.rs")]
+mod usart;
 
-use embassy::util::Unborrow;
-use embassy_extras::unborrow;
+pub use usart::*;
 
-use crate::gpio::{NoPin, Pin};
-use crate::pac::usart::{regs, vals, Usart};
-use crate::peripherals;
+use crate::gpio::Pin;
+use crate::pac::usart::Usart;
 
+/// Serial error
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[non_exhaustive]
-pub struct Config {
-    pub baudrate: u32,
-    pub data_bits: u8,
-    pub stop_bits: u8,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            baudrate: 115200,
-            data_bits: 8,
-            stop_bits: 1,
-        }
-    }
-}
-
-pub struct Uart<'d, T: Instance> {
-    inner: T,
-    phantom: PhantomData<&'d mut T>,
-}
-
-impl<'d, T: Instance> Uart<'d, T> {
-    pub fn new(
-        inner: impl Unborrow<Target = T>,
-        rx: impl Unborrow<Target = impl RxPin<T>>,
-        tx: impl Unborrow<Target = impl TxPin<T>>,
-        cts: impl Unborrow<Target = impl CtsPin<T>>,
-        rts: impl Unborrow<Target = impl RtsPin<T>>,
-        config: Config,
-    ) -> Self {
-        unborrow!(inner, rx, tx, cts, rts);
-
-        Self {
-            inner,
-            phantom: PhantomData,
-        }
-    }
+pub enum Error {
+    /// Framing error
+    Framing,
+    /// Noise error
+    Noise,
+    /// RX buffer overrun
+    Overrun,
+    /// Parity check error
+    Parity,
 }
 
 pub(crate) mod sealed {
-    use crate::gpio::{OptionalPin, Pin};
-
     use super::*;
+
     pub trait Instance {
         fn regs(&self) -> Usart;
     }

@@ -7,6 +7,7 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
+use cortex_m::prelude::_embedded_hal_blocking_serial_Write;
 use embassy::executor::Executor;
 use embassy::time::Clock;
 use embassy::util::Forever;
@@ -22,9 +23,12 @@ async fn main_task() {
     let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let usart = Uart::new(p.USART3, p.PD9, p.PD8, NoPin, NoPin, config);
+    let mut usart = Uart::new(p.USART3, p.PD9, p.PD8, config, 16_000_000);
 
-    // TODO make it actually do something
+    loop {
+        info!("wrote");
+        usart.bwrite_all(b"Hello Embassy World!\r\n").unwrap();
+    }
 }
 
 struct ZeroClock;
