@@ -135,23 +135,28 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(u16, Hertz), Error> {
     }
 }
 
+#[non_exhaustive]
+pub struct Config {
+    /// AHB clock
+    pub hclk: Hertz,
+    /// SDMMC kernel clock
+    pub kernel_clk: Hertz,
+    /// The timeout to be set for data transfers, in card bus clock periods
+    pub data_transfer_timeout: u32,
+}
+
 /// Sdmmc device
 pub struct Sdmmc<'d, T: Instance, P: Pins<T>> {
     sdmmc: PhantomData<&'d mut T>,
     pins: P,
     irq: T::Interrupt,
-    /// SDMMC kernel clock
-    ker_ck: Hertz,
-    /// AHB clock
-    hclk: Hertz,
+    config: Config,
     /// Current clock to card
     clock: Hertz,
     /// Current signalling scheme to card
     signalling: Signalling,
     /// Card
     card: Option<Card>,
-    /// The timeout to be set for data transfers, in card bus clock periods
-    data_transfer_timeout: u32,
 }
 
 impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
@@ -163,15 +168,13 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
         _peripheral: impl Unborrow<Target = T> + 'd,
         pins: impl Unborrow<Target = P> + 'd,
         irq: impl Unborrow<Target = T::Interrupt>,
-        hclk: Hertz,
-        kernel_clk: Hertz,
-        data_transfer_timeout: u32,
+        config: Config,
     ) -> Self {
         unborrow!(irq, pins);
         pins.configure();
 
         let inner = T::inner();
-        let clock = inner.new_inner(kernel_clk);
+        let clock = inner.new_inner(config.kernel_clk);
 
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
@@ -181,12 +184,10 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
             sdmmc: PhantomData,
             pins,
             irq,
-            ker_ck: kernel_clk,
-            hclk,
+            config,
             clock,
             signalling: Default::default(),
             card: None,
-            data_transfer_timeout,
         }
     }
 
@@ -201,11 +202,11 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
                 P::BUSWIDTH,
                 &mut self.card,
                 &mut self.signalling,
-                self.hclk,
-                self.ker_ck,
+                self.config.hclk,
+                self.config.kernel_clk,
                 &mut self.clock,
                 T::state(),
-                self.data_transfer_timeout,
+                self.config.data_transfer_timeout,
             )
             .await
     }
@@ -228,7 +229,7 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
                 buf,
                 card_capacity,
                 state,
-                self.data_transfer_timeout,
+                self.config.data_transfer_timeout,
             )
             .await
     }
@@ -241,7 +242,13 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
         // NOTE(unsafe) DataBlock uses align 4
         let buf = unsafe { &*((&buffer.0) as *const [u8; 512] as *const [u32; 128]) };
         inner
-            .write_block(block_idx, buf, card, state, self.data_transfer_timeout)
+            .write_block(
+                block_idx,
+                buf,
+                card,
+                state,
+                self.config.data_transfer_timeout,
+            )
             .await
     }
 
@@ -1507,7 +1514,7 @@ mod sdmmc_rs {
                             buf,
                             card_capacity,
                             state,
-                            self.data_transfer_timeout,
+                            self.config.data_transfer_timeout,
                         )
                         .await?;
                     address += 1;
@@ -1533,7 +1540,7 @@ mod sdmmc_rs {
                     // NOTE(unsafe) DataBlock uses align 4
                     let buf = unsafe { &*(block as *const [u8; 512] as *const [u32; 128]) };
                     inner
-                        .write_block(address, buf, card, state, self.data_transfer_timeout)
+                        .write_block(address, buf, card, state, self.config.data_transfer_timeout)
                         .await?;
                     address += 1;
                 }
