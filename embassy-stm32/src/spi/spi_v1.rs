@@ -1,8 +1,6 @@
 #![macro_use]
 
-use crate::gpio::{AnyPin, Pin};
-use crate::pac::gpio::vals::{Afr, Moder};
-use crate::pac::gpio::Gpio;
+use crate::gpio::{sealed::Pin, AnyPin};
 use crate::pac::spi;
 use crate::spi::{ByteOrder, Config, Error, Instance, MisoPin, MosiPin, SckPin, WordSize};
 use crate::time::Hertz;
@@ -42,13 +40,12 @@ impl<'d, T: Instance> Spi<'d, T> {
     where
         F: Into<Hertz>,
     {
-        unborrow!(peri);
-        unborrow!(sck, mosi, miso);
+        unborrow!(peri, sck, mosi, miso);
 
         unsafe {
-            Self::configure_pin(sck.block(), sck.pin() as _, sck.af());
-            Self::configure_pin(mosi.block(), mosi.pin() as _, mosi.af());
-            Self::configure_pin(miso.block(), miso.pin() as _, miso.af());
+            sck.set_as_af(sck.af());
+            mosi.set_as_af(mosi.af());
+            miso.set_as_af(miso.af());
         }
 
         let sck = sck.degrade();
@@ -101,16 +98,6 @@ impl<'d, T: Instance> Spi<'d, T> {
         }
     }
 
-    unsafe fn configure_pin(block: Gpio, pin: usize, af_num: u8) {
-        let (afr, n_af) = if pin < 8 { (0, pin) } else { (1, pin - 8) };
-        block.moder().modify(|w| w.set_moder(pin, Moder::ALTERNATE));
-        block.afr(afr).modify(|w| w.set_afr(n_af, Afr(af_num)));
-    }
-
-    unsafe fn unconfigure_pin(block: Gpio, pin: usize) {
-        block.moder().modify(|w| w.set_moder(pin, Moder::ANALOG));
-    }
-
     fn compute_baud_rate(clocks: Hertz, freq: Hertz) -> u8 {
         match clocks.0 / freq.0 {
             0 => unreachable!(),
@@ -145,9 +132,9 @@ impl<'d, T: Instance> Spi<'d, T> {
 impl<'d, T: Instance> Drop for Spi<'d, T> {
     fn drop(&mut self) {
         unsafe {
-            Self::unconfigure_pin(self.sck.block(), self.sck.pin() as _);
-            Self::unconfigure_pin(self.mosi.block(), self.mosi.pin() as _);
-            Self::unconfigure_pin(self.miso.block(), self.miso.pin() as _);
+            self.sck.set_as_analog();
+            self.mosi.set_as_analog();
+            self.miso.set_as_analog();
         }
     }
 }

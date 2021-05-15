@@ -184,6 +184,25 @@ pub(crate) mod sealed {
                 self.block().bsrr().write(|w| w.set_br(n, true));
             }
         }
+
+        unsafe fn set_as_af(&self, af_num: u8) {
+            let pin = self._pin() as usize;
+            let block = self.block();
+            block
+                .moder()
+                .modify(|w| w.set_moder(pin, vals::Moder::ALTERNATE));
+            block
+                .afr(pin / 8)
+                .modify(|w| w.set_afr(pin % 8, vals::Afr(af_num)));
+        }
+
+        unsafe fn set_as_analog(&self) {
+            let pin = self._pin() as usize;
+            let block = self.block();
+            block
+                .moder()
+                .modify(|w| w.set_moder(pin, vals::Moder::ANALOG));
+        }
     }
 
     pub trait OptionalPin {}
