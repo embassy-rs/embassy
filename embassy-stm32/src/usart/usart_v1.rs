@@ -3,9 +3,9 @@ use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 
+use crate::dma::{transfer_m2p, Channel};
 use crate::gpio::{NoPin, Pin};
 use crate::pac::usart::{regs, vals, Usart};
-use crate::peripherals;
 
 use super::*;
 
@@ -101,6 +101,23 @@ impl<'d, T: Instance> Uart<'d, T> {
             inner,
             phantom: PhantomData,
         }
+    }
+
+    pub async fn write_dma(&mut self, ch: &mut impl Channel, buffer: &[u8]) -> Result<(), Error> {
+        let ch_func = 4; // USART3_TX
+        let r = self.inner.regs();
+
+        unsafe {
+            r.cr3().write(|w| {
+                w.set_dmat(true);
+            });
+
+            let dst = r.dr().ptr() as *mut u8;
+
+            transfer_m2p(ch, ch_func, buffer, dst).await;
+        }
+
+        Ok(())
     }
 
     pub fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {

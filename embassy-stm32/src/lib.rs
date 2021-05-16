@@ -63,6 +63,24 @@ pub fn init(_config: Config) -> Peripherals {
         interrupt::EXTI4::steal().enable();
         interrupt::EXTI9_5::steal().enable();
         interrupt::EXTI15_10::steal().enable();
+        interrupt::EXTI15_10::steal().enable();
+
+        interrupt::DMA1_Stream0::steal().enable();
+        interrupt::DMA1_Stream1::steal().enable();
+        interrupt::DMA1_Stream2::steal().enable();
+        interrupt::DMA1_Stream3::steal().enable();
+        interrupt::DMA1_Stream4::steal().enable();
+        interrupt::DMA1_Stream5::steal().enable();
+        interrupt::DMA1_Stream6::steal().enable();
+        interrupt::DMA1_Stream7::steal().enable();
+        interrupt::DMA2_Stream0::steal().enable();
+        interrupt::DMA2_Stream1::steal().enable();
+        interrupt::DMA2_Stream2::steal().enable();
+        interrupt::DMA2_Stream3::steal().enable();
+        interrupt::DMA2_Stream4::steal().enable();
+        interrupt::DMA2_Stream5::steal().enable();
+        interrupt::DMA2_Stream6::steal().enable();
+        interrupt::DMA2_Stream7::steal().enable();
     }
 
     p
