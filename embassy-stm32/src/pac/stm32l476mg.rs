@@ -243,7 +243,7 @@ pub mod interrupt {
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     #[allow(non_camel_case_types)]
-    enum InterruptEnum {
+    pub enum InterruptEnum {
         ADC1_2 = 18,
         ADC3 = 47,
         CAN1_RX0 = 20,

@@ -1,5 +1,4 @@
 use core::future::Future;
-use core::pin::Pin;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
