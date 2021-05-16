@@ -1,8 +1,11 @@
+#![macro_use]
+
 use embassy::interrupt::Interrupt;
+use embassy::util::Unborrow;
 
-use crate::{interrupt, pac, peripherals};
+use crate::pac;
 
-mod sealed {
+pub(crate) mod sealed {
     use super::*;
 
     pub trait Instance {
@@ -11,33 +14,25 @@ mod sealed {
     pub trait ExtendedInstance {}
 }
 
-pub trait Instance: sealed::Instance + 'static {
+pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 pub trait ExtendedInstance: Instance + sealed::ExtendedInstance {}
 
-macro_rules! impl_instance {
-    ($type:ident, $irq:ident) => {
-        impl sealed::Instance for peripherals::$type {
+macro_rules! impl_timer {
+    ($type:ident, $pac_type:ident, $irq:ident) => {
+        impl crate::timer::sealed::Instance for peripherals::$type {
             fn regs(&self) -> &pac::timer0::RegisterBlock {
-                unsafe { &*(pac::$type::ptr() as *const pac::timer0::RegisterBlock) }
+                unsafe { &*(pac::$pac_type::ptr() as *const pac::timer0::RegisterBlock) }
             }
         }
-        impl Instance for peripherals::$type {
-            type Interrupt = interrupt::$irq;
+        impl crate::timer::Instance for peripherals::$type {
+            type Interrupt = crate::interrupt::$irq;
         }
     };
-    ($type:ident, $irq:ident, extended) => {
-        impl_instance!($type, $irq);
-        impl sealed::ExtendedInstance for peripherals::$type {}
-        impl ExtendedInstance for peripherals::$type {}
+    ($type:ident, $pac_type:ident, $irq:ident, extended) => {
+        impl_timer!($type, $pac_type, $irq);
+        impl crate::timer::sealed::ExtendedInstance for peripherals::$type {}
+        impl crate::timer::ExtendedInstance for peripherals::$type {}
     };
 }
-
-impl_instance!(TIMER0, TIMER0);
-impl_instance!(TIMER1, TIMER1);
-impl_instance!(TIMER2, TIMER2);
-#[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-impl_instance!(TIMER3, TIMER3, extended);
-#[cfg(any(feature = "52832", feature = "52833", feature = "52840"))]
-impl_instance!(TIMER4, TIMER4, extended);

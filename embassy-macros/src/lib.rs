@@ -3,9 +3,13 @@
 extern crate proc_macro;
 
 use darling::FromMeta;
-use proc_macro::{Span, TokenStream};
+use proc_macro::TokenStream;
+use proc_macro2::Span;
 use quote::{format_ident, quote};
+use std::iter;
 use syn::spanned::Spanned;
+use syn::{parse, Type, Visibility};
+use syn::{ItemFn, ReturnType};
 
 mod path;
 
@@ -58,10 +62,9 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
         fail = true;
     }
     if pool_size < 1 {
-        Span::call_site()
-            .error("pool_size must be 1 or greater")
-            .emit();
-        fail = true
+        return parse::Error::new(Span::call_site(), "pool_size must be 1 or greater")
+            .to_compile_error()
+            .into();
     }
 
     let mut arg_names: syn::punctuated::Punctuated<syn::Ident, syn::Token![,]> =
@@ -120,6 +123,66 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
     result.into()
 }
 
+#[proc_macro_attribute]
+pub fn interrupt(args: TokenStream, input: TokenStream) -> TokenStream {
+    let mut f: ItemFn = syn::parse(input).expect("`#[interrupt]` must be applied to a function");
+
+    if !args.is_empty() {
+        return parse::Error::new(Span::call_site(), "This attribute accepts no arguments")
+            .to_compile_error()
+            .into();
+    }
+
+    let fspan = f.span();
+    let ident = f.sig.ident.clone();
+    let ident_s = ident.to_string();
+
+    // XXX should we blacklist other attributes?
+
+    let valid_signature = f.sig.constness.is_none()
+        && f.vis == Visibility::Inherited
+        && f.sig.abi.is_none()
+        && f.sig.inputs.is_empty()
+        && f.sig.generics.params.is_empty()
+        && f.sig.generics.where_clause.is_none()
+        && f.sig.variadic.is_none()
+        && match f.sig.output {
+            ReturnType::Default => true,
+            ReturnType::Type(_, ref ty) => match **ty {
+                Type::Tuple(ref tuple) => tuple.elems.is_empty(),
+                Type::Never(..) => true,
+                _ => false,
+            },
+        };
+
+    if !valid_signature {
+        return parse::Error::new(
+            fspan,
+            "`#[interrupt]` handlers must have signature `[unsafe] fn() [-> !]`",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    f.block.stmts = iter::once(
+        syn::parse2(quote! {{
+            // Check that this interrupt actually exists
+            let __irq_exists_check: interrupt::#ident;
+        }})
+        .unwrap(),
+    )
+    .chain(f.block.stmts)
+    .collect();
+
+    quote!(
+        #[doc(hidden)]
+        #[export_name = #ident_s]
+        #[allow(non_snake_case)]
+        #f
+    )
+    .into()
+}
+
 #[proc_macro]
 pub fn interrupt_declare(item: TokenStream) -> TokenStream {
     let name = syn::parse_macro_input!(item as syn::Ident);
@@ -130,7 +193,7 @@ pub fn interrupt_declare(item: TokenStream) -> TokenStream {
     let result = quote! {
         #[allow(non_camel_case_types)]
         pub struct #name_interrupt(());
-        unsafe impl Interrupt for #name_interrupt {
+        unsafe impl ::embassy::interrupt::Interrupt for #name_interrupt {
             type Priority = crate::interrupt::Priority;
             fn number(&self) -> u16 {
                 use cortex_m::interrupt::InterruptNumber;
@@ -204,10 +267,6 @@ pub fn interrupt_take(item: TokenStream) -> TokenStream {
 #[path = "chip/nrf.rs"]
 mod chip;
 
-#[cfg(feature = "stm32")]
-#[path = "chip/stm32.rs"]
-mod chip;
-
 #[cfg(feature = "rp")]
 #[path = "chip/rp.rs"]
 mod chip;
@@ -221,7 +280,7 @@ struct MainArgs {
     config: Option<syn::LitStr>,
 }
 
-#[cfg(any(feature = "nrf", feature = "stm32", feature = "rp"))]
+#[cfg(any(feature = "nrf", feature = "rp"))]
 #[proc_macro_attribute]
 pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let macro_args = syn::parse_macro_input!(args as syn::AttributeArgs);
@@ -256,12 +315,12 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
 
     let args = task_fn.sig.inputs.clone();
 
-    if args.len() != 1 {
+    if args.len() != 2 {
         task_fn
             .sig
             .span()
             .unwrap()
-            .error("main function must have one argument")
+            .error("main function must have 2 arguments")
             .emit();
         fail = true;
     }
@@ -305,7 +364,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
             #chip_setup
 
             executor.run(|spawner| {
-                spawner.spawn(__embassy_main(spawner)).unwrap();
+                spawner.spawn(__embassy_main(spawner, p)).unwrap();
             })
 
         }

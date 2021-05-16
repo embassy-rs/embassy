@@ -19,19 +19,14 @@ use embedded_hal::digital::v2::*;
 use example_common::*;
 
 #[embassy::main]
-async fn main(spawner: Spawner) {
+async fn main(spawner: Spawner, p: Peripherals) {
     info!("running!");
 
-    let p = unsafe { Peripherals::steal() };
-
-    let config = spim::Config {
-        frequency: spim::Frequency::M16,
-        mode: spim::MODE_0,
-        orc: 0x00,
-    };
+    let mut config = spim::Config::default();
+    config.frequency = spim::Frequency::M16;
 
     let irq = interrupt::take!(SPIM3);
-    let mut spim = spim::Spim::new(p.SPIM3, irq, p.P0_29, p.P0_28, p.P0_30, config);
+    let mut spim = spim::Spim::new(p.SPI3, irq, p.P0_29, p.P0_28, p.P0_30, config);
 
     let mut ncs = Output::new(p.P0_31, Level::High, OutputDrive::Standard);
 

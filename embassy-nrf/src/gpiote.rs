@@ -2,7 +2,7 @@ use core::convert::Infallible;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::task::{Context, Poll};
-use embassy::interrupt::InterruptExt;
+use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::traits::gpio::{WaitForAnyEdge, WaitForHigh, WaitForLow};
 use embassy::util::AtomicWaker;
 use embassy_extras::impl_unborrow;
@@ -17,9 +17,9 @@ use crate::{interrupt, peripherals};
 
 pub const CHANNEL_COUNT: usize = 8;
 
-#[cfg(any(feature = "52833", feature = "52840"))]
+#[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
 pub const PIN_COUNT: usize = 48;
-#[cfg(not(any(feature = "52833", feature = "52840")))]
+#[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
 pub const PIN_COUNT: usize = 32;
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
@@ -40,18 +40,10 @@ pub enum OutputChannelPolarity {
     Toggle,
 }
 
-/// Token indicating GPIOTE has been correctly initialized.
-///
-/// This is not an owned singleton, it is Copy. Drivers that make use of GPIOTE require it.
-#[derive(Clone, Copy)]
-pub struct Initialized {
-    _private: (),
-}
-
-pub fn initialize(_gpiote: peripherals::GPIOTE, irq: interrupt::GPIOTE) -> Initialized {
-    #[cfg(any(feature = "52833", feature = "52840"))]
+pub(crate) fn init() {
+    #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
     let ports = unsafe { &[&*pac::P0::ptr(), &*pac::P1::ptr()] };
-    #[cfg(not(any(feature = "52833", feature = "52840")))]
+    #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
     let ports = unsafe { &[&*pac::P0::ptr()] };
 
     for &p in ports {
@@ -62,17 +54,18 @@ pub fn initialize(_gpiote: peripherals::GPIOTE, irq: interrupt::GPIOTE) -> Initi
     }
 
     // Enable interrupts
-    let g = unsafe { &*pac::GPIOTE::ptr() };
-    g.events_port.write(|w| w);
-    g.intenset.write(|w| w.port().set());
-    irq.set_handler(on_irq);
+
+    let irq = unsafe { interrupt::GPIOTE::steal() };
     irq.unpend();
     irq.enable();
 
-    Initialized { _private: () }
+    let g = unsafe { &*pac::GPIOTE::ptr() };
+    g.events_port.write(|w| w);
+    g.intenset.write(|w| w.port().set());
 }
 
-unsafe fn on_irq(_ctx: *mut ()) {
+#[interrupt]
+unsafe fn GPIOTE() {
     let g = &*pac::GPIOTE::ptr();
 
     for i in 0..CHANNEL_COUNT {
@@ -85,9 +78,9 @@ unsafe fn on_irq(_ctx: *mut ()) {
     if g.events_port.read().bits() != 0 {
         g.events_port.write(|w| w);
 
-        #[cfg(any(feature = "52833", feature = "52840"))]
+        #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
         let ports = &[&*pac::P0::ptr(), &*pac::P1::ptr()];
-        #[cfg(not(any(feature = "52833", feature = "52840")))]
+        #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
         let ports = &[&*pac::P0::ptr()];
 
         for (port, &p) in ports.iter().enumerate() {
@@ -133,12 +126,7 @@ impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
 }
 
 impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
-    pub fn new(
-        _init: Initialized,
-        ch: C,
-        pin: Input<'d, T>,
-        polarity: InputChannelPolarity,
-    ) -> Self {
+    pub fn new(ch: C, pin: Input<'d, T>, polarity: InputChannelPolarity) -> Self {
         let g = unsafe { &*pac::GPIOTE::ptr() };
         let num = ch.number();
 
@@ -149,7 +137,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
                 InputChannelPolarity::None => w.mode().event().polarity().none(),
                 InputChannelPolarity::Toggle => w.mode().event().polarity().toggle(),
             };
-            #[cfg(any(feature = "52833", feature = "52840"))]
+            #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
             w.port().bit(match pin.pin.port() {
                 Port::Port0 => false,
                 Port::Port1 => true,
@@ -217,12 +205,7 @@ impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
 }
 
 impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
-    pub fn new(
-        _init: Initialized,
-        ch: C,
-        pin: Output<'d, T>,
-        polarity: OutputChannelPolarity,
-    ) -> Self {
+    pub fn new(ch: C, pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
         let g = unsafe { &*pac::GPIOTE::ptr() };
         let num = ch.number();
 
@@ -237,7 +220,7 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
                 OutputChannelPolarity::Clear => w.polarity().hi_to_lo(),
                 OutputChannelPolarity::Toggle => w.polarity().toggle(),
             };
-            #[cfg(any(feature = "52833", feature = "52840"))]
+            #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
             w.port().bit(match pin.pin.port() {
                 Port::Port0 => false,
                 Port::Port1 => true,
@@ -297,7 +280,7 @@ pub struct PortInput<'d, T: GpioPin> {
 impl<'d, T: GpioPin> Unpin for PortInput<'d, T> {}
 
 impl<'d, T: GpioPin> PortInput<'d, T> {
-    pub fn new(_init: Initialized, pin: Input<'d, T>) -> Self {
+    pub fn new(pin: Input<'d, T>) -> Self {
         Self { pin }
     }
 }

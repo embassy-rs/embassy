@@ -1,3 +1,5 @@
+#![macro_use]
+
 use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
@@ -18,7 +20,7 @@ pub enum Port {
     Port0,
 
     /// Port 1, only available on some nRF52 MCUs.
-    #[cfg(any(feature = "52833", feature = "52840"))]
+    #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
     Port1,
 }
 
@@ -281,12 +283,12 @@ pub(crate) mod sealed {
 
         #[inline]
         fn _pin(&self) -> u8 {
-            #[cfg(any(feature = "52833", feature = "52840"))]
+            #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
             {
                 self.pin_port() % 32
             }
 
-            #[cfg(not(any(feature = "52833", feature = "52840")))]
+            #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
             {
                 self.pin_port()
             }
@@ -297,7 +299,7 @@ pub(crate) mod sealed {
             unsafe {
                 match self.pin_port() / 32 {
                     0 => &*pac::P0::ptr(),
-                    #[cfg(any(feature = "52833", feature = "52840"))]
+                    #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
                     1 => &*pac::P1::ptr(),
                     _ => unreachable_unchecked(),
                 }
@@ -329,7 +331,7 @@ pub(crate) mod sealed {
     pub trait OptionalPin {}
 }
 
-pub trait Pin: sealed::Pin + Sized {
+pub trait Pin: Unborrow<Target = Self> + sealed::Pin + Sized {
     /// Number of the pin within the port (0..31)
     #[inline]
     fn pin(&self) -> u8 {
@@ -341,7 +343,7 @@ pub trait Pin: sealed::Pin + Sized {
     fn port(&self) -> Port {
         match self.pin_port() / 32 {
             0 => Port::Port0,
-            #[cfg(any(feature = "52833", feature = "52840"))]
+            #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
             1 => Port::Port1,
             _ => unsafe { unreachable_unchecked() },
         }
@@ -433,7 +435,7 @@ fn init_output<T: Pin>(pin: &T, drive: OutputDrive) {
 
 // ====================
 
-pub trait OptionalPin: sealed::OptionalPin + Sized {
+pub trait OptionalPin: Unborrow<Target = Self> + sealed::OptionalPin + Sized {
     type Pin: Pin;
     fn pin(&self) -> Option<&Self::Pin>;
     fn pin_mut(&mut self) -> Option<&mut Self::Pin>;
@@ -488,66 +490,12 @@ impl OptionalPin for NoPin {
 
 macro_rules! impl_pin {
     ($type:ident, $port_num:expr, $pin_num:expr) => {
-        impl Pin for peripherals::$type {}
-        impl sealed::Pin for peripherals::$type {
+        impl crate::gpio::Pin for peripherals::$type {}
+        impl crate::gpio::sealed::Pin for peripherals::$type {
             #[inline]
             fn pin_port(&self) -> u8 {
                 $port_num * 32 + $pin_num
             }
         }
     };
-}
-
-impl_pin!(P0_00, 0, 0);
-impl_pin!(P0_01, 0, 1);
-impl_pin!(P0_02, 0, 2);
-impl_pin!(P0_03, 0, 3);
-impl_pin!(P0_04, 0, 4);
-impl_pin!(P0_05, 0, 5);
-impl_pin!(P0_06, 0, 6);
-impl_pin!(P0_07, 0, 7);
-impl_pin!(P0_08, 0, 8);
-impl_pin!(P0_09, 0, 9);
-impl_pin!(P0_10, 0, 10);
-impl_pin!(P0_11, 0, 11);
-impl_pin!(P0_12, 0, 12);
-impl_pin!(P0_13, 0, 13);
-impl_pin!(P0_14, 0, 14);
-impl_pin!(P0_15, 0, 15);
-impl_pin!(P0_16, 0, 16);
-impl_pin!(P0_17, 0, 17);
-impl_pin!(P0_18, 0, 18);
-impl_pin!(P0_19, 0, 19);
-impl_pin!(P0_20, 0, 20);
-impl_pin!(P0_21, 0, 21);
-impl_pin!(P0_22, 0, 22);
-impl_pin!(P0_23, 0, 23);
-impl_pin!(P0_24, 0, 24);
-impl_pin!(P0_25, 0, 25);
-impl_pin!(P0_26, 0, 26);
-impl_pin!(P0_27, 0, 27);
-impl_pin!(P0_28, 0, 28);
-impl_pin!(P0_29, 0, 29);
-impl_pin!(P0_30, 0, 30);
-impl_pin!(P0_31, 0, 31);
-
-#[cfg(any(feature = "52833", feature = "52840"))]
-mod _p1 {
-    use super::*;
-    impl_pin!(P1_00, 1, 0);
-    impl_pin!(P1_01, 1, 1);
-    impl_pin!(P1_02, 1, 2);
-    impl_pin!(P1_03, 1, 3);
-    impl_pin!(P1_04, 1, 4);
-    impl_pin!(P1_05, 1, 5);
-    impl_pin!(P1_06, 1, 6);
-    impl_pin!(P1_07, 1, 7);
-    impl_pin!(P1_08, 1, 8);
-    impl_pin!(P1_09, 1, 9);
-    impl_pin!(P1_10, 1, 10);
-    impl_pin!(P1_11, 1, 11);
-    impl_pin!(P1_12, 1, 12);
-    impl_pin!(P1_13, 1, 13);
-    impl_pin!(P1_14, 1, 14);
-    impl_pin!(P1_15, 1, 15);
 }

@@ -17,9 +17,7 @@ use example_common::*;
 use futures::pin_mut;
 
 #[embassy::main]
-async fn main(spawner: Spawner) {
-    let p = Peripherals::take().unwrap();
-
+async fn main(spawner: Spawner, p: Peripherals) {
     let mut config = uarte::Config::default();
     config.parity = uarte::Parity::EXCLUDED;
     config.baudrate = uarte::Baudrate::BAUD115200;

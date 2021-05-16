@@ -12,36 +12,29 @@ use example_common::*;
 use defmt::panic;
 use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Input, Pull};
-use embassy_nrf::gpiote::{self, InputChannel, InputChannelPolarity};
+use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
 use embassy_nrf::{interrupt, Peripherals};
 
 #[embassy::main]
-async fn main(spawner: Spawner) {
-    let p = Peripherals::take().unwrap();
-    let g = gpiote::initialize(p.GPIOTE, interrupt::take!(GPIOTE));
-
+async fn main(spawner: Spawner, p: Peripherals) {
     info!("Starting!");
 
     let ch1 = InputChannel::new(
-        g,
         p.GPIOTE_CH0,
         Input::new(p.P0_11, Pull::Up),
         InputChannelPolarity::HiToLo,
     );
     let ch2 = InputChannel::new(
-        g,
         p.GPIOTE_CH1,
         Input::new(p.P0_12, Pull::Up),
         InputChannelPolarity::LoToHi,
     );
     let ch3 = InputChannel::new(
-        g,
         p.GPIOTE_CH2,
         Input::new(p.P0_24, Pull::Up),
         InputChannelPolarity::Toggle,
     );
     let ch4 = InputChannel::new(
-        g,
         p.GPIOTE_CH3,
         Input::new(p.P0_25, Pull::Up),
         InputChannelPolarity::Toggle,

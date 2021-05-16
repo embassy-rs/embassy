@@ -7,6 +7,7 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
+use embassy_nrf::Peripherals;
 use example_common::*;
 
 use defmt::panic;
@@ -30,7 +31,7 @@ async fn run2() {
 }
 
 #[embassy::main]
-async fn main(spawner: Spawner) {
+async fn main(spawner: Spawner, p: Peripherals) {
     unwrap!(spawner.spawn(run1()));
     unwrap!(spawner.spawn(run2()));
 }

@@ -126,9 +126,8 @@ static EXECUTOR_LOW: Forever<Executor> = Forever::new();
 fn main() -> ! {
     info!("Hello World!");
 
-    let p = unwrap!(embassy_nrf::Peripherals::take());
+    let p = embassy_nrf::init(Default::default());
 
-    unsafe { embassy_nrf::system::configure(Default::default()) };
     let rtc = RTC.put(rtc::RTC::new(p.RTC1, interrupt::take!(RTC1)));
     rtc.start();
     unsafe { embassy::time::set_clock(rtc) };

@@ -1,3 +1,5 @@
+#![macro_use]
+
 use core::future::Future;
 use core::marker::PhantomData;
 use core::task::Poll;
@@ -361,7 +363,7 @@ impl<'d, T: Instance> Flash for Qspi<'d, T> {
     }
 }
 
-mod sealed {
+pub(crate) mod sealed {
     use super::*;
 
     pub struct State {
@@ -381,25 +383,23 @@ mod sealed {
     }
 }
 
-pub trait Instance: sealed::Instance + 'static {
+pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 
-macro_rules! impl_instance {
-    ($type:ident, $irq:ident) => {
-        impl sealed::Instance for peripherals::$type {
+macro_rules! impl_qspi {
+    ($type:ident, $pac_type:ident, $irq:ident) => {
+        impl crate::qspi::sealed::Instance for peripherals::$type {
             fn regs() -> &'static pac::qspi::RegisterBlock {
-                unsafe { &*pac::$type::ptr() }
+                unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static sealed::State {
-                static STATE: sealed::State = sealed::State::new();
+            fn state() -> &'static crate::qspi::sealed::State {
+                static STATE: crate::qspi::sealed::State = crate::qspi::sealed::State::new();
                 &STATE
             }
         }
-        impl Instance for peripherals::$type {
-            type Interrupt = interrupt::$irq;
+        impl crate::qspi::Instance for peripherals::$type {
+            type Interrupt = crate::interrupt::$irq;
         }
     };
 }
-
-impl_instance!(QSPI, QSPI);

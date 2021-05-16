@@ -23,9 +23,7 @@ const PAGE_SIZE: usize = 4096;
 struct AlignedBuf([u8; 4096]);
 
 #[embassy::main]
-async fn main(spawner: Spawner) {
-    let p = Peripherals::take().unwrap();
-
+async fn main(spawner: Spawner, p: Peripherals) {
     let csn = p.P0_17;
     let sck = p.P0_19;
     let io0 = p.P0_20;

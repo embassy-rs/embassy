@@ -30,40 +30,31 @@ jobs:
             target: thumbv7em-none-eabi
           - package: embassy-nrf
             target: thumbv7em-none-eabi
-            features: 52810
+            features: nrf52805
           - package: embassy-nrf
             target: thumbv7em-none-eabi
-            features: 52832
+            features: nrf52810
           - package: embassy-nrf
             target: thumbv7em-none-eabi
-            features: 52833
+            features: nrf52811
           - package: embassy-nrf
             target: thumbv7em-none-eabi
-            features: 52840
+            features: nrf52820
           - package: embassy-nrf
             target: thumbv7em-none-eabi
-            features: 52840,log
+            features: nrf52832
           - package: embassy-nrf
             target: thumbv7em-none-eabi
-            features: 52840,defmt
-          - package: embassy-stm32-examples
+            features: nrf52833
+          - package: embassy-nrf
             target: thumbv7em-none-eabi
-            features: stm32f405
-          - package: embassy-stm32
+            features: nrf52840
+          - package: embassy-nrf
             target: thumbv7em-none-eabi
-            features: stm32f405
-          - package: embassy-stm32
+            features: nrf52840,log
+          - package: embassy-nrf
             target: thumbv7em-none-eabi
-            features: stm32f446
-          - package: embassy-stm32
-            target: thumbv7em-none-eabi
-            features: stm32f405,defmt
-          - package: embassy-stm32
-            target: thumbv6m-none-eabi
-            features: stm32l0x2
-          - package: embassy-stm32
-            target: thumbv6m-none-eabi
-            features: stm32l0x2,defmt
+            features: nrf52840,defmt
           - package: embassy-rp-examples
             target: thumbv6m-none-eabi
 
