@@ -211,6 +211,7 @@ impl_gpio_pin!(PK12, 10, 12, EXTI12);
 impl_gpio_pin!(PK13, 10, 13, EXTI13);
 impl_gpio_pin!(PK14, 10, 14, EXTI14);
 impl_gpio_pin!(PK15, 10, 15, EXTI15);
+pub const RCC: rcc::Rcc = rcc::Rcc(0x58024400 as _);
 pub const RNG: rng::Rng = rng::Rng(0x48021800 as _);
 impl_rng!(RNG, RNG);
 pub const SDMMC1: sdmmc::Sdmmc = sdmmc::Sdmmc(0x52007000 as _);
@@ -296,6 +297,7 @@ impl_spi_pin!(SPI5, MisoPin, PJ11, 5);
 impl_spi_pin!(SPI5, SckPin, PK0, 5);
 pub const SPI6: spi::Spi = spi::Spi(0x58001400 as _);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x58000400 as _);
+<<<<<<< HEAD
 pub use super::regs::dma_v2 as dma;
 pub use super::regs::exti_v1 as exti;
 pub use super::regs::gpio_v2 as gpio;
@@ -304,6 +306,19 @@ pub use super::regs::sdmmc_v2 as sdmmc;
 pub use super::regs::spi_v3 as spi;
 pub use super::regs::syscfg_h7 as syscfg;
 embassy_extras::peripherals!(
+=======
+pub use regs::dma_v2 as dma;
+pub use regs::exti_v1 as exti;
+pub use regs::gpio_v2 as gpio;
+pub use regs::rcc_h7 as rcc;
+pub use regs::rng_v1 as rng;
+pub use regs::sdmmc_v2 as sdmmc;
+pub use regs::syscfg_h7 as syscfg;
+mod regs;
+use embassy_extras::peripherals;
+pub use regs::generic;
+peripherals!(
+>>>>>>> 3baa749 (Add pac RCC for H7 (generated))
     EXTI0, EXTI1, EXTI2, EXTI3, EXTI4, EXTI5, EXTI6, EXTI7, EXTI8, EXTI9, EXTI10, EXTI11, EXTI12,
     EXTI13, EXTI14, EXTI15, DMA1_CH0, DMA1_CH1, DMA1_CH2, DMA1_CH3, DMA1_CH4, DMA1_CH5, DMA1_CH6,
     DMA1_CH7, DMA2_CH0, DMA2_CH1, DMA2_CH2, DMA2_CH3, DMA2_CH4, DMA2_CH5, DMA2_CH6, DMA2_CH7, EXTI,
@@ -317,7 +332,11 @@ embassy_extras::peripherals!(
     PH12, PH13, PH14, PH15, PI0, PI1, PI2, PI3, PI4, PI5, PI6, PI7, PI8, PI9, PI10, PI11, PI12,
     PI13, PI14, PI15, PJ0, PJ1, PJ2, PJ3, PJ4, PJ5, PJ6, PJ7, PJ8, PJ9, PJ10, PJ11, PJ12, PJ13,
     PJ14, PJ15, PK0, PK1, PK2, PK3, PK4, PK5, PK6, PK7, PK8, PK9, PK10, PK11, PK12, PK13, PK14,
+<<<<<<< HEAD
     PK15, RNG, SDMMC1, SDMMC2, SPI1, SPI2, SPI3, SPI4, SPI5, SPI6, SYSCFG
+=======
+    PK15, RCC, RNG, SDMMC1, SDMMC2, SYSCFG
+>>>>>>> 3baa749 (Add pac RCC for H7 (generated))
 );
 pub fn DMA(n: u8) -> dma::Dma {
     match n {
