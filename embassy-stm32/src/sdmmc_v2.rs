@@ -1,3 +1,4 @@
+use core::default::Default;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::task::Poll;
@@ -135,6 +136,14 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(u16, Hertz), Error> {
     }
 }
 
+/// SDMMC configuration
+///
+/// You should probably change the default clock values to match your configuration
+///
+/// Default values:
+/// hclk = 400_000_000 Hz
+/// kernel_clk: 100_000_000 Hz
+/// data_transfer_timeout: 5_000_000
 #[non_exhaustive]
 pub struct Config {
     /// AHB clock
@@ -143,6 +152,16 @@ pub struct Config {
     pub kernel_clk: Hertz,
     /// The timeout to be set for data transfers, in card bus clock periods
     pub data_transfer_timeout: u32,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            hclk: Hertz(400_000_000),
+            kernel_clk: Hertz(100_000_000),
+            data_transfer_timeout: 5_000_000,
+        }
+    }
 }
 
 /// Sdmmc device
