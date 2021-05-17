@@ -1,7 +1,6 @@
 {
   "rust-analyzer.assist.importMergeBehavior": "last",
   "editor.formatOnSave": true,
-  "rust-analyzer.cargo.allFeatures": false,
   "rust-analyzer.checkOnSave.allFeatures": false,
   "rust-analyzer.checkOnSave.allTargets": false,
   "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
