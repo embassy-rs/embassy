@@ -1,5 +1,4 @@
 use core::future::Future;
-use core::pin::Pin;
 
 /// Wait for a pin to become high.
 pub trait WaitForHigh {

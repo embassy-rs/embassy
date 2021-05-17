@@ -1,0 +1,34 @@
+[package]
+authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
+edition = "2018"
+name = "embassy-stm32f4-examples"
+version = "0.1.0"
+
+[features]
+default = [
+    "defmt-default",
+]
+defmt-default = []
+defmt-trace = []
+defmt-debug = []
+defmt-info = []
+defmt-warn = []
+defmt-error = []
+
+[dependencies]
+embassy = { version = "0.1.0", path = "../embassy", features = ["defmt", "defmt-trace"] }
+embassy-traits = { version = "0.1.0", path = "../embassy-traits", features = ["defmt"] }
+embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32", features = ["defmt", "defmt-trace", "stm32f429zi"]  }
+embassy-extras = {version = "0.1.0", path = "../embassy-extras" }
+stm32f4 = { version = "0.13", features = ["stm32f429"] }
+
+defmt = "0.2.0"
+defmt-rtt = "0.2.0"
+
+cortex-m = "0.7.1"
+cortex-m-rt = "0.6.13"
+embedded-hal    = { version = "0.2.4" }
+panic-probe = { version = "0.2.0", features= ["print-defmt"] }
+futures = { version = "0.3.8", default-features = false, features = ["async-await"] }
+rtt-target = { version = "0.3", features = ["cortex-m"] }
+heapless = "0.7"

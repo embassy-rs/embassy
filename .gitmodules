@@ -1,0 +1,3 @@
+[submodule "embassy-stm32/stm32-data"]
+	path = embassy-stm32/stm32-data
+	url = https://github.com/Dirbaio/stm32-data.git
