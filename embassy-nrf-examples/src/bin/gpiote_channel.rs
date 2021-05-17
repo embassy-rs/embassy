@@ -16,7 +16,7 @@ use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
 use embassy_nrf::{interrupt, Peripherals};
 
 #[embassy::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Starting!");
 
     let ch1 = InputChannel::new(

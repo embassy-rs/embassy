@@ -10,7 +10,6 @@ mod example_common;
 
 use defmt::panic;
 use embassy::executor::Spawner;
-use embassy::util::Steal;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::Peripherals;
 use embassy_nrf::{interrupt, spim};
@@ -19,7 +18,7 @@ use embedded_hal::digital::v2::*;
 use example_common::*;
 
 #[embassy::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner, p: Peripherals) {
     info!("running!");
 
     let mut config = spim::Config::default();

@@ -7,7 +7,6 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use example_common::*;
 
 use defmt::panic;
 use embassy::executor::Spawner;
@@ -17,7 +16,7 @@ use embassy_nrf::Peripherals;
 use embedded_hal::digital::v2::OutputPin;
 
 #[embassy::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner, p: Peripherals) {
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
 
     loop {

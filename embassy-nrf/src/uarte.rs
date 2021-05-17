@@ -16,10 +16,8 @@ use crate::chip::EASY_DMA_SIZE;
 use crate::fmt::{assert, panic, *};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
-use crate::interrupt;
 use crate::interrupt::Interrupt;
 use crate::pac;
-use crate::peripherals;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::Instance as TimerInstance;
 
@@ -43,7 +41,6 @@ impl Default for Config {
 
 /// Interface to the UARTE peripheral
 pub struct Uarte<'d, T: Instance> {
-    peri: T,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -58,7 +55,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
     /// or [`receive`](Uarte::receive).
     #[allow(unused_unsafe)]
     pub unsafe fn new(
-        uarte: impl Unborrow<Target = T> + 'd,
+        _uarte: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
         rxd: impl Unborrow<Target = impl GpioPin> + 'd,
         txd: impl Unborrow<Target = impl GpioPin> + 'd,
@@ -66,7 +63,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
         rts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(uarte, irq, rxd, txd, cts, rts);
+        unborrow!(irq, rxd, txd, cts, rts);
 
         let r = T::regs();
 
@@ -119,7 +116,6 @@ impl<'d, T: Instance> Uarte<'d, T> {
         r.enable.write(|w| w.enable().enabled());
 
         Self {
-            peri: uarte,
             phantom: PhantomData,
         }
     }

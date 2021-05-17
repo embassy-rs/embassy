@@ -11,8 +11,7 @@ use futures::future::poll_fn;
 
 use crate::fmt::{assert, assert_eq, *};
 use crate::gpio::Pin as GpioPin;
-use crate::interrupt::{self};
-use crate::{pac, peripherals};
+use crate::pac;
 
 pub use crate::pac::qspi::ifconfig0::ADDRMODE_A as AddressMode;
 pub use crate::pac::qspi::ifconfig0::PPSIZE_A as WritePageSize;

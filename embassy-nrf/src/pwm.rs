@@ -6,7 +6,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 
-use crate::fmt::{assert, panic, unreachable, *};
+use crate::fmt::{unreachable, *};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::OptionalPin as GpioOptionalPin;
 use crate::interrupt::Interrupt;
