@@ -4,7 +4,7 @@ use crate::gpio::{AnyPin, Pin};
 use crate::pac::gpio::vals::{Afr, Moder};
 use crate::pac::gpio::Gpio;
 use crate::pac::spi;
-use crate::spi::{ByteOrder, Config, Instance, MisoPin, MosiPin, SckPin, WordSize, Error};
+use crate::spi::{ByteOrder, Config, Error, Instance, MisoPin, MosiPin, SckPin, WordSize};
 use crate::time::Hertz;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
@@ -38,15 +38,15 @@ pub struct Spi<'d, T: Instance> {
 impl<'d, T: Instance> Spi<'d, T> {
     pub fn new<F>(
         pclk: Hertz,
-        peri: impl Unborrow<Target=T> + 'd,
-        sck: impl Unborrow<Target=impl SckPin<T>>,
-        mosi: impl Unborrow<Target=impl MosiPin<T>>,
-        miso: impl Unborrow<Target=impl MisoPin<T>>,
+        peri: impl Unborrow<Target = T> + 'd,
+        sck: impl Unborrow<Target = impl SckPin<T>>,
+        mosi: impl Unborrow<Target = impl MosiPin<T>>,
+        miso: impl Unborrow<Target = impl MisoPin<T>>,
         freq: F,
         config: Config,
     ) -> Self
-        where
-            F: Into<Hertz>,
+    where
+        F: Into<Hertz>,
     {
         unborrow!(peri);
         unborrow!(sck, mosi, miso);
@@ -210,7 +210,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
             unsafe {
                 regs.txdr().write(|reg| reg.0 = *word as u32);
             }
-            while unsafe { ! regs.sr().read().rxp() } {
+            while unsafe { !regs.sr().read().rxp() } {
                 // spin waiting for inbound to shift in.
             }
             *word = unsafe { regs.rxdr().read().0 as u8 };

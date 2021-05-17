@@ -4,7 +4,7 @@ use crate::gpio::{AnyPin, Pin};
 use crate::pac::gpio::vals::{Afr, Moder};
 use crate::pac::gpio::Gpio;
 use crate::pac::spi;
-use crate::spi::{ByteOrder, Config, Instance, MisoPin, MosiPin, SckPin, WordSize, Error};
+use crate::spi::{ByteOrder, Config, Error, Instance, MisoPin, MosiPin, SckPin, WordSize};
 use crate::time::Hertz;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
