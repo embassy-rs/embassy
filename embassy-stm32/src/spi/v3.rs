@@ -12,17 +12,17 @@ use embassy_extras::unborrow;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
 impl WordSize {
-    fn ds(&self) -> spi::vals::Ds {
+    fn dsize(&self) -> u8 {
         match self {
-            WordSize::EightBit => spi::vals::Ds::EIGHTBIT,
-            WordSize::SixteenBit => spi::vals::Ds::SIXTEENBIT,
+            WordSize::EightBit => 0b0111,
+            WordSize::SixteenBit => 0b1111,
         }
     }
 
-    fn frxth(&self) -> spi::vals::Frxth {
+    fn frxth(&self) -> spi::vals::Fthlv {
         match self {
-            WordSize::EightBit => spi::vals::Frxth::QUARTER,
-            WordSize::SixteenBit => spi::vals::Frxth::HALF,
+            WordSize::EightBit => spi::vals::Fthlv::FOURFRAMES,
+            WordSize::SixteenBit => spi::vals::Fthlv::EIGHTFRAMES,
         }
     }
 }
@@ -38,15 +38,15 @@ pub struct Spi<'d, T: Instance> {
 impl<'d, T: Instance> Spi<'d, T> {
     pub fn new<F>(
         pclk: Hertz,
-        peri: impl Unborrow<Target = T> + 'd,
-        sck: impl Unborrow<Target = impl SckPin<T>>,
-        mosi: impl Unborrow<Target = impl MosiPin<T>>,
-        miso: impl Unborrow<Target = impl MisoPin<T>>,
+        peri: impl Unborrow<Target=T> + 'd,
+        sck: impl Unborrow<Target=impl SckPin<T>>,
+        mosi: impl Unborrow<Target=impl MosiPin<T>>,
+        miso: impl Unborrow<Target=impl MisoPin<T>>,
         freq: F,
         config: Config,
     ) -> Self
-    where
-        F: Into<Hertz>,
+        where
+            F: Into<Hertz>,
     {
         unborrow!(peri);
         unborrow!(sck, mosi, miso);
@@ -62,15 +62,8 @@ impl<'d, T: Instance> Spi<'d, T> {
         let miso = miso.degrade();
 
         unsafe {
-            T::regs().cr2().write(|w| {
+            T::regs().cfg2().write(|w| {
                 w.set_ssoe(false);
-            });
-        }
-
-        let br = Self::compute_baud_rate(pclk, freq.into());
-
-        unsafe {
-            T::regs().cr1().write(|w| {
                 w.set_cpha(
                     match config.mode.phase == Phase::CaptureOnSecondTransition {
                         true => spi::vals::Cpha::SECONDEDGE,
@@ -81,18 +74,30 @@ impl<'d, T: Instance> Spi<'d, T> {
                     true => spi::vals::Cpol::IDLEHIGH,
                     false => spi::vals::Cpol::IDLELOW,
                 });
+            });
+        }
 
-                w.set_mstr(spi::vals::Mstr::MASTER);
-                w.set_br(spi::vals::Br(br));
-                w.set_spe(true);
-                w.set_lsbfirst(match config.byte_order {
-                    ByteOrder::LsbFirst => spi::vals::Lsbfirst::LSBFIRST,
-                    ByteOrder::MsbFirst => spi::vals::Lsbfirst::MSBFIRST,
+        let br = Self::compute_baud_rate(pclk, freq.into());
+
+        unsafe {
+            T::regs().cfg2().write(|w| {
+                w.set_lsbfrst(match config.byte_order {
+                    ByteOrder::LsbFirst => spi::vals::Lsbfrst::LSBFIRST,
+                    ByteOrder::MsbFirst => spi::vals::Lsbfrst::MSBFIRST,
                 });
-                w.set_ssi(true);
                 w.set_ssm(true);
+                w.set_master(spi::vals::Master::MASTER);
+            });
+            T::regs().cfg1().write(|w| {
                 w.set_crcen(false);
-                w.set_bidimode(spi::vals::Bidimode::UNIDIRECTIONAL);
+                w.set_mbr(spi::vals::Mbr(br));
+                w.set_dsize(WordSize::EightBit.dsize());
+                w.set_fthlv(WordSize::EightBit.frxth());
+            });
+            T::regs().cr1().write(|w| {
+                w.set_ssi(true);
+                w.set_spe(true);
+                //w.set_bidimode(spi::vals::Bidimode::UNIDIRECTIONAL);
             });
         }
 
@@ -131,9 +136,15 @@ impl<'d, T: Instance> Spi<'d, T> {
 
     fn set_word_size(word_size: WordSize) {
         unsafe {
-            T::regs().cr2().write(|w| {
-                w.set_ds(word_size.ds());
-                w.set_frxth(word_size.frxth());
+            T::regs().cr1().write(|w| {
+                w.set_spe(false);
+            });
+            T::regs().cfg1().write(|w| {
+                w.set_dsize(word_size.dsize());
+                w.set_fthlv(word_size.frxth());
+            });
+            T::regs().cr1().write(|w| {
+                w.set_spe(true);
             });
         }
     }
@@ -157,24 +168,25 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T> {
         let regs = T::regs();
 
         for word in words.iter() {
-            while unsafe { !regs.sr().read().txe() } {
+            while unsafe { !regs.sr().read().txp() } {
                 // spin
             }
             unsafe {
-                regs.dr().write(|reg| reg.0 = *word as u32);
+                //regs.dr().write(|reg| reg.0 = *word as u32);
+                regs.txdr().write(|reg| reg.0 = *word as u32);
             }
             loop {
                 let sr = unsafe { regs.sr().read() };
-                if sr.fre() {
+                if sr.tifre() {
                     return Err(Error::Framing);
                 }
                 if sr.ovr() {
                     return Err(Error::Overrun);
                 }
-                if sr.crcerr() {
+                if sr.crce() {
                     return Err(Error::Crc);
                 }
-                if !sr.txe() {
+                if !sr.txp() {
                     // loop waiting for TXE
                 }
             }
@@ -192,24 +204,24 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
         let regs = T::regs();
 
         for word in words.iter_mut() {
-            while unsafe { !regs.sr().read().txe() } {
+            while unsafe { !regs.sr().read().txp() } {
                 // spin
             }
             unsafe {
-                regs.dr().write(|reg| reg.0 = *word as u32);
+                regs.txdr().write(|reg| reg.0 = *word as u32);
             }
-            while unsafe { !regs.sr().read().rxne() } {
+            while unsafe { ! regs.sr().read().rxp() } {
                 // spin waiting for inbound to shift in.
             }
-            *word = unsafe { regs.dr().read().0 as u8 };
+            *word = unsafe { regs.rxdr().read().0 as u8 };
             let sr = unsafe { regs.sr().read() };
-            if sr.fre() {
+            if sr.tifre() {
                 return Err(Error::Framing);
             }
             if sr.ovr() {
                 return Err(Error::Overrun);
             }
-            if sr.crcerr() {
+            if sr.crce() {
                 return Err(Error::Crc);
             }
         }
@@ -226,24 +238,24 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T> {
         let regs = T::regs();
 
         for word in words.iter() {
-            while unsafe { !regs.sr().read().txe() } {
+            while unsafe { !regs.sr().read().txp() } {
                 // spin
             }
             unsafe {
-                regs.dr().write(|reg| reg.0 = *word as u32);
+                regs.txdr().write(|reg| reg.0 = *word as u32);
             }
             loop {
                 let sr = unsafe { regs.sr().read() };
-                if sr.fre() {
+                if sr.tifre() {
                     return Err(Error::Framing);
                 }
                 if sr.ovr() {
                     return Err(Error::Overrun);
                 }
-                if sr.crcerr() {
+                if sr.crce() {
                     return Err(Error::Crc);
                 }
-                if !sr.txe() {
+                if !sr.txp() {
                     // loop waiting for TXE
                 }
             }
@@ -261,24 +273,24 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T> 
         let regs = T::regs();
 
         for word in words.iter_mut() {
-            while unsafe { !regs.sr().read().txe() } {
+            while unsafe { !regs.sr().read().txp() } {
                 // spin
             }
             unsafe {
-                regs.dr().write(|reg| reg.0 = *word as u32);
+                regs.txdr().write(|reg| reg.0 = *word as u32);
             }
-            while unsafe { !regs.sr().read().rxne() } {
+            while unsafe { !regs.sr().read().rxp() } {
                 // spin waiting for inbound to shift in.
             }
-            *word = unsafe { regs.dr().read().0 as u16 };
+            *word = unsafe { regs.rxdr().read().0 as u16 };
             let sr = unsafe { regs.sr().read() };
-            if sr.fre() {
+            if sr.tifre() {
                 return Err(Error::Framing);
             }
             if sr.ovr() {
                 return Err(Error::Overrun);
             }
-            if sr.crcerr() {
+            if sr.crce() {
                 return Err(Error::Crc);
             }
         }
