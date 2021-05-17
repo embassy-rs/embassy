@@ -59,13 +59,16 @@ jobs:
             target: thumbv6m-none-eabi
           - package: embassy-stm32
             target: thumbv7em-none-eabi
-            features: stm32f411ce,defnt
+            features: stm32f411ce,defmt
           - package: embassy-stm32
             target: thumbv7em-none-eabi
             features: stm32f429zi,log
           - package: embassy-stm32
             target: thumbv7em-none-eabi
             features: stm32h755zi,defmt
+          - package: embassy-stm32
+            target: thumbv7em-none-eabi
+            features: stm32l476vg,defmt
           - package: embassy-stm32-examples
             target: thumbv7em-none-eabi
 
