@@ -19,7 +19,7 @@ use embassy_nrf::{interrupt, Peripherals};
 use gpiote::{OutputChannel, OutputChannelPolarity};
 
 #[embassy::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Starting!");
 
     let button1 = InputChannel::new(

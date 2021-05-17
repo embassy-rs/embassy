@@ -42,20 +42,18 @@ impl Default for Config {
 
 /// Interface to a TWIM instance.
 pub struct Twim<'d, T: Instance> {
-    peri: T,
-    irq: T::Interrupt,
     phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance> Twim<'d, T> {
     pub fn new(
-        twim: impl Unborrow<Target = T> + 'd,
+        _twim: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
         sda: impl Unborrow<Target = impl GpioPin> + 'd,
         scl: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(twim, irq, sda, scl);
+        unborrow!(irq, sda, scl);
 
         let r = T::regs();
 
@@ -94,8 +92,6 @@ impl<'d, T: Instance> Twim<'d, T> {
         irq.enable();
 
         Self {
-            peri: twim,
-            irq,
             phantom: PhantomData,
         }
     }

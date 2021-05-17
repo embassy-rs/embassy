@@ -87,7 +87,7 @@ static DUTY: [u16; 1024] = [
 ];
 
 #[embassy::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner, p: Peripherals) {
     let pwm = Pwm::new(p.PWM0, p.P0_13, p.P0_14, p.P0_16, p.P0_15);
     pwm.set_prescaler(Prescaler::Div1);
     info!("pwm initialized!");

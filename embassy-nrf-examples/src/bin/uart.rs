@@ -12,12 +12,11 @@ use example_common::*;
 use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::traits::uart::{Read, Write};
-use embassy::util::Steal;
 use embassy_nrf::gpio::NoPin;
 use embassy_nrf::{interrupt, uarte, Peripherals};
 
 #[embassy::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner, p: Peripherals) {
     let mut config = uarte::Config::default();
     config.parity = uarte::Parity::EXCLUDED;
     config.baudrate = uarte::Baudrate::BAUD115200;

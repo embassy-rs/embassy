@@ -13,8 +13,8 @@ use traits::spi::FullDuplex;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin, Pin as GpioPin};
-use crate::interrupt::{self, Interrupt};
-use crate::{pac, peripherals, util::slice_in_ram_or};
+use crate::interrupt::Interrupt;
+use crate::{pac, util::slice_in_ram_or};
 
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
@@ -30,8 +30,6 @@ pub enum Error {
 }
 
 pub struct Spim<'d, T: Instance> {
-    peri: T,
-    irq: T::Interrupt,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -54,14 +52,14 @@ impl Default for Config {
 
 impl<'d, T: Instance> Spim<'d, T> {
     pub fn new(
-        spim: impl Unborrow<Target = T> + 'd,
+        _spim: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
         sck: impl Unborrow<Target = impl GpioPin> + 'd,
         miso: impl Unborrow<Target = impl OptionalPin> + 'd,
         mosi: impl Unborrow<Target = impl OptionalPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(spim, irq, sck, miso, mosi);
+        unborrow!(irq, sck, miso, mosi);
 
         let r = T::regs();
 
@@ -140,8 +138,6 @@ impl<'d, T: Instance> Spim<'d, T> {
         irq.enable();
 
         Self {
-            peri: spim,
-            irq,
             phantom: PhantomData,
         }
     }
@@ -285,7 +281,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spim<'d, T> {
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
         slice_in_ram_or(words, Error::DMABufferNotInDataMemory)?;
-        let mut recv: &mut [u8] = &mut [];
+        let recv: &mut [u8] = &mut [];
 
         // Conservative compiler fence to prevent optimizations that do not
         // take in to account actions by DMA. The fence has been placed here,

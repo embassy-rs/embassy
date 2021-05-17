@@ -11,7 +11,6 @@ use gpio::pin_cnf::DRIVE_A;
 
 use crate::pac;
 use crate::pac::p0 as gpio;
-use crate::peripherals;
 
 /// A GPIO port with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]

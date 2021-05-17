@@ -6,7 +6,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 
-use crate::fmt::{assert, panic, unreachable, *};
+use crate::fmt::{unreachable, *};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::OptionalPin as GpioOptionalPin;
 use crate::interrupt::Interrupt;
@@ -26,7 +26,6 @@ pub enum Prescaler {
 
 /// Interface to the UARTE peripheral
 pub struct Pwm<'d, T: Instance> {
-    peri: T,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -41,13 +40,13 @@ impl<'d, T: Instance> Pwm<'d, T> {
     /// or [`receive`](Pwm::receive).
     #[allow(unused_unsafe)]
     pub fn new(
-        pwm: impl Unborrow<Target = T> + 'd,
+        _pwm: impl Unborrow<Target = T> + 'd,
         ch0: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch1: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
     ) -> Self {
-        unborrow!(pwm, ch0, ch1, ch2, ch3);
+        unborrow!(ch0, ch1, ch2, ch3);
 
         let r = T::regs();
         let s = T::state();
@@ -97,7 +96,6 @@ impl<'d, T: Instance> Pwm<'d, T> {
         r.loop_.write(|w| w.cnt().disabled());
 
         Self {
-            peri: pwm,
             phantom: PhantomData,
         }
     }

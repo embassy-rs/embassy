@@ -40,7 +40,7 @@ async fn run3() {
 }
 
 #[embassy::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(spawner: Spawner, _p: Peripherals) {
     unwrap!(spawner.spawn(run1()));
     unwrap!(spawner.spawn(run2()));
     unwrap!(spawner.spawn(run3()));
