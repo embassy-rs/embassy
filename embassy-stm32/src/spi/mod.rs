@@ -1,10 +1,9 @@
 #![macro_use]
 
-#[cfg_attr(feature = "_spi_v1", path = "spi_v1.rs")]
-#[cfg_attr(feature = "_spi_v2", path = "spi_v2.rs")]
-mod spi;
-
-pub use spi::*;
+#[cfg_attr(feature = "_spi_v1", path = "v1.rs")]
+#[cfg_attr(feature = "_spi_v2", path = "v2.rs")]
+mod _version;
+pub use _version::*;
 
 use crate::gpio::Pin;
 

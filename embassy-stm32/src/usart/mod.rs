@@ -1,10 +1,9 @@
 #![macro_use]
 
-#[cfg_attr(feature = "_usart_v1", path = "usart_v1.rs")]
-#[cfg_attr(feature = "_usart_v2", path = "usart_v2.rs")]
-mod usart;
-
-pub use usart::*;
+#[cfg_attr(feature = "_usart_v1", path = "v1.rs")]
+#[cfg_attr(feature = "_usart_v2", path = "v2.rs")]
+mod _version;
+pub use _version::*;
 
 use crate::gpio::Pin;
 use crate::pac::usart::Usart;

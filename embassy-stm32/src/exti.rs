@@ -4,6 +4,7 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
+use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::traits::gpio::{WaitForAnyEdge, WaitForFallingEdge, WaitForRisingEdge};
 use embassy::util::{AtomicWaker, Unborrow};
 use embassy_extras::impl_unborrow;
@@ -248,3 +249,15 @@ impl_exti!(EXTI12, 12);
 impl_exti!(EXTI13, 13);
 impl_exti!(EXTI14, 14);
 impl_exti!(EXTI15, 15);
+
+/// safety: must be called only once
+pub(crate) unsafe fn init() {
+    interrupt::EXTI0::steal().enable();
+    interrupt::EXTI1::steal().enable();
+    interrupt::EXTI2::steal().enable();
+    interrupt::EXTI3::steal().enable();
+    interrupt::EXTI4::steal().enable();
+    interrupt::EXTI9_5::steal().enable();
+    interrupt::EXTI15_10::steal().enable();
+    interrupt::EXTI15_10::steal().enable();
+}
