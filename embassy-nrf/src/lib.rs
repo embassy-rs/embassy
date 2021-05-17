@@ -93,6 +93,7 @@ pub mod config {
     pub struct Config {
         pub hfclk_source: HfclkSource,
         pub lfclk_source: LfclkSource,
+        pub gpiote_interrupt_priority: crate::interrupt::Priority,
     }
 
     impl Default for Config {
@@ -103,6 +104,7 @@ pub mod config {
                 // xtals if they know they have them.
                 hfclk_source: HfclkSource::Internal,
                 lfclk_source: LfclkSource::InternalRC,
+                gpiote_interrupt_priority: crate::interrupt::Priority::P0,
             }
         }
     }
@@ -155,7 +157,7 @@ pub fn init(config: config::Config) -> Peripherals {
     while r.events_lfclkstarted.read().bits() == 0 {}
 
     // Init GPIOTE
-    crate::gpiote::init();
+    crate::gpiote::init(config.gpiote_interrupt_priority);
 
     peripherals
 }
