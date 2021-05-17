@@ -55,14 +55,12 @@ impl Default for Config {
 }
 
 pub struct Qspi<'d, T: Instance> {
-    peri: T,
-    irq: T::Interrupt,
     phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance> Qspi<'d, T> {
     pub fn new(
-        qspi: impl Unborrow<Target = T> + 'd,
+        _qspi: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
         sck: impl Unborrow<Target = impl GpioPin> + 'd,
         csn: impl Unborrow<Target = impl GpioPin> + 'd,
@@ -72,7 +70,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
         io3: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(qspi, irq, sck, csn, io0, io1, io2, io3);
+        unborrow!(irq, sck, csn, io0, io1, io2, io3);
 
         let r = T::regs();
 
@@ -139,8 +137,6 @@ impl<'d, T: Instance> Qspi<'d, T> {
         irq.enable();
 
         Self {
-            peri: qspi,
-            irq,
             phantom: PhantomData,
         }
     }

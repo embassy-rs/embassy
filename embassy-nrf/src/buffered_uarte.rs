@@ -1,4 +1,5 @@
 use core::cmp::min;
+use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -34,7 +35,7 @@ enum TxState {
 }
 
 struct State<'d, U: UarteInstance, T: TimerInstance> {
-    uarte: U,
+    phantom: PhantomData<&'d mut U>,
     timer: T,
     _ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
     _ppi_ch2: Ppi<'d, AnyConfigurableChannel>,
@@ -63,7 +64,7 @@ pub struct BufferedUarte<'d, U: UarteInstance, T: TimerInstance> {
 impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     /// unsafe: may not leak self or futures
     pub unsafe fn new(
-        uarte: impl Unborrow<Target = U> + 'd,
+        _uarte: impl Unborrow<Target = U> + 'd,
         timer: impl Unborrow<Target = T> + 'd,
         ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel> + 'd,
         ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel> + 'd,
@@ -76,7 +77,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
     ) -> Self {
-        unborrow!(uarte, timer, ppi_ch1, ppi_ch2, irq, rxd, txd, cts, rts);
+        unborrow!(timer, ppi_ch1, ppi_ch2, irq, rxd, txd, cts, rts);
 
         let r = U::regs();
         let rt = timer.regs();
@@ -158,7 +159,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         BufferedUarte {
             inner: PeripheralMutex::new(
                 State {
-                    uarte,
+                    phantom: PhantomData,
                     timer,
                     _ppi_ch1: ppi_ch1,
                     _ppi_ch2: ppi_ch2,

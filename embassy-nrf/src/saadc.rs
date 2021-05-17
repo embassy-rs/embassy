@@ -32,8 +32,6 @@ pub enum Error {}
 
 /// One-shot saadc. Continuous sample mode TODO.
 pub struct OneShot<'d, T: PositivePin> {
-    peri: peripherals::SAADC,
-    positive_pin: T,
     irq: interrupt::SAADC,
     phantom: PhantomData<(&'d mut peripherals::SAADC, &'d mut T)>,
 }
@@ -71,12 +69,12 @@ impl Default for Config {
 
 impl<'d, T: PositivePin> OneShot<'d, T> {
     pub fn new(
-        saadc: impl Unborrow<Target = peripherals::SAADC> + 'd,
+        _saadc: impl Unborrow<Target = peripherals::SAADC> + 'd,
         irq: impl Unborrow<Target = interrupt::SAADC> + 'd,
         positive_pin: impl Unborrow<Target = T> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(saadc, irq, positive_pin);
+        unborrow!(irq, positive_pin);
 
         let r = unsafe { &*SAADC::ptr() };
 
@@ -118,8 +116,6 @@ impl<'d, T: PositivePin> OneShot<'d, T> {
         r.intenclr.write(|w| unsafe { w.bits(0x003F_FFFF) });
 
         Self {
-            peri: saadc,
-            positive_pin,
             irq,
             phantom: PhantomData,
         }

@@ -30,8 +30,6 @@ pub enum Error {
 }
 
 pub struct Spim<'d, T: Instance> {
-    peri: T,
-    irq: T::Interrupt,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -54,14 +52,14 @@ impl Default for Config {
 
 impl<'d, T: Instance> Spim<'d, T> {
     pub fn new(
-        spim: impl Unborrow<Target = T> + 'd,
+        _spim: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
         sck: impl Unborrow<Target = impl GpioPin> + 'd,
         miso: impl Unborrow<Target = impl OptionalPin> + 'd,
         mosi: impl Unborrow<Target = impl OptionalPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(spim, irq, sck, miso, mosi);
+        unborrow!(irq, sck, miso, mosi);
 
         let r = T::regs();
 
@@ -140,8 +138,6 @@ impl<'d, T: Instance> Spim<'d, T> {
         irq.enable();
 
         Self {
-            peri: spim,
-            irq,
             phantom: PhantomData,
         }
     }
