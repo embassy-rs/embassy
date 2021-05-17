@@ -40,7 +40,7 @@ pub enum OutputChannelPolarity {
     Toggle,
 }
 
-pub(crate) fn init() {
+pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
     let ports = unsafe { &[&*pac::P0::ptr(), &*pac::P1::ptr()] };
     #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
@@ -57,6 +57,7 @@ pub(crate) fn init() {
 
     let irq = unsafe { interrupt::GPIOTE::steal() };
     irq.unpend();
+    irq.set_priority(irq_prio);
     irq.enable();
 
     let g = unsafe { &*pac::GPIOTE::ptr() };
