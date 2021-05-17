@@ -57,6 +57,14 @@ jobs:
             features: nrf52840,defmt
           - package: embassy-rp-examples
             target: thumbv6m-none-eabi
+          - package: embassy-stm32
+            target: thumbv7em-none-eabi
+            features: stm32f411ce
+          - package: embassy-stm32
+            target: thumbv7em-none-eabi
+            features: stm32f429zi
+          - package: embassy-stm32-examples
+            target: thumbv7em-none-eabi
 
     steps:
       - uses: actions/checkout@v2
