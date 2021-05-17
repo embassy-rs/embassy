@@ -1,9 +1,8 @@
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use defmt::{assert, *};
-
+use crate::fmt::{assert, *};
+use crate::pac::dma::vals;
 use crate::{pac, peripherals};
-use pac::dma::vals;
 
 pub struct Dma<T: Channel> {
     inner: T,

@@ -159,7 +159,9 @@ impl_pin!(P0_30, 0, 30);
 impl_pin!(P0_31, 0, 31);
 
 pub mod irqs {
+    use crate::pac::Interrupt as InterruptEnum;
     use embassy_macros::interrupt_declare as declare;
+
     declare!(POWER_CLOCK);
     declare!(RADIO);
     declare!(UARTE0_UART0);

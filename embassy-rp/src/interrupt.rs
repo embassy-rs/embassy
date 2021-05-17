@@ -9,6 +9,7 @@ pub use embassy_extras::interrupt::Priority3 as Priority;
 
 mod irqs {
     use super::*;
+    use crate::pac::Interrupt as InterruptEnum;
 
     declare!(TIMER_IRQ_0);
     declare!(TIMER_IRQ_1);

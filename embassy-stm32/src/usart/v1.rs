@@ -103,7 +103,11 @@ impl<'d, T: Instance> Uart<'d, T> {
     }
 
     #[cfg(feature = "_dma_v2")]
-    pub async fn write_dma(&mut self, ch: &mut impl crate::dma::Channel, buffer: &[u8]) -> Result<(), Error> {
+    pub async fn write_dma(
+        &mut self,
+        ch: &mut impl crate::dma::Channel,
+        buffer: &[u8],
+    ) -> Result<(), Error> {
         let ch_func = 4; // USART3_TX
         let r = self.inner.regs();
 

@@ -1,6 +1,6 @@
 use core::ops::Deref;
-use defmt::{assert, *};
 
+use crate::fmt::{assert, *};
 use crate::pac;
 
 const XOSC_MHZ: u32 = 12;
