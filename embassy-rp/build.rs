@@ -1,7 +1,7 @@
-use std::fs::{self, File};
+use std::env;
+use std::fs::File;
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::{env, ffi::OsStr};
+use std::path::PathBuf;
 
 fn main() {
     // Put the linker script somewhere the linker can find it

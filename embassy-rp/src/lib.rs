@@ -3,6 +3,7 @@
 #![feature(asm)]
 #![feature(type_alias_impl_trait)]
 #![feature(never_type)]
+#![allow(incomplete_features)]
 
 pub use rp2040_pac2 as pac;
 
@@ -87,7 +88,7 @@ pub mod config {
     }
 }
 
-pub fn init(config: config::Config) -> Peripherals {
+pub fn init(_config: config::Config) -> Peripherals {
     // Do this first, so that it panics if user is calling `init` a second time
     // before doing anything important.
     let peripherals = Peripherals::take();

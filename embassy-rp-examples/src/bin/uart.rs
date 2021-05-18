@@ -9,7 +9,6 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use defmt::*;
 use embassy::executor::Spawner;
 use embassy_rp::{uart, Peripherals};
 
