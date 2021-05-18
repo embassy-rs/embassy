@@ -10,8 +10,6 @@ pub use duration::Duration;
 pub use instant::Instant;
 pub use traits::*;
 
-use crate::fmt::*;
-
 // TODO allow customizing, probably via Cargo features `tick-hz-32768` or something.
 pub const TICKS_PER_SECOND: u64 = 32768;
 
@@ -26,7 +24,7 @@ pub unsafe fn set_clock(clock: &'static dyn Clock) {
 
 /// Return the current timestamp in ticks.
 /// This is guaranteed to be monotonic, i.e. a call to now() will always return
-/// a greater or equal value than earler calls.
+/// a greater or equal value than earlier calls.
 pub(crate) fn now() -> u64 {
     unsafe { unwrap!(CLOCK, "No clock set").now() }
 }

@@ -1,62 +1,59 @@
-#![macro_use]
-#![allow(clippy::module_inception)]
-#![allow(unused)]
+#![no_std]
 
 #[cfg(all(feature = "defmt", feature = "log"))]
 compile_error!("You may not enable both `defmt` and `log` features.");
 
-pub use fmt::*;
-
 #[cfg(feature = "defmt")]
-mod fmt {
-    pub use defmt::{
-        assert, assert_eq, assert_ne, debug, debug_assert, debug_assert_eq, debug_assert_ne, error,
-        info, panic, todo, trace, unreachable, unwrap, warn,
-    };
-}
+pub use defmt::{
+    assert, assert_eq, assert_ne, debug, debug_assert, debug_assert_eq, debug_assert_ne, error,
+    info, panic, todo, trace, unreachable, unwrap, warn,
+};
 
 #[cfg(feature = "log")]
-mod fmt {
-    pub use core::{
-        assert, assert_eq, assert_ne, debug_assert, debug_assert_eq, debug_assert_ne, panic, todo,
-        unreachable,
-    };
-    pub use log::{debug, error, info, trace, warn};
-}
+pub use core::{
+    assert, assert_eq, assert_ne, debug_assert, debug_assert_eq, debug_assert_ne, panic, todo,
+    unreachable,
+};
+#[cfg(feature = "log")]
+pub use log::{debug, error, info, trace, warn};
 
 #[cfg(not(any(feature = "defmt", feature = "log")))]
-mod fmt {
-    #![macro_use]
+pub use core::{
+    assert, assert_eq, assert_ne, debug_assert, debug_assert_eq, debug_assert_ne, panic, todo,
+    unreachable,
+};
 
-    pub use core::{
-        assert, assert_eq, assert_ne, debug_assert, debug_assert_eq, debug_assert_ne, panic, todo,
-        unreachable,
-    };
-
+#[cfg(not(any(feature = "defmt", feature = "log")))]
+mod dummy_log {
+    #[macro_export]
     macro_rules! trace {
         ($($msg:expr),+ $(,)?) => {
             ()
         };
     }
 
+    #[macro_export]
     macro_rules! debug {
         ($($msg:expr),+ $(,)?) => {
             ()
         };
     }
 
+    #[macro_export]
     macro_rules! info {
         ($($msg:expr),+ $(,)?) => {
             ()
         };
     }
 
+    #[macro_export]
     macro_rules! warn {
         ($($msg:expr),+ $(,)?) => {
             ()
         };
     }
 
+    #[macro_export]
     macro_rules! error {
         ($($msg:expr),+ $(,)?) => {
             ()
@@ -64,10 +61,11 @@ mod fmt {
     }
 }
 
+#[macro_export]
 #[cfg(not(feature = "defmt"))]
 macro_rules! unwrap {
     ($arg:expr) => {
-        match $crate::fmt::Try::into_result($arg) {
+        match $crate::Try::into_result($arg) {
             ::core::result::Result::Ok(t) => t,
             ::core::result::Result::Err(e) => {
                 ::core::panic!("unwrap of `{}` failed: {:?}", ::core::stringify!($arg), e);
@@ -75,7 +73,7 @@ macro_rules! unwrap {
         }
     };
     ($arg:expr, $($msg:expr),+ $(,)? ) => {
-        match $crate::fmt::Try::into_result($arg) {
+        match $crate::Try::into_result($arg) {
             ::core::result::Result::Ok(t) => t,
             ::core::result::Result::Err(e) => {
                 ::core::panic!("unwrap of `{}` failed: {}: {:?}", ::core::stringify!($arg), ::core::format_args!($($msg,)*), e);

@@ -9,7 +9,6 @@ mod timer_queue;
 mod util;
 mod waker;
 
-use crate::fmt::panic;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::time::Alarm;
 

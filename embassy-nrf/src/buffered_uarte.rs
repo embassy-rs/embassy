@@ -11,7 +11,6 @@ use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
 use embassy_extras::ring_buffer::RingBuffer;
 use embassy_extras::{low_power_wait_until, unborrow};
 
-use crate::fmt::{panic, *};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
 use crate::pac;

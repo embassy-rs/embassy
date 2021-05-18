@@ -8,8 +8,8 @@
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
 
-// This mod MUST go first, so that the others see its macros.
-pub(crate) mod fmt;
+#[macro_use]
+extern crate embassy_fmt;
 
 pub mod executor;
 pub mod interrupt;

@@ -1,6 +1,5 @@
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use crate::fmt::assert;
 use crate::pac::dma::vals;
 use crate::{pac, peripherals};
 

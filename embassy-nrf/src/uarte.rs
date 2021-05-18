@@ -13,7 +13,6 @@ use embassy_extras::unborrow;
 use futures::future::poll_fn;
 
 use crate::chip::EASY_DMA_SIZE;
-use crate::fmt::{assert, panic, *};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, OptionalPin as GpioOptionalPin, Pin as GpioPin};
 use crate::interrupt::Interrupt;

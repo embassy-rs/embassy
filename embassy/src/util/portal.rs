@@ -1,4 +1,3 @@
-use crate::fmt::panic;
 use core::cell::UnsafeCell;
 use core::mem;
 use core::mem::MaybeUninit;
@@ -27,7 +26,7 @@ impl<T> Portal<T> {
         unsafe {
             match *self.state.get() {
                 State::None => {}
-                State::Running => panic!("Portall::call() called reentrantly"),
+                State::Running => panic!("Portal::call() called reentrantly"),
                 State::Waiting(func) => (*func)(val),
             }
         }

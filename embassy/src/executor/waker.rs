@@ -24,7 +24,7 @@ pub(crate) unsafe fn from_task(p: NonNull<TaskHeader>) -> Waker {
 
 pub unsafe fn task_from_waker(waker: &Waker) -> NonNull<TaskHeader> {
     let hack: &WakerHack = mem::transmute(waker);
-    assert_eq!(hack.vtable, &VTABLE);
+    assert!(hack.vtable == &VTABLE, "hack.vtable != &VTABLE");
     NonNull::new_unchecked(hack.data as *mut TaskHeader)
 }
 

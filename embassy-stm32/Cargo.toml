@@ -34,6 +34,7 @@ defmt-debug = [ ]
 defmt-info = [ ]
 defmt-warn = [ ]
 defmt-error = [ ]
+defmt = [ "dep:defmt", "embassy/defmt", "embassy-extras/defmt" ]
 sdmmc-rs = ["embedded-sdmmc"]
 # Unstable feature to give access to the pac used in embassy-stm32, changes with this feature don't
 # follow semver

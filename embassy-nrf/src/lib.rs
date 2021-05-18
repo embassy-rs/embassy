@@ -21,8 +21,10 @@
 )))]
 compile_error!("No chip feature activated. You must activate exactly one of the following features: nrf52810, nrf52811, nrf52832, nrf52833, nrf52840");
 
+#[macro_use]
+extern crate embassy_fmt;
+
 // This mod MUST go first, so that the others see its macros.
-pub(crate) mod fmt;
 pub(crate) mod util;
 
 pub mod buffered_uarte;

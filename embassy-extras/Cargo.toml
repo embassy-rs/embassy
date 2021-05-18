@@ -10,9 +10,11 @@ defmt-debug = [ ]
 defmt-info = [ ]
 defmt-warn = [ ]
 defmt-error = [ ]
+defmt = [ "dep:defmt", "embassy-fmt/defmt" ]
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy" }
+embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }
 
 defmt = { version = "0.2.0", optional = true }
 log = { version = "0.4.11", optional = true }
