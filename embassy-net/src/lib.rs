@@ -1,8 +1,4 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![feature(const_fn)]
-#![feature(const_generics)]
-#![feature(const_evaluatable_checked)]
-#![allow(incomplete_features)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
