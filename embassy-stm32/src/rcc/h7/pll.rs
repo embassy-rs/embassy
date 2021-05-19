@@ -1,4 +1,4 @@
-use super::{Config, HSI, RCC};
+use super::{Config, Hertz, HSI, RCC};
 use crate::fmt::assert;
 
 const VCO_MIN: u32 = 150_000_000;
@@ -6,9 +6,9 @@ const VCO_MAX: u32 = 420_000_000;
 
 #[derive(Default)]
 pub struct PllConfig {
-    pub p_ck: Option<u32>,
-    pub q_ck: Option<u32>,
-    pub r_ck: Option<u32>,
+    pub p_ck: Option<Hertz>,
+    pub q_ck: Option<Hertz>,
+    pub r_ck: Option<Hertz>,
 }
 
 pub(super) struct PllConfigResults {
@@ -84,7 +84,7 @@ pub(super) unsafe fn pll_setup(
 
     match config.p_ck {
         Some(requested_output) => {
-            let config_results = vco_setup(pll_src, requested_output, plln);
+            let config_results = vco_setup(pll_src, requested_output.0, plln);
             let PllConfigResults {
                 ref_x_ck,
                 pll_x_m,
@@ -113,7 +113,7 @@ pub(super) unsafe fn pll_setup(
 
             // Calulate additional output dividers
             let q_ck = match config.q_ck {
-                Some(ck) if ck > 0 => {
+                Some(Hertz(ck)) if ck > 0 => {
                     let div = (vco_ck + ck - 1) / ck;
                     RCC.plldivr(plln).modify(|w| w.set_divq1((div - 1) as u8));
                     RCC.pllcfgr()
@@ -123,7 +123,7 @@ pub(super) unsafe fn pll_setup(
                 _ => None,
             };
             let r_ck = match config.r_ck {
-                Some(ck) if ck > 0 => {
+                Some(Hertz(ck)) if ck > 0 => {
                     let div = (vco_ck + ck - 1) / ck;
                     RCC.plldivr(plln).modify(|w| w.set_divr1((div - 1) as u8));
                     RCC.pllcfgr()
