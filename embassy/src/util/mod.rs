@@ -22,6 +22,13 @@ pub trait Unborrow {
     unsafe fn unborrow(self) -> Self::Target;
 }
 
+impl<'a, T: Unborrow> Unborrow for &'a mut T {
+    type Target = T::Target;
+    unsafe fn unborrow(self) -> Self::Target {
+        T::unborrow(core::ptr::read(self))
+    }
+}
+
 pub trait Steal {
     unsafe fn steal() -> Self;
 }
@@ -40,17 +47,6 @@ macro_rules! impl_unborrow_tuples {
             }
         }
 
-        impl<'a, $($t),+> Unborrow for &'a mut($($t),+)
-        where
-            $(
-                $t: Unborrow<Target = $t>
-            ),+
-        {
-            type Target = ($($t),+);
-            unsafe fn unborrow(self) -> Self::Target {
-                ::core::ptr::read(self)
-            }
-        }
 
     };
 }
