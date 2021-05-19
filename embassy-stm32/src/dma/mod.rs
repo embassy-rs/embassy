@@ -20,25 +20,23 @@ pub(crate) mod sealed {
         fn ch_num(&self) -> u8 {
             self.num() % 8
         }
-
-        fn regs(&self) -> pac::dma::Dma {
-            match self.dma_num() {
-                0 => pac::DMA1,
-                _ => pac::DMA2,
-            }
-        }
+        fn regs(&self) -> pac::dma::Dma;
     }
 }
 
 pub trait Channel: sealed::Channel + Sized {}
 
 macro_rules! impl_dma_channel {
-    ($type:ident, $dma_num:expr, $ch_num:expr) => {
+    ($name:ident, $type:ident, $dma_num:expr, $ch_num:expr) => {
         impl crate::dma::Channel for peripherals::$type {}
         impl crate::dma::sealed::Channel for peripherals::$type {
             #[inline]
             fn num(&self) -> u8 {
                 $dma_num * 8 + $ch_num
+            }
+
+            fn regs(&self) -> dma::Dma {
+                $name
             }
         }
     };

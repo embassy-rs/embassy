@@ -151,7 +151,7 @@ for chip in chips.values():
                 for ch_num in range(8):
                     channel = f'{name}_CH{ch_num}'
                     peripheral_names.append(channel)
-                    f.write(f'impl_dma_channel!({channel}, {dma_num}, {ch_num});')
+                    f.write(f'impl_dma_channel!({name}, {channel}, {dma_num}, {ch_num});')
 
             if peri['block'] == 'sdmmc_v2/SDMMC':
                 f.write(f'impl_sdmmc!({name});')
