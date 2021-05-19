@@ -19,7 +19,7 @@ jobs:
             target: thumbv7em-none-eabi
           - package: embassy
             target: thumbv7em-none-eabi
-            features: log
+            features: log,executor-agnostic
           - package: embassy
             target: thumbv7em-none-eabi
             features: defmt
