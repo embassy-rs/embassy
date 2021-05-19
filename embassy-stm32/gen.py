@@ -15,7 +15,7 @@ os.chdir(dname)
 # ======= load chips
 chips = {}
 for f in sorted(glob('stm32-data/data/chips/*.yaml')):
-    if 'STM32F4' not in f and 'STM32L4' not in f and 'STM32H7' not in f:
+    if 'STM32F4' not in f and 'STM32L4' not in f and 'STM32H7' not in f and 'STM32L0' not in f:
         continue
     with open(f, 'r') as f:
         chip = yaml.load(f, Loader=yaml.CSafeLoader)
