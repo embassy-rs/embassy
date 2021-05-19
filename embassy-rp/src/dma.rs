@@ -1,11 +1,11 @@
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use crate::fmt::{assert, *};
+use crate::fmt::assert;
 use crate::pac::dma::vals;
 use crate::{pac, peripherals};
 
 pub struct Dma<T: Channel> {
-    inner: T,
+    _inner: T,
 }
 
 impl<T: Channel> Dma<T> {
