@@ -57,6 +57,7 @@ for chip in chips.values():
 
         af = gpio_afs[chip['gpio_af']]
         peripheral_names = []  # USART1, PA5, EXTI8
+        exti_interrupts = [] # EXTI IRQs, EXTI0, EXTI4_15 etc.
         peripheral_versions = {}  # usart -> v1, syscfg -> f4
         pins = set()  # set of all present pins. PA4, PA5...
 
@@ -177,6 +178,12 @@ for chip in chips.values():
                         if func := funcs.get(f'{name}_D7'):
                             f.write(f'impl_sdmmc_pin!({name}, D7Pin, {pin}, {func});')
 
+
+            if block_mod == 'exti':
+                for irq in chip['interrupts']:
+                    if re.match('EXTI', irq):
+                        exti_interrupts.append(irq)
+
             if not custom_singletons:
                 peripheral_names.append(name)
 
@@ -228,6 +235,15 @@ for chip in chips.values():
                 }}
 
                 {''.join(irq_declares)}
+
+                pub mod exti {{
+                    use embassy::interrupt::InterruptExt;
+                    use crate::interrupt;
+                    use super::*;
+
+                    impl_exti_irq!({','.join(exti_interrupts)});
+                    impl_exti_init!({','.join(exti_interrupts)});
+                }}
             }}
             mod interrupt_vector {{
                 extern "C" {{
