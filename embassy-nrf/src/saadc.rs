@@ -1,6 +1,5 @@
 use core::future::Future;
 use core::marker::PhantomData;
-use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 use embassy::util::{wake_on_interrupt, Unborrow};
@@ -138,17 +137,16 @@ pub trait Sample {
     where
         Self: 'a;
 
-    fn sample<'a>(self: Pin<&'a mut Self>) -> Self::SampleFuture<'a>;
+    fn sample<'a>(&'a mut self) -> Self::SampleFuture<'a>;
 }
 
 impl<'d, T: PositivePin> Sample for OneShot<'d, T> {
     #[rustfmt::skip]
     type SampleFuture<'a> where Self: 'a = impl Future<Output = i16> + 'a;
 
-    fn sample<'a>(self: Pin<&'a mut Self>) -> Self::SampleFuture<'a> {
+    fn sample<'a>(&'a mut self) -> Self::SampleFuture<'a> {
         async move {
-            let this = unsafe { self.get_unchecked_mut() };
-            let r = this.regs();
+            let r = self.regs();
 
             // Set up the DMA
             let mut val: i16 = 0;
@@ -161,7 +159,7 @@ impl<'d, T: PositivePin> Sample for OneShot<'d, T> {
             r.events_end.reset();
             r.intenset.write(|w| w.end().set());
 
-            // Don't reorder the ADC start event before the previous writes. Hopefully this
+            // Don't reorder the ADC start event before the previous writes. Hopefully self
             // wouldn't happen anyway.
             compiler_fence(Ordering::SeqCst);
 
@@ -170,14 +168,14 @@ impl<'d, T: PositivePin> Sample for OneShot<'d, T> {
 
             // Wait for 'end' event.
             poll_fn(|cx| {
-                let r = this.regs();
+                let r = self.regs();
 
                 if r.events_end.read().bits() != 0 {
                     r.events_end.reset();
                     return Poll::Ready(());
                 }
 
-                wake_on_interrupt(&mut this.irq, cx.waker());
+                wake_on_interrupt(&mut self.irq, cx.waker());
 
                 Poll::Pending
             })
