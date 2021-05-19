@@ -3,6 +3,7 @@ import yaml
 import re
 import json
 import os
+import re
 import toml
 from collections import OrderedDict
 from glob import glob
@@ -113,10 +114,9 @@ for chip in chips.values():
                             f.write(f'impl_usart_pin!({name}, CkPin, {pin}, {func});')
 
             if block_mod == 'rng':
-                if 'RNG' in chip['interrupts']:
-                    f.write(f'impl_rng!({name}, RNG);')
-                else:
-                    f.write(f'impl_rng!({name}, HASH_RNG);')
+                for irq in chip['interrupts']:
+                    if re.search('RNG', irq):
+                        f.write(f'impl_rng!({name}, ' + irq  + f');')
 
             if block_mod == 'spi':
                 if 'clock' in peri:
