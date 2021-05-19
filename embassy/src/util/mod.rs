@@ -17,12 +17,12 @@ pub use portal::*;
 pub use signal::*;
 pub use waker::*;
 
-pub trait Unborrow {
+pub unsafe trait Unborrow {
     type Target;
     unsafe fn unborrow(self) -> Self::Target;
 }
 
-impl<'a, T: Unborrow> Unborrow for &'a mut T {
+unsafe impl<'a, T: Unborrow> Unborrow for &'a mut T {
     type Target = T::Target;
     unsafe fn unborrow(self) -> Self::Target {
         T::unborrow(core::ptr::read(self))
@@ -33,9 +33,9 @@ pub trait Steal {
     unsafe fn steal() -> Self;
 }
 
-macro_rules! impl_unborrow_tuples {
+macro_rules! unsafe_impl_unborrow_tuples {
     ($($t:ident),+) => {
-        impl<$($t),+> Unborrow for ($($t),+)
+        unsafe impl<$($t),+> Unborrow for ($($t),+)
         where
             $(
                 $t: Unborrow<Target = $t>
@@ -51,14 +51,14 @@ macro_rules! impl_unborrow_tuples {
     };
 }
 
-impl_unborrow_tuples!(A, B);
-impl_unborrow_tuples!(A, B, C);
-impl_unborrow_tuples!(A, B, C, D);
-impl_unborrow_tuples!(A, B, C, D, E);
-impl_unborrow_tuples!(A, B, C, D, E, F);
-impl_unborrow_tuples!(A, B, C, D, E, F, G);
-impl_unborrow_tuples!(A, B, C, D, E, F, G, H);
-impl_unborrow_tuples!(A, B, C, D, E, F, G, H, I);
-impl_unborrow_tuples!(A, B, C, D, E, F, G, H, I, J);
-impl_unborrow_tuples!(A, B, C, D, E, F, G, H, I, J, K);
-impl_unborrow_tuples!(A, B, C, D, E, F, G, H, I, J, K, L);
+unsafe_impl_unborrow_tuples!(A, B);
+unsafe_impl_unborrow_tuples!(A, B, C);
+unsafe_impl_unborrow_tuples!(A, B, C, D);
+unsafe_impl_unborrow_tuples!(A, B, C, D, E);
+unsafe_impl_unborrow_tuples!(A, B, C, D, E, F);
+unsafe_impl_unborrow_tuples!(A, B, C, D, E, F, G);
+unsafe_impl_unborrow_tuples!(A, B, C, D, E, F, G, H);
+unsafe_impl_unborrow_tuples!(A, B, C, D, E, F, G, H, I);
+unsafe_impl_unborrow_tuples!(A, B, C, D, E, F, G, H, I, J);
+unsafe_impl_unborrow_tuples!(A, B, C, D, E, F, G, H, I, J, K);
+unsafe_impl_unborrow_tuples!(A, B, C, D, E, F, G, H, I, J, K, L);

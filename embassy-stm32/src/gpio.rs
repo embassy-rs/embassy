@@ -2,7 +2,7 @@
 use core::convert::Infallible;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
-use embassy_extras::{impl_unborrow, unborrow};
+use embassy_extras::{unborrow, unsafe_impl_unborrow};
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 
 use crate::pac;
@@ -254,7 +254,7 @@ impl AnyPin {
     }
 }
 
-impl_unborrow!(AnyPin);
+unsafe_impl_unborrow!(AnyPin);
 impl Pin for AnyPin {
     type ExtiChannel = crate::exti::AnyChannel;
 }
@@ -297,7 +297,7 @@ impl<T: Pin> OptionalPin for T {
 
 #[derive(Clone, Copy, Debug)]
 pub struct NoPin;
-impl_unborrow!(NoPin);
+unsafe_impl_unborrow!(NoPin);
 impl sealed::OptionalPin for NoPin {}
 impl OptionalPin for NoPin {
     type Pin = AnyPin;

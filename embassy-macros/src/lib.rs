@@ -210,7 +210,7 @@ pub fn interrupt_declare(item: TokenStream) -> TokenStream {
             }
         }
 
-        impl ::embassy::util::Unborrow for #name_interrupt {
+        unsafe impl ::embassy::util::Unborrow for #name_interrupt {
             type Target = #name_interrupt;
             unsafe fn unborrow(self) -> #name_interrupt {
                 self

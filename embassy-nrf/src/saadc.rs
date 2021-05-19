@@ -190,7 +190,7 @@ impl<'d, T: PositivePin> Sample for OneShot<'d, T> {
 /// A pin that can be used as the positive end of a ADC differential in the SAADC periperhal.
 ///
 /// Currently negative is always shorted to ground (0V).
-pub trait PositivePin {
+pub trait PositivePin: Unborrow<Target = Self> {
     fn channel(&self) -> PositiveChannel;
 }
 

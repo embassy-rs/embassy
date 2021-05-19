@@ -5,7 +5,7 @@ use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
 
 use embassy::util::Unborrow;
-use embassy_extras::{impl_unborrow, unborrow};
+use embassy_extras::{unborrow, unsafe_impl_unborrow};
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 use gpio::pin_cnf::DRIVE_A;
 
@@ -330,7 +330,7 @@ pub(crate) mod sealed {
     pub trait OptionalPin {}
 }
 
-pub trait Pin: Unborrow<Target = Self> + sealed::Pin + Sized {
+pub trait Pin: Unborrow<Target = Self> + sealed::Pin + Sized + 'static {
     /// Number of the pin within the port (0..31)
     #[inline]
     fn pin(&self) -> u8 {
@@ -374,7 +374,7 @@ impl AnyPin {
     }
 }
 
-impl_unborrow!(AnyPin);
+unsafe_impl_unborrow!(AnyPin);
 impl Pin for AnyPin {}
 impl sealed::Pin for AnyPin {
     #[inline]
@@ -469,7 +469,7 @@ impl<T: Pin> OptionalPin for T {
 
 #[derive(Clone, Copy, Debug)]
 pub struct NoPin;
-impl_unborrow!(NoPin);
+unsafe_impl_unborrow!(NoPin);
 impl sealed::OptionalPin for NoPin {}
 impl OptionalPin for NoPin {
     type Pin = AnyPin;
