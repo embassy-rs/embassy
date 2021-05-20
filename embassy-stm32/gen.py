@@ -75,6 +75,7 @@ for chip in chips.values():
         # ========= peripherals
 
         peripheral_names.extend((f'EXTI{x}' for x in range(16)))
+        num_dmas = 0
 
         for (name, peri) in chip['peripherals'].items():
             if 'block' not in peri:
@@ -147,11 +148,14 @@ for chip in chips.values():
 
             if block_mod == 'dma':
                 custom_singletons = True
+                num_dmas += 1
                 dma_num = int(name[3:])-1  # substract 1 because we want DMA1=0, DMA2=1
+
                 for ch_num in range(8):
                     channel = f'{name}_CH{ch_num}'
                     peripheral_names.append(channel)
-                    f.write(f'impl_dma_channel!({name}, {channel}, {dma_num}, {ch_num});')
+
+                    f.write(f'impl_dma_channel!({channel}, {dma_num}, {ch_num});')
 
             if peri['block'] == 'sdmmc_v2/SDMMC':
                 f.write(f'impl_sdmmc!({name});')
@@ -198,6 +202,19 @@ for chip in chips.values():
         """)
 
 
+        # ========= DMA peripherals
+        if num_dmas > 0:
+            f.write(f"""
+                pub fn DMA(n: u8) -> dma::Dma {{
+                    match n {{
+            """)
+            for n in range(num_dmas - 1):
+                f.write(f'{n} => DMA{n + 1},')
+            f.write(f"""
+                        _ => DMA{num_dmas},
+                    }}
+                }}
+            """)
 
         # ========= exti interrupts
 
