@@ -7,11 +7,10 @@ use crate::pac::spi;
 use crate::spi::{ByteOrder, Config, Error, Instance, MisoPin, MosiPin, SckPin, WordSize};
 use crate::time::Hertz;
 use core::marker::PhantomData;
+use core::ptr;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-use core::ptr;
-
 
 impl WordSize {
     fn dsize(&self) -> u8 {
@@ -40,15 +39,15 @@ pub struct Spi<'d, T: Instance> {
 impl<'d, T: Instance> Spi<'d, T> {
     pub fn new<F>(
         pclk: Hertz,
-        peri: impl Unborrow<Target=T> + 'd,
-        sck: impl Unborrow<Target=impl SckPin<T>>,
-        mosi: impl Unborrow<Target=impl MosiPin<T>>,
-        miso: impl Unborrow<Target=impl MisoPin<T>>,
+        peri: impl Unborrow<Target = T> + 'd,
+        sck: impl Unborrow<Target = impl SckPin<T>>,
+        mosi: impl Unborrow<Target = impl MosiPin<T>>,
+        miso: impl Unborrow<Target = impl MisoPin<T>>,
         freq: F,
         config: Config,
     ) -> Self
-        where
-            F: Into<Hertz>,
+    where
+        F: Into<Hertz>,
     {
         unborrow!(peri);
         unborrow!(sck, mosi, miso);
@@ -67,9 +66,7 @@ impl<'d, T: Instance> Spi<'d, T> {
 
         let br = Self::compute_baud_rate(pclk, freq.into());
         unsafe {
-            T::regs().ifcr().write(|w| {
-                w.0 = 0xffff_ffff
-            });
+            T::regs().ifcr().write(|w| w.0 = 0xffff_ffff);
             T::regs().cfg2().modify(|w| {
                 //w.set_ssoe(true);
                 w.set_ssoe(false);
@@ -125,7 +122,9 @@ impl<'d, T: Instance> Spi<'d, T> {
         let (afr, n_af) = if pin < 8 { (0, pin) } else { (1, pin - 8) };
         block.moder().modify(|w| w.set_moder(pin, Moder::ALTERNATE));
         block.afr(afr).modify(|w| w.set_afr(n_af, Afr(af_num)));
-        block.ospeedr().modify(|w| w.set_ospeedr(pin, crate::pac::gpio::vals::Ospeedr::VERYHIGHSPEED));
+        block
+            .ospeedr()
+            .modify(|w| w.set_ospeedr(pin, crate::pac::gpio::vals::Ospeedr::VERYHIGHSPEED));
     }
 
     unsafe fn unconfigure_pin(block: Gpio, pin: usize) {
@@ -188,10 +187,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T> {
             }
             unsafe {
                 let txdr = regs.txdr().ptr() as *mut u8;
-                ptr::write_volatile(
-                    txdr,
-                    *word,
-                );
+                ptr::write_volatile(txdr, *word);
                 regs.cr1().modify(|reg| reg.set_cstart(true));
             }
             loop {
@@ -233,10 +229,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
             }
             unsafe {
                 let txdr = regs.txdr().ptr() as *mut u8;
-                ptr::write_volatile(
-                    txdr,
-                    *word,
-                );
+                ptr::write_volatile(txdr, *word);
                 regs.cr1().modify(|reg| reg.set_cstart(true));
             }
             loop {
@@ -257,9 +250,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
             }
             unsafe {
                 let rxdr = regs.rxdr().ptr() as *const u8;
-                *word = ptr::read_volatile(
-                    rxdr
-                );
+                *word = ptr::read_volatile(rxdr);
             }
             let sr = unsafe { regs.sr().read() };
             if sr.tifre() {
@@ -290,10 +281,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T> {
             }
             unsafe {
                 let txdr = regs.txdr().ptr() as *mut u16;
-                ptr::write_volatile(
-                    txdr,
-                    *word,
-                );
+                ptr::write_volatile(txdr, *word);
                 regs.cr1().modify(|reg| reg.set_cstart(true));
             }
             loop {
@@ -330,10 +318,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T> 
             }
             unsafe {
                 let txdr = regs.txdr().ptr() as *mut u16;
-                ptr::write_volatile(
-                    txdr,
-                    *word,
-                );
+                ptr::write_volatile(txdr, *word);
                 regs.cr1().modify(|reg| reg.set_cstart(true));
             }
 
@@ -356,9 +341,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T> 
 
             unsafe {
                 let rxdr = regs.rxdr().ptr() as *const u16;
-                *word = ptr::read_volatile(
-                    rxdr
-                );
+                *word = ptr::read_volatile(rxdr);
             }
             let sr = unsafe { regs.sr().read() };
             if sr.tifre() {
