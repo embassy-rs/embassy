@@ -152,7 +152,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T> {
                 // spin
             }
             unsafe {
-                let dr = regs.txdr().ptr() as *mut u8;
+                let dr = regs.dr().ptr() as *mut u8;
                 ptr::write_volatile(dr, *word);
             }
             loop {
@@ -188,7 +188,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
                 // spin
             }
             unsafe {
-                let dr = regs.txdr().ptr() as *mut u8;
+                let dr = regs.dr().ptr() as *mut u8;
                 ptr::write_volatile(dr, *word);
             }
 
@@ -229,7 +229,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T> {
                 // spin
             }
             unsafe {
-                let dr = regs.txdr().ptr() as *mut u16;
+                let dr = regs.dr().ptr() as *mut u16;
                 ptr::write_volatile(dr, *word);
             }
             loop {
@@ -265,7 +265,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T> 
                 // spin
             }
             unsafe {
-                let dr = regs.txdr().ptr() as *mut u16;
+                let dr = regs.dr().ptr() as *mut u16;
                 ptr::write_volatile(dr, *word);
             }
             while unsafe { !regs.sr().read().rxne() } {

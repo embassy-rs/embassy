@@ -220,7 +220,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
                 }
             }
             unsafe {
-                let dr = regs.rxdr().ptr() as *const u8;
+                let dr = regs.dr().ptr() as *const u8;
                 *word = ptr::read_volatile(dr);
             }
             let sr = unsafe { regs.sr().read() };
@@ -294,7 +294,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T> 
                 // spin waiting for inbound to shift in.
             }
             unsafe {
-                let dr = regs.rxdr().ptr() as *const u16;
+                let dr = regs.dr().ptr() as *const u16;
                 *word = ptr::read_volatile(dr);
             }
             let sr = unsafe { regs.sr().read() };
