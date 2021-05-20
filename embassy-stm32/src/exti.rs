@@ -215,29 +215,19 @@ impl_exti!(EXTI14, 14);
 impl_exti!(EXTI15, 15);
 
 macro_rules! impl_exti_irq {
-    ($e:ident) => {
-        #[interrupt]
-        unsafe fn $e() {
-            crate::exti::on_irq()
-        }
-    };
-
-    ($e:ident, $($es:ident),+) => {
-        impl_exti_irq! { $e }
-        impl_exti_irq! { $($es),+ }
-    };
-}
-
-macro_rules! impl_exti_init {
-    ($e:ident) => {
-        crate::interrupt::$e::steal().enable();
-    };
-
-    ($e:ident, $($es:ident),+) => {
+    ($($e:ident),+) => {
         /// safety: must be called only once
         pub(crate) unsafe fn init() {
-            impl_exti_init! { $e }
-            impl_exti_init! { $($es),+ }
+            $(
+                crate::interrupt::$e::steal().enable();
+            )+
         }
+
+        $(
+            #[interrupt]
+            unsafe fn $e() {
+                crate::exti::on_irq()
+            }
+        )+
     };
 }

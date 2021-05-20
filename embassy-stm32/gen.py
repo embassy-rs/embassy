@@ -242,7 +242,6 @@ for chip in chips.values():
                     use super::*;
 
                     impl_exti_irq!({','.join(exti_interrupts)});
-                    impl_exti_init!({','.join(exti_interrupts)});
                 }}
             }}
             mod interrupt_vector {{
