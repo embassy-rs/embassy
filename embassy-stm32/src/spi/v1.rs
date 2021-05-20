@@ -54,7 +54,7 @@ impl<'d, T: Instance> Spi<'d, T> {
         let miso = miso.degrade();
 
         unsafe {
-            T::regs().cr2().write(|w| {
+            T::regs().cr2().modify(|w| {
                 w.set_ssoe(false);
             });
         }
@@ -62,7 +62,7 @@ impl<'d, T: Instance> Spi<'d, T> {
         let br = Self::compute_baud_rate(pclk, freq.into());
 
         unsafe {
-            T::regs().cr1().write(|w| {
+            T::regs().cr1().modify(|w| {
                 w.set_cpha(
                     match config.mode.phase == Phase::CaptureOnSecondTransition {
                         true => spi::vals::Cpha::SECONDEDGE,
