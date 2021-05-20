@@ -12,7 +12,7 @@
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use embassy::util::Unborrow;
-use embassy_extras::{impl_unborrow, unborrow};
+use embassy_extras::{unborrow, unsafe_impl_unborrow};
 
 use crate::{pac, peripherals};
 
@@ -146,7 +146,7 @@ pub trait Group: sealed::Group + Sized {
 pub struct AnyChannel {
     number: u8,
 }
-impl_unborrow!(AnyChannel);
+unsafe_impl_unborrow!(AnyChannel);
 impl sealed::Channel for AnyChannel {}
 impl Channel for AnyChannel {
     fn number(&self) -> usize {
@@ -157,7 +157,7 @@ impl Channel for AnyChannel {
 pub struct AnyConfigurableChannel {
     number: u8,
 }
-impl_unborrow!(AnyConfigurableChannel);
+unsafe_impl_unborrow!(AnyConfigurableChannel);
 impl sealed::Channel for AnyConfigurableChannel {}
 impl sealed::ConfigurableChannel for AnyConfigurableChannel {}
 impl ConfigurableChannel for AnyConfigurableChannel {}
@@ -226,7 +226,7 @@ impl_channel!(PPI_CH31, 31);
 pub struct AnyGroup {
     number: u8,
 }
-impl_unborrow!(AnyGroup);
+unsafe_impl_unborrow!(AnyGroup);
 impl sealed::Group for AnyGroup {}
 impl Group for AnyGroup {
     fn number(&self) -> usize {

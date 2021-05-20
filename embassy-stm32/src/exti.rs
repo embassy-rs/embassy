@@ -7,7 +7,7 @@ use core::task::{Context, Poll};
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::traits::gpio::{WaitForAnyEdge, WaitForFallingEdge, WaitForRisingEdge};
 use embassy::util::{AtomicWaker, Unborrow};
-use embassy_extras::impl_unborrow;
+use embassy_extras::unsafe_impl_unborrow;
 use embedded_hal::digital::v2::InputPin;
 use pac::exti::{regs, vals};
 
@@ -214,7 +214,7 @@ pub trait Channel: sealed::Channel + Sized {
 pub struct AnyChannel {
     number: u8,
 }
-impl_unborrow!(AnyChannel);
+unsafe_impl_unborrow!(AnyChannel);
 impl sealed::Channel for AnyChannel {}
 impl Channel for AnyChannel {
     fn number(&self) -> usize {

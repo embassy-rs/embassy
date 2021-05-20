@@ -6,7 +6,7 @@ use crate::pac::SIO;
 use crate::peripherals;
 
 use embassy::util::Unborrow;
-use embassy_extras::{impl_unborrow, unborrow};
+use embassy_extras::{unborrow, unsafe_impl_unborrow};
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 
 /// Represents a digital input or output level.
@@ -209,7 +209,7 @@ pub trait Pin: sealed::Pin {
 pub struct AnyPin {
     pin_bank: u8,
 }
-impl_unborrow!(AnyPin);
+unsafe_impl_unborrow!(AnyPin);
 impl Pin for AnyPin {}
 impl sealed::Pin for AnyPin {
     fn pin_bank(&self) -> u8 {
