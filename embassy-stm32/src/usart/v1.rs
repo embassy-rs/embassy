@@ -3,8 +3,7 @@ use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 
-use crate::gpio::{NoPin, Pin};
-use crate::pac::usart::{regs, vals, Usart};
+use crate::pac::usart::{regs, vals};
 
 use super::*;
 

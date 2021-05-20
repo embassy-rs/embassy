@@ -11,7 +11,6 @@ use embassy_extras::unsafe_impl_unborrow;
 use embedded_hal::digital::v2::InputPin;
 use pac::exti::{regs, vals};
 
-use crate::fmt::*;
 use crate::gpio::{AnyPin, Input, Pin as GpioPin};
 use crate::interrupt;
 use crate::pac;

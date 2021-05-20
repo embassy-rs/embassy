@@ -3,6 +3,7 @@
 #[cfg_attr(feature = "_dma_v1", path = "v1.rs")]
 #[cfg_attr(feature = "_dma_v2", path = "v2.rs")]
 mod _version;
+#[allow(unused)]
 pub use _version::*;
 
 use crate::pac;

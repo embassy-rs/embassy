@@ -1,4 +1,3 @@
-#![no_std]
 #![doc = "Peripheral access API (generated using svd2rust v0.17.0 (22741fa 2021-04-20))"]
 pub mod syscfg_h7 {
     use crate::generic::*;

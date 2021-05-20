@@ -4,13 +4,14 @@
 #![feature(min_type_alias_impl_trait)]
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
 
 #[path = "../example_common.rs"]
 mod example_common;
 use embassy::executor::Executor;
 use embassy::time::Clock;
 use embassy::util::Forever;
-use embassy_stm32::exti::{self, ExtiInput};
+use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_traits::gpio::{WaitForFallingEdge, WaitForRisingEdge};
 use example_common::*;

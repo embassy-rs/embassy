@@ -9,8 +9,6 @@
 // This must go FIRST so that all the other modules see its macros.
 pub mod fmt;
 
-use embassy::interrupt::{Interrupt, InterruptExt};
-
 #[cfg(feature = "_dma")]
 pub mod dma;
 pub mod exti;

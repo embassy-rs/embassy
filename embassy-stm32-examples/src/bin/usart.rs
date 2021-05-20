@@ -4,6 +4,7 @@
 #![feature(min_type_alias_impl_trait)]
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
 
 #[path = "../example_common.rs"]
 mod example_common;
@@ -11,7 +12,6 @@ use cortex_m::prelude::_embedded_hal_blocking_serial_Write;
 use embassy::executor::Executor;
 use embassy::time::Clock;
 use embassy::util::Forever;
-use embassy_stm32::gpio::NoPin;
 use embassy_stm32::usart::{Config, Uart};
 use example_common::*;
 

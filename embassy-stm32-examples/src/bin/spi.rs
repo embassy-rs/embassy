@@ -4,20 +4,20 @@
 #![feature(min_type_alias_impl_trait)]
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
 
 #[path = "../example_common.rs"]
 mod example_common;
 
-use embassy_stm32::gpio::{Input, Level, Output, Pull};
-use embedded_hal::digital::v2::{InputPin, OutputPin};
+use embassy_stm32::gpio::{Level, Output};
+use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
 
 use cortex_m_rt::entry;
-use stm32f4::stm32f429 as pac;
-//use stm32l4::stm32l4x5 as pac;
-use embassy_stm32::spi::{ByteOrder, Config, Spi, MODE_0};
+use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embedded_hal::blocking::spi::Transfer;
+use stm32f4::stm32f429 as pac;
 
 #[entry]
 fn main() -> ! {
@@ -47,7 +47,6 @@ fn main() -> ! {
         w
     });
 
-    let rc = pp.RCC.cfgr.read().sws().bits();
     let p = embassy_stm32::init(Default::default());
 
     let mut spi = Spi::new(
@@ -64,9 +63,9 @@ fn main() -> ! {
 
     loop {
         let mut buf = [0x0A; 4];
-        cs.set_low();
-        spi.transfer(&mut buf);
-        cs.set_high();
+        unwrap!(cs.set_low());
+        unwrap!(spi.transfer(&mut buf));
+        unwrap!(cs.set_high());
         info!("xfer {=[u8]:x}", buf);
     }
 }
