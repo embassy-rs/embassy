@@ -4,7 +4,6 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::traits::gpio::{WaitForAnyEdge, WaitForFallingEdge, WaitForRisingEdge};
 use embassy::util::{AtomicWaker, Unborrow};
 use embassy_extras::unsafe_impl_unborrow;
@@ -12,7 +11,6 @@ use embedded_hal::digital::v2::InputPin;
 use pac::exti::{regs, vals};
 
 use crate::gpio::{AnyPin, Input, Pin as GpioPin};
-use crate::interrupt;
 use crate::pac;
 use crate::pac::{EXTI, SYSCFG};
 use crate::peripherals;
@@ -217,14 +215,14 @@ impl_exti!(EXTI15, 15);
 macro_rules! impl_exti_irq {
     ($($e:ident),+) => {
         /// safety: must be called only once
-        pub(crate) unsafe fn init() {
+        pub(crate) unsafe fn init_exti() {
             $(
                 crate::interrupt::$e::steal().enable();
             )+
         }
 
         $(
-            #[interrupt]
+            #[crate::interrupt]
             unsafe fn $e() {
                 crate::exti::on_irq()
             }

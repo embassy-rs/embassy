@@ -50,7 +50,7 @@ pub fn init(_config: Config) -> Peripherals {
 
     unsafe {
         dma::init();
-        interrupt::exti::init();
+        pac::init_exti();
     }
 
     p

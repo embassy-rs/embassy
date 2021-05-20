@@ -197,6 +197,17 @@ for chip in chips.values():
             peripherals!({','.join(peripheral_names)});
         """)
 
+
+
+        # ========= exti interrupts
+
+        f.write(f"""
+            use embassy::interrupt::Interrupt;
+            use embassy::interrupt::InterruptExt;
+
+            impl_exti_irq!({','.join(exti_interrupts)});
+        """)
+
         # ========= interrupts
 
         irq_variants = []
@@ -235,14 +246,6 @@ for chip in chips.values():
                 }}
 
                 {''.join(irq_declares)}
-
-                pub mod exti {{
-                    use embassy::interrupt::InterruptExt;
-                    use crate::interrupt;
-                    use super::*;
-
-                    impl_exti_irq!({','.join(exti_interrupts)});
-                }}
             }}
             mod interrupt_vector {{
                 extern "C" {{
