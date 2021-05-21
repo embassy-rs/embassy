@@ -83,7 +83,6 @@ impl<'d> Rcc<'d> {
         }
     }
 
-    // TODO: FLASH and PWR
     /// Freeze the core clocks, returning a Core Clocks Distribution
     /// and Reset (CCDR) structure. The actual frequency of the clocks
     /// configured is returned in the `clocks` member of the CCDR
@@ -419,7 +418,7 @@ impl<'d> Rcc<'d> {
             _ => (0b111, 16),
         };
         let real_pclk = hclk / u32::from(ppre);
-        assert!(real_pclk < max_pclk);
+        assert!(real_pclk <= max_pclk);
 
         let tim_ker_clk = if let Some(tim_pre) = tim_pre {
             let clk = match (bits, tim_pre) {
