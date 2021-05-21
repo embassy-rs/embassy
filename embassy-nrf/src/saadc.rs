@@ -30,9 +30,9 @@ pub use saadc::{
 pub enum Error {}
 
 /// One-shot saadc. Continuous sample mode TODO.
-pub struct OneShot<'d, T: PositivePin> {
+pub struct OneShot<'d> {
     irq: interrupt::SAADC,
-    phantom: PhantomData<(&'d mut peripherals::SAADC, &'d mut T)>,
+    phantom: PhantomData<(&'d mut peripherals::SAADC)>,
 }
 
 /// Used to configure the SAADC peripheral.
@@ -66,14 +66,13 @@ impl Default for Config {
     }
 }
 
-impl<'d, T: PositivePin> OneShot<'d, T> {
+impl<'d> OneShot<'d> {
     pub fn new(
         _saadc: impl Unborrow<Target = peripherals::SAADC> + 'd,
         irq: impl Unborrow<Target = interrupt::SAADC> + 'd,
-        positive_pin: impl Unborrow<Target = T> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(irq, positive_pin);
+        unborrow!(irq);
 
         let r = unsafe { &*SAADC::ptr() };
 
@@ -106,11 +105,6 @@ impl<'d, T: PositivePin> OneShot<'d, T> {
             w
         });
 
-        // Set positive channel
-        r.ch[0]
-            .pselp
-            .write(|w| w.pselp().variant(positive_pin.channel()));
-
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0x003F_FFFF) });
 
@@ -125,7 +119,7 @@ impl<'d, T: PositivePin> OneShot<'d, T> {
     }
 }
 
-impl<'d, T: PositivePin> Drop for OneShot<'d, T> {
+impl<'d> Drop for OneShot<'d> {
     fn drop(&mut self) {
         let r = self.regs();
         r.enable.write(|w| w.enable().disabled());
@@ -133,20 +127,24 @@ impl<'d, T: PositivePin> Drop for OneShot<'d, T> {
 }
 
 pub trait Sample {
-    type SampleFuture<'a>: Future<Output = i16> + 'a
+    type SampleFuture<'a, T>: Future<Output = i16> + 'a
     where
+        T: PositivePin + 'a,
         Self: 'a;
 
-    fn sample<'a>(&'a mut self) -> Self::SampleFuture<'a>;
+    fn sample<'a, T: PositivePin>(&'a mut self, pin: &'a T) -> Self::SampleFuture<'a, T>;
 }
 
-impl<'d, T: PositivePin> Sample for OneShot<'d, T> {
+impl<'d> Sample for OneShot<'d> {
     #[rustfmt::skip]
-    type SampleFuture<'a> where Self: 'a = impl Future<Output = i16> + 'a;
+    type SampleFuture<'a, T> where Self: 'a, T: PositivePin + 'a = impl Future<Output = i16> + 'a;
 
-    fn sample<'a>(&'a mut self) -> Self::SampleFuture<'a> {
+    fn sample<'a, T: PositivePin>(&'a mut self, pin: &'a T) -> Self::SampleFuture<'a, T> {
         async move {
             let r = self.regs();
+
+            // Set positive channel
+            r.ch[0].pselp.write(|w| w.pselp().variant(pin.channel()));
 
             // Set up the DMA
             let mut val: i16 = 0;
