@@ -1502,6 +1502,7 @@ macro_rules! impl_sdmmc_pin {
 #[cfg(feature = "sdmmc-rs")]
 mod sdmmc_rs {
     use super::*;
+    use core::future::Future;
     use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
 
     impl<'d, T: Instance, P: Pins<T>> BlockDevice for Sdmmc<'d, T, P> {
