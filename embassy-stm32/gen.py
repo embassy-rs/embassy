@@ -119,16 +119,17 @@ for chip in chips.values():
                     f.write(f'impl_rng!({name}, HASH_RNG);')
 
             if block_mod == 'spi':
-                clock = peri['clock']
-                f.write(f'impl_spi!({name}, {clock});')
-                for pin, funcs in af.items():
-                    if pin in pins:
-                        if func := funcs.get(f'{name}_SCK'):
-                            f.write(f'impl_spi_pin!({name}, SckPin, {pin}, {func});')
-                        if func := funcs.get(f'{name}_MOSI'):
-                            f.write(f'impl_spi_pin!({name}, MosiPin, {pin}, {func});')
-                        if func := funcs.get(f'{name}_MISO'):
-                            f.write(f'impl_spi_pin!({name}, MisoPin, {pin}, {func});')
+                if 'clock' in peri:
+                    clock = peri['clock']
+                    f.write(f'impl_spi!({name}, {clock});')
+                    for pin, funcs in af.items():
+                        if pin in pins:
+                            if func := funcs.get(f'{name}_SCK'):
+                                f.write(f'impl_spi_pin!({name}, SckPin, {pin}, {func});')
+                            if func := funcs.get(f'{name}_MOSI'):
+                                f.write(f'impl_spi_pin!({name}, MosiPin, {pin}, {func});')
+                            if func := funcs.get(f'{name}_MISO'):
+                                f.write(f'impl_spi_pin!({name}, MisoPin, {pin}, {func});')
 
             if block_mod == 'gpio':
                 custom_singletons = True

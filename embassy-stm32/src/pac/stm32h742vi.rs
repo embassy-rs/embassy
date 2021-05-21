@@ -239,12 +239,58 @@ impl_sdmmc_pin!(SDMMC2, D7Pin, PC7, 10);
 impl_sdmmc_pin!(SDMMC2, CkPin, PD6, 11);
 impl_sdmmc_pin!(SDMMC2, CmdPin, PD7, 11);
 impl_sdmmc_pin!(SDMMC2, D2Pin, PG11, 10);
+pub const SPI1: spi::Spi = spi::Spi(0x40013000 as _);
+impl_spi!(SPI1, APB2);
+impl_spi_pin!(SPI1, SckPin, PA5, 5);
+impl_spi_pin!(SPI1, MisoPin, PA6, 5);
+impl_spi_pin!(SPI1, MosiPin, PA7, 5);
+impl_spi_pin!(SPI1, SckPin, PB3, 5);
+impl_spi_pin!(SPI1, MisoPin, PB4, 5);
+impl_spi_pin!(SPI1, MosiPin, PB5, 5);
+impl_spi_pin!(SPI1, MosiPin, PD7, 5);
+impl_spi_pin!(SPI1, SckPin, PG11, 5);
+impl_spi_pin!(SPI1, MisoPin, PG9, 5);
+pub const SPI2: spi::Spi = spi::Spi(0x40003800 as _);
+impl_spi!(SPI2, APB1);
+impl_spi_pin!(SPI2, SckPin, PA12, 5);
+impl_spi_pin!(SPI2, SckPin, PA9, 5);
+impl_spi_pin!(SPI2, SckPin, PB10, 5);
+impl_spi_pin!(SPI2, SckPin, PB13, 5);
+impl_spi_pin!(SPI2, MisoPin, PB14, 5);
+impl_spi_pin!(SPI2, MosiPin, PB15, 5);
+impl_spi_pin!(SPI2, MosiPin, PC1, 5);
+impl_spi_pin!(SPI2, MisoPin, PC2, 5);
+impl_spi_pin!(SPI2, MosiPin, PC3, 5);
+impl_spi_pin!(SPI2, SckPin, PD3, 5);
+impl_spi_pin!(SPI2, SckPin, PI1, 5);
+impl_spi_pin!(SPI2, MisoPin, PI2, 5);
+impl_spi_pin!(SPI2, MosiPin, PI3, 5);
+pub const SPI3: spi::Spi = spi::Spi(0x40003c00 as _);
+impl_spi!(SPI3, APB1);
+impl_spi_pin!(SPI3, MosiPin, PB2, 7);
+impl_spi_pin!(SPI3, SckPin, PB3, 6);
+impl_spi_pin!(SPI3, MisoPin, PB4, 6);
+impl_spi_pin!(SPI3, MosiPin, PB5, 7);
+impl_spi_pin!(SPI3, SckPin, PC10, 6);
+impl_spi_pin!(SPI3, MisoPin, PC11, 6);
+impl_spi_pin!(SPI3, MosiPin, PC12, 6);
+impl_spi_pin!(SPI3, MosiPin, PD6, 5);
+pub const SPI4: spi::Spi = spi::Spi(0x40013400 as _);
+impl_spi!(SPI4, APB2);
+impl_spi_pin!(SPI4, SckPin, PE12, 5);
+impl_spi_pin!(SPI4, MisoPin, PE13, 5);
+impl_spi_pin!(SPI4, MosiPin, PE14, 5);
+impl_spi_pin!(SPI4, SckPin, PE2, 5);
+impl_spi_pin!(SPI4, MisoPin, PE5, 5);
+impl_spi_pin!(SPI4, MosiPin, PE6, 5);
+pub const SPI6: spi::Spi = spi::Spi(0x58001400 as _);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x58000400 as _);
 pub use regs::dma_v2 as dma;
 pub use regs::exti_v1 as exti;
 pub use regs::gpio_v2 as gpio;
 pub use regs::rng_v1 as rng;
 pub use regs::sdmmc_v2 as sdmmc;
+pub use regs::spi_v3 as spi;
 pub use regs::syscfg_h7 as syscfg;
 mod regs;
 use embassy_extras::peripherals;
@@ -263,7 +309,7 @@ peripherals!(
     PH12, PH13, PH14, PH15, PI0, PI1, PI2, PI3, PI4, PI5, PI6, PI7, PI8, PI9, PI10, PI11, PI12,
     PI13, PI14, PI15, PJ0, PJ1, PJ2, PJ3, PJ4, PJ5, PJ6, PJ7, PJ8, PJ9, PJ10, PJ11, PJ12, PJ13,
     PJ14, PJ15, PK0, PK1, PK2, PK3, PK4, PK5, PK6, PK7, PK8, PK9, PK10, PK11, PK12, PK13, PK14,
-    PK15, RNG, SDMMC1, SDMMC2, SYSCFG
+    PK15, RNG, SDMMC1, SDMMC2, SPI1, SPI2, SPI3, SPI4, SPI6, SYSCFG
 );
 
 pub mod interrupt {
