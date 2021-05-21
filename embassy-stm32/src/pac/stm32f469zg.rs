@@ -288,6 +288,18 @@ peripherals!(
     PK15, RNG, SYSCFG, USART1, USART2, USART3, USART6
 );
 
+pub fn DMA(n: u8) -> dma::Dma {
+    match n {
+        0 => DMA1,
+        _ => DMA2,
+    }
+}
+
+use embassy::interrupt::Interrupt;
+use embassy::interrupt::InterruptExt;
+
+impl_exti_irq!(EXTI0, EXTI1, EXTI15_10, EXTI2, EXTI3, EXTI4, EXTI9_5);
+
 pub mod interrupt {
     pub use cortex_m::interrupt::{CriticalSection, Mutex};
     pub use embassy::interrupt::{declare, take, Interrupt};
