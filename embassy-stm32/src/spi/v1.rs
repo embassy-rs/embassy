@@ -20,7 +20,6 @@ impl WordSize {
 }
 
 pub struct Spi<'d, T: Instance> {
-    //peri: T,
     sck: AnyPin,
     mosi: AnyPin,
     miso: AnyPin,
@@ -31,7 +30,7 @@ pub struct Spi<'d, T: Instance> {
 impl<'d, T: Instance> Spi<'d, T> {
     pub fn new<F>(
         pclk: Hertz,
-        peri: impl Unborrow<Target = T> + 'd,
+        _peri: impl Unborrow<Target = T> + 'd,
         sck: impl Unborrow<Target = impl SckPin<T>>,
         mosi: impl Unborrow<Target = impl MosiPin<T>>,
         miso: impl Unborrow<Target = impl MisoPin<T>>,
@@ -41,7 +40,7 @@ impl<'d, T: Instance> Spi<'d, T> {
     where
         F: Into<Hertz>,
     {
-        unborrow!(peri, sck, mosi, miso);
+        unborrow!(sck, mosi, miso);
 
         unsafe {
             sck.set_as_af(sck.af_num());
@@ -90,7 +89,6 @@ impl<'d, T: Instance> Spi<'d, T> {
         }
 
         Self {
-            //peri,
             sck,
             mosi,
             miso,

@@ -8,7 +8,6 @@ use embassy_extras::unborrow;
 use futures::future::poll_fn;
 use rand_core::{CryptoRng, RngCore};
 
-use crate::fmt::*;
 use crate::pac;
 
 pub(crate) static RNG_WAKER: AtomicWaker = AtomicWaker::new();
