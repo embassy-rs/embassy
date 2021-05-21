@@ -12,7 +12,7 @@ defmt-debug = []
 defmt-info = []
 defmt-warn = []
 defmt-error = []
-defmt = [ "dep:defmt", "embassy-fmt/defmt" ]
+defmt-enable = [ "defmt", "embassy-fmt/defmt" ]
 
 executor-agnostic = []
 
@@ -21,7 +21,7 @@ defmt = { version = "0.2.0", optional = true }
 log = { version = "0.4.11", optional = true }
 
 cortex-m = "0.7.1"
-futures     = { version = "0.3.5", default-features = false, features = [ "cfg-target-has-atomic", "unstable" ] }
+futures = { version = "0.3.5", default-features = false, features = [ "cfg-target-has-atomic", "unstable" ] }
 pin-project = { version = "1.0.2", default-features = false }
 embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
 embassy-traits  = { version = "0.1.0", path = "../embassy-traits"}

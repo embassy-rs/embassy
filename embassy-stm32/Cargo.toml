@@ -9,6 +9,7 @@ embassy = { version = "0.1.0", path = "../embassy" }
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["stm32"] }
 embassy-extras = {version = "0.1.0", path = "../embassy-extras" }
 embassy-traits = {version = "0.1.0", path = "../embassy-traits" }
+embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }
 
 defmt = { version = "0.2.0", optional = true }
 log = { version = "0.4.11", optional = true }
@@ -34,7 +35,7 @@ defmt-debug = [ ]
 defmt-info = [ ]
 defmt-warn = [ ]
 defmt-error = [ ]
-defmt = [ "dep:defmt", "embassy/defmt", "embassy-extras/defmt" ]
+defmt-enable = [ "defmt", "embassy/defmt-enable", "embassy-fmt/defmt", "embassy-extras/defmt-enable" ]
 sdmmc-rs = ["embedded-sdmmc"]
 # Unstable feature to give access to the pac used in embassy-stm32, changes with this feature don't
 # follow semver

@@ -6,8 +6,8 @@
 #![feature(type_alias_impl_trait)]
 #![allow(incomplete_features)]
 
-// This must go FIRST so that all the other modules see its macros.
-pub mod fmt;
+#[macro_use]
+extern crate embassy_fmt;
 
 #[cfg(feature = "_timer")]
 pub mod clock;

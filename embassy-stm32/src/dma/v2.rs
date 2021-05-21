@@ -5,7 +5,6 @@ use embassy::util::AtomicWaker;
 use futures::future::poll_fn;
 
 use super::*;
-use crate::fmt::assert;
 use crate::interrupt;
 use crate::pac;
 use crate::pac::dma::{regs, vals};

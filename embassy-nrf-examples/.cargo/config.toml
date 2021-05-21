@@ -1,6 +1,5 @@
 [unstable]
 build-std = ["core"]
-namespaced-features = true
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 # replace nRF82840_xxAA with your chip as listed in `probe-run --list-chips`

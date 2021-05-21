@@ -10,7 +10,7 @@ defmt-debug = [ ]
 defmt-info = [ ]
 defmt-warn = [ ]
 defmt-error = [ ]
-defmt = [ "dep:defmt", "embassy/defmt", "embassy-fmt/defmt", "embassy-extras/defmt" ]
+defmt-enable = [ "defmt", "embassy/defmt-enable", "embassy-fmt/defmt", "embassy-extras/defmt-enable" ]
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy" }
