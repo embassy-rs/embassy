@@ -4,7 +4,6 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::traits::gpio::{WaitForAnyEdge, WaitForFallingEdge, WaitForRisingEdge};
 use embassy::util::{AtomicWaker, Unborrow};
 use embassy_extras::unsafe_impl_unborrow;
@@ -12,7 +11,6 @@ use embedded_hal::digital::v2::InputPin;
 use pac::exti::{regs, vals};
 
 use crate::gpio::{AnyPin, Input, Pin as GpioPin};
-use crate::interrupt;
 use crate::pac;
 use crate::pac::{EXTI, SYSCFG};
 use crate::peripherals;
@@ -20,41 +18,6 @@ use crate::peripherals;
 const EXTI_COUNT: usize = 16;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [NEW_AW; EXTI_COUNT];
-
-#[interrupt]
-unsafe fn EXTI0() {
-    on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI1() {
-    on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI2() {
-    on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI3() {
-    on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI4() {
-    on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI9_5() {
-    on_irq()
-}
-
-#[interrupt]
-unsafe fn EXTI15_10() {
-    on_irq()
-}
 
 pub unsafe fn on_irq() {
     let bits = EXTI.pr().read().0;
@@ -249,14 +212,20 @@ impl_exti!(EXTI13, 13);
 impl_exti!(EXTI14, 14);
 impl_exti!(EXTI15, 15);
 
-/// safety: must be called only once
-pub(crate) unsafe fn init() {
-    interrupt::EXTI0::steal().enable();
-    interrupt::EXTI1::steal().enable();
-    interrupt::EXTI2::steal().enable();
-    interrupt::EXTI3::steal().enable();
-    interrupt::EXTI4::steal().enable();
-    interrupt::EXTI9_5::steal().enable();
-    interrupt::EXTI15_10::steal().enable();
-    interrupt::EXTI15_10::steal().enable();
+macro_rules! impl_exti_irq {
+    ($($e:ident),+) => {
+        /// safety: must be called only once
+        pub(crate) unsafe fn init_exti() {
+            $(
+                crate::interrupt::$e::steal().enable();
+            )+
+        }
+
+        $(
+            #[crate::interrupt]
+            unsafe fn $e() {
+                crate::exti::on_irq()
+            }
+        )+
+    };
 }

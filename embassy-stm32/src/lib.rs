@@ -49,8 +49,8 @@ pub fn init(_config: Config) -> Peripherals {
     let p = Peripherals::take();
 
     unsafe {
-        exti::init();
         dma::init();
+        pac::init_exti();
     }
 
     p

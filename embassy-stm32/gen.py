@@ -3,6 +3,7 @@ import yaml
 import re
 import json
 import os
+import re
 import toml
 from collections import OrderedDict
 from glob import glob
@@ -14,7 +15,7 @@ os.chdir(dname)
 # ======= load chips
 chips = {}
 for f in sorted(glob('stm32-data/data/chips/*.yaml')):
-    if 'STM32F4' not in f and 'STM32L4' not in f and 'STM32H7' not in f:
+    if 'STM32F4' not in f and 'STM32L4' not in f and 'STM32H7' not in f and 'STM32L0' not in f:
         continue
     with open(f, 'r') as f:
         chip = yaml.load(f, Loader=yaml.CSafeLoader)
@@ -56,6 +57,7 @@ for chip in chips.values():
 
         af = gpio_afs[chip['gpio_af']]
         peripheral_names = []  # USART1, PA5, EXTI8
+        exti_interrupts = [] # EXTI IRQs, EXTI0, EXTI4_15 etc.
         peripheral_versions = {}  # usart -> v1, syscfg -> f4
         pins = set()  # set of all present pins. PA4, PA5...
 
@@ -73,6 +75,7 @@ for chip in chips.values():
         # ========= peripherals
 
         peripheral_names.extend((f'EXTI{x}' for x in range(16)))
+        num_dmas = 0
 
         for (name, peri) in chip['peripherals'].items():
             if 'block' not in peri:
@@ -113,10 +116,9 @@ for chip in chips.values():
                             f.write(f'impl_usart_pin!({name}, CkPin, {pin}, {func});')
 
             if block_mod == 'rng':
-                if 'RNG' in chip['interrupts']:
-                    f.write(f'impl_rng!({name}, RNG);')
-                else:
-                    f.write(f'impl_rng!({name}, HASH_RNG);')
+                for irq in chip['interrupts']:
+                    if re.search('RNG', irq):
+                        f.write(f'impl_rng!({name}, ' + irq  + f');')
 
             if block_mod == 'spi':
                 if 'clock' in peri:
@@ -146,10 +148,13 @@ for chip in chips.values():
 
             if block_mod == 'dma':
                 custom_singletons = True
+                num_dmas += 1
                 dma_num = int(name[3:])-1  # substract 1 because we want DMA1=0, DMA2=1
+
                 for ch_num in range(8):
                     channel = f'{name}_CH{ch_num}'
                     peripheral_names.append(channel)
+
                     f.write(f'impl_dma_channel!({channel}, {dma_num}, {ch_num});')
 
             if peri['block'] == 'sdmmc_v2/SDMMC':
@@ -177,6 +182,12 @@ for chip in chips.values():
                         if func := funcs.get(f'{name}_D7'):
                             f.write(f'impl_sdmmc_pin!({name}, D7Pin, {pin}, {func});')
 
+
+            if block_mod == 'exti':
+                for irq in chip['interrupts']:
+                    if re.match('EXTI', irq):
+                        exti_interrupts.append(irq)
+
             if not custom_singletons:
                 peripheral_names.append(name)
 
@@ -188,6 +199,30 @@ for chip in chips.values():
             pub use regs::generic;
             use embassy_extras::peripherals;
             peripherals!({','.join(peripheral_names)});
+        """)
+
+
+        # ========= DMA peripherals
+        if num_dmas > 0:
+            f.write(f"""
+                pub fn DMA(n: u8) -> dma::Dma {{
+                    match n {{
+            """)
+            for n in range(num_dmas - 1):
+                f.write(f'{n} => DMA{n + 1},')
+            f.write(f"""
+                        _ => DMA{num_dmas},
+                    }}
+                }}
+            """)
+
+        # ========= exti interrupts
+
+        f.write(f"""
+            use embassy::interrupt::Interrupt;
+            use embassy::interrupt::InterruptExt;
+
+            impl_exti_irq!({','.join(exti_interrupts)});
         """)
 
         # ========= interrupts

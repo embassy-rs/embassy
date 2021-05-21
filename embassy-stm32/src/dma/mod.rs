@@ -20,12 +20,8 @@ pub(crate) mod sealed {
         fn ch_num(&self) -> u8 {
             self.num() % 8
         }
-
         fn regs(&self) -> pac::dma::Dma {
-            match self.dma_num() {
-                0 => pac::DMA1,
-                _ => pac::DMA2,
-            }
+            pac::DMA(self.num())
         }
     }
 }
