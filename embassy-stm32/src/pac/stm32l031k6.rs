@@ -101,16 +101,13 @@ impl_usart_pin!(USART2, CtsPin, PA7, 4);
 impl_usart_pin!(USART2, CkPin, PA8, 4);
 impl_usart_pin!(USART2, TxPin, PA9, 4);
 impl_usart_pin!(USART2, RtsPin, PB0, 4);
-pub use regs::dma_v1 as dma;
-pub use regs::exti_v1 as exti;
-pub use regs::gpio_v2 as gpio;
-pub use regs::rcc_l0 as rcc;
-pub use regs::syscfg_l0 as syscfg;
-pub use regs::usart_v2 as usart;
-mod regs;
-use embassy_extras::peripherals;
-pub use regs::generic;
-peripherals!(
+pub use super::regs::dma_v1 as dma;
+pub use super::regs::exti_v1 as exti;
+pub use super::regs::gpio_v2 as gpio;
+pub use super::regs::rcc_l0 as rcc;
+pub use super::regs::syscfg_l0 as syscfg;
+pub use super::regs::usart_v2 as usart;
+embassy_extras::peripherals!(
     EXTI0, EXTI1, EXTI2, EXTI3, EXTI4, EXTI5, EXTI6, EXTI7, EXTI8, EXTI9, EXTI10, EXTI11, EXTI12,
     EXTI13, EXTI14, EXTI15, DMA1_CH0, DMA1_CH1, DMA1_CH2, DMA1_CH3, DMA1_CH4, DMA1_CH5, DMA1_CH6,
     DMA1_CH7, EXTI, PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7, PA8, PA9, PA10, PA11, PA12, PA13, PA14,
@@ -119,18 +116,12 @@ peripherals!(
     PH2, PH3, PH4, PH5, PH6, PH7, PH8, PH9, PH10, PH11, PH12, PH13, PH14, PH15, RCC, SYSCFG,
     USART2
 );
-
 pub fn DMA(n: u8) -> dma::Dma {
     match n {
         _ => DMA1,
     }
 }
-
-use embassy::interrupt::Interrupt;
-use embassy::interrupt::InterruptExt;
-
 impl_exti_irq!(EXTI0_1, EXTI2_3, EXTI4_15);
-
 pub mod interrupt {
     pub use cortex_m::interrupt::{CriticalSection, Mutex};
     pub use embassy::interrupt::{declare, take, Interrupt};
