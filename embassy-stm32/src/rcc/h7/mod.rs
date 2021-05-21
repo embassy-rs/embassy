@@ -5,7 +5,7 @@ use embassy::util::Unborrow;
 use crate::fmt::{assert, panic};
 use crate::pac::peripherals;
 use crate::pac::rcc::vals::Timpre;
-use crate::pac::{RCC, SYSCFG};
+use crate::pac::{DBGMCU, RCC, SYSCFG};
 use crate::pwr::{Power, VoltageScale};
 use crate::time::Hertz;
 
@@ -365,15 +365,21 @@ impl<'d> Rcc<'d> {
     ///
     /// Set `enable_dma1` to true if you do not have at least one bus master (other than the CPU)
     /// enable during WFI/WFE
-    pub fn enable_debug_wfe(&mut self, enable_dma1: bool) {
+    pub fn enable_debug_wfe(&mut self, _dbg: &mut peripherals::DBGMCU, enable_dma1: bool) {
         use crate::pac::rcc::vals::Ahb1enrDma1en;
 
-        // NOTE(unsafe) We have exclusive access to the RCC
+        // NOTE(unsafe) We have exclusive access to the RCC and DBGMCU
         unsafe {
             if enable_dma1 {
                 RCC.ahb1enr()
                     .modify(|w| w.set_dma1en(Ahb1enrDma1en::ENABLED));
             }
+
+            DBGMCU.cr().modify(|w| {
+                w.set_dbgsleep_d1(true);
+                w.set_dbgstby_d1(true);
+                w.set_dbgstop_d1(true);
+            });
         }
     }
 
