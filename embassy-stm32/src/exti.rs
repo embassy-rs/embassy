@@ -216,6 +216,9 @@ macro_rules! impl_exti_irq {
     ($($e:ident),+) => {
         /// safety: must be called only once
         pub(crate) unsafe fn init_exti() {
+            use embassy::interrupt::Interrupt;
+            use embassy::interrupt::InterruptExt;
+
             $(
                 crate::interrupt::$e::steal().enable();
             )+

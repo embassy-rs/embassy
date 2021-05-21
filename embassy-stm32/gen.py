@@ -57,7 +57,7 @@ for chip in chips.values():
 
         af = gpio_afs[chip['gpio_af']]
         peripheral_names = []  # USART1, PA5, EXTI8
-        exti_interrupts = [] # EXTI IRQs, EXTI0, EXTI4_15 etc.
+        exti_interrupts = []  # EXTI IRQs, EXTI0, EXTI4_15 etc.
         peripheral_versions = {}  # usart -> v1, syscfg -> f4
         pins = set()  # set of all present pins. PA4, PA5...
 
@@ -118,7 +118,7 @@ for chip in chips.values():
             if block_mod == 'rng':
                 for irq in chip['interrupts']:
                     if re.search('RNG', irq):
-                        f.write(f'impl_rng!({name}, ' + irq  + f');')
+                        f.write(f'impl_rng!({name}, {irq});')
 
             if block_mod == 'spi':
                 if 'clock' in peri:
@@ -182,7 +182,6 @@ for chip in chips.values():
                         if func := funcs.get(f'{name}_D7'):
                             f.write(f'impl_sdmmc_pin!({name}, D7Pin, {pin}, {func});')
 
-
             if block_mod == 'exti':
                 for irq in chip['interrupts']:
                     if re.match('EXTI', irq):
@@ -201,7 +200,6 @@ for chip in chips.values():
             peripherals!({','.join(peripheral_names)});
         """)
 
-
         # ========= DMA peripherals
         if num_dmas > 0:
             f.write(f"""
@@ -219,9 +217,6 @@ for chip in chips.values():
         # ========= exti interrupts
 
         f.write(f"""
-            use embassy::interrupt::Interrupt;
-            use embassy::interrupt::InterruptExt;
-
             impl_exti_irq!({','.join(exti_interrupts)});
         """)
 
