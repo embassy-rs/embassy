@@ -1,4 +1,4 @@
-use super::{Config, Hertz, HSI, RCC};
+use super::{Hertz, RCC};
 use crate::fmt::assert;
 
 const VCO_MIN: u32 = 150_000_000;

@@ -13,7 +13,8 @@ pub mod fmt;
 pub mod dma;
 pub mod exti;
 pub mod gpio;
-mod rcc;
+pub mod pwr;
+pub mod rcc;
 #[cfg(feature = "_rng")]
 pub mod rng;
 #[cfg(feature = "_sdmmc")]

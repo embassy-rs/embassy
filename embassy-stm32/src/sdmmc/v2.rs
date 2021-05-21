@@ -1,7 +1,6 @@
 #![macro_use]
 
 use core::default::Default;
-use core::future::Future;
 use core::marker::PhantomData;
 use core::task::Poll;
 
