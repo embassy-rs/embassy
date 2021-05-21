@@ -31,7 +31,7 @@ pub use embassy_macros::interrupt;
 pub use pac::{interrupt, peripherals, Peripherals};
 
 // workaround for svd2rust-generated code using `use crate::generic::*;`
-pub(crate) use pac::generic;
+pub(crate) use pac::regs::generic;
 
 #[non_exhaustive]
 pub struct Config {

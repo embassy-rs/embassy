@@ -42,6 +42,7 @@ with open('src/pac/mod.rs', 'w') as f:
             f'#[cfg_attr(feature="{chip["name"]}", path="{chip["name"]}.rs")]\n')
     f.write('mod chip;\n')
     f.write('pub use chip::*;\n')
+    f.write('pub(crate) mod regs;\n')
 
 # ========= Generate pac/stm32xxx.rs
 
@@ -191,14 +192,9 @@ for chip in chips.values():
                 peripheral_names.append(name)
 
         for mod, version in peripheral_versions.items():
-            f.write(f'pub use regs::{mod}_{version} as {mod};')
+            f.write(f'pub use super::regs::{mod}_{version} as {mod};')
 
-        f.write(f"""
-            mod regs;
-            pub use regs::generic;
-            use embassy_extras::peripherals;
-            peripherals!({','.join(peripheral_names)});
-        """)
+        f.write(f"embassy_extras::peripherals!({','.join(peripheral_names)});")
 
         # ========= DMA peripherals
         if num_dmas > 0:
@@ -216,9 +212,7 @@ for chip in chips.values():
 
         # ========= exti interrupts
 
-        f.write(f"""
-            impl_exti_irq!({','.join(exti_interrupts)});
-        """)
+        f.write(f"impl_exti_irq!({','.join(exti_interrupts)});")
 
         # ========= interrupts
 
