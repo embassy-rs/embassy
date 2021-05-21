@@ -5,6 +5,7 @@
 pub fn GPIO(n: usize) -> gpio::Gpio {
     gpio::Gpio((0x58020000 + 0x400 * n) as _)
 }
+pub const DBGMCU: dbgmcu::Dbgmcu = dbgmcu::Dbgmcu(0x5c001000 as _);
 pub const DMA1: dma::Dma = dma::Dma(0x40020000 as _);
 impl_dma_channel!(DMA1_CH0, 0, 0);
 impl_dma_channel!(DMA1_CH1, 0, 1);
@@ -212,6 +213,10 @@ impl_gpio_pin!(PK12, 10, 12, EXTI12);
 impl_gpio_pin!(PK13, 10, 13, EXTI13);
 impl_gpio_pin!(PK14, 10, 14, EXTI14);
 impl_gpio_pin!(PK15, 10, 15, EXTI15);
+pub const I2C1: i2c::I2c = i2c::I2c(0x40005400 as _);
+pub const I2C2: i2c::I2c = i2c::I2c(0x40005800 as _);
+pub const I2C3: i2c::I2c = i2c::I2c(0x40005c00 as _);
+pub const I2C4: i2c::I2c = i2c::I2c(0x58001c00 as _);
 pub const PWR: pwr::Pwr = pwr::Pwr(0x58024800 as _);
 pub const RNG: rng::Rng = rng::Rng(0x48021800 as _);
 impl_rng!(RNG, RNG);
@@ -305,57 +310,33 @@ impl_spi_pin!(SPI6, MisoPin, PG12, 5);
 impl_spi_pin!(SPI6, SckPin, PG13, 5);
 impl_spi_pin!(SPI6, MosiPin, PG14, 5);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x58000400 as _);
-<<<<<<< HEAD
+pub use super::regs::dbgmcu_h7 as dbgmcu;
 pub use super::regs::dma_v2 as dma;
 pub use super::regs::exti_v1 as exti;
+pub use super::regs::flash_h7 as flash;
 pub use super::regs::gpio_v2 as gpio;
+pub use super::regs::i2c_v2 as i2c;
+pub use super::regs::pwr_h7 as pwr;
 pub use super::regs::rng_v1 as rng;
 pub use super::regs::sdmmc_v2 as sdmmc;
 pub use super::regs::spi_v3 as spi;
 pub use super::regs::syscfg_h7 as syscfg;
 embassy_extras::peripherals!(
     EXTI0, EXTI1, EXTI2, EXTI3, EXTI4, EXTI5, EXTI6, EXTI7, EXTI8, EXTI9, EXTI10, EXTI11, EXTI12,
-    EXTI13, EXTI14, EXTI15, DMA1_CH0, DMA1_CH1, DMA1_CH2, DMA1_CH3, DMA1_CH4, DMA1_CH5, DMA1_CH6,
-    DMA1_CH7, DMA2_CH0, DMA2_CH1, DMA2_CH2, DMA2_CH3, DMA2_CH4, DMA2_CH5, DMA2_CH6, DMA2_CH7, EXTI,
-    PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7, PA8, PA9, PA10, PA11, PA12, PA13, PA14, PA15, PB0, PB1,
-    PB2, PB3, PB4, PB5, PB6, PB7, PB8, PB9, PB10, PB11, PB12, PB13, PB14, PB15, PC0, PC1, PC2, PC3,
-    PC4, PC5, PC6, PC7, PC8, PC9, PC10, PC11, PC12, PC13, PC14, PC15, PD0, PD1, PD2, PD3, PD4, PD5,
-    PD6, PD7, PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15, PE0, PE1, PE2, PE3, PE4, PE5, PE6, PE7,
-    PE8, PE9, PE10, PE11, PE12, PE13, PE14, PE15, PF0, PF1, PF2, PF3, PF4, PF5, PF6, PF7, PF8, PF9,
-    PF10, PF11, PF12, PF13, PF14, PF15, PG0, PG1, PG2, PG3, PG4, PG5, PG6, PG7, PG8, PG9, PG10,
-    PG11, PG12, PG13, PG14, PG15, PH0, PH1, PH2, PH3, PH4, PH5, PH6, PH7, PH8, PH9, PH10, PH11,
-    PH12, PH13, PH14, PH15, PI0, PI1, PI2, PI3, PI4, PI5, PI6, PI7, PI8, PI9, PI10, PI11, PI12,
-    PI13, PI14, PI15, PJ0, PJ1, PJ2, PJ3, PJ4, PJ5, PJ6, PJ7, PJ8, PJ9, PJ10, PJ11, PJ12, PJ13,
-    PJ14, PJ15, PK0, PK1, PK2, PK3, PK4, PK5, PK6, PK7, PK8, PK9, PK10, PK11, PK12, PK13, PK14,
-    PK15, RNG, SDMMC1, SDMMC2, SPI1, SPI2, SPI3, SPI4, SPI6, SYSCFG
-=======
-pub use regs::dma_v2 as dma;
-pub use regs::exti_v1 as exti;
-pub use regs::flash_h7 as flash;
-pub use regs::gpio_v2 as gpio;
-pub use regs::pwr_h7 as pwr;
-pub use regs::rng_v1 as rng;
-pub use regs::sdmmc_v2 as sdmmc;
-pub use regs::syscfg_h7 as syscfg;
-mod regs;
-use embassy_extras::peripherals;
-pub use regs::generic;
-peripherals!(
-    EXTI0, EXTI1, EXTI2, EXTI3, EXTI4, EXTI5, EXTI6, EXTI7, EXTI8, EXTI9, EXTI10, EXTI11, EXTI12,
-    EXTI13, EXTI14, EXTI15, DMA1_CH0, DMA1_CH1, DMA1_CH2, DMA1_CH3, DMA1_CH4, DMA1_CH5, DMA1_CH6,
-    DMA1_CH7, DMA2_CH0, DMA2_CH1, DMA2_CH2, DMA2_CH3, DMA2_CH4, DMA2_CH5, DMA2_CH6, DMA2_CH7, EXTI,
-    FLASH, PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7, PA8, PA9, PA10, PA11, PA12, PA13, PA14, PA15,
-    PB0, PB1, PB2, PB3, PB4, PB5, PB6, PB7, PB8, PB9, PB10, PB11, PB12, PB13, PB14, PB15, PC0, PC1,
-    PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC10, PC11, PC12, PC13, PC14, PC15, PD0, PD1, PD2, PD3,
-    PD4, PD5, PD6, PD7, PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15, PE0, PE1, PE2, PE3, PE4, PE5,
-    PE6, PE7, PE8, PE9, PE10, PE11, PE12, PE13, PE14, PE15, PF0, PF1, PF2, PF3, PF4, PF5, PF6, PF7,
-    PF8, PF9, PF10, PF11, PF12, PF13, PF14, PF15, PG0, PG1, PG2, PG3, PG4, PG5, PG6, PG7, PG8, PG9,
-    PG10, PG11, PG12, PG13, PG14, PG15, PH0, PH1, PH2, PH3, PH4, PH5, PH6, PH7, PH8, PH9, PH10,
-    PH11, PH12, PH13, PH14, PH15, PI0, PI1, PI2, PI3, PI4, PI5, PI6, PI7, PI8, PI9, PI10, PI11,
-    PI12, PI13, PI14, PI15, PJ0, PJ1, PJ2, PJ3, PJ4, PJ5, PJ6, PJ7, PJ8, PJ9, PJ10, PJ11, PJ12,
-    PJ13, PJ14, PJ15, PK0, PK1, PK2, PK3, PK4, PK5, PK6, PK7, PK8, PK9, PK10, PK11, PK12, PK13,
-    PK14, PK15, PWR, RNG, SDMMC1, SDMMC2, SYSCFG
->>>>>>> c084e70 (Update generated code)
+    EXTI13, EXTI14, EXTI15, DBGMCU, DMA1_CH0, DMA1_CH1, DMA1_CH2, DMA1_CH3, DMA1_CH4, DMA1_CH5,
+    DMA1_CH6, DMA1_CH7, DMA2_CH0, DMA2_CH1, DMA2_CH2, DMA2_CH3, DMA2_CH4, DMA2_CH5, DMA2_CH6,
+    DMA2_CH7, EXTI, FLASH, PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7, PA8, PA9, PA10, PA11, PA12,
+    PA13, PA14, PA15, PB0, PB1, PB2, PB3, PB4, PB5, PB6, PB7, PB8, PB9, PB10, PB11, PB12, PB13,
+    PB14, PB15, PC0, PC1, PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC10, PC11, PC12, PC13, PC14,
+    PC15, PD0, PD1, PD2, PD3, PD4, PD5, PD6, PD7, PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15,
+    PE0, PE1, PE2, PE3, PE4, PE5, PE6, PE7, PE8, PE9, PE10, PE11, PE12, PE13, PE14, PE15, PF0, PF1,
+    PF2, PF3, PF4, PF5, PF6, PF7, PF8, PF9, PF10, PF11, PF12, PF13, PF14, PF15, PG0, PG1, PG2, PG3,
+    PG4, PG5, PG6, PG7, PG8, PG9, PG10, PG11, PG12, PG13, PG14, PG15, PH0, PH1, PH2, PH3, PH4, PH5,
+    PH6, PH7, PH8, PH9, PH10, PH11, PH12, PH13, PH14, PH15, PI0, PI1, PI2, PI3, PI4, PI5, PI6, PI7,
+    PI8, PI9, PI10, PI11, PI12, PI13, PI14, PI15, PJ0, PJ1, PJ2, PJ3, PJ4, PJ5, PJ6, PJ7, PJ8, PJ9,
+    PJ10, PJ11, PJ12, PJ13, PJ14, PJ15, PK0, PK1, PK2, PK3, PK4, PK5, PK6, PK7, PK8, PK9, PK10,
+    PK11, PK12, PK13, PK14, PK15, I2C1, I2C2, I2C3, I2C4, PWR, RNG, SDMMC1, SDMMC2, SPI1, SPI2,
+    SPI3, SPI4, SPI6, SYSCFG
 );
 pub fn DMA(n: u8) -> dma::Dma {
     match n {
