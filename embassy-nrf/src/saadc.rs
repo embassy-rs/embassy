@@ -32,7 +32,7 @@ pub enum Error {}
 /// One-shot saadc. Continuous sample mode TODO.
 pub struct OneShot<'d> {
     irq: interrupt::SAADC,
-    phantom: PhantomData<(&'d mut peripherals::SAADC)>,
+    phantom: PhantomData<&'d mut peripherals::SAADC>,
 }
 
 /// Used to configure the SAADC peripheral.
@@ -117,6 +117,49 @@ impl<'d> OneShot<'d> {
     fn regs(&self) -> &saadc::RegisterBlock {
         unsafe { &*SAADC::ptr() }
     }
+
+    async fn sample_inner(&mut self, pin: PositiveChannel) -> i16 {
+        let r = self.regs();
+
+        // Set positive channel
+        r.ch[0].pselp.write(|w| w.pselp().variant(pin));
+
+        // Set up the DMA
+        let mut val: i16 = 0;
+        r.result
+            .ptr
+            .write(|w| unsafe { w.ptr().bits(((&mut val) as *mut _) as u32) });
+        r.result.maxcnt.write(|w| unsafe { w.maxcnt().bits(1) });
+
+        // Reset and enable the end event
+        r.events_end.reset();
+        r.intenset.write(|w| w.end().set());
+
+        // Don't reorder the ADC start event before the previous writes. Hopefully self
+        // wouldn't happen anyway.
+        compiler_fence(Ordering::SeqCst);
+
+        r.tasks_start.write(|w| unsafe { w.bits(1) });
+        r.tasks_sample.write(|w| unsafe { w.bits(1) });
+
+        // Wait for 'end' event.
+        poll_fn(|cx| {
+            let r = self.regs();
+
+            if r.events_end.read().bits() != 0 {
+                r.events_end.reset();
+                return Poll::Ready(());
+            }
+
+            wake_on_interrupt(&mut self.irq, cx.waker());
+
+            Poll::Pending
+        })
+        .await;
+
+        // The DMA wrote the sampled value to `val`.
+        val
+    }
 }
 
 impl<'d> Drop for OneShot<'d> {
@@ -131,57 +174,15 @@ pub trait Sample {
     where
         Self: 'a;
 
-    fn sample<'a>(&'a mut self, pin: &mut dyn PositivePin) -> Self::SampleFuture<'a>;
+    fn sample<'a, T: PositivePin>(&'a mut self, pin: &mut T) -> Self::SampleFuture<'a>;
 }
 
 impl<'d> Sample for OneShot<'d> {
     #[rustfmt::skip]
     type SampleFuture<'a> where Self: 'a = impl Future<Output = i16> + 'a;
 
-    fn sample<'a>(&'a mut self, pin: &mut dyn PositivePin) -> Self::SampleFuture<'a> {
-        let channel = pin.channel();
-        async move {
-            let r = self.regs();
-
-            // Set positive channel
-            r.ch[0].pselp.write(|w| w.pselp().variant(channel));
-
-            // Set up the DMA
-            let mut val: i16 = 0;
-            r.result
-                .ptr
-                .write(|w| unsafe { w.ptr().bits(((&mut val) as *mut _) as u32) });
-            r.result.maxcnt.write(|w| unsafe { w.maxcnt().bits(1) });
-
-            // Reset and enable the end event
-            r.events_end.reset();
-            r.intenset.write(|w| w.end().set());
-
-            // Don't reorder the ADC start event before the previous writes. Hopefully self
-            // wouldn't happen anyway.
-            compiler_fence(Ordering::SeqCst);
-
-            r.tasks_start.write(|w| unsafe { w.bits(1) });
-            r.tasks_sample.write(|w| unsafe { w.bits(1) });
-
-            // Wait for 'end' event.
-            poll_fn(|cx| {
-                let r = self.regs();
-
-                if r.events_end.read().bits() != 0 {
-                    r.events_end.reset();
-                    return Poll::Ready(());
-                }
-
-                wake_on_interrupt(&mut self.irq, cx.waker());
-
-                Poll::Pending
-            })
-            .await;
-
-            // The DMA wrote the sampled value to `val`.
-            val
-        }
+    fn sample<'a, T: PositivePin>(&'a mut self, pin: &mut T) -> Self::SampleFuture<'a> {
+        self.sample_inner(pin.channel())
     }
 }
 
