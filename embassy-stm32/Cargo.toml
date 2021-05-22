@@ -31,6 +31,9 @@ defmt-info = [ ]
 defmt-warn = [ ]
 defmt-error = [ ]
 sdmmc-rs = ["embedded-sdmmc"]
+# Unstable feature to give access to the pac used in embassy-stm32, changes with this feature don't
+# follow semver
+pac = []
 
 # BEGIN GENERATED FEATURES
 stm32f401cb = [ "_dma", "_dma_v2", "_exti", "_exti_v1", "_gpio", "_gpio_v2", "_spi", "_spi_v1", "_stm32f4", "_syscfg", "_syscfg_f4", "_usart", "_usart_v1",]

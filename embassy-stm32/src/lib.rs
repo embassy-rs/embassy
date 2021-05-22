@@ -25,7 +25,11 @@ pub mod spi;
 pub mod usart;
 
 // This must go LAST so that it sees the `impl_foo!` macros
+#[cfg(feature = "pac")]
 pub mod pac;
+
+#[cfg(not(feature = "pac"))]
+mod pac;
 pub mod time;
 
 pub use embassy_macros::interrupt;

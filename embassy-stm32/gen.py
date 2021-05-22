@@ -42,7 +42,8 @@ with open('src/pac/mod.rs', 'w') as f:
             f'#[cfg_attr(feature="{chip["name"]}", path="{chip["name"]}.rs")]\n')
     f.write('mod chip;\n')
     f.write('pub use chip::*;\n')
-    f.write('pub(crate) mod regs;\n')
+    f.write('#[allow(dead_code, unused_imports)]\n')
+    f.write('pub mod regs;\n')
 
 # ========= Generate pac/stm32xxx.rs
 
