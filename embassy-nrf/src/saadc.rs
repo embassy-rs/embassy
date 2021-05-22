@@ -127,24 +127,24 @@ impl<'d> Drop for OneShot<'d> {
 }
 
 pub trait Sample {
-    type SampleFuture<'a, T>: Future<Output = i16> + 'a
+    type SampleFuture<'a>: Future<Output = i16> + 'a
     where
-        T: PositivePin + 'a,
         Self: 'a;
 
-    fn sample<'a, T: PositivePin>(&'a mut self, pin: &'a T) -> Self::SampleFuture<'a, T>;
+    fn sample<'a>(&'a mut self, pin: &mut dyn PositivePin) -> Self::SampleFuture<'a>;
 }
 
 impl<'d> Sample for OneShot<'d> {
     #[rustfmt::skip]
-    type SampleFuture<'a, T> where Self: 'a, T: PositivePin + 'a = impl Future<Output = i16> + 'a;
+    type SampleFuture<'a> where Self: 'a = impl Future<Output = i16> + 'a;
 
-    fn sample<'a, T: PositivePin>(&'a mut self, pin: &'a T) -> Self::SampleFuture<'a, T> {
+    fn sample<'a>(&'a mut self, pin: &mut dyn PositivePin) -> Self::SampleFuture<'a> {
+        let channel = pin.channel();
         async move {
             let r = self.regs();
 
             // Set positive channel
-            r.ch[0].pselp.write(|w| w.pselp().variant(pin.channel()));
+            r.ch[0].pselp.write(|w| w.pselp().variant(channel));
 
             // Set up the DMA
             let mut val: i16 = 0;
@@ -188,7 +188,7 @@ impl<'d> Sample for OneShot<'d> {
 /// A pin that can be used as the positive end of a ADC differential in the SAADC periperhal.
 ///
 /// Currently negative is always shorted to ground (0V).
-pub trait PositivePin: Unborrow<Target = Self> {
+pub trait PositivePin {
     fn channel(&self) -> PositiveChannel;
 }
 
