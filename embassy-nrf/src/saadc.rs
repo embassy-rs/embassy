@@ -30,9 +30,9 @@ pub use saadc::{
 pub enum Error {}
 
 /// One-shot saadc. Continuous sample mode TODO.
-pub struct OneShot<'d, T: PositivePin> {
+pub struct OneShot<'d> {
     irq: interrupt::SAADC,
-    phantom: PhantomData<(&'d mut peripherals::SAADC, &'d mut T)>,
+    phantom: PhantomData<&'d mut peripherals::SAADC>,
 }
 
 /// Used to configure the SAADC peripheral.
@@ -66,14 +66,13 @@ impl Default for Config {
     }
 }
 
-impl<'d, T: PositivePin> OneShot<'d, T> {
+impl<'d> OneShot<'d> {
     pub fn new(
         _saadc: impl Unborrow<Target = peripherals::SAADC> + 'd,
         irq: impl Unborrow<Target = interrupt::SAADC> + 'd,
-        positive_pin: impl Unborrow<Target = T> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(irq, positive_pin);
+        unborrow!(irq);
 
         let r = unsafe { &*SAADC::ptr() };
 
@@ -106,11 +105,6 @@ impl<'d, T: PositivePin> OneShot<'d, T> {
             w
         });
 
-        // Set positive channel
-        r.ch[0]
-            .pselp
-            .write(|w| w.pselp().variant(positive_pin.channel()));
-
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0x003F_FFFF) });
 
@@ -123,9 +117,52 @@ impl<'d, T: PositivePin> OneShot<'d, T> {
     fn regs(&self) -> &saadc::RegisterBlock {
         unsafe { &*SAADC::ptr() }
     }
+
+    async fn sample_inner(&mut self, pin: PositiveChannel) -> i16 {
+        let r = self.regs();
+
+        // Set positive channel
+        r.ch[0].pselp.write(|w| w.pselp().variant(pin));
+
+        // Set up the DMA
+        let mut val: i16 = 0;
+        r.result
+            .ptr
+            .write(|w| unsafe { w.ptr().bits(((&mut val) as *mut _) as u32) });
+        r.result.maxcnt.write(|w| unsafe { w.maxcnt().bits(1) });
+
+        // Reset and enable the end event
+        r.events_end.reset();
+        r.intenset.write(|w| w.end().set());
+
+        // Don't reorder the ADC start event before the previous writes. Hopefully self
+        // wouldn't happen anyway.
+        compiler_fence(Ordering::SeqCst);
+
+        r.tasks_start.write(|w| unsafe { w.bits(1) });
+        r.tasks_sample.write(|w| unsafe { w.bits(1) });
+
+        // Wait for 'end' event.
+        poll_fn(|cx| {
+            let r = self.regs();
+
+            if r.events_end.read().bits() != 0 {
+                r.events_end.reset();
+                return Poll::Ready(());
+            }
+
+            wake_on_interrupt(&mut self.irq, cx.waker());
+
+            Poll::Pending
+        })
+        .await;
+
+        // The DMA wrote the sampled value to `val`.
+        val
+    }
 }
 
-impl<'d, T: PositivePin> Drop for OneShot<'d, T> {
+impl<'d> Drop for OneShot<'d> {
     fn drop(&mut self) {
         let r = self.regs();
         r.enable.write(|w| w.enable().disabled());
@@ -137,60 +174,22 @@ pub trait Sample {
     where
         Self: 'a;
 
-    fn sample<'a>(&'a mut self) -> Self::SampleFuture<'a>;
+    fn sample<'a, T: PositivePin>(&'a mut self, pin: &mut T) -> Self::SampleFuture<'a>;
 }
 
-impl<'d, T: PositivePin> Sample for OneShot<'d, T> {
+impl<'d> Sample for OneShot<'d> {
     #[rustfmt::skip]
     type SampleFuture<'a> where Self: 'a = impl Future<Output = i16> + 'a;
 
-    fn sample<'a>(&'a mut self) -> Self::SampleFuture<'a> {
-        async move {
-            let r = self.regs();
-
-            // Set up the DMA
-            let mut val: i16 = 0;
-            r.result
-                .ptr
-                .write(|w| unsafe { w.ptr().bits(((&mut val) as *mut _) as u32) });
-            r.result.maxcnt.write(|w| unsafe { w.maxcnt().bits(1) });
-
-            // Reset and enable the end event
-            r.events_end.reset();
-            r.intenset.write(|w| w.end().set());
-
-            // Don't reorder the ADC start event before the previous writes. Hopefully self
-            // wouldn't happen anyway.
-            compiler_fence(Ordering::SeqCst);
-
-            r.tasks_start.write(|w| unsafe { w.bits(1) });
-            r.tasks_sample.write(|w| unsafe { w.bits(1) });
-
-            // Wait for 'end' event.
-            poll_fn(|cx| {
-                let r = self.regs();
-
-                if r.events_end.read().bits() != 0 {
-                    r.events_end.reset();
-                    return Poll::Ready(());
-                }
-
-                wake_on_interrupt(&mut self.irq, cx.waker());
-
-                Poll::Pending
-            })
-            .await;
-
-            // The DMA wrote the sampled value to `val`.
-            val
-        }
+    fn sample<'a, T: PositivePin>(&'a mut self, pin: &mut T) -> Self::SampleFuture<'a> {
+        self.sample_inner(pin.channel())
     }
 }
 
 /// A pin that can be used as the positive end of a ADC differential in the SAADC periperhal.
 ///
 /// Currently negative is always shorted to ground (0V).
-pub trait PositivePin: Unborrow<Target = Self> {
+pub trait PositivePin {
     fn channel(&self) -> PositiveChannel;
 }
 
