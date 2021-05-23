@@ -259,6 +259,20 @@ impl_spi_pin!(SPI5, MosiPin, PF9, 5);
 impl_spi_pin!(SPI5, SckPin, PH6, 5);
 impl_spi_pin!(SPI5, MisoPin, PH7, 5);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40013800 as _);
+pub const TIM1: timer::Tim_gp16 = timer::Tim_gp16(0x40010000 as _);
+pub const TIM10: timer::Tim_gp16 = timer::Tim_gp16(0x40014400 as _);
+pub const TIM11: timer::Tim_gp16 = timer::Tim_gp16(0x40014800 as _);
+pub const TIM12: timer::Tim_gp16 = timer::Tim_gp16(0x40001800 as _);
+pub const TIM13: timer::Tim_gp16 = timer::Tim_gp16(0x40001c00 as _);
+pub const TIM14: timer::Tim_gp16 = timer::Tim_gp16(0x40002000 as _);
+pub const TIM2: timer::Tim_gp16 = timer::Tim_gp16(0x40000000 as _);
+pub const TIM3: timer::Tim_gp16 = timer::Tim_gp16(0x40000400 as _);
+pub const TIM4: timer::Tim_gp16 = timer::Tim_gp16(0x40000800 as _);
+pub const TIM5: timer::Tim_gp16 = timer::Tim_gp16(0x40000c00 as _);
+pub const TIM6: timer::Tim_gp16 = timer::Tim_gp16(0x40001000 as _);
+pub const TIM7: timer::Tim_gp16 = timer::Tim_gp16(0x40001400 as _);
+pub const TIM8: timer::Tim_gp16 = timer::Tim_gp16(0x40010400 as _);
+pub const TIM9: timer::Tim_gp16 = timer::Tim_gp16(0x40014000 as _);
 pub const USART1: usart::Usart = usart::Usart(0x40011000 as _);
 impl_usart!(USART1);
 impl_usart_pin!(USART1, RxPin, PA10, 7);
@@ -313,6 +327,7 @@ pub use super::regs::gpio_v2 as gpio;
 pub use super::regs::rng_v1 as rng;
 pub use super::regs::spi_v1 as spi;
 pub use super::regs::syscfg_f4 as syscfg;
+pub use super::regs::timer_v1 as timer;
 pub use super::regs::usart_v1 as usart;
 embassy_extras::peripherals!(
     EXTI0, EXTI1, EXTI2, EXTI3, EXTI4, EXTI5, EXTI6, EXTI7, EXTI8, EXTI9, EXTI10, EXTI11, EXTI12,
@@ -328,7 +343,8 @@ embassy_extras::peripherals!(
     PH12, PH13, PH14, PH15, PI0, PI1, PI2, PI3, PI4, PI5, PI6, PI7, PI8, PI9, PI10, PI11, PI12,
     PI13, PI14, PI15, PJ0, PJ1, PJ2, PJ3, PJ4, PJ5, PJ6, PJ7, PJ8, PJ9, PJ10, PJ11, PJ12, PJ13,
     PJ14, PJ15, PK0, PK1, PK2, PK3, PK4, PK5, PK6, PK7, PK8, PK9, PK10, PK11, PK12, PK13, PK14,
-    PK15, RNG, SPI1, SPI2, SPI3, SPI4, SPI5, SYSCFG, USART1, USART2, USART3, USART6
+    PK15, RNG, SPI1, SPI2, SPI3, SPI4, SPI5, SYSCFG, TIM1, TIM10, TIM11, TIM12, TIM13, TIM14, TIM2,
+    TIM3, TIM4, TIM5, TIM6, TIM7, TIM8, TIM9, USART1, USART2, USART3, USART6
 );
 pub fn DMA(n: u8) -> dma::Dma {
     match n {

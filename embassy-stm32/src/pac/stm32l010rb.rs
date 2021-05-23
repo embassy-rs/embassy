@@ -119,6 +119,9 @@ impl_gpio_pin!(PH14, 7, 14, EXTI14);
 impl_gpio_pin!(PH15, 7, 15, EXTI15);
 pub const RCC: rcc::Rcc = rcc::Rcc(0x40021000 as _);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40010000 as _);
+pub const TIM2: timer::Tim_gp16 = timer::Tim_gp16(0x40000000 as _);
+pub const TIM21: timer::Tim_gp16 = timer::Tim_gp16(0x40010800 as _);
+pub const TIM22: timer::Tim_gp16 = timer::Tim_gp16(0x40011400 as _);
 pub const USART2: usart::Usart = usart::Usart(0x40004400 as _);
 impl_usart!(USART2);
 impl_usart_pin!(USART2, CtsPin, PA0, 4);
@@ -133,6 +136,7 @@ pub use super::regs::exti_v1 as exti;
 pub use super::regs::gpio_v2 as gpio;
 pub use super::regs::rcc_l0 as rcc;
 pub use super::regs::syscfg_l0 as syscfg;
+pub use super::regs::timer_v1 as timer;
 pub use super::regs::usart_v2 as usart;
 embassy_extras::peripherals!(
     EXTI0, EXTI1, EXTI2, EXTI3, EXTI4, EXTI5, EXTI6, EXTI7, EXTI8, EXTI9, EXTI10, EXTI11, EXTI12,
@@ -142,7 +146,8 @@ embassy_extras::peripherals!(
     PC0, PC1, PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC10, PC11, PC12, PC13, PC14, PC15, PD0, PD1,
     PD2, PD3, PD4, PD5, PD6, PD7, PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15, PE0, PE1, PE2, PE3,
     PE4, PE5, PE6, PE7, PE8, PE9, PE10, PE11, PE12, PE13, PE14, PE15, PH0, PH1, PH2, PH3, PH4, PH5,
-    PH6, PH7, PH8, PH9, PH10, PH11, PH12, PH13, PH14, PH15, RCC, SYSCFG, USART2
+    PH6, PH7, PH8, PH9, PH10, PH11, PH12, PH13, PH14, PH15, RCC, SYSCFG, TIM2, TIM21, TIM22,
+    USART2
 );
 pub fn DMA(n: u8) -> dma::Dma {
     match n {
