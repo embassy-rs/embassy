@@ -76,13 +76,13 @@ impl<T: Instance> RTC<T> {
         }
     }
 
-    pub fn start(&'static self, pfreq: Hertz, ppre: u8) {
+    pub fn start(&'static self, timer_freq: Hertz) {
         let inner = T::inner();
 
         // NOTE(unsafe) Critical section to use the unsafe methods
         critical_section::with(|_| {
             unsafe {
-                inner.prepare(pfreq, ppre);
+                inner.prepare(timer_freq);
             }
 
             self.irq.set_handler_context(self as *const _ as *mut _);
@@ -245,12 +245,10 @@ impl<T: Instance> embassy::time::Alarm for Alarm<T> {
 pub struct TimerInner(pub(crate) TimGp16);
 
 impl TimerInner {
-    unsafe fn prepare(&self, pfreq: Hertz, ppre: u8) {
+    unsafe fn prepare(&self, timer_freq: Hertz) {
         self.stop_and_reset();
 
-        let multiplier = if ppre == 1 { 1 } else { 2 };
-        let freq = pfreq.0 * multiplier;
-        let psc = freq / TICKS_PER_SECOND as u32 - 1;
+        let psc = timer_freq.0 / TICKS_PER_SECOND as u32 - 1;
         let psc: u16 = psc.try_into().unwrap();
 
         self.set_psc_arr(psc, u16::MAX);
