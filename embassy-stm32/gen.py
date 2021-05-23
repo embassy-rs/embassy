@@ -84,9 +84,11 @@ for chip in chips.values():
                 continue
 
             block = peri['block']
-            block_mod, block_name = block.rsplit('/')
+            block_mod, block_name_unparsed = block.rsplit('/')
             block_mod, block_version = block_mod.rsplit('_')
-            block_name = block_name.capitalize()
+            block_name = ''
+            for b in block_name_unparsed.split('_'):
+                block_name += b.capitalize()
 
             # Check all peripherals have the same version: it's not OK for the same chip to use both usart_v1 and usart_v2
             if old_version := peripheral_versions.get(block_mod):
