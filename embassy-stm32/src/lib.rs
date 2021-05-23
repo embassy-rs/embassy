@@ -17,6 +17,8 @@ pub mod pwr;
 pub mod rcc;
 #[cfg(feature = "_rng")]
 pub mod rng;
+#[cfg(feature = "_timer")]
+pub mod rtc;
 #[cfg(feature = "_sdmmc")]
 pub mod sdmmc;
 #[cfg(feature = "_spi")]
