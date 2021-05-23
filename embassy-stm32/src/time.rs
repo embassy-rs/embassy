@@ -5,7 +5,7 @@
 pub struct Bps(pub u32);
 
 /// Hertz
-#[derive(PartialEq, PartialOrd, Clone, Copy, Debug)]
+#[derive(PartialEq, PartialOrd, Clone, Copy, Debug, Eq)]
 pub struct Hertz(pub u32);
 
 /// KiloHertz

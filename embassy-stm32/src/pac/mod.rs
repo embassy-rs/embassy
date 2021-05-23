@@ -503,4 +503,5 @@
 #[cfg_attr(feature = "stm32l4s9zi", path = "stm32l4s9zi.rs")]
 mod chip;
 pub use chip::*;
-pub(crate) mod regs;
+#[allow(dead_code, unused_imports)]
+pub mod regs;

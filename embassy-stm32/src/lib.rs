@@ -13,6 +13,8 @@ pub mod fmt;
 pub mod dma;
 pub mod exti;
 pub mod gpio;
+pub mod pwr;
+pub mod rcc;
 #[cfg(feature = "_rng")]
 pub mod rng;
 #[cfg(feature = "_sdmmc")]
@@ -23,8 +25,11 @@ pub mod spi;
 pub mod usart;
 
 // This must go LAST so that it sees the `impl_foo!` macros
-mod pac;
+#[cfg(feature = "pac")]
+pub mod pac;
 
+#[cfg(not(feature = "pac"))]
+mod pac;
 pub mod time;
 
 pub use embassy_macros::interrupt;
