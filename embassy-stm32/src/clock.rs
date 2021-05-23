@@ -2,8 +2,9 @@
 
 use core::cell::Cell;
 use core::convert::TryInto;
-use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
+use core::sync::atomic::{compiler_fence, Ordering};
 
+use atomic_polyfill::AtomicU32;
 use embassy::interrupt::InterruptExt;
 use embassy::time::{Clock as EmbassyClock, TICKS_PER_SECOND};
 

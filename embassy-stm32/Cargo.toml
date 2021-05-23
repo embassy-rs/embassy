@@ -21,6 +21,7 @@ sdio-host = { version = "0.5.0", optional = true }
 embedded-sdmmc = { git = "https://github.com/thalesfragoso/embedded-sdmmc-rs", branch = "async", optional = true }
 critical-section = "0.2.1"
 bare-metal = "1.0.0"
+atomic-polyfill = "0.1.2"
 
 [build-dependencies]
 regex = "1.4.6"
