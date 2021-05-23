@@ -238,7 +238,8 @@ for chip in chips.values():
 
         f.write(f"""
             pub mod interrupt {{
-                pub use cortex_m::interrupt::{{CriticalSection, Mutex}};
+                pub use bare_metal::Mutex;
+                pub use critical_section::CriticalSection;
                 pub use embassy::interrupt::{{declare, take, Interrupt}};
                 pub use embassy_extras::interrupt::Priority4 as Priority;
 
