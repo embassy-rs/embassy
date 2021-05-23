@@ -155,6 +155,7 @@ pub const TIM1: timer::TimGp16 = timer::TimGp16(0x40012c00 as _);
 pub const TIM15: timer::TimGp16 = timer::TimGp16(0x40014000 as _);
 pub const TIM16: timer::TimGp16 = timer::TimGp16(0x40014400 as _);
 pub const TIM2: timer::TimGp16 = timer::TimGp16(0x40000000 as _);
+impl_timer!(TIM2);
 pub const TIM6: timer::TimGp16 = timer::TimGp16(0x40001000 as _);
 pub const TIM7: timer::TimGp16 = timer::TimGp16(0x40001400 as _);
 pub const USART1: usart::Usart = usart::Usart(0x40013800 as _);

@@ -98,6 +98,7 @@ pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40013800 as _);
 pub const TIM1: timer::TimGp16 = timer::TimGp16(0x40010000 as _);
 pub const TIM11: timer::TimGp16 = timer::TimGp16(0x40014800 as _);
 pub const TIM5: timer::TimGp16 = timer::TimGp16(0x40000c00 as _);
+impl_timer!(TIM5);
 pub const TIM6: timer::TimGp16 = timer::TimGp16(0x40001000 as _);
 pub const TIM9: timer::TimGp16 = timer::TimGp16(0x40014000 as _);
 pub const USART1: usart::Usart = usart::Usart(0x40011000 as _);

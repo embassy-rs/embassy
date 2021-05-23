@@ -105,6 +105,7 @@ pub const RNG: rng::Rng = rng::Rng(0x40025000 as _);
 impl_rng!(RNG, RNG_LPUART1);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40010000 as _);
 pub const TIM2: timer::TimGp16 = timer::TimGp16(0x40000000 as _);
+impl_timer!(TIM2);
 pub const TIM21: timer::TimGp16 = timer::TimGp16(0x40010800 as _);
 pub const TIM22: timer::TimGp16 = timer::TimGp16(0x40011400 as _);
 pub const TIM6: timer::TimGp16 = timer::TimGp16(0x40001000 as _);
