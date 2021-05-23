@@ -9,6 +9,8 @@
 // This must go FIRST so that all the other modules see its macros.
 pub mod fmt;
 
+#[cfg(feature = "_timer")]
+pub mod clock;
 #[cfg(feature = "_dma")]
 pub mod dma;
 pub mod exti;
@@ -17,8 +19,6 @@ pub mod pwr;
 pub mod rcc;
 #[cfg(feature = "_rng")]
 pub mod rng;
-#[cfg(feature = "_timer")]
-pub mod rtc;
 #[cfg(feature = "_sdmmc")]
 pub mod sdmmc;
 #[cfg(feature = "_spi")]

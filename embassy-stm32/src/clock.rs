@@ -5,16 +5,16 @@ use core::convert::TryInto;
 use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 
 use embassy::interrupt::InterruptExt;
-use embassy::time::{Clock, TICKS_PER_SECOND};
+use embassy::time::{Clock as EmbassyClock, TICKS_PER_SECOND};
 
 use crate::interrupt::{CriticalSection, Interrupt, Mutex};
 use crate::pac::timer::TimGp16;
 use crate::time::Hertz;
 
-// RTC timekeeping works with something we call "periods", which are time intervals
-// of 2^15 ticks. The RTC counter value is 16 bits, so one "overflow cycle" is 2 periods.
+// Clock timekeeping works with something we call "periods", which are time intervals
+// of 2^15 ticks. The Clock counter value is 16 bits, so one "overflow cycle" is 2 periods.
 //
-// A `period` count is maintained in parallel to the RTC hardware `counter`, like this:
+// A `period` count is maintained in parallel to the Timer hardware `counter`, like this:
 // - `period` and `counter` start at 0
 // - `period` is incremented on overflow (at counter value 0)
 // - `period` is incremented "midway" between overflows (at counter value 0x8000)
@@ -47,17 +47,15 @@ impl AlarmState {
     }
 }
 
-// TODO: This is sometimes wasteful, try to find a better way
 const ALARM_COUNT: usize = 3;
 
-/// RTC timer that can be used by the executor and to set alarms.
+/// Clock timer that can be used by the executor and to set alarms.
 ///
-/// It can work with Timers 2, 3, 4, 5, 9 and 12. Timers 9 and 12 only have one alarm available,
-/// while the others have three each.
-/// This timer works internally with a unit of 2^15 ticks, which means that if a call to
-/// [`embassy::time::Clock::now`] is blocked for that amount of ticks the returned value will be
-/// wrong (an old value). The current default tick rate is 32768 ticks per second.
-pub struct RTC<T: Instance> {
+/// It can work with Timers 2, 3, 4, 5. This timer works internally with a unit of 2^15 ticks, which
+/// means that if a call to [`embassy::time::Clock::now`] is blocked for that amount of ticks the
+/// returned value will be wrong (an old value). The current default tick rate is 32768 ticks per
+/// second.
+pub struct Clock<T: Instance> {
     _inner: T,
     irq: T::Interrupt,
     /// Number of 2^23 periods elapsed since boot.
@@ -66,7 +64,7 @@ pub struct RTC<T: Instance> {
     alarms: Mutex<[AlarmState; ALARM_COUNT]>,
 }
 
-impl<T: Instance> RTC<T> {
+impl<T: Instance> Clock<T> {
     pub fn new(peripheral: T, irq: T::Interrupt) -> Self {
         Self {
             _inner: peripheral,
@@ -212,7 +210,7 @@ impl<T: Instance> RTC<T> {
     }
 }
 
-impl<T: Instance> embassy::time::Clock for RTC<T> {
+impl<T: Instance> EmbassyClock for Clock<T> {
     fn now(&self) -> u64 {
         let inner = T::inner();
 
@@ -225,7 +223,7 @@ impl<T: Instance> embassy::time::Clock for RTC<T> {
 
 pub struct Alarm<T: Instance> {
     n: usize,
-    rtc: &'static RTC<T>,
+    rtc: &'static Clock<T>,
 }
 
 impl<T: Instance> embassy::time::Alarm for Alarm<T> {
@@ -345,15 +343,15 @@ pub trait Instance: sealed::Instance + Sized + 'static {}
 
 macro_rules! impl_timer {
     ($inst:ident) => {
-        impl crate::rtc::sealed::Instance for peripherals::$inst {
+        impl crate::clock::sealed::Instance for peripherals::$inst {
             type Interrupt = interrupt::$inst;
 
-            fn inner() -> crate::rtc::TimerInner {
-                const INNER: crate::rtc::TimerInner = crate::rtc::TimerInner($inst);
+            fn inner() -> crate::clock::TimerInner {
+                const INNER: crate::clock::TimerInner = crate::clock::TimerInner($inst);
                 INNER
             }
         }
 
-        impl crate::rtc::Instance for peripherals::$inst {}
+        impl crate::clock::Instance for peripherals::$inst {}
     };
 }
