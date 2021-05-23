@@ -143,7 +143,8 @@ pub fn DMA(n: u8) -> dma::Dma {
 }
 impl_exti_irq!(EXTI0, EXTI1, EXTI15_10, EXTI2, EXTI3, EXTI4, EXTI9_5);
 pub mod interrupt {
-    pub use cortex_m::interrupt::{CriticalSection, Mutex};
+    pub use bare_metal::Mutex;
+    pub use critical_section::CriticalSection;
     pub use embassy::interrupt::{declare, take, Interrupt};
     pub use embassy_extras::interrupt::Priority4 as Priority;
 
