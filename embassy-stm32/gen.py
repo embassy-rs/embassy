@@ -84,9 +84,11 @@ for chip in chips.values():
                 continue
 
             block = peri['block']
-            block_mod, block_name = block.rsplit('/')
+            block_mod, block_name_unparsed = block.rsplit('/')
             block_mod, block_version = block_mod.rsplit('_')
-            block_name = block_name.capitalize()
+            block_name = ''
+            for b in block_name_unparsed.split('_'):
+                block_name += b.capitalize()
 
             # Check all peripherals have the same version: it's not OK for the same chip to use both usart_v1 and usart_v2
             if old_version := peripheral_versions.get(block_mod):
@@ -184,6 +186,10 @@ for chip in chips.values():
                         if func := funcs.get(f'{name}_D7'):
                             f.write(f'impl_sdmmc_pin!({name}, D7Pin, {pin}, {func});')
 
+            if block_name == 'TimGp16':
+                if re.match('TIM[2345]$', name):
+                    f.write(f'impl_timer!({name});')
+
             if block_mod == 'exti':
                 for irq in chip['interrupts']:
                     if re.match('EXTI', irq):
@@ -236,7 +242,8 @@ for chip in chips.values():
 
         f.write(f"""
             pub mod interrupt {{
-                pub use cortex_m::interrupt::{{CriticalSection, Mutex}};
+                pub use bare_metal::Mutex;
+                pub use critical_section::CriticalSection;
                 pub use embassy::interrupt::{{declare, take, Interrupt}};
                 pub use embassy_extras::interrupt::Priority4 as Priority;
 

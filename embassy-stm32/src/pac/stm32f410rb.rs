@@ -95,6 +95,12 @@ impl_gpio_pin!(PH15, 7, 15, EXTI15);
 pub const RNG: rng::Rng = rng::Rng(0x40080000 as _);
 impl_rng!(RNG, RNG);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40013800 as _);
+pub const TIM1: timer::TimGp16 = timer::TimGp16(0x40010000 as _);
+pub const TIM11: timer::TimGp16 = timer::TimGp16(0x40014800 as _);
+pub const TIM5: timer::TimGp16 = timer::TimGp16(0x40000c00 as _);
+impl_timer!(TIM5);
+pub const TIM6: timer::TimGp16 = timer::TimGp16(0x40001000 as _);
+pub const TIM9: timer::TimGp16 = timer::TimGp16(0x40014000 as _);
 pub const USART1: usart::Usart = usart::Usart(0x40011000 as _);
 impl_usart!(USART1);
 impl_usart_pin!(USART1, RxPin, PA10, 7);
@@ -125,6 +131,7 @@ pub use super::regs::exti_v1 as exti;
 pub use super::regs::gpio_v2 as gpio;
 pub use super::regs::rng_v1 as rng;
 pub use super::regs::syscfg_f4 as syscfg;
+pub use super::regs::timer_v1 as timer;
 pub use super::regs::usart_v1 as usart;
 embassy_extras::peripherals!(
     EXTI0, EXTI1, EXTI2, EXTI3, EXTI4, EXTI5, EXTI6, EXTI7, EXTI8, EXTI9, EXTI10, EXTI11, EXTI12,
@@ -133,7 +140,8 @@ embassy_extras::peripherals!(
     PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7, PA8, PA9, PA10, PA11, PA12, PA13, PA14, PA15, PB0, PB1,
     PB2, PB3, PB4, PB5, PB6, PB7, PB8, PB9, PB10, PB11, PB12, PB13, PB14, PB15, PC0, PC1, PC2, PC3,
     PC4, PC5, PC6, PC7, PC8, PC9, PC10, PC11, PC12, PC13, PC14, PC15, PH0, PH1, PH2, PH3, PH4, PH5,
-    PH6, PH7, PH8, PH9, PH10, PH11, PH12, PH13, PH14, PH15, RNG, SYSCFG, USART1, USART2, USART6
+    PH6, PH7, PH8, PH9, PH10, PH11, PH12, PH13, PH14, PH15, RNG, SYSCFG, TIM1, TIM11, TIM5, TIM6,
+    TIM9, USART1, USART2, USART6
 );
 pub fn DMA(n: u8) -> dma::Dma {
     match n {
@@ -143,7 +151,8 @@ pub fn DMA(n: u8) -> dma::Dma {
 }
 impl_exti_irq!(EXTI0, EXTI1, EXTI15_10, EXTI2, EXTI3, EXTI4, EXTI9_5);
 pub mod interrupt {
-    pub use cortex_m::interrupt::{CriticalSection, Mutex};
+    pub use bare_metal::Mutex;
+    pub use critical_section::CriticalSection;
     pub use embassy::interrupt::{declare, take, Interrupt};
     pub use embassy_extras::interrupt::Priority4 as Priority;
 

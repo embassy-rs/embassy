@@ -302,6 +302,26 @@ impl_spi_pin!(SPI6, MisoPin, PG12, 5);
 impl_spi_pin!(SPI6, SckPin, PG13, 5);
 impl_spi_pin!(SPI6, MosiPin, PG14, 5);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x58000400 as _);
+pub const TIM1: timer::TimGp16 = timer::TimGp16(0x40010000 as _);
+pub const TIM12: timer::TimGp16 = timer::TimGp16(0x40001800 as _);
+pub const TIM13: timer::TimGp16 = timer::TimGp16(0x40001c00 as _);
+pub const TIM14: timer::TimGp16 = timer::TimGp16(0x40002000 as _);
+pub const TIM15: timer::TimGp16 = timer::TimGp16(0x40014000 as _);
+pub const TIM16: timer::TimGp16 = timer::TimGp16(0x40014400 as _);
+pub const TIM17: timer::TimGp16 = timer::TimGp16(0x40014800 as _);
+pub const TIM2: timer::TimGp16 = timer::TimGp16(0x40000000 as _);
+impl_timer!(TIM2);
+pub const TIM23: timer::TimGp16 = timer::TimGp16(0x4000e000 as _);
+pub const TIM24: timer::TimGp16 = timer::TimGp16(0x4000e400 as _);
+pub const TIM3: timer::TimGp16 = timer::TimGp16(0x40000400 as _);
+impl_timer!(TIM3);
+pub const TIM4: timer::TimGp16 = timer::TimGp16(0x40000800 as _);
+impl_timer!(TIM4);
+pub const TIM5: timer::TimGp16 = timer::TimGp16(0x40000c00 as _);
+impl_timer!(TIM5);
+pub const TIM6: timer::TimGp16 = timer::TimGp16(0x40001000 as _);
+pub const TIM7: timer::TimGp16 = timer::TimGp16(0x40001400 as _);
+pub const TIM8: timer::TimGp16 = timer::TimGp16(0x40010400 as _);
 pub use super::regs::dbgmcu_h7 as dbgmcu;
 pub use super::regs::dma_v2 as dma;
 pub use super::regs::exti_v1 as exti;
@@ -313,6 +333,7 @@ pub use super::regs::rng_v1 as rng;
 pub use super::regs::sdmmc_v2 as sdmmc;
 pub use super::regs::spi_v3 as spi;
 pub use super::regs::syscfg_h7 as syscfg;
+pub use super::regs::timer_v1 as timer;
 embassy_extras::peripherals!(
     EXTI0, EXTI1, EXTI2, EXTI3, EXTI4, EXTI5, EXTI6, EXTI7, EXTI8, EXTI9, EXTI10, EXTI11, EXTI12,
     EXTI13, EXTI14, EXTI15, DBGMCU, DMA1_CH0, DMA1_CH1, DMA1_CH2, DMA1_CH3, DMA1_CH4, DMA1_CH5,
@@ -327,7 +348,8 @@ embassy_extras::peripherals!(
     PH6, PH7, PH8, PH9, PH10, PH11, PH12, PH13, PH14, PH15, PJ0, PJ1, PJ2, PJ3, PJ4, PJ5, PJ6, PJ7,
     PJ8, PJ9, PJ10, PJ11, PJ12, PJ13, PJ14, PJ15, PK0, PK1, PK2, PK3, PK4, PK5, PK6, PK7, PK8, PK9,
     PK10, PK11, PK12, PK13, PK14, PK15, I2C1, I2C2, I2C3, I2C4, I2C5, PWR, RNG, SDMMC1, SDMMC2,
-    SPI1, SPI2, SPI3, SPI4, SPI5, SPI6, SYSCFG
+    SPI1, SPI2, SPI3, SPI4, SPI5, SPI6, SYSCFG, TIM1, TIM12, TIM13, TIM14, TIM15, TIM16, TIM17,
+    TIM2, TIM23, TIM24, TIM3, TIM4, TIM5, TIM6, TIM7, TIM8
 );
 pub fn DMA(n: u8) -> dma::Dma {
     match n {
@@ -337,7 +359,8 @@ pub fn DMA(n: u8) -> dma::Dma {
 }
 impl_exti_irq!(EXTI0, EXTI1, EXTI15_10, EXTI2, EXTI3, EXTI4, EXTI9_5);
 pub mod interrupt {
-    pub use cortex_m::interrupt::{CriticalSection, Mutex};
+    pub use bare_metal::Mutex;
+    pub use critical_section::CriticalSection;
     pub use embassy::interrupt::{declare, take, Interrupt};
     pub use embassy_extras::interrupt::Priority4 as Priority;
 
