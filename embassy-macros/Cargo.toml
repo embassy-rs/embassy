@@ -15,5 +15,6 @@ proc-macro = true
 
 [features]
 nrf = []
+stm32 = []
 rp = []
 std = []

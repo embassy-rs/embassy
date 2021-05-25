@@ -42,22 +42,25 @@ pub(crate) use pac::regs::generic;
 
 #[non_exhaustive]
 pub struct Config {
-    _private: (),
+    rcc: rcc::Config,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { _private: () }
+        Self {
+            rcc: Default::default(),
+        }
     }
 }
 
 /// Initialize embassy.
-pub fn init(_config: Config) -> Peripherals {
+pub fn init(config: Config) -> Peripherals {
     let p = Peripherals::take();
 
     unsafe {
         dma::init();
         pac::init_exti();
+        rcc::init(config.rcc);
     }
 
     p

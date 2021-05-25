@@ -256,6 +256,10 @@ pub fn interrupt_take(item: TokenStream) -> TokenStream {
     result.into()
 }
 
+#[cfg(feature = "stm32")]
+#[path = "chip/stm32.rs"]
+mod chip;
+
 #[cfg(feature = "nrf")]
 #[path = "chip/nrf.rs"]
 mod chip;
@@ -273,7 +277,7 @@ struct MainArgs {
     config: Option<syn::LitStr>,
 }
 
-#[cfg(any(feature = "nrf", feature = "rp"))]
+#[cfg(any(feature = "nrf", feature = "rp", feature = "stm32"))]
 #[proc_macro_attribute]
 pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let macro_args = syn::parse_macro_input!(args as syn::AttributeArgs);
