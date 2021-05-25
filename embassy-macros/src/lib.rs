@@ -350,6 +350,13 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
 
         #[cortex_m_rt::entry]
         fn main() -> ! {
+            rtt_init_print!();
+            unsafe {
+                log::set_logger_racy(&LOGGER).unwrap();
+            }
+
+            log::set_max_level(log::LevelFilter::Trace);
+            log::info!("Hello World!");
             unsafe fn make_static<T>(t: &mut T) -> &'static mut T {
                 ::core::mem::transmute(t)
             }

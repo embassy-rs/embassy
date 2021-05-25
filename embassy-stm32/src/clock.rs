@@ -59,6 +59,8 @@ const ALARM_COUNT: usize = 3;
 pub struct Clock<T: Instance> {
     _inner: T,
     irq: T::Interrupt,
+    /// Clock frequency
+    frequency: Hertz,
     /// Number of 2^23 periods elapsed since boot.
     period: AtomicU32,
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
@@ -66,22 +68,23 @@ pub struct Clock<T: Instance> {
 }
 
 impl<T: Instance> Clock<T> {
-    pub fn new(peripheral: T, irq: T::Interrupt) -> Self {
+    pub fn new(peripheral: T, irq: T::Interrupt, frequency: Hertz) -> Self {
         Self {
             _inner: peripheral,
             irq,
+            frequency,
             period: AtomicU32::new(0),
             alarms: Mutex::new([AlarmState::new(), AlarmState::new(), AlarmState::new()]),
         }
     }
 
-    pub fn start(&'static self, timer_freq: Hertz) {
+    pub fn start(&'static self) {
         let inner = T::inner();
 
         // NOTE(unsafe) Critical section to use the unsafe methods
         critical_section::with(|_| {
             unsafe {
-                inner.prepare(timer_freq);
+                inner.prepare(self.frequency);
             }
 
             self.irq.set_handler_context(self as *const _ as *mut _);
