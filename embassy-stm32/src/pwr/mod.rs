@@ -1,4 +1,4 @@
-#[cfg(feature = "_stm32h7")]
-mod h7;
-#[cfg(feature = "_stm32h7")]
-pub use h7::*;
+#[cfg_attr(pwr_h7, path = "h7.rs")]
+mod _version;
+
+pub use _version::*;

@@ -1,8 +1,9 @@
 #![macro_use]
 
-#[cfg_attr(feature = "_dma_v1", path = "v1.rs")]
-#[cfg_attr(feature = "_dma_v2", path = "v2.rs")]
+#[cfg_attr(dma_v1, path = "v1.rs")]
+#[cfg_attr(dma_v2, path = "v2.rs")]
 mod _version;
+
 #[allow(unused)]
 pub use _version::*;
 
@@ -21,7 +22,7 @@ pub(crate) mod sealed {
             self.num() % 8
         }
         fn regs(&self) -> pac::dma::Dma {
-            pac::DMA(self.num())
+            pac::DMA(self.num() as _)
         }
     }
 }

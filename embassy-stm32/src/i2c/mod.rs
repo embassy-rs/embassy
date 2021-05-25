@@ -1,7 +1,7 @@
 #![macro_use]
 
-#[cfg_attr(feature = "_i2c_v1", path = "v1.rs")]
-#[cfg_attr(feature = "_i2c_v2", path = "v2.rs")]
+#[cfg_attr(i2c_v1, path = "v1.rs")]
+#[cfg_attr(i2c_v2, path = "v2.rs")]
 mod _version;
 pub use _version::*;
 

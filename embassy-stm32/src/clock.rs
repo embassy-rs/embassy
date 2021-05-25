@@ -79,7 +79,7 @@ impl<T: Instance> Clock<T> {
     // TODO: Temporary until clock code generation is in place
     pub fn start_tim2(&'static self) {
         cfg_if::cfg_if! {
-            if #[cfg(feature = "_stm32l0")] {
+            if #[cfg(stm32l0)] {
                 unsafe {
                     let rcc = crate::pac::RCC;
                     rcc.apb1enr()
@@ -364,10 +364,10 @@ pub trait Instance: sealed::Instance + Sized + 'static {}
 macro_rules! impl_timer {
     ($inst:ident) => {
         impl crate::clock::sealed::Instance for peripherals::$inst {
-            type Interrupt = interrupt::$inst;
+            type Interrupt = crate::interrupt::$inst;
 
             fn inner() -> crate::clock::TimerInner {
-                const INNER: crate::clock::TimerInner = crate::clock::TimerInner($inst);
+                const INNER: crate::clock::TimerInner = crate::clock::TimerInner(crate::pac::$inst);
                 INNER
             }
         }

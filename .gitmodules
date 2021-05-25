@@ -1,3 +1,3 @@
-[submodule "embassy-stm32/stm32-data"]
-	path = embassy-stm32/stm32-data
-	url = https://github.com/Dirbaio/stm32-data.git
+[submodule "stm32-data"]
+	path = stm32-data
+	url = https://github.com/embassy-rs/stm32-data.git

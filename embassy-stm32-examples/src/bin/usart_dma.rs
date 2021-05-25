@@ -25,7 +25,7 @@ async fn main_task() {
     let config = Config::default();
     let mut usart = Uart::new(p.USART3, p.PD9, p.PD8, config, 16_000_000);
 
-    for n in 0.. {
+    for n in 0u32.. {
         let mut s: String<128> = String::new();
         core::write!(&mut s, "Hello DMA World {}!\r\n", n).unwrap();
 

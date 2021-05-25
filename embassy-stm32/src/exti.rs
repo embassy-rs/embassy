@@ -212,6 +212,8 @@ impl_exti!(EXTI13, 13);
 impl_exti!(EXTI14, 14);
 impl_exti!(EXTI15, 15);
 
+pub(crate) unsafe fn init() {}
+
 macro_rules! impl_exti_irq {
     ($($e:ident),+) => {
         /// safety: must be called only once

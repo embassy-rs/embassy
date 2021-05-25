@@ -137,7 +137,7 @@ pub trait Instance: sealed::Instance {}
 macro_rules! impl_rng {
     ($inst:ident, $irq:ident) => {
         impl crate::rng::sealed::Instance for peripherals::RNG {
-            fn regs() -> crate::pac::chip::rng::Rng {
+            fn regs() -> crate::pac::rng::Rng {
                 crate::pac::RNG
             }
         }
