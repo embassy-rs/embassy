@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy" }
-embassy-macros = { version = "0.1.0", path = "../embassy-macros" }
+embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["stm32"] }
 embassy-extras = {version = "0.1.0", path = "../embassy-extras" }
 embassy-traits = {version = "0.1.0", path = "../embassy-traits" }
 
@@ -22,6 +22,8 @@ embedded-sdmmc = { git = "https://github.com/thalesfragoso/embedded-sdmmc-rs", b
 critical-section = "0.2.1"
 bare-metal = "1.0.0"
 atomic-polyfill = "0.1.2"
+
+cfg-if = "1.0.0"
 
 [build-dependencies]
 regex = "1.4.6"
