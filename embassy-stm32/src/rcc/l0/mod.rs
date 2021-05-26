@@ -1,7 +1,7 @@
 use crate::clock::Clock;
 use crate::interrupt;
 use crate::pac;
-use crate::pac::peripherals::{self, TIM2};
+use crate::pac::peripherals::{self, RCC, TIM2};
 use crate::time::Hertz;
 use crate::time::U32Ext;
 use pac::rcc::vals;
@@ -195,7 +195,6 @@ impl Config {
 /// RCC peripheral
 pub struct Rcc {
     clocks: Clocks,
-    rb: pac::rcc::Rcc,
 }
 
 /*
@@ -267,38 +266,47 @@ impl Rcc {
 
 /// Extension trait that freezes the `RCC` peripheral with provided clocks configuration
 pub trait RccExt {
-    unsafe fn freeze(self, config: Config) -> Rcc;
+    fn freeze(self, config: Config) -> Rcc;
 }
 
-impl RccExt for pac::rcc::Rcc {
+impl RccExt for RCC {
     // `cfgr` is almost always a constant, so make sure it can be constant-propagated properly by
     // marking this function and all `Config` constructors and setters as `#[inline]`.
     // This saves ~900 Bytes for the `pwr.rs` example.
     #[inline]
-    unsafe fn freeze(self, cfgr: Config) -> Rcc {
+    fn freeze(self, cfgr: Config) -> Rcc {
+        let rcc = pac::RCC;
         let (sys_clk, sw) = match cfgr.mux {
             ClockSrc::MSI(range) => {
                 // Set MSI range
-                self.icscr().write(|w| w.set_msirange(range.into()));
+                unsafe {
+                    rcc.icscr().write(|w| w.set_msirange(range.into()));
+                }
 
                 // Enable MSI
-                self.cr().write(|w| w.set_msion(Pllon::ENABLED));
-                while !self.cr().read().msirdy() {}
+                unsafe {
+                    rcc.cr().write(|w| w.set_msion(Pllon::ENABLED));
+                    while !rcc.cr().read().msirdy() {}
+                }
 
                 let freq = 32_768 * (1 << (range as u8 + 1));
                 (freq, Sw::MSI)
             }
             ClockSrc::HSI16 => {
                 // Enable HSI16
-                self.cr().write(|w| w.set_hsi16on(Pllon::ENABLED));
-                while !self.cr().read().hsi16rdyf() {}
+                unsafe {
+                    rcc.cr().write(|w| w.set_hsi16on(Pllon::ENABLED));
+                    while !rcc.cr().read().hsi16rdyf() {}
+                }
 
                 (HSI_FREQ, Sw::HSI16)
             }
             ClockSrc::HSE(freq) => {
                 // Enable HSE
-                self.cr().write(|w| w.set_hseon(Pllon::ENABLED));
-                while !self.cr().read().hserdy() {}
+                unsafe {
+                    rcc.cr().write(|w| w.set_hseon(Pllon::ENABLED));
+                    while !rcc.cr().read().hserdy() {}
+                }
 
                 (freq.0, Sw::HSE)
             }
@@ -306,21 +314,27 @@ impl RccExt for pac::rcc::Rcc {
                 let freq = match src {
                     PLLSource::HSE(freq) => {
                         // Enable HSE
-                        self.cr().write(|w| w.set_hseon(Pllon::ENABLED));
-                        while !self.cr().read().hserdy() {}
+                        unsafe {
+                            rcc.cr().write(|w| w.set_hseon(Pllon::ENABLED));
+                            while !rcc.cr().read().hserdy() {}
+                        }
                         freq.0
                     }
                     PLLSource::HSI16 => {
                         // Enable HSI
-                        self.cr().write(|w| w.set_hsi16on(Pllon::ENABLED));
-                        while !self.cr().read().hsi16rdyf() {}
+                        unsafe {
+                            rcc.cr().write(|w| w.set_hsi16on(Pllon::ENABLED));
+                            while !rcc.cr().read().hsi16rdyf() {}
+                        }
                         HSI_FREQ
                     }
                 };
 
                 // Disable PLL
-                self.cr().modify(|w| w.set_pllon(Pllon::DISABLED));
-                while self.cr().read().pllrdy() {}
+                unsafe {
+                    rcc.cr().modify(|w| w.set_pllon(Pllon::DISABLED));
+                    while rcc.cr().read().pllrdy() {}
+                }
 
                 let freq = match mul {
                     PLLMul::Mul3 => freq * 3,
@@ -341,26 +355,30 @@ impl RccExt for pac::rcc::Rcc {
                 };
                 assert!(freq <= 32_u32.mhz().0);
 
-                self.cfgr().write(move |w| {
-                    w.set_pllmul(mul.into());
-                    w.set_plldiv(div.into());
-                    w.set_pllsrc(src.into());
-                });
+                unsafe {
+                    rcc.cfgr().write(move |w| {
+                        w.set_pllmul(mul.into());
+                        w.set_plldiv(div.into());
+                        w.set_pllsrc(src.into());
+                    });
 
-                // Enable PLL
-                self.cr().modify(|w| w.set_pllon(Pllon::ENABLED));
-                while !self.cr().read().pllrdy() {}
+                    // Enable PLL
+                    rcc.cr().modify(|w| w.set_pllon(Pllon::ENABLED));
+                    while !rcc.cr().read().pllrdy() {}
+                }
 
                 (freq, Sw::PLL)
             }
         };
 
-        self.cfgr().modify(|w| {
-            w.set_sw(sw.into());
-            w.set_hpre(cfgr.ahb_pre.into());
-            w.set_ppre(0, cfgr.apb1_pre.into());
-            w.set_ppre(1, cfgr.apb2_pre.into());
-        });
+        unsafe {
+            rcc.cfgr().modify(|w| {
+                w.set_sw(sw.into());
+                w.set_hpre(cfgr.ahb_pre.into());
+                w.set_ppre(0, cfgr.apb1_pre.into());
+                w.set_ppre(1, cfgr.apb2_pre.into());
+            });
+        }
 
         let ahb_freq: u32 = match cfgr.ahb_pre {
             AHBPrescaler::NotDivided => sys_clk,
@@ -403,7 +421,7 @@ impl RccExt for pac::rcc::Rcc {
             apb2_pre,
         };
 
-        Rcc { rb: self, clocks }
+        Rcc { clocks }
     }
 }
 
@@ -570,7 +588,6 @@ pub type SystemClock = Clock<TIM2>;
 
 pub unsafe fn init(config: Config) -> SystemClock {
     let rcc = pac::RCC;
-
     let enabled = vals::Iophen::ENABLED;
     rcc.iopenr().write(|w| {
         w.set_iopaen(enabled);
@@ -581,7 +598,8 @@ pub unsafe fn init(config: Config) -> SystemClock {
         w.set_iophen(enabled);
     });
 
-    let r = rcc.freeze(config);
+    let r = <peripherals::RCC as embassy::util::Steal>::steal();
+    let r = r.freeze(config);
 
     rcc.apb1enr().modify(|w| w.set_tim2en(Lptimen::ENABLED));
     rcc.apb1rstr().modify(|w| w.set_tim2rst(true));
