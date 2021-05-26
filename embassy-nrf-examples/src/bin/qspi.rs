@@ -24,16 +24,17 @@ struct AlignedBuf([u8; 4096]);
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    let csn = p.P0_17;
-    let sck = p.P0_19;
-    let io0 = p.P0_20;
-    let io1 = p.P0_21;
-    let io2 = p.P0_22;
-    let io3 = p.P0_23;
+    // Config for the MX25R64 present in the nRF52840 DK
+    let mut config = qspi::Config::default();
+    config.read_opcode = qspi::ReadOpcode::READ4IO;
+    config.write_opcode = qspi::WriteOpcode::PP4IO;
+    config.write_page_size = qspi::WritePageSize::_256BYTES;
 
-    let config = qspi::Config::default();
     let irq = interrupt::take!(QSPI);
-    let mut q = qspi::Qspi::new(p.QSPI, irq, sck, csn, io0, io1, io2, io3, config).await;
+    let mut q = qspi::Qspi::new(
+        p.QSPI, irq, p.P0_19, p.P0_17, p.P0_20, p.P0_21, p.P0_22, p.P0_23, config,
+    )
+    .await;
 
     let mut id = [1; 3];
     q.custom_instruction(0x9F, &[], &mut id).await.unwrap();
