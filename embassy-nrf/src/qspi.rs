@@ -255,6 +255,11 @@ impl<'d, T: Instance> Drop for Qspi<'d, T> {
             // Unfortunately we must spin. There's no way to do this interrupt-driven.
             // The READY event does NOT fire on DPM enter (but it does fire on DPM exit :shrug:)
             while r.status.read().dpm().is_disabled() {}
+
+            // Wait MORE for DPM enter.
+            // I have absolutely no idea why, but the wait above is not enough :'(
+            // Tested with mx25r64 in nrf52840-dk, and with mx25r16 in custom board
+            cortex_m::asm::delay(4096);
         }
 
         // it seems events_ready is not generated in response to deactivate. nrfx doesn't wait for it.
