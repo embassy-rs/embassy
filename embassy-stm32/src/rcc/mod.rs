@@ -8,7 +8,7 @@ cfg_if::cfg_if! {
     } else {
         #[derive(Default)]
         pub struct Config {}
-        pub unsafe fn init(_config: Config) -> SystemClock {
+        pub unsafe fn init(_config: Config) {
         }
     }
 }
