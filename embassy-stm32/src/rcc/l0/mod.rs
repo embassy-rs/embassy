@@ -4,6 +4,7 @@ use crate::pac;
 use crate::pac::peripherals::{self, RCC, TIM2};
 use crate::time::Hertz;
 use crate::time::U32Ext;
+use embassy::util::Unborrow;
 use pac::rcc::vals;
 use vals::{Hpre, Lptimen, Msirange, Plldiv, Pllmul, Pllon, Pllsrc, Ppre, Sw};
 
@@ -269,8 +270,16 @@ impl Config {
     }
 }
 
-/*
+/// RCC peripheral
+pub struct Rcc {}
+
 impl Rcc {
+    pub fn new(_rcc: impl Unborrow<Target = peripherals::RCC> + 'static) -> Self {
+        Self {}
+    }
+}
+
+/*
     pub fn enable_lse(&mut self, _: &PWR) -> LSE {
         self.rb.csr.modify(|_, w| {
             // Enable LSE clock
@@ -338,7 +347,7 @@ impl Rcc {
 
 /// Extension trait that freezes the `RCC` peripheral with provided clocks configuration
 pub trait RccExt {
-    fn freeze(&mut self, config: Config) -> Clocks;
+    fn freeze(self, config: Config) -> Clocks;
 }
 
 impl RccExt for RCC {
@@ -346,7 +355,7 @@ impl RccExt for RCC {
     // marking this function and all `Config` constructors and setters as `#[inline]`.
     // This saves ~900 Bytes for the `pwr.rs` example.
     #[inline]
-    fn freeze(&mut self, cfgr: Config) -> Clocks {
+    fn freeze(self, cfgr: Config) -> Clocks {
         let rcc = pac::RCC;
         let (sys_clk, sw) = match cfgr.mux {
             ClockSrc::MSI(range) => {
