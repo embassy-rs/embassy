@@ -529,5 +529,4 @@ impl<'d> Rcc<'d> {
 }
 
 // TODO
-pub type SystemClock = ();
-pub unsafe fn init(_config: Config) -> SystemClock {}
+pub unsafe fn init(_config: Config) {}

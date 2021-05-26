@@ -1,4 +1,5 @@
 use crate::clock::Clock;
+use crate::clock::{set_freqs, ClockFreqs};
 use crate::interrupt;
 use crate::pac;
 use crate::pac::peripherals::{self, RCC, TIM2};
@@ -585,10 +586,7 @@ pub struct MCOEnabled(());
 #[derive(Clone, Copy)]
 pub struct LSE(());
 
-// We use TIM2 as SystemClock
-pub type SystemClock = Clock<TIM2>;
-
-pub unsafe fn init(config: Config) -> SystemClock {
+pub unsafe fn init(config: Config) {
     let rcc = pac::RCC;
     let enabled = vals::Iophen::ENABLED;
     rcc.iopenr().write(|w| {
@@ -602,14 +600,7 @@ pub unsafe fn init(config: Config) -> SystemClock {
 
     let mut r = <peripherals::RCC as embassy::util::Steal>::steal();
     let clocks = r.freeze(config);
-
-    rcc.apb1enr().modify(|w| w.set_tim2en(Lptimen::ENABLED));
-    rcc.apb1rstr().modify(|w| w.set_tim2rst(true));
-    rcc.apb1rstr().modify(|w| w.set_tim2rst(false));
-
-    Clock::new(
-        <peripherals::TIM2 as embassy::util::Steal>::steal(),
-        interrupt::take!(TIM2),
-        clocks.apb1_clk(),
-    )
+    set_freqs(ClockFreqs {
+        tim2: clocks.apb1_clk(),
+    });
 }

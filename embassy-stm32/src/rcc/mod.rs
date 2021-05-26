@@ -6,7 +6,6 @@ cfg_if::cfg_if! {
         mod l0;
         pub use l0::*;
     } else {
-        pub type SystemClock = ();
         #[derive(Default)]
         pub struct Config {}
         pub unsafe fn init(_config: Config) -> SystemClock {

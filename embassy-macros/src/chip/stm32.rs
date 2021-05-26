@@ -9,10 +9,14 @@ pub fn generate(embassy_prefix: &ModulePrefix, config: syn::Expr) -> TokenStream
     quote!(
         use #embassy_stm32_path::{interrupt, peripherals, clock::Clock, time::Hertz};
 
-        let (p, mut c) = #embassy_stm32_path::init(#config);
+        let p = #embassy_stm32_path::init(#config);
 
+        let mut c = Clock::new(
+            unsafe { <peripherals::TIM2 as embassy::util::Steal>::steal() },
+            interrupt::take!(TIM2),
+        );
         let clock = unsafe { make_static(&mut c) };
-        clock.start();
+        clock.start_tim2();
 
         let mut alarm = clock.alarm1();
         unsafe { #embassy_path::time::set_clock(clock) };

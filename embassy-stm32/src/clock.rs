@@ -33,6 +33,20 @@ fn calc_now(period: u32, counter: u16) -> u64 {
     ((period as u64) << 15) + ((counter as u32 ^ ((period & 1) << 15)) as u64)
 }
 
+static mut CLOCK_FREQS: Option<ClockFreqs> = None;
+
+#[derive(Copy, Clone)]
+pub struct ClockFreqs {
+    pub tim2: Hertz,
+}
+
+/// Sets the clock frequencies
+///
+/// Safety: Sets a mutable global.
+pub unsafe fn set_freqs(freqs: ClockFreqs) {
+    CLOCK_FREQS.replace(freqs);
+}
+
 struct AlarmState {
     timestamp: Cell<u64>,
     #[allow(clippy::type_complexity)]
@@ -59,8 +73,6 @@ const ALARM_COUNT: usize = 3;
 pub struct Clock<T: Instance> {
     _inner: T,
     irq: T::Interrupt,
-    /// Clock frequency
-    frequency: Hertz,
     /// Number of 2^23 periods elapsed since boot.
     period: AtomicU32,
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
@@ -68,23 +80,37 @@ pub struct Clock<T: Instance> {
 }
 
 impl<T: Instance> Clock<T> {
-    pub fn new(peripheral: T, irq: T::Interrupt, frequency: Hertz) -> Self {
+    pub fn new(peripheral: T, irq: T::Interrupt) -> Self {
         Self {
             _inner: peripheral,
             irq,
-            frequency,
             period: AtomicU32::new(0),
             alarms: Mutex::new([AlarmState::new(), AlarmState::new(), AlarmState::new()]),
         }
     }
 
-    pub fn start(&'static self) {
+    // TODO: Temporary until clock code generation is in place
+    pub fn start_tim2(&'static self) {
+        #[cfg(feature = "_stm32l0")]
+        unsafe {
+            let rcc = crate::pac::RCC;
+            rcc.apb1enr()
+                .modify(|w| w.set_tim2en(crate::pac::rcc::vals::Lptimen::ENABLED));
+            rcc.apb1rstr().modify(|w| w.set_tim2rst(true));
+            rcc.apb1rstr().modify(|w| w.set_tim2rst(false));
+        }
+
+        let timer_freq = unsafe { CLOCK_FREQS.unwrap().tim2 };
+        self.start(timer_freq);
+    }
+
+    pub fn start(&'static self, timer_freq: Hertz) {
         let inner = T::inner();
 
         // NOTE(unsafe) Critical section to use the unsafe methods
         critical_section::with(|_| {
             unsafe {
-                inner.prepare(self.frequency);
+                inner.prepare(timer_freq);
             }
 
             self.irq.set_handler_context(self as *const _ as *mut _);

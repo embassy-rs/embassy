@@ -36,7 +36,6 @@ pub mod time;
 
 pub use embassy_macros::interrupt;
 pub use pac::{interrupt, peripherals, Peripherals};
-pub use rcc::SystemClock;
 
 // workaround for svd2rust-generated code using `use crate::generic::*;`
 pub(crate) use pac::regs::generic;
@@ -61,12 +60,14 @@ impl Default for Config {
 }
 
 /// Initialize embassy.
-pub fn init(config: Config) -> (Peripherals, SystemClock) {
+pub fn init(config: Config) -> Peripherals {
     let p = Peripherals::take();
 
     unsafe {
         dma::init();
         pac::init_exti();
-        (p, rcc::init(config.rcc))
+        rcc::init(config.rcc);
     }
+
+    p
 }
