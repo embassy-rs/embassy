@@ -15,7 +15,7 @@ use futures::future::poll_fn;
 use crate::chip::EASY_DMA_SIZE;
 use crate::fmt::{assert, panic, *};
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
+use crate::gpio::{self, OptionalPin as GpioOptionalPin, Pin as GpioPin};
 use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
@@ -166,9 +166,12 @@ impl<'a, T: Instance> Drop for Uarte<'a, T> {
         // Finally we can disable!
         r.enable.write(|w| w.enable().disabled());
 
-        info!("uarte drop: done");
+        gpio::deconfigure_pin(r.psel.rxd.read().bits());
+        gpio::deconfigure_pin(r.psel.txd.read().bits());
+        gpio::deconfigure_pin(r.psel.rts.read().bits());
+        gpio::deconfigure_pin(r.psel.cts.read().bits());
 
-        // TODO: disable pins
+        info!("uarte drop: done");
     }
 }
 
