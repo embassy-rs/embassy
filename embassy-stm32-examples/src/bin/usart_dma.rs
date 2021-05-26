@@ -20,7 +20,7 @@ use stm32f4::stm32f429 as pac;
 
 #[embassy::task]
 async fn main_task() {
-    let (mut p, _) = embassy_stm32::init(Default::default());
+    let mut p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
     let mut usart = Uart::new(p.USART3, p.PD9, p.PD8, config, 16_000_000);

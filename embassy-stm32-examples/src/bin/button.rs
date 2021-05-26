@@ -38,7 +38,7 @@ fn main() -> ! {
         w
     });
 
-    let (p, _) = embassy_stm32::init(Default::default());
+    let p = embassy_stm32::init(Default::default());
 
     let button = Input::new(p.PC13, Pull::Down);
     let mut led1 = Output::new(p.PB0, Level::High);

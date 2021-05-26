@@ -21,7 +21,7 @@ use stm32f4::stm32f429 as pac;
 
 #[embassy::task]
 async fn main_task() {
-    let (p, _) = embassy_stm32::init(Default::default());
+    let p = embassy_stm32::init(Default::default());
 
     let button = Input::new(p.PC13, Pull::Down);
     let mut button = ExtiInput::new(button, p.EXTI13);

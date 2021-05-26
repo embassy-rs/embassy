@@ -47,7 +47,7 @@ fn main() -> ! {
         w
     });
 
-    let (p, _) = embassy_stm32::init(Default::default());
+    let p = embassy_stm32::init(Default::default());
 
     let mut spi = Spi::new(
         Hertz(16_000_000),
