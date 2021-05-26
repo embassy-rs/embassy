@@ -30,12 +30,16 @@ pub enum Frequency {
 #[non_exhaustive]
 pub struct Config {
     pub frequency: Frequency,
+    pub sda_pullup: bool,
+    pub scl_pullup: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             frequency: Frequency::K100,
+            sda_pullup: false,
+            scl_pullup: false,
         }
     }
 }
@@ -61,15 +65,19 @@ impl<'d, T: Instance> Twim<'d, T> {
         sda.conf().write(|w| {
             w.dir().input();
             w.input().connect();
-            w.pull().pullup();
             w.drive().s0d1();
+            if config.sda_pullup {
+                w.pull().pullup();
+            }
             w
         });
         scl.conf().write(|w| {
             w.dir().input();
             w.input().connect();
-            w.pull().pullup();
             w.drive().s0d1();
+            if config.scl_pullup {
+                w.pull().pullup();
+            }
             w
         });
 
