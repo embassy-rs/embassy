@@ -103,6 +103,83 @@ pub enum PLLSource {
 /// HSI speed
 pub const HSI_FREQ: u32 = 16_000_000;
 
+impl Into<Pllmul> for PLLMul {
+    fn into(self) -> Pllmul {
+        match self {
+            PLLMul::Mul3 => Pllmul::MUL3,
+            PLLMul::Mul4 => Pllmul::MUL4,
+            PLLMul::Mul6 => Pllmul::MUL6,
+            PLLMul::Mul8 => Pllmul::MUL8,
+            PLLMul::Mul12 => Pllmul::MUL12,
+            PLLMul::Mul16 => Pllmul::MUL16,
+            PLLMul::Mul24 => Pllmul::MUL24,
+            PLLMul::Mul32 => Pllmul::MUL32,
+            PLLMul::Mul48 => Pllmul::MUL48,
+        }
+    }
+}
+
+impl Into<Plldiv> for PLLDiv {
+    fn into(self) -> Plldiv {
+        match self {
+            PLLDiv::Div2 => Plldiv::DIV2,
+            PLLDiv::Div3 => Plldiv::DIV3,
+            PLLDiv::Div4 => Plldiv::DIV4,
+        }
+    }
+}
+
+impl Into<Pllsrc> for PLLSource {
+    fn into(self) -> Pllsrc {
+        match self {
+            PLLSource::HSI16 => Pllsrc::HSI16,
+            PLLSource::HSE(_) => Pllsrc::HSE,
+        }
+    }
+}
+
+impl Into<Ppre> for APBPrescaler {
+    fn into(self) -> Ppre {
+        match self {
+            APBPrescaler::NotDivided => Ppre::DIV1,
+            APBPrescaler::Div2 => Ppre::DIV2,
+            APBPrescaler::Div4 => Ppre::DIV4,
+            APBPrescaler::Div8 => Ppre::DIV8,
+            APBPrescaler::Div16 => Ppre::DIV16,
+        }
+    }
+}
+
+impl Into<Hpre> for AHBPrescaler {
+    fn into(self) -> Hpre {
+        match self {
+            AHBPrescaler::NotDivided => Hpre::DIV1,
+            AHBPrescaler::Div2 => Hpre::DIV2,
+            AHBPrescaler::Div4 => Hpre::DIV4,
+            AHBPrescaler::Div8 => Hpre::DIV8,
+            AHBPrescaler::Div16 => Hpre::DIV16,
+            AHBPrescaler::Div64 => Hpre::DIV64,
+            AHBPrescaler::Div128 => Hpre::DIV128,
+            AHBPrescaler::Div256 => Hpre::DIV256,
+            AHBPrescaler::Div512 => Hpre::DIV512,
+        }
+    }
+}
+
+impl Into<Msirange> for MSIRange {
+    fn into(self) -> Msirange {
+        match self {
+            MSIRange::Range0 => Msirange::RANGE0,
+            MSIRange::Range1 => Msirange::RANGE1,
+            MSIRange::Range2 => Msirange::RANGE2,
+            MSIRange::Range3 => Msirange::RANGE3,
+            MSIRange::Range4 => Msirange::RANGE4,
+            MSIRange::Range5 => Msirange::RANGE5,
+            MSIRange::Range6 => Msirange::RANGE6,
+        }
+    }
+}
+
 /// Clocks configutation
 pub struct Config {
     mux: ClockSrc,
@@ -192,11 +269,6 @@ impl Config {
     }
 }
 
-/// RCC peripheral
-pub struct Rcc {
-    clocks: Clocks,
-}
-
 /*
 impl Rcc {
     pub fn enable_lse(&mut self, _: &PWR) -> LSE {
@@ -266,7 +338,7 @@ impl Rcc {
 
 /// Extension trait that freezes the `RCC` peripheral with provided clocks configuration
 pub trait RccExt {
-    fn freeze(self, config: Config) -> Rcc;
+    fn freeze(&mut self, config: Config) -> Clocks;
 }
 
 impl RccExt for RCC {
@@ -274,7 +346,7 @@ impl RccExt for RCC {
     // marking this function and all `Config` constructors and setters as `#[inline]`.
     // This saves ~900 Bytes for the `pwr.rs` example.
     #[inline]
-    fn freeze(self, cfgr: Config) -> Rcc {
+    fn freeze(&mut self, cfgr: Config) -> Clocks {
         let rcc = pac::RCC;
         let (sys_clk, sw) = match cfgr.mux {
             ClockSrc::MSI(range) => {
@@ -409,7 +481,7 @@ impl RccExt for RCC {
             }
         };
 
-        let clocks = Clocks {
+        Clocks {
             source: cfgr.mux,
             sys_clk: sys_clk.hz(),
             ahb_clk: ahb_freq.hz(),
@@ -419,9 +491,7 @@ impl RccExt for RCC {
             apb2_tim_clk: apb2_tim_freq.hz(),
             apb1_pre,
             apb2_pre,
-        };
-
-        Rcc { clocks }
+        }
     }
 }
 
@@ -506,83 +576,6 @@ pub struct MCOEnabled(());
 #[derive(Clone, Copy)]
 pub struct LSE(());
 
-impl Into<Pllmul> for PLLMul {
-    fn into(self) -> Pllmul {
-        match self {
-            PLLMul::Mul3 => Pllmul::MUL3,
-            PLLMul::Mul4 => Pllmul::MUL4,
-            PLLMul::Mul6 => Pllmul::MUL6,
-            PLLMul::Mul8 => Pllmul::MUL8,
-            PLLMul::Mul12 => Pllmul::MUL12,
-            PLLMul::Mul16 => Pllmul::MUL16,
-            PLLMul::Mul24 => Pllmul::MUL24,
-            PLLMul::Mul32 => Pllmul::MUL32,
-            PLLMul::Mul48 => Pllmul::MUL48,
-        }
-    }
-}
-
-impl Into<Plldiv> for PLLDiv {
-    fn into(self) -> Plldiv {
-        match self {
-            PLLDiv::Div2 => Plldiv::DIV2,
-            PLLDiv::Div3 => Plldiv::DIV3,
-            PLLDiv::Div4 => Plldiv::DIV4,
-        }
-    }
-}
-
-impl Into<Pllsrc> for PLLSource {
-    fn into(self) -> Pllsrc {
-        match self {
-            PLLSource::HSI16 => Pllsrc::HSI16,
-            PLLSource::HSE(_) => Pllsrc::HSE,
-        }
-    }
-}
-
-impl Into<Ppre> for APBPrescaler {
-    fn into(self) -> Ppre {
-        match self {
-            APBPrescaler::NotDivided => Ppre::DIV1,
-            APBPrescaler::Div2 => Ppre::DIV2,
-            APBPrescaler::Div4 => Ppre::DIV4,
-            APBPrescaler::Div8 => Ppre::DIV8,
-            APBPrescaler::Div16 => Ppre::DIV16,
-        }
-    }
-}
-
-impl Into<Hpre> for AHBPrescaler {
-    fn into(self) -> Hpre {
-        match self {
-            AHBPrescaler::NotDivided => Hpre::DIV1,
-            AHBPrescaler::Div2 => Hpre::DIV2,
-            AHBPrescaler::Div4 => Hpre::DIV4,
-            AHBPrescaler::Div8 => Hpre::DIV8,
-            AHBPrescaler::Div16 => Hpre::DIV16,
-            AHBPrescaler::Div64 => Hpre::DIV64,
-            AHBPrescaler::Div128 => Hpre::DIV128,
-            AHBPrescaler::Div256 => Hpre::DIV256,
-            AHBPrescaler::Div512 => Hpre::DIV512,
-        }
-    }
-}
-
-impl Into<Msirange> for MSIRange {
-    fn into(self) -> Msirange {
-        match self {
-            MSIRange::Range0 => Msirange::RANGE0,
-            MSIRange::Range1 => Msirange::RANGE1,
-            MSIRange::Range2 => Msirange::RANGE2,
-            MSIRange::Range3 => Msirange::RANGE3,
-            MSIRange::Range4 => Msirange::RANGE4,
-            MSIRange::Range5 => Msirange::RANGE5,
-            MSIRange::Range6 => Msirange::RANGE6,
-        }
-    }
-}
-
 // We use TIM2 as SystemClock
 pub type SystemClock = Clock<TIM2>;
 
@@ -598,8 +591,8 @@ pub unsafe fn init(config: Config) -> SystemClock {
         w.set_iophen(enabled);
     });
 
-    let r = <peripherals::RCC as embassy::util::Steal>::steal();
-    let r = r.freeze(config);
+    let mut r = <peripherals::RCC as embassy::util::Steal>::steal();
+    let clocks = r.freeze(config);
 
     rcc.apb1enr().modify(|w| w.set_tim2en(Lptimen::ENABLED));
     rcc.apb1rstr().modify(|w| w.set_tim2rst(true));
@@ -608,6 +601,6 @@ pub unsafe fn init(config: Config) -> SystemClock {
     Clock::new(
         <peripherals::TIM2 as embassy::util::Steal>::steal(),
         interrupt::take!(TIM2),
-        r.clocks.apb1_clk(),
+        clocks.apb1_clk(),
     )
 }
