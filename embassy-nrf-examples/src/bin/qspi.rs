@@ -33,7 +33,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let config = qspi::Config::default();
     let irq = interrupt::take!(QSPI);
-    let mut q = qspi::Qspi::new(p.QSPI, irq, sck, csn, io0, io1, io2, io3, config);
+    let mut q = qspi::Qspi::new(p.QSPI, irq, sck, csn, io0, io1, io2, io3, config).await;
 
     let mut id = [1; 3];
     q.custom_instruction(0x9F, &[], &mut id).await.unwrap();
