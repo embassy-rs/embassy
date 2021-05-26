@@ -38,7 +38,7 @@ fn main() -> ! {
         w
     });
 
-    let p = embassy_stm32::init(Default::default());
+    let (p, _) = embassy_stm32::init(Default::default());
 
     let mut led = Output::new(p.PB7, Level::High);
 
