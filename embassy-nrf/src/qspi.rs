@@ -2,6 +2,7 @@
 
 use core::future::Future;
 use core::marker::PhantomData;
+use core::ptr;
 use core::task::Poll;
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::traits::flash::{Error, Flash};
@@ -10,7 +11,8 @@ use embassy_extras::unborrow;
 use futures::future::poll_fn;
 
 use crate::fmt::{assert, assert_eq, *};
-use crate::gpio::Pin as GpioPin;
+use crate::gpio::sealed::Pin as _;
+use crate::gpio::{self, Pin as GpioPin};
 use crate::pac;
 
 pub use crate::pac::qspi::ifconfig0::ADDRMODE_A as AddressMode;
@@ -29,7 +31,9 @@ pub use crate::pac::qspi::ifconfig0::WRITEOC_A as WriteOpcode;
 // - set gpio in high drive
 
 pub struct DeepPowerDownConfig {
+    /// Time required for entering DPM, in units of 16us
     pub enter_time: u16,
+    /// Time required for exiting DPM, in units of 16us
     pub exit_time: u16,
 }
 
@@ -55,11 +59,12 @@ impl Default for Config {
 }
 
 pub struct Qspi<'d, T: Instance> {
+    dpm_enabled: bool,
     phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance> Qspi<'d, T> {
-    pub fn new(
+    pub async fn new(
         _qspi: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
         sck: impl Unborrow<Target = impl GpioPin> + 'd,
@@ -69,20 +74,21 @@ impl<'d, T: Instance> Qspi<'d, T> {
         io2: impl Unborrow<Target = impl GpioPin> + 'd,
         io3: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Qspi<'d, T> {
         unborrow!(irq, sck, csn, io0, io1, io2, io3);
 
         let r = T::regs();
 
-        for cnf in &[
-            sck.conf(),
-            csn.conf(),
-            io0.conf(),
-            io1.conf(),
-            io2.conf(),
-            io3.conf(),
-        ] {
-            cnf.write(|w| w.dir().output().drive().h0h1());
+        let sck = sck.degrade();
+        let csn = csn.degrade();
+        let io0 = io0.degrade();
+        let io1 = io1.degrade();
+        let io2 = io2.degrade();
+        let io3 = io3.degrade();
+
+        for pin in [&sck, &csn, &io0, &io1, &io2, &io3] {
+            pin.set_high();
+            pin.conf().write(|w| w.dir().output().drive().h0h1());
         }
 
         r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
@@ -92,53 +98,56 @@ impl<'d, T: Instance> Qspi<'d, T> {
         r.psel.io2.write(|w| unsafe { w.bits(io2.psel_bits()) });
         r.psel.io3.write(|w| unsafe { w.bits(io3.psel_bits()) });
 
-        r.ifconfig0.write(|mut w| {
-            w = w.addrmode().variant(AddressMode::_24BIT);
-            if config.deep_power_down.is_some() {
-                w = w.dpmenable().enable();
-            } else {
-                w = w.dpmenable().disable();
-            }
-            w = w.ppsize().variant(config.write_page_size);
-            w = w.readoc().variant(config.read_opcode);
-            w = w.writeoc().variant(config.write_opcode);
+        r.ifconfig0.write(|w| {
+            w.addrmode().variant(AddressMode::_24BIT);
+            w.dpmenable().bit(config.deep_power_down.is_some());
+            w.ppsize().variant(config.write_page_size);
+            w.readoc().variant(config.read_opcode);
+            w.writeoc().variant(config.write_opcode);
             w
         });
 
         if let Some(dpd) = &config.deep_power_down {
-            r.dpmdur.write(|mut w| unsafe {
-                w = w.enter().bits(dpd.enter_time);
-                w = w.exit().bits(dpd.exit_time);
+            r.dpmdur.write(|w| unsafe {
+                w.enter().bits(dpd.enter_time);
+                w.exit().bits(dpd.exit_time);
                 w
             })
         }
 
-        r.ifconfig1.write(|w| {
-            let w = unsafe { w.sckdelay().bits(80) };
-            let w = w.dpmen().exit();
-            let w = w.spimode().mode0();
-            let w = unsafe { w.sckfreq().bits(3) };
+        r.ifconfig1.write(|w| unsafe {
+            w.sckdelay().bits(80);
+            w.dpmen().exit();
+            w.spimode().mode0();
+            w.sckfreq().bits(3);
             w
         });
 
-        r.xipoffset
-            .write(|w| unsafe { w.xipoffset().bits(config.xip_offset) });
-
-        // Enable it
-        r.enable.write(|w| w.enable().enabled());
-
-        r.events_ready.reset();
-        r.tasks_activate.write(|w| w.tasks_activate().bit(true));
-        while r.events_ready.read().bits() == 0 {}
-        r.events_ready.reset();
+        r.xipoffset.write(|w| unsafe {
+            w.xipoffset().bits(config.xip_offset);
+            w
+        });
 
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
         irq.enable();
 
-        Self {
+        // Enable it
+        r.enable.write(|w| w.enable().enabled());
+
+        let mut res = Self {
+            dpm_enabled: config.deep_power_down.is_some(),
             phantom: PhantomData,
-        }
+        };
+
+        r.events_ready.reset();
+        r.intenset.write(|w| w.ready().set());
+
+        r.tasks_activate.write(|w| w.tasks_activate().bit(true));
+
+        res.wait_ready().await;
+
+        res
     }
 
     fn on_interrupt(_: *mut ()) {
@@ -149,19 +158,6 @@ impl<'d, T: Instance> Qspi<'d, T> {
             s.ready_waker.wake();
             r.intenclr.write(|w| w.ready().clear());
         }
-    }
-
-    pub fn sleep(&mut self) {
-        let r = T::regs();
-
-        info!("flash: sleeping");
-        info!("flash: state = {:?}", r.status.read().bits());
-        r.ifconfig1.modify(|_, w| w.dpmen().enter());
-        info!("flash: state = {:?}", r.status.read().bits());
-        cortex_m::asm::delay(1000000);
-        info!("flash: state = {:?}", r.status.read().bits());
-
-        r.tasks_deactivate.write(|w| w.tasks_deactivate().set_bit());
     }
 
     pub async fn custom_instruction(
@@ -243,6 +239,44 @@ impl<'d, T: Instance> Qspi<'d, T> {
             Poll::Pending
         })
         .await
+    }
+}
+
+impl<'d, T: Instance> Drop for Qspi<'d, T> {
+    fn drop(&mut self) {
+        let r = T::regs();
+
+        if self.dpm_enabled {
+            info!("qspi: doing deep powerdown...");
+
+            r.ifconfig1.modify(|_, w| w.dpmen().enter());
+
+            // Wait for DPM enter.
+            // Unfortunately we must spin. There's no way to do this interrupt-driven.
+            // The READY event does NOT fire on DPM enter (but it does fire on DPM exit :shrug:)
+            while r.status.read().dpm().is_disabled() {}
+        }
+
+        // it seems events_ready is not generated in response to deactivate. nrfx doesn't wait for it.
+        r.tasks_deactivate.write(|w| w.tasks_deactivate().set_bit());
+
+        // Workaround https://infocenter.nordicsemi.com/topic/errata_nRF52840_Rev1/ERR/nRF52840/Rev1/latest/anomaly_840_122.html?cp=4_0_1_2_1_7
+        // Note that the doc has 2 register writes, but the first one is really the write to tasks_deactivate,
+        // so we only do the second one here.
+        unsafe { ptr::write_volatile(0x40029054 as *mut u32, 1) }
+
+        r.enable.write(|w| w.enable().disabled());
+
+        // Note: we do NOT deconfigure CSN here. If DPM is in use and we disconnect CSN,
+        // leaving it floating, the flash chip might read it as zero which would cause it to
+        // spuriously exit DPM.
+        gpio::deconfigure_pin(r.psel.sck.read().bits());
+        gpio::deconfigure_pin(r.psel.io0.read().bits());
+        gpio::deconfigure_pin(r.psel.io1.read().bits());
+        gpio::deconfigure_pin(r.psel.io2.read().bits());
+        gpio::deconfigure_pin(r.psel.io3.read().bits());
+
+        info!("qspi: dropped");
     }
 }
 

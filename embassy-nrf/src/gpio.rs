@@ -12,6 +12,8 @@ use gpio::pin_cnf::DRIVE_A;
 use crate::pac;
 use crate::pac::p0 as gpio;
 
+use self::sealed::Pin as _;
+
 /// A GPIO port with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Port {
@@ -482,6 +484,17 @@ impl OptionalPin for NoPin {
     #[inline]
     fn pin_mut(&mut self) -> Option<&mut AnyPin> {
         None
+    }
+}
+
+// ====================
+
+pub(crate) fn deconfigure_pin(psel_bits: u32) {
+    if psel_bits & 0x8000_0000 != 0 {
+        return;
+    }
+    unsafe {
+        AnyPin::steal(psel_bits as _).conf().reset();
     }
 }
 

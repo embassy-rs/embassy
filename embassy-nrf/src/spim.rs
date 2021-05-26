@@ -14,6 +14,7 @@ use traits::spi::FullDuplex;
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin, Pin as GpioPin};
 use crate::interrupt::Interrupt;
+use crate::{fmt::*, gpio};
 use crate::{pac, util::slice_in_ram_or};
 
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
@@ -150,6 +151,24 @@ impl<'d, T: Instance> Spim<'d, T> {
             s.end_waker.wake();
             r.intenclr.write(|w| w.end().clear());
         }
+    }
+}
+
+impl<'d, T: Instance> Drop for Spim<'d, T> {
+    fn drop(&mut self) {
+        info!("spim drop");
+
+        // TODO check for abort, wait for xxxstopped
+
+        // disable!
+        let r = T::regs();
+        r.enable.write(|w| w.enable().disabled());
+
+        gpio::deconfigure_pin(r.psel.sck.read().bits());
+        gpio::deconfigure_pin(r.psel.miso.read().bits());
+        gpio::deconfigure_pin(r.psel.mosi.read().bits());
+
+        info!("spim drop: done");
     }
 }
 

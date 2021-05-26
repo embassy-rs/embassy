@@ -13,10 +13,10 @@ use embassy::util::{AtomicWaker, Unborrow};
 use embassy_extras::unborrow;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
-use crate::fmt::*;
 use crate::gpio::Pin as GpioPin;
 use crate::pac;
 use crate::util::{slice_in_ram, slice_in_ram_or};
+use crate::{fmt::*, gpio};
 
 pub enum Frequency {
     #[doc = "26738688: 100 kbps"]
@@ -30,12 +30,16 @@ pub enum Frequency {
 #[non_exhaustive]
 pub struct Config {
     pub frequency: Frequency,
+    pub sda_pullup: bool,
+    pub scl_pullup: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             frequency: Frequency::K100,
+            sda_pullup: false,
+            scl_pullup: false,
         }
     }
 }
@@ -61,15 +65,19 @@ impl<'d, T: Instance> Twim<'d, T> {
         sda.conf().write(|w| {
             w.dir().input();
             w.input().connect();
-            w.pull().pullup();
             w.drive().s0d1();
+            if config.sda_pullup {
+                w.pull().pullup();
+            }
             w
         });
         scl.conf().write(|w| {
             w.dir().input();
             w.input().connect();
-            w.pull().pullup();
             w.drive().s0d1();
+            if config.scl_pullup {
+                w.pull().pullup();
+            }
             w
         });
 
@@ -422,9 +430,10 @@ impl<'a, T: Instance> Drop for Twim<'a, T> {
         let r = T::regs();
         r.enable.write(|w| w.enable().disabled());
 
-        info!("uarte drop: done");
+        gpio::deconfigure_pin(r.psel.sda.read().bits());
+        gpio::deconfigure_pin(r.psel.scl.read().bits());
 
-        // TODO: disable pins
+        info!("twim drop: done");
     }
 }
 
