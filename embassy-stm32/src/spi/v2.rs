@@ -153,6 +153,54 @@ impl<'d, T: Instance> Drop for Spi<'d, T> {
     }
 }
 
+trait Word {}
+
+impl Word for u8 {}
+impl Word for u16 {}
+
+/// Write a single word blocking. Assumes word size have already been set.
+fn write_word<W: Word>(regs: &'static crate::pac::spi::Spi, word: W) -> Result<(), Error> {
+    loop {
+        let sr = unsafe { regs.sr().read() };
+        if sr.ovr() {
+            return Err(Error::Overrun);
+        } else if sr.fre() {
+            return Err(Error::Framing);
+        } else if sr.modf() {
+            return Err(Error::ModeFault);
+        } else if sr.crcerr() {
+            return Err(Error::Crc);
+        } else if sr.txe() {
+            unsafe {
+                let dr = regs.dr().ptr() as *mut W;
+                ptr::write_volatile(dr, word);
+            }
+            return Ok(());
+        }
+    }
+}
+
+/// Read a single word blocking. Assumes word size have already been set.
+fn read_word<W: Word>(regs: &'static crate::pac::spi::Spi) -> Result<W, Error> {
+    loop {
+        let sr = unsafe { regs.sr().read() };
+        if sr.ovr() {
+            return Err(Error::Overrun);
+        } else if sr.modf() {
+            return Err(Error::ModeFault);
+        } else if sr.fre() {
+            return Err(Error::Framing);
+        } else if sr.crcerr() {
+            return Err(Error::Crc);
+        } else if sr.rxne() {
+            unsafe {
+                let dr = regs.dr().ptr() as *const W;
+                return Ok(ptr::read_volatile(dr));
+            }
+        }
+    }
+}
+
 impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T> {
     type Error = Error;
 
@@ -160,29 +208,9 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T> {
         Self::set_word_size(WordSize::EightBit);
         let regs = T::regs();
 
-        for (i, word) in words.iter().enumerate() {
-            while unsafe { !regs.sr().read().txe() } {
-                // spin
-            }
-            unsafe {
-                let dr = regs.dr().ptr() as *mut u8;
-                ptr::write_volatile(dr, *word);
-            }
-            loop {
-                let sr = unsafe { regs.sr().read() };
-                if sr.fre() {
-                    return Err(Error::Framing);
-                }
-                if sr.ovr() {
-                    return Err(Error::Overrun);
-                }
-                if sr.crcerr() {
-                    return Err(Error::Crc);
-                }
-                if !sr.txe() {
-                    // loop waiting for TXE
-                }
-            }
+        for word in words.iter() {
+            write_word(regs, *word)?;
+            let _: u8 = read_word(regs)?;
         }
 
         Ok(())
@@ -196,43 +224,9 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
         Self::set_word_size(WordSize::EightBit);
         let regs = T::regs();
 
-        for (i, word) in words.iter_mut().enumerate() {
-            while unsafe { !regs.sr().read().txe() } {
-                // spin
-            }
-            unsafe {
-                let dr = regs.dr().ptr() as *mut u8;
-                ptr::write_volatile(dr, *word);
-            }
-            loop {
-                let sr = unsafe { regs.sr().read() };
-                if sr.rxne() {
-                    break;
-                }
-                if sr.fre() {
-                    return Err(Error::Framing);
-                }
-                if sr.ovr() {
-                    return Err(Error::Overrun);
-                }
-                if sr.crcerr() {
-                    return Err(Error::Crc);
-                }
-            }
-            unsafe {
-                let dr = regs.dr().ptr() as *const u8;
-                *word = ptr::read_volatile(dr);
-            }
-            let sr = unsafe { regs.sr().read() };
-            if sr.fre() {
-                return Err(Error::Framing);
-            }
-            if sr.ovr() {
-                return Err(Error::Overrun);
-            }
-            if sr.crcerr() {
-                return Err(Error::Crc);
-            }
+        for word in words.iter_mut() {
+            write_word(regs, *word)?;
+            *word = read_word(regs)?;
         }
 
         Ok(words)
@@ -247,28 +241,8 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T> {
         let regs = T::regs();
 
         for word in words.iter() {
-            while unsafe { !regs.sr().read().txe() } {
-                // spin
-            }
-            unsafe {
-                let dr = regs.dr().ptr() as *mut u16;
-                ptr::write_volatile(dr, *word);
-            }
-            loop {
-                let sr = unsafe { regs.sr().read() };
-                if sr.fre() {
-                    return Err(Error::Framing);
-                }
-                if sr.ovr() {
-                    return Err(Error::Overrun);
-                }
-                if sr.crcerr() {
-                    return Err(Error::Crc);
-                }
-                if !sr.txe() {
-                    // loop waiting for TXE
-                }
-            }
+            write_word(regs, *word)?;
+            let _: u16 = read_word(regs)?;
         }
 
         Ok(())
@@ -283,30 +257,8 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T> 
         let regs = T::regs();
 
         for word in words.iter_mut() {
-            while unsafe { !regs.sr().read().txe() } {
-                // spin
-            }
-            unsafe {
-                let dr = regs.dr().ptr() as *mut u16;
-                ptr::write_volatile(dr, *word);
-            }
-            while unsafe { !regs.sr().read().rxne() } {
-                // spin waiting for inbound to shift in.
-            }
-            unsafe {
-                let dr = regs.dr().ptr() as *const u16;
-                *word = ptr::read_volatile(dr);
-            }
-            let sr = unsafe { regs.sr().read() };
-            if sr.fre() {
-                return Err(Error::Framing);
-            }
-            if sr.ovr() {
-                return Err(Error::Overrun);
-            }
-            if sr.crcerr() {
-                return Err(Error::Crc);
-            }
+            write_word(regs, *word)?;
+            *word = read_word(regs)?;
         }
 
         Ok(words)

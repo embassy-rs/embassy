@@ -12,6 +12,7 @@ use crate::gpio::Pin;
 pub enum Error {
     Framing,
     Crc,
+    ModeFault,
     Overrun,
 }
 
