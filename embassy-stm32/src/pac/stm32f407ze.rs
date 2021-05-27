@@ -177,6 +177,26 @@ impl_gpio_pin!(PI12, 8, 12, EXTI12);
 impl_gpio_pin!(PI13, 8, 13, EXTI13);
 impl_gpio_pin!(PI14, 8, 14, EXTI14);
 impl_gpio_pin!(PI15, 8, 15, EXTI15);
+pub const I2C1: i2c::I2c = i2c::I2c(0x40005400 as _);
+impl_i2c!(I2C1);
+impl_i2c_pin!(I2C1, SclPin, PB6, 4);
+impl_i2c_pin!(I2C1, SdaPin, PB7, 4);
+impl_i2c_pin!(I2C1, SclPin, PB8, 4);
+impl_i2c_pin!(I2C1, SdaPin, PB9, 4);
+pub const I2C2: i2c::I2c = i2c::I2c(0x40005800 as _);
+impl_i2c!(I2C2);
+impl_i2c_pin!(I2C2, SclPin, PB10, 4);
+impl_i2c_pin!(I2C2, SdaPin, PB11, 4);
+impl_i2c_pin!(I2C2, SdaPin, PF0, 4);
+impl_i2c_pin!(I2C2, SclPin, PF1, 4);
+impl_i2c_pin!(I2C2, SclPin, PH4, 4);
+impl_i2c_pin!(I2C2, SdaPin, PH5, 4);
+pub const I2C3: i2c::I2c = i2c::I2c(0x40005c00 as _);
+impl_i2c!(I2C3);
+impl_i2c_pin!(I2C3, SclPin, PA8, 4);
+impl_i2c_pin!(I2C3, SdaPin, PC9, 4);
+impl_i2c_pin!(I2C3, SclPin, PH7, 4);
+impl_i2c_pin!(I2C3, SdaPin, PH8, 4);
 pub const RNG: rng::Rng = rng::Rng(0x50060800 as _);
 impl_rng!(RNG, RNG);
 pub const SPI1: spi::Spi = spi::Spi(0x40013000 as _);
@@ -207,24 +227,6 @@ impl_spi_pin!(SPI3, SckPin, PC10, 6);
 impl_spi_pin!(SPI3, MisoPin, PC11, 6);
 impl_spi_pin!(SPI3, MosiPin, PC12, 6);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40013800 as _);
-pub const TIM1: timer::TimGp16 = timer::TimGp16(0x40010000 as _);
-pub const TIM10: timer::TimGp16 = timer::TimGp16(0x40014400 as _);
-pub const TIM11: timer::TimGp16 = timer::TimGp16(0x40014800 as _);
-pub const TIM12: timer::TimGp16 = timer::TimGp16(0x40001800 as _);
-pub const TIM13: timer::TimGp16 = timer::TimGp16(0x40001c00 as _);
-pub const TIM14: timer::TimGp16 = timer::TimGp16(0x40002000 as _);
-pub const TIM2: timer::TimGp16 = timer::TimGp16(0x40000000 as _);
-impl_timer!(TIM2);
-pub const TIM3: timer::TimGp16 = timer::TimGp16(0x40000400 as _);
-impl_timer!(TIM3);
-pub const TIM4: timer::TimGp16 = timer::TimGp16(0x40000800 as _);
-impl_timer!(TIM4);
-pub const TIM5: timer::TimGp16 = timer::TimGp16(0x40000c00 as _);
-impl_timer!(TIM5);
-pub const TIM6: timer::TimGp16 = timer::TimGp16(0x40001000 as _);
-pub const TIM7: timer::TimGp16 = timer::TimGp16(0x40001400 as _);
-pub const TIM8: timer::TimGp16 = timer::TimGp16(0x40010400 as _);
-pub const TIM9: timer::TimGp16 = timer::TimGp16(0x40014000 as _);
 pub const USART1: usart::Usart = usart::Usart(0x40011000 as _);
 impl_usart!(USART1);
 impl_usart_pin!(USART1, RxPin, PA10, 7);
@@ -276,10 +278,10 @@ impl_usart_pin!(USART6, RxPin, PG9, 8);
 pub use super::regs::dma_v2 as dma;
 pub use super::regs::exti_v1 as exti;
 pub use super::regs::gpio_v2 as gpio;
+pub use super::regs::i2c_v1 as i2c;
 pub use super::regs::rng_v1 as rng;
 pub use super::regs::spi_v1 as spi;
 pub use super::regs::syscfg_f4 as syscfg;
-pub use super::regs::timer_v1 as timer;
 pub use super::regs::usart_v1 as usart;
 embassy_extras::peripherals!(
     EXTI0, EXTI1, EXTI2, EXTI3, EXTI4, EXTI5, EXTI6, EXTI7, EXTI8, EXTI9, EXTI10, EXTI11, EXTI12,
@@ -293,8 +295,8 @@ embassy_extras::peripherals!(
     PF10, PF11, PF12, PF13, PF14, PF15, PG0, PG1, PG2, PG3, PG4, PG5, PG6, PG7, PG8, PG9, PG10,
     PG11, PG12, PG13, PG14, PG15, PH0, PH1, PH2, PH3, PH4, PH5, PH6, PH7, PH8, PH9, PH10, PH11,
     PH12, PH13, PH14, PH15, PI0, PI1, PI2, PI3, PI4, PI5, PI6, PI7, PI8, PI9, PI10, PI11, PI12,
-    PI13, PI14, PI15, RNG, SPI1, SPI2, SPI3, SYSCFG, TIM1, TIM10, TIM11, TIM12, TIM13, TIM14, TIM2,
-    TIM3, TIM4, TIM5, TIM6, TIM7, TIM8, TIM9, USART1, USART2, USART3, USART6
+    PI13, PI14, PI15, I2C1, I2C2, I2C3, RNG, SPI1, SPI2, SPI3, SYSCFG, USART1, USART2, USART3,
+    USART6
 );
 pub fn DMA(n: u8) -> dma::Dma {
     match n {

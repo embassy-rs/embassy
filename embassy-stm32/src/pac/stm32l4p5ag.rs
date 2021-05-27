@@ -226,28 +226,12 @@ impl_spi_pin!(SPI3, MisoPin, PG10, 6);
 impl_spi_pin!(SPI3, MosiPin, PG11, 6);
 impl_spi_pin!(SPI3, SckPin, PG9, 6);
 pub const SYSCFG: syscfg::Syscfg = syscfg::Syscfg(0x40010000 as _);
-pub const TIM1: timer::TimGp16 = timer::TimGp16(0x40012c00 as _);
-pub const TIM15: timer::TimGp16 = timer::TimGp16(0x40014000 as _);
-pub const TIM16: timer::TimGp16 = timer::TimGp16(0x40014400 as _);
-pub const TIM17: timer::TimGp16 = timer::TimGp16(0x40014800 as _);
-pub const TIM2: timer::TimGp16 = timer::TimGp16(0x40000000 as _);
-impl_timer!(TIM2);
-pub const TIM3: timer::TimGp16 = timer::TimGp16(0x40000400 as _);
-impl_timer!(TIM3);
-pub const TIM4: timer::TimGp16 = timer::TimGp16(0x40000800 as _);
-impl_timer!(TIM4);
-pub const TIM5: timer::TimGp16 = timer::TimGp16(0x40000c00 as _);
-impl_timer!(TIM5);
-pub const TIM6: timer::TimGp16 = timer::TimGp16(0x40001000 as _);
-pub const TIM7: timer::TimGp16 = timer::TimGp16(0x40001400 as _);
-pub const TIM8: timer::TimGp16 = timer::TimGp16(0x40013400 as _);
 pub use super::regs::dma_v1 as dma;
 pub use super::regs::exti_v1 as exti;
 pub use super::regs::gpio_v2 as gpio;
 pub use super::regs::rng_v1 as rng;
 pub use super::regs::spi_v2 as spi;
 pub use super::regs::syscfg_l4 as syscfg;
-pub use super::regs::timer_v1 as timer;
 embassy_extras::peripherals!(
     EXTI0, EXTI1, EXTI2, EXTI3, EXTI4, EXTI5, EXTI6, EXTI7, EXTI8, EXTI9, EXTI10, EXTI11, EXTI12,
     EXTI13, EXTI14, EXTI15, DMA1_CH0, DMA1_CH1, DMA1_CH2, DMA1_CH3, DMA1_CH4, DMA1_CH5, DMA1_CH6,
@@ -260,8 +244,7 @@ embassy_extras::peripherals!(
     PF10, PF11, PF12, PF13, PF14, PF15, PG0, PG1, PG2, PG3, PG4, PG5, PG6, PG7, PG8, PG9, PG10,
     PG11, PG12, PG13, PG14, PG15, PH0, PH1, PH2, PH3, PH4, PH5, PH6, PH7, PH8, PH9, PH10, PH11,
     PH12, PH13, PH14, PH15, PI0, PI1, PI2, PI3, PI4, PI5, PI6, PI7, PI8, PI9, PI10, PI11, PI12,
-    PI13, PI14, PI15, RNG, SPI1, SPI2, SPI3, SYSCFG, TIM1, TIM15, TIM16, TIM17, TIM2, TIM3, TIM4,
-    TIM5, TIM6, TIM7, TIM8
+    PI13, PI14, PI15, RNG, SPI1, SPI2, SPI3, SYSCFG
 );
 pub fn DMA(n: u8) -> dma::Dma {
     match n {
