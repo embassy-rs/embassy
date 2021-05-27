@@ -224,49 +224,6 @@ impl Config {
         self.apb2_pre = pre;
         self
     }
-
-    #[inline]
-    pub fn hsi16() -> Config {
-        Config {
-            mux: ClockSrc::HSI16,
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
-        }
-    }
-
-    #[inline]
-    pub fn msi(range: MSIRange) -> Config {
-        Config {
-            mux: ClockSrc::MSI(range),
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
-        }
-    }
-
-    #[inline]
-    pub fn pll(pll_src: PLLSource, pll_mul: PLLMul, pll_div: PLLDiv) -> Config {
-        Config {
-            mux: ClockSrc::PLL(pll_src, pll_mul, pll_div),
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
-        }
-    }
-
-    #[inline]
-    pub fn hse<T>(freq: T) -> Config
-    where
-        T: Into<Hertz>,
-    {
-        Config {
-            mux: ClockSrc::HSE(freq.into()),
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
-        }
-    }
 }
 
 /// RCC peripheral

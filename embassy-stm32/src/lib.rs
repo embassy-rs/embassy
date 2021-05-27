@@ -46,8 +46,9 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(rcc: rcc::Config) -> Self {
-        Self { rcc }
+    pub fn rcc(mut self, rcc: rcc::Config) -> Self {
+        self.rcc = rcc;
+        self
     }
 }
 
