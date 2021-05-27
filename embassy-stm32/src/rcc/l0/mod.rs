@@ -1,13 +1,11 @@
-use crate::clock::Clock;
-use crate::clock::{set_freqs, ClockFreqs};
-use crate::interrupt;
 use crate::pac;
-use crate::pac::peripherals::{self, RCC, TIM2};
+use crate::pac::peripherals::{self, RCC};
+use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 use crate::time::U32Ext;
 use embassy::util::Unborrow;
 use pac::rcc::vals;
-use vals::{Hpre, Lptimen, Msirange, Plldiv, Pllmul, Pllon, Pllsrc, Ppre, Sw};
+use vals::{Hpre, Msirange, Plldiv, Pllmul, Pllon, Pllsrc, Ppre, Sw};
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
 /// and with the addition of the init function to configure a system clock.
@@ -492,7 +490,6 @@ impl RccExt for RCC {
         };
 
         Clocks {
-            source: cfgr.mux,
             sys_clk: sys_clk.hz(),
             ahb_clk: ahb_freq.hz(),
             apb1_clk: apb1_freq.hz(),
@@ -502,69 +499,6 @@ impl RccExt for RCC {
             apb1_pre,
             apb2_pre,
         }
-    }
-}
-
-/// Frozen clock frequencies
-///
-/// The existence of this value indicates that the clock configuration can no longer be changed
-#[derive(Clone, Copy)]
-pub struct Clocks {
-    source: ClockSrc,
-    sys_clk: Hertz,
-    ahb_clk: Hertz,
-    apb1_clk: Hertz,
-    apb1_tim_clk: Hertz,
-    apb2_clk: Hertz,
-    apb2_tim_clk: Hertz,
-    apb1_pre: u8,
-    apb2_pre: u8,
-}
-
-impl Clocks {
-    /// Returns the clock source
-    pub fn source(&self) -> &ClockSrc {
-        &self.source
-    }
-
-    /// Returns the system (core) frequency
-    pub fn sys_clk(&self) -> Hertz {
-        self.sys_clk
-    }
-
-    /// Returns the frequency of the AHB
-    pub fn ahb_clk(&self) -> Hertz {
-        self.ahb_clk
-    }
-
-    /// Returns the frequency of the APB1
-    pub fn apb1_clk(&self) -> Hertz {
-        self.apb1_clk
-    }
-
-    /// Returns the frequency of the APB1 timers
-    pub fn apb1_tim_clk(&self) -> Hertz {
-        self.apb1_tim_clk
-    }
-
-    /// Returns the prescaler of the APB1
-    pub fn apb1_pre(&self) -> u8 {
-        self.apb1_pre
-    }
-
-    /// Returns the frequency of the APB2
-    pub fn apb2_clk(&self) -> Hertz {
-        self.apb2_clk
-    }
-
-    /// Returns the frequency of the APB2 timers
-    pub fn apb2_tim_clk(&self) -> Hertz {
-        self.apb2_tim_clk
-    }
-
-    /// Returns the prescaler of the APB2
-    pub fn apb2_pre(&self) -> u8 {
-        self.apb2_pre
     }
 }
 
@@ -598,9 +532,7 @@ pub unsafe fn init(config: Config) {
         w.set_iophen(enabled);
     });
 
-    let mut r = <peripherals::RCC as embassy::util::Steal>::steal();
+    let r = <peripherals::RCC as embassy::util::Steal>::steal();
     let clocks = r.freeze(config);
-    set_freqs(ClockFreqs {
-        tim2: clocks.apb1_clk(),
-    });
+    set_freqs(clocks);
 }

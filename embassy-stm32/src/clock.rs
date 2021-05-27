@@ -10,6 +10,7 @@ use embassy::time::{Clock as EmbassyClock, TICKS_PER_SECOND};
 
 use crate::interrupt::{CriticalSection, Interrupt, Mutex};
 use crate::pac::timer::TimGp16;
+use crate::rcc::get_freqs;
 use crate::time::Hertz;
 
 // Clock timekeeping works with something we call "periods", which are time intervals
@@ -31,20 +32,6 @@ use crate::time::Hertz;
 // `period` is a 32bit integer, so It overflows on 2^32 * 2^15 / 32768 seconds of uptime, which is 136 years.
 fn calc_now(period: u32, counter: u16) -> u64 {
     ((period as u64) << 15) + ((counter as u32 ^ ((period & 1) << 15)) as u64)
-}
-
-static mut CLOCK_FREQS: Option<ClockFreqs> = None;
-
-#[derive(Copy, Clone)]
-pub struct ClockFreqs {
-    pub tim2: Hertz,
-}
-
-/// Sets the clock frequencies
-///
-/// Safety: Sets a mutable global.
-pub unsafe fn set_freqs(freqs: ClockFreqs) {
-    CLOCK_FREQS.replace(freqs);
 }
 
 struct AlarmState {
@@ -91,17 +78,20 @@ impl<T: Instance> Clock<T> {
 
     // TODO: Temporary until clock code generation is in place
     pub fn start_tim2(&'static self) {
-        #[cfg(feature = "_stm32l0")]
-        unsafe {
-            let rcc = crate::pac::RCC;
-            rcc.apb1enr()
-                .modify(|w| w.set_tim2en(crate::pac::rcc::vals::Lptimen::ENABLED));
-            rcc.apb1rstr().modify(|w| w.set_tim2rst(true));
-            rcc.apb1rstr().modify(|w| w.set_tim2rst(false));
-        }
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "_stm32l0")] {
+                unsafe {
+                    let rcc = crate::pac::RCC;
+                    rcc.apb1enr()
+                        .modify(|w| w.set_tim2en(crate::pac::rcc::vals::Lptimen::ENABLED));
+                    rcc.apb1rstr().modify(|w| w.set_tim2rst(true));
+                    rcc.apb1rstr().modify(|w| w.set_tim2rst(false));
+                }
 
-        let timer_freq = unsafe { CLOCK_FREQS.unwrap().tim2 };
-        self.start(timer_freq);
+                let timer_freq = unsafe { crate::rcc::get_freqs().apb1_clk };
+                self.start(timer_freq);
+            }
+        }
     }
 
     pub fn start(&'static self, timer_freq: Hertz) {
