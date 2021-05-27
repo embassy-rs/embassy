@@ -47,6 +47,13 @@ pub struct Config {
     rcc: rcc::Config,
 }
 
+impl Config {
+    pub fn rcc(mut self, rcc: rcc::Config) -> Self {
+        self.rcc = rcc;
+        self
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {

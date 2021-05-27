@@ -10,6 +10,7 @@ use embassy::time::{Clock as EmbassyClock, TICKS_PER_SECOND};
 
 use crate::interrupt::{CriticalSection, Interrupt, Mutex};
 use crate::pac::timer::TimGp16;
+use crate::rcc::get_freqs;
 use crate::time::Hertz;
 
 // Clock timekeeping works with something we call "periods", which are time intervals
@@ -72,6 +73,24 @@ impl<T: Instance> Clock<T> {
             irq,
             period: AtomicU32::new(0),
             alarms: Mutex::new([AlarmState::new(), AlarmState::new(), AlarmState::new()]),
+        }
+    }
+
+    // TODO: Temporary until clock code generation is in place
+    pub fn start_tim2(&'static self) {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "_stm32l0")] {
+                unsafe {
+                    let rcc = crate::pac::RCC;
+                    rcc.apb1enr()
+                        .modify(|w| w.set_tim2en(crate::pac::rcc::vals::Lptimen::ENABLED));
+                    rcc.apb1rstr().modify(|w| w.set_tim2rst(true));
+                    rcc.apb1rstr().modify(|w| w.set_tim2rst(false));
+                }
+
+                let timer_freq = unsafe { crate::rcc::get_freqs().apb1_clk };
+                self.start(timer_freq);
+            }
         }
     }
 

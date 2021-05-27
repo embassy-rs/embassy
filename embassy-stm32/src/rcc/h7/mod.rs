@@ -528,6 +528,5 @@ impl<'d> Rcc<'d> {
     }
 }
 
-pub unsafe fn init(config: Config) {
-    // TODO
-}
+// TODO
+pub unsafe fn init(_config: Config) {}
