@@ -15,6 +15,8 @@ pub mod clock;
 pub mod dma;
 pub mod exti;
 pub mod gpio;
+#[cfg(feature = "_i2c")]
+pub mod i2c;
 pub mod pwr;
 pub mod rcc;
 #[cfg(feature = "_rng")]

@@ -137,6 +137,15 @@ for chip in chips.values():
                             if func := funcs.get(f'{name}_MISO'):
                                 f.write(f'impl_spi_pin!({name}, MisoPin, {pin}, {func});')
 
+            if block_mod == 'i2c':
+                f.write(f'impl_i2c!({name});')
+                for pin, funcs in af.items():
+                    if pin in pins:
+                        if func := funcs.get(f'{name}_SCL'):
+                            f.write(f'impl_i2c_pin!({name}, SclPin, {pin}, {func});')
+                        if func := funcs.get(f'{name}_SDA'):
+                            f.write(f'impl_i2c_pin!({name}, SdaPin, {pin}, {func});')
+
             if block_mod == 'gpio':
                 custom_singletons = True
                 port = name[4:]
