@@ -26,6 +26,10 @@ jobs:
           - package: embassy
             target: thumbv6m-none-eabi
             features: defmt
+          - package: embassy-std-examples
+            target: x86_64-unknown-linux-gnu
+          - package: embassy-net-examples
+            target: x86_64-unknown-linux-gnu
           - package: embassy-nrf-examples
             target: thumbv7em-none-eabi
           - package: embassy-nrf
