@@ -38,9 +38,9 @@ impl Configurator for DhcpConfigurator {
         }
 
         match socket.poll() {
-            Dhcpv4Event::NoChange => Event::NoChange,
-            Dhcpv4Event::Deconfigured => Event::Deconfigured,
-            Dhcpv4Event::Configured(config) => {
+            None => Event::NoChange,
+            Some(Dhcpv4Event::Deconfigured) => Event::Deconfigured,
+            Some(Dhcpv4Event::Configured(config)) => {
                 let mut dns_servers = Vec::new();
                 for s in &config.dns_servers {
                     if let Some(addr) = s {
