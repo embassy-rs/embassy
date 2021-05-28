@@ -23,6 +23,8 @@ pub mod rcc;
 // Sometimes-present hardware
 #[cfg(timer)]
 pub mod clock;
+#[cfg(dac)]
+pub mod dac;
 #[cfg(dma)]
 pub mod dma;
 #[cfg(i2c)]
