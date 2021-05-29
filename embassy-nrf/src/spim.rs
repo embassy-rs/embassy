@@ -12,9 +12,8 @@ use futures::future::poll_fn;
 use traits::spi::FullDuplex;
 
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{OptionalPin, Pin as GpioPin};
+use crate::gpio::{self, OptionalPin, Pin as GpioPin};
 use crate::interrupt::Interrupt;
-use crate::gpio;
 use crate::{pac, util::slice_in_ram_or};
 
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};

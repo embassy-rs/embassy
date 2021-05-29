@@ -11,6 +11,7 @@ defmt-debug = []
 defmt-info = []
 defmt-warn = []
 defmt-error = []
+defmt-enable = [ "defmt", "embassy/defmt-enable", "embassy-fmt/defmt" ]
 
 tcp = ["smoltcp/socket-tcp"]
 dhcpv4 = ["medium-ethernet", "smoltcp/socket-dhcpv4"]
@@ -23,6 +24,7 @@ defmt = { version = "0.2.0", optional = true }
 log = { version = "0.4.11", optional = true }
 
 embassy             = { version = "0.1.0", path = "../embassy" }
+embassy-fmt         = { version = "0.1.0", path = "../embassy-fmt" }
 
 managed             = { version = "0.8.0", default-features = false, features = [ "map" ]}
 heapless            = { version = "0.5.6", default-features = false } 

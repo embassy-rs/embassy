@@ -20,7 +20,6 @@ use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
 use crate::config::Configurator;
 use crate::config::Event;
 use crate::device::{Device, DeviceAdapter, LinkState};
-use crate::fmt::*;
 use crate::{Interface, SocketSet};
 
 const ADDRESSES_LEN: usize = 1;

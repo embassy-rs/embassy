@@ -11,7 +11,6 @@ use smoltcp::time::Duration;
 use smoltcp::wire::IpEndpoint;
 
 use super::stack::Stack;
-use crate::fmt::*;
 use crate::{Error, Result};
 
 pub struct TcpSocket<'a> {

@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-// This mod MUST go first, so that the others see its macros.
-pub(crate) mod fmt;
+#[macro_use]
+extern crate embassy_fmt;
 
 mod config;
 mod device;
