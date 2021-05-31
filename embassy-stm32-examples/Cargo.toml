@@ -3,6 +3,7 @@ authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
 name = "embassy-stm32f4-examples"
 version = "0.1.0"
+resolver = "2"
 
 [features]
 default = [
