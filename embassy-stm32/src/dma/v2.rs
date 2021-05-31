@@ -102,86 +102,86 @@ unsafe fn on_irq() {
 }
 
 #[interrupt]
-unsafe fn DMA1_Stream0() {
+unsafe fn DMA1_STREAM0() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA1_Stream1() {
+unsafe fn DMA1_STREAM1() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA1_Stream2() {
+unsafe fn DMA1_STREAM2() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA1_Stream3() {
+unsafe fn DMA1_STREAM3() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA1_Stream4() {
+unsafe fn DMA1_STREAM4() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA1_Stream5() {
+unsafe fn DMA1_STREAM5() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA1_Stream6() {
+unsafe fn DMA1_STREAM6() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA1_Stream7() {
+unsafe fn DMA1_STREAM7() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA2_Stream0() {
+unsafe fn DMA2_STREAM0() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA2_Stream1() {
+unsafe fn DMA2_STREAM1() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA2_Stream2() {
+unsafe fn DMA2_STREAM2() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA2_Stream3() {
+unsafe fn DMA2_STREAM3() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA2_Stream4() {
+unsafe fn DMA2_STREAM4() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA2_Stream5() {
+unsafe fn DMA2_STREAM5() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA2_Stream6() {
+unsafe fn DMA2_STREAM6() {
     on_irq()
 }
 #[interrupt]
-unsafe fn DMA2_Stream7() {
+unsafe fn DMA2_STREAM7() {
     on_irq()
 }
 
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
-    interrupt::DMA1_Stream0::steal().enable();
-    interrupt::DMA1_Stream1::steal().enable();
-    interrupt::DMA1_Stream2::steal().enable();
-    interrupt::DMA1_Stream3::steal().enable();
-    interrupt::DMA1_Stream4::steal().enable();
-    interrupt::DMA1_Stream5::steal().enable();
-    interrupt::DMA1_Stream6::steal().enable();
-    interrupt::DMA1_Stream7::steal().enable();
-    interrupt::DMA2_Stream0::steal().enable();
-    interrupt::DMA2_Stream1::steal().enable();
-    interrupt::DMA2_Stream2::steal().enable();
-    interrupt::DMA2_Stream3::steal().enable();
-    interrupt::DMA2_Stream4::steal().enable();
-    interrupt::DMA2_Stream5::steal().enable();
-    interrupt::DMA2_Stream6::steal().enable();
-    interrupt::DMA2_Stream7::steal().enable();
+    interrupt::DMA1_STREAM0::steal().enable();
+    interrupt::DMA1_STREAM1::steal().enable();
+    interrupt::DMA1_STREAM2::steal().enable();
+    interrupt::DMA1_STREAM3::steal().enable();
+    interrupt::DMA1_STREAM4::steal().enable();
+    interrupt::DMA1_STREAM5::steal().enable();
+    interrupt::DMA1_STREAM6::steal().enable();
+    interrupt::DMA1_STREAM7::steal().enable();
+    interrupt::DMA2_STREAM0::steal().enable();
+    interrupt::DMA2_STREAM1::steal().enable();
+    interrupt::DMA2_STREAM2::steal().enable();
+    interrupt::DMA2_STREAM3::steal().enable();
+    interrupt::DMA2_STREAM4::steal().enable();
+    interrupt::DMA2_STREAM5::steal().enable();
+    interrupt::DMA2_STREAM6::steal().enable();
+    interrupt::DMA2_STREAM7::steal().enable();
 }

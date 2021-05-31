@@ -30,6 +30,7 @@ members = [
     # stm32
     #"embassy-stm32",
     #"embassy-stm32-examples",
+    #"stm32-metapac",
 
     # rp2040
     #"embassy-rp",

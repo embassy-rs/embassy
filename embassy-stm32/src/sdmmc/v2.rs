@@ -11,9 +11,9 @@ use futures::future::poll_fn;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
 use crate::fmt::*;
+use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::pac::gpio::Gpio;
-use crate::pac::interrupt::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::time::Hertz;
 
@@ -1472,10 +1472,10 @@ where
 macro_rules! impl_sdmmc {
     ($inst:ident) => {
         impl crate::sdmmc::sealed::Instance for peripherals::$inst {
-            type Interrupt = interrupt::$inst;
+            type Interrupt = crate::interrupt::$inst;
 
             fn inner() -> crate::sdmmc::SdmmcInner {
-                const INNER: crate::sdmmc::SdmmcInner = crate::sdmmc::SdmmcInner($inst);
+                const INNER: crate::sdmmc::SdmmcInner = crate::sdmmc::SdmmcInner(crate::pac::$inst);
                 INNER
             }
 

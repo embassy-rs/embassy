@@ -31,10 +31,10 @@ pub unsafe fn get_freqs() -> &'static Clocks {
 }
 
 cfg_if::cfg_if! {
-    if #[cfg(feature = "_stm32h7")] {
+    if #[cfg(rcc_h7)] {
         mod h7;
         pub use h7::*;
-    } else if #[cfg(feature = "_stm32l0")] {
+    } else if #[cfg(rcc_l0)] {
         mod l0;
         pub use l0::*;
     } else {

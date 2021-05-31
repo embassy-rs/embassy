@@ -1,5 +1,5 @@
-use crate::pac::peripherals;
 use crate::pac::{PWR, RCC, SYSCFG};
+use crate::peripherals;
 
 /// Voltage Scale
 ///

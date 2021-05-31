@@ -101,7 +101,7 @@ impl<'d, T: Instance> Uart<'d, T> {
         }
     }
 
-    #[cfg(feature = "_dma_v2")]
+    #[cfg(dma_v2)]
     pub async fn write_dma(
         &mut self,
         ch: &mut impl crate::dma::Channel,

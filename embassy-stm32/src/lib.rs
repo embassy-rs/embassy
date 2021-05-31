@@ -6,41 +6,51 @@
 #![feature(type_alias_impl_trait)]
 #![allow(incomplete_features)]
 
+pub(crate) use stm32_metapac as pac;
+
 // This must go FIRST so that all the other modules see its macros.
 pub mod fmt;
 
-#[cfg(feature = "_timer")]
-pub mod clock;
-#[cfg(feature = "_dma")]
-pub mod dma;
-pub mod exti;
-pub mod gpio;
-#[cfg(feature = "_i2c")]
-pub mod i2c;
-pub mod pwr;
-pub mod rcc;
-#[cfg(feature = "_rng")]
-pub mod rng;
-#[cfg(feature = "_sdmmc")]
-pub mod sdmmc;
-#[cfg(feature = "_spi")]
-pub mod spi;
-#[cfg(feature = "_usart")]
-pub mod usart;
-
-// This must go LAST so that it sees the `impl_foo!` macros
-#[cfg(feature = "pac")]
-pub mod pac;
-
-#[cfg(not(feature = "pac"))]
-mod pac;
+// Utilities
+pub mod interrupt;
 pub mod time;
 
-pub use embassy_macros::interrupt;
-pub use pac::{interrupt, peripherals, Peripherals};
+// Always-present hardware
+pub mod exti;
+pub mod gpio;
+pub mod rcc;
 
-// workaround for svd2rust-generated code using `use crate::generic::*;`
-pub(crate) use pac::regs::generic;
+// Sometimes-present hardware
+#[cfg(timer)]
+pub mod clock;
+#[cfg(dma)]
+pub mod dma;
+#[cfg(i2c)]
+pub mod i2c;
+#[cfg(pwr)]
+pub mod pwr;
+#[cfg(rng)]
+pub mod rng;
+#[cfg(sdmmc)]
+pub mod sdmmc;
+#[cfg(spi)]
+pub mod spi;
+#[cfg(usart)]
+pub mod usart;
+
+// This must go last, so that it sees all the impl_foo! macros defined earlier.
+mod generated {
+
+    #![allow(dead_code)]
+    #![allow(unused_imports)]
+    #![allow(non_snake_case)]
+
+    use crate::interrupt;
+
+    include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+}
+pub use embassy_macros::interrupt;
+pub use generated::{peripherals, Peripherals};
 
 #[non_exhaustive]
 pub struct Config {
@@ -67,8 +77,11 @@ pub fn init(config: Config) -> Peripherals {
     let p = Peripherals::take();
 
     unsafe {
+        exti::init();
+
+        #[cfg(dma)]
         dma::init();
-        pac::init_exti();
+        generated::init_exti();
         rcc::init(config.rcc);
     }
 

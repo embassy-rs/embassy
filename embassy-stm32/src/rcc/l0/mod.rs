@@ -1,5 +1,5 @@
 use crate::pac;
-use crate::pac::peripherals::{self, RCC};
+use crate::peripherals::{self, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 use crate::time::U32Ext;

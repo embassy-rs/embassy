@@ -7,6 +7,7 @@ use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 
 use crate::pac;
 use crate::pac::gpio::{self, vals};
+use crate::peripherals;
 
 /// Pull setting for an input.
 #[derive(Debug, Eq, PartialEq)]
@@ -315,16 +316,16 @@ impl OptionalPin for NoPin {
 
 // ====================
 
-macro_rules! impl_gpio_pin {
-    ($type:ident, $port_num:expr, $pin_num:expr, $exti_ch:ident) => {
-        impl crate::gpio::Pin for peripherals::$type {
+crate::pac::pins!(
+    ($pin_name:ident, $port_name:ident, $port_num:expr, $pin_num:expr, $exti_ch:ident) => {
+        impl Pin for peripherals::$pin_name {
             type ExtiChannel = peripherals::$exti_ch;
         }
-        impl crate::gpio::sealed::Pin for peripherals::$type {
+        impl sealed::Pin for peripherals::$pin_name {
             #[inline]
             fn pin_port(&self) -> u8 {
                 $port_num * 16 + $pin_num
             }
         }
     };
-}
+);
