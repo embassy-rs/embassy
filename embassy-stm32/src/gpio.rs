@@ -3,7 +3,7 @@ use core::convert::Infallible;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_extras::{unborrow, unsafe_impl_unborrow};
-use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
+use embedded_hal::digital::v2::{toggleable, InputPin, OutputPin, StatefulOutputPin};
 
 use crate::pac;
 use crate::pac::gpio::{self, vals};
@@ -147,6 +147,8 @@ impl<'d, T: Pin> StatefulOutputPin for Output<'d, T> {
         Ok(state == vals::Odr::LOW)
     }
 }
+
+impl<'d, T: Pin> toggleable::Default for Output<'d, T> {}
 
 pub(crate) mod sealed {
     use super::*;
