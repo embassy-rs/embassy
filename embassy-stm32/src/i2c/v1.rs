@@ -15,7 +15,6 @@ use core::cmp;
 
 use crate::pac::gpio::vals::{Afr, Moder, Ot};
 use crate::pac::gpio::Gpio;
-use crate::pac::regs::gpio_v1::vals::Cnf;
 use core::ops::Deref;
 
 pub struct I2c<'d, T: Instance> {
