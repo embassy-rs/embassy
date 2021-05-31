@@ -19,10 +19,6 @@ except:
 chip_name = chip_name.upper()
 with open(f'{data_path}/chips/{chip_name}.yaml', 'r') as f:
     chip = yaml.load(f, Loader=yaml.CSafeLoader)
-chip['name'] = chip['name'].lower()
-chip['features'] = set()
-family = chip["family"].lower().replace('+', 'p')
-chip['features'].add(f'_{family}')
 
 # ======= load GPIO AF
 with open(f'{data_path}/gpio_af/{chip["gpio_af"]}.yaml', 'r') as f:
@@ -32,7 +28,6 @@ with open(f'{data_path}/gpio_af/{chip["gpio_af"]}.yaml', 'r') as f:
 with open(output_file, 'w') as f:
     singletons = []  # USART1, PA5, EXTI8
     exti_interrupts = []  # EXTI IRQs, EXTI0, EXTI4_15 etc.
-    peripheral_versions = {}  # usart -> v1, syscfg -> f4
     pins = set()  # set of all present pins. PA4, PA5...
 
     # ========= peripherals
@@ -50,12 +45,6 @@ with open(output_file, 'w') as f:
         block_name = ''
         for b in block_name_unparsed.split('_'):
             block_name += b.capitalize()
-
-        # Check all peripherals have the same version: it's not OK for the same chip to use both usart_v1 and usart_v2
-        if old_version := peripheral_versions.get(block_mod):
-            if old_version != block_version:
-                raise Exception(f'Peripheral {block_mod} has two versions: {old_version} and {block_version}')
-        peripheral_versions[block_mod] = block_version
 
         custom_singletons = False
 
