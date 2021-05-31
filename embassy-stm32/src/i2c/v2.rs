@@ -1,7 +1,4 @@
-use crate::gpio::AnyPin;
-use crate::gpio::Pin;
-use crate::i2c::{Error, Instance, SclPin, SdaPin};
-use crate::time::Hertz;
+use core::cmp;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
@@ -9,13 +6,14 @@ use embedded_hal::blocking::i2c::Read;
 use embedded_hal::blocking::i2c::Write;
 use embedded_hal::blocking::i2c::WriteRead;
 
-use crate::pac::i2c;
-use crate::pac::i2c::I2c as I2cTrait;
-use core::cmp;
-
+use crate::gpio::AnyPin;
+use crate::gpio::Pin;
+use crate::i2c::{Error, Instance, SclPin, SdaPin};
 use crate::pac::gpio::vals::{Afr, Moder, Ot};
 use crate::pac::gpio::Gpio;
-use crate::pac::regs::gpio_v1::vals::Cnf;
+use crate::pac::i2c;
+use crate::pac::i2c::I2c as I2cTrait;
+use crate::time::Hertz;
 
 pub struct I2c<'d, T: Instance> {
     //peri: T,
