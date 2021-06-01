@@ -134,7 +134,7 @@ fn main() {
     let gpio_base = chip.peripherals.get(&"GPIOA".to_string()).unwrap().address;
     let gpio_stride = 0x400;
 
-    cfgs.insert(chip.family.to_ascii_lowercase());
+    cfgs.insert(chip.family.to_ascii_lowercase().replace("+", "plus"));
 
     for (name, p) in &chip.peripherals {
         let mut ir_peri = ir::Peripheral {
