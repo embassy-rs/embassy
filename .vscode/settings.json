@@ -3,8 +3,8 @@
   "editor.formatOnSave": true,
   "rust-analyzer.checkOnSave.allFeatures": false,
   "rust-analyzer.checkOnSave.allTargets": false,
-  "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
-  "rust-analyzer.checkOnSave.target": "thumbv7em-none-eabi",
+  //"rust-analyzer.cargo.target": "thumbv7em-none-eabi",
+  //"rust-analyzer.checkOnSave.target": "thumbv7em-none-eabi",
   "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.cargo.loadOutDirsFromCheck": true,
   "files.watcherExclude": {
