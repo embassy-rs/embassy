@@ -25,20 +25,21 @@ members = [
 
     # nRF
     #"embassy-nrf",
-    #"embassy-nrf-examples",
+    #"examples/nrf",
 
     # stm32
     #"embassy-stm32",
-    #"embassy-stm32-examples",
     #"stm32-metapac",
+    # uncomment ONLY ONE example crate.
+    #"examples/stm32f4",
 
     # rp2040
     #"embassy-rp",
-    #"embassy-rp-examples",
+    #"examples/rp2040",
 
     # std
     #"embassy-std",
-    #"embassy-std-examples",
+    #"examples/std",
 ]
 
 [profile.dev]

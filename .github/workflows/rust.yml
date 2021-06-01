@@ -26,12 +26,10 @@ jobs:
           - package: embassy
             target: thumbv6m-none-eabi
             features: defmt
-          - package: embassy-std-examples
+
+          - package: examples/std
             target: x86_64-unknown-linux-gnu
-          - package: embassy-net-examples
-            target: x86_64-unknown-linux-gnu
-          - package: embassy-nrf-examples
-            target: thumbv7em-none-eabi
+
           - package: embassy-nrf
             target: thumbv7em-none-eabi
             features: nrf52805
@@ -59,8 +57,12 @@ jobs:
           - package: embassy-nrf
             target: thumbv7em-none-eabi
             features: nrf52840,defmt
-          - package: embassy-rp-examples
+          - package: examples/nrf
+            target: thumbv7em-none-eabi
+
+          - package: examples/rp
             target: thumbv6m-none-eabi
+
           - package: embassy-stm32
             target: thumbv7em-none-eabi
             features: stm32f411ce,defmt
@@ -76,7 +78,7 @@ jobs:
           - package: embassy-stm32
             target: thumbv6m-none-eabi
             features: stm32l053r8,defmt
-          - package: embassy-stm32-examples
+          - package: examples/stm32f4
             target: thumbv7em-none-eabi
 
     steps:
