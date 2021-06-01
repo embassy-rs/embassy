@@ -7,13 +7,13 @@ resolver = "2"
 
 [dependencies]
 cortex-m = "0.7.2"
+cortex-m-rt = { version = "0.6.8", optional = true }
 
 [build-dependencies]
 regex = "1.4.6"
 chiptool = { git = "https://github.com/embassy-rs/chiptool", rev = "86b77165078065058098e981d49d2dd213b2feba" }
 serde = { version = "1.0.123", features = [ "derive" ]}
 serde_yaml = "0.8.15"
-cortex-m-rt = { version = "0.6.8", optional = true }
 
 [features]
 rt = ["cortex-m-rt/device"]
