@@ -61,7 +61,7 @@ impl AtomicWaker {
     }
 
     /// Register a waker. Overwrites the previous waker, if any.
-    pub fn register(&mut self, w: &Waker) {
+    pub fn register(&self, w: &Waker) {
         critical_section::with(|cs| {
             let cell = self.waker.borrow(cs);
             cell.set(match cell.replace(None) {
@@ -72,7 +72,7 @@ impl AtomicWaker {
     }
 
     /// Wake the registered waker, if any.
-    pub fn wake(&mut self) {
+    pub fn wake(&self) {
         critical_section::with(|cs| {
             let cell = self.waker.borrow(cs);
             if let Some(w) = cell.replace(None) {
