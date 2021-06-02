@@ -6,8 +6,10 @@ use crate::time::U32Ext;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
-use pac::rcc::vals;
-use vals::{Dbgen, Hpre, Lptimen, Msirange, Plldiv, Pllmul, Pllon, Pllsrc, Ppre, Sw};
+use pac::dbg::vals::{DbgSleep, DbgStandby, DbgStop};
+use pac::rcc::vals::{
+    Crypen, Dbgen, Hpre, Iophen, Lptimen, Msirange, Plldiv, Pllmul, Pllon, Pllsrc, Ppre, Sw,
+};
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
 /// and with the addition of the init function to configure a system clock.
@@ -258,9 +260,23 @@ impl<'d> Rcc<'d> {
             LSE(())
         }
     }
+    */
 
-    impl Rcc {
-        */
+    pub fn enable_debug_wfe(&mut self, _dbg: &mut peripherals::DBGMCU, enable_dma: bool) {
+        // NOTE(unsafe) We have exclusive access to the RCC and DBGMCU
+        unsafe {
+            if enable_dma {
+                pac::RCC.ahbenr().modify(|w| w.set_dmaen(Crypen::ENABLED));
+            }
+
+            pac::DBGMCU.cr().modify(|w| {
+                w.set_dbg_sleep(DbgSleep::ENABLED);
+                w.set_dbg_standby(DbgStandby::ENABLED);
+                w.set_dbg_stop(DbgStop::ENABLED);
+            });
+        }
+    }
+
     pub fn enable_hsi48(&mut self, _syscfg: &mut SYSCFG, _crs: CRS) -> HSI48 {
         let rcc = pac::RCC;
         unsafe {
@@ -510,7 +526,7 @@ pub struct LSE(());
 
 pub unsafe fn init(config: Config) {
     let rcc = pac::RCC;
-    let enabled = vals::Iophen::ENABLED;
+    let enabled = Iophen::ENABLED;
     rcc.iopenr().write(|w| {
         w.set_iopaen(enabled);
         w.set_iopben(enabled);
