@@ -10,7 +10,6 @@ use embassy::time::{Clock as EmbassyClock, TICKS_PER_SECOND};
 
 use crate::interrupt::{CriticalSection, Interrupt, Mutex};
 use crate::pac::timer::TimGp16;
-use crate::rcc::get_freqs;
 use crate::time::Hertz;
 
 // Clock timekeeping works with something we call "periods", which are time intervals

@@ -1,11 +1,13 @@
 use crate::pac;
-use crate::peripherals::{self, RCC};
-use crate::rcc::{set_freqs, Clocks};
+use crate::peripherals::{self, CRS, RCC, SYSCFG};
+use crate::rcc::{get_freqs, set_freqs, Clocks};
 use crate::time::Hertz;
 use crate::time::U32Ext;
+use core::marker::PhantomData;
 use embassy::util::Unborrow;
+use embassy_extras::unborrow;
 use pac::rcc::vals;
-use vals::{Hpre, Msirange, Plldiv, Pllmul, Pllon, Pllsrc, Ppre, Sw};
+use vals::{Dbgen, Hpre, Lptimen, Msirange, Plldiv, Pllmul, Pllon, Pllsrc, Ppre, Sw};
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
 /// and with the addition of the init function to configure a system clock.
@@ -227,56 +229,85 @@ impl Config {
 }
 
 /// RCC peripheral
-pub struct Rcc {}
-
-impl Rcc {
-    pub fn new(_rcc: impl Unborrow<Target = peripherals::RCC> + 'static) -> Self {
-        Self {}
-    }
+pub struct Rcc<'d> {
+    _rb: peripherals::RCC,
+    phantom: PhantomData<&'d mut peripherals::RCC>,
 }
 
-/*
-    pub fn enable_lse(&mut self, _: &PWR) -> LSE {
-        self.rb.csr.modify(|_, w| {
-            // Enable LSE clock
-            w.lseon().set_bit()
-        });
-        while self.rb.csr.read().lserdy().bit_is_clear() {}
-        LSE(())
+impl<'d> Rcc<'d> {
+    pub fn new(rcc: impl Unborrow<Target = peripherals::RCC> + 'd) -> Self {
+        unborrow!(rcc);
+        Self {
+            _rb: rcc,
+            phantom: PhantomData,
+        }
     }
-}
-impl Rcc {
-    pub fn enable_hsi48(&mut self, syscfg: &mut SYSCFG, crs: CRS) -> HSI48 {
-        // Reset CRS peripheral
-        self.rb.apb1rstr.modify(|_, w| w.crsrst().set_bit());
-        self.rb.apb1rstr.modify(|_, w| w.crsrst().clear_bit());
 
-        // Enable CRS peripheral
-        self.rb.apb1enr.modify(|_, w| w.crsen().set_bit());
+    // Safety: RCC init must have been called
+    pub fn clocks(&self) -> &'static Clocks {
+        unsafe { get_freqs() }
+    }
 
-        // Initialize CRS
-        crs.cfgr.write(|w|
+    /*
+        pub fn enable_lse(&mut self, _: &PWR) -> LSE {
+            self.rb.csr.modify(|_, w| {
+                // Enable LSE clock
+                w.lseon().set_bit()
+            });
+            while self.rb.csr.read().lserdy().bit_is_clear() {}
+            LSE(())
+        }
+    }
+
+    impl Rcc {
+        */
+    pub fn enable_hsi48(&mut self, _syscfg: &mut SYSCFG, _crs: CRS) -> HSI48 {
+        let rcc = pac::RCC;
+        unsafe {
+            // Reset SYSCFG peripheral
+            rcc.apb2rstr().modify(|w| w.set_syscfgrst(true));
+            rcc.apb2rstr().modify(|w| w.set_syscfgrst(false));
+
+            // Enable SYSCFG peripheral
+            rcc.apb2enr().modify(|w| w.set_syscfgen(Dbgen::ENABLED));
+
+            // Reset CRS peripheral
+            rcc.apb1rstr().modify(|w| w.set_crsrst(true));
+            rcc.apb1rstr().modify(|w| w.set_crsrst(false));
+
+            // Enable CRS peripheral
+            rcc.apb1enr().modify(|w| w.set_crsen(Lptimen::ENABLED));
+
+            // Initialize CRS
+            let crs = pac::CRS;
+            crs.cfgr().write(|w|
+
             // Select LSE as synchronization source
-            unsafe { w.syncsrc().bits(0b01) });
-        crs.cr
-            .modify(|_, w| w.autotrimen().set_bit().cen().set_bit());
+            w.set_syncsrc(0b01));
+            crs.cr().modify(|w| {
+                w.set_autotrimen(true);
+                w.set_cen(true);
+            });
 
-        // Enable VREFINT reference for HSI48 oscillator
-        syscfg
-            .syscfg
-            .cfgr3
-            .modify(|_, w| w.enref_hsi48().set_bit().en_vrefint().set_bit());
+            // Enable VREFINT reference for HSI48 oscillator
+            let syscfg = pac::SYSCFG;
+            syscfg.cfgr3().modify(|w| {
+                w.set_enref_hsi48(true);
+                w.set_en_vrefint(true);
+            });
 
-        // Select HSI48 as USB clock
-        self.rb.ccipr.modify(|_, w| w.hsi48msel().set_bit());
+            // Select HSI48 as USB clock
+            rcc.ccipr().modify(|w| w.set_hsi48msel(true));
 
-        // Enable dedicated USB clock
-        self.rb.crrcr.modify(|_, w| w.hsi48on().set_bit());
-        while self.rb.crrcr.read().hsi48rdy().bit_is_clear() {}
+            // Enable dedicated USB clock
+            rcc.crrcr().modify(|w| w.set_hsi48on(true));
+            while !rcc.crrcr().read().hsi48rdy() {}
+        }
 
         HSI48(())
     }
 }
+/*
 
 impl Rcc {
     /// Configure MCO (Microcontroller Clock Output).
