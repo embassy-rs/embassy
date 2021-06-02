@@ -145,6 +145,15 @@ with open(output_file, 'w') as f:
                 if re.match('EXTI', irq):
                     exti_interrupts.append(irq)
 
+        if block_mod == 'dac':
+            f.write(f'impl_dac!({name});')
+            if 'dac_out1' in peri:
+                pin = peri['dac_out1']
+                f.write(f'impl_dac_pin!({name}, 1, {pin});')
+            if 'dac_out2' in peri:
+                pin = peri['dac_out2']
+                f.write(f'impl_dac_pin!({name}, 2, {pin});')
+
         if not custom_singletons:
             singletons.append(name)
 
