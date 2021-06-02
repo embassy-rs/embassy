@@ -40,11 +40,22 @@ pub struct Peripheral {
     pub block: Option<String>,
     #[serde(default)]
     pub clock: Option<String>,
+    #[serde(default)]
+    pub pins: Option<Vec<Pin>>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
+pub struct Pin {
+    pub pin: String,
+    pub signal: String,
+    pub af: Option<String>,
 }
 
 struct BlockInfo {
-    module: String,  // usart_v1/USART -> usart
-    version: String, // usart_v1/USART -> v1
+    module: String,
+    // usart_v1/USART -> usart
+    version: String,
+    // usart_v1/USART -> v1
     block: String,   // usart_v1/USART -> USART
 }
 
@@ -79,7 +90,7 @@ macro_rules! {} {{
 ",
         name, name
     )
-    .unwrap();
+        .unwrap();
 
     for row in data {
         write!(out, "        __{}_inner!(({}));\n", name, row.join(",")).unwrap();
@@ -90,7 +101,7 @@ macro_rules! {} {{
         "    }};
 }}"
     )
-    .unwrap();
+        .unwrap();
 }
 
 fn main() {
@@ -123,6 +134,7 @@ fn main() {
     let mut cfgs: HashSet<String> = HashSet::new();
     let mut pin_table: Vec<Vec<String>> = Vec::new();
     let mut interrupt_table: Vec<Vec<String>> = Vec::new();
+    let mut peripheral_pins_table: Vec<Vec<String>> = Vec::new();
 
     let dma_base = chip
         .peripherals
@@ -149,11 +161,27 @@ fn main() {
         if let Some(block) = &p.block {
             let bi = BlockInfo::parse(block);
 
+            if let Some(pins) = &p.pins {
+                for pin in pins {
+                    let mut row = Vec::new();
+                    row.push(name.clone());
+                    row.push(bi.module.clone());
+                    row.push(bi.block.clone());
+                    row.push(pin.pin.clone());
+                    row.push(pin.signal.clone());
+                    if let Some(ref af) = pin.af {
+                        row.push(af.clone());
+                    }
+                    peripheral_pins_table.push(row);
+                }
+            }
+
+
             cfgs.insert(bi.module.clone());
             cfgs.insert(format!("{}_{}", bi.module, bi.version));
 
             if let Some(old_version) =
-                peripheral_versions.insert(bi.module.clone(), bi.version.clone())
+            peripheral_versions.insert(bi.module.clone(), bi.version.clone())
             {
                 if old_version != bi.version {
                     panic!(
@@ -227,6 +255,7 @@ fn main() {
     make_table(&mut extra, "pins", &pin_table);
     make_table(&mut extra, "interrupts", &interrupt_table);
     make_table(&mut extra, "peripheral_versions", &peripheral_version_table);
+    make_table(&mut extra, "peripheral_pins", &peripheral_pins_table);
 
     for (module, version) in peripheral_versions {
         println!("loading {} {}", module, version);
@@ -248,7 +277,7 @@ fn main() {
             transform::NameKind::Enum => format!("{}::vals::{}", prefix, s),
             _ => s.to_string(),
         })
-        .unwrap();
+            .unwrap();
 
         ir.merge(peri);
     }
@@ -277,7 +306,7 @@ fn main() {
             "PROVIDE({} = DefaultHandler);\n",
             name.to_ascii_uppercase()
         )
-        .unwrap();
+            .unwrap();
     }
 
     File::create(out.join("device.x"))
