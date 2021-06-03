@@ -100,24 +100,29 @@ impl<'d, T: Instance> Spim<'d, T> {
         // Configure mode.
         let mode = config.mode;
         r.config.write(|w| {
-            // Can't match on `mode` due to embedded-hal, see https://github.com/rust-embedded/embedded-hal/pull/126
-            if mode == MODE_0 {
-                w.order().msb_first();
-                w.cpol().active_high();
-                w.cpha().leading();
-            } else if mode == MODE_1 {
-                w.order().msb_first();
-                w.cpol().active_high();
-                w.cpha().trailing();
-            } else if mode == MODE_2 {
-                w.order().msb_first();
-                w.cpol().active_low();
-                w.cpha().leading();
-            } else {
-                w.order().msb_first();
-                w.cpol().active_low();
-                w.cpha().trailing();
+            match mode {
+                MODE_0 => {
+                    w.order().msb_first();
+                    w.cpol().active_high();
+                    w.cpha().leading();
+                }
+                MODE_1 => {
+                    w.order().msb_first();
+                    w.cpol().active_high();
+                    w.cpha().trailing();
+                }
+                MODE_2 => {
+                    w.order().msb_first();
+                    w.cpol().active_low();
+                    w.cpha().leading();
+                }
+                MODE_3 => {
+                    w.order().msb_first();
+                    w.cpol().active_low();
+                    w.cpha().trailing();
+                }
             }
+
             w
         });
 
