@@ -41,7 +41,7 @@ pub struct Peripheral {
     #[serde(default)]
     pub clock: Option<String>,
     #[serde(default)]
-    pub pins: Option<Vec<Pin>>,
+    pub pins: Vec<Pin>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
@@ -52,11 +52,12 @@ pub struct Pin {
 }
 
 struct BlockInfo {
+    /// usart_v1/USART -> usart
     module: String,
-    // usart_v1/USART -> usart
+    /// usart_v1/USART -> v1
     version: String,
-    // usart_v1/USART -> v1
-    block: String,   // usart_v1/USART -> USART
+    /// usart_v1/USART -> USART
+    block: String,
 }
 
 impl BlockInfo {
@@ -161,19 +162,17 @@ fn main() {
         if let Some(block) = &p.block {
             let bi = BlockInfo::parse(block);
 
-            if let Some(pins) = &p.pins {
-                for pin in pins {
-                    let mut row = Vec::new();
-                    row.push(name.clone());
-                    row.push(bi.module.clone());
-                    row.push(bi.block.clone());
-                    row.push(pin.pin.clone());
-                    row.push(pin.signal.clone());
-                    if let Some(ref af) = pin.af {
-                        row.push(af.clone());
-                    }
-                    peripheral_pins_table.push(row);
+            for pin in &p.pins {
+                let mut row = Vec::new();
+                row.push(name.clone());
+                row.push(bi.module.clone());
+                row.push(bi.block.clone());
+                row.push(pin.pin.clone());
+                row.push(pin.signal.clone());
+                if let Some(ref af) = pin.af {
+                    row.push(af.clone());
                 }
+                peripheral_pins_table.push(row);
             }
 
 
