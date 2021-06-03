@@ -51,24 +51,24 @@ crate::pac::peripherals!(
     };
 );
 
-crate::pac::peripheral_pins!(
-    ($inst:ident, i2c, I2C, $pin:ident, SDA, $af:expr) => {
-        impl SdaPin<peripherals::$inst> for peripherals::$pin {}
+macro_rules! impl_pin {
+    ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
+        impl $signal<peripherals::$inst> for peripherals::$pin {}
 
-        impl sealed::SdaPin<peripherals::$inst> for peripherals::$pin {
+        impl sealed::$signal<peripherals::$inst> for peripherals::$pin {
             fn af_num(&self) -> u8 {
                 $af
             }
         }
     };
+}
+
+crate::pac::peripheral_pins!(
+    ($inst:ident, i2c, I2C, $pin:ident, SDA, $af:expr) => {
+        impl_pin!($inst, $pin, SdaPin, $af);
+    };
 
     ($inst:ident, i2c, I2C, $pin:ident, SCL, $af:expr) => {
-        impl SclPin<peripherals::$inst> for peripherals::$pin {}
-
-        impl sealed::SclPin<peripherals::$inst> for peripherals::$pin {
-            fn af_num(&self) -> u8 {
-                $af
-            }
-        }
+        impl_pin!($inst, $pin, SclPin, $af);
     };
 );
