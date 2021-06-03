@@ -48,20 +48,20 @@ with open(output_file, 'w') as f:
 
         custom_singletons = False
 
-        if block_mod == 'usart':
-            f.write(f'impl_usart!({name});')
-            for pin, funcs in af.items():
-                if pin in pins:
-                    if (func := funcs.get(f'{name}_RX')) != None:
-                        f.write(f'impl_usart_pin!({name}, RxPin, {pin}, {func});')
-                    if (func := funcs.get(f'{name}_TX')) != None:
-                        f.write(f'impl_usart_pin!({name}, TxPin, {pin}, {func});')
-                    if (func := funcs.get(f'{name}_CTS')) != None:
-                        f.write(f'impl_usart_pin!({name}, CtsPin, {pin}, {func});')
-                    if (func := funcs.get(f'{name}_RTS')) != None:
-                        f.write(f'impl_usart_pin!({name}, RtsPin, {pin}, {func});')
-                    if (func := funcs.get(f'{name}_CK')) != None:
-                        f.write(f'impl_usart_pin!({name}, CkPin, {pin}, {func});')
+        # if block_mod == 'usart':
+        #     f.write(f'impl_usart!({name});')
+        #     for pin, funcs in af.items():
+        #         if pin in pins:
+        #             if (func := funcs.get(f'{name}_RX')) != None:
+        #                 f.write(f'impl_usart_pin!({name}, RxPin, {pin}, {func});')
+        #             if (func := funcs.get(f'{name}_TX')) != None:
+        #                 f.write(f'impl_usart_pin!({name}, TxPin, {pin}, {func});')
+        #             if (func := funcs.get(f'{name}_CTS')) != None:
+        #                 f.write(f'impl_usart_pin!({name}, CtsPin, {pin}, {func});')
+        #             if (func := funcs.get(f'{name}_RTS')) != None:
+        #                 f.write(f'impl_usart_pin!({name}, RtsPin, {pin}, {func});')
+        #             if (func := funcs.get(f'{name}_CK')) != None:
+        #                 f.write(f'impl_usart_pin!({name}, CkPin, {pin}, {func});')
 
         # if block_mod == 'rng':
         #     for irq in chip['interrupts']:
