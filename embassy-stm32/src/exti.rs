@@ -214,6 +214,7 @@ impl_exti!(EXTI15, 15);
 
 pub(crate) unsafe fn init() {}
 
+/*
 macro_rules! impl_exti_irq {
     ($($e:ident),+) => {
         /// safety: must be called only once
@@ -234,3 +235,24 @@ macro_rules! impl_exti_irq {
         )+
     };
 }
+ */
+
+/// safety: must be called only once
+pub(crate) unsafe fn init_exti() {
+    use embassy::interrupt::Interrupt;
+    use embassy::interrupt::InterruptExt;
+
+    crate::pac::exti_interrupts!(
+        ($e:ident) => {
+            crate::interrupt::$e::steal().enable();
+        };
+    );
+}
+
+crate::pac::exti_interrupts!(
+    ($e:ident) => {
+        unsafe fn $e() {
+            on_irq()
+        }
+    };
+);

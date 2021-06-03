@@ -140,10 +140,10 @@ with open(output_file, 'w') as f:
         #     if re.match('TIM[2345]$', name):
         #         f.write(f'impl_timer!({name});')
 
-        if block_mod == 'exti':
-            for irq in chip['interrupts']:
-                if re.match('EXTI', irq):
-                    exti_interrupts.append(irq)
+        # if block_mod == 'exti':
+        #     for irq in chip['interrupts']:
+        #         if re.match('EXTI', irq):
+        #             exti_interrupts.append(irq)
 
         # if block_mod == 'dac':
         #     f.write(f'impl_dac!({name});')
@@ -160,4 +160,4 @@ with open(output_file, 'w') as f:
     f.write(f"embassy_extras::peripherals!({','.join(singletons)});")
 
     # ========= exti interrupts
-    f.write(f"impl_exti_irq!({','.join(exti_interrupts)});")
+    # f.write(f"impl_exti_irq!({','.join(exti_interrupts)});")

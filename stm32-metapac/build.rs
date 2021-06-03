@@ -91,7 +91,7 @@ macro_rules! {} {{
 ",
         name, name
     )
-        .unwrap();
+    .unwrap();
 
     for row in data {
         write!(out, "        __{}_inner!(({}));\n", name, row.join(",")).unwrap();
@@ -102,7 +102,7 @@ macro_rules! {} {{
         "    }};
 }}"
     )
-        .unwrap();
+    .unwrap();
 }
 
 fn main() {
@@ -176,16 +176,15 @@ fn main() {
                 peripheral_pins_table.push(row);
             }
 
-
             cfgs.insert(bi.module.clone());
             cfgs.insert(format!("{}_{}", bi.module, bi.version));
             let mut peripheral_row = Vec::new();
-            peripheral_row.push( bi.module.clone() );
-            peripheral_row.push( name.clone() );
-            peripherals_table.push( peripheral_row );
+            peripheral_row.push(bi.module.clone());
+            peripheral_row.push(name.clone());
+            peripherals_table.push(peripheral_row);
 
             if let Some(old_version) =
-            peripheral_versions.insert(bi.module.clone(), bi.version.clone())
+                peripheral_versions.insert(bi.module.clone(), bi.version.clone())
             {
                 if old_version != bi.version {
                     panic!(
@@ -256,8 +255,15 @@ fn main() {
         .map(|(kind, version)| vec![kind.clone(), version.clone()])
         .collect();
 
+    let exti_interrupt_table = &interrupt_table
+        .iter()
+        .filter(|row| row[0].contains("EXTI"))
+        .map(|row| row.clone())
+        .collect();
+
     make_table(&mut extra, "pins", &pin_table);
     make_table(&mut extra, "interrupts", &interrupt_table);
+    make_table(&mut extra, "exti_interrupts", &exti_interrupt_table);
     make_table(&mut extra, "peripherals", &peripherals_table);
     make_table(&mut extra, "peripheral_versions", &peripheral_version_table);
     make_table(&mut extra, "peripheral_pins", &peripheral_pins_table);
@@ -282,7 +288,7 @@ fn main() {
             transform::NameKind::Enum => format!("{}::vals::{}", prefix, s),
             _ => s.to_string(),
         })
-            .unwrap();
+        .unwrap();
 
         ir.merge(peri);
     }
@@ -311,7 +317,7 @@ fn main() {
             "PROVIDE({} = DefaultHandler);\n",
             name.to_ascii_uppercase()
         )
-            .unwrap();
+        .unwrap();
     }
 
     File::create(out.join("device.x"))
