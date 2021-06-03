@@ -60,14 +60,9 @@ with open(output_file, 'w') as f:
 
         if block_mod == 'dma':
             custom_singletons = True
-            num_dmas += 1
-            dma_num = int(name[3:])-1  # substract 1 because we want DMA1=0, DMA2=1
-
             for ch_num in range(8):
                 channel = f'{name}_CH{ch_num}'
                 singletons.append(channel)
-
-                f.write(f'impl_dma_channel!({channel}, {dma_num}, {ch_num});')
 
         if not custom_singletons:
             singletons.append(name)

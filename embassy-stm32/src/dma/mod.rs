@@ -8,6 +8,7 @@ mod _version;
 pub use _version::*;
 
 use crate::pac;
+use crate::peripherals;
 
 pub(crate) mod sealed {
     use super::*;
@@ -31,8 +32,8 @@ pub trait Channel: sealed::Channel + Sized {}
 
 macro_rules! impl_dma_channel {
     ($type:ident, $dma_num:expr, $ch_num:expr) => {
-        impl crate::dma::Channel for peripherals::$type {}
-        impl crate::dma::sealed::Channel for peripherals::$type {
+        impl Channel for peripherals::$type {}
+        impl sealed::Channel for peripherals::$type {
             #[inline]
             fn num(&self) -> u8 {
                 $dma_num * 8 + $ch_num
@@ -40,3 +41,27 @@ macro_rules! impl_dma_channel {
         }
     };
 }
+
+crate::pac::peripherals!(
+    (dma,DMA1) => {
+        impl_dma_channel!(DMA1_CH0, 0, 0);
+        impl_dma_channel!(DMA1_CH1, 0, 1);
+        impl_dma_channel!(DMA1_CH2, 0, 2);
+        impl_dma_channel!(DMA1_CH3, 0, 3);
+        impl_dma_channel!(DMA1_CH4, 0, 4);
+        impl_dma_channel!(DMA1_CH5, 0, 5);
+        impl_dma_channel!(DMA1_CH6, 0, 6);
+        impl_dma_channel!(DMA1_CH7, 0, 7);
+    };
+
+    (dma,DMA2) => {
+        impl_dma_channel!(DMA2_CH0, 1, 0);
+        impl_dma_channel!(DMA2_CH1, 1, 1);
+        impl_dma_channel!(DMA2_CH2, 1, 2);
+        impl_dma_channel!(DMA2_CH3, 1, 3);
+        impl_dma_channel!(DMA2_CH4, 1, 4);
+        impl_dma_channel!(DMA2_CH5, 1, 5);
+        impl_dma_channel!(DMA2_CH6, 1, 6);
+        impl_dma_channel!(DMA2_CH7, 1, 7);
+    };
+);
