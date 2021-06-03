@@ -3,6 +3,7 @@
 #[cfg_attr(i2c_v1, path = "v1.rs")]
 #[cfg_attr(i2c_v2, path = "v2.rs")]
 mod _version;
+use crate::peripherals;
 pub use _version::*;
 
 pub enum Error {
@@ -37,8 +38,8 @@ pub trait SclPin<T: Instance>: sealed::SclPin<T> + 'static {}
 
 pub trait SdaPin<T: Instance>: sealed::SdaPin<T> + 'static {}
 
-macro_rules! impl_i2c {
-    ($inst:ident) => {
+crate::pac::peripherals!(
+    (i2c, $inst:ident) => {
         impl crate::i2c::sealed::Instance for peripherals::$inst {
             fn regs() -> &'static crate::pac::i2c::I2c {
                 &crate::pac::$inst
@@ -46,17 +47,28 @@ macro_rules! impl_i2c {
         }
 
         impl crate::i2c::Instance for peripherals::$inst {}
+
     };
-}
+);
 
-macro_rules! impl_i2c_pin {
-    ($inst:ident, $pin_func:ident, $pin:ident, $af:expr) => {
-        impl crate::i2c::$pin_func<peripherals::$inst> for peripherals::$pin {}
+crate::pac::peripheral_pins!(
+    ($inst:ident, i2c, I2C, $pin:ident, SDA, $af:expr) => {
+        impl SdaPin<peripherals::$inst> for peripherals::$pin {}
 
-        impl crate::i2c::sealed::$pin_func<peripherals::$inst> for peripherals::$pin {
+        impl sealed::SdaPin<peripherals::$inst> for peripherals::$pin {
             fn af_num(&self) -> u8 {
                 $af
             }
         }
     };
-}
+
+    ($inst:ident, i2c, I2C, $pin:ident, SCL, $af:expr) => {
+        impl SclPin<peripherals::$inst> for peripherals::$pin {}
+
+        impl sealed::SclPin<peripherals::$inst> for peripherals::$pin {
+            fn af_num(&self) -> u8 {
+                $af
+            }
+        }
+    };
+);

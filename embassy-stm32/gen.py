@@ -63,32 +63,32 @@ with open(output_file, 'w') as f:
                     if (func := funcs.get(f'{name}_CK')) != None:
                         f.write(f'impl_usart_pin!({name}, CkPin, {pin}, {func});')
 
-        if block_mod == 'rng':
-            for irq in chip['interrupts']:
-                if re.search('RNG', irq):
-                    f.write(f'impl_rng!({name}, {irq});')
+        # if block_mod == 'rng':
+        #     for irq in chip['interrupts']:
+        #         if re.search('RNG', irq):
+        #             f.write(f'impl_rng!({name}, {irq});')
 
-        if block_mod == 'spi':
-            if 'clock' in peri:
-                clock = peri['clock']
-                f.write(f'impl_spi!({name}, {clock});')
-                for pin, funcs in af.items():
-                    if pin in pins:
-                        if (func := funcs.get(f'{name}_SCK')) != None:
-                            f.write(f'impl_spi_pin!({name}, SckPin, {pin}, {func});')
-                        if (func := funcs.get(f'{name}_MOSI')) != None:
-                            f.write(f'impl_spi_pin!({name}, MosiPin, {pin}, {func});')
-                        if (func := funcs.get(f'{name}_MISO')) != None:
-                            f.write(f'impl_spi_pin!({name}, MisoPin, {pin}, {func});')
+        # if block_mod == 'spi':
+        #     if 'clock' in peri:
+        #         clock = peri['clock']
+        #         f.write(f'impl_spi!({name}, {clock});')
+        #         for pin, funcs in af.items():
+        #             if pin in pins:
+        #                 if (func := funcs.get(f'{name}_SCK')) != None:
+        #                     f.write(f'impl_spi_pin!({name}, SckPin, {pin}, {func});')
+        #                 if (func := funcs.get(f'{name}_MOSI')) != None:
+        #                     f.write(f'impl_spi_pin!({name}, MosiPin, {pin}, {func});')
+        #                 if (func := funcs.get(f'{name}_MISO')) != None:
+        #                     f.write(f'impl_spi_pin!({name}, MisoPin, {pin}, {func});')
 
-        if block_mod == 'i2c':
-            f.write(f'impl_i2c!({name});')
-            for pin, funcs in af.items():
-                if pin in pins:
-                    if func := funcs.get(f'{name}_SCL'):
-                        f.write(f'impl_i2c_pin!({name}, SclPin, {pin}, {func});')
-                    if func := funcs.get(f'{name}_SDA'):
-                        f.write(f'impl_i2c_pin!({name}, SdaPin, {pin}, {func});')
+        # if block_mod == 'i2c':
+        #     f.write(f'impl_i2c!({name});')
+        #     for pin, funcs in af.items():
+        #         if pin in pins:
+        #             if func := funcs.get(f'{name}_SCL'):
+        #                 f.write(f'impl_i2c_pin!({name}, SclPin, {pin}, {func});')
+        #             if func := funcs.get(f'{name}_SDA'):
+        #                 f.write(f'impl_i2c_pin!({name}, SdaPin, {pin}, {func});')
 
         if block_mod == 'gpio':
             custom_singletons = True
@@ -145,15 +145,15 @@ with open(output_file, 'w') as f:
                 if re.match('EXTI', irq):
                     exti_interrupts.append(irq)
 
-        if block_mod == 'dac':
-            f.write(f'impl_dac!({name});')
-            if 'dac_out1' in peri:
-                pin = peri['dac_out1']
-                f.write(f'impl_dac_pin!({name}, 1, {pin});')
-            if 'dac_out2' in peri:
-                pin = peri['dac_out2']
-                f.write(f'impl_dac_pin!({name}, 2, {pin});')
-
+        # if block_mod == 'dac':
+        #     f.write(f'impl_dac!({name});')
+        #     if 'dac_out1' in peri:
+        #         pin = peri['dac_out1']
+        #         f.write(f'impl_dac_pin!({name}, 1, {pin});')
+        #     if 'dac_out2' in peri:
+        #         pin = peri['dac_out2']
+        #         f.write(f'impl_dac_pin!({name}, 2, {pin});')
+        #
         if not custom_singletons:
             singletons.append(name)
 

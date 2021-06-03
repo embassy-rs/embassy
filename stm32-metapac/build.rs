@@ -135,6 +135,7 @@ fn main() {
     let mut cfgs: HashSet<String> = HashSet::new();
     let mut pin_table: Vec<Vec<String>> = Vec::new();
     let mut interrupt_table: Vec<Vec<String>> = Vec::new();
+    let mut peripherals_table: Vec<Vec<String>> = Vec::new();
     let mut peripheral_pins_table: Vec<Vec<String>> = Vec::new();
 
     let dma_base = chip
@@ -178,6 +179,10 @@ fn main() {
 
             cfgs.insert(bi.module.clone());
             cfgs.insert(format!("{}_{}", bi.module, bi.version));
+            let mut peripheral_row = Vec::new();
+            peripheral_row.push( bi.module.clone() );
+            peripheral_row.push( name.clone() );
+            peripherals_table.push( peripheral_row );
 
             if let Some(old_version) =
             peripheral_versions.insert(bi.module.clone(), bi.version.clone())
@@ -253,6 +258,7 @@ fn main() {
 
     make_table(&mut extra, "pins", &pin_table);
     make_table(&mut extra, "interrupts", &interrupt_table);
+    make_table(&mut extra, "peripherals", &peripherals_table);
     make_table(&mut extra, "peripheral_versions", &peripheral_version_table);
     make_table(&mut extra, "peripheral_pins", &peripheral_pins_table);
 
