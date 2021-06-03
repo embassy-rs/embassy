@@ -15,6 +15,7 @@ use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::pac::gpio::Gpio;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
+use crate::peripherals;
 use crate::time::Hertz;
 
 /// The signalling scheme used on the SDMMC bus
@@ -1469,12 +1470,12 @@ where
     }
 }
 
-macro_rules! impl_sdmmc {
-    ($inst:ident) => {
-        impl crate::sdmmc::sealed::Instance for peripherals::$inst {
+crate::pac::peripherals!(
+    (sdmmc, $inst:ident) => {
+        impl sealed::Instance for peripherals::$inst {
             type Interrupt = crate::interrupt::$inst;
 
-            fn inner() -> crate::sdmmc::SdmmcInner {
+            fn inner() -> SdmmcInner {
                 const INNER: crate::sdmmc::SdmmcInner = crate::sdmmc::SdmmcInner(crate::pac::$inst);
                 INNER
             }
@@ -1485,19 +1486,55 @@ macro_rules! impl_sdmmc {
             }
         }
 
-        impl crate::sdmmc::Instance for peripherals::$inst {}
+        impl Instance for peripherals::$inst {}
     };
-}
+);
 
-macro_rules! impl_sdmmc_pin {
-    ($inst:ident, $func:ident, $pin:ident, $num:expr) => {
-        impl crate::sdmmc::sealed::$func<peripherals::$inst> for peripherals::$pin {
-            const AF_NUM: u8 = $num;
+macro_rules! impl_pin {
+    ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
+        impl crate::sdmmc::sealed::$signal<peripherals::$inst> for peripherals::$pin {
+            const AF_NUM: u8 = $af;
         }
 
-        impl crate::sdmmc::$func<peripherals::$inst> for peripherals::$pin {}
+        impl crate::sdmmc::$signal<peripherals::$inst> for peripherals::$pin {}
     };
 }
+
+crate::pac::peripheral_pins!(
+    ($inst:ident, sdmmc, SDMMC, $pin:ident, CK, $af:expr) => {
+        impl_pin!($inst, $pin, CkPin, $af);
+    };
+    ($inst:ident, sdmmc, SDMMC, $pin:ident, CMD, $af:expr) => {
+        impl_pin!($inst, $pin, CmdPin, $af);
+    };
+    ($inst:ident, sdmmc, SDMMC, $pin:ident, D0, $af:expr) => {
+        impl_pin!($inst, $pin, D0Pin, $af);
+    };
+    ($inst:ident, sdmmc, SDMMC, $pin:ident, D1, $af:expr) => {
+        impl_pin!($inst, $pin, D1Pin, $af);
+    };
+    ($inst:ident, sdmmc, SDMMC, $pin:ident, D2, $af:expr) => {
+        impl_pin!($inst, $pin, D2Pin, $af);
+    };
+    ($inst:ident, sdmmc, SDMMC, $pin:ident, D3, $af:expr) => {
+        impl_pin!($inst, $pin, D3Pin, $af);
+    };
+    ($inst:ident, sdmmc, SDMMC, $pin:ident, D4, $af:expr) => {
+        impl_pin!($inst, $pin, D4Pin, $af);
+    };
+    ($inst:ident, sdmmc, SDMMC, $pin:ident, D5, $af:expr) => {
+        impl_pin!($inst, $pin, D5Pin, $af);
+    };
+    ($inst:ident, sdmmc, SDMMC, $pin:ident, D6, $af:expr) => {
+        impl_pin!($inst, $pin, D6Pin, $af);
+    };
+    ($inst:ident, sdmmc, SDMMC, $pin:ident, D6, $af:expr) => {
+        impl_pin!($inst, $pin, D7Pin, $af);
+    };
+    ($inst:ident, sdmmc, SDMMC, $pin:ident, D8, $af:expr) => {
+        impl_pin!($inst, $pin, D8Pin, $af);
+    };
+);
 
 #[cfg(feature = "sdmmc-rs")]
 mod sdmmc_rs {
