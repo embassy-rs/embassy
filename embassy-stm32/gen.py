@@ -136,9 +136,9 @@ with open(output_file, 'w') as f:
                     if (func := funcs.get(f'{name}_D7')) != None:
                         f.write(f'impl_sdmmc_pin!({name}, D7Pin, {pin}, {func});')
 
-        if block_name == 'TimGp16':
-            if re.match('TIM[2345]$', name):
-                f.write(f'impl_timer!({name});')
+        # if block_name == 'TimGp16':
+        #     if re.match('TIM[2345]$', name):
+        #         f.write(f'impl_timer!({name});')
 
         if block_mod == 'exti':
             for irq in chip['interrupts']:
