@@ -212,25 +212,63 @@ impl_exti!(EXTI13, 13);
 impl_exti!(EXTI14, 14);
 impl_exti!(EXTI15, 15);
 
-pub(crate) unsafe fn init() {}
+macro_rules! foreach_exti_irq {
+    ($action:ident) => {
+        crate::pac::interrupts!(
+            (EXTI0)  => { $action!(EXTI0); };
+            (EXTI1)  => { $action!(EXTI1); };
+            (EXTI2)  => { $action!(EXTI2); };
+            (EXTI3)  => { $action!(EXTI3); };
+            (EXTI4)  => { $action!(EXTI4); };
+            (EXTI5)  => { $action!(EXTI5); };
+            (EXTI6)  => { $action!(EXTI6); };
+            (EXTI7)  => { $action!(EXTI7); };
+            (EXTI8)  => { $action!(EXTI8); };
+            (EXTI9)  => { $action!(EXTI9); };
+            (EXTI10) => { $action!(EXTI10); };
+            (EXTI11) => { $action!(EXTI11); };
+            (EXTI12) => { $action!(EXTI12); };
+            (EXTI13) => { $action!(EXTI13); };
+            (EXTI14) => { $action!(EXTI14); };
+            (EXTI15) => { $action!(EXTI15); };
 
-macro_rules! impl_exti_irq {
-    ($($e:ident),+) => {
-        /// safety: must be called only once
-        pub(crate) unsafe fn init_exti() {
-            use embassy::interrupt::Interrupt;
-            use embassy::interrupt::InterruptExt;
-
-            $(
-                crate::interrupt::$e::steal().enable();
-            )+
-        }
-
-        $(
-            #[crate::interrupt]
-            unsafe fn $e() {
-                crate::exti::on_irq()
-            }
-        )+
+            // plus the weird ones
+            (EXTI0_1)   => { $action!( EXTI0_1 ); };
+            (EXTI15_10) => { $action!(EXTI15_10); };
+            (EXTI15_4)  => { $action!(EXTI15_4); };
+            (EXTI1_0)   => { $action!(EXTI1_0); };
+            (EXTI2_3)   => { $action!(EXTI2_3); };
+            (EXTI2_TSC) => { $action!(EXTI2_TSC); };
+            (EXTI3_2)   => { $action!(EXTI3_2); };
+            (EXTI4_15)  => { $action!(EXTI4_15); };
+            (EXTI9_5)   => { $action!(EXTI9_5); };
+        );
     };
 }
+
+macro_rules! enable_irq {
+    ($e:ident) => {
+        crate::interrupt::$e::steal().enable();
+    };
+}
+
+/// safety: must be called only once
+pub(crate) unsafe fn init() {
+    use embassy::interrupt::Interrupt;
+    use embassy::interrupt::InterruptExt;
+
+    foreach_exti_irq!(enable_irq);
+}
+
+use crate::interrupt;
+
+macro_rules! impl_irq {
+    ($e:ident) => {
+        #[interrupt]
+        unsafe fn $e() {
+            on_irq()
+        }
+    };
+}
+
+foreach_exti_irq!(impl_irq);

@@ -4,6 +4,7 @@
 #[cfg_attr(spi_v2, path = "v2.rs")]
 #[cfg_attr(spi_v3, path = "v3.rs")]
 mod _version;
+use crate::peripherals;
 pub use _version::*;
 
 use crate::gpio::Pin;
@@ -71,26 +72,40 @@ pub trait MosiPin<T: Instance>: sealed::MosiPin<T> + 'static {}
 
 pub trait MisoPin<T: Instance>: sealed::MisoPin<T> + 'static {}
 
-macro_rules! impl_spi {
-    ($inst:ident, $clk:ident) => {
-        impl crate::spi::sealed::Instance for peripherals::$inst {
+crate::pac::peripherals!(
+    (spi, $inst:ident) => {
+        impl sealed::Instance for peripherals::$inst {
             fn regs() -> &'static crate::pac::spi::Spi {
                 &crate::pac::$inst
             }
         }
 
-        impl crate::spi::Instance for peripherals::$inst {}
+        impl Instance for peripherals::$inst {}
     };
-}
+);
 
-macro_rules! impl_spi_pin {
-    ($inst:ident, $pin_func:ident, $pin:ident, $af:expr) => {
-        impl crate::spi::$pin_func<peripherals::$inst> for peripherals::$pin {}
+macro_rules! impl_pin {
+    ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
+        impl $signal<peripherals::$inst> for peripherals::$pin {}
 
-        impl crate::spi::sealed::$pin_func<peripherals::$inst> for peripherals::$pin {
+        impl sealed::$signal<peripherals::$inst> for peripherals::$pin {
             fn af_num(&self) -> u8 {
                 $af
             }
         }
     };
 }
+
+crate::pac::peripheral_pins!(
+    ($inst:ident, spi, SPI, $pin:ident, SCK, $af:expr) => {
+        impl_pin!($inst, $pin, SckPin, $af);
+    };
+
+    ($inst:ident, spi, SPI, $pin:ident, MOSI, $af:expr) => {
+        impl_pin!($inst, $pin, MosiPin, $af);
+    };
+
+    ($inst:ident, spi, SPI, $pin:ident, MISO, $af:expr) => {
+        impl_pin!($inst, $pin, MisoPin, $af);
+    };
+);

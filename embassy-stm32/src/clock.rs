@@ -10,6 +10,7 @@ use embassy::time::{Clock as EmbassyClock, TICKS_PER_SECOND};
 
 use crate::interrupt::{CriticalSection, Interrupt, Mutex};
 use crate::pac::timer::TimGp16;
+use crate::peripherals;
 use crate::time::Hertz;
 
 // Clock timekeeping works with something we call "periods", which are time intervals
@@ -362,15 +363,22 @@ pub trait Instance: sealed::Instance + Sized + 'static {}
 
 macro_rules! impl_timer {
     ($inst:ident) => {
-        impl crate::clock::sealed::Instance for peripherals::$inst {
+        impl sealed::Instance for peripherals::$inst {
             type Interrupt = crate::interrupt::$inst;
 
             fn inner() -> crate::clock::TimerInner {
-                const INNER: crate::clock::TimerInner = crate::clock::TimerInner(crate::pac::$inst);
+                const INNER: TimerInner = TimerInner(crate::pac::$inst);
                 INNER
             }
         }
 
-        impl crate::clock::Instance for peripherals::$inst {}
+        impl Instance for peripherals::$inst {}
     };
 }
+
+crate::pac::peripherals!(
+    (timer, TIM2) => { impl_timer!(TIM2); };
+    (timer, TIM3) => { impl_timer!(TIM3); };
+    (timer, TIM4) => { impl_timer!(TIM4); };
+    (timer, TIM5) => { impl_timer!(TIM5); };
+);

@@ -40,12 +40,24 @@ pub struct Peripheral {
     pub block: Option<String>,
     #[serde(default)]
     pub clock: Option<String>,
+    #[serde(default)]
+    pub pins: Vec<Pin>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
+pub struct Pin {
+    pub pin: String,
+    pub signal: String,
+    pub af: Option<String>,
 }
 
 struct BlockInfo {
-    module: String,  // usart_v1/USART -> usart
-    version: String, // usart_v1/USART -> v1
-    block: String,   // usart_v1/USART -> USART
+    /// usart_v1/USART -> usart
+    module: String,
+    /// usart_v1/USART -> v1
+    version: String,
+    /// usart_v1/USART -> USART
+    block: String,
 }
 
 impl BlockInfo {
@@ -123,6 +135,8 @@ fn main() {
     let mut cfgs: HashSet<String> = HashSet::new();
     let mut pin_table: Vec<Vec<String>> = Vec::new();
     let mut interrupt_table: Vec<Vec<String>> = Vec::new();
+    let mut peripherals_table: Vec<Vec<String>> = Vec::new();
+    let mut peripheral_pins_table: Vec<Vec<String>> = Vec::new();
 
     let dma_base = chip
         .peripherals
@@ -149,8 +163,25 @@ fn main() {
         if let Some(block) = &p.block {
             let bi = BlockInfo::parse(block);
 
+            for pin in &p.pins {
+                let mut row = Vec::new();
+                row.push(name.clone());
+                row.push(bi.module.clone());
+                row.push(bi.block.clone());
+                row.push(pin.pin.clone());
+                row.push(pin.signal.clone());
+                if let Some(ref af) = pin.af {
+                    row.push(af.clone());
+                }
+                peripheral_pins_table.push(row);
+            }
+
             cfgs.insert(bi.module.clone());
             cfgs.insert(format!("{}_{}", bi.module, bi.version));
+            let mut peripheral_row = Vec::new();
+            peripheral_row.push(bi.module.clone());
+            peripheral_row.push(name.clone());
+            peripherals_table.push(peripheral_row);
 
             if let Some(old_version) =
                 peripheral_versions.insert(bi.module.clone(), bi.version.clone())
@@ -226,7 +257,9 @@ fn main() {
 
     make_table(&mut extra, "pins", &pin_table);
     make_table(&mut extra, "interrupts", &interrupt_table);
+    make_table(&mut extra, "peripherals", &peripherals_table);
     make_table(&mut extra, "peripheral_versions", &peripheral_version_table);
+    make_table(&mut extra, "peripheral_pins", &peripheral_pins_table);
 
     for (module, version) in peripheral_versions {
         println!("loading {} {}", module, version);
