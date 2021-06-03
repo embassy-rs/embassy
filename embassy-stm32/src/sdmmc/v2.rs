@@ -1476,7 +1476,7 @@ crate::pac::peripherals!(
             type Interrupt = crate::interrupt::$inst;
 
             fn inner() -> SdmmcInner {
-                const INNER: crate::sdmmc::SdmmcInner = crate::sdmmc::SdmmcInner(crate::pac::$inst);
+                const INNER: SdmmcInner = SdmmcInner(crate::pac::$inst);
                 INNER
             }
 
@@ -1492,11 +1492,11 @@ crate::pac::peripherals!(
 
 macro_rules! impl_pin {
     ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
-        impl crate::sdmmc::sealed::$signal<peripherals::$inst> for peripherals::$pin {
+        impl sealed::$signal<peripherals::$inst> for peripherals::$pin {
             const AF_NUM: u8 = $af;
         }
 
-        impl crate::sdmmc::$signal<peripherals::$inst> for peripherals::$pin {}
+        impl $signal<peripherals::$inst> for peripherals::$pin {}
     };
 }
 

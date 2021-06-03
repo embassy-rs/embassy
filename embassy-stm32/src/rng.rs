@@ -185,31 +185,3 @@ crate::pac::interrupts!(
         irq!(HASH_RNG);
     };
 );
-
-/*
-macro_rules! impl_rng {
-    ($inst:ident, $irq:ident) => {
-        impl crate::rng::sealed::Instance for peripherals::RNG {
-            fn regs() -> crate::pac::rng::Rng {
-                crate::pac::RNG
-            }
-        }
-
-        impl crate::rng::Instance for peripherals::RNG {}
-
-        mod rng_irq {
-            use crate::interrupt;
-
-            #[interrupt]
-            unsafe fn $irq() {
-                let bits = $crate::pac::RNG.sr().read();
-                if bits.drdy() || bits.seis() || bits.ceis() {
-                    $crate::pac::RNG.cr().write(|reg| reg.set_ie(false));
-                    $crate::rng::RNG_WAKER.wake();
-                }
-            }
-        }
-    };
-}
-
- */

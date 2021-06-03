@@ -212,31 +212,6 @@ impl_exti!(EXTI13, 13);
 impl_exti!(EXTI14, 14);
 impl_exti!(EXTI15, 15);
 
-pub(crate) unsafe fn init() {}
-
-/*
-macro_rules! impl_exti_irq {
-    ($($e:ident),+) => {
-        /// safety: must be called only once
-        pub(crate) unsafe fn init_exti() {
-            use embassy::interrupt::Interrupt;
-            use embassy::interrupt::InterruptExt;
-
-            $(
-                crate::interrupt::$e::steal().enable();
-            )+
-        }
-
-        $(
-            #[crate::interrupt]
-            unsafe fn $e() {
-                crate::exti::on_irq()
-            }
-        )+
-    };
-}
- */
-
 macro_rules! foreach_exti_irq {
     ($action:ident) => {
         crate::pac::interrupts!(
@@ -278,7 +253,7 @@ macro_rules! enable_irq {
 }
 
 /// safety: must be called only once
-pub(crate) unsafe fn init_exti() {
+pub(crate) unsafe fn init() {
     use embassy::interrupt::Interrupt;
     use embassy::interrupt::InterruptExt;
 

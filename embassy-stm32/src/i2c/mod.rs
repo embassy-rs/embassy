@@ -40,13 +40,13 @@ pub trait SdaPin<T: Instance>: sealed::SdaPin<T> + 'static {}
 
 crate::pac::peripherals!(
     (i2c, $inst:ident) => {
-        impl crate::i2c::sealed::Instance for peripherals::$inst {
+        impl sealed::Instance for peripherals::$inst {
             fn regs() -> &'static crate::pac::i2c::I2c {
                 &crate::pac::$inst
             }
         }
 
-        impl crate::i2c::Instance for peripherals::$inst {}
+        impl Instance for peripherals::$inst {}
 
     };
 );

@@ -83,7 +83,7 @@ pub fn init(config: Config) -> Peripherals {
 
         #[cfg(dma)]
         dma::init();
-        exti::init_exti();
+        exti::init();
         rcc::init(config.rcc);
     }
 
