@@ -1,4 +1,3 @@
-use heapless::consts::*;
 use heapless::Vec;
 use smoltcp::time::Instant;
 use smoltcp::wire::{Ipv4Address, Ipv4Cidr};
@@ -29,7 +28,7 @@ pub enum Event {
 pub struct Config {
     pub address: Ipv4Cidr,
     pub gateway: Option<Ipv4Address>,
-    pub dns_servers: Vec<Ipv4Address, U3>,
+    pub dns_servers: Vec<Ipv4Address, 3>,
 }
 
 pub trait Configurator {

@@ -32,4 +32,4 @@ embedded-hal    = { version = "0.2.4" }
 panic-probe = { version = "0.2.0", features= ["print-defmt"] }
 futures = { version = "0.3.8", default-features = false, features = ["async-await"] }
 rtt-target = { version = "0.3", features = ["cortex-m"] }
-heapless = "0.7"
+heapless            = { version = "0.7.1", default-features = false }
