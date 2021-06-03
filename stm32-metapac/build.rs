@@ -255,15 +255,8 @@ fn main() {
         .map(|(kind, version)| vec![kind.clone(), version.clone()])
         .collect();
 
-    let exti_interrupt_table = &interrupt_table
-        .iter()
-        .filter(|row| row[0].contains("EXTI"))
-        .map(|row| row.clone())
-        .collect();
-
     make_table(&mut extra, "pins", &pin_table);
     make_table(&mut extra, "interrupts", &interrupt_table);
-    make_table(&mut extra, "exti_interrupts", &exti_interrupt_table);
     make_table(&mut extra, "peripherals", &peripherals_table);
     make_table(&mut extra, "peripheral_versions", &peripheral_version_table);
     make_table(&mut extra, "peripheral_pins", &peripheral_pins_table);
