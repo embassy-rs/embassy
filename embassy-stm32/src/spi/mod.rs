@@ -84,34 +84,28 @@ crate::pac::peripherals!(
     };
 );
 
-crate::pac::peripheral_pins!(
-    ($inst:ident, spi, SPI, $pin:ident, SCK, $af:expr) => {
-        impl SckPin<peripherals::$inst> for peripherals::$pin {}
+macro_rules! impl_pin {
+    ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
+        impl $signal<peripherals::$inst> for peripherals::$pin {}
 
-        impl sealed::SckPin<peripherals::$inst> for peripherals::$pin {
+        impl sealed::$signal<peripherals::$inst> for peripherals::$pin {
             fn af_num(&self) -> u8 {
                 $af
             }
         }
+    };
+}
+
+crate::pac::peripheral_pins!(
+    ($inst:ident, spi, SPI, $pin:ident, SCK, $af:expr) => {
+        impl_pin!($inst, $pin, SckPin, $af);
     };
 
     ($inst:ident, spi, SPI, $pin:ident, MOSI, $af:expr) => {
-        impl MosiPin<peripherals::$inst> for peripherals::$pin {}
-
-        impl sealed::MosiPin<peripherals::$inst> for peripherals::$pin {
-            fn af_num(&self) -> u8 {
-                $af
-            }
-        }
+        impl_pin!($inst, $pin, MosiPin, $af);
     };
 
     ($inst:ident, spi, SPI, $pin:ident, MISO, $af:expr) => {
-        impl MisoPin<peripherals::$inst> for peripherals::$pin {}
-
-        impl sealed::MisoPin<peripherals::$inst> for peripherals::$pin {
-            fn af_num(&self) -> u8 {
-                $af
-            }
-        }
+        impl_pin!($inst, $pin, MisoPin, $af);
     };
 );
