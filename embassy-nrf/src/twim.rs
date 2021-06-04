@@ -6,11 +6,16 @@
 //!
 //! - nRF52832: Section 33
 //! - nRF52840: Section 6.31
+use core::future::Future;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering::SeqCst};
+use core::task::Poll;
 use embassy::interrupt::{Interrupt, InterruptExt};
+use embassy::traits;
 use embassy::util::{AtomicWaker, Unborrow};
 use embassy_extras::unborrow;
+use futures::future::poll_fn;
+use traits::i2c::I2c;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::Pin as GpioPin;
@@ -434,6 +439,114 @@ impl<'a, T: Instance> Drop for Twim<'a, T> {
         gpio::deconfigure_pin(r.psel.scl.read().bits());
 
         info!("twim drop: done");
+    }
+}
+
+impl<'d, T> I2c for Twim<'d, T>
+where
+    T: Instance,
+{
+    type Error = Error;
+
+    #[rustfmt::skip]
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+    #[rustfmt::skip]
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+    #[rustfmt::skip]
+    type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+    fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        self.write_read(address, &[], buffer)
+    }
+
+    fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
+        self.write_read(address, bytes, &mut [])
+    }
+
+    fn write_read<'a>(
+        &'a mut self,
+        address: u8,
+        bytes: &'a [u8],
+        buffer: &'a mut [u8],
+    ) -> Self::WriteReadFuture<'a> {
+        async move {
+            slice_in_ram_or(bytes, Error::DMABufferNotInDataMemory)?;
+            // NOTE: RAM slice check for buffer is not necessary, as a mutable
+            // slice can only be built from data located in RAM.
+
+            // Conservative compiler fence to prevent optimizations that do not
+            // take in to account actions by DMA. The fence has been placed here,
+            // before any DMA action has started.
+            compiler_fence(SeqCst);
+
+            let r = T::regs();
+            let s = T::state();
+
+            // Set up current address we're trying to talk to
+            r.address.write(|w| unsafe { w.address().bits(address) });
+
+            // Set up DMA buffers.
+            unsafe {
+                self.set_tx_buffer(bytes)?;
+                self.set_rx_buffer(buffer)?;
+            }
+
+            // Reset and enable the events
+            r.events_stopped.reset();
+            r.events_error.reset();
+            r.events_lasttx.reset();
+            self.clear_errorsrc();
+
+            r.intenset.write(|w| w.stopped().set());
+            r.intenset.write(|w| w.error().set());
+            r.intenset.write(|w| w.lasttx().set());
+
+            // Start write+read operation.
+            r.shorts.write(|w| {
+                w.lasttx_startrx().enabled();
+                w.lastrx_stop().enabled();
+                w
+            });
+            // `1` is a valid value to write to task registers.
+            r.tasks_starttx.write(|w| unsafe { w.bits(1) });
+
+            // Conservative compiler fence to prevent optimizations that do not
+            // take in to account actions by DMA. The fence has been placed here,
+            // after all possible DMA actions have completed.
+            compiler_fence(SeqCst);
+
+            // Wait for 'stopped' event.
+            poll_fn(|cx| {
+                s.end_waker.register(cx.waker());
+                if r.events_stopped.read().bits() != 0 {
+                    r.events_stopped.reset();
+
+                    return Poll::Ready(());
+                }
+
+                // stop if an error occured
+                if r.events_error.read().bits() != 0 {
+                    r.events_error.reset();
+                    r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                }
+
+                Poll::Pending
+            })
+            .await;
+
+            let bad_write = r.txd.amount.read().bits() != bytes.len() as u32;
+            let bad_read = r.rxd.amount.read().bits() != buffer.len() as u32;
+
+            if bad_write {
+                return Err(Error::TxBufferTooLong);
+            }
+
+            if bad_read {
+                return Err(Error::RxBufferTooLong);
+            }
+
+            Ok(())
+        }
     }
 }
 
