@@ -1,11 +1,12 @@
 use crate::dac::{DacPin, Instance};
-use crate::gpio::Pin;
-use crate::gpio::{AnyPin, OptionalPin};
+use crate::fmt::*;
+use crate::gpio::AnyPin;
 use crate::pac::dac;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 
+#[derive(Debug, defmt::Format)]
 pub enum Error {
     UnconfiguredChannel,
     InvalidValue,
@@ -77,7 +78,6 @@ pub enum Value {
 }
 
 pub struct Dac<'d, T: Instance> {
-    //peri: T,
     ch1: Option<AnyPin>,
     ch2: Option<AnyPin>,
     phantom: PhantomData<&'d mut T>,
@@ -85,11 +85,10 @@ pub struct Dac<'d, T: Instance> {
 
 impl<'d, T: Instance> Dac<'d, T> {
     pub fn new(
-        peri: impl Unborrow<Target = T> + 'd,
+        _peri: impl Unborrow<Target = T> + 'd,
         ch1: impl Unborrow<Target = impl DacPin<T, 1>>,
         ch2: impl Unborrow<Target = impl DacPin<T, 2>>,
     ) -> Self {
-        unborrow!(peri);
         unborrow!(ch1, ch2);
 
         let ch1 = ch1.degrade_optional();
@@ -110,13 +109,11 @@ impl<'d, T: Instance> Dac<'d, T> {
             }
         }
 
-        let mut dac = Self {
+        Self {
             ch1,
             ch2,
             phantom: PhantomData,
-        };
-
-        dac
+        }
     }
 
     pub fn enable_channel(&mut self, ch: Channel) -> Result<(), Error> {
@@ -181,7 +178,7 @@ impl<'d, T: Instance> Dac<'d, T> {
         if self.ch1.is_none() {
             return Err(Error::UnconfiguredChannel);
         }
-        self.disable_channel(Channel::Ch1);
+        unwrap!(self.disable_channel(Channel::Ch1));
         unsafe {
             T::regs().cr().modify(|reg| {
                 reg.set_tsel1(trigger.tsel());
@@ -194,7 +191,7 @@ impl<'d, T: Instance> Dac<'d, T> {
         if self.ch2.is_none() {
             return Err(Error::UnconfiguredChannel);
         }
-        self.disable_channel(Channel::Ch2);
+        unwrap!(self.disable_channel(Channel::Ch2));
         unsafe {
             T::regs().cr().modify(|reg| {
                 reg.set_tsel2(trigger.tsel());

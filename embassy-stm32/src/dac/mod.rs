@@ -7,8 +7,7 @@ use crate::peripherals;
 pub use _version::*;
 
 pub(crate) mod sealed {
-    use super::*;
-    use crate::gpio::{OptionalPin, Pin};
+    use crate::gpio::OptionalPin;
 
     pub trait Instance {
         fn regs() -> &'static crate::pac::dac::Dac;

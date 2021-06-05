@@ -35,6 +35,7 @@ impl State {
 
 static STATE: State = State::new();
 
+#[allow(unused)] // Used by usart/v1.rs which may or may not be enabled
 pub(crate) async unsafe fn transfer_m2p(
     ch: &mut impl Channel,
     ch_func: u8,
