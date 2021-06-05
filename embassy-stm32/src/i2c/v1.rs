@@ -1,5 +1,3 @@
-use crate::gpio::AnyPin;
-use crate::gpio::Pin;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
 use crate::time::Hertz;
 use core::marker::PhantomData;
@@ -10,24 +8,18 @@ use embedded_hal::blocking::i2c::Write;
 use embedded_hal::blocking::i2c::WriteRead;
 
 use crate::pac::i2c;
-use crate::pac::i2c::I2c as I2cTrait;
-use core::cmp;
 
 use crate::pac::gpio::vals::{Afr, Moder, Ot};
 use crate::pac::gpio::Gpio;
-use core::ops::Deref;
 
 pub struct I2c<'d, T: Instance> {
-    //peri: T,
-    scl: AnyPin,
-    sda: AnyPin,
     phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance> I2c<'d, T> {
     pub fn new<F>(
         pclk: Hertz,
-        peri: impl Unborrow<Target = T> + 'd,
+        _peri: impl Unborrow<Target = T> + 'd,
         scl: impl Unborrow<Target = impl SclPin<T>>,
         sda: impl Unborrow<Target = impl SdaPin<T>>,
         freq: F,
@@ -35,7 +27,6 @@ impl<'d, T: Instance> I2c<'d, T> {
     where
         F: Into<Hertz>,
     {
-        unborrow!(peri);
         unborrow!(scl, sda);
 
         unsafe {
@@ -66,9 +57,6 @@ impl<'d, T: Instance> I2c<'d, T> {
             });
         }
 
-        let scl = scl.degrade();
-        let sda = sda.degrade();
-
         unsafe {
             T::regs().cr1().modify(|reg| {
                 reg.set_pe(true);
@@ -76,8 +64,6 @@ impl<'d, T: Instance> I2c<'d, T> {
         }
 
         Self {
-            scl,
-            sda,
             phantom: PhantomData,
         }
     }
@@ -261,7 +247,7 @@ impl<'d, T: Instance> Read for I2c<'d, T> {
             *last = unsafe { self.recv_byte()? };
 
             // Wait for the STOP to be sent.
-            while { unsafe { T::regs().cr1().read().stop() == i2c::vals::Stop::STOP } } {}
+            while unsafe { T::regs().cr1().read().stop() == i2c::vals::Stop::STOP } {}
 
             // Fallthrough is success
             Ok(())
@@ -282,7 +268,7 @@ impl<'d, T: Instance> Write for I2c<'d, T> {
                 .cr1()
                 .modify(|reg| reg.set_stop(i2c::vals::Stop::STOP));
             // Wait for STOP condition to transmit.
-            while { unsafe { T::regs().cr1().read().stop() == i2c::vals::Stop::STOP } } {}
+            while T::regs().cr1().read().stop() == i2c::vals::Stop::STOP {}
         };
 
         // Fallthrough is success

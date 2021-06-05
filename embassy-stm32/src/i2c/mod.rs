@@ -16,7 +16,6 @@ pub enum Error {
 }
 
 pub(crate) mod sealed {
-    use super::*;
     use crate::gpio::Pin;
 
     pub trait Instance {

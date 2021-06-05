@@ -6,26 +6,20 @@ use embedded_hal::blocking::i2c::Read;
 use embedded_hal::blocking::i2c::Write;
 use embedded_hal::blocking::i2c::WriteRead;
 
-use crate::gpio::AnyPin;
-use crate::gpio::Pin;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
 use crate::pac::gpio::vals::{Afr, Moder, Ot};
 use crate::pac::gpio::Gpio;
 use crate::pac::i2c;
-use crate::pac::i2c::I2c as I2cTrait;
 use crate::time::Hertz;
 
 pub struct I2c<'d, T: Instance> {
-    //peri: T,
-    scl: AnyPin,
-    sda: AnyPin,
     phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance> I2c<'d, T> {
     pub fn new<F>(
         pclk: Hertz,
-        peri: impl Unborrow<Target = T> + 'd,
+        _peri: impl Unborrow<Target = T> + 'd,
         scl: impl Unborrow<Target = impl SclPin<T>>,
         sda: impl Unborrow<Target = impl SdaPin<T>>,
         freq: F,
@@ -33,7 +27,6 @@ impl<'d, T: Instance> I2c<'d, T> {
     where
         F: Into<Hertz>,
     {
-        unborrow!(peri);
         unborrow!(scl, sda);
 
         unsafe {
@@ -60,9 +53,6 @@ impl<'d, T: Instance> I2c<'d, T> {
             });
         }
 
-        let scl = scl.degrade();
-        let sda = sda.degrade();
-
         unsafe {
             T::regs().cr1().modify(|reg| {
                 reg.set_pe(true);
@@ -70,8 +60,6 @@ impl<'d, T: Instance> I2c<'d, T> {
         }
 
         Self {
-            scl,
-            sda,
             phantom: PhantomData,
         }
     }
@@ -110,7 +98,7 @@ impl<'d, T: Instance> I2c<'d, T> {
                 w.set_rd_wrn(i2c::vals::RdWrn::READ);
                 w.set_nbytes(length as u8);
                 w.set_start(i2c::vals::Start::START);
-                w.set_autoend(i2c::vals::Autoend::AUTOMATIC);
+                w.set_autoend(stop.autoend());
             });
         }
     }

@@ -20,7 +20,7 @@ impl WordSize {
         }
     }
 
-    fn frxth(&self) -> spi::vals::Fthlv {
+    fn _frxth(&self) -> spi::vals::Fthlv {
         match self {
             WordSize::EightBit => spi::vals::Fthlv::ONEFRAME,
             WordSize::SixteenBit => spi::vals::Fthlv::ONEFRAME,
@@ -29,7 +29,6 @@ impl WordSize {
 }
 
 pub struct Spi<'d, T: Instance> {
-    //peri: T,
     sck: AnyPin,
     mosi: AnyPin,
     miso: AnyPin,
@@ -39,7 +38,7 @@ pub struct Spi<'d, T: Instance> {
 impl<'d, T: Instance> Spi<'d, T> {
     pub fn new<F>(
         pclk: Hertz,
-        peri: impl Unborrow<Target = T> + 'd,
+        _peri: impl Unborrow<Target = T> + 'd,
         sck: impl Unborrow<Target = impl SckPin<T>>,
         mosi: impl Unborrow<Target = impl MosiPin<T>>,
         miso: impl Unborrow<Target = impl MisoPin<T>>,
@@ -49,7 +48,6 @@ impl<'d, T: Instance> Spi<'d, T> {
     where
         F: Into<Hertz>,
     {
-        unborrow!(peri);
         unborrow!(sck, mosi, miso);
 
         unsafe {
@@ -110,7 +108,6 @@ impl<'d, T: Instance> Spi<'d, T> {
         }
 
         Self {
-            //peri,
             sck,
             mosi,
             miso,
@@ -218,7 +215,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
         Self::set_word_size(WordSize::EightBit);
         let regs = T::regs();
 
-        for (i, word) in words.iter_mut().enumerate() {
+        for word in words.iter_mut() {
             unsafe {
                 regs.cr1().modify(|reg| {
                     reg.set_ssi(false);
