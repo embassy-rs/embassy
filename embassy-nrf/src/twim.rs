@@ -635,11 +635,11 @@ where
             let bad_read = r.rxd.amount.read().bits() != buffer.len() as u32;
 
             if bad_write {
-                return Err(Error::TxBufferTooLong);
+                return Err(Error::Transmit);
             }
 
             if bad_read {
-                return Err(Error::RxBufferTooLong);
+                return Err(Error::Receive);
             }
 
             Ok(())
