@@ -491,15 +491,14 @@ where
                 self.set_rx_buffer(buffer)?;
             }
 
-            // Reset and enable the events
+            // Reset events
             r.events_stopped.reset();
             r.events_error.reset();
             r.events_lasttx.reset();
             self.clear_errorsrc();
 
-            r.intenset.write(|w| w.stopped().set());
-            r.intenset.write(|w| w.error().set());
-            r.intenset.write(|w| w.lasttx().set());
+            // Enable events
+            r.intenset.write(|w| w.stopped().set().error().set());
 
             // Start write+read operation.
             r.shorts.write(|w| {
