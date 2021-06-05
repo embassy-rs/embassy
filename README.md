@@ -37,11 +37,21 @@ The `embassy-nrf` crate contains implementations for nRF 52 series SoCs.
 - `gpiote`: GPIOTE driver. Allows `await`ing GPIO pin changes. Great for reading buttons or receiving interrupts from external chips.
 - `rtc`: RTC driver implementing `Clock` and `Alarm`, for use with `embassy::executor`.
 
-## Running the examples
+## Examples
 
-Examples are for the nRF52840 chip but should be easily adaptable to other nRF52 chips.
+Examples are found in the `examples/` folder seperated by the chip manufacturer they are designed to run on:
+*   `examples/nrf` are designed to run on the `nrf52840-dk` board (PCA10056) but should be easily adaptable to other nRF52 chips and boards.
+*   `examples/rp` are for the RP2040 chip.
+*   `examples/stm32` are designed for the STM32F429ZI chip but should be easily adaptable to other STM32F4xx chips.
+*   `examples/std` are designed to run locally on your pc.
 
-GPIO pins are set up for the `nrf52840-dk` board (PCA10056)
+### Running examples
+
+- Setup git submodules (needed for STM32 examples)
+```
+git submodule init
+git submodule update
+```
 
 - Install `probe-run` with defmt support.
 
@@ -57,7 +67,7 @@ cargo run --bin rtc_async
 
 ## Minimum supported Rust version (MSRV)
 
-Only recent nighly supported. Nightly is required for:
+Required nightly version is specified in the `rust-toolchain.toml` file. Nightly is required for:
 
 - `generic_associated_types`: for trait funcs returning futures.
 - `type_alias_impl_trait`: for trait funcs returning futures implemented with `async{}` blocks, and for `static-executor`.
