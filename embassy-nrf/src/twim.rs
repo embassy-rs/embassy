@@ -423,6 +423,26 @@ impl<'d, T: Instance> Twim<'d, T> {
 
         self.write_then_read(address, wr_ram_buffer, rd_buffer)
     }
+
+    fn wait_for_stopped_event(cx: &mut core::task::Context) -> Poll<()> {
+        let r = T::regs();
+        let s = T::state();
+
+        s.end_waker.register(cx.waker());
+        if r.events_stopped.read().bits() != 0 {
+            r.events_stopped.reset();
+
+            return Poll::Ready(());
+        }
+
+        // stop if an error occured
+        if r.events_error.read().bits() != 0 {
+            r.events_error.reset();
+            r.tasks_stop.write(|w| unsafe { w.bits(1) });
+        }
+
+        Poll::Pending
+    }
 }
 
 impl<'a, T: Instance> Drop for Twim<'a, T> {
@@ -461,7 +481,6 @@ where
             // slice can only be built from data located in RAM.
 
             let r = T::regs();
-            let s = T::state();
 
             // Conservative compiler fence to prevent optimizations that do not
             // take in to account actions by DMA. The fence has been placed here,
@@ -493,23 +512,7 @@ where
             compiler_fence(SeqCst);
 
             // Wait for 'stopped' event.
-            poll_fn(|cx| {
-                s.end_waker.register(cx.waker());
-                if r.events_stopped.read().bits() != 0 {
-                    r.events_stopped.reset();
-
-                    return Poll::Ready(());
-                }
-
-                // stop if an error occured
-                if r.events_error.read().bits() != 0 {
-                    r.events_error.reset();
-                    r.tasks_stop.write(|w| unsafe { w.bits(1) });
-                }
-
-                Poll::Pending
-            })
-            .await;
+            poll_fn(Self::wait_for_stopped_event).await;
 
             self.read_errorsrc()?;
 
@@ -531,12 +534,11 @@ where
             compiler_fence(SeqCst);
 
             let r = T::regs();
-            let s = T::state();
 
             // Set up current address we're trying to talk to
             r.address.write(|w| unsafe { w.address().bits(address) });
 
-            // Set up DMA buffers.
+            // Set up DMA write.
             unsafe {
                 self.set_tx_buffer(bytes)?;
             }
@@ -562,23 +564,7 @@ where
             compiler_fence(SeqCst);
 
             // Wait for 'stopped' event.
-            poll_fn(|cx| {
-                s.end_waker.register(cx.waker());
-                if r.events_stopped.read().bits() != 0 {
-                    r.events_stopped.reset();
-
-                    return Poll::Ready(());
-                }
-
-                // stop if an error occured
-                if r.events_error.read().bits() != 0 {
-                    r.events_error.reset();
-                    r.tasks_stop.write(|w| unsafe { w.bits(1) });
-                }
-
-                Poll::Pending
-            })
-            .await;
+            poll_fn(Self::wait_for_stopped_event).await;
 
             self.read_errorsrc()?;
 
@@ -607,7 +593,6 @@ where
             compiler_fence(SeqCst);
 
             let r = T::regs();
-            let s = T::state();
 
             // Set up current address we're trying to talk to
             r.address.write(|w| unsafe { w.address().bits(address) });
@@ -642,23 +627,7 @@ where
             compiler_fence(SeqCst);
 
             // Wait for 'stopped' event.
-            poll_fn(|cx| {
-                s.end_waker.register(cx.waker());
-                if r.events_stopped.read().bits() != 0 {
-                    r.events_stopped.reset();
-
-                    return Poll::Ready(());
-                }
-
-                // stop if an error occured
-                if r.events_error.read().bits() != 0 {
-                    r.events_error.reset();
-                    r.tasks_stop.write(|w| unsafe { w.bits(1) });
-                }
-
-                Poll::Pending
-            })
-            .await;
+            poll_fn(Self::wait_for_stopped_event).await;
 
             self.read_errorsrc()?;
 
