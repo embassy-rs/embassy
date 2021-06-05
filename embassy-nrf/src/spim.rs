@@ -196,8 +196,9 @@ impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
 
     fn read_write<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::WriteReadFuture<'a> {
         async move {
-            slice_in_ram_or(rx, Error::DMABufferNotInDataMemory)?;
             slice_in_ram_or(tx, Error::DMABufferNotInDataMemory)?;
+            // NOTE: RAM slice check for rx is not necessary, as a mutable
+            // slice can only be built from data located in RAM.
 
             // Conservative compiler fence to prevent optimizations that do not
             // take in to account actions by DMA. The fence has been placed here,
