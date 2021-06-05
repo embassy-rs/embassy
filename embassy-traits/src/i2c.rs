@@ -94,9 +94,15 @@ pub trait I2c<A: AddressMode = SevenBitAddress> {
     /// Error type
     type Error;
 
-    type ReadFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a;
-    type WriteFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a;
-    type WriteReadFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a;
+    type WriteFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a
+    where
+        Self: 'a;
+    type ReadFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a
+    where
+        Self: 'a;
+    type WriteReadFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a
+    where
+        Self: 'a;
 
     /// Reads enough bytes from slave with `address` to fill `buffer`
     ///
@@ -116,7 +122,7 @@ pub trait I2c<A: AddressMode = SevenBitAddress> {
     /// - `MAK` = master acknowledge
     /// - `NMAK` = master no acknowledge
     /// - `SP` = stop condition
-    fn read<'a>(&'a mut self, address: A, buffer: &mut [u8]) -> Self::ReadFuture<'a>;
+    fn read<'a>(&'a mut self, address: A, buffer: &'a mut [u8]) -> Self::ReadFuture<'a>;
 
     /// Sends bytes to slave with address `address`
     ///
@@ -134,7 +140,7 @@ pub trait I2c<A: AddressMode = SevenBitAddress> {
     /// - `SAK` = slave acknowledge
     /// - `Bi` = ith byte of data
     /// - `SP` = stop condition
-    fn write<'a>(&'a mut self, address: A, bytes: &[u8]) -> Self::WriteFuture<'a>;
+    fn write<'a>(&'a mut self, address: A, bytes: &'a [u8]) -> Self::WriteFuture<'a>;
 
     /// Sends bytes to slave with address `address` and then reads enough bytes to fill `buffer` *in a
     /// single transaction*
@@ -161,7 +167,7 @@ pub trait I2c<A: AddressMode = SevenBitAddress> {
     fn write_read<'a>(
         &'a mut self,
         address: A,
-        bytes: &[u8],
-        buffer: &mut [u8],
+        bytes: &'a [u8],
+        buffer: &'a mut [u8],
     ) -> Self::WriteReadFuture<'a>;
 }
