@@ -9,7 +9,6 @@ use executor::raw::TaskHeader;
 use ptr::NonNull;
 
 use crate::executor;
-use crate::fmt::panic;
 use crate::interrupt::{Interrupt, InterruptExt};
 
 /// Synchronization primitive. Allows creating awaitable signals that may be passed between tasks.

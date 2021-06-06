@@ -1,7 +1,6 @@
 use smoltcp::time::Instant;
 
 use super::*;
-use crate::fmt::*;
 use crate::{Interface, SocketSet};
 
 pub struct StaticConfigurator {

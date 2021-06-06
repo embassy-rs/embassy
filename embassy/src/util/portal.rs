@@ -1,4 +1,3 @@
-use crate::fmt::panic;
 use core::cell::UnsafeCell;
 use core::mem;
 use core::mem::MaybeUninit;

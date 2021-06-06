@@ -18,10 +18,10 @@ use futures::future::poll_fn;
 use traits::i2c::I2c;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+use crate::gpio;
 use crate::gpio::Pin as GpioPin;
 use crate::pac;
 use crate::util::{slice_in_ram, slice_in_ram_or};
-use crate::{fmt::*, gpio};
 
 pub enum Frequency {
     #[doc = "26738688: 100 kbps"]

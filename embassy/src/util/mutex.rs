@@ -1,8 +1,6 @@
 use core::cell::UnsafeCell;
 use critical_section::CriticalSection;
 
-use crate::fmt::assert;
-
 /// A "mutex" based on critical sections
 ///
 /// # Safety

@@ -1,4 +1,3 @@
-use crate::fmt::panic;
 use core::mem;
 
 /// An explosive ordinance that panics if it is improperly disposed of.

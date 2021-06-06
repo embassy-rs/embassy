@@ -4,7 +4,6 @@ use smoltcp::time::Instant;
 
 use super::*;
 use crate::device::LinkState;
-use crate::fmt::*;
 use crate::{Interface, SocketSet};
 
 pub struct DhcpConfigurator {
