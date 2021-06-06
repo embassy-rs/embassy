@@ -3,6 +3,7 @@ name = "embassy"
 version = "0.1.0"
 authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
+resolver = "2"
 
 [features]
 default = []
@@ -36,3 +37,9 @@ embedded-hal = "0.2.5"
 
 # Workaround https://github.com/japaric/cast.rs/pull/27
 cast = { version = "=0.2.3", default-features = false }
+
+[dev-dependencies]
+futures-executor = { version = "0.3", features = [ "thread-pool" ] }
+futures-test = "0.3"
+futures-timer = "0.3"
+futures-util = { version = "0.3", features = [ "channel" ] }

@@ -1,6 +1,17 @@
 use core::cell::UnsafeCell;
 use critical_section::CriticalSection;
 
+/// Any object implementing this trait guarantees exclusive access to the data contained
+/// within the mutex for the duration of the lock.
+/// Adapted from https://github.com/rust-embedded/mutex-trait.
+pub trait Mutex {
+    /// Data protected by the mutex.
+    type Data;
+
+    /// Creates a critical section and grants temporary access to the protected data.
+    fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R;
+}
+
 /// A "mutex" based on critical sections
 ///
 /// # Safety
@@ -30,6 +41,14 @@ impl<T> CriticalSectionMutex<T> {
     /// Borrows the data for the duration of the critical section
     pub fn borrow<'cs>(&'cs self, _cs: CriticalSection<'cs>) -> &'cs T {
         unsafe { &*self.inner.get() }
+    }
+}
+
+impl<T> Mutex for CriticalSectionMutex<T> {
+    type Data = T;
+
+    fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R {
+        critical_section::with(|cs| f(self.borrow(cs)))
     }
 }
 
@@ -67,6 +86,14 @@ impl<T> ThreadModeMutex<T> {
             "ThreadModeMutex can only be borrowed from thread mode."
         );
         unsafe { &*self.inner.get() }
+    }
+}
+
+impl<T> Mutex for ThreadModeMutex<T> {
+    type Data = T;
+
+    fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R {
+        f(self.borrow())
     }
 }
 
