@@ -46,7 +46,7 @@ fn vco_output_divider_setup(output: u32, plln: usize) -> (u32, u32) {
 ///
 /// Must have exclusive access to the RCC register block
 unsafe fn vco_setup(pll_src: u32, requested_output: u32, plln: usize) -> PllConfigResults {
-    use crate::pac::rcc::vals::{Pll1rge, Pll1vcosel};
+    use crate::pac::rcc::vals::{Pllrge, Pllvcosel};
 
     let (vco_ck_target, pll_x_p) = vco_output_divider_setup(requested_output, plln);
 
@@ -60,8 +60,8 @@ unsafe fn vco_setup(pll_src: u32, requested_output: u32, plln: usize) -> PllConf
     assert!((1_000_000..=2_000_000).contains(&ref_x_ck));
 
     RCC.pllcfgr().modify(|w| {
-        w.set_pllvcosel(plln, Pll1vcosel::MEDIUMVCO);
-        w.set_pllrge(plln, Pll1rge::RANGE1);
+        w.set_pllvcosel(plln, Pllvcosel::MEDIUMVCO);
+        w.set_pllrge(plln, Pllrge::RANGE1);
     });
     PllConfigResults {
         ref_x_ck,
@@ -79,7 +79,7 @@ pub(super) unsafe fn pll_setup(
     config: &PllConfig,
     plln: usize,
 ) -> (Option<u32>, Option<u32>, Option<u32>) {
-    use crate::pac::rcc::vals::{Divp1, Divp1en, Pll1fracen};
+    use crate::pac::rcc::vals::Divp;
 
     match config.p_ck {
         Some(requested_output) => {
@@ -101,22 +101,19 @@ pub(super) unsafe fn pll_setup(
                 .modify(|w| w.set_divn1((pll_x_n - 1) as u16));
 
             // No FRACN
-            RCC.pllcfgr()
-                .modify(|w| w.set_pllfracen(plln, Pll1fracen::RESET));
+            RCC.pllcfgr().modify(|w| w.set_pllfracen(plln, false));
             let vco_ck = ref_x_ck * pll_x_n;
 
             RCC.plldivr(plln)
-                .modify(|w| w.set_divp1(Divp1((pll_x_p - 1) as u8)));
-            RCC.pllcfgr()
-                .modify(|w| w.set_divpen(plln, Divp1en::ENABLED));
+                .modify(|w| w.set_divp1(Divp((pll_x_p - 1) as u8)));
+            RCC.pllcfgr().modify(|w| w.set_divpen(plln, true));
 
             // Calulate additional output dividers
             let q_ck = match config.q_ck {
                 Some(Hertz(ck)) if ck > 0 => {
                     let div = (vco_ck + ck - 1) / ck;
                     RCC.plldivr(plln).modify(|w| w.set_divq1((div - 1) as u8));
-                    RCC.pllcfgr()
-                        .modify(|w| w.set_divqen(plln, Divp1en::ENABLED));
+                    RCC.pllcfgr().modify(|w| w.set_divqen(plln, true));
                     Some(vco_ck / div)
                 }
                 _ => None,
@@ -125,8 +122,7 @@ pub(super) unsafe fn pll_setup(
                 Some(Hertz(ck)) if ck > 0 => {
                     let div = (vco_ck + ck - 1) / ck;
                     RCC.plldivr(plln).modify(|w| w.set_divr1((div - 1) as u8));
-                    RCC.pllcfgr()
-                        .modify(|w| w.set_divren(plln, Divp1en::ENABLED));
+                    RCC.pllcfgr().modify(|w| w.set_divren(plln, true));
                     Some(vco_ck / div)
                 }
                 _ => None,

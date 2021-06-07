@@ -7,9 +7,7 @@ use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 use pac::dbg::vals::{DbgSleep, DbgStandby, DbgStop};
-use pac::rcc::vals::{
-    Crypen, Dbgen, Hpre, Iophen, Lptimen, Msirange, Plldiv, Pllmul, Pllon, Pllsrc, Ppre, Sw,
-};
+use pac::rcc::vals::{Hpre, Msirange, Plldiv, Pllmul, Pllsrc, Ppre, Sw};
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
 /// and with the addition of the init function to configure a system clock.
@@ -266,7 +264,7 @@ impl<'d> Rcc<'d> {
         // NOTE(unsafe) We have exclusive access to the RCC and DBGMCU
         unsafe {
             if enable_dma {
-                pac::RCC.ahbenr().modify(|w| w.set_dmaen(Crypen::ENABLED));
+                pac::RCC.ahbenr().modify(|w| w.set_dmaen(true));
             }
 
             pac::DBGMCU.cr().modify(|w| {
@@ -285,14 +283,14 @@ impl<'d> Rcc<'d> {
             rcc.apb2rstr().modify(|w| w.set_syscfgrst(false));
 
             // Enable SYSCFG peripheral
-            rcc.apb2enr().modify(|w| w.set_syscfgen(Dbgen::ENABLED));
+            rcc.apb2enr().modify(|w| w.set_syscfgen(true));
 
             // Reset CRS peripheral
             rcc.apb1rstr().modify(|w| w.set_crsrst(true));
             rcc.apb1rstr().modify(|w| w.set_crsrst(false));
 
             // Enable CRS peripheral
-            rcc.apb1enr().modify(|w| w.set_crsen(Lptimen::ENABLED));
+            rcc.apb1enr().modify(|w| w.set_crsen(true));
 
             // Initialize CRS
             let crs = pac::CRS;
@@ -369,7 +367,7 @@ impl RccExt for RCC {
 
                 // Enable MSI
                 unsafe {
-                    rcc.cr().write(|w| w.set_msion(Pllon::ENABLED));
+                    rcc.cr().write(|w| w.set_msion(true));
                     while !rcc.cr().read().msirdy() {}
                 }
 
@@ -379,7 +377,7 @@ impl RccExt for RCC {
             ClockSrc::HSI16 => {
                 // Enable HSI16
                 unsafe {
-                    rcc.cr().write(|w| w.set_hsi16on(Pllon::ENABLED));
+                    rcc.cr().write(|w| w.set_hsi16on(true));
                     while !rcc.cr().read().hsi16rdyf() {}
                 }
 
@@ -388,7 +386,7 @@ impl RccExt for RCC {
             ClockSrc::HSE(freq) => {
                 // Enable HSE
                 unsafe {
-                    rcc.cr().write(|w| w.set_hseon(Pllon::ENABLED));
+                    rcc.cr().write(|w| w.set_hseon(true));
                     while !rcc.cr().read().hserdy() {}
                 }
 
@@ -399,7 +397,7 @@ impl RccExt for RCC {
                     PLLSource::HSE(freq) => {
                         // Enable HSE
                         unsafe {
-                            rcc.cr().write(|w| w.set_hseon(Pllon::ENABLED));
+                            rcc.cr().write(|w| w.set_hseon(true));
                             while !rcc.cr().read().hserdy() {}
                         }
                         freq.0
@@ -407,7 +405,7 @@ impl RccExt for RCC {
                     PLLSource::HSI16 => {
                         // Enable HSI
                         unsafe {
-                            rcc.cr().write(|w| w.set_hsi16on(Pllon::ENABLED));
+                            rcc.cr().write(|w| w.set_hsi16on(true));
                             while !rcc.cr().read().hsi16rdyf() {}
                         }
                         HSI_FREQ
@@ -416,7 +414,7 @@ impl RccExt for RCC {
 
                 // Disable PLL
                 unsafe {
-                    rcc.cr().modify(|w| w.set_pllon(Pllon::DISABLED));
+                    rcc.cr().modify(|w| w.set_pllon(false));
                     while rcc.cr().read().pllrdy() {}
                 }
 
@@ -447,7 +445,7 @@ impl RccExt for RCC {
                     });
 
                     // Enable PLL
-                    rcc.cr().modify(|w| w.set_pllon(Pllon::ENABLED));
+                    rcc.cr().modify(|w| w.set_pllon(true));
                     while !rcc.cr().read().pllrdy() {}
                 }
 
@@ -459,8 +457,8 @@ impl RccExt for RCC {
             rcc.cfgr().modify(|w| {
                 w.set_sw(sw.into());
                 w.set_hpre(cfgr.ahb_pre.into());
-                w.set_ppre(0, cfgr.apb1_pre.into());
-                w.set_ppre(1, cfgr.apb2_pre.into());
+                w.set_ppre1(cfgr.apb1_pre.into());
+                w.set_ppre2(cfgr.apb2_pre.into());
             });
         }
 
@@ -526,14 +524,13 @@ pub struct LSE(());
 
 pub unsafe fn init(config: Config) {
     let rcc = pac::RCC;
-    let enabled = Iophen::ENABLED;
     rcc.iopenr().write(|w| {
-        w.set_iopaen(enabled);
-        w.set_iopben(enabled);
-        w.set_iopcen(enabled);
-        w.set_iopden(enabled);
-        w.set_iopeen(enabled);
-        w.set_iophen(enabled);
+        w.set_iopaen(true);
+        w.set_iopben(true);
+        w.set_iopcen(true);
+        w.set_iopden(true);
+        w.set_iopeen(true);
+        w.set_iophen(true);
     });
 
     let r = <peripherals::RCC as embassy::util::Steal>::steal();

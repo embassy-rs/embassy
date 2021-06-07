@@ -101,10 +101,7 @@ impl<'d> Rcc<'d> {
     /// achieved, but the mechanism for doing so is not yet
     /// implemented here.
     pub fn freeze(mut self, pwr: &Power) -> CoreClocks {
-        use crate::pac::rcc::vals::{
-            Apb4enrSyscfgen, Ckpersel, D1ppre, D2ppre1, D3ppre, Hpre, Hsebyp, Hsidiv, Hsion, Lsion,
-            Pllsrc, Sw,
-        };
+        use crate::pac::rcc::vals::{Ckpersel, Dppre, Hpre, Hsebyp, Hsidiv, Pllsrc, Sw};
 
         let srcclk = self.config.hse.unwrap_or(HSI); // Available clocks
         let (sys_ck, sys_use_pll1_p) = self.sys_ck_setup(srcclk);
@@ -132,10 +129,10 @@ impl<'d> Rcc<'d> {
             // do so it would need to ensure all PLLxON bits are clear
             // before changing the value of HSIDIV
             let cr = RCC.cr().read();
-            assert!(cr.hsion() == Hsion::ON);
+            assert!(cr.hsion());
             assert!(cr.hsidiv() == Hsidiv::DIV1);
 
-            RCC.csr().modify(|w| w.set_lsion(Lsion::ON));
+            RCC.csr().modify(|w| w.set_lsion(true));
             while !RCC.csr().read().lsirdy() {}
         }
 
@@ -228,12 +225,12 @@ impl<'d> Rcc<'d> {
         // NOTE(unsafe) We have the RCC singleton
         unsafe {
             // Ensure CSI is on and stable
-            RCC.cr().modify(|w| w.set_csion(Hsion::ON));
+            RCC.cr().modify(|w| w.set_csion(true));
             while !RCC.cr().read().csirdy() {}
 
             // Ensure HSI48 is on and stable
-            RCC.cr().modify(|w| w.set_hsi48on(Hsion::ON));
-            while RCC.cr().read().hsi48on() == Hsion::OFF {}
+            RCC.cr().modify(|w| w.set_hsi48on(true));
+            while !RCC.cr().read().hsi48on() {}
 
             // XXX: support MCO ?
 
@@ -241,7 +238,7 @@ impl<'d> Rcc<'d> {
                 Some(hse) => {
                     // Ensure HSE is on and stable
                     RCC.cr().modify(|w| {
-                        w.set_hseon(Hsion::ON);
+                        w.set_hseon(true);
                         w.set_hsebyp(if self.config.bypass_hse {
                             Hsebyp::BYPASSED
                         } else {
@@ -261,25 +258,27 @@ impl<'d> Rcc<'d> {
             };
             RCC.pllckselr().modify(|w| w.set_pllsrc(pllsrc));
 
+            let enable_pll = |pll| {
+                RCC.cr().modify(|w| w.set_pllon(pll, true));
+                while !RCC.cr().read().pllrdy(pll) {}
+            };
+
             if pll1_p_ck.is_some() {
-                RCC.cr().modify(|w| w.set_pll1on(Hsion::ON));
-                while !RCC.cr().read().pll1rdy() {}
+                enable_pll(0);
             }
 
             if pll2_p_ck.is_some() {
-                RCC.cr().modify(|w| w.set_pll2on(Hsion::ON));
-                while !RCC.cr().read().pll2rdy() {}
+                enable_pll(1);
             }
 
             if pll3_p_ck.is_some() {
-                RCC.cr().modify(|w| w.set_pll3on(Hsion::ON));
-                while !RCC.cr().read().pll3rdy() {}
+                enable_pll(2);
             }
 
             // Core Prescaler / AHB Prescaler / APB3 Prescaler
             RCC.d1cfgr().modify(|w| {
                 w.set_d1cpre(Hpre(d1cpre_bits));
-                w.set_d1ppre(D1ppre(ppre3_bits));
+                w.set_d1ppre(Dppre(ppre3_bits));
                 w.set_hpre(hpre_bits)
             });
             // Ensure core prescaler value is valid before future lower
@@ -288,12 +287,12 @@ impl<'d> Rcc<'d> {
 
             // APB1 / APB2 Prescaler
             RCC.d2cfgr().modify(|w| {
-                w.set_d2ppre1(D2ppre1(ppre1_bits));
-                w.set_d2ppre2(D2ppre1(ppre2_bits));
+                w.set_d2ppre1(Dppre(ppre1_bits));
+                w.set_d2ppre2(Dppre(ppre2_bits));
             });
 
             // APB4 Prescaler
-            RCC.d3cfgr().modify(|w| w.set_d3ppre(D3ppre(ppre4_bits)));
+            RCC.d3cfgr().modify(|w| w.set_d3ppre(Dppre(ppre4_bits)));
 
             // Peripheral Clock (per_ck)
             RCC.d1ccipr().modify(|w| w.set_ckpersel(ckpersel));
@@ -312,8 +311,7 @@ impl<'d> Rcc<'d> {
 
             // IO compensation cell - Requires CSI clock and SYSCFG
             assert!(RCC.cr().read().csirdy());
-            RCC.apb4enr()
-                .modify(|w| w.set_syscfgen(Apb4enrSyscfgen::ENABLED));
+            RCC.apb4enr().modify(|w| w.set_syscfgen(true));
 
             // Enable the compensation cell, using back-bias voltage code
             // provide by the cell.
@@ -364,13 +362,10 @@ impl<'d> Rcc<'d> {
     /// Set `enable_dma1` to true if you do not have at least one bus master (other than the CPU)
     /// enable during WFI/WFE
     pub fn enable_debug_wfe(&mut self, _dbg: &mut peripherals::DBGMCU, enable_dma1: bool) {
-        use crate::pac::rcc::vals::Ahb1enrDma1en;
-
         // NOTE(unsafe) We have exclusive access to the RCC and DBGMCU
         unsafe {
             if enable_dma1 {
-                RCC.ahb1enr()
-                    .modify(|w| w.set_dma1en(Ahb1enrDma1en::ENABLED));
+                RCC.ahb1enr().modify(|w| w.set_dma1en(true));
             }
 
             DBGMCU.cr().modify(|w| {

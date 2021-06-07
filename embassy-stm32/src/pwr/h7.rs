@@ -28,8 +28,6 @@ pub struct Power {
 
 impl Power {
     pub fn new(_peri: peripherals::PWR, enable_overdrive: bool) -> Self {
-        use crate::pac::rcc::vals::Apb4enrSyscfgen;
-
         // NOTE(unsafe) we have the PWR singleton
         unsafe {
             // NB. The lower bytes of CR3 can only be written once after
@@ -57,8 +55,7 @@ impl Power {
                 VoltageScale::Scale1
             } else {
                 critical_section::with(|_| {
-                    RCC.apb4enr()
-                        .modify(|w| w.set_syscfgen(Apb4enrSyscfgen::ENABLED));
+                    RCC.apb4enr().modify(|w| w.set_syscfgen(true));
 
                     SYSCFG.pwrcr().modify(|w| w.set_oden(1));
                 });
