@@ -83,7 +83,7 @@ impl<T: Instance> Clock<T> {
                 unsafe {
                     let rcc = crate::pac::RCC;
                     rcc.apb1enr()
-                        .modify(|w| w.set_tim2en(crate::pac::rcc::vals::Lptimen::ENABLED));
+                        .modify(|w| w.set_tim2en(true));
                     rcc.apb1rstr().modify(|w| w.set_tim2rst(true));
                     rcc.apb1rstr().modify(|w| w.set_tim2rst(false));
                 }
