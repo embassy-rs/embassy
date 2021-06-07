@@ -10,8 +10,6 @@ pub use duration::Duration;
 pub use instant::Instant;
 pub use traits::*;
 
-use crate::fmt::*;
-
 // TODO allow customizing, probably via Cargo features `tick-hz-32768` or something.
 pub const TICKS_PER_SECOND: u64 = 32768;
 

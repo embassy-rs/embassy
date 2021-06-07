@@ -2,7 +2,6 @@ use heapless::Vec;
 use smoltcp::time::Instant;
 use smoltcp::wire::{Ipv4Address, Ipv4Cidr};
 
-use crate::fmt::*;
 use crate::{Interface, SocketSet};
 
 mod statik;

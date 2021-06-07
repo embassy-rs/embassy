@@ -1,5 +1,4 @@
 use crate::dac::{DacPin, Instance};
-use crate::fmt::*;
 use crate::gpio::AnyPin;
 use crate::pac::dac;
 use core::marker::PhantomData;

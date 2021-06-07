@@ -24,7 +24,9 @@ pub(crate) unsafe fn from_task(p: NonNull<TaskHeader>) -> Waker {
 
 pub unsafe fn task_from_waker(waker: &Waker) -> NonNull<TaskHeader> {
     let hack: &WakerHack = mem::transmute(waker);
-    assert_eq!(hack.vtable, &VTABLE);
+    if hack.vtable != &VTABLE {
+        panic!("Found waker not created by the embassy executor. Consider enabling the `executor-agnostic` feature on the `embassy` crate.")
+    }
     NonNull::new_unchecked(hack.data as *mut TaskHeader)
 }
 

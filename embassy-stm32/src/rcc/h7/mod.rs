@@ -2,7 +2,6 @@ use core::marker::PhantomData;
 
 use embassy::util::Unborrow;
 
-use crate::fmt::{assert, panic};
 use crate::pac::rcc::vals::Timpre;
 use crate::pac::{DBGMCU, RCC, SYSCFG};
 use crate::peripherals;

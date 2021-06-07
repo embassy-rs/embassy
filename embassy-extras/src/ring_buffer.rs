@@ -1,5 +1,3 @@
-use crate::fmt::assert;
-
 pub struct RingBuffer<'a> {
     buf: &'a mut [u8],
     start: usize,

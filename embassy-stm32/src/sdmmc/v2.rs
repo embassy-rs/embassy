@@ -10,7 +10,6 @@ use embassy_extras::unborrow;
 use futures::future::poll_fn;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
-use crate::fmt::*;
 use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::pac::gpio::Gpio;
@@ -434,7 +433,7 @@ impl SdmmcInner {
                     BusWidth::One => 0,
                     BusWidth::Four => 1,
                     BusWidth::Eight => 2,
-                    _ => self::panic!("Invalid Bus Width"),
+                    _ => panic!("Invalid Bus Width"),
                 })
             });
 
@@ -637,7 +636,7 @@ impl SdmmcInner {
         direction: Dir,
         data_transfer_timeout: u32,
     ) {
-        self::assert!(block_size <= 14, "Block size up to 2^14 bytes");
+        assert!(block_size <= 14, "Block size up to 2^14 bytes");
         let regs = self.0;
 
         let dtdir = match direction {
@@ -678,7 +677,7 @@ impl SdmmcInner {
         // Enforce AHB and SDMMC_CK clock relation. See RM0433 Rev 7
         // Section 55.5.8
         let sdmmc_bus_bandwidth = new_clock.0 * (width as u32);
-        self::assert!(hclk.0 > 3 * sdmmc_bus_bandwidth / 32);
+        assert!(hclk.0 > 3 * sdmmc_bus_bandwidth / 32);
         *clock = new_clock;
 
         // NOTE(unsafe) We have exclusive access to the regblock

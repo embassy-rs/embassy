@@ -10,7 +10,6 @@ use embassy::util::{AtomicWaker, DropBomb, Unborrow};
 use embassy_extras::unborrow;
 use futures::future::poll_fn;
 
-use crate::fmt::{assert, assert_eq, *};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, Pin as GpioPin};
 use crate::pac;
