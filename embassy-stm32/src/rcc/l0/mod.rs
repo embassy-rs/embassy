@@ -457,8 +457,8 @@ impl RccExt for RCC {
             rcc.cfgr().modify(|w| {
                 w.set_sw(sw.into());
                 w.set_hpre(cfgr.ahb_pre.into());
-                w.set_ppre(0, cfgr.apb1_pre.into());
-                w.set_ppre(1, cfgr.apb2_pre.into());
+                w.set_ppre1(cfgr.apb1_pre.into());
+                w.set_ppre2(cfgr.apb2_pre.into());
             });
         }
 
