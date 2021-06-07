@@ -132,7 +132,6 @@ fn main() {
     };
 
     let mut peripheral_versions: HashMap<String, String> = HashMap::new();
-    let mut cfgs: HashSet<String> = HashSet::new();
     let mut pin_table: Vec<Vec<String>> = Vec::new();
     let mut interrupt_table: Vec<Vec<String>> = Vec::new();
     let mut peripherals_table: Vec<Vec<String>> = Vec::new();
@@ -147,8 +146,6 @@ fn main() {
 
     let gpio_base = chip.peripherals.get(&"GPIOA".to_string()).unwrap().address;
     let gpio_stride = 0x400;
-
-    cfgs.insert(chip.family.to_ascii_lowercase().replace("+", "plus"));
 
     for (name, p) in &chip.peripherals {
         let mut ir_peri = ir::Peripheral {
@@ -176,8 +173,6 @@ fn main() {
                 peripheral_pins_table.push(row);
             }
 
-            cfgs.insert(bi.module.clone());
-            cfgs.insert(format!("{}_{}", bi.module, bi.version));
             let mut peripheral_row = Vec::new();
             peripheral_row.push(bi.module.clone());
             peripheral_row.push(name.clone());
@@ -319,9 +314,4 @@ fn main() {
         .unwrap();
     println!("cargo:rustc-link-search={}", out.display());
     println!("cargo:rerun-if-changed=build.rs");
-
-    println!(
-        "cargo:cfgs={}",
-        cfgs.into_iter().collect::<Vec<_>>().join(",")
-    );
 }
