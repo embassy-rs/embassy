@@ -27,6 +27,7 @@ stm32-metapac = { version = "0.1.0", path = "../stm32-metapac", features = ["rt"
 cfg-if = "1.0.0"
 
 [build-dependencies]
+stm32-metapac = { version = "0.1.0", path = "../stm32-metapac", default-features = false }
 serde = { version = "1.0.123", features = [ "derive" ]}
 serde_yaml = "0.8.15"
 

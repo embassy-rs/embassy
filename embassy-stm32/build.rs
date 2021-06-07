@@ -23,10 +23,13 @@ fn main() {
         panic!("gen.py exited with {:?}", exit_code)
     }
 
-    for s in env::var("DEP_STM32_METAPAC_V0.1_CFGS").unwrap().split(",") {
-        println!("cargo:rustc-cfg={}", s);
-    }
-    println!("cargo:rerun-if-env-changed=DEP_STM32_METAPAC_V0.1_CFGS");
+    stm32_metapac::peripheral_versions!(
+        ($peri:ident, $version:ident) => {
+            println!("cargo:rustc-cfg={}", stringify!($peri));
+            println!("cargo:rustc-cfg={}_{}", stringify!($peri), stringify!($version));
+        };
+    );
+
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=gen.py");
 }
