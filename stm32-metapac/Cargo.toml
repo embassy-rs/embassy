@@ -2,7 +2,6 @@
 name = "stm32-metapac"
 version = "0.1.0"
 edition = "2018"
-links = "stm32-metapac-v0.1"
 resolver = "2"
 
 [dependencies]

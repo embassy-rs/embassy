@@ -79,7 +79,7 @@ impl<T: Instance> Clock<T> {
     // TODO: Temporary until clock code generation is in place
     pub fn start_tim2(&'static self) {
         cfg_if::cfg_if! {
-            if #[cfg(stm32l0)] {
+            if #[cfg(rcc_l0)] {
                 unsafe {
                     let rcc = crate::pac::RCC;
                     rcc.apb1enr()
