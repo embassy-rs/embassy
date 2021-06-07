@@ -104,56 +104,66 @@ macro_rules! panic {
 }
 
 macro_rules! trace {
-    ($($x:tt)*) => {
+    ($s:literal $(, $x:expr)* $(,)?) => {
         {
             #[cfg(feature = "log")]
-            ::log::trace!($($x)*);
+            ::log::trace!($s $(, $x)*);
             #[cfg(feature = "defmt")]
-            ::defmt::trace!($($x)*);
+            ::defmt::trace!($s $(, $x)*);
+            #[cfg(not(any(feature = "log", feature="defmt")))]
+            let _ = ($( & $x ),*);
         }
     };
 }
 
 macro_rules! debug {
-    ($($x:tt)*) => {
+    ($s:literal $(, $x:expr)* $(,)?) => {
         {
-            #[cfg(fevature = "log")]
-            ::log::debug!($($x)*);
+            #[cfg(feature = "log")]
+            ::log::debug!($s $(, $x)*);
             #[cfg(feature = "defmt")]
-            ::defmt::debug!($($x)*);
+            ::defmt::debug!($s $(, $x)*);
+            #[cfg(not(any(feature = "log", feature="defmt")))]
+            let _ = ($( & $x ),*);
         }
     };
 }
 
 macro_rules! info {
-    ($($x:tt)*) => {
+    ($s:literal $(, $x:expr)* $(,)?) => {
         {
             #[cfg(feature = "log")]
-            ::log::info!($($x)*);
+            ::log::info!($s $(, $x)*);
             #[cfg(feature = "defmt")]
-            ::defmt::info!($($x)*);
+            ::defmt::info!($s $(, $x)*);
+            #[cfg(not(any(feature = "log", feature="defmt")))]
+            let _ = ($( & $x ),*);
         }
     };
 }
 
 macro_rules! warn {
-    ($($x:tt)*) => {
+    ($s:literal $(, $x:expr)* $(,)?) => {
         {
             #[cfg(feature = "log")]
-            ::log::warn!($($x)*);
+            ::log::warn!($s $(, $x)*);
             #[cfg(feature = "defmt")]
-            ::defmt::warn!($($x)*);
+            ::defmt::warn!($s $(, $x)*);
+            #[cfg(not(any(feature = "log", feature="defmt")))]
+            let _ = ($( & $x ),*);
         }
     };
 }
 
 macro_rules! error {
-    ($($x:tt)*) => {
+    ($s:literal $(, $x:expr)* $(,)?) => {
         {
             #[cfg(feature = "log")]
-            ::log::error!($($x)*);
+            ::log::error!($s $(, $x)*);
             #[cfg(feature = "defmt")]
-            ::defmt::error!($($x)*);
+            ::defmt::error!($s $(, $x)*);
+            #[cfg(not(any(feature = "log", feature="defmt")))]
+            let _ = ($( & $x ),*);
         }
     };
 }
