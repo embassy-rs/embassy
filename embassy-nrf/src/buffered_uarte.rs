@@ -177,7 +177,9 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     }
 
     pub fn set_baudrate(self: Pin<&mut Self>, baudrate: Baudrate) {
-        self.inner().with(|state, _irq| {
+        let mut inner = self.inner();
+        inner.as_mut().register_interrupt();
+        inner.with(|state, _irq| {
             let r = U::regs();
             let rt = state.timer.regs();
 
