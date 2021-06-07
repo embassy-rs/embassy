@@ -29,6 +29,8 @@ pub mod clock;
 pub mod dac;
 #[cfg(dma)]
 pub mod dma;
+#[cfg(eth)]
+pub mod eth;
 #[cfg(i2c)]
 pub mod i2c;
 #[cfg(pwr)]

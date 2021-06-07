@@ -3,12 +3,13 @@ use core::ops::{Deref, DerefMut, Range};
 
 use atomic_pool::{pool, Box};
 
-pub const MTU: usize = 1514;
+pub const MTU: usize = 1516;
 pub const PACKET_POOL_SIZE: usize = 4;
 
 pool!(pub PacketPool: [Packet; PACKET_POOL_SIZE]);
 pub type PacketBox = Box<PacketPool>;
 
+#[repr(align(4))]
 pub struct Packet(pub [u8; MTU]);
 
 impl Packet {
