@@ -8,9 +8,9 @@ macro_rules! assert {
     ($($x:tt)*) => {
         {
             #[cfg(not(feature = "defmt"))]
-            core::assert!($($x)*);
+            ::core::assert!($($x)*);
             #[cfg(feature = "defmt")]
-            defmt::assert!($($x)*);
+            ::defmt::assert!($($x)*);
         }
     };
 }
@@ -19,9 +19,9 @@ macro_rules! assert_eq {
     ($($x:tt)*) => {
         {
             #[cfg(not(feature = "defmt"))]
-            core::assert_eq!($($x)*);
+            ::core::assert_eq!($($x)*);
             #[cfg(feature = "defmt")]
-            defmt::assert_eq!($($x)*);
+            ::defmt::assert_eq!($($x)*);
         }
     };
 }
@@ -30,9 +30,9 @@ macro_rules! assert_ne {
     ($($x:tt)*) => {
         {
             #[cfg(not(feature = "defmt"))]
-            core::assert_ne!($($x)*);
+            ::core::assert_ne!($($x)*);
             #[cfg(feature = "defmt")]
-            defmt::assert_ne!($($x)*);
+            ::defmt::assert_ne!($($x)*);
         }
     };
 }
@@ -41,9 +41,9 @@ macro_rules! debug_assert {
     ($($x:tt)*) => {
         {
             #[cfg(not(feature = "defmt"))]
-            core::debug_assert!($($x)*);
+            ::core::debug_assert!($($x)*);
             #[cfg(feature = "defmt")]
-            defmt::debug_assert!($($x)*);
+            ::defmt::debug_assert!($($x)*);
         }
     };
 }
@@ -52,9 +52,9 @@ macro_rules! debug_assert_eq {
     ($($x:tt)*) => {
         {
             #[cfg(not(feature = "defmt"))]
-            core::debug_assert_eq!($($x)*);
+            ::core::debug_assert_eq!($($x)*);
             #[cfg(feature = "defmt")]
-            defmt::debug_assert_eq!($($x)*);
+            ::defmt::debug_assert_eq!($($x)*);
         }
     };
 }
@@ -63,9 +63,9 @@ macro_rules! debug_assert_ne {
     ($($x:tt)*) => {
         {
             #[cfg(not(feature = "defmt"))]
-            core::debug_assert_ne!($($x)*);
+            ::core::debug_assert_ne!($($x)*);
             #[cfg(feature = "defmt")]
-            defmt::debug_assert_ne!($($x)*);
+            ::defmt::debug_assert_ne!($($x)*);
         }
     };
 }
@@ -74,9 +74,9 @@ macro_rules! todo {
     ($($x:tt)*) => {
         {
             #[cfg(not(feature = "defmt"))]
-            core::todo!($($x)*);
+            ::core::todo!($($x)*);
             #[cfg(feature = "defmt")]
-            defmt::todo!($($x)*);
+            ::defmt::todo!($($x)*);
         }
     };
 }
@@ -85,9 +85,9 @@ macro_rules! unreachable {
     ($($x:tt)*) => {
         {
             #[cfg(not(feature = "defmt"))]
-            core::unreachable!($($x)*);
+            ::core::unreachable!($($x)*);
             #[cfg(feature = "defmt")]
-            defmt::unreachable!($($x)*);
+            ::defmt::unreachable!($($x)*);
         }
     };
 }
@@ -96,9 +96,9 @@ macro_rules! panic {
     ($($x:tt)*) => {
         {
             #[cfg(not(feature = "defmt"))]
-            core::panic!($($x)*);
+            ::core::panic!($($x)*);
             #[cfg(feature = "defmt")]
-            defmt::panic!($($x)*);
+            ::defmt::panic!($($x)*);
         }
     };
 }
@@ -107,9 +107,9 @@ macro_rules! trace {
     ($($x:tt)*) => {
         {
             #[cfg(feature = "log")]
-            log::trace!($($x)*);
+            ::log::trace!($($x)*);
             #[cfg(feature = "defmt")]
-            defmt::trace!($($x)*);
+            ::defmt::trace!($($x)*);
         }
     };
 }
@@ -118,9 +118,9 @@ macro_rules! debug {
     ($($x:tt)*) => {
         {
             #[cfg(fevature = "log")]
-            log::debug!($($x)*);
+            ::log::debug!($($x)*);
             #[cfg(feature = "defmt")]
-            defmt::debug!($($x)*);
+            ::defmt::debug!($($x)*);
         }
     };
 }
@@ -129,9 +129,9 @@ macro_rules! info {
     ($($x:tt)*) => {
         {
             #[cfg(feature = "log")]
-            log::info!($($x)*);
+            ::log::info!($($x)*);
             #[cfg(feature = "defmt")]
-            defmt::info!($($x)*);
+            ::defmt::info!($($x)*);
         }
     };
 }
@@ -140,9 +140,9 @@ macro_rules! warn {
     ($($x:tt)*) => {
         {
             #[cfg(feature = "log")]
-            log::warn!($($x)*);
+            ::log::warn!($($x)*);
             #[cfg(feature = "defmt")]
-            defmt::warn!($($x)*);
+            ::defmt::warn!($($x)*);
         }
     };
 }
@@ -151,9 +151,9 @@ macro_rules! error {
     ($($x:tt)*) => {
         {
             #[cfg(feature = "log")]
-            log::error!($($x)*);
+            ::log::error!($($x)*);
             #[cfg(feature = "defmt")]
-            defmt::error!($($x)*);
+            ::defmt::error!($($x)*);
         }
     };
 }
@@ -161,7 +161,7 @@ macro_rules! error {
 #[cfg(feature = "defmt")]
 macro_rules! unwrap {
     ($($x:tt)*) => {
-        defmt::unwrap!($($x)*)
+        ::defmt::unwrap!($($x)*)
     };
 }
 
