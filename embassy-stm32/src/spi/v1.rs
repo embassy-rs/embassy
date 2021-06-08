@@ -2,6 +2,7 @@
 
 use crate::gpio::{sealed::Pin, AnyPin};
 use crate::pac::spi;
+use crate::rcc::RccPeripheral;
 use crate::spi::{ByteOrder, Config, Error, Instance, MisoPin, MosiPin, SckPin, WordSize};
 use crate::time::Hertz;
 use core::marker::PhantomData;
@@ -19,7 +20,7 @@ impl WordSize {
     }
 }
 
-pub struct Spi<'d, T: Instance> {
+pub struct Spi<'d, T: Instance + RccPeripheral> {
     sck: AnyPin,
     mosi: AnyPin,
     miso: AnyPin,
@@ -27,7 +28,7 @@ pub struct Spi<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
 
-impl<'d, T: Instance> Spi<'d, T> {
+impl<'d, T: Instance + RccPeripheral> Spi<'d, T> {
     pub fn new<F>(
         pclk: Hertz,
         _peri: impl Unborrow<Target = T> + 'd,
@@ -61,6 +62,8 @@ impl<'d, T: Instance> Spi<'d, T> {
         let br = Self::compute_baud_rate(pclk, freq.into());
 
         unsafe {
+            T::enable();
+            T::reset();
             T::regs().cr1().modify(|w| {
                 w.set_cpha(
                     match config.mode.phase == Phase::CaptureOnSecondTransition {
@@ -128,7 +131,7 @@ impl<'d, T: Instance> Spi<'d, T> {
     }
 }
 
-impl<'d, T: Instance> Drop for Spi<'d, T> {
+impl<'d, T: Instance + RccPeripheral> Drop for Spi<'d, T> {
     fn drop(&mut self) {
         unsafe {
             self.sck.set_as_analog();
@@ -138,7 +141,7 @@ impl<'d, T: Instance> Drop for Spi<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T> {
+impl<'d, T: Instance + RccPeripheral> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T> {
     type Error = Error;
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
@@ -174,7 +177,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
+impl<'d, T: Instance + RccPeripheral> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
     type Error = Error;
 
     fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
@@ -215,7 +218,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T> {
+impl<'d, T: Instance + RccPeripheral> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T> {
     type Error = Error;
 
     fn write(&mut self, words: &[u16]) -> Result<(), Self::Error> {
@@ -251,7 +254,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T> {
+impl<'d, T: Instance + RccPeripheral> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T> {
     type Error = Error;
 
     fn transfer<'w>(&mut self, words: &'w mut [u16]) -> Result<&'w [u16], Self::Error> {
