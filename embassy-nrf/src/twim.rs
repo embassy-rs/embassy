@@ -690,6 +690,7 @@ impl<'a, T: Instance> embedded_hal::blocking::i2c::WriteRead for Twim<'a, T> {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     TxBufferTooLong,
     RxBufferTooLong,
