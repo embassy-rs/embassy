@@ -136,6 +136,7 @@ fn main() {
     let mut interrupt_table: Vec<Vec<String>> = Vec::new();
     let mut peripherals_table: Vec<Vec<String>> = Vec::new();
     let mut peripheral_pins_table: Vec<Vec<String>> = Vec::new();
+    let mut peripheral_rcc_table: Vec<Vec<String>> = Vec::new();
 
     let dma_base = chip
         .peripherals
@@ -216,6 +217,29 @@ fn main() {
                     };
                     assert_eq!(p.address, dma_base + dma_stride * dma_num);
                 }
+                "spi" => {
+                    if let Some(clock) = &p.clock {
+                        // Workaround for APB1 register being split on some chip families. Assume
+                        // first register until we can find a way to hint which register is used
+                        let reg = clock.to_ascii_lowercase();
+                        let (enable_reg, reset_reg) = if chip.family == "STM32H7" && clock == "APB1"
+                        {
+                            (format!("{}lenr", reg), format!("{}lrstr", reg))
+                        } else if chip.family.starts_with("STM32L4") && clock == "APB1" {
+                            (format!("{}enr1", reg), format!("{}rstr1", reg))
+                        } else {
+                            (format!("{}enr", reg), format!("{}rstr", reg))
+                        };
+                        let field = name.to_ascii_lowercase();
+                        peripheral_rcc_table.push(vec![
+                            name.clone(),
+                            enable_reg,
+                            reset_reg,
+                            format!("set_{}en", field),
+                            format!("set_{}rst", field),
+                        ]);
+                    }
+                }
                 _ => {}
             }
         }
@@ -255,6 +279,7 @@ fn main() {
     make_table(&mut extra, "peripherals", &peripherals_table);
     make_table(&mut extra, "peripheral_versions", &peripheral_version_table);
     make_table(&mut extra, "peripheral_pins", &peripheral_pins_table);
+    make_table(&mut extra, "peripheral_rcc", &peripheral_rcc_table);
 
     for (module, version) in peripheral_versions {
         println!("loading {} {}", module, version);

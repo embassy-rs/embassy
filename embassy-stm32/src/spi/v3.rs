@@ -64,6 +64,8 @@ impl<'d, T: Instance> Spi<'d, T> {
 
         let br = Self::compute_baud_rate(pclk, freq.into());
         unsafe {
+            T::enable();
+            T::reset();
             T::regs().ifcr().write(|w| w.0 = 0xffff_ffff);
             T::regs().cfg2().modify(|w| {
                 //w.set_ssoe(true);

@@ -1,3 +1,6 @@
+#![macro_use]
+
+use crate::peripherals;
 use crate::time::Hertz;
 use core::mem::MaybeUninit;
 
@@ -44,3 +47,44 @@ cfg_if::cfg_if! {
         }
     }
 }
+
+pub(crate) mod sealed {
+    pub trait RccPeripheral {
+        fn reset();
+        fn enable();
+        fn disable();
+    }
+}
+
+pub trait RccPeripheral: sealed::RccPeripheral + 'static {}
+
+crate::pac::peripheral_rcc!(
+    ($inst:ident, $enable:ident, $reset:ident, $perien:ident, $perirst:ident) => {
+        impl sealed::RccPeripheral for peripherals::$inst {
+            fn enable() {
+                critical_section::with(|_| {
+                    unsafe {
+                        crate::pac::RCC.$enable().modify(|w| w.$perien(true));
+                    }
+                })
+            }
+            fn disable() {
+                critical_section::with(|_| {
+                    unsafe {
+                        crate::pac::RCC.$enable().modify(|w| w.$perien(false));
+                    }
+                })
+            }
+            fn reset() {
+                critical_section::with(|_| {
+                    unsafe {
+                        crate::pac::RCC.$reset().modify(|w| w.$perirst(true));
+                        crate::pac::RCC.$reset().modify(|w| w.$perirst(false));
+                    }
+                })
+            }
+        }
+
+        impl RccPeripheral for peripherals::$inst {}
+    };
+);
