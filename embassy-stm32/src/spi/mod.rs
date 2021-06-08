@@ -4,7 +4,7 @@
 #[cfg_attr(spi_v2, path = "v2.rs")]
 #[cfg_attr(spi_v3, path = "v3.rs")]
 mod _version;
-use crate::peripherals;
+use crate::{peripherals, rcc::RccPeripheral};
 pub use _version::*;
 
 use crate::gpio::Pin;
@@ -64,7 +64,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: sealed::Instance + 'static {}
+pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
 
 pub trait SckPin<T: Instance>: sealed::SckPin<T> + 'static {}
 
