@@ -225,7 +225,7 @@ fn main() {
                         let (enable_reg, reset_reg) = if chip.family == "STM32H7" && clock == "APB1"
                         {
                             (format!("{}lenr", reg), format!("{}lrstr", reg))
-                        } else if chip.family == "STM32L4" && clock == "APB1" {
+                        } else if chip.family.starts_with("STM32L4") && clock == "APB1" {
                             (format!("{}enr1", reg), format!("{}rstr1", reg))
                         } else {
                             (format!("{}enr", reg), format!("{}rstr", reg))
