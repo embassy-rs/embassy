@@ -80,6 +80,8 @@ jobs:
             features: stm32l053r8,defmt
           - package: examples/stm32f4
             target: thumbv7em-none-eabi
+          - package: examples/stm32l4
+            target: thumbv7em-none-eabi
 
     steps:
       - uses: actions/checkout@v2
