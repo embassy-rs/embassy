@@ -219,17 +219,22 @@ fn main() {
                 }
                 "spi" => {
                     if let Some(clock) = &p.clock {
-                        // Workaround for APB1 register being split on some chip families
-                        let reg = if chip.family == "STM32H7" && clock == "APB1" {
-                            format!("{}l", clock.to_ascii_lowercase())
+                        // Workaround for APB1 register being split on some chip families. Assume
+                        // first register until we can find a way to hint which register is used
+                        let reg = clock.to_ascii_lowercase();
+                        let (enable_reg, reset_reg) = if chip.family == "STM32H7" && clock == "APB1"
+                        {
+                            (format!("{}lenr", reg), format!("{}lrstr", reg))
+                        } else if chip.family == "STM32L4" && clock == "APB1" {
+                            (format!("{}enr1", reg), format!("{}rstr1", reg))
                         } else {
-                            clock.to_ascii_lowercase()
+                            (format!("{}enr", reg), format!("{}rstr", reg))
                         };
                         let field = name.to_ascii_lowercase();
                         peripheral_rcc_table.push(vec![
                             name.clone(),
-                            format!("{}enr", reg),
-                            format!("{}rstr", reg),
+                            enable_reg,
+                            reset_reg,
                             format!("set_{}en", field),
                             format!("set_{}rst", field),
                         ]);
