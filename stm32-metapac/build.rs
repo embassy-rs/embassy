@@ -105,6 +105,30 @@ macro_rules! {} {{
     .unwrap();
 }
 
+fn find_reg_for_field<'c>(
+    rcc: &'c ir::IR,
+    reg_prefix: &str,
+    field_name: &str,
+) -> Option<(&'c str, &'c str)> {
+    rcc.fieldsets.iter().find_map(|(name, fieldset)| {
+        if name.starts_with(reg_prefix) {
+            fieldset
+                .fields
+                .iter()
+                .find_map(|field| {
+                    if field_name == field.name {
+                        return Some(field.name.as_str());
+                    } else {
+                        None
+                    }
+                })
+                .map(|n| (name.as_str(), n))
+        } else {
+            None
+        }
+    })
+}
+
 fn main() {
     let dir = "../stm32-data/data";
 
@@ -130,6 +154,21 @@ fn main() {
         interrupts: Vec::new(),
         peripherals: Vec::new(),
     };
+
+    // Load RCC register for chip
+    let rcc = chip.peripherals.iter().find_map(|(name, p)| {
+        if name == "RCC" {
+            p.block.as_ref().map(|block| {
+                let bi = BlockInfo::parse(block);
+                let rcc_reg_path = Path::new(&dir)
+                    .join("registers")
+                    .join(&format!("{}_{}.yaml", bi.module, bi.version));
+                serde_yaml::from_reader(File::open(rcc_reg_path).unwrap()).unwrap()
+            })
+        } else {
+            None
+        }
+    });
 
     let mut peripheral_versions: HashMap<String, String> = HashMap::new();
     let mut pin_table: Vec<Vec<String>> = Vec::new();
@@ -217,30 +256,38 @@ fn main() {
                     };
                     assert_eq!(p.address, dma_base + dma_stride * dma_num);
                 }
-                "spi" => {
-                    if let Some(clock) = &p.clock {
-                        // Workaround for APB1 register being split on some chip families. Assume
-                        // first register until we can find a way to hint which register is used
-                        let reg = clock.to_ascii_lowercase();
-                        let (enable_reg, reset_reg) = if chip.family == "STM32H7" && clock == "APB1"
-                        {
-                            (format!("{}lenr", reg), format!("{}lrstr", reg))
-                        } else if chip.family.starts_with("STM32L4") && clock == "APB1" {
-                            (format!("{}enr1", reg), format!("{}rstr1", reg))
-                        } else {
-                            (format!("{}enr", reg), format!("{}rstr", reg))
-                        };
-                        let field = name.to_ascii_lowercase();
-                        peripheral_rcc_table.push(vec![
-                            name.clone(),
-                            enable_reg,
-                            reset_reg,
-                            format!("set_{}en", field),
-                            format!("set_{}rst", field),
-                        ]);
+
+                _ => {}
+            }
+
+            if let Some(clock) = &p.clock {
+                if let Some(rcc) = &rcc {
+                    // Workaround for clock registers being split on some chip families. Assume fields are
+                    // named after peripheral and look for first field matching and use that register.
+                    let en = find_reg_for_field(&rcc, clock, &format!("{}EN", name));
+                    let rst = find_reg_for_field(&rcc, clock, &format!("{}RST", name));
+
+                    match (en, rst) {
+                        (Some((enable_reg, enable_field)), Some((reset_reg, reset_field))) => {
+                            peripheral_rcc_table.push(vec![
+                                name.clone(),
+                                enable_reg.to_ascii_lowercase(),
+                                reset_reg.to_ascii_lowercase(),
+                                format!("set_{}", enable_field.to_ascii_lowercase()),
+                                format!("set_{}", reset_field.to_ascii_lowercase()),
+                            ]);
+                        }
+                        (None, Some(_)) => {
+                            println!("Unable to find enable register for {}", name)
+                        }
+                        (Some(_), None) => {
+                            println!("Unable to find reset register for {}", name)
+                        }
+                        (None, None) => {
+                            println!("Unable to find enable and reset register for {}", name)
+                        }
                     }
                 }
-                _ => {}
             }
         }
 
