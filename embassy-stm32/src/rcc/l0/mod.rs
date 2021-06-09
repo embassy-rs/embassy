@@ -263,9 +263,7 @@ impl<'d> Rcc<'d> {
     pub fn enable_debug_wfe(&mut self, _dbg: &mut peripherals::DBGMCU, enable_dma: bool) {
         // NOTE(unsafe) We have exclusive access to the RCC and DBGMCU
         unsafe {
-            if enable_dma {
-                pac::RCC.ahbenr().modify(|w| w.set_dmaen(true));
-            }
+            pac::RCC.ahbenr().modify(|w| w.set_dmaen(enable_dma));
 
             pac::DBGMCU.cr().modify(|w| {
                 w.set_dbg_sleep(DbgSleep::ENABLED);

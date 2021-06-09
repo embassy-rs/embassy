@@ -34,6 +34,8 @@ members = [
     #"stm32-metapac",
     # uncomment ONLY ONE example crate.
     #"examples/stm32f4",
+    #"examples/stm32h7",
+    #"examples/stm32l0",
 
     # rp2040
     #"embassy-rp",
