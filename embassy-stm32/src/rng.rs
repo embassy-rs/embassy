@@ -24,6 +24,8 @@ pub struct Random<T: Instance> {
 
 impl<T: Instance> Random<T> {
     pub fn new(inner: impl Unborrow<Target = T>) -> Self {
+        T::enable();
+        T::reset();
         unborrow!(inner);
         let mut random = Self { _inner: inner };
         random.reset();
@@ -133,7 +135,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: sealed::Instance {}
+pub trait Instance: sealed::Instance + crate::rcc::RccPeripheral {}
 
 crate::pac::peripherals!(
     (rng, $inst:ident) => {
