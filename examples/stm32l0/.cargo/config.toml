@@ -1,0 +1,21 @@
+[unstable]
+build-std = ["core"]
+
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# replace your chip as listed in `probe-run --list-chips`
+runner = "probe-run --chip STM32L072CZ"
+
+rustflags = [
+  # LLD (shipped with the Rust toolchain) is used as the default linker
+  "-C", "link-arg=--nmagic",
+  "-C", "link-arg=-Tlink.x",
+  "-C", "link-arg=-Tdefmt.x",
+
+  # Code-size optimizations.
+  "-Z", "trap-unreachable=no",
+  "-C", "inline-threshold=5",
+  "-C", "no-vectorize-loops",
+]
+
+[build]
+target = "thumbv6m-none-eabi"
