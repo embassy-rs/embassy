@@ -156,12 +156,19 @@ fn main() {
     };
 
     // Load RCC register for chip
-    let chip_family = chip.family.to_ascii_lowercase();
-    let rcc_family = chip_family.strip_prefix("stm32").unwrap();
-    let rcc_reg_path = Path::new(&dir)
-        .join("registers")
-        .join(&format!("rcc_{}.yaml", &rcc_family[0..2]));
-    let rcc: ir::IR = serde_yaml::from_reader(File::open(rcc_reg_path).unwrap()).unwrap();
+    let rcc = chip.peripherals.iter().find_map(|(name, p)| {
+        if name == "RCC" {
+            p.block.as_ref().map(|block| {
+                let bi = BlockInfo::parse(block);
+                let rcc_reg_path = Path::new(&dir)
+                    .join("registers")
+                    .join(&format!("{}_{}.yaml", bi.module, bi.version));
+                serde_yaml::from_reader(File::open(rcc_reg_path).unwrap()).unwrap()
+            })
+        } else {
+            None
+        }
+    });
 
     let mut peripheral_versions: HashMap<String, String> = HashMap::new();
     let mut pin_table: Vec<Vec<String>> = Vec::new();
@@ -254,29 +261,31 @@ fn main() {
             }
 
             if let Some(clock) = &p.clock {
-                // Workaround for clock registers being split on some chip families. Assume fields are
-                // named after peripheral and look for first field matching and use that register.
-                let en = find_reg_for_field(&rcc, clock, &format!("{}EN", name));
-                let rst = find_reg_for_field(&rcc, clock, &format!("{}RST", name));
+                if let Some(rcc) = &rcc {
+                    // Workaround for clock registers being split on some chip families. Assume fields are
+                    // named after peripheral and look for first field matching and use that register.
+                    let en = find_reg_for_field(&rcc, clock, &format!("{}EN", name));
+                    let rst = find_reg_for_field(&rcc, clock, &format!("{}RST", name));
 
-                match (en, rst) {
-                    (Some((enable_reg, enable_field)), Some((reset_reg, reset_field))) => {
-                        peripheral_rcc_table.push(vec![
-                            name.clone(),
-                            enable_reg.to_ascii_lowercase(),
-                            reset_reg.to_ascii_lowercase(),
-                            format!("set_{}", enable_field.to_ascii_lowercase()),
-                            format!("set_{}", reset_field.to_ascii_lowercase()),
-                        ]);
-                    }
-                    (None, Some(_)) => {
-                        println!("Unable to find enable register for {}", name)
-                    }
-                    (Some(_), None) => {
-                        println!("Unable to find reset register for {}", name)
-                    }
-                    (None, None) => {
-                        println!("Unable to find enable and reset register for {}", name)
+                    match (en, rst) {
+                        (Some((enable_reg, enable_field)), Some((reset_reg, reset_field))) => {
+                            peripheral_rcc_table.push(vec![
+                                name.clone(),
+                                enable_reg.to_ascii_lowercase(),
+                                reset_reg.to_ascii_lowercase(),
+                                format!("set_{}", enable_field.to_ascii_lowercase()),
+                                format!("set_{}", reset_field.to_ascii_lowercase()),
+                            ]);
+                        }
+                        (None, Some(_)) => {
+                            println!("Unable to find enable register for {}", name)
+                        }
+                        (Some(_), None) => {
+                            println!("Unable to find reset register for {}", name)
+                        }
+                        (None, None) => {
+                            println!("Unable to find enable and reset register for {}", name)
+                        }
                     }
                 }
             }
