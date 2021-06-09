@@ -156,14 +156,12 @@ fn main() {
     };
 
     // Load RCC register for chip
-    let chip_family = chip.family.to_ascii_lowercase().clone();
+    let chip_family = chip.family.to_ascii_lowercase();
     let rcc_family = chip_family.strip_prefix("stm32").unwrap();
-    //.strip_prefix("stm32")
-    //.unwrap();
     let rcc_reg_path = Path::new(&dir)
         .join("registers")
-        .join(&format!("rcc_{}.yaml", rcc_family));
-    let mut rcc: ir::IR = serde_yaml::from_reader(File::open(rcc_reg_path).unwrap()).unwrap();
+        .join(&format!("rcc_{}.yaml", &rcc_family[0..2]));
+    let rcc: ir::IR = serde_yaml::from_reader(File::open(rcc_reg_path).unwrap()).unwrap();
 
     let mut peripheral_versions: HashMap<String, String> = HashMap::new();
     let mut pin_table: Vec<Vec<String>> = Vec::new();
