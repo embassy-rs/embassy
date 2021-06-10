@@ -112,3 +112,15 @@ jobs:
           toolchain: stable
       - name: Check fmt
         run: for i in embassy-*; do (cd $i; cargo fmt -- --check); done
+
+  metapac_gen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - name: Generate pregenerated metapac
+        run: cd stm32-metapac/gen; cargo run --release
