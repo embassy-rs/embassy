@@ -3,4 +3,5 @@
 #![allow(unused)]
 #![allow(non_camel_case_types)]
 
-include!(concat!(env!("OUT_DIR"), "/pac.rs"));
+// GEN CUT HERE
+include!(concat!(env!("OUT_DIR"), "/src/lib_inner.rs"));

@@ -1,0 +1,12 @@
+[package]
+name = "stm32-metapac-gen"
+version = "0.1.0"
+edition = "2018"
+
+
+[dependencies]
+regex = "1.4.6"
+chiptool = { git = "https://github.com/embassy-rs/chiptool", rev = "b905099423280cdc39a96bc51f0b669ddb443797" }
+serde = { version = "1.0.123", features = [ "derive" ]}
+serde_yaml = "0.8.15"
+syn = { version = "1.0", features = ["full","extra-traits"] }
