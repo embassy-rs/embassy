@@ -80,5 +80,4 @@ fn main() -> ! {
     executor.run(|spawner| {
         unwrap!(spawner.spawn(main_task()));
     })
-
 }

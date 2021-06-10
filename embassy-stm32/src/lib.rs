@@ -21,6 +21,8 @@ pub mod gpio;
 pub mod rcc;
 
 // Sometimes-present hardware
+#[cfg(adc)]
+pub mod adc;
 #[cfg(timer)]
 pub mod clock;
 #[cfg(dac)]
