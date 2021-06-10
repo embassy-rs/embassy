@@ -14,32 +14,21 @@ use crate::interrupt::Interrupt;
 use crate::pac::gpio::vals::Ospeedr;
 use crate::pac::ETH;
 use crate::peripherals;
+use crate::time::Hertz;
 
 mod descriptors;
+use super::{StationManagement, PHY};
 use descriptors::DescriptorRing;
 
-/// Station Management Interface (SMI) on an ethernet PHY
-pub trait StationManagement {
-    /// Read a register over SMI.
-    fn smi_read(&mut self, reg: u8) -> u16;
-    /// Write a register over SMI.
-    fn smi_write(&mut self, reg: u8, val: u16);
-}
-
-/// Traits for an Ethernet PHY
-pub trait PHY {
-    /// Reset PHY and wait for it to come out of reset.
-    fn phy_reset(&mut self);
-    /// PHY initialisation.
-    fn phy_init(&mut self);
-}
-
-pub struct Ethernet<'d, T: Instance, const TX: usize, const RX: usize> {
+pub struct Ethernet<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> {
     state: PeripheralMutex<Inner<'d, T, TX, RX>>,
     pins: [AnyPin; 9],
+    _phy: P,
+    clock_range: u8,
+    phy_addr: u8,
 }
 
-impl<'d, T: Instance, const TX: usize, const RX: usize> Ethernet<'d, T, TX, RX> {
+impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, P, TX, RX> {
     pub fn new(
         peri: impl Unborrow<Target = T> + 'd,
         interrupt: impl Unborrow<Target = T::Interrupt> + 'd,
@@ -52,7 +41,10 @@ impl<'d, T: Instance, const TX: usize, const RX: usize> Ethernet<'d, T, TX, RX> 
         tx_d0: impl Unborrow<Target = impl TXD0Pin<T>> + 'd,
         tx_d1: impl Unborrow<Target = impl TXD1Pin<T>> + 'd,
         tx_en: impl Unborrow<Target = impl TXEnPin<T>> + 'd,
+        phy: P,
         mac_addr: [u8; 6],
+        hclk: Hertz,
+        phy_addr: u8,
     ) -> Self {
         unborrow!(interrupt, ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
@@ -116,6 +108,20 @@ impl<'d, T: Instance, const TX: usize, const RX: usize> Ethernet<'d, T, TX, RX> 
             });
         }
 
+        // Set the MDC clock frequency in the range 1MHz - 2.5MHz
+        let hclk_mhz = hclk.0 / 1_000_000;
+        let clock_range = match hclk_mhz {
+            0..=34 => 2,    // Divide by 16
+            35..=59 => 3,   // Divide by 26
+            60..=99 => 0,   // Divide by 42
+            100..=149 => 1, // Divide by 62
+            150..=249 => 4, // Divide by 102
+            250..=310 => 5, // Divide by 124
+            _ => {
+                panic!("HCLK results in MDC clock > 2.5MHz even for the highest CSR clock divider")
+            }
+        };
+
         let pins = [
             ref_clk.degrade(),
             mdio.degrade(),
@@ -128,7 +134,13 @@ impl<'d, T: Instance, const TX: usize, const RX: usize> Ethernet<'d, T, TX, RX> 
             tx_en.degrade(),
         ];
 
-        Self { state, pins }
+        Self {
+            state,
+            pins,
+            _phy: phy,
+            clock_range,
+            phy_addr,
+        }
     }
 
     pub fn init(self: Pin<&mut Self>) {
@@ -163,10 +175,52 @@ impl<'d, T: Instance, const TX: usize, const RX: usize> Ethernet<'d, T, TX, RX> 
                 });
             }
         });
+        P::phy_reset(this);
+        P::phy_init(this);
     }
 }
 
-impl<'d, T: Instance, const TX: usize, const RX: usize> Drop for Ethernet<'d, T, TX, RX> {
+unsafe impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> StationManagement
+    for Ethernet<'d, T, P, TX, RX>
+{
+    fn smi_read(&mut self, reg: u8) -> u16 {
+        // NOTE(unsafe) These registers aren't used in the interrupt and we have `&mut self`
+        unsafe {
+            let mac = ETH.ethernet_mac();
+
+            mac.macmdioar().modify(|w| {
+                w.set_pa(self.phy_addr);
+                w.set_rda(reg);
+                w.set_goc(0b11); // read
+                w.set_cr(self.clock_range);
+                w.set_mb(true);
+            });
+            while mac.macmdioar().read().mb() {}
+            mac.macmdiodr().read().md()
+        }
+    }
+
+    fn smi_write(&mut self, reg: u8, val: u16) {
+        // NOTE(unsafe) These registers aren't used in the interrupt and we have `&mut self`
+        unsafe {
+            let mac = ETH.ethernet_mac();
+
+            mac.macmdiodr().write(|w| w.set_md(val));
+            mac.macmdioar().modify(|w| {
+                w.set_pa(self.phy_addr);
+                w.set_rda(reg);
+                w.set_goc(0b01); // write
+                w.set_cr(self.clock_range);
+                w.set_mb(true);
+            });
+            while mac.macmdioar().read().mb() {}
+        }
+    }
+}
+
+impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Drop
+    for Ethernet<'d, T, P, TX, RX>
+{
     fn drop(&mut self) {
         for pin in self.pins.iter_mut() {
             // NOTE(unsafe) Exclusive access to the regs
