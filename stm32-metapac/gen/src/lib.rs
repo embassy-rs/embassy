@@ -267,32 +267,42 @@ pub fn gen(options: Options) {
                     _ => {}
                 }
 
-                if let Some(clock) = &p.clock {
-                    if let Some(rcc) = &rcc {
-                        // Workaround for clock registers being split on some chip families. Assume fields are
-                        // named after peripheral and look for first field matching and use that register.
-                        let en = find_reg_for_field(&rcc, clock, &format!("{}EN", name));
-                        let rst = find_reg_for_field(&rcc, clock, &format!("{}RST", name));
+                if let Some(rcc) = &rcc {
+                    // Workaround for clock registers being split on some chip families. Assume fields are
+                    // named after peripheral and look for first field matching and use that register.
+                    //
+                    // Not all peripherals have the clock hint due to insufficient information from
+                    // chip definition. If clock is not specified, the first matching register with the
+                    // expected field will be used.
+                    let en = find_reg_for_field(
+                        &rcc,
+                        p.clock.as_ref().unwrap_or(&String::new()),
+                        &format!("{}EN", name),
+                    );
+                    let rst = find_reg_for_field(
+                        &rcc,
+                        p.clock.as_ref().unwrap_or(&String::new()),
+                        &format!("{}RST", name),
+                    );
 
-                        match (en, rst) {
-                            (Some((enable_reg, enable_field)), Some((reset_reg, reset_field))) => {
-                                peripheral_rcc_table.push(vec![
-                                    name.clone(),
-                                    enable_reg.to_ascii_lowercase(),
-                                    reset_reg.to_ascii_lowercase(),
-                                    format!("set_{}", enable_field.to_ascii_lowercase()),
-                                    format!("set_{}", reset_field.to_ascii_lowercase()),
-                                ]);
-                            }
-                            (None, Some(_)) => {
-                                println!("Unable to find enable register for {}", name)
-                            }
-                            (Some(_), None) => {
-                                println!("Unable to find reset register for {}", name)
-                            }
-                            (None, None) => {
-                                println!("Unable to find enable and reset register for {}", name)
-                            }
+                    match (en, rst) {
+                        (Some((enable_reg, enable_field)), Some((reset_reg, reset_field))) => {
+                            peripheral_rcc_table.push(vec![
+                                name.clone(),
+                                enable_reg.to_ascii_lowercase(),
+                                reset_reg.to_ascii_lowercase(),
+                                format!("set_{}", enable_field.to_ascii_lowercase()),
+                                format!("set_{}", reset_field.to_ascii_lowercase()),
+                            ]);
+                        }
+                        (None, Some(_)) => {
+                            println!("Unable to find enable register for {}", name)
+                        }
+                        (Some(_), None) => {
+                            println!("Unable to find reset register for {}", name)
+                        }
+                        (None, None) => {
+                            println!("Unable to find enable and reset register for {}", name)
                         }
                     }
                 }

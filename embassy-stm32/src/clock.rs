@@ -11,6 +11,7 @@ use embassy::time::{Clock as EmbassyClock, TICKS_PER_SECOND};
 use crate::interrupt::{CriticalSection, Interrupt, Mutex};
 use crate::pac::timer::TimGp16;
 use crate::peripherals;
+use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 
 // Clock timekeeping works with something we call "periods", which are time intervals
@@ -76,26 +77,11 @@ impl<T: Instance> Clock<T> {
         }
     }
 
-    // TODO: Temporary until clock code generation is in place
-    pub fn start_tim2(&'static self) {
-        cfg_if::cfg_if! {
-            if #[cfg(rcc_l0)] {
-                unsafe {
-                    let rcc = crate::pac::RCC;
-                    rcc.apb1enr()
-                        .modify(|w| w.set_tim2en(true));
-                    rcc.apb1rstr().modify(|w| w.set_tim2rst(true));
-                    rcc.apb1rstr().modify(|w| w.set_tim2rst(false));
-                }
-
-                let timer_freq = unsafe { crate::rcc::get_freqs().apb1_clk };
-                self.start(timer_freq);
-            }
-        }
-    }
-
     pub fn start(&'static self, timer_freq: Hertz) {
         let inner = T::inner();
+
+        T::enable();
+        T::reset();
 
         // NOTE(unsafe) Critical section to use the unsafe methods
         critical_section::with(|_| {
@@ -359,7 +345,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: sealed::Instance + Sized + 'static {}
+pub trait Instance: sealed::Instance + Sized + RccPeripheral + 'static {}
 
 macro_rules! impl_timer {
     ($inst:ident) => {

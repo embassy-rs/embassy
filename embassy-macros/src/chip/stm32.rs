@@ -16,7 +16,10 @@ pub fn generate(embassy_prefix: &ModulePrefix, config: syn::Expr) -> TokenStream
             interrupt::take!(TIM2),
         );
         let clock = unsafe { make_static(&mut c) };
-        clock.start_tim2();
+
+        // TODO: Is TIM2 always APB1?
+        let timer_freq = unsafe { #embassy_stm32_path::rcc::get_freqs().apb1_clk };
+        clock.start(timer_freq);
 
         let mut alarm = clock.alarm1();
         unsafe { #embassy_path::time::set_clock(clock) };
