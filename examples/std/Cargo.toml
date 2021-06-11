@@ -8,7 +8,7 @@ version = "0.1.0"
 embassy = { version = "0.1.0", path = "../../embassy", features = ["log"] }
 embassy-std = { version = "0.1.0", path = "../../embassy-std" }
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features=["std", "log", "medium-ethernet", "tcp", "dhcpv4"] }
-smoltcp = { git = "https://github.com/smoltcp-rs/smoltcp", rev="ec59aba5e10cf91df0c9253d9c2aca4dd143d2ff", default-features = false }
+smoltcp = { git = "https://github.com/smoltcp-rs/smoltcp", rev="e4241510337e095b9d21136c5f58b2eaa1b78479", default-features = false }
 
 async-io = "1.3.1"
 env_logger = "0.8.2"
