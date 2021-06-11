@@ -19,6 +19,7 @@ pub struct Clocks {
     pub apb2: Hertz,
     pub apb4: Hertz,
     pub ahb2: Hertz,
+    pub c1: Hertz,
 }
 
 const HSI: Hertz = Hertz(64_000_000);
