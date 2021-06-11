@@ -340,7 +340,7 @@ impl<const N: usize> RDesRing<N> {
                 unsafe {
                     ETH.ethernet_dma()
                         .dmacrx_dtpr()
-                        .write(|w| w.set_rdt(&self.rd[self.read_idx] as *const _ as u32));
+                        .write(|w| w.set_rdt(&self.rd[self.tail_idx] as *const _ as u32));
                 }
 
                 self.tail_idx = (self.tail_idx + 1) % N;
