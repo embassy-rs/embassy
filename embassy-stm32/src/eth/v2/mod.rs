@@ -449,31 +449,31 @@ macro_rules! impl_pin {
 }
 
 crate::pac::peripheral_pins!(
-    ($inst:ident, eth, ETH, $pin:ident, REF_CLK, $af:expr) =>  {
-        impl_pin!($pin, RefClkPin, $af);
+    ($inst:ident, eth, ETH, $pin:ident, REF_CLK) => {
+        impl_pin!($pin, RefClkPin, 11);
     };
-    ($inst:ident, eth, ETH, $pin:ident, MDIO, $af:expr) =>  {
+    ($inst:ident, eth, ETH, $pin:ident, MDIO, $af:expr) => {
         impl_pin!($pin, MDIOPin, $af);
     };
-    ($inst:ident, eth, ETH, $pin:ident, MDC, $af:expr) =>  {
+    ($inst:ident, eth, ETH, $pin:ident, MDC, $af:expr) => {
         impl_pin!($pin, MDCPin, $af);
     };
-    ($inst:ident, eth, ETH, $pin:ident, CRS_DV, $af:expr) =>  {
+    ($inst:ident, eth, ETH, $pin:ident, CRS_DV, $af:expr) => {
         impl_pin!($pin, CRSPin, $af);
     };
-    ($inst:ident, eth, ETH, $pin:ident, RXD0, $af:expr) =>  {
+    ($inst:ident, eth, ETH, $pin:ident, RXD0, $af:expr) => {
         impl_pin!($pin, RXD0Pin, $af);
     };
-    ($inst:ident, eth, ETH, $pin:ident, RXD1, $af:expr) =>  {
+    ($inst:ident, eth, ETH, $pin:ident, RXD1, $af:expr) => {
         impl_pin!($pin, RXD1Pin, $af);
     };
-    ($inst:ident, eth, ETH, $pin:ident, TXD0, $af:expr) =>  {
+    ($inst:ident, eth, ETH, $pin:ident, TXD0, $af:expr) => {
         impl_pin!($pin, TXD0Pin, $af);
     };
-    ($inst:ident, eth, ETH, $pin:ident, TXD1, $af:expr) =>  {
+    ($inst:ident, eth, ETH, $pin:ident, TXD1, $af:expr) => {
         impl_pin!($pin, TXD1Pin, $af);
     };
-    ($inst:ident, eth, ETH, $pin:ident, TX_EN, $af:expr) =>  {
+    ($inst:ident, eth, ETH, $pin:ident, TX_EN, $af:expr) => {
         impl_pin!($pin, TXEnPin, $af);
     };
 );
