@@ -1,11 +1,12 @@
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::sync::atomic::{fence, Ordering};
+use core::task::Waker;
 
 use embassy::util::{AtomicWaker, Unborrow};
 use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
 use embassy_extras::unborrow;
-use embassy_net::MTU;
+use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
 
 use crate::gpio::sealed::Pin as __GpioPin;
 use crate::gpio::AnyPin;
@@ -26,6 +27,7 @@ pub struct Ethernet<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> {
     _phy: P,
     clock_range: u8,
     phy_addr: u8,
+    mac_addr: [u8; 6],
 }
 
 impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, P, TX, RX> {
@@ -140,6 +142,7 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, 
             _phy: phy,
             clock_range,
             phy_addr,
+            mac_addr,
         }
     }
 
@@ -218,10 +221,94 @@ unsafe impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> StationMa
     }
 }
 
+impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Device
+    for Pin<&mut Ethernet<'d, T, P, TX, RX>>
+{
+    fn is_transmit_ready(&mut self) -> bool {
+        // NOTE(unsafe) We won't move out of self
+        let this = unsafe { self.as_mut().get_unchecked_mut() };
+        let mutex = unsafe { Pin::new_unchecked(&mut this.state) };
+
+        mutex.with(|s, _| s.desc_ring.tx.available())
+    }
+
+    fn transmit(&mut self, pkt: PacketBuf) {
+        // NOTE(unsafe) We won't move out of self
+        let this = unsafe { self.as_mut().get_unchecked_mut() };
+        let mutex = unsafe { Pin::new_unchecked(&mut this.state) };
+
+        mutex.with(|s, _| unwrap!(s.desc_ring.tx.transmit(pkt)));
+    }
+
+    fn receive(&mut self) -> Option<PacketBuf> {
+        // NOTE(unsafe) We won't move out of self
+        let this = unsafe { self.as_mut().get_unchecked_mut() };
+        let mutex = unsafe { Pin::new_unchecked(&mut this.state) };
+
+        mutex.with(|s, _| s.desc_ring.rx.pop_packet())
+    }
+
+    fn register_waker(&mut self, waker: &Waker) {
+        T::state().register(waker);
+    }
+
+    fn capabilities(&mut self) -> DeviceCapabilities {
+        let mut caps = DeviceCapabilities::default();
+        caps.max_transmission_unit = MTU;
+        caps.max_burst_size = Some(TX.min(RX));
+        caps
+    }
+
+    fn link_state(&mut self) -> LinkState {
+        // NOTE(unsafe) We won't move out of self
+        let this = unsafe { self.as_mut().get_unchecked_mut() };
+
+        if P::poll_link(this) {
+            LinkState::Up
+        } else {
+            LinkState::Down
+        }
+    }
+
+    fn ethernet_address(&mut self) -> [u8; 6] {
+        // NOTE(unsafe) We won't move out of self
+        let this = unsafe { self.as_mut().get_unchecked_mut() };
+
+        this.mac_addr
+    }
+}
+
 impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Drop
     for Ethernet<'d, T, P, TX, RX>
 {
     fn drop(&mut self) {
+        // NOTE(unsafe) We have `&mut self` and the interrupt doesn't use this registers
+        unsafe {
+            let dma = ETH.ethernet_dma();
+            let mac = ETH.ethernet_mac();
+            let mtl = ETH.ethernet_mtl();
+
+            // Disable the TX DMA and wait for any previous transmissions to be completed
+            dma.dmactx_cr().modify(|w| w.set_st(false));
+            while {
+                let txqueue = mtl.mtltx_qdr().read();
+                txqueue.trcsts() == 0b01 || txqueue.txqsts()
+            } {}
+
+            // Disable MAC transmitter and receiver
+            mac.maccr().modify(|w| {
+                w.set_re(false);
+                w.set_te(false);
+            });
+
+            // Wait for previous receiver transfers to be completed and then disable the RX DMA
+            while {
+                let rxqueue = mtl.mtlrx_qdr().read();
+                rxqueue.rxqsts() != 0b00 || rxqueue.prxq() != 0
+            } {}
+            dma.dmacrx_cr().modify(|w| w.set_sr(false));
+        }
+
         for pin in self.pins.iter_mut() {
             // NOTE(unsafe) Exclusive access to the regs
             critical_section::with(|_| unsafe {
