@@ -12,6 +12,15 @@ mod pll;
 use pll::pll_setup;
 pub use pll::PllConfig;
 
+// Clock type used by peripherals
+#[derive(Clone, Copy)]
+pub struct Clocks {
+    pub apb1: Hertz,
+    pub apb2: Hertz,
+    pub apb4: Hertz,
+    pub ahb2: Hertz,
+}
+
 const HSI: Hertz = Hertz(64_000_000);
 const CSI: Hertz = Hertz(4_000_000);
 const HSI48: Hertz = Hertz(48_000_000);
