@@ -34,7 +34,7 @@ atomic-pool = "0.2.0"
 
 [dependencies.smoltcp]
 git = "https://github.com/smoltcp-rs/smoltcp"
-rev = "ec59aba5e10cf91df0c9253d9c2aca4dd143d2ff"
+rev = "e4241510337e095b9d21136c5f58b2eaa1b78479"
 default-features = false
 features = [
   "proto-ipv4",
