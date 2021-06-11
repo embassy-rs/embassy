@@ -267,12 +267,23 @@ pub fn gen(options: Options) {
                     _ => {}
                 }
 
-                if let Some(clock) = &p.clock {
-                    if let Some(rcc) = &rcc {
+                if let Some(rcc) = &rcc {
+                    let clock_prefix: Option<&str> = if let Some(clock) = &p.clock {
+                        Some(clock)
+                    } else if name.starts_with("TIM") {
+                        // Not all peripherals like timers the clock hint due to insufficient information from
+                        // chip definition. If clock is not specified, the first matching register with the
+                        // expected field will be used.
+                        Some("")
+                    } else {
+                        None
+                    };
+
+                    if let Some(clock_prefix) = clock_prefix {
                         // Workaround for clock registers being split on some chip families. Assume fields are
                         // named after peripheral and look for first field matching and use that register.
-                        let en = find_reg_for_field(&rcc, clock, &format!("{}EN", name));
-                        let rst = find_reg_for_field(&rcc, clock, &format!("{}RST", name));
+                        let en = find_reg_for_field(&rcc, clock_prefix, &format!("{}EN", name));
+                        let rst = find_reg_for_field(&rcc, clock_prefix, &format!("{}RST", name));
 
                         match (en, rst) {
                             (Some((enable_reg, enable_field)), Some((reset_reg, reset_field))) => {
