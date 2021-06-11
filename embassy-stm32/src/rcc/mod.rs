@@ -1,20 +1,11 @@
 #![macro_use]
 
 use crate::peripherals;
-use crate::time::Hertz;
 use core::mem::MaybeUninit;
 
 /// Frozen clock frequencies
 ///
 /// The existence of this value indicates that the clock configuration can no longer be changed
-#[derive(Clone, Copy)]
-pub struct Clocks {
-    pub sys: Hertz,
-    pub ahb: Hertz,
-    pub apb1: Hertz,
-    pub apb2: Hertz,
-}
-
 static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
 
 /// Sets the clock frequencies
@@ -36,6 +27,37 @@ cfg_if::cfg_if! {
     } else if #[cfg(rcc_l0)] {
         mod l0;
         pub use l0::*;
+    } else if #[cfg(rcc_l4)] {
+        // TODO: Implement
+        use crate::time::Hertz;
+
+        #[derive(Clone, Copy)]
+        pub struct Clocks {
+            pub apb1: Hertz,
+            pub apb2: Hertz,
+            pub ahb2: Hertz,
+        }
+
+        #[derive(Default)]
+        pub struct Config {}
+        pub unsafe fn init(_config: Config) {
+        }
+    } else if #[cfg(rcc_f4)] {
+        // TODO: Implement
+        use crate::time::Hertz;
+
+        #[derive(Clone, Copy)]
+        pub struct Clocks {
+            pub apb1: Hertz,
+            pub apb2: Hertz,
+            pub ahb2: Hertz,
+        }
+
+        #[derive(Default)]
+        pub struct Config {}
+        pub unsafe fn init(_config: Config) {
+        }
+
     } else {
         #[derive(Default)]
         pub struct Config {}

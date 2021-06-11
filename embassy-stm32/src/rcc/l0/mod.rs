@@ -1,6 +1,6 @@
 use crate::pac;
 use crate::peripherals::{self, CRS, RCC, SYSCFG};
-use crate::rcc::{get_freqs, set_freqs, Clocks};
+use crate::rcc::{get_freqs, set_freqs};
 use crate::time::Hertz;
 use crate::time::U32Ext;
 use core::marker::PhantomData;
@@ -11,6 +11,14 @@ use pac::rcc::vals::{Hpre, Msirange, Plldiv, Pllmul, Pllsrc, Ppre, Sw};
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
 /// and with the addition of the init function to configure a system clock.
+
+#[derive(Clone, Copy)]
+pub struct Clocks {
+    pub sys: Hertz,
+    pub ahb: Hertz,
+    pub apb1: Hertz,
+    pub apb2: Hertz,
+}
 
 /// System clock mux source
 #[derive(Clone, Copy)]
