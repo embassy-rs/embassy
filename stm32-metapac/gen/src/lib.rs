@@ -268,10 +268,20 @@ pub fn gen(options: Options) {
                 }
 
                 if let Some(rcc) = &rcc {
-                    let mut generate_rcc_peripheral = |clock_prefix| {
+                    let clock_prefix: Option<&str> = if let Some(clock) = &p.clock {
+                        Some(clock)
+                    } else if name.starts_with("TIM") {
+                        // Not all peripherals like timers the clock hint due to insufficient information from
+                        // chip definition. If clock is not specified, the first matching register with the
+                        // expected field will be used.
+                        Some("")
+                    } else {
+                        None
+                    };
+
+                    if let Some(clock_prefix) = clock_prefix {
                         // Workaround for clock registers being split on some chip families. Assume fields are
                         // named after peripheral and look for first field matching and use that register.
-
                         let en = find_reg_for_field(&rcc, clock_prefix, &format!("{}EN", name));
                         let rst = find_reg_for_field(&rcc, clock_prefix, &format!("{}RST", name));
 
@@ -295,15 +305,6 @@ pub fn gen(options: Options) {
                                 println!("Unable to find enable and reset register for {}", name)
                             }
                         }
-                    };
-
-                    if let Some(clock) = &p.clock {
-                        generate_rcc_peripheral(clock);
-                    } else if name.starts_with("TIM") {
-                        // Not all peripherals like timers the clock hint due to insufficient information from
-                        // chip definition. If clock is not specified, the first matching register with the
-                        // expected field will be used.
-                        generate_rcc_peripheral("");
                     }
                 }
             }
