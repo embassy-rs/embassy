@@ -9,14 +9,10 @@ use core::mem::MaybeUninit;
 /// The existence of this value indicates that the clock configuration can no longer be changed
 #[derive(Clone, Copy)]
 pub struct Clocks {
-    pub sys_clk: Hertz,
-    pub ahb_clk: Hertz,
-    pub apb1_clk: Hertz,
-    pub apb1_tim_clk: Hertz,
-    pub apb2_clk: Hertz,
-    pub apb2_tim_clk: Hertz,
-    pub apb1_pre: u8,
-    pub apb2_pre: u8,
+    pub sys: Hertz,
+    pub ahb: Hertz,
+    pub apb1: Hertz,
+    pub apb2: Hertz,
 }
 
 static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
@@ -50,6 +46,7 @@ cfg_if::cfg_if! {
 
 pub(crate) mod sealed {
     pub trait RccPeripheral {
+        fn frequency() -> crate::time::Hertz;
         fn reset();
         fn enable();
         fn disable();
@@ -59,8 +56,16 @@ pub(crate) mod sealed {
 pub trait RccPeripheral: sealed::RccPeripheral + 'static {}
 
 crate::pac::peripheral_rcc!(
-    ($inst:ident, $enable:ident, $reset:ident, $perien:ident, $perirst:ident) => {
+    ($inst:ident, $clk:ident, $enable:ident, $reset:ident, $perien:ident, $perirst:ident) => {
         impl sealed::RccPeripheral for peripherals::$inst {
+            fn frequency() -> crate::time::Hertz {
+                critical_section::with(|_| {
+                    unsafe {
+                        let freqs = get_freqs();
+                        freqs.$clk
+                    }
+                })
+            }
             fn enable() {
                 critical_section::with(|_| {
                     unsafe {

@@ -469,35 +469,31 @@ impl RccExt for RCC {
             }
         };
 
-        let (apb1_freq, apb1_tim_freq, apb1_pre) = match cfgr.apb1_pre {
-            APBPrescaler::NotDivided => (ahb_freq, ahb_freq, 1),
+        let apb1_freq = match cfgr.apb1_pre {
+            APBPrescaler::NotDivided => ahb_freq,
             pre => {
                 let pre: Ppre = pre.into();
                 let pre: u8 = 1 << (pre.0 - 3);
                 let freq = ahb_freq / pre as u32;
-                (freq, freq * 2, pre as u8)
+                freq
             }
         };
 
-        let (apb2_freq, apb2_tim_freq, apb2_pre) = match cfgr.apb2_pre {
-            APBPrescaler::NotDivided => (ahb_freq, ahb_freq, 1),
+        let apb2_freq = match cfgr.apb2_pre {
+            APBPrescaler::NotDivided => ahb_freq,
             pre => {
                 let pre: Ppre = pre.into();
                 let pre: u8 = 1 << (pre.0 - 3);
                 let freq = ahb_freq / (1 << (pre as u8 - 3));
-                (freq, freq * 2, pre as u8)
+                freq
             }
         };
 
         Clocks {
-            sys_clk: sys_clk.hz(),
-            ahb_clk: ahb_freq.hz(),
-            apb1_clk: apb1_freq.hz(),
-            apb2_clk: apb2_freq.hz(),
-            apb1_tim_clk: apb1_tim_freq.hz(),
-            apb2_tim_clk: apb2_tim_freq.hz(),
-            apb1_pre,
-            apb2_pre,
+            sys: sys_clk.hz(),
+            ahb: ahb_freq.hz(),
+            apb1: apb1_freq.hz(),
+            apb2: apb2_freq.hz(),
         }
     }
 }

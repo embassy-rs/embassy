@@ -287,8 +287,23 @@ pub fn gen(options: Options) {
 
                         match (en, rst) {
                             (Some((enable_reg, enable_field)), Some((reset_reg, reset_field))) => {
+                                let clock = if clock_prefix == "" {
+                                    let re = Regex::new("([A-Z]+\\d*).*").unwrap();
+                                    if !re.is_match(enable_reg) {
+                                        panic!(
+                                            "unable to derive clock name from register name {}",
+                                            enable_reg
+                                        );
+                                    } else {
+                                        let caps = re.captures(enable_reg).unwrap();
+                                        caps.get(1).unwrap().as_str()
+                                    }
+                                } else {
+                                    clock_prefix
+                                };
                                 peripheral_rcc_table.push(vec![
                                     name.clone(),
+                                    clock.to_ascii_lowercase(),
                                     enable_reg.to_ascii_lowercase(),
                                     reset_reg.to_ascii_lowercase(),
                                     format!("set_{}", enable_field.to_ascii_lowercase()),
