@@ -12,7 +12,7 @@ use crate::gpio::sealed::Pin as __GpioPin;
 use crate::gpio::AnyPin;
 use crate::gpio::Pin as GpioPin;
 use crate::pac::gpio::vals::Ospeedr;
-use crate::pac::ETH;
+use crate::pac::{ETH, RCC, SYSCFG};
 use crate::peripherals;
 use crate::time::Hertz;
 
@@ -48,6 +48,20 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
         phy_addr: u8,
     ) -> Self {
         unborrow!(interrupt, ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
+
+        // Enable the necessary Clocks
+        // NOTE(unsafe) We have exclusive access to the registers
+        critical_section::with(|_| unsafe {
+            RCC.apb4enr().modify(|w| w.set_syscfgen(true));
+            RCC.ahb1enr().modify(|w| {
+                w.set_eth1macen(true);
+                w.set_eth1txen(true);
+                w.set_eth1rxen(true);
+            });
+
+            // RMII
+            SYSCFG.pmcr().modify(|w| w.set_epis(0b100));
+        });
 
         ref_clk.configure();
         mdio.configure();
