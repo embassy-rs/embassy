@@ -116,9 +116,13 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
             mtl.mtltx_qomr().modify(|w| w.set_tsf(true));
 
             // TODO: Address aligned beats plus fixed burst ?
-            dma.dmactx_cr().modify(|w| w.set_txpbl(1)); // 32 ?
+            dma.dmasbmr().modify(|w| {
+                w.set_aal(true);
+                w.set_fb(true);
+            });
+            dma.dmactx_cr().modify(|w| w.set_txpbl(32)); // 32 ?
             dma.dmacrx_cr().modify(|w| {
-                w.set_rxpbl(1); // 32 ?
+                w.set_rxpbl(32); // 32 ?
                 w.set_rbsz(MTU as u16);
             });
         }
@@ -162,7 +166,8 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
     pub fn init(self: Pin<&mut Self>) {
         // NOTE(unsafe) We won't move this
         let this = unsafe { self.get_unchecked_mut() };
-        let mutex = unsafe { Pin::new_unchecked(&mut this.state) };
+        let mut mutex = unsafe { Pin::new_unchecked(&mut this.state) };
+        mutex.as_mut().register_interrupt();
 
         mutex.with(|s, _| {
             s.desc_ring.init();
@@ -360,8 +365,9 @@ impl<'d, const TX: usize, const RX: usize> PeripheralState for Inner<'d, TX, RX>
             let dma = ETH.ethernet_dma();
 
             dma.dmacsr().modify(|w| {
-                w.set_ti(false);
-                w.set_ri(false);
+                w.set_ti(true);
+                w.set_ri(true);
+                w.set_nis(true);
             });
             // Delay two peripheral's clock
             dma.dmacsr().read();

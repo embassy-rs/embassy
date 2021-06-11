@@ -102,10 +102,10 @@ impl<const N: usize> TDesRing<N> {
             let dma = ETH.ethernet_dma();
 
             dma.dmactx_dlar()
-                .write(|w| w.set_tdesla(&self.td as *const _ as u32));
+                .write(|w| w.0 = &self.td as *const _ as u32);
             dma.dmactx_rlr().write(|w| w.set_tdrl((N as u16) - 1));
             dma.dmactx_dtpr()
-                .write(|w| w.set_tdt(&self.td[0] as *const _ as u32));
+                .write(|w| w.0 = &self.td[0] as *const _ as u32);
         }
     }
 
@@ -148,7 +148,7 @@ impl<const N: usize> TDesRing<N> {
         unsafe {
             ETH.ethernet_dma()
                 .dmactx_dtpr()
-                .write(|w| w.set_tdt(&self.td[x] as *const _ as u32));
+                .write(|w| w.0 = &self.td[x] as *const _ as u32);
         }
         self.tdidx = x;
         Ok(())
@@ -279,8 +279,7 @@ impl<const N: usize> RDesRing<N> {
         unsafe {
             let dma = ETH.ethernet_dma();
 
-            dma.dmacrx_dlar()
-                .write(|w| w.set_rdesla(self.rd.as_ptr() as u32));
+            dma.dmacrx_dlar().write(|w| w.0 = self.rd.as_ptr() as u32);
             dma.dmacrx_rlr().write(|w| w.set_rdrl((N as u16) - 1));
 
             // We manage to allocate all buffers, set the index to the last one, that means
@@ -290,7 +289,7 @@ impl<const N: usize> RDesRing<N> {
             let tail_ptr = &self.rd[last_index] as *const _ as u32;
             fence(Ordering::Release);
 
-            dma.dmacrx_dtpr().write(|w| w.set_rdt(tail_ptr));
+            dma.dmacrx_dtpr().write(|w| w.0 = tail_ptr);
         }
     }
 
@@ -340,7 +339,7 @@ impl<const N: usize> RDesRing<N> {
                 unsafe {
                     ETH.ethernet_dma()
                         .dmacrx_dtpr()
-                        .write(|w| w.set_rdt(&self.rd[self.tail_idx] as *const _ as u32));
+                        .write(|w| w.0 = &self.rd[self.tail_idx] as *const _ as u32);
                 }
 
                 self.tail_idx = (self.tail_idx + 1) % N;
