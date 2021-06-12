@@ -86,6 +86,8 @@ jobs:
             target: thumbv7em-none-eabi
           - package: examples/stm32l0
             target: thumbv6m-none-eabi
+          - package: examples/stm32wb55
+            target: thumbv7em-none-eabihf
 
     steps:
       - uses: actions/checkout@v2
