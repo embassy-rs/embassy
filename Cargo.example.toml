@@ -36,6 +36,7 @@ members = [
     #"examples/stm32f4",
     #"examples/stm32h7",
     #"examples/stm32l0",
+    #"examples/stm32wb55",
 
     # rp2040
     #"embassy-rp",

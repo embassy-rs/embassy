@@ -11,6 +11,7 @@ supported_families = [
     'STM32L0',
     'STM32L4',
     'STM32H7',
+    'STM32WB55',
 ]
 
 # ======= load chip list
