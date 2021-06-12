@@ -4,6 +4,12 @@ import re
 import os
 import re
 
+try:
+    from yaml import CSafeLoader as SafeLoader
+except ImportError:
+    from yaml import SafeLoader
+
+
 abspath = os.path.abspath(__file__)
 dname = os.path.dirname(abspath)
 os.chdir(dname)
@@ -18,11 +24,11 @@ except:
 # ======= load chip
 chip_name = chip_name.upper()
 with open(f'{data_path}/chips/{chip_name}.yaml', 'r') as f:
-    chip = yaml.load(f, Loader=yaml.CSafeLoader)
+    chip = yaml.load(f, Loader=SafeLoader)
 
 # ======= load GPIO AF
 with open(f'{data_path}/gpio_af/{chip["gpio_af"]}.yaml', 'r') as f:
-    af = yaml.load(f, Loader=yaml.CSafeLoader)
+    af = yaml.load(f, Loader=SafeLoader)
 
 # ======= Generate!
 with open(output_file, 'w') as f:
