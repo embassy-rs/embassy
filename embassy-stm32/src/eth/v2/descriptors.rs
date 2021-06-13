@@ -230,11 +230,34 @@ impl RDes {
     }
 }
 
+/// Rx ring of descriptors and packets
+///
+/// This ring has three major locations that work in lock-step. The DMA will never write to the tail
+/// index, so the `read_index` must never pass the tail index. The `next_tail_index` is always 1
+/// slot ahead of the real tail index, and it must never pass the `read_index` or it could overwrite
+/// a packet still to be passed to the application.
+///
+///                                                                   nt can't pass r (no alloc)
+/// +---+---+---+---+  Read ok       +---+---+---+---+ No Read       +---+---+---+---+
+/// |   |   |   |   |  ------------> |   |   |   |   | ------------> |   |   |   |   |
+/// +---+---+---+---+  Allocation ok +---+---+---+---+               +---+---+---+---+
+///   ^           ^t                   ^t  ^                           ^t  ^          
+///   |r                                   |r                              |r         
+///   |nt                                  |nt                             |nt        
+///
+///
+/// +---+---+---+---+  Read ok         +---+---+---+---+ Can't read    +---+---+---+---+
+/// |   |   |   |   |  ------------>   |   |   |   |   | ------------> |   |   |   |   |
+/// +---+---+---+---+  Allocation fail +---+---+---+---+ Allocation ok +---+---+---+---+
+///       ^   ^t  ^                              ^t  ^                   ^       ^   ^t
+///       |r      |                              |r  |                   |       |r     
+///               |nt                                |nt                 |nt            
+///
 pub(crate) struct RDesRing<const N: usize> {
     rd: [RDes; N],
     buffers: [Option<PacketBox>; N],
     read_idx: usize,
-    tail_idx: usize,
+    next_tail_idx: usize,
 }
 
 impl<const N: usize> RDesRing<N> {
@@ -246,7 +269,7 @@ impl<const N: usize> RDesRing<N> {
             rd: [RDES; N],
             buffers: [BUFFERS; N],
             read_idx: 0,
-            tail_idx: 0,
+            next_tail_idx: 0,
         }
     }
 
@@ -274,7 +297,7 @@ impl<const N: usize> RDesRing<N> {
             self.rd[index].set_ready(addr);
             last_index = index;
         }
-        self.tail_idx = (last_index + 1) % N;
+        self.next_tail_idx = (last_index + 1) % N;
 
         unsafe {
             let dma = ETH.ethernet_dma();
@@ -294,7 +317,9 @@ impl<const N: usize> RDesRing<N> {
     }
 
     pub(crate) fn on_interrupt(&mut self) {
-        // TODO!
+        // XXX: Do we need to do anything here ? Maybe we should try to advance the tail ptr, but it
+        // would soon hit the read ptr anyway, and we will wake smoltcp's stack on the interrupt
+        // which should try to pop a packet...
     }
 
     pub(crate) fn pop_packet(&mut self) -> Option<PacketBuf> {
@@ -304,12 +329,9 @@ impl<const N: usize> RDesRing<N> {
         fence(Ordering::SeqCst);
 
         let read_available = self.rd[self.read_idx].available();
-        if !read_available && self.read_idx == self.tail_idx {
-            // Nothing to do
-            return None;
-        }
+        let tail_index = (self.next_tail_idx + N - 1) % N;
 
-        let pkt = if read_available {
+        let pkt = if read_available && self.read_idx != tail_index {
             let pkt = self.buffers[self.read_idx].take();
             let len = (self.rd[self.read_idx].rdes3.get() & EMAC_RDES3_PKTLEN) as usize;
 
@@ -326,25 +348,28 @@ impl<const N: usize> RDesRing<N> {
             None
         };
 
-        match PacketBox::new(Packet::new()) {
-            Some(b) => {
-                let addr = b.as_ptr() as u32;
-                self.buffers[self.tail_idx].replace(b);
-                self.rd[self.tail_idx].set_ready(addr);
+        // Try to advance the tail_idx
+        if self.next_tail_idx != self.read_idx {
+            match PacketBox::new(Packet::new()) {
+                Some(b) => {
+                    let addr = b.as_ptr() as u32;
+                    self.buffers[self.next_tail_idx].replace(b);
+                    self.rd[self.next_tail_idx].set_ready(addr);
 
-                // "Preceding reads and writes cannot be moved past subsequent writes."
-                fence(Ordering::Release);
+                    // "Preceding reads and writes cannot be moved past subsequent writes."
+                    fence(Ordering::Release);
 
-                // NOTE(unsafe) atomic write
-                unsafe {
-                    ETH.ethernet_dma()
-                        .dmacrx_dtpr()
-                        .write(|w| w.0 = &self.rd[self.tail_idx] as *const _ as u32);
+                    // NOTE(unsafe) atomic write
+                    unsafe {
+                        ETH.ethernet_dma()
+                            .dmacrx_dtpr()
+                            .write(|w| w.0 = &self.rd[self.next_tail_idx] as *const _ as u32);
+                    }
+
+                    self.next_tail_idx = (self.next_tail_idx + 1) % N;
                 }
-
-                self.tail_idx = (self.tail_idx + 1) % N;
+                None => {}
             }
-            None => {}
         }
         pkt
     }
