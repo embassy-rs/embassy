@@ -168,18 +168,6 @@ impl<'d> Rcc<'d> {
         unsafe { get_freqs() }
     }
 
-    /*
-        pub fn enable_lse(&mut self, _: &PWR) -> LSE {
-            self.rb.csr.modify(|_, w| {
-                // Enable LSE clock
-                w.lseon().set_bit()
-            });
-            while self.rb.csr.read().lserdy().bit_is_clear() {}
-            LSE(())
-        }
-    }
-    */
-
     pub fn enable_debug_wfe(&mut self, _dbg: &mut peripherals::DBGMCU, enable_dma: bool) {
         // NOTE(unsafe) We have exclusive access to the RCC and DBGMCU
         unsafe {
@@ -239,30 +227,6 @@ impl<'d> Rcc<'d> {
         HSI48(())
     }
 }
-/*
-
-impl Rcc {
-    /// Configure MCO (Microcontroller Clock Output).
-    pub fn configure_mco<P>(
-        &mut self,
-        source: MCOSEL_A,
-        prescaler: MCOPRE_A,
-        output_pin: P,
-    ) -> MCOEnabled
-    where
-        P: mco::Pin,
-    {
-        output_pin.into_mco();
-
-        self.rb.cfgr.modify(|_, w| {
-            w.mcosel().variant(source);
-            w.mcopre().variant(prescaler)
-        });
-
-        MCOEnabled(())
-    }
-}
-*/
 
 /// Extension trait that freezes the `RCC` peripheral with provided clocks configuration
 pub trait RccExt {
@@ -423,18 +387,6 @@ impl RccExt for RCC {
 /// You can get an instance of this struct by calling [`Rcc::enable_hsi48`].
 #[derive(Clone, Copy)]
 pub struct HSI48(());
-
-/// Token that exists only if MCO (Microcontroller Clock Out) has been enabled.
-///
-/// You can get an instance of this struct by calling [`Rcc::configure_mco`].
-#[derive(Clone, Copy)]
-pub struct MCOEnabled(());
-
-/// Token that exists only, if the LSE clock has been enabled
-///
-/// You can get an instance of this struct by calling [`Rcc::enable_lse`].
-#[derive(Clone, Copy)]
-pub struct LSE(());
 
 pub unsafe fn init(config: Config) {
     let rcc = pac::RCC;
