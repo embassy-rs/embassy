@@ -14,7 +14,6 @@ use crate::gpio::Pin as GpioPin;
 use crate::pac::gpio::vals::Ospeedr;
 use crate::pac::{ETH, RCC, SYSCFG};
 use crate::peripherals;
-use crate::time::Hertz;
 
 mod descriptors;
 use super::{StationManagement, PHY};
@@ -44,7 +43,6 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
         tx_en: impl Unborrow<Target = impl TXEnPin> + 'd,
         phy: P,
         mac_addr: [u8; 6],
-        hclk: Hertz,
         phy_addr: u8,
     ) -> Self {
         unborrow!(interrupt, ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
@@ -118,8 +116,11 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
             });
         }
 
-        // Set the MDC clock frequency in the range 1MHz - 2.5MHz
+        // NOTE(unsafe) We got the peripheral singleton, which means that `rcc::init` was called
+        let hclk = unsafe { crate::rcc::get_freqs().ahb1 };
         let hclk_mhz = hclk.0 / 1_000_000;
+
+        // Set the MDC clock frequency in the range 1MHz - 2.5MHz
         let clock_range = match hclk_mhz {
             0..=34 => 2,    // Divide by 16
             35..=59 => 3,   // Divide by 26
