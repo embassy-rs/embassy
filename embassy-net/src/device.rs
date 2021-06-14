@@ -43,8 +43,8 @@ impl<'a> SmolDevice<'a> for DeviceAdapter {
     type TxToken = TxToken<'a>;
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+        let tx_pkt = PacketBox::new(Packet::new())?;
         let rx_pkt = self.device.receive()?;
-        let tx_pkt = PacketBox::new(Packet::new()).unwrap(); // TODO: not sure about unwrap
         let rx_token = RxToken { pkt: rx_pkt };
         let tx_token = TxToken {
             device: self.device,

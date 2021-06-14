@@ -5,6 +5,7 @@ authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
 
 [features]
+default = ["pool-4"]
 std = []
 defmt-trace = []
 defmt-debug = []
@@ -16,6 +17,11 @@ tcp = ["smoltcp/socket-tcp"]
 dhcpv4 = ["medium-ethernet", "smoltcp/socket-dhcpv4"]
 medium-ethernet = ["smoltcp/medium-ethernet"]
 medium-ip = ["smoltcp/medium-ip"]
+
+pool-4 = []
+pool-8 = []
+pool-16 = []
+pool-32 = []
 
 [dependencies]
 

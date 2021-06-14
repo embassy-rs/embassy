@@ -4,7 +4,18 @@ use core::ops::{Deref, DerefMut, Range};
 use atomic_pool::{pool, Box};
 
 pub const MTU: usize = 1516;
+
+#[cfg(feature = "pool-4")]
 pub const PACKET_POOL_SIZE: usize = 4;
+
+#[cfg(feature = "pool-8")]
+pub const PACKET_POOL_SIZE: usize = 8;
+
+#[cfg(feature = "pool-16")]
+pub const PACKET_POOL_SIZE: usize = 16;
+
+#[cfg(feature = "pool-32")]
+pub const PACKET_POOL_SIZE: usize = 32;
 
 pool!(pub PacketPool: [Packet; PACKET_POOL_SIZE]);
 pub type PacketBox = Box<PacketPool>;
