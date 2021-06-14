@@ -15,7 +15,6 @@ use example_common::*;
 use cortex_m_rt::entry;
 use stm32l4::stm32l4x5 as pac;
 
-
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
