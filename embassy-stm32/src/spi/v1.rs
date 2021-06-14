@@ -29,7 +29,6 @@ pub struct Spi<'d, T: Instance> {
 
 impl<'d, T: Instance> Spi<'d, T> {
     pub fn new<F>(
-        pclk: Hertz,
         _peri: impl Unborrow<Target = T> + 'd,
         sck: impl Unborrow<Target = impl SckPin<T>>,
         mosi: impl Unborrow<Target = impl MosiPin<T>>,
@@ -58,6 +57,7 @@ impl<'d, T: Instance> Spi<'d, T> {
             });
         }
 
+        let pclk = T::frequency();
         let br = Self::compute_baud_rate(pclk, freq.into());
 
         unsafe {
