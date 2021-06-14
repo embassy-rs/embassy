@@ -60,11 +60,6 @@ cfg_if::cfg_if! {
     } else if #[cfg(rcc_wb55)] {
         mod wb55;
         pub use wb55::*;
-    } else {
-        #[derive(Default)]
-        pub struct Config {}
-        pub unsafe fn init(_config: Config) {
-        }
     }
 }
 
