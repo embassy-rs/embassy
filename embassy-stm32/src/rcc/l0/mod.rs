@@ -1,4 +1,4 @@
-pub use super::common::*;
+pub use super::types::*;
 use crate::pac;
 use crate::peripherals::{self, CRS, RCC, SYSCFG};
 use crate::rcc::{get_freqs, set_freqs, Clocks};
