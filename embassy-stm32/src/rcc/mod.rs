@@ -3,22 +3,33 @@
 use crate::peripherals;
 use crate::time::Hertz;
 use core::mem::MaybeUninit;
+mod types;
+
+#[derive(Clone, Copy)]
+pub struct Clocks {
+    pub sys: Hertz,
+    pub apb1: Hertz,
+    pub apb2: Hertz,
+
+    #[cfg(any(rcc_l0))]
+    pub ahb: Hertz,
+
+    #[cfg(any(rcc_l4, rcc_f4, rcc_h7, rcc_wb55))]
+    pub ahb1: Hertz,
+
+    #[cfg(any(rcc_l4, rcc_f4, rcc_h7, rcc_wb55))]
+    pub ahb2: Hertz,
+
+    #[cfg(any(rcc_l4, rcc_f4, rcc_h7, rcc_wb55))]
+    pub ahb3: Hertz,
+
+    #[cfg(any(rcc_h7))]
+    pub apb4: Hertz,
+}
 
 /// Frozen clock frequencies
 ///
 /// The existence of this value indicates that the clock configuration can no longer be changed
-#[derive(Clone, Copy)]
-pub struct Clocks {
-    pub sys_clk: Hertz,
-    pub ahb_clk: Hertz,
-    pub apb1_clk: Hertz,
-    pub apb1_tim_clk: Hertz,
-    pub apb2_clk: Hertz,
-    pub apb2_tim_clk: Hertz,
-    pub apb1_pre: u8,
-    pub apb2_pre: u8,
-}
-
 static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
 
 /// Sets the clock frequencies
@@ -40,6 +51,15 @@ cfg_if::cfg_if! {
     } else if #[cfg(rcc_l0)] {
         mod l0;
         pub use l0::*;
+    } else if #[cfg(rcc_l4)] {
+        mod l4;
+        pub use l4::*;
+    } else if #[cfg(rcc_f4)] {
+        mod f4;
+        pub use f4::*;
+    } else if #[cfg(rcc_wb55)] {
+        mod wb55;
+        pub use wb55::*;
     } else {
         #[derive(Default)]
         pub struct Config {}
@@ -50,6 +70,7 @@ cfg_if::cfg_if! {
 
 pub(crate) mod sealed {
     pub trait RccPeripheral {
+        fn frequency() -> crate::time::Hertz;
         fn reset();
         fn enable();
         fn disable();
@@ -59,8 +80,16 @@ pub(crate) mod sealed {
 pub trait RccPeripheral: sealed::RccPeripheral + 'static {}
 
 crate::pac::peripheral_rcc!(
-    ($inst:ident, $enable:ident, $reset:ident, $perien:ident, $perirst:ident) => {
+    ($inst:ident, $clk:ident, $enable:ident, $reset:ident, $perien:ident, $perirst:ident) => {
         impl sealed::RccPeripheral for peripherals::$inst {
+            fn frequency() -> crate::time::Hertz {
+                critical_section::with(|_| {
+                    unsafe {
+                        let freqs = get_freqs();
+                        freqs.$clk
+                    }
+                })
+            }
             fn enable() {
                 critical_section::with(|_| {
                     unsafe {

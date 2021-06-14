@@ -28,7 +28,6 @@ fn main() -> ! {
     rcc.enable_debug_wfe(&mut p.DBGMCU, true);
 
     let mut spi = Spi::new(
-        Hertz(16_000_000),
         p.SPI1,
         p.PB3,
         p.PA7,

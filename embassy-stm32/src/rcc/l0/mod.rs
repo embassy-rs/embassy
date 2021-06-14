@@ -1,3 +1,4 @@
+pub use super::types::*;
 use crate::pac;
 use crate::peripherals::{self, CRS, RCC, SYSCFG};
 use crate::rcc::{get_freqs, set_freqs, Clocks};
@@ -12,6 +13,9 @@ use pac::rcc::vals::{Hpre, Msirange, Plldiv, Pllmul, Pllsrc, Ppre, Sw};
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
 /// and with the addition of the init function to configure a system clock.
 
+/// HSI speed
+pub const HSI_FREQ: u32 = 16_000_000;
+
 /// System clock mux source
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
@@ -20,90 +24,6 @@ pub enum ClockSrc {
     HSE(Hertz),
     HSI16,
 }
-
-/// MSI Clock Range
-///
-/// These ranges control the frequency of the MSI. Internally, these ranges map
-/// to the `MSIRANGE` bits in the `RCC_ICSCR` register.
-#[derive(Clone, Copy)]
-pub enum MSIRange {
-    /// Around 65.536 kHz
-    Range0,
-    /// Around 131.072 kHz
-    Range1,
-    /// Around 262.144 kHz
-    Range2,
-    /// Around 524.288 kHz
-    Range3,
-    /// Around 1.048 MHz
-    Range4,
-    /// Around 2.097 MHz (reset value)
-    Range5,
-    /// Around 4.194 MHz
-    Range6,
-}
-
-impl Default for MSIRange {
-    fn default() -> MSIRange {
-        MSIRange::Range5
-    }
-}
-
-/// PLL divider
-#[derive(Clone, Copy)]
-pub enum PLLDiv {
-    Div2,
-    Div3,
-    Div4,
-}
-
-/// PLL multiplier
-#[derive(Clone, Copy)]
-pub enum PLLMul {
-    Mul3,
-    Mul4,
-    Mul6,
-    Mul8,
-    Mul12,
-    Mul16,
-    Mul24,
-    Mul32,
-    Mul48,
-}
-
-/// AHB prescaler
-#[derive(Clone, Copy)]
-pub enum AHBPrescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-    Div64,
-    Div128,
-    Div256,
-    Div512,
-}
-
-/// APB prescaler
-#[derive(Clone, Copy)]
-pub enum APBPrescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-}
-
-/// PLL clock input source
-#[derive(Clone, Copy)]
-pub enum PLLSource {
-    HSI16,
-    HSE(Hertz),
-}
-
-/// HSI speed
-pub const HSI_FREQ: u32 = 16_000_000;
 
 impl Into<Pllmul> for PLLMul {
     fn into(self) -> Pllmul {
@@ -248,18 +168,6 @@ impl<'d> Rcc<'d> {
         unsafe { get_freqs() }
     }
 
-    /*
-        pub fn enable_lse(&mut self, _: &PWR) -> LSE {
-            self.rb.csr.modify(|_, w| {
-                // Enable LSE clock
-                w.lseon().set_bit()
-            });
-            while self.rb.csr.read().lserdy().bit_is_clear() {}
-            LSE(())
-        }
-    }
-    */
-
     pub fn enable_debug_wfe(&mut self, _dbg: &mut peripherals::DBGMCU, enable_dma: bool) {
         // NOTE(unsafe) We have exclusive access to the RCC and DBGMCU
         unsafe {
@@ -319,30 +227,6 @@ impl<'d> Rcc<'d> {
         HSI48(())
     }
 }
-/*
-
-impl Rcc {
-    /// Configure MCO (Microcontroller Clock Output).
-    pub fn configure_mco<P>(
-        &mut self,
-        source: MCOSEL_A,
-        prescaler: MCOPRE_A,
-        output_pin: P,
-    ) -> MCOEnabled
-    where
-        P: mco::Pin,
-    {
-        output_pin.into_mco();
-
-        self.rb.cfgr.modify(|_, w| {
-            w.mcosel().variant(source);
-            w.mcopre().variant(prescaler)
-        });
-
-        MCOEnabled(())
-    }
-}
-*/
 
 /// Extension trait that freezes the `RCC` peripheral with provided clocks configuration
 pub trait RccExt {
@@ -469,35 +353,31 @@ impl RccExt for RCC {
             }
         };
 
-        let (apb1_freq, apb1_tim_freq, apb1_pre) = match cfgr.apb1_pre {
-            APBPrescaler::NotDivided => (ahb_freq, ahb_freq, 1),
+        let apb1_freq = match cfgr.apb1_pre {
+            APBPrescaler::NotDivided => ahb_freq,
             pre => {
                 let pre: Ppre = pre.into();
                 let pre: u8 = 1 << (pre.0 - 3);
                 let freq = ahb_freq / pre as u32;
-                (freq, freq * 2, pre as u8)
+                freq
             }
         };
 
-        let (apb2_freq, apb2_tim_freq, apb2_pre) = match cfgr.apb2_pre {
-            APBPrescaler::NotDivided => (ahb_freq, ahb_freq, 1),
+        let apb2_freq = match cfgr.apb2_pre {
+            APBPrescaler::NotDivided => ahb_freq,
             pre => {
                 let pre: Ppre = pre.into();
                 let pre: u8 = 1 << (pre.0 - 3);
                 let freq = ahb_freq / (1 << (pre as u8 - 3));
-                (freq, freq * 2, pre as u8)
+                freq
             }
         };
 
         Clocks {
-            sys_clk: sys_clk.hz(),
-            ahb_clk: ahb_freq.hz(),
-            apb1_clk: apb1_freq.hz(),
-            apb2_clk: apb2_freq.hz(),
-            apb1_tim_clk: apb1_tim_freq.hz(),
-            apb2_tim_clk: apb2_tim_freq.hz(),
-            apb1_pre,
-            apb2_pre,
+            sys: sys_clk.hz(),
+            ahb: ahb_freq.hz(),
+            apb1: apb1_freq.hz(),
+            apb2: apb2_freq.hz(),
         }
     }
 }
@@ -507,18 +387,6 @@ impl RccExt for RCC {
 /// You can get an instance of this struct by calling [`Rcc::enable_hsi48`].
 #[derive(Clone, Copy)]
 pub struct HSI48(());
-
-/// Token that exists only if MCO (Microcontroller Clock Out) has been enabled.
-///
-/// You can get an instance of this struct by calling [`Rcc::configure_mco`].
-#[derive(Clone, Copy)]
-pub struct MCOEnabled(());
-
-/// Token that exists only, if the LSE clock has been enabled
-///
-/// You can get an instance of this struct by calling [`Rcc::enable_lse`].
-#[derive(Clone, Copy)]
-pub struct LSE(());
 
 pub unsafe fn init(config: Config) {
     let rcc = pac::RCC;

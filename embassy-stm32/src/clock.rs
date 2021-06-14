@@ -77,11 +77,13 @@ impl<T: Instance> Clock<T> {
         }
     }
 
-    pub fn start(&'static self, timer_freq: Hertz) {
+    pub fn start(&'static self) {
         let inner = T::inner();
 
         T::enable();
         T::reset();
+
+        let timer_freq = T::frequency();
 
         // NOTE(unsafe) Critical section to use the unsafe methods
         critical_section::with(|_| {

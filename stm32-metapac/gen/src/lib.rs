@@ -84,7 +84,11 @@ fn find_reg_for_field<'c>(
     field_name: &str,
 ) -> Option<(&'c str, &'c str)> {
     rcc.fieldsets.iter().find_map(|(name, fieldset)| {
-        if name.starts_with(reg_prefix) {
+        // Workaround for some families that prefix register aliases with C1_, which does
+        // not help matching for clock name.
+        if name.starts_with("C1") || name.starts_with("C2") {
+            None
+        } else if name.starts_with(reg_prefix) {
             fieldset
                 .fields
                 .iter()
@@ -287,8 +291,23 @@ pub fn gen(options: Options) {
 
                         match (en, rst) {
                             (Some((enable_reg, enable_field)), Some((reset_reg, reset_field))) => {
+                                let clock = if clock_prefix == "" {
+                                    let re = Regex::new("([A-Z]+\\d*).*").unwrap();
+                                    if !re.is_match(enable_reg) {
+                                        panic!(
+                                            "unable to derive clock name from register name {}",
+                                            enable_reg
+                                        );
+                                    } else {
+                                        let caps = re.captures(enable_reg).unwrap();
+                                        caps.get(1).unwrap().as_str()
+                                    }
+                                } else {
+                                    clock_prefix
+                                };
                                 peripheral_rcc_table.push(vec![
                                     name.clone(),
+                                    clock.to_ascii_lowercase(),
                                     enable_reg.to_ascii_lowercase(),
                                     reset_reg.to_ascii_lowercase(),
                                     format!("set_{}", enable_field.to_ascii_lowercase()),
