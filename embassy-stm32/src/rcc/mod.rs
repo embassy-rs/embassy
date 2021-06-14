@@ -1,7 +1,28 @@
 #![macro_use]
 
 use crate::peripherals;
+use crate::time::Hertz;
 use core::mem::MaybeUninit;
+mod common;
+
+#[derive(Clone, Copy)]
+pub struct Clocks {
+    pub sys: Hertz,
+    pub apb1: Hertz,
+    pub apb2: Hertz,
+
+    #[cfg(any(rcc_l0))]
+    pub ahb: Hertz,
+
+    #[cfg(any(rcc_l4, rcc_f4, rcc_h7))]
+    pub ahb1: Hertz,
+
+    #[cfg(any(rcc_l4, rcc_f4, rcc_h7))]
+    pub ahb2: Hertz,
+
+    #[cfg(any(rcc_h7))]
+    pub apb4: Hertz,
+}
 
 /// Frozen clock frequencies
 ///
@@ -28,36 +49,11 @@ cfg_if::cfg_if! {
         mod l0;
         pub use l0::*;
     } else if #[cfg(rcc_l4)] {
-        // TODO: Implement
-        use crate::time::Hertz;
-
-        #[derive(Clone, Copy)]
-        pub struct Clocks {
-            pub apb1: Hertz,
-            pub apb2: Hertz,
-            pub ahb2: Hertz,
-        }
-
-        #[derive(Default)]
-        pub struct Config {}
-        pub unsafe fn init(_config: Config) {
-        }
+        mod l4;
+        pub use l4::*;
     } else if #[cfg(rcc_f4)] {
-        // TODO: Implement
-        use crate::time::Hertz;
-
-        #[derive(Clone, Copy)]
-        pub struct Clocks {
-            pub apb1: Hertz,
-            pub apb2: Hertz,
-            pub ahb2: Hertz,
-        }
-
-        #[derive(Default)]
-        pub struct Config {}
-        pub unsafe fn init(_config: Config) {
-        }
-
+        mod f4;
+        pub use f4::*;
     } else {
         #[derive(Default)]
         pub struct Config {}

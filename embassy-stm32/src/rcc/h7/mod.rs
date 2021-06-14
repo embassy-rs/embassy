@@ -6,21 +6,12 @@ use crate::pac::rcc::vals::Timpre;
 use crate::pac::{DBGMCU, RCC, SYSCFG};
 use crate::peripherals;
 use crate::pwr::{Power, VoltageScale};
+use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 mod pll;
 use pll::pll_setup;
 pub use pll::PllConfig;
-
-// Clock type used by peripherals
-#[derive(Clone, Copy)]
-pub struct Clocks {
-    pub apb1: Hertz,
-    pub apb2: Hertz,
-    pub apb4: Hertz,
-    pub ahb2: Hertz,
-    pub c1: Hertz,
-}
 
 const HSI: Hertz = Hertz(64_000_000);
 const CSI: Hertz = Hertz(4_000_000);
@@ -532,5 +523,16 @@ impl<'d> Rcc<'d> {
     }
 }
 
-// TODO
-pub unsafe fn init(_config: Config) {}
+pub unsafe fn init(config: Config) {
+    let mut power = Power::new(<peripherals::PWR as embassy::util::Steal>::steal(), false);
+    let rcc = Rcc::new(<peripherals::RCC as embassy::util::Steal>::steal(), config);
+    let core_clocks = rcc.freeze(&mut power);
+    set_freqs(Clocks {
+        sys: core_clocks.c_ck,
+        ahb1: core_clocks.hclk,
+        ahb2: core_clocks.hclk,
+        apb1: core_clocks.pclk1,
+        apb2: core_clocks.pclk2,
+        apb4: core_clocks.pclk4,
+    });
+}

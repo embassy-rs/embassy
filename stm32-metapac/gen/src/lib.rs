@@ -84,7 +84,11 @@ fn find_reg_for_field<'c>(
     field_name: &str,
 ) -> Option<(&'c str, &'c str)> {
     rcc.fieldsets.iter().find_map(|(name, fieldset)| {
-        if name.starts_with(reg_prefix) {
+        // Workaround for some families that prefix register aliases with C1_, which does
+        // not help matching for clock name.
+        if name.starts_with("C1") {
+            None
+        } else if name.starts_with(reg_prefix) {
             fieldset
                 .fields
                 .iter()
