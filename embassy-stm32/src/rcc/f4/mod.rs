@@ -191,6 +191,7 @@ impl RccExt for RCC {
             sys: sys_clk.hz(),
             ahb1: ahb_freq.hz(),
             ahb2: ahb_freq.hz(),
+            ahb3: ahb_freq.hz(),
             apb1: apb1_freq.hz(),
             apb2: apb2_freq.hz(),
         }

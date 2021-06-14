@@ -531,6 +531,7 @@ pub unsafe fn init(config: Config) {
         sys: core_clocks.c_ck,
         ahb1: core_clocks.hclk,
         ahb2: core_clocks.hclk,
+        ahb3: core_clocks.hclk,
         apb1: core_clocks.pclk1,
         apb2: core_clocks.pclk2,
         apb4: core_clocks.pclk4,
