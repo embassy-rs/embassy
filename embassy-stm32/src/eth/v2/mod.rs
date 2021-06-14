@@ -86,9 +86,6 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
             dma.dmamr().modify(|w| w.set_swr(true));
             while dma.dmamr().read().swr() {}
 
-            // 200 MHz ?
-            mac.mac1ustcr().modify(|w| w.set_tic_1us_cntr(200 - 1));
-
             mac.maccr().modify(|w| {
                 w.set_ipg(0b000); // 96 bit times
                 w.set_acs(true);
@@ -108,21 +105,15 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
             mac.maca0hr()
                 .modify(|w| w.set_addrhi(u16::from(mac_addr[4]) | (u16::from(mac_addr[5]) << 8)));
 
-            // TODO: Enable filtering once we get the basics working
-            mac.macpfr().modify(|w| w.set_ra(true));
+            mac.macpfr().modify(|w| w.set_saf(true));
             mac.macqtx_fcr().modify(|w| w.set_pt(0x100));
 
             mtl.mtlrx_qomr().modify(|w| w.set_rsf(true));
             mtl.mtltx_qomr().modify(|w| w.set_tsf(true));
 
-            // TODO: Address aligned beats plus fixed burst ?
-            dma.dmasbmr().modify(|w| {
-                w.set_aal(true);
-                w.set_fb(true);
-            });
-            dma.dmactx_cr().modify(|w| w.set_txpbl(32)); // 32 ?
+            dma.dmactx_cr().modify(|w| w.set_txpbl(1)); // 32 ?
             dma.dmacrx_cr().modify(|w| {
-                w.set_rxpbl(32); // 32 ?
+                w.set_rxpbl(1); // 32 ?
                 w.set_rbsz(MTU as u16);
             });
         }
