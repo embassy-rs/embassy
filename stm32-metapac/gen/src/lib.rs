@@ -291,7 +291,7 @@ pub fn gen(options: Options) {
 
                         match (en, rst) {
                             (Some((enable_reg, enable_field)), Some((reset_reg, reset_field))) => {
-                                let clock = if clock_prefix == "" {
+                                let clock = if clock_prefix.is_empty() {
                                     let re = Regex::new("([A-Z]+\\d*).*").unwrap();
                                     if !re.is_match(enable_reg) {
                                         panic!(
@@ -305,9 +305,16 @@ pub fn gen(options: Options) {
                                 } else {
                                     clock_prefix
                                 };
+
+                                let clock = if name.starts_with("TIM") {
+                                    format!("{}_tim", clock.to_ascii_lowercase())
+                                } else {
+                                    clock.to_ascii_lowercase()
+                                };
+
                                 peripheral_rcc_table.push(vec![
                                     name.clone(),
-                                    clock.to_ascii_lowercase(),
+                                    clock,
                                     enable_reg.to_ascii_lowercase(),
                                     reset_reg.to_ascii_lowercase(),
                                     format!("set_{}", enable_field.to_ascii_lowercase()),
