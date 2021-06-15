@@ -535,5 +535,7 @@ pub unsafe fn init(config: Config) {
         apb1: core_clocks.pclk1,
         apb2: core_clocks.pclk2,
         apb4: core_clocks.pclk4,
+        apb1_tim: core_clocks.timx_ker_ck.unwrap_or(core_clocks.pclk1),
+        apb2_tim: core_clocks.timy_ker_ck.unwrap_or(core_clocks.pclk2),
     });
 }

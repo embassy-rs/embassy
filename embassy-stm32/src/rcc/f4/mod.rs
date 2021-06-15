@@ -167,23 +167,23 @@ impl RccExt for RCC {
             }
         };
 
-        let apb1_freq = match cfgr.apb1_pre {
-            APBPrescaler::NotDivided => ahb_freq,
+        let (apb1_freq, apb1_tim_freq) = match cfgr.apb1_pre {
+            APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
             pre => {
                 let pre: Ppre = pre.into();
                 let pre: u8 = 1 << (pre.0 - 3);
                 let freq = ahb_freq / pre as u32;
-                freq
+                (freq, freq * 2)
             }
         };
 
-        let apb2_freq = match cfgr.apb2_pre {
-            APBPrescaler::NotDivided => ahb_freq,
+        let (apb2_freq, apb2_tim_freq) = match cfgr.apb2_pre {
+            APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
             pre => {
                 let pre: Ppre = pre.into();
                 let pre: u8 = 1 << (pre.0 - 3);
                 let freq = ahb_freq / (1 << (pre as u8 - 3));
-                freq
+                (freq, freq * 2)
             }
         };
 
@@ -194,6 +194,8 @@ impl RccExt for RCC {
             ahb3: ahb_freq.hz(),
             apb1: apb1_freq.hz(),
             apb2: apb2_freq.hz(),
+            apb1_tim: apb1_tim_freq.hz(),
+            apb2_tim: apb2_tim_freq.hz(),
         }
     }
 }
