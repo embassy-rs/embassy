@@ -169,8 +169,8 @@ impl RccExt for RCC {
         let (apb1_freq, apb1_tim_freq) = match cfgr.apb1_pre {
             APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
             pre => {
-                let pre: Ppre = pre.into();
-                let pre: u8 = 1 << (pre.0 - 3);
+                let pre: u8 = pre.into();
+                let pre: u8 = 1 << (pre - 3);
                 let freq = ahb_freq / pre as u32;
                 (freq, freq * 2)
             }
@@ -179,8 +179,8 @@ impl RccExt for RCC {
         let (apb2_freq, apb2_tim_freq) = match cfgr.apb2_pre {
             APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
             pre => {
-                let pre: Ppre = pre.into();
-                let pre: u8 = 1 << (pre.0 - 3);
+                let pre: u8 = pre.into();
+                let pre: u8 = 1 << (pre - 3);
                 let freq = ahb_freq / (1 << (pre as u8 - 3));
                 (freq, freq * 2)
             }
