@@ -8,7 +8,10 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy_stm32::{rcc::*, gpio::{Level, Output}};
+use embassy_stm32::{
+    gpio::{Level, Output},
+    rcc::*,
+};
 use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
 

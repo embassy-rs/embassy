@@ -19,10 +19,17 @@ data_path = '../stm32-data/data'
 try:
     _, chip_name, output_file = sys.argv
 except:
-    raise Exception("Usage: gen.py STM32F429ZI path/to/generated.rs")
+    raise Exception("Usage: gen.py STM32F429ZI_CM0 path/to/generated.rs")
+
+c = chip_name.split('_', 1)
+
+chip_name = c[0].upper()
+core_name = None
+
+if len(c) > 1:
+    core_name = c[1].lower()
 
 # ======= load chip
-chip_name = chip_name.upper()
 with open(f'{data_path}/chips/{chip_name}.yaml', 'r') as f:
     chip = yaml.load(f, Loader=SafeLoader)
 
@@ -41,7 +48,13 @@ with open(output_file, 'w') as f:
     singletons.extend((f'EXTI{x}' for x in range(16)))
     num_dmas = 0
 
-    for (name, peri) in chip['peripherals'].items():
+    core = chip['cores'][0]
+    if core_name != None:
+        for c in chip['cores']:
+            if core_name == c['name']:
+                core = c
+
+    for (name, peri) in core['peripherals'].items():
         if 'block' not in peri:
             continue
 

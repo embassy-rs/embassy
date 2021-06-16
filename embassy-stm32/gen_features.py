@@ -1,6 +1,12 @@
 import os
 import toml
+import yaml
 from glob import glob
+
+try:
+    from yaml import CSafeLoader as SafeLoader
+except ImportError:
+    from yaml import SafeLoader
 
 abspath = os.path.abspath(__file__)
 dname = os.path.dirname(abspath)
@@ -12,6 +18,7 @@ supported_families = [
     'STM32L4',
     'STM32H7',
     'STM32WB55',
+    'STM32WL55',
 ]
 
 # ======= load chip list
@@ -21,7 +28,15 @@ for f in sorted(glob('../stm32-data/data/chips/*.yaml')):
     name = os.path.splitext(os.path.basename(f))[0]
     if any((family in name for family in supported_families)):
         name = name.lower()
-        features[name] = ['stm32-metapac/' + name]
+        # ======= load chip
+        with open(f, 'r') as f:
+            chip = yaml.load(f, Loader=SafeLoader)
+
+        if len(chip['cores']) > 1:
+            for core in chip['cores']:
+                features[name + "_" + core['name']] = ['stm32-metapac/' + name + '_' + core['name']]
+        else:
+            features[name] = ['stm32-metapac/' + name]
 
 # ========= Update Cargo features
 

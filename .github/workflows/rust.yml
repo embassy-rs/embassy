@@ -71,7 +71,7 @@ jobs:
             features: stm32f429zi,log
           - package: embassy-stm32
             target: thumbv7em-none-eabi
-            features: stm32h755zi,defmt
+            features: stm32h755zi_cm7,defmt
           - package: embassy-stm32
             target: thumbv7em-none-eabi
             features: stm32l476vg,defmt
