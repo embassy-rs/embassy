@@ -8,12 +8,14 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy_stm32::{rcc::*, gpio::{Input, Level, Output, Pull}};
+use embassy_stm32::{
+    gpio::{Input, Level, Output, Pull},
+    rcc::*,
+};
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use example_common::*;
 
 use cortex_m_rt::entry;
-
 
 #[entry]
 fn main() -> ! {

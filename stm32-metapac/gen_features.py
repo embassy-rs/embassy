@@ -8,6 +8,11 @@ import toml
 from collections import OrderedDict
 from glob import glob
 
+try:
+    from yaml import CSafeLoader as SafeLoader
+except ImportError:
+    from yaml import SafeLoader
+
 abspath = os.path.abspath(__file__)
 dname = os.path.dirname(abspath)
 os.chdir(dname)
@@ -19,8 +24,13 @@ features = {}
 for f in sorted(glob('../stm32-data/data/chips/*.yaml')):
     # Use the filename to get the chip name. Ultra fast, we don't have to read YAML!
     name = os.path.splitext(os.path.basename(f))[0].lower()
-    features[name] = []
-
+    with open(f, 'r') as f:
+        chip = yaml.load(f, Loader=SafeLoader)
+    if len(chip['cores']) > 1:
+        for core in chip['cores']:
+            features[name + "_" + core['name']] = []
+    else:
+        features[name] = []
 
 # ========= Update Cargo features
 

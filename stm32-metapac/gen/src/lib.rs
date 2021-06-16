@@ -16,11 +16,16 @@ pub struct Chip {
     pub name: String,
     pub family: String,
     pub line: String,
-    pub core: String,
+    pub cores: Vec<Core>,
     pub flash: u32,
     pub ram: u32,
     pub gpio_af: String,
     pub packages: Vec<Package>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
+pub struct Core {
+    pub name: String,
     pub peripherals: HashMap<String, Peripheral>,
     pub interrupts: HashMap<String, u32>,
 }
@@ -153,12 +158,40 @@ pub fn gen(options: Options) {
     println!("cwd: {:?}", env::current_dir());
 
     let mut all_peripheral_versions: HashSet<(String, String)> = HashSet::new();
+    let mut chip_cores: HashMap<String, Option<String>> = HashMap::new();
 
     for chip_name in &options.chips {
+        let mut s = chip_name.split('_');
+        let chip_name: &str = s.next().unwrap();
+        let core_name: Option<&str> = s.next();
+
+        chip_cores.insert(
+            chip_name.to_string(),
+            core_name.map(|s| s.to_ascii_lowercase().to_string()),
+        );
+
         let chip_path = data_dir.join("chips").join(&format!("{}.yaml", chip_name));
         println!("chip_path: {:?}", chip_path);
         let chip = fs::read(chip_path).unwrap();
         let chip: Chip = serde_yaml::from_slice(&chip).unwrap();
+
+        println!("looking for core {:?}", core_name);
+        let core: Option<&Core> = if let Some(core_name) = core_name {
+            let core_name = core_name.to_ascii_lowercase();
+            let mut c = None;
+            for core in chip.cores.iter() {
+                if core.name == core_name {
+                    c = Some(core);
+                    break;
+                }
+            }
+            c
+        } else {
+            Some(&chip.cores[0])
+        };
+
+        let core = core.unwrap();
+        let core_name = &core.name;
 
         let mut ir = ir::IR::new();
 
@@ -168,7 +201,7 @@ pub fn gen(options: Options) {
         };
 
         // Load RCC register for chip
-        let rcc = chip.peripherals.iter().find_map(|(name, p)| {
+        let rcc = core.peripherals.iter().find_map(|(name, p)| {
             if name == "RCC" {
                 p.block.as_ref().map(|block| {
                     let bi = BlockInfo::parse(block);
@@ -189,17 +222,17 @@ pub fn gen(options: Options) {
         let mut peripheral_pins_table: Vec<Vec<String>> = Vec::new();
         let mut peripheral_rcc_table: Vec<Vec<String>> = Vec::new();
 
-        let dma_base = chip
+        let dma_base = core
             .peripherals
             .get(&"DMA".to_string())
-            .unwrap_or_else(|| chip.peripherals.get(&"DMA1".to_string()).unwrap())
+            .unwrap_or_else(|| core.peripherals.get(&"DMA1".to_string()).unwrap())
             .address;
         let dma_stride = 0x400;
 
-        let gpio_base = chip.peripherals.get(&"GPIOA".to_string()).unwrap().address;
+        let gpio_base = core.peripherals.get(&"GPIOA".to_string()).unwrap().address;
         let gpio_stride = 0x400;
 
-        for (name, p) in &chip.peripherals {
+        for (name, p) in &core.peripherals {
             let mut ir_peri = ir::Peripheral {
                 name: name.clone(),
                 array: None,
@@ -338,7 +371,7 @@ pub fn gen(options: Options) {
             dev.peripherals.push(ir_peri);
         }
 
-        for (name, &num) in &chip.interrupts {
+        for (name, &num) in &core.interrupts {
             dev.interrupts.push(ir::Interrupt {
                 name: name.clone(),
                 description: None,
@@ -386,9 +419,17 @@ pub fn gen(options: Options) {
         transform::sort::Sort {}.run(&mut ir).unwrap();
         transform::Sanitize {}.run(&mut ir).unwrap();
 
-        let chip_dir = out_dir
-            .join("src/chips")
-            .join(chip_name.to_ascii_lowercase());
+        let chip_dir = if chip.cores.len() > 1 {
+            out_dir.join("src/chips").join(format!(
+                "{}_{}",
+                chip_name.to_ascii_lowercase(),
+                core_name.to_ascii_lowercase()
+            ))
+        } else {
+            out_dir
+                .join("src/chips")
+                .join(chip_name.to_ascii_lowercase())
+        };
         fs::create_dir_all(&chip_dir).unwrap();
 
         let items = generate::render(&ir, &generate_opts).unwrap();
@@ -403,7 +444,7 @@ pub fn gen(options: Options) {
 
         let mut device_x = String::new();
 
-        for (name, _) in &chip.interrupts {
+        for (name, _) in &core.interrupts {
             write!(
                 &mut device_x,
                 "PROVIDE({} = DefaultHandler);\n",
@@ -462,14 +503,24 @@ pub fn gen(options: Options) {
     let librs = include_bytes!("assets/lib_inner.rs");
     let i = bytes_find(librs, PATHS_MARKER).unwrap();
     let mut paths = String::new();
-    for chip_name in &options.chips {
-        let x = chip_name.to_ascii_lowercase();
-        write!(
-            &mut paths,
-            "#[cfg_attr(feature=\"{}\", path = \"chips/{}/pac.rs\")]",
-            x, x
-        )
-        .unwrap();
+
+    for (chip, cores) in chip_cores.iter() {
+        let x = chip.to_ascii_lowercase();
+        if let Some(c) = cores {
+            write!(
+                &mut paths,
+                "#[cfg_attr(feature=\"{}_{}\", path = \"chips/{}_{}/pac.rs\")]",
+                x, c, x, c
+            )
+            .unwrap();
+        } else {
+            write!(
+                &mut paths,
+                "#[cfg_attr(feature=\"{}\", path = \"chips/{}/pac.rs\")]",
+                x, x
+            )
+            .unwrap();
+        }
     }
     let mut contents: Vec<u8> = Vec::new();
     contents.extend(&librs[..i]);
