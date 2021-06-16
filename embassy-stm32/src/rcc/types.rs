@@ -63,7 +63,7 @@ pub enum PLLMul {
 }
 
 /// AHB prescaler
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum AHBPrescaler {
     NotDivided,
     Div2,
