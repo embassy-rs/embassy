@@ -151,6 +151,11 @@ impl<'a> AsyncBufRead for TcpSocket<'a> {
     }
 
     fn consume(self: Pin<&mut Self>, amt: usize) {
+        if amt == 0 {
+            // smoltcp's recv returns Finished if we're at EOF,
+            // even if we're "reading" 0 bytes.
+            return;
+        }
         self.with(|s| s.recv(|_| (amt, ()))).unwrap()
     }
 }
