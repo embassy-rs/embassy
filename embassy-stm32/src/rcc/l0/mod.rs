@@ -7,7 +7,6 @@ use crate::time::U32Ext;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
-use pac::dbg::vals::{DbgSleep, DbgStandby, DbgStop};
 use pac::rcc::vals::{Hpre, Msirange, Plldiv, Pllmul, Pllsrc, Ppre, Sw};
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
@@ -174,9 +173,9 @@ impl<'d> Rcc<'d> {
             pac::RCC.ahbenr().modify(|w| w.set_dmaen(enable_dma));
 
             pac::DBGMCU.cr().modify(|w| {
-                w.set_dbg_sleep(DbgSleep::ENABLED);
-                w.set_dbg_standby(DbgStandby::ENABLED);
-                w.set_dbg_stop(DbgStop::ENABLED);
+                w.set_dbg_sleep(true);
+                w.set_dbg_standby(true);
+                w.set_dbg_stop(true);
             });
         }
     }
