@@ -4,7 +4,7 @@ use core::task::Context;
 use core::task::Poll;
 use embassy::time::{Instant, Timer};
 use embassy::util::ThreadModeMutex;
-use embassy::util::{Forever, WakerRegistration};
+use embassy::util::WakerRegistration;
 use futures::pin_mut;
 use smoltcp::iface::InterfaceBuilder;
 #[cfg(feature = "medium-ethernet")]
@@ -22,23 +22,34 @@ use crate::config::Event;
 use crate::device::{Device, DeviceAdapter, LinkState};
 use crate::{Interface, SocketSet};
 
-const ADDRESSES_LEN: usize = 1;
-const NEIGHBOR_CACHE_LEN: usize = 8;
-const SOCKETS_LEN: usize = 2;
 const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
 
-struct StackResources {
-    addresses: [IpCidr; ADDRESSES_LEN],
-    sockets: [Option<SocketSetItem<'static>>; SOCKETS_LEN],
+pub struct StackResources<const ADDR: usize, const SOCK: usize, const NEIGHBOR: usize> {
+    addresses: [IpCidr; ADDR],
+    sockets: [Option<SocketSetItem<'static>>; SOCK],
 
     #[cfg(feature = "medium-ethernet")]
     routes: [Option<(IpCidr, Route)>; 1],
     #[cfg(feature = "medium-ethernet")]
-    neighbor_cache: [Option<(IpAddress, Neighbor)>; NEIGHBOR_CACHE_LEN],
+    neighbor_cache: [Option<(IpAddress, Neighbor)>; NEIGHBOR],
 }
 
-static STACK_RESOURCES: Forever<StackResources> = Forever::new();
+impl<const ADDR: usize, const SOCK: usize, const NEIGHBOR: usize>
+    StackResources<ADDR, SOCK, NEIGHBOR>
+{
+    pub fn new() -> Self {
+        const NONE_SOCKET: Option<SocketSetItem<'static>> = None;
+
+        Self {
+            addresses: [IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 32); ADDR],
+            sockets: [NONE_SOCKET; SOCK],
+            routes: [None; 1],
+            neighbor_cache: [None; NEIGHBOR],
+        }
+    }
+}
+
 static STACK: ThreadModeMutex<RefCell<Option<Stack>>> = ThreadModeMutex::new(RefCell::new(None));
 
 pub(crate) struct Stack {
@@ -164,18 +175,11 @@ fn set_ipv4_addr(iface: &mut Interface, cidr: Ipv4Cidr) {
 
 /// Initialize embassy_net.
 /// This function must be called from thread mode.
-pub fn init(device: &'static mut dyn Device, configurator: &'static mut dyn Configurator) {
-    const NONE_SOCKET: Option<SocketSetItem<'static>> = None;
-    let res = STACK_RESOURCES.put(StackResources {
-        addresses: [IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 32)],
-        sockets: [NONE_SOCKET; SOCKETS_LEN],
-
-        #[cfg(feature = "medium-ethernet")]
-        routes: [None; 1],
-        #[cfg(feature = "medium-ethernet")]
-        neighbor_cache: [None; NEIGHBOR_CACHE_LEN],
-    });
-
+pub fn init<const ADDR: usize, const SOCK: usize, const NEIGH: usize>(
+    device: &'static mut dyn Device,
+    configurator: &'static mut dyn Configurator,
+    resources: &'static mut StackResources<ADDR, SOCK, NEIGH>,
+) {
     let medium = device.capabilities().medium;
 
     #[cfg(feature = "medium-ethernet")]
@@ -186,18 +190,18 @@ pub fn init(device: &'static mut dyn Device, configurator: &'static mut dyn Conf
     };
 
     let mut b = InterfaceBuilder::new(DeviceAdapter::new(device));
-    b = b.ip_addrs(&mut res.addresses[..]);
+    b = b.ip_addrs(&mut resources.addresses[..]);
 
     #[cfg(feature = "medium-ethernet")]
     if medium == Medium::Ethernet {
         b = b.ethernet_addr(EthernetAddress(ethernet_addr));
-        b = b.neighbor_cache(NeighborCache::new(&mut res.neighbor_cache[..]));
-        b = b.routes(Routes::new(&mut res.routes[..]));
+        b = b.neighbor_cache(NeighborCache::new(&mut resources.neighbor_cache[..]));
+        b = b.routes(Routes::new(&mut resources.routes[..]));
     }
 
     let iface = b.finalize();
 
-    let sockets = SocketSet::new(&mut res.sockets[..]);
+    let sockets = SocketSet::new(&mut resources.sockets[..]);
 
     let local_port = loop {
         let mut res = [0u8; 2];

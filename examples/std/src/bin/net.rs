@@ -19,6 +19,7 @@ use crate::tuntap::TunTapDevice;
 
 static DEVICE: Forever<TunTapDevice> = Forever::new();
 static CONFIG: Forever<DhcpConfigurator> = Forever::new();
+static NET_RESOURCES: Forever<StackResources<1, 2, 8>> = Forever::new();
 
 #[derive(Clap)]
 #[clap(version = "1.0")]
@@ -51,8 +52,10 @@ async fn main_task(spawner: Spawner) {
     // DHCP configruation
     let config = DhcpConfigurator::new();
 
+    let net_resources = StackResources::new();
+
     // Init network stack
-    embassy_net::init(DEVICE.put(device), CONFIG.put(config));
+    embassy_net::init(DEVICE.put(device), CONFIG.put(config), NET_RESOURCES.put(net_resources));
 
     // Launch network task
     spawner.spawn(net_task()).unwrap();

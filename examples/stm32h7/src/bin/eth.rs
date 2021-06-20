@@ -16,7 +16,9 @@ use embassy::io::AsyncWriteExt;
 use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
 use embassy_macros::interrupt_take;
-use embassy_net::{Config as NetConfig, Ipv4Address, Ipv4Cidr, StaticConfigurator, TcpSocket};
+use embassy_net::{
+    Config as NetConfig, Ipv4Address, Ipv4Cidr, StackResources, StaticConfigurator, TcpSocket,
+};
 use embassy_stm32::clock::{Alarm, Clock};
 use embassy_stm32::eth::lan8742a::LAN8742A;
 use embassy_stm32::eth::Ethernet;
@@ -43,8 +45,10 @@ async fn main_task(
     config: &'static mut StaticConfigurator,
     spawner: Spawner,
 ) {
+    let net_resources = NET_RESOURCES.put(StackResources::new());
+
     // Init network stack
-    embassy_net::init(device, config);
+    embassy_net::init(device, config, net_resources);
 
     // Launch network task
     unwrap!(spawner.spawn(net_task()));
@@ -97,6 +101,7 @@ static ALARM: Forever<Alarm<TIM2>> = Forever::new();
 static ETH: Forever<Ethernet<'static, LAN8742A, 4, 4>> = Forever::new();
 static DEVICE: Forever<Pin<&'static mut Ethernet<'static, LAN8742A, 4, 4>>> = Forever::new();
 static CONFIG: Forever<StaticConfigurator> = Forever::new();
+static NET_RESOURCES: Forever<StackResources<1, 2, 8>> = Forever::new();
 
 #[entry]
 fn main() -> ! {
