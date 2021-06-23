@@ -18,6 +18,31 @@ pub enum Pull {
     Down,
 }
 
+/// Pull setting for an input.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Speed {
+    LowSpeed,
+    MediumSpeed,
+    #[cfg(not(syscfg_f0))]
+    HighSpeed,
+    VeryHighSpeed,
+}
+
+impl From<Speed> for vals::Ospeedr {
+    fn from(speed: Speed) -> Self {
+        use Speed::*;
+
+        match speed {
+            LowSpeed => vals::Ospeedr::LOWSPEED,
+            MediumSpeed => vals::Ospeedr::MEDIUMSPEED,
+            #[cfg(not(syscfg_f0))]
+            HighSpeed => vals::Ospeedr::HIGHSPEED,
+            VeryHighSpeed => vals::Ospeedr::VERYHIGHSPEED,
+        }
+    }
+}
+
 /// GPIO input driver.
 pub struct Input<'d, T: Pin> {
     pub(crate) pin: T,
@@ -86,7 +111,12 @@ pub struct Output<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Output<'d, T> {
-    pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level) -> Self {
+    pub fn new(
+        pin: impl Unborrow<Target = T> + 'd,
+        initial_output: Level,
+        speed: Speed,
+        open_drain: bool,
+    ) -> Self {
         unborrow!(pin);
 
         match initial_output {
@@ -99,6 +129,10 @@ impl<'d, T: Pin> Output<'d, T> {
             let n = pin.pin() as usize;
             r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
             r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
+            if open_drain {
+                r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPENDRAIN));
+            }
+            pin.set_speed(speed);
         });
 
         Self {
@@ -115,6 +149,8 @@ impl<'d, T: Pin> Drop for Output<'d, T> {
             let n = self.pin.pin() as usize;
             r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
             r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
+            r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
+            self.pin.set_speed(Speed::LowSpeed);
         });
     }
 }
@@ -145,6 +181,18 @@ impl<'d, T: Pin> StatefulOutputPin for Output<'d, T> {
     fn is_set_low(&self) -> Result<bool, Self::Error> {
         let state = unsafe { self.pin.block().odr().read().odr(self.pin.pin() as _) };
         Ok(state == vals::Odr::LOW)
+    }
+}
+
+impl<'d, T: Pin> InputPin for Output<'d, T> {
+    type Error = Infallible;
+
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        self.is_set_high()
+    }
+
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        self.is_set_low()
     }
 }
 
@@ -205,6 +253,13 @@ pub(crate) mod sealed {
             block
                 .moder()
                 .modify(|w| w.set_moder(pin, vals::Moder::ANALOG));
+        }
+
+        unsafe fn set_speed(&self, speed: Speed) {
+            let pin = self._pin() as usize;
+            self.block()
+                .ospeedr()
+                .modify(|w| w.set_ospeedr(pin, speed.into()));
         }
     }
 
