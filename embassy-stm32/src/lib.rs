@@ -16,7 +16,6 @@ pub mod interrupt;
 pub mod time;
 
 // Always-present hardware
-pub mod exti;
 pub mod gpio;
 pub mod rcc;
 
@@ -31,6 +30,8 @@ pub mod dac;
 pub mod dma;
 #[cfg(all(eth, feature = "net"))]
 pub mod eth;
+#[cfg(exti_v1)]
+pub mod exti;
 #[cfg(i2c)]
 pub mod i2c;
 #[cfg(pwr)]
@@ -83,10 +84,9 @@ pub fn init(config: Config) -> Peripherals {
     let p = Peripherals::take();
 
     unsafe {
-        exti::init();
-
         #[cfg(dma)]
         dma::init();
+        #[cfg(exti_v1)]
         exti::init();
         rcc::init(config.rcc);
     }
