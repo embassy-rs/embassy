@@ -30,7 +30,7 @@ pub mod dac;
 pub mod dma;
 #[cfg(all(eth, feature = "net"))]
 pub mod eth;
-#[cfg(exti_v1)]
+#[cfg(exti)]
 pub mod exti;
 #[cfg(i2c)]
 pub mod i2c;
@@ -86,7 +86,7 @@ pub fn init(config: Config) -> Peripherals {
     unsafe {
         #[cfg(dma)]
         dma::init();
-        #[cfg(exti_v1)]
+        #[cfg(exti)]
         exti::init();
         rcc::init(config.rcc);
     }
