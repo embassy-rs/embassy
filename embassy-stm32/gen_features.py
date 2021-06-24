@@ -13,6 +13,7 @@ dname = os.path.dirname(abspath)
 os.chdir(dname)
 
 supported_families = [
+    "STM32F0",
     'STM32F4',
     'STM32L0',
     'STM32L4',

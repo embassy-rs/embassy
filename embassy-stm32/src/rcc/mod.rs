@@ -9,11 +9,14 @@ mod types;
 pub struct Clocks {
     pub sys: Hertz,
     pub apb1: Hertz,
+
+    #[cfg(not(any(rcc_f0, rcc_f0x0)))]
     pub apb2: Hertz,
+
     pub apb1_tim: Hertz,
     pub apb2_tim: Hertz,
 
-    #[cfg(any(rcc_l0))]
+    #[cfg(any(rcc_l0, rcc_f0, rcc_f0x0))]
     pub ahb: Hertz,
 
     #[cfg(any(rcc_l4, rcc_f4, rcc_h7, rcc_wb55, rcc_wl5x))]
@@ -65,6 +68,9 @@ cfg_if::cfg_if! {
     } else if #[cfg(rcc_wl5x)] {
         mod wl5x;
         pub use wl5x::*;
+    } else if #[cfg(any(rcc_f0, rcc_f0x0))] {
+        mod f0;
+        pub use f0::*;
     }
 }
 
