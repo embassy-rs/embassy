@@ -33,10 +33,6 @@ if len(c) > 1:
 with open(f'{data_path}/chips/{chip_name}.yaml', 'r') as f:
     chip = yaml.load(f, Loader=SafeLoader)
 
-# ======= load GPIO AF
-with open(f'{data_path}/gpio_af/{chip["gpio_af"]}.yaml', 'r') as f:
-    af = yaml.load(f, Loader=SafeLoader)
-
 # ======= Generate!
 with open(output_file, 'w') as f:
     singletons = []  # USART1, PA5, EXTI8

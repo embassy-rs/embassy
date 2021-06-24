@@ -19,7 +19,6 @@ pub struct Chip {
     pub cores: Vec<Core>,
     pub flash: u32,
     pub ram: u32,
-    pub gpio_af: String,
     pub packages: Vec<Package>,
 }
 
