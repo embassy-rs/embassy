@@ -18,7 +18,19 @@ pub enum Pull {
     Down,
 }
 
-/// Pull setting for an input.
+impl From<Pull> for vals::Pupdr {
+    fn from(pull: Pull) -> Self {
+        use Pull::*;
+
+        match pull {
+            None => vals::Pupdr::FLOATING,
+            Up => vals::Pupdr::PULLUP,
+            Down => vals::Pupdr::PULLDOWN,
+        }
+    }
+}
+
+/// Speed settings
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Speed {
@@ -56,12 +68,7 @@ impl<'d, T: Pin> Input<'d, T> {
         cortex_m::interrupt::free(|_| unsafe {
             let r = pin.block();
             let n = pin.pin() as usize;
-            let val = match pull {
-                Pull::None => vals::Pupdr::FLOATING,
-                Pull::Up => vals::Pupdr::PULLUP,
-                Pull::Down => vals::Pupdr::PULLDOWN,
-            };
-            r.pupdr().modify(|w| w.set_pupdr(n, val));
+            r.pupdr().modify(|w| w.set_pupdr(n, pull.into()));
             r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
             r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
         });
@@ -111,12 +118,7 @@ pub struct Output<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Output<'d, T> {
-    pub fn new(
-        pin: impl Unborrow<Target = T> + 'd,
-        initial_output: Level,
-        speed: Speed,
-        open_drain: bool,
-    ) -> Self {
+    pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level, speed: Speed) -> Self {
         unborrow!(pin);
 
         match initial_output {
@@ -129,9 +131,6 @@ impl<'d, T: Pin> Output<'d, T> {
             let n = pin.pin() as usize;
             r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
             r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
-            if open_drain {
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPENDRAIN));
-            }
             pin.set_speed(speed);
         });
 
@@ -149,8 +148,6 @@ impl<'d, T: Pin> Drop for Output<'d, T> {
             let n = self.pin.pin() as usize;
             r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
             r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
-            r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
-            self.pin.set_speed(Speed::LowSpeed);
         });
     }
 }
@@ -184,19 +181,84 @@ impl<'d, T: Pin> StatefulOutputPin for Output<'d, T> {
     }
 }
 
-impl<'d, T: Pin> InputPin for Output<'d, T> {
-    type Error = Infallible;
+impl<'d, T: Pin> toggleable::Default for Output<'d, T> {}
 
-    fn is_high(&self) -> Result<bool, Self::Error> {
-        self.is_set_high()
-    }
+/// GPIO output open-drain driver.
+pub struct OutputOpenDrain<'d, T: Pin> {
+    pub(crate) pin: T,
+    phantom: PhantomData<&'d mut T>,
+}
 
-    fn is_low(&self) -> Result<bool, Self::Error> {
-        self.is_set_low()
+impl<'d, T: Pin> OutputOpenDrain<'d, T> {
+    pub fn new(
+        pin: impl Unborrow<Target = T> + 'd,
+        initial_output: Level,
+        speed: Speed,
+        pull: Pull,
+    ) -> Self {
+        unborrow!(pin);
+
+        match initial_output {
+            Level::High => pin.set_high(),
+            Level::Low => pin.set_low(),
+        }
+
+        cortex_m::interrupt::free(|_| unsafe {
+            let r = pin.block();
+            let n = pin.pin() as usize;
+            r.pupdr().modify(|w| w.set_pupdr(n, pull.into()));
+            r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
+            r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPENDRAIN));
+            pin.set_speed(speed);
+        });
+
+        Self {
+            pin,
+            phantom: PhantomData,
+        }
     }
 }
 
-impl<'d, T: Pin> toggleable::Default for Output<'d, T> {}
+impl<'d, T: Pin> Drop for OutputOpenDrain<'d, T> {
+    fn drop(&mut self) {
+        cortex_m::interrupt::free(|_| unsafe {
+            let r = self.pin.block();
+            let n = self.pin.pin() as usize;
+            r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
+            r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
+        });
+    }
+}
+
+impl<'d, T: Pin> OutputPin for OutputOpenDrain<'d, T> {
+    type Error = Infallible;
+
+    /// Set the output as high.
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        self.pin.set_high();
+        Ok(())
+    }
+
+    /// Set the output as low.
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        self.pin.set_low();
+        Ok(())
+    }
+}
+
+impl<'d, T: Pin> InputPin for Input<'d, T> {
+    type Error = Infallible;
+
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        self.is_low().map(|v| !v)
+    }
+
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        // NOTE(safety) Atomic read
+        let state = unsafe { self.pin.block().idr().read().idr(self.pin.pin() as usize) };
+        Ok(state == vals::Idr::LOW)
+    }
+}
 
 pub(crate) mod sealed {
     use super::*;
