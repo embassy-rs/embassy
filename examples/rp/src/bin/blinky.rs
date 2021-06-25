@@ -12,7 +12,6 @@ mod example_common;
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy_rp::{gpio, Peripherals};
-use embedded_hal::digital::v2::OutputPin;
 use gpio::{Level, Output};
 
 #[embassy::main]
@@ -21,11 +20,11 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     loop {
         info!("led on!");
-        led.set_high().unwrap();
+        led.set_high();
         cortex_m::asm::delay(1_000_000);
 
         info!("led off!");
-        led.set_low().unwrap();
+        led.set_low();
         cortex_m::asm::delay(1_000_000);
     }
 }

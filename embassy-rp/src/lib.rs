@@ -14,6 +14,7 @@ pub mod interrupt;
 
 pub mod dma;
 pub mod gpio;
+pub mod spi;
 pub mod uart;
 
 mod clocks;
@@ -59,6 +60,9 @@ embassy_extras::peripherals! {
 
     UART0,
     UART1,
+
+    SPI0,
+    SPI1,
 
     DMA_CH0,
     DMA_CH1,

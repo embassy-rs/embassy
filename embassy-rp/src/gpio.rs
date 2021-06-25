@@ -7,7 +7,7 @@ use crate::peripherals;
 
 use embassy::util::Unborrow;
 use embassy_extras::{unborrow, unsafe_impl_unborrow};
-use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
+use embedded_hal::digital::v2 as digital;
 
 /// Represents a digital input or output level.
 #[derive(Debug, Eq, PartialEq)]
@@ -63,6 +63,15 @@ impl<'d, T: Pin> Input<'d, T> {
             phantom: PhantomData,
         }
     }
+
+    pub fn is_high(&self) -> bool {
+        !self.is_low()
+    }
+
+    pub fn is_low(&self) -> bool {
+        let val = 1 << self.pin.pin();
+        unsafe { self.pin.sio_in().read() & val == 0 }
+    }
 }
 
 impl<'d, T: Pin> Drop for Input<'d, T> {
@@ -71,16 +80,15 @@ impl<'d, T: Pin> Drop for Input<'d, T> {
     }
 }
 
-impl<'d, T: Pin> InputPin for Input<'d, T> {
+impl<'d, T: Pin> digital::InputPin for Input<'d, T> {
     type Error = !;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
-        self.is_low().map(|v| !v)
+        Ok(self.is_high())
     }
 
     fn is_low(&self) -> Result<bool, Self::Error> {
-        let val = 1 << self.pin.pin();
-        Ok(unsafe { self.pin.sio_in().read() } & val == 0)
+        Ok(self.is_low())
     }
 }
 
@@ -111,6 +119,29 @@ impl<'d, T: Pin> Output<'d, T> {
             phantom: PhantomData,
         }
     }
+
+    /// Set the output as high.
+    pub fn set_high(&mut self) {
+        let val = 1 << self.pin.pin();
+        unsafe { self.pin.sio_out().value_set().write_value(val) };
+    }
+
+    /// Set the output as low.
+    pub fn set_low(&mut self) {
+        let val = 1 << self.pin.pin();
+        unsafe { self.pin.sio_out().value_clr().write_value(val) };
+    }
+
+    /// Is the output pin set as high?
+    pub fn is_set_high(&self) -> bool {
+        !self.is_set_low()
+    }
+
+    /// Is the output pin set as low?
+    pub fn is_set_low(&self) -> bool {
+        // todo
+        true
+    }
 }
 
 impl<'d, T: Pin> Drop for Output<'d, T> {
@@ -119,34 +150,31 @@ impl<'d, T: Pin> Drop for Output<'d, T> {
     }
 }
 
-impl<'d, T: Pin> OutputPin for Output<'d, T> {
+impl<'d, T: Pin> digital::OutputPin for Output<'d, T> {
     type Error = !;
 
     /// Set the output as high.
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        let val = 1 << self.pin.pin();
-        unsafe { self.pin.sio_out().value_set().write_value(val) };
+        self.set_high();
         Ok(())
     }
 
     /// Set the output as low.
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        let val = 1 << self.pin.pin();
-        unsafe { self.pin.sio_out().value_clr().write_value(val) };
+        self.set_low();
         Ok(())
     }
 }
 
-impl<'d, T: Pin> StatefulOutputPin for Output<'d, T> {
+impl<'d, T: Pin> digital::StatefulOutputPin for Output<'d, T> {
     /// Is the output pin set as high?
     fn is_set_high(&self) -> Result<bool, Self::Error> {
-        self.is_set_low().map(|v| !v)
+        Ok(self.is_set_high())
     }
 
     /// Is the output pin set as low?
     fn is_set_low(&self) -> Result<bool, Self::Error> {
-        // todo
-        Ok(true)
+        Ok(self.is_set_low())
     }
 }
 
