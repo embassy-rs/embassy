@@ -12,6 +12,7 @@ cortex-m-rt = { version = "0.6.8", optional = true }
 # These are removed when generating the pre-generated crate using the tool at gen/.
 [build-dependencies]
 stm32-metapac-gen = { path = "./gen" }
+regex = "1.5.4"
 # END BUILD DEPENDENCIES
 
 [features]

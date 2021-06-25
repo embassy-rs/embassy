@@ -73,13 +73,16 @@ with open(output_file, 'w') as f:
                 pins.add(pin)
                 singletons.append(pin)
 
-        if block_mod == 'dma':
-            custom_singletons = True
-            for ch_num in range(8):
-                channel = f'{name}_CH{ch_num}'
-                singletons.append(channel)
+        # if block_mod == 'dma':
+        #     custom_singletons = True
+        #     for ch_num in range(8):
+        #         channel = f'{name}_CH{ch_num}'
+        #         singletons.append(channel)
 
         if not custom_singletons:
             singletons.append(name)
+
+    for (channel_id, defn) in core['dma_channels'].items():
+        singletons.append( channel_id )
 
     f.write(f"embassy_extras::peripherals!({','.join(singletons)});")

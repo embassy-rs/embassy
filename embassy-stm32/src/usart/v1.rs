@@ -104,11 +104,16 @@ impl<'d, T: Instance> Uart<'d, T> {
     #[cfg(dma_v2)]
     pub async fn write_dma(
         &mut self,
-        ch: &mut impl crate::dma::Channel,
+        //ch: &mut impl crate::dma::Channel,
+        ch: &mut impl TxDma<T>,
         buffer: &[u8],
     ) -> Result<(), Error> {
-        let ch_func = 4; // USART3_TX
         let r = self.inner.regs();
+        let dst = r.dr().ptr() as *mut u8;
+        ch.transfer(buffer, dst).await;
+        Ok(())
+        /*
+        let ch_func = 4; // USART3_TX
 
         unsafe {
             r.cr3().write(|w| {
@@ -121,6 +126,7 @@ impl<'d, T: Instance> Uart<'d, T> {
         }
 
         Ok(())
+         */
     }
 
     pub fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {

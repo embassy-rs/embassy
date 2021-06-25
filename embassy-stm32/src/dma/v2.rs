@@ -9,9 +9,14 @@ use crate::interrupt;
 use crate::pac;
 use crate::pac::dma::{regs, vals};
 
-const DMAS: [pac::dma::Dma; 2] = [pac::DMA1, pac::DMA2];
+use crate::pac::dma_channels;
+use crate::pac::interrupts;
+use crate::pac::peripheral_count;
+use crate::pac::peripheral_dma_channels;
+use crate::pac::peripherals;
+use crate::peripherals;
 
-const CH_COUNT: usize = 16;
+const CH_COUNT: usize = peripheral_count!(DMA) * 8;
 const CH_STATUS_NONE: u8 = 0;
 const CH_STATUS_COMPLETED: u8 = 1;
 const CH_STATUS_ERROR: u8 = 2;
@@ -41,9 +46,8 @@ pub(crate) async unsafe fn transfer_m2p(
     src: &[u8],
     dst: *mut u8,
 ) {
-    let n = ch.num() as usize;
-    let r = ch.regs();
-    let c = r.st(ch.ch_num() as _);
+    let n = ch.num();
+    let c = ch.regs();
 
     // ndtr is max 16 bits.
     assert!(src.len() <= 0xFFFF);
@@ -82,106 +86,169 @@ pub(crate) async unsafe fn transfer_m2p(
 }
 
 unsafe fn on_irq() {
-    for (dman, &dma) in DMAS.iter().enumerate() {
-        for isrn in 0..2 {
-            let isr = dma.isr(isrn).read();
-            dma.ifcr(isrn).write_value(isr);
+    peripherals! {
+        (dma, $dma:ident) => {
+            for isrn in 0..2 {
+                let isr = pac::$dma.isr(isrn).read();
+                pac::$dma.ifcr(isrn).write_value(isr);
+                let dman = <peripherals::$dma as sealed::Dma>::num() as usize;
 
-            for chn in 0..4 {
-                let n = dman * 8 + isrn * 4 + chn;
-                if isr.teif(chn) {
-                    STATE.ch_status[n].store(CH_STATUS_ERROR, Ordering::Relaxed);
-                    STATE.ch_wakers[n].wake();
-                } else if isr.tcif(chn) {
-                    STATE.ch_status[n].store(CH_STATUS_COMPLETED, Ordering::Relaxed);
-                    STATE.ch_wakers[n].wake();
+                for chn in 0..4 {
+                    let n = dman * 8 + isrn * 4 + chn;
+                    if isr.teif(chn) {
+                        STATE.ch_status[n].store(CH_STATUS_ERROR, Ordering::Relaxed);
+                        STATE.ch_wakers[n].wake();
+                    } else if isr.tcif(chn) {
+                        STATE.ch_status[n].store(CH_STATUS_COMPLETED, Ordering::Relaxed);
+                        STATE.ch_wakers[n].wake();
+                    }
                 }
             }
-        }
+        };
     }
-}
-
-#[interrupt]
-unsafe fn DMA1_STREAM0() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA1_STREAM1() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA1_STREAM2() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA1_STREAM3() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA1_STREAM4() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA1_STREAM5() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA1_STREAM6() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA1_STREAM7() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA2_STREAM0() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA2_STREAM1() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA2_STREAM2() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA2_STREAM3() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA2_STREAM4() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA2_STREAM5() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA2_STREAM6() {
-    on_irq()
-}
-#[interrupt]
-unsafe fn DMA2_STREAM7() {
-    on_irq()
 }
 
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
-    interrupt::DMA1_STREAM0::steal().enable();
-    interrupt::DMA1_STREAM1::steal().enable();
-    interrupt::DMA1_STREAM2::steal().enable();
-    interrupt::DMA1_STREAM3::steal().enable();
-    interrupt::DMA1_STREAM4::steal().enable();
-    interrupt::DMA1_STREAM5::steal().enable();
-    interrupt::DMA1_STREAM6::steal().enable();
-    interrupt::DMA1_STREAM7::steal().enable();
-    interrupt::DMA2_STREAM0::steal().enable();
-    interrupt::DMA2_STREAM1::steal().enable();
-    interrupt::DMA2_STREAM2::steal().enable();
-    interrupt::DMA2_STREAM3::steal().enable();
-    interrupt::DMA2_STREAM4::steal().enable();
-    interrupt::DMA2_STREAM5::steal().enable();
-    interrupt::DMA2_STREAM6::steal().enable();
-    interrupt::DMA2_STREAM7::steal().enable();
+    interrupts! {
+        (DMA, $irq:ident) => {
+            interrupt::$irq::steal().enable();
+        };
+    }
+}
+
+pub(crate) mod sealed {
+    use super::*;
+
+    pub trait Dma {
+        fn num() -> u8;
+        fn regs() -> &'static pac::dma::Dma;
+    }
+
+    pub trait Channel {
+        fn dma_regs() -> &'static pac::dma::Dma;
+
+        fn num(&self) -> usize;
+
+        fn ch_num(&self) -> u8;
+
+        fn regs(&self) -> pac::dma::St {
+            Self::dma_regs().st(self.ch_num() as _)
+        }
+    }
+
+    pub trait PeripheralChannel<PERI>: Channel {
+        fn request(&self) -> u8;
+    }
+}
+
+pub trait Dma: sealed::Dma + Sized {}
+pub trait Channel: sealed::Channel + Sized {}
+pub trait PeripheralChannel<PERI>: sealed::PeripheralChannel<PERI> + Sized {}
+
+macro_rules! impl_dma {
+    ($peri:ident, $num:expr) => {
+        impl Dma for peripherals::$peri {}
+        impl sealed::Dma for peripherals::$peri {
+            fn num() -> u8 {
+                $num
+            }
+            fn regs() -> &'static pac::dma::Dma {
+                &pac::$peri
+            }
+        }
+    };
+}
+
+macro_rules! impl_dma_channel {
+    ($channel_peri:ident, $dma_peri:ident, $dma_num:expr, $ch_num:expr) => {
+        impl Channel for peripherals::$channel_peri {}
+        impl sealed::Channel for peripherals::$channel_peri {
+            #[inline]
+            fn dma_regs() -> &'static pac::dma::Dma {
+                &crate::pac::$dma_peri
+            }
+
+            fn num(&self) -> usize {
+                ($dma_num * 8) + $ch_num
+            }
+
+            fn ch_num(&self) -> u8 {
+                $ch_num
+            }
+        }
+
+        impl<T> WriteDma<T> for peripherals::$channel_peri
+        where
+            Self: sealed::PeripheralChannel<T>,
+            T: 'static,
+        {
+            type WriteDmaFuture<'a> = impl Future<Output = ()>;
+
+            fn transfer<'a>(&'a mut self, buf: &'a [u8], dst: *mut u8) -> Self::WriteDmaFuture<'a>
+            where
+                T: 'a,
+            {
+                let request = sealed::PeripheralChannel::<T>::request(self);
+                unsafe { transfer_m2p(self, request, buf, dst) }
+            }
+        }
+    };
+}
+
+peripherals! {
+    (dma, DMA1) => {
+        impl_dma!(DMA1, 0);
+        dma_channels! {
+            ($channel_peri:ident, DMA1, $channel_num:expr) => {
+                impl_dma_channel!($channel_peri, DMA1, 0, $channel_num);
+            };
+        }
+    };
+    (dma, DMA2) => {
+        impl_dma!(DMA2, 1);
+        dma_channels! {
+            ($channel_peri:ident, DMA2, $channel_num:expr) => {
+                impl_dma_channel!($channel_peri, DMA2, 1, $channel_num);
+            };
+        }
+    };
+}
+
+interrupts! {
+    (DMA, $irq:ident) => {
+        unsafe fn $irq () {
+            on_irq()
+        }
+    };
+}
+
+#[cfg(usart)]
+use crate::usart;
+peripheral_dma_channels! {
+    ($peri:ident, usart, $kind:ident, RX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr, $event_num:expr) => {
+        impl usart::RxDma<peripherals::$peri> for peripherals::$channel_peri { }
+        impl usart::sealed::RxDma<peripherals::$peri> for peripherals::$channel_peri { }
+
+        impl sealed::PeripheralChannel<peripherals::$peri> for peripherals::$channel_peri {
+            fn request(&self) -> u8 {
+                $event_num
+            }
+        }
+
+        impl PeripheralChannel<peripherals::$peri> for peripherals::$channel_peri { }
+    };
+
+    ($peri:ident, usart, $kind:ident, TX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr, $event_num:expr) => {
+        impl usart::TxDma<peripherals::$peri> for peripherals::$channel_peri { }
+        impl usart::sealed::TxDma<peripherals::$peri> for peripherals::$channel_peri { }
+
+        impl sealed::PeripheralChannel<peripherals::$peri> for peripherals::$channel_peri {
+            fn request(&self) -> u8 {
+                $event_num
+            }
+        }
+
+        impl PeripheralChannel<peripherals::$peri> for peripherals::$channel_peri { }
+    };
 }

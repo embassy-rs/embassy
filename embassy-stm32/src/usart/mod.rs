@@ -1,7 +1,7 @@
 #![macro_use]
 
 #[cfg_attr(usart_v1, path = "v1.rs")]
-#[cfg_attr(usart_v2, path = "v2.rs")]
+//#[cfg_attr(usart_v2, path = "v2.rs")]
 mod _version;
 use crate::peripherals;
 pub use _version::*;
@@ -25,6 +25,7 @@ pub enum Error {
 
 pub(crate) mod sealed {
     use super::*;
+    use crate::dma::WriteDma;
 
     pub trait Instance {
         fn regs(&self) -> Usart;
@@ -44,13 +45,21 @@ pub(crate) mod sealed {
     pub trait CkPin<T: Instance>: Pin {
         fn af_num(&self) -> u8;
     }
+
+    pub trait RxDma<T: Instance> {}
+
+    pub trait TxDma<T: Instance>: WriteDma<T> {}
 }
+
 pub trait Instance: sealed::Instance {}
 pub trait RxPin<T: Instance>: sealed::RxPin<T> {}
 pub trait TxPin<T: Instance>: sealed::TxPin<T> {}
 pub trait CtsPin<T: Instance>: sealed::CtsPin<T> {}
 pub trait RtsPin<T: Instance>: sealed::RtsPin<T> {}
 pub trait CkPin<T: Instance>: sealed::CkPin<T> {}
+
+pub trait RxDma<T: Instance>: sealed::RxDma<T> {}
+pub trait TxDma<T: Instance>: sealed::TxDma<T> {}
 
 crate::pac::peripherals!(
     (usart, $inst:ident) => {
