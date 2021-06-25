@@ -11,5 +11,6 @@
     "**/.git/objects/**": true,
     "**/.git/subtree-cache/**": true,
     "**/target/**": true
-  }
+  },
+  "git.ignoreLimitWarning": true
 }

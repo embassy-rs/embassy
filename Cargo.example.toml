@@ -40,7 +40,7 @@ members = [
 
     # rp2040
     #"embassy-rp",
-    #"examples/rp2040",
+    #"examples/rp",
 
     # std
     #"embassy-std",
