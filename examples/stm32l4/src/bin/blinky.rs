@@ -8,7 +8,7 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy_stm32::gpio::{Level, Output};
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
 
@@ -39,7 +39,7 @@ fn main() -> ! {
 
     let p = embassy_stm32::init(Default::default());
 
-    let mut led = Output::new(p.PB14, Level::High);
+    let mut led = Output::new(p.PB14, Level::High, Speed::Low);
 
     loop {
         info!("high");

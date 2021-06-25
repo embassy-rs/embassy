@@ -8,15 +8,15 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy_stm32::gpio::{Level, Output};
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
 
 use cortex_m_rt::entry;
 use stm32h7::stm32h743 as pac;
 
-use stm32h7xx_hal as hal;
 use hal::prelude::*;
+use stm32h7xx_hal as hal;
 
 #[entry]
 fn main() -> ! {
@@ -24,8 +24,7 @@ fn main() -> ! {
 
     let pp = pac::Peripherals::take().unwrap();
 
-    let pwrcfg = pp.PWR.constrain()
-        .freeze();
+    let pwrcfg = pp.PWR.constrain().freeze();
 
     let rcc = pp.RCC.constrain();
 
@@ -60,7 +59,7 @@ fn main() -> ! {
 
     let p = embassy_stm32::init(Default::default());
 
-    let mut led = Output::new(p.PB14, Level::High);
+    let mut led = Output::new(p.PB14, Level::High, Speed::Low);
 
     loop {
         info!("high");
@@ -71,5 +70,4 @@ fn main() -> ! {
         led.set_low().unwrap();
         cortex_m::asm::delay(10_000_000);
     }
-
 }

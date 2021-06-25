@@ -34,11 +34,11 @@ impl From<Pull> for vals::Pupdr {
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Speed {
-    LowSpeed,
-    MediumSpeed,
+    Low,
+    Medium,
     #[cfg(not(syscfg_f0))]
-    HighSpeed,
-    VeryHighSpeed,
+    High,
+    VeryHigh,
 }
 
 impl From<Speed> for vals::Ospeedr {
@@ -46,11 +46,11 @@ impl From<Speed> for vals::Ospeedr {
         use Speed::*;
 
         match speed {
-            LowSpeed => vals::Ospeedr::LOWSPEED,
-            MediumSpeed => vals::Ospeedr::MEDIUMSPEED,
+            Low => vals::Ospeedr::LOWSPEED,
+            Medium => vals::Ospeedr::MEDIUMSPEED,
             #[cfg(not(syscfg_f0))]
-            HighSpeed => vals::Ospeedr::HIGHSPEED,
-            VeryHighSpeed => vals::Ospeedr::VERYHIGHSPEED,
+            High => vals::Ospeedr::HIGHSPEED,
+            VeryHigh => vals::Ospeedr::VERYHIGHSPEED,
         }
     }
 }
@@ -246,7 +246,7 @@ impl<'d, T: Pin> OutputPin for OutputOpenDrain<'d, T> {
     }
 }
 
-impl<'d, T: Pin> InputPin for Input<'d, T> {
+impl<'d, T: Pin> InputPin for OutputOpenDrain<'d, T> {
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {

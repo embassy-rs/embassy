@@ -9,7 +9,7 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use embassy_stm32::gpio::{Level, Output};
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
 
@@ -36,7 +36,7 @@ fn main() -> ! {
         Config::default(),
     );
 
-    let mut cs = Output::new(p.PA15, Level::High);
+    let mut cs = Output::new(p.PA15, Level::High, Speed::VeryHigh);
 
     loop {
         let mut buf = [0x0A; 4];
