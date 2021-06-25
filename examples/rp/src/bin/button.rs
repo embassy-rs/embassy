@@ -20,10 +20,10 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut led = Output::new(p.PIN_25, Level::Low);
 
     loop {
-        if button.is_high().unwrap() {
-            led.set_high().unwrap();
+        if button.is_high() {
+            led.set_high();
         } else {
-            led.set_low().unwrap();
+            led.set_low();
         }
     }
 }
