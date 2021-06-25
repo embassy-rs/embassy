@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use crate::pac;
-use crate::pac::generic::{Reg, RW};
+use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
 use crate::peripherals;
 

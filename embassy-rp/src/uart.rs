@@ -42,8 +42,7 @@ impl<'d, T: Instance> Uart<'d, T> {
         unsafe {
             let p = inner.regs();
 
-            // todo get this from somewhere
-            let clk_base = 12_000_000;
+            let clk_base = crate::clocks::clk_peri_freq();
 
             let baud_rate_div = (8 * clk_base) / config.baudrate;
             let mut baud_ibrd = baud_rate_div >> 7;

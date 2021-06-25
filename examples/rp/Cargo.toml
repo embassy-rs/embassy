@@ -19,7 +19,7 @@ defmt-error = []
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-trace"] }
 embassy-rp = { version = "0.1.0", path = "../../embassy-rp", features = ["defmt", "defmt-trace"] }
-rp2040-pac2 = { git = "https://github.com/Dirbaio/rp2040-pac", rev="254f4677937801155ca3cb17c7bb9d38eb62683e" }
+rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev="e8635fd05f43b6c21ec462fb8c06140e1fb26961" }
 atomic-polyfill = { version = "0.1.1" }
 
 defmt = "0.2.0"
