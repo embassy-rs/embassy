@@ -155,15 +155,16 @@ unsafe fn configure_pll(
     });
     p.fbdiv_int().write(|w| w.set_fbdiv_int(0));
 
-    let ref_mhz = XOSC_MHZ / refdiv;
-    p.cs().write(|w| w.set_refdiv(ref_mhz as _));
+    let ref_freq = XOSC_MHZ * 1_000_000 / refdiv;
 
-    let fbdiv = vco_freq / (ref_mhz * 1_000_000);
-    assert!(fbdiv >= 16 && fbdiv <= 520);
-    assert!((post_div1 >= 1 && post_div1 <= 7) && (post_div2 >= 1 && post_div2 <= 7));
+    let fbdiv = vco_freq / ref_freq;
+    assert!(fbdiv >= 16 && fbdiv <= 320);
+    assert!(post_div1 >= 1 && post_div1 <= 7);
+    assert!(post_div2 >= 1 && post_div2 <= 7);
     assert!(post_div2 <= post_div1);
-    assert!(ref_mhz <= (vco_freq / 16));
+    assert!(ref_freq <= (vco_freq / 16));
 
+    p.cs().write(|w| w.set_refdiv(refdiv as _));
     p.fbdiv_int().write(|w| w.set_fbdiv_int(fbdiv as _));
 
     p.pwr().modify(|w| {
