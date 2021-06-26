@@ -15,7 +15,9 @@ use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
 use crate::pac;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
+use crate::timer::Frequency;
 use crate::timer::Instance as TimerInstance;
+use crate::timer::Timer;
 use crate::uarte::{Config, Instance as UarteInstance};
 
 // Re-export SVD variants to allow user to directly set values
@@ -35,7 +37,7 @@ enum TxState {
 
 struct State<'d, U: UarteInstance, T: TimerInstance> {
     phantom: PhantomData<&'d mut U>,
-    timer: T,
+    timer: Timer<'d, T>,
     _ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
     _ppi_ch2: Ppi<'d, AnyConfigurableChannel>,
 
@@ -76,10 +78,11 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
     ) -> Self {
-        unborrow!(timer, ppi_ch1, ppi_ch2, irq, rxd, txd, cts, rts);
+        unborrow!(ppi_ch1, ppi_ch2, irq, rxd, txd, cts, rts);
 
         let r = U::regs();
-        let rt = timer.regs();
+
+        let timer = Timer::new_irqless(timer);
 
         rxd.conf().write(|w| w.input().connect().drive().h0h1());
         r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
@@ -133,25 +136,19 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         // This gives us the amount of 16M ticks for 20 bits.
         let timeout = 0x8000_0000 / (config.baudrate as u32 / 40);
 
-        rt.tasks_stop.write(|w| unsafe { w.bits(1) });
-        rt.bitmode.write(|w| w.bitmode()._32bit());
-        rt.prescaler.write(|w| unsafe { w.prescaler().bits(0) });
-        rt.cc[0].write(|w| unsafe { w.bits(timeout) });
-        rt.mode.write(|w| w.mode().timer());
-        rt.shorts.write(|w| {
-            w.compare0_clear().set_bit();
-            w.compare0_stop().set_bit();
-            w
-        });
+        timer.set_frequency(Frequency::F16MHz);
+        timer.cc0().set(timeout);
+        timer.cc0().short_compare_clear();
+        timer.cc0().short_compare_stop();
 
         let mut ppi_ch1 = Ppi::new(ppi_ch1.degrade_configurable());
         ppi_ch1.set_event(Event::from_reg(&r.events_rxdrdy));
-        ppi_ch1.set_task(Task::from_reg(&rt.tasks_clear));
-        ppi_ch1.set_fork_task(Task::from_reg(&rt.tasks_start));
+        ppi_ch1.set_task(timer.task_clear());
+        ppi_ch1.set_fork_task(timer.task_start());
         ppi_ch1.enable();
 
         let mut ppi_ch2 = Ppi::new(ppi_ch2.degrade_configurable());
-        ppi_ch2.set_event(Event::from_reg(&rt.events_compare[0]));
+        ppi_ch2.set_event(timer.cc0().event_compare());
         ppi_ch2.set_task(Task::from_reg(&r.tasks_stoprx));
         ppi_ch2.enable();
 
@@ -181,11 +178,10 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         inner.as_mut().register_interrupt();
         inner.with(|state, _irq| {
             let r = U::regs();
-            let rt = state.timer.regs();
 
             let timeout = 0x8000_0000 / (baudrate as u32 / 40);
-            rt.cc[0].write(|w| unsafe { w.bits(timeout) });
-            rt.tasks_clear.write(|w| unsafe { w.bits(1) });
+            state.timer.cc0().set(timeout);
+            state.timer.clear();
 
             r.baudrate.write(|w| w.baudrate().variant(baudrate));
         });
@@ -268,11 +264,10 @@ impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U,
 impl<'a, U: UarteInstance, T: TimerInstance> Drop for State<'a, U, T> {
     fn drop(&mut self) {
         let r = U::regs();
-        let rt = self.timer.regs();
 
         // TODO this probably deadlocks. do like Uarte instead.
 
-        rt.tasks_stop.write(|w| unsafe { w.bits(1) });
+        self.timer.stop();
         if let RxState::Receiving = self.rx_state {
             r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
         }
@@ -293,7 +288,6 @@ impl<'a, U: UarteInstance, T: TimerInstance> PeripheralState for State<'a, U, T>
     fn on_interrupt(&mut self) {
         trace!("irq: start");
         let r = U::regs();
-        let rt = self.timer.regs();
 
         loop {
             match self.rx_state {
@@ -330,7 +324,7 @@ impl<'a, U: UarteInstance, T: TimerInstance> PeripheralState for State<'a, U, T>
                 RxState::Receiving => {
                     trace!("  irq_rx: in state receiving");
                     if r.events_endrx.read().bits() != 0 {
-                        rt.tasks_stop.write(|w| unsafe { w.bits(1) });
+                        self.timer.stop();
 
                         let n: usize = r.rxd.amount.read().amount().bits() as usize;
                         trace!("  irq_rx: endrx {:?}", n);

@@ -18,7 +18,9 @@ use crate::gpio::{self, OptionalPin as GpioOptionalPin, Pin as GpioPin};
 use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
+use crate::timer::Frequency;
 use crate::timer::Instance as TimerInstance;
+use crate::timer::Timer;
 
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
@@ -287,7 +289,7 @@ impl<'d, T: Instance> Write for Uarte<'d, T> {
 /// allowing it to implement the ReadUntilIdle trait.
 pub struct UarteWithIdle<'d, U: Instance, T: TimerInstance> {
     uarte: Uarte<'d, U>,
-    timer: T,
+    timer: Timer<'d, T>,
     ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
     _ppi_ch2: Ppi<'d, AnyConfigurableChannel>,
 }
@@ -316,11 +318,11 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
     ) -> Self {
         let baudrate = config.baudrate;
         let uarte = Uarte::new(uarte, irq, rxd, txd, cts, rts, config);
+        let timer = Timer::new_irqless(timer);
 
-        unborrow!(timer, ppi_ch1, ppi_ch2);
+        unborrow!(ppi_ch1, ppi_ch2);
 
         let r = U::regs();
-        let rt = timer.regs();
 
         // BAUDRATE register values are `baudrate * 2^32 / 16000000`
         // source: https://devzone.nordicsemi.com/f/nordic-q-a/391/uart-baudrate-register-values
@@ -330,25 +332,19 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         // This gives us the amount of 16M ticks for 20 bits.
         let timeout = 0x8000_0000 / (baudrate as u32 / 40);
 
-        rt.tasks_stop.write(|w| unsafe { w.bits(1) });
-        rt.bitmode.write(|w| w.bitmode()._32bit());
-        rt.prescaler.write(|w| unsafe { w.prescaler().bits(0) });
-        rt.cc[0].write(|w| unsafe { w.bits(timeout) });
-        rt.mode.write(|w| w.mode().timer());
-        rt.shorts.write(|w| {
-            w.compare0_clear().set_bit();
-            w.compare0_stop().set_bit();
-            w
-        });
+        timer.set_frequency(Frequency::F16MHz);
+        timer.cc0().set(timeout);
+        timer.cc0().short_compare_clear();
+        timer.cc0().short_compare_stop();
 
         let mut ppi_ch1 = Ppi::new(ppi_ch1.degrade_configurable());
         ppi_ch1.set_event(Event::from_reg(&r.events_rxdrdy));
-        ppi_ch1.set_task(Task::from_reg(&rt.tasks_clear));
-        ppi_ch1.set_fork_task(Task::from_reg(&rt.tasks_start));
+        ppi_ch1.set_task(timer.task_clear());
+        ppi_ch1.set_fork_task(timer.task_start());
         ppi_ch1.enable();
 
         let mut ppi_ch2 = Ppi::new(ppi_ch2.degrade_configurable());
-        ppi_ch2.set_event(Event::from_reg(&rt.events_compare[0]));
+        ppi_ch2.set_event(timer.cc0().event_compare());
         ppi_ch2.set_task(Task::from_reg(&r.tasks_stoprx));
         ppi_ch2.enable();
 
@@ -373,12 +369,10 @@ impl<'d, U: Instance, T: TimerInstance> ReadUntilIdle for UarteWithIdle<'d, U, T
             let r = U::regs();
             let s = U::state();
 
-            let rt = self.timer.regs();
-
-            let drop = OnDrop::new(move || {
+            let drop = OnDrop::new(|| {
                 info!("read drop: stopping");
 
-                rt.tasks_stop.write(|w| unsafe { w.bits(1) });
+                self.timer.stop();
 
                 r.intenclr.write(|w| w.endrx().clear());
                 r.events_rxto.reset();
@@ -413,7 +407,7 @@ impl<'d, U: Instance, T: TimerInstance> ReadUntilIdle for UarteWithIdle<'d, U, T
             let n = r.rxd.amount.read().amount().bits() as usize;
 
             // Stop timer
-            rt.tasks_stop.write(|w| unsafe { w.bits(1) });
+            self.timer.stop();
             r.events_rxstarted.reset();
 
             drop.defuse();
