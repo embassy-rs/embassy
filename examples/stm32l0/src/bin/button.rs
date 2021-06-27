@@ -9,7 +9,7 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use embassy_stm32::{
-    gpio::{Input, Level, Output, Pull},
+    gpio::{Input, Level, Output, Pull, Speed},
     rcc::*,
 };
 use embedded_hal::digital::v2::{InputPin, OutputPin};
@@ -25,8 +25,8 @@ fn main() -> ! {
     Rcc::new(p.RCC).enable_debug_wfe(&mut p.DBGMCU, true);
 
     let button = Input::new(p.PB2, Pull::Up);
-    let mut led1 = Output::new(p.PA5, Level::High);
-    let mut led2 = Output::new(p.PB5, Level::High);
+    let mut led1 = Output::new(p.PA5, Level::High, Speed::Low);
+    let mut led2 = Output::new(p.PB5, Level::High, Speed::Low);
 
     loop {
         if button.is_high().unwrap() {

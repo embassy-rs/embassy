@@ -9,7 +9,7 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use embassy_stm32::{
-    gpio::{Level, Output},
+    gpio::{Level, Output, Speed},
     rcc::*,
 };
 use embedded_hal::digital::v2::OutputPin;
@@ -25,7 +25,7 @@ fn main() -> ! {
 
     Rcc::new(p.RCC).enable_debug_wfe(&mut p.DBGMCU, true);
 
-    let mut led = Output::new(p.PB5, Level::High);
+    let mut led = Output::new(p.PB5, Level::High, Speed::Low);
 
     loop {
         info!("high");
