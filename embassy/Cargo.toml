@@ -5,7 +5,11 @@ authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
 
 [features]
+default = ["tick-hz-32768"]
 std = ["futures/std", "embassy-traits/std"]
+tick-hz-32768 = []
+tick-hz-1000 = []
+tick-mhz-1 = []
 
 defmt-trace = []
 defmt-debug = []
@@ -26,6 +30,7 @@ embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
 embassy-traits  = { version = "0.1.0", path = "../embassy-traits"}
 atomic-polyfill  = { version = "0.1.1" }
 critical-section = "0.2.1"
+embedded-hal = "0.2.5"
 
 # Workaround https://github.com/japaric/cast.rs/pull/27
 cast = { version = "=0.2.3", default-features = false }
