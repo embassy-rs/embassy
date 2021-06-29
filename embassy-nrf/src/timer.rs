@@ -284,7 +284,7 @@ impl<'a, T: Instance> Cc<'a, T> {
     pub fn unshort_compare_clear(&self) {
         T::regs()
             .shorts
-            .modify(|r, w| unsafe { w.bits(r.bits() & (0 << self.n)) })
+            .modify(|r, w| unsafe { w.bits(r.bits() & !(1 << self.n)) })
     }
 
     /// Enable the shortcut between this CC register's COMPARE event and the timer's STOP task.
@@ -302,7 +302,7 @@ impl<'a, T: Instance> Cc<'a, T> {
     pub fn unshort_compare_stop(&self) {
         T::regs()
             .shorts
-            .modify(|r, w| unsafe { w.bits(r.bits() & (0 << (8 + self.n))) })
+            .modify(|r, w| unsafe { w.bits(r.bits() & !(1 << (8 + self.n))) })
     }
 
     /// Wait until the timer's counter reaches the value stored in this register.
