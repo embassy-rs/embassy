@@ -8,6 +8,9 @@ embassy_extras::peripherals! {
     RTC0,
     RTC1,
 
+    // RNG
+    RNG,
+
     // UARTE
     UARTE0,
 

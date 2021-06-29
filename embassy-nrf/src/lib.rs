@@ -33,6 +33,7 @@ pub mod ppi;
 pub mod pwm;
 #[cfg(feature = "nrf52840")]
 pub mod qspi;
+pub mod rng;
 pub mod rtc;
 #[cfg(not(feature = "nrf52820"))]
 pub mod saadc;
