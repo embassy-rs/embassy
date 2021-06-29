@@ -277,7 +277,7 @@ impl<'a, T: Instance> Cc<'a, T> {
     ///
     /// This event will fire when the timer's counter reaches the value in this CC register.
     pub fn event_compare(&self) -> Event {
-        Event::from_reg(&T::regs().events_compare)
+        Event::from_reg(&T::regs().events_compare[self.n])
     }
 
     /// Enable the shortcut between this CC register's COMPARE event and the timer's CLEAR task.
