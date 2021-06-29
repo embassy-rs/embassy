@@ -26,6 +26,8 @@ pub enum Error {
 
 pub(crate) mod sealed {
     use super::*;
+
+    #[cfg(dma)]
     use crate::dma::WriteDma;
 
     pub trait Instance {
@@ -47,8 +49,10 @@ pub(crate) mod sealed {
         fn af_num(&self) -> u8;
     }
 
+    #[cfg(dma)]
     pub trait RxDma<T: Instance> {}
 
+    #[cfg(dma)]
     pub trait TxDma<T: Instance>: WriteDma<T> {}
 }
 
@@ -59,7 +63,9 @@ pub trait CtsPin<T: Instance>: sealed::CtsPin<T> {}
 pub trait RtsPin<T: Instance>: sealed::RtsPin<T> {}
 pub trait CkPin<T: Instance>: sealed::CkPin<T> {}
 
+#[cfg(dma)]
 pub trait RxDma<T: Instance>: sealed::RxDma<T> {}
+#[cfg(dma)]
 pub trait TxDma<T: Instance>: sealed::TxDma<T> {}
 
 crate::pac::peripherals!(
