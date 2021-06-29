@@ -197,27 +197,8 @@ impl<'d, T: Instance> Timer<'d, T> {
             if regs.events_compare[n].read().bits() != 0 {
                 // Clear the interrupt, otherwise the interrupt will be repeatedly raised as soon as the interrupt handler exits.
                 // We can't clear the event, because it's used to poll whether the future is done or still pending.
-                regs.intenclr.write(|w| match n {
-                    0 => w.compare0().clear(),
-                    1 => w.compare1().clear(),
-                    2 => w.compare2().clear(),
-                    3 => w.compare3().clear(),
-                    #[cfg(any(
-                        feature = "nrf52805",
-                        feature = "nrf52811",
-                        feature = "nrf52820",
-                        feature = "nrf52833",
-                    ))]
-                    4 => w.compare4().clear(),
-                    #[cfg(any(
-                        feature = "nrf52805",
-                        feature = "nrf52811",
-                        feature = "nrf52820",
-                        feature = "nrf52833",
-                    ))]
-                    5 => w.compare5().clear(),
-                    _ => unreachable!("No timers have more than 6 CC registers"),
-                });
+                regs.intenclr
+                    .modify(|r, w| unsafe { w.bits(r.bits() | (1 << (16 + n))) });
                 T::waker(n).wake();
             }
         }
@@ -294,52 +275,16 @@ impl<'a, T: Instance> Cc<'a, T> {
     ///
     /// So, when the timer's counter reaches the value stored in this register, the timer's counter will be reset to 0.
     pub fn short_compare_clear(&self) {
-        T::regs().shorts.write(|w| match self.n {
-            0 => w.compare0_clear().enabled(),
-            1 => w.compare1_clear().enabled(),
-            2 => w.compare2_clear().enabled(),
-            3 => w.compare3_clear().enabled(),
-            #[cfg(any(
-                feature = "nrf52805",
-                feature = "nrf52811",
-                feature = "nrf52820",
-                feature = "nrf52833",
-            ))]
-            4 => w.compare4_clear().enabled(),
-            #[cfg(any(
-                feature = "nrf52805",
-                feature = "nrf52811",
-                feature = "nrf52820",
-                feature = "nrf52833",
-            ))]
-            5 => w.compare5_clear().enabled(),
-            _ => unreachable!("a `Cc` cannot be created with `n > 5`"),
-        })
+        T::regs()
+            .shorts
+            .modify(|r, w| unsafe { w.bits(r.bits() | (1 << self.n)) })
     }
 
     /// Disable the shortcut between this CC register's COMPARE event and the timer's CLEAR task.
     pub fn unshort_compare_clear(&self) {
-        T::regs().shorts.write(|w| match self.n {
-            0 => w.compare0_clear().disabled(),
-            1 => w.compare1_clear().disabled(),
-            2 => w.compare2_clear().disabled(),
-            3 => w.compare3_clear().disabled(),
-            #[cfg(any(
-                feature = "nrf52805",
-                feature = "nrf52811",
-                feature = "nrf52820",
-                feature = "nrf52833",
-            ))]
-            4 => w.compare4_clear().disabled(),
-            #[cfg(any(
-                feature = "nrf52805",
-                feature = "nrf52811",
-                feature = "nrf52820",
-                feature = "nrf52833",
-            ))]
-            5 => w.compare5_clear().disabled(),
-            _ => unreachable!("a `Cc` cannot be created with `n > 5`"),
-        })
+        T::regs()
+            .shorts
+            .modify(|r, w| unsafe { w.bits(r.bits() & (0 << self.n)) })
     }
 
     /// Enable the shortcut between this CC register's COMPARE event and the timer's STOP task.
@@ -348,52 +293,16 @@ impl<'a, T: Instance> Cc<'a, T> {
     ///
     /// So, when the timer's counter reaches the value stored in this register, the timer will stop counting up.
     pub fn short_compare_stop(&self) {
-        T::regs().shorts.write(|w| match self.n {
-            0 => w.compare0_stop().enabled(),
-            1 => w.compare1_stop().enabled(),
-            2 => w.compare2_stop().enabled(),
-            3 => w.compare3_stop().enabled(),
-            #[cfg(any(
-                feature = "nrf52805",
-                feature = "nrf52811",
-                feature = "nrf52820",
-                feature = "nrf52833",
-            ))]
-            4 => w.compare4_stop().enabled(),
-            #[cfg(any(
-                feature = "nrf52805",
-                feature = "nrf52811",
-                feature = "nrf52820",
-                feature = "nrf52833",
-            ))]
-            5 => w.compare5_stop().enabled(),
-            _ => unreachable!("a `Cc` cannot be created with `n > 5`"),
-        })
+        T::regs()
+            .shorts
+            .modify(|r, w| unsafe { w.bits(r.bits() | (1 << (8 + self.n))) })
     }
 
     /// Disable the shortcut between this CC register's COMPARE event and the timer's STOP task.
     pub fn unshort_compare_stop(&self) {
-        T::regs().shorts.write(|w| match self.n {
-            0 => w.compare0_stop().disabled(),
-            1 => w.compare1_stop().disabled(),
-            2 => w.compare2_stop().disabled(),
-            3 => w.compare3_stop().disabled(),
-            #[cfg(any(
-                feature = "nrf52805",
-                feature = "nrf52811",
-                feature = "nrf52820",
-                feature = "nrf52833",
-            ))]
-            4 => w.compare4_stop().disabled(),
-            #[cfg(any(
-                feature = "nrf52805",
-                feature = "nrf52811",
-                feature = "nrf52820",
-                feature = "nrf52833",
-            ))]
-            5 => w.compare5_stop().disabled(),
-            _ => unreachable!("a `Cc` cannot be created with `n > 5`"),
-        })
+        T::regs()
+            .shorts
+            .modify(|r, w| unsafe { w.bits(r.bits() & (0 << (8 + self.n))) })
     }
 
     /// Wait until the timer's counter reaches the value stored in this register.
@@ -403,51 +312,13 @@ impl<'a, T: Instance> Cc<'a, T> {
         let regs = T::regs();
 
         // Enable the interrupt for this CC's COMPARE event.
-        regs.intenset.write(|w| match self.n {
-            0 => w.compare0().set(),
-            1 => w.compare1().set(),
-            2 => w.compare2().set(),
-            3 => w.compare3().set(),
-            #[cfg(any(
-                feature = "nrf52805",
-                feature = "nrf52811",
-                feature = "nrf52820",
-                feature = "nrf52833",
-            ))]
-            4 => w.compare4().set(),
-            #[cfg(any(
-                feature = "nrf52805",
-                feature = "nrf52811",
-                feature = "nrf52820",
-                feature = "nrf52833",
-            ))]
-            5 => w.compare5().set(),
-            _ => unreachable!("a `Cc` cannot be created with `n > 5`"),
-        });
+        regs.intenset
+            .modify(|r, w| unsafe { w.bits(r.bits() | (1 << (16 + self.n))) });
 
         // Disable the interrupt if the future is dropped.
         let on_drop = OnDrop::new(|| {
-            regs.intenclr.write(|w| match self.n {
-                0 => w.compare0().clear(),
-                1 => w.compare1().clear(),
-                2 => w.compare2().clear(),
-                3 => w.compare3().clear(),
-                #[cfg(any(
-                    feature = "nrf52805",
-                    feature = "nrf52811",
-                    feature = "nrf52820",
-                    feature = "nrf52833",
-                ))]
-                4 => w.compare4().clear(),
-                #[cfg(any(
-                    feature = "nrf52805",
-                    feature = "nrf52811",
-                    feature = "nrf52820",
-                    feature = "nrf52833",
-                ))]
-                5 => w.compare5().clear(),
-                _ => unreachable!("a `Cc` cannot be created with `n > 5`"),
-            });
+            regs.intenclr
+                .modify(|r, w| unsafe { w.bits(r.bits() | (1 << (16 + self.n))) });
         });
 
         poll_fn(|cx| {
