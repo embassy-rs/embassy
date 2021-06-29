@@ -143,17 +143,17 @@ impl<'d, T: Instance> Timer<'d, T> {
 
     /// Starts the timer.
     pub fn start(&self) {
-        T::regs().tasks_start.write(|w| w.tasks_start().trigger())
+        T::regs().tasks_start.write(|w| unsafe { w.bits(1) })
     }
 
     /// Stops the timer.
     pub fn stop(&self) {
-        T::regs().tasks_stop.write(|w| w.tasks_stop().trigger())
+        T::regs().tasks_stop.write(|w| unsafe { w.bits(1) })
     }
 
     /// Reset the timer's counter to 0.
     pub fn clear(&self) {
-        T::regs().tasks_clear.write(|w| w.tasks_clear().trigger())
+        T::regs().tasks_clear.write(|w| unsafe { w.bits(1) })
     }
 
     /// Returns the START task, for use with PPI.
@@ -194,11 +194,7 @@ impl<'d, T: Instance> Timer<'d, T> {
     fn on_interrupt(_: *mut ()) {
         let regs = T::regs();
         for n in 0..T::CCS {
-            if regs.events_compare[n]
-                .read()
-                .events_compare()
-                .is_generated()
-            {
+            if regs.events_compare[n].read().bits() != 0 {
                 // Clear the interrupt, otherwise the interrupt will be repeatedly raised as soon as the interrupt handler exits.
                 // We can't clear the event, because it's used to poll whether the future is done or still pending.
                 regs.intenclr.write(|w| match n {
@@ -274,7 +270,7 @@ impl<'a, T: Instance> Cc<'a, T> {
 
     /// Capture the current value of the timer's counter in this register, and return it.
     pub fn capture(&self) -> u32 {
-        T::regs().tasks_capture[self.n].write(|w| w.tasks_capture().trigger());
+        T::regs().tasks_capture[self.n].write(|w| unsafe { w.bits(1) });
         self.read()
     }
 
@@ -457,13 +453,9 @@ impl<'a, T: Instance> Cc<'a, T> {
         poll_fn(|cx| {
             T::waker(self.n).register(cx.waker());
 
-            if regs.events_compare[self.n]
-                .read()
-                .events_compare()
-                .is_generated()
-            {
+            if regs.events_compare[self.n].read().bits() != 0 {
                 // Reset the register for next time
-                regs.events_compare[self.n].write(|w| w.events_compare().not_generated());
+                regs.events_compare[self.n].reset();
                 Poll::Ready(())
             } else {
                 Poll::Pending
