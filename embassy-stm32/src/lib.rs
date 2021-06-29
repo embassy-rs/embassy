@@ -22,8 +22,6 @@ pub mod rcc;
 // Sometimes-present hardware
 #[cfg(adc)]
 pub mod adc;
-#[cfg(bdma)]
-pub mod bdma;
 #[cfg(timer)]
 pub mod clock;
 #[cfg(dac)]
