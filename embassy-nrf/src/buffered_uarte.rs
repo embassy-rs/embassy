@@ -82,7 +82,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 
         let r = U::regs();
 
-        let timer = Timer::new_irqless(timer);
+        let mut timer = Timer::new_irqless(timer);
 
         rxd.conf().write(|w| w.input().connect().drive().h0h1());
         r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
@@ -137,9 +137,9 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         let timeout = 0x8000_0000 / (config.baudrate as u32 / 40);
 
         timer.set_frequency(Frequency::F16MHz);
-        timer.cc0().set(timeout);
-        timer.cc0().short_compare_clear();
-        timer.cc0().short_compare_stop();
+        timer.cc(0).write(timeout);
+        timer.cc(0).short_compare_clear();
+        timer.cc(0).short_compare_stop();
 
         let mut ppi_ch1 = Ppi::new(ppi_ch1.degrade_configurable());
         ppi_ch1.set_event(Event::from_reg(&r.events_rxdrdy));
@@ -148,7 +148,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch1.enable();
 
         let mut ppi_ch2 = Ppi::new(ppi_ch2.degrade_configurable());
-        ppi_ch2.set_event(timer.cc0().event_compare());
+        ppi_ch2.set_event(timer.cc(0).event_compare());
         ppi_ch2.set_task(Task::from_reg(&r.tasks_stoprx));
         ppi_ch2.enable();
 
@@ -180,7 +180,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
             let r = U::regs();
 
             let timeout = 0x8000_0000 / (baudrate as u32 / 40);
-            state.timer.cc0().set(timeout);
+            state.timer.cc(0).write(timeout);
             state.timer.clear();
 
             r.baudrate.write(|w| w.baudrate().variant(baudrate));

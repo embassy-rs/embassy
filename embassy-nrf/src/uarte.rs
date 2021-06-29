@@ -318,7 +318,7 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
     ) -> Self {
         let baudrate = config.baudrate;
         let uarte = Uarte::new(uarte, irq, rxd, txd, cts, rts, config);
-        let timer = Timer::new_irqless(timer);
+        let mut timer = Timer::new_irqless(timer);
 
         unborrow!(ppi_ch1, ppi_ch2);
 
@@ -333,9 +333,9 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         let timeout = 0x8000_0000 / (baudrate as u32 / 40);
 
         timer.set_frequency(Frequency::F16MHz);
-        timer.cc0().set(timeout);
-        timer.cc0().short_compare_clear();
-        timer.cc0().short_compare_stop();
+        timer.cc(0).write(timeout);
+        timer.cc(0).short_compare_clear();
+        timer.cc(0).short_compare_stop();
 
         let mut ppi_ch1 = Ppi::new(ppi_ch1.degrade_configurable());
         ppi_ch1.set_event(Event::from_reg(&r.events_rxdrdy));
@@ -344,7 +344,7 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         ppi_ch1.enable();
 
         let mut ppi_ch2 = Ppi::new(ppi_ch2.degrade_configurable());
-        ppi_ch2.set_event(timer.cc0().event_compare());
+        ppi_ch2.set_event(timer.cc(0).event_compare());
         ppi_ch2.set_task(Task::from_reg(&r.tasks_stoprx));
         ppi_ch2.enable();
 

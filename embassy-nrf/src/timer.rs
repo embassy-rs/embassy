@@ -115,7 +115,7 @@ impl<'d, T: Instance> Timer<'d, T> {
         // TODO: is there a reason someone would want to set this lower?
         regs.bitmode.write(|w| w.bitmode()._32bit());
 
-        let this = Self {
+        let mut this = Self {
             phantom: PhantomData,
         };
 
@@ -125,14 +125,13 @@ impl<'d, T: Instance> Timer<'d, T> {
         // Initialize the counter at 0.
         this.clear();
 
-        // Initialize all the shorts as disabled.
         for n in 0..T::CCS {
-            let cc = Cc::<T> {
-                n,
-                phantom: PhantomData,
-            };
+            let cc = this.cc(n);
+            // Initialize all the shorts as disabled.
             cc.unshort_compare_clear();
             cc.unshort_compare_stop();
+            // Initialize the CC registers as 0.
+            cc.write(0);
         }
 
         this
@@ -196,57 +195,36 @@ impl<'d, T: Instance> Timer<'d, T> {
                 .events_compare()
                 .is_generated()
             {
+                // Clear the interrupt, otherwise the interrupt will be repeatedly raised as soon as the interrupt handler exits.
+                // We can't clear the event, because it's used to poll whether the future is done or still pending.
+                regs.intenclr.write(|w| match n {
+                    0 => w.compare0().clear(),
+                    1 => w.compare1().clear(),
+                    2 => w.compare2().clear(),
+                    3 => w.compare3().clear(),
+                    4 => w.compare4().clear(),
+                    5 => w.compare5().clear(),
+                    _ => unreachable!("No timers have more than 6 CC registers"),
+                });
                 T::waker(n).wake();
             }
         }
     }
 
-    /// Returns the 0th CC register.
-    pub fn cc0<'a>(&'a self) -> Cc<'a, T> {
-        Cc {
-            n: 0,
-            phantom: PhantomData,
+    /// Returns this timer's `n`th CC register.
+    ///
+    /// # Panics
+    /// Panics if `n` >= the number of CC registers this timer has (4 for a normal timer, 6 for an extended timer).
+    pub fn cc(&mut self, n: usize) -> Cc<T> {
+        if n >= T::CCS {
+            panic!(
+                "Cannot get CC register {} of timer with {} CC registers.",
+                n,
+                T::CCS
+            );
         }
-    }
-
-    /// Returns the 1st CC register.
-    pub fn cc1<'a>(&'a self) -> Cc<'a, T> {
         Cc {
-            n: 1,
-            phantom: PhantomData,
-        }
-    }
-
-    /// Returns the 2nd CC register.
-    pub fn cc2<'a>(&'a self) -> Cc<'a, T> {
-        Cc {
-            n: 2,
-            phantom: PhantomData,
-        }
-    }
-
-    /// Returns the 3rd CC register.
-    pub fn cc3<'a>(&'a self) -> Cc<'a, T> {
-        Cc {
-            n: 3,
-            phantom: PhantomData,
-        }
-    }
-}
-
-impl<'d, T: ExtendedInstance> Timer<'d, T> {
-    /// Returns the 4th CC register.
-    pub fn cc4<'a>(&'a self) -> Cc<'a, T> {
-        Cc {
-            n: 4,
-            phantom: PhantomData,
-        }
-    }
-
-    /// Returns the 5th CC register.
-    pub fn cc5<'a>(&'a self) -> Cc<'a, T> {
-        Cc {
-            n: 5,
+            n,
             phantom: PhantomData,
         }
     }
@@ -266,14 +244,14 @@ pub struct Cc<'a, T: Instance> {
 
 impl<'a, T: Instance> Cc<'a, T> {
     /// Get the current value stored in the register.
-    pub fn value(&self) -> u32 {
+    pub fn read(&self) -> u32 {
         T::regs().cc[self.n].read().cc().bits()
     }
 
     /// Set the value stored in the register.
     ///
     /// `event_compare` will fire when the timer's counter reaches this value.
-    pub fn set(&self, value: u32) {
+    pub fn write(&self, value: u32) {
         // SAFETY: there are no invalid values for the CC register.
         T::regs().cc[self.n].write(|w| unsafe { w.cc().bits(value) })
     }
@@ -281,7 +259,7 @@ impl<'a, T: Instance> Cc<'a, T> {
     /// Capture the current value of the timer's counter in this register, and return it.
     pub fn capture(&self) -> u32 {
         T::regs().tasks_capture[self.n].write(|w| w.tasks_capture().trigger());
-        self.value()
+        self.read()
     }
 
     /// Returns this CC register's CAPTURE task, for use with PPI.
@@ -359,7 +337,9 @@ impl<'a, T: Instance> Cc<'a, T> {
     }
 
     /// Wait until the timer's counter reaches the value stored in this register.
-    pub async fn wait(&self) {
+    ///
+    /// This requires a mutable reference so that this task's waker cannot be overwritten by a second call to `wait`.
+    pub async fn wait(&mut self) {
         let regs = T::regs();
 
         // Enable the interrupt for this CC's COMPARE event.
@@ -394,6 +374,8 @@ impl<'a, T: Instance> Cc<'a, T> {
                 .events_compare()
                 .is_generated()
             {
+                // Reset the register for next time
+                regs.events_compare[self.n].write(|w| w.events_compare().not_generated());
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -401,7 +383,7 @@ impl<'a, T: Instance> Cc<'a, T> {
         })
         .await;
 
-        // Trigger the interrupt to be disabled.
-        drop(on_drop);
+        // The interrupt was already disabled in the interrupt handler, so there's no need to disable it again.
+        on_drop.defuse();
     }
 }
