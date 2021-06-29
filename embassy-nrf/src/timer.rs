@@ -64,7 +64,7 @@ macro_rules! impl_timer {
 
 #[repr(u8)]
 pub enum Frequency {
-    // TODO: These variant names are terrible, what should they be?
+    // I'd prefer not to prefix these with `F`, but Rust identifiers can't start with digits.
     F16MHz = 0,
     F8MHz = 1,
     F4MHz = 2,
@@ -108,6 +108,14 @@ impl<'d, T: Instance> Timer<'d, T> {
     pub(crate) fn new_irqless(_timer: impl Unborrow<Target = T> + 'd) -> Self {
         let regs = T::regs();
 
+        let mut this = Self {
+            phantom: PhantomData,
+        };
+
+        // Stop the timer before doing anything else,
+        // since changing BITMODE while running can cause 'unpredictable behaviour' according to the specification.
+        this.stop();
+
         // Set the instance to timer mode.
         regs.mode.write(|w| w.mode().timer());
 
@@ -115,15 +123,11 @@ impl<'d, T: Instance> Timer<'d, T> {
         // TODO: is there a reason someone would want to set this lower?
         regs.bitmode.write(|w| w.bitmode()._32bit());
 
-        let mut this = Self {
-            phantom: PhantomData,
-        };
-
-        // Initialize the timer as stopped.
-        this.stop();
-
         // Initialize the counter at 0.
         this.clear();
+
+        // Default to the max frequency of the lower power clock
+        this.set_frequency(Frequency::F1MHz);
 
         for n in 0..T::CCS {
             let cc = this.cc(n);
