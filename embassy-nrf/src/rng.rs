@@ -97,10 +97,10 @@ impl<'d> traits::rng::Rng for Rng<'d> {
     type RngFuture<'a> where 'd: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn fill_bytes<'a>(&'a mut self, dest: &'a mut [u8]) -> Self::RngFuture<'a> {
-        self.enable_irq();
-        self.start();
-
         async move {
+            self.enable_irq();
+            self.start();
+
             let on_drop = OnDrop::new(|| {
                 self.stop();
                 self.disable_irq();
