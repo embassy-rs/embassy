@@ -132,7 +132,7 @@ impl RccExt for RCC {
             ClockSrc::HSI16 => {
                 // Enable HSI16
                 unsafe {
-                    rcc.cr().write(|w| w.set_hsion(true));
+                    rcc.cr().modify(|w| w.set_hsion(true));
                     while !rcc.cr().read().hsirdy() {}
                 }
 
@@ -141,7 +141,7 @@ impl RccExt for RCC {
             ClockSrc::HSE(freq) => {
                 // Enable HSE
                 unsafe {
-                    rcc.cr().write(|w| w.set_hseon(true));
+                    rcc.cr().modify(|w| w.set_hseon(true));
                     while !rcc.cr().read().hserdy() {}
                 }
 

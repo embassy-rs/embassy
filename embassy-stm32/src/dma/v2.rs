@@ -40,6 +40,52 @@ impl State {
 static STATE: State = State::new();
 
 #[allow(unused)] // Used by usart/v1.rs which may or may not be enabled
+pub(crate) async unsafe fn transfer_p2m(
+    ch: &mut impl Channel,
+    ch_func: u8,
+    src: *const u8,
+    dst: &mut [u8],
+) {
+    let n = ch.num();
+    let c = ch.regs();
+
+    // ndtr is max 16 bits.
+    assert!(dst.len() <= 0xFFFF);
+
+    // Reset status
+    STATE.ch_status[n].store(CH_STATUS_NONE, Ordering::Relaxed);
+
+    unsafe {
+        c.par().write_value(src as _);
+        c.m0ar().write_value(dst.as_ptr() as _);
+        c.ndtr().write_value(regs::Ndtr(dst.len() as _));
+        c.cr().write(|w| {
+            w.set_dir(vals::Dir::PERIPHERALTOMEMORY);
+            w.set_msize(vals::Size::BITS8);
+            w.set_psize(vals::Size::BITS8);
+            w.set_minc(vals::Inc::INCREMENTED);
+            w.set_pinc(vals::Inc::FIXED);
+            w.set_chsel(ch_func);
+            w.set_teie(true);
+            w.set_tcie(true);
+            w.set_en(true);
+        });
+    }
+
+    let res = poll_fn(|cx| {
+        STATE.ch_wakers[n].register(cx.waker());
+        match STATE.ch_status[n].load(Ordering::Relaxed) {
+            CH_STATUS_NONE => Poll::Pending,
+            x => Poll::Ready(x),
+        }
+    })
+    .await;
+
+    // TODO handle error
+    assert!(res == CH_STATUS_COMPLETED);
+}
+
+#[allow(unused)] // Used by usart/v1.rs which may or may not be enabled
 pub(crate) async unsafe fn transfer_m2p(
     ch: &mut impl Channel,
     ch_func: u8,
@@ -75,7 +121,10 @@ pub(crate) async unsafe fn transfer_m2p(
     let res = poll_fn(|cx| {
         STATE.ch_wakers[n].register(cx.waker());
         match STATE.ch_status[n].load(Ordering::Relaxed) {
-            CH_STATUS_NONE => Poll::Pending,
+            CH_STATUS_NONE => {
+                let left = c.ndtr().read().ndt();
+                Poll::Pending
+            }
             x => Poll::Ready(x),
         }
     })
@@ -137,14 +186,14 @@ pub(crate) mod sealed {
         }
     }
 
-    pub trait PeripheralChannel<PERI>: Channel {
+    pub trait PeripheralChannel<PERI, OP>: Channel {
         fn request(&self) -> u8;
     }
 }
 
 pub trait Dma: sealed::Dma + Sized {}
 pub trait Channel: sealed::Channel + Sized {}
-pub trait PeripheralChannel<PERI>: sealed::PeripheralChannel<PERI> + Sized {}
+pub trait PeripheralChannel<PERI, OP>: sealed::PeripheralChannel<PERI, OP> + Sized {}
 
 macro_rules! impl_dma {
     ($peri:ident, $num:expr) => {
@@ -180,7 +229,7 @@ macro_rules! impl_dma_channel {
 
         impl<T> WriteDma<T> for peripherals::$channel_peri
         where
-            Self: sealed::PeripheralChannel<T>,
+            Self: sealed::PeripheralChannel<T, M2P>,
             T: 'static,
         {
             type WriteDmaFuture<'a> = impl Future<Output = ()>;
@@ -189,8 +238,28 @@ macro_rules! impl_dma_channel {
             where
                 T: 'a,
             {
-                let request = sealed::PeripheralChannel::<T>::request(self);
+                let request = sealed::PeripheralChannel::<T, M2P>::request(self);
                 unsafe { transfer_m2p(self, request, buf, dst) }
+            }
+        }
+
+        impl<T> ReadDma<T> for peripherals::$channel_peri
+        where
+            Self: sealed::PeripheralChannel<T, P2M>,
+            T: 'static,
+        {
+            type ReadDmaFuture<'a> = impl Future<Output = ()>;
+
+            fn transfer<'a>(
+                &'a mut self,
+                src: *const u8,
+                buf: &'a mut [u8],
+            ) -> Self::ReadDmaFuture<'a>
+            where
+                T: 'a,
+            {
+                let request = sealed::PeripheralChannel::<T, P2M>::request(self);
+                unsafe { transfer_p2m(self, request, src, buf) }
             }
         }
     };
@@ -217,11 +286,15 @@ peripherals! {
 
 interrupts! {
     (DMA, $irq:ident) => {
+        #[crate::interrupt]
         unsafe fn $irq () {
             on_irq()
         }
     };
 }
+
+pub struct P2M;
+pub struct M2P;
 
 #[cfg(usart)]
 use crate::usart;
@@ -230,25 +303,25 @@ peripheral_dma_channels! {
         impl usart::RxDma<peripherals::$peri> for peripherals::$channel_peri { }
         impl usart::sealed::RxDma<peripherals::$peri> for peripherals::$channel_peri { }
 
-        impl sealed::PeripheralChannel<peripherals::$peri> for peripherals::$channel_peri {
+        impl sealed::PeripheralChannel<peripherals::$peri, P2M> for peripherals::$channel_peri {
             fn request(&self) -> u8 {
                 $event_num
             }
         }
 
-        impl PeripheralChannel<peripherals::$peri> for peripherals::$channel_peri { }
+        impl PeripheralChannel<peripherals::$peri, P2M> for peripherals::$channel_peri { }
     };
 
     ($peri:ident, usart, $kind:ident, TX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr, $event_num:expr) => {
         impl usart::TxDma<peripherals::$peri> for peripherals::$channel_peri { }
         impl usart::sealed::TxDma<peripherals::$peri> for peripherals::$channel_peri { }
 
-        impl sealed::PeripheralChannel<peripherals::$peri> for peripherals::$channel_peri {
+        impl sealed::PeripheralChannel<peripherals::$peri, M2P> for peripherals::$channel_peri {
             fn request(&self) -> u8 {
                 $event_num
             }
         }
 
-        impl PeripheralChannel<peripherals::$peri> for peripherals::$channel_peri { }
+        impl PeripheralChannel<peripherals::$peri, M2P> for peripherals::$channel_peri { }
     };
 }

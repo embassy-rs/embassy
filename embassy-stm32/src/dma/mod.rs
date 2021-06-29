@@ -1,6 +1,6 @@
 #![macro_use]
 
-//#[cfg_attr(dma_v1, path = "v1.rs")]
+#[cfg_attr(dma_v1, path = "v1.rs")]
 #[cfg_attr(dma_v2, path = "v2.rs")]
 mod _version;
 
@@ -19,4 +19,12 @@ pub trait WriteDma<T> {
         T: 'a;
 }
 
-pub trait ReadDma {}
+pub trait ReadDma<T> {
+    type ReadDmaFuture<'a>: Future<Output = ()> + 'a
+    where
+        Self: 'a;
+
+    fn transfer<'a>(&'a mut self, src: *const u8, buf: &'a mut [u8]) -> Self::ReadDmaFuture<'a>
+    where
+        T: 'a;
+}

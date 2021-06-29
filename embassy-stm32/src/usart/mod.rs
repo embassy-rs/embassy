@@ -1,13 +1,14 @@
 #![macro_use]
 
 #[cfg_attr(usart_v1, path = "v1.rs")]
-//#[cfg_attr(usart_v2, path = "v2.rs")]
+#[cfg_attr(usart_v2, path = "v2.rs")]
 mod _version;
 use crate::peripherals;
 pub use _version::*;
 
 use crate::gpio::Pin;
 use crate::pac::usart::Usart;
+use crate::rcc::RccPeripheral;
 
 /// Serial error
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -51,7 +52,7 @@ pub(crate) mod sealed {
     pub trait TxDma<T: Instance>: WriteDma<T> {}
 }
 
-pub trait Instance: sealed::Instance {}
+pub trait Instance: sealed::Instance + RccPeripheral {}
 pub trait RxPin<T: Instance>: sealed::RxPin<T> {}
 pub trait TxPin<T: Instance>: sealed::TxPin<T> {}
 pub trait CtsPin<T: Instance>: sealed::CtsPin<T> {}
