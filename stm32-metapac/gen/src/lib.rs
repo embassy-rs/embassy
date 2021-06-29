@@ -431,13 +431,13 @@ pub fn gen(options: Options) {
                                 ]);
                             }
                             (None, Some(_)) => {
-                                println!("Unable to find enable register for {}", name)
+                                panic!("Unable to find enable register for {}", name)
                             }
                             (Some(_), None) => {
-                                println!("Unable to find reset register for {}", name)
+                                panic!("Unable to find reset register for {}", name)
                             }
                             (None, None) => {
-                                println!("Unable to find enable and reset register for {}", name)
+                                panic!("Unable to find enable and reset register for {}", name)
                             }
                         }
                     }
