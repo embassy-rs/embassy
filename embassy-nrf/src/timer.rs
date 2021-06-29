@@ -206,7 +206,19 @@ impl<'d, T: Instance> Timer<'d, T> {
                     1 => w.compare1().clear(),
                     2 => w.compare2().clear(),
                     3 => w.compare3().clear(),
+                    #[cfg(any(
+                        feature = "nrf52805",
+                        feature = "nrf52811",
+                        feature = "nrf52820",
+                        feature = "nrf52833",
+                    ))]
                     4 => w.compare4().clear(),
+                    #[cfg(any(
+                        feature = "nrf52805",
+                        feature = "nrf52811",
+                        feature = "nrf52820",
+                        feature = "nrf52833",
+                    ))]
                     5 => w.compare5().clear(),
                     _ => unreachable!("No timers have more than 6 CC registers"),
                 });
@@ -291,7 +303,19 @@ impl<'a, T: Instance> Cc<'a, T> {
             1 => w.compare1_clear().enabled(),
             2 => w.compare2_clear().enabled(),
             3 => w.compare3_clear().enabled(),
+            #[cfg(any(
+                feature = "nrf52805",
+                feature = "nrf52811",
+                feature = "nrf52820",
+                feature = "nrf52833",
+            ))]
             4 => w.compare4_clear().enabled(),
+            #[cfg(any(
+                feature = "nrf52805",
+                feature = "nrf52811",
+                feature = "nrf52820",
+                feature = "nrf52833",
+            ))]
             5 => w.compare5_clear().enabled(),
             _ => unreachable!("a `Cc` cannot be created with `n > 5`"),
         })
@@ -304,7 +328,19 @@ impl<'a, T: Instance> Cc<'a, T> {
             1 => w.compare1_clear().disabled(),
             2 => w.compare2_clear().disabled(),
             3 => w.compare3_clear().disabled(),
+            #[cfg(any(
+                feature = "nrf52805",
+                feature = "nrf52811",
+                feature = "nrf52820",
+                feature = "nrf52833",
+            ))]
             4 => w.compare4_clear().disabled(),
+            #[cfg(any(
+                feature = "nrf52805",
+                feature = "nrf52811",
+                feature = "nrf52820",
+                feature = "nrf52833",
+            ))]
             5 => w.compare5_clear().disabled(),
             _ => unreachable!("a `Cc` cannot be created with `n > 5`"),
         })
@@ -321,7 +357,19 @@ impl<'a, T: Instance> Cc<'a, T> {
             1 => w.compare1_stop().enabled(),
             2 => w.compare2_stop().enabled(),
             3 => w.compare3_stop().enabled(),
+            #[cfg(any(
+                feature = "nrf52805",
+                feature = "nrf52811",
+                feature = "nrf52820",
+                feature = "nrf52833",
+            ))]
             4 => w.compare4_stop().enabled(),
+            #[cfg(any(
+                feature = "nrf52805",
+                feature = "nrf52811",
+                feature = "nrf52820",
+                feature = "nrf52833",
+            ))]
             5 => w.compare5_stop().enabled(),
             _ => unreachable!("a `Cc` cannot be created with `n > 5`"),
         })
@@ -334,7 +382,19 @@ impl<'a, T: Instance> Cc<'a, T> {
             1 => w.compare1_stop().disabled(),
             2 => w.compare2_stop().disabled(),
             3 => w.compare3_stop().disabled(),
+            #[cfg(any(
+                feature = "nrf52805",
+                feature = "nrf52811",
+                feature = "nrf52820",
+                feature = "nrf52833",
+            ))]
             4 => w.compare4_stop().disabled(),
+            #[cfg(any(
+                feature = "nrf52805",
+                feature = "nrf52811",
+                feature = "nrf52820",
+                feature = "nrf52833",
+            ))]
             5 => w.compare5_stop().disabled(),
             _ => unreachable!("a `Cc` cannot be created with `n > 5`"),
         })
@@ -352,7 +412,19 @@ impl<'a, T: Instance> Cc<'a, T> {
             1 => w.compare1().set(),
             2 => w.compare2().set(),
             3 => w.compare3().set(),
+            #[cfg(any(
+                feature = "nrf52805",
+                feature = "nrf52811",
+                feature = "nrf52820",
+                feature = "nrf52833",
+            ))]
             4 => w.compare4().set(),
+            #[cfg(any(
+                feature = "nrf52805",
+                feature = "nrf52811",
+                feature = "nrf52820",
+                feature = "nrf52833",
+            ))]
             5 => w.compare5().set(),
             _ => unreachable!("a `Cc` cannot be created with `n > 5`"),
         });
@@ -364,7 +436,19 @@ impl<'a, T: Instance> Cc<'a, T> {
                 1 => w.compare1().clear(),
                 2 => w.compare2().clear(),
                 3 => w.compare3().clear(),
+                #[cfg(any(
+                    feature = "nrf52805",
+                    feature = "nrf52811",
+                    feature = "nrf52820",
+                    feature = "nrf52833",
+                ))]
                 4 => w.compare4().clear(),
+                #[cfg(any(
+                    feature = "nrf52805",
+                    feature = "nrf52811",
+                    feature = "nrf52820",
+                    feature = "nrf52833",
+                ))]
                 5 => w.compare5().clear(),
                 _ => unreachable!("a `Cc` cannot be created with `n > 5`"),
             });
