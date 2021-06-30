@@ -23,14 +23,14 @@ async fn main_task() {
     let mut p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let mut usart = Uart::new(p.USART3, p.PD9, p.PD8, config, 16_000_000);
+    let mut usart = Uart::new(p.USART3, p.PD9, p.PD8, config);
 
     for n in 0u32.. {
         let mut s: String<128> = String::new();
         core::write!(&mut s, "Hello DMA World {}!\r\n", n).unwrap();
 
         usart
-            .write_dma(&mut p.DMA1_CH3, s.as_bytes())
+            .write_dma(&mut p.DMA1_3, s.as_bytes())
             .await
             .unwrap();
         info!("wrote DMA");

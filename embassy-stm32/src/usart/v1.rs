@@ -63,14 +63,14 @@ impl<'d, T: Instance> Uart<'d, T> {
         rx: impl Unborrow<Target = impl RxPin<T>>,
         tx: impl Unborrow<Target = impl TxPin<T>>,
         config: Config,
-        pclk_freq: u32,
     ) -> Self {
         unborrow!(inner, rx, tx);
 
-        // TODO: enable in RCC
+        T::enable();
+        let pclk_freq = T::frequency();
 
         // TODO: better calculation, including error checking and OVER8 if possible.
-        let div = (pclk_freq + (config.baudrate / 2)) / config.baudrate;
+        let div = (pclk_freq.0 + (config.baudrate / 2)) / config.baudrate;
 
         let r = inner.regs();
 
@@ -101,25 +101,16 @@ impl<'d, T: Instance> Uart<'d, T> {
         }
     }
 
-    #[cfg(dma_v2)]
-    pub async fn write_dma(
-        &mut self,
-        ch: &mut impl crate::dma::Channel,
-        buffer: &[u8],
-    ) -> Result<(), Error> {
-        let ch_func = 4; // USART3_TX
-        let r = self.inner.regs();
-
+    #[cfg(dma)]
+    pub async fn write_dma(&mut self, ch: &mut impl TxDma<T>, buffer: &[u8]) -> Result<(), Error> {
         unsafe {
-            r.cr3().write(|w| {
-                w.set_dmat(true);
+            self.inner.regs().cr3().modify(|reg| {
+                reg.set_dmat(true);
             });
-
-            let dst = r.dr().ptr() as *mut u8;
-
-            crate::dma::transfer_m2p(ch, ch_func, buffer, dst).await;
         }
-
+        let r = self.inner.regs();
+        let dst = r.dr().ptr() as *mut u8;
+        ch.transfer(buffer, dst).await;
         Ok(())
     }
 

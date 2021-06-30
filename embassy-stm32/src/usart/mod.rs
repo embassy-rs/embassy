@@ -8,6 +8,7 @@ pub use _version::*;
 
 use crate::gpio::Pin;
 use crate::pac::usart::Usart;
+use crate::rcc::RccPeripheral;
 
 /// Serial error
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -25,6 +26,9 @@ pub enum Error {
 
 pub(crate) mod sealed {
     use super::*;
+
+    #[cfg(dma)]
+    use crate::dma::WriteDma;
 
     pub trait Instance {
         fn regs(&self) -> Usart;
@@ -44,13 +48,25 @@ pub(crate) mod sealed {
     pub trait CkPin<T: Instance>: Pin {
         fn af_num(&self) -> u8;
     }
+
+    #[cfg(dma)]
+    pub trait RxDma<T: Instance> {}
+
+    #[cfg(dma)]
+    pub trait TxDma<T: Instance>: WriteDma<T> {}
 }
-pub trait Instance: sealed::Instance {}
+
+pub trait Instance: sealed::Instance + RccPeripheral {}
 pub trait RxPin<T: Instance>: sealed::RxPin<T> {}
 pub trait TxPin<T: Instance>: sealed::TxPin<T> {}
 pub trait CtsPin<T: Instance>: sealed::CtsPin<T> {}
 pub trait RtsPin<T: Instance>: sealed::RtsPin<T> {}
 pub trait CkPin<T: Instance>: sealed::CkPin<T> {}
+
+#[cfg(dma)]
+pub trait RxDma<T: Instance>: sealed::RxDma<T> {}
+#[cfg(dma)]
+pub trait TxDma<T: Instance>: sealed::TxDma<T> {}
 
 crate::pac::peripherals!(
     (usart, $inst:ident) => {
