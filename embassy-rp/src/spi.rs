@@ -3,20 +3,27 @@ use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 use embedded_hal::blocking::spi as eh;
+use embedded_hal::spi as ehnb;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{NoPin, OptionalPin};
 use crate::{pac, peripherals};
 
+pub use ehnb::{Phase, Polarity};
+
 #[non_exhaustive]
 pub struct Config {
     pub frequency: u32,
+    pub phase: ehnb::Phase,
+    pub polarity: ehnb::Polarity,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             frequency: 1_000_000,
+            phase: ehnb::Phase::CaptureOnFirstTransition,
+            polarity: ehnb::Polarity::IdleLow,
         }
     }
 }
@@ -65,8 +72,8 @@ impl<'d, T: Instance> Spi<'d, T> {
             p.cpsr().write(|w| w.set_cpsdvsr(presc as _));
             p.cr0().write(|w| {
                 w.set_dss(0b0111); // 8bit
-                w.set_spo(false);
-                w.set_sph(false);
+                w.set_spo(config.polarity == ehnb::Polarity::IdleHigh);
+                w.set_sph(config.phase == ehnb::Phase::CaptureOnSecondTransition);
                 w.set_scr((postdiv - 1) as u8);
             });
             p.cr1().write(|w| {
@@ -105,6 +112,19 @@ impl<'d, T: Instance> Spi<'d, T> {
         }
     }
 
+    pub fn transfer(&mut self, data: &mut [u8]) {
+        unsafe {
+            let p = self.inner.regs();
+            for b in data {
+                while !p.sr().read().tnf() {}
+                p.dr().write(|w| w.set_data(*b as _));
+                while !p.sr().read().rne() {}
+                *b = p.dr().read().data() as u8;
+            }
+            self.flush();
+        }
+    }
+
     pub fn flush(&mut self) {
         unsafe {
             let p = self.inner.regs();
@@ -119,6 +139,14 @@ impl<'d, T: Instance> eh::Write<u8> for Spi<'d, T> {
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
         self.write(words);
         Ok(())
+    }
+}
+
+impl<'d, T: Instance> eh::Transfer<u8> for Spi<'d, T> {
+    type Error = core::convert::Infallible;
+    fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
+        self.transfer(words);
+        Ok(words)
     }
 }
 
