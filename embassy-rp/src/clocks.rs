@@ -5,19 +5,21 @@ use crate::{pac, reset};
 const XOSC_MHZ: u32 = 12;
 
 pub unsafe fn init() {
-    // Now reset all the peripherals, except QSPI and XIP (we're using those
-    // to execute from external flash!)
-
     // Reset everything except:
     // - QSPI (we're using it to run this code!)
     // - PLLs (it may be suicide if that's what's clocking us)
+    // - USB, SYSCFG (breaks usb-to-swd on core1)
     let mut peris = reset::ALL_PERIPHERALS;
     peris.set_io_qspi(false);
     peris.set_pads_qspi(false);
     peris.set_pll_sys(false);
     peris.set_pll_usb(false);
+    peris.set_usbctrl(false);
+    peris.set_syscfg(false);
     reset::reset(peris);
 
+    // Remove reset from peripherals which are clocked only by clk_sys and
+    // clk_ref. Other peripherals stay in reset until we've configured clocks.
     let mut peris = reset::ALL_PERIPHERALS;
     peris.set_adc(false);
     peris.set_rtc(false);
@@ -28,31 +30,20 @@ pub unsafe fn init() {
     peris.set_usbctrl(false);
     reset::unreset_wait(peris);
 
+    // Start tick in watchdog
     // xosc 12 mhz
     pac::WATCHDOG.tick().write(|w| {
         w.set_cycles(XOSC_MHZ as u16);
         w.set_enable(true);
     });
 
+    // Disable resus that may be enabled from previous software
     let c = pac::CLOCKS;
     c.clk_sys_resus_ctrl()
         .write_value(pac::clocks::regs::ClkSysResusCtrl(0));
 
-    // Enable XOSC
-    const XOSC_MHZ: u32 = 12;
-    pac::XOSC
-        .ctrl()
-        .write(|w| w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ));
-
-    let startup_delay = (((XOSC_MHZ * 1_000_000) / 1000) + 128) / 256;
-    pac::XOSC
-        .startup()
-        .write(|w| w.set_delay(startup_delay as u16));
-    pac::XOSC.ctrl().write(|w| {
-        w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ);
-        w.set_enable(pac::xosc::vals::Enable::ENABLE);
-    });
-    while !pac::XOSC.status().read().stable() {}
+    // start XOSC
+    start_xosc();
 
     // Before we touch PLLs, switch sys and ref cleanly away from their aux sources.
     c.clk_sys_ctrl()
@@ -66,13 +57,6 @@ pub unsafe fn init() {
     //                   REF     FBDIV VCO            POSTDIV
     // PLL SYS: 12 / 1 = 12MHz * 125 = 1500MHZ / 6 / 2 = 125MHz
     // PLL USB: 12 / 1 = 12MHz * 40  = 480 MHz / 5 / 2 =  48MHz
-
-    let mut peris = reset::Peripherals(0);
-    peris.set_pll_sys(true);
-    peris.set_pll_usb(true);
-    reset::reset(peris);
-    reset::unreset_wait(peris);
-
     configure_pll(pac::PLL_SYS, 1, 1500_000_000, 6, 2);
     configure_pll(pac::PLL_USB, 1, 480_000_000, 5, 2);
 
@@ -125,6 +109,10 @@ pub unsafe fn init() {
         w.set_enable(true);
         w.set_auxsrc(ClkPeriCtrlAuxsrc::CLK_SYS);
     });
+
+    // Peripheral clocks should now all be running
+    let peris = reset::ALL_PERIPHERALS;
+    reset::unreset_wait(peris);
 }
 
 pub(crate) fn clk_sys_freq() -> u32 {
@@ -139,6 +127,23 @@ pub(crate) fn clk_rtc_freq() -> u32 {
     46875
 }
 
+unsafe fn start_xosc() {
+    const XOSC_MHZ: u32 = 12;
+    pac::XOSC
+        .ctrl()
+        .write(|w| w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ));
+
+    let startup_delay = (((XOSC_MHZ * 1_000_000) / 1000) + 128) / 256;
+    pac::XOSC
+        .startup()
+        .write(|w| w.set_delay(startup_delay as u16));
+    pac::XOSC.ctrl().write(|w| {
+        w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ);
+        w.set_enable(pac::xosc::vals::Enable::ENABLE);
+    });
+    while !pac::XOSC.status().read().stable() {}
+}
+
 unsafe fn configure_pll(
     p: pac::pll::Pll,
     refdiv: u32,
@@ -146,15 +151,6 @@ unsafe fn configure_pll(
     post_div1: u8,
     post_div2: u8,
 ) {
-    // Power off in case it's already running
-    p.pwr().write(|w| {
-        w.set_vcopd(true);
-        w.set_postdivpd(true);
-        w.set_dsmpd(true);
-        w.set_pd(true);
-    });
-    p.fbdiv_int().write(|w| w.set_fbdiv_int(0));
-
     let ref_freq = XOSC_MHZ * 1_000_000 / refdiv;
 
     let fbdiv = vco_freq / ref_freq;
@@ -164,20 +160,48 @@ unsafe fn configure_pll(
     assert!(post_div2 <= post_div1);
     assert!(ref_freq <= (vco_freq / 16));
 
+    // do not disrupt PLL that is already correctly configured and operating
+    let cs = p.cs().read();
+    let prim = p.prim().read();
+    if cs.lock()
+        && cs.refdiv() == refdiv as _
+        && p.fbdiv_int().read().fbdiv_int() == fbdiv as _
+        && prim.postdiv1() == post_div1
+        && prim.postdiv2() == post_div2
+    {
+        return;
+    }
+
+    // Reset it
+    let mut peris = reset::Peripherals(0);
+    match p {
+        pac::PLL_SYS => peris.set_pll_sys(true),
+        pac::PLL_USB => peris.set_pll_usb(true),
+        _ => unreachable!(),
+    }
+    reset::reset(peris);
+    reset::unreset_wait(peris);
+
+    // Load VCO-related dividers before starting VCO
     p.cs().write(|w| w.set_refdiv(refdiv as _));
     p.fbdiv_int().write(|w| w.set_fbdiv_int(fbdiv as _));
 
+    // Turn on PLL
     p.pwr().modify(|w| {
         w.set_pd(false);
         w.set_vcopd(false);
+        w.set_postdivpd(true);
     });
 
+    // Wait for PLL to lock
     while !p.cs().read().lock() {}
 
+    // Wait for PLL to lock
     p.prim().write(|w| {
         w.set_postdiv1(post_div1);
         w.set_postdiv2(post_div2);
     });
 
+    // Turn on post divider
     p.pwr().modify(|w| w.set_postdivpd(false));
 }
