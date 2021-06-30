@@ -74,7 +74,7 @@ pub(crate) async unsafe fn transfer_p2m(
 
     let res = poll_fn(|cx| {
         STATE.ch_wakers[n].register(cx.waker());
-        match STATE.ch_status[n].load(Ordering::Relaxed) {
+        match STATE.ch_status[n].load(Ordering::Acquire) {
             CH_STATUS_NONE => Poll::Pending,
             x => Poll::Ready(x),
         }
@@ -105,6 +105,7 @@ pub(crate) async unsafe fn transfer_m2p(
         c.par().write_value(dst as _);
         c.m0ar().write_value(src.as_ptr() as _);
         c.ndtr().write_value(regs::Ndtr(src.len() as _));
+        compiler_fence(Ordering::AcqRel);
         c.cr().write(|w| {
             w.set_dir(vals::Dir::MEMORYTOPERIPHERAL);
             w.set_msize(vals::Size::BITS8);
@@ -120,7 +121,7 @@ pub(crate) async unsafe fn transfer_m2p(
 
     let res = poll_fn(|cx| {
         STATE.ch_wakers[n].register(cx.waker());
-        match STATE.ch_status[n].load(Ordering::Relaxed) {
+        match STATE.ch_status[n].load(Ordering::Acquire) {
             CH_STATUS_NONE => {
                 let left = c.ndtr().read().ndt();
                 Poll::Pending
@@ -129,6 +130,8 @@ pub(crate) async unsafe fn transfer_m2p(
         }
     })
     .await;
+
+    compiler_fence(Ordering::AcqRel);
 
     // TODO handle error
     assert!(res == CH_STATUS_COMPLETED);
@@ -145,10 +148,10 @@ unsafe fn on_irq() {
                 for chn in 0..4 {
                     let n = dman * 8 + isrn * 4 + chn;
                     if isr.teif(chn) {
-                        STATE.ch_status[n].store(CH_STATUS_ERROR, Ordering::Relaxed);
+                        STATE.ch_status[n].store(CH_STATUS_ERROR, Ordering::Release);
                         STATE.ch_wakers[n].wake();
                     } else if isr.tcif(chn) {
-                        STATE.ch_status[n].store(CH_STATUS_COMPLETED, Ordering::Relaxed);
+                        STATE.ch_status[n].store(CH_STATUS_COMPLETED, Ordering::Release);
                         STATE.ch_wakers[n].wake();
                     }
                 }
@@ -298,6 +301,7 @@ pub struct M2P;
 
 #[cfg(usart)]
 use crate::usart;
+use atomic_polyfill::compiler_fence;
 peripheral_dma_channels! {
     ($peri:ident, usart, $kind:ident, RX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr, $event_num:expr) => {
         impl usart::RxDma<peripherals::$peri> for peripherals::$channel_peri { }
