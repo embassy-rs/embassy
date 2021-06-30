@@ -107,10 +107,10 @@ impl<'d> Rng<'d> {
             .ptr
             .compare_exchange(ptr, new_ptr, Ordering::Relaxed, Ordering::Relaxed)
         {
-            Ok(ptr) => {
+            Ok(_) => {
                 let end = STATE.end.load(Ordering::Relaxed);
                 // It doesn't matter if `end` was changed under our feet, because then this will just be false.
-                if ptr == end {
+                if new_ptr == end {
                     STATE.waker.wake();
                 }
             }
