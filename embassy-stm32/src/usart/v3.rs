@@ -21,7 +21,8 @@ impl<'d, T: Instance> Uart<'d, T> {
     ) -> Self {
         unborrow!(inner, rx, tx);
 
-        T::enable();
+        // Uncomment once we find all of the H7's UART clocks.
+        //T::enable();
         let pclk_freq = T::frequency();
 
         // TODO: better calculation, including error checking and OVER8 if possible.

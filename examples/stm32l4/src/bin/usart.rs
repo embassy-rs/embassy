@@ -58,7 +58,10 @@ fn main() -> ! {
         w.dbg_stop().set_bit()
     });
 
-    pp.RCC.ahb1enr.modify(|_, w| w.dma1en().set_bit());
+    pp.RCC.ahb1enr.modify(|_, w| {
+        w.dma1en().set_bit();
+        w
+    });
 
     pp.RCC.ahb2enr.modify(|_, w| {
         w.gpioaen().set_bit();
@@ -67,6 +70,11 @@ fn main() -> ! {
         w.gpioden().set_bit();
         w.gpioeen().set_bit();
         w.gpiofen().set_bit();
+        w
+    });
+
+    pp.RCC.apb1enr1.modify(|_, w| {
+        w.uart4en().set_bit();
         w
     });
 
