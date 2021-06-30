@@ -105,6 +105,19 @@ impl<'d, T: Instance> Spi<'d, T> {
         }
     }
 
+    pub fn transfer(&mut self, data: &mut [u8]) {
+        unsafe {
+            let p = self.inner.regs();
+            for b in data {
+                while !p.sr().read().tnf() {}
+                p.dr().write(|w| w.set_data(*b as _));
+                while !p.sr().read().rne() {}
+                *b = p.dr().read().data() as u8;
+            }
+            self.flush();
+        }
+    }
+
     pub fn flush(&mut self) {
         unsafe {
             let p = self.inner.regs();
@@ -119,6 +132,14 @@ impl<'d, T: Instance> eh::Write<u8> for Spi<'d, T> {
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
         self.write(words);
         Ok(())
+    }
+}
+
+impl<'d, T: Instance> eh::Transfer<u8> for Spi<'d, T> {
+    type Error = core::convert::Infallible;
+    fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
+        self.transfer(words);
+        Ok(words)
     }
 }
 
