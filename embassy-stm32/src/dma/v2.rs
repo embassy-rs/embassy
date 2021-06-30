@@ -1,5 +1,6 @@
-use core::sync::atomic::{AtomicU8, Ordering};
 use core::task::Poll;
+
+use atomic_polyfill::{AtomicU8, Ordering};
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::util::AtomicWaker;
 use futures::future::poll_fn;
@@ -53,7 +54,8 @@ pub(crate) async unsafe fn transfer_p2m(
     assert!(dst.len() <= 0xFFFF);
 
     // Reset status
-    STATE.ch_status[n].store(CH_STATUS_NONE, Ordering::Relaxed);
+    // Generate a DMB here to flush the store buffer (M7) before enabling the DMA
+    STATE.ch_status[n].store(CH_STATUS_NONE, Ordering::Release);
 
     unsafe {
         c.par().write_value(src as _);
@@ -99,13 +101,13 @@ pub(crate) async unsafe fn transfer_m2p(
     assert!(src.len() <= 0xFFFF);
 
     // Reset status
-    STATE.ch_status[n].store(CH_STATUS_NONE, Ordering::Relaxed);
+    // Generate a DMB here to flush the store buffer (M7) before enabling the DMA
+    STATE.ch_status[n].store(CH_STATUS_NONE, Ordering::Release);
 
     unsafe {
         c.par().write_value(dst as _);
         c.m0ar().write_value(src.as_ptr() as _);
         c.ndtr().write_value(regs::Ndtr(src.len() as _));
-        compiler_fence(Ordering::AcqRel);
         c.cr().write(|w| {
             w.set_dir(vals::Dir::MEMORYTOPERIPHERAL);
             w.set_msize(vals::Size::BITS8);
@@ -131,8 +133,6 @@ pub(crate) async unsafe fn transfer_m2p(
     })
     .await;
 
-    compiler_fence(Ordering::AcqRel);
-
     // TODO handle error
     assert!(res == CH_STATUS_COMPLETED);
 }
@@ -148,10 +148,10 @@ unsafe fn on_irq() {
                 for chn in 0..4 {
                     let n = dman * 8 + isrn * 4 + chn;
                     if isr.teif(chn) {
-                        STATE.ch_status[n].store(CH_STATUS_ERROR, Ordering::Release);
+                        STATE.ch_status[n].store(CH_STATUS_ERROR, Ordering::Relaxed);
                         STATE.ch_wakers[n].wake();
                     } else if isr.tcif(chn) {
-                        STATE.ch_status[n].store(CH_STATUS_COMPLETED, Ordering::Release);
+                        STATE.ch_status[n].store(CH_STATUS_COMPLETED, Ordering::Relaxed);
                         STATE.ch_wakers[n].wake();
                     }
                 }
@@ -301,7 +301,6 @@ pub struct M2P;
 
 #[cfg(usart)]
 use crate::usart;
-use atomic_polyfill::compiler_fence;
 peripheral_dma_channels! {
     ($peri:ident, usart, $kind:ident, RX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr, $event_num:expr) => {
         impl usart::RxDma<peripherals::$peri> for peripherals::$channel_peri { }
