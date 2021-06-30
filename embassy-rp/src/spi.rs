@@ -3,9 +3,10 @@ use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 use embedded_hal::blocking::spi as eh;
-use gpio::Pin;
 
-use crate::{gpio, pac, peripherals};
+use crate::gpio::sealed::Pin as _;
+use crate::gpio::{NoPin, OptionalPin};
+use crate::{pac, peripherals};
 
 #[non_exhaustive]
 pub struct Config {
@@ -31,15 +32,18 @@ impl<'d, T: Instance> Spi<'d, T> {
         clk: impl Unborrow<Target = impl ClkPin<T>>,
         mosi: impl Unborrow<Target = impl MosiPin<T>>,
         miso: impl Unborrow<Target = impl MisoPin<T>>,
+        cs: impl Unborrow<Target = impl CsPin<T>>,
         config: Config,
     ) -> Self {
-        unborrow!(inner, clk, mosi, miso);
+        unborrow!(inner, clk, mosi, miso, cs);
 
         unsafe {
             let p = inner.regs();
 
             let clk_peri = crate::clocks::clk_peri_freq();
             assert!(config.frequency <= clk_peri);
+
+            // TODO replace these trial-and-error loops with decent calculations.
 
             // Find smallest prescale value which puts output frequency in range of
             // post-divide. Prescale is an even number from 2 to 254 inclusive.
@@ -52,7 +56,8 @@ impl<'d, T: Instance> Spi<'d, T> {
 
             // Find largest post-divide which makes output <= baudrate. Post-divide is
             // an integer in the range 1 to 256 inclusive.
-            let postdiv = (1u32..=256)
+            // TODO figure what's up with postdiv=1, it is dividing by 0. Iterate down to 2 for now.
+            let postdiv = (2u32..=256)
                 .rev()
                 .find(|&postdiv| clk_peri / (presc * (postdiv - 1)) > config.frequency);
             let postdiv = unwrap!(postdiv);
@@ -70,9 +75,18 @@ impl<'d, T: Instance> Spi<'d, T> {
 
             info!("SPI freq: {=u32}", clk_peri / (presc * postdiv));
 
-            clk.io().ctrl().write(|w| w.set_funcsel(1));
-            mosi.io().ctrl().write(|w| w.set_funcsel(1));
-            miso.io().ctrl().write(|w| w.set_funcsel(1));
+            if let Some(pin) = clk.pin_mut() {
+                pin.io().ctrl().write(|w| w.set_funcsel(1));
+            }
+            if let Some(pin) = mosi.pin_mut() {
+                pin.io().ctrl().write(|w| w.set_funcsel(1));
+            }
+            if let Some(pin) = miso.pin_mut() {
+                pin.io().ctrl().write(|w| w.set_funcsel(1));
+            }
+            if let Some(pin) = cs.pin_mut() {
+                pin.io().ctrl().write(|w| w.set_funcsel(1));
+            }
         }
         Self {
             inner,
@@ -95,15 +109,6 @@ impl<'d, T: Instance> Spi<'d, T> {
         unsafe {
             let p = self.inner.regs();
             while p.sr().read().bsy() {}
-        }
-    }
-
-    fn drain_rx(&mut self) {
-        unsafe {
-            let p = self.inner.regs();
-            while !p.sr().read().rne() {
-                p.dr().read();
-            }
         }
     }
 }
@@ -145,10 +150,19 @@ macro_rules! impl_instance {
 impl_instance!(SPI0, Spi0);
 impl_instance!(SPI1, Spi1);
 
-pub trait ClkPin<T: Instance>: sealed::ClkPin<T> + Pin {}
-pub trait CsPin<T: Instance>: sealed::CsPin<T> + Pin {}
-pub trait MosiPin<T: Instance>: sealed::MosiPin<T> + Pin {}
-pub trait MisoPin<T: Instance>: sealed::MisoPin<T> + Pin {}
+pub trait ClkPin<T: Instance>: sealed::ClkPin<T> + OptionalPin {}
+pub trait CsPin<T: Instance>: sealed::CsPin<T> + OptionalPin {}
+pub trait MosiPin<T: Instance>: sealed::MosiPin<T> + OptionalPin {}
+pub trait MisoPin<T: Instance>: sealed::MisoPin<T> + OptionalPin {}
+
+impl<T: Instance> sealed::ClkPin<T> for NoPin {}
+impl<T: Instance> ClkPin<T> for NoPin {}
+impl<T: Instance> sealed::CsPin<T> for NoPin {}
+impl<T: Instance> CsPin<T> for NoPin {}
+impl<T: Instance> sealed::MosiPin<T> for NoPin {}
+impl<T: Instance> MosiPin<T> for NoPin {}
+impl<T: Instance> sealed::MisoPin<T> for NoPin {}
+impl<T: Instance> MisoPin<T> for NoPin {}
 
 macro_rules! impl_pin {
     ($pin:ident, $instance:ident, $function:ident) => {
