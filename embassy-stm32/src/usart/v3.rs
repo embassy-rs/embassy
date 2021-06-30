@@ -38,7 +38,7 @@ impl<'d, T: Instance> Uart<'d, T> {
                 w.set_ue(true);
                 w.set_te(true);
                 w.set_re(true);
-                w.set_m(vals::M::M8);
+                w.set_m(0, vals::M0::BIT8);
                 w.set_pce(config.parity != Parity::ParityNone);
                 w.set_ps(match config.parity {
                     Parity::ParityOdd => vals::Ps::ODD,
@@ -74,24 +74,24 @@ impl<'d, T: Instance> Uart<'d, T> {
             let r = self.inner.regs();
             for b in buffer {
                 loop {
-                    let sr = r.sr().read();
+                    let sr = r.isr().read();
                     if sr.pe() {
-                        r.dr().read();
+                        r.rdr().read();
                         return Err(Error::Parity);
                     } else if sr.fe() {
-                        r.dr().read();
+                        r.rdr().read();
                         return Err(Error::Framing);
                     } else if sr.ne() {
-                        r.dr().read();
+                        r.rdr().read();
                         return Err(Error::Noise);
                     } else if sr.ore() {
-                        r.dr().read();
+                        r.rdr().read();
                         return Err(Error::Overrun);
                     } else if sr.rxne() {
                         break;
                     }
                 }
-                *b = r.dr().read().0 as u8;
+                *b = r.rdr().read().0 as u8;
             }
         }
         Ok(())
@@ -104,8 +104,8 @@ impl<'d, T: Instance> embedded_hal::blocking::serial::Write<u8> for Uart<'d, T> 
         unsafe {
             let r = self.inner.regs();
             for &b in buffer {
-                while !r.sr().read().txe() {}
-                r.dr().write_value(regs::Dr(b as u32))
+                while !r.isr().read().txe() {}
+                r.tdr().write_value(regs::Tdr(b as u32))
             }
         }
         Ok(())
@@ -113,7 +113,7 @@ impl<'d, T: Instance> embedded_hal::blocking::serial::Write<u8> for Uart<'d, T> 
     fn bflush(&mut self) -> Result<(), Self::Error> {
         unsafe {
             let r = self.inner.regs();
-            while !r.sr().read().tc() {}
+            while !r.isr().read().tc() {}
         }
         Ok(())
     }

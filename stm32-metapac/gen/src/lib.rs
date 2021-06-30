@@ -311,6 +311,7 @@ pub fn gen(options: Options) {
 
                 for dma_request in &p.dma_requests {
                     let mut row = Vec::new();
+                    row.push(bi.module.clone());
                     row.push(name.clone());
                     row.push(dma_request.0.clone());
                     row.push(dma_request.1.to_string());
