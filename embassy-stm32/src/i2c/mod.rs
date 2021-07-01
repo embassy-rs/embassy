@@ -17,8 +17,9 @@ pub enum Error {
 
 pub(crate) mod sealed {
     use crate::gpio::Pin;
+    use crate::rcc::RccPeripheral;
 
-    pub trait Instance {
+    pub trait Instance: RccPeripheral {
         fn regs() -> &'static crate::pac::i2c::I2c;
     }
 
