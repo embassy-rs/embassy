@@ -1,7 +1,7 @@
 #![macro_use]
 
-#[cfg_attr(usart_v1, path = "v1.rs")]
-#[cfg_attr(usart_v2, path = "v2.rs")]
+//#[cfg_attr(usart_v1, path = "v1.rs")]
+//#[cfg_attr(usart_v2, path = "v2.rs")]
 #[cfg_attr(usart_v3, path = "v3.rs")]
 mod _version;
 use crate::peripherals;
@@ -140,6 +140,9 @@ macro_rules! impl_pin {
 }
 
 crate::pac::peripheral_pins!(
+
+    // USART
+
     ($inst:ident, usart, USART, $pin:ident, TX, $af:expr) => {
         impl_pin!($inst, $pin, TxPin, $af);
     };
@@ -157,6 +160,28 @@ crate::pac::peripheral_pins!(
     };
 
     ($inst:ident, usart, USART, $pin:ident, CK, $af:expr) => {
+        impl_pin!($inst, $pin, CkPin, $af);
+    };
+
+    // UART
+
+    ($inst:ident, uart, UART, $pin:ident, TX, $af:expr) => {
+        impl_pin!($inst, $pin, TxPin, $af);
+    };
+
+    ($inst:ident, uart, UART, $pin:ident, RX, $af:expr) => {
+        impl_pin!($inst, $pin, RxPin, $af);
+    };
+
+    ($inst:ident, uart, UART, $pin:ident, CTS, $af:expr) => {
+        impl_pin!($inst, $pin, CtsPin, $af);
+    };
+
+    ($inst:ident, uart, UART, $pin:ident, RTS, $af:expr) => {
+        impl_pin!($inst, $pin, RtsPin, $af);
+    };
+
+    ($inst:ident, uart, UART, $pin:ident, CK, $af:expr) => {
         impl_pin!($inst, $pin, CkPin, $af);
     };
 );

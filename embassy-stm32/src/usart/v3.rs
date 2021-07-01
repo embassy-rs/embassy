@@ -22,7 +22,7 @@ impl<'d, T: Instance> Uart<'d, T> {
         unborrow!(inner, rx, tx);
 
         // Uncomment once we find all of the H7's UART clocks.
-        //T::enable();
+        T::enable();
         let pclk_freq = T::frequency();
 
         // TODO: better calculation, including error checking and OVER8 if possible.
@@ -65,7 +65,7 @@ impl<'d, T: Instance> Uart<'d, T> {
             });
         }
         let r = self.inner.regs();
-        let dst = r.dr().ptr() as *mut u8;
+        let dst = r.tdr().ptr() as *mut u8;
         ch.transfer(buffer, dst).await;
         Ok(())
     }
