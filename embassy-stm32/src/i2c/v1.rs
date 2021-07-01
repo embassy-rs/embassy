@@ -22,12 +22,13 @@ impl<'d, T: Instance> I2c<'d, T> {
         _peri: impl Unborrow<Target = T> + 'd,
         scl: impl Unborrow<Target = impl SclPin<T>>,
         sda: impl Unborrow<Target = impl SdaPin<T>>,
-        freq: F,
     ) -> Self
     where
         F: Into<Hertz>,
     {
         unborrow!(scl, sda);
+
+        T::enable();
 
         unsafe {
             Self::configure_pin(scl.block(), scl.pin() as _, scl.af_num());
@@ -41,7 +42,7 @@ impl<'d, T: Instance> I2c<'d, T> {
             });
         }
 
-        let timings = Timings::new(pclk, freq.into());
+        let timings = Timings::new(pclk, T::frequency().into());
 
         unsafe {
             T::regs().cr2().modify(|reg| {
