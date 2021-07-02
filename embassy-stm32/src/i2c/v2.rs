@@ -18,10 +18,10 @@ pub struct I2c<'d, T: Instance> {
 
 impl<'d, T: Instance> I2c<'d, T> {
     pub fn new<F>(
-        pclk: Hertz,
         _peri: impl Unborrow<Target = T> + 'd,
         scl: impl Unborrow<Target = impl SclPin<T>>,
         sda: impl Unborrow<Target = impl SdaPin<T>>,
+        freq: F,
     ) -> Self
     where
         F: Into<Hertz>,
@@ -42,7 +42,7 @@ impl<'d, T: Instance> I2c<'d, T> {
             });
         }
 
-        let timings = Timings::new(pclk, T::frequency().into());
+        let timings = Timings::new(T::frequency(), freq.into());
 
         unsafe {
             T::regs().timingr().write(|reg| {
