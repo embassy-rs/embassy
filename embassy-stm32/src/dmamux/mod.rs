@@ -57,6 +57,8 @@ pub(crate) async unsafe fn transfer_m2p(
     src: &[u8],
     dst: *mut u8,
 ) {
+    let dmamux_regs = ch.dmamux_regs();
+    let ch_mux_regs = dmamux_regs.ccr(ch.dmamux_ch_num() as _);
     unimplemented!()
 }
 
@@ -68,7 +70,7 @@ pub(crate) mod sealed {
     }
 
     pub trait Channel {
-        fn dmamux_regs() -> &'static pac::dmamux::Dmamux;
+        fn dmamux_regs(&self) -> &'static pac::dmamux::Dmamux;
         fn dmamux_ch_num(&self) -> u8;
     }
 
@@ -88,7 +90,7 @@ macro_rules! impl_dma_channel {
     ($channel_peri:ident, $dmamux_peri:ident, $channel_num:expr, $dma_num:expr) => {
         impl Channel for peripherals::$channel_peri {}
         impl sealed::Channel for peripherals::$channel_peri {
-            fn dmamux_regs() -> &'static pac::dmamux::Dmamux {
+            fn dmamux_regs(&self) -> &'static pac::dmamux::Dmamux {
                 &crate::pac::$dmamux_peri
             }
 
