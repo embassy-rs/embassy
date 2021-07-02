@@ -57,7 +57,7 @@ impl<'d, T: Instance> Uart<'d, T> {
         }
     }
 
-    #[cfg(dma)]
+    #[cfg(any(dma, dmamux))]
     pub async fn write_dma(&mut self, ch: &mut impl TxDma<T>, buffer: &[u8]) -> Result<(), Error> {
         unsafe {
             self.inner.regs().cr3().modify(|reg| {

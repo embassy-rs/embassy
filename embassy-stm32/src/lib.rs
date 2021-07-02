@@ -30,6 +30,8 @@ pub mod clock;
 pub mod dac;
 #[cfg(any(dma, dmamux))]
 pub mod dma;
+#[cfg(dmamux)]
+pub mod dmamux;
 #[cfg(all(eth, feature = "net"))]
 pub mod eth;
 #[cfg(exti)]
