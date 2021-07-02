@@ -82,10 +82,6 @@ fn main() -> ! {
         w.syscfgen().set_bit();
         w
     });
-    //pp.RCC.apb1enr.modify(|_, w| {
-    //w.usart3en().enabled();
-    //w
-    //});
 
     unsafe { embassy::time::set_clock(&ZeroClock) };
 
