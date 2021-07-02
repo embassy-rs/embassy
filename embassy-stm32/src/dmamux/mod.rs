@@ -1,13 +1,44 @@
 #![macro_use]
+use core::task::Poll;
 
+use atomic_polyfill::{AtomicU8, Ordering};
+use embassy::interrupt::{Interrupt, InterruptExt};
+use embassy::util::AtomicWaker;
+use futures::future::poll_fn;
+
+use crate::pac;
 use crate::pac::dma_channels;
 use crate::pac::dma_requests;
+use crate::pac::peripheral_count;
 use crate::pac::peripherals;
 use crate::peripherals;
 
 use core::future::Future;
 
 use crate::dma::{ReadDma, WriteDma};
+
+const CH_COUNT: usize = peripheral_count!(DMA) * 8;
+const CH_STATUS_NONE: u8 = 0;
+const CH_STATUS_COMPLETED: u8 = 1;
+const CH_STATUS_ERROR: u8 = 2;
+
+struct State {
+    ch_wakers: [AtomicWaker; CH_COUNT],
+    ch_status: [AtomicU8; CH_COUNT],
+}
+
+impl State {
+    const fn new() -> Self {
+        const AW: AtomicWaker = AtomicWaker::new();
+        const AU: AtomicU8 = AtomicU8::new(CH_STATUS_NONE);
+        Self {
+            ch_wakers: [AW; CH_COUNT],
+            ch_status: [AU; CH_COUNT],
+        }
+    }
+}
+
+static STATE: State = State::new();
 
 #[allow(unused)]
 pub(crate) async unsafe fn transfer_p2m(
@@ -32,9 +63,12 @@ pub(crate) async unsafe fn transfer_m2p(
 pub(crate) mod sealed {
     use super::*;
 
-    pub trait DmaMux {}
+    pub trait DmaMux {
+        fn regs() -> &'static pac::dmamux::Dmamux;
+    }
 
     pub trait Channel {
+        fn dmamux_regs() -> &'static pac::dmamux::Dmamux;
         fn dmamux_ch_num(&self) -> u8;
     }
 
@@ -54,6 +88,10 @@ macro_rules! impl_dma_channel {
     ($channel_peri:ident, $dmamux_peri:ident, $channel_num:expr, $dma_num:expr) => {
         impl Channel for peripherals::$channel_peri {}
         impl sealed::Channel for peripherals::$channel_peri {
+            fn dmamux_regs() -> &'static pac::dmamux::Dmamux {
+                &crate::pac::$dmamux_peri
+            }
+
             fn dmamux_ch_num(&self) -> u8 {
                 ($dma_num * 8) + $channel_num
             }
@@ -97,9 +135,19 @@ macro_rules! impl_dma_channel {
     };
 }
 
+macro_rules! impl_dmamux {
+    ($peri:ident) => {
+        impl sealed::DmaMux for peripherals::$peri {
+            fn regs() -> &'static pac::dmamux::Dmamux {
+                &pac::$peri
+            }
+        }
+        impl DmaMux for peripherals::$peri {}
+    };
+}
+
 peripherals! {
     (bdma, DMA1) => {
-        //impl_dma!(DMA1, 0);
         dma_channels! {
             ($channel_peri:ident, DMA1, $channel_num:expr) => {
                 impl_dma_channel!($channel_peri, DMAMUX1, $channel_num, 0);
@@ -107,18 +155,21 @@ peripherals! {
         }
     };
     (bdma, DMA2) => {
-        //impl_dma!(DMA2, 1);
         dma_channels! {
             ($channel_peri:ident, DMA2, $channel_num:expr) => {
                 impl_dma_channel!($channel_peri, DMAMUX1, $channel_num, 1);
             };
         }
     };
+    (dmamux, DMAMUX1) => {
+        impl_dmamux!(DMAMUX1);
+    };
 }
 
 macro_rules! impl_usart_dma_requests {
     ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
         dma_requests! {
+            // TODO: DRY this up.
             (usart, $peri:ident, RX, $request:expr) => {
                 impl usart::RxDma<peripherals::$peri> for peripherals::$channel_peri { }
                 impl usart::sealed::RxDma<peripherals::$peri> for peripherals::$channel_peri { }
