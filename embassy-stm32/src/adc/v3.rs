@@ -1,10 +1,9 @@
 use crate::adc::{AdcPin, Instance};
-use core::convert::Infallible;
 use core::marker::PhantomData;
 use cortex_m::delay::Delay;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
-use embedded_hal::blocking::delay::{DelayMs, DelayUs};
+use embedded_hal::blocking::delay::DelayUs;
 
 pub const VDDA_CALIB_MV: u32 = 3000;
 
@@ -193,6 +192,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// Calculates the system VDDA by sampling the internal VREF channel and comparing
     /// the result with the value stored at the factory. If the chip's VDDA is not stable, run
     /// this before each ADC conversion.
+    #[allow(unused)] // TODO is this supposed to be public?
     fn calibrate(&mut self, vref: &mut Vref) {
         let vref_cal = unsafe { crate::pac::VREFINTCAL.data().read().value() };
         let old_sample_time = self.sample_time;
@@ -233,8 +233,6 @@ impl<'d, T: Instance> Adc<'d, T> {
      */
 
     pub fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
-        let v = pin.channel();
-
         unsafe {
             // Make sure bits are off
             while T::regs().cr().read().addis() {
@@ -304,7 +302,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
-        if ch >= 0 && ch <= 9 {
+        if ch <= 9 {
             T::regs()
                 .smpr1()
                 .modify(|reg| reg.set_smp(ch as _, sample_time.sample_time()));

@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![allow(incomplete_features)]
 #![feature(trait_alias)]
 #![feature(min_type_alias_impl_trait)]
 #![feature(impl_trait_in_bindings)]
@@ -8,20 +9,15 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use embassy_stm32::gpio::{Input, Level, NoPin, Output, Pull};
-use embedded_hal::digital::v2::{InputPin, OutputPin};
+use embassy_stm32::gpio::NoPin;
 use example_common::*;
 
 use cortex_m_rt::entry;
 //use stm32f4::stm32f429 as pac;
 use embassy_stm32::dac::{Channel, Dac, Value};
-use embassy_stm32::spi::{ByteOrder, Config, Spi, MODE_0};
-use embassy_stm32::time::Hertz;
-use embedded_hal::blocking::spi::Transfer;
 use stm32l4::stm32l4x5 as pac;
-use stm32l4xx_hal::gpio::PA4;
 use stm32l4xx_hal::rcc::PllSource;
-use stm32l4xx_hal::{prelude::*, rcc};
+use stm32l4xx_hal::{prelude::*};
 
 #[entry]
 fn main() -> ! {
@@ -34,7 +30,7 @@ fn main() -> ! {
 
     // TRY the other clock configuration
     // let clocks = rcc.cfgr.freeze(&mut flash.acr);
-    let clocks = rcc
+    rcc
         .cfgr
         .sysclk(80.mhz())
         .pclk1(80.mhz())
@@ -71,8 +67,8 @@ fn main() -> ! {
 
     loop {
         for v in 0..=255 {
-            dac.set(Channel::Ch1, Value::Bit8(to_sine_wave(v)));
-            dac.trigger(Channel::Ch1);
+            unwrap!(dac.set(Channel::Ch1, Value::Bit8(to_sine_wave(v))));
+            unwrap!(dac.trigger(Channel::Ch1));
         }
     }
 }

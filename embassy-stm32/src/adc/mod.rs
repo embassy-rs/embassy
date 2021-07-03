@@ -6,12 +6,9 @@ mod _version;
 #[allow(unused)]
 pub use _version::*;
 
-use crate::gpio::NoPin;
 use crate::peripherals;
 
 pub(crate) mod sealed {
-    use crate::gpio::Pin;
-
     pub trait Instance {
         fn regs() -> &'static crate::pac::adc::Adc;
         fn common_regs() -> &'static crate::pac::adccommon::AdcCommon;

@@ -28,7 +28,7 @@ fn main() -> ! {
 
     let rcc = pp.RCC.constrain();
 
-    let ccdr = rcc
+    rcc
         .sys_ck(96.mhz())
         .pclk1(48.mhz())
         .pclk2(48.mhz())
