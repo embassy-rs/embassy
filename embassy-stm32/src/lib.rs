@@ -22,6 +22,8 @@ pub mod rcc;
 // Sometimes-present hardware
 #[cfg(adc)]
 pub mod adc;
+#[cfg(bdma)]
+pub mod bdma;
 #[cfg(timer)]
 pub mod clock;
 #[cfg(dac)]
@@ -86,6 +88,8 @@ pub fn init(config: Config) -> Peripherals {
     unsafe {
         #[cfg(dma)]
         dma::init();
+        #[cfg(bdma)]
+        bdma::init();
         #[cfg(exti)]
         exti::init();
         rcc::init(config.rcc);
