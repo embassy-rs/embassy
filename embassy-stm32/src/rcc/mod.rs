@@ -9,8 +9,6 @@ mod types;
 pub struct Clocks {
     pub sys: Hertz,
     pub apb1: Hertz,
-
-    #[cfg(not(any(rcc_f0, rcc_f0x0)))]
     pub apb2: Hertz,
 
     pub apb1_tim: Hertz,
