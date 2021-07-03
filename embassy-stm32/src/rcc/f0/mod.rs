@@ -205,8 +205,9 @@ impl<'d> Rcc<'d> {
         Clocks {
             sys: Hertz(real_sysclk),
             apb1: Hertz(pclk),
+            apb2: Hertz(pclk),
             apb1_tim: Hertz(pclk * timer_mul),
-            apb2_tim: Hertz(0),
+            apb2_tim: Hertz(pclk * timer_mul),
             ahb: Hertz(hclk),
         }
     }
