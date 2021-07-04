@@ -18,7 +18,8 @@ mod tuntap;
 use crate::tuntap::TunTapDevice;
 
 static DEVICE: Forever<TunTapDevice> = Forever::new();
-static CONFIG: Forever<DhcpConfigurator> = Forever::new();
+static CONFIG_STATIC: Forever<StaticConfigurator> = Forever::new();
+static CONFIG_DYNAMIC: Forever<DhcpConfigurator> = Forever::new();
 static NET_RESOURCES: Forever<StackResources<1, 2, 8>> = Forever::new();
 
 #[derive(Clap)]
@@ -28,6 +29,9 @@ struct Opts {
     /// TAP device name
     #[clap(long, default_value = "tap0")]
     tap: String,
+    /// use a static IP instead of DHCP
+    #[clap(long)]
+    static_ip: bool,
 }
 
 #[embassy::task]
@@ -42,20 +46,21 @@ async fn main_task(spawner: Spawner) {
     // Init network device
     let device = TunTapDevice::new(&opts.tap).unwrap();
 
-    // Static IP configuration
-    let config = StaticConfigurator::new(Config {
-        address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 2), 24),
-        dns_servers: Vec::new(),
-        gateway: Some(Ipv4Address::new(192, 168, 69, 1)),
-    });
-
-    // DHCP configruation
-    let config = DhcpConfigurator::new();
+    // Choose between dhcp or static ip
+    let config: &'static mut dyn Configurator = if opts.static_ip {
+        CONFIG_STATIC.put(StaticConfigurator::new(Config {
+            address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 2), 24),
+            dns_servers: Vec::new(),
+            gateway: Some(Ipv4Address::new(192, 168, 69, 1)),
+        }))
+    } else {
+        CONFIG_DYNAMIC.put(DhcpConfigurator::new())
+    };
 
     let net_resources = StackResources::new();
 
     // Init network stack
-    embassy_net::init(DEVICE.put(device), CONFIG.put(config), NET_RESOURCES.put(net_resources));
+    embassy_net::init(DEVICE.put(device), config, NET_RESOURCES.put(net_resources));
 
     // Launch network task
     spawner.spawn(net_task()).unwrap();

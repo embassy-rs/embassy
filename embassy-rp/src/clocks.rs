@@ -115,7 +115,7 @@ pub unsafe fn init() {
     reset::unreset_wait(peris);
 }
 
-pub(crate) fn clk_sys_freq() -> u32 {
+pub(crate) fn _clk_sys_freq() -> u32 {
     125_000_000
 }
 
@@ -123,7 +123,7 @@ pub(crate) fn clk_peri_freq() -> u32 {
     125_000_000
 }
 
-pub(crate) fn clk_rtc_freq() -> u32 {
+pub(crate) fn _clk_rtc_freq() -> u32 {
     46875
 }
 

@@ -31,11 +31,11 @@ pub trait AsyncBufRead {
     /// This function is a lower-level call. It needs to be paired with the
     /// [`consume`] method to function properly. When calling this
     /// method, none of the contents will be "read" in the sense that later
-    /// calling [`poll_read`] may return the same contents. As such, [`consume`] must
+    /// calling [`poll_fill_buf`] may return the same contents. As such, [`consume`] must
     /// be called with the number of bytes that are consumed from this buffer to
     /// ensure that the bytes are never returned twice.
     ///
-    /// [`poll_read`]: AsyncBufRead::poll_read
+    /// [`poll_fill_buf`]: AsyncBufRead::poll_fill_buf
     /// [`consume`]: AsyncBufRead::consume
     ///
     /// An empty buffer returned indicates that the stream has reached EOF.
@@ -49,7 +49,7 @@ pub trait AsyncBufRead {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>>;
 
     /// Tells this buffer that `amt` bytes have been consumed from the buffer,
-    /// so they should no longer be returned in calls to [`poll_read`].
+    /// so they should no longer be returned in calls to [`poll_fill_buf`].
     ///
     /// This function is a lower-level call. It needs to be paired with the
     /// [`poll_fill_buf`] method to function properly. This function does
@@ -61,7 +61,6 @@ pub trait AsyncBufRead {
     /// The `amt` must be `<=` the number of bytes in the buffer returned by
     /// [`poll_fill_buf`].
     ///
-    /// [`poll_read`]: AsyncBufRead::poll_read
     /// [`poll_fill_buf`]: AsyncBufRead::poll_fill_buf
     fn consume(self: Pin<&mut Self>, amt: usize);
 }

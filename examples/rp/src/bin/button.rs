@@ -12,7 +12,6 @@ mod example_common;
 use embassy::executor::Spawner;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::Peripherals;
-use embedded_hal::digital::v2::{InputPin, OutputPin};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
