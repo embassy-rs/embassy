@@ -35,12 +35,14 @@ impl State {
 static STATE: State = State::new();
 
 #[allow(unused)]
-pub(crate) async unsafe fn transfer_p2m(ch: &mut impl Channel, src: *const u8, dst: &mut [u8]) {
+pub(crate) async unsafe fn transfer_p2m(
+    regs: pac::bdma::Ch,
+    state_number: usize,
+    src: *const u8,
+    dst: &mut [u8],
+) {
     // ndtr is max 16 bits.
     assert!(dst.len() <= 0xFFFF);
-
-    let regs: pac::bdma::Ch = ch.regs();
-    let state_number = ch.state_num();
 
     // Reset status
     // Generate a DMB here to flush the store buffer (M7) before enabling the DMA
@@ -82,12 +84,14 @@ pub(crate) async unsafe fn transfer_p2m(ch: &mut impl Channel, src: *const u8, d
 }
 
 #[allow(unused)]
-pub(crate) async unsafe fn transfer_m2p(ch: &mut impl Channel, src: &[u8], dst: *mut u8) {
+pub(crate) async unsafe fn transfer_m2p(
+    regs: pac::bdma::Ch,
+    state_number: usize,
+    src: &[u8],
+    dst: *mut u8,
+) {
     // ndtr is max 16 bits.
     assert!(src.len() <= 0xFFFF);
-
-    let regs: pac::bdma::Ch = ch.regs();
-    let state_number = ch.state_num();
 
     // Reset status
     // Generate a DMB here to flush the store buffer (M7) before enabling the DMA
@@ -168,7 +172,7 @@ pub(crate) mod sealed {
     }
 
     pub trait Channel {
-        fn dma_regs() -> &'static pac::bdma::Dma;
+        fn dma_regs() -> pac::bdma::Dma;
 
         fn state_num(&self) -> usize;
 
@@ -199,8 +203,8 @@ macro_rules! impl_dma_channel {
         impl Channel for crate::peripherals::$channel_peri {}
         impl sealed::Channel for crate::peripherals::$channel_peri {
             #[inline]
-            fn dma_regs() -> &'static pac::bdma::Dma {
-                &crate::pac::$dma_peri
+            fn dma_regs() -> pac::bdma::Dma {
+                crate::pac::$dma_peri
             }
 
             fn state_num(&self) -> usize {
@@ -222,7 +226,11 @@ macro_rules! impl_dma_channel {
             where
                 T: 'a,
             {
-                unsafe { transfer_m2p(self, buf, dst) }
+                use sealed::Channel as _Channel;
+
+                let state_num = self.state_num();
+                let regs = self.regs();
+                unsafe { transfer_m2p(regs, state_num, buf, dst) }
             }
         }
 
@@ -240,7 +248,11 @@ macro_rules! impl_dma_channel {
             where
                 T: 'a,
             {
-                unsafe { transfer_p2m(self, src, buf) }
+                use sealed::Channel as _Channel;
+
+                let state_num = self.state_num();
+                let regs = self.regs();
+                unsafe { transfer_p2m(regs, state_num, src, buf) }
             }
         }
     };
