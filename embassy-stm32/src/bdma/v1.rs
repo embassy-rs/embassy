@@ -78,7 +78,6 @@ pub(crate) async unsafe fn transfer_p2m(
     })
     .await;
 
-    on_drop.defuse();
     // TODO handle error
     assert!(res == CH_STATUS_COMPLETED);
 }
@@ -128,7 +127,6 @@ pub(crate) async unsafe fn transfer_m2p(
     })
     .await;
 
-    on_drop.defuse();
     // TODO handle error
     assert!(res == CH_STATUS_COMPLETED);
 }
@@ -150,7 +148,6 @@ unsafe fn on_irq() {
                         STATE.ch_wakers[n].wake();
                     }
                 }
-
         };
     }
 }
@@ -160,6 +157,13 @@ pub(crate) unsafe fn init() {
     pac::interrupts! {
         (DMA, $irq:ident) => {
             crate::interrupt::$irq::steal().enable();
+        };
+    }
+    pac::peripherals! {
+        (bdma, DMA1) => {
+            critical_section::with(|_| {
+                pac::RCC.ahbenr().modify(|w| w.set_dmaen(true));
+            });
         };
     }
 }
@@ -283,5 +287,19 @@ pac::interrupts! {
         unsafe fn $irq () {
             on_irq()
         }
+    };
+}
+
+#[cfg(usart)]
+use crate::usart;
+pac::peripheral_dma_channels! {
+    ($peri:ident, usart, $kind:ident, RX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
+        impl usart::RxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
+        impl usart::sealed::RxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
+    };
+
+    ($peri:ident, usart, $kind:ident, TX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
+        impl usart::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
+        impl usart::sealed::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
     };
 }

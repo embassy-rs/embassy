@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 
-use crate::pac::usart::{regs, vals};
+use crate::pac::usart::vals;
 
 use super::*;
 
@@ -21,7 +21,6 @@ impl<'d, T: Instance> Uart<'d, T> {
     ) -> Self {
         unborrow!(inner, rx, tx);
 
-        // Uncomment once we find all of the H7's UART clocks.
         T::enable();
         let pclk_freq = T::frequency();
 
@@ -34,7 +33,10 @@ impl<'d, T: Instance> Uart<'d, T> {
             rx.set_as_af(rx.af_num());
             tx.set_as_af(tx.af_num());
 
-            r.brr().write_value(regs::Brr(div));
+            r.cr2().write(|_w| {});
+            r.cr3().write(|_w| {});
+
+            r.brr().write(|w| w.set_brr(div as u16));
             r.cr1().write(|w| {
                 w.set_ue(true);
                 w.set_te(true);
@@ -48,8 +50,6 @@ impl<'d, T: Instance> Uart<'d, T> {
                     _ => vals::Ps::EVEN,
                 });
             });
-            r.cr2().write(|_w| {});
-            r.cr3().write(|_w| {});
         }
 
         Self {
@@ -58,7 +58,7 @@ impl<'d, T: Instance> Uart<'d, T> {
         }
     }
 
-    #[cfg(dma)]
+    #[cfg(bdma)]
     pub async fn write_dma(&mut self, ch: &mut impl TxDma<T>, buffer: &[u8]) -> Result<(), Error> {
         unsafe {
             self.inner.regs().cr3().modify(|reg| {
