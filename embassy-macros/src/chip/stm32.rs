@@ -12,8 +12,8 @@ pub fn generate(embassy_prefix: &ModulePrefix, config: syn::Expr) -> TokenStream
         let p = #embassy_stm32_path::init(#config);
 
         let mut c = Clock::new(
-            unsafe { <peripherals::TIM2 as embassy::util::Steal>::steal() },
-            interrupt::take!(TIM2),
+            unsafe { <peripherals::TIM3 as embassy::util::Steal>::steal() },
+            interrupt::take!(TIM3),
         );
         let clock = unsafe { make_static(&mut c) };
 
