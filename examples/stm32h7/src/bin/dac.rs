@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![allow(incomplete_features)]
 #![feature(trait_alias)]
 #![feature(min_type_alias_impl_trait)]
 #![feature(impl_trait_in_bindings)]
@@ -8,16 +9,12 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use embassy_stm32::gpio::{Level, Output, Input, Pull, NoPin};
-use embedded_hal::digital::v2::{OutputPin, InputPin};
+use embassy_stm32::gpio::NoPin;
 use example_common::*;
 
 use cortex_m_rt::entry;
 use stm32h7::stm32h743 as pac;
-use embassy_stm32::spi::{Spi, MODE_0, ByteOrder, Config};
-use embassy_stm32::time::Hertz;
-use embedded_hal::blocking::spi::Transfer;
-use stm32h7xx_hal::{rcc, prelude::*};
+use stm32h7xx_hal::prelude::*;
 use embassy_stm32::dac::{Dac, Value, Channel};
 
 #[entry]
@@ -31,7 +28,7 @@ fn main() -> ! {
 
     let rcc = pp.RCC.constrain();
 
-    let ccdr = rcc
+    rcc
         .sys_ck(96.mhz())
         .pclk1(48.mhz())
         .pclk2(48.mhz())
@@ -71,8 +68,8 @@ fn main() -> ! {
 
     loop {
         for v in 0..=255 {
-            dac.set(Channel::Ch1, Value::Bit8(to_sine_wave(v)));
-            dac.trigger( Channel::Ch1 );
+            unwrap!(dac.set(Channel::Ch1, Value::Bit8(to_sine_wave(v))));
+            unwrap!(dac.trigger(Channel::Ch1));
         }
     }
 }
