@@ -343,7 +343,8 @@ impl<'d, const TX: usize, const RX: usize> Inner<'d, TX, RX> {
     }
 }
 
-impl<'d, const TX: usize, const RX: usize> PeripheralState for Inner<'d, TX, RX> {
+// SAFETY: The lifetime of `Inner` is only due to `PhantomData`; it isn't actually referencing any data with that lifetime.
+unsafe impl<'d, const TX: usize, const RX: usize> PeripheralStateUnchecked for Inner<'d, TX, RX> {
     type Interrupt = crate::interrupt::ETH;
 
     fn on_interrupt(&mut self) {

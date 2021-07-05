@@ -5,8 +5,8 @@ use core::ptr;
 use embassy::interrupt::{Interrupt, InterruptExt};
 
 /// # Safety
-/// When types implementing this trait are used with `Peripheral` or `PeripheralMutex`,
-/// their lifetime must not end without first calling `Drop` on the `Peripheral` or `PeripheralMutex`.
+/// When types implementing this trait are used with `Peripheral`,
+/// no fields referenced by `on_interrupt`'s lifetimes must end without first calling `Drop` on the `Peripheral`.
 pub unsafe trait PeripheralStateUnchecked {
     type Interrupt: Interrupt;
     fn on_interrupt(&self);
