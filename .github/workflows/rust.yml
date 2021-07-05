@@ -102,8 +102,15 @@ jobs:
         with:
           path: target
           key: ${{ runner.os }}-${{ matrix.target }}
+
+      # We have to append the "-D warnings" flag to .cargo/config rather than
+      # using the RUSTFLAGS environment variable because if we set RUSTFLAGS
+      # cargo will ignore the rustflags config in .cargo/config.
       - name: Check
-        run: cd ${{ matrix.package }} &&  cargo check --features=${{ matrix.features }} --target=${{ matrix.target }}
+        run: |
+          mkdir -p .cargo
+          echo -e '[target."cfg(all())"]\nrustflags = ["-D", "warnings"]' >> .cargo/config
+          cd ${{ matrix.package }} && RUSTFLAGS=-Dwarnings cargo check --features=${{ matrix.features }} --target=${{ matrix.target }}
 
   fmt:
     runs-on: ubuntu-latest

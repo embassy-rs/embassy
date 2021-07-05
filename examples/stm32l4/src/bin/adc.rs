@@ -16,8 +16,8 @@ use cortex_m_rt::entry;
 use cortex_m::delay::Delay;
 use embassy_stm32::adc::{Adc, Resolution};
 use stm32l4::stm32l4x5 as pac;
-use stm32l4xx_hal::rcc::PllSource;
 use stm32l4xx_hal::prelude::*;
+use stm32l4xx_hal::rcc::PllSource;
 
 #[entry]
 fn main() -> ! {
@@ -29,12 +29,11 @@ fn main() -> ! {
     let mut rcc = pp.RCC.constrain();
     let mut pwr = pp.PWR.constrain(&mut rcc.apb1r1);
 
-    let delay = Delay::new(cp.SYST, 80_000_000);
+    let mut delay = Delay::new(cp.SYST, 80_000_000);
 
     // TRY the other clock configuration
     // let clocks = rcc.cfgr.freeze(&mut flash.acr);
-    rcc
-        .cfgr
+    rcc.cfgr
         .sysclk(80.mhz())
         .pclk1(80.mhz())
         .pclk2(80.mhz())
@@ -69,7 +68,7 @@ fn main() -> ! {
 
     let p = embassy_stm32::init(Default::default());
 
-    let (mut adc, _) = Adc::new(p.ADC1, delay);
+    let mut adc = Adc::new(p.ADC1, &mut delay);
     //adc.enable_vref();
     adc.set_resolution(Resolution::EightBit);
     let mut channel = p.PC0;

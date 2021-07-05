@@ -1,6 +1,5 @@
 use crate::adc::{AdcPin, Instance};
 use core::marker::PhantomData;
-use cortex_m::delay::Delay;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 use embedded_hal::blocking::delay::DelayUs;
@@ -123,7 +122,7 @@ pub struct Adc<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(_peri: impl Unborrow<Target = T> + 'd, mut delay: Delay) -> (Self, Delay) {
+    pub fn new(_peri: impl Unborrow<Target = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
         unborrow!(_peri);
         unsafe {
             T::regs().cr().modify(|reg| {
@@ -142,18 +141,15 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         delay.delay_us(1);
 
-        (
-            Self {
-                sample_time: Default::default(),
-                resolution: Resolution::default(),
-                calibrated_vdda: VDDA_CALIB_MV,
-                phantom: PhantomData,
-            },
-            delay,
-        )
+        Self {
+            sample_time: Default::default(),
+            resolution: Resolution::default(),
+            calibrated_vdda: VDDA_CALIB_MV,
+            phantom: PhantomData,
+        }
     }
 
-    pub fn enable_vref(&self, mut delay: Delay) -> (Vref, Delay) {
+    pub fn enable_vref(&self, delay: &mut impl DelayUs<u32>) -> Vref {
         unsafe {
             T::common_regs().ccr().modify(|reg| {
                 reg.set_vrefen(true);
@@ -166,7 +162,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         //cortex_m::asm::delay(20_000_000);
         delay.delay_us(15);
 
-        (Vref {}, delay)
+        Vref {}
     }
 
     pub fn enable_temperature(&self) -> Temperature {
