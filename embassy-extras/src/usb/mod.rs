@@ -9,7 +9,7 @@ use usb_device::device::UsbDevice;
 mod cdc_acm;
 pub mod usb_serial;
 
-use crate::peripheral::{PeripheralMutex, PeripheralState};
+use crate::peripheral::{PeripheralMutex, PeripheralStateUnchecked};
 use embassy::interrupt::Interrupt;
 use usb_serial::{ReadInterface, UsbSerial, WriteInterface};
 
@@ -55,10 +55,12 @@ where
         }
     }
 
-    pub fn start(self: Pin<&mut Self>) {
-        let this = unsafe { self.get_unchecked_mut() };
+    /// # Safety
+    /// The `UsbDevice` passed to `Self::new` must not be dropped without calling `Drop` on this `Usb` first.
+    pub unsafe fn start(self: Pin<&mut Self>) {
+        let this = self.get_unchecked_mut();
         let mut mutex = this.inner.borrow_mut();
-        let mutex = unsafe { Pin::new_unchecked(&mut *mutex) };
+        let mutex = Pin::new_unchecked(&mut *mutex);
 
         // Use inner to register the irq
         mutex.register_interrupt();
@@ -125,7 +127,8 @@ where
     }
 }
 
-impl<'bus, B, T, I> PeripheralState for State<'bus, B, T, I>
+// SAFETY: The safety contract of `PeripheralStateUnchecked` is forwarded to `Usb::start`.
+unsafe impl<'bus, B, T, I> PeripheralStateUnchecked for State<'bus, B, T, I>
 where
     B: UsbBus,
     T: ClassSet<B>,

@@ -7,7 +7,7 @@ use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
 use embassy::io::{AsyncBufRead, AsyncWrite, Result};
 use embassy::util::{Unborrow, WakerRegistration};
-use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
+use embassy_extras::peripheral::{PeripheralMutex, PeripheralStateUnchecked};
 use embassy_extras::ring_buffer::RingBuffer;
 use embassy_extras::{low_power_wait_until, unborrow};
 
@@ -283,7 +283,8 @@ impl<'a, U: UarteInstance, T: TimerInstance> Drop for State<'a, U, T> {
     }
 }
 
-impl<'a, U: UarteInstance, T: TimerInstance> PeripheralState for State<'a, U, T> {
+// SAFETY: the safety contract of `PeripheralStateUnchecked` is forwarded to `BufferedUarte::new`.
+unsafe impl<'a, U: UarteInstance, T: TimerInstance> PeripheralStateUnchecked for State<'a, U, T> {
     type Interrupt = U::Interrupt;
     fn on_interrupt(&mut self) {
         trace!("irq: start");

@@ -17,4 +17,5 @@ embassy = { version = "0.1.0", path = "../embassy" }
 defmt = { version = "0.2.0", optional = true }
 log = { version = "0.4.11", optional = true }
 cortex-m = "0.7.1"
+critical-section = "0.2.1"
 usb-device = "0.2.7"
