@@ -4,7 +4,7 @@ use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
 use embassy::util::{AtomicWaker, Unborrow};
-use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
+use embassy_extras::peripheral::{PeripheralMutex, PeripheralStateUnchecked};
 use embassy_extras::unborrow;
 use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
 
