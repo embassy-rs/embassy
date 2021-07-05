@@ -68,7 +68,7 @@ impl<S: PeripheralStateUnchecked> Peripheral<S> {
         this.irq_setup_done = true;
     }
 
-    pub fn state<'a>(self: Pin<&'a mut Self>) -> &'a S {
+    pub fn state(self: Pin<&mut Self>) -> &S {
         &self.into_ref().get_ref().state
     }
 }
