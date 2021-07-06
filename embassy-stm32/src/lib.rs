@@ -88,8 +88,13 @@ pub fn init(config: Config) -> Peripherals {
     unsafe {
         #[cfg(dma)]
         dma::init();
+
+        #[cfg(dmamux)]
+        dmamux::init();
+
         #[cfg(exti)]
         exti::init();
+
         rcc::init(config.rcc);
     }
 
