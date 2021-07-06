@@ -98,9 +98,7 @@ unsafe impl<'ch, T> Sync for Receiver<'ch, T> {}
 ///     mpsc::split(&channel)
 /// };
 /// ```
-pub fn split<'ch, T>(
-    channel: &'ch UnsafeCell<dyn ChannelLike<T>>,
-) -> (Sender<'ch, T>, Receiver<'ch, T>) {
+pub fn split<T>(channel: &UnsafeCell<dyn ChannelLike<T>>) -> (Sender<T>, Receiver<T>) {
     let sender = Sender { channel: &channel };
     let receiver = Receiver { channel: &channel };
     {
@@ -296,6 +294,7 @@ impl<'ch, T> Drop for Sender<'ch, T> {
 }
 
 impl<'ch, T> Clone for Sender<'ch, T> {
+    #[allow(clippy::clone_double_ref)]
     fn clone(&self) -> Self {
         unsafe { &mut *self.channel.get() }.register_sender();
         Sender {
@@ -577,7 +576,7 @@ where
     fn register_sender(&mut self) {
         let state = &mut self.state;
         self.mutex.lock(|_| {
-            state.senders_registered = state.senders_registered + 1;
+            state.senders_registered += 1;
         })
     }
 
@@ -585,7 +584,7 @@ where
         let state = &mut self.state;
         self.mutex.lock(|_| {
             assert!(state.senders_registered > 0);
-            state.senders_registered = state.senders_registered - 1;
+            state.senders_registered -= 1;
             if state.senders_registered == 0 {
                 if let Some(w) = state.receiver_waker.take() {
                     w.wake();
