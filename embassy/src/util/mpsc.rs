@@ -492,7 +492,9 @@ where
                 if state.read_pos != state.write_pos || state.full {
                     if state.full {
                         state.full = false;
-                        state.senders_waker.take().map(|w| w.wake());
+                        if let Some(w) = state.senders_waker.take() {
+                            w.wake();
+                        }
                     }
                     let message =
                         unsafe { (state.buf[state.read_pos]).assume_init_mut().get().read() };
@@ -502,7 +504,9 @@ where
                     Err(TryRecvError::Empty)
                 } else {
                     state.closed = true;
-                    state.senders_waker.take().map(|w| w.wake());
+                    if let Some(w) = state.senders_waker.take() {
+                        w.wake();
+                    }
                     Err(TryRecvError::Closed)
                 }
             } else {
@@ -521,7 +525,9 @@ where
                     if state.write_pos == state.read_pos {
                         state.full = true;
                     }
-                    state.receiver_waker.take().map(|w| w.wake());
+                    if let Some(w) = state.receiver_waker.take() {
+                        w.wake();
+                    }
                     Ok(())
                 } else {
                     Err(TrySendError::Full(message))
@@ -535,7 +541,9 @@ where
     fn close(&mut self) {
         let state = &mut self.state;
         self.mutex.lock(|_| {
-            state.receiver_waker.take().map(|w| w.wake());
+            if let Some(w) = state.receiver_waker.take() {
+                w.wake();
+            }
             state.closing = true;
         });
     }
@@ -558,7 +566,9 @@ where
         self.mutex.lock(|_| {
             if state.receiver_registered {
                 state.closed = true;
-                state.senders_waker.take().map(|w| w.wake());
+                if let Some(w) = state.senders_waker.take() {
+                    w.wake();
+                }
             }
             state.receiver_registered = false;
         })
@@ -577,7 +587,9 @@ where
             assert!(state.senders_registered > 0);
             state.senders_registered = state.senders_registered - 1;
             if state.senders_registered == 0 {
-                state.receiver_waker.take().map(|w| w.wake());
+                if let Some(w) = state.receiver_waker.take() {
+                    w.wake();
+                }
                 state.closing = true;
             }
         })
