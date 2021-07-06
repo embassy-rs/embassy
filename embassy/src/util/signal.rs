@@ -119,7 +119,6 @@ unsafe impl cortex_m::interrupt::Nr for NrWrap {
 /// ``` no_compile
 /// use embassy::traits::*;
 /// use embassy::util::InterruptFuture;
-/// use embassy::executor::task;
 /// use embassy_stm32::interrupt; // Adjust this to your MCU's embassy HAL.
 /// #[embassy::task]
 /// async fn demo_interrupt_future() {

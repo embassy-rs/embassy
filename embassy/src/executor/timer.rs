@@ -67,7 +67,6 @@ impl Timer {
     /// # #![feature(type_alias_impl_trait)]
     /// #
     /// # fn foo() {}
-    /// use embassy::executor::task;
     /// use embassy::time::{Duration, Timer};
     ///
     /// #[embassy::task]
@@ -110,7 +109,6 @@ impl Future for Timer {
 /// # #![feature(impl_trait_in_bindings)]
 /// # #![feature(type_alias_impl_trait)]
 /// #
-/// use embassy::executor::task;
 /// use embassy::time::{Duration, Timer};
 /// # fn foo() {}
 ///
@@ -134,7 +132,6 @@ impl Future for Timer {
 /// # #![feature(impl_trait_in_bindings)]
 /// # #![feature(type_alias_impl_trait)]
 /// #
-/// use embassy::executor::task;
 /// use embassy::time::{Duration, Ticker};
 /// use futures::StreamExt;
 /// # fn foo(){}
