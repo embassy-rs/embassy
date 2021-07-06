@@ -92,8 +92,11 @@ pub fn init(config: Config) -> Peripherals {
         dma::init();
         #[cfg(bdma)]
         bdma::init();
+        #[cfg(dmamux)]
+        dmamux::init();
         #[cfg(exti)]
         exti::init();
+
         rcc::init(config.rcc);
     }
 
