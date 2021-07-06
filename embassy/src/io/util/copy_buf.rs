@@ -17,7 +17,7 @@ use crate::io::{AsyncBufRead, AsyncWrite, Error, Result};
 ///
 /// # Examples
 ///
-/// ```
+/// ``` ignore
 /// # futures::executor::block_on(async {
 /// use futures::io::{self, AsyncWriteExt, Cursor};
 ///

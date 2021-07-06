@@ -122,6 +122,16 @@ jobs:
       - name: Check fmt
         run: for i in embassy-*; do (cd $i; cargo fmt -- --check); done
 
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - name: Test
+        run: cd embassy && cargo test
+
   metapac_gen:
     runs-on: ubuntu-latest
     steps:
