@@ -8,12 +8,10 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use core::cell::UnsafeCell;
-
 use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy::util::mpsc::TryRecvError;
+use embassy::util::mpsc::{ChannelCell, TryRecvError};
 use embassy::util::{mpsc, Forever};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::Peripherals;
@@ -25,7 +23,7 @@ enum LedState {
     Off,
 }
 
-static CHANNEL: Forever<UnsafeCell<Channel<WithThreadModeOnly, LedState, 1>>> = Forever::new();
+static CHANNEL: Forever<ChannelCell<Channel<WithThreadModeOnly, LedState, 1>>> = Forever::new();
 
 #[embassy::task(pool_size = 1)]
 async fn my_task(sender: Sender<'static, LedState>) {
@@ -41,7 +39,7 @@ async fn my_task(sender: Sender<'static, LedState>) {
 async fn main(spawner: Spawner, p: Peripherals) {
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
 
-    let channel = CHANNEL.put(UnsafeCell::new(Channel::with_thread_mode_only()));
+    let channel = CHANNEL.put(ChannelCell::new(Channel::with_thread_mode_only()));
     let (sender, mut receiver) = mpsc::split(channel);
 
     spawner.spawn(my_task(sender)).unwrap();

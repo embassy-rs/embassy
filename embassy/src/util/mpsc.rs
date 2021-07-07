@@ -51,11 +51,36 @@ use super::CriticalSectionMutex;
 use super::Mutex;
 use super::ThreadModeMutex;
 
+/// A ChannelCell permits a channel to be shared between senders and their receivers.
+// Derived from UnsafeCell.
+#[repr(transparent)]
+pub struct ChannelCell<T: ?Sized> {
+    _value: T,
+}
+
+impl<T> ChannelCell<T> {
+    #[inline(always)]
+    pub const fn new(value: T) -> ChannelCell<T> {
+        ChannelCell { _value: value }
+    }
+}
+
+impl<T: ?Sized> ChannelCell<T> {
+    #[inline(always)]
+    const fn get(&self) -> *mut T {
+        // As per UnsafeCell:
+        // We can just cast the pointer from `ChannelCell<T>` to `T` because of
+        // #[repr(transparent)]. This exploits libstd's special status, there is
+        // no guarantee for user code that this will work in future versions of the compiler!
+        self as *const ChannelCell<T> as *const T as *mut T
+    }
+}
+
 /// Send values to the associated `Receiver`.
 ///
 /// Instances are created by the [`split`](split) function.
 pub struct Sender<'ch, T> {
-    channel: &'ch UnsafeCell<dyn ChannelLike<T>>,
+    channel: &'ch ChannelCell<dyn ChannelLike<T>>,
 }
 
 // Safe to pass the sender around
@@ -66,7 +91,7 @@ unsafe impl<'ch, T> Sync for Sender<'ch, T> {}
 ///
 /// Instances are created by the [`split`](split) function.
 pub struct Receiver<'ch, T> {
-    channel: &'ch UnsafeCell<dyn ChannelLike<T>>,
+    channel: &'ch ChannelCell<dyn ChannelLike<T>>,
 }
 
 // Safe to pass the receiver around
@@ -89,16 +114,15 @@ unsafe impl<'ch, T> Sync for Receiver<'ch, T> {}
 /// their channel. The following will therefore fail compilation:
 ////
 /// ```compile_fail
-/// use core::cell::UnsafeCell;
 /// use embassy::util::mpsc;
-/// use embassy::util::mpsc::{Channel, WithThreadModeOnly};
+/// use embassy::util::mpsc::{Channel, ChannelCell, WithThreadModeOnly};
 ///
 /// let (sender, receiver) = {
-///    let mut channel = UnsafeCell::new(Channel::<WithThreadModeOnly, u32, 3>::with_thread_mode_only());
+///    let mut channel = ChannelCell::new(Channel::<WithThreadModeOnly, u32, 3>::with_thread_mode_only());
 ///     mpsc::split(&channel)
 /// };
 /// ```
-pub fn split<T>(channel: &UnsafeCell<dyn ChannelLike<T>>) -> (Sender<T>, Receiver<T>) {
+pub fn split<T>(channel: &ChannelCell<dyn ChannelLike<T>>) -> (Sender<T>, Receiver<T>) {
     let sender = Sender { channel: &channel };
     let receiver = Receiver { channel: &channel };
     {
@@ -439,12 +463,11 @@ impl<T, const N: usize> Channel<WithCriticalSections, T, N> {
     /// from exception mode e.g. interrupt handlers. To create one:
     ///
     /// ```
-    /// use core::cell::UnsafeCell;
     /// use embassy::util::mpsc;
-    /// use embassy::util::mpsc::{Channel, WithCriticalSections};
+    /// use embassy::util::mpsc::{Channel, ChannelCell, WithCriticalSections};
     ///
     /// // Declare a bounded channel of 3 u32s.
-    /// let mut channel = UnsafeCell::new(mpsc::Channel::<WithCriticalSections, u32, 3>::with_critical_sections());
+    /// let mut channel = ChannelCell::new(mpsc::Channel::<WithCriticalSections, u32, 3>::with_critical_sections());
     /// // once we have a channel, obtain its sender and receiver
     /// let (sender, receiver) = mpsc::split(&channel);
     /// ```
@@ -464,12 +487,11 @@ impl<T, const N: usize> Channel<WithThreadModeOnly, T, N> {
     /// channel avoids all locks. To create one:
     ///
     /// ``` no_run
-    /// use core::cell::UnsafeCell;
     /// use embassy::util::mpsc;
-    /// use embassy::util::mpsc::{Channel, WithThreadModeOnly};
+    /// use embassy::util::mpsc::{Channel, ChannelCell, WithThreadModeOnly};
     ///
     /// // Declare a bounded channel of 3 u32s.
-    /// let mut channel = UnsafeCell::new(Channel::<WithThreadModeOnly, u32, 3>::with_thread_mode_only());
+    /// let mut channel = ChannelCell::new(Channel::<WithThreadModeOnly, u32, 3>::with_thread_mode_only());
     /// // once we have a channel, obtain its sender and receiver
     /// let (sender, receiver) = mpsc::split(&channel);
     /// ```
@@ -744,7 +766,7 @@ mod tests {
 
     #[test]
     fn simple_send_and_receive() {
-        let c = UnsafeCell::new(Channel::<WithNoThreads, u32, 3>::with_no_threads());
+        let c = ChannelCell::new(Channel::<WithNoThreads, u32, 3>::with_no_threads());
         let (s, r) = split(&c);
         assert!(s.clone().try_send(1).is_ok());
         assert_eq!(r.try_recv().unwrap(), 1);
@@ -752,7 +774,7 @@ mod tests {
 
     #[test]
     fn should_close_without_sender() {
-        let c = UnsafeCell::new(Channel::<WithNoThreads, u32, 3>::with_no_threads());
+        let c = ChannelCell::new(Channel::<WithNoThreads, u32, 3>::with_no_threads());
         let (s, r) = split(&c);
         drop(s);
         match r.try_recv() {
@@ -763,7 +785,7 @@ mod tests {
 
     #[test]
     fn should_close_once_drained() {
-        let c = UnsafeCell::new(Channel::<WithNoThreads, u32, 3>::with_no_threads());
+        let c = ChannelCell::new(Channel::<WithNoThreads, u32, 3>::with_no_threads());
         let (s, r) = split(&c);
         assert!(s.try_send(1).is_ok());
         drop(s);
@@ -776,7 +798,7 @@ mod tests {
 
     #[test]
     fn should_reject_send_when_receiver_dropped() {
-        let c = UnsafeCell::new(Channel::<WithNoThreads, u32, 3>::with_no_threads());
+        let c = ChannelCell::new(Channel::<WithNoThreads, u32, 3>::with_no_threads());
         let (s, r) = split(&c);
         drop(r);
         match s.try_send(1) {
@@ -787,7 +809,7 @@ mod tests {
 
     #[test]
     fn should_reject_send_when_channel_closed() {
-        let c = UnsafeCell::new(Channel::<WithNoThreads, u32, 3>::with_no_threads());
+        let c = ChannelCell::new(Channel::<WithNoThreads, u32, 3>::with_no_threads());
         let (s, mut r) = split(&c);
         assert!(s.try_send(1).is_ok());
         r.close();
@@ -803,8 +825,8 @@ mod tests {
     async fn receiver_closes_when_sender_dropped_async() {
         let executor = ThreadPool::new().unwrap();
 
-        static mut CHANNEL: UnsafeCell<Channel<WithCriticalSections, u32, 3>> =
-            UnsafeCell::new(Channel::with_critical_sections());
+        static mut CHANNEL: ChannelCell<Channel<WithCriticalSections, u32, 3>> =
+            ChannelCell::new(Channel::with_critical_sections());
         let (s, mut r) = split(unsafe { &CHANNEL });
         assert!(executor
             .spawn(async move {
@@ -818,8 +840,8 @@ mod tests {
     async fn receiver_receives_given_try_send_async() {
         let executor = ThreadPool::new().unwrap();
 
-        static mut CHANNEL: UnsafeCell<Channel<WithCriticalSections, u32, 3>> =
-            UnsafeCell::new(Channel::with_critical_sections());
+        static mut CHANNEL: ChannelCell<Channel<WithCriticalSections, u32, 3>> =
+            ChannelCell::new(Channel::with_critical_sections());
         let (s, mut r) = split(unsafe { &CHANNEL });
         assert!(executor
             .spawn(async move {
@@ -831,8 +853,8 @@ mod tests {
 
     #[futures_test::test]
     async fn sender_send_completes_if_capacity() {
-        static mut CHANNEL: UnsafeCell<Channel<WithCriticalSections, u32, 1>> =
-            UnsafeCell::new(Channel::with_critical_sections());
+        static mut CHANNEL: ChannelCell<Channel<WithCriticalSections, u32, 1>> =
+            ChannelCell::new(Channel::with_critical_sections());
         let (s, mut r) = split(unsafe { &CHANNEL });
         assert!(s.send(1).await.is_ok());
         assert_eq!(r.recv().await, Some(1));
@@ -840,8 +862,8 @@ mod tests {
 
     #[futures_test::test]
     async fn sender_send_completes_if_closed() {
-        static mut CHANNEL: UnsafeCell<Channel<WithCriticalSections, u32, 1>> =
-            UnsafeCell::new(Channel::with_critical_sections());
+        static mut CHANNEL: ChannelCell<Channel<WithCriticalSections, u32, 1>> =
+            ChannelCell::new(Channel::with_critical_sections());
         let (s, r) = split(unsafe { &CHANNEL });
         drop(r);
         match s.send(1).await {
@@ -854,8 +876,8 @@ mod tests {
     async fn senders_sends_wait_until_capacity() {
         let executor = ThreadPool::new().unwrap();
 
-        static mut CHANNEL: UnsafeCell<Channel<WithCriticalSections, u32, 1>> =
-            UnsafeCell::new(Channel::with_critical_sections());
+        static mut CHANNEL: ChannelCell<Channel<WithCriticalSections, u32, 1>> =
+            ChannelCell::new(Channel::with_critical_sections());
         let (s0, mut r) = split(unsafe { &CHANNEL });
         assert!(s0.try_send(1).is_ok());
         let s1 = s0.clone();
@@ -874,8 +896,8 @@ mod tests {
 
     #[futures_test::test]
     async fn sender_close_completes_if_closing() {
-        static mut CHANNEL: UnsafeCell<Channel<WithCriticalSections, u32, 1>> =
-            UnsafeCell::new(Channel::with_critical_sections());
+        static mut CHANNEL: ChannelCell<Channel<WithCriticalSections, u32, 1>> =
+            ChannelCell::new(Channel::with_critical_sections());
         let (s, mut r) = split(unsafe { &CHANNEL });
         r.close();
         s.closed().await;
@@ -883,8 +905,8 @@ mod tests {
 
     #[futures_test::test]
     async fn sender_close_completes_if_closed() {
-        static mut CHANNEL: UnsafeCell<Channel<WithCriticalSections, u32, 1>> =
-            UnsafeCell::new(Channel::with_critical_sections());
+        static mut CHANNEL: ChannelCell<Channel<WithCriticalSections, u32, 1>> =
+            ChannelCell::new(Channel::with_critical_sections());
         let (s, r) = split(unsafe { &CHANNEL });
         drop(r);
         s.closed().await;
