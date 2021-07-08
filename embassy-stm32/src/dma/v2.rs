@@ -7,7 +7,6 @@ use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::util::AtomicWaker;
 use futures::future::poll_fn;
 
-use super::*;
 use crate::interrupt;
 use crate::pac;
 use crate::pac::dma::{regs, vals};
