@@ -2,6 +2,7 @@ use core::task::Poll;
 
 use crate::dma_traits::{ReadDma, WriteDma};
 use atomic_polyfill::{AtomicU8, Ordering};
+use core::future::Future;
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::util::AtomicWaker;
 use futures::future::poll_fn;
