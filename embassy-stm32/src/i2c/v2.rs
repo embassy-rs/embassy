@@ -147,6 +147,8 @@ impl<'d, T: Instance> I2c<'d, T> {
     fn master_continue(&mut self, length: usize, reload: bool) {
         assert!(length < 256 && length > 0);
 
+        while unsafe { !T::regs().isr().read().tcr() } {}
+
         let reload = if reload {
             i2c::vals::Reload::NOTCOMPLETED
         } else {
@@ -245,19 +247,25 @@ impl<'d, T: Instance> I2c<'d, T> {
     }
 
     fn read(&mut self, address: u8, buffer: &mut [u8], restart: bool) -> Result<(), Error> {
-        let last_chunk = (buffer.len() / 255).saturating_sub(1);
+        let completed_chunks = buffer.len() / 255;
+        let total_chunks = if completed_chunks * 255 == buffer.len() {
+            completed_chunks
+        } else {
+            completed_chunks + 1
+        };
+        let last_chunk_idx = total_chunks.saturating_sub(1);
 
         self.master_read(
             address,
             buffer.len().min(255),
             Stop::Automatic,
-            last_chunk != 0,
+            last_chunk_idx != 0,
             restart,
         );
 
         for (number, chunk) in buffer.chunks_mut(255).enumerate() {
             if number != 0 {
-                self.master_continue(chunk.len(), number != last_chunk);
+                self.master_continue(chunk.len(), number != last_chunk_idx);
             }
 
             for byte in chunk {
@@ -273,7 +281,13 @@ impl<'d, T: Instance> I2c<'d, T> {
     }
 
     fn write(&mut self, address: u8, bytes: &[u8], send_stop: bool) -> Result<(), Error> {
-        let last_chunk = (bytes.len() / 255).saturating_sub(1);
+        let completed_chunks = bytes.len() / 255;
+        let total_chunks = if completed_chunks * 255 == bytes.len() {
+            completed_chunks
+        } else {
+            completed_chunks + 1
+        };
+        let last_chunk_idx = total_chunks.saturating_sub(1);
 
         // I2C start
         //
@@ -282,12 +296,12 @@ impl<'d, T: Instance> I2c<'d, T> {
             address,
             bytes.len().min(255),
             Stop::Software,
-            last_chunk != 0,
+            last_chunk_idx != 0,
         );
 
         for (number, chunk) in bytes.chunks(255).enumerate() {
             if number != 0 {
-                self.master_continue(chunk.len(), number != last_chunk);
+                self.master_continue(chunk.len(), number != last_chunk_idx);
             }
 
             for byte in chunk {
