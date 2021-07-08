@@ -92,7 +92,7 @@ pub(crate) async unsafe fn transfer_m2p(
     state_number: usize,
     src: &[u8],
     dst: *mut u8,
-    #[cfg(dmamux)] dmamux_regs: &'static pac::dmamux::Dmamux,
+    #[cfg(dmamux)] dmamux_regs: pac::dmamux::Dmamux,
     #[cfg(dmamux)] dmamux_ch_num: u8,
     #[cfg(dmamux)] request: u8,
 ) {
@@ -272,7 +272,7 @@ macro_rules! impl_dma_channel {
                 use crate::dmamux::sealed::Channel as _MuxChannel;
                 use crate::dmamux::sealed::PeripheralChannel;
                 let dmamux_regs = self.dmamux_regs();
-                let dmamux_ch_num = self.dma_ch_num();
+                let dmamux_ch_num = self.dmamux_ch_num();
                 let request = PeripheralChannel::<T, crate::dmamux::M2P>::request(self);
                 unsafe {
                     transfer_m2p(

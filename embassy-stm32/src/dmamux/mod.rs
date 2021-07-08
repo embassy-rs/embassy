@@ -101,7 +101,7 @@ pub(crate) async unsafe fn transfer_m2p(
  */
 
 pub(crate) unsafe fn configure_dmamux(
-    dmamux_regs: &pac::dmamux::Dmamux,
+    dmamux_regs: pac::dmamux::Dmamux,
     dmamux_ch_num: u8,
     request: u8,
 ) {
@@ -123,15 +123,11 @@ pub(crate) mod sealed {
     use super::*;
 
     pub trait DmaMux {
-        fn regs() -> &'static pac::dmamux::Dmamux;
+        fn regs() -> pac::dmamux::Dmamux;
     }
 
     pub trait Channel {
-        fn num(&self) -> usize;
-        fn dma_regs() -> &'static pac::bdma::Dma;
-        fn dma_ch_num(&self) -> u8;
-
-        fn dmamux_regs(&self) -> &'static pac::dmamux::Dmamux;
+        fn dmamux_regs(&self) -> pac::dmamux::Dmamux;
         fn dmamux_ch_num(&self) -> u8;
     }
 
@@ -151,20 +147,8 @@ macro_rules! impl_dma_channel {
     ($channel_peri:ident, $dmamux_peri:ident, $channel_num:expr, $dma_peri: ident, $dma_num:expr) => {
         impl Channel for peripherals::$channel_peri {}
         impl sealed::Channel for peripherals::$channel_peri {
-            fn num(&self) -> usize {
-                ($dma_num * 8) + $channel_num
-            }
-
-            fn dma_regs() -> &'static pac::bdma::Dma {
-                &crate::pac::$dma_peri
-            }
-
-            fn dma_ch_num(&self) -> u8 {
-                $channel_num
-            }
-
-            fn dmamux_regs(&self) -> &'static pac::dmamux::Dmamux {
-                &crate::pac::$dmamux_peri
+            fn dmamux_regs(&self) -> pac::dmamux::Dmamux {
+                crate::pac::$dmamux_peri
             }
 
             fn dmamux_ch_num(&self) -> u8 {
@@ -177,8 +161,8 @@ macro_rules! impl_dma_channel {
 macro_rules! impl_dmamux {
     ($peri:ident) => {
         impl sealed::DmaMux for peripherals::$peri {
-            fn regs() -> &'static pac::dmamux::Dmamux {
-                &pac::$peri
+            fn regs() -> pac::dmamux::Dmamux {
+                pac::$peri
             }
         }
         impl DmaMux for peripherals::$peri {}
