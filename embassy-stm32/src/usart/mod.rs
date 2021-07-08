@@ -73,11 +73,8 @@ pub enum Error {
 pub(crate) mod sealed {
     use super::*;
 
-    #[cfg(any(dma, dmamux))]
-    use crate::dma::WriteDma;
-
-    #[cfg(bdma)]
-    use crate::bdma::WriteDma;
+    #[cfg(any(dma, bdma, dmamux))]
+    use crate::dma_traits::WriteDma;
 
     pub trait Instance {
         fn regs(&self) -> crate::pac::usart::Usart;

@@ -421,14 +421,16 @@ pub fn gen(options: Options) {
                                     clock.to_ascii_lowercase()
                                 };
 
-                                peripheral_rcc_table.push(vec![
-                                    name.clone(),
-                                    clock,
-                                    enable_reg.to_ascii_lowercase(),
-                                    reset_reg.to_ascii_lowercase(),
-                                    format!("set_{}", enable_field.to_ascii_lowercase()),
-                                    format!("set_{}", reset_field.to_ascii_lowercase()),
-                                ]);
+                                if !name.starts_with("GPIO") {
+                                    peripheral_rcc_table.push(vec![
+                                        name.clone(),
+                                        clock,
+                                        enable_reg.to_ascii_lowercase(),
+                                        reset_reg.to_ascii_lowercase(),
+                                        format!("set_{}", enable_field.to_ascii_lowercase()),
+                                        format!("set_{}", reset_field.to_ascii_lowercase()),
+                                    ]);
+                                }
                             }
                             (None, Some(_)) => {
                                 print!("Unable to find enable register for {}", name)

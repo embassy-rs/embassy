@@ -6,10 +6,11 @@ use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::util::{AtomicWaker, OnDrop};
 use futures::future::poll_fn;
 
-use super::{ReadDma, WriteDma};
+use crate::dma_traits::{ReadDma, WriteDma};
 use crate::interrupt;
 use crate::pac;
 use crate::pac::bdma::vals;
+use crate::rcc::sealed::RccPeripheral;
 
 const CH_COUNT: usize = pac::peripheral_count!(DMA) * 8;
 const CH_STATUS_NONE: u8 = 0;
@@ -57,6 +58,9 @@ pub(crate) async unsafe fn transfer_p2m(
         while regs.cr().read().en() {}
     });
 
+    #[cfg(dmamux)]
+    crate::dmamux::configure_channel(1, 2);
+
     regs.par().write_value(src as u32);
     regs.mar().write_value(dst.as_mut_ptr() as u32);
     regs.ndtr().write(|w| w.set_ndt(dst.len() as u16));
@@ -88,6 +92,9 @@ pub(crate) async unsafe fn transfer_m2p(
     state_number: usize,
     src: &[u8],
     dst: *mut u8,
+    #[cfg(dmamux)] dmamux_regs: &'static pac::dmamux::Dmamux,
+    #[cfg(dmamux)] dmamux_ch_num: u8,
+    #[cfg(dmamux)] request: u8,
 ) {
     // ndtr is max 16 bits.
     assert!(src.len() <= 0xFFFF);
@@ -104,6 +111,9 @@ pub(crate) async unsafe fn transfer_m2p(
         });
         while regs.cr().read().en() {}
     });
+
+    #[cfg(dmamux)]
+    crate::dmamux::configure_dmamux(dmamux_regs, dmamux_ch_num, request);
 
     regs.par().write_value(dst as u32);
     regs.mar().write_value(src.as_ptr() as u32);
@@ -161,9 +171,10 @@ pub(crate) unsafe fn init() {
     }
     pac::peripherals! {
         (bdma, DMA1) => {
-            critical_section::with(|_| {
-                pac::RCC.ahbenr().modify(|w| w.set_dmaen(true));
-            });
+            //critical_section::with(|_| {
+                //pac::RCC.ahbenr().modify(|w| w.set_dmaen(true));
+            //});
+            crate::peripherals::DMA1::enable();
         };
     }
 }
@@ -220,8 +231,10 @@ macro_rules! impl_dma_channel {
             }
         }
 
+        #[cfg(not(dmamux))]
         impl<T> WriteDma<T> for crate::peripherals::$channel_peri
         where
+            Self: crate::dmamux::sealed::PeripheralChannel<T, crate::dmamux::M2P>,
             T: 'static,
         {
             type WriteDmaFuture<'a> = impl Future<Output = ()>;
@@ -234,7 +247,44 @@ macro_rules! impl_dma_channel {
 
                 let state_num = self.state_num();
                 let regs = self.regs();
+
                 unsafe { transfer_m2p(regs, state_num, buf, dst) }
+            }
+        }
+
+        #[cfg(dmamux)]
+        impl<T> WriteDma<T> for crate::peripherals::$channel_peri
+        where
+            Self: crate::dmamux::sealed::PeripheralChannel<T, crate::dmamux::M2P>,
+            T: 'static,
+        {
+            type WriteDmaFuture<'a> = impl Future<Output = ()>;
+
+            fn transfer<'a>(&'a mut self, buf: &'a [u8], dst: *mut u8) -> Self::WriteDmaFuture<'a>
+            where
+                T: 'a,
+            {
+                use sealed::Channel as _Channel;
+
+                let state_num = self.state_num();
+                let regs = self.regs();
+
+                use crate::dmamux::sealed::Channel as _MuxChannel;
+                use crate::dmamux::sealed::PeripheralChannel;
+                let dmamux_regs = self.dmamux_regs();
+                let dmamux_ch_num = self.dma_ch_num();
+                let request = PeripheralChannel::<T, crate::dmamux::M2P>::request(self);
+                unsafe {
+                    transfer_m2p(
+                        regs,
+                        state_num,
+                        buf,
+                        dst,
+                        dmamux_regs,
+                        dmamux_ch_num,
+                        request,
+                    )
+                }
             }
         }
 
@@ -292,6 +342,8 @@ pac::interrupts! {
 
 #[cfg(usart)]
 use crate::usart;
+
+#[cfg(not(dmamux))]
 pac::peripheral_dma_channels! {
     ($peri:ident, usart, $kind:ident, RX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
         impl usart::RxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
@@ -301,5 +353,35 @@ pac::peripheral_dma_channels! {
     ($peri:ident, usart, $kind:ident, TX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
         impl usart::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
         impl usart::sealed::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
+    };
+
+    ($peri:ident, uart, $kind:ident, RX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
+        impl usart::RxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
+        impl usart::sealed::RxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
+    };
+
+    ($peri:ident, uart, $kind:ident, TX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
+        impl usart::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
+        impl usart::sealed::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
+    };
+}
+
+#[cfg(dmamux)]
+pac::peripherals! {
+    (usart, $peri:ident) => {
+        pac::dma_channels! {
+            ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
+                impl usart::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
+                impl usart::sealed::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
+            };
+        }
+    };
+    (uart, $peri:ident) => {
+        pac::dma_channels! {
+            ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
+                impl usart::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
+                impl usart::sealed::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
+            };
+        }
     };
 }

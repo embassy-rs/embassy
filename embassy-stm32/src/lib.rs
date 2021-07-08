@@ -20,6 +20,9 @@ pub mod gpio;
 pub mod rcc;
 
 // Sometimes-present hardware
+#[cfg(any(dma, bdma, dmamux))]
+pub mod dma_traits;
+
 #[cfg(adc)]
 pub mod adc;
 #[cfg(bdma)]
@@ -28,7 +31,7 @@ pub mod bdma;
 pub mod clock;
 #[cfg(dac)]
 pub mod dac;
-#[cfg(any(dma, dmamux))]
+#[cfg(dma)]
 pub mod dma;
 #[cfg(dmamux)]
 pub mod dmamux;
