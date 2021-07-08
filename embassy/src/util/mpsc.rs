@@ -60,7 +60,10 @@ pub struct ChannelCell<T: ?Sized> {
 
 impl<T> ChannelCell<T> {
     #[inline(always)]
-    pub const fn new(value: T) -> ChannelCell<T> {
+    pub const fn new<U>(value: T) -> ChannelCell<T>
+    where
+        T: ChannelLike<U>,
+    {
         ChannelCell { _value: value }
     }
 }
