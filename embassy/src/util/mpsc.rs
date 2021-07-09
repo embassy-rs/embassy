@@ -400,7 +400,7 @@ pub trait ChannelLike<T> {
     fn set_senders_waker(&mut self, senders_waker: Waker);
 }
 
-pub struct ChannelState<T, const N: usize> {
+struct ChannelState<T, const N: usize> {
     buf: [MaybeUninit<UnsafeCell<T>>; N],
     read_pos: usize,
     write_pos: usize,
