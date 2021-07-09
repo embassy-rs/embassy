@@ -329,6 +329,15 @@ pac::peripherals! {
             };
         }
     };
+    // Because H7cm changes the naming
+    (bdma, BDMA) => {
+        impl_dma!(BDMA, 0);
+        pac::dma_channels! {
+            ($channel_peri:ident, DMA1, $channel_num:expr) => {
+                impl_dma_channel!($channel_peri, BDMA, 0, $channel_num);
+            };
+        }
+    };
 }
 
 pac::interrupts! {
