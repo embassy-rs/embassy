@@ -105,3 +105,30 @@ pub fn in_thread_mode() -> bool {
     return cortex_m::peripheral::SCB::vect_active()
         == cortex_m::peripheral::scb::VectActive::ThreadMode;
 }
+
+/// A "mutex" that does nothing and cannot be shared between threads.
+pub struct NoopMutex<T> {
+    inner: UnsafeCell<T>,
+}
+
+impl<T> NoopMutex<T> {
+    pub const fn new(value: T) -> Self {
+        NoopMutex {
+            inner: UnsafeCell::new(value),
+        }
+    }
+}
+
+impl<T> NoopMutex<T> {
+    pub fn borrow(&self) -> &T {
+        unsafe { &*self.inner.get() }
+    }
+}
+
+impl<T> Mutex for NoopMutex<T> {
+    type Data = T;
+
+    fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R {
+        f(self.borrow())
+    }
+}

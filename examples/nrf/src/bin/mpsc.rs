@@ -16,17 +16,17 @@ use embassy::util::{mpsc, Forever};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::Peripherals;
 use embedded_hal::digital::v2::OutputPin;
-use mpsc::{Channel, Sender, WithThreadModeOnly};
+use mpsc::{Channel, Sender, WithNoThreads};
 
 enum LedState {
     On,
     Off,
 }
 
-static CHANNEL: Forever<Channel<WithThreadModeOnly, LedState, 1>> = Forever::new();
+static CHANNEL: Forever<Channel<WithNoThreads, LedState, 1>> = Forever::new();
 
 #[embassy::task(pool_size = 1)]
-async fn my_task(sender: Sender<'static, WithThreadModeOnly, LedState, 1>) {
+async fn my_task(sender: Sender<'static, WithNoThreads, LedState, 1>) {
     loop {
         let _ = sender.send(LedState::On).await;
         Timer::after(Duration::from_secs(1)).await;
@@ -39,7 +39,7 @@ async fn my_task(sender: Sender<'static, WithThreadModeOnly, LedState, 1>) {
 async fn main(spawner: Spawner, p: Peripherals) {
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
 
-    let channel = CHANNEL.put(Channel::with_thread_mode_only());
+    let channel = CHANNEL.put(Channel::with_no_threads());
     let (sender, mut receiver) = mpsc::split(channel);
 
     spawner.spawn(my_task(sender)).unwrap();
