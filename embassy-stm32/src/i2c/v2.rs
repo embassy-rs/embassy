@@ -325,6 +325,66 @@ impl<'d, T: Instance> I2c<'d, T> {
         }
         Ok(())
     }
+
+    pub fn write_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error> {
+        if bytes.is_empty() {
+            return Err(Error::ZeroLengthTransfer);
+        }
+        let first_length = bytes[0].len();
+        let last_slice_index = bytes.len() - 1;
+
+        self.master_write(
+            address,
+            first_length.min(255),
+            Stop::Software,
+            (first_length > 255) || (last_slice_index != 0),
+        );
+
+        for (idx, slice) in bytes.iter().enumerate() {
+            let slice_len = slice.len();
+            let completed_chunks = slice_len / 255;
+            let total_chunks = if completed_chunks * 255 == slice_len {
+                completed_chunks
+            } else {
+                completed_chunks + 1
+            };
+            let last_chunk_idx = total_chunks.saturating_sub(1);
+
+            if idx != 0 {
+                self.master_continue(
+                    slice_len.min(255),
+                    (idx != last_slice_index) || (slice_len > 255),
+                );
+            }
+
+            for (number, chunk) in slice.chunks(255).enumerate() {
+                if number != 0 {
+                    self.master_continue(
+                        chunk.len(),
+                        (number != last_chunk_idx) || (idx != last_slice_index),
+                    );
+                }
+
+                for byte in chunk {
+                    // Wait until we are allowed to send data
+                    // (START has been ACKed or last byte when
+                    // through)
+                    self.wait_txe()?;
+
+                    // Put byte on the wire
+                    //self.i2c.txdr.write(|w| w.txdata().bits(*byte));
+                    unsafe {
+                        T::regs().txdr().write(|w| w.set_txdata(*byte));
+                    }
+                }
+            }
+        }
+        // Wait until the write finishes
+        self.wait_tc()?;
+        self.master_stop();
+
+        Ok(())
+    }
 }
 
 impl<'d, T: Instance> Read for I2c<'d, T> {

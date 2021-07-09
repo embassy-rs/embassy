@@ -14,6 +14,7 @@ pub enum Error {
     Timeout,
     Crc,
     Overrun,
+    ZeroLengthTransfer,
 }
 
 pub(crate) mod sealed {
