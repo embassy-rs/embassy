@@ -22,8 +22,6 @@ use core::future::Future;
 
 use crate::dma_traits::{ReadDma, WriteDma};
 
-pub(crate) fn configure_channel(ch_num: u8, request_num: u8) {}
-
 /*
 #[allow(unused)]
 pub(crate) async unsafe fn transfer_m2p(
@@ -143,6 +141,7 @@ pub trait PeripheralChannel<PERI, OP>: sealed::Channel {}
 pub struct P2M;
 pub struct M2P;
 
+#[allow(unused)]
 macro_rules! impl_dma_channel {
     ($channel_peri:ident, $dmamux_peri:ident, $channel_num:expr, $dma_peri: ident, $dma_num:expr) => {
         impl Channel for peripherals::$channel_peri {}
@@ -189,6 +188,7 @@ peripherals! {
     };
 }
 
+#[allow(unused)]
 macro_rules! impl_usart_dma_requests {
     ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
         dma_requests! {
@@ -239,6 +239,7 @@ macro_rules! impl_usart_dma_requests {
     };
 }
 
+#[allow(unused)]
 #[cfg(usart)]
 use crate::usart;
 

@@ -10,7 +10,6 @@ use crate::dma_traits::{ReadDma, WriteDma};
 use crate::interrupt;
 use crate::pac;
 use crate::pac::bdma::vals;
-use crate::rcc::sealed::RccPeripheral;
 
 const CH_COUNT: usize = pac::peripheral_count!(DMA) * 8;
 const CH_STATUS_NONE: u8 = 0;
@@ -41,6 +40,9 @@ pub(crate) async unsafe fn transfer_p2m(
     state_number: usize,
     src: *const u8,
     dst: &mut [u8],
+    #[cfg(dmamux)] dmamux_regs: pac::dmamux::Dmamux,
+    #[cfg(dmamux)] dmamux_ch_num: u8,
+    #[cfg(dmamux)] request: u8,
 ) {
     // ndtr is max 16 bits.
     assert!(dst.len() <= 0xFFFF);
@@ -59,7 +61,7 @@ pub(crate) async unsafe fn transfer_p2m(
     });
 
     #[cfg(dmamux)]
-    crate::dmamux::configure_channel(1, 2);
+    crate::dmamux::configure_dmamux(dmamux_regs, dmamux_ch_num, request);
 
     regs.par().write_value(src as u32);
     regs.mar().write_value(dst.as_mut_ptr() as u32);
@@ -288,6 +290,7 @@ macro_rules! impl_dma_channel {
             }
         }
 
+        #[cfg(not(dmamux))]
         impl<T> ReadDma<T> for crate::peripherals::$channel_peri
         where
             T: 'static,
@@ -307,6 +310,46 @@ macro_rules! impl_dma_channel {
                 let state_num = self.state_num();
                 let regs = self.regs();
                 unsafe { transfer_p2m(regs, state_num, src, buf) }
+            }
+        }
+
+        #[cfg(dmamux)]
+        impl<T> ReadDma<T> for crate::peripherals::$channel_peri
+        where
+            Self: crate::dmamux::sealed::PeripheralChannel<T, crate::dmamux::M2P>,
+            T: 'static,
+        {
+            type ReadDmaFuture<'a> = impl Future<Output = ()>;
+
+            fn transfer<'a>(
+                &'a mut self,
+                src: *const u8,
+                buf: &'a mut [u8],
+            ) -> Self::ReadDmaFuture<'a>
+            where
+                T: 'a,
+            {
+                use sealed::Channel as _Channel;
+
+                let state_num = self.state_num();
+                let regs = self.regs();
+
+                use crate::dmamux::sealed::Channel as _MuxChannel;
+                use crate::dmamux::sealed::PeripheralChannel;
+                let dmamux_regs = self.dmamux_regs();
+                let dmamux_ch_num = self.dmamux_ch_num();
+                let request = PeripheralChannel::<T, crate::dmamux::M2P>::request(self);
+                unsafe {
+                    transfer_p2m(
+                        regs,
+                        state_num,
+                        src,
+                        buf,
+                        dmamux_regs,
+                        dmamux_ch_num,
+                        request,
+                    )
+                }
             }
         }
     };
