@@ -108,20 +108,18 @@ pub fn in_thread_mode() -> bool {
 
 /// A "mutex" that does nothing and cannot be shared between threads.
 pub struct NoopMutex<T> {
-    inner: UnsafeCell<T>,
+    inner: T,
 }
 
 impl<T> NoopMutex<T> {
     pub const fn new(value: T) -> Self {
-        NoopMutex {
-            inner: UnsafeCell::new(value),
-        }
+        NoopMutex { inner: value }
     }
 }
 
 impl<T> NoopMutex<T> {
     pub fn borrow(&self) -> &T {
-        unsafe { &*self.inner.get() }
+        &self.inner
     }
 }
 
