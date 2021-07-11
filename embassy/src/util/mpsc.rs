@@ -403,27 +403,17 @@ impl<T, const N: usize> ChannelState<T, N> {
     const INIT: MaybeUninit<UnsafeCell<T>> = MaybeUninit::uninit();
 
     const fn new() -> Self {
-        let buf = [Self::INIT; N];
-        let read_pos = 0;
-        let write_pos = 0;
-        let full = false;
-        let closing = false;
-        let closed = false;
-        let receiver_registered = false;
-        let senders_registered = 0;
-        let receiver_waker = WakerRegistration::new();
-        let senders_waker = WakerRegistration::new();
         ChannelState {
-            buf,
-            read_pos,
-            write_pos,
-            full,
-            closing,
-            closed,
-            receiver_registered,
-            senders_registered,
-            receiver_waker,
-            senders_waker,
+            buf: [Self::INIT; N],
+            read_pos: 0,
+            write_pos: 0,
+            full: false,
+            closing: false,
+            closed: false,
+            receiver_registered: false,
+            senders_registered: 0,
+            receiver_waker: WakerRegistration::new(),
+            senders_waker: WakerRegistration::new(),
         }
     }
 }
