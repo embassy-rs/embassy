@@ -50,26 +50,36 @@ impl<'d, T: Instance> Spi<'d, T> {
             let clk_peri = crate::clocks::clk_peri_freq();
             assert!(config.frequency <= clk_peri);
 
-            // TODO replace these trial-and-error loops with decent calculations.
+            // final SPI frequency: spi_freq = clk_peri / presc / postdiv
+            // presc must be in 2..=254, and must be even
+            // postdiv must be in 1..=256
 
-            // Find smallest prescale value which puts output frequency in range of
-            // post-divide. Prescale is an even number from 2 to 254 inclusive.
-            let presc = (2u32..=254).step_by(2).find(|&presc| {
-                (clk_peri as u64) < (presc as u64 + 2) * 256 * config.frequency as u64
-            });
+            fn div_roundup(a: u32, b: u32) -> u32 {
+                (a + b - 1) / b
+            }
 
-            // if this fails, frequency is too low.
-            let presc = unwrap!(presc);
+            // divide extra by 2, so we get rid of the "presc must be even" requirement
+            let ratio = div_roundup(clk_peri, config.frequency * 2);
+            if ratio > 127 * 256 {
+                panic!("Requested too low SPI frequency");
+            }
 
-            // Find largest post-divide which makes output <= baudrate. Post-divide is
-            // an integer in the range 1 to 256 inclusive.
-            // TODO figure what's up with postdiv=1, it is dividing by 0. Iterate down to 2 for now.
-            let postdiv = (2u32..=256)
-                .rev()
-                .find(|&postdiv| clk_peri / (presc * (postdiv - 1)) > config.frequency);
-            let postdiv = unwrap!(postdiv);
+            let presc = div_roundup(ratio, 256);
+            let postdiv = if presc == 1 {
+                ratio
+            } else {
+                div_roundup(ratio, presc)
+            };
 
-            p.cpsr().write(|w| w.set_cpsdvsr(presc as _));
+            debug!(
+                "SPI: requested freq {=u32}, actual freq {=u32}, presc {=u32}, postdiv {=u32}",
+                config.frequency,
+                clk_peri / (presc * 2 * postdiv),
+                presc * 2,
+                postdiv
+            );
+
+            p.cpsr().write(|w| w.set_cpsdvsr((presc * 2) as _));
             p.cr0().write(|w| {
                 w.set_dss(0b0111); // 8bit
                 w.set_spo(config.polarity == ehnb::Polarity::IdleHigh);
@@ -79,8 +89,6 @@ impl<'d, T: Instance> Spi<'d, T> {
             p.cr1().write(|w| {
                 w.set_sse(true); // enable
             });
-
-            info!("SPI freq: {=u32}", clk_peri / (presc * postdiv));
 
             if let Some(pin) = clk.pin_mut() {
                 pin.io().ctrl().write(|w| w.set_funcsel(1));
