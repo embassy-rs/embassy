@@ -39,6 +39,7 @@ embedded-hal = "0.2.5"
 cast = { version = "=0.2.3", default-features = false }
 
 [dev-dependencies]
+embassy = { path = ".", features = ["executor-agnostic"] }
 futures-executor = { version = "0.3", features = [ "thread-pool" ] }
 futures-test = "0.3"
 futures-timer = "0.3"
