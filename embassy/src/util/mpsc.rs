@@ -141,7 +141,18 @@ where
     ///
     /// [`close`]: Self::close
     pub async fn recv(&mut self) -> Option<T> {
-        self.await
+        futures::future::poll_fn(|cx| self.recv_poll(cx)).await
+    }
+
+    fn recv_poll(self: &mut Self, cx: &mut Context<'_>) -> Poll<Option<T>> {
+        match self.try_recv() {
+            Ok(v) => Poll::Ready(Some(v)),
+            Err(TryRecvError::Closed) => Poll::Ready(None),
+            Err(TryRecvError::Empty) => {
+                self.channel.get().set_receiver_waker(cx.waker().clone());
+                Poll::Pending
+            }
+        }
     }
 
     /// Attempts to immediately receive a message on this `Receiver`
@@ -164,24 +175,6 @@ where
     ///
     pub fn close(&mut self) {
         self.channel.get().close()
-    }
-}
-
-impl<'ch, M, T, const N: usize> Future for Receiver<'ch, M, T, N>
-where
-    M: Mutex<Data = ()>,
-{
-    type Output = Option<T>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.try_recv() {
-            Ok(v) => Poll::Ready(Some(v)),
-            Err(TryRecvError::Closed) => Poll::Ready(None),
-            Err(TryRecvError::Empty) => {
-                self.channel.get().set_receiver_waker(cx.waker().clone());
-                Poll::Pending
-            }
-        }
     }
 }
 
