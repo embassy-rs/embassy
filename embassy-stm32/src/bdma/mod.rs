@@ -428,6 +428,7 @@ pac::peripherals! {
             };
         }
     };
+
     (uart, $peri:ident) => {
         pac::bdma_channels! {
             ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
