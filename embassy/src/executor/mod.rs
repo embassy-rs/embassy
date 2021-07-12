@@ -4,12 +4,12 @@ use core::{mem, ptr};
 
 pub mod raw;
 mod run_queue;
+#[cfg(feature = "time")]
 mod timer_queue;
 mod util;
 mod waker;
 
 use crate::interrupt::{Interrupt, InterruptExt};
-use crate::time::Alarm;
 
 #[must_use = "Calling a task function does nothing on its own. You must pass the returned SpawnToken to Executor::spawn()"]
 pub struct SpawnToken<F> {
@@ -116,7 +116,8 @@ impl Executor {
         }
     }
 
-    pub fn set_alarm(&mut self, alarm: &'static dyn Alarm) {
+    #[cfg(feature = "time")]
+    pub fn set_alarm(&mut self, alarm: &'static dyn crate::time::Alarm) {
         self.inner.set_alarm(alarm);
     }
 
@@ -160,7 +161,8 @@ impl<I: Interrupt> InterruptExecutor<I> {
         }
     }
 
-    pub fn set_alarm(&mut self, alarm: &'static dyn Alarm) {
+    #[cfg(feature = "time")]
+    pub fn set_alarm(&mut self, alarm: &'static dyn crate::time::Alarm) {
         self.inner.set_alarm(alarm);
     }
 

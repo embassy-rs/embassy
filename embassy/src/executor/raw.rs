@@ -1,18 +1,20 @@
 use atomic_polyfill::{AtomicU32, Ordering};
 use core::cell::Cell;
-use core::cmp::min;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::ptr::NonNull;
-use core::task::{Context, Poll, Waker};
+use core::task::{Context, Poll};
 use core::{mem, ptr};
 
 use super::run_queue::{RunQueue, RunQueueItem};
-use super::timer_queue::{TimerQueue, TimerQueueItem};
 use super::util::UninitCell;
 use super::waker;
 use super::SpawnToken;
+
+#[cfg(feature = "time")]
+use super::timer_queue::{TimerQueue, TimerQueueItem};
+#[cfg(feature = "time")]
 use crate::time::{Alarm, Instant};
 
 /// Task is spawned (has a future)
@@ -20,26 +22,33 @@ pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
 /// Task is in the executor run queue
 pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
 /// Task is in the executor timer queue
+#[cfg(feature = "time")]
 pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
 
 pub struct TaskHeader {
     pub(crate) state: AtomicU32,
     pub(crate) run_queue_item: RunQueueItem,
-    pub(crate) expires_at: Cell<Instant>,
-    pub(crate) timer_queue_item: TimerQueueItem,
     pub(crate) executor: Cell<*const Executor>, // Valid if state != 0
     pub(crate) poll_fn: UninitCell<unsafe fn(NonNull<TaskHeader>)>, // Valid if STATE_SPAWNED
+
+    #[cfg(feature = "time")]
+    pub(crate) expires_at: Cell<Instant>,
+    #[cfg(feature = "time")]
+    pub(crate) timer_queue_item: TimerQueueItem,
 }
 
 impl TaskHeader {
     pub(crate) const fn new() -> Self {
         Self {
             state: AtomicU32::new(0),
-            expires_at: Cell::new(Instant::from_ticks(0)),
             run_queue_item: RunQueueItem::new(),
-            timer_queue_item: TimerQueueItem::new(),
             executor: Cell::new(ptr::null()),
             poll_fn: UninitCell::uninit(),
+
+            #[cfg(feature = "time")]
+            expires_at: Cell::new(Instant::from_ticks(0)),
+            #[cfg(feature = "time")]
+            timer_queue_item: TimerQueueItem::new(),
         }
     }
 
@@ -154,9 +163,12 @@ unsafe impl<F: Future + 'static> Sync for Task<F> {}
 
 pub struct Executor {
     run_queue: RunQueue,
-    timer_queue: TimerQueue,
     signal_fn: fn(*mut ()),
     signal_ctx: *mut (),
+
+    #[cfg(feature = "time")]
+    timer_queue: TimerQueue,
+    #[cfg(feature = "time")]
     alarm: Option<&'static dyn Alarm>,
 }
 
@@ -164,13 +176,17 @@ impl Executor {
     pub const fn new(signal_fn: fn(*mut ()), signal_ctx: *mut ()) -> Self {
         Self {
             run_queue: RunQueue::new(),
-            timer_queue: TimerQueue::new(),
             signal_fn,
             signal_ctx,
+
+            #[cfg(feature = "time")]
+            timer_queue: TimerQueue::new(),
+            #[cfg(feature = "time")]
             alarm: None,
         }
     }
 
+    #[cfg(feature = "time")]
     pub fn set_alarm(&mut self, alarm: &'static dyn Alarm) {
         self.alarm = Some(alarm);
     }
@@ -192,6 +208,7 @@ impl Executor {
     }
 
     pub unsafe fn run_queued(&'static self) {
+        #[cfg(feature = "time")]
         if self.alarm.is_some() {
             self.timer_queue.dequeue_expired(Instant::now(), |p| {
                 p.as_ref().enqueue();
@@ -200,6 +217,8 @@ impl Executor {
 
         self.run_queue.dequeue_all(|p| {
             let task = p.as_ref();
+
+            #[cfg(feature = "time")]
             task.expires_at.set(Instant::MAX);
 
             let state = task.state.fetch_and(!STATE_RUN_QUEUED, Ordering::AcqRel);
@@ -216,11 +235,13 @@ impl Executor {
             task.poll_fn.read()(p as _);
 
             // Enqueue or update into timer_queue
+            #[cfg(feature = "time")]
             self.timer_queue.update(p);
         });
 
         // If this is in the past, set_alarm will immediately trigger the alarm,
         // which will make the wfe immediately return so we do another loop iteration.
+        #[cfg(feature = "time")]
         if let Some(alarm) = self.alarm {
             let next_expiration = self.timer_queue.next_expiration();
             alarm.set_callback(self.signal_fn, self.signal_ctx);
@@ -242,9 +263,10 @@ pub unsafe fn wake_task(task: NonNull<TaskHeader>) {
     task.as_ref().enqueue();
 }
 
-pub(crate) unsafe fn register_timer(at: Instant, waker: &Waker) {
+#[cfg(feature = "time")]
+pub(crate) unsafe fn register_timer(at: Instant, waker: &core::task::Waker) {
     let task = waker::task_from_waker(waker);
     let task = task.as_ref();
     let expires_at = task.expires_at.get();
-    task.expires_at.set(min(expires_at, at));
+    task.expires_at.set(expires_at.min(at));
 }

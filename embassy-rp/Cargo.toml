@@ -12,7 +12,7 @@ defmt-warn = [ ]
 defmt-error = [ ]
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../embassy" }
+embassy = { version = "0.1.0", path = "../embassy", features = [ "time-tick-1mhz" ] }
 embassy-extras = {version = "0.1.0", path = "../embassy-extras" }
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["rp"]}
 

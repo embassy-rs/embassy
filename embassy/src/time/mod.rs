@@ -13,21 +13,13 @@ pub use instant::Instant;
 pub use timer::{with_timeout, Ticker, TimeoutError, Timer};
 pub use traits::*;
 
-#[cfg(any(
-    all(feature = "tick-32768hz", feature = "tick-1000hz"),
-    all(feature = "tick-32768hz", feature = "tick-1mhz"),
-))]
-compile_error!(
-    "Disable default-features to be able to use a tick rate other than the default (32768 Hz)"
-);
-
-#[cfg(feature = "tick-1000hz")]
+#[cfg(feature = "time-tick-1000hz")]
 pub const TICKS_PER_SECOND: u64 = 1_000;
 
-#[cfg(feature = "tick-32768hz")]
+#[cfg(feature = "time-tick-32768hz")]
 pub const TICKS_PER_SECOND: u64 = 32_768;
 
-#[cfg(feature = "tick-1mhz")]
+#[cfg(feature = "time-tick-1mhz")]
 pub const TICKS_PER_SECOND: u64 = 1_000_000;
 
 static mut CLOCK: Option<&'static dyn Clock> = None;
