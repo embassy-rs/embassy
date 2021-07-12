@@ -152,7 +152,7 @@ unsafe fn on_irq() {
                 pac::$dma.ifcr().write_value(isr);
                 let dman = <crate::peripherals::$dma as sealed::Dma>::num() as usize;
 
-                for chn in 0..7 {
+                for chn in 0..crate::pac::dma_channels_count!($dma) {
                     let n = dman * 8 + chn;
                     if isr.teif(chn) {
                         STATE.ch_status[n].store(CH_STATUS_ERROR, Ordering::Relaxed);

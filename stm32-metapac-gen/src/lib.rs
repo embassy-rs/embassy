@@ -141,6 +141,21 @@ macro_rules! peripheral_count {{
     write!(out, " }}\n").unwrap();
 }
 
+fn make_dma_channel_counts(out: &mut String, data: &HashMap<String, u8>) {
+    write!(out,
+           "#[macro_export]
+macro_rules! dma_channels_count {{
+    ").unwrap();
+    for (name, count) in data {
+        write!(out,
+               "({}) => ({});\n",
+               name, count,
+        ).unwrap();
+    }
+    write!(out,
+           " }}\n").unwrap();
+}
+
 fn make_table(out: &mut String, name: &str, data: &Vec<Vec<String>>) {
     write!(
         out,
@@ -256,6 +271,7 @@ pub fn gen(options: Options) {
         let mut dma_requests_table: Vec<Vec<String>> = Vec::new();
         let mut peripheral_dma_channels_table: Vec<Vec<String>> = Vec::new();
         let mut peripheral_counts: HashMap<String, u8> = HashMap::new();
+        let mut dma_channel_counts: HashMap<String, u8> = HashMap::new();
 
         let dma_base = core
             .peripherals
@@ -266,8 +282,6 @@ pub fn gen(options: Options) {
 
         let gpio_base = core.peripherals.get(&"GPIOA".to_string()).unwrap().address;
         let gpio_stride = 0x400;
-
-
 
         let number_suffix_re = Regex::new("^(.*?)[0-9]*$").unwrap();
 
@@ -460,6 +474,12 @@ pub fn gen(options: Options) {
                     }
                 }
             }
+
+            let dma_peri_name = channel_info.dma.clone();
+            dma_channel_counts.insert(
+                dma_peri_name.clone(),
+                dma_channel_counts.get(&dma_peri_name).map_or(1, |v| v + 1),
+            );
         }
 
         for (name, &num) in &core.interrupts {
@@ -511,6 +531,7 @@ pub fn gen(options: Options) {
         make_table(&mut extra, "bdma_channels", &bdma_channels_table);
         make_table(&mut extra, "dma_requests", &dma_requests_table);
         make_peripheral_counts(&mut extra, &peripheral_counts);
+        make_dma_channel_counts(&mut extra, &dma_channel_counts);
 
         for (module, version) in peripheral_versions {
             all_peripheral_versions.insert((module.clone(), version.clone()));
