@@ -164,6 +164,8 @@ unsafe fn on_irq() {
     }
 }
 
+use crate::rcc::sealed::RccPeripheral;
+
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
     pac::interrupts! {
@@ -172,11 +174,8 @@ pub(crate) unsafe fn init() {
         };
     }
     pac::peripherals! {
-        (bdma, DMA1) => {
-            //critical_section::with(|_| {
-                //pac::RCC.ahbenr().modify(|w| w.set_dmaen(true));
-            //});
-            crate::peripherals::DMA1::enable();
+        (bdma, $peri:ident) => {
+            crate::peripherals::$peri::enable();
         };
     }
 }
