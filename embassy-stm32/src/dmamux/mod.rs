@@ -101,53 +101,40 @@ peripherals! {
 }
 
 #[allow(unused)]
+macro_rules! impl_peripheral_channel {
+    ($channel_peri:ident, $direction:ident, $peri:ident, $request:expr) => {
+        impl sealed::PeripheralChannel<peripherals::$peri, $direction>
+            for peripherals::$channel_peri
+        {
+            fn request(&self) -> u8 {
+                $request
+            }
+        }
+
+        impl PeripheralChannel<peripherals::$peri, $direction> for peripherals::$channel_peri {}
+    };
+}
+
+#[allow(unused)]
 macro_rules! impl_usart_dma_requests {
     ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
         dma_requests! {
-            // TODO: DRY this up.
             (usart, $peri:ident, RX, $request:expr) => {
-                impl sealed::PeripheralChannel<peripherals::$peri, P2M> for peripherals::$channel_peri {
-                    fn request(&self) -> u8 {
-                        $request
-                    }
-                }
-
-                impl PeripheralChannel<peripherals::$peri, P2M> for peripherals::$channel_peri { }
-
+                impl_peripheral_channel($channel_peri, P2M, $peri, $request);
             };
 
             (usart, $peri:ident, TX, $request:expr) => {
-                impl sealed::PeripheralChannel<peripherals::$peri, M2P> for peripherals::$channel_peri {
-                    fn request(&self) -> u8 {
-                        $request
-                    }
-                }
-
-                impl PeripheralChannel<peripherals::$peri, M2P> for peripherals::$channel_peri { }
-
+                impl_peripheral_channel($channel_peri, M2P, $peri, $request);
             };
 
             (uart, $peri:ident, TX, $request:expr) => {
-                impl sealed::PeripheralChannel<peripherals::$peri, P2M> for peripherals::$channel_peri {
-                    fn request(&self) -> u8 {
-                        $request
-                    }
-                }
-
-                impl PeripheralChannel<peripherals::$peri, P2M> for peripherals::$channel_peri { }
+                impl_peripheral_channel($channel_peri, P2M, $peri, $request);
             };
 
             (uart, $peri:ident, RX, $request:expr) => {
-                impl sealed::PeripheralChannel<peripherals::$peri, M2P> for peripherals::$channel_peri {
-                    fn request(&self) -> u8 {
-                        $request
-                    }
-                }
-
-                impl PeripheralChannel<peripherals::$peri, M2P> for peripherals::$channel_peri { }
+                impl_peripheral_channel($channel_peri, M2P, $peri, $request);
             };
         }
-
     };
 }
 
