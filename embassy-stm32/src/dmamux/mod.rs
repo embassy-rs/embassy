@@ -6,82 +6,6 @@ use crate::pac::dma_requests;
 use crate::pac::peripherals;
 use crate::peripherals;
 
-/*
-#[allow(unused)]
-pub(crate) async unsafe fn transfer_m2p(
-    ch: &mut impl Channel,
-    ch_func: u8,
-    src: &[u8],
-    dst: *mut u8,
-) {
-    defmt::info!(
-        "m2p {} func {} {}-{}",
-        src.len(),
-        ch_func,
-        ch.num(),
-        ch.dma_ch_num()
-    );
-    let n = ch.num();
-
-    STATE.ch_status[n].store(CH_STATUS_NONE, Ordering::Release);
-
-    let ch_regs = ch.regs();
-    let dmamux_regs = ch.dmamux_regs();
-    let ch_mux_regs = dmamux_regs.ccr(ch.dmamux_ch_num() as _);
-
-    ch_mux_regs.write(|reg| {
-        // one request?
-        reg.set_nbreq(0);
-        reg.set_dmareq_id(ch_func);
-    });
-
-    ch_mux_regs.modify(|reg| {
-        reg.set_ege(true);
-        //reg.set_se(true);
-        //reg.set_soie(true);
-    });
-
-    ch_regs.par().write_value(dst as _);
-    ch_regs.mar().write_value(src.as_ptr() as _);
-    ch_regs.ndtr().write_value(regs::Ndtr(src.len() as _));
-
-    ch_regs.cr().write(|reg| {
-        reg.set_dir(vals::Dir::FROMMEMORY);
-        reg.set_msize(vals::Size::BITS8);
-        reg.set_minc(vals::Inc::ENABLED);
-        reg.set_pinc(vals::Inc::DISABLED);
-        reg.set_teie(true);
-        reg.set_tcie(true);
-        reg.set_en(true);
-    });
-
-    let res = poll_fn(|cx| {
-        defmt::info!("poll");
-        STATE.ch_wakers[n].register(cx.waker());
-        match STATE.ch_status[n].load(Ordering::Acquire) {
-            CH_STATUS_NONE => Poll::Pending,
-            x => Poll::Ready(x),
-        }
-    })
-    .await;
-
-    defmt::info!("cr {:b}", ch_regs.cr().read().0);
-
-    ch_regs.cr().modify(|reg| {
-        reg.set_en(false);
-    });
-
-    ch_mux_regs.modify(|reg| {
-        reg.set_ege(false);
-        //reg.set_se(true);
-        //reg.set_soie(true);
-    });
-
-    // TODO handle error
-    assert!(res == CH_STATUS_COMPLETED);
-}
- */
-
 pub(crate) unsafe fn configure_dmamux(
     dmamux_regs: pac::dmamux::Dmamux,
     dmamux_ch_num: u8,
@@ -89,15 +13,12 @@ pub(crate) unsafe fn configure_dmamux(
 ) {
     let ch_mux_regs = dmamux_regs.ccr(dmamux_ch_num as _);
     ch_mux_regs.write(|reg| {
-        // one request?
         reg.set_nbreq(0);
         reg.set_dmareq_id(request);
     });
 
     ch_mux_regs.modify(|reg| {
         reg.set_ege(true);
-        //reg.set_se(true);
-        //reg.set_soie(true);
     });
 }
 
@@ -236,6 +157,7 @@ use crate::usart;
 
 bdma_channels! {
     ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
+        #[cfg(usart)]
         impl_usart_dma_requests!($channel_peri, $dma_peri, $channel_num);
     };
 }
