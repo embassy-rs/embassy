@@ -390,8 +390,13 @@ pub fn gen(options: Options) {
                     if let Some(clock_prefix) = clock_prefix {
                         // Workaround for clock registers being split on some chip families. Assume fields are
                         // named after peripheral and look for first field matching and use that register.
-                        let en = find_reg_for_field(&rcc, clock_prefix, &format!("{}EN", name));
-                        let rst = find_reg_for_field(&rcc, clock_prefix, &format!("{}RST", name));
+                        let mut en = find_reg_for_field(&rcc, clock_prefix, &format!("{}EN", name));
+                        let mut rst = find_reg_for_field(&rcc, clock_prefix, &format!("{}RST", name));
+
+                        if en.is_none() && rst.is_none() && name.ends_with("1") {
+                            en = find_reg_for_field(&rcc, clock_prefix, &format!("{}EN", name.strip_suffix("1").unwrap()));
+                            rst = find_reg_for_field(&rcc, clock_prefix, &format!("{}RST", name.strip_suffix("1").unwrap()));
+                        }
 
                         match (en, rst) {
                             (Some((enable_reg, enable_field)), Some((reset_reg, reset_field))) => {
