@@ -11,7 +11,7 @@ use crate::interrupt;
 use crate::pac::bdma::{regs, vals};
 
 use crate::pac;
-use crate::pac::dma_channels;
+use crate::pac::bdma_channels;
 use crate::pac::dma_requests;
 use crate::pac::interrupts;
 use crate::pac::peripheral_count;
@@ -170,15 +170,22 @@ macro_rules! impl_dmamux {
 
 peripherals! {
     (bdma, DMA1) => {
-        dma_channels! {
+        bdma_channels! {
             ($channel_peri:ident, DMA1, $channel_num:expr) => {
                 impl_dma_channel!($channel_peri, DMAMUX1, $channel_num, DMA1, 0);
             };
         }
     };
     (bdma, DMA2) => {
-        dma_channels! {
+        bdma_channels! {
             ($channel_peri:ident, DMA2, $channel_num:expr) => {
+                impl_dma_channel!($channel_peri, DMAMUX1, $channel_num, DMA2, 1);
+            };
+        }
+    };
+    (bdma, BDMA) => {
+        bdma_channels! {
+            ($channel_peri:ident, BDMA, $channel_num:expr) => {
                 impl_dma_channel!($channel_peri, DMAMUX1, $channel_num, DMA2, 1);
             };
         }
@@ -243,7 +250,7 @@ macro_rules! impl_usart_dma_requests {
 #[cfg(usart)]
 use crate::usart;
 
-dma_channels! {
+bdma_channels! {
     ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
         impl_usart_dma_requests!($channel_peri, $dma_peri, $channel_num);
     };

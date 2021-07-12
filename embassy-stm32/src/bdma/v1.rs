@@ -236,7 +236,6 @@ macro_rules! impl_dma_channel {
         #[cfg(not(dmamux))]
         impl<T> WriteDma<T> for crate::peripherals::$channel_peri
         where
-            Self: crate::dmamux::sealed::PeripheralChannel<T, crate::dmamux::M2P>,
             T: 'static,
         {
             type WriteDmaFuture<'a> = impl Future<Output = ()>;
@@ -358,7 +357,7 @@ macro_rules! impl_dma_channel {
 pac::peripherals! {
     (bdma, DMA1) => {
         impl_dma!(DMA1, 0);
-        pac::dma_channels! {
+        pac::bdma_channels! {
             ($channel_peri:ident, DMA1, $channel_num:expr) => {
                 impl_dma_channel!($channel_peri, DMA1, 0, $channel_num);
             };
@@ -366,7 +365,7 @@ pac::peripherals! {
     };
     (bdma, DMA2) => {
         impl_dma!(DMA2, 1);
-        pac::dma_channels! {
+        pac::bdma_channels! {
             ($channel_peri:ident, DMA2, $channel_num:expr) => {
                 impl_dma_channel!($channel_peri, DMA2, 1, $channel_num);
             };
@@ -375,8 +374,8 @@ pac::peripherals! {
     // Because H7cm changes the naming
     (bdma, BDMA) => {
         impl_dma!(BDMA, 0);
-        pac::dma_channels! {
-            ($channel_peri:ident, DMA1, $channel_num:expr) => {
+        pac::bdma_channels! {
+            ($channel_peri:ident, BDMA, $channel_num:expr) => {
                 impl_dma_channel!($channel_peri, BDMA, 0, $channel_num);
             };
         }
@@ -421,7 +420,7 @@ pac::peripheral_dma_channels! {
 #[cfg(dmamux)]
 pac::peripherals! {
     (usart, $peri:ident) => {
-        pac::dma_channels! {
+        pac::bdma_channels! {
             ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
                 impl usart::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
                 impl usart::sealed::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
@@ -429,7 +428,7 @@ pac::peripherals! {
         }
     };
     (uart, $peri:ident) => {
-        pac::dma_channels! {
+        pac::bdma_channels! {
             ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
                 impl usart::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
                 impl usart::sealed::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
