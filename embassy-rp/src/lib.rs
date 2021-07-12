@@ -11,10 +11,12 @@ pub use rp2040_pac2 as pac;
 pub(crate) mod fmt;
 
 pub mod interrupt;
+pub use embassy_macros::interrupt;
 
 pub mod dma;
 pub mod gpio;
 pub mod spi;
+pub mod timer;
 pub mod uart;
 
 mod clocks;
@@ -64,6 +66,11 @@ embassy_extras::peripherals! {
     SPI0,
     SPI1,
 
+    TIMER_ALARM0,
+    TIMER_ALARM1,
+    TIMER_ALARM2,
+    TIMER_ALARM3,
+
     DMA_CH0,
     DMA_CH1,
     DMA_CH2,
@@ -100,6 +107,7 @@ pub fn init(_config: config::Config) -> Peripherals {
 
     unsafe {
         clocks::init();
+        timer::init();
     }
 
     peripherals
