@@ -1,26 +1,10 @@
 #![macro_use]
-use core::task::Poll;
-
-use atomic_polyfill::{AtomicU8, Ordering};
-use embassy::interrupt::{Interrupt, InterruptExt};
-use embassy::util::AtomicWaker;
-use futures::future::poll_fn;
-
-use crate::interrupt;
-
-use crate::pac::bdma::{regs, vals};
 
 use crate::pac;
 use crate::pac::bdma_channels;
 use crate::pac::dma_requests;
-use crate::pac::interrupts;
-use crate::pac::peripheral_count;
 use crate::pac::peripherals;
 use crate::peripherals;
-
-use core::future::Future;
-
-use crate::dma_traits::{ReadDma, WriteDma};
 
 /*
 #[allow(unused)]
