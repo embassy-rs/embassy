@@ -120,19 +120,19 @@ macro_rules! impl_usart_dma_requests {
     ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
         dma_requests! {
             (usart, $peri:ident, RX, $request:expr) => {
-                impl_peripheral_channel($channel_peri, P2M, $peri, $request);
+                impl_peripheral_channel!($channel_peri, P2M, $peri, $request);
             };
 
             (usart, $peri:ident, TX, $request:expr) => {
-                impl_peripheral_channel($channel_peri, M2P, $peri, $request);
-            };
-
-            (uart, $peri:ident, TX, $request:expr) => {
-                impl_peripheral_channel($channel_peri, P2M, $peri, $request);
+                impl_peripheral_channel!($channel_peri, M2P, $peri, $request);
             };
 
             (uart, $peri:ident, RX, $request:expr) => {
-                impl_peripheral_channel($channel_peri, M2P, $peri, $request);
+                impl_peripheral_channel!($channel_peri, P2M, $peri, $request);
+            };
+
+            (uart, $peri:ident, TX, $request:expr) => {
+                impl_peripheral_channel!($channel_peri, M2P, $peri, $request);
             };
         }
     };
