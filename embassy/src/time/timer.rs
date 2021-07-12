@@ -1,35 +1,10 @@
 use core::future::Future;
-use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use futures::{future::select, future::Either, pin_mut, Stream};
 
-use super::raw;
+use crate::executor::raw;
 use crate::time::{Duration, Instant};
-
-/// Delay abstraction using embassy's clock.
-pub struct Delay {
-    _data: PhantomData<bool>,
-}
-
-impl Delay {
-    pub fn new() -> Self {
-        Delay {
-            _data: PhantomData {},
-        }
-    }
-}
-
-impl crate::traits::delay::Delay for Delay {
-    type DelayFuture<'a> = impl Future<Output = ()> + 'a;
-
-    fn delay_ms<'a>(&'a mut self, millis: u64) -> Self::DelayFuture<'a> {
-        Timer::after(Duration::from_millis(millis))
-    }
-    fn delay_us<'a>(&'a mut self, micros: u64) -> Self::DelayFuture<'a> {
-        Timer::after(Duration::from_micros(micros))
-    }
-}
 
 pub struct TimeoutError;
 pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Output, TimeoutError> {

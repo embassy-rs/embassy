@@ -4,7 +4,6 @@ use core::{mem, ptr};
 
 pub mod raw;
 mod run_queue;
-pub(crate) mod timer;
 mod timer_queue;
 mod util;
 mod waker;
