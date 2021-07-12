@@ -2,7 +2,13 @@ use core::future::Future;
 
 use super::{Duration, Instant, Timer};
 
-/// Async or blocking delay.
+/// Type implementing async delays and blocking `embedded-hal` delays.
+///
+/// For this interface to work, the Executor's clock must be correctly initialized before using it.
+/// The delays are implemented in a "best-effort" way, meaning that the cpu will block for at least
+/// the amount provided, but accuracy can be affected by many factors, including interrupt usage.
+/// Make sure to use a suitable tick rate for your use case. The tick rate can be chosen through
+/// features flags of this crate.
 pub struct Delay;
 
 impl crate::traits::delay::Delay for Delay {
@@ -16,46 +22,37 @@ impl crate::traits::delay::Delay for Delay {
     }
 }
 
-/// Type used for blocking delays through embedded-hal traits.
-///
-/// For this interface to work, the Executor's clock must be correctly initialized before using it.
-/// The delays are implemented in a "best-effort" way, meaning that the cpu will block for at least
-/// the amount provided, but accuracy can be affected by many factors, including interrupt usage.
-/// Make sure to use a suitable tick rate for your use case. The tick rate can be chosen through
-/// features flags of this crate.
-pub struct BlockingTimer;
-
-impl embedded_hal::blocking::delay::DelayMs<u8> for BlockingTimer {
+impl embedded_hal::blocking::delay::DelayMs<u8> for Delay {
     fn delay_ms(&mut self, ms: u8) {
         block_for(Duration::from_millis(ms as u64))
     }
 }
 
-impl embedded_hal::blocking::delay::DelayMs<u16> for BlockingTimer {
+impl embedded_hal::blocking::delay::DelayMs<u16> for Delay {
     fn delay_ms(&mut self, ms: u16) {
         block_for(Duration::from_millis(ms as u64))
     }
 }
 
-impl embedded_hal::blocking::delay::DelayMs<u32> for BlockingTimer {
+impl embedded_hal::blocking::delay::DelayMs<u32> for Delay {
     fn delay_ms(&mut self, ms: u32) {
         block_for(Duration::from_millis(ms as u64))
     }
 }
 
-impl embedded_hal::blocking::delay::DelayUs<u8> for BlockingTimer {
+impl embedded_hal::blocking::delay::DelayUs<u8> for Delay {
     fn delay_us(&mut self, us: u8) {
         block_for(Duration::from_micros(us as u64))
     }
 }
 
-impl embedded_hal::blocking::delay::DelayUs<u16> for BlockingTimer {
+impl embedded_hal::blocking::delay::DelayUs<u16> for Delay {
     fn delay_us(&mut self, us: u16) {
         block_for(Duration::from_micros(us as u64))
     }
 }
 
-impl embedded_hal::blocking::delay::DelayUs<u32> for BlockingTimer {
+impl embedded_hal::blocking::delay::DelayUs<u32> for Delay {
     fn delay_us(&mut self, us: u32) {
         block_for(Duration::from_micros(us as u64))
     }
