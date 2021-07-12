@@ -33,6 +33,33 @@ pub struct Spi<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
 
+fn div_roundup(a: u32, b: u32) -> u32 {
+    (a + b - 1) / b
+}
+
+fn calc_prescs(freq: u32) -> (u8, u8) {
+    let clk_peri = crate::clocks::clk_peri_freq();
+
+    // final SPI frequency: spi_freq = clk_peri / presc / postdiv
+    // presc must be in 2..=254, and must be even
+    // postdiv must be in 1..=256
+
+    // divide extra by 2, so we get rid of the "presc must be even" requirement
+    let ratio = div_roundup(clk_peri, freq * 2);
+    if ratio > 127 * 256 {
+        panic!("Requested too low SPI frequency");
+    }
+
+    let presc = div_roundup(ratio, 256);
+    let postdiv = if presc == 1 {
+        ratio
+    } else {
+        div_roundup(ratio, presc)
+    };
+
+    ((presc * 2) as u8, (postdiv - 1) as u8)
+}
+
 impl<'d, T: Instance> Spi<'d, T> {
     pub fn new(
         inner: impl Unborrow<Target = T>,
@@ -46,45 +73,14 @@ impl<'d, T: Instance> Spi<'d, T> {
 
         unsafe {
             let p = inner.regs();
+            let (presc, postdiv) = calc_prescs(config.frequency);
 
-            let clk_peri = crate::clocks::clk_peri_freq();
-            assert!(config.frequency <= clk_peri);
-
-            // final SPI frequency: spi_freq = clk_peri / presc / postdiv
-            // presc must be in 2..=254, and must be even
-            // postdiv must be in 1..=256
-
-            fn div_roundup(a: u32, b: u32) -> u32 {
-                (a + b - 1) / b
-            }
-
-            // divide extra by 2, so we get rid of the "presc must be even" requirement
-            let ratio = div_roundup(clk_peri, config.frequency * 2);
-            if ratio > 127 * 256 {
-                panic!("Requested too low SPI frequency");
-            }
-
-            let presc = div_roundup(ratio, 256);
-            let postdiv = if presc == 1 {
-                ratio
-            } else {
-                div_roundup(ratio, presc)
-            };
-
-            debug!(
-                "SPI: requested freq {=u32}, actual freq {=u32}, presc {=u32}, postdiv {=u32}",
-                config.frequency,
-                clk_peri / (presc * 2 * postdiv),
-                presc * 2,
-                postdiv
-            );
-
-            p.cpsr().write(|w| w.set_cpsdvsr((presc * 2) as _));
+            p.cpsr().write(|w| w.set_cpsdvsr(presc));
             p.cr0().write(|w| {
                 w.set_dss(0b0111); // 8bit
                 w.set_spo(config.polarity == ehnb::Polarity::IdleHigh);
                 w.set_sph(config.phase == ehnb::Phase::CaptureOnSecondTransition);
-                w.set_scr((postdiv - 1) as u8);
+                w.set_scr(postdiv);
             });
             p.cr1().write(|w| {
                 w.set_sse(true); // enable
@@ -137,6 +133,17 @@ impl<'d, T: Instance> Spi<'d, T> {
         unsafe {
             let p = self.inner.regs();
             while p.sr().read().bsy() {}
+        }
+    }
+
+    pub fn set_frequency(&mut self, freq: u32) {
+        let (presc, postdiv) = calc_prescs(freq);
+        let p = self.inner.regs();
+        unsafe {
+            p.cpsr().write(|w| w.set_cpsdvsr(presc));
+            p.cr0().modify(|w| {
+                w.set_scr(postdiv);
+            });
         }
     }
 }
