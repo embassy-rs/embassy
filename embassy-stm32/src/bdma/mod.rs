@@ -394,46 +394,20 @@ pac::interrupts! {
 #[cfg(usart)]
 use crate::usart;
 
-#[cfg(not(dmamux))]
-pac::peripheral_dma_channels! {
-    ($peri:ident, usart, $kind:ident, RX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
-        impl usart::RxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
-        impl usart::sealed::RxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
-    };
-
-    ($peri:ident, usart, $kind:ident, TX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
-        impl usart::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
-        impl usart::sealed::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
-    };
-
-    ($peri:ident, uart, $kind:ident, RX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
-        impl usart::RxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
-        impl usart::sealed::RxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
-    };
-
-    ($peri:ident, uart, $kind:ident, TX, $channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
-        impl usart::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
-        impl usart::sealed::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
-    };
-}
-
-#[cfg(dmamux)]
 pac::peripherals! {
     (usart, $peri:ident) => {
-        pac::bdma_channels! {
-            ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
-                impl usart::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
-                impl usart::sealed::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
-            };
-        }
+        impl<T:Channel + crate::dma_traits::WriteDma<crate::peripherals::$peri>> usart::TxDma<crate::peripherals::$peri> for T {}
+        impl<T:Channel + crate::dma_traits::WriteDma<crate::peripherals::$peri>> usart::sealed::TxDma<crate::peripherals::$peri> for T {}
+
+        impl<T:Channel + crate::dma_traits::ReadDma<crate::peripherals::$peri>> usart::RxDma<crate::peripherals::$peri> for T {}
+        impl<T:Channel + crate::dma_traits::ReadDma<crate::peripherals::$peri>> usart::sealed::RxDma<crate::peripherals::$peri> for T {}
     };
 
     (uart, $peri:ident) => {
-        pac::bdma_channels! {
-            ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
-                impl usart::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
-                impl usart::sealed::TxDma<crate::peripherals::$peri> for crate::peripherals::$channel_peri { }
-            };
-        }
+        impl<T:Channel + crate::dma_traits::WriteDma<crate::peripherals::$peri>> usart::TxDma<crate::peripherals::$peri> for T {}
+        impl<T:Channel + crate::dma_traits::WriteDma<crate::peripherals::$peri>> usart::sealed::TxDma<crate::peripherals::$peri> for T {}
+
+        impl<T:Channel + crate::dma_traits::ReadDma<crate::peripherals::$peri>> usart::RxDma<crate::peripherals::$peri> for T {}
+        impl<T:Channel + crate::dma_traits::ReadDma<crate::peripherals::$peri>> usart::sealed::RxDma<crate::peripherals::$peri> for T {}
     };
 }
