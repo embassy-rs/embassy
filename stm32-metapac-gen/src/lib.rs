@@ -304,6 +304,11 @@ pub fn gen(options: Options) {
             if let Some(block) = &p.block {
                 let bi = BlockInfo::parse(block);
 
+                peripheral_counts.insert(
+                    bi.module.clone(),
+                    peripheral_counts.get(&bi.module).map_or(1, |v| v + 1),
+                );
+
                 for pin in &p.pins {
                     let mut row = Vec::new();
                     row.push(name.clone());

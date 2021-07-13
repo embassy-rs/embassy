@@ -25,78 +25,64 @@ pub(crate) unsafe fn configure_dmamux(
 pub(crate) mod sealed {
     use super::*;
 
-    pub trait DmaMux {
-        fn regs() -> pac::dmamux::Dmamux;
-    }
-
     pub trait Channel {
-        fn dmamux_regs(&self) -> pac::dmamux::Dmamux;
-        fn dmamux_ch_num(&self) -> u8;
+        const DMAMUX_CH_NUM: u8;
+        const DMAMUX_REGS: pac::dmamux::Dmamux;
     }
 
     pub trait PeripheralChannel<PERI, OP>: Channel {
-        fn request(&self) -> u8;
+        const REQUEST: u8;
     }
 }
 
-pub trait DmaMux: sealed::DmaMux {}
 pub trait Channel: sealed::Channel {}
 pub trait PeripheralChannel<PERI, OP>: sealed::Channel {}
 
 pub struct P2M;
 pub struct M2P;
 
-#[allow(unused)]
-macro_rules! impl_dma_channel {
-    ($channel_peri:ident, $dmamux_peri:ident, $channel_num:expr, $dma_peri: ident, $dma_num:expr) => {
-        impl Channel for peripherals::$channel_peri {}
-        impl sealed::Channel for peripherals::$channel_peri {
-            fn dmamux_regs(&self) -> pac::dmamux::Dmamux {
-                crate::pac::$dmamux_peri
-            }
-
-            fn dmamux_ch_num(&self) -> u8 {
-                ($dma_num * 8) + $channel_num
-            }
-        }
+macro_rules! dma_num {
+    (DMA1) => {
+        0
+    };
+    (DMA2) => {
+        1
+    };
+    (BDMA) => {
+        0
     };
 }
 
-macro_rules! impl_dmamux {
-    ($peri:ident) => {
-        impl sealed::DmaMux for peripherals::$peri {
-            fn regs() -> pac::dmamux::Dmamux {
-                pac::$peri
-            }
+macro_rules! dmamux_peri {
+    (DMA1) => {
+        crate::pac::DMAMUX1
+    };
+    (DMA2) => {
+        crate::pac::DMAMUX1
+    };
+    (BDMA) => {
+        crate::pac::DMAMUX1
+    };
+}
+
+#[allow(unused)]
+macro_rules! impl_dma_channel {
+    ($channel_peri:ident, $channel_num:expr, $dma_peri: ident) => {
+        impl Channel for peripherals::$channel_peri {}
+        impl sealed::Channel for peripherals::$channel_peri {
+            const DMAMUX_CH_NUM: u8 = (dma_num!($dma_peri) * 8) + $channel_num;
+            const DMAMUX_REGS: pac::dmamux::Dmamux = dmamux_peri!($dma_peri);
         }
-        impl DmaMux for peripherals::$peri {}
     };
 }
 
 peripherals! {
-    (bdma, DMA1) => {
+    (bdma, $peri:ident) => {
         bdma_channels! {
-            ($channel_peri:ident, DMA1, $channel_num:expr) => {
-                impl_dma_channel!($channel_peri, DMAMUX1, $channel_num, DMA1, 0);
+            ($channel_peri:ident, $peri, $channel_num:expr) => {
+                impl_dma_channel!($channel_peri, $channel_num, $peri);
             };
         }
-    };
-    (bdma, DMA2) => {
-        bdma_channels! {
-            ($channel_peri:ident, DMA2, $channel_num:expr) => {
-                impl_dma_channel!($channel_peri, DMAMUX1, $channel_num, DMA2, 1);
-            };
-        }
-    };
-    (bdma, BDMA) => {
-        bdma_channels! {
-            ($channel_peri:ident, BDMA, $channel_num:expr) => {
-                impl_dma_channel!($channel_peri, DMAMUX1, $channel_num, DMA2, 1);
-            };
-        }
-    };
-    (dmamux, DMAMUX1) => {
-        impl_dmamux!(DMAMUX1);
     };
 }
 
@@ -106,9 +92,7 @@ macro_rules! impl_peripheral_channel {
         impl sealed::PeripheralChannel<peripherals::$peri, $direction>
             for peripherals::$channel_peri
         {
-            fn request(&self) -> u8 {
-                $request
-            }
+            const REQUEST: u8 = $request;
         }
 
         impl PeripheralChannel<peripherals::$peri, $direction> for peripherals::$channel_peri {}
