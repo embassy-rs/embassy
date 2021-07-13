@@ -5,11 +5,13 @@ authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
 
 [features]
-default = ["tick-32768hz"]
+default = []
 std = ["futures/std", "embassy-traits/std"]
-tick-32768hz = []
-tick-1000hz = []
-tick-1mhz = []
+
+time = []
+time-tick-32768hz = ["time"]
+time-tick-1000hz = ["time"]
+time-tick-1mhz = ["time"]
 
 defmt-trace = []
 defmt-debug = []

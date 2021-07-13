@@ -30,15 +30,3 @@ pub trait Alarm {
     /// If no alarm was set, this is a noop.
     fn clear(&self);
 }
-
-impl<T: Alarm + ?Sized> Alarm for &T {
-    fn set_callback(&self, callback: fn(*mut ()), ctx: *mut ()) {
-        T::set_callback(self, callback, ctx);
-    }
-    fn set(&self, timestamp: u64) {
-        T::set(self, timestamp);
-    }
-    fn clear(&self) {
-        T::clear(self)
-    }
-}

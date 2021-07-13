@@ -14,6 +14,7 @@ pub(crate) mod fmt;
 pub mod executor;
 pub mod interrupt;
 pub mod io;
+#[cfg(feature = "time")]
 pub mod time;
 pub mod util;
 

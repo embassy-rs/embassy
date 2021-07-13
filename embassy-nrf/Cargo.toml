@@ -21,7 +21,7 @@ nrf52840 = ["nrf52840-pac"]
 
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../embassy" }
+embassy = { version = "0.1.0", path = "../embassy", features = ["time-tick-32768hz"] }
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["nrf"]}
 embassy-extras = {version = "0.1.0", path = "../embassy-extras" }
 
