@@ -3,7 +3,7 @@ use stm32_metapac_gen::*;
 
 fn main() {
     let out_dir = PathBuf::from("out");
-    let data_dir = PathBuf::from("../../stm32-data/data");
+    let data_dir = PathBuf::from("../stm32-data/data");
 
     let chips = std::fs::read_dir(data_dir.join("chips"))
         .unwrap()

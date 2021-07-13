@@ -47,6 +47,12 @@ members = [
     #"examples/std",
 ]
 
+exclude = [
+    # This is only built as a build-dependency, for the host. It shouldn't
+    # get built for the target.
+    "stm32-metapac-gen"
+]
+
 [profile.dev]
 codegen-units = 1
 debug = 2

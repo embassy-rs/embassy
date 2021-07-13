@@ -128,18 +128,17 @@ fn find_reg_for_field<'c>(
 }
 
 fn make_peripheral_counts(out: &mut String, data: &HashMap<String, u8>) {
-    write!(out,
-           "#[macro_export]
+    write!(
+        out,
+        "#[macro_export]
 macro_rules! peripheral_count {{
-    ").unwrap();
+    "
+    )
+    .unwrap();
     for (name, count) in data {
-        write!(out,
-            "({}) => ({});\n",
-            name, count,
-        ).unwrap();
+        write!(out, "({}) => ({});\n", name, count,).unwrap();
     }
-    write!(out,
-           " }}\n").unwrap();
+    write!(out, " }}\n").unwrap();
 }
 
 fn make_table(out: &mut String, name: &str, data: &Vec<Vec<String>>) {
@@ -155,7 +154,7 @@ macro_rules! {} {{
 ",
         name, name
     )
-        .unwrap();
+    .unwrap();
 
     for row in data {
         write!(out, "        __{}_inner!(({}));\n", name, row.join(",")).unwrap();
@@ -166,7 +165,7 @@ macro_rules! {} {{
         "    }};
 }}"
     )
-        .unwrap();
+    .unwrap();
 }
 
 pub struct Options {
@@ -341,7 +340,7 @@ pub fn gen(options: Options) {
                 peripherals_table.push(peripheral_row);
 
                 if let Some(old_version) =
-                peripheral_versions.insert(bi.module.clone(), bi.version.clone())
+                    peripheral_versions.insert(bi.module.clone(), bi.version.clone())
                 {
                     if old_version != bi.version {
                         panic!(
@@ -487,7 +486,11 @@ pub fn gen(options: Options) {
         make_table(&mut extra, "peripherals", &peripherals_table);
         make_table(&mut extra, "peripheral_versions", &peripheral_version_table);
         make_table(&mut extra, "peripheral_pins", &peripheral_pins_table);
-        make_table(&mut extra, "peripheral_dma_channels", &peripheral_dma_channels_table);
+        make_table(
+            &mut extra,
+            "peripheral_dma_channels",
+            &peripheral_dma_channels_table,
+        );
         make_table(&mut extra, "peripheral_rcc", &peripheral_rcc_table);
         make_table(&mut extra, "dma_channels", &dma_channels_table);
         make_table(&mut extra, "dma_requests", &dma_requests_table);
@@ -500,7 +503,7 @@ pub fn gen(options: Options) {
                 "#[path=\"../../peripherals/{}_{}.rs\"] pub mod {};\n",
                 module, version, module
             )
-                .unwrap();
+            .unwrap();
         }
 
         // Cleanups!
@@ -538,7 +541,7 @@ pub fn gen(options: Options) {
                 "PROVIDE({} = DefaultHandler);\n",
                 name.to_ascii_uppercase()
             )
-                .unwrap();
+            .unwrap();
         }
 
         File::create(chip_dir.join("device.x"))
@@ -566,7 +569,7 @@ pub fn gen(options: Options) {
             transform::NameKind::Enum => format!("vals::{}", s),
             _ => s.to_string(),
         })
-            .unwrap();
+        .unwrap();
 
         transform::sort::Sort {}.run(&mut ir).unwrap();
         transform::Sanitize {}.run(&mut ir).unwrap();
@@ -577,7 +580,7 @@ pub fn gen(options: Options) {
                 .join("src/peripherals")
                 .join(format!("{}_{}.rs", module, version)),
         )
-            .unwrap();
+        .unwrap();
         let data = items.to_string().replace("] ", "]\n");
 
         // Remove inner attributes like #![no_std]
@@ -600,14 +603,14 @@ pub fn gen(options: Options) {
                 "#[cfg_attr(feature=\"{}_{}\", path = \"chips/{}_{}/pac.rs\")]",
                 x, c, x, c
             )
-                .unwrap();
+            .unwrap();
         } else {
             write!(
                 &mut paths,
                 "#[cfg_attr(feature=\"{}\", path = \"chips/{}/pac.rs\")]",
                 x, x
             )
-                .unwrap();
+            .unwrap();
         }
     }
     let mut contents: Vec<u8> = Vec::new();
@@ -618,7 +621,7 @@ pub fn gen(options: Options) {
 
     // Generate src/lib.rs
     const CUT_MARKER: &[u8] = b"// GEN CUT HERE";
-    let librs = include_bytes!("../../src/lib.rs");
+    let librs = include_bytes!("../../stm32-metapac/src/lib.rs");
     let i = bytes_find(librs, CUT_MARKER).unwrap();
     let mut contents: Vec<u8> = Vec::new();
     contents.extend(&librs[..i]);
@@ -630,13 +633,13 @@ pub fn gen(options: Options) {
         out_dir.join("src").join("common.rs"),
         generate::COMMON_MODULE,
     )
-        .unwrap();
+    .unwrap();
 
     // Generate Cargo.toml
     const BUILDDEP_BEGIN: &[u8] = b"# BEGIN BUILD DEPENDENCIES";
     const BUILDDEP_END: &[u8] = b"# END BUILD DEPENDENCIES";
 
-    let mut contents = include_bytes!("../../Cargo.toml").to_vec();
+    let mut contents = include_bytes!("../../stm32-metapac/Cargo.toml").to_vec();
     let begin = bytes_find(&contents, BUILDDEP_BEGIN).unwrap();
     let end = bytes_find(&contents, BUILDDEP_END).unwrap() + BUILDDEP_END.len();
     contents.drain(begin..end);
