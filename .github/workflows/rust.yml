@@ -142,4 +142,4 @@ jobs:
         with:
           toolchain: stable
       - name: Generate pregenerated metapac
-        run: cd stm32-metapac/gen; cargo run --release
+        run: cd stm32-metapac-gen; cargo run --release
