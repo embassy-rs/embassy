@@ -22,6 +22,6 @@ cortex-m-rt = "0.6.13"
 cortex-m = "0.7.1"
 critical-section = "0.2.1"
 
-rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev="91fa122b4923fdc02462a39ec109b161aedb29b4", features = ["rt"] }
-#rp2040-pac2 = { path = "../../rp/rp2040-pac2" }
+rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev="2ce29ba58ad904d3995ce65bb46807e853f1fbf9", features = ["rt"] }
+#rp2040-pac2 = { path = "../../rp/rp2040-pac2", features = ["rt"] }
 embedded-hal = { version = "0.2.4", features = [ "unproven" ] }

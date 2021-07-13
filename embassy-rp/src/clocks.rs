@@ -4,6 +4,7 @@ use crate::{pac, reset};
 
 const XOSC_MHZ: u32 = 12;
 
+/// safety: must be called exactly once at bootup
 pub unsafe fn init() {
     // Reset everything except:
     // - QSPI (we're using it to run this code!)
