@@ -39,7 +39,7 @@ static STATE: State = State::new();
 #[allow(unused)]
 pub(crate) async unsafe fn transfer_p2m(
     regs: pac::bdma::Ch,
-    state_number: usize,
+    state_number: u8,
     src: *const u8,
     dst: &mut [u8],
     #[cfg(dmamux)] dmamux_regs: pac::dmamux::Dmamux,
@@ -51,7 +51,7 @@ pub(crate) async unsafe fn transfer_p2m(
 
     // Reset status
     // Generate a DMB here to flush the store buffer (M7) before enabling the DMA
-    STATE.ch_status[state_number].store(CH_STATUS_NONE, Ordering::Release);
+    STATE.ch_status[state_number as usize].store(CH_STATUS_NONE, Ordering::Release);
 
     let on_drop = OnDrop::new(|| unsafe {
         regs.cr().modify(|w| {
@@ -78,8 +78,8 @@ pub(crate) async unsafe fn transfer_p2m(
     });
 
     let res = poll_fn(|cx| {
-        STATE.ch_wakers[state_number].register(cx.waker());
-        match STATE.ch_status[state_number].load(Ordering::Acquire) {
+        STATE.ch_wakers[state_number as usize].register(cx.waker());
+        match STATE.ch_status[state_number as usize].load(Ordering::Acquire) {
             CH_STATUS_NONE => Poll::Pending,
             x => Poll::Ready(x),
         }
@@ -93,7 +93,7 @@ pub(crate) async unsafe fn transfer_p2m(
 #[allow(unused)]
 pub(crate) async unsafe fn transfer_m2p(
     regs: pac::bdma::Ch,
-    state_number: usize,
+    state_number: u8,
     src: &[u8],
     dst: *mut u8,
     #[cfg(dmamux)] dmamux_regs: pac::dmamux::Dmamux,
@@ -105,7 +105,7 @@ pub(crate) async unsafe fn transfer_m2p(
 
     // Reset status
     // Generate a DMB here to flush the store buffer (M7) before enabling the DMA
-    STATE.ch_status[state_number].store(CH_STATUS_NONE, Ordering::Release);
+    STATE.ch_status[state_number as usize].store(CH_STATUS_NONE, Ordering::Release);
 
     let on_drop = OnDrop::new(|| unsafe {
         regs.cr().modify(|w| {
@@ -133,8 +133,8 @@ pub(crate) async unsafe fn transfer_m2p(
     });
 
     let res = poll_fn(|cx| {
-        STATE.ch_wakers[state_number].register(cx.waker());
-        match STATE.ch_status[state_number].load(Ordering::Acquire) {
+        STATE.ch_wakers[state_number as usize].register(cx.waker());
+        match STATE.ch_status[state_number as usize].load(Ordering::Acquire) {
             CH_STATUS_NONE => Poll::Pending,
             x => Poll::Ready(x),
         }
@@ -191,13 +191,11 @@ pub(crate) mod sealed {
 
     pub trait Channel {
         const CH_NUM: u8;
-
-        fn dma_regs() -> pac::bdma::Dma;
-
-        fn state_num(&self) -> usize;
+        const STATE_NUM: u8;
+        const DMA_REGS: pac::bdma::Dma;
 
         fn regs(&self) -> pac::bdma::Ch {
-            Self::dma_regs().ch(Self::CH_NUM as usize)
+            Self::DMA_REGS.ch(Self::CH_NUM as usize)
         }
     }
 }
@@ -219,15 +217,17 @@ macro_rules! impl_dma_channel {
         impl Channel for crate::peripherals::$channel_peri {}
         impl sealed::Channel for crate::peripherals::$channel_peri {
             const CH_NUM: u8 = $ch_num;
+            const STATE_NUM: u8 = (dma_num!($dma_peri) * 8) + $ch_num;
+            const DMA_REGS: pac::bdma::Dma = crate::pac::$dma_peri;
 
-            #[inline]
-            fn dma_regs() -> pac::bdma::Dma {
-                crate::pac::$dma_peri
-            }
+            //#[inline]
+            //fn dma_regs() -> pac::bdma::Dma {
+            //crate::pac::$dma_peri
+            //}
 
-            fn state_num(&self) -> usize {
-                (dma_num!($dma_peri) * 8) + $ch_num
-            }
+            //fn state_num(&self) -> usize {
+            //(dma_num!($dma_peri) * 8) + $ch_num
+            //}
         }
 
         #[cfg(not(dmamux))]
@@ -243,7 +243,7 @@ macro_rules! impl_dma_channel {
             {
                 use sealed::Channel as _Channel;
 
-                let state_num = self.state_num();
+                let state_num = Self::STATE_NUM;
                 let regs = self.regs();
 
                 unsafe { transfer_m2p(regs, state_num, buf, dst) }
@@ -264,7 +264,7 @@ macro_rules! impl_dma_channel {
             {
                 use sealed::Channel as _Channel;
 
-                let state_num = self.state_num();
+                let state_num = Self::STATE_NUM;
                 let regs = self.regs();
 
                 use crate::dmamux::sealed::Channel as MuxChannel;
@@ -307,7 +307,7 @@ macro_rules! impl_dma_channel {
             {
                 use sealed::Channel as _Channel;
 
-                let state_num = self.state_num();
+                let state_num = Self::STATE_NUM;
                 let regs = self.regs();
                 unsafe { transfer_p2m(regs, state_num, src, buf) }
             }
@@ -331,7 +331,7 @@ macro_rules! impl_dma_channel {
             {
                 use sealed::Channel as _Channel;
 
-                let state_num = self.state_num();
+                let state_num = Self::STATE_NUM;
                 let regs = self.regs();
 
                 use crate::dmamux::sealed::Channel as MuxChannel;
