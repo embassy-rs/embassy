@@ -141,6 +141,21 @@ macro_rules! peripheral_count {{
     write!(out, " }}\n").unwrap();
 }
 
+fn make_dma_channel_counts(out: &mut String, data: &HashMap<String, u8>) {
+    write!(out,
+           "#[macro_export]
+macro_rules! dma_channels_count {{
+    ").unwrap();
+    for (name, count) in data {
+        write!(out,
+               "({}) => ({});\n",
+               name, count,
+        ).unwrap();
+    }
+    write!(out,
+           " }}\n").unwrap();
+}
+
 fn make_table(out: &mut String, name: &str, data: &Vec<Vec<String>>) {
     write!(
         out,
@@ -252,9 +267,11 @@ pub fn gen(options: Options) {
         let mut peripheral_pins_table: Vec<Vec<String>> = Vec::new();
         let mut peripheral_rcc_table: Vec<Vec<String>> = Vec::new();
         let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
+        let mut bdma_channels_table: Vec<Vec<String>> = Vec::new();
         let mut dma_requests_table: Vec<Vec<String>> = Vec::new();
         let mut peripheral_dma_channels_table: Vec<Vec<String>> = Vec::new();
         let mut peripheral_counts: HashMap<String, u8> = HashMap::new();
+        let mut dma_channel_counts: HashMap<String, u8> = HashMap::new();
 
         let dma_base = core
             .peripherals
@@ -265,14 +282,6 @@ pub fn gen(options: Options) {
 
         let gpio_base = core.peripherals.get(&"GPIOA".to_string()).unwrap().address;
         let gpio_stride = 0x400;
-
-        for (id, channel_info) in &core.dma_channels {
-            let mut row = Vec::new();
-            row.push(id.clone());
-            row.push(channel_info.dma.clone());
-            row.push(channel_info.channel.to_string());
-            dma_channels_table.push(row);
-        }
 
         let number_suffix_re = Regex::new("^(.*?)[0-9]*$").unwrap();
 
@@ -294,6 +303,11 @@ pub fn gen(options: Options) {
 
             if let Some(block) = &p.block {
                 let bi = BlockInfo::parse(block);
+
+                peripheral_counts.insert(
+                    bi.module.clone(),
+                    peripheral_counts.get(&bi.module).map_or(1, |v| v + 1),
+                );
 
                 for pin in &p.pins {
                     let mut row = Vec::new();
@@ -421,14 +435,16 @@ pub fn gen(options: Options) {
                                     clock.to_ascii_lowercase()
                                 };
 
-                                peripheral_rcc_table.push(vec![
-                                    name.clone(),
-                                    clock,
-                                    enable_reg.to_ascii_lowercase(),
-                                    reset_reg.to_ascii_lowercase(),
-                                    format!("set_{}", enable_field.to_ascii_lowercase()),
-                                    format!("set_{}", reset_field.to_ascii_lowercase()),
-                                ]);
+                                if !name.starts_with("GPIO") {
+                                    peripheral_rcc_table.push(vec![
+                                        name.clone(),
+                                        clock,
+                                        enable_reg.to_ascii_lowercase(),
+                                        reset_reg.to_ascii_lowercase(),
+                                        format!("set_{}", enable_field.to_ascii_lowercase()),
+                                        format!("set_{}", reset_field.to_ascii_lowercase()),
+                                    ]);
+                                }
                             }
                             (None, Some(_)) => {
                                 print!("Unable to find enable register for {}", name)
@@ -445,6 +461,30 @@ pub fn gen(options: Options) {
             }
 
             dev.peripherals.push(ir_peri);
+        }
+
+        for (id, channel_info) in &core.dma_channels {
+            let mut row = Vec::new();
+            let dma_peri = core.peripherals.get(&channel_info.dma);
+            row.push(id.clone());
+            row.push(channel_info.dma.clone());
+            row.push(channel_info.channel.to_string());
+            if let Some(dma_peri) = dma_peri {
+                if let Some(ref block) = dma_peri.block {
+                    let bi = BlockInfo::parse(block);
+                    if bi.module == "bdma" {
+                        bdma_channels_table.push(row);
+                    } else {
+                        dma_channels_table.push(row);
+                    }
+                }
+            }
+
+            let dma_peri_name = channel_info.dma.clone();
+            dma_channel_counts.insert(
+                dma_peri_name.clone(),
+                dma_channel_counts.get(&dma_peri_name).map_or(1, |v| v + 1),
+            );
         }
 
         for (name, &num) in &core.interrupts {
@@ -493,8 +533,10 @@ pub fn gen(options: Options) {
         );
         make_table(&mut extra, "peripheral_rcc", &peripheral_rcc_table);
         make_table(&mut extra, "dma_channels", &dma_channels_table);
+        make_table(&mut extra, "bdma_channels", &bdma_channels_table);
         make_table(&mut extra, "dma_requests", &dma_requests_table);
         make_peripheral_counts(&mut extra, &peripheral_counts);
+        make_dma_channel_counts(&mut extra, &dma_channel_counts);
 
         for (module, version) in peripheral_versions {
             all_peripheral_versions.insert((module.clone(), version.clone()));

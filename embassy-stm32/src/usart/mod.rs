@@ -8,7 +8,6 @@ use crate::peripherals;
 pub use _version::*;
 
 use crate::gpio::Pin;
-use crate::pac::usart::Usart;
 use crate::rcc::RccPeripheral;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -58,6 +57,7 @@ impl Default for Config {
 
 /// Serial error
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Framing error
@@ -73,11 +73,11 @@ pub enum Error {
 pub(crate) mod sealed {
     use super::*;
 
-    #[cfg(any(dma, dmamux))]
-    use crate::dma::WriteDma;
+    #[cfg(any(dma, bdma, dmamux))]
+    use crate::dma_traits::WriteDma;
 
     pub trait Instance {
-        fn regs(&self) -> Usart;
+        fn regs(&self) -> crate::pac::usart::Usart;
     }
     pub trait RxPin<T: Instance>: Pin {
         fn af_num(&self) -> u8;
@@ -95,10 +95,10 @@ pub(crate) mod sealed {
         fn af_num(&self) -> u8;
     }
 
-    #[cfg(any(dma, dmamux))]
+    #[cfg(any(bdma, dma, dmamux))]
     pub trait RxDma<T: Instance> {}
 
-    #[cfg(any(dma, dmamux))]
+    #[cfg(any(bdma, dma, dmamux))]
     pub trait TxDma<T: Instance>: WriteDma<T> {}
 }
 
@@ -109,10 +109,10 @@ pub trait CtsPin<T: Instance>: sealed::CtsPin<T> {}
 pub trait RtsPin<T: Instance>: sealed::RtsPin<T> {}
 pub trait CkPin<T: Instance>: sealed::CkPin<T> {}
 
-#[cfg(any(dma, dmamux))]
+#[cfg(any(bdma, dma, dmamux))]
 pub trait RxDma<T: Instance>: sealed::RxDma<T> {}
 
-#[cfg(any(dma, dmamux))]
+#[cfg(any(bdma, dma, dmamux))]
 pub trait TxDma<T: Instance>: sealed::TxDma<T> {}
 
 crate::pac::peripherals!(

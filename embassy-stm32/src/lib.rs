@@ -20,14 +20,21 @@ pub mod gpio;
 pub mod rcc;
 
 // Sometimes-present hardware
+#[cfg(any(dma, bdma, dmamux))]
+pub mod dma_traits;
+
 #[cfg(adc)]
 pub mod adc;
+#[cfg(bdma)]
+pub mod bdma;
 #[cfg(timer)]
 pub mod clock;
 #[cfg(dac)]
 pub mod dac;
-#[cfg(any(dma, dmamux))]
+#[cfg(dma)]
 pub mod dma;
+#[cfg(dmamux)]
+pub mod dmamux;
 #[cfg(all(eth, feature = "net"))]
 pub mod eth;
 #[cfg(exti)]
@@ -86,8 +93,13 @@ pub fn init(config: Config) -> Peripherals {
     unsafe {
         #[cfg(dma)]
         dma::init();
+        #[cfg(bdma)]
+        bdma::init();
+        #[cfg(dmamux)]
+        dmamux::init();
         #[cfg(exti)]
         exti::init();
+
         rcc::init(config.rcc);
     }
 

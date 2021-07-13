@@ -1,4 +1,3 @@
-
 #![no_std]
 #![no_main]
 #![feature(trait_alias)]
@@ -9,30 +8,32 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use cortex_m::prelude::_embedded_hal_blocking_serial_Write;
+use core::fmt::Write;
+use cortex_m_rt::entry;
 use embassy::executor::Executor;
 use embassy::time::Clock;
 use embassy::util::Forever;
 use embassy_stm32::usart::{Config, Uart};
 use example_common::*;
-
-use cortex_m_rt::entry;
+use heapless::String;
 use stm32l4::stm32l4x5 as pac;
 
 #[embassy::task]
 async fn main_task() {
-    let p = embassy_stm32::init(Default::default());
+    let mut p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
     let mut usart = Uart::new(p.UART4, p.PA1, p.PA0, config);
 
-    usart.bwrite_all(b"Hello Embassy World!\r\n").unwrap();
-    info!("wrote Hello, starting echo");
+    for n in 0u32.. {
+        let mut s: String<128> = String::new();
+        core::write!(&mut s, "Hello DMA World {}!\r\n", n).unwrap();
 
-    let mut buf = [0u8; 1];
-    loop {
-        usart.read(&mut buf).unwrap();
-        usart.bwrite_all(&buf).unwrap();
+        usart
+            .write_dma(&mut p.DMA1_3, s.as_bytes())
+            .await
+            .unwrap();
+        info!("wrote DMA");
     }
 }
 
@@ -59,8 +60,14 @@ fn main() -> ! {
     });
 
     pp.RCC.ahb1enr.modify(|_, w| {
-        w.dma1en().set_bit();
+        unsafe {
+            w.bits( 0x07 );
+        }
         w
+        //w.dmamuxen().set_bit();
+        //w.dma1en().set_bit();
+        //w.dma2en().set_bit();
+        //w
     });
 
     pp.RCC.ahb2enr.modify(|_, w| {
@@ -73,15 +80,11 @@ fn main() -> ! {
         w
     });
 
-    pp.RCC.apb1enr1.modify(|_, w| {
-        w.uart4en().set_bit();
-        w
-    });
-
     pp.RCC.apb2enr.modify(|_, w| {
         w.syscfgen().set_bit();
         w
     });
+
 
     unsafe { embassy::time::set_clock(&ZeroClock) };
 

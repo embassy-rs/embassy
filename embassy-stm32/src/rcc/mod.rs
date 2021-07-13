@@ -27,6 +27,9 @@ pub struct Clocks {
     pub ahb3: Hertz,
 
     #[cfg(any(rcc_h7))]
+    pub ahb4: Hertz,
+
+    #[cfg(any(rcc_h7))]
     pub apb4: Hertz,
 }
 
