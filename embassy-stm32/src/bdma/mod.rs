@@ -150,7 +150,7 @@ unsafe fn on_irq() {
         (bdma, $dma:ident) => {
                 let isr = pac::$dma.isr().read();
                 pac::$dma.ifcr().write_value(isr);
-                let dman = <crate::peripherals::$dma as sealed::Dma>::num() as usize;
+                let dman = <crate::peripherals::$dma as sealed::Dma>::NUM as usize;
 
                 for chn in 0..crate::pac::dma_channels_count!($dma) {
                     let n = dman * 8 + chn;
@@ -186,18 +186,18 @@ pub(crate) mod sealed {
     use super::*;
 
     pub trait Dma {
-        fn num() -> u8;
+        const NUM: u8;
     }
 
     pub trait Channel {
+        const CH_NUM: u8;
+
         fn dma_regs() -> pac::bdma::Dma;
 
         fn state_num(&self) -> usize;
 
-        fn ch_num(&self) -> u8;
-
         fn regs(&self) -> pac::bdma::Ch {
-            Self::dma_regs().ch(self.ch_num() as usize)
+            Self::dma_regs().ch(Self::CH_NUM as usize)
         }
     }
 }
@@ -206,31 +206,27 @@ pub trait Dma: sealed::Dma + Sized {}
 pub trait Channel: sealed::Channel + Sized {}
 
 macro_rules! impl_dma {
-    ($peri:ident, $num:expr) => {
+    ($peri:ident) => {
         impl Dma for crate::peripherals::$peri {}
         impl sealed::Dma for crate::peripherals::$peri {
-            fn num() -> u8 {
-                $num
-            }
+            const NUM: u8 = dma_num!($peri);
         }
     };
 }
 
 macro_rules! impl_dma_channel {
-    ($channel_peri:ident, $dma_peri:ident, $dma_num:expr, $ch_num:expr) => {
+    ($channel_peri:ident, $dma_peri:ident, $ch_num:expr) => {
         impl Channel for crate::peripherals::$channel_peri {}
         impl sealed::Channel for crate::peripherals::$channel_peri {
+            const CH_NUM: u8 = $ch_num;
+
             #[inline]
             fn dma_regs() -> pac::bdma::Dma {
                 crate::pac::$dma_peri
             }
 
             fn state_num(&self) -> usize {
-                ($dma_num * 8) + $ch_num
-            }
-
-            fn ch_num(&self) -> u8 {
-                $ch_num
+                (dma_num!($dma_peri) * 8) + $ch_num
             }
         }
 
@@ -363,31 +359,26 @@ macro_rules! impl_dma_channel {
     };
 }
 
+macro_rules! dma_num {
+    (DMA1) => {
+        0
+    };
+    (DMA2) => {
+        1
+    };
+    (BDMA) => {
+        0
+    };
+}
 pac::peripherals! {
-    (bdma, DMA1) => {
-        impl_dma!(DMA1, 0);
-        pac::bdma_channels! {
-            ($channel_peri:ident, DMA1, $channel_num:expr) => {
-                impl_dma_channel!($channel_peri, DMA1, 0, $channel_num);
-            };
-        }
+    (bdma, $peri:ident) => {
+        impl_dma!($peri);
     };
-    (bdma, DMA2) => {
-        impl_dma!(DMA2, 1);
-        pac::bdma_channels! {
-            ($channel_peri:ident, DMA2, $channel_num:expr) => {
-                impl_dma_channel!($channel_peri, DMA2, 1, $channel_num);
-            };
-        }
-    };
-    // Because H7cm changes the naming
-    (bdma, BDMA) => {
-        impl_dma!(BDMA, 0);
-        pac::bdma_channels! {
-            ($channel_peri:ident, BDMA, $channel_num:expr) => {
-                impl_dma_channel!($channel_peri, BDMA, 0, $channel_num);
-            };
-        }
+}
+
+pac::bdma_channels! {
+    ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
+        impl_dma_channel!($channel_peri, $dma_peri, $channel_num);
     };
 }
 
