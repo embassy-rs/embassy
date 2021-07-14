@@ -14,6 +14,7 @@ use embassy::executor::Executor;
 use embassy::time::Clock;
 use embassy::util::Forever;
 use embassy_stm32::usart::{Config, Uart};
+use embassy_stm32::dma_traits::NoDma;
 use example_common::*;
 
 use stm32h7xx_hal as hal;
@@ -27,7 +28,7 @@ async fn main_task() {
     let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, config);
+    let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, NoDma, NoDma, config);
 
     usart.bwrite_all(b"Hello Embassy World!\r\n").unwrap();
     info!("wrote Hello, starting echo");
