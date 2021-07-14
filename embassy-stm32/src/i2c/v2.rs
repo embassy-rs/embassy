@@ -310,8 +310,6 @@ impl<'d, T: Instance> I2c<'d, T> {
                 // through)
                 self.wait_txe()?;
 
-                // Put byte on the wire
-                //self.i2c.txdr.write(|w| w.txdata().bits(*byte));
                 unsafe {
                     T::regs().txdr().write(|w| w.set_txdata(*byte));
                 }
