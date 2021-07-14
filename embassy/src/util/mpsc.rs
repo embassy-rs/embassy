@@ -65,8 +65,10 @@ where
 }
 
 // Safe to pass the sender around
-unsafe impl<'ch, M, T, const N: usize> Send for Sender<'ch, M, T, N> where M: Mutex<Data = ()> {}
-unsafe impl<'ch, M, T, const N: usize> Sync for Sender<'ch, M, T, N> where M: Mutex<Data = ()> {}
+unsafe impl<'ch, M, T, const N: usize> Send for Sender<'ch, M, T, N> where M: Mutex<Data = ()> + Sync
+{}
+unsafe impl<'ch, M, T, const N: usize> Sync for Sender<'ch, M, T, N> where M: Mutex<Data = ()> + Sync
+{}
 
 /// Receive values from the associated `Sender`.
 ///
@@ -79,8 +81,14 @@ where
 }
 
 // Safe to pass the receiver around
-unsafe impl<'ch, M, T, const N: usize> Send for Receiver<'ch, M, T, N> where M: Mutex<Data = ()> {}
-unsafe impl<'ch, M, T, const N: usize> Sync for Receiver<'ch, M, T, N> where M: Mutex<Data = ()> {}
+unsafe impl<'ch, M, T, const N: usize> Send for Receiver<'ch, M, T, N> where
+    M: Mutex<Data = ()> + Sync
+{
+}
+unsafe impl<'ch, M, T, const N: usize> Sync for Receiver<'ch, M, T, N> where
+    M: Mutex<Data = ()> + Sync
+{
+}
 
 /// Splits a bounded mpsc channel into a `Sender` and `Receiver`.
 ///
