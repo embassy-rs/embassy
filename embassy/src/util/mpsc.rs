@@ -210,7 +210,7 @@ where
     pub async fn send(&self, message: T) -> Result<(), SendError<T>> {
         SendFuture {
             sender: self.clone(),
-            message: UnsafeCell::new(message),
+            message: Some(message),
         }
         .await
     }
@@ -266,7 +266,7 @@ where
     M: Mutex<Data = ()>,
 {
     sender: Sender<'ch, M, T, N>,
-    message: UnsafeCell<T>,
+    message: Option<T>,
 }
 
 impl<'ch, M, T, const N: usize> Future for SendFuture<'ch, M, T, N>
@@ -275,24 +275,22 @@ where
 {
     type Output = Result<(), SendError<T>>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self
-            .sender
-            .channel
-            .get()
-            .try_send_with_context(unsafe { self.message.get().read() }, Some(cx))
-        {
-            Ok(..) => Poll::Ready(Ok(())),
-            Err(TrySendError::Closed(m)) => Poll::Ready(Err(SendError(m))),
-            Err(TrySendError::Full(..)) => {
-                Poll::Pending
-                // Note we leave the existing UnsafeCell contents - they still
-                // contain the original message. We could create another UnsafeCell
-                // with the message of Full, but there's no real need.
-            }
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.message.take() {
+            Some(m) => match self.sender.channel.get().try_send_with_context(m, Some(cx)) {
+                Ok(..) => Poll::Ready(Ok(())),
+                Err(TrySendError::Closed(m)) => Poll::Ready(Err(SendError(m))),
+                Err(TrySendError::Full(m)) => {
+                    self.message.insert(m);
+                    Poll::Pending
+                }
+            },
+            None => panic!("Message cannot be None"),
         }
     }
 }
+
+impl<'ch, M, T, const N: usize> Unpin for SendFuture<'ch, M, T, N> where M: Mutex<Data = ()> {}
 
 struct CloseFuture<'ch, M, T, const N: usize>
 where
