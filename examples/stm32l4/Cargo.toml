@@ -19,7 +19,7 @@ defmt-error = []
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-trace"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "stm32l4s5vi"]  }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "unstable-pac", "stm32l4s5vi"]  }
 embassy-extras = {version = "0.1.0", path = "../../embassy-extras" }
 stm32l4 = { version = "0.13", features = ["stm32l4x5" ] }
 stm32l4xx-hal = { version = "0.6.0", features = ["stm32l4x5"] }
