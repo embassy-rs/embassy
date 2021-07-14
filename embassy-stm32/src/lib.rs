@@ -6,6 +6,9 @@
 #![feature(type_alias_impl_trait)]
 #![allow(incomplete_features)]
 
+#[cfg(feature = "unstable-pac")]
+pub use stm32_metapac as pac;
+#[cfg(not(feature = "unstable-pac"))]
 pub(crate) use stm32_metapac as pac;
 
 // This must go FIRST so that all the other modules see its macros.
