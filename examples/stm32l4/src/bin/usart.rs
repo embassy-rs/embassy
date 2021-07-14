@@ -18,13 +18,14 @@ use example_common::*;
 
 use cortex_m_rt::entry;
 use stm32l4::stm32l4x5 as pac;
+use embassy_stm32::dma_traits::NoDma;
 
 #[embassy::task]
 async fn main_task() {
     let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let mut usart = Uart::new(p.UART4, p.PA1, p.PA0, config);
+    let mut usart = Uart::new(p.UART4, p.PA1, p.PA0, NoDma, NoDma, config);
 
     usart.bwrite_all(b"Hello Embassy World!\r\n").unwrap();
     info!("wrote Hello, starting echo");
