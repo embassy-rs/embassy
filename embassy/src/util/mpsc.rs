@@ -563,7 +563,7 @@ pub struct Channel<M, T, const N: usize>
 where
     M: Mutex<Data = ()>,
 {
-    sync_channel: UnsafeCell<ChannelCell<M, T, N>>,
+    channel_cell: UnsafeCell<ChannelCell<M, T, N>>,
 }
 
 struct ChannelCell<M, T, const N: usize>
@@ -593,9 +593,9 @@ impl<T, const N: usize> Channel<WithCriticalSections, T, N> {
     pub const fn with_critical_sections() -> Self {
         let mutex = CriticalSectionMutex::new(());
         let state = ChannelState::new();
-        let sync_channel = ChannelCell { mutex, state };
+        let channel_cell = ChannelCell { mutex, state };
         Channel {
-            sync_channel: UnsafeCell::new(sync_channel),
+            channel_cell: UnsafeCell::new(channel_cell),
         }
     }
 }
@@ -620,9 +620,9 @@ impl<T, const N: usize> Channel<WithThreadModeOnly, T, N> {
     pub const fn with_thread_mode_only() -> Self {
         let mutex = ThreadModeMutex::new(());
         let state = ChannelState::new();
-        let sync_channel = ChannelCell { mutex, state };
+        let channel_cell = ChannelCell { mutex, state };
         Channel {
-            sync_channel: UnsafeCell::new(sync_channel),
+            channel_cell: UnsafeCell::new(channel_cell),
         }
     }
 }
@@ -644,9 +644,9 @@ impl<T, const N: usize> Channel<WithNoThreads, T, N> {
     pub const fn with_no_threads() -> Self {
         let mutex = NoopMutex::new(());
         let state = ChannelState::new();
-        let sync_channel = ChannelCell { mutex, state };
+        let channel_cell = ChannelCell { mutex, state };
         Channel {
-            sync_channel: UnsafeCell::new(sync_channel),
+            channel_cell: UnsafeCell::new(channel_cell),
         }
     }
 }
@@ -657,9 +657,9 @@ where
 {
     fn lock<R>(&self, f: impl FnOnce(&mut ChannelState<T, N>) -> R) -> R {
         unsafe {
-            let sync_channel = &mut *(self.sync_channel.get());
-            let mutex = &mut sync_channel.mutex;
-            let mut state = &mut sync_channel.state;
+            let channel_cell = &mut *(self.channel_cell.get());
+            let mutex = &mut channel_cell.mutex;
+            let mut state = &mut channel_cell.state;
             mutex.lock(|_| f(&mut state))
         }
     }
