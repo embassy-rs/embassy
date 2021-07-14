@@ -5,7 +5,10 @@
 #![feature(never_type)]
 #![allow(incomplete_features)]
 
+#[cfg(feature = "unstable-pac")]
 pub use rp2040_pac2 as pac;
+#[cfg(not(feature = "unstable-pac"))]
+pub(crate) use rp2040_pac2 as pac;
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;

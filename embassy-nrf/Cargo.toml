@@ -5,6 +5,13 @@ authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
 
 [features]
+
+# Reexport the PAC for the currently enabled chip at `embassy_nrf::pac`.
+# This is unstable because semver-minor (non-breaking) releases of embassy-nrf may major-bump (breaking) the PAC version.
+# If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
+# There are no plans to make this stable.
+unstable-pac = []
+
 defmt-trace = [ ]
 defmt-debug = [ ]
 defmt-info = [ ]
