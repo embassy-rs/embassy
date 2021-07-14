@@ -21,11 +21,7 @@ pub trait ReadDma<T> {
         T: 'a;
 }
 
-pub trait NoDmaMarker {}
-
 pub struct NoDma;
-
-impl NoDmaMarker for NoDma {}
 
 unsafe impl Unborrow for NoDma {
     type Target = NoDma;

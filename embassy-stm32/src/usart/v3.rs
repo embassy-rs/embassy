@@ -10,7 +10,6 @@ use core::future::Future;
 use futures::TryFutureExt;
 
 use crate::dma_traits::NoDma;
-use crate::dma_traits::NoDmaMarker;
 
 #[allow(dead_code)]
 pub struct Uart<'d, T: Instance, TxDma = NoDma, RxDma = NoDma> {
@@ -114,10 +113,8 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     }
 }
 
-impl<'d, T: Instance, TxDma, RxDma> embedded_hal::blocking::serial::Write<u8>
-    for Uart<'d, T, TxDma, RxDma>
-where
-    TxDma: NoDmaMarker,
+impl<'d, T: Instance, RxDma> embedded_hal::blocking::serial::Write<u8>
+    for Uart<'d, T, NoDma, RxDma>
 {
     type Error = Error;
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
