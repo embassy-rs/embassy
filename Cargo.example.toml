@@ -22,6 +22,7 @@ members = [
     "embassy-traits",
     "embassy-macros",
     "embassy-extras",
+    "embassy-net",
 
     # Uncomment ONLY ONE of the groups below.
 
