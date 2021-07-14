@@ -69,8 +69,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         }
     }
 
-    #[cfg(any(dma, dmamux))]
-    pub async fn write_dma(&mut self, buffer: &[u8]) -> Result<(), Error>
+    async fn write_dma(&mut self, buffer: &[u8]) -> Result<(), Error>
     where
         TxDma: crate::usart::TxDma<T>,
     {
