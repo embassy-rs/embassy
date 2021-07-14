@@ -3,29 +3,38 @@ use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
 
-use crate::pac::usart::vals;
+use crate::pac::usart::{regs, vals};
 
 use super::*;
+use core::future::Future;
+use futures::TryFutureExt;
 
-pub struct Uart<'d, T: Instance> {
+use crate::dma_traits::NoDma;
+
+#[allow(dead_code)]
+pub struct Uart<'d, T: Instance, TxDma = NoDma, RxDma = NoDma> {
     inner: T,
     phantom: PhantomData<&'d mut T>,
+    tx_dma: TxDma,
+    rx_dma: RxDma,
 }
 
-impl<'d, T: Instance> Uart<'d, T> {
+impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     pub fn new(
         inner: impl Unborrow<Target = T>,
         rx: impl Unborrow<Target = impl RxPin<T>>,
         tx: impl Unborrow<Target = impl TxPin<T>>,
+        tx_dma: impl Unborrow<Target = TxDma>,
+        rx_dma: impl Unborrow<Target = RxDma>,
         config: Config,
     ) -> Self {
-        unborrow!(inner, rx, tx);
+        unborrow!(inner, rx, tx, tx_dma, rx_dma);
 
         T::enable();
         let pclk_freq = T::frequency();
 
         // TODO: better calculation, including error checking and OVER8 if possible.
-        let div = pclk_freq.0 / config.baudrate;
+        let div = (pclk_freq.0 + (config.baudrate / 2)) / config.baudrate;
 
         let r = inner.regs();
 
@@ -50,16 +59,23 @@ impl<'d, T: Instance> Uart<'d, T> {
                     _ => vals::Ps::EVEN,
                 });
             });
+            r.cr2().write(|_w| {});
+            r.cr3().write(|_w| {});
         }
 
         Self {
             inner,
             phantom: PhantomData,
+            tx_dma,
+            rx_dma,
         }
     }
 
-    #[cfg(bdma)]
-    pub async fn write_dma(&mut self, ch: &mut impl TxDma<T>, buffer: &[u8]) -> Result<(), Error> {
+    async fn write_dma(&mut self, buffer: &[u8]) -> Result<(), Error>
+    where
+        TxDma: crate::usart::TxDma<T>,
+    {
+        let ch = &mut self.tx_dma;
         unsafe {
             self.inner.regs().cr3().modify(|reg| {
                 reg.set_dmat(true);
@@ -83,6 +99,9 @@ impl<'d, T: Instance> Uart<'d, T> {
                     } else if sr.fe() {
                         r.rdr().read();
                         return Err(Error::Framing);
+                    } else if sr.nf() {
+                        r.rdr().read();
+                        return Err(Error::Noise);
                     } else if sr.ore() {
                         r.rdr().read();
                         return Err(Error::Overrun);
@@ -97,14 +116,16 @@ impl<'d, T: Instance> Uart<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::serial::Write<u8> for Uart<'d, T> {
+impl<'d, T: Instance, RxDma> embedded_hal::blocking::serial::Write<u8>
+    for Uart<'d, T, NoDma, RxDma>
+{
     type Error = Error;
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
         unsafe {
             let r = self.inner.regs();
             for &b in buffer {
                 while !r.isr().read().txe() {}
-                r.tdr().write(|w| w.set_dr(b as u16));
+                r.tdr().write_value(regs::Dr(b as u32))
             }
         }
         Ok(())
@@ -115,5 +136,17 @@ impl<'d, T: Instance> embedded_hal::blocking::serial::Write<u8> for Uart<'d, T> 
             while !r.isr().read().tc() {}
         }
         Ok(())
+    }
+}
+
+// rustfmt::skip because intellij removes the 'where' claus on the associated type.
+#[rustfmt::skip]
+impl<'d, T: Instance, TxDma, RxDma> embassy_traits::uart::Write for Uart<'d, T, TxDma, RxDma>
+    where TxDma: crate::usart::TxDma<T>
+{
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), embassy_traits::uart::Error>>;
+
+    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+        self.write_dma(buf).map_err(|_| embassy_traits::uart::Error::Other)
     }
 }
