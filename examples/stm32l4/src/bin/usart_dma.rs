@@ -17,22 +17,22 @@ use embassy_stm32::usart::{Config, Uart};
 use example_common::*;
 use heapless::String;
 use stm32l4::stm32l4x5 as pac;
+use embassy_stm32::dma_traits::NoDma;
+use embassy_traits::uart::Write as AsyncWrite;
 
 #[embassy::task]
 async fn main_task() {
-    let mut p = embassy_stm32::init(Default::default());
+    let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let mut usart = Uart::new(p.UART4, p.PA1, p.PA0, config);
+    let mut usart = Uart::new(p.UART4, p.PA1, p.PA0, p.DMA1_3, NoDma, config);
 
     for n in 0u32.. {
         let mut s: String<128> = String::new();
         core::write!(&mut s, "Hello DMA World {}!\r\n", n).unwrap();
 
-        usart
-            .write_dma(&mut p.DMA1_3, s.as_bytes())
-            .await
-            .unwrap();
+        usart.write( s.as_bytes() ).await.ok();
+
         info!("wrote DMA");
     }
 }
