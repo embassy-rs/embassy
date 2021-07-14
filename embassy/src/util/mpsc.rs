@@ -41,6 +41,7 @@ use core::cell::UnsafeCell;
 use core::fmt;
 use core::mem::MaybeUninit;
 use core::pin::Pin;
+use core::ptr;
 use core::task::Context;
 use core::task::Poll;
 use core::task::Waker;
@@ -412,6 +413,16 @@ impl<T, const N: usize> ChannelState<T, N> {
             senders_registered: 0,
             receiver_waker: WakerRegistration::new(),
             senders_waker: WakerRegistration::new(),
+        }
+    }
+}
+
+impl<T, const N: usize> Drop for ChannelState<T, N> {
+    fn drop(&mut self) {
+        while self.read_pos != self.write_pos || self.full {
+            self.full = false;
+            unsafe { ptr::drop_in_place(self.buf[self.read_pos].as_mut_ptr()) };
+            self.read_pos = (self.read_pos + 1) % N;
         }
     }
 }
