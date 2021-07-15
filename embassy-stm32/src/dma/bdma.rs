@@ -99,8 +99,6 @@ pub(crate) async unsafe fn do_transfer(
     })
     .await;
 
-    on_drop.defuse();
-
     // TODO handle error
     assert!(res == CH_STATUS_COMPLETED);
 }
