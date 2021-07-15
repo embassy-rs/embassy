@@ -8,6 +8,8 @@ pub trait Mutex {
     /// Data protected by the mutex.
     type Data;
 
+    fn new(data: Self::Data) -> Self;
+
     /// Creates a critical section and grants temporary access to the protected data.
     fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R;
 }
@@ -46,6 +48,10 @@ impl<T> CriticalSectionMutex<T> {
 
 impl<T> Mutex for CriticalSectionMutex<T> {
     type Data = T;
+
+    fn new(data: T) -> Self {
+        Self::new(data)
+    }
 
     fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R {
         critical_section::with(|cs| f(self.borrow(cs)))
@@ -92,6 +98,10 @@ impl<T> ThreadModeMutex<T> {
 impl<T> Mutex for ThreadModeMutex<T> {
     type Data = T;
 
+    fn new(data: T) -> Self {
+        Self::new(data)
+    }
+
     fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R {
         f(self.borrow())
     }
@@ -125,6 +135,10 @@ impl<T> NoopMutex<T> {
 
 impl<T> Mutex for NoopMutex<T> {
     type Data = T;
+
+    fn new(data: T) -> Self {
+        Self::new(data)
+    }
 
     fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R {
         f(self.borrow())

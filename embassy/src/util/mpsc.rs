@@ -581,75 +581,27 @@ where
 
 pub type WithCriticalSections = CriticalSectionMutex<()>;
 
-impl<T, const N: usize> Channel<WithCriticalSections, T, N> {
-    /// Establish a new bounded channel using critical sections. Critical sections
-    /// should be used only single core targets where communication is required
-    /// from exception mode e.g. interrupt handlers. To create one:
-    ///
-    /// ```
-    /// use embassy::util::mpsc;
-    /// use embassy::util::mpsc::{Channel, WithCriticalSections};
-    ///
-    /// // Declare a bounded channel of 3 u32s.
-    /// let mut channel = Channel::<WithCriticalSections, u32, 3>::with_critical_sections();
-    /// // once we have a channel, obtain its sender and receiver
-    /// let (sender, receiver) = mpsc::split(&mut channel);
-    /// ```
-    pub const fn with_critical_sections() -> Self {
-        let mutex = CriticalSectionMutex::new(());
-        let state = ChannelState::new();
-        let channel_cell = ChannelCell { mutex, state };
-        Channel {
-            channel_cell: UnsafeCell::new(channel_cell),
-            receiver_consumed: PhantomData,
-        }
-    }
-}
-
 pub type WithThreadModeOnly = ThreadModeMutex<()>;
-
-impl<T, const N: usize> Channel<WithThreadModeOnly, T, N> {
-    /// Establish a new bounded channel for use in Cortex-M thread mode. Thread
-    /// mode is intended for application threads on a single core, not interrupts.
-    /// As such, only one task at a time can acquire a resource and so this
-    /// channel avoids all locks. To create one:
-    ///
-    /// ``` no_run
-    /// use embassy::util::mpsc;
-    /// use embassy::util::mpsc::{Channel, WithThreadModeOnly};
-    ///
-    /// // Declare a bounded channel of 3 u32s.
-    /// let mut channel = Channel::<WithThreadModeOnly, u32, 3>::with_thread_mode_only();
-    /// // once we have a channel, obtain its sender and receiver
-    /// let (sender, receiver) = mpsc::split(&mut channel);
-    /// ```
-    pub const fn with_thread_mode_only() -> Self {
-        let mutex = ThreadModeMutex::new(());
-        let state = ChannelState::new();
-        let channel_cell = ChannelCell { mutex, state };
-        Channel {
-            channel_cell: UnsafeCell::new(channel_cell),
-            receiver_consumed: PhantomData,
-        }
-    }
-}
 
 pub type WithNoThreads = NoopMutex<()>;
 
-impl<T, const N: usize> Channel<WithNoThreads, T, N> {
-    /// Establish a new bounded channel for within a single thread. To create one:
+impl<M, T, const N: usize> Channel<M, T, N>
+where
+    M: Mutex<Data = ()>,
+{
+    /// Establish a new bounded channel. For example, to create one with a NoopMutex:
     ///
     /// ```
     /// use embassy::util::mpsc;
     /// use embassy::util::mpsc::{Channel, WithNoThreads};
     ///
     /// // Declare a bounded channel of 3 u32s.
-    /// let mut channel = Channel::<WithNoThreads, u32, 3>::with_no_threads();
+    /// let mut channel = Channel::<WithNoThreads, u32, 3>::new();
     /// // once we have a channel, obtain its sender and receiver
     /// let (sender, receiver) = mpsc::split(&mut channel);
     /// ```
-    pub const fn with_no_threads() -> Self {
-        let mutex = NoopMutex::new(());
+    pub fn new() -> Self {
+        let mutex = M::new(());
         let state = ChannelState::new();
         let channel_cell = ChannelCell { mutex, state };
         Channel {
@@ -657,12 +609,7 @@ impl<T, const N: usize> Channel<WithNoThreads, T, N> {
             receiver_consumed: PhantomData,
         }
     }
-}
 
-impl<M, T, const N: usize> Channel<M, T, N>
-where
-    M: Mutex<Data = ()>,
-{
     fn lock<R>(
         channel_cell: &UnsafeCell<ChannelCell<M, T, N>>,
         f: impl FnOnce(&mut ChannelState<T, N>) -> R,
@@ -683,6 +630,8 @@ mod tests {
     use futures::task::SpawnExt;
     use futures_executor::ThreadPool;
     use futures_timer::Delay;
+
+    use crate::util::Forever;
 
     use super::*;
 
@@ -758,7 +707,7 @@ mod tests {
 
     #[test]
     fn simple_send_and_receive() {
-        let mut c = Channel::<WithNoThreads, u32, 3>::with_no_threads();
+        let mut c = Channel::<WithNoThreads, u32, 3>::new();
         let (s, r) = split(&mut c);
         assert!(s.clone().try_send(1).is_ok());
         assert_eq!(r.try_recv().unwrap(), 1);
@@ -766,7 +715,7 @@ mod tests {
 
     #[test]
     fn should_close_without_sender() {
-        let mut c = Channel::<WithNoThreads, u32, 3>::with_no_threads();
+        let mut c = Channel::<WithNoThreads, u32, 3>::new();
         let (s, r) = split(&mut c);
         drop(s);
         match r.try_recv() {
@@ -777,7 +726,7 @@ mod tests {
 
     #[test]
     fn should_close_once_drained() {
-        let mut c = Channel::<WithNoThreads, u32, 3>::with_no_threads();
+        let mut c = Channel::<WithNoThreads, u32, 3>::new();
         let (s, r) = split(&mut c);
         assert!(s.try_send(1).is_ok());
         drop(s);
@@ -790,7 +739,7 @@ mod tests {
 
     #[test]
     fn should_reject_send_when_receiver_dropped() {
-        let mut c = Channel::<WithNoThreads, u32, 3>::with_no_threads();
+        let mut c = Channel::<WithNoThreads, u32, 3>::new();
         let (s, r) = split(&mut c);
         drop(r);
         match s.try_send(1) {
@@ -801,7 +750,7 @@ mod tests {
 
     #[test]
     fn should_reject_send_when_channel_closed() {
-        let mut c = Channel::<WithNoThreads, u32, 3>::with_no_threads();
+        let mut c = Channel::<WithNoThreads, u32, 3>::new();
         let (s, mut r) = split(&mut c);
         assert!(s.try_send(1).is_ok());
         r.close();
@@ -817,9 +766,9 @@ mod tests {
     async fn receiver_closes_when_sender_dropped_async() {
         let executor = ThreadPool::new().unwrap();
 
-        static mut CHANNEL: Channel<WithCriticalSections, u32, 3> =
-            Channel::with_critical_sections();
-        let (s, mut r) = split(unsafe { &mut CHANNEL });
+        static CHANNEL: Forever<Channel<WithCriticalSections, u32, 3>> = Forever::new();
+        let c = CHANNEL.put(Channel::new());
+        let (s, mut r) = split(c);
         assert!(executor
             .spawn(async move {
                 drop(s);
@@ -832,9 +781,9 @@ mod tests {
     async fn receiver_receives_given_try_send_async() {
         let executor = ThreadPool::new().unwrap();
 
-        static mut CHANNEL: Channel<WithCriticalSections, u32, 3> =
-            Channel::with_critical_sections();
-        let (s, mut r) = split(unsafe { &mut CHANNEL });
+        static CHANNEL: Forever<Channel<WithCriticalSections, u32, 3>> = Forever::new();
+        let c = CHANNEL.put(Channel::new());
+        let (s, mut r) = split(c);
         assert!(executor
             .spawn(async move {
                 assert!(s.try_send(1).is_ok());
@@ -845,18 +794,17 @@ mod tests {
 
     #[futures_test::test]
     async fn sender_send_completes_if_capacity() {
-        static mut CHANNEL: Channel<WithCriticalSections, u32, 1> =
-            Channel::with_critical_sections();
-        let (s, mut r) = split(unsafe { &mut CHANNEL });
+        let mut c = Channel::<WithCriticalSections, u32, 1>::new();
+        let (s, mut r) = split(&mut c);
         assert!(s.send(1).await.is_ok());
         assert_eq!(r.recv().await, Some(1));
     }
 
     #[futures_test::test]
     async fn sender_send_completes_if_closed() {
-        static mut CHANNEL: Channel<WithCriticalSections, u32, 1> =
-            Channel::with_critical_sections();
-        let (s, r) = split(unsafe { &mut CHANNEL });
+        static CHANNEL: Forever<Channel<WithCriticalSections, u32, 1>> = Forever::new();
+        let c = CHANNEL.put(Channel::new());
+        let (s, r) = split(c);
         drop(r);
         match s.send(1).await {
             Err(SendError(1)) => assert!(true),
@@ -868,9 +816,9 @@ mod tests {
     async fn senders_sends_wait_until_capacity() {
         let executor = ThreadPool::new().unwrap();
 
-        static mut CHANNEL: Channel<WithCriticalSections, u32, 1> =
-            Channel::with_critical_sections();
-        let (s0, mut r) = split(unsafe { &mut CHANNEL });
+        static CHANNEL: Forever<Channel<WithCriticalSections, u32, 1>> = Forever::new();
+        let c = CHANNEL.put(Channel::new());
+        let (s0, mut r) = split(c);
         assert!(s0.try_send(1).is_ok());
         let s1 = s0.clone();
         let send_task_1 = executor.spawn_with_handle(async move { s0.send(2).await });
@@ -888,18 +836,18 @@ mod tests {
 
     #[futures_test::test]
     async fn sender_close_completes_if_closing() {
-        static mut CHANNEL: Channel<WithCriticalSections, u32, 1> =
-            Channel::with_critical_sections();
-        let (s, mut r) = split(unsafe { &mut CHANNEL });
+        static CHANNEL: Forever<Channel<WithCriticalSections, u32, 1>> = Forever::new();
+        let c = CHANNEL.put(Channel::new());
+        let (s, mut r) = split(c);
         r.close();
         s.closed().await;
     }
 
     #[futures_test::test]
     async fn sender_close_completes_if_closed() {
-        static mut CHANNEL: Channel<WithCriticalSections, u32, 1> =
-            Channel::with_critical_sections();
-        let (s, r) = split(unsafe { &mut CHANNEL });
+        static CHANNEL: Forever<Channel<WithCriticalSections, u32, 1>> = Forever::new();
+        let c = CHANNEL.put(Channel::new());
+        let (s, r) = split(c);
         drop(r);
         s.closed().await;
     }

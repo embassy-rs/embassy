@@ -37,9 +37,10 @@ async fn my_task(sender: Sender<'static, WithNoThreads, LedState, 1>) {
 
 #[embassy::main]
 async fn main(spawner: Spawner, p: Peripherals) {
+    
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
 
-    let channel = CHANNEL.put(Channel::with_no_threads());
+    let channel = CHANNEL.put(Channel::new());
     let (sender, mut receiver) = mpsc::split(channel);
 
     spawner.spawn(my_task(sender)).unwrap();
