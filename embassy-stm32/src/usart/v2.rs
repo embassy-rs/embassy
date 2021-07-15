@@ -1,12 +1,12 @@
-use core::marker::PhantomData;
 use core::future::Future;
-use futures::TryFutureExt;
+use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
+use futures::TryFutureExt;
 
-use crate::pac::usart::{regs, vals};
 use super::*;
 use crate::dma::NoDma;
+use crate::pac::usart::{regs, vals};
 
 pub struct Uart<'d, T: Instance, TxDma = NoDma, RxDma = NoDma> {
     inner: T,
