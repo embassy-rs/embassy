@@ -35,11 +35,21 @@ impl Power {
             // RM0433 Rev 7 6.8.4. This is partially enforced by dropping
             // `self` at the end of this method, but of course we cannot
             // know what happened between the previous POR and here.
+            #[cfg(pwr_h7)]
             PWR.cr3().modify(|w| {
                 w.set_scuen(true);
                 w.set_ldoen(true);
                 w.set_bypass(false);
             });
+
+            #[cfg(pwr_h7smps)]
+            PWR.cr3().modify(|w| {
+                // hardcode "Direct SPMS" for now, this is what works on nucleos with the
+                // default solderbridge configuration.
+                w.set_sden(true);
+                w.set_ldoen(false);
+            });
+
             // Validate the supply configuration. If you are stuck here, it is
             // because the voltages on your board do not match those specified
             // in the D3CR.VOS and CR3.SDLEVEL fields. By default after reset
