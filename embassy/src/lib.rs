@@ -7,7 +7,6 @@
 #![feature(min_type_alias_impl_trait)]
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
-#![feature(maybe_uninit_ref)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
