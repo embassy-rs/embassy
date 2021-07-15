@@ -1,4 +1,3 @@
-
 #![no_std]
 #![no_main]
 #![feature(trait_alias)]
@@ -13,12 +12,12 @@ use cortex_m::prelude::_embedded_hal_blocking_serial_Write;
 use embassy::executor::Executor;
 use embassy::time::Clock;
 use embassy::util::Forever;
+use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
-use embassy_stm32::dma_traits::NoDma;
 use example_common::*;
 
-use stm32h7xx_hal as hal;
 use hal::prelude::*;
+use stm32h7xx_hal as hal;
 
 use cortex_m_rt::entry;
 use stm32h7::stm32h743 as pac;
@@ -60,8 +59,7 @@ fn main() -> ! {
 
     let rcc = pp.RCC.constrain();
 
-    rcc
-        .sys_ck(96.mhz())
+    rcc.sys_ck(96.mhz())
         .pclk1(48.mhz())
         .pclk2(48.mhz())
         .pclk3(48.mhz())
@@ -88,7 +86,6 @@ fn main() -> ! {
         w.gpiofen().set_bit();
         w
     });
-
 
     unsafe { embassy::time::set_clock(&ZeroClock) };
 
