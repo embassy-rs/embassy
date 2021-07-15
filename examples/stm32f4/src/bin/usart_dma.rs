@@ -13,26 +13,25 @@ use cortex_m_rt::entry;
 use embassy::executor::Executor;
 use embassy::time::Clock;
 use embassy::util::Forever;
+use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
+use embassy_traits::uart::Write as _;
 use example_common::*;
 use heapless::String;
 use stm32f4::stm32f429 as pac;
 
 #[embassy::task]
 async fn main_task() {
-    let mut p = embassy_stm32::init(Default::default());
+    let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let mut usart = Uart::new(p.USART3, p.PD9, p.PD8, config);
+    let mut usart = Uart::new(p.USART3, p.PD9, p.PD8, p.DMA1_3, NoDma, config);
 
     for n in 0u32.. {
         let mut s: String<128> = String::new();
         core::write!(&mut s, "Hello DMA World {}!\r\n", n).unwrap();
 
-        usart
-            .write_dma(&mut p.DMA1_3, s.as_bytes())
-            .await
-            .unwrap();
+        usart.write(s.as_bytes()).await.unwrap();
         info!("wrote DMA");
     }
 }

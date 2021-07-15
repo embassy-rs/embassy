@@ -3,7 +3,7 @@
 #[cfg_attr(usart_v1, path = "v1.rs")]
 #[cfg_attr(usart_v2, path = "v2.rs")]
 mod _version;
-use crate::peripherals;
+use crate::{dma, peripherals};
 pub use _version::*;
 
 use crate::gpio::Pin;
@@ -72,9 +72,6 @@ pub enum Error {
 pub(crate) mod sealed {
     use super::*;
 
-    #[cfg(any(dma, bdma, dmamux))]
-    use crate::dma_traits::WriteDma;
-
     pub trait Instance {
         fn regs(&self) -> crate::pac::usart::Usart;
     }
@@ -94,11 +91,13 @@ pub(crate) mod sealed {
         fn af_num(&self) -> u8;
     }
 
-    #[cfg(any(bdma, dma, dmamux))]
-    pub trait RxDma<T: Instance> {}
+    pub trait RxDma<T: Instance> {
+        fn request(&self) -> dma::Request;
+    }
 
-    #[cfg(any(bdma, dma, dmamux))]
-    pub trait TxDma<T: Instance>: WriteDma<T> {}
+    pub trait TxDma<T: Instance> {
+        fn request(&self) -> dma::Request;
+    }
 }
 
 pub trait Instance: sealed::Instance + RccPeripheral {}
@@ -107,12 +106,8 @@ pub trait TxPin<T: Instance>: sealed::TxPin<T> {}
 pub trait CtsPin<T: Instance>: sealed::CtsPin<T> {}
 pub trait RtsPin<T: Instance>: sealed::RtsPin<T> {}
 pub trait CkPin<T: Instance>: sealed::CkPin<T> {}
-
-#[cfg(any(bdma, dma, dmamux))]
-pub trait RxDma<T: Instance>: sealed::RxDma<T> {}
-
-#[cfg(any(bdma, dma, dmamux))]
-pub trait TxDma<T: Instance>: sealed::TxDma<T> {}
+pub trait RxDma<T: Instance>: sealed::RxDma<T> + dma::Channel {}
+pub trait TxDma<T: Instance>: sealed::TxDma<T> + dma::Channel {}
 
 crate::pac::peripherals!(
     (usart, $inst:ident) => {
@@ -141,46 +136,86 @@ macro_rules! impl_pin {
 crate::pac::peripheral_pins!(
 
     // USART
-
     ($inst:ident, usart, USART, $pin:ident, TX, $af:expr) => {
         impl_pin!($inst, $pin, TxPin, $af);
     };
-
     ($inst:ident, usart, USART, $pin:ident, RX, $af:expr) => {
         impl_pin!($inst, $pin, RxPin, $af);
     };
-
     ($inst:ident, usart, USART, $pin:ident, CTS, $af:expr) => {
         impl_pin!($inst, $pin, CtsPin, $af);
     };
-
     ($inst:ident, usart, USART, $pin:ident, RTS, $af:expr) => {
         impl_pin!($inst, $pin, RtsPin, $af);
     };
-
     ($inst:ident, usart, USART, $pin:ident, CK, $af:expr) => {
         impl_pin!($inst, $pin, CkPin, $af);
     };
 
     // UART
-
     ($inst:ident, uart, UART, $pin:ident, TX, $af:expr) => {
         impl_pin!($inst, $pin, TxPin, $af);
     };
-
     ($inst:ident, uart, UART, $pin:ident, RX, $af:expr) => {
         impl_pin!($inst, $pin, RxPin, $af);
     };
-
     ($inst:ident, uart, UART, $pin:ident, CTS, $af:expr) => {
         impl_pin!($inst, $pin, CtsPin, $af);
     };
-
     ($inst:ident, uart, UART, $pin:ident, RTS, $af:expr) => {
         impl_pin!($inst, $pin, RtsPin, $af);
     };
-
     ($inst:ident, uart, UART, $pin:ident, CK, $af:expr) => {
         impl_pin!($inst, $pin, CkPin, $af);
     };
 );
+
+macro_rules! impl_dma {
+    ($inst:ident, ALL, $signal:ident, $request:expr) => {
+        impl<T: crate::dma::Channel> sealed::$signal<peripherals::$inst> for T {
+            fn request(&self) -> dma::Request {
+                $request
+            }
+        }
+
+        impl<T: crate::dma::Channel> $signal<peripherals::$inst> for T {}
+    };
+    ($inst:ident, $channel:ident, $signal:ident, $request:expr) => {
+        impl sealed::$signal<peripherals::$inst> for peripherals::$channel {
+            fn request(&self) -> dma::Request {
+                $request
+            }
+        }
+
+        impl $signal<peripherals::$inst> for peripherals::$channel {}
+    };
+}
+
+crate::pac::peripheral_dma_channels! {
+    ($peri:ident, usart, $kind:ident, RX, $channel:ident, $dma_peri:ident, $channel_num:expr, $request:expr) => {
+        impl_dma!($peri, $channel, RxDma, $request);
+    };
+    ($peri:ident, usart, $kind:ident, TX, $channel:ident, $dma_peri:ident, $channel_num:expr, $request:expr) => {
+        impl_dma!($peri, $channel, TxDma, $request);
+    };
+    ($peri:ident, uart, $kind:ident, RX, $channel:ident, $dma_peri:ident, $channel_num:expr, $request:expr) => {
+        impl_dma!($peri, $channel, RxDma, $request);
+    };
+    ($peri:ident, uart, $kind:ident, TX, $channel:ident, $dma_peri:ident, $channel_num:expr, $request:expr) => {
+        impl_dma!($peri, $channel, TxDma, $request);
+    };
+}
+crate::pac::dma_requests! {
+    (usart, $peri:ident, RX, $request:expr) => {
+        impl_dma!($peri, ALL, RxDma, $request);
+    };
+    (usart, $peri:ident, TX, $request:expr) => {
+        impl_dma!($peri, ALL, TxDma, $request);
+    };
+    (uart, $peri:ident, RX, $request:expr) => {
+        impl_dma!($peri, ALL, RxDma, $request);
+    };
+    (uart, $peri:ident, TX, $request:expr) => {
+        impl_dma!($peri, ALL, TxDma, $request);
+    };
+}

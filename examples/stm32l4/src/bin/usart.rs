@@ -13,7 +13,7 @@ use cortex_m_rt::entry;
 use embassy::executor::Executor;
 use embassy::time::Clock;
 use embassy::util::Forever;
-use embassy_stm32::dma_traits::NoDma;
+use embassy_stm32::dma::NoDma;
 use embassy_stm32::pac;
 use embassy_stm32::usart::{Config, Uart};
 use example_common::*;
