@@ -142,18 +142,17 @@ macro_rules! peripheral_count {{
 }
 
 fn make_dma_channel_counts(out: &mut String, data: &HashMap<String, u8>) {
-    write!(out,
-           "#[macro_export]
+    write!(
+        out,
+        "#[macro_export]
 macro_rules! dma_channels_count {{
-    ").unwrap();
+    "
+    )
+    .unwrap();
     for (name, count) in data {
-        write!(out,
-               "({}) => ({});\n",
-               name, count,
-        ).unwrap();
+        write!(out, "({}) => ({});\n", name, count,).unwrap();
     }
-    write!(out,
-           " }}\n").unwrap();
+    write!(out, " }}\n").unwrap();
 }
 
 fn make_table(out: &mut String, name: &str, data: &Vec<Vec<String>>) {
@@ -409,11 +408,25 @@ pub fn gen(options: Options) {
                     if let Some(clock_prefix) = clock_prefix {
                         // Workaround for clock registers being split on some chip families. Assume fields are
                         // named after peripheral and look for first field matching and use that register.
-                        let en = find_reg_for_field(&rcc, clock_prefix, &format!("{}EN", name));
-                        let rst = find_reg_for_field(&rcc, clock_prefix, &format!("{}RST", name));
+                        let mut en = find_reg_for_field(&rcc, clock_prefix, &format!("{}EN", name));
+                        let mut rst =
+                            find_reg_for_field(&rcc, clock_prefix, &format!("{}RST", name));
+
+                        if en.is_none() && name.ends_with("1") {
+                            en = find_reg_for_field(
+                                &rcc,
+                                clock_prefix,
+                                &format!("{}EN", &name[..name.len() - 1]),
+                            );
+                            rst = find_reg_for_field(
+                                &rcc,
+                                clock_prefix,
+                                &format!("{}RST", &name[..name.len() - 1]),
+                            );
+                        }
 
                         match (en, rst) {
-                            (Some((enable_reg, enable_field)), Some((reset_reg, reset_field))) => {
+                            (Some((enable_reg, enable_field)), reset_reg_field) => {
                                 let clock = if clock_prefix.is_empty() {
                                     let re = Regex::new("([A-Z]+\\d*).*").unwrap();
                                     if !re.is_match(enable_reg) {
@@ -436,21 +449,32 @@ pub fn gen(options: Options) {
                                 };
 
                                 if !name.starts_with("GPIO") {
-                                    peripheral_rcc_table.push(vec![
-                                        name.clone(),
-                                        clock,
-                                        enable_reg.to_ascii_lowercase(),
-                                        reset_reg.to_ascii_lowercase(),
-                                        format!("set_{}", enable_field.to_ascii_lowercase()),
-                                        format!("set_{}", reset_field.to_ascii_lowercase()),
-                                    ]);
+                                    let mut row = Vec::with_capacity(6);
+                                    row.push(name.clone());
+                                    row.push(clock);
+                                    row.push(enable_reg.to_ascii_lowercase());
+
+                                    if let Some((reset_reg, reset_field)) = reset_reg_field {
+                                        row.push(reset_reg.to_ascii_lowercase());
+                                        row.push(format!(
+                                            "set_{}",
+                                            enable_field.to_ascii_lowercase()
+                                        ));
+                                        row.push(format!(
+                                            "set_{}",
+                                            reset_field.to_ascii_lowercase()
+                                        ));
+                                    } else {
+                                        row.push(format!(
+                                            "set_{}",
+                                            enable_field.to_ascii_lowercase()
+                                        ));
+                                    }
+                                    peripheral_rcc_table.push(row);
                                 }
                             }
                             (None, Some(_)) => {
                                 print!("Unable to find enable register for {}", name)
-                            }
-                            (Some(_), None) => {
-                                print!("Unable to find reset register for {}", name)
                             }
                             (None, None) => {
                                 print!("Unable to find enable and reset register for {}", name)

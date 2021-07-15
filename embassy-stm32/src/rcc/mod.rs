@@ -123,4 +123,33 @@ crate::pac::peripheral_rcc!(
 
         impl RccPeripheral for peripherals::$inst {}
     };
+    ($inst:ident, $clk:ident, $enable:ident, $perien:ident) => {
+        impl sealed::RccPeripheral for peripherals::$inst {
+            fn frequency() -> crate::time::Hertz {
+                critical_section::with(|_| {
+                    unsafe {
+                        let freqs = get_freqs();
+                        freqs.$clk
+                    }
+                })
+            }
+            fn enable() {
+                critical_section::with(|_| {
+                    unsafe {
+                        crate::pac::RCC.$enable().modify(|w| w.$perien(true));
+                    }
+                })
+            }
+            fn disable() {
+                critical_section::with(|_| {
+                    unsafe {
+                        crate::pac::RCC.$enable().modify(|w| w.$perien(false));
+                    }
+                })
+            }
+            fn reset() {}
+        }
+
+        impl RccPeripheral for peripherals::$inst {}
+    };
 );
