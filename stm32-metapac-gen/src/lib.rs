@@ -358,6 +358,8 @@ pub fn gen(options: Options) {
                         row.push(core.dma_channels[&channel.channel].channel.to_string());
                         if let Some(request) = channel.request {
                             row.push(request.to_string());
+                        } else {
+                            row.push("()".to_string());
                         }
                         peripheral_dma_channels_table.push(row);
                     }
