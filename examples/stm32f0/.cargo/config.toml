@@ -1,0 +1,10 @@
+[target.thumbv6m-none-eabi]
+runner = 'probe-run --chip STM32F030F4Px'
+rustflags = [
+  # LLD (shipped with the Rust toolchain) is used as the default linker
+  "-C", "link-arg=-Tlink.x",
+  "-C", "link-arg=-Tdefmt.x",
+]
+
+[build]
+target = "thumbv6m-none-eabi"
