@@ -177,7 +177,7 @@ pub(crate) unsafe fn init() {
     }
     pac::peripherals! {
         (bdma, $peri:ident) => {
-            crate::peripherals::$peri::enable();
+            <crate::peripherals::$peri as RccPeripheral>::enable();
         };
     }
 }
