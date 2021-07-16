@@ -3,7 +3,7 @@ use core::task::Poll;
 use atomic_polyfill::{AtomicU8, Ordering};
 use core::future::Future;
 use embassy::interrupt::{Interrupt, InterruptExt};
-use embassy::util::AtomicWaker;
+use embassy::util::{AtomicWaker, OnDrop};
 use futures::future::poll_fn;
 
 use crate::interrupt;
@@ -38,6 +38,7 @@ static STATE: State = State::new();
 
 //async unsafe fn do_transfer(ch: &mut impl Channel, ch_func: u8, src: *const u8, dst: &mut [u8]) {
 
+#[allow(unused)]
 pub(crate) async unsafe fn do_transfer(
     dma: pac::dma::Dma,
     channel_number: u8,
@@ -59,6 +60,15 @@ pub(crate) async unsafe fn do_transfer(
 
     let ch = dma.st(channel_number as _);
 
+    let on_drop = OnDrop::new(|| unsafe {
+        ch.cr().modify(|w| {
+            w.set_tcie(false);
+            w.set_teie(false);
+            w.set_en(false);
+        });
+        while ch.cr().read().en() {}
+    });
+
     #[cfg(dmamux)]
     super::dmamux::configure_dmamux(dmamux_regs, dmamux_ch_num, request);
 
@@ -74,6 +84,7 @@ pub(crate) async unsafe fn do_transfer(
             w.set_pinc(vals::Inc::FIXED);
             w.set_teie(true);
             w.set_tcie(true);
+            w.set_trbuff(true);
             w.set_en(true);
 
             #[cfg(dma_v2)]

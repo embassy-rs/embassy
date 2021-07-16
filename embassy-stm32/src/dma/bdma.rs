@@ -139,7 +139,7 @@ unsafe fn on_irq() {
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
     pac::interrupts! {
-        (DMA, $irq:ident) => {
+        (BDMA, $irq:ident) => {
             crate::interrupt::$irq::steal().enable();
         };
     }
@@ -209,52 +209,11 @@ pac::bdma_channels! {
     };
 }
 
-// HACK: on stm32h7 "DMA" interrupts are for DMA, not BDMA, so this
-// would cause duplicate interrupt definitions. Do it manually insted
-#[cfg(not(rcc_h7))]
 pac::interrupts! {
-    (DMA, $irq:ident) => {
+    (BDMA, $irq:ident) => {
         #[crate::interrupt]
         unsafe fn $irq () {
             on_irq()
         }
     };
-}
-
-#[cfg(rcc_h7)]
-mod _if_h7 {
-    use super::*;
-
-    #[crate::interrupt]
-    unsafe fn BDMA_CHANNEL0() {
-        on_irq()
-    }
-    #[crate::interrupt]
-    unsafe fn BDMA_CHANNEL1() {
-        on_irq()
-    }
-    #[crate::interrupt]
-    unsafe fn BDMA_CHANNEL2() {
-        on_irq()
-    }
-    #[crate::interrupt]
-    unsafe fn BDMA_CHANNEL3() {
-        on_irq()
-    }
-    #[crate::interrupt]
-    unsafe fn BDMA_CHANNEL4() {
-        on_irq()
-    }
-    #[crate::interrupt]
-    unsafe fn BDMA_CHANNEL5() {
-        on_irq()
-    }
-    #[crate::interrupt]
-    unsafe fn BDMA_CHANNEL6() {
-        on_irq()
-    }
-    #[crate::interrupt]
-    unsafe fn BDMA_CHANNEL7() {
-        on_irq()
-    }
 }
