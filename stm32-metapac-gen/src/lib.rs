@@ -522,8 +522,12 @@ pub fn gen(options: Options) {
 
             interrupt_table.push(vec![name.clone()]);
 
-            if name.starts_with("DMA") || name.contains("_DMA") {
+            if name.starts_with("DMA1_") || name.starts_with("DMA2_") || name.contains("_DMA") {
                 interrupt_table.push(vec!["DMA".to_string(), name.clone()]);
+            }
+
+            if name.starts_with("BDMA_") || name.starts_with("BDMA1_") || name.starts_with("BDMA2_") {
+                interrupt_table.push(vec!["BDMA".to_string(), name.clone()]);
             }
 
             if name.contains("EXTI") {
