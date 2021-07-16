@@ -284,6 +284,9 @@ pub fn gen(options: Options) {
 
         let number_suffix_re = Regex::new("^(.*?)[0-9]*$").unwrap();
 
+        let mut has_bdma = false;
+        let mut has_dma = false;
+
         for (name, p) in &core.peripherals {
             let captures = number_suffix_re.captures(&name).unwrap();
             let root_peri_name = captures.get(1).unwrap().as_str().to_string();
@@ -302,6 +305,12 @@ pub fn gen(options: Options) {
 
             if let Some(block) = &p.block {
                 let bi = BlockInfo::parse(block);
+
+                if bi.module == "bdma" {
+                    has_bdma = true
+                } else if bi.module == "dma" {
+                    has_dma = true
+                }
 
                 peripheral_counts.insert(
                     bi.module.clone(),
@@ -522,8 +531,16 @@ pub fn gen(options: Options) {
 
             interrupt_table.push(vec![name.clone()]);
 
-            if name.starts_with("DMA") || name.contains("_DMA") {
-                interrupt_table.push(vec!["DMA".to_string(), name.clone()]);
+            if name.starts_with("DMA1_") || name.starts_with("DMA2_") || name.contains("_DMA") {
+                if has_dma {
+                    interrupt_table.push(vec!["DMA".to_string(), name.clone()]);
+                } else if has_bdma {
+                    interrupt_table.push(vec!["BDMA".to_string(), name.clone()]);
+                }
+            }
+
+            if name.starts_with("BDMA_") || name.starts_with("BDMA1_") || name.starts_with("BDMA2_") {
+                interrupt_table.push(vec!["BDMA".to_string(), name.clone()]);
             }
 
             if name.contains("EXTI") {
