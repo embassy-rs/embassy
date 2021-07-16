@@ -50,7 +50,7 @@ pub struct Peripheral {
     #[serde(default)]
     pub dma_channels: HashMap<String, Vec<PeripheralDmaChannel>>,
     #[serde(default)]
-    pub dma_requests: HashMap<String, u32>,
+    pub dma_requests: HashMap<String, PeripheralDmaRequest>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
@@ -70,6 +70,12 @@ pub struct DmaChannel {
 pub struct PeripheralDmaChannel {
     pub channel: String,
     pub request: Option<u32>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize, Hash)]
+pub struct PeripheralDmaRequest {
+    pub dmamux: String,
+    pub request: u32,
 }
 
 struct BlockInfo {
@@ -335,7 +341,8 @@ pub fn gen(options: Options) {
                     row.push(bi.module.clone());
                     row.push(name.clone());
                     row.push(dma_request.0.clone());
-                    row.push(dma_request.1.to_string());
+                    row.push(dma_request.1.request.to_string());
+                    // TODO add the `dmamux` column
                     dma_requests_table.push(row);
                 }
 
