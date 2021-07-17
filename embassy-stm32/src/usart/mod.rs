@@ -171,7 +171,7 @@ crate::pac::peripheral_pins!(
 );
 
 macro_rules! impl_dma {
-    ($inst:ident, ALL, $signal:ident, $request:expr) => {
+    ($inst:ident, {dmamux: $dmamux:ident}, $signal:ident, $request:expr) => {
         impl<T: crate::dma::Channel> sealed::$signal<peripherals::$inst> for T {
             fn request(&self) -> dma::Request {
                 $request
@@ -180,7 +180,7 @@ macro_rules! impl_dma {
 
         impl<T: crate::dma::Channel> $signal<peripherals::$inst> for T {}
     };
-    ($inst:ident, $channel:ident, $signal:ident, $request:expr) => {
+    ($inst:ident, {channel: $channel:ident}, $signal:ident, $request:expr) => {
         impl sealed::$signal<peripherals::$inst> for peripherals::$channel {
             fn request(&self) -> dma::Request {
                 $request
@@ -192,30 +192,16 @@ macro_rules! impl_dma {
 }
 
 crate::pac::peripheral_dma_channels! {
-    ($peri:ident, usart, $kind:ident, RX, $channel:ident, $dma_peri:ident, $channel_num:expr, $request:expr) => {
+    ($peri:ident, usart, $kind:ident, RX, $channel:tt, $request:expr) => {
         impl_dma!($peri, $channel, RxDma, $request);
     };
-    ($peri:ident, usart, $kind:ident, TX, $channel:ident, $dma_peri:ident, $channel_num:expr, $request:expr) => {
+    ($peri:ident, usart, $kind:ident, TX, $channel:tt, $request:expr) => {
         impl_dma!($peri, $channel, TxDma, $request);
     };
-    ($peri:ident, uart, $kind:ident, RX, $channel:ident, $dma_peri:ident, $channel_num:expr, $request:expr) => {
+    ($peri:ident, uart, $kind:ident, RX, $channel:tt, $request:expr) => {
         impl_dma!($peri, $channel, RxDma, $request);
     };
-    ($peri:ident, uart, $kind:ident, TX, $channel:ident, $dma_peri:ident, $channel_num:expr, $request:expr) => {
+    ($peri:ident, uart, $kind:ident, TX, $channel:tt, $request:expr) => {
         impl_dma!($peri, $channel, TxDma, $request);
-    };
-}
-crate::pac::dma_requests! {
-    (usart, $peri:ident, RX, $request:expr) => {
-        impl_dma!($peri, ALL, RxDma, $request);
-    };
-    (usart, $peri:ident, TX, $request:expr) => {
-        impl_dma!($peri, ALL, TxDma, $request);
-    };
-    (uart, $peri:ident, RX, $request:expr) => {
-        impl_dma!($peri, ALL, RxDma, $request);
-    };
-    (uart, $peri:ident, TX, $request:expr) => {
-        impl_dma!($peri, ALL, TxDma, $request);
     };
 }

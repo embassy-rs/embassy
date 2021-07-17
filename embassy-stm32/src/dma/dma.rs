@@ -153,7 +153,7 @@ pub(crate) unsafe fn init() {
 }
 
 pac::dma_channels! {
-    ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
+    ($channel_peri:ident, $dma_peri:ident, dma, $channel_num:expr, $dmamux:tt) => {
         impl crate::dma::sealed::Channel for crate::peripherals::$channel_peri {}
         impl Channel for crate::peripherals::$channel_peri
         {

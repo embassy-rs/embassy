@@ -24,40 +24,11 @@ pub(crate) trait MuxChannel {
     const DMAMUX_REGS: pac::dmamux::Dmamux;
 }
 
-macro_rules! dma_num {
-    (DMA1) => {
-        0
-    };
-    (DMA2) => {
-        1
-    };
-}
-
-#[cfg(not(rcc_h7))]
-pac::bdma_channels! {
-    ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
-        impl MuxChannel for peripherals::$channel_peri {
-            const DMAMUX_CH_NUM: u8 = (dma_num!($dma_peri) * 8) + $channel_num;
-            const DMAMUX_REGS: pac::dmamux::Dmamux = pac::DMAMUX1;
-        }
-    };
-}
-
-#[cfg(rcc_h7)]
 pac::dma_channels! {
-    ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
+    ($channel_peri:ident, $dma_peri:ident, $version:ident, $channel_num:expr, {dmamux: $dmamux:ident, dmamux_channel: $dmamux_channel:expr}) => {
         impl MuxChannel for peripherals::$channel_peri {
-            const DMAMUX_CH_NUM: u8 = (dma_num!($dma_peri) * 8) + $channel_num;
-            const DMAMUX_REGS: pac::dmamux::Dmamux = pac::DMAMUX1;
-        }
-    };
-}
-#[cfg(rcc_h7)]
-pac::bdma_channels! {
-    ($channel_peri:ident, $dma_peri:ident, $channel_num:expr) => {
-        impl MuxChannel for peripherals::$channel_peri {
-            const DMAMUX_CH_NUM: u8 =  $channel_num;
-            const DMAMUX_REGS: pac::dmamux::Dmamux = pac::DMAMUX2;
+            const DMAMUX_CH_NUM: u8 = $dmamux_channel;
+            const DMAMUX_REGS: pac::dmamux::Dmamux = pac::$dmamux;
         }
     };
 }
