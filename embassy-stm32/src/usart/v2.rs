@@ -1,21 +1,18 @@
+use core::future::Future;
 use core::marker::PhantomData;
-
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
-
-use crate::pac::usart::{regs, vals};
-
-use super::*;
-use core::future::Future;
 use futures::TryFutureExt;
 
-use crate::dma_traits::NoDma;
+use super::*;
+use crate::dma::NoDma;
+use crate::pac::usart::{regs, vals};
 
-#[allow(dead_code)]
 pub struct Uart<'d, T: Instance, TxDma = NoDma, RxDma = NoDma> {
     inner: T,
     phantom: PhantomData<&'d mut T>,
     tx_dma: TxDma,
+    #[allow(dead_code)]
     rx_dma: RxDma,
 }
 
@@ -83,7 +80,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         }
         let r = self.inner.regs();
         let dst = r.tdr().ptr() as *mut u8;
-        ch.transfer(buffer, dst).await;
+        ch.write(ch.request(), buffer, dst).await;
         Ok(())
     }
 

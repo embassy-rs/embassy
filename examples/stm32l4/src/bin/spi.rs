@@ -57,7 +57,7 @@ fn main() -> ! {
     let mut cs = Output::new(p.PE0, Level::High, Speed::VeryHigh);
 
     loop {
-        let mut buf = [0x0A; 4];
+        let mut buf = [0x0Au8; 4];
         unwrap!(cs.set_low());
         unwrap!(spi.transfer(&mut buf));
         unwrap!(cs.set_high());

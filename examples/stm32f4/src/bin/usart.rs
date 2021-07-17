@@ -12,6 +12,7 @@ use cortex_m::prelude::_embedded_hal_blocking_serial_Write;
 use embassy::executor::Executor;
 use embassy::time::Clock;
 use embassy::util::Forever;
+use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
 use example_common::*;
 
@@ -23,7 +24,7 @@ async fn main_task() {
     let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let mut usart = Uart::new(p.USART3, p.PD9, p.PD8, config);
+    let mut usart = Uart::new(p.USART3, p.PD9, p.PD8, NoDma, NoDma, config);
 
     usart.bwrite_all(b"Hello Embassy World!\r\n").unwrap();
     info!("wrote Hello, starting echo");

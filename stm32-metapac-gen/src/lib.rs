@@ -49,8 +49,6 @@ pub struct Peripheral {
     pub pins: Vec<Pin>,
     #[serde(default)]
     pub dma_channels: HashMap<String, Vec<PeripheralDmaChannel>>,
-    #[serde(default)]
-    pub dma_requests: HashMap<String, u32>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
@@ -64,11 +62,14 @@ pub struct Pin {
 pub struct DmaChannel {
     pub dma: String,
     pub channel: u32,
+    pub dmamux: Option<String>,
+    pub dmamux_channel: Option<u32>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize, Hash)]
 pub struct PeripheralDmaChannel {
-    pub channel: String,
+    pub channel: Option<String>,
+    pub dmamux: Option<String>,
     pub request: Option<u32>,
 }
 
@@ -266,23 +267,17 @@ pub fn gen(options: Options) {
         let mut peripheral_pins_table: Vec<Vec<String>> = Vec::new();
         let mut peripheral_rcc_table: Vec<Vec<String>> = Vec::new();
         let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
-        let mut bdma_channels_table: Vec<Vec<String>> = Vec::new();
-        let mut dma_requests_table: Vec<Vec<String>> = Vec::new();
         let mut peripheral_dma_channels_table: Vec<Vec<String>> = Vec::new();
         let mut peripheral_counts: HashMap<String, u8> = HashMap::new();
         let mut dma_channel_counts: HashMap<String, u8> = HashMap::new();
-
-        let dma_base = core
-            .peripherals
-            .get(&"DMA".to_string())
-            .unwrap_or_else(|| core.peripherals.get(&"DMA1".to_string()).unwrap())
-            .address;
-        let dma_stride = 0x400;
 
         let gpio_base = core.peripherals.get(&"GPIOA".to_string()).unwrap().address;
         let gpio_stride = 0x400;
 
         let number_suffix_re = Regex::new("^(.*?)[0-9]*$").unwrap();
+
+        let mut has_bdma = false;
+        let mut has_dma = false;
 
         for (name, p) in &core.peripherals {
             let captures = number_suffix_re.captures(&name).unwrap();
@@ -303,6 +298,12 @@ pub fn gen(options: Options) {
             if let Some(block) = &p.block {
                 let bi = BlockInfo::parse(block);
 
+                if bi.module == "bdma" {
+                    has_bdma = true
+                } else if bi.module == "dma" {
+                    has_dma = true
+                }
+
                 peripheral_counts.insert(
                     bi.module.clone(),
                     peripheral_counts.get(&bi.module).map_or(1, |v| v + 1),
@@ -321,27 +322,24 @@ pub fn gen(options: Options) {
                     peripheral_pins_table.push(row);
                 }
 
-                for dma_request in &p.dma_requests {
-                    let mut row = Vec::new();
-                    row.push(bi.module.clone());
-                    row.push(name.clone());
-                    row.push(dma_request.0.clone());
-                    row.push(dma_request.1.to_string());
-                    dma_requests_table.push(row);
-                }
-
-                for (event, dma_channels) in &p.dma_channels {
+                for (request, dma_channels) in &p.dma_channels {
                     for channel in dma_channels.iter() {
                         let mut row = Vec::new();
                         row.push(name.clone());
                         row.push(bi.module.clone());
                         row.push(bi.block.clone());
-                        row.push(event.clone());
-                        row.push(channel.channel.clone());
-                        row.push(core.dma_channels[&channel.channel].dma.clone());
-                        row.push(core.dma_channels[&channel.channel].channel.to_string());
+                        row.push(request.clone());
+                        if let Some(channel) = &channel.channel {
+                            row.push(format!("{{channel: {}}}", channel));
+                        } else if let Some(dmamux) = &channel.dmamux {
+                            row.push(format!("{{dmamux: {}}}", dmamux));
+                        } else {
+                            unreachable!();
+                        }
                         if let Some(request) = channel.request {
                             row.push(request.to_string());
+                        } else {
+                            row.push("()".to_string());
                         }
                         peripheral_dma_channels_table.push(row);
                     }
@@ -380,15 +378,6 @@ pub fn gen(options: Options) {
                                 format!("EXTI{}", pin_num),
                             ]);
                         }
-                    }
-                    "dma" => {
-                        let dma_num = if name == "DMA" {
-                            0
-                        } else {
-                            let dma_letter = name.chars().skip(3).next().unwrap();
-                            dma_letter as u32 - '1' as u32
-                        };
-                        assert_eq!(p.address, dma_base + dma_stride * dma_num);
                     }
                     _ => {}
                 }
@@ -489,20 +478,24 @@ pub fn gen(options: Options) {
 
         for (id, channel_info) in &core.dma_channels {
             let mut row = Vec::new();
-            let dma_peri = core.peripherals.get(&channel_info.dma);
+            let dma_peri = core.peripherals.get(&channel_info.dma).unwrap();
+            let bi = BlockInfo::parse(dma_peri.block.as_ref().unwrap());
+
             row.push(id.clone());
             row.push(channel_info.dma.clone());
+            row.push(bi.module.clone());
             row.push(channel_info.channel.to_string());
-            if let Some(dma_peri) = dma_peri {
-                if let Some(ref block) = dma_peri.block {
-                    let bi = BlockInfo::parse(block);
-                    if bi.module == "bdma" {
-                        bdma_channels_table.push(row);
-                    } else {
-                        dma_channels_table.push(row);
-                    }
-                }
+            if let Some(dmamux) = &channel_info.dmamux {
+                let dmamux_channel = channel_info.dmamux_channel.unwrap();
+                row.push(format!(
+                    "{{dmamux: {}, dmamux_channel: {}}}",
+                    dmamux, dmamux_channel
+                ));
+            } else {
+                row.push("{}".to_string());
             }
+
+            dma_channels_table.push(row);
 
             let dma_peri_name = channel_info.dma.clone();
             dma_channel_counts.insert(
@@ -522,8 +515,17 @@ pub fn gen(options: Options) {
 
             interrupt_table.push(vec![name.clone()]);
 
-            if name.starts_with("DMA") || name.contains("_DMA") {
-                interrupt_table.push(vec!["DMA".to_string(), name.clone()]);
+            if name.starts_with("DMA1_") || name.starts_with("DMA2_") || name.contains("_DMA") {
+                if has_dma {
+                    interrupt_table.push(vec!["DMA".to_string(), name.clone()]);
+                } else if has_bdma {
+                    interrupt_table.push(vec!["BDMA".to_string(), name.clone()]);
+                }
+            }
+
+            if name.starts_with("BDMA_") || name.starts_with("BDMA1_") || name.starts_with("BDMA2_")
+            {
+                interrupt_table.push(vec!["BDMA".to_string(), name.clone()]);
             }
 
             if name.contains("EXTI") {
@@ -557,8 +559,6 @@ pub fn gen(options: Options) {
         );
         make_table(&mut extra, "peripheral_rcc", &peripheral_rcc_table);
         make_table(&mut extra, "dma_channels", &dma_channels_table);
-        make_table(&mut extra, "bdma_channels", &bdma_channels_table);
-        make_table(&mut extra, "dma_requests", &dma_requests_table);
         make_peripheral_counts(&mut extra, &peripheral_counts);
         make_dma_channel_counts(&mut extra, &dma_channel_counts);
 

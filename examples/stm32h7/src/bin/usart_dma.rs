@@ -8,35 +8,38 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use cortex_m::prelude::_embedded_hal_blocking_serial_Write;
+use core::fmt::Write;
 use embassy::executor::Executor;
 use embassy::time::Clock;
 use embassy::util::Forever;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
 use example_common::*;
+use embassy_traits::uart::Write as _Write;
 
 use hal::prelude::*;
 use stm32h7xx_hal as hal;
 
 use cortex_m_rt::entry;
 use stm32h7::stm32h743 as pac;
+use heapless::String;
 
 #[embassy::task]
 async fn main_task() {
     let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, NoDma, NoDma, config);
+    let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, p.DMA1_CH0, NoDma, config);
 
-    usart.bwrite_all(b"Hello Embassy World!\r\n").unwrap();
-    info!("wrote Hello, starting echo");
+    for n in 0u32.. {
+        let mut s: String<128> = String::new();
+        core::write!(&mut s, "Hello DMA World {}!\r\n", n).unwrap();
 
-    let mut buf = [0u8; 1];
-    loop {
-        usart.read(&mut buf).unwrap();
-        usart.bwrite_all(&buf).unwrap();
+        usart.write(s.as_bytes()).await.ok();
+
+        info!("wrote DMA");
     }
+
 }
 
 struct ZeroClock;

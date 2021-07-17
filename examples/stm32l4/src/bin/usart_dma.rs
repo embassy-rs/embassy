@@ -13,7 +13,7 @@ use cortex_m_rt::entry;
 use embassy::executor::Executor;
 use embassy::time::Clock;
 use embassy::util::Forever;
-use embassy_stm32::dma_traits::NoDma;
+use embassy_stm32::dma::NoDma;
 use embassy_stm32::pac;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_traits::uart::Write as _;
@@ -25,7 +25,7 @@ async fn main_task() {
     let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let mut usart = Uart::new(p.UART4, p.PA1, p.PA0, p.DMA1_3, NoDma, config);
+    let mut usart = Uart::new(p.UART4, p.PA1, p.PA0, p.DMA1_CH3, NoDma, config);
 
     for n in 0u32.. {
         let mut s: String<128> = String::new();
