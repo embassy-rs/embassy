@@ -66,6 +66,11 @@ pub(crate) async unsafe fn do_transfer(
             w.set_en(false);
         });
         while ch.cr().read().en() {}
+
+        // Disabling the DMA mid transfer might cause some flags to be set, clear them all for the
+        // next transfer
+        dma.ifcr()
+            .write(|w| w.set_gif(channel_number as usize, true));
     });
 
     #[cfg(dmamux)]
