@@ -84,6 +84,7 @@ pub(crate) async unsafe fn do_transfer(
             w.set_pinc(vals::Inc::FIXED);
             w.set_teie(true);
             w.set_tcie(true);
+            #[cfg(dma_v1)]
             w.set_trbuff(true);
             w.set_en(true);
 
