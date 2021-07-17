@@ -172,13 +172,19 @@ crate::pac::peripheral_pins!(
 
 macro_rules! impl_dma {
     ($inst:ident, {dmamux: $dmamux:ident}, $signal:ident, $request:expr) => {
-        impl<T: crate::dma::Channel> sealed::$signal<peripherals::$inst> for T {
+        impl<T> sealed::$signal<peripherals::$inst> for T
+        where
+            T: crate::dma::MuxChannel<Mux = crate::dma::$dmamux>,
+        {
             fn request(&self) -> dma::Request {
                 $request
             }
         }
 
-        impl<T: crate::dma::Channel> $signal<peripherals::$inst> for T {}
+        impl<T> $signal<peripherals::$inst> for T where
+            T: crate::dma::MuxChannel<Mux = crate::dma::$dmamux>
+        {
+        }
     };
     ($inst:ident, {channel: $channel:ident}, $signal:ident, $request:expr) => {
         impl sealed::$signal<peripherals::$inst> for peripherals::$channel {

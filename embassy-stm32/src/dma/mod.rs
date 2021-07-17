@@ -5,6 +5,8 @@ mod dma;
 #[cfg(dmamux)]
 mod dmamux;
 
+pub use dmamux::*;
+
 use core::future::Future;
 use embassy::util::Unborrow;
 

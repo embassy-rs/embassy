@@ -175,9 +175,9 @@ pac::dma_channels! {
                         buf.as_mut_ptr(),
                         buf.len(),
                         #[cfg(dmamux)]
-                        <Self as super::dmamux::MuxChannel>::DMAMUX_REGS,
+                        <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_REGS,
                         #[cfg(dmamux)]
-                        <Self as super::dmamux::MuxChannel>::DMAMUX_CH_NUM,
+                        <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_CH_NUM,
                     )
                 }
             }
@@ -199,9 +199,9 @@ pac::dma_channels! {
                         buf.as_ptr() as *mut u8,
                         buf.len(),
                         #[cfg(dmamux)]
-                        <Self as super::dmamux::MuxChannel>::DMAMUX_REGS,
+                        <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_REGS,
                         #[cfg(dmamux)]
-                        <Self as super::dmamux::MuxChannel>::DMAMUX_CH_NUM,
+                        <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_CH_NUM,
                     )
                 }
             }
