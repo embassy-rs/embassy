@@ -81,36 +81,52 @@ impl<'d, T: Instance> I2c<'d, T> {
         }
     }
 
-    fn master_read(&mut self, address: u8, length: usize, stop: Stop) {
+    fn master_read(&mut self, address: u8, length: usize, stop: Stop, reload: bool, restart: bool) {
         assert!(length < 256 && length > 0);
 
-        // Wait for any previous address sequence to end
-        // automatically. This could be up to 50% of a bus
-        // cycle (ie. up to 0.5/freq)
-        while unsafe { T::regs().cr2().read().start() == i2c::vals::Start::START } {}
+        if !restart {
+            // Wait for any previous address sequence to end
+            // automatically. This could be up to 50% of a bus
+            // cycle (ie. up to 0.5/freq)
+            while unsafe { T::regs().cr2().read().start() == i2c::vals::Start::START } {}
+        }
 
         // Set START and prepare to receive bytes into
         // `buffer`. The START bit can be set even if the bus
         // is BUSY or I2C is in slave mode.
 
+        let reload = if reload {
+            i2c::vals::Reload::NOTCOMPLETED
+        } else {
+            i2c::vals::Reload::COMPLETED
+        };
+
         unsafe {
             T::regs().cr2().modify(|w| {
                 w.set_sadd((address << 1 | 0) as u16);
+                w.set_add10(i2c::vals::Add::BIT7);
                 w.set_rd_wrn(i2c::vals::RdWrn::READ);
                 w.set_nbytes(length as u8);
                 w.set_start(i2c::vals::Start::START);
                 w.set_autoend(stop.autoend());
+                w.set_reload(reload);
             });
         }
     }
 
-    fn master_write(&mut self, address: u8, length: usize, stop: Stop) {
+    fn master_write(&mut self, address: u8, length: usize, stop: Stop, reload: bool) {
         assert!(length < 256 && length > 0);
 
         // Wait for any previous address sequence to end
         // automatically. This could be up to 50% of a bus
         // cycle (ie. up to 0.5/freq)
         while unsafe { T::regs().cr2().read().start() == i2c::vals::Start::START } {}
+
+        let reload = if reload {
+            i2c::vals::Reload::NOTCOMPLETED
+        } else {
+            i2c::vals::Reload::COMPLETED
+        };
 
         // Set START and prepare to send `bytes`. The
         // START bit can be set even if the bus is BUSY or
@@ -123,21 +139,26 @@ impl<'d, T: Instance> I2c<'d, T> {
                 w.set_nbytes(length as u8);
                 w.set_start(i2c::vals::Start::START);
                 w.set_autoend(stop.autoend());
+                w.set_reload(reload);
             });
         }
     }
 
-    fn master_re_start(&mut self, address: u8, length: usize, stop: Stop) {
+    fn master_continue(&mut self, length: usize, reload: bool) {
         assert!(length < 256 && length > 0);
+
+        while unsafe { !T::regs().isr().read().tcr() } {}
+
+        let reload = if reload {
+            i2c::vals::Reload::NOTCOMPLETED
+        } else {
+            i2c::vals::Reload::COMPLETED
+        };
 
         unsafe {
             T::regs().cr2().modify(|w| {
-                w.set_sadd((address << 1 | 1) as u16);
-                w.set_add10(i2c::vals::Add::BIT7);
-                w.set_rd_wrn(i2c::vals::RdWrn::READ);
                 w.set_nbytes(length as u8);
-                w.set_start(i2c::vals::Start::START);
-                w.set_autoend(stop.autoend());
+                w.set_reload(reload);
             });
         }
     }
@@ -224,28 +245,152 @@ impl<'d, T: Instance> I2c<'d, T> {
             }
         }
     }
+
+    fn read(&mut self, address: u8, buffer: &mut [u8], restart: bool) -> Result<(), Error> {
+        let completed_chunks = buffer.len() / 255;
+        let total_chunks = if completed_chunks * 255 == buffer.len() {
+            completed_chunks
+        } else {
+            completed_chunks + 1
+        };
+        let last_chunk_idx = total_chunks.saturating_sub(1);
+
+        self.master_read(
+            address,
+            buffer.len().min(255),
+            Stop::Automatic,
+            last_chunk_idx != 0,
+            restart,
+        );
+
+        for (number, chunk) in buffer.chunks_mut(255).enumerate() {
+            if number != 0 {
+                self.master_continue(chunk.len(), number != last_chunk_idx);
+            }
+
+            for byte in chunk {
+                // Wait until we have received something
+                self.wait_rxne()?;
+
+                unsafe {
+                    *byte = T::regs().rxdr().read().rxdata();
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn write(&mut self, address: u8, bytes: &[u8], send_stop: bool) -> Result<(), Error> {
+        let completed_chunks = bytes.len() / 255;
+        let total_chunks = if completed_chunks * 255 == bytes.len() {
+            completed_chunks
+        } else {
+            completed_chunks + 1
+        };
+        let last_chunk_idx = total_chunks.saturating_sub(1);
+
+        // I2C start
+        //
+        // ST SAD+W
+        self.master_write(
+            address,
+            bytes.len().min(255),
+            Stop::Software,
+            last_chunk_idx != 0,
+        );
+
+        for (number, chunk) in bytes.chunks(255).enumerate() {
+            if number != 0 {
+                self.master_continue(chunk.len(), number != last_chunk_idx);
+            }
+
+            for byte in chunk {
+                // Wait until we are allowed to send data
+                // (START has been ACKed or last byte when
+                // through)
+                self.wait_txe()?;
+
+                unsafe {
+                    T::regs().txdr().write(|w| w.set_txdata(*byte));
+                }
+            }
+        }
+        // Wait until the write finishes
+        self.wait_tc()?;
+
+        if send_stop {
+            self.master_stop();
+        }
+        Ok(())
+    }
+
+    pub fn write_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error> {
+        if bytes.is_empty() {
+            return Err(Error::ZeroLengthTransfer);
+        }
+        let first_length = bytes[0].len();
+        let last_slice_index = bytes.len() - 1;
+
+        self.master_write(
+            address,
+            first_length.min(255),
+            Stop::Software,
+            (first_length > 255) || (last_slice_index != 0),
+        );
+
+        for (idx, slice) in bytes.iter().enumerate() {
+            let slice_len = slice.len();
+            let completed_chunks = slice_len / 255;
+            let total_chunks = if completed_chunks * 255 == slice_len {
+                completed_chunks
+            } else {
+                completed_chunks + 1
+            };
+            let last_chunk_idx = total_chunks.saturating_sub(1);
+
+            if idx != 0 {
+                self.master_continue(
+                    slice_len.min(255),
+                    (idx != last_slice_index) || (slice_len > 255),
+                );
+            }
+
+            for (number, chunk) in slice.chunks(255).enumerate() {
+                if number != 0 {
+                    self.master_continue(
+                        chunk.len(),
+                        (number != last_chunk_idx) || (idx != last_slice_index),
+                    );
+                }
+
+                for byte in chunk {
+                    // Wait until we are allowed to send data
+                    // (START has been ACKed or last byte when
+                    // through)
+                    self.wait_txe()?;
+
+                    // Put byte on the wire
+                    //self.i2c.txdr.write(|w| w.txdata().bits(*byte));
+                    unsafe {
+                        T::regs().txdr().write(|w| w.set_txdata(*byte));
+                    }
+                }
+            }
+        }
+        // Wait until the write finishes
+        self.wait_tc()?;
+        self.master_stop();
+
+        Ok(())
+    }
 }
 
 impl<'d, T: Instance> Read for I2c<'d, T> {
     type Error = Error;
 
     fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
-        assert!(buffer.len() < 256 && buffer.len() > 0);
-
-        self.master_read(address, buffer.len(), Stop::Automatic);
-
-        for byte in buffer {
-            // Wait until we have received something
-            self.wait_rxne()?;
-
-            //*byte = self.i2c.rxdr.read().rxdata().bits();
-            unsafe {
-                *byte = T::regs().rxdr().read().rxdata();
-            }
-        }
-
-        // automatic STOP
-        Ok(())
+        self.read(address, buffer, false)
+        // Automatic Stop
     }
 }
 
@@ -253,34 +398,7 @@ impl<'d, T: Instance> Write for I2c<'d, T> {
     type Error = Error;
 
     fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
-        // TODO support transfers of more than 255 bytes
-        assert!(bytes.len() < 256 && bytes.len() > 0);
-
-        // I2C start
-        //
-        // ST SAD+W
-        self.master_write(address, bytes.len(), Stop::Software);
-
-        for byte in bytes {
-            // Wait until we are allowed to send data
-            // (START has been ACKed or last byte when
-            // through)
-            self.wait_txe()?;
-
-            // Put byte on the wire
-            //self.i2c.txdr.write(|w| w.txdata().bits(*byte));
-            unsafe {
-                T::regs().txdr().write(|w| w.set_txdata(*byte));
-            }
-        }
-
-        // Wait until the write finishes
-        self.wait_tc()?;
-
-        // Stop
-        self.master_stop();
-
-        Ok(())
+        self.write(address, bytes, true)
     }
 }
 
@@ -293,48 +411,9 @@ impl<'d, T: Instance> WriteRead for I2c<'d, T> {
         bytes: &[u8],
         buffer: &mut [u8],
     ) -> Result<(), Self::Error> {
-        // TODO support transfers of more than 255 bytes
-        assert!(bytes.len() < 256 && bytes.len() > 0);
-        assert!(buffer.len() < 256 && buffer.len() > 0);
-
-        // I2C start
-        //
-        // ST SAD+W
-        self.master_write(address, bytes.len(), Stop::Software);
-
-        for byte in bytes {
-            // Wait until we are allowed to send data
-            // (START has been ACKed or last byte went through)
-            self.wait_txe()?;
-
-            // Put byte on the wire
-            //self.i2c.txdr.write(|w| w.txdata().bits(*byte));
-            unsafe {
-                T::regs().txdr().write(|w| w.set_txdata(*byte));
-            }
-        }
-
-        // Wait until the write finishes before beginning to read.
-        self.wait_tc()?;
-
-        // I2C re-start
-        //
-        // SR  SAD+R
-        self.master_re_start(address, buffer.len(), Stop::Automatic);
-
-        for byte in buffer {
-            // Wait until we have received something
-            self.wait_rxne()?;
-
-            //*byte = self.i2c.rxdr.read().rxdata().bits();
-            unsafe {
-                *byte = T::regs().rxdr().read().rxdata();
-            }
-        }
-
-        // automatic STOP
-
-        Ok(())
+        self.write(address, bytes, false)?;
+        self.read(address, buffer, true)
+        // Automatic Stop
     }
 }
 

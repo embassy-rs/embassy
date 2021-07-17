@@ -6,6 +6,7 @@ mod _version;
 use crate::peripherals;
 pub use _version::*;
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     Bus,
     Arbitration,
@@ -13,6 +14,7 @@ pub enum Error {
     Timeout,
     Crc,
     Overrun,
+    ZeroLengthTransfer,
 }
 
 pub(crate) mod sealed {
