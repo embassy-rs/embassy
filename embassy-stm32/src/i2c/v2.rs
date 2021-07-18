@@ -391,8 +391,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         bytes: &[u8],
         first_slice: bool,
         last_slice: bool,
-        next_slice_len: usize,
-        next_is_last: bool,
     ) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
@@ -443,6 +441,11 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                     (total_chunks != 1) || !last_slice,
                 );
             }
+        } else {
+            // NOTE(unsafe) self.tx_dma does not fiddle with the i2c registers
+            unsafe {
+                Self::master_continue(total_len.min(255), (total_chunks != 1) || !last_slice);
+            }
         }
 
         poll_fn(|cx| {
@@ -450,17 +453,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             let chunks_transferred = STATE.chunks_transferred[state_number].load(Ordering::Relaxed);
 
             if chunks_transferred == total_chunks {
-                if !last_slice {
-                    // NOTE(unsafe) self.tx_dma does not fiddle with the i2c registers
-                    unsafe {
-                        Self::master_continue(
-                            next_slice_len.min(255),
-                            (next_slice_len > 255) || !next_is_last,
-                        );
-                        T::regs().cr1().modify(|w| w.set_tcie(true));
-                    }
-                }
-
                 return Poll::Ready(());
             } else if chunks_transferred != 0 {
                 remaining_len = remaining_len.saturating_sub(255);
@@ -490,8 +482,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
-        self.write_dma_internal(address, bytes, true, true, 0, true)
-            .await
+        self.write_dma_internal(address, bytes, true, true).await
     }
 
     pub async fn write_dma_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error>
@@ -501,21 +492,15 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         if bytes.is_empty() {
             return Err(Error::ZeroLengthTransfer);
         }
-        let mut iter = bytes.iter().peekable();
+        let mut iter = bytes.iter();
 
         let mut first = true;
         let mut current = iter.next();
         while let Some(c) = current {
             let next = iter.next();
-            let (next_len, is_last) = if let Some(next) = next {
-                (next.len(), false)
-            } else {
-                (0, true)
-            };
-            let next_is_last = iter.peek().is_none();
+            let is_last = next.is_none();
 
-            self.write_dma_internal(address, c, first, is_last, next_len, next_is_last)
-                .await?;
+            self.write_dma_internal(address, c, first, is_last).await?;
             first = false;
             current = next;
         }
