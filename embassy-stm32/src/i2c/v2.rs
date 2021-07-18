@@ -1,32 +1,66 @@
 use core::cmp;
 use core::marker::PhantomData;
-use embassy::util::Unborrow;
-use embassy_hal_common::unborrow;
+use core::task::Poll;
+
+use atomic_polyfill::{AtomicUsize, Ordering};
+use embassy::interrupt::InterruptExt;
+use embassy::util::{AtomicWaker, OnDrop, Unborrow};
+use embassy_extras::unborrow;
 use embedded_hal::blocking::i2c::Read;
 use embedded_hal::blocking::i2c::Write;
 use embedded_hal::blocking::i2c::WriteRead;
+use futures::future::poll_fn;
 
+use crate::dma::NoDma;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
+use crate::pac;
 use crate::pac::gpio::vals::{Afr, Moder, Ot};
 use crate::pac::gpio::Gpio;
 use crate::pac::i2c;
 use crate::time::Hertz;
 
-pub struct I2c<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+const I2C_COUNT: usize = pac::peripheral_count!(i2c);
+
+pub struct State {
+    waker: [AtomicWaker; I2C_COUNT],
+    chunks_transferred: [AtomicUsize; I2C_COUNT],
 }
 
-impl<'d, T: Instance> I2c<'d, T> {
+impl State {
+    const fn new() -> Self {
+        const AW: AtomicWaker = AtomicWaker::new();
+        const CT: AtomicUsize = AtomicUsize::new(0);
+
+        Self {
+            waker: [AW; I2C_COUNT],
+            chunks_transferred: [CT; I2C_COUNT],
+        }
+    }
+}
+
+static STATE: State = State::new();
+
+pub struct I2c<'d, T: Instance, TXDMA = NoDma, RXDMA = NoDma> {
+    phantom: PhantomData<&'d mut T>,
+    tx_dma: TXDMA,
+    #[allow(dead_code)]
+    rx_dma: RXDMA,
+}
+
+impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     pub fn new<F>(
         _peri: impl Unborrow<Target = T> + 'd,
-        scl: impl Unborrow<Target = impl SclPin<T>>,
-        sda: impl Unborrow<Target = impl SdaPin<T>>,
+        scl: impl Unborrow<Target = impl SclPin<T>> + 'd,
+        sda: impl Unborrow<Target = impl SdaPin<T>> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        tx_dma: impl Unborrow<Target = TXDMA> + 'd,
+        rx_dma: impl Unborrow<Target = RXDMA> + 'd,
         freq: F,
     ) -> Self
     where
         F: Into<Hertz>,
     {
-        unborrow!(scl, sda);
+        unborrow!(irq, scl, sda, tx_dma, rx_dma);
 
         T::enable();
 
@@ -60,9 +94,31 @@ impl<'d, T: Instance> I2c<'d, T> {
             });
         }
 
+        irq.set_handler(Self::on_interrupt);
+        irq.unpend();
+        irq.enable();
+
         Self {
             phantom: PhantomData,
+            tx_dma,
+            rx_dma,
         }
+    }
+
+    unsafe fn on_interrupt(_: *mut ()) {
+        let regs = T::regs();
+        let isr = regs.isr().read();
+
+        if isr.tcr() || isr.tc() {
+            let n = T::state_number();
+            STATE.chunks_transferred[n].fetch_add(1, Ordering::Relaxed);
+            STATE.waker[n].wake();
+        }
+        // The flag can only be cleared by writting to nbytes, we won't do that here, so disable
+        // the interrupt
+        critical_section::with(|_| {
+            regs.cr1().modify(|w| w.set_tcie(false));
+        });
     }
 
     unsafe fn configure_pin(block: Gpio, pin: usize, af_num: u8) {
@@ -114,13 +170,13 @@ impl<'d, T: Instance> I2c<'d, T> {
         }
     }
 
-    fn master_write(&mut self, address: u8, length: usize, stop: Stop, reload: bool) {
+    unsafe fn master_write(address: u8, length: usize, stop: Stop, reload: bool) {
         assert!(length < 256 && length > 0);
 
         // Wait for any previous address sequence to end
         // automatically. This could be up to 50% of a bus
         // cycle (ie. up to 0.5/freq)
-        while unsafe { T::regs().cr2().read().start() == i2c::vals::Start::START } {}
+        while T::regs().cr2().read().start() == i2c::vals::Start::START {}
 
         let reload = if reload {
             i2c::vals::Reload::NOTCOMPLETED
@@ -131,23 +187,21 @@ impl<'d, T: Instance> I2c<'d, T> {
         // Set START and prepare to send `bytes`. The
         // START bit can be set even if the bus is BUSY or
         // I2C is in slave mode.
-        unsafe {
-            T::regs().cr2().modify(|w| {
-                w.set_sadd((address << 1 | 0) as u16);
-                w.set_add10(i2c::vals::Add::BIT7);
-                w.set_rd_wrn(i2c::vals::RdWrn::WRITE);
-                w.set_nbytes(length as u8);
-                w.set_start(i2c::vals::Start::START);
-                w.set_autoend(stop.autoend());
-                w.set_reload(reload);
-            });
-        }
+        T::regs().cr2().modify(|w| {
+            w.set_sadd((address << 1 | 0) as u16);
+            w.set_add10(i2c::vals::Add::BIT7);
+            w.set_rd_wrn(i2c::vals::RdWrn::WRITE);
+            w.set_nbytes(length as u8);
+            w.set_start(i2c::vals::Start::START);
+            w.set_autoend(stop.autoend());
+            w.set_reload(reload);
+        });
     }
 
-    fn master_continue(&mut self, length: usize, reload: bool) {
+    unsafe fn master_continue(length: usize, reload: bool) {
         assert!(length < 256 && length > 0);
 
-        while unsafe { !T::regs().isr().read().tcr() } {}
+        while !T::regs().isr().read().tcr() {}
 
         let reload = if reload {
             i2c::vals::Reload::NOTCOMPLETED
@@ -155,12 +209,10 @@ impl<'d, T: Instance> I2c<'d, T> {
             i2c::vals::Reload::COMPLETED
         };
 
-        unsafe {
-            T::regs().cr2().modify(|w| {
-                w.set_nbytes(length as u8);
-                w.set_reload(reload);
-            });
-        }
+        T::regs().cr2().modify(|w| {
+            w.set_nbytes(length as u8);
+            w.set_reload(reload);
+        });
     }
 
     fn flush_txdr(&self) {
@@ -265,7 +317,10 @@ impl<'d, T: Instance> I2c<'d, T> {
 
         for (number, chunk) in buffer.chunks_mut(255).enumerate() {
             if number != 0 {
-                self.master_continue(chunk.len(), number != last_chunk_idx);
+                // NOTE(unsafe) We have &mut self
+                unsafe {
+                    Self::master_continue(chunk.len(), number != last_chunk_idx);
+                }
             }
 
             for byte in chunk {
@@ -292,16 +347,22 @@ impl<'d, T: Instance> I2c<'d, T> {
         // I2C start
         //
         // ST SAD+W
-        self.master_write(
-            address,
-            bytes.len().min(255),
-            Stop::Software,
-            last_chunk_idx != 0,
-        );
+        // NOTE(unsafe) We have &mut self
+        unsafe {
+            Self::master_write(
+                address,
+                bytes.len().min(255),
+                Stop::Software,
+                last_chunk_idx != 0,
+            );
+        }
 
         for (number, chunk) in bytes.chunks(255).enumerate() {
             if number != 0 {
-                self.master_continue(chunk.len(), number != last_chunk_idx);
+                // NOTE(unsafe) We have &mut self
+                unsafe {
+                    Self::master_continue(chunk.len(), number != last_chunk_idx);
+                }
             }
 
             for byte in chunk {
@@ -324,6 +385,143 @@ impl<'d, T: Instance> I2c<'d, T> {
         Ok(())
     }
 
+    async fn write_dma_internal(
+        &mut self,
+        address: u8,
+        bytes: &[u8],
+        first_slice: bool,
+        last_slice: bool,
+        next_slice_len: usize,
+        next_is_last: bool,
+    ) -> Result<(), Error>
+    where
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        let total_len = bytes.len();
+        let completed_chunks = total_len / 255;
+        let total_chunks = if completed_chunks * 255 == total_len {
+            completed_chunks
+        } else {
+            completed_chunks + 1
+        };
+
+        let dma_transfer = unsafe {
+            let regs = T::regs();
+            regs.cr1().modify(|w| {
+                w.set_txdmaen(true);
+                w.set_tcie(true);
+            });
+            let dst = regs.txdr().ptr() as *mut u8;
+
+            let ch = &mut self.tx_dma;
+            ch.write(ch.request(), bytes, dst)
+        };
+
+        let state_number = T::state_number();
+        STATE.chunks_transferred[state_number].store(0, Ordering::Relaxed);
+        let mut remaining_len = total_len;
+
+        let _on_drop = OnDrop::new(|| {
+            let regs = T::regs();
+            unsafe {
+                regs.cr1().modify(|w| {
+                    if last_slice {
+                        w.set_txdmaen(false);
+                    }
+                    w.set_tcie(false);
+                })
+            }
+        });
+
+        // NOTE(unsafe) self.tx_dma does not fiddle with the i2c registers
+        if first_slice {
+            unsafe {
+                Self::master_write(
+                    address,
+                    total_len.min(255),
+                    Stop::Software,
+                    (total_chunks != 1) || !last_slice,
+                );
+            }
+        }
+
+        poll_fn(|cx| {
+            STATE.waker[state_number].register(cx.waker());
+            let chunks_transferred = STATE.chunks_transferred[state_number].load(Ordering::Relaxed);
+
+            if chunks_transferred == total_chunks {
+                if !last_slice {
+                    // NOTE(unsafe) self.tx_dma does not fiddle with the i2c registers
+                    unsafe {
+                        Self::master_continue(
+                            next_slice_len.min(255),
+                            (next_slice_len > 255) || !next_is_last,
+                        );
+                        T::regs().cr1().modify(|w| w.set_tcie(true));
+                    }
+                }
+
+                return Poll::Ready(());
+            } else if chunks_transferred != 0 {
+                remaining_len = remaining_len.saturating_sub(255);
+                let last_piece = (chunks_transferred + 1 == total_chunks) && last_slice;
+
+                // NOTE(unsafe) self.tx_dma does not fiddle with the i2c registers
+                unsafe {
+                    Self::master_continue(remaining_len.min(255), !last_piece);
+                    T::regs().cr1().modify(|w| w.set_tcie(true));
+                }
+            }
+            Poll::Pending
+        })
+        .await;
+
+        dma_transfer.await;
+
+        if last_slice {
+            // This should be done already
+            self.wait_tc()?;
+            self.master_stop();
+        }
+        Ok(())
+    }
+
+    pub async fn write_dma(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error>
+    where
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        self.write_dma_internal(address, bytes, true, true, 0, true)
+            .await
+    }
+
+    pub async fn write_dma_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error>
+    where
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        if bytes.is_empty() {
+            return Err(Error::ZeroLengthTransfer);
+        }
+        let mut iter = bytes.iter().peekable();
+
+        let mut first = true;
+        let mut current = iter.next();
+        while let Some(c) = current {
+            let next = iter.next();
+            let (next_len, is_last) = if let Some(next) = next {
+                (next.len(), false)
+            } else {
+                (0, true)
+            };
+            let next_is_last = iter.peek().is_none();
+
+            self.write_dma_internal(address, c, first, is_last, next_len, next_is_last)
+                .await?;
+            first = false;
+            current = next;
+        }
+        Ok(())
+    }
+
     pub fn write_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error> {
         if bytes.is_empty() {
             return Err(Error::ZeroLengthTransfer);
@@ -331,12 +529,15 @@ impl<'d, T: Instance> I2c<'d, T> {
         let first_length = bytes[0].len();
         let last_slice_index = bytes.len() - 1;
 
-        self.master_write(
-            address,
-            first_length.min(255),
-            Stop::Software,
-            (first_length > 255) || (last_slice_index != 0),
-        );
+        // NOTE(unsafe) We have &mut self
+        unsafe {
+            Self::master_write(
+                address,
+                first_length.min(255),
+                Stop::Software,
+                (first_length > 255) || (last_slice_index != 0),
+            );
+        }
 
         for (idx, slice) in bytes.iter().enumerate() {
             let slice_len = slice.len();
@@ -349,18 +550,24 @@ impl<'d, T: Instance> I2c<'d, T> {
             let last_chunk_idx = total_chunks.saturating_sub(1);
 
             if idx != 0 {
-                self.master_continue(
-                    slice_len.min(255),
-                    (idx != last_slice_index) || (slice_len > 255),
-                );
+                // NOTE(unsafe) We have &mut self
+                unsafe {
+                    Self::master_continue(
+                        slice_len.min(255),
+                        (idx != last_slice_index) || (slice_len > 255),
+                    );
+                }
             }
 
             for (number, chunk) in slice.chunks(255).enumerate() {
                 if number != 0 {
-                    self.master_continue(
-                        chunk.len(),
-                        (number != last_chunk_idx) || (idx != last_slice_index),
-                    );
+                    // NOTE(unsafe) We have &mut self
+                    unsafe {
+                        Self::master_continue(
+                            chunk.len(),
+                            (number != last_chunk_idx) || (idx != last_slice_index),
+                        );
+                    }
                 }
 
                 for byte in chunk {
