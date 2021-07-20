@@ -174,14 +174,17 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
     }
 
+    #[allow(unused)]
     async fn write_dma_u8(&mut self, write: &[u8]) -> Result<(), Error> {
         unimplemented!()
     }
 
+    #[allow(unused)]
     async fn read_dma_u8(&mut self, read: &mut [u8]) -> Result<(), Error> {
         unimplemented!()
     }
 
+    #[allow(unused)]
     async fn read_write_dma_u8(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
         unimplemented!()
     }
