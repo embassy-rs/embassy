@@ -44,7 +44,7 @@ pub trait Write<Word>: Spi<Word> {
     fn write<'a>(&'a mut self, data: &'a [Word]) -> Self::WriteFuture<'a>;
 }
 
-pub trait Read<Word>: Spi<Word> {
+pub trait Read<Word>: Write<Word> {
     type ReadFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a
     where
         Self: 'a;

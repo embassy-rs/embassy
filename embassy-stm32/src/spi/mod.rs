@@ -8,7 +8,6 @@ use crate::{dma, peripherals, rcc::RccPeripheral};
 pub use _version::*;
 
 use crate::gpio::Pin;
-use core::marker::PhantomData;
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
@@ -73,27 +72,12 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
-
-pub trait SckPin<T: Instance>: sealed::SckPin<T> + 'static {}
-
-pub trait MosiPin<T: Instance>: sealed::MosiPin<T> + 'static {}
-
-pub trait MisoPin<T: Instance>: sealed::MisoPin<T> + 'static {}
-
-pub trait TxDmaChannel<T: Instance>: sealed::TxDmaChannel<T> + 'static {}
-
-pub trait RxDmaChannel<T: Instance>: sealed::RxDmaChannel<T> + 'static {}
-
-pub trait SpiDma {}
-
-pub struct DmaPair<T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> {
-    tx: Tx,
-    rx: Rx,
-    _phantom: PhantomData<T>,
-}
-
-impl<T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> SpiDma for DmaPair<T, Tx, Rx> {}
+pub trait Instance: sealed::Instance + RccPeripheral {}
+pub trait SckPin<T: Instance>: sealed::SckPin<T> {}
+pub trait MosiPin<T: Instance>: sealed::MosiPin<T> {}
+pub trait MisoPin<T: Instance>: sealed::MisoPin<T> {}
+pub trait TxDmaChannel<T: Instance>: sealed::TxDmaChannel<T> + dma::Channel {}
+pub trait RxDmaChannel<T: Instance>: sealed::RxDmaChannel<T> + dma::Channel {}
 
 crate::pac::peripherals!(
     (spi, $inst:ident) => {

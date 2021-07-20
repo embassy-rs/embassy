@@ -1,18 +1,21 @@
 #![macro_use]
 
+use crate::dma::NoDma;
 use crate::gpio::{AnyPin, Pin};
 use crate::pac::gpio::vals::{Afr, Moder};
 use crate::pac::gpio::Gpio;
 use crate::pac::spi;
 use crate::spi::{
-    ByteOrder, Config, DmaPair, Error, Instance, MisoPin, MosiPin, RxDmaChannel, SckPin, SpiDma,
-    TxDmaChannel, WordSize,
+    ByteOrder, Config, Error, Instance, MisoPin, MosiPin, RxDmaChannel, SckPin, TxDmaChannel,
+    WordSize,
 };
 use crate::time::Hertz;
+use core::future::Future;
 use core::marker::PhantomData;
 use core::ptr;
 use embassy::util::Unborrow;
 use embassy_extras::unborrow;
+use embassy_traits::spi as traits;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
 impl WordSize {
@@ -31,28 +34,30 @@ impl WordSize {
     }
 }
 
-pub struct Spi<'d, T: Instance, D = NoDma> {
+pub struct Spi<'d, T: Instance, Tx = NoDma, Rx = NoDma> {
     sck: AnyPin,
     mosi: AnyPin,
     miso: AnyPin,
-    dma: D,
+    txdma: Tx,
+    rxdma: Rx,
     phantom: PhantomData<&'d mut T>,
 }
 
-impl<'d, T: Instance, D> Spi<'d, T, D> {
+impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     pub fn new<F>(
         _peri: impl Unborrow<Target = T> + 'd,
         sck: impl Unborrow<Target = impl SckPin<T>>,
         mosi: impl Unborrow<Target = impl MosiPin<T>>,
         miso: impl Unborrow<Target = impl MisoPin<T>>,
-        dma: impl Unborrow<Target = D>,
+        txdma: impl Unborrow<Target = Tx>,
+        rxdma: impl Unborrow<Target = Rx>,
         freq: F,
         config: Config,
     ) -> Self
     where
         F: Into<Hertz>,
     {
-        unborrow!(sck, mosi, miso, dma);
+        unborrow!(sck, mosi, miso, txdma, rxdma);
 
         unsafe {
             Self::configure_pin(sck.block(), sck.pin() as _, sck.af_num());
@@ -118,7 +123,8 @@ impl<'d, T: Instance, D> Spi<'d, T, D> {
             sck,
             mosi,
             miso,
-            dma,
+            txdma,
+            rxdma,
             phantom: PhantomData,
         }
     }
@@ -167,9 +173,21 @@ impl<'d, T: Instance, D> Spi<'d, T, D> {
             });
         }
     }
+
+    async fn write_dma_u8(&mut self, write: &[u8]) -> Result<(), Error> {
+        unimplemented!()
+    }
+
+    async fn read_dma_u8(&mut self, read: &mut [u8]) -> Result<(), Error> {
+        unimplemented!()
+    }
+
+    async fn read_write_dma_u8(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
+        unimplemented!()
+    }
 }
 
-impl<'d, T: Instance> Drop for Spi<'d, T> {
+impl<'d, T: Instance, Tx, Rx> Drop for Spi<'d, T, Tx, Rx> {
     fn drop(&mut self) {
         unsafe {
             Self::unconfigure_pin(self.sck.block(), self.sck.pin() as _);
@@ -364,30 +382,41 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T, 
     }
 }
 
-use crate::dma::NoDma;
-use core::future::Future;
-use embassy_traits::spi::FullDuplex;
-
-#[rustfmt::skip]
-impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> FullDuplex<u8> for Spi<'d, T, DmaPair<T, Tx, Rx>> {
+impl<'d, T: Instance, Tx, Rx> traits::Spi<u8> for Spi<'d, T, Tx, Rx> {
     type Error = super::Error;
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
-    type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+}
 
-    fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        unimplemented!()
-    }
+impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx> traits::Write<u8> for Spi<'d, T, Tx, Rx> {
+    #[rustfmt::skip]
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
-        unimplemented!()
+        self.write_dma_u8(data)
     }
+}
+
+impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::Read<u8>
+    for Spi<'d, T, Tx, Rx>
+{
+    #[rustfmt::skip]
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+    fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        self.read_dma_u8(data)
+    }
+}
+
+impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::FullDuplex<u8>
+    for Spi<'d, T, Tx, Rx>
+{
+    #[rustfmt::skip]
+    type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read_write<'a>(
         &'a mut self,
         read: &'a mut [u8],
         write: &'a [u8],
     ) -> Self::WriteReadFuture<'a> {
-        unimplemented!()
+        self.read_write_dma_u8(read, write)
     }
 }
