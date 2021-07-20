@@ -1,7 +1,7 @@
+use core::future::Future;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicU8, Ordering};
-use core::future::Future;
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::util::{AtomicWaker, OnDrop};
 use futures::future::poll_fn;
@@ -39,7 +39,7 @@ static STATE: State = State::new();
 //async unsafe fn do_transfer(ch: &mut impl Channel, ch_func: u8, src: *const u8, dst: &mut [u8]) {
 
 #[allow(unused)]
-pub(crate) async unsafe fn do_transfer(
+pub(crate) unsafe fn do_transfer(
     dma: pac::dma::Dma,
     channel_number: u8,
     state_number: u8,
@@ -50,7 +50,7 @@ pub(crate) async unsafe fn do_transfer(
     mem_len: usize,
     #[cfg(dmamux)] dmamux_regs: pac::dmamux::Dmamux,
     #[cfg(dmamux)] dmamux_ch_num: u8,
-) {
+) -> impl Future<Output = ()> {
     // ndtr is max 16 bits.
     assert!(mem_len <= 0xFFFF);
 
@@ -60,7 +60,7 @@ pub(crate) async unsafe fn do_transfer(
 
     let ch = dma.st(channel_number as _);
 
-    let on_drop = OnDrop::new(|| unsafe {
+    let on_drop = OnDrop::new(move || unsafe {
         ch.cr().modify(|w| {
             w.set_tcie(false);
             w.set_teie(false);
@@ -100,18 +100,21 @@ pub(crate) async unsafe fn do_transfer(
         });
     }
 
-    let res = poll_fn(|cx| {
-        let n = channel_number as usize;
-        STATE.ch_wakers[n].register(cx.waker());
-        match STATE.ch_status[n].load(Ordering::Acquire) {
-            CH_STATUS_NONE => Poll::Pending,
-            x => Poll::Ready(x),
-        }
-    })
-    .await;
+    async move {
+        let res = poll_fn(|cx| {
+            let n = channel_number as usize;
+            STATE.ch_wakers[n].register(cx.waker());
+            match STATE.ch_status[n].load(Ordering::Acquire) {
+                CH_STATUS_NONE => Poll::Pending,
+                x => Poll::Ready(x),
+            }
+        })
+        .await;
 
-    // TODO handle error
-    assert!(res == CH_STATUS_COMPLETED);
+        // TODO handle error
+        assert!(res == CH_STATUS_COMPLETED);
+        drop(on_drop)
+    }
 }
 
 macro_rules! dma_num {
