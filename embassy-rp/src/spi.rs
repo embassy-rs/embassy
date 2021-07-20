@@ -111,6 +111,8 @@ impl<'d, T: Instance> Spi<'d, T> {
             for &b in data {
                 while !p.sr().read().tnf() {}
                 p.dr().write(|w| w.set_data(b as _));
+                while !p.sr().read().rne() {}
+                let _ = p.dr().read();
             }
             self.flush();
         }
