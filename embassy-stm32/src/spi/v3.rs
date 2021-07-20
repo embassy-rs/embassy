@@ -34,6 +34,7 @@ impl WordSize {
     }
 }
 
+#[allow(unused)]
 pub struct Spi<'d, T: Instance, Tx = NoDma, Rx = NoDma> {
     sck: AnyPin,
     mosi: AnyPin,
