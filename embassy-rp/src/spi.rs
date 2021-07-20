@@ -111,6 +111,8 @@ impl<'d, T: Instance> Spi<'d, T> {
             for &b in data {
                 while !p.sr().read().tnf() {}
                 p.dr().write(|w| w.set_data(b as _));
+                while !p.sr().read().rne() {}
+                let _ = p.dr().read();
             }
             self.flush();
         }
@@ -140,10 +142,17 @@ impl<'d, T: Instance> Spi<'d, T> {
         let (presc, postdiv) = calc_prescs(freq);
         let p = self.inner.regs();
         unsafe {
+            // disable
+            p.cr1().write(|w| w.set_sse(false));
+
+            // change stuff
             p.cpsr().write(|w| w.set_cpsdvsr(presc));
             p.cr0().modify(|w| {
                 w.set_scr(postdiv);
             });
+
+            // enable
+            p.cr1().write(|w| w.set_sse(true));
         }
     }
 }

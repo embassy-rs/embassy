@@ -30,3 +30,6 @@ cortex-m-rt = "0.6.13"
 embedded-hal    = { version = "0.2.4" }
 panic-probe = { version = "0.2.0", features = ["print-defmt"] }
 futures = { version = "0.3.8", default-features = false, features = ["async-await", "cfg-target-has-atomic", "unstable"] }
+display-interface-spi = "0.4.1"
+embedded-graphics = "0.7.1"
+st7789 = "0.6.1"
