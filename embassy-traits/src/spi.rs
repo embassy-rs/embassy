@@ -24,8 +24,7 @@ pub trait Spi<Word> {
     type Error;
 }
 
-pub trait FullDuplex<Word> : Spi<Word> + Write<Word> + Read<Word> {
-
+pub trait FullDuplex<Word>: Spi<Word> + Write<Word> + Read<Word> {
     type WriteReadFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a
     where
         Self: 'a;
@@ -37,20 +36,18 @@ pub trait FullDuplex<Word> : Spi<Word> + Write<Word> + Read<Word> {
     ) -> Self::WriteReadFuture<'a>;
 }
 
-pub trait Write<Word> : Spi<Word>{
-
+pub trait Write<Word>: Spi<Word> {
     type WriteFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a
     where
-    Self: 'a;
+        Self: 'a;
 
     fn write<'a>(&'a mut self, data: &'a [Word]) -> Self::WriteFuture<'a>;
 }
 
-pub trait Read<Word> : Spi<Word>{
-
+pub trait Read<Word>: Spi<Word> {
     type ReadFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a
     where
-    Self: 'a;
+        Self: 'a;
 
     fn read<'a>(&'a mut self, data: &'a mut [Word]) -> Self::ReadFuture<'a>;
 }
