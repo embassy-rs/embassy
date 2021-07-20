@@ -9,7 +9,7 @@ use embassy::traits;
 use embassy::util::{AtomicWaker, Unborrow};
 use embassy_extras::unborrow;
 use futures::future::poll_fn;
-use traits::spi::{ Spi, Read, Write, FullDuplex};
+use traits::spi::{FullDuplex, Read, Spi, Write};
 
 use crate::gpio;
 use crate::gpio::sealed::Pin as _;
