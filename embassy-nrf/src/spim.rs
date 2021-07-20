@@ -9,7 +9,7 @@ use embassy::traits;
 use embassy::util::{AtomicWaker, Unborrow};
 use embassy_extras::unborrow;
 use futures::future::poll_fn;
-use traits::spi::FullDuplex;
+use traits::spi::{ Spi, Read, Write, FullDuplex};
 
 use crate::gpio;
 use crate::gpio::sealed::Pin as _;
@@ -177,22 +177,31 @@ impl<'d, T: Instance> Drop for Spim<'d, T> {
     }
 }
 
-impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
+impl<'d, T: Instance> Spi<u8> for Spim<'d, T> {
     type Error = Error;
+}
 
+impl<'d, T: Instance> Read<u8> for Spim<'d, T> {
     #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
-    #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
-    #[rustfmt::skip]
-    type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+    type ReadFuture<'a> where Self: 'a = impl Future<Output=Result<(), Self::Error>> + 'a;
 
     fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
         self.read_write(data, &[])
     }
+}
+
+impl<'d, T: Instance> Write<u8> for Spim<'d, T> {
+    #[rustfmt::skip]
+    type WriteFuture<'a> where Self: 'a = impl Future<Output=Result<(), Self::Error>> + 'a;
+
     fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
         self.read_write(&mut [], data)
     }
+}
+
+impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
+    #[rustfmt::skip]
+    type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read_write<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::WriteReadFuture<'a> {
         async move {
