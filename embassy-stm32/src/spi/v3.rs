@@ -18,6 +18,8 @@ use embassy_extras::unborrow;
 use embassy_traits::spi as traits;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
+use futures::future::join;
+
 impl WordSize {
     fn dsize(&self) -> u8 {
         match self {
@@ -176,18 +178,58 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 
     #[allow(unused)]
-    async fn write_dma_u8(&mut self, write: &[u8]) -> Result<(), Error> {
+    async fn write_dma_u8(&mut self, write: &[u8]) -> Result<(), Error>
+    where
+        Tx: TxDmaChannel<T>,
+    {
+        let request = self.txdma.request();
+        let dst = T::regs().txdr().ptr() as *mut u8;
+        let f = self.txdma.write(request, write, dst);
+        unsafe {
+            T::regs().cfg1().modify(|reg| {
+                reg.set_txdmaen(true);
+            });
+        }
+
+        f.await;
+        Ok(())
+    }
+
+    #[allow(unused)]
+    async fn read_dma_u8(&mut self, read: &mut [u8]) -> Result<(), Error>
+    where
+        Tx: TxDmaChannel<T>,
+        Rx: RxDmaChannel<T>,
+    {
         unimplemented!()
     }
 
     #[allow(unused)]
-    async fn read_dma_u8(&mut self, read: &mut [u8]) -> Result<(), Error> {
-        unimplemented!()
-    }
+    async fn read_write_dma_u8(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error>
+    where
+        Tx: TxDmaChannel<T>,
+        Rx: RxDmaChannel<T>,
+    {
+        let rx_request = self.rxdma.request();
+        let rx_src = T::regs().rxdr().ptr() as *mut u8;
+        let rx_f = self.rxdma.read(rx_request, rx_src, read);
 
-    #[allow(unused)]
-    async fn read_write_dma_u8(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
-        unimplemented!()
+        let tx_request = self.txdma.request();
+        let tx_dst = T::regs().txdr().ptr() as *mut u8;
+        let clock_byte = 0x00;
+        let tx_f = self
+            .txdma
+            .write_x(tx_request, &clock_byte, read.len(), tx_dst);
+
+        unsafe {
+            T::regs().cfg1().modify(|reg| {
+                reg.set_txdmaen(true);
+                reg.set_rxdmaen(true);
+            });
+        }
+
+        let r = join(tx_f, rx_f).await;
+        Ok(())
     }
 }
 
