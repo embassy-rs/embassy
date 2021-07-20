@@ -4,7 +4,10 @@ use crate::gpio::{AnyPin, Pin};
 use crate::pac::gpio::vals::{Afr, Moder};
 use crate::pac::gpio::Gpio;
 use crate::pac::spi;
-use crate::spi::{ByteOrder, Config, Error, Instance, MisoPin, MosiPin, SckPin, WordSize};
+use crate::spi::{
+    ByteOrder, Config, DmaPair, Error, Instance, MisoPin, MosiPin, RxDmaChannel, SckPin, SpiDma,
+    TxDmaChannel, WordSize,
+};
 use crate::time::Hertz;
 use core::marker::PhantomData;
 use core::ptr;
@@ -28,26 +31,28 @@ impl WordSize {
     }
 }
 
-pub struct Spi<'d, T: Instance> {
+pub struct Spi<'d, T: Instance, D = NoDma> {
     sck: AnyPin,
     mosi: AnyPin,
     miso: AnyPin,
+    dma: D,
     phantom: PhantomData<&'d mut T>,
 }
 
-impl<'d, T: Instance> Spi<'d, T> {
+impl<'d, T: Instance, D> Spi<'d, T, D> {
     pub fn new<F>(
         _peri: impl Unborrow<Target = T> + 'd,
         sck: impl Unborrow<Target = impl SckPin<T>>,
         mosi: impl Unborrow<Target = impl MosiPin<T>>,
         miso: impl Unborrow<Target = impl MisoPin<T>>,
+        dma: impl Unborrow<Target = D>,
         freq: F,
         config: Config,
     ) -> Self
     where
         F: Into<Hertz>,
     {
-        unborrow!(sck, mosi, miso);
+        unborrow!(sck, mosi, miso, dma);
 
         unsafe {
             Self::configure_pin(sck.block(), sck.pin() as _, sck.af_num());
@@ -113,6 +118,7 @@ impl<'d, T: Instance> Spi<'d, T> {
             sck,
             mosi,
             miso,
+            dma,
             phantom: PhantomData,
         }
     }
@@ -173,7 +179,7 @@ impl<'d, T: Instance> Drop for Spi<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T> {
+impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T, NoDma> {
     type Error = Error;
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
@@ -210,7 +216,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
+impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T, NoDma> {
     type Error = Error;
 
     fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
@@ -267,7 +273,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T> {
+impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T, NoDma> {
     type Error = Error;
 
     fn write(&mut self, words: &[u16]) -> Result<(), Self::Error> {
@@ -304,7 +310,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T> {
+impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T, NoDma> {
     type Error = Error;
 
     fn transfer<'w>(&mut self, words: &'w mut [u16]) -> Result<&'w [u16], Self::Error> {
@@ -355,5 +361,33 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T> 
         }
 
         Ok(words)
+    }
+}
+
+use crate::dma::NoDma;
+use core::future::Future;
+use embassy_traits::spi::FullDuplex;
+
+#[rustfmt::skip]
+impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> FullDuplex<u8> for Spi<'d, T, DmaPair<T, Tx, Rx>> {
+    type Error = super::Error;
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+    type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+    fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        unimplemented!()
+    }
+
+    fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
+        unimplemented!()
+    }
+
+    fn read_write<'a>(
+        &'a mut self,
+        read: &'a mut [u8],
+        write: &'a [u8],
+    ) -> Self::WriteReadFuture<'a> {
+        unimplemented!()
     }
 }
