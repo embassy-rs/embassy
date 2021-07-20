@@ -38,7 +38,7 @@ impl State {
 static STATE: State = State::new();
 
 #[allow(unused)]
-pub(crate) async unsafe fn do_transfer(
+pub(crate) unsafe fn do_transfer(
     dma: pac::bdma::Dma,
     channel_number: u8,
     state_number: u8,
@@ -49,7 +49,7 @@ pub(crate) async unsafe fn do_transfer(
     mem_len: usize,
     #[cfg(dmamux)] dmamux_regs: pac::dmamux::Dmamux,
     #[cfg(dmamux)] dmamux_ch_num: u8,
-) {
+) -> impl Future<Output = ()> {
     // ndtr is max 16 bits.
     assert!(mem_len <= 0xFFFF);
 
@@ -59,7 +59,7 @@ pub(crate) async unsafe fn do_transfer(
     // Generate a DMB here to flush the store buffer (M7) before enabling the DMA
     STATE.ch_status[state_number as usize].store(CH_STATUS_NONE, Ordering::Release);
 
-    let on_drop = OnDrop::new(|| unsafe {
+    let on_drop = OnDrop::new(move || unsafe {
         ch.cr().modify(|w| {
             w.set_tcie(false);
             w.set_teie(false);
@@ -95,17 +95,20 @@ pub(crate) async unsafe fn do_transfer(
         w.set_en(true);
     });
 
-    let res = poll_fn(|cx| {
-        STATE.ch_wakers[state_number as usize].register(cx.waker());
-        match STATE.ch_status[state_number as usize].load(Ordering::Acquire) {
-            CH_STATUS_NONE => Poll::Pending,
-            x => Poll::Ready(x),
-        }
-    })
-    .await;
+    async move {
+        let res = poll_fn(|cx| {
+            STATE.ch_wakers[state_number as usize].register(cx.waker());
+            match STATE.ch_status[state_number as usize].load(Ordering::Acquire) {
+                CH_STATUS_NONE => Poll::Pending,
+                x => Poll::Ready(x),
+            }
+        })
+        .await;
 
-    // TODO handle error
-    assert!(res == CH_STATUS_COMPLETED);
+        // TODO handle error
+        assert!(res == CH_STATUS_COMPLETED);
+        drop(on_drop)
+    }
 }
 
 macro_rules! dma_num {
