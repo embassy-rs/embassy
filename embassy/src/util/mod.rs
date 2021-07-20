@@ -11,6 +11,7 @@ mod waker;
 
 pub use drop_bomb::*;
 pub use forever::*;
+pub mod mpsc;
 pub use mutex::*;
 pub use on_drop::*;
 pub use portal::*;

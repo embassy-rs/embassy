@@ -1,6 +1,19 @@
 use core::cell::UnsafeCell;
 use critical_section::CriticalSection;
 
+/// Any object implementing this trait guarantees exclusive access to the data contained
+/// within the mutex for the duration of the lock.
+/// Adapted from https://github.com/rust-embedded/mutex-trait.
+pub trait Mutex {
+    /// Data protected by the mutex.
+    type Data;
+
+    fn new(data: Self::Data) -> Self;
+
+    /// Creates a critical section and grants temporary access to the protected data.
+    fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R;
+}
+
 /// A "mutex" based on critical sections
 ///
 /// # Safety
@@ -30,6 +43,18 @@ impl<T> CriticalSectionMutex<T> {
     /// Borrows the data for the duration of the critical section
     pub fn borrow<'cs>(&'cs self, _cs: CriticalSection<'cs>) -> &'cs T {
         unsafe { &*self.inner.get() }
+    }
+}
+
+impl<T> Mutex for CriticalSectionMutex<T> {
+    type Data = T;
+
+    fn new(data: T) -> Self {
+        Self::new(data)
+    }
+
+    fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R {
+        critical_section::with(|cs| f(self.borrow(cs)))
     }
 }
 
@@ -70,6 +95,18 @@ impl<T> ThreadModeMutex<T> {
     }
 }
 
+impl<T> Mutex for ThreadModeMutex<T> {
+    type Data = T;
+
+    fn new(data: T) -> Self {
+        Self::new(data)
+    }
+
+    fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R {
+        f(self.borrow())
+    }
+}
+
 pub fn in_thread_mode() -> bool {
     #[cfg(feature = "std")]
     return Some("main") == std::thread::current().name();
@@ -77,4 +114,33 @@ pub fn in_thread_mode() -> bool {
     #[cfg(not(feature = "std"))]
     return cortex_m::peripheral::SCB::vect_active()
         == cortex_m::peripheral::scb::VectActive::ThreadMode;
+}
+
+/// A "mutex" that does nothing and cannot be shared between threads.
+pub struct NoopMutex<T> {
+    inner: T,
+}
+
+impl<T> NoopMutex<T> {
+    pub const fn new(value: T) -> Self {
+        NoopMutex { inner: value }
+    }
+}
+
+impl<T> NoopMutex<T> {
+    pub fn borrow(&self) -> &T {
+        &self.inner
+    }
+}
+
+impl<T> Mutex for NoopMutex<T> {
+    type Data = T;
+
+    fn new(data: T) -> Self {
+        Self::new(data)
+    }
+
+    fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R {
+        f(self.borrow())
+    }
 }
