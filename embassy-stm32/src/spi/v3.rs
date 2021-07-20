@@ -210,6 +210,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Tx: TxDmaChannel<T>,
         Rx: RxDmaChannel<T>,
     {
+        let clock_byte_count = read.len();
+
         let rx_request = self.rxdma.request();
         let rx_src = T::regs().rxdr().ptr() as *mut u8;
         let rx_f = self.rxdma.read(rx_request, rx_src, read);
@@ -219,7 +221,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let clock_byte = 0x00;
         let tx_f = self
             .txdma
-            .write_x(tx_request, &clock_byte, read.len(), tx_dst);
+            .write_x(tx_request, &clock_byte, clock_byte_count, tx_dst);
 
         unsafe {
             T::regs().cfg1().modify(|reg| {
