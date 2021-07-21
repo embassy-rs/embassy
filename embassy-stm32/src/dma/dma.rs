@@ -98,16 +98,17 @@ pub(crate) unsafe fn do_transfer(
             w.set_tcie(true);
             #[cfg(dma_v1)]
             w.set_trbuff(true);
-            w.set_en(true);
 
             #[cfg(dma_v2)]
             w.set_chsel(request);
+
+            w.set_en(true);
         });
     }
 
     async move {
         let res = poll_fn(|cx| {
-            let n = channel_number as usize;
+            let n = state_number as usize;
             STATE.ch_wakers[n].register(cx.waker());
             match STATE.ch_status[n].load(Ordering::Acquire) {
                 CH_STATUS_NONE => Poll::Pending,

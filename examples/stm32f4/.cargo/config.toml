@@ -3,7 +3,8 @@ build-std = ["core"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 # replace STM32F429ZITx with your chip as listed in `probe-run --list-chips`
-runner = "probe-run --chip STM32F429ZITx"
+#runner = "probe-run --chip STM32F429ZITx"
+runner = "probe-run --chip STM32F401RE"
 
 rustflags = [
   # LLD (shipped with the Rust toolchain) is used as the default linker
