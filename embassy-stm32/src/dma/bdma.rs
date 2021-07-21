@@ -89,7 +89,11 @@ pub(crate) unsafe fn do_transfer(
     ch.cr().write(|w| {
         w.set_psize(vals::Size::BITS8);
         w.set_msize(vals::Size::BITS8);
-        w.set_minc(vals::Inc::ENABLED);
+        if incr_mem {
+            w.set_minc(vals::Inc::ENABLED);
+        } else {
+            w.set_minc(vals::Inc::DISABLED);
+        }
         w.set_dir(dir);
         w.set_teie(true);
         w.set_tcie(true);
