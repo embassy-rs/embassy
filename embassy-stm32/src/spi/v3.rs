@@ -18,7 +18,7 @@ use embassy_extras::unborrow;
 use embassy_traits::spi as traits;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
-use futures::future::join;
+use futures::future::join3;
 
 impl WordSize {
     fn dsize(&self) -> u8 {
@@ -110,7 +110,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_crcen(false);
                 w.set_mbr(spi::vals::Mbr(br));
                 w.set_dsize(WordSize::EightBit.dsize());
-                //w.set_fthlv(WordSize::EightBit.frxth());
             });
             T::regs().cr2().modify(|w| {
                 w.set_tsize(0);
@@ -182,16 +181,40 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     where
         Tx: TxDmaChannel<T>,
     {
+        Self::set_word_size(WordSize::EightBit);
+        unsafe {
+            T::regs().cr1().modify(|w| {
+                w.set_spe(false);
+            });
+        }
+
         let request = self.txdma.request();
         let dst = T::regs().txdr().ptr() as *mut u8;
         let f = self.txdma.write(request, write, dst);
+
         unsafe {
             T::regs().cfg1().modify(|reg| {
                 reg.set_txdmaen(true);
             });
+            T::regs().cr1().modify(|w| {
+                w.set_spe(true);
+            });
+            T::regs().cr1().modify(|w| {
+                w.set_cstart(true);
+            });
         }
 
         f.await;
+        unsafe {
+            T::regs().cfg1().modify(|reg| {
+                reg.set_rxdmaen(false);
+                reg.set_txdmaen(false);
+            });
+            T::regs().cr1().modify(|w| {
+                w.set_spe(false);
+            });
+        }
+
         Ok(())
     }
 
@@ -201,6 +224,16 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Tx: TxDmaChannel<T>,
         Rx: RxDmaChannel<T>,
     {
+        Self::set_word_size(WordSize::EightBit);
+        unsafe {
+            T::regs().cr1().modify(|w| {
+                w.set_spe(false);
+            });
+            T::regs().cfg1().modify(|reg| {
+                reg.set_rxdmaen(true);
+            });
+        }
+
         let clock_byte_count = read.len();
 
         let rx_request = self.rxdma.request();
@@ -217,11 +250,25 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         unsafe {
             T::regs().cfg1().modify(|reg| {
                 reg.set_txdmaen(true);
-                reg.set_rxdmaen(true);
+            });
+            T::regs().cr1().modify(|w| {
+                w.set_spe(true);
+            });
+            T::regs().cr1().modify(|w| {
+                w.set_cstart(true);
             });
         }
 
-        let r = join(tx_f, rx_f).await;
+        join3(tx_f, rx_f, Self::wait_for_idle()).await;
+        unsafe {
+            T::regs().cfg1().modify(|reg| {
+                reg.set_rxdmaen(false);
+                reg.set_txdmaen(false);
+            });
+            T::regs().cr1().modify(|w| {
+                w.set_spe(false);
+            });
+        }
         Ok(())
     }
 
@@ -231,11 +278,21 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Tx: TxDmaChannel<T>,
         Rx: RxDmaChannel<T>,
     {
-        let clock_byte_count = read.len();
+        Self::set_word_size(WordSize::EightBit);
+        unsafe {
+            T::regs().cr1().modify(|w| {
+                w.set_spe(false);
+            });
+            T::regs().cfg1().modify(|reg| {
+                reg.set_rxdmaen(true);
+            });
+        }
 
         let rx_request = self.rxdma.request();
         let rx_src = T::regs().rxdr().ptr() as *mut u8;
-        let rx_f = self.rxdma.read(rx_request, rx_src, read);
+        let rx_f = self
+            .rxdma
+            .read(rx_request, rx_src, &mut read[0..write.len()]);
 
         let tx_request = self.txdma.request();
         let tx_dst = T::regs().txdr().ptr() as *mut u8;
@@ -244,12 +301,37 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         unsafe {
             T::regs().cfg1().modify(|reg| {
                 reg.set_txdmaen(true);
-                reg.set_rxdmaen(true);
+            });
+            T::regs().cr1().modify(|w| {
+                w.set_spe(true);
+            });
+            T::regs().cr1().modify(|w| {
+                w.set_cstart(true);
             });
         }
 
-        let r = join(tx_f, rx_f).await;
+        join3(tx_f, rx_f, Self::wait_for_idle()).await;
+        unsafe {
+            T::regs().cfg1().modify(|reg| {
+                reg.set_rxdmaen(false);
+                reg.set_txdmaen(false);
+            });
+            T::regs().cr1().modify(|w| {
+                w.set_spe(false);
+            });
+        }
         Ok(())
+    }
+
+    async fn wait_for_idle() {
+        unsafe {
+            while !T::regs().sr().read().txc() {
+                // spin
+            }
+            while T::regs().sr().read().rxplvl().0 > 0 {
+                // spin
+            }
+        }
     }
 }
 
