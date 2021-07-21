@@ -46,7 +46,7 @@ async fn main_task() {
     let ready = Input::new(p.PE1, Pull::Up);
 
     cortex_m::asm::delay(100_000);
-    reset.set_high();
+    reset.set_high().unwrap();
     cortex_m::asm::delay(100_000);
 
     while ready.is_low().unwrap() {
