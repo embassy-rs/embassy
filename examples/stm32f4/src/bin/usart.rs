@@ -10,14 +10,13 @@
 mod example_common;
 use cortex_m::prelude::_embedded_hal_blocking_serial_Write;
 use embassy::executor::Executor;
-use embassy::time::Clock;
 use embassy::util::Forever;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
 use example_common::*;
 
 use cortex_m_rt::entry;
-use stm32f4::stm32f429 as pac;
+use embassy_stm32::pac;
 
 #[embassy::task]
 async fn main_task() {
@@ -36,48 +35,28 @@ async fn main_task() {
     }
 }
 
-struct ZeroClock;
-
-impl Clock for ZeroClock {
-    fn now(&self) -> u64 {
-        0
-    }
-}
-
 static EXECUTOR: Forever<Executor> = Forever::new();
 
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
 
-    let pp = pac::Peripherals::take().unwrap();
+    unsafe {
+        pac::DBGMCU.cr().modify(|w| {
+            w.set_dbg_sleep(true);
+            w.set_dbg_standby(true);
+            w.set_dbg_stop(true);
+        });
 
-    pp.DBGMCU.cr.modify(|_, w| {
-        w.dbg_sleep().set_bit();
-        w.dbg_standby().set_bit();
-        w.dbg_stop().set_bit()
-    });
-    pp.RCC.ahb1enr.modify(|_, w| w.dma1en().enabled());
-
-    pp.RCC.ahb1enr.modify(|_, w| {
-        w.gpioaen().enabled();
-        w.gpioben().enabled();
-        w.gpiocen().enabled();
-        w.gpioden().enabled();
-        w.gpioeen().enabled();
-        w.gpiofen().enabled();
-        w
-    });
-    pp.RCC.apb2enr.modify(|_, w| {
-        w.syscfgen().enabled();
-        w
-    });
-    pp.RCC.apb1enr.modify(|_, w| {
-        w.usart3en().enabled();
-        w
-    });
-
-    unsafe { embassy::time::set_clock(&ZeroClock) };
+        pac::RCC.ahb1enr().modify(|w| {
+            w.set_gpioaen(true);
+            w.set_gpioben(true);
+            w.set_gpiocen(true);
+            w.set_gpioden(true);
+            w.set_gpioeen(true);
+            w.set_gpiofen(true);
+        });
+    }
 
     let executor = EXECUTOR.put(Executor::new());
 
