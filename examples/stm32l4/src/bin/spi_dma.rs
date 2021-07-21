@@ -39,8 +39,8 @@ async fn main_task() {
 
     // These are the pins for the Inventek eS-Wifi SPI Wifi Adapter.
 
-    let boot = Output::new(p.PB12, Level::Low, Speed::VeryHigh);
-    let wake = Output::new(p.PB13, Level::Low, Speed::VeryHigh);
+    let _boot = Output::new(p.PB12, Level::Low, Speed::VeryHigh);
+    let _wake = Output::new(p.PB13, Level::Low, Speed::VeryHigh);
     let mut reset = Output::new(p.PE8, Level::Low, Speed::VeryHigh);
     let mut cs = Output::new(p.PE0, Level::High, Speed::VeryHigh);
     let ready = Input::new(p.PE1, Pull::Up);
