@@ -28,8 +28,8 @@ async fn main_task() {
     let mut spi = Spi::new(
         p.SPI1,
         p.PB3,
-        p.PA7,
-        p.PA6,
+        p.PB5,
+        p.PB4,
         p.DMA2_CH3,
         p.DMA2_CH2,
         Hertz(1_000_000),
