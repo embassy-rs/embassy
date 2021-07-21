@@ -14,38 +14,31 @@ use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
 
 use cortex_m_rt::entry;
+use embassy_stm32::pac;
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embedded_hal::blocking::spi::Transfer;
-use stm32f4::stm32f429 as pac;
 
 #[entry]
 fn main() -> ! {
     info!("Hello World, dude!");
 
-    let pp = pac::Peripherals::take().unwrap();
+    unsafe {
+        pac::DBGMCU.cr().modify(|w| {
+            w.set_dbg_sleep(true);
+            w.set_dbg_standby(true);
+            w.set_dbg_stop(true);
+        });
 
-    pp.DBGMCU.cr.modify(|_, w| {
-        w.dbg_sleep().set_bit();
-        w.dbg_standby().set_bit();
-        w.dbg_stop().set_bit()
-    });
-    pp.RCC.ahb1enr.modify(|_, w| w.dma1en().set_bit());
-
-    pp.RCC.apb1enr.modify(|_, w| {
-        w.spi3en().enabled();
-        w
-    });
-
-    pp.RCC.ahb1enr.modify(|_, w| {
-        w.gpioaen().enabled();
-        w.gpioben().enabled();
-        w.gpiocen().enabled();
-        w.gpioden().enabled();
-        w.gpioeen().enabled();
-        w.gpiofen().enabled();
-        w
-    });
+        pac::RCC.ahb1enr().modify(|w| {
+            w.set_gpioaen(true);
+            w.set_gpioben(true);
+            w.set_gpiocen(true);
+            w.set_gpioden(true);
+            w.set_gpioeen(true);
+            w.set_gpiofen(true);
+        });
+    }
 
     let p = embassy_stm32::init(Default::default());
 
