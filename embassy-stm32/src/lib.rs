@@ -89,6 +89,7 @@ pub fn init(config: Config) -> Peripherals {
     let p = Peripherals::take();
 
     unsafe {
+        gpio::init();
         dma::init();
         #[cfg(exti)]
         exti::init();

@@ -449,3 +449,13 @@ crate::pac::pins!(
         }
     };
 );
+
+pub(crate) unsafe fn init() {
+    crate::pac::gpio_rcc! {
+        ($name:ident, $clock:ident, $en_reg:ident, $rst_reg:ident, $en_fn:ident, $rst_fn:ident) => {
+            crate::pac::RCC.$en_reg().modify(|reg| {
+                reg.$en_fn(true);
+            });
+        };
+    }
+}
