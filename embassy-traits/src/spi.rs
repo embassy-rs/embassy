@@ -29,6 +29,9 @@ pub trait FullDuplex<Word>: Spi<Word> + Write<Word> + Read<Word> {
     where
         Self: 'a;
 
+    /// The `read` array must be at least as long as the `write` array,
+    /// but is guaranteed to only be filled with bytes equal to the
+    /// length of the `write` array.
     fn read_write<'a>(
         &'a mut self,
         read: &'a mut [Word],

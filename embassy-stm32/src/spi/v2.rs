@@ -163,9 +163,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::regs().cr1().modify(|w| {
                 w.set_spe(false);
             });
-            T::regs().cr2().modify(|reg| {
-                reg.set_rxdmaen(true);
-            });
         }
         Self::set_word_size(WordSize::EightBit);
 
@@ -245,6 +242,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Tx: TxDmaChannel<T>,
         Rx: RxDmaChannel<T>,
     {
+        assert!(read.len() >= write.len());
+
         unsafe {
             T::regs().cr1().modify(|w| {
                 w.set_spe(false);
@@ -257,7 +256,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let rx_request = self.rxdma.request();
         let rx_src = T::regs().dr().ptr() as *mut u8;
-        let rx_f = self.rxdma.read(rx_request, rx_src, read);
+        let rx_f = self.rxdma.read(rx_request, rx_src, read[0..write.len()]);
 
         let tx_request = self.txdma.request();
         let tx_dst = T::regs().dr().ptr() as *mut u8;

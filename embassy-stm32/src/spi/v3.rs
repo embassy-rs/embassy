@@ -207,7 +207,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         f.await;
         unsafe {
             T::regs().cfg1().modify(|reg| {
-                reg.set_rxdmaen(false);
                 reg.set_txdmaen(false);
             });
             T::regs().cr1().modify(|w| {
@@ -278,6 +277,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Tx: TxDmaChannel<T>,
         Rx: RxDmaChannel<T>,
     {
+        assert!(read.len() >= write.len());
+
         Self::set_word_size(WordSize::EightBit);
         unsafe {
             T::regs().cr1().modify(|w| {
