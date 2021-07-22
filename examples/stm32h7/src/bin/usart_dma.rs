@@ -14,6 +14,7 @@ use embassy::time::Clock;
 use embassy::util::Forever;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
+use embassy_stm32::dbgmcu::Dbgmcu;
 use example_common::*;
 use embassy_traits::uart::Write as _Write;
 
@@ -72,13 +73,9 @@ fn main() -> ! {
 
     let pp = unsafe { pac::Peripherals::steal() };
 
-    pp.DBGMCU.cr.modify(|_, w| {
-        w.dbgsleep_d1().set_bit();
-        w.dbgstby_d1().set_bit();
-        w.dbgstop_d1().set_bit();
-        w.d1dbgcken().set_bit();
-        w
-    });
+    unsafe {
+        Dbgmcu::enable_all();
+    }
 
     pp.RCC.ahb4enr.modify(|_, w| {
         w.gpioaen().set_bit();

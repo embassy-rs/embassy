@@ -18,17 +18,14 @@ use embassy_stm32::pac;
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embedded_hal::blocking::spi::Transfer;
+use embassy_stm32::dbgmcu::Dbgmcu;
 
 #[entry]
 fn main() -> ! {
     info!("Hello World, dude!");
 
     unsafe {
-        pac::DBGMCU.cr().modify(|w| {
-            w.set_dbg_sleep(true);
-            w.set_dbg_standby(true);
-            w.set_dbg_stop(true);
-        });
+        Dbgmcu::enable_all();
 
         pac::RCC.ahb1enr().modify(|w| {
             w.set_gpioaen(true);
