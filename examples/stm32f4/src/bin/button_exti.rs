@@ -17,7 +17,6 @@ use embassy_traits::gpio::{WaitForFallingEdge, WaitForRisingEdge};
 use example_common::*;
 
 use cortex_m_rt::entry;
-use embassy_stm32::pac;
 
 #[embassy::task]
 async fn main_task() {
@@ -42,14 +41,7 @@ static EXECUTOR: Forever<Executor> = Forever::new();
 fn main() -> ! {
     info!("Hello World!");
 
-    unsafe {
-        Dbgmcu::enable_all();
-
-        // EXTI clock
-        pac::RCC.apb2enr().modify(|w| {
-            w.set_syscfgen(true);
-        });
-    }
+    unsafe { Dbgmcu::enable_all() }
 
     let executor = EXECUTOR.put(Executor::new());
 

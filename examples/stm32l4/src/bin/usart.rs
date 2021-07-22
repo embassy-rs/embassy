@@ -63,10 +63,6 @@ fn main() -> ! {
         pac::RCC.apb1enr1().modify(|w| {
             w.set_uart4en(true);
         });
-
-        pac::RCC.apb2enr().modify(|w| {
-            w.set_syscfgen(true);
-        });
     }
 
     unsafe { embassy::time::set_clock(&ZeroClock) };

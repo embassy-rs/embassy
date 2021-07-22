@@ -10,6 +10,7 @@
 mod example_common;
 
 use cortex_m_rt::entry;
+use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::pac;
 use embassy_stm32::spi::{Config, Spi};
@@ -17,7 +18,6 @@ use embassy_stm32::time::Hertz;
 use embedded_hal::blocking::spi::Transfer;
 use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
-use embassy_stm32::dma::NoDma;
 
 #[entry]
 fn main() -> ! {
@@ -28,10 +28,6 @@ fn main() -> ! {
             w.set_dbg_sleep(true);
             w.set_dbg_standby(true);
             w.set_dbg_stop(true);
-        });
-
-        pac::RCC.apb2enr().modify(|w| {
-            w.set_syscfgen(true);
         });
     }
 

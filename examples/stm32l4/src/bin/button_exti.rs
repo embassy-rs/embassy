@@ -55,10 +55,6 @@ fn main() -> ! {
             w.set_dbg_standby(true);
             w.set_dbg_stop(true);
         });
-
-        pac::RCC.apb2enr().modify(|w| {
-            w.set_syscfgen(true);
-        });
     }
 
     unsafe { embassy::time::set_clock(&ZeroClock) };
