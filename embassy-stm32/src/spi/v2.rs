@@ -256,7 +256,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let rx_request = self.rxdma.request();
         let rx_src = T::regs().dr().ptr() as *mut u8;
-        let rx_f = self.rxdma.read(rx_request, rx_src, read[0..write.len()]);
+        let rx_f = self
+            .rxdma
+            .read(rx_request, rx_src, &mut read[0..write.len()]);
 
         let tx_request = self.txdma.request();
         let tx_dst = T::regs().dr().ptr() as *mut u8;
