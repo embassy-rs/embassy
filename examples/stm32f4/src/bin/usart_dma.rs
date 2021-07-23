@@ -12,8 +12,8 @@ use core::fmt::Write;
 use cortex_m_rt::entry;
 use embassy::executor::Executor;
 use embassy::util::Forever;
+use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::pac;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_traits::uart::Write as _;
 use example_common::*;
@@ -42,20 +42,7 @@ fn main() -> ! {
     info!("Hello World!");
 
     unsafe {
-        pac::DBGMCU.cr().modify(|w| {
-            w.set_dbg_sleep(true);
-            w.set_dbg_standby(true);
-            w.set_dbg_stop(true);
-    });
-
-        pac::RCC.ahb1enr().modify(|w| {
-            w.set_gpioaen(true);
-            w.set_gpioben(true);
-            w.set_gpiocen(true);
-            w.set_gpioden(true);
-            w.set_gpioeen(true);
-            w.set_gpiofen(true);
-    });
+        Dbgmcu::enable_all();
     }
 
     let executor = EXECUTOR.put(Executor::new());

@@ -9,8 +9,8 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use cortex_m_rt::entry;
+use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
-use embassy_stm32::pac;
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use example_common::*;
 
@@ -19,11 +19,7 @@ fn main() -> ! {
     info!("Hello World!");
 
     unsafe {
-        pac::DBGMCU.cr().modify(|w| {
-            w.set_dbg_sleep(true);
-            w.set_dbg_standby(true);
-            w.set_dbg_stop(true);
-        });
+        Dbgmcu::enable_all();
     }
 
     let p = embassy_stm32::init(Default::default());

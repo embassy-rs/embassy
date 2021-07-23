@@ -10,6 +10,7 @@
 mod example_common;
 use embassy::executor::Executor;
 use embassy::util::Forever;
+use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_traits::gpio::{WaitForFallingEdge, WaitForRisingEdge};
@@ -42,11 +43,7 @@ fn main() -> ! {
     info!("Hello World!");
 
     unsafe {
-        pac::DBGMCU.cr().modify(|w| {
-            w.set_dbg_sleep(true);
-            w.set_dbg_standby(true);
-            w.set_dbg_stop(true);
-        });
+        Dbgmcu::enable_all();
 
         // EXTI clock
         pac::RCC.apb2enr().modify(|w| {
