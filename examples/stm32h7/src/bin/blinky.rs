@@ -28,8 +28,7 @@ fn main() -> ! {
 
     let rcc = pp.RCC.constrain();
 
-    rcc
-        .sys_ck(96.mhz())
+    rcc.sys_ck(96.mhz())
         .pclk1(48.mhz())
         .pclk2(48.mhz())
         .pclk3(48.mhz())
@@ -44,16 +43,6 @@ fn main() -> ! {
         w.dbgstby_d1().set_bit();
         w.dbgstop_d1().set_bit();
         w.d1dbgcken().set_bit();
-        w
-    });
-
-    pp.RCC.ahb4enr.modify(|_, w| {
-        w.gpioaen().set_bit();
-        w.gpioben().set_bit();
-        w.gpiocen().set_bit();
-        w.gpioden().set_bit();
-        w.gpioeen().set_bit();
-        w.gpiofen().set_bit();
         w
     });
 

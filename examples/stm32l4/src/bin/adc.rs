@@ -11,11 +11,10 @@ mod example_common;
 
 use example_common::*;
 
-use cortex_m_rt::entry;
-//use stm32f4::stm32f429 as pac;
 use cortex_m::delay::Delay;
+use cortex_m_rt::entry;
 use embassy_stm32::adc::{Adc, Resolution};
-use stm32l4::stm32l4x5 as pac;
+use embassy_stm32::pac;
 use stm32l4xx_hal::prelude::*;
 use stm32l4xx_hal::rcc::PllSource;
 
@@ -40,31 +39,16 @@ fn main() -> ! {
         .pll_source(PllSource::HSI16)
         .freeze(&mut flash.acr, &mut pwr);
 
-    let pp = unsafe { pac::Peripherals::steal() };
-
-    pp.RCC.ccipr.modify(|_, w| {
-        unsafe {
-            w.adcsel().bits(0b11);
-        }
-        w
-    });
-
-    pp.DBGMCU.cr.modify(|_, w| {
-        w.dbg_sleep().set_bit();
-        w.dbg_standby().set_bit();
-        w.dbg_stop().set_bit()
-    });
-
-    pp.RCC.ahb2enr.modify(|_, w| {
-        w.adcen().set_bit();
-        w.gpioaen().set_bit();
-        w.gpioben().set_bit();
-        w.gpiocen().set_bit();
-        w.gpioden().set_bit();
-        w.gpioeen().set_bit();
-        w.gpiofen().set_bit();
-        w
-    });
+    unsafe {
+        pac::RCC.ccipr().modify(|w| {
+            w.set_adcsel(0b11);
+        });
+        pac::DBGMCU.cr().modify(|w| {
+            w.set_dbg_sleep(true);
+            w.set_dbg_standby(true);
+            w.set_dbg_stop(true);
+        });
+    }
 
     let p = embassy_stm32::init(Default::default());
 

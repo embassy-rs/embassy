@@ -48,15 +48,6 @@ fn main() -> ! {
             w.set_dbg_stop(true);
         });
 
-        pac::RCC.ahb1enr().modify(|w| {
-            w.set_gpioaen(true);
-            w.set_gpioben(true);
-            w.set_gpiocen(true);
-            w.set_gpioden(true);
-            w.set_gpioeen(true);
-            w.set_gpiofen(true);
-        });
-
         // EXTI clock
         pac::RCC.apb2enr().modify(|w| {
             w.set_syscfgen(true);

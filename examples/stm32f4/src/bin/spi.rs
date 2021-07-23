@@ -14,11 +14,11 @@ use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
 
 use cortex_m_rt::entry;
+use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::pac;
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embedded_hal::blocking::spi::Transfer;
-use embassy_stm32::dbgmcu::Dbgmcu;
 
 #[entry]
 fn main() -> ! {
@@ -26,15 +26,6 @@ fn main() -> ! {
 
     unsafe {
         Dbgmcu::enable_all();
-
-        pac::RCC.ahb1enr().modify(|w| {
-            w.set_gpioaen(true);
-            w.set_gpioben(true);
-            w.set_gpiocen(true);
-            w.set_gpioden(true);
-            w.set_gpioeen(true);
-            w.set_gpiofen(true);
-        });
     }
 
     let p = embassy_stm32::init(Default::default());

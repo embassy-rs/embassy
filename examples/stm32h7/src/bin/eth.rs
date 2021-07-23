@@ -106,8 +106,6 @@ static NET_RESOURCES: Forever<StackResources<1, 2, 8>> = Forever::new();
 
 #[entry]
 fn main() -> ! {
-    use stm32_metapac::RCC;
-
     info!("Hello World!");
 
     info!("Setup RCC...");
@@ -122,16 +120,6 @@ fn main() -> ! {
 
     let mut rcc = Rcc::new(&mut p.RCC, RccConfig::default());
     rcc.enable_debug_wfe(&mut p.DBGMCU, true);
-
-    unsafe {
-        RCC.ahb4enr().modify(|w| {
-            w.set_gpioaen(true);
-            w.set_gpioben(true);
-            w.set_gpiocen(true);
-            w.set_gpioden(true);
-            w.set_gpioien(true);
-        });
-    }
 
     let rtc_int = interrupt_take!(TIM2);
     let rtc = TIMER_RTC.put(Clock::new(p.TIM2, rtc_int));
