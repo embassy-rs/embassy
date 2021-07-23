@@ -287,6 +287,8 @@ pub fn gen(options: Options) {
         let mut peripheral_counts: HashMap<String, u8> = HashMap::new();
         let mut dma_channel_counts: HashMap<String, u8> = HashMap::new();
         let mut dbgmcu_table: Vec<Vec<String>> = Vec::new();
+        let mut gpio_rcc_table: Vec<Vec<String>> = Vec::new();
+        let mut gpio_regs: HashSet<String> = HashSet::new();
 
         let gpio_base = core.peripherals.get(&"GPIOA".to_string()).unwrap().address;
         let gpio_stride = 0x400;
@@ -465,29 +467,33 @@ pub fn gen(options: Options) {
                                     clock.to_ascii_lowercase()
                                 };
 
-                                if !name.starts_with("GPIO") {
-                                    let mut row = Vec::with_capacity(6);
-                                    row.push(name.clone());
-                                    row.push(clock);
-                                    row.push(enable_reg.to_ascii_lowercase());
+                                let mut row = Vec::with_capacity(6);
+                                row.push(name.clone());
+                                row.push(clock);
+                                row.push(enable_reg.to_ascii_lowercase());
 
-                                    if let Some((reset_reg, reset_field)) = reset_reg_field {
-                                        row.push(reset_reg.to_ascii_lowercase());
-                                        row.push(format!(
-                                            "set_{}",
-                                            enable_field.to_ascii_lowercase()
-                                        ));
-                                        row.push(format!(
-                                            "set_{}",
-                                            reset_field.to_ascii_lowercase()
-                                        ));
-                                    } else {
-                                        row.push(format!(
-                                            "set_{}",
-                                            enable_field.to_ascii_lowercase()
-                                        ));
-                                    }
+                                if let Some((reset_reg, reset_field)) = reset_reg_field {
+                                    row.push(reset_reg.to_ascii_lowercase());
+                                    row.push(format!(
+                                        "set_{}",
+                                        enable_field.to_ascii_lowercase()
+                                    ));
+                                    row.push(format!(
+                                        "set_{}",
+                                        reset_field.to_ascii_lowercase()
+                                    ));
+                                } else {
+                                    row.push(format!(
+                                        "set_{}",
+                                        enable_field.to_ascii_lowercase()
+                                    ));
+                                }
+
+                                if !name.starts_with("GPIO") {
                                     peripheral_rcc_table.push(row);
+                                } else {
+                                    gpio_rcc_table.push(row);
+                                    gpio_regs.insert( enable_reg.to_ascii_lowercase() );
                                 }
                             }
                             (None, Some(_)) => {
@@ -502,6 +508,10 @@ pub fn gen(options: Options) {
             }
 
             dev.peripherals.push(ir_peri);
+        }
+
+        for reg in gpio_regs {
+            gpio_rcc_table.push( vec!( reg ) );
         }
 
         for (id, channel_info) in &core.dma_channels {
@@ -586,6 +596,7 @@ pub fn gen(options: Options) {
             &peripheral_dma_channels_table,
         );
         make_table(&mut extra, "peripheral_rcc", &peripheral_rcc_table);
+        make_table(&mut extra, "gpio_rcc", &gpio_rcc_table);
         make_table(&mut extra, "dma_channels", &dma_channels_table);
         make_table(&mut extra, "dbgmcu", &dbgmcu_table);
         make_peripheral_counts(&mut extra, &peripheral_counts);
