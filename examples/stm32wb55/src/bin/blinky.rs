@@ -13,18 +13,10 @@ use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
 
 use cortex_m_rt::entry;
-use stm32wb_pac as pac;
 
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
-
-    let pp = pac::Peripherals::take().unwrap();
-
-    pp.RCC.ahb2enr.modify(|_, w| {
-        w.gpioben().set_bit();
-        w
-    });
 
     let p = embassy_stm32::init(Default::default());
 

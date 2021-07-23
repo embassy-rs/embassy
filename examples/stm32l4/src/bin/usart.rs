@@ -60,15 +60,6 @@ fn main() -> ! {
             w.set_dma1en(true);
         });
 
-        pac::RCC.ahb2enr().modify(|w| {
-            w.set_gpioaen(true);
-            w.set_gpioben(true);
-            w.set_gpiocen(true);
-            w.set_gpioden(true);
-            w.set_gpioeen(true);
-            w.set_gpiofen(true);
-        });
-
         pac::RCC.apb1enr1().modify(|w| {
             w.set_uart4en(true);
         });

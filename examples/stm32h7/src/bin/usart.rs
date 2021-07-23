@@ -77,16 +77,6 @@ fn main() -> ! {
         w
     });
 
-    pp.RCC.ahb4enr.modify(|_, w| {
-        w.gpioaen().set_bit();
-        w.gpioben().set_bit();
-        w.gpiocen().set_bit();
-        w.gpioden().set_bit();
-        w.gpioeen().set_bit();
-        w.gpiofen().set_bit();
-        w
-    });
-
     unsafe { embassy::time::set_clock(&ZeroClock) };
 
     let executor = EXECUTOR.put(Executor::new());

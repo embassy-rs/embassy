@@ -12,18 +12,18 @@ use core::fmt::Write;
 use embassy::executor::Executor;
 use embassy::time::Clock;
 use embassy::util::Forever;
+use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
-use embassy_stm32::dbgmcu::Dbgmcu;
-use example_common::*;
 use embassy_traits::uart::Write as _Write;
+use example_common::*;
 
 use hal::prelude::*;
 use stm32h7xx_hal as hal;
 
 use cortex_m_rt::entry;
-use stm32h7::stm32h743 as pac;
 use heapless::String;
+use stm32h7::stm32h743 as pac;
 
 #[embassy::task]
 async fn main_task() {
@@ -40,7 +40,6 @@ async fn main_task() {
 
         info!("wrote DMA");
     }
-
 }
 
 struct ZeroClock;

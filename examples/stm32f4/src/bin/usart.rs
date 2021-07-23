@@ -11,12 +11,12 @@ mod example_common;
 use cortex_m::prelude::_embedded_hal_blocking_serial_Write;
 use embassy::executor::Executor;
 use embassy::util::Forever;
+use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
 use example_common::*;
 
 use cortex_m_rt::entry;
-use embassy_stm32::pac;
 
 #[embassy::task]
 async fn main_task() {
@@ -42,20 +42,7 @@ fn main() -> ! {
     info!("Hello World!");
 
     unsafe {
-        pac::DBGMCU.cr().modify(|w| {
-            w.set_dbg_sleep(true);
-            w.set_dbg_standby(true);
-            w.set_dbg_stop(true);
-        });
-
-        pac::RCC.ahb1enr().modify(|w| {
-            w.set_gpioaen(true);
-            w.set_gpioben(true);
-            w.set_gpiocen(true);
-            w.set_gpioden(true);
-            w.set_gpioeen(true);
-            w.set_gpiofen(true);
-        });
+        Dbgmcu::enable_all();
     }
 
     let executor = EXECUTOR.put(Executor::new());
