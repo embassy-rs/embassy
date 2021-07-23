@@ -288,6 +288,7 @@ pub fn gen(options: Options) {
         let mut dma_channel_counts: HashMap<String, u8> = HashMap::new();
         let mut dbgmcu_table: Vec<Vec<String>> = Vec::new();
         let mut gpio_rcc_table: Vec<Vec<String>> = Vec::new();
+        let mut gpio_regs: HashSet<String> = HashSet::new();
 
         let gpio_base = core.peripherals.get(&"GPIOA".to_string()).unwrap().address;
         let gpio_stride = 0x400;
@@ -492,6 +493,7 @@ pub fn gen(options: Options) {
                                     peripheral_rcc_table.push(row);
                                 } else {
                                     gpio_rcc_table.push(row);
+                                    gpio_regs.insert( enable_reg.to_ascii_lowercase() );
                                 }
                             }
                             (None, Some(_)) => {
@@ -506,6 +508,10 @@ pub fn gen(options: Options) {
             }
 
             dev.peripherals.push(ir_peri);
+        }
+
+        for reg in gpio_regs {
+            gpio_rcc_table.push( vec!( reg ) );
         }
 
         for (id, channel_info) in &core.dma_channels {
