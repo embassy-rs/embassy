@@ -10,6 +10,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use chiptool::{generate, ir, transform};
+use chiptool::util::ToSanitizedSnakeCase;
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
 pub struct Chip {
@@ -245,6 +246,21 @@ pub fn gen(options: Options) {
             peripherals: Vec::new(),
         };
 
+        // Load DBGMCU register for chip
+        let mut dbgmcu: Option<ir::IR> = core.peripherals.iter().find_map(|(name, p)| {
+            if name == "DBGMCU" {
+                p.block.as_ref().map(|block| {
+                    let bi = BlockInfo::parse(block);
+                    let dbgmcu_reg_path = data_dir
+                        .join("registers")
+                        .join(&format!("{}_{}.yaml", bi.module, bi.version));
+                    serde_yaml::from_reader(File::open(dbgmcu_reg_path).unwrap()).unwrap()
+                })
+            } else {
+                None
+            }
+        });
+
         // Load RCC register for chip
         let rcc = core.peripherals.iter().find_map(|(name, p)| {
             if name == "RCC" {
@@ -270,11 +286,23 @@ pub fn gen(options: Options) {
         let mut peripheral_dma_channels_table: Vec<Vec<String>> = Vec::new();
         let mut peripheral_counts: HashMap<String, u8> = HashMap::new();
         let mut dma_channel_counts: HashMap<String, u8> = HashMap::new();
+        let mut dbgmcu_table: Vec<Vec<String>> = Vec::new();
 
         let gpio_base = core.peripherals.get(&"GPIOA".to_string()).unwrap().address;
         let gpio_stride = 0x400;
 
         let number_suffix_re = Regex::new("^(.*?)[0-9]*$").unwrap();
+
+        if let Some(ref mut reg) = dbgmcu {
+            if let Some(ref cr) = reg.fieldsets.get("CR")  {
+                for field in cr.fields.iter().filter(|e| e.name.contains("DBG")) {
+                    let mut fn_name = String::new();
+                    fn_name.push_str("set_");
+                    fn_name.push_str( &field.name.to_sanitized_snake_case() );
+                    dbgmcu_table.push( vec!( "cr".into(), fn_name ));
+                }
+            }
+        }
 
         let mut has_bdma = false;
         let mut has_dma = false;
@@ -559,6 +587,7 @@ pub fn gen(options: Options) {
         );
         make_table(&mut extra, "peripheral_rcc", &peripheral_rcc_table);
         make_table(&mut extra, "dma_channels", &dma_channels_table);
+        make_table(&mut extra, "dbgmcu", &dbgmcu_table);
         make_peripheral_counts(&mut extra, &peripheral_counts);
         make_dma_channel_counts(&mut extra, &dma_channel_counts);
 

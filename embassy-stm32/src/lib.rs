@@ -31,6 +31,8 @@ pub mod adc;
 pub mod clock;
 #[cfg(dac)]
 pub mod dac;
+#[cfg(dbgmcu)]
+pub mod dbgmcu;
 #[cfg(all(eth, feature = "net"))]
 pub mod eth;
 #[cfg(exti)]
