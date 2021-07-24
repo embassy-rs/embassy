@@ -9,18 +9,24 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use cortex_m::prelude::_embedded_hal_blocking_serial_Write;
-use cortex_m_rt::entry;
-use embassy::executor::Executor;
-use embassy::time::Clock;
-use embassy::util::Forever;
+use defmt::panic;
+use embassy::executor::Spawner;
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::pac;
 use embassy_stm32::usart::{Config, Uart};
+use embassy_stm32::{pac, Peripherals};
 use example_common::*;
 
-#[embassy::task]
-async fn main_task() {
-    let p = embassy_stm32::init(Default::default());
+#[embassy::main]
+async fn main(_spawner: Spawner, p: Peripherals) {
+    info!("Hello World!");
+
+    unsafe {
+        pac::DBGMCU.cr().modify(|w| {
+            w.set_dbg_sleep(true);
+            w.set_dbg_standby(true);
+            w.set_dbg_stop(true);
+        });
+    }
 
     let config = Config::default();
     let mut usart = Uart::new(p.UART4, p.PA1, p.PA0, NoDma, NoDma, config);
@@ -33,43 +39,4 @@ async fn main_task() {
         usart.read(&mut buf).unwrap();
         usart.bwrite_all(&buf).unwrap();
     }
-}
-
-struct ZeroClock;
-
-impl Clock for ZeroClock {
-    fn now(&self) -> u64 {
-        0
-    }
-}
-
-static EXECUTOR: Forever<Executor> = Forever::new();
-
-#[entry]
-fn main() -> ! {
-    info!("Hello World!");
-
-    unsafe {
-        pac::DBGMCU.cr().modify(|w| {
-            w.set_dbg_sleep(true);
-            w.set_dbg_standby(true);
-            w.set_dbg_stop(true);
-        });
-
-        pac::RCC.ahb1enr().modify(|w| {
-            w.set_dma1en(true);
-        });
-
-        pac::RCC.apb1enr1().modify(|w| {
-            w.set_uart4en(true);
-        });
-    }
-
-    unsafe { embassy::time::set_clock(&ZeroClock) };
-
-    let executor = EXECUTOR.put(Executor::new());
-
-    executor.run(|spawner| {
-        unwrap!(spawner.spawn(main_task()));
-    })
 }

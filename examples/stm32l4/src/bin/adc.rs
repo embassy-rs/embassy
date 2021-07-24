@@ -9,35 +9,16 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
+use defmt::panic;
+use embassy::executor::Spawner;
+use embassy::time::Delay;
+use embassy_stm32::adc::{Adc, Resolution};
+use embassy_stm32::{pac, Peripherals};
 use example_common::*;
 
-use cortex_m::delay::Delay;
-use cortex_m_rt::entry;
-use embassy_stm32::adc::{Adc, Resolution};
-use embassy_stm32::pac;
-use stm32l4xx_hal::prelude::*;
-use stm32l4xx_hal::rcc::PllSource;
-
-#[entry]
-fn main() -> ! {
-    info!("Hello World, dude!");
-    //let pp = pac::Peripherals::take().unwrap();
-    let cp = cortex_m::Peripherals::take().unwrap();
-    let pp = stm32l4xx_hal::stm32::Peripherals::take().unwrap();
-    let mut flash = pp.FLASH.constrain();
-    let mut rcc = pp.RCC.constrain();
-    let mut pwr = pp.PWR.constrain(&mut rcc.apb1r1);
-
-    let mut delay = Delay::new(cp.SYST, 80_000_000);
-
-    // TRY the other clock configuration
-    // let clocks = rcc.cfgr.freeze(&mut flash.acr);
-    rcc.cfgr
-        .sysclk(80.mhz())
-        .pclk1(80.mhz())
-        .pclk2(80.mhz())
-        .pll_source(PllSource::HSI16)
-        .freeze(&mut flash.acr, &mut pwr);
+#[embassy::main]
+async fn main(_spawner: Spawner, p: Peripherals) {
+    info!("Hello World!");
 
     unsafe {
         pac::RCC.ccipr().modify(|w| {
@@ -48,11 +29,10 @@ fn main() -> ! {
             w.set_dbg_standby(true);
             w.set_dbg_stop(true);
         });
+        pac::RCC.ahb2enr().modify(|w| w.set_adcen(true));
     }
 
-    let p = embassy_stm32::init(Default::default());
-
-    let mut adc = Adc::new(p.ADC1, &mut delay);
+    let mut adc = Adc::new(p.ADC1, &mut Delay);
     //adc.enable_vref();
     adc.set_resolution(Resolution::EightBit);
     let mut channel = p.PC0;
