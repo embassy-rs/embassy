@@ -3,7 +3,6 @@
 use core::future::Future;
 use core::task::Poll;
 
-use atomic_polyfill::{AtomicU8, Ordering};
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::util::{AtomicWaker, OnDrop};
 use futures::future::poll_fn;
@@ -15,22 +14,16 @@ use crate::pac::bdma::vals;
 use crate::rcc::sealed::RccPeripheral;
 
 const CH_COUNT: usize = pac::peripheral_count!(bdma) * 8;
-const CH_STATUS_NONE: u8 = 0;
-const CH_STATUS_COMPLETED: u8 = 1;
-const CH_STATUS_ERROR: u8 = 2;
 
 struct State {
     ch_wakers: [AtomicWaker; CH_COUNT],
-    ch_status: [AtomicU8; CH_COUNT],
 }
 
 impl State {
     const fn new() -> Self {
         const AW: AtomicWaker = AtomicWaker::new();
-        const AU: AtomicU8 = AtomicU8::new(CH_STATUS_NONE);
         Self {
             ch_wakers: [AW; CH_COUNT],
-            ch_status: [AU; CH_COUNT],
         }
     }
 }
@@ -57,21 +50,17 @@ pub(crate) unsafe fn do_transfer(
     let ch = dma.ch(channel_number as _);
 
     // Reset status
-    // Generate a DMB here to flush the store buffer (M7) before enabling the DMA
-    STATE.ch_status[state_number as usize].store(CH_STATUS_NONE, Ordering::Release);
+    dma.ifcr().write(|w| {
+        w.set_tcif(channel_number as _, true);
+        w.set_teif(channel_number as _, true);
+    });
 
     let on_drop = OnDrop::new(move || unsafe {
-        ch.cr().modify(|w| {
-            w.set_tcie(false);
-            w.set_teie(false);
-            w.set_en(false);
-        });
-        while ch.cr().read().en() {}
+        // Disable the channel and interrupts with the default value.
+        ch.cr().write(|_| ());
 
-        // Disabling the DMA mid transfer might cause some flags to be set, clear them all for the
-        // next transfer
-        dma.ifcr()
-            .write(|w| w.set_gif(channel_number as usize, true));
+        // Wait for the transfer to complete when it was ongoing.
+        while ch.cr().read().en() {}
     });
 
     #[cfg(dmamux)]
@@ -103,15 +92,20 @@ pub(crate) unsafe fn do_transfer(
     async move {
         let res = poll_fn(|cx| {
             STATE.ch_wakers[state_number as usize].register(cx.waker());
-            match STATE.ch_status[state_number as usize].load(Ordering::Acquire) {
-                CH_STATUS_NONE => Poll::Pending,
-                x => Poll::Ready(x),
+
+            let isr = dma.isr().read();
+
+            // TODO handle error
+            assert!(!isr.teif(channel_number as _));
+
+            if isr.tcif(channel_number as _) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
             }
         })
         .await;
 
-        // TODO handle error
-        assert!(res == CH_STATUS_COMPLETED);
         drop(on_drop)
     }
 }
@@ -132,16 +126,13 @@ unsafe fn on_irq() {
     pac::peripherals! {
         (bdma, $dma:ident) => {
                 let isr = pac::$dma.isr().read();
-                pac::$dma.ifcr().write_value(isr);
                 let dman = dma_num!($dma);
 
                 for chn in 0..crate::pac::dma_channels_count!($dma) {
-                    let n = dman * 8 + chn;
-                    if isr.teif(chn) {
-                        STATE.ch_status[n].store(CH_STATUS_ERROR, Ordering::Relaxed);
-                        STATE.ch_wakers[n].wake();
-                    } else if isr.tcif(chn) {
-                        STATE.ch_status[n].store(CH_STATUS_COMPLETED, Ordering::Relaxed);
+                    let cr = pac::$dma.ch(chn).cr();
+                    if isr.tcif(chn) && cr.read().tcie() {
+                        cr.write(|_| ()); // Disable channel interrupts with the default value.
+                        let n = dma_num!($dma) * 8 + chn;
                         STATE.ch_wakers[n].wake();
                     }
                 }
