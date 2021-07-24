@@ -48,6 +48,7 @@ pub(crate) unsafe fn do_transfer(
     peri_addr: *const u8,
     mem_addr: *mut u8,
     mem_len: usize,
+    incr_mem: bool,
     #[cfg(dmamux)] dmamux_regs: pac::dmamux::Dmamux,
     #[cfg(dmamux)] dmamux_ch_num: u8,
 ) -> impl Future<Output = ()> {
@@ -87,22 +88,27 @@ pub(crate) unsafe fn do_transfer(
             w.set_dir(dir);
             w.set_msize(vals::Size::BITS8);
             w.set_psize(vals::Size::BITS8);
-            w.set_minc(vals::Inc::INCREMENTED);
+            if incr_mem {
+                w.set_minc(vals::Inc::INCREMENTED);
+            } else {
+                w.set_minc(vals::Inc::FIXED);
+            }
             w.set_pinc(vals::Inc::FIXED);
             w.set_teie(true);
             w.set_tcie(true);
             #[cfg(dma_v1)]
             w.set_trbuff(true);
-            w.set_en(true);
 
             #[cfg(dma_v2)]
             w.set_chsel(request);
+
+            w.set_en(true);
         });
     }
 
     async move {
         let res = poll_fn(|cx| {
-            let n = channel_number as usize;
+            let n = state_number as usize;
             STATE.ch_wakers[n].register(cx.waker());
             match STATE.ch_status[n].load(Ordering::Acquire) {
                 CH_STATUS_NONE => Poll::Pending,
@@ -187,6 +193,7 @@ pac::dma_channels! {
                         src,
                         buf.as_mut_ptr(),
                         buf.len(),
+                        true,
                         #[cfg(dmamux)]
                         <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_REGS,
                         #[cfg(dmamux)]
@@ -211,6 +218,33 @@ pac::dma_channels! {
                         dst,
                         buf.as_ptr() as *mut u8,
                         buf.len(),
+                        true,
+                        #[cfg(dmamux)]
+                        <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_REGS,
+                        #[cfg(dmamux)]
+                        <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_CH_NUM,
+                    )
+                }
+            }
+
+            fn write_x<'a>(
+                &'a mut self,
+                request: Request,
+                word: &u8,
+                num: usize,
+                dst: *mut u8,
+            ) -> Self::WriteFuture<'a> {
+                unsafe {
+                    do_transfer(
+                        crate::pac::$dma_peri,
+                        $channel_num,
+                        (dma_num!($dma_peri) * 8) + $channel_num,
+                        request,
+                        vals::Dir::MEMORYTOPERIPHERAL,
+                        dst,
+                        word as *const u8 as *mut u8,
+                        num,
+                        false,
                         #[cfg(dmamux)]
                         <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_REGS,
                         #[cfg(dmamux)]

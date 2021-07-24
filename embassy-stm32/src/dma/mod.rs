@@ -42,6 +42,14 @@ pub trait Channel: sealed::Channel {
         buf: &'a [u8],
         dst: *mut u8,
     ) -> Self::WriteFuture<'a>;
+
+    fn write_x<'a>(
+        &'a mut self,
+        request: Request,
+        word: &u8,
+        num: usize,
+        dst: *mut u8,
+    ) -> Self::WriteFuture<'a>;
 }
 
 pub struct NoDma;

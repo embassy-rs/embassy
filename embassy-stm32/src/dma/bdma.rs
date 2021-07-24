@@ -47,6 +47,7 @@ pub(crate) unsafe fn do_transfer(
     peri_addr: *const u8,
     mem_addr: *mut u8,
     mem_len: usize,
+    incr_mem: bool,
     #[cfg(dmamux)] dmamux_regs: pac::dmamux::Dmamux,
     #[cfg(dmamux)] dmamux_ch_num: u8,
 ) -> impl Future<Output = ()> {
@@ -88,7 +89,11 @@ pub(crate) unsafe fn do_transfer(
     ch.cr().write(|w| {
         w.set_psize(vals::Size::BITS8);
         w.set_msize(vals::Size::BITS8);
-        w.set_minc(vals::Inc::ENABLED);
+        if incr_mem {
+            w.set_minc(vals::Inc::ENABLED);
+        } else {
+            w.set_minc(vals::Inc::DISABLED);
+        }
         w.set_dir(dir);
         w.set_teie(true);
         w.set_tcie(true);
@@ -182,6 +187,7 @@ pac::dma_channels! {
                         src,
                         buf.as_mut_ptr(),
                         buf.len(),
+                        true,
                         #[cfg(dmamux)]
                         <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_REGS,
                         #[cfg(dmamux)]
@@ -206,6 +212,33 @@ pac::dma_channels! {
                         dst,
                         buf.as_ptr() as *mut u8,
                         buf.len(),
+                        true,
+                        #[cfg(dmamux)]
+                        <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_REGS,
+                        #[cfg(dmamux)]
+                        <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_CH_NUM,
+                    )
+                }
+            }
+
+            fn write_x<'a>(
+                &'a mut self,
+                request: Request,
+                word: &u8,
+                count: usize,
+                dst: *mut u8,
+            ) -> Self::WriteFuture<'a> {
+                unsafe {
+                    do_transfer(
+                        crate::pac::$dma_peri,
+                        $channel_num,
+                        (dma_num!($dma_peri) * 8) + $channel_num,
+                        request,
+                        vals::Dir::FROMMEMORY,
+                        dst,
+                        word as *const u8 as *mut u8,
+                        count,
+                        false,
                         #[cfg(dmamux)]
                         <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_REGS,
                         #[cfg(dmamux)]

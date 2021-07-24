@@ -4,7 +4,7 @@
 #[cfg_attr(spi_v2, path = "v2.rs")]
 #[cfg_attr(spi_v3, path = "v3.rs")]
 mod _version;
-use crate::{peripherals, rcc::RccPeripheral};
+use crate::{dma, peripherals, rcc::RccPeripheral};
 pub use _version::*;
 
 use crate::gpio::Pin;
@@ -62,15 +62,22 @@ pub(crate) mod sealed {
     pub trait MisoPin<T: Instance>: Pin {
         fn af_num(&self) -> u8;
     }
+
+    pub trait TxDmaChannel<T: Instance> {
+        fn request(&self) -> dma::Request;
+    }
+
+    pub trait RxDmaChannel<T: Instance> {
+        fn request(&self) -> dma::Request;
+    }
 }
 
-pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
-
-pub trait SckPin<T: Instance>: sealed::SckPin<T> + 'static {}
-
-pub trait MosiPin<T: Instance>: sealed::MosiPin<T> + 'static {}
-
-pub trait MisoPin<T: Instance>: sealed::MisoPin<T> + 'static {}
+pub trait Instance: sealed::Instance + RccPeripheral {}
+pub trait SckPin<T: Instance>: sealed::SckPin<T> {}
+pub trait MosiPin<T: Instance>: sealed::MosiPin<T> {}
+pub trait MisoPin<T: Instance>: sealed::MisoPin<T> {}
+pub trait TxDmaChannel<T: Instance>: sealed::TxDmaChannel<T> + dma::Channel {}
+pub trait RxDmaChannel<T: Instance>: sealed::RxDmaChannel<T> + dma::Channel {}
 
 crate::pac::peripherals!(
     (spi, $inst:ident) => {
@@ -109,3 +116,39 @@ crate::pac::peripheral_pins!(
         impl_pin!($inst, $pin, MisoPin, $af);
     };
 );
+
+macro_rules! impl_dma {
+    ($inst:ident, {dmamux: $dmamux:ident}, $signal:ident, $request:expr) => {
+        impl<T> sealed::$signal<peripherals::$inst> for T
+        where
+            T: crate::dma::MuxChannel<Mux = crate::dma::$dmamux>,
+        {
+            fn request(&self) -> dma::Request {
+                $request
+            }
+        }
+
+        impl<T> $signal<peripherals::$inst> for T where
+            T: crate::dma::MuxChannel<Mux = crate::dma::$dmamux>
+        {
+        }
+    };
+    ($inst:ident, {channel: $channel:ident}, $signal:ident, $request:expr) => {
+        impl sealed::$signal<peripherals::$inst> for peripherals::$channel {
+            fn request(&self) -> dma::Request {
+                $request
+            }
+        }
+
+        impl $signal<peripherals::$inst> for peripherals::$channel {}
+    };
+}
+
+crate::pac::peripheral_dma_channels! {
+    ($peri:ident, spi, $kind:ident, RX, $channel:tt, $request:expr) => {
+        impl_dma!($peri, $channel, RxDmaChannel, $request);
+    };
+    ($peri:ident, spi, $kind:ident, TX, $channel:tt, $request:expr) => {
+        impl_dma!($peri, $channel, TxDmaChannel, $request);
+    };
+}

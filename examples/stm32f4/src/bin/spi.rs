@@ -18,6 +18,7 @@ use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embedded_hal::blocking::spi::Transfer;
+use embassy_stm32::dma::NoDma;
 
 #[entry]
 fn main() -> ! {
@@ -34,6 +35,8 @@ fn main() -> ! {
         p.PC10,
         p.PC12,
         p.PC11,
+        NoDma,
+        NoDma,
         Hertz(1_000_000),
         Config::default(),
     );
