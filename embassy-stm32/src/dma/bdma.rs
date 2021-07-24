@@ -126,7 +126,6 @@ unsafe fn on_irq() {
     pac::peripherals! {
         (bdma, $dma:ident) => {
                 let isr = pac::$dma.isr().read();
-                pac::$dma.ifcr().write_value(isr);
                 let dman = dma_num!($dma);
 
                 for chn in 0..crate::pac::dma_channels_count!($dma) {
