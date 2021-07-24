@@ -9,19 +9,20 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use cortex_m_rt::entry;
+use defmt::panic;
+use embassy::executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::pac;
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
+use embassy_stm32::{pac, Peripherals};
 use embedded_hal::blocking::spi::Transfer;
 use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
 
-#[entry]
-fn main() -> ! {
-    info!("Hello World, dude!");
+#[embassy::main]
+async fn main(_spawner: Spawner, p: Peripherals) {
+    info!("Hello World!");
 
     unsafe {
         pac::DBGMCU.cr().modify(|w| {
@@ -30,8 +31,6 @@ fn main() -> ! {
             w.set_dbg_stop(true);
         });
     }
-
-    let p = embassy_stm32::init(Default::default());
 
     let mut spi = Spi::new(
         p.SPI3,

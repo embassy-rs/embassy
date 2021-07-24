@@ -9,32 +9,16 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
+use defmt::panic;
+use embassy::executor::Spawner;
+use embassy_stm32::dac::{Channel, Dac, Value};
 use embassy_stm32::gpio::NoPin;
+use embassy_stm32::{pac, Peripherals};
 use example_common::*;
 
-use cortex_m_rt::entry;
-use embassy_stm32::dac::{Channel, Dac, Value};
-use embassy_stm32::pac;
-use stm32l4xx_hal::prelude::*;
-use stm32l4xx_hal::rcc::PllSource;
-
-#[entry]
-fn main() -> ! {
-    info!("Hello World, dude!");
-    //let pp = pac::Peripherals::take().unwrap();
-    let pp = stm32l4xx_hal::stm32::Peripherals::take().unwrap();
-    let mut flash = pp.FLASH.constrain();
-    let mut rcc = pp.RCC.constrain();
-    let mut pwr = pp.PWR.constrain(&mut rcc.apb1r1);
-
-    // TRY the other clock configuration
-    // let clocks = rcc.cfgr.freeze(&mut flash.acr);
-    rcc.cfgr
-        .sysclk(80.mhz())
-        .pclk1(80.mhz())
-        .pclk2(80.mhz())
-        .pll_source(PllSource::HSI16)
-        .freeze(&mut flash.acr, &mut pwr);
+#[embassy::main]
+async fn main(_spawner: Spawner, p: Peripherals) {
+    info!("Hello World!");
 
     unsafe {
         pac::DBGMCU.cr().modify(|w| {
@@ -46,8 +30,6 @@ fn main() -> ! {
             w.set_dac1en(true);
         });
     }
-
-    let p = embassy_stm32::init(Default::default());
 
     let mut dac = Dac::new(p.DAC1, p.PA4, NoPin);
 

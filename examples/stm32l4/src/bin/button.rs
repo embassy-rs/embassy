@@ -8,14 +8,15 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use cortex_m_rt::entry;
-use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
-use embassy_stm32::pac;
-use embedded_hal::digital::v2::{InputPin, OutputPin};
+use defmt::panic;
+use embassy::executor::Spawner;
+use embassy_stm32::gpio::{Input, Pull};
+use embassy_stm32::{pac, Peripherals};
+use embedded_hal::digital::v2::InputPin;
 use example_common::*;
 
-#[entry]
-fn main() -> ! {
+#[embassy::main]
+async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
     unsafe {
@@ -26,21 +27,13 @@ fn main() -> ! {
         });
     }
 
-    let p = embassy_stm32::init(Default::default());
-
     let button = Input::new(p.PC13, Pull::Up);
-    let mut led1 = Output::new(p.PA5, Level::High, Speed::Low);
-    let mut led2 = Output::new(p.PB14, Level::High, Speed::Low);
 
     loop {
         if button.is_high().unwrap() {
             info!("high");
-            led1.set_high().unwrap();
-            led2.set_low().unwrap();
         } else {
             info!("low");
-            led1.set_low().unwrap();
-            led2.set_high().unwrap();
         }
     }
 }

@@ -9,21 +9,27 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use cortex_m_rt::entry;
-use embassy::executor::Executor;
-use embassy::time::Clock;
-use embassy::util::Forever;
-use embassy_stm32::pac;
-use example_common::*;
-use embassy_stm32::spi::{Spi, Config};
-use embassy_traits::spi::FullDuplex;
+use defmt::panic;
+use embassy::executor::Spawner;
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::gpio::{Output, Level, Speed, Input, Pull};
-use embedded_hal::digital::v2::{OutputPin, InputPin};
+use embassy_stm32::{pac, Peripherals};
+use embassy_traits::spi::FullDuplex;
+use embedded_hal::digital::v2::{InputPin, OutputPin};
+use example_common::*;
 
-#[embassy::task]
-async fn main_task() {
-    let p = embassy_stm32::init(Default::default());
+#[embassy::main]
+async fn main(_spawner: Spawner, p: Peripherals) {
+    info!("Hello World!");
+
+    unsafe {
+        pac::DBGMCU.cr().modify(|w| {
+            w.set_dbg_sleep(true);
+            w.set_dbg_standby(true);
+            w.set_dbg_stop(true);
+        });
+    }
 
     let mut spi = Spi::new(
         p.SPI3,
@@ -35,7 +41,6 @@ async fn main_task() {
         Hertz(1_000_000),
         Config::default(),
     );
-
 
     // These are the pins for the Inventek eS-Wifi SPI Wifi Adapter.
 
@@ -59,50 +64,4 @@ async fn main_task() {
     spi.read_write(&mut read, &write).await.ok();
     unwrap!(cs.set_high());
     info!("xfer {=[u8]:x}", read);
-}
-
-struct ZeroClock;
-
-impl Clock for ZeroClock {
-    fn now(&self) -> u64 {
-        0
-    }
-}
-
-static EXECUTOR: Forever<Executor> = Forever::new();
-
-#[entry]
-fn main() -> ! {
-    info!("Hello World!");
-
-    unsafe {
-        pac::DBGMCU.cr().modify(|w| {
-            w.set_dbg_sleep(true);
-            w.set_dbg_standby(true);
-            w.set_dbg_stop(true);
-        });
-
-        pac::RCC.ahb1enr().modify(|w| {
-            w.set_dmamux1en(true);
-            w.set_dma1en(true);
-            w.set_dma2en(true);
-        });
-
-        pac::RCC.ahb2enr().modify(|w| {
-            w.set_gpioaen(true);
-            w.set_gpioben(true);
-            w.set_gpiocen(true);
-            w.set_gpioden(true);
-            w.set_gpioeen(true);
-            w.set_gpiofen(true);
-        });
-    }
-
-    unsafe { embassy::time::set_clock(&ZeroClock) };
-
-    let executor = EXECUTOR.put(Executor::new());
-
-    executor.run(|spawner| {
-        unwrap!(spawner.spawn(main_task()));
-    })
 }
