@@ -108,4 +108,7 @@ pub(crate) unsafe fn init() {
     use embassy::interrupt::InterruptExt;
 
     foreach_exti_irq!(enable_irq);
+
+    #[cfg(not(rcc_wb55))]
+    <crate::peripherals::SYSCFG as crate::rcc::sealed::RccPeripheral>::enable();
 }

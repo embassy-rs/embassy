@@ -82,14 +82,6 @@ fn main() -> ! {
             w.set_dbg_stop(true);
         });
 
-        //pac::RCC.apbenr().modify(|w| {
-        //w.set_spi3en(true);
-        // });
-
-        pac::RCC.apb2enr().modify(|w| {
-            w.set_syscfgen(true);
-        });
-
         pac::RCC.ahb1enr().modify(|w| {
             w.set_dmamux1en(true);
             w.set_dma1en(true);

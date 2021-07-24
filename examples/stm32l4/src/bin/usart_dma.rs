@@ -57,11 +57,7 @@ fn main() -> ! {
             w.set_dbg_standby(true);
             w.set_dbg_stop(true);
         });
-
-        pac::RCC.apb2enr().modify(|w| {
-            w.set_syscfgen(true);
-        });
-
+        
         pac::RCC.ahb1enr().modify(|w| {
             w.set_dmamux1en(true);
             w.set_dma1en(true);
