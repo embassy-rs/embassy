@@ -29,7 +29,7 @@ pub(crate) mod sealed {
     pub trait ExtendedInstance {}
 }
 
-pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static {
+pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static + Send {
     type Interrupt: Interrupt;
 }
 pub trait ExtendedInstance: Instance + sealed::ExtendedInstance {}

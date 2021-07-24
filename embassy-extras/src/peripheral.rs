@@ -5,18 +5,26 @@ use core::ptr;
 
 use embassy::interrupt::{Interrupt, InterruptExt};
 
+/// A version of `PeripheralState` without the `'static` bound,
+/// for cases where the compiler can't statically make sure
+/// that `on_interrupt` doesn't reference anything which might be invalidated.
+///
 /// # Safety
 /// When types implementing this trait are used with `PeripheralMutex`,
 /// no fields referenced by `on_interrupt`'s lifetimes must end without first calling `Drop` on the `PeripheralMutex`.
-pub unsafe trait PeripheralStateUnchecked {
+pub unsafe trait PeripheralStateUnchecked: Send {
     type Interrupt: Interrupt;
     fn on_interrupt(&mut self);
 }
 
-// `PeripheralMutex` is safe because `Pin` guarantees that the memory it references will not be invalidated or reused
-// without calling `Drop`. However, it provides no guarantees about references contained within the state still being valid,
-// so this `'static` bound is necessary.
-pub trait PeripheralState: 'static {
+/// A type which can be used as state with `PeripheralMutex`.
+///
+/// It needs to be `Send` because `&mut` references are sent back and forth between the 'thread' which owns the `PeripheralMutex` and the interrupt,
+/// and `&mut T` is `Send` where `T: Send`.
+///
+/// It also requires `'static`, because although `Pin` guarantees that the memory of the state won't be invalidated,
+/// it doesn't guarantee that the lifetime will last.
+pub trait PeripheralState: Send + 'static {
     type Interrupt: Interrupt;
     fn on_interrupt(&mut self);
 }

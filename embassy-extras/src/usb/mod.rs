@@ -14,7 +14,7 @@ use embassy::interrupt::Interrupt;
 use usb_serial::{ReadInterface, UsbSerial, WriteInterface};
 
 /// Marker trait to mark an interrupt to be used with the [`Usb`] abstraction.
-pub unsafe trait USBInterrupt: Interrupt {}
+pub unsafe trait USBInterrupt: Interrupt + Send {}
 
 pub(crate) struct State<'bus, B, T, I>
 where
@@ -140,7 +140,7 @@ where
     }
 }
 
-pub trait ClassSet<B: UsbBus> {
+pub trait ClassSet<B: UsbBus>: Send {
     fn poll_all(&mut self, device: &mut UsbDevice<'_, B>) -> bool;
 }
 
@@ -176,8 +176,8 @@ pub struct Index1;
 
 impl<B, C1> ClassSet<B> for ClassSet1<B, C1>
 where
-    B: UsbBus,
-    C1: UsbClass<B>,
+    B: UsbBus + Send,
+    C1: UsbClass<B> + Send,
 {
     fn poll_all(&mut self, device: &mut UsbDevice<'_, B>) -> bool {
         device.poll(&mut [&mut self.class])
@@ -186,9 +186,9 @@ where
 
 impl<B, C1, C2> ClassSet<B> for ClassSet2<B, C1, C2>
 where
-    B: UsbBus,
-    C1: UsbClass<B>,
-    C2: UsbClass<B>,
+    B: UsbBus + Send,
+    C1: UsbClass<B> + Send,
+    C2: UsbClass<B> + Send,
 {
     fn poll_all(&mut self, device: &mut UsbDevice<'_, B>) -> bool {
         device.poll(&mut [&mut self.class1, &mut self.class2])
@@ -197,8 +197,8 @@ where
 
 impl<B, C1> IntoClassSet<B, ClassSet1<B, C1>> for C1
 where
-    B: UsbBus,
-    C1: UsbClass<B>,
+    B: UsbBus + Send,
+    C1: UsbClass<B> + Send,
 {
     fn into_class_set(self) -> ClassSet1<B, C1> {
         ClassSet1 {
@@ -210,9 +210,9 @@ where
 
 impl<B, C1, C2> IntoClassSet<B, ClassSet2<B, C1, C2>> for (C1, C2)
 where
-    B: UsbBus,
-    C1: UsbClass<B>,
-    C2: UsbClass<B>,
+    B: UsbBus + Send,
+    C1: UsbClass<B> + Send,
+    C2: UsbClass<B> + Send,
 {
     fn into_class_set(self) -> ClassSet2<B, C1, C2> {
         ClassSet2 {

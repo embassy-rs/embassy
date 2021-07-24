@@ -4,18 +4,25 @@ use core::ptr;
 
 use embassy::interrupt::{Interrupt, InterruptExt};
 
+/// A version of `PeripheralState` without the `'static` bound,
+/// for cases where the compiler can't statically make sure
+/// that `on_interrupt` doesn't reference anything which might be invalidated.
+///
 /// # Safety
 /// When types implementing this trait are used with `Peripheral`,
 /// no fields referenced by `on_interrupt`'s lifetimes must end without first calling `Drop` on the `Peripheral`.
-pub unsafe trait PeripheralStateUnchecked {
+pub unsafe trait PeripheralStateUnchecked: Sync {
     type Interrupt: Interrupt;
     fn on_interrupt(&self);
 }
 
-// `Peripheral` is safe because `Pin` guarantees that the memory it references will not be invalidated or reused
-// without calling `Drop`. However, it provides no guarantees about references contained within the state still being valid,
-// so this `'static` bound is necessary.
-pub trait PeripheralState: 'static {
+/// A type which can be used as state with `Peripheral`.
+///
+/// It needs to be `Sync` because references are shared between the 'thread' which owns the `Peripheral` and the interrupt.
+///
+/// It also requires `'static`, because although `Pin` guarantees that the memory of the state won't be invalidated,
+/// it doesn't guarantee that the lifetime will last.
+pub trait PeripheralState: Sync + 'static {
     type Interrupt: Interrupt;
     fn on_interrupt(&self);
 }
