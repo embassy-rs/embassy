@@ -407,7 +407,9 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             let regs = T::regs();
             regs.cr1().modify(|w| {
                 w.set_txdmaen(true);
-                w.set_tcie(true);
+                if first_slice {
+                    w.set_tcie(true);
+                }
             });
             let dst = regs.txdr().ptr() as *mut u8;
 
@@ -442,9 +444,9 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 );
             }
         } else {
-            // NOTE(unsafe) self.tx_dma does not fiddle with the i2c registers
             unsafe {
                 Self::master_continue(total_len.min(255), (total_chunks != 1) || !last_slice);
+                T::regs().cr1().modify(|w| w.set_tcie(true));
             }
         }
 
