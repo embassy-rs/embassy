@@ -9,16 +9,15 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use embassy_stm32::gpio::{Level, Output, Speed};
-use embedded_hal::digital::v2::OutputPin;
-use example_common::*;
-
 use cortex_m_rt::entry;
 use embassy_stm32::dbgmcu::Dbgmcu;
+use embassy_stm32::dma::NoDma;
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embedded_hal::blocking::spi::Transfer;
-use embassy_stm32::dma::NoDma;
+use embedded_hal::digital::v2::OutputPin;
+use example_common::*;
 
 #[entry]
 fn main() -> ! {

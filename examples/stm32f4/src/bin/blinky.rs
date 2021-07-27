@@ -8,32 +8,32 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
+use defmt::panic;
+use embassy::executor::Spawner;
+use embassy::time::{Duration, Timer};
 use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::Peripherals;
 use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
 
-use cortex_m_rt::entry;
-
-#[entry]
-fn main() -> ! {
+#[embassy::main]
+async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
     unsafe {
         Dbgmcu::enable_all();
     }
 
-    let p = embassy_stm32::init(Default::default());
-
     let mut led = Output::new(p.PB7, Level::High, Speed::Low);
 
     loop {
         info!("high");
         led.set_high().unwrap();
-        cortex_m::asm::delay(10_000_000);
+        Timer::after(Duration::from_millis(300)).await;
 
         info!("low");
         led.set_low().unwrap();
-        cortex_m::asm::delay(10_000_000);
+        Timer::after(Duration::from_millis(300)).await;
     }
 }

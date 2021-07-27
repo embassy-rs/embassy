@@ -8,19 +8,22 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy::executor::Executor;
-use embassy::util::Forever;
+use defmt::panic;
+use embassy::executor::Spawner;
 use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Pull};
+use embassy_stm32::Peripherals;
 use embassy_traits::gpio::{WaitForFallingEdge, WaitForRisingEdge};
 use example_common::*;
 
-use cortex_m_rt::entry;
+#[embassy::main]
+async fn main(_spawner: Spawner, p: Peripherals) {
+    info!("Hello World!");
 
-#[embassy::task]
-async fn main_task() {
-    let p = embassy_stm32::init(Default::default());
+    unsafe {
+        Dbgmcu::enable_all();
+    }
 
     let button = Input::new(p.PC13, Pull::Down);
     let mut button = ExtiInput::new(button, p.EXTI13);
@@ -33,19 +36,4 @@ async fn main_task() {
         button.wait_for_falling_edge().await;
         info!("Released!");
     }
-}
-
-static EXECUTOR: Forever<Executor> = Forever::new();
-
-#[entry]
-fn main() -> ! {
-    info!("Hello World!");
-
-    unsafe { Dbgmcu::enable_all() }
-
-    let executor = EXECUTOR.put(Executor::new());
-
-    executor.run(|spawner| {
-        unwrap!(spawner.spawn(main_task()));
-    })
 }
