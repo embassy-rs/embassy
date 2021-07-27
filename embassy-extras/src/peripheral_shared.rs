@@ -1,8 +1,9 @@
 use core::marker::{PhantomData, PhantomPinned};
 use core::pin::Pin;
-use core::ptr;
 
 use embassy::interrupt::{Interrupt, InterruptExt};
+
+use crate::peripheral::can_be_preempted;
 
 /// A version of `PeripheralState` without the `'static` bound,
 /// for cases where the compiler can't statically make sure
@@ -39,6 +40,10 @@ pub struct Peripheral<S: PeripheralStateUnchecked> {
 
 impl<S: PeripheralStateUnchecked> Peripheral<S> {
     pub fn new(irq: S::Interrupt, state: S) -> Self {
+        if can_be_preempted(&irq) {
+            panic!("`Peripheral` cannot be created in an interrupt with higher priority than the interrupt it wraps");
+        }
+
         Self {
             irq,
             irq_setup_done: false,
@@ -57,16 +62,11 @@ impl<S: PeripheralStateUnchecked> Peripheral<S> {
 
         this.irq.disable();
         this.irq.set_handler(|p| {
-            // We need to be in a critical section so that no one can preempt us
-            // and drop the state after we check whether `p.is_null()`.
-            critical_section::with(|_| {
-                if p.is_null() {
-                    // The state was dropped, so we can't operate on it.
-                    return;
-                }
-                let state = unsafe { &*(p as *const S) };
-                state.on_interrupt();
-            });
+            // The state can't have been dropped, otherwise the interrupt would have been disabled.
+            // We checked in `new` that the thread owning the `Peripheral` can't preempt the interrupt,
+            // so someone can't have preempted us before this point and dropped the `Peripheral`.
+            let state = unsafe { &*(p as *const S) };
+            state.on_interrupt();
         });
         this.irq
             .set_handler_context((&this.state) as *const _ as *mut ());
@@ -78,14 +78,47 @@ impl<S: PeripheralStateUnchecked> Peripheral<S> {
     pub fn state(self: Pin<&mut Self>) -> &S {
         &self.into_ref().get_ref().state
     }
+
+    /// Enables the wrapped interrupt.
+    pub fn enable(&self) {
+        // This is fine to do before initialization, because we haven't set the handler yet.
+        self.irq.enable()
+    }
+
+    /// Disables the wrapped interrupt.
+    pub fn disable(&self) {
+        self.irq.disable()
+    }
+
+    /// Returns whether the wrapped interrupt is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.irq.is_enabled()
+    }
+
+    /// Returns whether the wrapped interrupt is currently in a pending state.
+    pub fn is_pending(&self) -> bool {
+        self.irq.is_pending()
+    }
+
+    /// Forces the wrapped interrupt into a pending state.
+    pub fn pend(&self) {
+        self.irq.pend()
+    }
+
+    /// Forces the wrapped interrupt out of a pending state.
+    pub fn unpend(&self) {
+        self.irq.unpend()
+    }
+
+    /// Gets the priority of the wrapped interrupt.
+    pub fn priority(&self) -> <S::Interrupt as Interrupt>::Priority {
+        self.irq.get_priority()
+    }
 }
 
 impl<S: PeripheralStateUnchecked> Drop for Peripheral<S> {
     fn drop(&mut self) {
         self.irq.disable();
         self.irq.remove_handler();
-        // Set the context to null so that the interrupt will know we're dropped
-        // if we pre-empted it before it entered a critical section.
-        self.irq.set_handler_context(ptr::null_mut());
     }
 }

@@ -55,7 +55,7 @@ where
         let this = self.get_mut();
         let mut mutex = this.inner.borrow_mut();
         let mutex = unsafe { Pin::new_unchecked(&mut *mutex) };
-        mutex.with(|state, _irq| {
+        mutex.with(|state| {
             let serial = state.classes.get_serial();
             let serial = Pin::new(serial);
 
@@ -77,7 +77,7 @@ where
         let this = self.get_mut();
         let mut mutex = this.inner.borrow_mut();
         let mutex = unsafe { Pin::new_unchecked(&mut *mutex) };
-        mutex.with(|state, _irq| {
+        mutex.with(|state| {
             let serial = state.classes.get_serial();
             let serial = Pin::new(serial);
 
@@ -101,7 +101,7 @@ where
         let this = self.get_mut();
         let mut mutex = this.inner.borrow_mut();
         let mutex = unsafe { Pin::new_unchecked(&mut *mutex) };
-        mutex.with(|state, _irq| {
+        mutex.with(|state| {
             let serial = state.classes.get_serial();
             let serial = Pin::new(serial);
 
