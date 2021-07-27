@@ -248,7 +248,7 @@ pac::dma_channels! {
 }
 
 pac::interrupts! {
-    (DMA, $irq:ident) => {
+    ($peri:ident, dma, $block:ident, $signal_name:ident, $irq:ident) => {
         #[crate::interrupt]
         unsafe fn $irq () {
             on_irq()
