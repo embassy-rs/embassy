@@ -143,7 +143,7 @@ unsafe fn on_irq() {
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
     pac::interrupts! {
-        (BDMA, $irq:ident) => {
+        ($peri:ident, bdma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::$irq::steal().enable();
         };
     }
