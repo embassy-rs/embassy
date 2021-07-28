@@ -21,7 +21,7 @@ pub unsafe trait PeripheralStateUnchecked: Send {
 /// A type which can be used as state with `PeripheralMutex`.
 ///
 /// It needs to be `Send` because `&mut` references are sent back and forth between the 'thread' which owns the `PeripheralMutex` and the interrupt,
-/// and `&mut T` is `Send` where `T: Send`.
+/// and `&mut T` is only `Send` where `T: Send`.
 ///
 /// It also requires `'static`, because although `Pin` guarantees that the memory of the state won't be invalidated,
 /// it doesn't guarantee that the lifetime will last.
@@ -73,23 +73,13 @@ fn exception_to_system_handler(exception: Exception) -> Option<SystemHandler> {
 /// Whether `irq` can be preempted by the current interrupt.
 pub(crate) fn can_be_preempted(irq: &impl Interrupt) -> bool {
     match SCB::vect_active() {
-        // Thread mode can't preempt each other
+        // Thread mode can't preempt anything
         VectActive::ThreadMode => false,
         VectActive::Exception(exception) => {
             // `SystemHandler` is a subset of `Exception` for those with configurable priority.
             // There's no built in way to convert between them, so `exception_to_system_handler` was necessary.
             if let Some(system_handler) = exception_to_system_handler(exception) {
-                let current_prio = SCB::get_priority(system_handler);
-                let irq_prio = irq.get_priority().into();
-                if current_prio < irq_prio {
-                    true
-                } else if current_prio == irq_prio {
-                    // When multiple interrupts have the same priority number,
-                    // the pending interrupt with the lowest interrupt number takes precedence.
-                    (exception.irqn() as i16) < irq.number() as i16
-                } else {
-                    false
-                }
+                SCB::get_priority(system_handler) < irq.get_priority().into()
             } else {
                 // There's no safe way I know of to maintain `!Send` state across invocations of HardFault or NMI, so that should be fine.
                 false
@@ -103,17 +93,7 @@ pub(crate) fn can_be_preempted(irq: &impl Interrupt) -> bool {
                     self.0
                 }
             }
-            let current_prio = NVIC::get_priority(NrWrap(irqn.into()));
-            let irq_prio = irq.get_priority().into();
-            if current_prio < irq_prio {
-                true
-            } else if current_prio == irq_prio {
-                // When multiple interrupts have the same priority number,
-                // the pending interrupt with the lowest interrupt number takes precedence.
-                (irqn as u16) < irq.number()
-            } else {
-                false
-            }
+            NVIC::get_priority(NrWrap(irqn.into())) < irq.get_priority().into()
         }
     }
 }
