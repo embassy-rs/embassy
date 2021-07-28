@@ -24,6 +24,7 @@ pub struct Config {
     pub hclk: Option<Hertz>,
     pub pclk1: Option<Hertz>,
     pub pclk2: Option<Hertz>,
+    pub enable_debug_wfe: bool,
 }
 
 /// RCC peripheral
@@ -68,7 +69,7 @@ impl<'d> Rcc<'d> {
         } else {
             sysclk
         };
-        assert!((SYSCLK_MIN..=SYSCLK_MAX).contains(&sysclk));
+        assert!((SYSCLK_MIN..=SYSCLK_MAX).contains(&sysclk), "sysclk");
 
         let hclk = self.config.hclk.map(|h| h.0).unwrap_or(sysclk);
         let (hpre_bits, hpre_div) = match (sysclk + hclk - 1) / hclk {
@@ -168,6 +169,15 @@ impl<'d> Rcc<'d> {
             });
         }
 
+        if self.config.enable_debug_wfe {
+            unsafe {
+                RCC.ahb1enr().modify(|w| w.set_dma1en(true));
+                critical_section::with(|_| {
+                    crate::dbgmcu::Dbgmcu::enable_all();
+                });
+            }
+        }
+
         Clocks {
             sys: Hertz(sysclk),
             apb1: Hertz(pclk1),
@@ -237,7 +247,7 @@ impl<'d> Rcc<'d> {
             .unwrap();
 
         let vco_in = pllsrcclk / pllm;
-        assert!((1_000_000..=2_000_000).contains(&vco_in));
+        assert!((1_000_000..=2_000_000).contains(&vco_in), "vco_in");
 
         // Main scaler, must result in >= 100MHz (>= 192MHz for F401)
         // and <= 432MHz, min 50, max 432
@@ -256,7 +266,10 @@ impl<'d> Rcc<'d> {
         } else {
             sysclk * sysclk_div / vco_in
         };
-        assert!((192_000_000..=432_000_000).contains(&(vco_in * plln)));
+        assert!(
+            (192_000_000..=432_000_000).contains(&(vco_in * plln)),
+            "plln"
+        );
 
         let pllp = (sysclk_div / 2) - 1;
 
