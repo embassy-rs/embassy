@@ -19,7 +19,7 @@ mod example_common;
 
 fn config() -> Config {
     let mut rcc_config = RccConfig::default();
-    rcc_config.sys_ck = Some(Hertz(32_000_000));
+    rcc_config.sys_ck = Some(Hertz(84_000_000));
     rcc_config.enable_debug_wfe = true;
 
     Config::default().rcc(rcc_config)

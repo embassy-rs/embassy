@@ -5,13 +5,10 @@ use crate::time::Hertz;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 
-const HSI: u32 = 16_000_000;
+mod max;
+use max::{PCLK1_MAX, PCLK2_MAX};
 
-// TODO: This is for the F401, find a way to make it compile time configurable
-const SYSCLK_MIN: u32 = 24_000_000;
-const SYSCLK_MAX: u32 = 84_000_000;
-const PCLK2_MAX: u32 = SYSCLK_MAX;
-const PCLK1_MAX: u32 = PCLK2_MAX / 2;
+const HSI: u32 = 16_000_000;
 
 /// Clocks configutation
 #[non_exhaustive]
@@ -69,7 +66,6 @@ impl<'d> Rcc<'d> {
         } else {
             sysclk
         };
-        assert!((SYSCLK_MIN..=SYSCLK_MAX).contains(&sysclk), "sysclk");
 
         let hclk = self.config.hclk.map(|h| h.0).unwrap_or(sysclk);
         let (hpre_bits, hpre_div) = match (sysclk + hclk - 1) / hclk {
@@ -247,7 +243,7 @@ impl<'d> Rcc<'d> {
             .unwrap();
 
         let vco_in = pllsrcclk / pllm;
-        assert!((1_000_000..=2_000_000).contains(&vco_in), "vco_in");
+        assert!((1_000_000..=2_000_000).contains(&vco_in));
 
         // Main scaler, must result in >= 100MHz (>= 192MHz for F401)
         // and <= 432MHz, min 50, max 432
@@ -266,10 +262,6 @@ impl<'d> Rcc<'d> {
         } else {
             sysclk * sysclk_div / vco_in
         };
-        assert!(
-            (192_000_000..=432_000_000).contains(&(vco_in * plln)),
-            "plln"
-        );
 
         let pllp = (sysclk_div / 2) - 1;
 
