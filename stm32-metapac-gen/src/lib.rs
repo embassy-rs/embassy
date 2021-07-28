@@ -50,6 +50,8 @@ pub struct Peripheral {
     pub pins: Vec<Pin>,
     #[serde(default)]
     pub dma_channels: HashMap<String, Vec<PeripheralDmaChannel>>,
+    #[serde(default)]
+    pub interrupts: HashMap<String, String>
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
@@ -306,9 +308,6 @@ pub fn gen(options: Options) {
             }
         }
 
-        let mut has_bdma = false;
-        let mut has_dma = false;
-
         for (name, p) in &core.peripherals {
             let captures = number_suffix_re.captures(&name).unwrap();
             let root_peri_name = captures.get(1).unwrap().as_str().to_string();
@@ -328,12 +327,6 @@ pub fn gen(options: Options) {
             if let Some(block) = &p.block {
                 let bi = BlockInfo::parse(block);
 
-                if bi.module == "bdma" {
-                    has_bdma = true
-                } else if bi.module == "dma" {
-                    has_dma = true
-                }
-
                 peripheral_counts.insert(
                     bi.module.clone(),
                     peripheral_counts.get(&bi.module).map_or(1, |v| v + 1),
@@ -350,6 +343,16 @@ pub fn gen(options: Options) {
                         row.push(af.clone());
                     }
                     peripheral_pins_table.push(row);
+                }
+
+                for (signal, irq_name) in &p.interrupts {
+                    let mut row = Vec::new();
+                    row.push(name.clone());
+                    row.push(bi.module.clone());
+                    row.push(bi.block.clone());
+                    row.push( signal.clone() );
+                    row.push( irq_name.to_ascii_uppercase() );
+                    interrupt_table.push(row)
                 }
 
                 for (request, dma_channels) in &p.dma_channels {
@@ -552,19 +555,6 @@ pub fn gen(options: Options) {
             let name = name.to_ascii_uppercase();
 
             interrupt_table.push(vec![name.clone()]);
-
-            if name.starts_with("DMA1_") || name.starts_with("DMA2_") || name.contains("_DMA") {
-                if has_dma {
-                    interrupt_table.push(vec!["DMA".to_string(), name.clone()]);
-                } else if has_bdma {
-                    interrupt_table.push(vec!["BDMA".to_string(), name.clone()]);
-                }
-            }
-
-            if name.starts_with("BDMA_") || name.starts_with("BDMA1_") || name.starts_with("BDMA2_")
-            {
-                interrupt_table.push(vec!["BDMA".to_string(), name.clone()]);
-            }
 
             if name.contains("EXTI") {
                 interrupt_table.push(vec!["EXTI".to_string(), name.clone()]);

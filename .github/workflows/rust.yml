@@ -95,24 +95,21 @@ jobs:
       - uses: actions/checkout@v2
         with:
           submodules: true
-      - uses: actions/cache@v2
+      - uses: actions-rs/toolchain@v1
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ matrix.target }}-
+          toolchain: stable
+      - name: cache
+        id: cache-target
+        uses: actions/cache@v2
+        with:
+          path: target
+          key: ${{ runner.os }}-${{ matrix.target }}
 
       # We have to append the "-D warnings" flag to .cargo/config rather than
       # using the RUSTFLAGS environment variable because if we set RUSTFLAGS
       # cargo will ignore the rustflags config in .cargo/config.
       - name: Check
         run: |
-          export CARGO_TARGET_DIR=$PWD/target
           mkdir -p .cargo
           echo -e '[target."cfg(all())"]\nrustflags = ["-D", "warnings"]' >> .cargo/config
           cd ${{ matrix.package }} && RUSTFLAGS=-Dwarnings cargo check --features=${{ matrix.features }} --target=${{ matrix.target }}
@@ -121,6 +118,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
       - name: Check fmt
         run: for i in embassy-*; do (cd $i; cargo fmt -- --check); done
 
@@ -128,22 +128,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
+      - uses: actions-rs/toolchain@v1
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          toolchain: stable
       - name: Test
-        run: |
-          export CARGO_TARGET_DIR=$PWD/target
-          cd embassy
-          cargo test
+        run: cd embassy && cargo test
 
   metapac_gen:
     runs-on: ubuntu-latest
@@ -151,19 +140,8 @@ jobs:
       - uses: actions/checkout@v2
         with:
           submodules: true
-      - uses: actions/cache@v2
+      - uses: actions-rs/toolchain@v1
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          toolchain: stable
       - name: Generate pregenerated metapac
-        run: |
-          export CARGO_TARGET_DIR=$PWD/target
-          cd stm32-metapac-gen
-          cargo run --release
+        run: cd stm32-metapac-gen; cargo run --release
