@@ -1,115 +1,186 @@
-pub use super::types::*;
-use crate::pac;
-use crate::peripherals::{self, RCC};
+use crate::pac::{FLASH, RCC};
+use crate::peripherals;
 use crate::rcc::{get_freqs, set_freqs, Clocks};
 use crate::time::Hertz;
-use crate::time::U32Ext;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
-use embassy_hal_common::unborrow;
-use pac::rcc::vals::{Hpre, Ppre, Sw};
 
-/// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
-/// and with the addition of the init function to configure a system clock.
+const HSI: u32 = 16_000_000;
 
-/// Only the basic setup using the HSE and HSI clocks are supported as of now.
-
-/// HSI speed
-pub const HSI_FREQ: u32 = 16_000_000;
-
-/// System clock mux source
-#[derive(Clone, Copy)]
-pub enum ClockSrc {
-    HSE(Hertz),
-    HSI16,
-}
-
-impl Into<Ppre> for APBPrescaler {
-    fn into(self) -> Ppre {
-        match self {
-            APBPrescaler::NotDivided => Ppre::DIV1,
-            APBPrescaler::Div2 => Ppre::DIV2,
-            APBPrescaler::Div4 => Ppre::DIV4,
-            APBPrescaler::Div8 => Ppre::DIV8,
-            APBPrescaler::Div16 => Ppre::DIV16,
-        }
-    }
-}
-
-impl Into<Hpre> for AHBPrescaler {
-    fn into(self) -> Hpre {
-        match self {
-            AHBPrescaler::NotDivided => Hpre::DIV1,
-            AHBPrescaler::Div2 => Hpre::DIV2,
-            AHBPrescaler::Div4 => Hpre::DIV4,
-            AHBPrescaler::Div8 => Hpre::DIV8,
-            AHBPrescaler::Div16 => Hpre::DIV16,
-            AHBPrescaler::Div64 => Hpre::DIV64,
-            AHBPrescaler::Div128 => Hpre::DIV128,
-            AHBPrescaler::Div256 => Hpre::DIV256,
-            AHBPrescaler::Div512 => Hpre::DIV512,
-        }
-    }
-}
+// TODO: This is for the F401, find a way to make it compile time configurable
+const SYSCLK_MIN: u32 = 24_000_000;
+const SYSCLK_MAX: u32 = 84_000_000;
+const PCLK2_MAX: u32 = SYSCLK_MAX;
+const PCLK1_MAX: u32 = PCLK2_MAX / 2;
 
 /// Clocks configutation
+#[non_exhaustive]
+#[derive(Default)]
 pub struct Config {
-    mux: ClockSrc,
-    ahb_pre: AHBPrescaler,
-    apb1_pre: APBPrescaler,
-    apb2_pre: APBPrescaler,
-}
-
-impl Default for Config {
-    #[inline]
-    fn default() -> Config {
-        Config {
-            mux: ClockSrc::HSI16,
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
-        }
-    }
-}
-
-impl Config {
-    #[inline]
-    pub fn clock_src(mut self, mux: ClockSrc) -> Self {
-        self.mux = mux;
-        self
-    }
-
-    #[inline]
-    pub fn ahb_pre(mut self, pre: AHBPrescaler) -> Self {
-        self.ahb_pre = pre;
-        self
-    }
-
-    #[inline]
-    pub fn apb1_pre(mut self, pre: APBPrescaler) -> Self {
-        self.apb1_pre = pre;
-        self
-    }
-
-    #[inline]
-    pub fn apb2_pre(mut self, pre: APBPrescaler) -> Self {
-        self.apb2_pre = pre;
-        self
-    }
+    pub hse: Option<Hertz>,
+    pub bypass_hse: bool,
+    pub pll48: bool,
+    pub sys_ck: Option<Hertz>,
+    pub hclk: Option<Hertz>,
+    pub pclk1: Option<Hertz>,
+    pub pclk2: Option<Hertz>,
 }
 
 /// RCC peripheral
 pub struct Rcc<'d> {
-    _rb: peripherals::RCC,
+    config: Config,
     phantom: PhantomData<&'d mut peripherals::RCC>,
 }
 
 impl<'d> Rcc<'d> {
-    pub fn new(rcc: impl Unborrow<Target = peripherals::RCC> + 'd) -> Self {
-        unborrow!(rcc);
+    pub fn new(_rcc: impl Unborrow<Target = peripherals::RCC> + 'd, config: Config) -> Self {
         Self {
-            _rb: rcc,
+            config,
             phantom: PhantomData,
+        }
+    }
+
+    fn freeze(mut self) -> Clocks {
+        use crate::pac::rcc::vals::{Hpre, Hsebyp, Ppre, Sw};
+
+        let pllsrcclk = self.config.hse.map(|hse| hse.0).unwrap_or(HSI);
+        let sysclk = self.config.sys_ck.map(|sys| sys.0).unwrap_or(pllsrcclk);
+        let sysclk_on_pll = sysclk != pllsrcclk;
+
+        let plls = self.setup_pll(
+            pllsrcclk,
+            self.config.hse.is_some(),
+            if sysclk_on_pll { Some(sysclk) } else { None },
+            self.config.pll48,
+        );
+
+        if self.config.pll48 {
+            assert!(
+                // USB specification allows +-0.25%
+                plls.pll48clk
+                    .map(|freq| (48_000_000 - freq as i32).abs() <= 120_000)
+                    .unwrap_or(false)
+            );
+        }
+
+        let sysclk = if sysclk_on_pll {
+            plls.pllsysclk.unwrap()
+        } else {
+            sysclk
+        };
+        assert!((SYSCLK_MIN..=SYSCLK_MAX).contains(&sysclk));
+
+        let hclk = self.config.hclk.map(|h| h.0).unwrap_or(sysclk);
+        let (hpre_bits, hpre_div) = match (sysclk + hclk - 1) / hclk {
+            0 => unreachable!(),
+            1 => (Hpre::DIV1, 1),
+            2 => (Hpre::DIV2, 2),
+            3..=5 => (Hpre::DIV4, 4),
+            6..=11 => (Hpre::DIV8, 8),
+            12..=39 => (Hpre::DIV16, 16),
+            40..=95 => (Hpre::DIV64, 64),
+            96..=191 => (Hpre::DIV128, 128),
+            192..=383 => (Hpre::DIV256, 256),
+            _ => (Hpre::DIV512, 512),
+        };
+
+        // Calculate real AHB clock
+        let hclk = sysclk / hpre_div;
+
+        let pclk1 = self
+            .config
+            .pclk1
+            .map(|p| p.0)
+            .unwrap_or_else(|| core::cmp::min(PCLK1_MAX, hclk));
+        let (ppre1_bits, ppre1) = match (hclk + pclk1 - 1) / pclk1 {
+            0 => unreachable!(),
+            1 => (0b000, 1),
+            2 => (0b100, 2),
+            3..=5 => (0b101, 4),
+            6..=11 => (0b110, 8),
+            _ => (0b111, 16),
+        };
+        let timer_mul1 = if ppre1 == 1 { 1 } else { 2 };
+
+        // Calculate real APB1 clock
+        let pclk1 = hclk / ppre1;
+        assert!(pclk1 <= PCLK1_MAX);
+
+        let pclk2 = self
+            .config
+            .pclk2
+            .map(|p| p.0)
+            .unwrap_or_else(|| core::cmp::min(PCLK2_MAX, hclk));
+        let (ppre2_bits, ppre2) = match (hclk + pclk2 - 1) / pclk2 {
+            0 => unreachable!(),
+            1 => (0b000, 1),
+            2 => (0b100, 2),
+            3..=5 => (0b101, 4),
+            6..=11 => (0b110, 8),
+            _ => (0b111, 16),
+        };
+        let timer_mul2 = if ppre2 == 1 { 1 } else { 2 };
+
+        // Calculate real APB2 clock
+        let pclk2 = hclk / ppre2;
+        assert!(pclk2 <= PCLK2_MAX);
+
+        Self::flash_setup(sysclk);
+
+        if self.config.hse.is_some() {
+            // NOTE(unsafe) We own the peripheral block
+            unsafe {
+                RCC.cr().modify(|w| {
+                    w.set_hsebyp(Hsebyp(self.config.bypass_hse as u8));
+                    w.set_hseon(true);
+                });
+                while !RCC.cr().read().hserdy() {}
+            }
+        }
+
+        if plls.use_pll {
+            unsafe {
+                RCC.cr().modify(|w| w.set_pllon(true));
+                // TODO: PWR setup for HCLK > 168MHz
+                while !RCC.cr().read().pllrdy() {}
+            }
+        }
+
+        unsafe {
+            RCC.cfgr().modify(|w| {
+                w.set_ppre2(Ppre(ppre2_bits));
+                w.set_ppre1(Ppre(ppre1_bits));
+                w.set_hpre(hpre_bits);
+            });
+
+            // Wait for the new prescalers to kick in
+            // "The clocks are divided with the new prescaler factor from 1 to 16 AHB cycles after write"
+            cortex_m::asm::delay(16);
+
+            RCC.cfgr().modify(|w| {
+                w.set_sw(if sysclk_on_pll {
+                    Sw::PLL
+                } else if self.config.hse.is_some() {
+                    Sw::HSE
+                } else {
+                    Sw::HSI
+                })
+            });
+        }
+
+        Clocks {
+            sys: Hertz(sysclk),
+            apb1: Hertz(pclk1),
+            apb2: Hertz(pclk2),
+
+            apb1_tim: Hertz(pclk1 * timer_mul1),
+            apb2_tim: Hertz(pclk2 * timer_mul2),
+
+            ahb1: Hertz(hclk),
+            ahb2: Hertz(hclk),
+            ahb3: Hertz(hclk),
+
+            pll48: plls.pll48clk.map(Hertz),
         }
     }
 
@@ -117,91 +188,122 @@ impl<'d> Rcc<'d> {
     pub fn clocks(&self) -> &'static Clocks {
         unsafe { get_freqs() }
     }
-}
 
-/// Extension trait that freezes the `RCC` peripheral with provided clocks configuration
-pub trait RccExt {
-    fn freeze(self, config: Config) -> Clocks;
-}
+    fn setup_pll(
+        &mut self,
+        pllsrcclk: u32,
+        use_hse: bool,
+        pllsysclk: Option<u32>,
+        pll48clk: bool,
+    ) -> PllResults {
+        use crate::pac::rcc::vals::{Pllp, Pllsrc};
 
-impl RccExt for RCC {
-    #[inline]
-    fn freeze(self, cfgr: Config) -> Clocks {
-        let rcc = pac::RCC;
-        let (sys_clk, sw) = match cfgr.mux {
-            ClockSrc::HSI16 => {
-                // Enable HSI16
-                unsafe {
-                    rcc.cr().modify(|w| w.set_hsion(true));
-                    while !rcc.cr().read().hsirdy() {}
-                }
-
-                (HSI_FREQ, Sw::HSI)
+        let sysclk = pllsysclk.unwrap_or(pllsrcclk);
+        if pllsysclk.is_none() && !pll48clk {
+            // NOTE(unsafe) We have a mutable borrow to the owner of the RegBlock
+            unsafe {
+                RCC.pllcfgr()
+                    .modify(|w| w.set_pllsrc(Pllsrc(use_hse as u8)));
             }
-            ClockSrc::HSE(freq) => {
-                // Enable HSE
-                unsafe {
-                    rcc.cr().modify(|w| w.set_hseon(true));
-                    while !rcc.cr().read().hserdy() {}
-                }
 
-                (freq.0, Sw::HSE)
-            }
+            return PllResults {
+                use_pll: false,
+                pllsysclk: None,
+                pll48clk: None,
+            };
+        }
+        // Input divisor from PLL source clock, must result to frequency in
+        // the range from 1 to 2 MHz
+        let pllm_min = (pllsrcclk + 1_999_999) / 2_000_000;
+        let pllm_max = pllsrcclk / 1_000_000;
+
+        // Sysclk output divisor must be one of 2, 4, 6 or 8
+        let sysclk_div = core::cmp::min(8, (432_000_000 / sysclk) & !1);
+
+        let target_freq = if pll48clk {
+            48_000_000
+        } else {
+            sysclk * sysclk_div
         };
 
+        // Find the lowest pllm value that minimize the difference between
+        // target frequency and the real vco_out frequency.
+        let pllm = (pllm_min..=pllm_max)
+            .min_by_key(|pllm| {
+                let vco_in = pllsrcclk / pllm;
+                let plln = target_freq / vco_in;
+                target_freq - vco_in * plln
+            })
+            .unwrap();
+
+        let vco_in = pllsrcclk / pllm;
+        assert!((1_000_000..=2_000_000).contains(&vco_in));
+
+        // Main scaler, must result in >= 100MHz (>= 192MHz for F401)
+        // and <= 432MHz, min 50, max 432
+        let plln = if pll48clk {
+            // try the different valid pllq according to the valid
+            // main scaller values, and take the best
+            let pllq = (4..=9)
+                .min_by_key(|pllq| {
+                    let plln = 48_000_000 * pllq / vco_in;
+                    let pll48_diff = 48_000_000 - vco_in * plln / pllq;
+                    let sysclk_diff = (sysclk as i32 - (vco_in * plln / sysclk_div) as i32).abs();
+                    (pll48_diff, sysclk_diff)
+                })
+                .unwrap();
+            48_000_000 * pllq / vco_in
+        } else {
+            sysclk * sysclk_div / vco_in
+        };
+        assert!((192_000_000..=432_000_000).contains(&(vco_in * plln)));
+
+        let pllp = (sysclk_div / 2) - 1;
+
+        let pllq = (vco_in * plln + 47_999_999) / 48_000_000;
+        let real_pll48clk = vco_in * plln / pllq;
+
         unsafe {
-            rcc.cfgr().modify(|w| {
-                w.set_sw(sw.into());
-                w.set_hpre(cfgr.ahb_pre.into());
-                w.set_ppre1(cfgr.apb1_pre.into());
-                w.set_ppre2(cfgr.apb2_pre.into());
+            RCC.pllcfgr().modify(|w| {
+                w.set_pllm(pllm as u8);
+                w.set_plln(plln as u16);
+                w.set_pllp(Pllp(pllp as u8));
+                w.set_pllq(pllq as u8);
+                w.set_pllsrc(Pllsrc(use_hse as u8));
             });
         }
 
-        let ahb_freq: u32 = match cfgr.ahb_pre {
-            AHBPrescaler::NotDivided => sys_clk,
-            pre => {
-                let pre: Hpre = pre.into();
-                let pre = 1 << (pre.0 as u32 - 7);
-                sys_clk / pre
-            }
-        };
+        let real_pllsysclk = vco_in * plln / sysclk_div;
 
-        let (apb1_freq, apb1_tim_freq) = match cfgr.apb1_pre {
-            APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
-            pre => {
-                let pre: Ppre = pre.into();
-                let pre: u8 = 1 << (pre.0 - 3);
-                let freq = ahb_freq / pre as u32;
-                (freq, freq * 2)
-            }
-        };
-
-        let (apb2_freq, apb2_tim_freq) = match cfgr.apb2_pre {
-            APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
-            pre => {
-                let pre: Ppre = pre.into();
-                let pre: u8 = 1 << (pre.0 - 3);
-                let freq = ahb_freq / (1 << (pre as u8 - 3));
-                (freq, freq * 2)
-            }
-        };
-
-        Clocks {
-            sys: sys_clk.hz(),
-            ahb1: ahb_freq.hz(),
-            ahb2: ahb_freq.hz(),
-            ahb3: ahb_freq.hz(),
-            apb1: apb1_freq.hz(),
-            apb2: apb2_freq.hz(),
-            apb1_tim: apb1_tim_freq.hz(),
-            apb2_tim: apb2_tim_freq.hz(),
+        PllResults {
+            use_pll: true,
+            pllsysclk: Some(real_pllsysclk),
+            pll48clk: if pll48clk { Some(real_pll48clk) } else { None },
         }
+    }
+
+    fn flash_setup(sysclk: u32) {
+        use crate::pac::flash::vals::Latency;
+
+        // Be conservative with voltage ranges
+        const FLASH_LATENCY_STEP: u32 = 30_000_000;
+
+        critical_section::with(|_| unsafe {
+            FLASH
+                .acr()
+                .modify(|w| w.set_latency(Latency(((sysclk - 1) / FLASH_LATENCY_STEP) as u8)));
+        });
     }
 }
 
 pub unsafe fn init(config: Config) {
     let r = <peripherals::RCC as embassy::util::Steal>::steal();
-    let clocks = r.freeze(config);
+    let clocks = Rcc::new(r, config).freeze();
     set_freqs(clocks);
+}
+
+struct PllResults {
+    use_pll: bool,
+    pllsysclk: Option<u32>,
+    pll48clk: Option<u32>,
 }
