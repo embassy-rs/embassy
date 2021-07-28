@@ -140,34 +140,15 @@ impl<S: PeripheralStateUnchecked> PeripheralMutex<S> {
     pub fn with<R>(self: Pin<&mut Self>, f: impl FnOnce(&mut S) -> R) -> R {
         let this = unsafe { self.get_unchecked_mut() };
 
-        let was_enabled = this.irq.is_enabled();
         this.irq.disable();
 
         // Safety: it's OK to get a &mut to the state, since the irq is disabled.
         let state = unsafe { &mut *this.state.get() };
         let r = f(state);
 
-        if was_enabled {
-            this.irq.enable();
-        }
+        this.irq.enable();
 
         r
-    }
-
-    /// Enables the wrapped interrupt.
-    pub fn enable(&self) {
-        // This is fine to do before initialization, because we haven't set the handler yet.
-        self.irq.enable()
-    }
-
-    /// Disables the wrapped interrupt.
-    pub fn disable(&self) {
-        self.irq.disable()
-    }
-
-    /// Returns whether the wrapped interrupt is enabled.
-    pub fn is_enabled(&self) -> bool {
-        self.irq.is_enabled()
     }
 
     /// Returns whether the wrapped interrupt is currently in a pending state.
