@@ -9,21 +9,24 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use core::fmt::Write;
-use cortex_m_rt::entry;
-use embassy::executor::Executor;
-use embassy::time::Clock;
-use embassy::util::Forever;
-use example_common::*;
-use embassy_traits::spi::FullDuplex;
-use heapless::String;
-use embassy_stm32::spi::{Spi, Config};
-use embassy_stm32::pac;
-use embassy_stm32::time::Hertz;
 use core::str::from_utf8;
+use defmt::panic;
+use embassy::executor::Spawner;
+use embassy_stm32::dbgmcu::Dbgmcu;
+use embassy_stm32::spi::{Config, Spi};
+use embassy_stm32::time::Hertz;
+use embassy_stm32::Peripherals;
+use embassy_traits::spi::FullDuplex;
+use example_common::*;
+use heapless::String;
 
-#[embassy::task]
-async fn main_task() {
-    let p = embassy_stm32::init(Default::default());
+#[embassy::main]
+async fn main(_spawner: Spawner, p: Peripherals) {
+    info!("Hello World!");
+
+    unsafe {
+        Dbgmcu::enable_all();
+    }
 
     let mut spi = Spi::new(
         p.SPI1,
@@ -38,48 +41,11 @@ async fn main_task() {
 
     for n in 0u32.. {
         let mut write: String<128> = String::new();
-        let mut read = [0;128];
+        let mut read = [0; 128];
         core::write!(&mut write, "Hello DMA World {}!\r\n", n).unwrap();
-        spi.read_write(&mut read[0..write.len()], write.as_bytes()).await.ok();
+        spi.read_write(&mut read[0..write.len()], write.as_bytes())
+            .await
+            .ok();
         info!("read via spi+dma: {}", from_utf8(&read).unwrap());
     }
-}
-
-struct ZeroClock;
-
-impl Clock for ZeroClock {
-    fn now(&self) -> u64 {
-        0
-    }
-}
-
-static EXECUTOR: Forever<Executor> = Forever::new();
-
-#[entry]
-fn main() -> ! {
-    info!("Hello World!");
-    unsafe {
-        pac::DBGMCU.cr().modify(|w| {
-            w.set_dbg_sleep(true);
-            w.set_dbg_standby(true);
-            w.set_dbg_stop(true);
-        });
-
-        pac::RCC.ahb1enr().modify(|w| {
-            w.set_gpioaen(true);
-            w.set_gpioben(true);
-            w.set_gpiocen(true);
-            w.set_gpioden(true);
-            w.set_gpioeen(true);
-            w.set_gpiofen(true);
-        });
-    }
-
-    unsafe { embassy::time::set_clock(&ZeroClock) };
-
-    let executor = EXECUTOR.put(Executor::new());
-
-    executor.run(|spawner| {
-        unwrap!(spawner.spawn(main_task()));
-    })
 }

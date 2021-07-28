@@ -8,18 +8,21 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use cortex_m::prelude::_embedded_hal_blocking_serial_Write;
-use embassy::executor::Executor;
-use embassy::util::Forever;
+use cortex_m_rt::entry;
 use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
+use embedded_hal::blocking::serial::Write;
 use example_common::*;
 
-use cortex_m_rt::entry;
+#[entry]
+fn main() -> ! {
+    info!("Hello World!");
 
-#[embassy::task]
-async fn main_task() {
+    unsafe {
+        Dbgmcu::enable_all();
+    }
+
     let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
@@ -33,21 +36,4 @@ async fn main_task() {
         usart.read(&mut buf).unwrap();
         usart.bwrite_all(&buf).unwrap();
     }
-}
-
-static EXECUTOR: Forever<Executor> = Forever::new();
-
-#[entry]
-fn main() -> ! {
-    info!("Hello World!");
-
-    unsafe {
-        Dbgmcu::enable_all();
-    }
-
-    let executor = EXECUTOR.put(Executor::new());
-
-    executor.run(|spawner| {
-        unwrap!(spawner.spawn(main_task()));
-    })
 }
