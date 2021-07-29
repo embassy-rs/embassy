@@ -312,3 +312,9 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 }
+
+impl<'d, T: Instance> Drop for Adc<'d, T> {
+    fn drop(&mut self) {
+        T::disable();
+    }
+}
