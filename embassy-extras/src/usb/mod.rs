@@ -9,7 +9,7 @@ use usb_device::device::UsbDevice;
 mod cdc_acm;
 pub mod usb_serial;
 
-use crate::peripheral::{PeripheralMutex, PeripheralStateUnchecked};
+use crate::peripheral::{PeripheralMutex, PeripheralState};
 use embassy::interrupt::Interrupt;
 use usb_serial::{ReadInterface, UsbSerial, WriteInterface};
 
@@ -63,7 +63,9 @@ where
         let mutex = Pin::new_unchecked(&mut *mutex);
 
         // Use inner to register the irq
-        mutex.register_interrupt();
+        // SAFETY: the safety contract of this function makes sure the `UsbDevice` won't be invalidated
+        // without the `PeripheralMutex` being dropped.
+        mutex.register_interrupt_unchecked();
     }
 }
 
@@ -127,8 +129,7 @@ where
     }
 }
 
-// SAFETY: The safety contract of `PeripheralStateUnchecked` is forwarded to `Usb::start`.
-unsafe impl<'bus, B, T, I> PeripheralStateUnchecked for State<'bus, B, T, I>
+impl<'bus, B, T, I> PeripheralState for State<'bus, B, T, I>
 where
     B: UsbBus,
     T: ClassSet<B>,

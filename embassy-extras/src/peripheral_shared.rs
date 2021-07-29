@@ -5,30 +5,19 @@ use embassy::interrupt::{Interrupt, InterruptExt};
 
 use crate::peripheral::can_be_preempted;
 
-/// A version of `PeripheralState` without the `'static` bound,
-/// for cases where the compiler can't statically make sure
-/// that `on_interrupt` doesn't reference anything which might be invalidated.
-///
-/// # Safety
-/// When types implementing this trait are used with `Peripheral`,
-/// no fields referenced by `on_interrupt`'s lifetimes must end without first calling `Drop` on the `Peripheral`.
-pub unsafe trait PeripheralStateUnchecked: Sync {
-    type Interrupt: Interrupt;
-    fn on_interrupt(&self);
-}
-
 /// A type which can be used as state with `Peripheral`.
 ///
 /// It needs to be `Sync` because references are shared between the 'thread' which owns the `Peripheral` and the interrupt.
 ///
-/// It also requires `'static`, because although `Pin` guarantees that the memory of the state won't be invalidated,
+/// It also requires `'static` to be used safely with `Peripheral::register_interrupt`,
+/// because although `Pin` guarantees that the memory of the state won't be invalidated,
 /// it doesn't guarantee that the lifetime will last.
-pub trait PeripheralState: Sync + 'static {
+pub trait PeripheralState: Sync {
     type Interrupt: Interrupt;
     fn on_interrupt(&self);
 }
 
-pub struct Peripheral<S: PeripheralStateUnchecked> {
+pub struct Peripheral<S: PeripheralState> {
     state: S,
 
     irq_setup_done: bool,
@@ -38,7 +27,24 @@ pub struct Peripheral<S: PeripheralStateUnchecked> {
     _pinned: PhantomPinned,
 }
 
-impl<S: PeripheralStateUnchecked> Peripheral<S> {
+impl<S: PeripheralState + 'static> Peripheral<S> {
+    /// Registers `on_interrupt` as the wrapped interrupt's interrupt handler and enables it.
+    ///
+    /// This requires this `Peripheral`'s `PeripheralState` to live for `'static`,
+    /// because `Pin` only guarantees that it's memory won't be repurposed,
+    /// not that it's lifetime will last.
+    ///
+    /// To use non-`'static` `PeripheralState`, use the unsafe `register_interrupt_unchecked`.
+    ///
+    /// Note: `'static` doesn't mean it _has_ to live for the entire program, like an `&'static T`;
+    /// it just means it _can_ live for the entire program - for example, `u8` lives for `'static`.
+    pub fn register_interrupt(self: Pin<&mut Self>) {
+        // SAFETY: `S: 'static`, so there's no way it's lifetime can expire.
+        unsafe { self.register_interrupt_unchecked() }
+    }
+}
+
+impl<S: PeripheralState> Peripheral<S> {
     pub fn new(irq: S::Interrupt, state: S) -> Self {
         if can_be_preempted(&irq) {
             panic!("`Peripheral` cannot be created in an interrupt with higher priority than the interrupt it wraps");
@@ -54,8 +60,16 @@ impl<S: PeripheralStateUnchecked> Peripheral<S> {
         }
     }
 
-    pub fn register_interrupt(self: Pin<&mut Self>) {
-        let this = unsafe { self.get_unchecked_mut() };
+    /// Registers `on_interrupt` as the wrapped interrupt's interrupt handler and enables it.
+    ///
+    /// # Safety
+    /// The lifetime of any data in `PeripheralState` that is accessed by the interrupt handler
+    /// must not end without `Drop` being called on this `Peripheral`.
+    ///
+    /// This can be accomplished by either not accessing any data with a lifetime in `on_interrupt`,
+    /// or making sure that nothing like `mem::forget` is used on the `Peripheral`.
+    pub unsafe fn register_interrupt_unchecked(self: Pin<&mut Self>) {
+        let this = self.get_unchecked_mut();
         if this.irq_setup_done {
             return;
         }
@@ -100,7 +114,7 @@ impl<S: PeripheralStateUnchecked> Peripheral<S> {
     }
 }
 
-impl<S: PeripheralStateUnchecked> Drop for Peripheral<S> {
+impl<S: PeripheralState> Drop for Peripheral<S> {
     fn drop(&mut self) {
         self.irq.disable();
         self.irq.remove_handler();

@@ -4,7 +4,7 @@ use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
 use embassy::util::{AtomicWaker, Unborrow};
-use embassy_extras::peripheral::{PeripheralMutex, PeripheralStateUnchecked};
+use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
 use embassy_extras::unborrow;
 use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
 
@@ -159,7 +159,8 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
         // NOTE(unsafe) We won't move this
         let this = unsafe { self.get_unchecked_mut() };
         let mut mutex = unsafe { Pin::new_unchecked(&mut this.state) };
-        mutex.as_mut().register_interrupt();
+        // SAFETY: The lifetime of `Inner` is only due to `PhantomData`; it isn't actually referencing any data with that lifetime.
+        unsafe { mutex.as_mut().register_interrupt_unchecked() }
 
         mutex.with(|s| {
             s.desc_ring.init();
@@ -343,8 +344,7 @@ impl<'d, const TX: usize, const RX: usize> Inner<'d, TX, RX> {
     }
 }
 
-// SAFETY: The lifetime of `Inner` is only due to `PhantomData`; it isn't actually referencing any data with that lifetime.
-unsafe impl<'d, const TX: usize, const RX: usize> PeripheralStateUnchecked for Inner<'d, TX, RX> {
+impl<'d, const TX: usize, const RX: usize> PeripheralState for Inner<'d, TX, RX> {
     type Interrupt = crate::interrupt::ETH;
 
     fn on_interrupt(&mut self) {

@@ -6,42 +6,20 @@ use cortex_m::peripheral::scb::{Exception, SystemHandler, VectActive};
 use cortex_m::peripheral::{NVIC, SCB};
 use embassy::interrupt::{Interrupt, InterruptExt};
 
-/// A version of `PeripheralState` without the `'static` bound,
-/// for cases where the compiler can't statically make sure
-/// that `on_interrupt` doesn't reference anything which might be invalidated.
-///
-/// # Safety
-/// When types implementing this trait are used with `PeripheralMutex`,
-/// no fields referenced by `on_interrupt`'s lifetimes must end without first calling `Drop` on the `PeripheralMutex`.
-pub unsafe trait PeripheralStateUnchecked: Send {
-    type Interrupt: Interrupt;
-    fn on_interrupt(&mut self);
-}
-
 /// A type which can be used as state with `PeripheralMutex`.
 ///
 /// It needs to be `Send` because `&mut` references are sent back and forth between the 'thread' which owns the `PeripheralMutex` and the interrupt,
 /// and `&mut T` is only `Send` where `T: Send`.
 ///
-/// It also requires `'static`, because although `Pin` guarantees that the memory of the state won't be invalidated,
+/// It also requires `'static` to be used safely with `PeripheralMutex::register_interrupt`,
+/// because although `Pin` guarantees that the memory of the state won't be invalidated,
 /// it doesn't guarantee that the lifetime will last.
-pub trait PeripheralState: Send + 'static {
+pub trait PeripheralState: Send {
     type Interrupt: Interrupt;
     fn on_interrupt(&mut self);
 }
 
-// SAFETY: `T` has to live for `'static` to implement `PeripheralState`, thus its lifetime cannot end.
-unsafe impl<T> PeripheralStateUnchecked for T
-where
-    T: PeripheralState,
-{
-    type Interrupt = T::Interrupt;
-    fn on_interrupt(&mut self) {
-        self.on_interrupt()
-    }
-}
-
-pub struct PeripheralMutex<S: PeripheralStateUnchecked> {
+pub struct PeripheralMutex<S: PeripheralState> {
     state: UnsafeCell<S>,
 
     irq_setup_done: bool,
@@ -98,7 +76,25 @@ pub(crate) fn can_be_preempted(irq: &impl Interrupt) -> bool {
     }
 }
 
-impl<S: PeripheralStateUnchecked> PeripheralMutex<S> {
+impl<S: PeripheralState + 'static> PeripheralMutex<S> {
+    /// Registers `on_interrupt` as the wrapped interrupt's interrupt handler and enables it.
+    ///
+    /// This requires this `PeripheralMutex`'s `PeripheralState` to live for `'static`,
+    /// because `Pin` only guarantees that it's memory won't be repurposed,
+    /// not that it's lifetime will last.
+    ///
+    /// To use non-`'static` `PeripheralState`, use the unsafe `register_interrupt_unchecked`.
+    ///
+    /// Note: `'static` doesn't mean it _has_ to live for the entire program, like an `&'static T`;
+    /// it just means it _can_ live for the entire program - for example, `u8` lives for `'static`.
+    pub fn register_interrupt(self: Pin<&mut Self>) {
+        // SAFETY: `S: 'static`, so there's no way it's lifetime can expire.
+        unsafe { self.register_interrupt_unchecked() }
+    }
+}
+
+impl<S: PeripheralState> PeripheralMutex<S> {
+    /// Create a new `PeripheralMutex` wrapping `irq`, with the initial state `state`.
     pub fn new(state: S, irq: S::Interrupt) -> Self {
         if can_be_preempted(&irq) {
             panic!("`PeripheralMutex` cannot be created in an interrupt with higher priority than the interrupt it wraps");
@@ -114,8 +110,18 @@ impl<S: PeripheralStateUnchecked> PeripheralMutex<S> {
         }
     }
 
-    pub fn register_interrupt(self: Pin<&mut Self>) {
-        let this = unsafe { self.get_unchecked_mut() };
+    /// Registers `on_interrupt` as the wrapped interrupt's interrupt handler and enables it.
+    ///
+    /// # Safety
+    /// The lifetime of any data in `PeripheralState` that is accessed by the interrupt handler
+    /// must not end without `Drop` being called on this `PeripheralMutex`.
+    ///
+    /// This can be accomplished by either not accessing any data with a lifetime in `on_interrupt`,
+    /// or making sure that nothing like `mem::forget` is used on the `PeripheralMutex`.
+
+    // TODO: this name isn't the best.
+    pub unsafe fn register_interrupt_unchecked(self: Pin<&mut Self>) {
+        let this = self.get_unchecked_mut();
         if this.irq_setup_done {
             return;
         }
@@ -172,7 +178,7 @@ impl<S: PeripheralStateUnchecked> PeripheralMutex<S> {
     }
 }
 
-impl<S: PeripheralStateUnchecked> Drop for PeripheralMutex<S> {
+impl<S: PeripheralState> Drop for PeripheralMutex<S> {
     fn drop(&mut self) {
         self.irq.disable();
         self.irq.remove_handler();

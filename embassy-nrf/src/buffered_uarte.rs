@@ -7,7 +7,7 @@ use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
 use embassy::io::{AsyncBufRead, AsyncWrite, Result};
 use embassy::util::{Unborrow, WakerRegistration};
-use embassy_extras::peripheral::{PeripheralMutex, PeripheralStateUnchecked};
+use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
 use embassy_extras::ring_buffer::RingBuffer;
 use embassy_extras::{low_power_wait_until, unborrow};
 
@@ -175,7 +175,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 
     pub fn set_baudrate(self: Pin<&mut Self>, baudrate: Baudrate) {
         let mut inner = self.inner();
-        inner.as_mut().register_interrupt();
+        unsafe { inner.as_mut().register_interrupt_unchecked() }
         inner.with(|state| {
             let r = U::regs();
 
@@ -195,7 +195,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 impl<'d, U: UarteInstance, T: TimerInstance> AsyncBufRead for BufferedUarte<'d, U, T> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
         let mut inner = self.inner();
-        inner.as_mut().register_interrupt();
+        unsafe { inner.as_mut().register_interrupt_unchecked() }
         inner.with(|state| {
             // Conservative compiler fence to prevent optimizations that do not
             // take in to account actions by DMA. The fence has been placed here,
@@ -220,7 +220,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> AsyncBufRead for BufferedUarte<'d, 
 
     fn consume(self: Pin<&mut Self>, amt: usize) {
         let mut inner = self.inner();
-        inner.as_mut().register_interrupt();
+        unsafe { inner.as_mut().register_interrupt_unchecked() }
         inner.as_mut().with(|state| {
             trace!("consume {:?}", amt);
             state.rx.pop(amt);
@@ -232,7 +232,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> AsyncBufRead for BufferedUarte<'d, 
 impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U, T> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
         let mut inner = self.inner();
-        inner.as_mut().register_interrupt();
+        unsafe { inner.as_mut().register_interrupt_unchecked() }
         let poll = inner.as_mut().with(|state| {
             trace!("poll_write: {:?}", buf.len());
 
@@ -285,8 +285,7 @@ impl<'a, U: UarteInstance, T: TimerInstance> Drop for State<'a, U, T> {
     }
 }
 
-// SAFETY: the safety contract of `PeripheralStateUnchecked` is forwarded to `BufferedUarte::new`.
-unsafe impl<'a, U: UarteInstance, T: TimerInstance> PeripheralStateUnchecked for State<'a, U, T> {
+impl<'a, U: UarteInstance, T: TimerInstance> PeripheralState for State<'a, U, T> {
     type Interrupt = U::Interrupt;
     fn on_interrupt(&mut self) {
         trace!("irq: start");
