@@ -11,7 +11,7 @@ use embassy::traits;
 use embassy::util::AtomicWaker;
 use embassy::util::OnDrop;
 use embassy::util::Unborrow;
-use embassy_extras::unborrow;
+use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 use rand_core::RngCore;
 

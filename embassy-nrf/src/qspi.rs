@@ -7,7 +7,7 @@ use core::task::Poll;
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::traits::flash::{Error, Flash};
 use embassy::util::{AtomicWaker, DropBomb, Unborrow};
-use embassy_extras::unborrow;
+use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;

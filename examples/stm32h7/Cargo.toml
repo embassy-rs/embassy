@@ -20,7 +20,7 @@ defmt-error = []
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-trace"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "stm32h743zi", "net"] }
-embassy-extras = {version = "0.1.0", path = "../../embassy-extras" }
+embassy-hal-common = {version = "0.1.0", path = "../../embassy-hal-common" }
 embassy-net = { path = "../../embassy-net", default-features = false, features = ["defmt-debug", "defmt", "tcp", "medium-ethernet", "pool-16"] }
 stm32-metapac = { path = "../../stm32-metapac", features = ["stm32h743zi"] }
 embassy-macros = { path = "../../embassy-macros" }

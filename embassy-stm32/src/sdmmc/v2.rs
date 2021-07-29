@@ -6,7 +6,7 @@ use core::task::Poll;
 
 use embassy::interrupt::InterruptExt;
 use embassy::util::{AtomicWaker, OnDrop, Unborrow};
-use embassy_extras::unborrow;
+use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 

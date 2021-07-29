@@ -3,7 +3,7 @@ pub use nrf52832_pac as pac;
 pub const EASY_DMA_SIZE: usize = (1 << 8) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 255;
 
-embassy_extras::peripherals! {
+embassy_hal_common::peripherals! {
     // RTC
     RTC0,
     RTC1,

@@ -76,7 +76,7 @@ pub mod interrupt {
     pub use crate::chip::irqs::*;
     pub use cortex_m::interrupt::{CriticalSection, Mutex};
     pub use embassy::interrupt::{declare, take, Interrupt};
-    pub use embassy_extras::interrupt::Priority3 as Priority;
+    pub use embassy_hal_common::interrupt::Priority3 as Priority;
 }
 pub use embassy_macros::interrupt;
 

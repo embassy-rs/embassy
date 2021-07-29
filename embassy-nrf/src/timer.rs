@@ -7,7 +7,7 @@ use embassy::interrupt::Interrupt;
 use embassy::interrupt::InterruptExt;
 use embassy::util::OnDrop;
 use embassy::util::Unborrow;
-use embassy_extras::unborrow;
+use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
 use crate::pac;

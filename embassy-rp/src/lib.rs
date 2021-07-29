@@ -25,7 +25,7 @@ pub mod uart;
 mod clocks;
 mod reset;
 
-embassy_extras::peripherals! {
+embassy_hal_common::peripherals! {
     PIN_0,
     PIN_1,
     PIN_2,

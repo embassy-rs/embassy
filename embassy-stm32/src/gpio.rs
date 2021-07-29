@@ -2,7 +2,7 @@
 use core::convert::Infallible;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
-use embassy_extras::{unborrow, unsafe_impl_unborrow};
+use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 use embedded_hal::digital::v2::{toggleable, InputPin, OutputPin, StatefulOutputPin};
 
 use crate::pac;

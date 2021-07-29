@@ -1,7 +1,7 @@
 use core::future::Future;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
-use embassy_extras::unborrow;
+use embassy_hal_common::unborrow;
 use futures::TryFutureExt;
 
 use super::*;

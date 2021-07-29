@@ -7,9 +7,9 @@ use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
 use embassy::io::{AsyncBufRead, AsyncWrite, Result};
 use embassy::util::{Unborrow, WakerRegistration};
-use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
-use embassy_extras::ring_buffer::RingBuffer;
-use embassy_extras::{low_power_wait_until, unborrow};
+use embassy_hal_common::peripheral::{PeripheralMutex, PeripheralState};
+use embassy_hal_common::ring_buffer::RingBuffer;
+use embassy_hal_common::{low_power_wait_until, unborrow};
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};

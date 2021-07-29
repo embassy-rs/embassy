@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use embassy::util::Unborrow;
-use embassy_extras::unborrow;
+use embassy_hal_common::unborrow;
 use embedded_hal::blocking::spi as eh;
 use embedded_hal::spi as ehnb;
 

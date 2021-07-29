@@ -85,4 +85,4 @@ with open(output_file, 'w') as f:
     for (channel_id, defn) in core['dma_channels'].items():
         singletons.append( channel_id )
 
-    f.write(f"embassy_extras::peripherals!({','.join(singletons)});")
+    f.write(f"embassy_hal_common::peripherals!({','.join(singletons)});")

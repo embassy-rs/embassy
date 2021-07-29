@@ -4,7 +4,7 @@ use core::cell::UnsafeCell;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use embassy::util::Unborrow;
-use embassy_extras::unborrow;
+use embassy_hal_common::unborrow;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::OptionalPin as GpioOptionalPin;
