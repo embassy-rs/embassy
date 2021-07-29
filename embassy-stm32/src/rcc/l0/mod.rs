@@ -1,4 +1,5 @@
 pub use super::types::*;
+use crate::dbgmcu::Dbgmcu;
 use crate::pac;
 use crate::peripherals::{self, CRS, RCC, SYSCFG};
 use crate::rcc::{get_freqs, set_freqs, Clocks};
@@ -172,11 +173,7 @@ impl<'d> Rcc<'d> {
         unsafe {
             pac::RCC.ahbenr().modify(|w| w.set_dma1en(enable_dma));
 
-            pac::DBGMCU.cr().modify(|w| {
-                w.set_dbg_sleep(true);
-                w.set_dbg_standby(true);
-                w.set_dbg_stop(true);
-            });
+            Dbgmcu::enable_all();
         }
     }
 
