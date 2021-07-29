@@ -25,7 +25,7 @@ pub(crate) mod sealed {
     use crate::rcc::RccPeripheral;
 
     pub trait Instance: RccPeripheral {
-        fn regs() -> &'static crate::pac::i2c::I2c;
+        fn regs() -> crate::pac::i2c::I2c;
 
         fn state_number() -> usize;
     }
@@ -77,11 +77,11 @@ macro_rules! i2c_state {
     };
 }
 
-crate::pac::peripherals!(
-    (i2c, $inst:ident) => {
+crate::pac::interrupts!(
+    ($inst:ident, i2c, $block:ident, EV, $irq:ident) => {
         impl sealed::Instance for peripherals::$inst {
-            fn regs() -> &'static crate::pac::i2c::I2c {
-                &crate::pac::$inst
+            fn regs() -> crate::pac::i2c::I2c {
+                crate::pac::$inst
             }
 
             fn state_number() -> usize {
@@ -90,7 +90,7 @@ crate::pac::peripherals!(
         }
 
         impl Instance for peripherals::$inst {
-            type Interrupt = crate::interrupt::$inst;
+            type Interrupt = crate::interrupt::$irq;
         }
 
     };

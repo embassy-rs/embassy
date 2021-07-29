@@ -5,7 +5,7 @@ use core::task::Poll;
 use atomic_polyfill::{AtomicUsize, Ordering};
 use embassy::interrupt::InterruptExt;
 use embassy::util::{AtomicWaker, OnDrop, Unborrow};
-use embassy_extras::unborrow;
+use embassy_hal_common::unborrow;
 use embedded_hal::blocking::i2c::Read;
 use embedded_hal::blocking::i2c::Write;
 use embedded_hal::blocking::i2c::WriteRead;
