@@ -9,28 +9,26 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use defmt::panic;
-use embassy::executor::Spawner;
 use embassy::time::Delay;
 use embassy_stm32::adc::{Adc, Resolution};
-use embassy_stm32::{pac, Peripherals};
+use embassy_stm32::dbgmcu::Dbgmcu;
+use embassy_stm32::pac;
 use example_common::*;
 
-#[embassy::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+#[cortex_m_rt::entry]
+fn main() -> ! {
     info!("Hello World!");
 
     unsafe {
+        Dbgmcu::enable_all();
+
         pac::RCC.ccipr().modify(|w| {
             w.set_adcsel(0b11);
         });
-        pac::DBGMCU.cr().modify(|w| {
-            w.set_dbg_sleep(true);
-            w.set_dbg_standby(true);
-            w.set_dbg_stop(true);
-        });
         pac::RCC.ahb2enr().modify(|w| w.set_adcen(true));
     }
+
+    let p = embassy_stm32::init(Default::default());
 
     let mut adc = Adc::new(p.ADC1, &mut Delay);
     //adc.enable_vref();

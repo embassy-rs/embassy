@@ -11,9 +11,10 @@ mod example_common;
 use core::fmt::Write;
 use defmt::panic;
 use embassy::executor::Spawner;
+use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
-use embassy_stm32::{pac, Peripherals};
+use embassy_stm32::Peripherals;
 use embassy_traits::uart::Write as _;
 use example_common::*;
 use heapless::String;
@@ -23,11 +24,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
     unsafe {
-        pac::DBGMCU.cr().modify(|w| {
-            w.set_dbg_sleep(true);
-            w.set_dbg_standby(true);
-            w.set_dbg_stop(true);
-        });
+        Dbgmcu::enable_all();
     }
 
     let config = Config::default();

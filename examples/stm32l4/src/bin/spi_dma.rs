@@ -11,10 +11,11 @@ mod example_common;
 
 use defmt::panic;
 use embassy::executor::Spawner;
+use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{pac, Peripherals};
+use embassy_stm32::Peripherals;
 use embassy_traits::spi::FullDuplex;
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use example_common::*;
@@ -24,11 +25,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
     unsafe {
-        pac::DBGMCU.cr().modify(|w| {
-            w.set_dbg_sleep(true);
-            w.set_dbg_standby(true);
-            w.set_dbg_stop(true);
-        });
+        Dbgmcu::enable_all();
     }
 
     let mut spi = Spi::new(
