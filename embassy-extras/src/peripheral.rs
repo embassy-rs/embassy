@@ -2,7 +2,7 @@ use core::cell::UnsafeCell;
 use core::marker::{PhantomData, PhantomPinned};
 use core::pin::Pin;
 
-use cortex_m::peripheral::scb::{Exception, SystemHandler, VectActive};
+use cortex_m::peripheral::scb::VectActive;
 use cortex_m::peripheral::{NVIC, SCB};
 use embassy::interrupt::{Interrupt, InterruptExt};
 
@@ -29,40 +29,14 @@ pub struct PeripheralMutex<S: PeripheralState> {
     _pinned: PhantomPinned,
 }
 
-fn exception_to_system_handler(exception: Exception) -> Option<SystemHandler> {
-    match exception {
-        Exception::NonMaskableInt | Exception::HardFault => None,
-        #[cfg(not(armv6m))]
-        Exception::MemoryManagement => Some(SystemHandler::MemoryManagement),
-        #[cfg(not(armv6m))]
-        Exception::BusFault => Some(SystemHandler::BusFault),
-        #[cfg(not(armv6m))]
-        Exception::UsageFault => Some(SystemHandler::UsageFault),
-        #[cfg(any(armv8m, target_arch = "x86_64"))]
-        Exception::SecureFault => Some(SystemHandler::SecureFault),
-        Exception::SVCall => Some(SystemHandler::SVCall),
-        #[cfg(not(armv6m))]
-        Exception::DebugMonitor => Some(SystemHandler::DebugMonitor),
-        Exception::PendSV => Some(SystemHandler::PendSV),
-        Exception::SysTick => Some(SystemHandler::SysTick),
-    }
-}
-
 /// Whether `irq` can be preempted by the current interrupt.
 pub(crate) fn can_be_preempted(irq: &impl Interrupt) -> bool {
     match SCB::vect_active() {
-        // Thread mode can't preempt anything
+        // Thread mode can't preempt anything.
         VectActive::ThreadMode => false,
-        VectActive::Exception(exception) => {
-            // `SystemHandler` is a subset of `Exception` for those with configurable priority.
-            // There's no built in way to convert between them, so `exception_to_system_handler` was necessary.
-            if let Some(system_handler) = exception_to_system_handler(exception) {
-                SCB::get_priority(system_handler) < irq.get_priority().into()
-            } else {
-                // There's no safe way I know of to maintain `!Send` state across invocations of HardFault or NMI, so that should be fine.
-                false
-            }
-        }
+        // Exceptions don't always preempt interrupts,
+        // but there isn't much of a good reason to be keeping a `PeripheralMutex` in an exception anyway.
+        VectActive::Exception(_) => true,
         VectActive::Interrupt { irqn } => {
             #[derive(Clone, Copy)]
             struct NrWrap(u16);
