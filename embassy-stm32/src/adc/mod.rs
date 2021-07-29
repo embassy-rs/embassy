@@ -7,6 +7,7 @@ mod _version;
 pub use _version::*;
 
 use crate::peripherals;
+use crate::rcc::RccPeripheral;
 
 pub(crate) mod sealed {
     pub trait Instance {
@@ -23,7 +24,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: sealed::Instance + 'static {}
+pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
 pub trait Common: sealed::Common + 'static {}
 pub trait AdcPin<T: Instance>: sealed::AdcPin<T> {}
 

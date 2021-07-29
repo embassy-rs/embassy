@@ -124,6 +124,9 @@ pub struct Adc<'d, T: Instance> {
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(_peri: impl Unborrow<Target = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
         unborrow!(_peri);
+
+        T::enable();
+
         unsafe {
             T::regs().cr().modify(|reg| {
                 reg.set_deeppwd(false);

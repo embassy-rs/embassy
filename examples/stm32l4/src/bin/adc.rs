@@ -21,15 +21,15 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
     unsafe {
-        pac::RCC.ccipr().modify(|w| {
-            w.set_adcsel(0b11);
-        });
         pac::DBGMCU.cr().modify(|w| {
             w.set_dbg_sleep(true);
             w.set_dbg_standby(true);
             w.set_dbg_stop(true);
         });
-        pac::RCC.ahb2enr().modify(|w| w.set_adcen(true));
+
+        // Select sysclk as ADC clock.
+        // TODO: move to driver
+        pac::RCC.ccipr().modify(|w| w.set_adcsel(0b11));
     }
 
     let mut adc = Adc::new(p.ADC1, &mut Delay);
