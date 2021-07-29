@@ -175,8 +175,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 
     pub fn set_baudrate(self: Pin<&mut Self>, baudrate: Baudrate) {
         let mut inner = self.inner();
-        inner.as_mut().register_interrupt();
-        inner.with(|state, _irq| {
+        unsafe { inner.as_mut().register_interrupt_unchecked() }
+        inner.with(|state| {
             let r = U::regs();
 
             let timeout = 0x8000_0000 / (baudrate as u32 / 40);
@@ -195,8 +195,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 impl<'d, U: UarteInstance, T: TimerInstance> AsyncBufRead for BufferedUarte<'d, U, T> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
         let mut inner = self.inner();
-        inner.as_mut().register_interrupt();
-        inner.with(|state, _irq| {
+        unsafe { inner.as_mut().register_interrupt_unchecked() }
+        inner.with(|state| {
             // Conservative compiler fence to prevent optimizations that do not
             // take in to account actions by DMA. The fence has been placed here,
             // before any DMA action has started
@@ -220,20 +220,20 @@ impl<'d, U: UarteInstance, T: TimerInstance> AsyncBufRead for BufferedUarte<'d, 
 
     fn consume(self: Pin<&mut Self>, amt: usize) {
         let mut inner = self.inner();
-        inner.as_mut().register_interrupt();
-        inner.with(|state, irq| {
+        unsafe { inner.as_mut().register_interrupt_unchecked() }
+        inner.as_mut().with(|state| {
             trace!("consume {:?}", amt);
             state.rx.pop(amt);
-            irq.pend();
-        })
+        });
+        inner.pend();
     }
 }
 
 impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U, T> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
         let mut inner = self.inner();
-        inner.as_mut().register_interrupt();
-        inner.with(|state, irq| {
+        unsafe { inner.as_mut().register_interrupt_unchecked() }
+        let poll = inner.as_mut().with(|state| {
             trace!("poll_write: {:?}", buf.len());
 
             let tx_buf = state.tx.push_buf();
@@ -254,10 +254,12 @@ impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U,
             // before any DMA action has started
             compiler_fence(Ordering::SeqCst);
 
-            irq.pend();
-
             Poll::Ready(Ok(n))
-        })
+        });
+
+        inner.pend();
+
+        poll
     }
 }
 

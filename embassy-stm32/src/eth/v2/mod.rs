@@ -159,9 +159,10 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
         // NOTE(unsafe) We won't move this
         let this = unsafe { self.get_unchecked_mut() };
         let mut mutex = unsafe { Pin::new_unchecked(&mut this.state) };
-        mutex.as_mut().register_interrupt();
+        // SAFETY: The lifetime of `Inner` is only due to `PhantomData`; it isn't actually referencing any data with that lifetime.
+        unsafe { mutex.as_mut().register_interrupt_unchecked() }
 
-        mutex.with(|s, _| {
+        mutex.with(|s| {
             s.desc_ring.init();
 
             fence(Ordering::SeqCst);
@@ -237,7 +238,7 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Device for Pin<&mut Ethernet<
         let this = unsafe { self.as_mut().get_unchecked_mut() };
         let mutex = unsafe { Pin::new_unchecked(&mut this.state) };
 
-        mutex.with(|s, _| s.desc_ring.tx.available())
+        mutex.with(|s| s.desc_ring.tx.available())
     }
 
     fn transmit(&mut self, pkt: PacketBuf) {
@@ -245,7 +246,7 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Device for Pin<&mut Ethernet<
         let this = unsafe { self.as_mut().get_unchecked_mut() };
         let mutex = unsafe { Pin::new_unchecked(&mut this.state) };
 
-        mutex.with(|s, _| unwrap!(s.desc_ring.tx.transmit(pkt)));
+        mutex.with(|s| unwrap!(s.desc_ring.tx.transmit(pkt)));
     }
 
     fn receive(&mut self) -> Option<PacketBuf> {
@@ -253,7 +254,7 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Device for Pin<&mut Ethernet<
         let this = unsafe { self.as_mut().get_unchecked_mut() };
         let mutex = unsafe { Pin::new_unchecked(&mut this.state) };
 
-        mutex.with(|s, _| s.desc_ring.rx.pop_packet())
+        mutex.with(|s| s.desc_ring.rx.pop_packet())
     }
 
     fn register_waker(&mut self, waker: &Waker) {

@@ -48,6 +48,11 @@ impl WakerRegistration {
     }
 }
 
+// SAFETY: `WakerRegistration` effectively contains an `Option<Waker>`,
+// which is `Send` and `Sync`.
+unsafe impl Send for WakerRegistration {}
+unsafe impl Sync for WakerRegistration {}
+
 pub struct AtomicWaker {
     waker: AtomicPtr<TaskHeader>,
 }
