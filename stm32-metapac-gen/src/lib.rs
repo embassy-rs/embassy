@@ -1,3 +1,5 @@
+use chiptool::generate::CommonModule;
+use proc_macro2::TokenStream;
 use regex::Regex;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -8,9 +10,10 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::str::FromStr;
 
-use chiptool::{generate, ir, transform};
 use chiptool::util::ToSanitizedSnakeCase;
+use chiptool::{generate, ir, transform};
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
 pub struct Chip {
@@ -39,7 +42,7 @@ pub struct Package {
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
 pub struct Peripheral {
-    pub address: u32,
+    pub address: u64,
     #[serde(default)]
     pub kind: Option<String>,
     #[serde(default)]
@@ -194,7 +197,7 @@ pub struct Options {
 
 pub fn gen(options: Options) {
     let generate_opts = generate::Options {
-        common_path: syn::parse_str("crate::common").unwrap(),
+        common_module: CommonModule::Builtin,
     };
 
     let out_dir = options.out_dir;
@@ -292,18 +295,18 @@ pub fn gen(options: Options) {
         let mut gpio_rcc_table: Vec<Vec<String>> = Vec::new();
         let mut gpio_regs: HashSet<String> = HashSet::new();
 
-        let gpio_base = core.peripherals.get(&"GPIOA".to_string()).unwrap().address;
+        let gpio_base = core.peripherals.get(&"GPIOA".to_string()).unwrap().address as u32;
         let gpio_stride = 0x400;
 
         let number_suffix_re = Regex::new("^(.*?)[0-9]*$").unwrap();
 
         if let Some(ref mut reg) = dbgmcu {
-            if let Some(ref cr) = reg.fieldsets.get("CR")  {
+            if let Some(ref cr) = reg.fieldsets.get("CR") {
                 for field in cr.fields.iter().filter(|e| e.name.contains("DBG")) {
                     let mut fn_name = String::new();
                     fn_name.push_str("set_");
-                    fn_name.push_str( &field.name.to_sanitized_snake_case() );
-                    dbgmcu_table.push( vec!( "cr".into(), fn_name ));
+                    fn_name.push_str(&field.name.to_sanitized_snake_case());
+                    dbgmcu_table.push(vec!["cr".into(), fn_name]);
                 }
             }
         }
@@ -399,7 +402,7 @@ pub fn gen(options: Options) {
                     "gpio" => {
                         let port_letter = name.chars().skip(4).next().unwrap();
                         let port_num = port_letter as u32 - 'A' as u32;
-                        assert_eq!(p.address, gpio_base + gpio_stride * port_num);
+                        assert_eq!(p.address as u32, gpio_base + gpio_stride * port_num);
 
                         for pin_num in 0..16 {
                             let pin_name = format!("P{}{}", port_letter, pin_num);
@@ -477,26 +480,17 @@ pub fn gen(options: Options) {
 
                                 if let Some((reset_reg, reset_field)) = reset_reg_field {
                                     row.push(reset_reg.to_ascii_lowercase());
-                                    row.push(format!(
-                                        "set_{}",
-                                        enable_field.to_ascii_lowercase()
-                                    ));
-                                    row.push(format!(
-                                        "set_{}",
-                                        reset_field.to_ascii_lowercase()
-                                    ));
+                                    row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
+                                    row.push(format!("set_{}", reset_field.to_ascii_lowercase()));
                                 } else {
-                                    row.push(format!(
-                                        "set_{}",
-                                        enable_field.to_ascii_lowercase()
-                                    ));
+                                    row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
                                 }
 
                                 if !name.starts_with("GPIO") {
                                     peripheral_rcc_table.push(row);
                                 } else {
                                     gpio_rcc_table.push(row);
-                                    gpio_regs.insert( enable_reg.to_ascii_lowercase() );
+                                    gpio_regs.insert(enable_reg.to_ascii_lowercase());
                                 }
                             }
                             (None, Some(_)) => {
@@ -514,7 +508,7 @@ pub fn gen(options: Options) {
         }
 
         for reg in gpio_regs {
-            gpio_rcc_table.push( vec!( reg ) );
+            gpio_rcc_table.push(vec![reg]);
         }
 
         for (id, channel_info) in &core.dma_channels {
@@ -659,13 +653,12 @@ pub fn gen(options: Options) {
             .run(&mut ir)
             .unwrap();
 
-        transform::map_names(&mut ir, |s, k| match k {
-            transform::NameKind::Block => format!("{}", s),
-            transform::NameKind::Fieldset => format!("regs::{}", s),
-            transform::NameKind::Enum => format!("vals::{}", s),
-            _ => s.to_string(),
-        })
-        .unwrap();
+        transform::map_names(&mut ir, |k, s| match k {
+            transform::NameKind::Block => *s = format!("{}", s),
+            transform::NameKind::Fieldset => *s = format!("regs::{}", s),
+            transform::NameKind::Enum => *s = format!("vals::{}", s),
+            _ => {}
+        });
 
         transform::sort::Sort {}.run(&mut ir).unwrap();
         transform::Sanitize {}.run(&mut ir).unwrap();
