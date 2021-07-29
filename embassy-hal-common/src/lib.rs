@@ -6,7 +6,6 @@ pub(crate) mod fmt;
 pub mod interrupt;
 mod macros;
 pub mod peripheral;
-pub mod peripheral_shared;
 pub mod ring_buffer;
 pub mod usb;
 
