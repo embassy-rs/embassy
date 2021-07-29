@@ -1,4 +1,4 @@
-use crate::pac::{FLASH, RCC};
+use crate::pac::{FLASH, PWR, RCC};
 use crate::peripherals;
 use crate::rcc::{get_freqs, set_freqs, Clocks};
 use crate::time::Hertz;
@@ -39,6 +39,7 @@ impl<'d> Rcc<'d> {
     }
 
     fn freeze(mut self) -> Clocks {
+        use super::sealed::RccPeripheral;
         use crate::pac::rcc::vals::{Hpre, Hsebyp, Ppre, Sw};
 
         let pllsrcclk = self.config.hse.map(|hse| hse.0).unwrap_or(HSI);
@@ -138,7 +139,17 @@ impl<'d> Rcc<'d> {
         if plls.use_pll {
             unsafe {
                 RCC.cr().modify(|w| w.set_pllon(true));
-                // TODO: PWR setup for HCLK > 168MHz
+
+                if hclk > 168_000_000 {
+                    peripherals::PWR::enable();
+
+                    PWR.cr().modify(|w| w.set_oden(true));
+                    while !PWR.csr().read().odrdy() {}
+
+                    PWR.cr().modify(|w| w.set_odswen(true));
+                    while !PWR.csr().read().odswrdy() {}
+                }
+
                 while !RCC.cr().read().pllrdy() {}
             }
         }
