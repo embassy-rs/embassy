@@ -26,9 +26,6 @@ async fn main(_spawner: Spawner, p: Peripherals) {
             w.set_dbg_standby(true);
             w.set_dbg_stop(true);
         });
-        pac::RCC.apb1enr1().modify(|w| {
-            w.set_dac1en(true);
-        });
     }
 
     let mut dac = Dac::new(p.DAC1, p.PA4, NoPin);

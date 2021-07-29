@@ -91,6 +91,8 @@ impl<'d, T: Instance> Dac<'d, T> {
     ) -> Self {
         unborrow!(ch1, ch2);
 
+        T::enable();
+
         let ch1 = ch1.degrade_optional();
         if ch1.is_some() {
             unsafe {
