@@ -1,10 +1,9 @@
 use core::marker::PhantomData;
-use core::pin::Pin;
 use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
 use embassy::util::{AtomicWaker, Unborrow};
-use embassy_hal_common::peripheral::{PeripheralMutex, PeripheralState};
+use embassy_hal_common::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::unborrow;
 use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
 
@@ -19,8 +18,14 @@ mod descriptors;
 use super::{StationManagement, PHY};
 use descriptors::DescriptorRing;
 
+pub struct State<'d, const TX: usize, const RX: usize>(StateStorage<Inner<'d, TX, RX>>);
+impl<'d, const TX: usize, const RX: usize> State<'d, TX, RX> {
+    pub fn new() -> Self {
+        Self(StateStorage::new())
+    }
+}
 pub struct Ethernet<'d, P: PHY, const TX: usize, const RX: usize> {
-    state: PeripheralMutex<Inner<'d, TX, RX>>,
+    state: PeripheralMutex<'d, Inner<'d, TX, RX>>,
     pins: [AnyPin; 9],
     _phy: P,
     clock_range: u8,
@@ -30,6 +35,7 @@ pub struct Ethernet<'d, P: PHY, const TX: usize, const RX: usize> {
 
 impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
     pub fn new(
+        state: &'d mut State<'d, TX, RX>,
         peri: impl Unborrow<Target = peripherals::ETH> + 'd,
         interrupt: impl Unborrow<Target = crate::interrupt::ETH> + 'd,
         ref_clk: impl Unborrow<Target = impl RefClkPin> + 'd,
@@ -72,7 +78,7 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
         tx_en.configure();
 
         let inner = Inner::new(peri);
-        let state = PeripheralMutex::new(inner, interrupt);
+        let state = unsafe { PeripheralMutex::new_unchecked(&mut state.0, inner, interrupt) };
 
         // NOTE(unsafe) We have exclusive access to the registers
         unsafe {
@@ -145,24 +151,16 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
             tx_en.degrade(),
         ];
 
-        Self {
+        let mut this = Self {
             state,
             pins,
             _phy: phy,
             clock_range,
             phy_addr,
             mac_addr,
-        }
-    }
+        };
 
-    pub fn init(self: Pin<&mut Self>) {
-        // NOTE(unsafe) We won't move this
-        let this = unsafe { self.get_unchecked_mut() };
-        let mut mutex = unsafe { Pin::new_unchecked(&mut this.state) };
-        // SAFETY: The lifetime of `Inner` is only due to `PhantomData`; it isn't actually referencing any data with that lifetime.
-        unsafe { mutex.as_mut().register_interrupt_unchecked() }
-
-        mutex.with(|s| {
+        this.state.with(|s| {
             s.desc_ring.init();
 
             fence(Ordering::SeqCst);
@@ -189,8 +187,10 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
                 });
             }
         });
-        P::phy_reset(this);
-        P::phy_init(this);
+        P::phy_reset(&mut this);
+        P::phy_init(&mut this);
+
+        this
     }
 }
 
@@ -232,29 +232,17 @@ unsafe impl<'d, P: PHY, const TX: usize, const RX: usize> StationManagement
     }
 }
 
-impl<'d, P: PHY, const TX: usize, const RX: usize> Device for Pin<&mut Ethernet<'d, P, TX, RX>> {
+impl<'d, P: PHY, const TX: usize, const RX: usize> Device for Ethernet<'d, P, TX, RX> {
     fn is_transmit_ready(&mut self) -> bool {
-        // NOTE(unsafe) We won't move out of self
-        let this = unsafe { self.as_mut().get_unchecked_mut() };
-        let mutex = unsafe { Pin::new_unchecked(&mut this.state) };
-
-        mutex.with(|s| s.desc_ring.tx.available())
+        self.state.with(|s| s.desc_ring.tx.available())
     }
 
     fn transmit(&mut self, pkt: PacketBuf) {
-        // NOTE(unsafe) We won't move out of self
-        let this = unsafe { self.as_mut().get_unchecked_mut() };
-        let mutex = unsafe { Pin::new_unchecked(&mut this.state) };
-
-        mutex.with(|s| unwrap!(s.desc_ring.tx.transmit(pkt)));
+        self.state.with(|s| unwrap!(s.desc_ring.tx.transmit(pkt)));
     }
 
     fn receive(&mut self) -> Option<PacketBuf> {
-        // NOTE(unsafe) We won't move out of self
-        let this = unsafe { self.as_mut().get_unchecked_mut() };
-        let mutex = unsafe { Pin::new_unchecked(&mut this.state) };
-
-        mutex.with(|s| s.desc_ring.rx.pop_packet())
+        self.state.with(|s| s.desc_ring.rx.pop_packet())
     }
 
     fn register_waker(&mut self, waker: &Waker) {
@@ -269,10 +257,7 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Device for Pin<&mut Ethernet<
     }
 
     fn link_state(&mut self) -> LinkState {
-        // NOTE(unsafe) We won't move out of self
-        let this = unsafe { self.as_mut().get_unchecked_mut() };
-
-        if P::poll_link(this) {
+        if P::poll_link(self) {
             LinkState::Up
         } else {
             LinkState::Down
@@ -280,10 +265,7 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Device for Pin<&mut Ethernet<
     }
 
     fn ethernet_address(&mut self) -> [u8; 6] {
-        // NOTE(unsafe) We won't move out of self
-        let this = unsafe { self.as_mut().get_unchecked_mut() };
-
-        this.mac_addr
+        self.mac_addr
     }
 }
 

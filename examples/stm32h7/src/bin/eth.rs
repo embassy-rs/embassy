@@ -6,7 +6,6 @@
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
 
-use core::pin::Pin;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use cortex_m_rt::entry;
@@ -22,7 +21,7 @@ use embassy_net::{
 };
 use embassy_stm32::clock::{Alarm, Clock};
 use embassy_stm32::eth::lan8742a::LAN8742A;
-use embassy_stm32::eth::Ethernet;
+use embassy_stm32::eth::{Ethernet, State};
 use embassy_stm32::rcc::{Config as RccConfig, Rcc};
 use embassy_stm32::rng::Random;
 use embassy_stm32::time::Hertz;
@@ -42,7 +41,7 @@ defmt::timestamp! {"{=u64}", {
 
 #[embassy::task]
 async fn main_task(
-    device: &'static mut Pin<&'static mut Ethernet<'static, LAN8742A, 4, 4>>,
+    device: &'static mut Ethernet<'static, LAN8742A, 4, 4>,
     config: &'static mut StaticConfigurator,
     spawner: Spawner,
 ) {
@@ -99,8 +98,8 @@ static mut RNG_INST: Option<Random<RNG>> = None;
 static EXECUTOR: Forever<Executor> = Forever::new();
 static TIMER_RTC: Forever<Clock<TIM2>> = Forever::new();
 static ALARM: Forever<Alarm<TIM2>> = Forever::new();
+static STATE: Forever<State<'static, 4, 4>> = Forever::new();
 static ETH: Forever<Ethernet<'static, LAN8742A, 4, 4>> = Forever::new();
-static DEVICE: Forever<Pin<&'static mut Ethernet<'static, LAN8742A, 4, 4>>> = Forever::new();
 static CONFIG: Forever<StaticConfigurator> = Forever::new();
 static NET_RESOURCES: Forever<StackResources<1, 2, 8>> = Forever::new();
 
@@ -135,14 +134,11 @@ fn main() -> ! {
 
     let eth_int = interrupt_take!(ETH);
     let mac_addr = [0x10; 6];
+    let state = STATE.put(State::new());
     let eth = ETH.put(Ethernet::new(
-        p.ETH, eth_int, p.PA1, p.PA2, p.PC1, p.PA7, p.PC4, p.PC5, p.PB12, p.PB13, p.PB11, LAN8742A,
-        mac_addr, 1,
+        state, p.ETH, eth_int, p.PA1, p.PA2, p.PC1, p.PA7, p.PC4, p.PC5, p.PB12, p.PB13, p.PB11,
+        LAN8742A, mac_addr, 1,
     ));
-
-    // NOTE(unsafe) This thing is a &'static
-    let net_device = DEVICE.put(unsafe { Pin::new_unchecked(eth) });
-    net_device.as_mut().init();
 
     let config = StaticConfigurator::new(NetConfig {
         address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 0, 61), 24),
@@ -156,6 +152,6 @@ fn main() -> ! {
     executor.set_alarm(alarm);
 
     executor.run(move |spawner| {
-        unwrap!(spawner.spawn(main_task(net_device, config, spawner)));
+        unwrap!(spawner.spawn(main_task(eth, config, spawner)));
     })
 }
