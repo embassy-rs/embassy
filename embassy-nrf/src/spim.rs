@@ -7,7 +7,7 @@ use core::task::Poll;
 use embassy::interrupt::InterruptExt;
 use embassy::traits;
 use embassy::util::{AtomicWaker, Unborrow};
-use embassy_extras::unborrow;
+use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 use traits::spi::{FullDuplex, Read, Spi, Write};
 

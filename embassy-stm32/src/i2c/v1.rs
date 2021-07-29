@@ -2,7 +2,7 @@ use crate::i2c::{Error, Instance, SclPin, SdaPin};
 use crate::time::Hertz;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
-use embassy_extras::unborrow;
+use embassy_hal_common::unborrow;
 use embedded_hal::blocking::i2c::Read;
 use embedded_hal::blocking::i2c::Write;
 use embedded_hal::blocking::i2c::WriteRead;

@@ -6,7 +6,7 @@ use crate::pac::SIO;
 use crate::peripherals;
 
 use embassy::util::Unborrow;
-use embassy_extras::{unborrow, unsafe_impl_unborrow};
+use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 use embedded_hal::digital::v2 as digital;
 
 /// Represents a digital input or output level.

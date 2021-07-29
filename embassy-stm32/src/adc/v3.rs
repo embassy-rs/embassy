@@ -1,7 +1,7 @@
 use crate::adc::{AdcPin, Instance};
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
-use embassy_extras::unborrow;
+use embassy_hal_common::unborrow;
 use embedded_hal::blocking::delay::DelayUs;
 
 pub const VDDA_CALIB_MV: u32 = 3000;

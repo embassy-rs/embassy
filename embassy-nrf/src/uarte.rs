@@ -9,7 +9,7 @@ use core::task::Poll;
 use embassy::interrupt::InterruptExt;
 use embassy::traits::uart::{Error, Read, ReadUntilIdle, Write};
 use embassy::util::{AtomicWaker, OnDrop, Unborrow};
-use embassy_extras::unborrow;
+use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
 use crate::chip::EASY_DMA_SIZE;

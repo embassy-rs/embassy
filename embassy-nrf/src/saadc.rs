@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 use embassy::util::{wake_on_interrupt, Unborrow};
-use embassy_extras::unborrow;
+use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
 use crate::interrupt;

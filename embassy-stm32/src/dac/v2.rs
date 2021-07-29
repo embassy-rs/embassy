@@ -3,7 +3,7 @@ use crate::gpio::AnyPin;
 use crate::pac::dac;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
-use embassy_extras::unborrow;
+use embassy_hal_common::unborrow;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

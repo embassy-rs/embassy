@@ -4,8 +4,8 @@ use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
 use embassy::util::{AtomicWaker, Unborrow};
-use embassy_extras::peripheral::{PeripheralMutex, PeripheralState};
-use embassy_extras::unborrow;
+use embassy_hal_common::peripheral::{PeripheralMutex, PeripheralState};
+use embassy_hal_common::unborrow;
 use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
 
 use crate::gpio::sealed::Pin as __GpioPin;

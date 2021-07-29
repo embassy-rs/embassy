@@ -8,7 +8,7 @@ resolver = "2"
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy", features = ["time-tick-32768hz"] }
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["stm32"] }
-embassy-extras = {version = "0.1.0", path = "../embassy-extras" }
+embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-traits = {version = "0.1.0", path = "../embassy-traits" }
 embassy-net = { version = "0.1.0", path = "../embassy-net", default-features = false, optional = true }
 

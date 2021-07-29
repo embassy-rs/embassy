@@ -5,7 +5,7 @@
 
 // Re-exports
 pub use embassy::interrupt::{declare, take, Interrupt};
-pub use embassy_extras::interrupt::Priority3 as Priority;
+pub use embassy_hal_common::interrupt::Priority3 as Priority;
 
 mod irqs {
     use super::*;

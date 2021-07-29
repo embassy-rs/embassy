@@ -5,7 +5,7 @@ use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
 
 use embassy::util::Unborrow;
-use embassy_extras::{unborrow, unsafe_impl_unborrow};
+use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
 use gpio::pin_cnf::DRIVE_A;
 

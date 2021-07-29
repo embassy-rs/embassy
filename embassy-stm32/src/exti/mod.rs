@@ -42,7 +42,7 @@ mod _version;
 pub use _version::*;
 
 use crate::peripherals;
-use embassy_extras::unsafe_impl_unborrow;
+use embassy_hal_common::unsafe_impl_unborrow;
 
 pub(crate) mod sealed {
     pub trait Channel {}

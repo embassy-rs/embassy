@@ -12,7 +12,7 @@
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use embassy::util::Unborrow;
-use embassy_extras::{unborrow, unsafe_impl_unborrow};
+use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 
 use crate::{pac, peripherals};
 
