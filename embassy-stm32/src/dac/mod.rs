@@ -4,7 +4,6 @@
 mod _version;
 use crate::gpio::NoPin;
 use crate::peripherals;
-use crate::rcc::RccPeripheral;
 pub use _version::*;
 
 pub(crate) mod sealed {
@@ -16,8 +15,10 @@ pub(crate) mod sealed {
 
     pub trait DacPin<T: Instance, const C: u8>: OptionalPin {}
 }
-
-pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
+#[cfg(rcc_h7)]
+pub trait Instance: sealed::Instance + 'static {}
+#[cfg(not(rcc_h7))]
+pub trait Instance: sealed::Instance + crate::rcc::RccPeripheral + 'static {}
 
 pub trait DacPin<T: Instance, const C: u8>: sealed::DacPin<T, C> + 'static {}
 

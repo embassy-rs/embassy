@@ -91,7 +91,12 @@ impl<'d, T: Instance> Dac<'d, T> {
     ) -> Self {
         unborrow!(ch1, ch2);
 
+        #[cfg(not(rcc_h7))]
         T::enable();
+        #[cfg(rcc_h7)]
+        critical_section::with(|_| unsafe {
+            crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
+        });
 
         let ch1 = ch1.degrade_optional();
         if ch1.is_some() {
