@@ -441,21 +441,31 @@ pub fn gen(options: Options) {
                     };
 
                     if let Some(clock_prefix) = clock_prefix {
+                        // Ignore the numbers in clock name when searching for enable bits because clock
+                        // names do not map cleanly to regsiter names.
+                        // Example:
+                        // stm32f0: RCC_APB2ENR - APB peripheral clock enable register 2    CLOCK: APB1
+                        // stm32f4: RCC_APB2ENR - RCC APB2 peripheral clock enable register CLOCK: APB2
+                        //
+                        // Search for the enable bit in all available registers to support the stm32f0 case.
+                        let search_clock_prefix = clock_prefix.trim_end_matches(char::is_numeric);
+
                         // Workaround for clock registers being split on some chip families. Assume fields are
                         // named after peripheral and look for first field matching and use that register.
-                        let mut en = find_reg_for_field(&rcc, clock_prefix, &format!("{}EN", name));
+                        let mut en =
+                            find_reg_for_field(&rcc, search_clock_prefix, &format!("{}EN", name));
                         let mut rst =
-                            find_reg_for_field(&rcc, clock_prefix, &format!("{}RST", name));
+                            find_reg_for_field(&rcc, search_clock_prefix, &format!("{}RST", name));
 
                         if en.is_none() && name.ends_with("1") {
                             en = find_reg_for_field(
                                 &rcc,
-                                clock_prefix,
+                                search_clock_prefix,
                                 &format!("{}EN", &name[..name.len() - 1]),
                             );
                             rst = find_reg_for_field(
                                 &rcc,
-                                clock_prefix,
+                                search_clock_prefix,
                                 &format!("{}RST", &name[..name.len() - 1]),
                             );
                         }
