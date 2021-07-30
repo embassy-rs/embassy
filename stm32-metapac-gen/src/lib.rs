@@ -118,7 +118,7 @@ impl BlockInfo {
 
 fn find_reg_for_field<'c>(
     rcc: &'c ir::IR,
-    reg_prefix: &str,
+    reg_regex: &str,
     field_name: &str,
 ) -> Option<(&'c str, &'c str)> {
     rcc.fieldsets.iter().find_map(|(name, fieldset)| {
@@ -126,7 +126,7 @@ fn find_reg_for_field<'c>(
         // not help matching for clock name.
         if name.starts_with("C1") || name.starts_with("C2") {
             None
-        } else if name.starts_with(reg_prefix) {
+        } else if Regex::new(reg_regex).unwrap().is_match(name) {
             fieldset
                 .fields
                 .iter()
@@ -441,31 +441,22 @@ pub fn gen(options: Options) {
                     };
 
                     if let Some(clock_prefix) = clock_prefix {
-                        // Ignore the numbers in clock name when searching for enable bits because clock
-                        // names do not map cleanly to regsiter names.
-                        // Example:
-                        // stm32f0: RCC_APB2ENR - APB peripheral clock enable register 2    CLOCK: APB1
-                        // stm32f4: RCC_APB2ENR - RCC APB2 peripheral clock enable register CLOCK: APB2
-                        //
-                        // Search for the enable bit in all available registers to support the stm32f0 case.
-                        let search_clock_prefix = clock_prefix.trim_end_matches(char::is_numeric);
-
                         // Workaround for clock registers being split on some chip families. Assume fields are
                         // named after peripheral and look for first field matching and use that register.
                         let mut en =
-                            find_reg_for_field(&rcc, search_clock_prefix, &format!("{}EN", name));
+                            find_reg_for_field(&rcc, "^.+ENR\\d*$", &format!("{}EN", name));
                         let mut rst =
-                            find_reg_for_field(&rcc, search_clock_prefix, &format!("{}RST", name));
+                            find_reg_for_field(&rcc, "^.+RSTR\\d*$", &format!("{}RST", name));
 
                         if en.is_none() && name.ends_with("1") {
                             en = find_reg_for_field(
                                 &rcc,
-                                search_clock_prefix,
+                                "^.+ENR\\d*$",
                                 &format!("{}EN", &name[..name.len() - 1]),
                             );
                             rst = find_reg_for_field(
                                 &rcc,
-                                search_clock_prefix,
+                                "^.+RSTR\\d*$",
                                 &format!("{}RST", &name[..name.len() - 1]),
                             );
                         }
