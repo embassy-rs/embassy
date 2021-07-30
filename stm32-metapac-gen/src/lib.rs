@@ -1,7 +1,7 @@
 use chiptool::generate::CommonModule;
 use regex::Regex;
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::fmt::Write as _;
 use std::fs;
@@ -39,9 +39,9 @@ pub struct MemoryRegion {
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
 pub struct Core {
     pub name: String,
-    pub peripherals: HashMap<String, Peripheral>,
-    pub interrupts: HashMap<String, u32>,
-    pub dma_channels: HashMap<String, DmaChannel>,
+    pub peripherals: BTreeMap<String, Peripheral>,
+    pub interrupts: BTreeMap<String, u32>,
+    pub dma_channels: BTreeMap<String, DmaChannel>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
@@ -62,9 +62,9 @@ pub struct Peripheral {
     #[serde(default)]
     pub pins: Vec<Pin>,
     #[serde(default)]
-    pub dma_channels: HashMap<String, Vec<PeripheralDmaChannel>>,
+    pub dma_channels: BTreeMap<String, Vec<PeripheralDmaChannel>>,
     #[serde(default)]
-    pub interrupts: HashMap<String, String>,
+    pub interrupts: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
@@ -144,7 +144,7 @@ fn find_reg_for_field<'c>(
     })
 }
 
-fn make_peripheral_counts(out: &mut String, data: &HashMap<String, u8>) {
+fn make_peripheral_counts(out: &mut String, data: &BTreeMap<String, u8>) {
     write!(
         out,
         "#[macro_export]
@@ -158,7 +158,7 @@ macro_rules! peripheral_count {{
     write!(out, " }}\n").unwrap();
 }
 
-fn make_dma_channel_counts(out: &mut String, data: &HashMap<String, u8>) {
+fn make_dma_channel_counts(out: &mut String, data: &BTreeMap<String, u8>) {
     write!(
         out,
         "#[macro_export]
@@ -219,7 +219,7 @@ pub fn gen(options: Options) {
     println!("cwd: {:?}", env::current_dir());
 
     let mut all_peripheral_versions: HashSet<(String, String)> = HashSet::new();
-    let mut chip_cores: HashMap<String, Option<String>> = HashMap::new();
+    let mut chip_cores: BTreeMap<String, Option<String>> = BTreeMap::new();
 
     for chip_name in &options.chips {
         let mut s = chip_name.split('_');
@@ -291,7 +291,7 @@ pub fn gen(options: Options) {
             }
         });
 
-        let mut peripheral_versions: HashMap<String, String> = HashMap::new();
+        let mut peripheral_versions: BTreeMap<String, String> = BTreeMap::new();
         let mut pin_table: Vec<Vec<String>> = Vec::new();
         let mut interrupt_table: Vec<Vec<String>> = Vec::new();
         let mut peripherals_table: Vec<Vec<String>> = Vec::new();
@@ -299,8 +299,8 @@ pub fn gen(options: Options) {
         let mut peripheral_rcc_table: Vec<Vec<String>> = Vec::new();
         let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
         let mut peripheral_dma_channels_table: Vec<Vec<String>> = Vec::new();
-        let mut peripheral_counts: HashMap<String, u8> = HashMap::new();
-        let mut dma_channel_counts: HashMap<String, u8> = HashMap::new();
+        let mut peripheral_counts: BTreeMap<String, u8> = BTreeMap::new();
+        let mut dma_channel_counts: BTreeMap<String, u8> = BTreeMap::new();
         let mut dbgmcu_table: Vec<Vec<String>> = Vec::new();
         let mut gpio_rcc_table: Vec<Vec<String>> = Vec::new();
         let mut gpio_regs: HashSet<String> = HashSet::new();
@@ -504,10 +504,10 @@ pub fn gen(options: Options) {
                                 }
                             }
                             (None, Some(_)) => {
-                                print!("Unable to find enable register for {}", name)
+                                println!("Unable to find enable register for {}", name)
                             }
                             (None, None) => {
-                                print!("Unable to find enable and reset register for {}", name)
+                                println!("Unable to find enable and reset register for {}", name)
                             }
                         }
                     }
