@@ -8,20 +8,17 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy::executor::Executor;
-use embassy::time::Clock;
-use embassy::util::Forever;
+
+use defmt::panic;
+use embassy::executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Pull};
-use embassy_stm32::rcc;
+use embassy_stm32::{rcc, Peripherals};
 use embassy_traits::gpio::{WaitForFallingEdge, WaitForRisingEdge};
 use example_common::*;
 
-use cortex_m_rt::entry;
-
-#[embassy::task]
-async fn main_task() {
-    let mut p = embassy_stm32::init(Default::default());
+#[embassy::main]
+async fn main(_spawner: Spawner, mut p: Peripherals) {
     let mut rcc = rcc::Rcc::new(p.RCC);
     rcc.enable_debug_wfe(&mut p.DBGMCU, true);
     // Enables SYSCFG
@@ -38,27 +35,4 @@ async fn main_task() {
         button.wait_for_rising_edge().await;
         info!("Released!");
     }
-}
-
-struct ZeroClock;
-
-impl Clock for ZeroClock {
-    fn now(&self) -> u64 {
-        0
-    }
-}
-
-static EXECUTOR: Forever<Executor> = Forever::new();
-
-#[entry]
-fn main() -> ! {
-    info!("Hello World!");
-
-    unsafe { embassy::time::set_clock(&ZeroClock) };
-
-    let executor = EXECUTOR.put(Executor::new());
-
-    executor.run(|spawner| {
-        unwrap!(spawner.spawn(main_task()));
-    })
 }

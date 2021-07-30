@@ -8,25 +8,22 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use cortex_m::prelude::_embedded_hal_blocking_serial_Write;
-use defmt::panic;
-use embassy::executor::Spawner;
+
+use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
-use embassy_stm32::{pac, Peripherals};
+use embedded_hal::blocking::serial::Write;
 use example_common::*;
 
-#[embassy::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+#[cortex_m_rt::entry]
+fn main() -> ! {
     info!("Hello World!");
 
     unsafe {
-        pac::DBGMCU.cr().modify(|w| {
-            w.set_dbg_sleep(true);
-            w.set_dbg_standby(true);
-            w.set_dbg_stop(true);
-        });
+        Dbgmcu::enable_all();
     }
+
+    let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
     let mut usart = Uart::new(p.UART4, p.PA1, p.PA0, NoDma, NoDma, config);

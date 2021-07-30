@@ -10,9 +10,10 @@
 mod example_common;
 use defmt::panic;
 use embassy::executor::Spawner;
+use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Pull};
-use embassy_stm32::{pac, Peripherals};
+use embassy_stm32::Peripherals;
 use embassy_traits::gpio::{WaitForFallingEdge, WaitForRisingEdge};
 use example_common::*;
 
@@ -21,11 +22,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
     unsafe {
-        pac::DBGMCU.cr().modify(|w| {
-            w.set_dbg_sleep(true);
-            w.set_dbg_standby(true);
-            w.set_dbg_stop(true);
-        });
+        Dbgmcu::enable_all();
     }
 
     let button = Input::new(p.PC13, Pull::Up);

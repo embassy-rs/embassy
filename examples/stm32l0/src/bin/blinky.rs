@@ -8,20 +8,19 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy_stm32::{
-    gpio::{Level, Output, Speed},
-    rcc::*,
-};
+
+use defmt::panic;
+use embassy::executor::Spawner;
+use embassy::time::{Duration, Timer};
+use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::rcc::Rcc;
+use embassy_stm32::Peripherals;
 use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
 
-use cortex_m_rt::entry;
-
-#[entry]
-fn main() -> ! {
+#[embassy::main]
+async fn main(_spawner: Spawner, mut p: Peripherals) {
     info!("Hello World!");
-
-    let mut p = embassy_stm32::init(Default::default());
 
     Rcc::new(p.RCC).enable_debug_wfe(&mut p.DBGMCU, true);
 
@@ -30,10 +29,10 @@ fn main() -> ! {
     loop {
         info!("high");
         led.set_high().unwrap();
-        cortex_m::asm::delay(1_000_000);
+        Timer::after(Duration::from_millis(300)).await;
 
         info!("low");
         led.set_low().unwrap();
-        cortex_m::asm::delay(1_000_000);
+        Timer::after(Duration::from_millis(300)).await;
     }
 }

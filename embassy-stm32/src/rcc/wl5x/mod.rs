@@ -122,11 +122,7 @@ impl<'d> Rcc<'d> {
         unsafe {
             pac::RCC.ahb1enr().modify(|w| w.set_dma1en(enable_dma));
 
-            pac::DBGMCU.cr().modify(|w| {
-                w.set_dbg_sleep(true);
-                w.set_dbg_standby(true);
-                w.set_dbg_stop(true);
-            });
+            Dbgmcu::enable_all();
         }
     }
 }

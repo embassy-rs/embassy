@@ -2,7 +2,8 @@ use core::marker::PhantomData;
 
 use embassy::util::Unborrow;
 
-use crate::pac::{DBGMCU, FLASH, RCC};
+use crate::dbgmcu::Dbgmcu;
+use crate::pac::{FLASH, RCC};
 use crate::peripherals;
 use crate::time::Hertz;
 
@@ -193,12 +194,7 @@ impl<'d> Rcc<'d> {
             if self.config.enable_debug_wfe {
                 RCC.ahbenr().modify(|w| w.set_dmaen(true));
 
-                critical_section::with(|_| {
-                    DBGMCU.cr().modify(|w| {
-                        w.set_dbg_standby(true);
-                        w.set_dbg_stop(true);
-                    });
-                });
+                critical_section::with(|_| Dbgmcu::enable_all());
             }
         }
 
