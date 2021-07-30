@@ -762,10 +762,10 @@ fn bytes_find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 fn gen_memory_x(out_dir: &PathBuf, chip: &Chip) {
     let mut memory_x = String::new();
 
-    let flash_bytes = chip.flash.regions.get("BANK_1").unwrap().bytes.unwrap();
+    let flash_bytes = chip.flash.regions.get("BANK_1").unwrap().bytes.unwrap_or(chip.flash.bytes);
     let flash_origin = chip.flash.regions.get("BANK_1").unwrap().base;
 
-    let ram_bytes = chip.ram.regions.get("SRAM").unwrap().bytes.unwrap();
+    let ram_bytes = chip.ram.regions.get("SRAM").unwrap().bytes.unwrap_or(chip.ram.bytes);
     let ram_origin = chip.ram.regions.get("SRAM").unwrap().base;
 
     write!(memory_x, "MEMORY\n{{\n").unwrap();
