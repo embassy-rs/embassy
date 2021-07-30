@@ -19,9 +19,21 @@ pub struct Chip {
     pub family: String,
     pub line: String,
     pub cores: Vec<Core>,
-    pub flash: u32,
-    pub ram: u32,
+    pub flash: Memory,
+    pub ram: Memory,
     pub packages: Vec<Package>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
+pub struct Memory {
+    pub bytes: u32,
+    pub regions: HashMap<String, MemoryRegion>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
+pub struct MemoryRegion {
+    pub base: u32,
+    pub bytes: Option<u32>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
@@ -636,6 +648,9 @@ pub fn gen(options: Options) {
             .unwrap()
             .write_all(device_x.as_bytes())
             .unwrap();
+
+        // generate default memory.x
+        gen_memory_x(&chip_dir, &chip);
     }
 
     for (module, version) in all_peripheral_versions {
@@ -674,6 +689,7 @@ pub fn gen(options: Options) {
         let re = Regex::new("# *! *\\[.*\\]").unwrap();
         let data = re.replace_all(&data, "");
         file.write_all(data.as_bytes()).unwrap();
+
     }
 
     // Generate src/lib_inner.rs
@@ -734,10 +750,30 @@ pub fn gen(options: Options) {
 
     // Generate build.rs
     fs::write(out_dir.join("build.rs"), include_bytes!("assets/build.rs")).unwrap();
+
 }
 
 fn bytes_find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+fn gen_memory_x(out_dir: &PathBuf, chip: &Chip) {
+    let mut memory_x = String::new();
+
+    let flash_bytes = chip.flash.regions.get("BANK_1").unwrap().bytes.unwrap();
+    let flash_origin = chip.flash.regions.get("BANK_1").unwrap().base;
+
+    let ram_bytes = chip.ram.regions.get("SRAM").unwrap().bytes.unwrap();
+    let ram_origin = chip.ram.regions.get("SRAM").unwrap().base;
+
+    write!(memory_x, "MEMORY\n{{\n").unwrap();
+    write!(memory_x, "    FLASH : ORIGIN = 0x{:x}, LENGTH = {}\n", flash_origin, flash_bytes).unwrap();
+    write!(memory_x, "    RAM : ORIGIN = 0x{:x}, LENGTH = {}\n", ram_origin, ram_bytes).unwrap();
+    write!(memory_x, "}}").unwrap();
+
+    let mut file = File::create(out_dir.join("memory.x")).unwrap();
+    file.write_all( memory_x.as_bytes() ).unwrap();
+
 }
