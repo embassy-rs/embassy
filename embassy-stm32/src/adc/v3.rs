@@ -188,6 +188,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// Calculates the system VDDA by sampling the internal VREF channel and comparing
     /// the result with the value stored at the factory. If the chip's VDDA is not stable, run
     /// this before each ADC conversion.
+    #[cfg(not(rcc_g0))] // TODO is this supposed to be public?
     #[allow(unused)] // TODO is this supposed to be public?
     fn calibrate(&mut self, vref: &mut Vref) {
         let vref_cal = unsafe { crate::pac::VREFINTCAL.data().read().value() };

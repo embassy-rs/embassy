@@ -15,6 +15,7 @@ os.chdir(dname)
 supported_families = [
     "STM32F0",
     'STM32F4',
+    'STM32G0',
     'STM32L0',
     'STM32L4',
     'STM32H7',
