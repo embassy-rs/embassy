@@ -1,5 +1,4 @@
 use chiptool::generate::CommonModule;
-use proc_macro2::TokenStream;
 use regex::Regex;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -10,7 +9,6 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
-use std::str::FromStr;
 
 use chiptool::util::ToSanitizedSnakeCase;
 use chiptool::{generate, ir, transform};
@@ -54,7 +52,7 @@ pub struct Peripheral {
     #[serde(default)]
     pub dma_channels: HashMap<String, Vec<PeripheralDmaChannel>>,
     #[serde(default)]
-    pub interrupts: HashMap<String, String>
+    pub interrupts: HashMap<String, String>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
@@ -353,8 +351,8 @@ pub fn gen(options: Options) {
                     row.push(name.clone());
                     row.push(bi.module.clone());
                     row.push(bi.block.clone());
-                    row.push( signal.clone() );
-                    row.push( irq_name.to_ascii_uppercase() );
+                    row.push(signal.clone());
+                    row.push(irq_name.to_ascii_uppercase());
                     interrupt_table.push(row)
                 }
 

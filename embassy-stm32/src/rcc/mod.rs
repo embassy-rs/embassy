@@ -31,6 +31,9 @@ pub struct Clocks {
 
     #[cfg(any(rcc_h7))]
     pub apb4: Hertz,
+
+    #[cfg(rcc_f4)]
+    pub pll48: Option<Hertz>,
 }
 
 /// Frozen clock frequencies
