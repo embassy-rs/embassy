@@ -106,7 +106,10 @@ impl State {
             r.cnt().write(|w| w.set_cnt(0));
 
             let psc = timer_freq.0 / TICKS_PER_SECOND as u32 - 1;
-            let psc: u16 = psc.try_into().unwrap();
+            let psc: u16 = match psc.try_into() {
+                Err(_) => panic!("psc division overflow: {}", psc),
+                Ok(n) => n,
+            };
 
             r.psc().write(|w| w.set_psc(psc));
             r.arr().write(|w| w.set_arr(u16::MAX));
