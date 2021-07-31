@@ -364,7 +364,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
             #chip_setup
 
             executor.run(|spawner| {
-                spawner.spawn(__embassy_main(spawner, p)).unwrap();
+                spawner.must_spawn(__embassy_main(spawner, p));
             })
 
         }
