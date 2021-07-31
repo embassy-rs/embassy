@@ -1,6 +1,3 @@
-[unstable]
-build-std = ["core"]
-
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 runner = "probe-run-rp --chip RP2040"
 
