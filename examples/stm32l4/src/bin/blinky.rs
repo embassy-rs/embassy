@@ -25,9 +25,9 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut led = Output::new(p.PB14, Level::High, Speed::Low);
 
     loop {
-        led.set_high().unwrap();
+        unwrap!(led.set_high());
         Timer::after(Duration::from_millis(300)).await;
-        led.set_low().unwrap();
+        unwrap!(led.set_low());
         Timer::after(Duration::from_millis(300)).await;
     }
 }

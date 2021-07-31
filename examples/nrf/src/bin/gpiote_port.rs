@@ -32,8 +32,8 @@ async fn main(spawner: Spawner, p: Peripherals) {
     let btn3 = PortInput::new(Input::new(p.P0_24.degrade(), Pull::Up));
     let btn4 = PortInput::new(Input::new(p.P0_25.degrade(), Pull::Up));
 
-    spawner.spawn(button_task(1, btn1)).unwrap();
-    spawner.spawn(button_task(2, btn2)).unwrap();
-    spawner.spawn(button_task(3, btn3)).unwrap();
-    spawner.spawn(button_task(4, btn4)).unwrap();
+    unwrap!(spawner.spawn(button_task(1, btn1)));
+    unwrap!(spawner.spawn(button_task(2, btn2)));
+    unwrap!(spawner.spawn(button_task(3, btn3)));
+    unwrap!(spawner.spawn(button_task(4, btn4)));
 }

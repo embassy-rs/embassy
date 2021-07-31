@@ -49,19 +49,19 @@ async fn main(_spawner: Spawner, mut p: Peripherals) {
         .await;
 
         let mut id = [1; 3];
-        q.custom_instruction(0x9F, &[], &mut id).await.unwrap();
+        unwrap!(q.custom_instruction(0x9F, &[], &mut id).await);
         info!("id: {}", id);
 
         // Read status register
         let mut status = [4; 1];
-        q.custom_instruction(0x05, &[], &mut status).await.unwrap();
+        unwrap!(q.custom_instruction(0x05, &[], &mut status).await);
 
         info!("status: {:?}", status[0]);
 
         if status[0] & 0x40 == 0 {
             status[0] |= 0x40;
 
-            q.custom_instruction(0x01, &status, &mut []).await.unwrap();
+            unwrap!(q.custom_instruction(0x01, &status, &mut []).await);
 
             info!("enabled quad in status");
         }
@@ -69,7 +69,7 @@ async fn main(_spawner: Spawner, mut p: Peripherals) {
         let mut buf = AlignedBuf([0u8; 64]);
 
         info!("reading...");
-        q.read(0, &mut buf.0).await.unwrap();
+        unwrap!(q.read(0, &mut buf.0).await);
         info!("read: {=[u8]:x}", buf.0);
 
         // Drop the QSPI instance. This disables the peripehral and deconfigures the pins.

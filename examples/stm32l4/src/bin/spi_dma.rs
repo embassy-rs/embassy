@@ -45,10 +45,10 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let ready = Input::new(p.PE1, Pull::Up);
 
     cortex_m::asm::delay(100_000);
-    reset.set_high().unwrap();
+    unwrap!(reset.set_high());
     cortex_m::asm::delay(100_000);
 
-    while ready.is_low().unwrap() {
+    while unwrap!(ready.is_low()) {
         info!("waiting for ready");
     }
 

@@ -31,7 +31,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         let mut s: String<128> = String::new();
         core::write!(&mut s, "Hello DMA World {}!\r\n", n).unwrap();
 
-        usart.write(s.as_bytes()).await.unwrap();
+        unwrap!(usart.write(s.as_bytes()).await);
         info!("wrote DMA");
     }
 }

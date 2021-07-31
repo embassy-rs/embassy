@@ -6,6 +6,7 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
+use defmt::unwrap;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy::util::mpsc::TryRecvError;
@@ -39,7 +40,7 @@ async fn main(spawner: Spawner, p: Peripherals) {
     let channel = CHANNEL.put(Channel::new());
     let (sender, mut receiver) = mpsc::split(channel);
 
-    spawner.spawn(my_task(sender)).unwrap();
+    unwrap!(spawner.spawn(my_task(sender)));
 
     // We could just loop on `receiver.recv()` for simplicity. The code below
     // is optimized to drain the queue as fast as possible in the spirit of
@@ -53,8 +54,8 @@ async fn main(spawner: Spawner, p: Peripherals) {
             Err(TryRecvError::Closed) => break,
         };
         match maybe_message {
-            Some(LedState::On) => led.set_high().unwrap(),
-            Some(LedState::Off) => led.set_low().unwrap(),
+            Some(LedState::On) => unwrap!(led.set_high()),
+            Some(LedState::Off) => unwrap!(led.set_low()),
             _ => (),
         }
     }

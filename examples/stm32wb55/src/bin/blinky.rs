@@ -24,11 +24,11 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     loop {
         info!("high");
-        led.set_high().unwrap();
+        unwrap!(led.set_high());
         Timer::after(Duration::from_millis(500)).await;
 
         info!("low");
-        led.set_low().unwrap();
+        unwrap!(led.set_low());
         Timer::after(Duration::from_millis(500)).await;
     }
 }

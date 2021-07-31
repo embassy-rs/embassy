@@ -23,13 +23,13 @@ async fn main_task() {
     let config = Config::default();
     let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, NoDma, NoDma, config);
 
-    usart.bwrite_all(b"Hello Embassy World!\r\n").unwrap();
+    unwrap!(usart.bwrite_all(b"Hello Embassy World!\r\n"));
     info!("wrote Hello, starting echo");
 
     let mut buf = [0u8; 1];
     loop {
-        usart.read_blocking(&mut buf).unwrap();
-        usart.bwrite_all(&buf).unwrap();
+        unwrap!(usart.read_blocking(&mut buf));
+        unwrap!(usart.bwrite_all(&buf));
     }
 }
 
