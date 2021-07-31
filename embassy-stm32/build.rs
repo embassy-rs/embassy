@@ -9,7 +9,7 @@ fn main() {
         .expect("No stm32xx Cargo feature enabled")
         .strip_prefix("CARGO_FEATURE_")
         .unwrap()
-        .to_ascii_uppercase();
+        .to_ascii_lowercase();
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("generated.rs").to_string_lossy().to_string();
@@ -29,6 +29,15 @@ fn main() {
             println!("cargo:rustc-cfg={}_{}", stringify!($peri), stringify!($version));
         };
     );
+
+    let mut chip_and_core = chip_name.split('_');
+    let chip = chip_and_core.next().expect("Unexpected stm32xx feature");
+
+    if let Some(core) = chip_and_core.next() {
+        println!("cargo:rustc-cfg={}_{}", &chip[..(chip.len() - 2)], core);
+    } else {
+        println!("cargo:rustc-cfg={}", &chip[..(chip.len() - 2)]);
+    }
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=gen.py");
