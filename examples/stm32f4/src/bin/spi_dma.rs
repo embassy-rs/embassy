@@ -20,6 +20,9 @@ use embassy_traits::spi::FullDuplex;
 use example_common::*;
 use heapless::String;
 
+extern crate embassy_stm32f4_examples;
+use embassy_stm32f4_examples::bsp;
+
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
@@ -28,6 +31,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         Dbgmcu::enable_all();
     }
 
+    /*
     let mut spi = Spi::new(
         p.SPI1,
         p.PB3,
@@ -38,6 +42,9 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         Hertz(1_000_000),
         Config::default(),
     );
+     */
+
+    let mut spi = bsp::spi::new_spi(p);
 
     for n in 0u32.. {
         let mut write: String<128> = String::new();

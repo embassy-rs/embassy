@@ -16,10 +16,14 @@ defmt-info = []
 defmt-warn = []
 defmt-error = []
 
+stm32f401 = [ "embassy-stm32/stm32f401re"]
+stm32f429 = [ "embassy-stm32/stm32f429zi"]
+
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-trace"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "stm32f429zi", "unstable-pac", "memory-x"]  }
+#embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "stm32f429zi", "unstable-pac", "memory-x"]  }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "unstable-pac", "memory-x"]  }
 embassy-hal-common = {version = "0.1.0", path = "../../embassy-hal-common" }
 
 defmt = "0.2.0"
