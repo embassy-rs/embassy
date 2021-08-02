@@ -35,9 +35,6 @@ atomic-polyfill  = { version = "0.1.1" }
 critical-section = "0.2.1"
 embedded-hal = "0.2.5"
 
-# Workaround https://github.com/japaric/cast.rs/pull/27
-cast = { version = "=0.2.3", default-features = false }
-
 [dev-dependencies]
 embassy = { path = ".", features = ["executor-agnostic"] }
 futures-executor = { version = "0.3", features = [ "thread-pool" ] }
