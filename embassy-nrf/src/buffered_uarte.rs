@@ -155,23 +155,21 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch2.set_task(Task::from_reg(&r.tasks_stoprx));
         ppi_ch2.enable();
 
-        let initial_state = StateInner {
-            phantom: PhantomData,
-            timer,
-            _ppi_ch1: ppi_ch1,
-            _ppi_ch2: ppi_ch2,
-
-            rx: RingBuffer::new(rx_buffer),
-            rx_state: RxState::Idle,
-            rx_waker: WakerRegistration::new(),
-
-            tx: RingBuffer::new(tx_buffer),
-            tx_state: TxState::Idle,
-            tx_waker: WakerRegistration::new(),
-        };
-
         Self {
-            inner: PeripheralMutex::new_unchecked(&mut state.0, initial_state, irq),
+            inner: PeripheralMutex::new_unchecked(irq, &mut state.0, move || StateInner {
+                phantom: PhantomData,
+                timer,
+                _ppi_ch1: ppi_ch1,
+                _ppi_ch2: ppi_ch2,
+
+                rx: RingBuffer::new(rx_buffer),
+                rx_state: RxState::Idle,
+                rx_waker: WakerRegistration::new(),
+
+                tx: RingBuffer::new(tx_buffer),
+                tx_state: TxState::Idle,
+                tx_waker: WakerRegistration::new(),
+            }),
         }
     }
 

@@ -50,19 +50,23 @@ pub(crate) fn can_be_preempted(irq: &impl Interrupt) -> bool {
 }
 
 impl<'a, S: PeripheralState> PeripheralMutex<'a, S> {
-    /// Create a new `PeripheralMutex` wrapping `irq`, with the initial state `state`.
+    /// Create a new `PeripheralMutex` wrapping `irq`, with `init` initializing the initial state.
     ///
-    /// self requires `state` to live for `'static`, because if the `PeripheralMutex` is leaked, the
+    /// self requires `S` to live for `'static`, because if the `PeripheralMutex` is leaked, the
     /// interrupt won't be disabled, which may try accessing the state at any time. To use non-`'static`
     /// state, see [`Self::new_unchecked`].
     ///
     /// Registers `on_interrupt` as the `irq`'s handler, and enables it.
-    pub fn new(storage: &'a mut StateStorage<S>, state: S, irq: S::Interrupt) -> Self
+    pub fn new(
+        irq: S::Interrupt,
+        storage: &'a mut StateStorage<S>,
+        init: impl FnOnce() -> S,
+    ) -> Self
     where
         'a: 'static,
     {
         // safety: safe because state is `'static`.
-        unsafe { Self::new_unchecked(storage, state, irq) }
+        unsafe { Self::new_unchecked(irq, storage, init) }
     }
 
     /// Create a `PeripheralMutex` without requiring the state is `'static`.
@@ -72,9 +76,9 @@ impl<'a, S: PeripheralState> PeripheralMutex<'a, S> {
     /// # Safety
     /// The created instance must not be leaked (its `drop` must run).
     pub unsafe fn new_unchecked(
-        storage: &'a mut StateStorage<S>,
-        state: S,
         irq: S::Interrupt,
+        storage: &'a mut StateStorage<S>,
+        init: impl FnOnce() -> S,
     ) -> Self {
         if can_be_preempted(&irq) {
             panic!("`PeripheralMutex` cannot be created in an interrupt with higher priority than the interrupt it wraps");
@@ -84,7 +88,7 @@ impl<'a, S: PeripheralState> PeripheralMutex<'a, S> {
 
         // Safety: The pointer is valid and not used by anyone else
         // because we have the `&mut StateStorage`.
-        state_ptr.write(state);
+        state_ptr.write(init());
 
         irq.disable();
         irq.set_handler(|p| {

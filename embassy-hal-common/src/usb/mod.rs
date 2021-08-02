@@ -67,12 +67,11 @@ where
         class_set: S,
         irq: I,
     ) -> Self {
-        let initial_state = StateInner {
+        let mutex = PeripheralMutex::new_unchecked(irq, &mut state.0, || StateInner {
             device,
             classes: class_set.into_class_set(),
             _interrupt: PhantomData,
-        };
-        let mutex = PeripheralMutex::new_unchecked(&mut state.0, initial_state, irq);
+        });
         Self {
             inner: RefCell::new(mutex),
         }

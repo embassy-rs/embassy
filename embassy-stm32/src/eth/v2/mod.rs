@@ -78,10 +78,8 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
         tx_d1.configure();
         tx_en.configure();
 
-        let inner = Inner::new(peri);
-
         // NOTE(unsafe) We are ourselves not leak-safe.
-        let state = PeripheralMutex::new_unchecked(&mut state.0, inner, interrupt);
+        let state = PeripheralMutex::new_unchecked(interrupt, &mut state.0, || Inner::new(peri));
 
         // NOTE(unsafe) We have exclusive access to the registers
         let dma = ETH.ethernet_dma();
