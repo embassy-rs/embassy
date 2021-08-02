@@ -27,5 +27,13 @@ fn main() {
         out_dir.display(),
         chip_name.to_ascii_lowercase()
     );
+
+    #[cfg(feature = "memory-x")]
+    println!(
+        "cargo:rustc-link-search={}/src/chips/{}/memory_x/",
+        out_dir.display(),
+        chip_name.to_ascii_lowercase()
+    );
+
     println!("cargo:rerun-if-changed=build.rs");
 }

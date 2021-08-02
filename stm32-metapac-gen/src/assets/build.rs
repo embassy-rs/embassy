@@ -9,6 +9,9 @@ fn main() {
         .unwrap()
         .to_ascii_lowercase();
 
+    #[cfg(feature = "memory-x")]
+    println!("cargo:rustc-link-search=src/chips/{}/memory_x/", _chip_name);
+
     #[cfg(feature = "rt")]
     println!("cargo:rustc-link-search=src/chips/{}", _chip_name);
 

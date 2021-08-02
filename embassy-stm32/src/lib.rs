@@ -39,6 +39,7 @@ pub mod eth;
 pub mod exti;
 #[cfg(i2c)]
 pub mod i2c;
+
 #[cfg(pwr)]
 pub mod pwr;
 #[cfg(rng)]
