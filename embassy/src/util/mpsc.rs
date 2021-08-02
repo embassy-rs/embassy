@@ -218,6 +218,16 @@ where
     }
 }
 
+// Safe to pass the receive future around since it locks channel whenever polled
+unsafe impl<'ch, M, T, const N: usize> Send for RecvFuture<'ch, M, T, N> where
+    M: Mutex<Data = ()> + Sync
+{
+}
+unsafe impl<'ch, M, T, const N: usize> Sync for RecvFuture<'ch, M, T, N> where
+    M: Mutex<Data = ()> + Sync
+{
+}
+
 impl<'ch, M, T, const N: usize> Sender<'ch, M, T, N>
 where
     M: Mutex<Data = ()>,
