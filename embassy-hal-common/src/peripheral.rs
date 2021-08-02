@@ -17,7 +17,7 @@ pub trait PeripheralState: Send {
 pub struct StateStorage<S>(MaybeUninit<S>);
 
 impl<S> StateStorage<S> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(MaybeUninit::uninit())
     }
 }

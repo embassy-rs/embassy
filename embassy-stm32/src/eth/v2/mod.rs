@@ -20,7 +20,7 @@ use descriptors::DescriptorRing;
 
 pub struct State<'d, const TX: usize, const RX: usize>(StateStorage<Inner<'d, TX, RX>>);
 impl<'d, const TX: usize, const RX: usize> State<'d, TX, RX> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(StateStorage::new())
     }
 }
