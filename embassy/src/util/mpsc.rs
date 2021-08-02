@@ -156,18 +156,10 @@ where
     /// closed by `recv` until they are all consumed.
     ///
     /// [`close`]: Self::close
-    pub async fn recv(&mut self) -> Option<T> {
-        futures::future::poll_fn(|cx| self.recv_poll(cx)).await
-    }
-
-    fn recv_poll(&mut self, cx: &mut Context<'_>) -> Poll<Option<T>> {
-        Channel::lock(self.channel_cell, |c| {
-            match c.try_recv_with_context(Some(cx)) {
-                Ok(v) => Poll::Ready(Some(v)),
-                Err(TryRecvError::Closed) => Poll::Ready(None),
-                Err(TryRecvError::Empty) => Poll::Pending,
-            }
-        })
+    pub fn recv(&mut self) -> RecvFuture<'ch, M, T, N> {
+        RecvFuture {
+            channel_cell: self.channel_cell,
+        }
     }
 
     /// Attempts to immediately receive a message on this `Receiver`
@@ -202,6 +194,30 @@ where
     }
 }
 
+pub struct RecvFuture<'ch, M, T, const N: usize>
+where
+    M: Mutex<Data = ()>,
+{
+    channel_cell: &'ch UnsafeCell<ChannelCell<M, T, N>>,
+}
+
+impl<'ch, M, T, const N: usize> Future for RecvFuture<'ch, M, T, N>
+where
+    M: Mutex<Data = ()>,
+{
+    type Output = Option<T>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<T>> {
+        Channel::lock(self.channel_cell, |c| {
+            match c.try_recv_with_context(Some(cx)) {
+                Ok(v) => Poll::Ready(Some(v)),
+                Err(TryRecvError::Closed) => Poll::Ready(None),
+                Err(TryRecvError::Empty) => Poll::Pending,
+            }
+        })
+    }
+}
+
 impl<'ch, M, T, const N: usize> Sender<'ch, M, T, N>
 where
     M: Mutex<Data = ()>,
@@ -224,12 +240,11 @@ where
     ///
     /// [`close`]: Receiver::close
     /// [`Receiver`]: Receiver
-    pub async fn send(&self, message: T) -> Result<(), SendError<T>> {
+    pub fn send(&self, message: T) -> SendFuture<'ch, M, T, N> {
         SendFuture {
             sender: self.clone(),
             message: Some(message),
         }
-        .await
     }
 
     /// Attempts to immediately send a message on this `Sender`
@@ -278,7 +293,7 @@ where
     }
 }
 
-struct SendFuture<'ch, M, T, const N: usize>
+pub struct SendFuture<'ch, M, T, const N: usize>
 where
     M: Mutex<Data = ()>,
 {
