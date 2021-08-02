@@ -9,14 +9,31 @@ use usb_device::device::UsbDevice;
 mod cdc_acm;
 pub mod usb_serial;
 
-use crate::peripheral::{PeripheralMutex, PeripheralState};
+use crate::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy::interrupt::Interrupt;
 use usb_serial::{ReadInterface, UsbSerial, WriteInterface};
 
 /// Marker trait to mark an interrupt to be used with the [`Usb`] abstraction.
 pub unsafe trait USBInterrupt: Interrupt + Send {}
 
-pub(crate) struct State<'bus, B, T, I>
+pub struct State<'bus, B, T, I>(StateStorage<StateInner<'bus, B, T, I>>)
+where
+    B: UsbBus,
+    T: ClassSet<B>,
+    I: USBInterrupt;
+
+impl<'bus, B, T, I> State<'bus, B, T, I>
+where
+    B: UsbBus,
+    T: ClassSet<B>,
+    I: USBInterrupt,
+{
+    pub fn new() -> Self {
+        Self(StateStorage::new())
+    }
+}
+
+pub(crate) struct StateInner<'bus, B, T, I>
 where
     B: UsbBus,
     T: ClassSet<B>,
@@ -34,7 +51,7 @@ where
     I: USBInterrupt,
 {
     // Don't you dare moving out `PeripheralMutex`
-    inner: RefCell<PeripheralMutex<State<'bus, B, T, I>>>,
+    inner: RefCell<PeripheralMutex<'bus, StateInner<'bus, B, T, I>>>,
 }
 
 impl<'bus, B, T, I> Usb<'bus, B, T, I>
@@ -43,29 +60,21 @@ where
     T: ClassSet<B>,
     I: USBInterrupt,
 {
-    pub fn new<S: IntoClassSet<B, T>>(device: UsbDevice<'bus, B>, class_set: S, irq: I) -> Self {
-        let state = State {
+    /// safety: the returned instance is not leak-safe
+    pub unsafe fn new<S: IntoClassSet<B, T>>(
+        state: &'bus mut State<'bus, B, T, I>,
+        device: UsbDevice<'bus, B>,
+        class_set: S,
+        irq: I,
+    ) -> Self {
+        let mutex = PeripheralMutex::new_unchecked(irq, &mut state.0, || StateInner {
             device,
             classes: class_set.into_class_set(),
             _interrupt: PhantomData,
-        };
-        let mutex = PeripheralMutex::new(state, irq);
+        });
         Self {
             inner: RefCell::new(mutex),
         }
-    }
-
-    /// # Safety
-    /// The `UsbDevice` passed to `Self::new` must not be dropped without calling `Drop` on this `Usb` first.
-    pub unsafe fn start(self: Pin<&mut Self>) {
-        let this = self.get_unchecked_mut();
-        let mut mutex = this.inner.borrow_mut();
-        let mutex = Pin::new_unchecked(&mut *mutex);
-
-        // Use inner to register the irq
-        // SAFETY: the safety contract of this function makes sure the `UsbDevice` won't be invalidated
-        // without the `PeripheralMutex` being dropped.
-        mutex.register_interrupt_unchecked();
     }
 }
 
@@ -129,7 +138,7 @@ where
     }
 }
 
-impl<'bus, B, T, I> PeripheralState for State<'bus, B, T, I>
+impl<'bus, B, T, I> PeripheralState for StateInner<'bus, B, T, I>
 where
     B: UsbBus,
     T: ClassSet<B>,

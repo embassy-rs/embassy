@@ -10,9 +10,10 @@ use usb_device::class_prelude::*;
 use usb_device::UsbError;
 
 use super::cdc_acm::CdcAcmClass;
+use super::StateInner;
 use crate::peripheral::PeripheralMutex;
 use crate::ring_buffer::RingBuffer;
-use crate::usb::{ClassSet, SerialState, State, USBInterrupt};
+use crate::usb::{ClassSet, SerialState, USBInterrupt};
 
 pub struct ReadInterface<'a, 'bus, 'c, I, B, T, INT>
 where
@@ -22,7 +23,7 @@ where
     INT: USBInterrupt,
 {
     // Don't you dare moving out `PeripheralMutex`
-    pub(crate) inner: &'a RefCell<PeripheralMutex<State<'bus, B, T, INT>>>,
+    pub(crate) inner: &'a RefCell<PeripheralMutex<'bus, StateInner<'bus, B, T, INT>>>,
     pub(crate) _buf_lifetime: PhantomData<&'c T>,
     pub(crate) _index: PhantomData<I>,
 }
@@ -39,7 +40,7 @@ where
     INT: USBInterrupt,
 {
     // Don't you dare moving out `PeripheralMutex`
-    pub(crate) inner: &'a RefCell<PeripheralMutex<State<'bus, B, T, INT>>>,
+    pub(crate) inner: &'a RefCell<PeripheralMutex<'bus, StateInner<'bus, B, T, INT>>>,
     pub(crate) _buf_lifetime: PhantomData<&'c T>,
     pub(crate) _index: PhantomData<I>,
 }
@@ -54,7 +55,6 @@ where
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
         let this = self.get_mut();
         let mut mutex = this.inner.borrow_mut();
-        let mutex = unsafe { Pin::new_unchecked(&mut *mutex) };
         mutex.with(|state| {
             let serial = state.classes.get_serial();
             let serial = Pin::new(serial);
@@ -76,7 +76,6 @@ where
     fn consume(self: Pin<&mut Self>, amt: usize) {
         let this = self.get_mut();
         let mut mutex = this.inner.borrow_mut();
-        let mutex = unsafe { Pin::new_unchecked(&mut *mutex) };
         mutex.with(|state| {
             let serial = state.classes.get_serial();
             let serial = Pin::new(serial);
@@ -100,7 +99,6 @@ where
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
         let mut mutex = this.inner.borrow_mut();
-        let mutex = unsafe { Pin::new_unchecked(&mut *mutex) };
         mutex.with(|state| {
             let serial = state.classes.get_serial();
             let serial = Pin::new(serial);

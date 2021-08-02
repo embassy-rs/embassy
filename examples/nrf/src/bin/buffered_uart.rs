@@ -11,6 +11,7 @@ mod example_common;
 use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
+use embassy_nrf::buffered_uarte::State;
 use embassy_nrf::gpio::NoPin;
 use embassy_nrf::{buffered_uarte::BufferedUarte, interrupt, uarte, Peripherals};
 use example_common::*;
@@ -26,8 +27,10 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut rx_buffer = [0u8; 4096];
 
     let irq = interrupt::take!(UARTE0_UART0);
+    let mut state = State::new();
     let u = unsafe {
         BufferedUarte::new(
+            &mut state,
             p.UARTE0,
             p.TIMER0,
             p.PPI_CH0,

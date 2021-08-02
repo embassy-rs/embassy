@@ -7,7 +7,7 @@ use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
 use embassy::io::{AsyncBufRead, AsyncWrite, Result};
 use embassy::util::{Unborrow, WakerRegistration};
-use embassy_hal_common::peripheral::{PeripheralMutex, PeripheralState};
+use embassy_hal_common::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::ring_buffer::RingBuffer;
 use embassy_hal_common::{low_power_wait_until, unborrow};
 
@@ -35,7 +35,14 @@ enum TxState {
     Transmitting(usize),
 }
 
-struct State<'d, U: UarteInstance, T: TimerInstance> {
+pub struct State<'d, U: UarteInstance, T: TimerInstance>(StateStorage<StateInner<'d, U, T>>);
+impl<'d, U: UarteInstance, T: TimerInstance> State<'d, U, T> {
+    pub fn new() -> Self {
+        Self(StateStorage::new())
+    }
+}
+
+struct StateInner<'d, U: UarteInstance, T: TimerInstance> {
     phantom: PhantomData<&'d mut U>,
     timer: Timer<'d, T>,
     _ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
@@ -51,20 +58,16 @@ struct State<'d, U: UarteInstance, T: TimerInstance> {
 }
 
 /// Interface to a UARTE instance
-///
-/// This is a very basic interface that comes with the following limitations:
-/// - The UARTE instances share the same address space with instances of UART.
-///   You need to make sure that conflicting instances
-///   are disabled before using `Uarte`. See product specification:
-///     - nrf52832: Section 15.2
-///     - nrf52840: Section 6.1.2
 pub struct BufferedUarte<'d, U: UarteInstance, T: TimerInstance> {
-    inner: PeripheralMutex<State<'d, U, T>>,
+    inner: PeripheralMutex<'d, StateInner<'d, U, T>>,
 }
+
+impl<'d, U: UarteInstance, T: TimerInstance> Unpin for BufferedUarte<'d, U, T> {}
 
 impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     /// unsafe: may not leak self or futures
     pub unsafe fn new(
+        state: &'d mut State<'d, U, T>,
         _uarte: impl Unborrow<Target = U> + 'd,
         timer: impl Unborrow<Target = T> + 'd,
         ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel> + 'd,
@@ -152,31 +155,26 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch2.set_task(Task::from_reg(&r.tasks_stoprx));
         ppi_ch2.enable();
 
-        BufferedUarte {
-            inner: PeripheralMutex::new(
-                State {
-                    phantom: PhantomData,
-                    timer,
-                    _ppi_ch1: ppi_ch1,
-                    _ppi_ch2: ppi_ch2,
+        Self {
+            inner: PeripheralMutex::new_unchecked(irq, &mut state.0, move || StateInner {
+                phantom: PhantomData,
+                timer,
+                _ppi_ch1: ppi_ch1,
+                _ppi_ch2: ppi_ch2,
 
-                    rx: RingBuffer::new(rx_buffer),
-                    rx_state: RxState::Idle,
-                    rx_waker: WakerRegistration::new(),
+                rx: RingBuffer::new(rx_buffer),
+                rx_state: RxState::Idle,
+                rx_waker: WakerRegistration::new(),
 
-                    tx: RingBuffer::new(tx_buffer),
-                    tx_state: TxState::Idle,
-                    tx_waker: WakerRegistration::new(),
-                },
-                irq,
-            ),
+                tx: RingBuffer::new(tx_buffer),
+                tx_state: TxState::Idle,
+                tx_waker: WakerRegistration::new(),
+            }),
         }
     }
 
-    pub fn set_baudrate(self: Pin<&mut Self>, baudrate: Baudrate) {
-        let mut inner = self.inner();
-        unsafe { inner.as_mut().register_interrupt_unchecked() }
-        inner.with(|state| {
+    pub fn set_baudrate(&mut self, baudrate: Baudrate) {
+        self.inner.with(|state| {
             let r = U::regs();
 
             let timeout = 0x8000_0000 / (baudrate as u32 / 40);
@@ -186,17 +184,11 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
             r.baudrate.write(|w| w.baudrate().variant(baudrate));
         });
     }
-
-    fn inner(self: Pin<&mut Self>) -> Pin<&mut PeripheralMutex<State<'d, U, T>>> {
-        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().inner) }
-    }
 }
 
 impl<'d, U: UarteInstance, T: TimerInstance> AsyncBufRead for BufferedUarte<'d, U, T> {
-    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
-        let mut inner = self.inner();
-        unsafe { inner.as_mut().register_interrupt_unchecked() }
-        inner.with(|state| {
+    fn poll_fill_buf(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
+        self.inner.with(|state| {
             // Conservative compiler fence to prevent optimizations that do not
             // take in to account actions by DMA. The fence has been placed here,
             // before any DMA action has started
@@ -218,22 +210,22 @@ impl<'d, U: UarteInstance, T: TimerInstance> AsyncBufRead for BufferedUarte<'d, 
         })
     }
 
-    fn consume(self: Pin<&mut Self>, amt: usize) {
-        let mut inner = self.inner();
-        unsafe { inner.as_mut().register_interrupt_unchecked() }
-        inner.as_mut().with(|state| {
+    fn consume(mut self: Pin<&mut Self>, amt: usize) {
+        self.inner.with(|state| {
             trace!("consume {:?}", amt);
             state.rx.pop(amt);
         });
-        inner.pend();
+        self.inner.pend();
     }
 }
 
 impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U, T> {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
-        let mut inner = self.inner();
-        unsafe { inner.as_mut().register_interrupt_unchecked() }
-        let poll = inner.as_mut().with(|state| {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize>> {
+        let poll = self.inner.with(|state| {
             trace!("poll_write: {:?}", buf.len());
 
             let tx_buf = state.tx.push_buf();
@@ -257,13 +249,13 @@ impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U,
             Poll::Ready(Ok(n))
         });
 
-        inner.pend();
+        self.inner.pend();
 
         poll
     }
 }
 
-impl<'a, U: UarteInstance, T: TimerInstance> Drop for State<'a, U, T> {
+impl<'a, U: UarteInstance, T: TimerInstance> Drop for StateInner<'a, U, T> {
     fn drop(&mut self) {
         let r = U::regs();
 
@@ -285,7 +277,7 @@ impl<'a, U: UarteInstance, T: TimerInstance> Drop for State<'a, U, T> {
     }
 }
 
-impl<'a, U: UarteInstance, T: TimerInstance> PeripheralState for State<'a, U, T> {
+impl<'a, U: UarteInstance, T: TimerInstance> PeripheralState for StateInner<'a, U, T> {
     type Interrupt = U::Interrupt;
     fn on_interrupt(&mut self) {
         trace!("irq: start");
