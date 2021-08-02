@@ -156,7 +156,7 @@ where
     /// closed by `recv` until they are all consumed.
     ///
     /// [`close`]: Self::close
-    pub fn recv(&mut self) -> RecvFuture<'ch, M, T, N> {
+    pub fn recv<'m>(&'m mut self) -> RecvFuture<'m, M, T, N> {
         RecvFuture {
             channel_cell: self.channel_cell,
         }
