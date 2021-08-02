@@ -17,6 +17,11 @@ fn main() {
         //.write_all(include_bytes!("memory.x"))
         //.unwrap();
 
+    println!("HOWDY");
+
+    #[cfg(feature = "memory_x")]
+    println!("cargo:rustc-link-search=src/chips/{}/memory_x/", _chip_name);
+
     #[cfg(feature = "rt")]
     println!("cargo:rustc-link-search=src/chips/{}", _chip_name);
 

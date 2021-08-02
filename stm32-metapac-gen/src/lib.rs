@@ -773,7 +773,8 @@ fn gen_memory_x(out_dir: &PathBuf, chip: &Chip) {
     write!(memory_x, "    RAM : ORIGIN = 0x{:x}, LENGTH = {}\n", ram_origin, ram_bytes).unwrap();
     write!(memory_x, "}}").unwrap();
 
-    let mut file = File::create(out_dir.join("memory.x")).unwrap();
+    fs::create_dir_all(out_dir.join("memory_x")).unwrap();
+    let mut file = File::create(out_dir.join("memory_x").join("memory.x")).unwrap();
     file.write_all( memory_x.as_bytes() ).unwrap();
 
 }

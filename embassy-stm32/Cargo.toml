@@ -42,6 +42,7 @@ defmt-warn = [ ]
 defmt-error = [ ]
 sdmmc-rs = ["embedded-sdmmc"]
 net = ["embassy-net", "vcell"]
+memory_x = ["stm32-metapac/memory_x"]
 
 # Reexport stm32-metapac at `embassy_stm32::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.
