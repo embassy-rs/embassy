@@ -40,8 +40,7 @@ pub mod exti;
 #[cfg(i2c)]
 pub mod i2c;
 
-// until we have all PWR covered.
-#[cfg(all(any(pwr_h7, pwr_h7smps), pwr))]
+#[cfg(pwr)]
 pub mod pwr;
 #[cfg(rng)]
 pub mod rng;
