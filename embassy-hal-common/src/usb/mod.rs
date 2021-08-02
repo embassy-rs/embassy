@@ -60,7 +60,8 @@ where
     T: ClassSet<B>,
     I: USBInterrupt,
 {
-    pub fn new<S: IntoClassSet<B, T>>(
+    /// safety: the returned instance is not leak-safe
+    pub unsafe fn new<S: IntoClassSet<B, T>>(
         state: &'bus mut State<'bus, B, T, I>,
         device: UsbDevice<'bus, B>,
         class_set: S,
@@ -71,7 +72,7 @@ where
             classes: class_set.into_class_set(),
             _interrupt: PhantomData,
         };
-        let mutex = unsafe { PeripheralMutex::new_unchecked(&mut state.0, initial_state, irq) };
+        let mutex = PeripheralMutex::new_unchecked(&mut state.0, initial_state, irq);
         Self {
             inner: RefCell::new(mutex),
         }

@@ -34,7 +34,8 @@ pub struct Ethernet<'d, P: PHY, const TX: usize, const RX: usize> {
 }
 
 impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
-    pub fn new(
+    /// safety: the returned instance is not leak-safe
+    pub unsafe fn new(
         state: &'d mut State<'d, TX, RX>,
         peri: impl Unborrow<Target = peripherals::ETH> + 'd,
         interrupt: impl Unborrow<Target = crate::interrupt::ETH> + 'd,
@@ -55,7 +56,7 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
 
         // Enable the necessary Clocks
         // NOTE(unsafe) We have exclusive access to the registers
-        critical_section::with(|_| unsafe {
+        critical_section::with(|_| {
             RCC.apb4enr().modify(|w| w.set_syscfgen(true));
             RCC.ahb1enr().modify(|w| {
                 w.set_eth1macen(true);
@@ -78,52 +79,52 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
         tx_en.configure();
 
         let inner = Inner::new(peri);
-        let state = unsafe { PeripheralMutex::new_unchecked(&mut state.0, inner, interrupt) };
+
+        // NOTE(unsafe) We are ourselves not leak-safe.
+        let state = PeripheralMutex::new_unchecked(&mut state.0, inner, interrupt);
 
         // NOTE(unsafe) We have exclusive access to the registers
-        unsafe {
-            let dma = ETH.ethernet_dma();
-            let mac = ETH.ethernet_mac();
-            let mtl = ETH.ethernet_mtl();
+        let dma = ETH.ethernet_dma();
+        let mac = ETH.ethernet_mac();
+        let mtl = ETH.ethernet_mtl();
 
-            // Reset and wait
-            dma.dmamr().modify(|w| w.set_swr(true));
-            while dma.dmamr().read().swr() {}
+        // Reset and wait
+        dma.dmamr().modify(|w| w.set_swr(true));
+        while dma.dmamr().read().swr() {}
 
-            mac.maccr().modify(|w| {
-                w.set_ipg(0b000); // 96 bit times
-                w.set_acs(true);
-                w.set_fes(true);
-                w.set_dm(true);
-                // TODO: Carrier sense ? ECRSFD
-            });
+        mac.maccr().modify(|w| {
+            w.set_ipg(0b000); // 96 bit times
+            w.set_acs(true);
+            w.set_fes(true);
+            w.set_dm(true);
+            // TODO: Carrier sense ? ECRSFD
+        });
 
-            mac.maca0lr().write(|w| {
-                w.set_addrlo(
-                    u32::from(mac_addr[0])
-                        | (u32::from(mac_addr[1]) << 8)
-                        | (u32::from(mac_addr[2]) << 16)
-                        | (u32::from(mac_addr[3]) << 24),
-                )
-            });
-            mac.maca0hr()
-                .modify(|w| w.set_addrhi(u16::from(mac_addr[4]) | (u16::from(mac_addr[5]) << 8)));
+        mac.maca0lr().write(|w| {
+            w.set_addrlo(
+                u32::from(mac_addr[0])
+                    | (u32::from(mac_addr[1]) << 8)
+                    | (u32::from(mac_addr[2]) << 16)
+                    | (u32::from(mac_addr[3]) << 24),
+            )
+        });
+        mac.maca0hr()
+            .modify(|w| w.set_addrhi(u16::from(mac_addr[4]) | (u16::from(mac_addr[5]) << 8)));
 
-            mac.macpfr().modify(|w| w.set_saf(true));
-            mac.macqtx_fcr().modify(|w| w.set_pt(0x100));
+        mac.macpfr().modify(|w| w.set_saf(true));
+        mac.macqtx_fcr().modify(|w| w.set_pt(0x100));
 
-            mtl.mtlrx_qomr().modify(|w| w.set_rsf(true));
-            mtl.mtltx_qomr().modify(|w| w.set_tsf(true));
+        mtl.mtlrx_qomr().modify(|w| w.set_rsf(true));
+        mtl.mtltx_qomr().modify(|w| w.set_tsf(true));
 
-            dma.dmactx_cr().modify(|w| w.set_txpbl(1)); // 32 ?
-            dma.dmacrx_cr().modify(|w| {
-                w.set_rxpbl(1); // 32 ?
-                w.set_rbsz(MTU as u16);
-            });
-        }
+        dma.dmactx_cr().modify(|w| w.set_txpbl(1)); // 32 ?
+        dma.dmacrx_cr().modify(|w| {
+            w.set_rxpbl(1); // 32 ?
+            w.set_rbsz(MTU as u16);
+        });
 
         // NOTE(unsafe) We got the peripheral singleton, which means that `rcc::init` was called
-        let hclk = unsafe { crate::rcc::get_freqs().ahb1 };
+        let hclk = crate::rcc::get_freqs().ahb1;
         let hclk_mhz = hclk.0 / 1_000_000;
 
         // Set the MDC clock frequency in the range 1MHz - 2.5MHz
@@ -165,27 +166,25 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
 
             fence(Ordering::SeqCst);
 
-            unsafe {
-                let mac = ETH.ethernet_mac();
-                let mtl = ETH.ethernet_mtl();
-                let dma = ETH.ethernet_dma();
+            let mac = ETH.ethernet_mac();
+            let mtl = ETH.ethernet_mtl();
+            let dma = ETH.ethernet_dma();
 
-                mac.maccr().modify(|w| {
-                    w.set_re(true);
-                    w.set_te(true);
-                });
-                mtl.mtltx_qomr().modify(|w| w.set_ftq(true));
+            mac.maccr().modify(|w| {
+                w.set_re(true);
+                w.set_te(true);
+            });
+            mtl.mtltx_qomr().modify(|w| w.set_ftq(true));
 
-                dma.dmactx_cr().modify(|w| w.set_st(true));
-                dma.dmacrx_cr().modify(|w| w.set_sr(true));
+            dma.dmactx_cr().modify(|w| w.set_st(true));
+            dma.dmacrx_cr().modify(|w| w.set_sr(true));
 
-                // Enable interrupts
-                dma.dmacier().modify(|w| {
-                    w.set_nie(true);
-                    w.set_rie(true);
-                    w.set_tie(true);
-                });
-            }
+            // Enable interrupts
+            dma.dmacier().modify(|w| {
+                w.set_nie(true);
+                w.set_rie(true);
+                w.set_tie(true);
+            });
         });
         P::phy_reset(&mut this);
         P::phy_init(&mut this);

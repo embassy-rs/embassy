@@ -135,10 +135,12 @@ fn main() -> ! {
     let eth_int = interrupt_take!(ETH);
     let mac_addr = [0x10; 6];
     let state = STATE.put(State::new());
-    let eth = ETH.put(Ethernet::new(
-        state, p.ETH, eth_int, p.PA1, p.PA2, p.PC1, p.PA7, p.PC4, p.PC5, p.PB12, p.PB13, p.PB11,
-        LAN8742A, mac_addr, 1,
-    ));
+    let eth = unsafe {
+        ETH.put(Ethernet::new(
+            state, p.ETH, eth_int, p.PA1, p.PA2, p.PC1, p.PA7, p.PC4, p.PC5, p.PB12, p.PB13,
+            p.PB11, LAN8742A, mac_addr, 1,
+        ))
+    };
 
     let config = StaticConfigurator::new(NetConfig {
         address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 0, 61), 24),
