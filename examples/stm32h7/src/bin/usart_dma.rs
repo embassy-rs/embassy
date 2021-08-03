@@ -18,12 +18,8 @@ use embassy_stm32::usart::{Config, Uart};
 use embassy_traits::uart::Write as _Write;
 use example_common::*;
 
-use hal::prelude::*;
-use stm32h7xx_hal as hal;
-
 use cortex_m_rt::entry;
 use heapless::String;
-use stm32h7::stm32h743 as pac;
 
 #[embassy::task]
 async fn main_task() {
@@ -55,20 +51,6 @@ static EXECUTOR: Forever<Executor> = Forever::new();
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
-
-    let pp = pac::Peripherals::take().unwrap();
-
-    let pwrcfg = pp.PWR.constrain().freeze();
-
-    let rcc = pp.RCC.constrain();
-
-    rcc.sys_ck(96.mhz())
-        .pclk1(48.mhz())
-        .pclk2(48.mhz())
-        .pclk3(48.mhz())
-        .pclk4(48.mhz())
-        .pll1_q_ck(48.mhz())
-        .freeze(pwrcfg, &pp.SYSCFG);
 
     unsafe {
         Dbgmcu::enable_all();

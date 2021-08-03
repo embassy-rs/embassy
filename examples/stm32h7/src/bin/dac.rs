@@ -13,44 +13,24 @@ use embassy_stm32::gpio::NoPin;
 use example_common::*;
 
 use cortex_m_rt::entry;
+use embassy_stm32::Config;
+use embassy_stm32::rcc;
 use embassy_stm32::dac::{Channel, Dac, Value};
-use stm32h7::stm32h743 as pac;
-use stm32h7xx_hal::prelude::*;
+use embassy_stm32::time::U32Ext;
 
 #[entry]
 fn main() -> ! {
     info!("Hello World, dude!");
 
-    let pp = pac::Peripherals::take().unwrap();
+    let p = embassy_stm32::init(Config::default().rcc(
+        rcc::Config::default()
+            .sys_ck(400.mhz())
+            .pll1_q(100.mhz())
+    ));
 
-    let pwrcfg = pp.PWR.constrain().freeze();
-
-    let rcc = pp.RCC.constrain();
-
-    rcc.sys_ck(96.mhz())
-        .pclk1(48.mhz())
-        .pclk2(48.mhz())
-        .pclk3(48.mhz())
-        .pclk4(48.mhz())
-        .pll1_q_ck(48.mhz())
-        .freeze(pwrcfg, &pp.SYSCFG);
-
-    let pp = unsafe { pac::Peripherals::steal() };
-
-    pp.DBGMCU.cr.modify(|_, w| {
-        w.dbgsleep_d1().set_bit();
-        w.dbgstby_d1().set_bit();
-        w.dbgstop_d1().set_bit();
-        w.d1dbgcken().set_bit();
-        w
-    });
-
-    pp.RCC.apb1lenr.modify(|_, w| {
-        w.dac12en().set_bit();
-        w
-    });
-
-    let p = embassy_stm32::init(Default::default());
+    unsafe {
+        Dbgmcu::enable_all();
+    }
 
     let mut dac = Dac::new(p.DAC1, p.PA4, NoPin);
 
@@ -63,6 +43,7 @@ fn main() -> ! {
 }
 
 use micromath::F32Ext;
+use embassy_stm32::dbgmcu::Dbgmcu;
 
 fn to_sine_wave(v: u8) -> u8 {
     if v >= 128 {
