@@ -12,20 +12,20 @@ mod example_common;
 use core::fmt::Write;
 use embassy::executor::Executor;
 use embassy::time::Clock;
-use embassy_stm32::Config;
 use embassy::util::Forever;
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::spi;
 use embassy_stm32::rcc;
-use example_common::*;
+use embassy_stm32::spi;
+use embassy_stm32::Config;
 use embedded_hal::blocking::spi::Transfer;
+use example_common::*;
 
-use cortex_m_rt::entry;
-use heapless::String;
-use embassy_stm32::time::U32Ext;
-use embassy_stm32::peripherals::SPI3;
-use embassy_stm32::dbgmcu::Dbgmcu;
 use core::str::from_utf8;
+use cortex_m_rt::entry;
+use embassy_stm32::dbgmcu::Dbgmcu;
+use embassy_stm32::peripherals::SPI3;
+use embassy_stm32::time::U32Ext;
+use heapless::String;
 
 #[embassy::task]
 async fn main_task(mut spi: spi::Spi<'static, SPI3, NoDma, NoDma>) {
@@ -60,11 +60,9 @@ fn main() -> ! {
         Dbgmcu::enable_all();
     }
 
-    let p = embassy_stm32::init(Config::default().rcc(
-        rcc::Config::default()
-            .sys_ck(400.mhz())
-            .pll1_q(100.mhz())
-    ));
+    let p = embassy_stm32::init(
+        Config::default().rcc(rcc::Config::default().sys_ck(400.mhz()).pll1_q(100.mhz())),
+    );
 
     let spi = spi::Spi::new(
         p.SPI3,
