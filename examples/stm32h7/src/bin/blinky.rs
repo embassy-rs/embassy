@@ -13,38 +13,13 @@ use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
 
 use cortex_m_rt::entry;
-use stm32h7::stm32h743 as pac;
-
-use hal::prelude::*;
-use stm32h7xx_hal as hal;
+use embassy_stm32::dbgmcu::Dbgmcu;
 
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
 
-    let pp = pac::Peripherals::take().unwrap();
-
-    let pwrcfg = pp.PWR.constrain().freeze();
-
-    let rcc = pp.RCC.constrain();
-
-    rcc.sys_ck(96.mhz())
-        .pclk1(48.mhz())
-        .pclk2(48.mhz())
-        .pclk3(48.mhz())
-        .pclk4(48.mhz())
-        .pll1_q_ck(48.mhz())
-        .freeze(pwrcfg, &pp.SYSCFG);
-
-    let pp = unsafe { pac::Peripherals::steal() };
-
-    pp.DBGMCU.cr.modify(|_, w| {
-        w.dbgsleep_d1().set_bit();
-        w.dbgstby_d1().set_bit();
-        w.dbgstop_d1().set_bit();
-        w.d1dbgcken().set_bit();
-        w
-    });
+    unsafe { Dbgmcu::enable_all() };
 
     let p = embassy_stm32::init(Default::default());
 
