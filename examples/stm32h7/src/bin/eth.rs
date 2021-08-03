@@ -19,7 +19,6 @@ use embassy_macros::interrupt_take;
 use embassy_net::{
     Config as NetConfig, Ipv4Address, Ipv4Cidr, StackResources, StaticConfigurator, TcpSocket,
 };
-use embassy_stm32::clock::{Alarm, Clock};
 use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::eth::lan8742a::LAN8742A;
 use embassy_stm32::eth::{Ethernet, State};
@@ -27,7 +26,7 @@ use embassy_stm32::rng::Random;
 use embassy_stm32::{interrupt, peripherals};
 use heapless::Vec;
 use panic_probe as _;
-use peripherals::{RNG, TIM2};
+use peripherals::RNG;
 
 #[embassy::task]
 async fn main_task(
@@ -86,8 +85,6 @@ fn _embassy_rand(buf: &mut [u8]) {
 static mut RNG_INST: Option<Random<RNG>> = None;
 
 static EXECUTOR: Forever<Executor> = Forever::new();
-static TIMER_RTC: Forever<Clock<TIM2>> = Forever::new();
-static ALARM: Forever<Alarm<TIM2>> = Forever::new();
 static STATE: Forever<State<'static, 4, 4>> = Forever::new();
 static ETH: Forever<Ethernet<'static, LAN8742A, 4, 4>> = Forever::new();
 static CONFIG: Forever<StaticConfigurator> = Forever::new();
@@ -104,13 +101,6 @@ fn main() -> ! {
     }
 
     let p = embassy_stm32::init(config());
-
-    let rtc_int = interrupt_take!(TIM2);
-    let rtc = TIMER_RTC.put(Clock::new(p.TIM2, rtc_int));
-    rtc.start();
-    let alarm = ALARM.put(rtc.alarm1());
-
-    unsafe { embassy::time::set_clock(rtc) };
 
     let rng = Random::new(p.RNG);
     unsafe {
@@ -136,7 +126,6 @@ fn main() -> ! {
     let config = CONFIG.put(config);
 
     let executor = EXECUTOR.put(Executor::new());
-    executor.set_alarm(alarm);
 
     executor.run(move |spawner| {
         unwrap!(spawner.spawn(main_task(eth, config, spawner)));

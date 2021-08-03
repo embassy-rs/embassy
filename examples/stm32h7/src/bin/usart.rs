@@ -8,7 +8,6 @@
 mod example_common;
 use cortex_m::prelude::_embedded_hal_blocking_serial_Write;
 use embassy::executor::Executor;
-use embassy::time::Clock;
 use embassy::util::Forever;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
@@ -34,14 +33,6 @@ async fn main_task() {
     }
 }
 
-struct ZeroClock;
-
-impl Clock for ZeroClock {
-    fn now(&self) -> u64 {
-        0
-    }
-}
-
 static EXECUTOR: Forever<Executor> = Forever::new();
 
 #[entry]
@@ -51,8 +42,6 @@ fn main() -> ! {
     unsafe {
         Dbgmcu::enable_all();
     }
-
-    unsafe { embassy::time::set_clock(&ZeroClock) };
 
     let executor = EXECUTOR.put(Executor::new());
 

@@ -4,7 +4,7 @@
 #![feature(type_alias_impl_trait)]
 #![allow(incomplete_features)]
 
-use defmt::{info, panic};
+use defmt::info;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_stm32::time::Hertz;

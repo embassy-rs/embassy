@@ -7,13 +7,11 @@ use example_common::*;
 
 use core::mem;
 use cortex_m_rt::entry;
-use defmt::panic;
+
 use embassy::executor::raw::Task;
 use embassy::executor::Executor;
 use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
-use embassy_nrf::peripherals;
-use embassy_nrf::{interrupt, rtc};
 
 async fn run1() {
     loop {
@@ -29,23 +27,14 @@ async fn run2() {
     }
 }
 
-static RTC: Forever<rtc::RTC<peripherals::RTC1>> = Forever::new();
-static ALARM: Forever<rtc::Alarm<peripherals::RTC1>> = Forever::new();
 static EXECUTOR: Forever<Executor> = Forever::new();
 
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
 
-    let p = embassy_nrf::init(Default::default());
-
-    let rtc = RTC.put(rtc::RTC::new(p.RTC1, interrupt::take!(RTC1)));
-    rtc.start();
-    unsafe { embassy::time::set_clock(rtc) };
-
-    let alarm = ALARM.put(rtc.alarm0());
+    let _p = embassy_nrf::init(Default::default());
     let executor = EXECUTOR.put(Executor::new());
-    executor.set_alarm(alarm);
 
     let run1_task = Task::new();
     let run2_task = Task::new();

@@ -7,11 +7,10 @@
 mod example_common;
 use example_common::*;
 
-use defmt::panic;
 use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Input, Pull};
 use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
-use embassy_nrf::{interrupt, Peripherals};
+use embassy_nrf::Peripherals;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

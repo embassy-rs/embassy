@@ -69,11 +69,6 @@ embassy_hal_common::peripherals! {
     SPI0,
     SPI1,
 
-    TIMER_ALARM0,
-    TIMER_ALARM1,
-    TIMER_ALARM2,
-    TIMER_ALARM3,
-
     DMA_CH0,
     DMA_CH1,
     DMA_CH2,

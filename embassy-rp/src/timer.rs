@@ -1,6 +1,8 @@
+use atomic_polyfill::{AtomicU8, Ordering};
 use core::cell::Cell;
 use critical_section::CriticalSection;
 use embassy::interrupt::{Interrupt, InterruptExt};
+use embassy::time::driver::{AlarmHandle, Driver};
 use embassy::util::CriticalSectionMutex as Mutex;
 
 use crate::{interrupt, pac};
@@ -18,6 +20,7 @@ const DUMMY_ALARM: AlarmState = AlarmState {
 };
 
 static ALARMS: Mutex<[AlarmState; ALARM_COUNT]> = Mutex::new([DUMMY_ALARM; ALARM_COUNT]);
+static NEXT_ALARM: AtomicU8 = AtomicU8::new(0);
 
 fn now() -> u64 {
     loop {
@@ -32,60 +35,39 @@ fn now() -> u64 {
     }
 }
 
-struct Timer;
-impl embassy::time::Clock for Timer {
-    fn now(&self) -> u64 {
+struct TimerDriver;
+embassy::time_driver_impl!(TimerDriver);
+
+impl Driver for TimerDriver {
+    fn now() -> u64 {
         now()
     }
-}
 
-pub trait AlarmInstance {
-    fn alarm_num(&self) -> usize;
-}
+    unsafe fn allocate_alarm() -> Option<AlarmHandle> {
+        let id = NEXT_ALARM.fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
+            if x < ALARM_COUNT as u8 {
+                Some(x + 1)
+            } else {
+                None
+            }
+        });
 
-impl AlarmInstance for crate::peripherals::TIMER_ALARM0 {
-    fn alarm_num(&self) -> usize {
-        0
+        match id {
+            Ok(id) => Some(AlarmHandle::new(id)),
+            Err(_) => None,
+        }
     }
-}
-impl AlarmInstance for crate::peripherals::TIMER_ALARM1 {
-    fn alarm_num(&self) -> usize {
-        1
-    }
-}
-impl AlarmInstance for crate::peripherals::TIMER_ALARM2 {
-    fn alarm_num(&self) -> usize {
-        2
-    }
-}
-impl AlarmInstance for crate::peripherals::TIMER_ALARM3 {
-    fn alarm_num(&self) -> usize {
-        3
-    }
-}
 
-pub struct Alarm<T: AlarmInstance> {
-    inner: T,
-}
-
-impl<T: AlarmInstance> Alarm<T> {
-    pub fn new(inner: T) -> Self {
-        Self { inner }
-    }
-}
-
-impl<T: AlarmInstance> embassy::time::Alarm for Alarm<T> {
-    fn set_callback(&self, callback: fn(*mut ()), ctx: *mut ()) {
-        let n = self.inner.alarm_num();
+    fn set_alarm_callback(alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
+        let n = alarm.id() as usize;
         critical_section::with(|cs| {
             let alarm = &ALARMS.borrow(cs)[n];
             alarm.callback.set(Some((callback, ctx)));
         })
     }
 
-    fn set(&self, timestamp: u64) {
-        let n = self.inner.alarm_num();
-
+    fn set_alarm(alarm: AlarmHandle, timestamp: u64) {
+        let n = alarm.id() as usize;
         critical_section::with(|cs| {
             let alarm = &ALARMS.borrow(cs)[n];
             alarm.timestamp.set(timestamp);
@@ -104,10 +86,6 @@ impl<T: AlarmInstance> embassy::time::Alarm for Alarm<T> {
                 trigger_alarm(n, cs);
             }
         })
-    }
-
-    fn clear(&self) {
-        self.set(u64::MAX);
     }
 }
 
@@ -162,8 +140,6 @@ pub unsafe fn init() {
     interrupt::TIMER_IRQ_1::steal().enable();
     interrupt::TIMER_IRQ_2::steal().enable();
     interrupt::TIMER_IRQ_3::steal().enable();
-
-    embassy::time::set_clock(&Timer);
 }
 
 #[interrupt]

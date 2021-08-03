@@ -1,6 +1,6 @@
 use embassy::executor::{raw, Spawner};
+use embassy::time::driver::{AlarmHandle, Driver};
 use embassy::time::TICKS_PER_SECOND;
-use embassy::time::{Alarm, Clock};
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -8,28 +8,31 @@ use std::sync::{Condvar, Mutex};
 use std::time::{Duration as StdDuration, Instant as StdInstant};
 
 static mut CLOCK_ZERO: MaybeUninit<StdInstant> = MaybeUninit::uninit();
-struct StdClock;
-impl Clock for StdClock {
-    fn now(&self) -> u64 {
+
+static mut ALARM_AT: u64 = u64::MAX;
+static mut NEXT_ALARM_ID: u8 = 0;
+
+struct TimeDriver;
+embassy::time_driver_impl!(TimeDriver);
+
+impl Driver for TimeDriver {
+    fn now() -> u64 {
         let zero = unsafe { CLOCK_ZERO.as_ptr().read() };
         let dur = StdInstant::now().duration_since(zero);
         dur.as_secs() * (TICKS_PER_SECOND as u64)
             + (dur.subsec_nanos() as u64) * (TICKS_PER_SECOND as u64) / 1_000_000_000
     }
-}
 
-static mut ALARM_AT: u64 = u64::MAX;
-
-pub struct StdAlarm;
-impl Alarm for StdAlarm {
-    fn set_callback(&self, _callback: fn(*mut ()), _ctx: *mut ()) {}
-
-    fn set(&self, timestamp: u64) {
-        unsafe { ALARM_AT = timestamp }
+    unsafe fn allocate_alarm() -> Option<AlarmHandle> {
+        let r = NEXT_ALARM_ID;
+        NEXT_ALARM_ID += 1;
+        Some(AlarmHandle::new(r))
     }
 
-    fn clear(&self) {
-        unsafe { ALARM_AT = u64::MAX }
+    fn set_alarm_callback(_alarm: AlarmHandle, _callback: fn(*mut ()), _ctx: *mut ()) {}
+
+    fn set_alarm(_alarm: AlarmHandle, timestamp: u64) {
+        unsafe { ALARM_AT = ALARM_AT.min(timestamp) }
     }
 }
 
@@ -53,7 +56,8 @@ impl Signaler {
             if alarm_at == u64::MAX {
                 signaled = self.condvar.wait(signaled).unwrap();
             } else {
-                let now = StdClock.now();
+                unsafe { ALARM_AT = u64::MAX };
+                let now = TimeDriver::now();
                 if now >= alarm_at {
                     break;
                 }
@@ -92,7 +96,6 @@ impl Executor {
     pub fn new() -> Self {
         unsafe {
             CLOCK_ZERO.as_mut_ptr().write(StdInstant::now());
-            embassy::time::set_clock(&StdClock);
         }
 
         Self {
@@ -107,7 +110,6 @@ impl Executor {
     /// This function never returns.
     pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
         self.inner.set_signal_ctx(&self.signaler as *const _ as _);
-        self.inner.set_alarm(&StdAlarm);
 
         init(unsafe { self.inner.spawner() });
 

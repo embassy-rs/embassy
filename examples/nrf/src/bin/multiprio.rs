@@ -68,7 +68,7 @@ use embassy::executor::{Executor, InterruptExecutor};
 use embassy::interrupt::InterruptExt;
 use embassy::time::{Duration, Instant, Timer};
 use embassy::util::Forever;
-use embassy_nrf::{interrupt, peripherals, rtc};
+use embassy_nrf::interrupt;
 
 #[embassy::task]
 async fn run_high() {
@@ -112,30 +112,20 @@ async fn run_low() {
     }
 }
 
-static RTC: Forever<rtc::RTC<peripherals::RTC1>> = Forever::new();
-static ALARM_HIGH: Forever<rtc::Alarm<peripherals::RTC1>> = Forever::new();
 static EXECUTOR_HIGH: Forever<InterruptExecutor<interrupt::SWI1_EGU1>> = Forever::new();
-static ALARM_MED: Forever<rtc::Alarm<peripherals::RTC1>> = Forever::new();
 static EXECUTOR_MED: Forever<InterruptExecutor<interrupt::SWI0_EGU0>> = Forever::new();
-static ALARM_LOW: Forever<rtc::Alarm<peripherals::RTC1>> = Forever::new();
 static EXECUTOR_LOW: Forever<Executor> = Forever::new();
 
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
 
-    let p = embassy_nrf::init(Default::default());
-
-    let rtc = RTC.put(rtc::RTC::new(p.RTC1, interrupt::take!(RTC1)));
-    rtc.start();
-    unsafe { embassy::time::set_clock(rtc) };
+    let _p = embassy_nrf::init(Default::default());
 
     // High-priority executor: SWI1_EGU1, priority level 6
     let irq = interrupt::take!(SWI1_EGU1);
     irq.set_priority(interrupt::Priority::P6);
-    let alarm = ALARM_HIGH.put(rtc.alarm2());
     let executor = EXECUTOR_HIGH.put(InterruptExecutor::new(irq));
-    executor.set_alarm(alarm);
     executor.start(|spawner| {
         unwrap!(spawner.spawn(run_high()));
     });
@@ -143,17 +133,13 @@ fn main() -> ! {
     // Medium-priority executor: SWI0_EGU0, priority level 7
     let irq = interrupt::take!(SWI0_EGU0);
     irq.set_priority(interrupt::Priority::P7);
-    let alarm = ALARM_MED.put(rtc.alarm1());
     let executor = EXECUTOR_MED.put(InterruptExecutor::new(irq));
-    executor.set_alarm(alarm);
     executor.start(|spawner| {
         unwrap!(spawner.spawn(run_med()));
     });
 
     // Low priority executor: runs in thread mode, using WFE/SEV
-    let alarm = ALARM_LOW.put(rtc.alarm0());
     let executor = EXECUTOR_LOW.put(Executor::new());
-    executor.set_alarm(alarm);
     executor.run(|spawner| {
         unwrap!(spawner.spawn(run_low()));
     });

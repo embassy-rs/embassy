@@ -9,7 +9,6 @@ mod example_common;
 
 use example_common::*;
 
-use defmt::panic;
 use embassy::executor::Spawner;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_stm32::{rcc, Peripherals};

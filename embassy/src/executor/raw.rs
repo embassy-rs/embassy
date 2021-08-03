@@ -15,7 +15,9 @@ use super::SpawnToken;
 #[cfg(feature = "time")]
 use super::timer_queue::{TimerQueue, TimerQueueItem};
 #[cfg(feature = "time")]
-use crate::time::{Alarm, Instant};
+use crate::time::driver::{self, AlarmHandle};
+#[cfg(feature = "time")]
+use crate::time::Instant;
 
 /// Task is spawned (has a future)
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
@@ -169,11 +171,16 @@ pub struct Executor {
     #[cfg(feature = "time")]
     timer_queue: TimerQueue,
     #[cfg(feature = "time")]
-    alarm: Option<&'static dyn Alarm>,
+    alarm: AlarmHandle,
 }
 
 impl Executor {
-    pub const fn new(signal_fn: fn(*mut ()), signal_ctx: *mut ()) -> Self {
+    pub fn new(signal_fn: fn(*mut ()), signal_ctx: *mut ()) -> Self {
+        #[cfg(feature = "time")]
+        let alarm = unsafe { unwrap!(driver::allocate_alarm()) };
+        #[cfg(feature = "time")]
+        driver::set_alarm_callback(alarm, signal_fn, signal_ctx);
+
         Self {
             run_queue: RunQueue::new(),
             signal_fn,
@@ -182,13 +189,8 @@ impl Executor {
             #[cfg(feature = "time")]
             timer_queue: TimerQueue::new(),
             #[cfg(feature = "time")]
-            alarm: None,
+            alarm,
         }
-    }
-
-    #[cfg(feature = "time")]
-    pub fn set_alarm(&mut self, alarm: &'static dyn Alarm) {
-        self.alarm = Some(alarm);
     }
 
     pub fn set_signal_ctx(&mut self, signal_ctx: *mut ()) {
@@ -209,11 +211,9 @@ impl Executor {
 
     pub unsafe fn run_queued(&'static self) {
         #[cfg(feature = "time")]
-        if self.alarm.is_some() {
-            self.timer_queue.dequeue_expired(Instant::now(), |p| {
-                p.as_ref().enqueue();
-            });
-        }
+        self.timer_queue.dequeue_expired(Instant::now(), |p| {
+            p.as_ref().enqueue();
+        });
 
         self.run_queue.dequeue_all(|p| {
             let task = p.as_ref();
@@ -239,13 +239,12 @@ impl Executor {
             self.timer_queue.update(p);
         });
 
-        // If this is in the past, set_alarm will immediately trigger the alarm,
-        // which will make the wfe immediately return so we do another loop iteration.
         #[cfg(feature = "time")]
-        if let Some(alarm) = self.alarm {
+        {
+            // If this is in the past, set_alarm will immediately trigger the alarm,
+            // which will make the wfe immediately return so we do another loop iteration.
             let next_expiration = self.timer_queue.next_expiration();
-            alarm.set_callback(self.signal_fn, self.signal_ctx);
-            alarm.set(next_expiration.as_ticks());
+            driver::set_alarm(self.alarm, next_expiration.as_ticks());
         }
     }
 
