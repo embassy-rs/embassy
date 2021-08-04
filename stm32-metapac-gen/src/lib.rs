@@ -423,87 +423,69 @@ pub fn gen(options: Options) {
                 }
 
                 if let Some(rcc) = &rcc {
-                    let clock_prefix: Option<&str> = if let Some(clock) = &p.clock {
-                        Some(clock)
-                    } else if name.starts_with("TIM") {
-                        // Not all peripherals like timers the clock hint due to insufficient information from
-                        // chip definition. If clock is not specified, the first matching register with the
-                        // expected field will be used.
-                        Some("")
-                    } else {
-                        None
-                    };
+                    // Workaround for clock registers being split on some chip families. Assume fields are
+                    // named after peripheral and look for first field matching and use that register.
+                    let mut en = find_reg_for_field(&rcc, "^.+ENR\\d*$", &format!("{}EN", name));
+                    let mut rst = find_reg_for_field(&rcc, "^.+RSTR\\d*$", &format!("{}RST", name));
 
-                    if let Some(clock_prefix) = clock_prefix {
-                        // Workaround for clock registers being split on some chip families. Assume fields are
-                        // named after peripheral and look for first field matching and use that register.
-                        let mut en =
-                            find_reg_for_field(&rcc, "^.+ENR\\d*$", &format!("{}EN", name));
-                        let mut rst =
-                            find_reg_for_field(&rcc, "^.+RSTR\\d*$", &format!("{}RST", name));
+                    if en.is_none() && name.ends_with("1") {
+                        en = find_reg_for_field(
+                            &rcc,
+                            "^.+ENR\\d*$",
+                            &format!("{}EN", &name[..name.len() - 1]),
+                        );
+                        rst = find_reg_for_field(
+                            &rcc,
+                            "^.+RSTR\\d*$",
+                            &format!("{}RST", &name[..name.len() - 1]),
+                        );
+                    }
 
-                        if en.is_none() && name.ends_with("1") {
-                            en = find_reg_for_field(
-                                &rcc,
-                                "^.+ENR\\d*$",
-                                &format!("{}EN", &name[..name.len() - 1]),
-                            );
-                            rst = find_reg_for_field(
-                                &rcc,
-                                "^.+RSTR\\d*$",
-                                &format!("{}RST", &name[..name.len() - 1]),
-                            );
+                    match (en, rst) {
+                        (Some((enable_reg, enable_field)), reset_reg_field) => {
+                            let clock = match &p.clock {
+                                Some(clock) => clock.as_str(),
+                                None => {
+                                // No clock was specified, derive the clock name from the enable register name.
+                                let re = Regex::new("([A-Z]+\\d*).*").unwrap();
+                                    let caps = re.captures(enable_reg).expect(
+                                        "unable to derive clock name from register name {}",
+                                    );
+                                    caps.get(1).unwrap().as_str()
+                                }
+                            };
+
+                            let clock = if name.starts_with("TIM") {
+                                format!("{}_tim", clock.to_ascii_lowercase())
+                            } else {
+                                clock.to_ascii_lowercase()
+                            };
+
+                            let mut row = Vec::with_capacity(6);
+                            row.push(name.clone());
+                            row.push(clock);
+                            row.push(enable_reg.to_ascii_lowercase());
+
+                            if let Some((reset_reg, reset_field)) = reset_reg_field {
+                                row.push(reset_reg.to_ascii_lowercase());
+                                row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
+                                row.push(format!("set_{}", reset_field.to_ascii_lowercase()));
+                            } else {
+                                row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
+                            }
+
+                            if !name.starts_with("GPIO") {
+                                peripheral_rcc_table.push(row);
+                            } else {
+                                gpio_rcc_table.push(row);
+                                gpio_regs.insert(enable_reg.to_ascii_lowercase());
+                            }
                         }
-
-                        match (en, rst) {
-                            (Some((enable_reg, enable_field)), reset_reg_field) => {
-                                let clock = if clock_prefix.is_empty() {
-                                    let re = Regex::new("([A-Z]+\\d*).*").unwrap();
-                                    if !re.is_match(enable_reg) {
-                                        panic!(
-                                            "unable to derive clock name from register name {}",
-                                            enable_reg
-                                        );
-                                    } else {
-                                        let caps = re.captures(enable_reg).unwrap();
-                                        caps.get(1).unwrap().as_str()
-                                    }
-                                } else {
-                                    clock_prefix
-                                };
-
-                                let clock = if name.starts_with("TIM") {
-                                    format!("{}_tim", clock.to_ascii_lowercase())
-                                } else {
-                                    clock.to_ascii_lowercase()
-                                };
-
-                                let mut row = Vec::with_capacity(6);
-                                row.push(name.clone());
-                                row.push(clock);
-                                row.push(enable_reg.to_ascii_lowercase());
-
-                                if let Some((reset_reg, reset_field)) = reset_reg_field {
-                                    row.push(reset_reg.to_ascii_lowercase());
-                                    row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
-                                    row.push(format!("set_{}", reset_field.to_ascii_lowercase()));
-                                } else {
-                                    row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
-                                }
-
-                                if !name.starts_with("GPIO") {
-                                    peripheral_rcc_table.push(row);
-                                } else {
-                                    gpio_rcc_table.push(row);
-                                    gpio_regs.insert(enable_reg.to_ascii_lowercase());
-                                }
-                            }
-                            (None, Some(_)) => {
-                                println!("Unable to find enable register for {}", name)
-                            }
-                            (None, None) => {
-                                println!("Unable to find enable and reset register for {}", name)
-                            }
+                        (None, Some(_)) => {
+                            println!("Unable to find enable register for {}", name)
+                        }
+                        (None, None) => {
+                            println!("Unable to find enable and reset register for {}", name)
                         }
                     }
                 }
@@ -770,6 +752,6 @@ fn gen_memory_x(out_dir: &PathBuf, chip: &Chip) {
 
     fs::create_dir_all(out_dir.join("memory_x")).unwrap();
     let mut file = File::create(out_dir.join("memory_x").join("memory.x")).unwrap();
-    file.write_all( memory_x.as_bytes() ).unwrap();
+    file.write_all(memory_x.as_bytes()).unwrap();
 
 }
