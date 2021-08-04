@@ -121,27 +121,21 @@ fn find_reg_for_field<'c>(
     reg_regex: &str,
     field_name: &str,
 ) -> Option<(&'c str, &'c str)> {
-    rcc.fieldsets.iter().find_map(|(name, fieldset)| {
+    let reg_regex = Regex::new(reg_regex).unwrap();
+
+    for (name, fieldset) in &rcc.fieldsets {
         // Workaround for some families that prefix register aliases with C1_, which does
         // not help matching for clock name.
-        if name.starts_with("C1") || name.starts_with("C2") {
-            None
-        } else if Regex::new(reg_regex).unwrap().is_match(name) {
-            fieldset
-                .fields
-                .iter()
-                .find_map(|field| {
-                    if field_name == field.name {
-                        return Some(field.name.as_str());
-                    } else {
-                        None
-                    }
-                })
-                .map(|n| (name.as_str(), n))
-        } else {
-            None
+        if !name.starts_with("C1") && !name.starts_with("C2") && reg_regex.is_match(name) {
+            for field in &fieldset.fields {
+                if field_name == field.name {
+                    return Some((name.as_str(), field.name.as_str()));
+                }
+            }
         }
-    })
+    }
+
+    None
 }
 
 fn make_peripheral_counts(out: &mut String, data: &BTreeMap<String, u8>) {
