@@ -24,7 +24,6 @@ use embassy_stm32::eth::lan8742a::LAN8742A;
 use embassy_stm32::eth::{Ethernet, State};
 use embassy_stm32::rcc::{self, Rcc};
 use embassy_stm32::rng::Random;
-use embassy_stm32::time::Hertz;
 use embassy_stm32::time::U32Ext;
 use embassy_stm32::{interrupt, peripherals, Config};
 use heapless::Vec;
