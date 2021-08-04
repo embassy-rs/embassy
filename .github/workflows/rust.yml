@@ -122,7 +122,7 @@ jobs:
         with:
           toolchain: stable
       - name: Check fmt
-        run: for i in embassy-*; do (cd $i; cargo fmt -- --check); done
+        run: find -name '*.rs' | xargs rustfmt --check  --skip-children --unstable-features --edition 2018
 
   test:
     runs-on: ubuntu-latest
