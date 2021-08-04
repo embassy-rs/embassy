@@ -33,7 +33,7 @@ fn main() -> ! {
 
     let mut buf = [0u8; 1];
     loop {
-        usart.read(&mut buf).unwrap();
+        usart.read_blocking(&mut buf).unwrap();
         usart.bwrite_all(&buf).unwrap();
     }
 }

@@ -84,7 +84,23 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         Ok(())
     }
 
-    pub fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+    async fn read_dma(&mut self, buffer: &mut [u8]) -> Result<(), Error>
+    where
+        RxDma: crate::usart::RxDma<T>,
+    {
+        let ch = &mut self.rx_dma;
+        unsafe {
+            self.inner.regs().cr3().modify(|reg| {
+                reg.set_dmar(true);
+            });
+        }
+        let r = self.inner.regs();
+        let src = r.rdr().ptr() as *mut u8;
+        ch.read(ch.request(), src, buffer).await;
+        Ok(())
+    }
+
+    pub fn read_blocking(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         unsafe {
             let r = self.inner.regs();
             for b in buffer {
@@ -145,5 +161,17 @@ impl<'d, T: Instance, TxDma, RxDma> embassy_traits::uart::Write for Uart<'d, T, 
 
     fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
         self.write_dma(buf).map_err(|_| embassy_traits::uart::Error::Other)
+    }
+}
+
+// rustfmt::skip because intellij removes the 'where' claus on the associated type.
+#[rustfmt::skip]
+impl<'d, T: Instance, TxDma, RxDma> embassy_traits::uart::Read for Uart<'d, T, TxDma, RxDma>
+    where RxDma: crate::usart::RxDma<T>
+{
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), embassy_traits::uart::Error>>;
+
+    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        self.read_dma(buf).map_err(|_| embassy_traits::uart::Error::Other)
     }
 }
