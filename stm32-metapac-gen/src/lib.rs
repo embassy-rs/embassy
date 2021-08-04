@@ -447,11 +447,13 @@ pub fn gen(options: Options) {
                                 Some(clock) => clock.as_str(),
                                 None => {
                                     // No clock was specified, derive the clock name from the enable register name.
-                                    let re = Regex::new("([A-Z]+\\d*).*").unwrap();
-                                    let caps = re.captures(enable_reg).expect(
-                                        "unable to derive clock name from register name {}",
-                                    );
-                                    caps.get(1).unwrap().as_str()
+                                    Regex::new("([A-Z]+\\d*).*")
+                                        .unwrap()
+                                        .captures(enable_reg)
+                                        .unwrap()
+                                        .get(1)
+                                        .unwrap()
+                                        .as_str()
                                 }
                             };
 
