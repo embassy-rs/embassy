@@ -325,7 +325,7 @@ where
                 Ok(..) => Poll::Ready(Ok(())),
                 Err(TrySendError::Closed(m)) => Poll::Ready(Err(SendError(m))),
                 Err(TrySendError::Full(m)) => {
-                    self.message.insert(m);
+                    self.message = Some(m);
                     Poll::Pending
                 }
             },
