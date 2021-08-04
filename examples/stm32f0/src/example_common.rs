@@ -6,7 +6,6 @@ use panic_probe as _;
 pub use defmt::*;
 
 use core::sync::atomic::{AtomicUsize, Ordering};
-use embassy_stm32::rcc;
 use embassy_stm32::Config;
 
 pub fn config() -> Config {
