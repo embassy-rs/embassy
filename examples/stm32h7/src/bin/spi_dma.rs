@@ -56,7 +56,7 @@ fn main() -> ! {
         Dbgmcu::enable_all();
     }
 
-    let p = embassy_stm32::init( config() );
+    let p = embassy_stm32::init(config());
 
     let spi = spi::Spi::new(
         p.SPI3,
@@ -86,6 +86,6 @@ fn config() -> Config {
 fn rcc_config() -> rcc::Config {
     let mut config = rcc::Config::default();
     config.sys_ck = Some(400.mhz().into());
-    config.pll1.q_ck = Some( 100.mhz().into() );
+    config.pll1.q_ck = Some(100.mhz().into());
     config
 }

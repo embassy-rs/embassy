@@ -22,7 +22,7 @@ use embassy_stm32::Config;
 fn main() -> ! {
     info!("Hello World, dude!");
 
-    let p = embassy_stm32::init( config() );
+    let p = embassy_stm32::init(config());
 
     unsafe {
         Dbgmcu::enable_all();
@@ -62,6 +62,6 @@ fn config() -> Config {
 fn rcc_config() -> rcc::Config {
     let mut config = rcc::Config::default();
     config.sys_ck = Some(400.mhz().into());
-    config.pll1.q_ck = Some( 100.mhz().into() );
+    config.pll1.q_ck = Some(100.mhz().into());
     config
 }

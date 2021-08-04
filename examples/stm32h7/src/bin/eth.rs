@@ -163,6 +163,6 @@ fn config() -> Config {
 fn rcc_config() -> rcc::Config {
     let mut config = rcc::Config::default();
     config.sys_ck = Some(400.mhz().into());
-    config.pll1.q_ck = Some( 100.mhz().into() );
+    config.pll1.q_ck = Some(100.mhz().into());
     config
 }
