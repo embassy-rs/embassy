@@ -1,7 +1,7 @@
 use chiptool::generate::CommonModule;
 use regex::Regex;
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::fmt::Write as _;
 use std::fs;
@@ -39,9 +39,9 @@ pub struct MemoryRegion {
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
 pub struct Core {
     pub name: String,
-    pub peripherals: HashMap<String, Peripheral>,
-    pub interrupts: HashMap<String, u32>,
-    pub dma_channels: HashMap<String, DmaChannel>,
+    pub peripherals: BTreeMap<String, Peripheral>,
+    pub interrupts: BTreeMap<String, u32>,
+    pub dma_channels: BTreeMap<String, DmaChannel>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
@@ -62,9 +62,9 @@ pub struct Peripheral {
     #[serde(default)]
     pub pins: Vec<Pin>,
     #[serde(default)]
-    pub dma_channels: HashMap<String, Vec<PeripheralDmaChannel>>,
+    pub dma_channels: BTreeMap<String, Vec<PeripheralDmaChannel>>,
     #[serde(default)]
-    pub interrupts: HashMap<String, String>,
+    pub interrupts: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
@@ -118,33 +118,27 @@ impl BlockInfo {
 
 fn find_reg_for_field<'c>(
     rcc: &'c ir::IR,
-    reg_prefix: &str,
+    reg_regex: &str,
     field_name: &str,
 ) -> Option<(&'c str, &'c str)> {
-    rcc.fieldsets.iter().find_map(|(name, fieldset)| {
+    let reg_regex = Regex::new(reg_regex).unwrap();
+
+    for (name, fieldset) in &rcc.fieldsets {
         // Workaround for some families that prefix register aliases with C1_, which does
         // not help matching for clock name.
-        if name.starts_with("C1") || name.starts_with("C2") {
-            None
-        } else if name.starts_with(reg_prefix) {
-            fieldset
-                .fields
-                .iter()
-                .find_map(|field| {
-                    if field_name == field.name {
-                        return Some(field.name.as_str());
-                    } else {
-                        None
-                    }
-                })
-                .map(|n| (name.as_str(), n))
-        } else {
-            None
+        if !name.starts_with("C1") && !name.starts_with("C2") && reg_regex.is_match(name) {
+            for field in &fieldset.fields {
+                if field_name == field.name {
+                    return Some((name.as_str(), field.name.as_str()));
+                }
+            }
         }
-    })
+    }
+
+    None
 }
 
-fn make_peripheral_counts(out: &mut String, data: &HashMap<String, u8>) {
+fn make_peripheral_counts(out: &mut String, data: &BTreeMap<String, u8>) {
     write!(
         out,
         "#[macro_export]
@@ -158,7 +152,7 @@ macro_rules! peripheral_count {{
     write!(out, " }}\n").unwrap();
 }
 
-fn make_dma_channel_counts(out: &mut String, data: &HashMap<String, u8>) {
+fn make_dma_channel_counts(out: &mut String, data: &BTreeMap<String, u8>) {
     write!(
         out,
         "#[macro_export]
@@ -219,7 +213,7 @@ pub fn gen(options: Options) {
     println!("cwd: {:?}", env::current_dir());
 
     let mut all_peripheral_versions: HashSet<(String, String)> = HashSet::new();
-    let mut chip_cores: HashMap<String, Option<String>> = HashMap::new();
+    let mut chip_cores: BTreeMap<String, Option<String>> = BTreeMap::new();
 
     for chip_name in &options.chips {
         let mut s = chip_name.split('_');
@@ -291,7 +285,7 @@ pub fn gen(options: Options) {
             }
         });
 
-        let mut peripheral_versions: HashMap<String, String> = HashMap::new();
+        let mut peripheral_versions: BTreeMap<String, String> = BTreeMap::new();
         let mut pin_table: Vec<Vec<String>> = Vec::new();
         let mut interrupt_table: Vec<Vec<String>> = Vec::new();
         let mut peripherals_table: Vec<Vec<String>> = Vec::new();
@@ -299,8 +293,8 @@ pub fn gen(options: Options) {
         let mut peripheral_rcc_table: Vec<Vec<String>> = Vec::new();
         let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
         let mut peripheral_dma_channels_table: Vec<Vec<String>> = Vec::new();
-        let mut peripheral_counts: HashMap<String, u8> = HashMap::new();
-        let mut dma_channel_counts: HashMap<String, u8> = HashMap::new();
+        let mut peripheral_counts: BTreeMap<String, u8> = BTreeMap::new();
+        let mut dma_channel_counts: BTreeMap<String, u8> = BTreeMap::new();
         let mut dbgmcu_table: Vec<Vec<String>> = Vec::new();
         let mut gpio_rcc_table: Vec<Vec<String>> = Vec::new();
         let mut gpio_regs: HashSet<String> = HashSet::new();
@@ -429,86 +423,71 @@ pub fn gen(options: Options) {
                 }
 
                 if let Some(rcc) = &rcc {
-                    let clock_prefix: Option<&str> = if let Some(clock) = &p.clock {
-                        Some(clock)
-                    } else if name.starts_with("TIM") {
-                        // Not all peripherals like timers the clock hint due to insufficient information from
-                        // chip definition. If clock is not specified, the first matching register with the
-                        // expected field will be used.
-                        Some("")
-                    } else {
-                        None
-                    };
+                    // Workaround for clock registers being split on some chip families. Assume fields are
+                    // named after peripheral and look for first field matching and use that register.
+                    let mut en = find_reg_for_field(&rcc, "^.+ENR\\d*$", &format!("{}EN", name));
+                    let mut rst = find_reg_for_field(&rcc, "^.+RSTR\\d*$", &format!("{}RST", name));
 
-                    if let Some(clock_prefix) = clock_prefix {
-                        // Workaround for clock registers being split on some chip families. Assume fields are
-                        // named after peripheral and look for first field matching and use that register.
-                        let mut en = find_reg_for_field(&rcc, clock_prefix, &format!("{}EN", name));
-                        let mut rst =
-                            find_reg_for_field(&rcc, clock_prefix, &format!("{}RST", name));
+                    if en.is_none() && name.ends_with("1") {
+                        en = find_reg_for_field(
+                            &rcc,
+                            "^.+ENR\\d*$",
+                            &format!("{}EN", &name[..name.len() - 1]),
+                        );
+                        rst = find_reg_for_field(
+                            &rcc,
+                            "^.+RSTR\\d*$",
+                            &format!("{}RST", &name[..name.len() - 1]),
+                        );
+                    }
 
-                        if en.is_none() && name.ends_with("1") {
-                            en = find_reg_for_field(
-                                &rcc,
-                                clock_prefix,
-                                &format!("{}EN", &name[..name.len() - 1]),
-                            );
-                            rst = find_reg_for_field(
-                                &rcc,
-                                clock_prefix,
-                                &format!("{}RST", &name[..name.len() - 1]),
-                            );
+                    match (en, rst) {
+                        (Some((enable_reg, enable_field)), reset_reg_field) => {
+                            let clock = match &p.clock {
+                                Some(clock) => clock.as_str(),
+                                None => {
+                                    // No clock was specified, derive the clock name from the enable register name.
+                                    Regex::new("([A-Z]+\\d*).*")
+                                        .unwrap()
+                                        .captures(enable_reg)
+                                        .unwrap()
+                                        .get(1)
+                                        .unwrap()
+                                        .as_str()
+                                }
+                            };
+
+                            let clock = if name.starts_with("TIM") {
+                                format!("{}_tim", clock.to_ascii_lowercase())
+                            } else {
+                                clock.to_ascii_lowercase()
+                            };
+
+                            let mut row = Vec::with_capacity(6);
+                            row.push(name.clone());
+                            row.push(clock);
+                            row.push(enable_reg.to_ascii_lowercase());
+
+                            if let Some((reset_reg, reset_field)) = reset_reg_field {
+                                row.push(reset_reg.to_ascii_lowercase());
+                                row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
+                                row.push(format!("set_{}", reset_field.to_ascii_lowercase()));
+                            } else {
+                                row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
+                            }
+
+                            if !name.starts_with("GPIO") {
+                                peripheral_rcc_table.push(row);
+                            } else {
+                                gpio_rcc_table.push(row);
+                                gpio_regs.insert(enable_reg.to_ascii_lowercase());
+                            }
                         }
-
-                        match (en, rst) {
-                            (Some((enable_reg, enable_field)), reset_reg_field) => {
-                                let clock = if clock_prefix.is_empty() {
-                                    let re = Regex::new("([A-Z]+\\d*).*").unwrap();
-                                    if !re.is_match(enable_reg) {
-                                        panic!(
-                                            "unable to derive clock name from register name {}",
-                                            enable_reg
-                                        );
-                                    } else {
-                                        let caps = re.captures(enable_reg).unwrap();
-                                        caps.get(1).unwrap().as_str()
-                                    }
-                                } else {
-                                    clock_prefix
-                                };
-
-                                let clock = if name.starts_with("TIM") {
-                                    format!("{}_tim", clock.to_ascii_lowercase())
-                                } else {
-                                    clock.to_ascii_lowercase()
-                                };
-
-                                let mut row = Vec::with_capacity(6);
-                                row.push(name.clone());
-                                row.push(clock);
-                                row.push(enable_reg.to_ascii_lowercase());
-
-                                if let Some((reset_reg, reset_field)) = reset_reg_field {
-                                    row.push(reset_reg.to_ascii_lowercase());
-                                    row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
-                                    row.push(format!("set_{}", reset_field.to_ascii_lowercase()));
-                                } else {
-                                    row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
-                                }
-
-                                if !name.starts_with("GPIO") {
-                                    peripheral_rcc_table.push(row);
-                                } else {
-                                    gpio_rcc_table.push(row);
-                                    gpio_regs.insert(enable_reg.to_ascii_lowercase());
-                                }
-                            }
-                            (None, Some(_)) => {
-                                print!("Unable to find enable register for {}", name)
-                            }
-                            (None, None) => {
-                                print!("Unable to find enable and reset register for {}", name)
-                            }
+                        (None, Some(_)) => {
+                            println!("Unable to find enable register for {}", name)
+                        }
+                        (None, None) => {
+                            println!("Unable to find enable and reset register for {}", name)
                         }
                     }
                 }
@@ -689,7 +668,6 @@ pub fn gen(options: Options) {
         let re = Regex::new("# *! *\\[.*\\]").unwrap();
         let data = re.replace_all(&data, "");
         file.write_all(data.as_bytes()).unwrap();
-
     }
 
     // Generate src/lib_inner.rs
@@ -750,7 +728,6 @@ pub fn gen(options: Options) {
 
     // Generate build.rs
     fs::write(out_dir.join("build.rs"), include_bytes!("assets/build.rs")).unwrap();
-
 }
 
 fn bytes_find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -762,19 +739,40 @@ fn bytes_find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 fn gen_memory_x(out_dir: &PathBuf, chip: &Chip) {
     let mut memory_x = String::new();
 
-    let flash_bytes = chip.flash.regions.get("BANK_1").unwrap().bytes.unwrap_or(chip.flash.bytes);
+    let flash_bytes = chip
+        .flash
+        .regions
+        .get("BANK_1")
+        .unwrap()
+        .bytes
+        .unwrap_or(chip.flash.bytes);
     let flash_origin = chip.flash.regions.get("BANK_1").unwrap().base;
 
-    let ram_bytes = chip.ram.regions.get("SRAM").unwrap().bytes.unwrap_or(chip.ram.bytes);
+    let ram_bytes = chip
+        .ram
+        .regions
+        .get("SRAM")
+        .unwrap()
+        .bytes
+        .unwrap_or(chip.ram.bytes);
     let ram_origin = chip.ram.regions.get("SRAM").unwrap().base;
 
     write!(memory_x, "MEMORY\n{{\n").unwrap();
-    write!(memory_x, "    FLASH : ORIGIN = 0x{:x}, LENGTH = {}\n", flash_origin, flash_bytes).unwrap();
-    write!(memory_x, "    RAM : ORIGIN = 0x{:x}, LENGTH = {}\n", ram_origin, ram_bytes).unwrap();
+    write!(
+        memory_x,
+        "    FLASH : ORIGIN = 0x{:x}, LENGTH = {}\n",
+        flash_origin, flash_bytes
+    )
+    .unwrap();
+    write!(
+        memory_x,
+        "    RAM : ORIGIN = 0x{:x}, LENGTH = {}\n",
+        ram_origin, ram_bytes
+    )
+    .unwrap();
     write!(memory_x, "}}").unwrap();
 
     fs::create_dir_all(out_dir.join("memory_x")).unwrap();
     let mut file = File::create(out_dir.join("memory_x").join("memory.x")).unwrap();
-    file.write_all( memory_x.as_bytes() ).unwrap();
-
+    file.write_all(memory_x.as_bytes()).unwrap();
 }
