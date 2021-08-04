@@ -22,4 +22,3 @@ defmt::timestamp! {"{=u64}", {
         n as u64
     }
 }
-
