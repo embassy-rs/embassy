@@ -17,7 +17,22 @@ use crate::rcc::sealed::RccPeripheral;
 use self::sealed::Instance as _;
 
 const ALARM_COUNT: usize = 3;
+
+#[cfg(feature = "time-driver-tim2")]
+type T = peripherals::TIM2;
+#[cfg(feature = "time-driver-tim3")]
 type T = peripherals::TIM3;
+
+#[cfg(feature = "time-driver-tim2")]
+#[interrupt]
+fn TIM2() {
+    STATE.on_interrupt()
+}
+#[cfg(feature = "time-driver-tim3")]
+#[interrupt]
+fn TIM3() {
+    STATE.on_interrupt()
+}
 
 // Clock timekeeping works with something we call "periods", which are time intervals
 // of 2^15 ticks. The Clock counter value is 16 bits, so one "overflow cycle" is 2 periods.
@@ -273,11 +288,6 @@ impl Driver for RtcDriver {
     fn set_alarm(alarm: AlarmHandle, timestamp: u64) {
         STATE.set_alarm(alarm, timestamp)
     }
-}
-
-#[interrupt]
-fn TIM3() {
-    STATE.on_interrupt()
 }
 
 pub(crate) fn init() {
