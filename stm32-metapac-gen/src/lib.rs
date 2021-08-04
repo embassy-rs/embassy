@@ -446,8 +446,8 @@ pub fn gen(options: Options) {
                             let clock = match &p.clock {
                                 Some(clock) => clock.as_str(),
                                 None => {
-                                // No clock was specified, derive the clock name from the enable register name.
-                                let re = Regex::new("([A-Z]+\\d*).*").unwrap();
+                                    // No clock was specified, derive the clock name from the enable register name.
+                                    let re = Regex::new("([A-Z]+\\d*).*").unwrap();
                                     let caps = re.captures(enable_reg).expect(
                                         "unable to derive clock name from register name {}",
                                     );
@@ -666,7 +666,6 @@ pub fn gen(options: Options) {
         let re = Regex::new("# *! *\\[.*\\]").unwrap();
         let data = re.replace_all(&data, "");
         file.write_all(data.as_bytes()).unwrap();
-
     }
 
     // Generate src/lib_inner.rs
@@ -727,7 +726,6 @@ pub fn gen(options: Options) {
 
     // Generate build.rs
     fs::write(out_dir.join("build.rs"), include_bytes!("assets/build.rs")).unwrap();
-
 }
 
 fn bytes_find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -739,19 +737,40 @@ fn bytes_find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 fn gen_memory_x(out_dir: &PathBuf, chip: &Chip) {
     let mut memory_x = String::new();
 
-    let flash_bytes = chip.flash.regions.get("BANK_1").unwrap().bytes.unwrap_or(chip.flash.bytes);
+    let flash_bytes = chip
+        .flash
+        .regions
+        .get("BANK_1")
+        .unwrap()
+        .bytes
+        .unwrap_or(chip.flash.bytes);
     let flash_origin = chip.flash.regions.get("BANK_1").unwrap().base;
 
-    let ram_bytes = chip.ram.regions.get("SRAM").unwrap().bytes.unwrap_or(chip.ram.bytes);
+    let ram_bytes = chip
+        .ram
+        .regions
+        .get("SRAM")
+        .unwrap()
+        .bytes
+        .unwrap_or(chip.ram.bytes);
     let ram_origin = chip.ram.regions.get("SRAM").unwrap().base;
 
     write!(memory_x, "MEMORY\n{{\n").unwrap();
-    write!(memory_x, "    FLASH : ORIGIN = 0x{:x}, LENGTH = {}\n", flash_origin, flash_bytes).unwrap();
-    write!(memory_x, "    RAM : ORIGIN = 0x{:x}, LENGTH = {}\n", ram_origin, ram_bytes).unwrap();
+    write!(
+        memory_x,
+        "    FLASH : ORIGIN = 0x{:x}, LENGTH = {}\n",
+        flash_origin, flash_bytes
+    )
+    .unwrap();
+    write!(
+        memory_x,
+        "    RAM : ORIGIN = 0x{:x}, LENGTH = {}\n",
+        ram_origin, ram_bytes
+    )
+    .unwrap();
     write!(memory_x, "}}").unwrap();
 
     fs::create_dir_all(out_dir.join("memory_x")).unwrap();
     let mut file = File::create(out_dir.join("memory_x").join("memory.x")).unwrap();
     file.write_all(memory_x.as_bytes()).unwrap();
-
 }
