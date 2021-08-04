@@ -18,12 +18,10 @@ use embassy_stm32::Peripherals;
 mod example_common;
 
 fn config() -> Config {
-    let mut rcc_config = RccConfig::default();
-    rcc_config.sys_ck = Some(Hertz(84_000_000));
-    rcc_config.enable_debug_wfe = true;
-
     let mut config = Config::default();
     config.rcc = rcc_config;
+    config.rcc.sys_ck = Some(Hertz(84_000_000));
+    config.rcc.enable_debug_wfe = true;
     config
 }
 
