@@ -22,6 +22,7 @@ use embassy_net::{
     Config as NetConfig, Ipv4Address, Ipv4Cidr, StackResources, StaticConfigurator, TcpSocket,
 };
 use embassy_stm32::clock::{Alarm, Clock};
+use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::eth::lan8742a::LAN8742A;
 use embassy_stm32::eth::{Ethernet, State};
 use embassy_stm32::rng::Random;
@@ -29,7 +30,6 @@ use embassy_stm32::{interrupt, peripherals};
 use heapless::Vec;
 use panic_probe as _;
 use peripherals::{RNG, TIM2};
-use embassy_stm32::dbgmcu::Dbgmcu;
 
 #[embassy::task]
 async fn main_task(

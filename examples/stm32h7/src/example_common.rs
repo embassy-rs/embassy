@@ -6,8 +6,8 @@ use panic_probe as _;
 pub use defmt::*;
 
 use core::sync::atomic::{AtomicUsize, Ordering};
-use embassy_stm32::Config;
 use embassy_stm32::time::U32Ext;
+use embassy_stm32::Config;
 
 defmt::timestamp! {"{=u64}", {
         static COUNT: AtomicUsize = AtomicUsize::new(0);

@@ -74,5 +74,3 @@ fn main() -> ! {
         unwrap!(spawner.spawn(main_task(spi)));
     })
 }
-
-
