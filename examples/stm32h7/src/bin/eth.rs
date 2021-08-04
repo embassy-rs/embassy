@@ -4,7 +4,9 @@
 #![feature(trait_alias)]
 #![feature(type_alias_impl_trait)]
 
-use core::sync::atomic::{AtomicUsize, Ordering};
+#[path = "../example_common.rs"]
+mod example_common;
+use example_common::config;
 
 use cortex_m_rt::entry;
 use defmt::{info, unwrap};
@@ -18,24 +20,14 @@ use embassy_net::{
     Config as NetConfig, Ipv4Address, Ipv4Cidr, StackResources, StaticConfigurator, TcpSocket,
 };
 use embassy_stm32::clock::{Alarm, Clock};
+use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::eth::lan8742a::LAN8742A;
 use embassy_stm32::eth::{Ethernet, State};
-use embassy_stm32::rcc::{Config as RccConfig, Rcc};
 use embassy_stm32::rng::Random;
-use embassy_stm32::time::Hertz;
-use embassy_stm32::{interrupt, peripherals, Config};
+use embassy_stm32::{interrupt, peripherals};
 use heapless::Vec;
 use panic_probe as _;
 use peripherals::{RNG, TIM2};
-
-defmt::timestamp! {"{=u64}", {
-        static COUNT: AtomicUsize = AtomicUsize::new(0);
-        // NOTE(no-CAS) `timestamps` runs with interrupts disabled
-        let n = COUNT.load(Ordering::Relaxed);
-        COUNT.store(n + 1, Ordering::Relaxed);
-        n as u64
-    }
-}
 
 #[embassy::task]
 async fn main_task(
@@ -106,17 +98,12 @@ fn main() -> ! {
     info!("Hello World!");
 
     info!("Setup RCC...");
-    let mut rcc_config = RccConfig::default();
-    rcc_config.sys_ck = Some(Hertz(400_000_000));
-    rcc_config.pll1.q_ck = Some(Hertz(100_000_000));
-    let config = Config::default().rcc(rcc_config);
 
-    let mut p = embassy_stm32::init(config);
+    unsafe {
+        Dbgmcu::enable_all();
+    }
 
-    // Constrain and Freeze clock
-
-    let mut rcc = Rcc::new(&mut p.RCC, RccConfig::default());
-    rcc.enable_debug_wfe(&mut p.DBGMCU, true);
+    let p = embassy_stm32::init(config());
 
     let rtc_int = interrupt_take!(TIM2);
     let rtc = TIMER_RTC.put(Clock::new(p.TIM2, rtc_int));

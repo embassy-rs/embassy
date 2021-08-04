@@ -12,17 +12,12 @@ use example_common::*;
 
 use cortex_m_rt::entry;
 use embassy_stm32::dac::{Channel, Dac, Value};
-use embassy_stm32::rcc;
-use embassy_stm32::time::U32Ext;
-use embassy_stm32::Config;
 
 #[entry]
 fn main() -> ! {
     info!("Hello World, dude!");
 
-    let p = embassy_stm32::init(
-        Config::default().rcc(rcc::Config::default().sys_ck(400.mhz()).pll1_q(100.mhz())),
-    );
+    let p = embassy_stm32::init(config());
 
     unsafe {
         Dbgmcu::enable_all();

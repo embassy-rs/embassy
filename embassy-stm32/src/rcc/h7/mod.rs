@@ -68,83 +68,7 @@ pub struct Config {
     pub pll1: PllConfig,
     pub pll2: PllConfig,
     pub pll3: PllConfig,
-}
-
-impl Config {
-    pub fn sys_ck<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.sys_ck = Some(freq.into());
-        self
-    }
-
-    pub fn per_ck<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.per_ck = Some(freq.into());
-        self
-    }
-
-    pub fn pclk1<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.pclk1 = Some(freq.into());
-        self
-    }
-
-    pub fn pclk2<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.pclk2 = Some(freq.into());
-        self
-    }
-
-    pub fn pclk3<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.pclk3 = Some(freq.into());
-        self
-    }
-
-    pub fn pclk4<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.pclk4 = Some(freq.into());
-        self
-    }
-
-    pub fn pll1_p<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.pll1.p_ck = Some(freq.into());
-        self
-    }
-
-    pub fn pll1_q<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.pll1.q_ck = Some(freq.into());
-        self
-    }
-
-    pub fn pll1_r<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.pll1.r_ck = Some(freq.into());
-        self
-    }
-
-    pub fn pll2_p<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.pll2.p_ck = Some(freq.into());
-        self
-    }
-
-    pub fn pll2_q<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.pll2.q_ck = Some(freq.into());
-        self
-    }
-
-    pub fn pll2_r<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.pll2.r_ck = Some(freq.into());
-        self
-    }
-
-    pub fn pll3_p<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.pll3.p_ck = Some(freq.into());
-        self
-    }
-
-    pub fn pll3_q<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.pll3.q_ck = Some(freq.into());
-        self
-    }
-
-    pub fn pll3_r<T: Into<Hertz>>(mut self, freq: T) -> Self {
-        self.pll3.r_ck = Some(freq.into());
-        self
-    }
+    pub enable_dma1: bool,
 }
 
 pub struct Rcc<'d> {
@@ -401,6 +325,10 @@ impl<'d> Rcc<'d> {
                 })
             });
             while !SYSCFG.cccsr().read().ready() {}
+
+            if self.config.enable_dma1 {
+                RCC.ahb1enr().modify(|w| w.set_dma1en(true));
+            }
 
             CoreClocks {
                 hclk: Hertz(rcc_hclk),

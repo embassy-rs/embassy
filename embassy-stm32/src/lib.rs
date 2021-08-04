@@ -65,14 +65,7 @@ pub use generated::{peripherals, Peripherals};
 
 #[non_exhaustive]
 pub struct Config {
-    rcc: rcc::Config,
-}
-
-impl Config {
-    pub fn rcc(mut self, rcc: rcc::Config) -> Self {
-        self.rcc = rcc;
-        self
-    }
+    pub rcc: rcc::Config,
 }
 
 impl Default for Config {

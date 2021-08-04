@@ -6,6 +6,7 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
+
 use core::fmt::Write;
 use embassy::executor::Executor;
 use embassy::time::Clock;
@@ -18,9 +19,7 @@ use core::str::from_utf8;
 use cortex_m_rt::entry;
 use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::peripherals::{DMA1_CH3, DMA1_CH4, SPI3};
-use embassy_stm32::rcc;
 use embassy_stm32::spi;
-use embassy_stm32::Config;
 use heapless::String;
 
 #[embassy::task]
@@ -53,9 +52,7 @@ fn main() -> ! {
         Dbgmcu::enable_all();
     }
 
-    let p = embassy_stm32::init(
-        Config::default().rcc(rcc::Config::default().sys_ck(400.mhz()).pll1_q(100.mhz())),
-    );
+    let p = embassy_stm32::init(config());
 
     let spi = spi::Spi::new(
         p.SPI3,
