@@ -14,9 +14,6 @@ use example_common::*;
 
 use cortex_m_rt::entry;
 use embassy_stm32::dac::{Channel, Dac, Value};
-use embassy_stm32::rcc;
-use embassy_stm32::time::U32Ext;
-use embassy_stm32::Config;
 
 #[entry]
 fn main() -> ! {
@@ -51,17 +48,4 @@ fn to_sine_wave(v: u8) -> u8 {
         let r = 3.14 + 3.14 * (v as f32 / 128.0);
         (r.sin() * 128.0 + 127.0) as u8
     }
-}
-
-fn config() -> Config {
-    let mut config = Config::default();
-    config.rcc = rcc_config();
-    config
-}
-
-fn rcc_config() -> rcc::Config {
-    let mut config = rcc::Config::default();
-    config.sys_ck = Some(400.mhz().into());
-    config.pll1.q_ck = Some(100.mhz().into());
-    config
 }

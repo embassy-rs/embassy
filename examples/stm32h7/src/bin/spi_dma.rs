@@ -21,9 +21,7 @@ use core::str::from_utf8;
 use cortex_m_rt::entry;
 use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::peripherals::{DMA1_CH3, DMA1_CH4, SPI3};
-use embassy_stm32::rcc;
 use embassy_stm32::spi;
-use embassy_stm32::Config;
 use heapless::String;
 
 #[embassy::task]
@@ -77,15 +75,4 @@ fn main() -> ! {
     })
 }
 
-fn config() -> Config {
-    let mut config = Config::default();
-    config.rcc = rcc_config();
-    config
-}
 
-fn rcc_config() -> rcc::Config {
-    let mut config = rcc::Config::default();
-    config.sys_ck = Some(400.mhz().into());
-    config.pll1.q_ck = Some(100.mhz().into());
-    config
-}

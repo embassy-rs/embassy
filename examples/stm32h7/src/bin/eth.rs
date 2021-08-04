@@ -6,7 +6,9 @@
 #![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
 
-use core::sync::atomic::{AtomicUsize, Ordering};
+#[path = "../example_common.rs"]
+mod example_common;
+use example_common::config;
 
 use cortex_m_rt::entry;
 use defmt::{info, unwrap};
@@ -22,22 +24,12 @@ use embassy_net::{
 use embassy_stm32::clock::{Alarm, Clock};
 use embassy_stm32::eth::lan8742a::LAN8742A;
 use embassy_stm32::eth::{Ethernet, State};
-use embassy_stm32::rcc::{self, Rcc};
 use embassy_stm32::rng::Random;
-use embassy_stm32::time::U32Ext;
-use embassy_stm32::{interrupt, peripherals, Config};
+use embassy_stm32::{interrupt, peripherals};
 use heapless::Vec;
 use panic_probe as _;
 use peripherals::{RNG, TIM2};
-
-defmt::timestamp! {"{=u64}", {
-        static COUNT: AtomicUsize = AtomicUsize::new(0);
-        // NOTE(no-CAS) `timestamps` runs with interrupts disabled
-        let n = COUNT.load(Ordering::Relaxed);
-        COUNT.store(n + 1, Ordering::Relaxed);
-        n as u64
-    }
-}
+use embassy_stm32::dbgmcu::Dbgmcu;
 
 #[embassy::task]
 async fn main_task(
@@ -108,12 +100,12 @@ fn main() -> ! {
     info!("Hello World!");
 
     info!("Setup RCC...");
-    let mut p = embassy_stm32::init(config());
 
-    // Constrain and Freeze clock
+    unsafe {
+        Dbgmcu::enable_all();
+    }
 
-    let mut rcc = Rcc::new(&mut p.RCC, rcc::Config::default());
-    rcc.enable_debug_wfe(&mut p.DBGMCU, true);
+    let p = embassy_stm32::init(config());
 
     let rtc_int = interrupt_take!(TIM2);
     let rtc = TIMER_RTC.put(Clock::new(p.TIM2, rtc_int));
@@ -151,17 +143,4 @@ fn main() -> ! {
     executor.run(move |spawner| {
         unwrap!(spawner.spawn(main_task(eth, config, spawner)));
     })
-}
-
-fn config() -> Config {
-    let mut config = Config::default();
-    config.rcc = rcc_config();
-    config
-}
-
-fn rcc_config() -> rcc::Config {
-    let mut config = rcc::Config::default();
-    config.sys_ck = Some(400.mhz().into());
-    config.pll1.q_ck = Some(100.mhz().into());
-    config
 }

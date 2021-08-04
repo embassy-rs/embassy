@@ -14,9 +14,7 @@ use embassy::executor::Executor;
 use embassy::time::Clock;
 use embassy::util::Forever;
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::rcc;
 use embassy_stm32::spi;
-use embassy_stm32::Config;
 use embedded_hal::blocking::spi::Transfer;
 use example_common::*;
 
@@ -81,15 +79,3 @@ fn main() -> ! {
     })
 }
 
-fn config() -> Config {
-    let mut config = Config::default();
-    config.rcc = rcc_config();
-    config
-}
-
-fn rcc_config() -> rcc::Config {
-    let mut config = rcc::Config::default();
-    config.sys_ck = Some(400.mhz().into());
-    config.pll1.q_ck = Some(100.mhz().into());
-    config
-}
