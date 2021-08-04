@@ -22,9 +22,7 @@ use embassy_stm32::Config;
 fn main() -> ! {
     info!("Hello World, dude!");
 
-    let p = embassy_stm32::init(
-        Config::default().rcc(rcc::Config::default().sys_ck(400.mhz()).pll1_q(100.mhz())),
-    );
+    let p = embassy_stm32::init( config() );
 
     unsafe {
         Dbgmcu::enable_all();
@@ -53,4 +51,17 @@ fn to_sine_wave(v: u8) -> u8 {
         let r = 3.14 + 3.14 * (v as f32 / 128.0);
         (r.sin() * 128.0 + 127.0) as u8
     }
+}
+
+fn config() -> Config {
+    let mut config = Config::default();
+    config.rcc = rcc_config();
+    config
+}
+
+fn rcc_config() -> rcc::Config {
+    let mut config = rcc::Config::default();
+    config.sys_ck = Some(400.mhz().into());
+    config.pll1.q_ck = Some( 100.mhz().into() );
+    config
 }

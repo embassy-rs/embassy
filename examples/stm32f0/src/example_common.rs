@@ -12,7 +12,9 @@ use embassy_stm32::Config;
 pub fn config() -> Config {
     let mut rcc_config = rcc::Config::default();
     rcc_config.enable_debug_wfe = true;
-    Config::default().rcc(rcc_config)
+    let mut config = Config::default();
+    config.rcc = rcc_config;
+    config
 }
 
 defmt::timestamp! {"{=u64}", {

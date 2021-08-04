@@ -22,9 +22,10 @@ use embassy_net::{
 use embassy_stm32::clock::{Alarm, Clock};
 use embassy_stm32::eth::lan8742a::LAN8742A;
 use embassy_stm32::eth::{Ethernet, State};
-use embassy_stm32::rcc::{Config as RccConfig, Rcc};
+use embassy_stm32::rcc::{self, Rcc};
 use embassy_stm32::rng::Random;
 use embassy_stm32::time::Hertz;
+use embassy_stm32::time::U32Ext;
 use embassy_stm32::{interrupt, peripherals, Config};
 use heapless::Vec;
 use panic_probe as _;
@@ -108,16 +109,11 @@ fn main() -> ! {
     info!("Hello World!");
 
     info!("Setup RCC...");
-    let mut rcc_config = RccConfig::default();
-    rcc_config.sys_ck = Some(Hertz(400_000_000));
-    rcc_config.pll1.q_ck = Some(Hertz(100_000_000));
-    let config = Config::default().rcc(rcc_config);
-
-    let mut p = embassy_stm32::init(config);
+    let mut p = embassy_stm32::init(config());
 
     // Constrain and Freeze clock
 
-    let mut rcc = Rcc::new(&mut p.RCC, RccConfig::default());
+    let mut rcc = Rcc::new(&mut p.RCC, rcc::Config::default());
     rcc.enable_debug_wfe(&mut p.DBGMCU, true);
 
     let rtc_int = interrupt_take!(TIM2);
@@ -156,4 +152,17 @@ fn main() -> ! {
     executor.run(move |spawner| {
         unwrap!(spawner.spawn(main_task(eth, config, spawner)));
     })
+}
+
+fn config() -> Config {
+    let mut config = Config::default();
+    config.rcc = rcc_config();
+    config
+}
+
+fn rcc_config() -> rcc::Config {
+    let mut config = rcc::Config::default();
+    config.sys_ck = Some(400.mhz().into());
+    config.pll1.q_ck = Some( 100.mhz().into() );
+    config
 }

@@ -22,7 +22,9 @@ fn config() -> Config {
     rcc_config.sys_ck = Some(Hertz(84_000_000));
     rcc_config.enable_debug_wfe = true;
 
-    Config::default().rcc(rcc_config)
+    let mut config = Config::default();
+    config.rcc = rcc_config;
+    config
 }
 
 #[embassy::main(config = "config()")]
