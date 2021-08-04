@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
 #![feature(trait_alias)]
-#![feature(min_type_alias_impl_trait)]
-#![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
 #![allow(incomplete_features)]
 
