@@ -34,7 +34,7 @@ async fn main_task() {
 
     let mut buf = [0u8; 1];
     loop {
-        usart.bread(&mut buf).unwrap();
+        usart.read_blocking(&mut buf).unwrap();
         usart.bwrite_all(&buf).unwrap();
     }
 }

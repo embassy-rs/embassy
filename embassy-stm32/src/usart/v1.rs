@@ -96,7 +96,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         Ok(())
     }
 
-    pub fn bread(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+    pub fn read_blocking(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         unsafe {
             let r = self.inner.regs();
             for b in buffer {
