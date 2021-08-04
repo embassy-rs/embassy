@@ -84,7 +84,7 @@ impl<T: Instance> CryptoRng for Random<T> {}
 impl<T: Instance> traits::rng::Rng for Random<T> {
     type Error = Error;
     #[rustfmt::skip]
-    type RngFuture<'a> where Self: 'a = impl Future<Output=Result<(), Self::Error>>;
+    type RngFuture<'a> where Self: 'a = impl Future<Output=Result<(), Self::Error>> + 'a;
 
     fn fill_bytes<'a>(&'a mut self, dest: &'a mut [u8]) -> Self::RngFuture<'a> {
         unsafe {

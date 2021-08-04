@@ -157,7 +157,7 @@ impl<'d, T: Instance, RxDma> embedded_hal::blocking::serial::Write<u8>
 impl<'d, T: Instance, TxDma, RxDma> embassy_traits::uart::Write for Uart<'d, T, TxDma, RxDma>
     where TxDma: crate::usart::TxDma<T>
 {
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), embassy_traits::uart::Error>>;
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), embassy_traits::uart::Error>> + 'a;
 
     fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
         self.write_dma(buf).map_err(|_| embassy_traits::uart::Error::Other)
@@ -169,7 +169,7 @@ impl<'d, T: Instance, TxDma, RxDma> embassy_traits::uart::Write for Uart<'d, T, 
 impl<'d, T: Instance, TxDma, RxDma> embassy_traits::uart::Read for Uart<'d, T, TxDma, RxDma>
     where RxDma: crate::usart::RxDma<T>
 {
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), embassy_traits::uart::Error>>;
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), embassy_traits::uart::Error>> + 'a;
 
     fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
         self.read_dma(buf).map_err(|_| embassy_traits::uart::Error::Other)

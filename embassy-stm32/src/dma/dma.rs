@@ -165,8 +165,8 @@ pac::dma_channels! {
         impl crate::dma::sealed::Channel for crate::peripherals::$channel_peri {}
         impl Channel for crate::peripherals::$channel_peri
         {
-            type ReadFuture<'a> = impl Future<Output = ()>;
-            type WriteFuture<'a> = impl Future<Output = ()>;
+            type ReadFuture<'a> = impl Future<Output = ()> + 'a;
+            type WriteFuture<'a> = impl Future<Output = ()> + 'a;
 
             fn read<'a>(
                 &'a mut self,
