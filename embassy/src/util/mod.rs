@@ -3,7 +3,6 @@ mod drop_bomb;
 mod forever;
 mod mutex;
 mod on_drop;
-mod portal;
 mod signal;
 
 #[cfg_attr(feature = "executor-agnostic", path = "waker_agnostic.rs")]
@@ -14,7 +13,6 @@ pub use forever::*;
 pub mod mpsc;
 pub use mutex::*;
 pub use on_drop::*;
-pub use portal::*;
 pub use signal::*;
 pub use waker::*;
 
