@@ -110,7 +110,10 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
         quote!(impl ::core::future::Future + 'static)
     };
 
+    let attrs = &task_fn.attrs;
+
     let result = quote! {
+        #(#attrs)*
         #visibility fn #name(#args) -> #embassy_path::executor::SpawnToken<#impl_ty> {
             use #embassy_path::executor::raw::Task;
             #task_fn
