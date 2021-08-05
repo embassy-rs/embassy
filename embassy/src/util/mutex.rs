@@ -82,9 +82,7 @@ impl<T> ThreadModeMutex<T> {
             inner: UnsafeCell::new(value),
         }
     }
-}
 
-impl<T> ThreadModeMutex<T> {
     /// Borrows the data
     pub fn borrow(&self) -> &T {
         assert!(
@@ -104,6 +102,21 @@ impl<T> Mutex for ThreadModeMutex<T> {
 
     fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R {
         f(self.borrow())
+    }
+}
+
+impl<T> Drop for ThreadModeMutex<T> {
+    fn drop(&mut self) {
+        // Only allow dropping from thread mode. Dropping calls drop on the inner `T`, so
+        // `drop` needs the same guarantees as `lock`. `ThreadModeMutex<T>` is Send even if
+        // T isn't, so without this check a user could create a ThreadModeMutex in thread mode,
+        // send it to interrupt context and drop it there, which would "send" a T even if T is not Send.
+        assert!(
+            in_thread_mode(),
+            "ThreadModeMutex can only be dropped from thread mode."
+        );
+
+        // Drop of the inner `T` happens after this.
     }
 }
 
