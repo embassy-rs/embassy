@@ -208,10 +208,7 @@ impl State {
         critical_section::with(|cs| {
             let alarm = self.get_alarm(cs, alarm);
 
-            // safety: it's OK to transmute a fn pointer into a raw pointer
-            let callback_ptr: *const () = unsafe { mem::transmute(callback) };
-
-            alarm.callback.set(callback_ptr);
+            alarm.callback.set(callback as *const ());
             alarm.ctx.set(ctx);
         })
     }
