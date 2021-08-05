@@ -35,19 +35,19 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     .await;
 
     let mut id = [1; 3];
-    q.custom_instruction(0x9F, &[], &mut id).await.unwrap();
+    unwrap!(q.custom_instruction(0x9F, &[], &mut id).await);
     info!("id: {}", id);
 
     // Read status register
     let mut status = [4; 1];
-    q.custom_instruction(0x05, &[], &mut status).await.unwrap();
+    unwrap!(q.custom_instruction(0x05, &[], &mut status).await);
 
     info!("status: {:?}", status[0]);
 
     if status[0] & 0x40 == 0 {
         status[0] |= 0x40;
 
-        q.custom_instruction(0x01, &status, &mut []).await.unwrap();
+        unwrap!(q.custom_instruction(0x01, &status, &mut []).await);
 
         info!("enabled quad in status");
     }
@@ -58,19 +58,19 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     for i in 0..8 {
         info!("page {:?}: erasing... ", i);
-        q.erase(i * PAGE_SIZE).await.unwrap();
+        unwrap!(q.erase(i * PAGE_SIZE).await);
 
         for j in 0..PAGE_SIZE {
             buf.0[j] = pattern((j + i * PAGE_SIZE) as u32);
         }
 
         info!("programming...");
-        q.write(i * PAGE_SIZE, &buf.0).await.unwrap();
+        unwrap!(q.write(i * PAGE_SIZE, &buf.0).await);
     }
 
     for i in 0..8 {
         info!("page {:?}: reading... ", i);
-        q.read(i * PAGE_SIZE, &mut buf.0).await.unwrap();
+        unwrap!(q.read(i * PAGE_SIZE, &mut buf.0).await);
 
         info!("verifying...");
         for j in 0..PAGE_SIZE {

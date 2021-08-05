@@ -120,7 +120,7 @@ impl<'d> Rcc<'d> {
             unsafe { pll_setup(srcclk.0, &self.config.pll3, 2) };
 
         let sys_ck = if sys_use_pll1_p {
-            Hertz(pll1_p_ck.unwrap()) // Must have been set by sys_ck_setup
+            Hertz(unwrap!(pll1_p_ck)) // Must have been set by sys_ck_setup
         } else {
             sys_ck
         };
@@ -390,7 +390,7 @@ impl<'d> Rcc<'d> {
             // set. The traceclk mux is synchronous with the system
             // clock mux, but has pll1_r_ck as an input. In order to
             // keep traceclk running, we force a pll1_r_ck.
-            (true, None) => Some(Hertz(self.config.pll1.p_ck.unwrap().0 / 2)),
+            (true, None) => Some(Hertz(unwrap!(self.config.pll1.p_ck).0 / 2)),
 
             // Either pll1 not selected as system clock, free choice
             // of pll1_r_ck. Or pll1 is selected, assume user has set

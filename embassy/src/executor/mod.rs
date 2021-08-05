@@ -56,6 +56,14 @@ impl Spawner {
         }
     }
 
+    /// Used by the `embassy_macros::main!` macro to throw an error when spawn
+    /// fails. This is here to allow conditional use of `defmt::unwrap!`
+    /// without introducing a `defmt` feature in the `embassy_macros` package,
+    /// which would require use of `-Z namespaced-features`.
+    pub fn must_spawn<F>(&self, token: SpawnToken<F>) -> () {
+        unwrap!(self.spawn(token));
+    }
+
     /// Convert this Spawner to a SendSpawner. This allows you to send the
     /// spawner to other threads, but the spawner loses the ability to spawn
     /// non-Send tasks.

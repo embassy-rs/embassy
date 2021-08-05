@@ -63,7 +63,7 @@ impl<'d> Rcc<'d> {
         }
 
         let sysclk = if sysclk_on_pll {
-            plls.pllsysclk.unwrap()
+            unwrap!(plls.pllsysclk)
         } else {
             sysclk
         };
@@ -245,13 +245,11 @@ impl<'d> Rcc<'d> {
 
         // Find the lowest pllm value that minimize the difference between
         // target frequency and the real vco_out frequency.
-        let pllm = (pllm_min..=pllm_max)
-            .min_by_key(|pllm| {
-                let vco_in = pllsrcclk / pllm;
-                let plln = target_freq / vco_in;
-                target_freq - vco_in * plln
-            })
-            .unwrap();
+        let pllm = unwrap!((pllm_min..=pllm_max).min_by_key(|pllm| {
+            let vco_in = pllsrcclk / pllm;
+            let plln = target_freq / vco_in;
+            target_freq - vco_in * plln
+        }));
 
         let vco_in = pllsrcclk / pllm;
         assert!((1_000_000..=2_000_000).contains(&vco_in));
@@ -261,14 +259,12 @@ impl<'d> Rcc<'d> {
         let plln = if pll48clk {
             // try the different valid pllq according to the valid
             // main scaller values, and take the best
-            let pllq = (4..=9)
-                .min_by_key(|pllq| {
-                    let plln = 48_000_000 * pllq / vco_in;
-                    let pll48_diff = 48_000_000 - vco_in * plln / pllq;
-                    let sysclk_diff = (sysclk as i32 - (vco_in * plln / sysclk_div) as i32).abs();
-                    (pll48_diff, sysclk_diff)
-                })
-                .unwrap();
+            let pllq = unwrap!((4..=9).min_by_key(|pllq| {
+                let plln = 48_000_000 * pllq / vco_in;
+                let pll48_diff = 48_000_000 - vco_in * plln / pllq;
+                let sysclk_diff = (sysclk as i32 - (vco_in * plln / sysclk_div) as i32).abs();
+                (pll48_diff, sysclk_diff)
+            }));
             48_000_000 * pllq / vco_in
         } else {
             sysclk * sysclk_div / vco_in

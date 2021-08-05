@@ -28,14 +28,14 @@ fn main() -> ! {
     let mut led3 = Output::new(p.PB14, Level::High, Speed::Low);
 
     loop {
-        if button.is_high().unwrap() {
+        if unwrap!(button.is_high()) {
             info!("high");
-            led1.set_high().unwrap();
-            led3.set_low().unwrap();
+            unwrap!(led1.set_high());
+            unwrap!(led3.set_low());
         } else {
             info!("low");
-            led1.set_low().unwrap();
-            led3.set_high().unwrap();
+            unwrap!(led1.set_low());
+            unwrap!(led3.set_high());
         }
     }
 }

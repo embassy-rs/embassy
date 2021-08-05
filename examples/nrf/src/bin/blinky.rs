@@ -6,6 +6,7 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
+use defmt::unwrap;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
@@ -17,9 +18,9 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
 
     loop {
-        led.set_high().unwrap();
+        unwrap!(led.set_high());
         Timer::after(Duration::from_millis(300)).await;
-        led.set_low().unwrap();
+        unwrap!(led.set_low());
         Timer::after(Duration::from_millis(300)).await;
     }
 }
