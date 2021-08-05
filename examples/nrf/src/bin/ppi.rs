@@ -8,12 +8,11 @@ mod example_common;
 use example_common::*;
 
 use core::future::pending;
-use defmt::panic;
 use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::gpiote::{self, InputChannel, InputChannelPolarity};
 use embassy_nrf::ppi::Ppi;
-use embassy_nrf::{interrupt, Peripherals};
+use embassy_nrf::Peripherals;
 use gpiote::{OutputChannel, OutputChannelPolarity};
 
 #[embassy::main]

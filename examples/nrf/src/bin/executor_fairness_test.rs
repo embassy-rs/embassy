@@ -8,10 +8,9 @@ mod example_common;
 use example_common::*;
 
 use core::task::Poll;
-use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Instant, Timer};
-use embassy_nrf::{interrupt, Peripherals};
+use embassy_nrf::Peripherals;
 
 #[embassy::task]
 async fn run1() {

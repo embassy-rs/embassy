@@ -15,7 +15,7 @@ defmt-rtt = "0.2.0"
 panic-probe = { version = "0.2.0" }
 rtt-target = { version = "0.3", features = ["cortex-m"] }
 embassy = { path = "../../embassy", features = ["defmt"] }
-embassy-stm32 = { path = "../../embassy-stm32", features = ["defmt", "stm32f030f4"] }
+embassy-stm32 = { path = "../../embassy-stm32", features = ["defmt", "stm32f030f4", "time-driver-tim3"] }
 
 [features]
 default = [

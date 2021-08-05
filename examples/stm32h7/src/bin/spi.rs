@@ -9,7 +9,6 @@ mod example_common;
 
 use core::fmt::Write;
 use embassy::executor::Executor;
-use embassy::time::Clock;
 use embassy::util::Forever;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::spi;
@@ -38,14 +37,6 @@ async fn main_task(mut spi: spi::Spi<'static, SPI3, NoDma, NoDma>) {
     }
 }
 
-struct ZeroClock;
-
-impl Clock for ZeroClock {
-    fn now(&self) -> u64 {
-        0
-    }
-}
-
 static EXECUTOR: Forever<Executor> = Forever::new();
 
 #[entry]
@@ -69,7 +60,6 @@ fn main() -> ! {
         spi::Config::default(),
     );
 
-    unsafe { embassy::time::set_clock(&ZeroClock) };
     let executor = EXECUTOR.put(Executor::new());
 
     executor.run(|spawner| {

@@ -1,8 +1,7 @@
 use core::fmt;
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 
-use super::TICKS_PER_SECOND;
-use super::{now, Duration};
+use super::{driver, Duration, TICKS_PER_SECOND};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -17,7 +16,9 @@ impl Instant {
 
     /// Returns an Instant representing the current time.
     pub fn now() -> Instant {
-        Instant { ticks: now() }
+        Instant {
+            ticks: driver::now(),
+        }
     }
 
     /// Instant as clock ticks since MCU start.

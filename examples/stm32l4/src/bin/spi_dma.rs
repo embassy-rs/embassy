@@ -7,7 +7,6 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use defmt::panic;
 use embassy::executor::Spawner;
 use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};

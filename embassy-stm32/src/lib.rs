@@ -20,13 +20,13 @@ pub mod time;
 pub mod dma;
 pub mod gpio;
 pub mod rcc;
+#[cfg(feature = "_time-driver")]
+mod time_driver;
 
 // Sometimes-present hardware
 
 #[cfg(adc)]
 pub mod adc;
-#[cfg(timer)]
-pub mod clock;
 #[cfg(dac)]
 pub mod dac;
 #[cfg(dbgmcu)]
@@ -87,6 +87,10 @@ pub fn init(config: Config) -> Peripherals {
         exti::init();
 
         rcc::init(config.rcc);
+
+        // must be after rcc init
+        #[cfg(feature = "_time-driver")]
+        time_driver::init();
     }
 
     p

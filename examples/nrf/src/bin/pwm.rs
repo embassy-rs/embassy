@@ -5,11 +5,11 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use defmt::{panic, *};
+use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::pwm::{Prescaler, Pwm};
-use embassy_nrf::{interrupt, Peripherals};
+use embassy_nrf::Peripherals;
 
 // for i in range(1024): print(int((math.sin(i/512*math.pi)*0.4+0.5)**2*32767), ', ', end='')
 static DUTY: [u16; 1024] = [

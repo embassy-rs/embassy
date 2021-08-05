@@ -6,7 +6,7 @@ edition = "2018"
 resolver = "2"
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../embassy", features = ["time-tick-32768hz"] }
+embassy = { version = "0.1.0", path = "../embassy" }
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["stm32"] }
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-traits = {version = "0.1.0", path = "../embassy-traits" }
@@ -43,6 +43,12 @@ defmt-error = [ ]
 sdmmc-rs = ["embedded-sdmmc"]
 net = ["embassy-net", "vcell"]
 memory-x = ["stm32-metapac/memory-x"]
+
+# Features starting with `_` are for internal use only. They're not intended
+# to be enabled by other crates, and are not covered by semver guarantees.
+_time-driver = ["embassy/time-tick-32768hz"]
+time-driver-tim2 = ["_time-driver"]
+time-driver-tim3 = ["_time-driver"]
 
 # Reexport stm32-metapac at `embassy_stm32::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.

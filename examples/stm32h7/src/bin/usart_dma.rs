@@ -8,7 +8,6 @@
 mod example_common;
 use core::fmt::Write;
 use embassy::executor::Executor;
-use embassy::time::Clock;
 use embassy::util::Forever;
 use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::dma::NoDma;
@@ -36,14 +35,6 @@ async fn main_task() {
     }
 }
 
-struct ZeroClock;
-
-impl Clock for ZeroClock {
-    fn now(&self) -> u64 {
-        0
-    }
-}
-
 static EXECUTOR: Forever<Executor> = Forever::new();
 
 #[entry]
@@ -53,8 +44,6 @@ fn main() -> ! {
     unsafe {
         Dbgmcu::enable_all();
     }
-
-    unsafe { embassy::time::set_clock(&ZeroClock) };
 
     let executor = EXECUTOR.put(Executor::new());
 

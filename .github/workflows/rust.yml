@@ -77,7 +77,7 @@ jobs:
             features: stm32l476vg,defmt
           - package: embassy-stm32
             target: thumbv6m-none-eabi
-            features: stm32l053r8,defmt
+            features: stm32l072cz,defmt
           - package: examples/stm32f4
             target: thumbv7em-none-eabi
           - package: examples/stm32l4

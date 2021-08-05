@@ -109,16 +109,11 @@ pub struct Executor {
 }
 
 impl Executor {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             inner: raw::Executor::new(|_| cortex_m::asm::sev(), ptr::null_mut()),
             not_send: PhantomData,
         }
-    }
-
-    #[cfg(feature = "time")]
-    pub fn set_alarm(&mut self, alarm: &'static dyn crate::time::Alarm) {
-        self.inner.set_alarm(alarm);
     }
 
     /// Runs the executor.
@@ -159,11 +154,6 @@ impl<I: Interrupt> InterruptExecutor<I> {
             inner: raw::Executor::new(|ctx| pend_by_number(ctx as u16), ctx),
             not_send: PhantomData,
         }
-    }
-
-    #[cfg(feature = "time")]
-    pub fn set_alarm(&mut self, alarm: &'static dyn crate::time::Alarm) {
-        self.inner.set_alarm(alarm);
     }
 
     /// Start the executor.

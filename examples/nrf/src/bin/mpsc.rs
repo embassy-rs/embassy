@@ -6,7 +6,6 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy::util::mpsc::TryRecvError;

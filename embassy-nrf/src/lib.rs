@@ -23,6 +23,8 @@ compile_error!("No chip feature activated. You must activate exactly one of the 
 pub(crate) mod fmt;
 pub(crate) mod util;
 
+mod time_driver;
+
 pub mod buffered_uarte;
 pub mod gpio;
 pub mod gpiote;
@@ -32,7 +34,6 @@ pub mod pwm;
 #[cfg(feature = "nrf52840")]
 pub mod qspi;
 pub mod rng;
-pub mod rtc;
 #[cfg(not(feature = "nrf52820"))]
 pub mod saadc;
 pub mod spim;
@@ -160,7 +161,10 @@ pub fn init(config: config::Config) -> Peripherals {
     while r.events_lfclkstarted.read().bits() == 0 {}
 
     // Init GPIOTE
-    crate::gpiote::init(config.gpiote_interrupt_priority);
+    gpiote::init(config.gpiote_interrupt_priority);
+
+    // init RTC time driver
+    time_driver::init();
 
     peripherals
 }

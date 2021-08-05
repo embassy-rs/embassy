@@ -9,7 +9,6 @@ mod example_common;
 
 use core::fmt::Write;
 use embassy::executor::Executor;
-use embassy::time::Clock;
 use embassy::util::Forever;
 use embassy_stm32::time::U32Ext;
 use embassy_traits::spi::FullDuplex;
@@ -31,14 +30,6 @@ async fn main_task(mut spi: spi::Spi<'static, SPI3, DMA1_CH3, DMA1_CH4>) {
         // read_write will slice the &mut read down to &write's actual length.
         spi.read_write(&mut read, write.as_bytes()).await.ok();
         info!("read via spi+dma: {}", from_utf8(&read).unwrap());
-    }
-}
-
-struct ZeroClock;
-
-impl Clock for ZeroClock {
-    fn now(&self) -> u64 {
-        0
     }
 }
 
@@ -65,7 +56,6 @@ fn main() -> ! {
         spi::Config::default(),
     );
 
-    unsafe { embassy::time::set_clock(&ZeroClock) };
     let executor = EXECUTOR.put(Executor::new());
 
     executor.run(|spawner| {

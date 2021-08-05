@@ -8,7 +8,6 @@ mod example_common;
 use embassy_nrf::Peripherals;
 use example_common::*;
 
-use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 
