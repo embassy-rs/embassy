@@ -32,3 +32,4 @@ panic-probe = { version = "0.2.0", features= ["print-defmt"] }
 futures = { version = "0.3.8", default-features = false, features = ["async-await"] }
 rtt-target = { version = "0.3", features = ["cortex-m"] }
 heapless = { version = "0.7.1", default-features = false }
+nb = { version = "1.0" }

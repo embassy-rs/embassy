@@ -27,6 +27,8 @@ mod time_driver;
 
 #[cfg(adc)]
 pub mod adc;
+#[cfg(bxcan)]
+pub mod bxcan;
 #[cfg(dac)]
 pub mod dac;
 #[cfg(dbgmcu)]
