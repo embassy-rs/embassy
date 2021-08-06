@@ -26,16 +26,27 @@ impl<'d, T: Instance + bxcan::Instance> Can<'d, T> {
         unsafe {
             rx.set_as_af(rx.af_num());
             tx.set_as_af(tx.af_num());
-
-            T::enable();
-            T::reset();
-            // TODO: CAN2 also required CAN1 clock
         }
+
+        T::enable();
+        T::reset();
+        // TODO: CAN2 also required CAN1 clock
 
         Self {
             phantom: PhantomData,
             can: bxcan::Can::new(peri),
         }
+    }
+}
+
+impl<'d, T: Instance + bxcan::Instance> Drop for Can<'d, T> {
+    fn drop(&mut self) {
+        // Cannot call `free()` because it moves the instance.
+        // Manually reset the peripheral.
+        unsafe {
+            T::regs().mcr().write(|w| w.set_reset(true));
+        }
+        T::disable();
     }
 }
 
@@ -56,7 +67,9 @@ impl<'d, T: Instance + bxcan::Instance> DerefMut for Can<'d, T> {
 pub(crate) mod sealed {
     use super::*;
 
-    pub trait Instance {}
+    pub trait Instance {
+        fn regs() -> &'static crate::pac::bxcan::Can;
+    }
 
     pub trait RxPin<T: Instance>: Pin {
         fn af_num(&self) -> u8;
@@ -73,7 +86,11 @@ pub trait TxPin<T: Instance>: sealed::TxPin<T> {}
 
 crate::pac::peripherals!(
     (bxcan, $inst:ident) => {
-        impl sealed::Instance for peripherals::$inst {}
+        impl sealed::Instance for peripherals::$inst {
+            fn regs() -> &'static crate::pac::bxcan::Can {
+                &crate::pac::$inst
+            }
+        }
 
         impl Instance for peripherals::$inst {}
 
