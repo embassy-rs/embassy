@@ -68,7 +68,7 @@ pub(crate) mod sealed {
     use super::*;
 
     pub trait Instance {
-        fn regs() -> &'static crate::pac::bxcan::Can;
+        fn regs() -> &'static crate::pac::can::Can;
     }
 
     pub trait RxPin<T: Instance>: Pin {
@@ -85,9 +85,9 @@ pub trait RxPin<T: Instance>: sealed::RxPin<T> {}
 pub trait TxPin<T: Instance>: sealed::TxPin<T> {}
 
 crate::pac::peripherals!(
-    (bxcan, $inst:ident) => {
+    (can, $inst:ident) => {
         impl sealed::Instance for peripherals::$inst {
-            fn regs() -> &'static crate::pac::bxcan::Can {
+            fn regs() -> &'static crate::pac::can::Can {
                 &crate::pac::$inst
             }
         }
@@ -98,26 +98,21 @@ crate::pac::peripherals!(
             const REGISTERS: *mut bxcan::RegisterBlock = crate::pac::$inst.0 as *mut _;
         }
     };
-    // (bxcan, CAN) => {
-    //     unsafe impl bxcan::FilterOwner for Can<peripherals::CAN> {
-    //         const NUM_FILTER_BANKS: u8 = 14;
-    //     }
-    // };
 );
 
 crate::pac::peripherals!(
     // TODO: rename CAN to CAN1 on yaml level??
-    (bxcan, CAN) => {
+    (can, CAN) => {
         unsafe impl bxcan::FilterOwner for peripherals::CAN {
             const NUM_FILTER_BANKS: u8 = 14;
         }
     };
-    (bxcan, CAN1) => {
+    (can, CAN1) => {
         unsafe impl bxcan::FilterOwner for peripherals::CAN1 {
             const NUM_FILTER_BANKS: u8 = 14;
         }
     };
-    (bxcan, CAN2) => {
+    (can, CAN2) => {
         // TODO: when CAN2 existis, we have 28 filter banks
         unsafe impl bxcan::MasterInstance for peripherals::CAN1 {}
     };
@@ -136,10 +131,10 @@ macro_rules! impl_pin {
 }
 
 crate::pac::peripheral_pins!(
-    ($inst:ident, bxcan, CAN, $pin:ident, TX, $af:expr) => {
+    ($inst:ident, can, CAN, $pin:ident, TX, $af:expr) => {
         impl_pin!($inst, $pin, TxPin, $af);
     };
-    ($inst:ident, bxcan, CAN, $pin:ident, RX, $af:expr) => {
+    ($inst:ident, can, CAN, $pin:ident, RX, $af:expr) => {
         impl_pin!($inst, $pin, RxPin, $af);
     };
 );

@@ -8,7 +8,7 @@
 mod example_common;
 
 use cortex_m_rt::entry;
-use embassy_stm32::bxcan::{Can, Frame, StandardId};
+use embassy_stm32::can::{Can, Frame, StandardId};
 use embassy_stm32::dbgmcu::Dbgmcu;
 use example_common::*;
 
