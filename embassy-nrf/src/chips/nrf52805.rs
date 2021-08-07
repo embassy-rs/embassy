@@ -8,6 +8,9 @@ embassy_hal_common::peripherals! {
     RTC0,
     RTC1,
 
+    // WDT
+    WDT,
+
     // RNG
     RNG,
 
