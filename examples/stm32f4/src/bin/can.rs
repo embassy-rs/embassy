@@ -8,8 +8,10 @@
 mod example_common;
 
 use cortex_m_rt::entry;
+use embassy_stm32::can::filter::Mask32;
 use embassy_stm32::can::{Can, Frame, StandardId};
 use embassy_stm32::dbgmcu::Dbgmcu;
+use embassy_stm32::gpio::{Input, Pull};
 use example_common::*;
 
 #[entry]
@@ -20,11 +22,22 @@ fn main() -> ! {
         Dbgmcu::enable_all();
     }
 
-    let p = embassy_stm32::init(Default::default());
+    let mut p = embassy_stm32::init(Default::default());
+
+    // The next two lines are a workaround for testing without transceiver.
+    // To synchronise to the bus the RX input needs to see a high level.
+    // Use `mem::forget()` to release the borrow on the pin but keep the
+    // pull-up resistor enabled.
+    let rx_pin = Input::new(&mut p.PA11, Pull::Up);
+    core::mem::forget(rx_pin);
 
     let mut can = Can::new(p.CAN1, p.PA11, p.PA12);
 
-    can.modify_config().set_loopback(true);
+    can.modify_config()
+        .set_bit_timing(0x001c0003) // http://www.bittiming.can-wiki.info/
+        .set_loopback(true) // Receive own frames
+        .set_silent(true);
+    can.modify_filters().enable_bank(0, Mask32::accept_all());
     unwrap!(nb::block!(can.enable()));
 
     let mut i: u8 = 0;
