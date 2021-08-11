@@ -1,6 +1,7 @@
 #![macro_use]
 
 use core::future::Future;
+use core::sync::atomic::{fence, Ordering};
 use core::task::Poll;
 
 use embassy::interrupt::{Interrupt, InterruptExt};
@@ -61,6 +62,9 @@ pub(crate) unsafe fn do_transfer(
 
         // Wait for the transfer to complete when it was ongoing.
         while ch.cr().read().en() {}
+
+        // "Subsequent reads and writes cannot be moved ahead of preceding reads."
+        fence(Ordering::Acquire);
     });
 
     #[cfg(dmamux)]
@@ -71,6 +75,9 @@ pub(crate) unsafe fn do_transfer(
         dma.cselr()
             .modify(|w| w.set_cs(channel_number as _, request))
     });
+
+    // "Preceding reads and writes cannot be moved past subsequent writes."
+    fence(Ordering::Release);
 
     ch.par().write_value(peri_addr as u32);
     ch.mar().write_value(mem_addr as u32);
