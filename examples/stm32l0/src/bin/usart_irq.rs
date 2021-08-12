@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
 #![feature(trait_alias)]
-#![feature(min_type_alias_impl_trait)]
-#![feature(impl_trait_in_bindings)]
 #![feature(type_alias_impl_trait)]
 #![allow(incomplete_features)]
 
@@ -27,7 +25,10 @@ async fn main(_spawner: Spawner, mut p: Peripherals) {
     static mut TX_BUFFER: [u8; 8] = [0; 8];
     static mut RX_BUFFER: [u8; 256] = [0; 256];
 
-    let usart = Uart::new(p.USART1, p.PA10, p.PA9, NoDma, NoDma, Config::default());
+    let mut config = Config::default();
+    config.baudrate = 9600;
+
+    let usart = Uart::new(p.USART1, p.PA10, p.PA9, NoDma, NoDma, config);
     let mut state = State::new();
     let mut usart = unsafe {
         BufferedUart::new(

@@ -133,50 +133,6 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         }
         Ok(())
     }
-
-    fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        let r = self.inner.regs();
-        let mut n = 0;
-        unsafe {
-            while n < buffer.len() {
-                let sr = r.isr().read();
-                if sr.pe() {
-                    r.icr().write(|w| {
-                        w.set_pe(true);
-                    });
-                    return Err(Error::Parity);
-                } else if sr.fe() {
-                    r.icr().write(|w| {
-                        w.set_fe(true);
-                    });
-                    return Err(Error::Framing);
-                } else if sr.nf() {
-                    r.icr().write(|w| {
-                        w.set_nf(true);
-                    });
-                    return Err(Error::Noise);
-                } else if sr.ore() {
-                    r.icr().write(|w| {
-                        w.set_ore(true);
-                    });
-                    return Err(Error::Overrun);
-                } else if sr.rxne() {
-                    let b = r.rdr().read().0 as u8;
-                    buffer[n] = b;
-                    n += 1;
-                } else if sr.idle() {
-                    r.icr().write(|w| {
-                        w.set_idle(true);
-                    });
-                    break;
-                } else {
-                    break;
-                }
-            }
-        }
-
-        Ok(n)
-    }
 }
 
 impl<'d, T: Instance, RxDma> embedded_hal::blocking::serial::Write<u8>
@@ -209,7 +165,7 @@ where
 {
     // rustfmt::skip because rustfmt removes the 'where' claus on the associated type.
     #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), embassy_traits::uart::Error>>;
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), embassy_traits::uart::Error>> +'a;
 
     fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
         self.write_dma(buf)
@@ -223,7 +179,7 @@ where
 {
     // rustfmt::skip because rustfmt removes the 'where' claus on the associated type.
     #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), embassy_traits::uart::Error>>;
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), embassy_traits::uart::Error>> + 'a;
 
     fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
         self.read_dma(buf)
@@ -298,16 +254,43 @@ where
     Self: 'd,
 {
     fn on_rx(&mut self) {
-        let buf = self.rx.push_buf();
-        match self.uart.read_until_idle(buf) {
-            Ok(n) if n > 0 => {
-                self.rx.push(n);
+        let r = self.uart.inner.regs();
+        unsafe {
+            let sr = r.isr().read();
+            if sr.pe() {
+                r.icr().write(|w| {
+                    w.set_pe(true);
+                });
+                trace!("Parity error");
+            } else if sr.fe() {
+                r.icr().write(|w| {
+                    w.set_fe(true);
+                });
+                trace!("Framing error");
+            } else if sr.nf() {
+                r.icr().write(|w| {
+                    w.set_nf(true);
+                });
+                trace!("Noise error");
+            } else if sr.ore() {
+                r.icr().write(|w| {
+                    w.set_ore(true);
+                });
+                trace!("Overrun error");
+            } else if sr.rxne() {
+                let buf = self.rx.push_buf();
+                if buf.is_empty() {
+                    self.rx_waker.wake();
+                } else {
+                    buf[0] = r.rdr().read().0 as u8;
+                    self.rx.push(1);
+                }
+            } else if sr.idle() {
+                r.icr().write(|w| {
+                    w.set_idle(true);
+                });
                 self.rx_waker.wake();
-            }
-            Ok(_) => {}
-            Err(e) => {
-                trace!("USART RX error: {:?}", e);
-            }
+            };
         }
     }
 
