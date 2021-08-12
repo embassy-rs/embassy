@@ -8,6 +8,7 @@ pub use _version::*;
 
 use crate::gpio::Pin;
 use crate::rcc::RccPeripheral;
+use embassy::interrupt::Interrupt;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DataBits {
@@ -100,7 +101,9 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: sealed::Instance + RccPeripheral {}
+pub trait Instance: sealed::Instance + RccPeripheral {
+    type Interrupt: Interrupt;
+}
 pub trait RxPin<T: Instance>: sealed::RxPin<T> {}
 pub trait TxPin<T: Instance>: sealed::TxPin<T> {}
 pub trait CtsPin<T: Instance>: sealed::CtsPin<T> {}
@@ -109,15 +112,18 @@ pub trait CkPin<T: Instance>: sealed::CkPin<T> {}
 pub trait RxDma<T: Instance>: sealed::RxDma<T> + dma::Channel {}
 pub trait TxDma<T: Instance>: sealed::TxDma<T> + dma::Channel {}
 
-crate::pac::peripherals!(
-    (usart, $inst:ident) => {
+crate::pac::interrupts!(
+    ($inst:ident, usart, $block:ident, $signal_name:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$inst {
             fn regs(&self) -> crate::pac::usart::Usart {
                 crate::pac::$inst
             }
         }
 
-        impl Instance for peripherals::$inst {}
+        impl Instance for peripherals::$inst {
+            type Interrupt = crate::interrupt::$irq;
+        }
+
     };
 );
 

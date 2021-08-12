@@ -21,6 +21,7 @@ embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "def
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "stm32l072cz", "time-driver-tim3"]  }
 embassy-hal-common = {version = "0.1.0", path = "../../embassy-hal-common" }
+embassy-macros = { path = "../../embassy-macros" }
 
 defmt = "0.2.0"
 defmt-rtt = "0.2.0"
