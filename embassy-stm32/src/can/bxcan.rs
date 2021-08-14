@@ -17,7 +17,6 @@ pub struct Can<'d, T: Instance + bxcan::Instance> {
 impl<'d, T: Instance + bxcan::Instance> Can<'d, T> {
     pub fn new(
         peri: impl Unborrow<Target = T> + 'd,
-        // irq: impl Unborrow<Target = T::Interrupt> + 'd,
         rx: impl Unborrow<Target = impl RxPin<T>> + 'd,
         tx: impl Unborrow<Target = impl TxPin<T>> + 'd,
     ) -> Self {
@@ -30,7 +29,6 @@ impl<'d, T: Instance + bxcan::Instance> Can<'d, T> {
 
         T::enable();
         T::reset();
-        // TODO: CAN2 also required CAN1 clock
 
         Self {
             phantom: PhantomData,
@@ -101,20 +99,26 @@ crate::pac::peripherals!(
 );
 
 crate::pac::peripherals!(
-    // TODO: rename CAN to CAN1 on yaml level??
     (can, CAN) => {
-        unsafe impl bxcan::FilterOwner for peripherals::CAN {
+        unsafe impl bxcan::FilterOwner for peripherals::$inst {
             const NUM_FILTER_BANKS: u8 = 14;
         }
     };
+    // Only correct when CAN2 also exists… Fix on yaml level?
+    // There are only 14 filter banks when CAN2 is not available.
     (can, CAN1) => {
         unsafe impl bxcan::FilterOwner for peripherals::CAN1 {
-            const NUM_FILTER_BANKS: u8 = 14;
+            const NUM_FILTER_BANKS: u8 = 28;
         }
     };
     (can, CAN2) => {
-        // TODO: when CAN2 existis, we have 28 filter banks
+        // CAN2 is always a slave instance where CAN1 is the master instance
         unsafe impl bxcan::MasterInstance for peripherals::CAN1 {}
+    };
+    (can, CAN3) => {
+        unsafe impl bxcan::FilterOwner for peripherals::$inst {
+            const NUM_FILTER_BANKS: u8 = 14;
+        }
     };
 );
 
