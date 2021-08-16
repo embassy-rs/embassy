@@ -35,6 +35,7 @@ macro_rules! foreach_exti_irq {
 }
 
 #[cfg_attr(exti_v1, path = "v1.rs")]
+#[cfg_attr(exti_h7, path = "v1.rs")]
 #[cfg_attr(exti_wb55, path = "v2.rs")]
 mod _version;
 
