@@ -43,9 +43,9 @@ async fn main(_spawner: Spawner, mut p: Peripherals) {
     usart.write_all(b"Hello Embassy World!\r\n").await.unwrap();
     info!("wrote Hello, starting echo");
 
-    let mut buf = [0; 1];
+    let mut buf = [0; 4];
     loop {
-        usart.read(&mut buf[..]).await.unwrap();
+        usart.read_exact(&mut buf[..]).await.unwrap();
         usart.write_all(&buf[..]).await.unwrap();
     }
 }

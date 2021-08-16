@@ -223,11 +223,6 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
         rx_buffer: &'d mut [u8],
     ) -> BufferedUart<'d, T> {
         unborrow!(irq);
-        irq.disable();
-        irq.pend();
-
-        irq.disable();
-        irq.pend();
 
         let r = uart.inner.regs();
         r.cr1().modify(|w| {
@@ -350,10 +345,14 @@ impl<'d, T: Instance> embassy::io::AsyncBufRead for BufferedUart<'d, T> {
         })
     }
     fn consume(mut self: Pin<&mut Self>, amt: usize) {
-        self.inner.with(|state| {
+        let signal = self.inner.with(|state| {
+            let full = state.rx.is_full();
             state.rx.pop(amt);
+            full
         });
-        self.inner.pend();
+        if signal {
+            self.inner.pend();
+        }
     }
 }
 
@@ -363,20 +362,23 @@ impl<'d, T: Instance> embassy::io::AsyncWrite for BufferedUart<'d, T> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, embassy::io::Error>> {
-        let poll = self.inner.with(|state| {
+        let (poll, empty) = self.inner.with(|state| {
+            let empty = state.tx.is_empty();
             let tx_buf = state.tx.push_buf();
             if tx_buf.is_empty() {
                 state.tx_waker.register(cx.waker());
-                return Poll::Pending;
+                return (Poll::Pending, empty);
             }
 
             let n = core::cmp::min(tx_buf.len(), buf.len());
             tx_buf[..n].copy_from_slice(&buf[..n]);
             state.tx.push(n);
 
-            Poll::Ready(Ok(n))
+            (Poll::Ready(Ok(n)), empty)
         });
-        self.inner.pend();
+        if empty {
+            self.inner.pend();
+        }
         poll
     }
 }
