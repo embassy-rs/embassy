@@ -4,7 +4,6 @@ use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::Context;
 use core::task::Poll;
-use embassy::interrupt::InterruptExt;
 use embassy::util::{Unborrow, WakerRegistration};
 use embassy_hal_common::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::ring_buffer::RingBuffer;
