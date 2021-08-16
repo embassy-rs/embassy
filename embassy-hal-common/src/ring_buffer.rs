@@ -67,6 +67,14 @@ impl<'a> RingBuffer<'a> {
         self.empty = self.start == self.end;
     }
 
+    pub fn is_full(&self) -> bool {
+        self.start == self.end && !self.empty
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.empty
+    }
+
     pub fn clear(&mut self) {
         self.start = 0;
         self.end = 0;
@@ -80,5 +88,42 @@ impl<'a> RingBuffer<'a> {
         } else {
             n
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn push_pop() {
+        let mut b = [0; 4];
+        let mut rb = RingBuffer::new(&mut b);
+        let buf = rb.push_buf();
+        assert_eq!(4, buf.len());
+        buf[0] = 1;
+        buf[1] = 2;
+        buf[2] = 3;
+        buf[3] = 4;
+        rb.push(4);
+
+        let buf = rb.pop_buf();
+        assert_eq!(4, buf.len());
+        assert_eq!(1, buf[0]);
+        rb.pop(1);
+
+        let buf = rb.pop_buf();
+        assert_eq!(3, buf.len());
+        assert_eq!(2, buf[0]);
+        rb.pop(1);
+
+        let buf = rb.pop_buf();
+        assert_eq!(2, buf.len());
+        assert_eq!(3, buf[0]);
+        rb.pop(1);
+
+        let buf = rb.pop_buf();
+        assert_eq!(1, buf.len());
+        assert_eq!(4, buf[0]);
     }
 }
