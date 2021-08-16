@@ -188,7 +188,7 @@ where
 
 pub struct State<'d, T: Instance>(StateStorage<StateInner<'d, T>>);
 impl<'d, T: Instance> State<'d, T> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(StateStorage::new())
     }
 }

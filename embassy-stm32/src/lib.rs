@@ -2,6 +2,7 @@
 #![feature(generic_associated_types)]
 #![feature(asm)]
 #![feature(type_alias_impl_trait)]
+#![feature(const_fn_trait_bound)]
 #![allow(incomplete_features)]
 
 #[cfg(feature = "unstable-pac")]

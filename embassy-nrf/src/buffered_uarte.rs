@@ -37,7 +37,7 @@ enum TxState {
 
 pub struct State<'d, U: UarteInstance, T: TimerInstance>(StateStorage<StateInner<'d, U, T>>);
 impl<'d, U: UarteInstance, T: TimerInstance> State<'d, U, T> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(StateStorage::new())
     }
 }
