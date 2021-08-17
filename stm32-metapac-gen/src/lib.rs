@@ -231,21 +231,23 @@ pub fn gen(options: Options) {
         let chip: Chip = serde_yaml::from_slice(&chip).unwrap();
 
         println!("looking for core {:?}", core_name);
-        let core: Option<&Core> = if let Some(core_name) = core_name {
+        let core: Option<(&Core, usize)> = if let Some(core_name) = core_name {
             let core_name = core_name.to_ascii_lowercase();
             let mut c = None;
-            for core in chip.cores.iter() {
+            let mut idx = 0;
+            for (i, core) in chip.cores.iter().enumerate() {
                 if core.name == core_name {
                     c = Some(core);
+                    idx = i;
                     break;
                 }
             }
-            c
+            c.map(|c| (c, idx))
         } else {
-            Some(&chip.cores[0])
+            Some((&chip.cores[0], 0))
         };
 
-        let core = core.unwrap();
+        let (core, core_index) = core.unwrap();
         let core_name = &core.name;
 
         let mut ir = ir::IR::new();
@@ -584,6 +586,12 @@ pub fn gen(options: Options) {
             )
             .unwrap();
         }
+        write!(
+            &mut extra,
+            "pub const CORE_INDEX: usize = {};\n",
+            core_index
+        )
+        .unwrap();
 
         // Cleanups!
         transform::sort::Sort {}.run(&mut ir).unwrap();
