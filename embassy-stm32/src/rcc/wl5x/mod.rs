@@ -116,15 +116,6 @@ impl<'d> Rcc<'d> {
     pub fn clocks(&self) -> &'static Clocks {
         unsafe { get_freqs() }
     }
-
-    pub fn enable_debug_wfe(&mut self, _dbg: &mut peripherals::DBGMCU, enable_dma: bool) {
-        // NOTE(unsafe) We have exclusive access to the RCC and DBGMCU
-        unsafe {
-            pac::RCC.ahb1enr().modify(|w| w.set_dma1en(enable_dma));
-
-            Dbgmcu::enable_all();
-        }
-    }
 }
 
 /// Extension trait that freezes the `RCC` peripheral with provided clocks configuration
