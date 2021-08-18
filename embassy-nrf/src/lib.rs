@@ -99,6 +99,7 @@ pub mod config {
         pub hfclk_source: HfclkSource,
         pub lfclk_source: LfclkSource,
         pub gpiote_interrupt_priority: crate::interrupt::Priority,
+        pub time_interrupt_priority: crate::interrupt::Priority,
     }
 
     impl Default for Config {
@@ -110,6 +111,7 @@ pub mod config {
                 hfclk_source: HfclkSource::Internal,
                 lfclk_source: LfclkSource::InternalRC,
                 gpiote_interrupt_priority: crate::interrupt::Priority::P0,
+                time_interrupt_priority: crate::interrupt::Priority::P0,
             }
         }
     }
@@ -165,7 +167,7 @@ pub fn init(config: config::Config) -> Peripherals {
     gpiote::init(config.gpiote_interrupt_priority);
 
     // init RTC time driver
-    time_driver::init();
+    time_driver::init(config.time_interrupt_priority);
 
     peripherals
 }
