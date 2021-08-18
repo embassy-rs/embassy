@@ -98,7 +98,7 @@ static STATE: State = State {
 };
 
 impl State {
-    fn init(&'static self) {
+    fn init(&'static self, irq_prio: crate::interrupt::Priority) {
         let r = rtc();
         r.cc[3].write(|w| unsafe { w.bits(0x800000) });
 
@@ -114,7 +114,9 @@ impl State {
         // Wait for clear
         while r.counter.read().bits() != 0 {}
 
-        unsafe { interrupt::RTC1::steal() }.enable();
+        let irq = unsafe { interrupt::RTC1::steal() };
+        irq.set_priority(irq_prio);
+        irq.enable();
     }
 
     fn on_interrupt(&self) {
@@ -287,6 +289,6 @@ fn RTC1() {
     STATE.on_interrupt()
 }
 
-pub(crate) fn init() {
-    STATE.init()
+pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
+    STATE.init(irq_prio)
 }
