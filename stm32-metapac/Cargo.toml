@@ -6,7 +6,7 @@ resolver = "2"
 
 [dependencies]
 cortex-m = "0.7.2"
-cortex-m-rt = { version = "0.6.8", optional = true }
+cortex-m-rt = { version = ">=0.6.15,<0.8", optional = true }
 
 # BEGIN BUILD DEPENDENCIES
 # These are removed when generating the pre-generated crate using the tool at gen/.

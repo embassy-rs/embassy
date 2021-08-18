@@ -25,10 +25,10 @@ embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["r
 atomic-polyfill = { version = "0.1.2" }
 defmt = { version = "0.2.0", optional = true }
 log = { version = "0.4.11", optional = true }
-cortex-m-rt = "0.6.13"
+cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.1"
 critical-section = "0.2.1"
 
-rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev="2ce29ba58ad904d3995ce65bb46807e853f1fbf9", features = ["rt"] }
+rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev="9ad7223a48a065e612bc7dc7be5bf5bd0b41cfc4", features = ["rt"] }
 #rp2040-pac2 = { path = "../../rp/rp2040-pac2", features = ["rt"] }
 embedded-hal = { version = "0.2.4", features = [ "unproven" ] }
