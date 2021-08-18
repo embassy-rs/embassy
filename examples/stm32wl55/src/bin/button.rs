@@ -19,7 +19,7 @@ use cortex_m_rt::entry;
 fn main() -> ! {
     info!("Hello World!");
 
-    let mut p = embassy_stm32::init(Default::default());
+    let p = embassy_stm32::init(Default::default());
 
     unsafe { Dbgmcu::enable_all() };
 
