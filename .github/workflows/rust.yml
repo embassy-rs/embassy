@@ -88,6 +88,8 @@ jobs:
             target: thumbv6m-none-eabi
           - package: examples/stm32wb55
             target: thumbv7em-none-eabihf
+          - package: examples/stm32wl55
+            target: thumbv7em-none-eabihf
           - package: examples/stm32f0
             target: thumbv6m-none-eabi
 
