@@ -9,7 +9,6 @@ mod example_common;
 use embassy_stm32::{
     dbgmcu::Dbgmcu,
     gpio::{Input, Level, Output, Pull, Speed},
-    rcc::*,
 };
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use example_common::*;
@@ -20,7 +19,7 @@ use cortex_m_rt::entry;
 fn main() -> ! {
     info!("Hello World!");
 
-    let mut p = embassy_stm32::init(Default::default());
+    let p = embassy_stm32::init(Default::default());
 
     unsafe { Dbgmcu::enable_all() };
 
