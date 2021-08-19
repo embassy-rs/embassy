@@ -6,22 +6,19 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-
 use embassy::executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Pull};
-use embassy_stm32::{rcc, Peripherals};
+use embassy_stm32::Peripherals;
 use embassy_traits::gpio::{WaitForFallingEdge, WaitForRisingEdge};
 use example_common::*;
 
 #[embassy::main]
-async fn main(_spawner: Spawner, mut p: Peripherals) {
-    let mut rcc = rcc::Rcc::new(p.RCC);
-    // Enables SYSCFG
-    let _ = rcc.enable_hsi48(&mut p.SYSCFG, p.CRS);
+async fn main(_spawner: Spawner, p: Peripherals) {
+    info!("Hello World!");
 
-    let button = Input::new(p.PB2, Pull::Up);
-    let mut button = ExtiInput::new(button, p.EXTI2);
+    let button = Input::new(p.PC4, Pull::Up);
+    let mut button = ExtiInput::new(button, p.EXTI4);
 
     info!("Press the USER button...");
 

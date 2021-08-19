@@ -190,6 +190,9 @@ impl RccExt for RCC {
             }
         };
 
+        // TODO: completely untested
+        let apb3_freq = ahb_freq;
+
         Clocks {
             sys: sys_clk.hz(),
             ahb1: ahb_freq.hz(),
@@ -197,6 +200,7 @@ impl RccExt for RCC {
             ahb3: ahb_freq.hz(),
             apb1: apb1_freq.hz(),
             apb2: apb2_freq.hz(),
+            apb3: apb3_freq.hz(),
             apb1_tim: apb1_tim_freq.hz(),
             apb2_tim: apb2_tim_freq.hz(),
         }

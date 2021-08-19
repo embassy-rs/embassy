@@ -10,17 +10,12 @@ mod example_common;
 use cortex_m_rt::entry;
 use embassy_stm32::can::filter::Mask32;
 use embassy_stm32::can::{Can, Frame, StandardId};
-use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::gpio::{Input, Pull};
 use example_common::*;
 
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
-
-    unsafe {
-        Dbgmcu::enable_all();
-    }
 
     let mut p = embassy_stm32::init(Default::default());
 

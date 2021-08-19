@@ -21,7 +21,6 @@ pub struct Config {
     pub hclk: Option<Hertz>,
     pub pclk1: Option<Hertz>,
     pub pclk2: Option<Hertz>,
-    pub enable_debug_wfe: bool,
 }
 
 /// RCC peripheral
@@ -174,15 +173,6 @@ impl<'d> Rcc<'d> {
                     Sw::HSI
                 })
             });
-        }
-
-        if self.config.enable_debug_wfe {
-            unsafe {
-                RCC.ahb1enr().modify(|w| w.set_dma1en(true));
-                critical_section::with(|_| {
-                    crate::dbgmcu::Dbgmcu::enable_all();
-                });
-            }
         }
 
         Clocks {

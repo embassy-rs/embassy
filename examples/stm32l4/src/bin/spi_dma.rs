@@ -8,7 +8,6 @@
 mod example_common;
 
 use embassy::executor::Spawner;
-use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
@@ -20,10 +19,6 @@ use example_common::*;
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
-
-    unsafe {
-        Dbgmcu::enable_all();
-    }
 
     let mut spi = Spi::new(
         p.SPI3,

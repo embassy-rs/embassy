@@ -11,14 +11,11 @@ use example_common::*;
 
 use embassy::executor::Spawner;
 use embassy_stm32::usart::{Config, Uart};
-use embassy_stm32::{rcc, Peripherals};
+use embassy_stm32::Peripherals;
 use embassy_traits::uart::{Read, Write};
 
 #[embassy::main]
-async fn main(_spawner: Spawner, mut p: Peripherals) {
-    let mut rcc = rcc::Rcc::new(p.RCC);
-    rcc.enable_debug_wfe(&mut p.DBGMCU, true);
-
+async fn main(_spawner: Spawner, p: Peripherals) {
     let mut usart = Uart::new(
         p.USART1,
         p.PB7,

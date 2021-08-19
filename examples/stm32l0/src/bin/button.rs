@@ -6,21 +6,15 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy_stm32::{
-    gpio::{Input, Level, Output, Pull, Speed},
-    rcc::*,
-};
+use embassy::executor::Spawner;
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::Peripherals;
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use example_common::*;
 
-use cortex_m_rt::entry;
-
-#[entry]
-fn main() -> ! {
+#[embassy::main]
+async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
-
-    let mut p = embassy_stm32::init(Default::default());
-    Rcc::new(p.RCC).enable_debug_wfe(&mut p.DBGMCU, true);
 
     let button = Input::new(p.PB2, Pull::Up);
     let mut led1 = Output::new(p.PA5, Level::High, Speed::Low);

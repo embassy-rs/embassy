@@ -19,7 +19,6 @@ use embassy_macros::interrupt_take;
 use embassy_net::{
     Config as NetConfig, Ipv4Address, Ipv4Cidr, StackResources, StaticConfigurator, TcpSocket,
 };
-use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::eth::lan8742a::LAN8742A;
 use embassy_stm32::eth::{Ethernet, State};
 use embassy_stm32::rng::Random;
@@ -95,10 +94,6 @@ fn main() -> ! {
     info!("Hello World!");
 
     info!("Setup RCC...");
-
-    unsafe {
-        Dbgmcu::enable_all();
-    }
 
     let p = embassy_stm32::init(config());
 

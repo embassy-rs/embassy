@@ -2,7 +2,6 @@ use core::marker::PhantomData;
 
 use embassy::util::Unborrow;
 
-use crate::dbgmcu::Dbgmcu;
 use crate::pac::{FLASH, RCC};
 use crate::peripherals;
 use crate::time::Hertz;
@@ -27,7 +26,6 @@ pub struct Config {
     pub sys_ck: Option<Hertz>,
     pub hclk: Option<Hertz>,
     pub pclk: Option<Hertz>,
-    pub enable_debug_wfe: bool,
 }
 
 pub struct Rcc<'d> {
@@ -190,12 +188,6 @@ impl<'d> Rcc<'d> {
                     }
                 })
             }
-
-            if self.config.enable_debug_wfe {
-                RCC.ahbenr().modify(|w| w.set_dmaen(true));
-
-                critical_section::with(|_| Dbgmcu::enable_all());
-            }
         }
 
         Clocks {
@@ -210,18 +202,6 @@ impl<'d> Rcc<'d> {
 }
 
 pub unsafe fn init(config: Config) {
-    RCC.ahbenr().modify(|w| {
-        w.set_iopaen(true);
-        w.set_iopben(true);
-        w.set_iopcen(true);
-        w.set_iopden(true);
-
-        #[cfg(rcc_f0)]
-        w.set_iopeen(true);
-
-        w.set_iopfen(true);
-    });
-
     let rcc = Rcc::new(<peripherals::RCC as embassy::util::Steal>::steal(), config);
     let clocks = rcc.freeze();
     set_freqs(clocks);

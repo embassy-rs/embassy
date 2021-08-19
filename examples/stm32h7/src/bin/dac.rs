@@ -19,10 +19,6 @@ fn main() -> ! {
 
     let p = embassy_stm32::init(config());
 
-    unsafe {
-        Dbgmcu::enable_all();
-    }
-
     let mut dac = Dac::new(p.DAC1, p.PA4, NoPin);
 
     loop {
@@ -33,7 +29,6 @@ fn main() -> ! {
     }
 }
 
-use embassy_stm32::dbgmcu::Dbgmcu;
 use micromath::F32Ext;
 
 fn to_sine_wave(v: u8) -> u8 {

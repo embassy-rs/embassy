@@ -68,12 +68,14 @@ pub use generated::{peripherals, Peripherals};
 #[non_exhaustive]
 pub struct Config {
     pub rcc: rcc::Config,
+    pub enable_debug_during_sleep: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             rcc: Default::default(),
+            enable_debug_during_sleep: true,
         }
     }
 }
@@ -83,6 +85,10 @@ pub fn init(config: Config) -> Peripherals {
     let p = Peripherals::take();
 
     unsafe {
+        if config.enable_debug_during_sleep {
+            dbgmcu::Dbgmcu::enable_all();
+        }
+
         gpio::init();
         dma::init();
         #[cfg(exti)]

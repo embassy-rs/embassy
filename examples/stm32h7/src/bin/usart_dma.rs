@@ -9,7 +9,6 @@ mod example_common;
 use core::fmt::Write;
 use embassy::executor::Executor;
 use embassy::util::Forever;
-use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_traits::uart::Write as _Write;
@@ -40,10 +39,6 @@ static EXECUTOR: Forever<Executor> = Forever::new();
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
-
-    unsafe {
-        Dbgmcu::enable_all();
-    }
 
     let executor = EXECUTOR.put(Executor::new());
 
