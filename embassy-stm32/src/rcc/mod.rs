@@ -10,6 +10,8 @@ pub struct Clocks {
     pub sys: Hertz,
     pub apb1: Hertz,
     pub apb2: Hertz,
+    #[cfg(rcc_wl5)]
+    pub apb3: Hertz,
 
     pub apb1_tim: Hertz,
     pub apb2_tim: Hertz,
