@@ -11,7 +11,8 @@ use embedded_hal::digital::v2::InputPin;
 use crate::gpio::{AnyPin, Input, Pin as GpioPin};
 use crate::interrupt;
 use crate::pac;
-use crate::pac::{EXTI, SYSCFG};
+use crate::pac::exti::regs::Lines;
+use crate::pac::EXTI;
 use crate::peripherals;
 
 const EXTI_COUNT: usize = 16;
@@ -28,19 +29,37 @@ fn cpu_regs() -> pac::exti::Exti {
     EXTI
 }
 
+#[cfg(not(any(exti_g0, exti_l5)))]
+fn exticr_regs() -> pac::syscfg::Syscfg {
+    pac::SYSCFG
+}
+#[cfg(any(exti_g0, exti_l5))]
+fn exticr_regs() -> pac::exti::Exti {
+    EXTI
+}
+
 pub unsafe fn on_irq() {
-    let bits = EXTI.pr(0).read();
+    #[cfg(not(any(exti_g0, exti_l5)))]
+    let bits = EXTI.pr(0).read().0;
+    #[cfg(any(exti_g0, exti_l5))]
+    let bits = EXTI.rpr(0).read().0 | EXTI.fpr(0).read().0;
 
     // Mask all the channels that fired.
-    cpu_regs().imr(0).modify(|w| w.0 &= !bits.0);
+    cpu_regs().imr(0).modify(|w| w.0 &= !bits);
 
     // Wake the tasks
-    for pin in BitIter(bits.0) {
+    for pin in BitIter(bits) {
         EXTI_WAKERS[pin as usize].wake();
     }
 
     // Clear pending
-    EXTI.pr(0).write_value(bits);
+    #[cfg(not(any(exti_g0, exti_l5)))]
+    EXTI.pr(0).write_value(Lines(bits));
+    #[cfg(any(exti_g0, exti_l5))]
+    {
+        EXTI.rpr(0).write_value(Lines(bits));
+        EXTI.fpr(0).write_value(Lines(bits));
+    }
 }
 
 struct BitIter(u32);
@@ -117,10 +136,21 @@ impl<'a> ExtiInputFuture<'a> {
     fn new(pin: u8, port: u8, rising: bool, falling: bool) -> Self {
         cortex_m::interrupt::free(|_| unsafe {
             let pin = pin as usize;
-            SYSCFG.exticr(pin / 4).modify(|w| w.set_exti(pin % 4, port));
+            exticr_regs()
+                .exticr(pin / 4)
+                .modify(|w| w.set_exti(pin % 4, port));
             EXTI.rtsr(0).modify(|w| w.set_line(pin, rising));
             EXTI.ftsr(0).modify(|w| w.set_line(pin, falling));
-            EXTI.pr(0).write(|w| w.set_line(pin, true)); // clear pending bit
+
+            // clear pending bit
+            #[cfg(not(any(exti_g0, exti_l5)))]
+            EXTI.pr(0).write(|w| w.set_line(pin, true));
+            #[cfg(any(exti_g0, exti_l5))]
+            {
+                EXTI.rpr(0).write(|w| w.set_line(pin, true));
+                EXTI.fpr(0).write(|w| w.set_line(pin, true));
+            }
+
             cpu_regs().imr(0).modify(|w| w.set_line(pin, true));
         });
 

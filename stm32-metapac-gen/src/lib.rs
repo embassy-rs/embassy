@@ -444,7 +444,9 @@ pub fn gen(options: Options) {
                             Some(clock) => clock.as_str(),
                             None => {
                                 // No clock was specified, derive the clock name from the enable register name.
-                                Regex::new("([A-Z]+\\d*).*")
+                                // N.B. STM32G0 has only one APB bus but split ENR registers
+                                // (e.g. APBENR1).
+                                Regex::new("([A-Z]+\\d*)ENR\\d*")
                                     .unwrap()
                                     .captures(enable_reg)
                                     .unwrap()
