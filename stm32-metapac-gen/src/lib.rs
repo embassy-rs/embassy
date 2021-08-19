@@ -1,4 +1,5 @@
 use chiptool::generate::CommonModule;
+use chiptool::ir::IR;
 use regex::Regex;
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -273,19 +274,18 @@ pub fn gen(options: Options) {
         });
 
         // Load RCC register for chip
-        let rcc = core.peripherals.iter().find_map(|(name, p)| {
-            if name == "RCC" {
-                p.block.as_ref().map(|block| {
-                    let bi = BlockInfo::parse(block);
-                    let rcc_reg_path = data_dir
-                        .join("registers")
-                        .join(&format!("{}_{}.yaml", bi.module, bi.version));
-                    serde_yaml::from_reader(File::open(rcc_reg_path).unwrap()).unwrap()
-                })
-            } else {
-                None
-            }
-        });
+        let (_, rcc) = core
+            .peripherals
+            .iter()
+            .find(|(name, _)| name == &"RCC")
+            .expect("RCC peripheral missing");
+
+        let rcc_block = rcc.block.as_ref().expect("RCC peripheral has no block");
+        let bi = BlockInfo::parse(&rcc_block);
+        let rcc_reg_path = data_dir
+            .join("registers")
+            .join(&format!("{}_{}.yaml", bi.module, bi.version));
+        let rcc: IR = serde_yaml::from_reader(File::open(rcc_reg_path).unwrap()).unwrap();
 
         let mut peripheral_versions: BTreeMap<String, String> = BTreeMap::new();
         let mut pin_table: Vec<Vec<String>> = Vec::new();
@@ -424,73 +424,71 @@ pub fn gen(options: Options) {
                     _ => {}
                 }
 
-                if let Some(rcc) = &rcc {
-                    // Workaround for clock registers being split on some chip families. Assume fields are
-                    // named after peripheral and look for first field matching and use that register.
-                    let mut en = find_reg_for_field(&rcc, "^.+ENR\\d*$", &format!("{}EN", name));
-                    let mut rst = find_reg_for_field(&rcc, "^.+RSTR\\d*$", &format!("{}RST", name));
+                // Workaround for clock registers being split on some chip families. Assume fields are
+                // named after peripheral and look for first field matching and use that register.
+                let mut en = find_reg_for_field(&rcc, "^.+ENR\\d*$", &format!("{}EN", name));
+                let mut rst = find_reg_for_field(&rcc, "^.+RSTR\\d*$", &format!("{}RST", name));
 
-                    if en.is_none() && name.ends_with("1") {
-                        en = find_reg_for_field(
-                            &rcc,
-                            "^.+ENR\\d*$",
-                            &format!("{}EN", &name[..name.len() - 1]),
-                        );
-                        rst = find_reg_for_field(
-                            &rcc,
-                            "^.+RSTR\\d*$",
-                            &format!("{}RST", &name[..name.len() - 1]),
-                        );
+                if en.is_none() && name.ends_with("1") {
+                    en = find_reg_for_field(
+                        &rcc,
+                        "^.+ENR\\d*$",
+                        &format!("{}EN", &name[..name.len() - 1]),
+                    );
+                    rst = find_reg_for_field(
+                        &rcc,
+                        "^.+RSTR\\d*$",
+                        &format!("{}RST", &name[..name.len() - 1]),
+                    );
+                }
+
+                match (en, rst) {
+                    (Some((enable_reg, enable_field)), reset_reg_field) => {
+                        let clock = match &p.clock {
+                            Some(clock) => clock.as_str(),
+                            None => {
+                                // No clock was specified, derive the clock name from the enable register name.
+                                Regex::new("([A-Z]+\\d*).*")
+                                    .unwrap()
+                                    .captures(enable_reg)
+                                    .unwrap()
+                                    .get(1)
+                                    .unwrap()
+                                    .as_str()
+                            }
+                        };
+
+                        let clock = if name.starts_with("TIM") {
+                            format!("{}_tim", clock.to_ascii_lowercase())
+                        } else {
+                            clock.to_ascii_lowercase()
+                        };
+
+                        let mut row = Vec::with_capacity(6);
+                        row.push(name.clone());
+                        row.push(clock);
+                        row.push(enable_reg.to_ascii_lowercase());
+
+                        if let Some((reset_reg, reset_field)) = reset_reg_field {
+                            row.push(reset_reg.to_ascii_lowercase());
+                            row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
+                            row.push(format!("set_{}", reset_field.to_ascii_lowercase()));
+                        } else {
+                            row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
+                        }
+
+                        if !name.starts_with("GPIO") {
+                            peripheral_rcc_table.push(row);
+                        } else {
+                            gpio_rcc_table.push(row);
+                            gpio_regs.insert(enable_reg.to_ascii_lowercase());
+                        }
                     }
-
-                    match (en, rst) {
-                        (Some((enable_reg, enable_field)), reset_reg_field) => {
-                            let clock = match &p.clock {
-                                Some(clock) => clock.as_str(),
-                                None => {
-                                    // No clock was specified, derive the clock name from the enable register name.
-                                    Regex::new("([A-Z]+\\d*).*")
-                                        .unwrap()
-                                        .captures(enable_reg)
-                                        .unwrap()
-                                        .get(1)
-                                        .unwrap()
-                                        .as_str()
-                                }
-                            };
-
-                            let clock = if name.starts_with("TIM") {
-                                format!("{}_tim", clock.to_ascii_lowercase())
-                            } else {
-                                clock.to_ascii_lowercase()
-                            };
-
-                            let mut row = Vec::with_capacity(6);
-                            row.push(name.clone());
-                            row.push(clock);
-                            row.push(enable_reg.to_ascii_lowercase());
-
-                            if let Some((reset_reg, reset_field)) = reset_reg_field {
-                                row.push(reset_reg.to_ascii_lowercase());
-                                row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
-                                row.push(format!("set_{}", reset_field.to_ascii_lowercase()));
-                            } else {
-                                row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
-                            }
-
-                            if !name.starts_with("GPIO") {
-                                peripheral_rcc_table.push(row);
-                            } else {
-                                gpio_rcc_table.push(row);
-                                gpio_regs.insert(enable_reg.to_ascii_lowercase());
-                            }
-                        }
-                        (None, Some(_)) => {
-                            println!("Unable to find enable register for {}", name)
-                        }
-                        (None, None) => {
-                            println!("Unable to find enable and reset register for {}", name)
-                        }
+                    (None, Some(_)) => {
+                        println!("Unable to find enable register for {}", name)
+                    }
+                    (None, None) => {
+                        println!("Unable to find enable and reset register for {}", name)
                     }
                 }
             }
