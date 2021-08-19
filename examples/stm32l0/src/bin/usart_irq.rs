@@ -15,13 +15,10 @@ use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::interrupt;
 use embassy_stm32::usart::{BufferedUart, Config, State, Uart};
-use embassy_stm32::{rcc, Peripherals};
+use embassy_stm32::Peripherals;
 
 #[embassy::main]
-async fn main(_spawner: Spawner, mut p: Peripherals) {
-    let mut rcc = rcc::Rcc::new(p.RCC);
-    rcc.enable_debug_wfe(&mut p.DBGMCU, true);
-
+async fn main(_spawner: Spawner, p: Peripherals) {
     static mut TX_BUFFER: [u8; 8] = [0; 8];
     static mut RX_BUFFER: [u8; 256] = [0; 256];
 

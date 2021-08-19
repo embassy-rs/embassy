@@ -16,7 +16,6 @@ use example_common::*;
 
 use core::str::from_utf8;
 use cortex_m_rt::entry;
-use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::peripherals::{DMA1_CH3, DMA1_CH4, SPI3};
 use embassy_stm32::spi;
 use heapless::String;
@@ -38,10 +37,6 @@ static EXECUTOR: Forever<Executor> = Forever::new();
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
-
-    unsafe {
-        Dbgmcu::enable_all();
-    }
 
     let p = embassy_stm32::init(config());
 

@@ -7,7 +7,6 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use embassy::executor::Spawner;
-use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::Peripherals;
@@ -17,10 +16,6 @@ use example_common::*;
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
-
-    unsafe {
-        Dbgmcu::enable_all();
-    }
 
     let button = Input::new(p.PC4, Pull::Up);
     let mut button = ExtiInput::new(button, p.EXTI4);

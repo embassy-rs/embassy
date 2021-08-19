@@ -8,7 +8,6 @@
 mod example_common;
 
 use cortex_m_rt::entry;
-use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::spi::{Config, Spi};
@@ -20,10 +19,6 @@ use example_common::*;
 #[entry]
 fn main() -> ! {
     info!("Hello World, dude!");
-
-    unsafe {
-        Dbgmcu::enable_all();
-    }
 
     let p = embassy_stm32::init(Default::default());
 

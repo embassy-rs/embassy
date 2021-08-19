@@ -8,7 +8,6 @@
 mod example_common;
 
 use embassy_stm32::dac::{Channel, Dac, Value};
-use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::gpio::NoPin;
 use embassy_stm32::pac;
 use example_common::*;
@@ -18,8 +17,6 @@ fn main() -> ! {
     info!("Hello World!");
 
     unsafe {
-        Dbgmcu::enable_all();
-
         pac::RCC.apb1enr1().modify(|w| {
             w.set_dac1en(true);
         });

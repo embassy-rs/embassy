@@ -2,7 +2,6 @@ use core::marker::PhantomData;
 
 use embassy::util::Unborrow;
 
-use crate::dbgmcu::Dbgmcu;
 use crate::pac::{FLASH, RCC};
 use crate::peripherals;
 use crate::time::Hertz;
@@ -27,7 +26,6 @@ pub struct Config {
     pub sys_ck: Option<Hertz>,
     pub hclk: Option<Hertz>,
     pub pclk: Option<Hertz>,
-    pub enable_debug_wfe: bool,
 }
 
 pub struct Rcc<'d> {
@@ -189,12 +187,6 @@ impl<'d> Rcc<'d> {
                         w.set_sw(Sw::HSI)
                     }
                 })
-            }
-
-            if self.config.enable_debug_wfe {
-                RCC.ahbenr().modify(|w| w.set_dmaen(true));
-
-                critical_section::with(|_| Dbgmcu::enable_all());
             }
         }
 

@@ -17,7 +17,6 @@ use example_common::*;
 #[embassy::main]
 async fn main(_spawner: Spawner, mut p: Peripherals) {
     let mut rcc = rcc::Rcc::new(p.RCC);
-    rcc.enable_debug_wfe(&mut p.DBGMCU, true);
     // Enables SYSCFG
     let _ = rcc.enable_hsi48(&mut p.SYSCFG, p.CRS);
 

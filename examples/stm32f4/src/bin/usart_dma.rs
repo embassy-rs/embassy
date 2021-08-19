@@ -8,7 +8,6 @@
 mod example_common;
 use core::fmt::Write;
 use embassy::executor::Spawner;
-use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_stm32::Peripherals;
@@ -19,10 +18,6 @@ use heapless::String;
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
-
-    unsafe {
-        Dbgmcu::enable_all();
-    }
 
     let config = Config::default();
     let mut usart = Uart::new(p.USART3, p.PD9, p.PD8, p.DMA1_CH3, NoDma, config);

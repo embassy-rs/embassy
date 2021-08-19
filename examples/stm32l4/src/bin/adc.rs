@@ -9,7 +9,6 @@ mod example_common;
 
 use embassy::time::Delay;
 use embassy_stm32::adc::{Adc, Resolution};
-use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::pac;
 use example_common::*;
 
@@ -18,8 +17,6 @@ fn main() -> ! {
     info!("Hello World!");
 
     unsafe {
-        Dbgmcu::enable_all();
-
         pac::RCC.ccipr().modify(|w| {
             w.set_adcsel(0b11);
         });

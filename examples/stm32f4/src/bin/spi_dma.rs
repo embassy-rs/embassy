@@ -9,7 +9,6 @@ mod example_common;
 use core::fmt::Write;
 use core::str::from_utf8;
 use embassy::executor::Spawner;
-use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peripherals;
@@ -20,10 +19,6 @@ use heapless::String;
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
-
-    unsafe {
-        Dbgmcu::enable_all();
-    }
 
     let mut spi = Spi::new(
         p.SPI1,

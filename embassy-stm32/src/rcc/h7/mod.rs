@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use embassy::util::Unborrow;
 
 use crate::pac::rcc::vals::Timpre;
-use crate::pac::{DBGMCU, RCC, SYSCFG};
+use crate::pac::{RCC, SYSCFG};
 use crate::peripherals;
 use crate::pwr::{Power, VoltageScale};
 use crate::rcc::{set_freqs, Clocks};
@@ -360,25 +360,6 @@ impl<'d> Rcc<'d> {
                 sys_ck,
                 c_ck: Hertz(sys_d1cpre_ck),
             }
-        }
-    }
-
-    /// Enables debugging during WFI/WFE
-    ///
-    /// Set `enable_dma1` to true if you do not have at least one bus master (other than the CPU)
-    /// enable during WFI/WFE
-    pub fn enable_debug_wfe(&mut self, _dbg: &mut peripherals::DBGMCU, enable_dma1: bool) {
-        // NOTE(unsafe) We have exclusive access to the RCC and DBGMCU
-        unsafe {
-            if enable_dma1 {
-                RCC.ahb1enr().modify(|w| w.set_dma1en(true));
-            }
-
-            DBGMCU.cr().modify(|w| {
-                w.set_dbgsleep_d1(true);
-                w.set_dbgstby_d1(true);
-                w.set_dbgstop_d1(true);
-            });
         }
     }
 

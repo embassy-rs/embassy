@@ -17,7 +17,6 @@ mod example_common;
 fn config() -> Config {
     let mut config = Config::default();
     config.rcc.sys_ck = Some(Hertz(84_000_000));
-    config.rcc.enable_debug_wfe = true;
     config
 }
 

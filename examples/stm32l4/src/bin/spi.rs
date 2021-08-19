@@ -7,7 +7,6 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::spi::{Config, Spi};
@@ -19,10 +18,6 @@ use example_common::*;
 #[cortex_m_rt::entry]
 fn main() -> ! {
     info!("Hello World!");
-
-    unsafe {
-        Dbgmcu::enable_all();
-    }
 
     let p = embassy_stm32::init(Default::default());
 

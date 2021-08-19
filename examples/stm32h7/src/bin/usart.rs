@@ -14,7 +14,6 @@ use embassy_stm32::usart::{Config, Uart};
 use example_common::*;
 
 use cortex_m_rt::entry;
-use embassy_stm32::dbgmcu::Dbgmcu;
 
 #[embassy::task]
 async fn main_task() {
@@ -38,10 +37,6 @@ static EXECUTOR: Forever<Executor> = Forever::new();
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
-
-    unsafe {
-        Dbgmcu::enable_all();
-    }
 
     let executor = EXECUTOR.put(Executor::new());
 

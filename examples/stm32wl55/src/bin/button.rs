@@ -6,10 +6,7 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy_stm32::{
-    dbgmcu::Dbgmcu,
-    gpio::{Input, Level, Output, Pull, Speed},
-};
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use example_common::*;
 
@@ -20,8 +17,6 @@ fn main() -> ! {
     info!("Hello World!");
 
     let p = embassy_stm32::init(Default::default());
-
-    unsafe { Dbgmcu::enable_all() };
 
     let button = Input::new(p.PA0, Pull::Up);
     let mut led1 = Output::new(p.PB15, Level::High, Speed::Low);
