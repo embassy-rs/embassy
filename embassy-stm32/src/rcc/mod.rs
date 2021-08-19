@@ -17,13 +17,13 @@ pub struct Clocks {
     #[cfg(any(rcc_l0, rcc_f0, rcc_f0x0))]
     pub ahb: Hertz,
 
-    #[cfg(any(rcc_l4, rcc_f4, rcc_h7, rcc_wb55, rcc_wl5x))]
+    #[cfg(any(rcc_l4, rcc_f4, rcc_h7, rcc_wb, rcc_wl5))]
     pub ahb1: Hertz,
 
-    #[cfg(any(rcc_l4, rcc_f4, rcc_h7, rcc_wb55, rcc_wl5x))]
+    #[cfg(any(rcc_l4, rcc_f4, rcc_h7, rcc_wb, rcc_wl5))]
     pub ahb2: Hertz,
 
-    #[cfg(any(rcc_l4, rcc_f4, rcc_h7, rcc_wb55, rcc_wl5x))]
+    #[cfg(any(rcc_l4, rcc_f4, rcc_h7, rcc_wb, rcc_wl5))]
     pub ahb3: Hertz,
 
     #[cfg(any(rcc_h7))]
@@ -66,10 +66,10 @@ cfg_if::cfg_if! {
     } else if #[cfg(rcc_f4)] {
         mod f4;
         pub use f4::*;
-    } else if #[cfg(rcc_wb55)] {
-        mod wb55;
-        pub use wb55::*;
-    } else if #[cfg(rcc_wl5x)] {
+    } else if #[cfg(rcc_wb)] {
+        mod wb;
+        pub use wb::*;
+    } else if #[cfg(rcc_wl5)] {
         mod wl5x;
         pub use wl5x::*;
     } else if #[cfg(any(rcc_f0, rcc_f0x0))] {
