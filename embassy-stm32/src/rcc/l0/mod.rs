@@ -377,16 +377,6 @@ impl RccExt for RCC {
 pub struct HSI48(());
 
 pub unsafe fn init(config: Config) {
-    let rcc = pac::RCC;
-    rcc.iopenr().write(|w| {
-        w.set_iopaen(true);
-        w.set_iopben(true);
-        w.set_iopcen(true);
-        w.set_iopden(true);
-        w.set_iopeen(true);
-        w.set_iophen(true);
-    });
-
     let r = <peripherals::RCC as embassy::util::Steal>::steal();
     let clocks = r.freeze(config);
     set_freqs(clocks);

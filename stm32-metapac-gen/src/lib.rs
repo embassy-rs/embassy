@@ -117,11 +117,7 @@ impl BlockInfo {
     }
 }
 
-fn find_reg_for_field<'c>(
-    rcc: &'c ir::IR,
-    reg_regex: &str,
-    field_name: &str,
-) -> Option<(&'c str, &'c str)> {
+fn find_reg<'c>(rcc: &'c ir::IR, reg_regex: &str, field_name: &str) -> Option<(&'c str, &'c str)> {
     let reg_regex = Regex::new(reg_regex).unwrap();
 
     for (name, fieldset) in &rcc.fieldsets {
@@ -426,16 +422,16 @@ pub fn gen(options: Options) {
 
                 // Workaround for clock registers being split on some chip families. Assume fields are
                 // named after peripheral and look for first field matching and use that register.
-                let mut en = find_reg_for_field(&rcc, "^.+ENR\\d*$", &format!("{}EN", name));
-                let mut rst = find_reg_for_field(&rcc, "^.+RSTR\\d*$", &format!("{}RST", name));
+                let mut en = find_reg(&rcc, "^.+ENR\\d*$", &format!("{}EN", name));
+                let mut rst = find_reg(&rcc, "^.+RSTR\\d*$", &format!("{}RST", name));
 
                 if en.is_none() && name.ends_with("1") {
-                    en = find_reg_for_field(
+                    en = find_reg(
                         &rcc,
                         "^.+ENR\\d*$",
                         &format!("{}EN", &name[..name.len() - 1]),
                     );
-                    rst = find_reg_for_field(
+                    rst = find_reg(
                         &rcc,
                         "^.+RSTR\\d*$",
                         &format!("{}RST", &name[..name.len() - 1]),
@@ -499,6 +495,10 @@ pub fn gen(options: Options) {
         for reg in gpio_regs {
             gpio_rcc_table.push(vec![reg]);
         }
+
+        // We should always find GPIO RCC regs. If not, it means something
+        // is broken and GPIO won't work because it's not enabled.
+        assert!(!gpio_rcc_table.is_empty());
 
         for (id, channel_info) in &core.dma_channels {
             let mut row = Vec::new();
