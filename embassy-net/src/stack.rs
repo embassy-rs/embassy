@@ -9,13 +9,17 @@ use futures::pin_mut;
 use smoltcp::iface::InterfaceBuilder;
 #[cfg(feature = "medium-ethernet")]
 use smoltcp::iface::{Neighbor, NeighborCache, Route, Routes};
+#[cfg(feature = "medium-ethernet")]
 use smoltcp::phy::Device as _;
+#[cfg(feature = "medium-ethernet")]
 use smoltcp::phy::Medium;
 use smoltcp::socket::SocketSetItem;
 use smoltcp::time::Instant as SmolInstant;
 #[cfg(feature = "medium-ethernet")]
 use smoltcp::wire::EthernetAddress;
-use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
+#[cfg(feature = "medium-ethernet")]
+use smoltcp::wire::IpAddress;
+use smoltcp::wire::{IpCidr, Ipv4Address, Ipv4Cidr};
 
 use crate::config::Configurator;
 use crate::config::Event;
@@ -44,7 +48,9 @@ impl<const ADDR: usize, const SOCK: usize, const NEIGHBOR: usize>
         Self {
             addresses: [IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 32); ADDR],
             sockets: [NONE_SOCKET; SOCK],
+            #[cfg(feature = "medium-ethernet")]
             routes: [None; 1],
+            #[cfg(feature = "medium-ethernet")]
             neighbor_cache: [None; NEIGHBOR],
         }
     }
@@ -84,6 +90,7 @@ impl Stack {
     }
 
     fn poll_configurator(&mut self, timestamp: SmolInstant) {
+        #[cfg(feature = "medium-ethernet")]
         let medium = self.iface.device().capabilities().medium;
 
         match self
@@ -180,6 +187,7 @@ pub fn init<const ADDR: usize, const SOCK: usize, const NEIGH: usize>(
     configurator: &'static mut dyn Configurator,
     resources: &'static mut StackResources<ADDR, SOCK, NEIGH>,
 ) {
+    #[cfg(feature = "medium-ethernet")]
     let medium = device.capabilities().medium;
 
     #[cfg(feature = "medium-ethernet")]
