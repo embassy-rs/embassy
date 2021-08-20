@@ -25,7 +25,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // in the WDT interrupt. The core resets 2 ticks after firing the interrupt.
     config.run_during_debug_halt = false;
 
-    let (_wdt, [mut handle]) = match Watchdog::try_new::<1>(p.WDT, config) {
+    let (_wdt, [mut handle]) = match Watchdog::try_new(p.WDT, config) {
         Ok(x) => x,
         Err(_) => {
             info!("Watchdog already active with wrong config, waiting for it to timeout...");
