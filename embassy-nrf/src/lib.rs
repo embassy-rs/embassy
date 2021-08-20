@@ -23,10 +23,12 @@ compile_error!("No chip feature activated. You must activate exactly one of the 
 pub(crate) mod fmt;
 pub(crate) mod util;
 
+#[cfg(feature = "_time-driver")]
 mod time_driver;
 
 pub mod buffered_uarte;
 pub mod gpio;
+#[cfg(feature = "gpiote")]
 pub mod gpiote;
 pub mod ppi;
 #[cfg(not(any(feature = "nrf52805", feature = "nrf52820")))]
@@ -98,7 +100,9 @@ pub mod config {
     pub struct Config {
         pub hfclk_source: HfclkSource,
         pub lfclk_source: LfclkSource,
+        #[cfg(feature = "gpiote")]
         pub gpiote_interrupt_priority: crate::interrupt::Priority,
+        #[cfg(feature = "_time-driver")]
         pub time_interrupt_priority: crate::interrupt::Priority,
     }
 
@@ -110,7 +114,9 @@ pub mod config {
                 // xtals if they know they have them.
                 hfclk_source: HfclkSource::Internal,
                 lfclk_source: LfclkSource::InternalRC,
+                #[cfg(feature = "gpiote")]
                 gpiote_interrupt_priority: crate::interrupt::Priority::P0,
+                #[cfg(feature = "_time-driver")]
                 time_interrupt_priority: crate::interrupt::Priority::P0,
             }
         }
@@ -164,9 +170,11 @@ pub fn init(config: config::Config) -> Peripherals {
     while r.events_lfclkstarted.read().bits() == 0 {}
 
     // Init GPIOTE
+    #[cfg(feature = "gpiote")]
     gpiote::init(config.gpiote_interrupt_priority);
 
     // init RTC time driver
+    #[cfg(feature = "_time-driver")]
     time_driver::init(config.time_interrupt_priority);
 
     peripherals

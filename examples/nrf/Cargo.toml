@@ -19,7 +19,7 @@ defmt-error = []
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-trace"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
-embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "defmt-trace", "nrf52840"] }
+embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "defmt-trace", "nrf52840", "time-driver-rtc1", "gpiote"] }
 
 defmt = "0.2.0"
 defmt-rtt = "0.2.0"
