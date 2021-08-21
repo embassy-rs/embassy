@@ -386,6 +386,7 @@ where
 ///
 /// [`try_recv`]: super::Receiver::try_recv
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TryRecvError {
     /// A message could not be received because the channel is empty.
     Empty,
@@ -401,6 +402,13 @@ pub struct SendError<T>(pub T);
 impl<T> fmt::Display for SendError<T> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(fmt, "channel closed")
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<T> defmt::Format for SendError<T> {
+    fn format(&self, fmt: defmt::Formatter<'_>) {
+        defmt::write!(fmt, "channel closed")
     }
 }
 
@@ -427,6 +435,16 @@ impl<T> fmt::Display for TrySendError<T> {
                 TrySendError::Closed(..) => "channel closed",
             }
         )
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<T> defmt::Format for TrySendError<T> {
+    fn format(&self, fmt: defmt::Formatter<'_>) {
+        match self {
+            TrySendError::Full(..) => defmt::write!(fmt, "no available capacity"),
+            TrySendError::Closed(..) => defmt::write!(fmt, "channel closed"),
+        }
     }
 }
 
