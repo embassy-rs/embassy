@@ -386,6 +386,7 @@ where
 ///
 /// [`try_recv`]: super::Receiver::try_recv
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TryRecvError {
     /// A message could not be received because the channel is empty.
     Empty,
@@ -404,6 +405,14 @@ impl<T> fmt::Display for SendError<T> {
     }
 }
 
+#[cfg(feature = "defmt")]
+impl<T> defmt::Format for SendError<T> {
+    fn format(&self, fmt: defmt::Formatter<'_>) {
+        defmt::write!(fmt, "channel closed")
+    }
+}
+
+
 /// This enumeration is the list of the possible error outcomes for the
 /// [try_send](super::Sender::try_send) method.
 #[derive(Debug)]
@@ -420,6 +429,20 @@ pub enum TrySendError<T> {
 impl<T> fmt::Display for TrySendError<T> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
+            fmt,
+            "{}",
+            match self {
+                TrySendError::Full(..) => "no available capacity",
+                TrySendError::Closed(..) => "channel closed",
+            }
+        )
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<T> defmt::Format for TrySendError<T> {
+    fn format(&self, fmt: defmt::Formatter<'_>) {
+        defmt::write!(
             fmt,
             "{}",
             match self {
