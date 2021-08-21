@@ -67,6 +67,8 @@ mod chip;
 #[path = "chips/nrf52840.rs"]
 mod chip;
 
+pub use chip::EASY_DMA_SIZE;
+
 #[cfg(feature = "unstable-pac")]
 pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
