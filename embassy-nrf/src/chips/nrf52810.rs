@@ -1,5 +1,6 @@
 pub use nrf52810_pac as pac;
 
+/// The maximum buffer size that the EasyDMA can send/recv in one operation.
 pub const EASY_DMA_SIZE: usize = (1 << 10) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 256;
 
