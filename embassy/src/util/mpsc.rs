@@ -441,14 +441,10 @@ impl<T> fmt::Display for TrySendError<T> {
 #[cfg(feature = "defmt")]
 impl<T> defmt::Format for TrySendError<T> {
     fn format(&self, fmt: defmt::Formatter<'_>) {
-        defmt::write!(
-            fmt,
-            "{}",
-            match self {
-                TrySendError::Full(..) => "no available capacity",
-                TrySendError::Closed(..) => "channel closed",
-            }
-        )
+        match self {
+            TrySendError::Full(..) => defmt::write!(fmt, "no available capacity"),
+            TrySendError::Closed(..) => defmt::write!(fmt, "channel closed"),
+        }
     }
 }
 
