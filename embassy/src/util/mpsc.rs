@@ -412,7 +412,6 @@ impl<T> defmt::Format for SendError<T> {
     }
 }
 
-
 /// This enumeration is the list of the possible error outcomes for the
 /// [try_send](super::Sender::try_send) method.
 #[derive(Debug)]
