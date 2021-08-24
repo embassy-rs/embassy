@@ -2,7 +2,7 @@ use core::mem;
 use core::ptr::NonNull;
 use core::task::{RawWaker, RawWakerVTable, Waker};
 
-use super::raw::TaskHeader;
+use super::TaskHeader;
 
 const VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake, drop);
 

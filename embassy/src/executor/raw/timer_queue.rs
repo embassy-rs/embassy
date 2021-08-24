@@ -4,7 +4,7 @@ use core::cmp::min;
 use core::ptr;
 use core::ptr::NonNull;
 
-use super::raw::{TaskHeader, STATE_TIMER_QUEUED};
+use super::{TaskHeader, STATE_TIMER_QUEUED};
 use crate::time::Instant;
 
 pub(crate) struct TimerQueueItem {

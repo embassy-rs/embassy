@@ -2,7 +2,7 @@ use atomic_polyfill::{AtomicPtr, Ordering};
 use core::ptr;
 use core::ptr::NonNull;
 
-use super::raw::TaskHeader;
+use super::TaskHeader;
 
 pub(crate) struct RunQueueItem {
     next: AtomicPtr<TaskHeader>,
