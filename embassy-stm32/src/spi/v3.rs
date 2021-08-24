@@ -561,7 +561,7 @@ impl<'d, T: Instance, Tx, Rx> traits::Spi<u8> for Spi<'d, T, Tx, Rx> {
 
 impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx> traits::Write<u8> for Spi<'d, T, Tx, Rx> {
     #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output=Result<(), Self::Error>> + 'a;
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
         self.write_dma_u8(data)
@@ -572,7 +572,7 @@ impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::Read<u8>
     for Spi<'d, T, Tx, Rx>
 {
     #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output=Result<(), Self::Error>> + 'a;
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
         self.read_dma_u8(data)
@@ -583,7 +583,7 @@ impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::FullDupl
     for Spi<'d, T, Tx, Rx>
 {
     #[rustfmt::skip]
-    type WriteReadFuture<'a> where Self: 'a = impl Future<Output=Result<(), Self::Error>> + 'a;
+    type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read_write<'a>(
         &'a mut self,
