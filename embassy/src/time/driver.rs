@@ -1,3 +1,58 @@
+//! Time driver interface
+//!
+//! This module defines the interface a driver needs to implement to power the `embassy::time` module.
+//!
+//! # Implementing a driver
+//!
+//! - Define a struct `MyDriver`
+//! - Implement [`Driver`] for it
+//! - Register it as the global driver with [`time_driver_impl`].
+//! - Enable the Cargo features `embassy/time` and one of `embassy/time-tick-*` corresponding to the
+//!   tick rate of your driver.
+//!
+//! If you wish to make the tick rate configurable by the end user, you should do so by exposing your own
+//! Cargo features and having each enable the corresponding `embassy/time-tick-*`.
+//!
+//! # Linkage details
+//!
+//! Instead of the usual "trait + generic params" approach, calls from embassy to the driver are done via `extern` functions.
+//!
+//! `embassy` internally defines the driver functions as `extern "Rust" { fn _embassy_time_now() -> u64; }` and calls them.
+//! The driver crate defines the functions as `#[no_mangle] fn _embassy_time_now() -> u64`. The linker will resolve the
+//! calls from the `embassy` crate to call into the driver crate.
+//!
+//! If there is none or multiple drivers in the crate tree, linking will fail.
+//!
+//! This method has a few key advantages for something as foundational as timekeeping:
+//!
+//! - The time driver is available everywhere easily, without having to thread the implementation
+//~   through generic parameters. This is especially helpful for libraries.
+//! - It means comparing `Instant`s will always make sense: if there were multiple drivers
+//!   active, one could compare an `Instant` from driver A to an `Instant` from driver B, which
+//!   would yield incorrect results.
+//!
+/// # Example
+///
+/// ```
+/// struct MyDriver; // not public!
+/// embassy::time_driver_impl!(MyDriver);
+///
+/// unsafe impl embassy::time::driver::Driver for MyDriver {
+///     fn now() -> u64 {
+///         todo!()
+///     }
+///     unsafe fn allocate_alarm() -> Option<AlarmHandle> {
+///         todo!()
+///     }
+///     fn set_alarm_callback(alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
+///         todo!()
+///     }
+///     fn set_alarm(alarm: AlarmHandle, timestamp: u64) {
+///         todo!()
+///     }
+/// }
+/// ```
+
 /// Alarm handle, assigned by the driver.
 #[derive(Clone, Copy)]
 pub struct AlarmHandle {
@@ -73,7 +128,7 @@ pub(crate) fn set_alarm(alarm: AlarmHandle, timestamp: u64) {
 /// # Example
 ///
 /// ```
-/// struct MyDriver;
+/// struct MyDriver; // not public!
 /// embassy::time_driver_impl!(MyDriver);
 ///
 /// unsafe impl embassy::time::driver::Driver for MyDriver {
@@ -90,7 +145,7 @@ pub(crate) fn set_alarm(alarm: AlarmHandle, timestamp: u64) {
 ///         todo!()
 ///     }
 /// }
-///
+/// ```
 #[macro_export]
 macro_rules! time_driver_impl {
     ($t: ty) => {

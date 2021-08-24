@@ -11,18 +11,27 @@ pub struct Duration {
 }
 
 impl Duration {
+    /// The smallest value that can be represented by the `Duration` type.
+    pub const MIN: Duration = Duration { ticks: u64::MIN };
+    /// The largest value that can be represented by the `Duration` type.
+    pub const MAX: Duration = Duration { ticks: u64::MAX };
+
+    /// Tick count of the `Duration`.
     pub const fn as_ticks(&self) -> u64 {
         self.ticks
     }
 
+    /// Convert the `Duration` to seconds, rounding down.
     pub const fn as_secs(&self) -> u64 {
         self.ticks / TICKS_PER_SECOND
     }
 
+    /// Convert the `Duration` to milliseconds, rounding down.
     pub const fn as_millis(&self) -> u64 {
         self.ticks * 1000 / TICKS_PER_SECOND
     }
 
+    /// Convert the `Duration` to microseconds, rounding down.
     pub const fn as_micros(&self) -> u64 {
         self.ticks * 1_000_000 / TICKS_PER_SECOND
     }

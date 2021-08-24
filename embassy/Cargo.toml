@@ -9,7 +9,15 @@ resolver = "2"
 default = []
 std = ["futures/std", "embassy-traits/std"]
 
+# Enable `embassy::time` module. 
+# NOTE: This feature is only intended to be enabled by crates providing the time driver implementation.
+# Enabling it directly without supplying a time driver will fail to link.
 time = []
+
+# Set the `embassy::time` tick rate.
+# NOTE: This feature is only intended to be enabled by crates providing the time driver implementation.
+# If you're not writing your own driver, check the driver documentation to customize the tick rate.
+# If you're writing a driver and your tick rate is not listed here, please add it and send a PR!
 time-tick-32768hz = ["time"]
 time-tick-1000hz = ["time"]
 time-tick-1mhz = ["time"]
