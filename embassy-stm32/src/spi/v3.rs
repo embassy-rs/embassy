@@ -171,6 +171,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_dsize(word_size.dsize());
             });
             T::regs().cr1().modify(|w| {
+                w.set_csusp(false);
                 w.set_spe(true);
             });
         }
@@ -375,8 +376,19 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T, NoDm
                 }
                 if !sr.txp() {
                     // loop waiting for TXE
+                    continue;
                 }
+                break;
             }
+            unsafe {
+                let rxdr = regs.rxdr().ptr() as *const u8;
+                // discard read to prevent pverrun.
+                let _ = ptr::read_volatile(rxdr);
+            }
+        }
+
+        while unsafe { !regs.sr().read().txc() } {
+            // spin
         }
 
         Ok(())
@@ -469,8 +481,20 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T, NoD
                 }
                 if !sr.txp() {
                     // loop waiting for TXE
+                    continue;
                 }
+                break;
             }
+
+            unsafe {
+                let rxdr = regs.rxdr().ptr() as *const u8;
+                // discard read to prevent pverrun.
+                let _ = ptr::read_volatile(rxdr);
+            }
+        }
+
+        while unsafe { !regs.sr().read().txc() } {
+            // spin
         }
 
         Ok(())
