@@ -5,9 +5,6 @@ use core::task::{Context, Poll};
 #[cfg(feature = "alloc")]
 use alloc::boxed::Box;
 
-#[cfg(feature = "std")]
-use futures::io as std_io;
-
 use super::error::Result;
 
 /// Read bytes asynchronously.
@@ -157,39 +154,5 @@ where
 {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
         self.get_mut().as_mut().poll_write(cx, buf)
-    }
-}
-
-#[cfg(feature = "std")]
-pub struct FromStdIo<T>(T);
-
-#[cfg(feature = "std")]
-impl<T> FromStdIo<T> {
-    pub fn new(inner: T) -> Self {
-        Self(inner)
-    }
-}
-
-#[cfg(feature = "std")]
-impl<T: std_io::AsyncBufRead> AsyncBufRead for FromStdIo<T> {
-    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
-        let Self(inner) = unsafe { self.get_unchecked_mut() };
-        unsafe { Pin::new_unchecked(inner) }
-            .poll_fill_buf(cx)
-            .map_err(|e| e.into())
-    }
-    fn consume(self: Pin<&mut Self>, amt: usize) {
-        let Self(inner) = unsafe { self.get_unchecked_mut() };
-        unsafe { Pin::new_unchecked(inner) }.consume(amt)
-    }
-}
-
-#[cfg(feature = "std")]
-impl<T: std_io::AsyncWrite> AsyncWrite for FromStdIo<T> {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
-        let Self(inner) = unsafe { self.get_unchecked_mut() };
-        unsafe { Pin::new_unchecked(inner) }
-            .poll_write(cx, buf)
-            .map_err(|e| e.into())
     }
 }
