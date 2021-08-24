@@ -1,23 +1,26 @@
+mod run_queue;
+#[cfg(feature = "time")]
+mod timer_queue;
+mod util;
+mod waker;
+
 use atomic_polyfill::{AtomicU32, Ordering};
 use core::cell::Cell;
 use core::future::Future;
-use core::marker::PhantomData;
 use core::pin::Pin;
 use core::ptr::NonNull;
 use core::task::{Context, Poll};
 use core::{mem, ptr};
 
-use super::run_queue::{RunQueue, RunQueueItem};
-use super::util::UninitCell;
-use super::waker;
+use self::run_queue::{RunQueue, RunQueueItem};
+use self::util::UninitCell;
 use super::SpawnToken;
-
-#[cfg(feature = "time")]
-use super::timer_queue::{TimerQueue, TimerQueueItem};
 #[cfg(feature = "time")]
 use crate::time::driver::{self, AlarmHandle};
 #[cfg(feature = "time")]
 use crate::time::Instant;
+
+pub use self::waker::task_from_waker;
 
 /// Task is spawned (has a future)
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
@@ -36,7 +39,7 @@ pub struct TaskHeader {
     #[cfg(feature = "time")]
     pub(crate) expires_at: Cell<Instant>,
     #[cfg(feature = "time")]
-    pub(crate) timer_queue_item: TimerQueueItem,
+    pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
 }
 
 impl TaskHeader {
@@ -50,7 +53,7 @@ impl TaskHeader {
             #[cfg(feature = "time")]
             expires_at: Cell::new(Instant::from_ticks(0)),
             #[cfg(feature = "time")]
-            timer_queue_item: TimerQueueItem::new(),
+            timer_queue_item: timer_queue::TimerQueueItem::new(),
         }
     }
 
@@ -105,20 +108,14 @@ impl<F: Future + 'static> Task<F> {
             }
         }
 
-        SpawnToken {
-            raw_task: None,
-            phantom: PhantomData,
-        }
+        SpawnToken::new_failed()
     }
 
     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<F> {
         if self.spawn_allocate() {
             unsafe { self.spawn_initialize(future) }
         } else {
-            SpawnToken {
-                raw_task: None,
-                phantom: PhantomData,
-            }
+            SpawnToken::new_failed()
         }
     }
 
@@ -135,10 +132,7 @@ impl<F: Future + 'static> Task<F> {
         self.raw.poll_fn.write(Self::poll);
         self.future.write(future());
 
-        return SpawnToken {
-            raw_task: Some(NonNull::new_unchecked(&self.raw as *const TaskHeader as _)),
-            phantom: PhantomData,
-        };
+        SpawnToken::new(NonNull::new_unchecked(&self.raw as *const TaskHeader as _))
     }
 
     unsafe fn poll(p: NonNull<TaskHeader>) {
@@ -169,7 +163,7 @@ pub struct Executor {
     signal_ctx: *mut (),
 
     #[cfg(feature = "time")]
-    timer_queue: TimerQueue,
+    pub(crate) timer_queue: timer_queue::TimerQueue,
     #[cfg(feature = "time")]
     alarm: AlarmHandle,
 }
@@ -187,7 +181,7 @@ impl Executor {
             signal_ctx,
 
             #[cfg(feature = "time")]
-            timer_queue: TimerQueue::new(),
+            timer_queue: timer_queue::TimerQueue::new(),
             #[cfg(feature = "time")]
             alarm,
         }
@@ -249,14 +243,9 @@ impl Executor {
     }
 
     pub unsafe fn spawner(&'static self) -> super::Spawner {
-        super::Spawner {
-            executor: self,
-            not_send: PhantomData,
-        }
+        super::Spawner::new(self)
     }
 }
-
-pub use super::waker::task_from_waker;
 
 pub unsafe fn wake_task(task: NonNull<TaskHeader>) {
     task.as_ref().enqueue();
