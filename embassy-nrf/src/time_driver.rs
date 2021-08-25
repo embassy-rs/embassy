@@ -82,7 +82,7 @@ impl AlarmState {
 
 const ALARM_COUNT: usize = 3;
 
-struct State {
+struct RtcDriver {
     /// Number of 2^23 periods elapsed since boot.
     period: AtomicU32,
     alarm_count: AtomicU8,
@@ -91,13 +91,13 @@ struct State {
 }
 
 const ALARM_STATE_NEW: AlarmState = AlarmState::new();
-static STATE: State = State {
+embassy::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
     alarms: Mutex::new([ALARM_STATE_NEW; ALARM_COUNT]),
-};
+});
 
-impl State {
+impl RtcDriver {
     fn init(&'static self, irq_prio: crate::interrupt::Priority) {
         let r = rtc();
         r.cc[3].write(|w| unsafe { w.bits(0x800000) });
@@ -159,14 +159,6 @@ impl State {
         })
     }
 
-    fn now(&self) -> u64 {
-        // `period` MUST be read before `counter`, see comment at the top for details.
-        let period = self.period.load(Ordering::Relaxed);
-        compiler_fence(Ordering::Acquire);
-        let counter = rtc().counter.read().bits();
-        calc_now(period, counter)
-    }
-
     fn get_alarm<'a>(&'a self, cs: CriticalSection<'a>, alarm: AlarmHandle) -> &'a AlarmState {
         // safety: we're allowed to assume the AlarmState is created by us, and
         // we never create one that's out of bounds.
@@ -188,8 +180,18 @@ impl State {
         let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback.get()) };
         f(alarm.ctx.get());
     }
+}
 
-    fn allocate_alarm(&self) -> Option<AlarmHandle> {
+impl Driver for RtcDriver {
+    fn now(&self) -> u64 {
+        // `period` MUST be read before `counter`, see comment at the top for details.
+        let period = self.period.load(Ordering::Relaxed);
+        compiler_fence(Ordering::Acquire);
+        let counter = rtc().counter.read().bits();
+        calc_now(period, counter)
+    }
+
+    unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
         let id = self
             .alarm_count
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
@@ -201,7 +203,7 @@ impl State {
             });
 
         match id {
-            Ok(id) => Some(unsafe { AlarmHandle::new(id) }),
+            Ok(id) => Some(AlarmHandle::new(id)),
             Err(_) => None,
         }
     }
@@ -263,32 +265,11 @@ impl State {
     }
 }
 
-struct RtcDriver;
-embassy::time_driver_impl!(RtcDriver);
-
-impl Driver for RtcDriver {
-    fn now() -> u64 {
-        STATE.now()
-    }
-
-    unsafe fn allocate_alarm() -> Option<AlarmHandle> {
-        STATE.allocate_alarm()
-    }
-
-    fn set_alarm_callback(alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-        STATE.set_alarm_callback(alarm, callback, ctx)
-    }
-
-    fn set_alarm(alarm: AlarmHandle, timestamp: u64) {
-        STATE.set_alarm(alarm, timestamp)
-    }
-}
-
 #[interrupt]
 fn RTC1() {
-    STATE.on_interrupt()
+    DRIVER.on_interrupt()
 }
 
 pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
-    STATE.init(irq_prio)
+    DRIVER.init(irq_prio)
 }
