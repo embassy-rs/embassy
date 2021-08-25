@@ -8,7 +8,7 @@ use example_common::*;
 use core::mem;
 use cortex_m_rt::entry;
 
-use embassy::executor::raw::Task;
+use embassy::executor::raw::TaskStorage;
 use embassy::executor::Executor;
 use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
@@ -36,8 +36,8 @@ fn main() -> ! {
     let _p = embassy_nrf::init(Default::default());
     let executor = EXECUTOR.put(Executor::new());
 
-    let run1_task = Task::new();
-    let run2_task = Task::new();
+    let run1_task = TaskStorage::new();
+    let run2_task = TaskStorage::new();
 
     // Safety: these variables do live forever if main never returns.
     let run1_task = unsafe { make_static(&run1_task) };

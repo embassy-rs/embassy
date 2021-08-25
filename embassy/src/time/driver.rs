@@ -95,12 +95,15 @@ pub trait Driver: Send + Sync + 'static {
     /// The callback may be called from any context (interrupt or thread mode).
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ());
 
-    /// Sets an alarm at the given timestamp. When the current timestamp reaches that
+    /// Sets an alarm at the given timestamp. When the current timestamp reaches the alarm
     /// timestamp, the provided callback funcion will be called.
+    ///
+    /// If `timestamp` is already in the past, the alarm callback must be immediately fired.
+    /// In this case, it is allowed (but not mandatory) to call the alarm callback synchronously from `set_alarm`.
     ///
     /// When callback is called, it is guaranteed that now() will return a value greater or equal than timestamp.
     ///
-    /// Only one alarm can be active at a time. This overwrites any previously-set alarm if any.
+    /// Only one alarm can be active at a time for each AlarmHandle. This overwrites any previously-set alarm if any.
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64);
 }
 

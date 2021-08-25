@@ -40,6 +40,8 @@
 //!
 //! For more details, check the [`driver`] module.
 
+#![deny(missing_docs)]
+
 mod delay;
 pub mod driver;
 mod duration;
