@@ -5,9 +5,9 @@
 mod serial_port;
 
 use async_io::Async;
+use embassy::executor::Executor;
 use embassy::io::AsyncBufReadExt;
 use embassy::util::Forever;
-use embassy_std::Executor;
 use log::*;
 use nix::sys::termios;
 
