@@ -45,7 +45,6 @@ members = [
     #"examples/rp",
 
     # std
-    #"embassy-std",
     #"examples/std",
 ]
 

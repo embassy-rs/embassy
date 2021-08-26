@@ -1,9 +1,9 @@
 #![feature(type_alias_impl_trait)]
 #![allow(incomplete_features)]
 
+use embassy::executor::Executor;
 use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
-use embassy_std::Executor;
 use log::*;
 
 #[embassy::task]

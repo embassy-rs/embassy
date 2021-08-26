@@ -5,8 +5,7 @@ name = "embassy-std-examples"
 version = "0.1.0"
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["log"] }
-embassy-std = { version = "0.1.0", path = "../../embassy-std" }
+embassy = { version = "0.1.0", path = "../../embassy", features = ["log", "std", "time"] }
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features=["std", "log", "medium-ethernet", "tcp", "dhcpv4"] }
 smoltcp = { git = "https://github.com/smoltcp-rs/smoltcp", rev="e4241510337e095b9d21136c5f58b2eaa1b78479", default-features = false }
 

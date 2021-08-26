@@ -6,7 +6,13 @@ use futures::{future::select, future::Either, pin_mut, Stream};
 use crate::executor::raw;
 use crate::time::{Duration, Instant};
 
+/// Error returned by [`with_timeout`] on timeout.
 pub struct TimeoutError;
+
+/// Runs a given future with a timeout.
+///
+/// If the future completes before the timeout, its output is returned. Otherwise, on timeout,
+/// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
 pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Output, TimeoutError> {
     let timeout_fut = Timer::after(timeout);
     pin_mut!(fut);

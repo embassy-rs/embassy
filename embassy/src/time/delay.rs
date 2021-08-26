@@ -4,11 +4,10 @@ use super::{Duration, Instant, Timer};
 
 /// Type implementing async delays and blocking `embedded-hal` delays.
 ///
-/// For this interface to work, the Executor's clock must be correctly initialized before using it.
 /// The delays are implemented in a "best-effort" way, meaning that the cpu will block for at least
 /// the amount provided, but accuracy can be affected by many factors, including interrupt usage.
-/// Make sure to use a suitable tick rate for your use case. The tick rate can be chosen through
-/// features flags of this crate.
+/// Make sure to use a suitable tick rate for your use case. The tick rate is defined by the currently
+/// active driver.
 pub struct Delay;
 
 impl crate::traits::delay::Delay for Delay {
@@ -58,9 +57,7 @@ impl embedded_hal::blocking::delay::DelayUs<u32> for Delay {
     }
 }
 
-/// Blocks the cpu for at least `duration`.
-///
-/// For this interface to work, the Executor's clock must be correctly initialized before using it.
+/// Blocks for at least `duration`.
 pub fn block_for(duration: Duration) {
     let expires_at = Instant::now() + duration;
     while Instant::now() < expires_at {}

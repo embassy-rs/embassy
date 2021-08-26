@@ -11,7 +11,9 @@ pub struct Instant {
 }
 
 impl Instant {
+    /// The smallest (earliest) value that can be represented by the `Instant` type.
     pub const MIN: Instant = Instant { ticks: u64::MIN };
+    /// The largest (latest) value that can be represented by the `Instant` type.
     pub const MAX: Instant = Instant { ticks: u64::MAX };
 
     /// Returns an Instant representing the current time.
@@ -21,39 +23,38 @@ impl Instant {
         }
     }
 
-    /// Instant as clock ticks since MCU start.
+    /// Create an Instant from a tick count since system boot.
     pub const fn from_ticks(ticks: u64) -> Self {
         Self { ticks }
     }
 
-    /// Instant as milliseconds since MCU start.
+    /// Create an Instant from a millisecond count since system boot.
     pub const fn from_millis(millis: u64) -> Self {
         Self {
-            ticks: millis * TICKS_PER_SECOND as u64 / 1000,
+            ticks: millis * TICKS_PER_SECOND / 1000,
         }
     }
 
-    /// Instant representing seconds since MCU start.
+    /// Create an Instant from a second count since system boot.
     pub const fn from_secs(seconds: u64) -> Self {
         Self {
-            ticks: seconds * TICKS_PER_SECOND as u64,
+            ticks: seconds * TICKS_PER_SECOND,
         }
     }
 
-    /// Instant as ticks since MCU start.
-
+    /// Tick count since system boot.
     pub const fn as_ticks(&self) -> u64 {
         self.ticks
     }
-    /// Instant as seconds since MCU start.
 
+    /// Seconds since system boot.
     pub const fn as_secs(&self) -> u64 {
-        self.ticks / TICKS_PER_SECOND as u64
+        self.ticks / TICKS_PER_SECOND
     }
-    /// Instant as miliseconds since MCU start.
 
+    /// Milliseconds since system boot.
     pub const fn as_millis(&self) -> u64 {
-        self.ticks * 1000 / TICKS_PER_SECOND as u64
+        self.ticks * 1000 / TICKS_PER_SECOND
     }
 
     /// Duration between this Instant and another Instant
@@ -92,11 +93,14 @@ impl Instant {
         Instant::now() - *self
     }
 
+    /// Adds one Duration to self, returning a new `Instant` or None in the event of an overflow.
     pub fn checked_add(&self, duration: Duration) -> Option<Instant> {
         self.ticks
             .checked_add(duration.ticks)
             .map(|ticks| Instant { ticks })
     }
+
+    /// Subtracts one Duration to self, returning a new `Instant` or None in the event of an overflow.
     pub fn checked_sub(&self, duration: Duration) -> Option<Instant> {
         self.ticks
             .checked_sub(duration.ticks)

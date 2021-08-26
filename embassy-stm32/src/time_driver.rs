@@ -26,12 +26,12 @@ type T = peripherals::TIM3;
 #[cfg(feature = "time-driver-tim2")]
 #[interrupt]
 fn TIM2() {
-    STATE.on_interrupt()
+    DRIVER.on_interrupt()
 }
 #[cfg(feature = "time-driver-tim3")]
 #[interrupt]
 fn TIM3() {
-    STATE.on_interrupt()
+    DRIVER.on_interrupt()
 }
 
 // Clock timekeeping works with something we call "periods", which are time intervals
@@ -76,7 +76,7 @@ impl AlarmState {
     }
 }
 
-struct State {
+struct RtcDriver {
     /// Number of 2^15 periods elapsed since boot.
     period: AtomicU32,
     alarm_count: AtomicU8,
@@ -85,13 +85,14 @@ struct State {
 }
 
 const ALARM_STATE_NEW: AlarmState = AlarmState::new();
-static STATE: State = State {
+
+embassy::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
     alarms: Mutex::new([ALARM_STATE_NEW; ALARM_COUNT]),
-};
+});
 
-impl State {
+impl RtcDriver {
     fn init(&'static self) {
         let r = T::regs();
 
@@ -185,16 +186,6 @@ impl State {
         })
     }
 
-    fn now(&self) -> u64 {
-        let r = T::regs();
-
-        let period = self.period.load(Ordering::Relaxed);
-        compiler_fence(Ordering::Acquire);
-        // NOTE(unsafe) Atomic read with no side-effects
-        let counter = unsafe { r.cnt().read().cnt() };
-        calc_now(period, counter)
-    }
-
     fn get_alarm<'a>(&'a self, cs: CriticalSection<'a>, alarm: AlarmHandle) -> &'a AlarmState {
         // safety: we're allowed to assume the AlarmState is created by us, and
         // we never create one that's out of bounds.
@@ -213,8 +204,20 @@ impl State {
         let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback.get()) };
         f(alarm.ctx.get());
     }
+}
 
-    fn allocate_alarm(&self) -> Option<AlarmHandle> {
+impl Driver for RtcDriver {
+    fn now(&self) -> u64 {
+        let r = T::regs();
+
+        let period = self.period.load(Ordering::Relaxed);
+        compiler_fence(Ordering::Acquire);
+        // NOTE(unsafe) Atomic read with no side-effects
+        let counter = unsafe { r.cnt().read().cnt() };
+        calc_now(period, counter)
+    }
+
+    unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
         let id = self
             .alarm_count
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
@@ -226,7 +229,7 @@ impl State {
             });
 
         match id {
-            Ok(id) => Some(unsafe { AlarmHandle::new(id) }),
+            Ok(id) => Some(AlarmHandle::new(id)),
             Err(_) => None,
         }
     }
@@ -269,29 +272,8 @@ impl State {
     }
 }
 
-struct RtcDriver;
-embassy::time_driver_impl!(RtcDriver);
-
-impl Driver for RtcDriver {
-    fn now() -> u64 {
-        STATE.now()
-    }
-
-    unsafe fn allocate_alarm() -> Option<AlarmHandle> {
-        STATE.allocate_alarm()
-    }
-
-    fn set_alarm_callback(alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-        STATE.set_alarm_callback(alarm, callback, ctx)
-    }
-
-    fn set_alarm(alarm: AlarmHandle, timestamp: u64) {
-        STATE.set_alarm(alarm, timestamp)
-    }
-}
-
 pub(crate) fn init() {
-    STATE.init()
+    DRIVER.init()
 }
 
 // ------------------------------------------------------
