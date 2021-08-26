@@ -13,6 +13,7 @@ use crate::peripherals;
 
 pub(crate) static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     SeedError,
     ClockError,
