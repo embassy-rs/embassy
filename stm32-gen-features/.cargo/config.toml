@@ -1,0 +1,3 @@
+[profile.dev]
+opt-level = 3
+lto = false
