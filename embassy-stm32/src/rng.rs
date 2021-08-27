@@ -126,6 +126,26 @@ impl<T: Instance> traits::rng::Rng for Random<T> {
             Ok(())
         }
     }
+
+    #[rustfmt::skip]
+    type NextFuture<'a> where Self: 'a = impl Future<Output=Result<u32, Self::Error>> + 'a;
+
+    fn next<'a>(&'a mut self, range: u32) -> Self::NextFuture<'a> {
+        async move {
+            let t = (-(range as i32) % (range as i32)) as u32;
+            loop {
+                let mut buf = [0; 4];
+                traits::rng::Rng::fill_bytes(self, &mut buf).await?;
+                let x = u32::from_le_bytes(buf);
+                let m = x as u64 * range as u64;
+                let l = m as u32;
+                if l < t {
+                    continue;
+                }
+                return Ok((m >> 32) as u32);
+            }
+        }
+    }
 }
 
 pub(crate) mod sealed {
