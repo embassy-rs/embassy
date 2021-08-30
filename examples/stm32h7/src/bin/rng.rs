@@ -13,7 +13,7 @@ use embassy_stm32::Peripherals;
 use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
 use embassy_stm32::rng::Random;
-use embassy::traits::rng::Rng;
+use embassy::traits::rng::Random as _;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

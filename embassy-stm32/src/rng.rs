@@ -126,7 +126,9 @@ impl<T: Instance> traits::rng::Rng for Random<T> {
             Ok(())
         }
     }
+}
 
+impl<T: Instance> traits::rng::Random for Random<T> {
     #[rustfmt::skip]
     type NextFuture<'a> where Self: 'a = impl Future<Output=Result<u32, Self::Error>> + 'a;
 
