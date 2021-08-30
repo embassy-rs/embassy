@@ -43,7 +43,11 @@ pub struct Vref;
 impl<T: Instance> AdcPin<T> for Vref {}
 impl<T: Instance> super::sealed::AdcPin<T> for Vref {
     fn channel(&self) -> u8 {
-        0
+        #[cfg(not(rcc_g0))]
+        let val = 0;
+        #[cfg(rcc_g0)]
+        let val = 13;
+        val
     }
 }
 
@@ -51,7 +55,11 @@ pub struct Temperature;
 impl<T: Instance> AdcPin<T> for Temperature {}
 impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
     fn channel(&self) -> u8 {
-        17
+        #[cfg(not(rcc_g0))]
+        let val = 17;
+        #[cfg(rcc_g0)]
+        let val = 12;
+        val
     }
 }
 
@@ -59,60 +67,123 @@ pub struct Vbat;
 impl<T: Instance> AdcPin<T> for Vbat {}
 impl<T: Instance> super::sealed::AdcPin<T> for Vbat {
     fn channel(&self) -> u8 {
-        18
+        #[cfg(not(rcc_g0))]
+        let val = 18;
+        #[cfg(rcc_g0)]
+        let val = 14;
+        val
     }
 }
 
-/// ADC sample time
-///
-/// The default setting is 2.5 ADC clock cycles.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub enum SampleTime {
-    /// 2.5 ADC clock cycles
-    Cycles2_5 = 0b000,
+#[cfg(not(adc_g0))]
+mod sample_time {
+    /// ADC sample time
+    ///
+    /// The default setting is 2.5 ADC clock cycles.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+    pub enum SampleTime {
+        /// 2.5 ADC clock cycles
+        Cycles2_5 = 0b000,
 
-    /// 6.5 ADC clock cycles
-    Cycles6_5 = 0b001,
+        /// 6.5 ADC clock cycles
+        Cycles6_5 = 0b001,
 
-    /// 12.5 ADC clock cycles
-    Cycles12_5 = 0b010,
+        /// 12.5 ADC clock cycles
+        Cycles12_5 = 0b010,
 
-    /// 24.5 ADC clock cycles
-    Cycles24_5 = 0b011,
+        /// 24.5 ADC clock cycles
+        Cycles24_5 = 0b011,
 
-    /// 47.5 ADC clock cycles
-    Cycles47_5 = 0b100,
+        /// 47.5 ADC clock cycles
+        Cycles47_5 = 0b100,
 
-    /// 92.5 ADC clock cycles
-    Cycles92_5 = 0b101,
+        /// 92.5 ADC clock cycles
+        Cycles92_5 = 0b101,
 
-    /// 247.5 ADC clock cycles
-    Cycles247_5 = 0b110,
+        /// 247.5 ADC clock cycles
+        Cycles247_5 = 0b110,
 
-    /// 640.5 ADC clock cycles
-    Cycles640_5 = 0b111,
-}
+        /// 640.5 ADC clock cycles
+        Cycles640_5 = 0b111,
+    }
 
-impl SampleTime {
-    fn sample_time(&self) -> crate::pac::adc::vals::SampleTime {
-        match self {
-            SampleTime::Cycles2_5 => crate::pac::adc::vals::SampleTime::CYCLES2_5,
-            SampleTime::Cycles6_5 => crate::pac::adc::vals::SampleTime::CYCLES6_5,
-            SampleTime::Cycles12_5 => crate::pac::adc::vals::SampleTime::CYCLES12_5,
-            SampleTime::Cycles24_5 => crate::pac::adc::vals::SampleTime::CYCLES24_5,
-            SampleTime::Cycles47_5 => crate::pac::adc::vals::SampleTime::CYCLES47_5,
-            SampleTime::Cycles92_5 => crate::pac::adc::vals::SampleTime::CYCLES92_5,
-            SampleTime::Cycles247_5 => crate::pac::adc::vals::SampleTime::CYCLES247_5,
-            SampleTime::Cycles640_5 => crate::pac::adc::vals::SampleTime::CYCLES640_5,
+    impl SampleTime {
+        pub(crate) fn sample_time(&self) -> crate::pac::adc::vals::SampleTime {
+            match self {
+                SampleTime::Cycles2_5 => crate::pac::adc::vals::SampleTime::CYCLES2_5,
+                SampleTime::Cycles6_5 => crate::pac::adc::vals::SampleTime::CYCLES6_5,
+                SampleTime::Cycles12_5 => crate::pac::adc::vals::SampleTime::CYCLES12_5,
+                SampleTime::Cycles24_5 => crate::pac::adc::vals::SampleTime::CYCLES24_5,
+                SampleTime::Cycles47_5 => crate::pac::adc::vals::SampleTime::CYCLES47_5,
+                SampleTime::Cycles92_5 => crate::pac::adc::vals::SampleTime::CYCLES92_5,
+                SampleTime::Cycles247_5 => crate::pac::adc::vals::SampleTime::CYCLES247_5,
+                SampleTime::Cycles640_5 => crate::pac::adc::vals::SampleTime::CYCLES640_5,
+            }
+        }
+    }
+
+    impl Default for SampleTime {
+        fn default() -> Self {
+            Self::Cycles2_5
         }
     }
 }
 
-impl Default for SampleTime {
-    fn default() -> Self {
-        Self::Cycles2_5
+#[cfg(adc_g0)]
+mod sample_time {
+    /// ADC sample time
+    ///
+    /// The default setting is 1.5 ADC clock cycles.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+    pub enum SampleTime {
+        /// 1.5 ADC clock cycles
+        Cycles1_5 = 0b000,
+
+        /// 3.5 ADC clock cycles
+        Cycles3_5 = 0b001,
+
+        /// 7.5 ADC clock cycles
+        Cycles7_5 = 0b010,
+
+        /// 12.5 ADC clock cycles
+        Cycles12_5 = 0b011,
+
+        /// 19.5 ADC clock cycles
+        Cycles19_5 = 0b100,
+
+        /// 39.5 ADC clock cycles
+        Cycles39_5 = 0b101,
+
+        /// 79.5 ADC clock cycles
+        Cycles79_5 = 0b110,
+
+        /// 160.5 ADC clock cycles
+        Cycles160_5 = 0b111,
+    }
+
+    impl SampleTime {
+        pub(crate) fn sample_time(&self) -> crate::pac::adc::vals::SampleTime {
+            match self {
+                SampleTime::Cycles1_5 => crate::pac::adc::vals::SampleTime::CYCLES1_5,
+                SampleTime::Cycles3_5 => crate::pac::adc::vals::SampleTime::CYCLES3_5,
+                SampleTime::Cycles7_5 => crate::pac::adc::vals::SampleTime::CYCLES7_5,
+                SampleTime::Cycles12_5 => crate::pac::adc::vals::SampleTime::CYCLES12_5,
+                SampleTime::Cycles19_5 => crate::pac::adc::vals::SampleTime::CYCLES19_5,
+                SampleTime::Cycles39_5 => crate::pac::adc::vals::SampleTime::CYCLES39_5,
+                SampleTime::Cycles79_5 => crate::pac::adc::vals::SampleTime::CYCLES79_5,
+                SampleTime::Cycles160_5 => crate::pac::adc::vals::SampleTime::CYCLES160_5,
+            }
+        }
+    }
+
+    impl Default for SampleTime {
+        fn default() -> Self {
+            Self::Cycles1_5
+        }
     }
 }
+
+pub use sample_time::SampleTime;
 
 pub struct Adc<'d, T: Instance> {
     sample_time: SampleTime,
@@ -126,14 +197,24 @@ impl<'d, T: Instance> Adc<'d, T> {
         unborrow!(_peri);
         unsafe {
             T::regs().cr().modify(|reg| {
+                #[cfg(not(adc_g0))]
                 reg.set_deeppwd(false);
                 reg.set_advregen(true);
+            });
+
+            #[cfg(adc_g0)]
+            T::regs().cfgr1().modify(|reg| {
+                reg.set_chselrmod(true);
             });
         }
 
         delay.delay_us(20);
 
         unsafe {
+            T::regs().cr().modify(|reg| {
+                reg.set_adcal(true);
+            });
+
             while T::regs().cr().read().adcal() {
                 // spin
             }
@@ -270,15 +351,25 @@ impl<'d, T: Instance> Adc<'d, T> {
             }
 
             // Configure ADC
+            #[cfg(not(rcc_g0))]
             T::regs()
                 .cfgr()
+                .modify(|reg| reg.set_res(self.resolution.res()));
+            #[cfg(rcc_g0)]
+            T::regs()
+                .cfgr1()
                 .modify(|reg| reg.set_res(self.resolution.res()));
 
             // Configure channel
             Self::set_channel_sample_time(pin.channel(), self.sample_time);
 
             // Select channel
+            #[cfg(not(rcc_g0))]
             T::regs().sqr1().write(|reg| reg.set_sq(0, pin.channel()));
+            #[cfg(rcc_g0)]
+            T::regs()
+                .chselr()
+                .write(|reg| reg.set_chsel(pin.channel() as u32));
 
             // Some models are affected by an erratum:
             // If we perform conversions slower than 1 kHz, the first read ADC value can be
@@ -297,6 +388,14 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
+    #[cfg(rcc_g0)]
+    unsafe fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {
+        T::regs()
+            .smpr()
+            .modify(|reg| reg.set_smp1(sample_time.sample_time()));
+    }
+
+    #[cfg(not(rcc_g0))]
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
         if ch <= 9 {
             T::regs()
