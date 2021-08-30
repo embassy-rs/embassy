@@ -229,6 +229,27 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
      */
 
+    /// Perform a single conversion.
+    fn convert(&mut self) -> u16 {
+        unsafe {
+            T::regs().isr().modify(|reg| {
+                reg.set_eos(true);
+                reg.set_eoc(true);
+            });
+
+            // Start conversion
+            T::regs().cr().modify(|reg| {
+                reg.set_adstart(true);
+            });
+
+            while !T::regs().isr().read().eos() {
+                // spin
+            }
+
+            T::regs().dr().read().0 as u16
+        }
+    }
+
     pub fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
         unsafe {
             // Make sure bits are off
@@ -259,38 +280,16 @@ impl<'d, T: Instance> Adc<'d, T> {
             // Select channel
             T::regs().sqr1().write(|reg| reg.set_sq(0, pin.channel()));
 
-            // Start conversion
-            T::regs().isr().modify(|reg| {
-                reg.set_eos(true);
-                reg.set_eoc(true);
-            });
-            T::regs().cr().modify(|reg| {
-                reg.set_adstart(true);
-            });
+            // Some models are affected by an erratum:
+            // If we perform conversions slower than 1 kHz, the first read ADC value can be
+            // corrupted, so we discard it and measure again.
+            //
+            // STM32L471xx: Section 2.7.3
+            // STM32G4: Section 2.7.3
+            #[cfg(any(rcc_l4, rcc_g4))]
+            let _ = self.convert();
 
-            while !T::regs().isr().read().eos() {
-                // spin
-            }
-
-            // Read ADC value first time and discard it, as per errata sheet.
-            // The errata states that if we do conversions slower than 1 kHz, the
-            // first read ADC value can be corrupted, so we discard it and measure again.
-
-            let _ = T::regs().dr().read();
-
-            T::regs().isr().modify(|reg| {
-                reg.set_eos(true);
-                reg.set_eoc(true);
-            });
-            T::regs().cr().modify(|reg| {
-                reg.set_adstart(true);
-            });
-
-            while !T::regs().isr().read().eos() {
-                // spin
-            }
-
-            let val = T::regs().dr().read().0 as u16;
+            let val = self.convert();
 
             T::regs().cr().modify(|reg| reg.set_addis(true));
 
