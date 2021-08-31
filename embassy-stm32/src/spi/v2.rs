@@ -71,7 +71,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let miso = miso.degrade();
 
         let pclk = T::frequency();
-        let br = Self::compute_baud_rate(pclk, freq.into());
+        let freq = freq.into();
+        let br = Self::compute_baud_rate(pclk, freq);
 
         unsafe {
             T::enable();

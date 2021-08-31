@@ -2,7 +2,6 @@ pub use super::types::*;
 use crate::pac;
 use crate::peripherals::{self, RCC};
 use crate::rcc::{get_freqs, set_freqs, Clocks};
-use crate::time::Hertz;
 use crate::time::U32Ext;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
@@ -16,10 +15,12 @@ use embassy_hal_common::unborrow;
 /// HSI speed
 pub const HSI_FREQ: u32 = 16_000_000;
 
+pub const HSE32_FREQ: u32 = 32_000_000;
+
 /// System clock mux source
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
-    HSE(Hertz),
+    HSE32,
     HSI16,
 }
 
@@ -137,14 +138,17 @@ impl RccExt for RCC {
 
                 (HSI_FREQ, 0x01)
             }
-            ClockSrc::HSE(freq) => {
-                // Enable HSE
+            ClockSrc::HSE32 => {
+                // Enable HSE32
                 unsafe {
-                    rcc.cr().write(|w| w.set_hseon(true));
+                    rcc.cr().write(|w| {
+                        w.set_hsebyppwr(true);
+                        w.set_hseon(true);
+                    });
                     while !rcc.cr().read().hserdy() {}
                 }
 
-                (freq.0, 0x02)
+                (HSE32_FREQ, 0x02)
             }
         };
 

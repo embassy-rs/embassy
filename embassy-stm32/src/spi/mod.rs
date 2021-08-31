@@ -9,6 +9,7 @@ pub use _version::*;
 
 use crate::gpio::Pin;
 
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     Framing,

@@ -51,6 +51,9 @@ pub mod spi;
 #[cfg(usart)]
 pub mod usart;
 
+#[cfg(feature = "subghz")]
+pub mod subghz;
+
 // This must go last, so that it sees all the impl_foo! macros defined earlier.
 mod generated {
 
