@@ -49,7 +49,6 @@ impl Into<u8> for HSI16Prescaler {
     }
 }
 
-
 impl Into<u8> for APBPrescaler {
     fn into(self) -> u8 {
         match self {
@@ -83,6 +82,7 @@ pub struct Config {
     mux: ClockSrc,
     ahb_pre: AHBPrescaler,
     apb_pre: APBPrescaler,
+    low_power_run: bool,
 }
 
 impl Default for Config {
@@ -92,6 +92,7 @@ impl Default for Config {
             mux: ClockSrc::HSI16(HSI16Prescaler::NotDivided),
             ahb_pre: AHBPrescaler::NotDivided,
             apb_pre: APBPrescaler::NotDivided,
+            low_power_run: false,
         }
     }
 }
@@ -112,6 +113,12 @@ impl Config {
     #[inline]
     pub fn apb_pre(mut self, pre: APBPrescaler) -> Self {
         self.apb_pre = pre;
+        self
+    }
+
+    #[inline]
+    pub fn low_power_run(mut self, on: bool) -> Self {
+        self.low_power_run = on;
         self
     }
 }
@@ -205,6 +212,14 @@ impl RccExt for RCC {
                 (freq, freq * 2)
             }
         };
+
+        let pwr = pac::PWR;
+        if cfgr.low_power_run {
+            assert!(sys_clk.hz() <= 2_000_000.hz());
+            unsafe {
+                pwr.cr1().modify(|w| w.set_lpr(true));
+            }
+        }
 
         Clocks {
             sys: sys_clk.hz(),
