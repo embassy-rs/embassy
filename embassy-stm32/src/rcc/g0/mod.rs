@@ -18,9 +18,37 @@ pub const LSI_FREQ: u32 = 32_000;
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
     HSE(Hertz),
-    HSI16,
+    HSI16(HSI16Prescaler),
     LSI,
 }
+
+#[derive(Clone, Copy)]
+pub enum HSI16Prescaler {
+    NotDivided,
+    Div2,
+    Div4,
+    Div8,
+    Div16,
+    Div32,
+    Div64,
+    Div128,
+}
+
+impl Into<u8> for HSI16Prescaler {
+    fn into(self) -> u8 {
+        match self {
+            HSI16Prescaler::NotDivided => 0x00,
+            HSI16Prescaler::Div2 => 0x01,
+            HSI16Prescaler::Div4 => 0x02,
+            HSI16Prescaler::Div8 => 0x03,
+            HSI16Prescaler::Div16 => 0x04,
+            HSI16Prescaler::Div32 => 0x05,
+            HSI16Prescaler::Div64 => 0x06,
+            HSI16Prescaler::Div128 => 0x07,
+        }
+    }
+}
+
 
 impl Into<u8> for APBPrescaler {
     fn into(self) -> u8 {
@@ -61,7 +89,7 @@ impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
-            mux: ClockSrc::HSI16,
+            mux: ClockSrc::HSI16(HSI16Prescaler::NotDivided),
             ahb_pre: AHBPrescaler::NotDivided,
             apb_pre: APBPrescaler::NotDivided,
         }
@@ -119,14 +147,18 @@ impl RccExt for RCC {
     fn freeze(self, cfgr: Config) -> Clocks {
         let rcc = pac::RCC;
         let (sys_clk, sw) = match cfgr.mux {
-            ClockSrc::HSI16 => {
+            ClockSrc::HSI16(div) => {
                 // Enable HSI16
+                let div: u8 = div.into();
                 unsafe {
-                    rcc.cr().write(|w| w.set_hsion(true));
+                    rcc.cr().write(|w| {
+                        w.set_hsidiv(div);
+                        w.set_hsion(true)
+                    });
                     while !rcc.cr().read().hsirdy() {}
                 }
 
-                (HSI_FREQ, 0x00)
+                (HSI_FREQ >> div, 0x00)
             }
             ClockSrc::HSE(freq) => {
                 // Enable HSE
