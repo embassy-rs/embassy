@@ -8,9 +8,9 @@
 mod example_common;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
+use embassy::traits::rng::Random;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::rng::Rng;
-use embassy::traits::rng::Random;
 use embassy_stm32::Peripherals;
 use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
