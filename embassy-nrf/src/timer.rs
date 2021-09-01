@@ -260,7 +260,40 @@ pub struct Cc<'a, T: Instance, I: TimerType> {
     phantom2: PhantomData<I>,
 }
 
-impl<'a, T: Instance> Cc<'a, T, Awaitable> {}
+impl<'a, T: Instance> Cc<'a, T, Awaitable> {
+    /// Wait until the timer's counter reaches the value stored in this register.
+    ///
+    /// This requires a mutable reference so that this task's waker cannot be overwritten by a second call to `wait`.
+    pub async fn wait(&mut self) {
+        let regs = T::regs();
+
+        // Enable the interrupt for this CC's COMPARE event.
+        regs.intenset
+            .modify(|r, w| unsafe { w.bits(r.bits() | (1 << (16 + self.n))) });
+
+        // Disable the interrupt if the future is dropped.
+        let on_drop = OnDrop::new(|| {
+            regs.intenclr
+                .modify(|r, w| unsafe { w.bits(r.bits() | (1 << (16 + self.n))) });
+        });
+
+        poll_fn(|cx| {
+            T::waker(self.n).register(cx.waker());
+
+            if regs.events_compare[self.n].read().bits() != 0 {
+                // Reset the register for next time
+                regs.events_compare[self.n].reset();
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        // The interrupt was already disabled in the interrupt handler, so there's no need to disable it again.
+        on_drop.defuse();
+    }
+}
 impl<'a, T: Instance> Cc<'a, T, NotAwaitable> {}
 
 impl<'a, T: Instance, I: TimerType> Cc<'a, T, I> {
@@ -331,38 +364,5 @@ impl<'a, T: Instance, I: TimerType> Cc<'a, T, I> {
         T::regs()
             .shorts
             .modify(|r, w| unsafe { w.bits(r.bits() & !(1 << (8 + self.n))) })
-    }
-
-    /// Wait until the timer's counter reaches the value stored in this register.
-    ///
-    /// This requires a mutable reference so that this task's waker cannot be overwritten by a second call to `wait`.
-    pub async fn wait(&mut self) {
-        let regs = T::regs();
-
-        // Enable the interrupt for this CC's COMPARE event.
-        regs.intenset
-            .modify(|r, w| unsafe { w.bits(r.bits() | (1 << (16 + self.n))) });
-
-        // Disable the interrupt if the future is dropped.
-        let on_drop = OnDrop::new(|| {
-            regs.intenclr
-                .modify(|r, w| unsafe { w.bits(r.bits() | (1 << (16 + self.n))) });
-        });
-
-        poll_fn(|cx| {
-            T::waker(self.n).register(cx.waker());
-
-            if regs.events_compare[self.n].read().bits() != 0 {
-                // Reset the register for next time
-                regs.events_compare[self.n].reset();
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-
-        // The interrupt was already disabled in the interrupt handler, so there's no need to disable it again.
-        on_drop.defuse();
     }
 }
