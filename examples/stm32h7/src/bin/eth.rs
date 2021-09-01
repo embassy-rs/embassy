@@ -21,7 +21,7 @@ use embassy_net::{
 };
 use embassy_stm32::eth::lan8742a::LAN8742A;
 use embassy_stm32::eth::{Ethernet, State};
-use embassy_stm32::rng::Random;
+use embassy_stm32::rng::Rng;
 use embassy_stm32::{interrupt, peripherals};
 use heapless::Vec;
 use panic_probe as _;
@@ -81,7 +81,7 @@ fn _embassy_rand(buf: &mut [u8]) {
     });
 }
 
-static mut RNG_INST: Option<Random<RNG>> = None;
+static mut RNG_INST: Option<Rng<RNG>> = None;
 
 static EXECUTOR: Forever<Executor> = Forever::new();
 static STATE: Forever<State<'static, 4, 4>> = Forever::new();
@@ -97,7 +97,7 @@ fn main() -> ! {
 
     let p = embassy_stm32::init(config());
 
-    let rng = Random::new(p.RNG);
+    let rng = Rng::new(p.RNG);
     unsafe {
         RNG_INST.replace(rng);
     }
