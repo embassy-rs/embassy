@@ -2,17 +2,14 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
-use embassy::util::{wake_on_interrupt, Unborrow};
+use embassy::interrupt::InterruptExt;
+use embassy::util::{AtomicWaker, Unborrow};
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
 use crate::interrupt;
 use crate::{pac, peripherals};
 
-#[cfg(feature = "9160")]
-use pac::{saadc_ns as saadc, SAADC_NS as SAADC};
-
-#[cfg(not(feature = "9160"))]
 use pac::{saadc, SAADC};
 
 pub use saadc::{
@@ -31,9 +28,10 @@ pub enum Error {}
 
 /// One-shot saadc. Continuous sample mode TODO.
 pub struct OneShot<'d> {
-    irq: interrupt::SAADC,
     phantom: PhantomData<&'d mut peripherals::SAADC>,
 }
+
+static WAKER: AtomicWaker = AtomicWaker::new();
 
 /// Used to configure the SAADC peripheral.
 ///
@@ -108,18 +106,30 @@ impl<'d> OneShot<'d> {
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0x003F_FFFF) });
 
+        irq.set_handler(Self::on_interrupt);
+        irq.unpend();
+        irq.enable();
+
         Self {
-            irq,
             phantom: PhantomData,
         }
     }
 
-    fn regs(&self) -> &saadc::RegisterBlock {
+    fn on_interrupt(_ctx: *mut ()) {
+        let r = Self::regs();
+
+        if r.events_end.read().bits() != 0 {
+            r.intenclr.write(|w| w.end().clear());
+            WAKER.wake();
+        }
+    }
+
+    fn regs() -> &'static saadc::RegisterBlock {
         unsafe { &*SAADC::ptr() }
     }
 
     async fn sample_inner(&mut self, pin: PositiveChannel) -> i16 {
-        let r = self.regs();
+        let r = Self::regs();
 
         // Set positive channel
         r.ch[0].pselp.write(|w| w.pselp().variant(pin));
@@ -144,14 +154,14 @@ impl<'d> OneShot<'d> {
 
         // Wait for 'end' event.
         poll_fn(|cx| {
-            let r = self.regs();
+            let r = Self::regs();
+
+            WAKER.register(cx.waker());
 
             if r.events_end.read().bits() != 0 {
                 r.events_end.reset();
                 return Poll::Ready(());
             }
-
-            wake_on_interrupt(&mut self.irq, cx.waker());
 
             Poll::Pending
         })
@@ -164,7 +174,7 @@ impl<'d> OneShot<'d> {
 
 impl<'d> Drop for OneShot<'d> {
     fn drop(&mut self) {
-        let r = self.regs();
+        let r = Self::regs();
         r.enable.write(|w| w.enable().disabled());
     }
 }
