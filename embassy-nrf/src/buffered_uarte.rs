@@ -15,9 +15,8 @@ use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
 use crate::pac;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
-use crate::timer::Frequency;
 use crate::timer::Instance as TimerInstance;
-use crate::timer::Timer;
+use crate::timer::{Frequency, NotAwaitableTimer};
 use crate::uarte::{Config, Instance as UarteInstance};
 
 // Re-export SVD variants to allow user to directly set values
@@ -44,7 +43,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> State<'d, U, T> {
 
 struct StateInner<'d, U: UarteInstance, T: TimerInstance> {
     phantom: PhantomData<&'d mut U>,
-    timer: Timer<'d, T>,
+    timer: NotAwaitableTimer<'d, T>,
     _ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
     _ppi_ch2: Ppi<'d, AnyConfigurableChannel>,
 
@@ -85,7 +84,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 
         let r = U::regs();
 
-        let mut timer = Timer::new_irqless(timer);
+        let mut timer = NotAwaitableTimer::new(timer);
 
         rxd.conf().write(|w| w.input().connect().drive().h0h1());
         r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
