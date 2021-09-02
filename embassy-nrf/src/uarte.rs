@@ -19,7 +19,7 @@ use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::Instance as TimerInstance;
-use crate::timer::{Frequency, NotAwaitableTimer};
+use crate::timer::{Frequency, Timer};
 
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
@@ -288,7 +288,7 @@ impl<'d, T: Instance> Write for Uarte<'d, T> {
 /// allowing it to implement the ReadUntilIdle trait.
 pub struct UarteWithIdle<'d, U: Instance, T: TimerInstance> {
     uarte: Uarte<'d, U>,
-    timer: NotAwaitableTimer<'d, T>,
+    timer: Timer<'d, T>,
     ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
     _ppi_ch2: Ppi<'d, AnyConfigurableChannel>,
 }
@@ -317,7 +317,7 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
     ) -> Self {
         let baudrate = config.baudrate;
         let uarte = Uarte::new(uarte, irq, rxd, txd, cts, rts, config);
-        let mut timer = NotAwaitableTimer::new(timer);
+        let mut timer = Timer::new(timer);
 
         unborrow!(ppi_ch1, ppi_ch2);
 

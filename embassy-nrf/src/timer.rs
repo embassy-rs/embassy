@@ -97,15 +97,12 @@ impl sealed::TimerType for NotAwaitable {}
 impl TimerType for Awaitable {}
 impl TimerType for NotAwaitable {}
 
-pub type AwaitableTimer<'d, T> = Timer<'d, T, Awaitable>;
-pub type NotAwaitableTimer<'d, T> = Timer<'d, T, NotAwaitable>;
-
-pub struct Timer<'d, T: Instance, I: TimerType> {
+pub struct Timer<'d, T: Instance, I: TimerType = NotAwaitable> {
     phantom: PhantomData<(&'d mut T, I)>,
 }
 
 impl<'d, T: Instance> Timer<'d, T, Awaitable> {
-    pub fn new(
+    pub fn new_awaitable(
         timer: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
     ) -> Self {
@@ -119,6 +116,10 @@ impl<'d, T: Instance> Timer<'d, T, Awaitable> {
     }
 }
 impl<'d, T: Instance> Timer<'d, T, NotAwaitable> {
+    /// Create a `Timer` without an interrupt, meaning `Cc::wait` won't work.
+    ///
+    /// This can be useful for triggering tasks via PPI
+    /// `Uarte` uses this internally.
     pub fn new(timer: impl Unborrow<Target = T> + 'd) -> Self {
         Self::new_irqless(timer)
     }
@@ -127,7 +128,7 @@ impl<'d, T: Instance> Timer<'d, T, NotAwaitable> {
 impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
     /// Create a `Timer` without an interrupt, meaning `Cc::wait` won't work.
     ///
-    /// This is used by `Uarte` internally.
+    /// This is used by the public constructors.
     fn new_irqless(_timer: impl Unborrow<Target = T> + 'd) -> Self {
         let regs = T::regs();
 
@@ -242,7 +243,6 @@ impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
         Cc {
             n,
             phantom: PhantomData,
-            phantom2: PhantomData,
         }
     }
 }
@@ -254,10 +254,9 @@ impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
 ///
 /// The timer will fire the register's COMPARE event when its counter reaches the value stored in the register.
 /// When the register's CAPTURE task is triggered, the timer will store the current value of its counter in the register
-pub struct Cc<'a, T: Instance, I: TimerType> {
+pub struct Cc<'a, T: Instance, I: TimerType = NotAwaitable> {
     n: usize,
-    phantom: PhantomData<&'a mut T>,
-    phantom2: PhantomData<I>,
+    phantom: PhantomData<(&'a mut T, I)>,
 }
 
 impl<'a, T: Instance> Cc<'a, T, Awaitable> {
