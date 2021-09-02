@@ -7,7 +7,7 @@ resolver = "2"
 
 [features]
 default = []
-std = ["futures/std", "embassy-traits/std", "time", "time-tick-1mhz"]
+std = ["futures/std", "embassy-traits/std", "time", "time-tick-1mhz", "embassy-macros/std"]
 
 # Enable `embassy::time` module. 
 # NOTE: This feature is only intended to be enabled by crates providing the time driver implementation.

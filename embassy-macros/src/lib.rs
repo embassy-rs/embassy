@@ -386,7 +386,6 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let embassy_path = macro_args.embassy_prefix.append("embassy");
-    let embassy_std_path = macro_args.embassy_prefix.append("embassy_std");
 
     let mut fail = false;
     if task_fn.sig.asyncness.is_none() {
@@ -427,7 +426,6 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let task_fn_body = task_fn.block.clone();
 
     let embassy_path = embassy_path.path();
-    let embassy_std_path = embassy_std_path.path();
     let embassy_prefix_lit = macro_args.embassy_prefix.literal();
 
     let result = quote! {
@@ -441,7 +439,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
                 ::core::mem::transmute(t)
             }
 
-            let mut executor = #embassy_std_path::Executor::new();
+            let mut executor = #embassy_path::executor::Executor::new();
             let executor = unsafe { make_static(&mut executor) };
 
             executor.run(|spawner| {
