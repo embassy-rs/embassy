@@ -168,6 +168,7 @@ fn rfbusys() -> bool {
     unsafe { pwr.sr2().read().rfbusys() == pac::pwr::vals::Rfbusys::BUSY }
 }
 
+/*
 /// Returns `true` if the radio is busy or NSS is low.
 ///
 /// See RM0461 Rev 4 section 5.3 page 181 "Radio busy management" for more
@@ -177,6 +178,7 @@ fn rfbusyms() -> bool {
     let pwr = pac::PWR;
     unsafe { pwr.sr2().read().rfbusyms() == pac::pwr::vals::Rfbusyms::BUSY }
 }
+*/
 
 /// Sub-GHz radio peripheral
 pub struct SubGhz<'d, Tx, Rx> {
