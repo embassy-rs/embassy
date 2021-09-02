@@ -27,6 +27,8 @@ pub(crate) mod sealed {
         fn waker(n: usize) -> &'static AtomicWaker;
     }
     pub trait ExtendedInstance {}
+
+    pub trait TimerType {}
 }
 
 pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static + Send {
@@ -84,12 +86,23 @@ pub enum Frequency {
 ///
 /// It has either 4 or 6 Capture/Compare registers, which can be used to capture the current state of the counter
 /// or trigger an event when the counter reaches a certain value.
-pub struct Timer<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+
+pub trait TimerType: sealed::TimerType {}
+
+pub enum Awaitable {}
+pub enum NotAwaitable {}
+
+impl sealed::TimerType for Awaitable {}
+impl sealed::TimerType for NotAwaitable {}
+impl TimerType for Awaitable {}
+impl TimerType for NotAwaitable {}
+
+pub struct Timer<'d, T: Instance, I: TimerType = NotAwaitable> {
+    phantom: PhantomData<(&'d mut T, I)>,
 }
 
-impl<'d, T: Instance> Timer<'d, T> {
-    pub fn new(
+impl<'d, T: Instance> Timer<'d, T, Awaitable> {
+    pub fn new_awaitable(
         timer: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
     ) -> Self {
@@ -101,11 +114,22 @@ impl<'d, T: Instance> Timer<'d, T> {
 
         Self::new_irqless(timer)
     }
-
+}
+impl<'d, T: Instance> Timer<'d, T, NotAwaitable> {
     /// Create a `Timer` without an interrupt, meaning `Cc::wait` won't work.
     ///
-    /// This is used by `Uarte` internally.
-    pub(crate) fn new_irqless(_timer: impl Unborrow<Target = T> + 'd) -> Self {
+    /// This can be useful for triggering tasks via PPI
+    /// `Uarte` uses this internally.
+    pub fn new(timer: impl Unborrow<Target = T> + 'd) -> Self {
+        Self::new_irqless(timer)
+    }
+}
+
+impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
+    /// Create a `Timer` without an interrupt, meaning `Cc::wait` won't work.
+    ///
+    /// This is used by the public constructors.
+    fn new_irqless(_timer: impl Unborrow<Target = T> + 'd) -> Self {
         let regs = T::regs();
 
         let mut this = Self {
@@ -208,7 +232,7 @@ impl<'d, T: Instance> Timer<'d, T> {
     ///
     /// # Panics
     /// Panics if `n` >= the number of CC registers this timer has (4 for a normal timer, 6 for an extended timer).
-    pub fn cc(&mut self, n: usize) -> Cc<T> {
+    pub fn cc(&mut self, n: usize) -> Cc<T, I> {
         if n >= T::CCS {
             panic!(
                 "Cannot get CC register {} of timer with {} CC registers.",
@@ -230,12 +254,48 @@ impl<'d, T: Instance> Timer<'d, T> {
 ///
 /// The timer will fire the register's COMPARE event when its counter reaches the value stored in the register.
 /// When the register's CAPTURE task is triggered, the timer will store the current value of its counter in the register
-pub struct Cc<'a, T: Instance> {
+pub struct Cc<'a, T: Instance, I: TimerType = NotAwaitable> {
     n: usize,
-    phantom: PhantomData<&'a mut T>,
+    phantom: PhantomData<(&'a mut T, I)>,
 }
 
-impl<'a, T: Instance> Cc<'a, T> {
+impl<'a, T: Instance> Cc<'a, T, Awaitable> {
+    /// Wait until the timer's counter reaches the value stored in this register.
+    ///
+    /// This requires a mutable reference so that this task's waker cannot be overwritten by a second call to `wait`.
+    pub async fn wait(&mut self) {
+        let regs = T::regs();
+
+        // Enable the interrupt for this CC's COMPARE event.
+        regs.intenset
+            .modify(|r, w| unsafe { w.bits(r.bits() | (1 << (16 + self.n))) });
+
+        // Disable the interrupt if the future is dropped.
+        let on_drop = OnDrop::new(|| {
+            regs.intenclr
+                .modify(|r, w| unsafe { w.bits(r.bits() | (1 << (16 + self.n))) });
+        });
+
+        poll_fn(|cx| {
+            T::waker(self.n).register(cx.waker());
+
+            if regs.events_compare[self.n].read().bits() != 0 {
+                // Reset the register for next time
+                regs.events_compare[self.n].reset();
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        // The interrupt was already disabled in the interrupt handler, so there's no need to disable it again.
+        on_drop.defuse();
+    }
+}
+impl<'a, T: Instance> Cc<'a, T, NotAwaitable> {}
+
+impl<'a, T: Instance, I: TimerType> Cc<'a, T, I> {
     /// Get the current value stored in the register.
     pub fn read(&self) -> u32 {
         T::regs().cc[self.n].read().cc().bits()
@@ -303,38 +363,5 @@ impl<'a, T: Instance> Cc<'a, T> {
         T::regs()
             .shorts
             .modify(|r, w| unsafe { w.bits(r.bits() & !(1 << (8 + self.n))) })
-    }
-
-    /// Wait until the timer's counter reaches the value stored in this register.
-    ///
-    /// This requires a mutable reference so that this task's waker cannot be overwritten by a second call to `wait`.
-    pub async fn wait(&mut self) {
-        let regs = T::regs();
-
-        // Enable the interrupt for this CC's COMPARE event.
-        regs.intenset
-            .modify(|r, w| unsafe { w.bits(r.bits() | (1 << (16 + self.n))) });
-
-        // Disable the interrupt if the future is dropped.
-        let on_drop = OnDrop::new(|| {
-            regs.intenclr
-                .modify(|r, w| unsafe { w.bits(r.bits() | (1 << (16 + self.n))) });
-        });
-
-        poll_fn(|cx| {
-            T::waker(self.n).register(cx.waker());
-
-            if regs.events_compare[self.n].read().bits() != 0 {
-                // Reset the register for next time
-                regs.events_compare[self.n].reset();
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-
-        // The interrupt was already disabled in the interrupt handler, so there's no need to disable it again.
-        on_drop.defuse();
     }
 }
