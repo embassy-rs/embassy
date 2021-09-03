@@ -2,7 +2,6 @@
 #![feature(generic_associated_types)]
 #![feature(asm)]
 #![feature(type_alias_impl_trait)]
-#![allow(incomplete_features)]
 
 #[cfg(feature = "unstable-pac")]
 pub use stm32_metapac as pac;

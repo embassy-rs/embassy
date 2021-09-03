@@ -1,5 +1,4 @@
 #![feature(type_alias_impl_trait)]
-#![allow(incomplete_features)]
 
 #[path = "../serial_port.rs"]
 mod serial_port;
