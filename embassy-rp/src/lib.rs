@@ -2,8 +2,6 @@
 #![feature(generic_associated_types)]
 #![feature(asm)]
 #![feature(type_alias_impl_trait)]
-#![feature(never_type)]
-#![allow(incomplete_features)]
 
 #[cfg(feature = "unstable-pac")]
 pub use rp2040_pac2 as pac;

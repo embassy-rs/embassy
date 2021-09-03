@@ -2,7 +2,6 @@
 #![no_main]
 #![feature(asm)]
 #![feature(type_alias_impl_trait)]
-#![allow(incomplete_features)]
 
 #[path = "../example_common.rs"]
 mod example_common;

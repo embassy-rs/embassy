@@ -1,5 +1,4 @@
 #![feature(type_alias_impl_trait)]
-#![allow(incomplete_features)]
 
 use clap::{AppSettings, Clap};
 use embassy::executor::{Executor, Spawner};

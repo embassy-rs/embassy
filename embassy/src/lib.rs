@@ -2,8 +2,6 @@
 #![feature(generic_associated_types)]
 #![feature(const_fn_trait_bound)]
 #![feature(const_fn_fn_ptr_basics)]
-#![feature(const_option)]
-#![allow(incomplete_features)]
 #![feature(type_alias_impl_trait)]
 
 // This mod MUST go first, so that the others see its macros.

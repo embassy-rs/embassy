@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
-#![feature(trait_alias)]
 #![feature(type_alias_impl_trait)]
-#![allow(incomplete_features)]
 
 use defmt::info;
 use embassy::executor::Spawner;

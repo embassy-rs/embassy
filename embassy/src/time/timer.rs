@@ -42,7 +42,6 @@ impl Timer {
     ///
     /// Example:
     /// ``` no_run
-    /// # #![feature(trait_alias)]
     /// # #![feature(type_alias_impl_trait)]
     /// #
     /// # fn foo() {}
@@ -83,7 +82,6 @@ impl Future for Timer {
 ///
 /// For instance, consider the following code fragment.
 /// ``` no_run
-/// # #![feature(trait_alias)]
 /// # #![feature(type_alias_impl_trait)]
 /// #
 /// use embassy::time::{Duration, Timer};
@@ -104,7 +102,6 @@ impl Future for Timer {
 /// Example using ticker, which will consistently call `foo` once a second.
 ///
 /// ``` no_run
-/// # #![feature(trait_alias)]
 /// # #![feature(type_alias_impl_trait)]
 /// #
 /// use embassy::time::{Duration, Ticker};
