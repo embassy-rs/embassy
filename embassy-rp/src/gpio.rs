@@ -1,3 +1,4 @@
+use core::convert::Infallible;
 use core::marker::PhantomData;
 
 use crate::pac;
@@ -81,7 +82,7 @@ impl<'d, T: Pin> Drop for Input<'d, T> {
 }
 
 impl<'d, T: Pin> digital::InputPin for Input<'d, T> {
-    type Error = !;
+    type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
         Ok(self.is_high())
@@ -151,7 +152,7 @@ impl<'d, T: Pin> Drop for Output<'d, T> {
 }
 
 impl<'d, T: Pin> digital::OutputPin for Output<'d, T> {
-    type Error = !;
+    type Error = Infallible;
 
     /// Set the output as high.
     fn set_high(&mut self) -> Result<(), Self::Error> {
