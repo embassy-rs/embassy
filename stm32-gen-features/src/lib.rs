@@ -1,17 +1,16 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+//! FIXME discuss about which errors to print and when to panic
+
+use std::{collections::HashMap, iter::FilterMap, path::Path, slice::Iter};
 
 const SUPPORTED_FAMILIES: [&str; 8] = [
-    "STM32F0",
-    "STM32F4",
-    "STM32G0",
-    "STM32L0",
-    "STM32L4",
-    "STM32H7",
-    "STM32WB55",
-    "STM32WL55",
+    "stm32f0",
+    "stm32f4",
+    "stm32g0",
+    "stm32l0",
+    "stm32l4",
+    "stm32h7",
+    "stm32wb55",
+    "stm32wl55",
 ];
 
 const SEPARATOR_START: &str = "# BEGIN GENERATED FEATURES\n";
@@ -25,25 +24,36 @@ fn is_supported(name: &str) -> bool {
         .any(|family| name.starts_with(family))
 }
 
-/// Get the yaml file names and the associated chip names for supported chips
+type SupportedIter<'a> = FilterMap<
+    Iter<'a, (String, Vec<String>)>,
+    fn(&(String, Vec<String>)) -> Option<(&String, &Vec<String>)>,
+>;
+trait FilterSupported {
+    fn supported(&self) -> SupportedIter;
+}
+impl FilterSupported for &[(String, Vec<String>)] {
+    /// Get a new Vec with only the supported chips
+    fn supported(&self) -> SupportedIter {
+        self.iter()
+            .filter_map(|(name, cores)| is_supported(name).then(|| (name, cores)))
+    }
+}
+
+/// Get the list of all the chips and their supported cores
 ///
 /// Print errors to `stderr` when something is returned by the glob but is not in the returned
 /// [`Vec`]
-fn supported_chip_yaml_files_with_names() -> Vec<(PathBuf, String)> {
+///
+/// This function is slow because all the yaml files are parsed.
+pub fn chip_names_and_cores() -> Vec<(String, Vec<String>)> {
     glob::glob("../stm32-data/data/chips/*.yaml")
-        .expect("bad glob pattern")
+        .unwrap()
         .filter_map(|entry| entry.map_err(|e| eprintln!("{:?}", e)).ok())
         .filter_map(|entry| {
             if let Some(name) = entry.file_stem().and_then(|stem| stem.to_str()) {
-                if is_supported(name) {
-                    let owned_name = name.to_lowercase();
-                    Some((entry, owned_name))
-                } else {
-                    eprintln!("{} is not supported", name);
-                    None
-                }
+                Some((name.to_lowercase(), chip_cores(&entry)))
             } else {
-                eprintln!("{:?} is not a regural file", entry);
+                eprintln!("{:?} is not a regular file", entry);
                 None
             }
         })
@@ -53,36 +63,71 @@ fn supported_chip_yaml_files_with_names() -> Vec<(PathBuf, String)> {
 /// Get the list of the cores of a chip by its associated file
 ///
 /// # Panic
-/// Panics if the file does not exist or if it contains yaml syntax errors
-///
-/// # None
-/// Returns none if "cores" is not an array
-fn chip_cores(path: &Path) -> Option<Vec<yaml_rust::Yaml>> {
+/// Panics if the file does not exist or if it contains yaml syntax errors.
+/// Panics if "cores" is not an array.
+fn chip_cores(path: &Path) -> Vec<String> {
     let file_contents = std::fs::read_to_string(path).unwrap();
     let doc = &yaml_rust::YamlLoader::load_from_str(&file_contents).unwrap()[0];
-    doc["cores"].as_vec().cloned()
+    doc["cores"]
+        .as_vec()
+        .unwrap_or_else(|| panic!("{:?}:[cores] is not an array", path))
+        .iter()
+        .enumerate()
+        .map(|(i, core)| {
+            core["name"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{:?}:[cores][{}][name] is not a string", path, i))
+                .to_owned()
+        })
+        .collect()
 }
 
-/// Load the list of chips
+/// Generate data needed in `../embassy-stm32/Cargo.toml`
+///
+/// Print errors to `stderr` when something is returned by the glob but is not in the returned
+/// [`Vec`]
 ///
 /// # Panic
 /// Panics if a file contains yaml syntax errors or if a value does not have a consistent type
-pub fn load_chip_list() -> HashMap<String, Vec<String>> {
+pub fn embassy_stm32_needed_data(
+    names_and_cores: &[(String, Vec<String>)],
+) -> HashMap<String, Vec<String>> {
     let mut result = HashMap::new();
-    for (path, name) in supported_chip_yaml_files_with_names() {
-        let cores = chip_cores(&path).unwrap_or_else(|| panic!("{}[cores] is not an array", name));
+    for (chip_name, cores) in names_and_cores.supported() {
         if cores.len() > 1 {
-            for (i, core) in cores.into_iter().enumerate() {
-                let core_name = core["name"]
-                    .as_str()
-                    .unwrap_or_else(|| panic!("{}[cores][{}][name] is not a string", name, i));
-                let key = format!("{}_{}", name, core_name);
-                let value = vec![format!("stm32-metapac/{}_{}", name, core_name)];
+            for core_name in cores.iter() {
+                let key = format!("{}_{}", chip_name, core_name);
+                let value = vec![format!("stm32-metapac/{}_{}", chip_name, core_name)];
                 result.insert(key, value);
             }
         } else {
-            let value = vec![format!("stm32-metapac/{}", &name)];
-            result.insert(name, value);
+            let key = chip_name.to_string();
+            let value = vec![format!("stm32-metapac/{}", chip_name)];
+            result.insert(key, value);
+        }
+    }
+    result
+}
+
+/// Generate data needed in `../stm32-metapac/Cargo.toml`
+///
+/// Print errors to `stderr` when something is returned by the glob but is not in the returned
+/// [`Vec`]
+///
+/// # Panic
+/// Panics if a file contains yaml syntax errors or if a value does not have a consistent type
+pub fn stm32_metapac_needed_data(
+    names_and_cores: &[(String, Vec<String>)],
+) -> HashMap<String, Vec<String>> {
+    let mut result = HashMap::new();
+    for (chip_name, cores) in names_and_cores {
+        if cores.len() > 1 {
+            for core_name in cores {
+                let key = format!("{}_{}", chip_name, core_name);
+                result.insert(key, vec![]);
+            }
+        } else {
+            result.insert(chip_name.clone(), vec![]);
         }
     }
     result
@@ -122,22 +167,22 @@ mod tests {
 
     #[test]
     fn stm32f407vg_is_supported() {
-        assert!(is_supported("STM32F407VG"))
+        assert!(is_supported("stm32f407vg"))
     }
 
     #[test]
     fn abcdef_is_not_supported() {
-        assert!(!is_supported("ABCDEF"))
+        assert!(!is_supported("abcdef"))
     }
 
     #[test]
-    fn stm32f407vg_yaml_file_exists() {
-        assert!(supported_chip_yaml_files_with_names()
+    #[ignore]
+    fn stm32f407vg_yaml_file_exists_and_is_supported() {
+        assert!(chip_names_and_cores()
+            .as_slice()
+            .supported()
             .into_iter()
-            .any(|(path, name)| {
-                name == "stm32f407vg"
-                    && path.to_str() == Some("../stm32-data/data/chips/STM32F407VG.yaml")
-            }))
+            .any(|(name, _)| { name == "stm32f407vg" }))
     }
 
     #[test]

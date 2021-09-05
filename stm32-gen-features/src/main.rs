@@ -1,10 +1,20 @@
 use std::collections::HashMap;
 
-use gen_features::{generate_cargo_toml_file, load_chip_list};
+use gen_features::{
+    chip_names_and_cores, embassy_stm32_needed_data, generate_cargo_toml_file,
+    stm32_metapac_needed_data,
+};
 
 fn main() {
-    let chip_list = load_chip_list();
-    update_cargo_file("../embassy-stm32/Cargo.toml", &chip_list);
+    let names_and_cores = chip_names_and_cores();
+    update_cargo_file(
+        "../embassy-stm32/Cargo.toml",
+        &embassy_stm32_needed_data(&names_and_cores),
+    );
+    update_cargo_file(
+        "../stm32-metapac/Cargo.toml",
+        &stm32_metapac_needed_data(&names_and_cores),
+    );
 }
 
 /// Update a Cargo.toml file
