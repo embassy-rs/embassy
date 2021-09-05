@@ -8,8 +8,9 @@ pub use _version::*;
 
 pub(crate) mod sealed {
     use crate::gpio::OptionalPin;
+    use crate::rcc::RccPeripheral;
 
-    pub trait Instance {
+    pub trait Instance: RccPeripheral {
         fn regs() -> &'static crate::pac::dac::Dac;
     }
 

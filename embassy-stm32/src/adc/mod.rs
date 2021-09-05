@@ -1,6 +1,7 @@
 #![macro_use]
 
 #[cfg_attr(adc_v3, path = "v3.rs")]
+#[cfg_attr(adc_g0, path = "v3.rs")]
 mod _version;
 
 #[allow(unused)]
@@ -9,7 +10,9 @@ pub use _version::*;
 use crate::peripherals;
 
 pub(crate) mod sealed {
-    pub trait Instance {
+    use crate::rcc::RccPeripheral;
+
+    pub trait Instance: RccPeripheral {
         fn regs() -> &'static crate::pac::adc::Adc;
         fn common_regs() -> &'static crate::pac::adccommon::AdcCommon;
     }
