@@ -109,7 +109,7 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
         mac.maca0hr()
             .modify(|w| w.set_addrhi(u16::from(mac_addr[4]) | (u16::from(mac_addr[5]) << 8)));
 
-        mac.macpfr().modify(|w| w.set_saf(true));
+        mac.macpfr().modify(|w| w.set_ra(true));
         mac.macqtx_fcr().modify(|w| w.set_pt(0x100));
 
         mtl.mtlrx_qomr().modify(|w| w.set_rsf(true));
