@@ -98,6 +98,10 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
             // TODO: Carrier sense ? ECRSFD
         });
 
+        // Note: Writing to LR triggers synchronisation of both LR and HR into the MAC core,
+        // so the LR write must happen after the HR write.
+        mac.maca0hr()
+            .modify(|w| w.set_addrhi(u16::from(mac_addr[4]) | (u16::from(mac_addr[5]) << 8)));
         mac.maca0lr().write(|w| {
             w.set_addrlo(
                 u32::from(mac_addr[0])
@@ -106,10 +110,7 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
                     | (u32::from(mac_addr[3]) << 24),
             )
         });
-        mac.maca0hr()
-            .modify(|w| w.set_addrhi(u16::from(mac_addr[4]) | (u16::from(mac_addr[5]) << 8)));
 
-        mac.macpfr().modify(|w| w.set_ra(true));
         mac.macqtx_fcr().modify(|w| w.set_pt(0x100));
 
         mtl.mtlrx_qomr().modify(|w| w.set_rsf(true));
