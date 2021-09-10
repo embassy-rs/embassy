@@ -194,6 +194,10 @@ impl<'d, Tx, Rx> SubGhz<'d, Tx, Rx> {
         }
     }
 
+    pub fn reset(&mut self) {
+        Self::pulse_radio_reset();
+    }
+
     // TODO: This should be replaced with async handling based on IRQ
     fn poll_not_busy(&self) {
         let mut count: u32 = 1_000_000;

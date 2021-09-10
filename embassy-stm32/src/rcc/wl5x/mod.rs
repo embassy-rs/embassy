@@ -104,12 +104,30 @@ pub struct Rcc<'d> {
     phantom: PhantomData<&'d mut peripherals::RCC>,
 }
 
+pub enum RngClockSrc {
+    LSI,
+}
+
 impl<'d> Rcc<'d> {
     pub fn new(rcc: impl Unborrow<Target = peripherals::RCC> + 'd) -> Self {
         unborrow!(rcc);
         Self {
             _rb: rcc,
             phantom: PhantomData,
+        }
+    }
+
+    pub fn select_rng_clock(&mut self, clock_src: RngClockSrc) {
+        let rcc = pac::RCC;
+        match clock_src {
+            LSI => unsafe {
+                let csr = rcc.csr().read();
+                if !csr.lsion() {
+                    rcc.csr().modify(|w| w.set_lsion(true));
+                    while !rcc.csr().read().lsirdy() {}
+                }
+                rcc.ccipr().modify(|w| w.set_rngsel(0b01));
+            },
         }
     }
 
