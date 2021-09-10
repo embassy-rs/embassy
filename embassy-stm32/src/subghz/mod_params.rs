@@ -613,11 +613,11 @@ pub enum SpreadingFactor {
     /// Spreading factor 9.
     Sf9 = 0x09,
     /// Spreading factor 10.
-    Sf10 = 0xA0,
+    Sf10 = 0x0A,
     /// Spreading factor 11.
-    Sf11 = 0xB0,
+    Sf11 = 0x0B,
     /// Spreading factor 12.
-    Sf12 = 0xC0,
+    Sf12 = 0x0C,
 }
 
 impl From<SpreadingFactor> for u8 {
