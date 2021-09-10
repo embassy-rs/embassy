@@ -19,16 +19,16 @@ defmt-error = []
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-trace"] }
 embassy-rp = { version = "0.1.0", path = "../../embassy-rp", features = ["defmt", "defmt-trace"] }
-atomic-polyfill = { version = "0.1.1" }
+atomic-polyfill = "0.1.3"
 
-defmt = "0.2.0"
+defmt = "0.2.3"
 defmt-rtt = "0.2.0"
 
-cortex-m = { version = "0.7.1", features = ["inline-asm"] }
+cortex-m = { version = "0.7.3", features = ["inline-asm"] }
 cortex-m-rt = "0.7.0"
-embedded-hal    = { version = "0.2.4" }
+embedded-hal    = "0.2.6"
 panic-probe = { version = "0.2.0", features = ["print-defmt"] }
-futures = { version = "0.3.8", default-features = false, features = ["async-await", "cfg-target-has-atomic", "unstable"] }
+futures = { version = "0.3.17", default-features = false, features = ["async-await", "cfg-target-has-atomic", "unstable"] }
 display-interface-spi = "0.4.1"
 embedded-graphics = "0.7.1"
 st7789 = "0.6.1"

@@ -22,14 +22,14 @@ embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = 
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "stm32f429zi", "unstable-pac", "memory-x", "time-driver-tim2"]  }
 embassy-hal-common = {version = "0.1.0", path = "../../embassy-hal-common" }
 
-defmt = "0.2.0"
+defmt = "0.2.3"
 defmt-rtt = "0.2.0"
 
-cortex-m = "0.7.1"
+cortex-m = "0.7.3"
 cortex-m-rt = "0.7.0"
-embedded-hal = { version = "0.2.4" }
-panic-probe = { version = "0.2.0", features= ["print-defmt"] }
-futures = { version = "0.3.8", default-features = false, features = ["async-await"] }
-rtt-target = { version = "0.3", features = ["cortex-m"] }
-heapless = { version = "0.7.1", default-features = false }
-nb = { version = "1.0" }
+embedded-hal = "0.2.6"
+panic-probe = { version = "0.2.0", features = ["print-defmt"] }
+futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
+rtt-target = { version = "0.3.1", features = ["cortex-m"] }
+heapless = { version = "0.7.5", default-features = false }
+nb = "1.0.0"

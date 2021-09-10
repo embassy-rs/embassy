@@ -5,10 +5,10 @@ authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
 
 [dependencies]
-syn = { version = "1.0.39", features = ["full", "extra-traits"] }
-quote = "1.0.7"
-darling = "0.10.2"
-proc-macro2 = "1.0.24"
+syn = { version = "1.0.76", features = ["full", "extra-traits"] }
+quote = "1.0.9"
+darling = "0.13.0"
+proc-macro2 = "1.0.29"
 
 [lib]
 proc-macro = true

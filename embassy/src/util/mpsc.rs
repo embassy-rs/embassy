@@ -868,7 +868,7 @@ mod tests {
         let send_task_2 = executor.spawn_with_handle(async move { s1.send(3).await });
         // Wish I could think of a means of determining that the async send is waiting instead.
         // However, I've used the debugger to observe that the send does indeed wait.
-        assert!(Delay::new(Duration::from_millis(500)).await.is_ok());
+        Delay::new(Duration::from_millis(500)).await;
         assert_eq!(r.recv().await, Some(1));
         assert!(executor
             .spawn(async move { while let Some(_) = r.recv().await {} })
