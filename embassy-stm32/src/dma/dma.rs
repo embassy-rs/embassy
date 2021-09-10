@@ -3,7 +3,8 @@ use core::sync::atomic::{fence, Ordering};
 use core::task::Poll;
 
 use embassy::interrupt::{Interrupt, InterruptExt};
-use embassy::util::{AtomicWaker, OnDrop};
+use embassy::waitqueue::AtomicWaker;
+use embassy_hal_common::drop::OnDrop;
 use futures::future::poll_fn;
 
 use crate::interrupt;

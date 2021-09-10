@@ -1,7 +1,6 @@
+use atomic_polyfill::{compiler_fence, AtomicPtr, Ordering};
 use core::ptr::{self, NonNull};
 use core::task::Waker;
-
-use atomic_polyfill::{compiler_fence, AtomicPtr, Ordering};
 
 use crate::executor::raw::{task_from_waker, wake_task, TaskHeader};
 

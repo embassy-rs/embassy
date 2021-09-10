@@ -6,7 +6,8 @@ use core::ptr;
 use core::task::Poll;
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::traits::flash::{Error, Flash};
-use embassy::util::{AtomicWaker, DropBomb, Unborrow};
+use embassy::util::Unborrow;
+use embassy_hal_common::drop::DropBomb;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
@@ -397,6 +398,8 @@ impl<'d, T: Instance> Flash for Qspi<'d, T> {
 }
 
 pub(crate) mod sealed {
+    use embassy::waitqueue::AtomicWaker;
+
     use super::*;
 
     pub struct State {

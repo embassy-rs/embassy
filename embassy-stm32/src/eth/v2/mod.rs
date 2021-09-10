@@ -2,7 +2,8 @@ use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
-use embassy::util::{AtomicWaker, Unborrow};
+use embassy::util::Unborrow;
+use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::unborrow;
 use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};

@@ -8,16 +8,16 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use embassy::{traits::gpio::WaitForRisingEdge, util::InterruptFuture};
-use embassy_stm32::{
-    dbgmcu::Dbgmcu,
-    dma::NoDma,
-    exti::ExtiInput,
-    gpio::{Input, Level, Output, Pull, Speed},
-    interrupt,
-    subghz::*,
-    Peripherals,
-};
+use embassy::channel::signal::Signal;
+use embassy::interrupt::{Interrupt, InterruptExt};
+use embassy::traits::gpio::WaitForRisingEdge;
+use embassy_stm32::dbgmcu::Dbgmcu;
+use embassy_stm32::dma::NoDma;
+use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::interrupt;
+use embassy_stm32::subghz::*;
+use embassy_stm32::Peripherals;
 use embedded_hal::digital::v2::OutputPin;
 use example_common::unwrap;
 
@@ -83,7 +83,13 @@ async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
     let button = Input::new(p.PA0, Pull::Up);
     let mut pin = ExtiInput::new(button, p.EXTI0);
 
-    let mut radio_irq = interrupt::take!(SUBGHZ_RADIO);
+    static IRQ_SIGNAL: Signal<()> = Signal::new();
+    let radio_irq = interrupt::take!(SUBGHZ_RADIO);
+    radio_irq.set_handler(|_| {
+        IRQ_SIGNAL.signal(());
+        unsafe { interrupt::SUBGHZ_RADIO::steal() }.disable();
+    });
+
     let mut radio = SubGhz::new(p.SUBGHZSPI, p.PA5, p.PA7, p.PA6, NoDma, NoDma);
 
     defmt::info!("Radio ready for use");
@@ -118,7 +124,9 @@ async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
         unwrap!(radio.write_buffer(TX_BUF_OFFSET, PING_DATA_BYTES));
         unwrap!(radio.set_tx(Timeout::DISABLED));
 
-        InterruptFuture::new(&mut radio_irq).await;
+        radio_irq.enable();
+        IRQ_SIGNAL.wait().await;
+
         let (_, irq_status) = unwrap!(radio.irq_status());
         if irq_status & Irq::TxDone.mask() != 0 {
             defmt::info!("TX done");

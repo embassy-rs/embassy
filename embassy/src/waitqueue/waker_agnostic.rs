@@ -2,7 +2,7 @@ use core::cell::Cell;
 use core::mem;
 use core::task::Waker;
 
-use crate::util::CriticalSectionMutex as Mutex;
+use crate::blocking_mutex::CriticalSectionMutex as Mutex;
 
 /// Utility struct to register and wake a waker.
 #[derive(Debug)]

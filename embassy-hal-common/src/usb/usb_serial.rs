@@ -4,7 +4,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use embassy::io::{self, AsyncBufRead, AsyncWrite};
-use embassy::util::WakerRegistration;
+use embassy::waitqueue::WakerRegistration;
 use usb_device::bus::UsbBus;
 use usb_device::class_prelude::*;
 use usb_device::UsbError;

@@ -2,9 +2,9 @@ use core::cell::RefCell;
 use core::future::Future;
 use core::task::Context;
 use core::task::Poll;
+use embassy::blocking_mutex::ThreadModeMutex;
 use embassy::time::{Instant, Timer};
-use embassy::util::ThreadModeMutex;
-use embassy::util::WakerRegistration;
+use embassy::waitqueue::WakerRegistration;
 use futures::pin_mut;
 use smoltcp::iface::InterfaceBuilder;
 #[cfg(feature = "medium-ethernet")]

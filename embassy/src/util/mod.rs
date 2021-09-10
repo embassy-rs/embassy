@@ -1,21 +1,7 @@
-//! Async utilities
-mod drop_bomb;
+//! Misc utilities
 mod forever;
-mod mutex;
-mod on_drop;
-mod signal;
 
-#[cfg_attr(feature = "executor-agnostic", path = "waker_agnostic.rs")]
-mod waker;
-
-pub use drop_bomb::*;
 pub use forever::*;
-pub mod mpsc;
-pub use mutex::*;
-pub use on_drop::*;
-pub use signal::*;
-pub use waker::*;
-
 /// Unsafely unborrow an owned singleton out of a `&mut`.
 ///
 /// It is intended to be implemented for owned peripheral singletons, such as `USART3` or `AnyPin`.

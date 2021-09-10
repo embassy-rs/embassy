@@ -6,7 +6,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 use embassy::interrupt::InterruptExt;
 use embassy::traits;
-use embassy::util::{AtomicWaker, Unborrow};
+use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 use traits::spi::{FullDuplex, Read, Spi, Write};
@@ -359,6 +359,8 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spim<'d, T> {
 }
 
 pub(crate) mod sealed {
+    use embassy::waitqueue::AtomicWaker;
+
     use super::*;
 
     pub struct State {

@@ -1,3 +1,5 @@
+//! Blocking mutex (not async)
+
 use core::cell::UnsafeCell;
 use critical_section::CriticalSection;
 

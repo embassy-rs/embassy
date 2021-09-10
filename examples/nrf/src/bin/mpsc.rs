@@ -6,14 +6,13 @@
 mod example_common;
 
 use defmt::unwrap;
+use embassy::channel::mpsc::{self, Channel, Sender, TryRecvError, WithNoThreads};
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy::util::mpsc::TryRecvError;
-use embassy::util::{mpsc, Forever};
+use embassy::util::Forever;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::Peripherals;
 use embedded_hal::digital::v2::OutputPin;
-use mpsc::{Channel, Sender, WithNoThreads};
 
 enum LedState {
     On,

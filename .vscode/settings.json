@@ -6,11 +6,12 @@
   "rust-analyzer.checkOnSave.allTargets": false,
   "rust-analyzer.cargo.noDefaultFeatures": true,
   "rust-analyzer.checkOnSave.noDefaultFeatures": true,
-  //"rust-analyzer.cargo.target": "thumbv7em-none-eabi",
+  "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
   "rust-analyzer.cargo.features": [
     // These are needed to prevent embassy-net from failing to build
     "embassy-net/medium-ethernet",
     "embassy-net/tcp",
+    "embassy-net/pool-16",
   ],
   "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.cargo.runBuildScripts": true,
