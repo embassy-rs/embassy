@@ -5,7 +5,7 @@ edition = "2018"
 resolver = "2"
 
 [dependencies]
-cortex-m = "0.7.2"
+cortex-m = "0.7.3"
 cortex-m-rt = { version = ">=0.6.15,<0.8", optional = true }
 
 # BEGIN BUILD DEPENDENCIES

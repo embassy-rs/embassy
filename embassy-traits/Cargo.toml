@@ -8,5 +8,5 @@ edition = "2018"
 std = []
 
 [dependencies]
-defmt = { version = "0.2.0", optional = true }
-embedded-hal = { version = "0.2.3", features = ["unproven"] }
+defmt = { version = "0.2.3", optional = true }
+embedded-hal = { version = "0.2.6", features = ["unproven"] }

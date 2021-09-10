@@ -5,8 +5,8 @@ edition = "2018"
 
 
 [dependencies]
-regex = "1.4.6"
+regex = "1.5.4"
 chiptool = { git = "https://github.com/embassy-rs/chiptool", rev = "31c3c09197d63d29eddbf4c70d6158edac0ac5d3" }
-serde = { version = "1.0.123", features = [ "derive" ]}
-serde_yaml = "0.8.15"
-proc-macro2 = "1.0"
+serde = { version = "1.0.130", features = [ "derive" ] }
+serde_yaml = "0.8.21"
+proc-macro2 = "1.0.29"

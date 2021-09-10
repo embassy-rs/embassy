@@ -8,7 +8,7 @@ name = "xtask"
 version = "0.1.0"
 
 [dependencies]
-anyhow = "1.0"
-xshell = "0.1"
-yaml-rust = "0.4"
+anyhow = "1.0.43"
+xshell = "0.1.17"
+yaml-rust = "0.4.5"
 walkdir = "2.3.2"

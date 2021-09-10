@@ -1,6 +1,6 @@
+use nix::errno::Errno;
 use nix::fcntl::OFlag;
 use nix::sys::termios;
-use nix::Error;
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 
@@ -63,9 +63,6 @@ impl io::Write for SerialPort {
     }
 }
 
-fn to_io_error(e: Error) -> io::Error {
-    match e {
-        Error::Sys(errno) => errno.into(),
-        e => io::Error::new(io::ErrorKind::InvalidInput, e),
-    }
+fn to_io_error(e: Errno) -> io::Error {
+    e.into()
 }
