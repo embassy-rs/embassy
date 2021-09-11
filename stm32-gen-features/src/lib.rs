@@ -1,6 +1,6 @@
 //! FIXME discuss about which errors to print and when to panic
 
-use std::{collections::HashMap, iter::FilterMap, path::Path, slice::Iter};
+use std::{iter::FilterMap, path::Path, slice::Iter};
 
 const SUPPORTED_FAMILIES: [&str; 8] = [
     "stm32f0",
@@ -89,21 +89,19 @@ fn chip_cores(path: &Path) -> Vec<String> {
 ///
 /// # Panic
 /// Panics if a file contains yaml syntax errors or if a value does not have a consistent type
-pub fn embassy_stm32_needed_data(
-    names_and_cores: &[(String, Vec<String>)],
-) -> HashMap<String, Vec<String>> {
-    let mut result = HashMap::new();
+pub fn embassy_stm32_needed_data(names_and_cores: &[(String, Vec<String>)]) -> String {
+    let mut result = String::new();
     for (chip_name, cores) in names_and_cores.supported() {
         if cores.len() > 1 {
             for core_name in cores.iter() {
-                let key = format!("{}_{}", chip_name, core_name);
-                let value = vec![format!("stm32-metapac/{}_{}", chip_name, core_name)];
-                result.insert(key, value);
+                result += &format!(
+                    "{chip}_{core} = [ \"stm32-metapac/{chip}_{core}\" ]\n",
+                    chip = chip_name,
+                    core = core_name
+                );
             }
         } else {
-            let key = chip_name.to_string();
-            let value = vec![format!("stm32-metapac/{}", chip_name)];
-            result.insert(key, value);
+            result += &format!("{chip} = [ \"stm32-metapac/{chip}\" ]\n", chip = chip_name);
         }
     }
     result
@@ -116,18 +114,15 @@ pub fn embassy_stm32_needed_data(
 ///
 /// # Panic
 /// Panics if a file contains yaml syntax errors or if a value does not have a consistent type
-pub fn stm32_metapac_needed_data(
-    names_and_cores: &[(String, Vec<String>)],
-) -> HashMap<String, Vec<String>> {
-    let mut result = HashMap::new();
+pub fn stm32_metapac_needed_data(names_and_cores: &[(String, Vec<String>)]) -> String {
+    let mut result = String::new();
     for (chip_name, cores) in names_and_cores {
         if cores.len() > 1 {
             for core_name in cores {
-                let key = format!("{}_{}", chip_name, core_name);
-                result.insert(key, vec![]);
+                result += &format!("{}_{} = []\n", chip_name, core_name);
             }
         } else {
-            result.insert(chip_name.clone(), vec![]);
+            result += &format!("{} = []\n", chip_name);
         }
     }
     result
@@ -152,13 +147,9 @@ fn split_cargo_toml_contents(contents: &str) -> (&str, &str) {
 ///
 /// # Panic
 /// Panics when a separator cound not be not found
-pub fn generate_cargo_toml_file(
-    previous_text: &str,
-    new_contents: &HashMap<String, Vec<String>>,
-) -> String {
+pub fn generate_cargo_toml_file(previous_text: &str, new_contents: &str) -> String {
     let (before, after) = split_cargo_toml_contents(previous_text);
-    let generated_content = toml::to_string(new_contents).unwrap();
-    before.to_owned() + SEPARATOR_START + HELP + &generated_content + SEPARATOR_END + after
+    before.to_owned() + SEPARATOR_START + HELP + new_contents + SEPARATOR_END + after
 }
 
 #[cfg(test)]
@@ -203,8 +194,8 @@ a = [\"b\"]
 after
 ";
 
-        let map = HashMap::from([(String::from("a"), vec![String::from("b")])]);
-        assert_eq!(generate_cargo_toml_file(initial, &map), expected);
+        let new_contents = String::from("a = [\"b\"]\n");
+        assert_eq!(generate_cargo_toml_file(initial, &new_contents), expected);
     }
 
     #[test]
@@ -216,7 +207,7 @@ before
 after
 ";
 
-        let map = HashMap::from([(String::from("a"), vec![String::from("b")])]);
-        generate_cargo_toml_file(initial, &map);
+        let new_contents = String::from("a = [\"b\"]\n");
+        generate_cargo_toml_file(initial, &new_contents);
     }
 }
