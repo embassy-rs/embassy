@@ -49,11 +49,8 @@ use core::task::Waker;
 
 use futures::Future;
 
-use super::CriticalSectionMutex;
-use super::Mutex;
-use super::NoopMutex;
-use super::ThreadModeMutex;
-use super::WakerRegistration;
+use crate::blocking_mutex::{CriticalSectionMutex, Mutex, NoopMutex, ThreadModeMutex};
+use crate::waitqueue::WakerRegistration;
 
 /// Send values to the associated `Receiver`.
 ///
@@ -108,8 +105,8 @@ unsafe impl<'ch, M, T, const N: usize> Sync for Receiver<'ch, M, T, N> where
 /// their channel. The following will therefore fail compilation:
 ////
 /// ```compile_fail
-/// use embassy::util::mpsc;
-/// use embassy::util::mpsc::{Channel, WithThreadModeOnly};
+/// use embassy::channel::mpsc;
+/// use embassy::channel::mpsc::{Channel, WithThreadModeOnly};
 ///
 /// let (sender, receiver) = {
 ///    let mut channel = Channel::<WithThreadModeOnly, u32, 3>::with_thread_mode_only();
@@ -635,8 +632,8 @@ where
     /// Establish a new bounded channel. For example, to create one with a NoopMutex:
     ///
     /// ```
-    /// use embassy::util::mpsc;
-    /// use embassy::util::mpsc::{Channel, WithNoThreads};
+    /// use embassy::channel::mpsc;
+    /// use embassy::channel::mpsc::{Channel, WithNoThreads};
     ///
     /// // Declare a bounded channel of 3 u32s.
     /// let mut channel = Channel::<WithNoThreads, u32, 3>::new();

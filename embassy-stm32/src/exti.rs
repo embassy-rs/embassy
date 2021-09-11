@@ -4,7 +4,8 @@ use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use embassy::traits::gpio::{WaitForAnyEdge, WaitForFallingEdge, WaitForRisingEdge};
-use embassy::util::{AtomicWaker, Unborrow};
+use embassy::util::Unborrow;
+use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unsafe_impl_unborrow;
 use embedded_hal::digital::v2::InputPin;
 

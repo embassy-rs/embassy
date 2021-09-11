@@ -7,6 +7,10 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+pub mod blocking_mutex;
+pub mod channel;
+pub mod waitqueue;
+
 pub mod executor;
 pub mod interrupt;
 pub mod io;

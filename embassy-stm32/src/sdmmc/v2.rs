@@ -5,7 +5,9 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy::interrupt::InterruptExt;
-use embassy::util::{AtomicWaker, OnDrop, Unborrow};
+use embassy::util::Unborrow;
+use embassy::waitqueue::AtomicWaker;
+use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
@@ -1479,8 +1481,8 @@ crate::pac::peripherals!(
                 INNER
             }
 
-            fn state() -> &'static ::embassy::util::AtomicWaker {
-                static WAKER: ::embassy::util::AtomicWaker = ::embassy::util::AtomicWaker::new();
+            fn state() -> &'static ::embassy::waitqueue::AtomicWaker {
+                static WAKER: ::embassy::waitqueue::AtomicWaker = ::embassy::waitqueue::AtomicWaker::new();
                 &WAKER
             }
         }

@@ -5,8 +5,9 @@ use core::task::Poll;
 
 use embassy::interrupt::Interrupt;
 use embassy::interrupt::InterruptExt;
-use embassy::util::OnDrop;
 use embassy::util::Unborrow;
+use embassy::waitqueue::AtomicWaker;
+use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
@@ -15,7 +16,6 @@ use crate::ppi::Event;
 use crate::ppi::Task;
 
 pub(crate) mod sealed {
-    use embassy::util::AtomicWaker;
 
     use super::*;
 
@@ -43,8 +43,8 @@ macro_rules! impl_timer {
             fn regs() -> &'static pac::timer0::RegisterBlock {
                 unsafe { &*(pac::$pac_type::ptr() as *const pac::timer0::RegisterBlock) }
             }
-            fn waker(n: usize) -> &'static ::embassy::util::AtomicWaker {
-                use ::embassy::util::AtomicWaker;
+            fn waker(n: usize) -> &'static ::embassy::waitqueue::AtomicWaker {
+                use ::embassy::waitqueue::AtomicWaker;
                 const NEW_AW: AtomicWaker = AtomicWaker::new();
                 static WAKERS: [AtomicWaker; $ccs] = [NEW_AW; $ccs];
                 &WAKERS[n]

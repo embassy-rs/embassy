@@ -8,9 +8,9 @@ use core::task::Poll;
 
 use embassy::interrupt::InterruptExt;
 use embassy::traits;
-use embassy::util::AtomicWaker;
-use embassy::util::OnDrop;
 use embassy::util::Unborrow;
+use embassy::waitqueue::AtomicWaker;
+use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 use rand_core::RngCore;

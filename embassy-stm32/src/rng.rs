@@ -3,7 +3,8 @@
 use core::future::Future;
 use core::task::Poll;
 use embassy::traits;
-use embassy::util::{AtomicWaker, Unborrow};
+use embassy::util::Unborrow;
+use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 use rand_core::{CryptoRng, RngCore};
