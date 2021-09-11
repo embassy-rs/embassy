@@ -9,4 +9,3 @@ edition = "2018"
 [dependencies]
 glob = "0.3.0"
 yaml-rust = "0.4.5"
-toml = "0.5.8"
