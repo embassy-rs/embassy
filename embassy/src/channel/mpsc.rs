@@ -39,7 +39,6 @@
 
 use core::cell::UnsafeCell;
 use core::fmt;
-use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::Context;
 use core::task::Poll;
@@ -75,7 +74,6 @@ where
     M: Mutex<Data = ()>,
 {
     channel_cell: &'ch UnsafeCell<ChannelCell<M, T, N>>,
-    _receiver_consumed: &'ch mut PhantomData<()>,
 }
 
 // Safe to pass the receiver around
@@ -123,7 +121,6 @@ where
     };
     let receiver = Receiver {
         channel_cell: &channel.channel_cell,
-        _receiver_consumed: &mut channel.receiver_consumed,
     };
     Channel::lock(&channel.channel_cell, |c| {
         c.register_receiver();
@@ -587,7 +584,6 @@ where
     M: Mutex<Data = ()>,
 {
     channel_cell: UnsafeCell<ChannelCell<M, T, N>>,
-    receiver_consumed: PhantomData<()>,
 }
 
 struct ChannelCell<M, T, const N: usize>
@@ -625,7 +621,6 @@ where
         let channel_cell = ChannelCell { mutex, state };
         Channel {
             channel_cell: UnsafeCell::new(channel_cell),
-            receiver_consumed: PhantomData,
         }
     }
 
