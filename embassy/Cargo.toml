@@ -42,6 +42,7 @@ embassy-traits  = { version = "0.1.0", path = "../embassy-traits"}
 atomic-polyfill  = "0.1.3"
 critical-section = "0.2.1"
 embedded-hal = "0.2.6"
+heapless = "0.7.5"
 
 [dev-dependencies]
 embassy = { path = ".", features = ["executor-agnostic"] }
