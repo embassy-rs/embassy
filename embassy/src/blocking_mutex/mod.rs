@@ -1,5 +1,7 @@
 //! Blocking mutex (not async)
 
+pub mod kind;
+
 use core::cell::UnsafeCell;
 use critical_section::CriticalSection;
 
@@ -13,7 +15,7 @@ pub trait Mutex {
     fn new(data: Self::Data) -> Self;
 
     /// Creates a critical section and grants temporary access to the protected data.
-    fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R;
+    fn lock<R>(&self, f: impl FnOnce(&Self::Data) -> R) -> R;
 }
 
 /// A "mutex" based on critical sections
@@ -55,7 +57,7 @@ impl<T> Mutex for CriticalSectionMutex<T> {
         Self::new(data)
     }
 
-    fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R {
+    fn lock<R>(&self, f: impl FnOnce(&Self::Data) -> R) -> R {
         critical_section::with(|cs| f(self.borrow(cs)))
     }
 }
@@ -102,7 +104,7 @@ impl<T> Mutex for ThreadModeMutex<T> {
         Self::new(data)
     }
 
-    fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R {
+    fn lock<R>(&self, f: impl FnOnce(&Self::Data) -> R) -> R {
         f(self.borrow())
     }
 }
@@ -155,7 +157,7 @@ impl<T> Mutex for NoopMutex<T> {
         Self::new(data)
     }
 
-    fn lock<R>(&mut self, f: impl FnOnce(&Self::Data) -> R) -> R {
+    fn lock<R>(&self, f: impl FnOnce(&Self::Data) -> R) -> R {
         f(self.borrow())
     }
 }
