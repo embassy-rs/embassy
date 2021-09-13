@@ -10,7 +10,7 @@
 mod run_queue;
 #[cfg(feature = "time")]
 mod timer_queue;
-mod util;
+pub(crate) mod util;
 mod waker;
 
 use atomic_polyfill::{AtomicU32, Ordering};

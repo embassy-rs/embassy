@@ -8,6 +8,7 @@ resolver = "2"
 [features]
 default = []
 std = ["futures/std", "embassy-traits/std", "time", "time-tick-1mhz", "embassy-macros/std"]
+wasm = ["wasm-bindgen", "js-sys", "embassy-macros/wasm", "wasm-timer", "time", "time-tick-1mhz"]
 
 # Enable `embassy::time` module. 
 # NOTE: This feature is only intended to be enabled by crates providing the time driver implementation.
@@ -40,9 +41,14 @@ pin-project = { version = "1.0.8", default-features = false }
 embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
 embassy-traits  = { version = "0.1.0", path = "../embassy-traits"}
 atomic-polyfill  = "0.1.3"
-critical-section = "0.2.1"
+critical-section = "0.2.3"
 embedded-hal = "0.2.6"
 heapless = "0.7.5"
+
+# WASM dependencies
+wasm-bindgen = { version = "0.2.76", features = ["nightly"], optional = true }
+js-sys = { version = "0.3", optional = true }
+wasm-timer = { version = "0.2.5", optional = true }
 
 [dev-dependencies]
 embassy = { path = ".", features = ["executor-agnostic"] }

@@ -21,7 +21,7 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 rand_core = "0.6.3"
 sdio-host = "0.5.0"
 embedded-sdmmc = { git = "https://github.com/thalesfragoso/embedded-sdmmc-rs", branch = "async", optional = true }
-critical-section = "0.2.1"
+critical-section = "0.2.3"
 bare-metal = "1.0.0"
 atomic-polyfill = "0.1.3"
 stm32-metapac = { version = "0.1.0", path = "../stm32-metapac", features = ["rt"] }

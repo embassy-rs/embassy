@@ -94,6 +94,8 @@ jobs:
             target: thumbv6m-none-eabi
           - package: examples/stm32g0
             target: thumbv6m-none-eabi
+          - package: examples/wasm
+            target: wasm32-unknown-unknown
     steps:
       - uses: actions/checkout@v2
         with:
