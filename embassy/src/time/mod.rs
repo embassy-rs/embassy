@@ -51,6 +51,9 @@ mod timer;
 #[cfg(feature = "std")]
 mod driver_std;
 
+#[cfg(feature = "wasm")]
+mod driver_wasm;
+
 pub use delay::{block_for, Delay};
 pub use duration::Duration;
 pub use instant::Instant;

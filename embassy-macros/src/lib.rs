@@ -450,3 +450,82 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     };
     result.into()
 }
+
+#[cfg(feature = "wasm")]
+#[proc_macro_attribute]
+pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
+    let macro_args = syn::parse_macro_input!(args as syn::AttributeArgs);
+    let task_fn = syn::parse_macro_input!(item as syn::ItemFn);
+
+    let macro_args = match MainArgs::from_list(&macro_args) {
+        Ok(v) => v,
+        Err(e) => {
+            return TokenStream::from(e.write_errors());
+        }
+    };
+
+    let embassy_path = macro_args.embassy_prefix.append("embassy");
+
+    let mut fail = false;
+    if task_fn.sig.asyncness.is_none() {
+        task_fn
+            .sig
+            .span()
+            .unwrap()
+            .error("task functions must be async")
+            .emit();
+        fail = true;
+    }
+    if !task_fn.sig.generics.params.is_empty() {
+        task_fn
+            .sig
+            .span()
+            .unwrap()
+            .error("main function must not be generic")
+            .emit();
+        fail = true;
+    }
+
+    let args = task_fn.sig.inputs.clone();
+
+    if args.len() != 1 {
+        task_fn
+            .sig
+            .span()
+            .unwrap()
+            .error("main function must have one argument")
+            .emit();
+        fail = true;
+    }
+
+    if fail {
+        return TokenStream::new();
+    }
+
+    let task_fn_body = task_fn.block.clone();
+
+    let embassy_path = embassy_path.path();
+    let embassy_prefix_lit = macro_args.embassy_prefix.literal();
+
+    let result = quote! {
+        #[#embassy_path::task(embassy_prefix = #embassy_prefix_lit)]
+        async fn __embassy_main(#args) {
+            #task_fn_body
+        }
+
+        use wasm_bindgen::prelude::*;
+
+        #[wasm_bindgen(start)]
+        pub fn main() -> Result<(), JsValue> {
+            static EXECUTOR: #embassy_path::util::Forever<#embassy_path::executor::Executor> = #embassy_path::util::Forever::new();
+            let executor = EXECUTOR.put(#embassy_path::executor::Executor::new());
+
+            executor.start(|spawner| {
+                spawner.spawn(__embassy_main(spawner)).unwrap();
+            });
+
+            Ok(())
+        }
+    };
+    result.into()
+}

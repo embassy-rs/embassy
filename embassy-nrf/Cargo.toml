@@ -45,7 +45,7 @@ cortex-m = "0.7.3"
 embedded-hal    = "0.2.6"
 embedded-dma    = "0.1.2"
 futures     = { version = "0.3.17", default-features = false }
-critical-section = "0.2.1"
+critical-section = "0.2.2"
 rand_core = "0.6.3"
 
 nrf52805-pac  = { version = "0.10.1", optional = true, features = [ "rt" ] }

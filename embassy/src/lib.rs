@@ -1,4 +1,4 @@
-#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(any(feature = "std", feature = "wasm")), no_std)]
 #![feature(generic_associated_types)]
 #![feature(const_fn_trait_bound)]
 #![feature(const_fn_fn_ptr_basics)]
