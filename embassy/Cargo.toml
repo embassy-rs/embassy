@@ -41,7 +41,7 @@ pin-project = { version = "1.0.8", default-features = false }
 embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
 embassy-traits  = { version = "0.1.0", path = "../embassy-traits"}
 atomic-polyfill  = "0.1.3"
-critical-section = "0.2.2"
+critical-section = "0.2.3"
 embedded-hal = "0.2.6"
 heapless = "0.7.5"
 
