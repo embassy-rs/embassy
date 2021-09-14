@@ -2,7 +2,7 @@
 ///
 /// Returned by [`op_error`].
 ///
-/// [`op_error`]: crate::subghz::SubGhz::op_error
+/// [`op_error`]: super::SubGhz::op_error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]

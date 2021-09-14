@@ -27,7 +27,7 @@ impl Default for Startup {
 ///
 /// Argument of [`set_sleep`].
 ///
-/// [`set_sleep`]: crate::subghz::SubGhz::set_sleep
+/// [`set_sleep`]: super::SubGhz::set_sleep
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SleepCfg(u8);

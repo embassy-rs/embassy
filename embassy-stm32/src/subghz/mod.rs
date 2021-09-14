@@ -240,6 +240,14 @@ impl<'d, Tx, Rx> SubGhz<'d, Tx, Rx> {
 
         SubGhz { spi }
     }
+
+    pub fn is_busy(&mut self) -> bool {
+        rfbusys()
+    }
+
+    pub fn reset(&mut self) {
+        Self::pulse_radio_reset();
+    }
 }
 
 impl<'d> SubGhz<'d, NoDma, NoDma> {

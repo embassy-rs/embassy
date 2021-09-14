@@ -2,7 +2,7 @@
 ///
 /// Argument of [`set_rf_frequency`].
 ///
-/// [`set_rf_frequency`]: crate::subghz::SubGhz::set_rf_frequency
+/// [`set_rf_frequency`]: super::SubGhz::set_rf_frequency
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RfFreq {

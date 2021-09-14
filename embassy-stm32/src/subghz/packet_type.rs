@@ -2,7 +2,7 @@
 ///
 /// Argument of [`set_packet_type`]
 ///
-/// [`set_packet_type`]: crate::subghz::SubGhz::set_packet_type
+/// [`set_packet_type`]: super::SubGhz::set_packet_type
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

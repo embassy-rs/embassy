@@ -2,7 +2,7 @@
 ///
 /// Argument of [`set_rx_gain`].
 ///
-/// [`set_rx_gain`]: crate::subghz::SubGhz::set_rx_gain
+/// [`set_rx_gain`]: super::SubGhz::set_rx_gain
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

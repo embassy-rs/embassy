@@ -2,7 +2,7 @@
 ///
 /// Used by [`Timeout::from_duration`].
 ///
-/// [`Timeout::from_duration`]: crate::subghz::Timeout::from_duration
+/// [`Timeout::from_duration`]: super::Timeout::from_duration
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ValueError<T> {

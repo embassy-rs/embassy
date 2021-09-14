@@ -115,7 +115,7 @@ impl CmdStatus {
 ///
 /// This is returned by [`status`].
 ///
-/// [`status`]: crate::subghz::SubGhz::status
+/// [`status`]: super::SubGhz::status
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Status(u8);
 

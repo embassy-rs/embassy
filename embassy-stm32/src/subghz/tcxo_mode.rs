@@ -1,4 +1,4 @@
-use crate::subghz::timeout::Timeout;
+use super::Timeout;
 
 /// TCXO trim.
 ///
@@ -78,7 +78,7 @@ impl TcxoTrim {
 ///
 /// Argument of [`set_tcxo_mode`].
 ///
-/// [`set_tcxo_mode`]: crate::subghz::SubGhz::set_tcxo_mode
+/// [`set_tcxo_mode`]: super::SubGhz::set_tcxo_mode
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TcxoMode {
