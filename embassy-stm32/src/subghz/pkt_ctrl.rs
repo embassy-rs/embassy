@@ -22,7 +22,7 @@ impl Default for InfSeqSel {
 
 /// Generic packet control.
 ///
-/// Argument of [`set_pkt_ctrl`](crate::subghz::SubGhz::set_pkt_ctrl).
+/// Argument of [`set_pkt_ctrl`](super::SubGhz::set_pkt_ctrl).
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PktCtrl {

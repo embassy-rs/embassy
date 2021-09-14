@@ -2,7 +2,7 @@
 ///
 /// Used by [`set_pa_ocp`].
 ///
-/// [`set_pa_ocp`]: crate::subghz::SubGhz::set_pa_ocp
+/// [`set_pa_ocp`]: super::SubGhz::set_pa_ocp
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]

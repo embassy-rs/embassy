@@ -113,6 +113,17 @@ impl<'d> Rcc<'d> {
         }
     }
 
+    pub fn enable_lsi(&mut self) {
+        let rcc = pac::RCC;
+        unsafe {
+            let csr = rcc.csr().read();
+            if !csr.lsion() {
+                rcc.csr().modify(|w| w.set_lsion(true));
+                while !rcc.csr().read().lsirdy() {}
+            }
+        }
+    }
+
     // Safety: RCC init must have been called
     pub fn clocks(&self) -> &'static Clocks {
         unsafe { get_freqs() }

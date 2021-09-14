@@ -1,4 +1,4 @@
-use crate::subghz::timeout::Timeout;
+use super::Timeout;
 
 /// Number of symbols used for channel activity detection scans.
 ///

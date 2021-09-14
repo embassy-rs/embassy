@@ -2,7 +2,7 @@
 ///
 /// Used by [`set_standby`].
 ///
-/// [`set_standby`]: crate::subghz::SubGhz::set_standby
+/// [`set_standby`]: super::SubGhz::set_standby
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]

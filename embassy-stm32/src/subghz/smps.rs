@@ -1,6 +1,6 @@
 /// SMPS maximum drive capability.
 ///
-/// Argument of [`set_smps_drv`](crate::subghz::SubGhz::set_smps_drv).
+/// Argument of [`set_smps_drv`](super::SubGhz::set_smps_drv).
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]

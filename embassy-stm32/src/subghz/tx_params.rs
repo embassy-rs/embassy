@@ -1,6 +1,6 @@
 /// Power amplifier ramp time for FSK, MSK, and LoRa modulation.
 ///
-/// Argument of [`set_ramp_time`][`crate::subghz::TxParams::set_ramp_time`].
+/// Argument of [`set_ramp_time`][`super::TxParams::set_ramp_time`].
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
@@ -60,7 +60,7 @@ impl From<RampTime> for embassy::time::Duration {
 }
 /// Transmit parameters, output power and power amplifier ramp up time.
 ///
-/// Argument of [`set_tx_params`][`crate::subghz::SubGhz::set_tx_params`].
+/// Argument of [`set_tx_params`][`super::SubGhz::set_tx_params`].
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TxParams {
@@ -68,6 +68,31 @@ pub struct TxParams {
 }
 
 impl TxParams {
+    /// Optimal power setting for +15dBm output power with the low-power PA.
+    ///
+    /// This must be used with [`PaConfig::LP_15`](super::PaConfig::LP_15).
+    pub const LP_15: TxParams = TxParams::new().set_power(0x0E);
+
+    /// Optimal power setting for +14dBm output power with the low-power PA.
+    ///
+    /// This must be used with [`PaConfig::LP_14`](super::PaConfig::LP_14).
+    pub const LP_14: TxParams = TxParams::new().set_power(0x0E);
+
+    /// Optimal power setting for +10dBm output power with the low-power PA.
+    ///
+    /// This must be used with [`PaConfig::LP_10`](super::PaConfig::LP_10).
+    pub const LP_10: TxParams = TxParams::new().set_power(0x0D);
+
+    /// Optimal power setting for the high-power PA.
+    ///
+    /// This must be used with one of:
+    ///
+    /// * [`PaConfig::HP_22`](super::PaConfig::HP_22)
+    /// * [`PaConfig::HP_20`](super::PaConfig::HP_20)
+    /// * [`PaConfig::HP_17`](super::PaConfig::HP_17)
+    /// * [`PaConfig::HP_14`](super::PaConfig::HP_14)
+    pub const HP: TxParams = TxParams::new().set_power(0x16);
+
     /// Create a new `TxParams` struct.
     ///
     /// This is the same as `default`, but in a `const` function.
@@ -117,7 +142,7 @@ impl TxParams {
     /// # assert_eq!(TX_PARAMS.as_slice()[1], 0x00);
     /// ```
     ///
-    /// [`set_pa_config`]: crate::subghz::SubGhz::set_pa_config
+    /// [`set_pa_config`]: super::SubGhz::set_pa_config
     #[must_use = "set_power returns a modified TxParams"]
     pub const fn set_power(mut self, power: u8) -> TxParams {
         self.buf[1] = power;
