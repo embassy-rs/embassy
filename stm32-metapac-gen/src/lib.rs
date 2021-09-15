@@ -214,8 +214,20 @@ pub fn gen(options: Options) {
 
     for chip_name in &options.chips {
         let mut s = chip_name.split('_');
-        let chip_name: &str = s.next().unwrap();
-        let core_name: Option<&str> = s.next();
+        let mut chip_name: String = s.next().unwrap().to_string();
+        let core_name: Option<&str> = if let Some(c) = s.next() {
+            if !c.starts_with("CM") {
+                println!("Core not detected, adding as variant");
+                chip_name.push_str("-");
+                chip_name.push_str(c);
+                None
+            } else {
+                println!("Detected core {}", c);
+                Some(c)
+            }
+        } else {
+            None
+        };
 
         chip_cores.insert(
             chip_name.to_string(),
