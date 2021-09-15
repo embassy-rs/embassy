@@ -415,6 +415,7 @@ pub fn gen(options: Options) {
                 match bi.module.as_str() {
                     "gpio" => {
                         let port_letter = name.chars().skip(4).next().unwrap();
+                        assert_eq!(0, (p.address as u32 - gpio_base) % gpio_stride);
                         let port_num = (p.address as u32 - gpio_base) / gpio_stride;
 
                         for pin_num in 0..16 {
