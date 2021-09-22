@@ -218,7 +218,7 @@ pub fn gen(options: Options) {
         let core_name: Option<&str> = if let Some(c) = s.next() {
             if !c.starts_with("CM") {
                 println!("Core not detected, adding as variant");
-                chip_name.push_str("-");
+                chip_name.push('-');
                 chip_name.push_str(c);
                 None
             } else {

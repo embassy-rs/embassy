@@ -1,7 +1,6 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-# replace STM32F429ZITx with your chip as listed in `probe-run --list-chips`
-#runner = "probe-run --chip STM32L475VGT6"
-runner = "probe-run --chip STM32L475VG"
+# replace your chip as listed in `probe-run --list-chips`
+runner = "probe-run --chip STM32L151CBxxA"
 
 rustflags = [
   # LLD (shipped with the Rust toolchain) is used as the default linker
@@ -16,4 +15,4 @@ rustflags = [
 ]
 
 [build]
-target = "thumbv7em-none-eabi"
+target = "thumbv7m-none-eabi"

@@ -85,13 +85,28 @@ fn main() {
         };
     );
 
-    let mut chip_and_core = chip_name.split('_');
-    let chip = chip_and_core.next().expect("Unexpected stm32xx feature");
-
-    if let Some(core) = chip_and_core.next() {
-        println!("cargo:rustc-cfg={}_{}", &chip[..(chip.len() - 2)], core);
+    let mut s = chip_name.split('_');
+    let mut chip_name: String = s.next().unwrap().to_string();
+    let core_name = if let Some(c) = s.next() {
+        if !c.starts_with("CM") {
+            chip_name.push('_');
+            chip_name.push_str(c);
+            None
+        } else {
+            Some(c)
+        }
     } else {
-        println!("cargo:rustc-cfg={}", &chip[..(chip.len() - 2)]);
+        None
+    };
+
+    if let Some(core) = core_name {
+        println!(
+            "cargo:rustc-cfg={}_{}",
+            &chip_name[..chip_name.len() - 2],
+            core
+        );
+    } else {
+        println!("cargo:rustc-cfg={}", &chip_name[..chip_name.len() - 2]);
     }
 
     println!("cargo:rerun-if-changed=build.rs");

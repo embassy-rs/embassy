@@ -22,6 +22,17 @@ fn main() {
         chips: vec![chip_name.clone()],
     });
 
+    let mut s = chip_name.split('_');
+    let mut chip_name: String = s.next().unwrap().to_string();
+    if let Some(c) = s.next() {
+        if !c.starts_with("CM") {
+            chip_name.push('-');
+        } else {
+            chip_name.push('_');
+        }
+        chip_name.push_str(c);
+    }
+
     println!(
         "cargo:rustc-link-search={}/src/chips/{}",
         out_dir.display(),

@@ -9,6 +9,17 @@ fn main() {
         .unwrap()
         .to_ascii_lowercase();
 
+    let mut s = chip_name.split('_');
+    let mut chip_name: String = s.next().unwrap().to_string();
+    if let Some(c) = s.next() {
+        if !c.starts_with("CM") {
+            chip_name.push('-');
+        } else {
+            chip_name.push('_');
+        }
+        chip_name.push_str(c);
+    }
+
     #[cfg(feature = "memory-x")]
     println!("cargo:rustc-link-search=src/chips/{}/memory_x/", _chip_name);
 
