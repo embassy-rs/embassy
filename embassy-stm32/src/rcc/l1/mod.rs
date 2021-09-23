@@ -7,7 +7,6 @@ use crate::time::U32Ext;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
-use pac::rcc::vals::{Hpre, Ppre, Sw};
 
 /// Most of clock setup is copied from rcc/l0
 
@@ -22,30 +21,32 @@ pub enum ClockSrc {
     HSI,
 }
 
+type Ppre = u8;
 impl Into<Ppre> for APBPrescaler {
     fn into(self) -> Ppre {
         match self {
-            APBPrescaler::NotDivided => Ppre::DIV1,
-            APBPrescaler::Div2 => Ppre::DIV2,
-            APBPrescaler::Div4 => Ppre::DIV4,
-            APBPrescaler::Div8 => Ppre::DIV8,
-            APBPrescaler::Div16 => Ppre::DIV16,
+            APBPrescaler::NotDivided => 0b000,
+            APBPrescaler::Div2 => 0b100,
+            APBPrescaler::Div4 => 0b101,
+            APBPrescaler::Div8 => 0b110,
+            APBPrescaler::Div16 => 0b111,
         }
     }
 }
 
+type Hpre = u8;
 impl Into<Hpre> for AHBPrescaler {
     fn into(self) -> Hpre {
         match self {
-            AHBPrescaler::NotDivided => Hpre::DIV1,
-            AHBPrescaler::Div2 => Hpre::DIV2,
-            AHBPrescaler::Div4 => Hpre::DIV4,
-            AHBPrescaler::Div8 => Hpre::DIV8,
-            AHBPrescaler::Div16 => Hpre::DIV16,
-            AHBPrescaler::Div64 => Hpre::DIV64,
-            AHBPrescaler::Div128 => Hpre::DIV128,
-            AHBPrescaler::Div256 => Hpre::DIV256,
-            AHBPrescaler::Div512 => Hpre::DIV512,
+            AHBPrescaler::NotDivided => 0b0000,
+            AHBPrescaler::Div2 => 0b1000,
+            AHBPrescaler::Div4 => 0b1001,
+            AHBPrescaler::Div8 => 0b1010,
+            AHBPrescaler::Div16 => 0b1011,
+            AHBPrescaler::Div64 => 0b1100,
+            AHBPrescaler::Div128 => 0b1101,
+            AHBPrescaler::Div256 => 0b1110,
+            AHBPrescaler::Div512 => 0b1111,
         }
     }
 }
@@ -157,7 +158,7 @@ impl RccExt for RCC {
                 }
 
                 let freq = 32_768 * (1 << (range as u8 + 1));
-                (freq, Sw::MSI)
+                (freq, 0b00)
             }
             ClockSrc::HSI => {
                 // Enable HSI
@@ -166,7 +167,7 @@ impl RccExt for RCC {
                     while !rcc.cr().read().hsirdy() {}
                 }
 
-                (HSI_FREQ, Sw::HSI)
+                (HSI_FREQ, 0b01)
             }
             ClockSrc::HSE(freq) => {
                 // Enable HSE
@@ -175,7 +176,7 @@ impl RccExt for RCC {
                     while !rcc.cr().read().hserdy() {}
                 }
 
-                (freq.0, Sw::HSE)
+                (freq.0, 0b10)
             }
         };
 
@@ -192,7 +193,7 @@ impl RccExt for RCC {
             AHBPrescaler::NotDivided => sys_clk,
             pre => {
                 let pre: Hpre = pre.into();
-                let pre = 1 << (pre.0 as u32 - 7);
+                let pre = 1 << (pre as u32 - 7);
                 sys_clk / pre
             }
         };
@@ -201,7 +202,7 @@ impl RccExt for RCC {
             APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
             pre => {
                 let pre: Ppre = pre.into();
-                let pre: u8 = 1 << (pre.0 - 3);
+                let pre: u8 = 1 << (pre - 3);
                 let freq = ahb_freq / pre as u32;
                 (freq, freq * 2)
             }
@@ -211,7 +212,7 @@ impl RccExt for RCC {
             APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
             pre => {
                 let pre: Ppre = pre.into();
-                let pre: u8 = 1 << (pre.0 - 3);
+                let pre: u8 = 1 << (pre - 3);
                 let freq = ahb_freq / (1 << (pre as u8 - 3));
                 (freq, freq * 2)
             }
