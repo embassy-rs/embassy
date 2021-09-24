@@ -55,14 +55,6 @@ impl From<Speed> for vals::Ospeedr {
     }
 }
 
-/// Type settings
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum OutputType {
-    PushPull,
-    OpenDrain,
-}
-
 /// GPIO input driver.
 pub struct Input<'d, T: Pin> {
     pub(crate) pin: T,
@@ -271,6 +263,14 @@ impl<'d, T: Pin> InputPin for OutputOpenDrain<'d, T> {
 
 pub(crate) mod sealed {
     use super::*;
+
+    /// Output type settings
+    #[derive(Debug)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub enum OutputType {
+        PushPull,
+        OpenDrain,
+    }
 
     pub trait Pin {
         fn pin_port(&self) -> u8;

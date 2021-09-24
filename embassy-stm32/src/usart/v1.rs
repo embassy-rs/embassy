@@ -1,4 +1,4 @@
-use crate::gpio::OutputType::{OpenDrain, PushPull};
+use crate::gpio::sealed::OutputType::{OpenDrain, PushPull};
 use core::future::Future;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;

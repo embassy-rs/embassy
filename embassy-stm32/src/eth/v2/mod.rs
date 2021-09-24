@@ -10,7 +10,7 @@ use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
 
 use crate::gpio::sealed::Pin as __GpioPin;
 use crate::gpio::Pin as GpioPin;
-use crate::gpio::{AnyPin, OutputType::PushPull};
+use crate::gpio::{sealed::OutputType::PushPull, AnyPin};
 use crate::pac::gpio::vals::Ospeedr;
 use crate::pac::{ETH, RCC, SYSCFG};
 use crate::peripherals;

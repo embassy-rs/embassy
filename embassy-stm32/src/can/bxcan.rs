@@ -5,7 +5,7 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 use crate::gpio::{
-    OutputType::{OpenDrain, PushPull},
+    sealed::OutputType::{OpenDrain, PushPull},
     Pin,
 };
 use crate::{peripherals, rcc::RccPeripheral};

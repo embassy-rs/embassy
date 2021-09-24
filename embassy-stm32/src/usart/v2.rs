@@ -13,7 +13,7 @@ use futures::TryFutureExt;
 
 use super::*;
 use crate::dma::NoDma;
-use crate::gpio::OutputType::{OpenDrain, PushPull};
+use crate::gpio::sealed::OutputType::{OpenDrain, PushPull};
 use crate::pac::usart::{regs, vals};
 
 pub struct Uart<'d, T: Instance, TxDma = NoDma, RxDma = NoDma> {

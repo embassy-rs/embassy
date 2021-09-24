@@ -9,7 +9,7 @@ use embedded_hal::blocking::i2c::WriteRead;
 
 use crate::pac::i2c;
 
-use crate::gpio::OutputType::OpenDrain;
+use crate::gpio::sealed::OutputType::OpenDrain;
 
 pub struct I2c<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,

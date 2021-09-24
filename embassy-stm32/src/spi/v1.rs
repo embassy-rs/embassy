@@ -2,9 +2,11 @@
 
 use crate::dma::NoDma;
 use crate::gpio::{
-    sealed::Pin,
+    sealed::{
+        OutputType::{OpenDrain, PushPull},
+        Pin,
+    },
     AnyPin,
-    OutputType::{OpenDrain, PushPull},
 };
 use crate::pac::spi;
 use crate::spi::{
