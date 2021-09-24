@@ -1,7 +1,13 @@
 #![macro_use]
 
 use crate::dma::NoDma;
-use crate::gpio::{sealed::Pin, AnyPin};
+use crate::gpio::{
+    sealed::{
+        OutputType::{OpenDrain, PushPull},
+        Pin,
+    },
+    AnyPin,
+};
 use crate::pac::spi;
 use crate::spi::{
     ByteOrder, Config, Error, Instance, MisoPin, MosiPin, RxDmaChannel, SckPin, TxDmaChannel,
@@ -53,9 +59,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         unborrow!(sck, mosi, miso, txdma, rxdma);
 
         unsafe {
-            sck.set_as_af(sck.af_num());
-            mosi.set_as_af(mosi.af_num());
-            miso.set_as_af(miso.af_num());
+            sck.set_as_af(sck.af_num(), PushPull);
+            mosi.set_as_af(mosi.af_num(), PushPull);
+            miso.set_as_af(miso.af_num(), OpenDrain);
         }
 
         let sck = sck.degrade();

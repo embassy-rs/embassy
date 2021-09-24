@@ -4,7 +4,10 @@ use core::ops::{Deref, DerefMut};
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
-use crate::gpio::Pin;
+use crate::gpio::{
+    sealed::OutputType::{OpenDrain, PushPull},
+    Pin,
+};
 use crate::{peripherals, rcc::RccPeripheral};
 
 pub use bxcan::*;
@@ -23,8 +26,8 @@ impl<'d, T: Instance + bxcan::Instance> Can<'d, T> {
         unborrow!(peri, rx, tx);
 
         unsafe {
-            rx.set_as_af(rx.af_num());
-            tx.set_as_af(tx.af_num());
+            rx.set_as_af(rx.af_num(), OpenDrain);
+            tx.set_as_af(tx.af_num(), PushPull);
         }
 
         T::enable();

@@ -1,3 +1,4 @@
+use crate::gpio::sealed::OutputType::{OpenDrain, PushPull};
 use core::future::Future;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
@@ -36,8 +37,8 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         let r = inner.regs();
 
         unsafe {
-            rx.set_as_af(rx.af_num());
-            tx.set_as_af(tx.af_num());
+            rx.set_as_af(rx.af_num(), OpenDrain);
+            tx.set_as_af(tx.af_num(), PushPull);
 
             r.brr().write_value(regs::Brr(div));
             r.cr1().write(|w| {
