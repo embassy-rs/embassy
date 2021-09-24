@@ -7,6 +7,7 @@ use crate::time::U32Ext;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
+use stm32_metapac::rcc::vals::Msirange;
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
 /// and with the addition of the init function to configure a system clock.
@@ -19,10 +20,123 @@ pub const HSI_FREQ: u32 = 16_000_000;
 /// System clock mux source
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
+    PLL(PLLSource, PLLClkDiv, PLLSrcDiv, PLLMul),
+    MSI(MSIRange),
     HSE(Hertz),
     HSI16,
 }
 
+seq_macro::seq!(N in 8..=86 {
+    #[derive(Clone, Copy)]
+    pub enum PLLMul {
+        #(
+            Mul#N,
+        )*
+    }
+
+    impl Into<u8> for PLLMul {
+        fn into(self) -> u8 {
+            match self {
+                #(
+                    PLLMul::Mul#N => N,
+                )*
+            }
+        }
+    }
+
+    impl PLLMul {
+        pub fn to_mul(self) -> u32 {
+            match self {
+                #(
+                    PLLMul::Mul#N => N,
+                )*
+            }
+        }
+    }
+});
+
+#[derive(Clone, Copy)]
+pub enum PLLClkDiv {
+    Div2,
+    Div4,
+    Div6,
+    Div8,
+}
+
+impl PLLClkDiv {
+    pub fn to_div(self) -> u32 {
+        let val: u8 = self.into();
+        val as u32 + 1 * 2
+    }
+}
+
+impl Into<u8> for PLLClkDiv {
+    fn into(self) -> u8 {
+        match self {
+            PLLClkDiv::Div2 => 0b00,
+            PLLClkDiv::Div4 => 0b01,
+            PLLClkDiv::Div6 => 0b10,
+            PLLClkDiv::Div8 => 0b11,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum PLLSrcDiv {
+    Div1,
+    Div2,
+    Div3,
+    Div4,
+    Div5,
+    Div6,
+    Div7,
+    Div8,
+}
+
+impl PLLSrcDiv {
+    pub fn to_div(self) -> u32 {
+        let val: u8 = self.into();
+        val as u32 + 1
+    }
+}
+
+impl Into<u8> for PLLSrcDiv {
+    fn into(self) -> u8 {
+        match self {
+            PLLSrcDiv::Div1 => 0b000,
+            PLLSrcDiv::Div2 => 0b001,
+            PLLSrcDiv::Div3 => 0b010,
+            PLLSrcDiv::Div4 => 0b011,
+            PLLSrcDiv::Div5 => 0b100,
+            PLLSrcDiv::Div6 => 0b101,
+            PLLSrcDiv::Div7 => 0b110,
+            PLLSrcDiv::Div8 => 0b111,
+        }
+    }
+}
+
+impl Into<u8> for PLLSource {
+    fn into(self) -> u8 {
+        match self {
+            PLLSource::HSI16 => 0b10,
+            PLLSource::HSE(_) => 0b11,
+        }
+    }
+}
+
+impl Into<Msirange> for MSIRange {
+    fn into(self) -> Msirange {
+        match self {
+            MSIRange::Range0 => Msirange::RANGE100K,
+            MSIRange::Range1 => Msirange::RANGE200K,
+            MSIRange::Range2 => Msirange::RANGE400K,
+            MSIRange::Range3 => Msirange::RANGE800K,
+            MSIRange::Range4 => Msirange::RANGE1M,
+            MSIRange::Range5 => Msirange::RANGE2M,
+            MSIRange::Range6 => Msirange::RANGE4M,
+        }
+    }
+}
 impl Into<u8> for APBPrescaler {
     fn into(self) -> u8 {
         match self {
@@ -146,9 +260,83 @@ impl RccExt for RCC {
 
                 (freq.0, 0x02)
             }
+            ClockSrc::MSI(range) => {
+                // Enable MSI
+                unsafe {
+                    rcc.cr().write(|w| {
+                        w.set_msirange(range.into());
+                        w.set_msion(true);
+                    });
+                    while !rcc.cr().read().msirdy() {}
+                }
+
+                let freq = 32_768 * (1 << (range as u8 + 1));
+                (freq, 0b00)
+            }
+            ClockSrc::PLL(src, div, prediv, mul) => {
+                let freq = match src {
+                    PLLSource::HSE(freq) => {
+                        // Enable HSE
+                        unsafe {
+                            rcc.cr().write(|w| w.set_hseon(true));
+                            while !rcc.cr().read().hserdy() {}
+                        }
+                        freq.0
+                    }
+                    PLLSource::HSI16 => {
+                        // Enable HSI
+                        unsafe {
+                            rcc.cr().write(|w| w.set_hsion(true));
+                            while !rcc.cr().read().hsirdy() {}
+                        }
+                        HSI_FREQ
+                    }
+                };
+
+                // Disable PLL
+                unsafe {
+                    rcc.cr().modify(|w| w.set_pllon(false));
+                    while rcc.cr().read().pllrdy() {}
+                }
+
+                let freq = (freq / prediv.to_div() * mul.to_mul()) / div.to_div();
+
+                assert!(freq <= 80_000_000);
+
+                unsafe {
+                    rcc.pllcfgr().write(move |w| {
+                        w.set_plln(mul.into());
+                        w.set_pllm(prediv.into());
+                        w.set_pllr(div.into());
+                        w.set_pllsrc(src.into());
+                    });
+
+                    // Enable PLL
+                    rcc.cr().modify(|w| w.set_pllon(true));
+                    while !rcc.cr().read().pllrdy() {}
+                    rcc.pllcfgr().modify(|w| w.set_pllren(true));
+                }
+                (freq, 0b11)
+            }
         };
 
         unsafe {
+            // Set flash wait states
+            pac::FLASH.acr().modify(|w| {
+                w.set_latency(if sys_clk <= 16_000_000 {
+                    0b000
+                } else if sys_clk <= 32_000_000 {
+                    0b001
+                } else if sys_clk <= 48_000_000 {
+                    0b010
+                } else if sys_clk <= 64_000_000 {
+                    0b011
+                } else {
+                    0b100
+                });
+            });
+
+            // Switch active clocks to new clock source
             rcc.cfgr().modify(|w| {
                 w.set_sw(sw.into());
                 w.set_hpre(cfgr.ahb_pre.into());
