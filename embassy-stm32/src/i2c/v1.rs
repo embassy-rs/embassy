@@ -9,8 +9,7 @@ use embedded_hal::blocking::i2c::WriteRead;
 
 use crate::pac::i2c;
 
-use crate::pac::gpio::vals::{Afr, Moder, Ot};
-use crate::pac::gpio::Gpio;
+use crate::gpio::OutputType::OpenDrain;
 
 pub struct I2c<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
@@ -31,8 +30,8 @@ impl<'d, T: Instance> I2c<'d, T> {
         T::enable();
 
         unsafe {
-            Self::configure_pin(scl.block(), scl.pin() as _, scl.af_num());
-            Self::configure_pin(sda.block(), sda.pin() as _, sda.af_num());
+            scl.set_as_af(scl.af_num(), OpenDrain);
+            sda.set_as_af(sda.af_num(), OpenDrain);
         }
 
         unsafe {
@@ -67,13 +66,6 @@ impl<'d, T: Instance> I2c<'d, T> {
         Self {
             phantom: PhantomData,
         }
-    }
-
-    unsafe fn configure_pin(block: Gpio, pin: usize, af_num: u8) {
-        let (afr, n_af) = if pin < 8 { (0, pin) } else { (1, pin - 8) };
-        block.moder().modify(|w| w.set_moder(pin, Moder::ALTERNATE));
-        block.afr(afr).modify(|w| w.set_afr(n_af, Afr(af_num)));
-        block.otyper().modify(|w| w.set_ot(pin, Ot::OPENDRAIN));
     }
 
     unsafe fn check_and_clear_error_flags(&self) -> Result<i2c::regs::Sr1, Error> {

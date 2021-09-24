@@ -9,8 +9,8 @@ use embassy_hal_common::unborrow;
 use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
 
 use crate::gpio::sealed::Pin as __GpioPin;
-use crate::gpio::AnyPin;
 use crate::gpio::Pin as GpioPin;
+use crate::gpio::{AnyPin, OutputType::PushPull};
 use crate::pac::gpio::vals::Ospeedr;
 use crate::pac::{ETH, RCC, SYSCFG};
 use crate::peripherals;
@@ -416,7 +416,7 @@ macro_rules! impl_pin {
             fn configure(&mut self) {
                 // NOTE(unsafe) Exclusive access to the registers
                 critical_section::with(|_| unsafe {
-                    self.set_as_af($af);
+                    self.set_as_af($af, PushPull);
                     self.block()
                         .ospeedr()
                         .modify(|w| w.set_ospeedr(self.pin() as usize, Ospeedr::VERYHIGHSPEED));

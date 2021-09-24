@@ -55,6 +55,14 @@ impl From<Speed> for vals::Ospeedr {
     }
 }
 
+/// Type settings
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum OutputType {
+    PushPull,
+    OpenDrain,
+}
+
 /// GPIO input driver.
 pub struct Input<'d, T: Pin> {
     pub(crate) pin: T,
@@ -299,7 +307,7 @@ pub(crate) mod sealed {
             }
         }
 
-        unsafe fn set_as_af(&self, af_num: u8) {
+        unsafe fn set_as_af(&self, af_num: u8, af_type: OutputType) {
             let pin = self._pin() as usize;
             let block = self.block();
             block
@@ -308,6 +316,17 @@ pub(crate) mod sealed {
             block
                 .afr(pin / 8)
                 .modify(|w| w.set_afr(pin % 8, vals::Afr(af_num)));
+            match af_type {
+                OutputType::PushPull => {
+                    block.otyper().modify(|w| w.set_ot(pin, vals::Ot::PUSHPULL))
+                }
+                OutputType::OpenDrain => block
+                    .otyper()
+                    .modify(|w| w.set_ot(pin, vals::Ot::OPENDRAIN)),
+            }
+            block
+                .pupdr()
+                .modify(|w| w.set_pupdr(pin, vals::Pupdr::FLOATING));
         }
 
         unsafe fn set_as_analog(&self) {
