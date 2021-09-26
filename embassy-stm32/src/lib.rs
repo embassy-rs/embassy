@@ -49,6 +49,8 @@ pub mod sdmmc;
 pub mod spi;
 #[cfg(usart)]
 pub mod usart;
+#[cfg(crc)]
+pub mod crc;
 
 #[cfg(feature = "subghz")]
 pub mod subghz;
