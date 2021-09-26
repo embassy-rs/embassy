@@ -96,6 +96,7 @@ crate::pac::interrupts!(
     };
 );
 
+#[cfg(not(rcc_f1))]
 macro_rules! impl_pin {
     ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
         impl $signal<peripherals::$inst> for peripherals::$pin {}
