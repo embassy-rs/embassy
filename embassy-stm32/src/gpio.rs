@@ -130,9 +130,9 @@ impl<'d, T: Pin> Output<'d, T> {
             let r = pin.block();
             let n = pin.pin() as usize;
             r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
-            r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
             r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
             pin.set_speed(speed);
+            r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
         });
 
         Self {
@@ -208,9 +208,9 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
             let r = pin.block();
             let n = pin.pin() as usize;
             r.pupdr().modify(|w| w.set_pupdr(n, pull.into()));
-            r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
             r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPENDRAIN));
             pin.set_speed(speed);
+            r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
         });
 
         Self {
