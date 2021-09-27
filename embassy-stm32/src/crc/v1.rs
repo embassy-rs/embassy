@@ -22,12 +22,12 @@ impl Crc {
         let mut instance = Self {
             _peripheral: peripheral,
         };
-        instance.init();
+        instance.reset();
         instance
     }
 
     /// Resets the CRC unit to default value (0xFFFF_FFFF)
-    pub fn init(&mut self) {
+    pub fn reset(&mut self) {
         unsafe { PAC_CRC.cr().write(|w| w.set_reset(true)) };
     }
 
@@ -51,10 +51,4 @@ impl Crc {
         unsafe { PAC_CRC.dr().read() }
     }
 
-    /// Reclaims the CRC peripheral.
-    pub fn release(self) -> CRC {
-        CRC::disable();
-
-        self._peripheral
-    }
 }

@@ -99,7 +99,7 @@ impl Crc {
 
             // configure CR components
             // (reverse I/O, polysize, poly)
-            PAC_CRC.cr().modify(|w| {
+            PAC_CRC.cr().write(|w| {
                 // configure reverse output
                 w.set_rev_out(match self._config.reverse_out {
                     true => vals::RevOut::REVERSED,
@@ -144,33 +144,33 @@ impl Crc {
         unsafe { PAC_CRC.dr().read() }
     }
     /// Feeds a halfword into the CRC peripheral. Returns the computed checksum.
-    pub fn feed_halfword(&mut self, byte: u16) -> u32 {
+    pub fn feed_halfword(&mut self, halfword: u16) -> u32 {
         unsafe {
-            PAC_CRC.dr16().write_value(byte as u32);
+            PAC_CRC.dr16().write_value(halfword as u32);
             PAC_CRC.dr().read()
         }
     }
     /// Feeds an slice of halfwords into the CRC peripheral. Returns the computed checksum.
-    pub fn feed_halfwords(&mut self, bytes: &[u16]) -> u32 {
-        for byte in bytes {
+    pub fn feed_halfwords(&mut self, halfwords: &[u16]) -> u32 {
+        for halfword in halfwords {
             unsafe {
-                PAC_CRC.dr16().write_value(*byte as u32);
+                PAC_CRC.dr16().write_value(*halfword as u32);
             }
         }
         unsafe { PAC_CRC.dr().read() }
     }
-    /// Feeds a halfword into the CRC peripheral. Returns the computed checksum.
-    pub fn feed_word(&mut self, byte: u32) -> u32 {
+    /// Feeds a words into the CRC peripheral. Returns the computed checksum.
+    pub fn feed_word(&mut self, word: u32) -> u32 {
         unsafe {
-            PAC_CRC.dr().write_value(byte as u32);
+            PAC_CRC.dr().write_value(word as u32);
             PAC_CRC.dr().read()
         }
     }
-    /// Feeds an slice of halfwords into the CRC peripheral. Returns the computed checksum.
-    pub fn feed_words(&mut self, bytes: &[u32]) -> u32 {
-        for byte in bytes {
+    /// Feeds an slice of words into the CRC peripheral. Returns the computed checksum.
+    pub fn feed_words(&mut self, words: &[u32]) -> u32 {
+        for word in words {
             unsafe {
-                PAC_CRC.dr().write_value(*byte as u32);
+                PAC_CRC.dr().write_value(*word as u32);
             }
         }
         unsafe { PAC_CRC.dr().read() }
