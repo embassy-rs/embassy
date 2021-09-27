@@ -130,9 +130,9 @@ impl<'d, T: Pin> Output<'d, T> {
             let r = pin.block();
             let n = pin.pin() as usize;
             r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
-            r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
             r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
             pin.set_speed(speed);
+            r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
         });
 
         Self {
@@ -208,9 +208,9 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
             let r = pin.block();
             let n = pin.pin() as usize;
             r.pupdr().modify(|w| w.set_pupdr(n, pull.into()));
-            r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
             r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPENDRAIN));
             pin.set_speed(speed);
+            r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
         });
 
         Self {
@@ -311,9 +311,6 @@ pub(crate) mod sealed {
             let pin = self._pin() as usize;
             let block = self.block();
             block
-                .moder()
-                .modify(|w| w.set_moder(pin, vals::Moder::ALTERNATE));
-            block
                 .afr(pin / 8)
                 .modify(|w| w.set_afr(pin % 8, vals::Afr(af_num)));
             match af_type {
@@ -327,6 +324,10 @@ pub(crate) mod sealed {
             block
                 .pupdr()
                 .modify(|w| w.set_pupdr(pin, vals::Pupdr::FLOATING));
+
+            block
+                .moder()
+                .modify(|w| w.set_moder(pin, vals::Moder::ALTERNATE));
         }
 
         unsafe fn set_as_analog(&self) {
