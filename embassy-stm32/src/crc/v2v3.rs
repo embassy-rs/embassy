@@ -2,18 +2,20 @@ use crate::pac::crc::vals;
 use crate::pac::CRC as PAC_CRC;
 use crate::peripherals::CRC;
 use crate::rcc::sealed::RccPeripheral;
+use embassy_hal_common::unborrow;
+use embassy::util::Unborrow;
 
 pub struct Crc {
     _peripheral: CRC,
-    _config: CrcConfig,
+    _config: Config,
 }
 
-pub enum CrcConfigError {
+pub enum ConfigError {
     InvalidPolynomial,
 }
 
-pub struct CrcConfig {
-    reverse_in: CrcInputReverseConfig,
+pub struct Config {
+    reverse_in: InputReverseConfig,
     reverse_out: bool,
     #[cfg(crc_v3)]
     poly_size: PolySize,
@@ -22,27 +24,27 @@ pub struct CrcConfig {
     crc_poly: u32,
 }
 
-pub enum CrcInputReverseConfig {
+pub enum InputReverseConfig {
     None,
     Byte,
     Halfword,
     Word,
 }
 
-impl CrcConfig {
+impl Config {
     pub fn new(
-        reverse_in: CrcInputReverseConfig,
+        reverse_in: InputReverseConfig,
         reverse_out: bool,
         #[cfg(crc_v3)] poly_size: PolySize,
         crc_init_value: u32,
         #[cfg(crc_v3)] crc_poly: u32,
-    ) -> Result<Self, CrcConfigError> {
+    ) -> Result<Self, ConfigError> {
         // As Per RM0091 (DocID018940 Rev 9), Even polynomials are not supported.
         #[cfg(crc_v3)]
         if crc_poly % 2 == 0 {
-            return Err(CrcConfigError::InvalidPolynomial);
+            return Err(ConfigError::InvalidPolynomial);
         }
-        Ok(CrcConfig {
+        Ok(Config {
             reverse_in,
             reverse_out,
             #[cfg(crc_v3)]
@@ -64,12 +66,13 @@ pub enum PolySize {
 
 impl Crc {
     /// Instantiates the CRC32 peripheral and initializes it to default values.
-    pub fn new(peripheral: CRC, config: CrcConfig) -> Self {
+    pub fn new(peripheral: impl Unborrow<Target= CRC>, config: Config) -> Self {
         // Note: enable and reset come from RccPeripheral.
         // enable CRC clock in RCC.
         CRC::enable();
         // Reset CRC to default values.
         CRC::reset();
+        unborrow!(peripheral);
         let mut instance = Self {
             _peripheral: peripheral,
             _config: config,
@@ -104,10 +107,10 @@ impl Crc {
                 });
                 // configure reverse input
                 w.set_rev_in(match self._config.reverse_in {
-                    CrcInputReverseConfig::None => vals::RevIn::NORMAL,
-                    CrcInputReverseConfig::Byte => vals::RevIn::BYTE,
-                    CrcInputReverseConfig::Halfword => vals::RevIn::HALFWORD,
-                    CrcInputReverseConfig::Word => vals::RevIn::WORD,
+                    InputReverseConfig::None => vals::RevIn::NORMAL,
+                    InputReverseConfig::Byte => vals::RevIn::BYTE,
+                    InputReverseConfig::Halfword => vals::RevIn::HALFWORD,
+                    InputReverseConfig::Word => vals::RevIn::WORD,
                 });
                 // configure the polynomial.
                 #[cfg(crc_v3)]
