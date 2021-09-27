@@ -1,4 +1,4 @@
-use crate::pac::{CRC as PAC_CRC};
+use crate::pac::CRC as PAC_CRC;
 use crate::peripherals::CRC;
 use crate::rcc::sealed::RccPeripheral;
 
@@ -31,17 +31,18 @@ impl Crc {
         // write a single byte to the device, and return the result
         unsafe {
             PAC_CRC.dr().write_value(word);
-            PAC_CRC.dr().read()
         }
+        self.read()
     }
     /// Feed a slice of words to the peripheral and return the result.
     pub fn feed_words(&mut self, words: &[u32]) -> u32 {
         for word in words {
-            unsafe {
-                PAC_CRC.dr().write_value(*word)
-            }
+            unsafe { PAC_CRC.dr().write_value(*word) }
         }
 
+        self.read()
+    }
+    pub fn read(&self) -> u32 {
         unsafe { PAC_CRC.dr().read() }
     }
 
