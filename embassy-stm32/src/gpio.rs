@@ -311,9 +311,6 @@ pub(crate) mod sealed {
             let pin = self._pin() as usize;
             let block = self.block();
             block
-                .moder()
-                .modify(|w| w.set_moder(pin, vals::Moder::ALTERNATE));
-            block
                 .afr(pin / 8)
                 .modify(|w| w.set_afr(pin % 8, vals::Afr(af_num)));
             match af_type {
@@ -327,6 +324,10 @@ pub(crate) mod sealed {
             block
                 .pupdr()
                 .modify(|w| w.set_pupdr(pin, vals::Pupdr::FLOATING));
+
+            block
+                .moder()
+                .modify(|w| w.set_moder(pin, vals::Moder::ALTERNATE));
         }
 
         unsafe fn set_as_analog(&self) {
