@@ -55,9 +55,11 @@ impl Crc {
         CRC::reset();
         let mut instance = Self {
             _peripheral: peripheral,
+            _config: config
         };
-        instance.init();
-        instance
+        unimplemented!();
+        // instance.init();
+        // instance
     }
 
     // Configure device settings
@@ -84,4 +86,28 @@ impl Crc {
             )})
         }
     }
+
+    fn configure_polysize(&mut self) {
+        unsafe {
+            PAC_CRC.cr().modify(|w| {w.set_polysize(
+                match self._config.poly_size {
+                    PolySize::Width7 => {vals::Polysize::POLYSIZE7}
+                    PolySize::Width8 => {vals::Polysize::POLYSIZE8}
+                    PolySize::Width16 => {vals::Polysize::POLYSIZE16}
+                    PolySize::Width32 => {vals::Polysize::POLYSIZE32}
+                }
+            )})
+        }
+    }
+
+    pub fn reset(&mut self) {
+        unsafe { PAC_CRC.cr().modify(|w| w.set_reset(true)); }
+    }
+
+    fn set_crc_init(&mut self, value: u32) {
+        unsafe {
+            PAC_CRC.init().write_value(value)
+        }
+    }
+
 }
