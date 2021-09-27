@@ -1,4 +1,4 @@
-use crate::pac::CRC as PAC_CRC;
+use crate::pac::{CRC as PAC_CRC};
 use crate::peripherals::CRC;
 use crate::rcc::sealed::RccPeripheral;
 
@@ -23,7 +23,7 @@ impl Crc {
 
     /// Resets the CRC unit to default value (0xFFFF_FFFF)
     pub fn init(&mut self) {
-        unsafe { PAC_CRC.cr().modify(|w| w.set_reset(true)) };
+        unsafe { PAC_CRC.cr().write(|w| w.set_reset(true)) };
     }
 
     /// Feeds a word to the peripheral and returns the current CRC value
@@ -38,7 +38,7 @@ impl Crc {
     pub fn feed_words(&mut self, words: &[u32]) -> u32 {
         for word in words {
             unsafe {
-                PAC_CRC.dr().write_value(*word);
+                PAC_CRC.dr().write_value(*word)
             }
         }
 
