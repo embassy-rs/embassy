@@ -2,8 +2,8 @@ use crate::pac::crc::vals;
 use crate::pac::CRC as PAC_CRC;
 use crate::peripherals::CRC;
 use crate::rcc::sealed::RccPeripheral;
-use embassy_hal_common::unborrow;
 use embassy::util::Unborrow;
+use embassy_hal_common::unborrow;
 
 pub struct Crc {
     _peripheral: CRC,
@@ -66,7 +66,7 @@ pub enum PolySize {
 
 impl Crc {
     /// Instantiates the CRC32 peripheral and initializes it to default values.
-    pub fn new(peripheral: impl Unborrow<Target= CRC>, config: Config) -> Self {
+    pub fn new(peripheral: impl Unborrow<Target = CRC>, config: Config) -> Self {
         // Note: enable and reset come from RccPeripheral.
         // enable CRC clock in RCC.
         CRC::enable();
