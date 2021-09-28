@@ -1,3 +1,4 @@
+use core::convert::TryFrom;
 use core::marker::PhantomData;
 
 use embassy::util::Unborrow;
@@ -6,8 +7,6 @@ use crate::pac::flash::vals::Latency;
 use crate::pac::{FLASH, RCC};
 use crate::peripherals;
 use crate::time::Hertz;
-
-use cast::u32;
 
 use super::{set_freqs, Clocks};
 
@@ -94,8 +93,8 @@ impl<'d> Rcc<'d> {
             })
             .unwrap_or(0b011);
 
-        let ppre1: i32 = 1 << (ppre1_bits - 0b011);
-        let pclk1 = hclk / u32(ppre1).unwrap();
+        let ppre1 = 1 << (ppre1_bits - 0b011);
+        let pclk1 = hclk / u32::try_from(ppre1).unwrap();
         let timer_mul1 = if ppre1 == 1 { 1 } else { 2 };
 
         assert!(pclk1 <= 36_000_000);
@@ -113,8 +112,8 @@ impl<'d> Rcc<'d> {
             })
             .unwrap_or(0b011);
 
-        let ppre2: i32 = 1 << (ppre2_bits - 0b011);
-        let pclk2 = hclk / u32(ppre2).unwrap();
+        let ppre2 = 1 << (ppre2_bits - 0b011);
+        let pclk2 = hclk / u32::try_from(ppre2).unwrap();
         let timer_mul2 = if ppre2 == 1 { 1 } else { 2 };
 
         assert!(pclk2 <= 72_000_000);
@@ -154,7 +153,7 @@ impl<'d> Rcc<'d> {
             .unwrap_or(0b11);
 
         let apre = (apre_bits + 1) << 1;
-        let adcclk = pclk2 / u32(apre);
+        let adcclk = pclk2 / unwrap!(u32::try_from(apre));
 
         assert!(adcclk <= 14_000_000);
 
