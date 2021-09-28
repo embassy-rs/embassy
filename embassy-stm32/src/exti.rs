@@ -30,13 +30,17 @@ fn cpu_regs() -> pac::exti::Exti {
     EXTI
 }
 
-#[cfg(not(any(exti_g0, exti_l5)))]
+#[cfg(not(any(exti_g0, exti_l5, gpio_v1)))]
 fn exticr_regs() -> pac::syscfg::Syscfg {
     pac::SYSCFG
 }
 #[cfg(any(exti_g0, exti_l5))]
 fn exticr_regs() -> pac::exti::Exti {
     EXTI
+}
+#[cfg(gpio_v1)]
+fn exticr_regs() -> pac::afio::Afio {
+    pac::AFIO
 }
 
 pub unsafe fn on_irq() {
@@ -296,6 +300,8 @@ pub(crate) unsafe fn init() {
 
     foreach_exti_irq!(enable_irq);
 
-    #[cfg(not(any(rcc_wb, rcc_wl5)))]
+    #[cfg(not(any(rcc_wb, rcc_wl5, rcc_f1)))]
     <crate::peripherals::SYSCFG as crate::rcc::sealed::RccPeripheral>::enable();
+    #[cfg(rcc_f1)]
+    <crate::peripherals::AFIO as crate::rcc::sealed::RccPeripheral>::enable();
 }
