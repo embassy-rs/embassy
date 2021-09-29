@@ -134,7 +134,7 @@ unsafe fn _stop(dma: &pac::dma::Dma, ch: u8) {
 }
 
 /// Gets the running status of the channel
-unsafe fn _is_stopped(dma: &pac::dma::Dma, ch: u8) -> bool{
+unsafe fn _is_stopped(dma: &pac::dma::Dma, ch: u8) -> bool {
     // get a handle on the channel itself
     let ch = dma.st(ch as _);
 
@@ -144,7 +144,7 @@ unsafe fn _is_stopped(dma: &pac::dma::Dma, ch: u8) -> bool{
 
 /// Gets the total remaining transfers for the channel
 /// Note: this will be zero for transfers that completed without cancellation.
-unsafe fn _get_remaining_transfers(dma: &pac::dma::Dma, ch: u8) -> u16{
+unsafe fn _get_remaining_transfers(dma: &pac::dma::Dma, ch: u8) -> u16 {
     // get a handle on the channel itself
     let ch = dma.st(ch as _);
     // read the remaining transfer count. If this is zero, the transfer completed fully.
@@ -152,12 +152,10 @@ unsafe fn _get_remaining_transfers(dma: &pac::dma::Dma, ch: u8) -> u16{
 }
 
 /// Sets the waker for the specified DMA channel
-unsafe fn _set_waker(dma: &pac::dma::Dma, state_number: u8, waker: &Waker){
+unsafe fn _set_waker(dma: &pac::dma::Dma, state_number: u8, waker: &Waker) {
     let n = state_number as usize;
     STATE.ch_wakers[n].register(waker);
-
 }
-
 
 macro_rules! dma_num {
     (DMA1) => {
