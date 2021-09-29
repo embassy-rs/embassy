@@ -58,7 +58,7 @@ pub(crate) unsafe fn do_transfer(
     });
 
     let on_drop = OnDrop::new(move || unsafe {
-        _stop(dma , channel_number);
+        _stop(dma, channel_number);
     });
 
     #[cfg(dmamux)]
@@ -111,7 +111,7 @@ pub(crate) unsafe fn do_transfer(
     }
 }
 
-unsafe fn _stop(dma:pac::bdma::Dma, ch: u8) {
+unsafe fn _stop(dma: pac::bdma::Dma, ch: u8) {
     let ch = dma.ch(ch as _);
 
     // Disable the channel and interrupts with the default value.
@@ -124,14 +124,14 @@ unsafe fn _stop(dma:pac::bdma::Dma, ch: u8) {
     fence(Ordering::Acquire);
 }
 
-unsafe fn _is_stopped(dma:pac::bdma::Dma, ch: u8) -> bool {
+unsafe fn _is_stopped(dma: pac::bdma::Dma, ch: u8) -> bool {
     let ch = dma.ch(ch as _);
     ch.cr().read().en()
 }
 
 /// Gets the total remaining transfers for the channel
 /// Note: this will be zero for transfers that completed without cancellation.
-unsafe fn _get_remaining_transfers(dma: pac::bdma::Dma, ch: u8) -> u16{
+unsafe fn _get_remaining_transfers(dma: pac::bdma::Dma, ch: u8) -> u16 {
     // get a handle on the channel itself
     let ch = dma.ch(ch as _);
     // read the remaining transfer count. If this is zero, the transfer completed fully.
@@ -139,10 +139,9 @@ unsafe fn _get_remaining_transfers(dma: pac::bdma::Dma, ch: u8) -> u16{
 }
 
 /// Sets the waker for the specified DMA channel
-unsafe fn _set_waker(dma: pac::bdma::Dma, state_number: u8, waker: &Waker){
+unsafe fn _set_waker(dma: pac::bdma::Dma, state_number: u8, waker: &Waker) {
     let n = state_number as usize;
     STATE.ch_wakers[n].register(waker);
-
 }
 
 macro_rules! dma_num {
