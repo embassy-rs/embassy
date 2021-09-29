@@ -55,7 +55,7 @@ pub trait Channel: sealed::Channel {
     fn stop<'a>(&'a mut self);
 
     fn is_stopped<'a>(&self) -> bool;
-    fn remaining_transfers<'a>(&'a mut self) -> usize;
+    fn remaining_transfers<'a>(&'a mut self) -> u16;
     fn set_waker(&mut self, waker: &Waker);
 }
 
