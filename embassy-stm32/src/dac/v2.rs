@@ -5,6 +5,17 @@ use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
+/// Sadly we cannot use `RccPeripheral::enable` since devices are quite inconsistent DAC clock
+/// configuration.
+unsafe fn enable() {
+    #[cfg(rcc_h7)]
+    crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
+    #[cfg(rcc_g0)]
+    crate::pac::RCC.apbenr1().modify(|w| w.set_dac1en(true));
+    #[cfg(rcc_l4)]
+    crate::pac::RCC.apb1enr1().modify(|w| w.set_dac1en(true));
+}
+
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
@@ -90,6 +101,10 @@ impl<'d, T: Instance> Dac<'d, T> {
         ch2: impl Unborrow<Target = impl DacPin<T, 2>>,
     ) -> Self {
         unborrow!(ch1, ch2);
+
+        unsafe {
+            enable();
+        }
 
         let ch1 = ch1.degrade_optional();
         if ch1.is_some() {

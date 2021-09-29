@@ -1,7 +1,7 @@
 #![macro_use]
 
 #[cfg_attr(adc_v3, path = "v3.rs")]
-#[cfg_attr(adc_g0, path = "g0.rs")]
+#[cfg_attr(adc_g0, path = "v3.rs")]
 mod _version;
 
 #[allow(unused)]
@@ -72,6 +72,9 @@ macro_rules! impl_pin {
 }
 
 crate::pac::peripheral_pins!(
+    ($inst:ident, adc, ADC, $pin:ident, IN0) => {
+        impl_pin!($inst, $pin, 0);
+    };
     ($inst:ident, adc, ADC, $pin:ident, IN1) => {
         impl_pin!($inst, $pin, 1);
     };
