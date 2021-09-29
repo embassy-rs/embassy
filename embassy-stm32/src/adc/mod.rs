@@ -72,6 +72,9 @@ macro_rules! impl_pin {
 }
 
 crate::pac::peripheral_pins!(
+    ($inst:ident, adc, ADC, $pin:ident, IN0) => {
+        impl_pin!($inst, $pin, 0);
+    };
     ($inst:ident, adc, ADC, $pin:ident, IN1) => {
         impl_pin!($inst, $pin, 1);
     };
