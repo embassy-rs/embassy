@@ -1,6 +1,6 @@
 use core::future::Future;
 use core::sync::atomic::{fence, Ordering};
-use core::task::Poll;
+use core::task::{Poll, Waker};
 
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::waitqueue::AtomicWaker;
@@ -61,14 +61,7 @@ pub(crate) unsafe fn do_transfer(
     let ch = dma.st(channel_number as _);
 
     let on_drop = OnDrop::new(move || unsafe {
-        // Disable the channel and interrupts with the default value.
-        ch.cr().write(|_| ());
-
-        // Wait for the transfer to complete when it was ongoing.
-        while ch.cr().read().en() {}
-
-        // "Subsequent reads and writes cannot be moved ahead of preceding reads."
-        fence(Ordering::Acquire);
+        _stop(&dma, channel_number);
     });
 
     #[cfg(dmamux)]
@@ -124,6 +117,47 @@ pub(crate) unsafe fn do_transfer(
         drop(on_drop)
     }
 }
+
+/// Stops the DMA channel.
+unsafe fn _stop(dma: &pac::dma::Dma, ch: u8) {
+    // get a handle on the channel itself
+    let ch = dma.st(ch as _);
+
+    // Disable the channel and interrupts with the default value.
+    ch.cr().write(|_| ());
+
+    // Wait for the transfer to complete when it was ongoing.
+    while ch.cr().read().en() {}
+
+    // "Subsequent reads and writes cannot be moved ahead of preceding reads."
+    fence(Ordering::Acquire);
+}
+
+/// Gets the running status of the channel
+unsafe fn _is_stopped(dma: &pac::dma::Dma, ch: u8) -> bool{
+    // get a handle on the channel itself
+    let ch = dma.st(ch as _);
+
+    // Wait for the transfer to complete when it was ongoing.
+    ch.cr().read().en()
+}
+
+/// Gets the total remaining transfers for the channel
+/// Note: this will be zero for transfers that completed without cancellation.
+unsafe fn _get_remaining_transfers(dma: &pac::dma::Dma, ch: u8) -> u16{
+    // get a handle on the channel itself
+    let ch = dma.st(ch as _);
+    // read the remaining transfer count. If this is zero, the transfer completed fully.
+    ch.ndtr().read().ndt()
+}
+
+/// Sets the waker for the specified DMA channel
+unsafe fn _set_waker(dma: &pac::dma::Dma, state_number: u8, waker: &Waker){
+    let n = state_number as usize;
+    STATE.ch_wakers[n].register(waker);
+
+}
+
 
 macro_rules! dma_num {
     (DMA1) => {
@@ -250,6 +284,18 @@ pac::dma_channels! {
                         <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_CH_NUM,
                     )
                 }
+            }
+            fn stop <'a>(&'a mut self){
+                unsafe {_stop(&crate::pac::$dma_peri, $channel_num);}
+            }
+            fn is_stopped<'a>(&'a self) -> bool {
+                unsafe {_is_stopped(&crate::pac::$dma_peri, $channel_num)}
+            }
+            fn remaining_transfers<'a>(&'a mut self) -> u16 {
+                unsafe {_get_remaining_transfers(&crate::pac::$dma_peri, $channel_num)}
+            }
+            fn set_waker<'a>(&'a mut self, waker: &'a Waker) {
+                unsafe {_set_waker(&crate::pac::$dma_peri,  $channel_num, waker )}
             }
         }
     };
