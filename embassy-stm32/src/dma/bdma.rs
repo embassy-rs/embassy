@@ -139,7 +139,7 @@ unsafe fn _get_remaining_transfers(dma: pac::bdma::Dma, ch: u8) -> u16 {
 }
 
 /// Sets the waker for the specified DMA channel
-unsafe fn _set_waker(dma: pac::bdma::Dma, state_number: u8, waker: &Waker) {
+unsafe fn _set_waker(_dma: pac::bdma::Dma, state_number: u8, waker: &Waker) {
     let n = state_number as usize;
     STATE.ch_wakers[n].register(waker);
 }

@@ -52,11 +52,16 @@ pub trait Channel: sealed::Channel {
         dst: *mut u8,
     ) -> Self::WriteFuture<'a>;
 
+    /// Stops this channel.
     fn stop<'a>(&'a mut self);
-
+    /// Returns whether this channel is active or stopped.
     fn is_stopped<'a>(&self) -> bool;
+    /// Returns the total number of remaining transfers .
     fn remaining_transfers<'a>(&'a mut self) -> u16;
+    /// Sets the waker that is called when this channel completes/
     fn set_waker(&mut self, waker: &Waker);
+    /// Starts this channel.
+    fn start<'a>(&'a mut self, request: Request, buf: &'a [u8], dst: *mut u8);
 }
 
 pub struct NoDma;
