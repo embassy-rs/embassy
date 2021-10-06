@@ -414,7 +414,7 @@ fn write_word<W: Word>(regs: &'static crate::pac::spi::Spi, word: W) -> Result<(
         let sr = unsafe { regs.sr().read() };
         if sr.ovr() {
             return Err(Error::Overrun);
-        } else if sr.fre() {
+        } else if sr_fre(sr) {
             return Err(Error::Framing);
         } else if sr.modf() {
             return Err(Error::ModeFault);
@@ -438,7 +438,7 @@ fn read_word<W: Word>(regs: &'static crate::pac::spi::Spi) -> Result<W, Error> {
             return Err(Error::Overrun);
         } else if sr.modf() {
             return Err(Error::ModeFault);
-        } else if sr.fre() {
+        } else if sr_fre(sr) {
             return Err(Error::Framing);
         } else if sr.crcerr() {
             return Err(Error::Crc);
@@ -449,4 +449,18 @@ fn read_word<W: Word>(regs: &'static crate::pac::spi::Spi) -> Result<W, Error> {
             }
         }
     }
+}
+
+// SPI on F1 is just V1 without FRE and FRF fields
+// This driver only uses FRE, so add a simple function here to read fre on v1,
+// and return false on f1
+
+#[cfg(spi_v1)]
+fn sr_fre(sr: crate::pac::spi::regs::Sr) -> bool {
+    sr.fre()
+}
+
+#[cfg(spi_f1)]
+fn sr_fre(_sr: crate::pac::spi::regs::Sr) -> bool {
+    false
 }
