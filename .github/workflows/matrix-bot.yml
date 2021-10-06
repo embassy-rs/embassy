@@ -1,0 +1,44 @@
+name: Matrix bot
+on:
+  pull_request_target:
+    types: [opened, closed]
+
+jobs:
+  new-pr:
+    if: github.event.action == 'opened' && github.repository == 'embassy-rs/embassy'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+     - name: send message
+       uses: s3krit/matrix-message-action@v0.0.3
+       with:
+         room_id: ${{ secrets.MATRIX_ROOM_ID }}
+         access_token: ${{ secrets.MATRIX_ACCESS_TOKEN }}
+         message: "New PR: [${{ github.event.pull_request.title }}](${{ github.event.pull_request.html_url }})"
+         server: "matrix.org"
+
+  merged-pr:
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.repository == 'embassy-rs/embassy'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+     - name: send message
+       uses: s3krit/matrix-message-action@v0.0.3
+       with:
+         room_id: ${{ secrets.MATRIX_ROOM_ID }}
+         access_token: ${{ secrets.MATRIX_ACCESS_TOKEN }}
+         message: "PR merged: [${{ github.event.pull_request.title }}](${{ github.event.pull_request.html_url }})"
+         server: "matrix.org"
+
+  abandoned-pr:
+    if: github.event.action == 'closed' && github.event.pull_request.merged == false && github.repository == 'embassy-rs/embassy'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+     - name: send message
+       uses: s3krit/matrix-message-action@v0.0.3
+       with:
+         room_id: ${{ secrets.MATRIX_ROOM_ID }}
+         access_token: ${{ secrets.MATRIX_ACCESS_TOKEN }}
+         message: "PR closed without merging: [${{ github.event.pull_request.title }}](${{ github.event.pull_request.html_url }})"
+         server: "matrix.org"
