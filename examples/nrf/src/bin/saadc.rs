@@ -7,7 +7,7 @@ mod example_common;
 use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_nrf::saadc::{Config, OneShot, Sample};
+use embassy_nrf::saadc::{Config, OneShot};
 use embassy_nrf::{interrupt, Peripherals};
 use example_common::*;
 
