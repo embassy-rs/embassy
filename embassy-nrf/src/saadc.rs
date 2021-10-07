@@ -1,4 +1,3 @@
-use core::future::Future;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
@@ -129,11 +128,11 @@ impl<'d> OneShot<'d> {
         unsafe { &*SAADC::ptr() }
     }
 
-    async fn sample_inner(&mut self, pin: PositiveChannel) -> i16 {
+    pub async fn sample(&mut self, pin: &mut impl PositivePin) -> i16 {
         let r = Self::regs();
 
         // Set positive channel
-        r.ch[0].pselp.write(|w| w.pselp().variant(pin));
+        r.ch[0].pselp.write(|w| w.pselp().variant(pin.channel()));
 
         // Set up the DMA
         let mut val: i16 = 0;
@@ -177,23 +176,6 @@ impl<'d> Drop for OneShot<'d> {
     fn drop(&mut self) {
         let r = Self::regs();
         r.enable.write(|w| w.enable().disabled());
-    }
-}
-
-pub trait Sample {
-    type SampleFuture<'a>: Future<Output = i16> + 'a
-    where
-        Self: 'a;
-
-    fn sample<'a, T: PositivePin>(&'a mut self, pin: &mut T) -> Self::SampleFuture<'a>;
-}
-
-impl<'d> Sample for OneShot<'d> {
-    #[rustfmt::skip]
-    type SampleFuture<'a> where Self: 'a = impl Future<Output = i16> + 'a;
-
-    fn sample<'a, T: PositivePin>(&'a mut self, pin: &mut T) -> Self::SampleFuture<'a> {
-        self.sample_inner(pin.channel())
     }
 }
 
