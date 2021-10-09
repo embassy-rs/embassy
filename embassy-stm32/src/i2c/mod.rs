@@ -96,7 +96,6 @@ crate::pac::interrupts!(
     };
 );
 
-#[cfg(not(rcc_f1))]
 macro_rules! impl_pin {
     ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
         impl $signal<peripherals::$inst> for peripherals::$pin {}
@@ -109,6 +108,7 @@ macro_rules! impl_pin {
     };
 }
 
+#[cfg(not(rcc_f1))]
 crate::pac::peripheral_pins!(
     ($inst:ident, i2c, I2C, $pin:ident, SDA, $af:expr) => {
         impl_pin!($inst, $pin, SdaPin, $af);
@@ -116,6 +116,17 @@ crate::pac::peripheral_pins!(
 
     ($inst:ident, i2c, I2C, $pin:ident, SCL, $af:expr) => {
         impl_pin!($inst, $pin, SclPin, $af);
+    };
+);
+
+#[cfg(rcc_f1)]
+crate::pac::peripheral_pins!(
+    ($inst:ident, i2c, I2C, $pin:ident, SDA) => {
+        impl_pin!($inst, $pin, SdaPin, 0);
+    };
+
+    ($inst:ident, i2c, I2C, $pin:ident, SCL) => {
+        impl_pin!($inst, $pin, SclPin, 0);
     };
 );
 

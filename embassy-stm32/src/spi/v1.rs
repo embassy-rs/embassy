@@ -3,7 +3,7 @@
 use crate::dma::NoDma;
 use crate::gpio::{
     sealed::{
-        OutputType::{OpenDrain, PushPull},
+        AFType::{OutputOpenDrain, OutputPushPull},
         Pin,
     },
     AnyPin,
@@ -59,9 +59,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         unborrow!(sck, mosi, miso, txdma, rxdma);
 
         unsafe {
-            sck.set_as_af(sck.af_num(), PushPull);
-            mosi.set_as_af(mosi.af_num(), PushPull);
-            miso.set_as_af(miso.af_num(), OpenDrain);
+            sck.set_as_af(sck.af_num(), OutputPushPull);
+            mosi.set_as_af(mosi.af_num(), OutputPushPull);
+            miso.set_as_af(miso.af_num(), OutputOpenDrain);
         }
 
         let sck = sck.degrade();

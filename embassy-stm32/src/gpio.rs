@@ -350,12 +350,15 @@ impl<'d, T: Pin> InputPin for OutputOpenDrain<'d, T> {
 pub(crate) mod sealed {
     use super::*;
 
-    /// Output type settings
+    /// Alternate function type settings
     #[derive(Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-    pub enum OutputType {
-        PushPull,
-        OpenDrain,
+    pub enum AFType {
+        // InputFloating,
+        // InputPullUp,
+        // InputPullDown,
+        OutputPushPull,
+        OutputOpenDrain,
     }
 
     pub trait Pin {
@@ -394,21 +397,35 @@ pub(crate) mod sealed {
         }
 
         #[cfg(gpio_v1)]
-        unsafe fn set_as_af(&self, _af_num: u8, _af_type: OutputType) {
-            panic!("F1 alternate GPIO functions not supported yet!");
+        unsafe fn set_as_af(&self, _af_num: u8, af_type: AFType) {
+            // F1 uses the AFIO register for remapping.
+            // For now, this is not implemented, so af_num is ignored
+            // _af_num should be zero here, since it is not set by stm32-data
+            let r = pin.block();
+            let n = pin.pin() as usize;
+            let crlh = if n < 8 { 0 } else { 1 };
+            match af_type {
+                // TODO: Do we need to configure input AF pins differently?
+                AfType::OutputPushPull => {
+                    r.cr(crlh).modify(|w| w.set_cnf(n % 8, vals::Cnf::PUSHPULL));
+                }
+                AfType::OutputOpenDrain => r
+                    .cr(crlh)
+                    .modify(|w| w.set_cnf(n % 8, vals::Cnf::OPENDRAIN)),
+            }
         }
         #[cfg(gpio_v2)]
-        unsafe fn set_as_af(&self, af_num: u8, af_type: OutputType) {
+        unsafe fn set_as_af(&self, af_num: u8, af_type: AFType) {
             let pin = self._pin() as usize;
             let block = self.block();
             block
                 .afr(pin / 8)
                 .modify(|w| w.set_afr(pin % 8, vals::Afr(af_num)));
             match af_type {
-                OutputType::PushPull => {
+                AfType::OutputPushPull => {
                     block.otyper().modify(|w| w.set_ot(pin, vals::Ot::PUSHPULL))
                 }
-                OutputType::OpenDrain => block
+                AfType::OutputOpenDrain => block
                     .otyper()
                     .modify(|w| w.set_ot(pin, vals::Ot::OPENDRAIN)),
             }

@@ -105,6 +105,7 @@ macro_rules! impl_pin {
     };
 }
 
+#[cfg(not(rcc_f1))]
 crate::pac::peripheral_pins!(
     ($inst:ident, spi, SPI, $pin:ident, SCK, $af:expr) => {
         impl_pin!($inst, $pin, SckPin, $af);
@@ -116,6 +117,21 @@ crate::pac::peripheral_pins!(
 
     ($inst:ident, spi, SPI, $pin:ident, MISO, $af:expr) => {
         impl_pin!($inst, $pin, MisoPin, $af);
+    };
+);
+
+#[cfg(rcc_f1)]
+crate::pac::peripheral_pins!(
+    ($inst:ident, spi, SPI, $pin:ident, SCK) => {
+        impl_pin!($inst, $pin, SckPin, 0);
+    };
+
+    ($inst:ident, spi, SPI, $pin:ident, MOSI) => {
+        impl_pin!($inst, $pin, MosiPin, 0);
+    };
+
+    ($inst:ident, spi, SPI, $pin:ident, MISO) => {
+        impl_pin!($inst, $pin, MisoPin, 0);
     };
 );
 
