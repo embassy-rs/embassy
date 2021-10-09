@@ -127,7 +127,6 @@ crate::pac::interrupts!(
     };
 );
 
-#[cfg(not(rcc_f1))]
 macro_rules! impl_pin {
     ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
         impl sealed::$signal<peripherals::$inst> for peripherals::$pin {
@@ -140,6 +139,7 @@ macro_rules! impl_pin {
     };
 }
 
+#[cfg(not(rcc_f1))]
 crate::pac::peripheral_pins!(
 
     // USART
@@ -174,6 +174,44 @@ crate::pac::peripheral_pins!(
     };
     ($inst:ident, uart, UART, $pin:ident, CK, $af:expr) => {
         impl_pin!($inst, $pin, CkPin, $af);
+    };
+);
+
+#[cfg(rcc_f1)]
+crate::pac::peripheral_pins!(
+
+    // USART
+    ($inst:ident, usart, USART, $pin:ident, TX) => {
+        impl_pin!($inst, $pin, TxPin, 0);
+    };
+    ($inst:ident, usart, USART, $pin:ident, RX) => {
+        impl_pin!($inst, $pin, RxPin, 0);
+    };
+    ($inst:ident, usart, USART, $pin:ident, CTS) => {
+        impl_pin!($inst, $pin, CtsPin, 0);
+    };
+    ($inst:ident, usart, USART, $pin:ident, RTS) => {
+        impl_pin!($inst, $pin, RtsPin, 0);
+    };
+    ($inst:ident, usart, USART, $pin:ident, CK) => {
+        impl_pin!($inst, $pin, CkPin, 0);
+    };
+
+    // UART
+    ($inst:ident, uart, UART, $pin:ident, TX) => {
+        impl_pin!($inst, $pin, TxPin, 0);
+    };
+    ($inst:ident, uart, UART, $pin:ident, RX) => {
+        impl_pin!($inst, $pin, RxPin, 0);
+    };
+    ($inst:ident, uart, UART, $pin:ident, CTS) => {
+        impl_pin!($inst, $pin, CtsPin, 0);
+    };
+    ($inst:ident, uart, UART, $pin:ident, RTS) => {
+        impl_pin!($inst, $pin, RtsPin, 0);
+    };
+    ($inst:ident, uart, UART, $pin:ident, CK) => {
+        impl_pin!($inst, $pin, CkPin, 0);
     };
 );
 

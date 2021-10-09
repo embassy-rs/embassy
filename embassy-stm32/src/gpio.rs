@@ -401,15 +401,15 @@ pub(crate) mod sealed {
             // F1 uses the AFIO register for remapping.
             // For now, this is not implemented, so af_num is ignored
             // _af_num should be zero here, since it is not set by stm32-data
-            let r = pin.block();
-            let n = pin.pin() as usize;
+            let r = self.block();
+            let n = self._pin() as usize;
             let crlh = if n < 8 { 0 } else { 1 };
             match af_type {
                 // TODO: Do we need to configure input AF pins differently?
-                AfType::OutputPushPull => {
+                AFType::OutputPushPull => {
                     r.cr(crlh).modify(|w| w.set_cnf(n % 8, vals::Cnf::PUSHPULL));
                 }
-                AfType::OutputOpenDrain => r
+                AFType::OutputOpenDrain => r
                     .cr(crlh)
                     .modify(|w| w.set_cnf(n % 8, vals::Cnf::OPENDRAIN)),
             }
@@ -422,10 +422,10 @@ pub(crate) mod sealed {
                 .afr(pin / 8)
                 .modify(|w| w.set_afr(pin % 8, vals::Afr(af_num)));
             match af_type {
-                AfType::OutputPushPull => {
+                AFType::OutputPushPull => {
                     block.otyper().modify(|w| w.set_ot(pin, vals::Ot::PUSHPULL))
                 }
-                AfType::OutputOpenDrain => block
+                AFType::OutputOpenDrain => block
                     .otyper()
                     .modify(|w| w.set_ot(pin, vals::Ot::OPENDRAIN)),
             }
