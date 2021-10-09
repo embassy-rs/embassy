@@ -407,11 +407,17 @@ pub(crate) mod sealed {
             match af_type {
                 // TODO: Do we need to configure input AF pins differently?
                 AFType::OutputPushPull => {
-                    r.cr(crlh).modify(|w| w.set_cnf(n % 8, vals::Cnf::PUSHPULL));
+                    r.cr(crlh).modify(|w| {
+                        w.set_mode(n % 8, vals::Mode::OUTPUT50);
+                        w.set_cnf(n % 8, vals::Cnf::ALTPUSHPULL);
+                    });
                 }
-                AFType::OutputOpenDrain => r
-                    .cr(crlh)
-                    .modify(|w| w.set_cnf(n % 8, vals::Cnf::OPENDRAIN)),
+                AFType::OutputOpenDrain => {
+                    r.cr(crlh).modify(|w| {
+                        w.set_mode(n % 8, vals::Mode::OUTPUT50);
+                        w.set_cnf(n % 8, vals::Cnf::ALTOPENDRAIN);
+                    });
+                }
             }
         }
         #[cfg(gpio_v2)]
