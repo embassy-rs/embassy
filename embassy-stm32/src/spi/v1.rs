@@ -6,9 +6,10 @@ use crate::gpio::{
         AFType::{OutputOpenDrain, OutputPushPull},
         Pin,
     },
-    AnyPin,
+    AnyPin, NoPin,
 };
 use crate::pac::spi;
+use crate::peripherals;
 use crate::spi::{
     ByteOrder, Config, Error, Instance, MisoPin, MosiPin, RxDmaChannel, SckPin, TxDmaChannel,
     WordSize,
@@ -20,6 +21,7 @@ use core::ptr;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use embassy_traits::spi as traits;
+pub use embedded_hal::blocking;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::join3;
 
@@ -32,10 +34,29 @@ impl WordSize {
     }
 }
 
+macro_rules! impl_nopin {
+    ($inst:ident, $signal:ident) => {
+        impl $signal<peripherals::$inst> for NoPin {}
+
+        impl super::sealed::$signal<peripherals::$inst> for NoPin {
+            fn af_num(&self) -> u8 {
+                0
+            }
+        }
+    };
+}
+crate::pac::peripherals!(
+    (spi, $inst:ident) => {
+        impl_nopin!($inst, SckPin);
+        impl_nopin!($inst, MosiPin);
+        impl_nopin!($inst, MisoPin);
+    };
+);
+
 pub struct Spi<'d, T: Instance, Tx, Rx> {
-    sck: AnyPin,
-    mosi: AnyPin,
-    miso: AnyPin,
+    sck: Option<AnyPin>,
+    mosi: Option<AnyPin>,
+    miso: Option<AnyPin>,
     txdma: Tx,
     rxdma: Rx,
     current_word_size: WordSize,
@@ -58,15 +79,18 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     {
         unborrow!(sck, mosi, miso, txdma, rxdma);
 
-        unsafe {
-            sck.set_as_af(sck.af_num(), OutputPushPull);
-            mosi.set_as_af(mosi.af_num(), OutputPushPull);
-            miso.set_as_af(miso.af_num(), OutputOpenDrain);
-        }
+        let sck_af = sck.af_num();
+        let mosi_af = mosi.af_num();
+        let miso_af = miso.af_num();
+        let sck = sck.degrade_optional();
+        let mosi = mosi.degrade_optional();
+        let miso = miso.degrade_optional();
 
-        let sck = sck.degrade();
-        let mosi = mosi.degrade();
-        let miso = miso.degrade();
+        unsafe {
+            sck.as_ref().map(|x| x.set_as_af(sck_af, OutputPushPull));
+            mosi.as_ref().map(|x| x.set_as_af(mosi_af, OutputPushPull));
+            miso.as_ref().map(|x| x.set_as_af(miso_af, OutputOpenDrain));
+        }
 
         unsafe {
             T::regs().cr2().modify(|w| {
@@ -103,6 +127,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_ssm(true);
                 w.set_crcen(false);
                 w.set_bidimode(spi::vals::Bidimode::UNIDIRECTIONAL);
+                if mosi.is_none() {
+                    w.set_rxonly(spi::vals::Rxonly::OUTPUTDISABLED);
+                }
                 w.set_dff(WordSize::EightBit.dff())
             });
         }
@@ -294,9 +321,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 impl<'d, T: Instance, Tx, Rx> Drop for Spi<'d, T, Tx, Rx> {
     fn drop(&mut self) {
         unsafe {
-            self.sck.set_as_analog();
-            self.mosi.set_as_analog();
-            self.miso.set_as_analog();
+            self.sck.as_ref().map(|x| x.set_as_analog());
+            self.mosi.as_ref().map(|x| x.set_as_analog());
+            self.miso.as_ref().map(|x| x.set_as_analog());
         }
     }
 }

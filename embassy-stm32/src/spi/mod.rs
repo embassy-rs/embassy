@@ -8,7 +8,7 @@ mod _version;
 use crate::{dma, peripherals, rcc::RccPeripheral};
 pub use _version::*;
 
-use crate::gpio::Pin;
+use crate::gpio::OptionalPin;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -53,15 +53,15 @@ pub(crate) mod sealed {
         fn regs() -> &'static crate::pac::spi::Spi;
     }
 
-    pub trait SckPin<T: Instance>: Pin {
+    pub trait SckPin<T: Instance>: OptionalPin {
         fn af_num(&self) -> u8;
     }
 
-    pub trait MosiPin<T: Instance>: Pin {
+    pub trait MosiPin<T: Instance>: OptionalPin {
         fn af_num(&self) -> u8;
     }
 
-    pub trait MisoPin<T: Instance>: Pin {
+    pub trait MisoPin<T: Instance>: OptionalPin {
         fn af_num(&self) -> u8;
     }
 
