@@ -259,20 +259,6 @@ macro_rules! negative_pin_mappings {
     };
 }
 
-struct NotConnected {}
-
-impl PositivePin for NotConnected {
-    fn channel(&self) -> PositiveChannel {
-        PositiveChannel::NC
-    }
-}
-
-impl NegativePin for NotConnected {
-    fn channel(&self) -> NegativeChannel {
-        NegativeChannel::NC
-    }
-}
-
 // TODO the variant names are unchecked
 // the pins are copied from nrf hal
 #[cfg(feature = "9160")]
