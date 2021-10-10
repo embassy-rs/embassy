@@ -60,7 +60,7 @@ impl Default for Config {
 ///
 /// See the `Default` impl for suitable default values.
 #[non_exhaustive]
-pub struct ChannelConfig {
+pub struct ChannelConfig<'d> {
     /// Reference voltage of the SAADC input.
     pub reference: Reference,
     /// Gain used to control the effective input range of the SAADC.
@@ -73,11 +73,13 @@ pub struct ChannelConfig {
     p_channel: PositiveChannel,
     /// An optional negative channel to sample
     n_channel: Option<NegativeChannel>,
+
+    phantom: PhantomData<&'d ()>,
 }
 
-impl ChannelConfig {
+impl<'d> ChannelConfig<'d> {
     /// Default configuration for single ended channel sampling.
-    pub fn single_ended(pin: impl Unborrow<Target = impl PositivePin>) -> Self {
+    pub fn single_ended(pin: impl Unborrow<Target = impl PositivePin> + 'd) -> Self {
         unborrow!(pin);
         Self {
             reference: Reference::INTERNAL,
@@ -86,12 +88,13 @@ impl ChannelConfig {
             time: Time::_10US,
             p_channel: pin.channel(),
             n_channel: None,
+            phantom: PhantomData,
         }
     }
     /// Default configuration for differential channel sampling.
     pub fn differential(
-        ppin: impl Unborrow<Target = impl PositivePin>,
-        npin: impl Unborrow<Target = impl NegativePin>,
+        ppin: impl Unborrow<Target = impl PositivePin> + 'd,
+        npin: impl Unborrow<Target = impl NegativePin> + 'd,
     ) -> Self {
         unborrow!(ppin, npin);
         Self {
@@ -101,6 +104,7 @@ impl ChannelConfig {
             time: Time::_10US,
             p_channel: ppin.channel(),
             n_channel: Some(npin.channel()),
+            phantom: PhantomData,
         }
     }
 }
