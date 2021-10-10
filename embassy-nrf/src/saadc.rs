@@ -259,8 +259,7 @@ macro_rules! negative_pin_mappings {
     };
 }
 
-/// Represents an unconnected pin
-pub struct NotConnected {}
+struct NotConnected {}
 
 impl PositivePin for NotConnected {
     fn channel(&self) -> PositiveChannel {
