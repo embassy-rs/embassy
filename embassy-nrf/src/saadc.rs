@@ -15,7 +15,7 @@ use pac::{saadc, SAADC};
 pub use saadc::{
     ch::{
         config::{GAIN_A as Gain, REFSEL_A as Reference, RESP_A as Resistor, TACQ_A as Time},
-        pselp::PSELP_A as PositiveChannel,
+        pselp::PSELP_A as InputChannel, // We treat the positive and negative channels with the same enum values to keep our type tidy and given they are the same
     },
     oversample::OVERSAMPLE_A as Oversample,
     resolution::VAL_A as Resolution,
@@ -27,7 +27,7 @@ pub use saadc::{
 pub enum Error {}
 
 /// One-shot saadc. Continuous sample mode TODO.
-pub struct OneShot<'d> {
+pub struct OneShot<'d, const N: usize> {
     phantom: PhantomData<&'d mut peripherals::SAADC>,
 }
 
@@ -36,11 +36,29 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 /// Used to configure the SAADC peripheral.
 ///
 /// See the `Default` impl for suitable default values.
+#[non_exhaustive]
 pub struct Config {
     /// Output resolution in bits.
     pub resolution: Resolution,
     /// Average 2^`oversample` input samples before transferring the result into memory.
     pub oversample: Oversample,
+}
+
+impl Default for Config {
+    /// Default configuration for single channel sampling.
+    fn default() -> Self {
+        Self {
+            resolution: Resolution::_14BIT,
+            oversample: Oversample::BYPASS,
+        }
+    }
+}
+
+/// Used to configure an individual SAADC peripheral channel.
+///
+/// See the `Default` impl for suitable default values.
+#[non_exhaustive]
+pub struct ChannelConfig<'d> {
     /// Reference voltage of the SAADC input.
     pub reference: Reference,
     /// Gain used to control the effective input range of the SAADC.
@@ -49,26 +67,52 @@ pub struct Config {
     pub resistor: Resistor,
     /// Acquisition time in microseconds.
     pub time: Time,
+    /// Positive channel to sample
+    p_channel: InputChannel,
+    /// An optional negative channel to sample
+    n_channel: Option<InputChannel>,
+
+    phantom: PhantomData<&'d ()>,
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl<'d> ChannelConfig<'d> {
+    /// Default configuration for single ended channel sampling.
+    pub fn single_ended(input: impl Unborrow<Target = impl Input> + 'd) -> Self {
+        unborrow!(input);
         Self {
-            resolution: Resolution::_14BIT,
-            oversample: Oversample::OVER8X,
-            reference: Reference::VDD1_4,
-            gain: Gain::GAIN1_4,
+            reference: Reference::INTERNAL,
+            gain: Gain::GAIN1_6,
             resistor: Resistor::BYPASS,
-            time: Time::_20US,
+            time: Time::_10US,
+            p_channel: input.channel(),
+            n_channel: None,
+            phantom: PhantomData,
+        }
+    }
+    /// Default configuration for differential channel sampling.
+    pub fn differential(
+        p_input: impl Unborrow<Target = impl Input> + 'd,
+        n_input: impl Unborrow<Target = impl Input> + 'd,
+    ) -> Self {
+        unborrow!(p_input, n_input);
+        Self {
+            reference: Reference::VDD1_4,
+            gain: Gain::GAIN1_6,
+            resistor: Resistor::BYPASS,
+            time: Time::_10US,
+            p_channel: p_input.channel(),
+            n_channel: Some(n_input.channel()),
+            phantom: PhantomData,
         }
     }
 }
 
-impl<'d> OneShot<'d> {
+impl<'d, const N: usize> OneShot<'d, N> {
     pub fn new(
         _saadc: impl Unborrow<Target = peripherals::SAADC> + 'd,
         irq: impl Unborrow<Target = interrupt::SAADC> + 'd,
         config: Config,
+        channel_configs: [ChannelConfig; N],
     ) -> Self {
         unborrow!(irq);
 
@@ -77,31 +121,39 @@ impl<'d> OneShot<'d> {
         let Config {
             resolution,
             oversample,
-            reference,
-            gain,
-            resistor,
-            time,
         } = config;
 
-        // Configure pins
+        // Configure channels
         r.enable.write(|w| w.enable().enabled());
         r.resolution.write(|w| w.val().variant(resolution));
         r.oversample.write(|w| w.oversample().variant(oversample));
 
-        r.ch[0].config.write(|w| {
-            w.refsel().variant(reference);
-            w.gain().variant(gain);
-            w.tacq().variant(time);
-            w.mode().se();
-            w.resp().variant(resistor);
-            w.resn().bypass();
-            if !matches!(oversample, Oversample::BYPASS) {
-                w.burst().enabled();
-            } else {
-                w.burst().disabled();
+        for (i, cc) in channel_configs.iter().enumerate() {
+            r.ch[i].pselp.write(|w| w.pselp().variant(cc.p_channel));
+            if let Some(n_channel) = cc.n_channel {
+                r.ch[i]
+                    .pseln
+                    .write(|w| unsafe { w.pseln().bits(n_channel as u8) });
             }
-            w
-        });
+            r.ch[i].config.write(|w| {
+                w.refsel().variant(cc.reference);
+                w.gain().variant(cc.gain);
+                w.tacq().variant(cc.time);
+                if cc.n_channel.is_none() {
+                    w.mode().se();
+                } else {
+                    w.mode().diff();
+                }
+                w.resp().variant(cc.resistor);
+                w.resn().bypass();
+                if !matches!(oversample, Oversample::BYPASS) {
+                    w.burst().enabled();
+                } else {
+                    w.burst().disabled();
+                }
+                w
+            });
+        }
 
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0x003F_FFFF) });
@@ -128,18 +180,16 @@ impl<'d> OneShot<'d> {
         unsafe { &*SAADC::ptr() }
     }
 
-    pub async fn sample(&mut self, pin: &mut impl PositivePin) -> i16 {
+    pub async fn sample(&mut self, buf: &mut [i16; N]) {
         let r = Self::regs();
 
-        // Set positive channel
-        r.ch[0].pselp.write(|w| w.pselp().variant(pin.channel()));
-
         // Set up the DMA
-        let mut val: i16 = 0;
         r.result
             .ptr
-            .write(|w| unsafe { w.ptr().bits(((&mut val) as *mut _) as u32) });
-        r.result.maxcnt.write(|w| unsafe { w.maxcnt().bits(1) });
+            .write(|w| unsafe { w.ptr().bits(buf.as_mut_ptr() as u32) });
+        r.result
+            .maxcnt
+            .write(|w| unsafe { w.maxcnt().bits(N as _) });
 
         // Reset and enable the end event
         r.events_end.reset();
@@ -166,32 +216,27 @@ impl<'d> OneShot<'d> {
             Poll::Pending
         })
         .await;
-
-        // The DMA wrote the sampled value to `val`.
-        val
     }
 }
 
-impl<'d> Drop for OneShot<'d> {
+impl<'d, const N: usize> Drop for OneShot<'d, N> {
     fn drop(&mut self) {
         let r = Self::regs();
         r.enable.write(|w| w.enable().disabled());
     }
 }
 
-/// A pin that can be used as the positive end of a ADC differential in the SAADC periperhal.
-///
-/// Currently negative is always shorted to ground (0V).
-pub trait PositivePin {
-    fn channel(&self) -> PositiveChannel;
+/// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
+pub trait Input {
+    fn channel(&self) -> InputChannel;
 }
 
-macro_rules! positive_pin_mappings {
-    ( $($ch:ident => $pin:ident,)*) => {
+macro_rules! input_mappings {
+    ( $($ch:ident => $input:ident,)*) => {
         $(
-            impl PositivePin for crate::peripherals::$pin {
-                fn channel(&self) -> PositiveChannel {
-                    PositiveChannel::$ch
+            impl Input for crate::peripherals::$input {
+                fn channel(&self) -> InputChannel {
+                    InputChannel::$ch
                 }
             }
         )*
@@ -199,9 +244,9 @@ macro_rules! positive_pin_mappings {
 }
 
 // TODO the variant names are unchecked
-// the pins are copied from nrf hal
+// the inputs are copied from nrf hal
 #[cfg(feature = "9160")]
-positive_pin_mappings! {
+input_mappings! {
     ANALOGINPUT0 => P0_13,
     ANALOGINPUT1 => P0_14,
     ANALOGINPUT2 => P0_15,
@@ -213,7 +258,7 @@ positive_pin_mappings! {
 }
 
 #[cfg(not(feature = "9160"))]
-positive_pin_mappings! {
+input_mappings! {
     ANALOGINPUT0 => P0_02,
     ANALOGINPUT1 => P0_03,
     ANALOGINPUT2 => P0_04,
