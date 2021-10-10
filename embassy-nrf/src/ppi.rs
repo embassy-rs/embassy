@@ -31,7 +31,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
             ch,
             phantom: PhantomData,
         };
-        #[cfg(not(feature = "51"))]
+        #[cfg(not(feature = "nrf51"))]
         this.clear_fork_task();
         this
     }
@@ -50,7 +50,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
             .write(|w| unsafe { w.bits(1 << self.ch.number()) });
     }
 
-    #[cfg(not(feature = "51"))]
+    #[cfg(not(feature = "nrf51"))]
     /// Sets the fork task that must be triggered when the configured event occurs. The user must
     /// provide a reference to the task.
     pub fn set_fork_task(&mut self, task: Task) {
@@ -60,7 +60,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
             .write(|w| unsafe { w.bits(task.0.as_ptr() as u32) })
     }
 
-    #[cfg(not(feature = "51"))]
+    #[cfg(not(feature = "nrf51"))]
     /// Clear the fork task endpoint. Previously set task will no longer be triggered.
     pub fn clear_fork_task(&mut self) {
         let r = unsafe { &*pac::PPI::ptr() };
@@ -199,13 +199,13 @@ impl_channel!(PPI_CH12, 12, configurable);
 impl_channel!(PPI_CH13, 13, configurable);
 impl_channel!(PPI_CH14, 14, configurable);
 impl_channel!(PPI_CH15, 15, configurable);
-#[cfg(not(feature = "51"))]
+#[cfg(not(feature = "nrf51"))]
 impl_channel!(PPI_CH16, 16, configurable);
-#[cfg(not(feature = "51"))]
+#[cfg(not(feature = "nrf51"))]
 impl_channel!(PPI_CH17, 17, configurable);
-#[cfg(not(feature = "51"))]
+#[cfg(not(feature = "nrf51"))]
 impl_channel!(PPI_CH18, 18, configurable);
-#[cfg(not(feature = "51"))]
+#[cfg(not(feature = "nrf51"))]
 impl_channel!(PPI_CH19, 19, configurable);
 impl_channel!(PPI_CH20, 20);
 impl_channel!(PPI_CH21, 21);
@@ -249,7 +249,7 @@ impl_group!(PPI_GROUP0, 0);
 impl_group!(PPI_GROUP1, 1);
 impl_group!(PPI_GROUP2, 2);
 impl_group!(PPI_GROUP3, 3);
-#[cfg(not(feature = "51"))]
+#[cfg(not(feature = "nrf51"))]
 impl_group!(PPI_GROUP4, 4);
-#[cfg(not(feature = "51"))]
+#[cfg(not(feature = "nrf51"))]
 impl_group!(PPI_GROUP5, 5);
