@@ -15,8 +15,7 @@ use pac::{saadc, SAADC};
 pub use saadc::{
     ch::{
         config::{GAIN_A as Gain, REFSEL_A as Reference, RESP_A as Resistor, TACQ_A as Time},
-        pseln::PSELN_A as NegativeChannel,
-        pselp::PSELP_A as PositiveChannel,
+        pselp::PSELP_A as InputChannel, // We treat the positive and negative channels with the same enum values to keep our type tidy and given they are the same
     },
     oversample::OVERSAMPLE_A as Oversample,
     resolution::VAL_A as Resolution,
@@ -69,40 +68,40 @@ pub struct ChannelConfig<'d> {
     /// Acquisition time in microseconds.
     pub time: Time,
     /// Positive channel to sample
-    p_channel: PositiveChannel,
+    p_channel: InputChannel,
     /// An optional negative channel to sample
-    n_channel: Option<NegativeChannel>,
+    n_channel: Option<InputChannel>,
 
     phantom: PhantomData<&'d ()>,
 }
 
 impl<'d> ChannelConfig<'d> {
     /// Default configuration for single ended channel sampling.
-    pub fn single_ended(pin: impl Unborrow<Target = impl PositivePin> + 'd) -> Self {
-        unborrow!(pin);
+    pub fn single_ended(input: impl Unborrow<Target = impl Input> + 'd) -> Self {
+        unborrow!(input);
         Self {
             reference: Reference::INTERNAL,
             gain: Gain::GAIN1_6,
             resistor: Resistor::BYPASS,
             time: Time::_10US,
-            p_channel: pin.channel(),
+            p_channel: input.channel(),
             n_channel: None,
             phantom: PhantomData,
         }
     }
     /// Default configuration for differential channel sampling.
     pub fn differential(
-        ppin: impl Unborrow<Target = impl PositivePin> + 'd,
-        npin: impl Unborrow<Target = impl NegativePin> + 'd,
+        p_input: impl Unborrow<Target = impl Input> + 'd,
+        n_input: impl Unborrow<Target = impl Input> + 'd,
     ) -> Self {
-        unborrow!(ppin, npin);
+        unborrow!(p_input, n_input);
         Self {
             reference: Reference::VDD1_4,
             gain: Gain::GAIN1_6,
             resistor: Resistor::BYPASS,
             time: Time::_10US,
-            p_channel: ppin.channel(),
-            n_channel: Some(npin.channel()),
+            p_channel: p_input.channel(),
+            n_channel: Some(n_input.channel()),
             phantom: PhantomData,
         }
     }
@@ -131,8 +130,10 @@ impl<'d, const N: usize> OneShot<'d, N> {
 
         for (i, cc) in channel_configs.iter().enumerate() {
             r.ch[i].pselp.write(|w| w.pselp().variant(cc.p_channel));
-            if let Some(npin) = cc.n_channel.as_ref() {
-                r.ch[i].pseln.write(|w| w.pseln().variant(*npin));
+            if let Some(n_channel) = cc.n_channel {
+                r.ch[i]
+                    .pseln
+                    .write(|w| unsafe { w.pseln().bits(n_channel as u8) });
             }
             r.ch[i].config.write(|w| {
                 w.refsel().variant(cc.reference);
@@ -225,34 +226,17 @@ impl<'d, const N: usize> Drop for OneShot<'d, N> {
     }
 }
 
-/// A pin that can be used as the positive end of a ADC differential in the SAADC periperhal.
-pub trait PositivePin {
-    fn channel(&self) -> PositiveChannel;
+/// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
+pub trait Input {
+    fn channel(&self) -> InputChannel;
 }
 
-macro_rules! positive_pin_mappings {
-    ( $($ch:ident => $pin:ident,)*) => {
+macro_rules! input_mappings {
+    ( $($ch:ident => $input:ident,)*) => {
         $(
-            impl PositivePin for crate::peripherals::$pin {
-                fn channel(&self) -> PositiveChannel {
-                    PositiveChannel::$ch
-                }
-            }
-        )*
-    };
-}
-
-/// A pin that can be used as the negative end of a ADC differential in the SAADC periperhal.
-pub trait NegativePin {
-    fn channel(&self) -> NegativeChannel;
-}
-
-macro_rules! negative_pin_mappings {
-    ( $($ch:ident => $pin:ident,)*) => {
-        $(
-            impl NegativePin for crate::peripherals::$pin {
-                fn channel(&self) -> NegativeChannel {
-                    NegativeChannel::$ch
+            impl Input for crate::peripherals::$input {
+                fn channel(&self) -> InputChannel {
+                    InputChannel::$ch
                 }
             }
         )*
@@ -260,9 +244,9 @@ macro_rules! negative_pin_mappings {
 }
 
 // TODO the variant names are unchecked
-// the pins are copied from nrf hal
+// the inputs are copied from nrf hal
 #[cfg(feature = "9160")]
-positive_pin_mappings! {
+input_mappings! {
     ANALOGINPUT0 => P0_13,
     ANALOGINPUT1 => P0_14,
     ANALOGINPUT2 => P0_15,
@@ -274,31 +258,7 @@ positive_pin_mappings! {
 }
 
 #[cfg(not(feature = "9160"))]
-positive_pin_mappings! {
-    ANALOGINPUT0 => P0_02,
-    ANALOGINPUT1 => P0_03,
-    ANALOGINPUT2 => P0_04,
-    ANALOGINPUT3 => P0_05,
-    ANALOGINPUT4 => P0_28,
-    ANALOGINPUT5 => P0_29,
-    ANALOGINPUT6 => P0_30,
-    ANALOGINPUT7 => P0_31,
-}
-
-#[cfg(feature = "9160")]
-negative_pin_mappings! {
-    ANALOGINPUT0 => P0_13,
-    ANALOGINPUT1 => P0_14,
-    ANALOGINPUT2 => P0_15,
-    ANALOGINPUT3 => P0_16,
-    ANALOGINPUT4 => P0_17,
-    ANALOGINPUT5 => P0_18,
-    ANALOGINPUT6 => P0_19,
-    ANALOGINPUT7 => P0_20,
-}
-
-#[cfg(not(feature = "9160"))]
-negative_pin_mappings! {
+input_mappings! {
     ANALOGINPUT0 => P0_02,
     ANALOGINPUT1 => P0_03,
     ANALOGINPUT2 => P0_04,
