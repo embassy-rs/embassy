@@ -1,3 +1,5 @@
+#![macro_use]
+
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
@@ -231,45 +233,12 @@ pub trait Input {
     fn channel(&self) -> InputChannel;
 }
 
-macro_rules! input_mappings {
-    ( $($ch:ident => $input:ident,)*) => {
-        $(
-            impl Input for crate::peripherals::$input {
-                fn channel(&self) -> InputChannel {
-                    InputChannel::$ch
-                }
+macro_rules! impl_saadc_input {
+    ($pin:ident, $ch:ident) => {
+        impl crate::saadc::Input for crate::peripherals::$pin {
+            fn channel(&self) -> crate::saadc::InputChannel {
+                crate::saadc::InputChannel::$ch
             }
-        )*
+        }
     };
-}
-
-// TODO the variant names are unchecked
-// the inputs are copied from nrf hal
-#[cfg(feature = "nrf9160")]
-input_mappings! {
-    ANALOGINPUT0 => P0_13,
-    ANALOGINPUT1 => P0_14,
-    ANALOGINPUT2 => P0_15,
-    ANALOGINPUT3 => P0_16,
-    ANALOGINPUT4 => P0_17,
-    ANALOGINPUT5 => P0_18,
-    ANALOGINPUT6 => P0_19,
-    ANALOGINPUT7 => P0_20,
-}
-#[cfg(feature = "nrf52805")]
-input_mappings! {
-    ANALOGINPUT2 => P0_04,
-    ANALOGINPUT3 => P0_05,
-}
-
-#[cfg(not(any(feature = "nrf52805", feature = "nrf9160")))]
-input_mappings! {
-    ANALOGINPUT0 => P0_02,
-    ANALOGINPUT1 => P0_03,
-    ANALOGINPUT2 => P0_04,
-    ANALOGINPUT3 => P0_05,
-    ANALOGINPUT4 => P0_28,
-    ANALOGINPUT5 => P0_29,
-    ANALOGINPUT6 => P0_30,
-    ANALOGINPUT7 => P0_31,
 }

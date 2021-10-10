@@ -197,6 +197,15 @@ impl_ppi_channel!(PPI_CH29, 29);
 impl_ppi_channel!(PPI_CH30, 30);
 impl_ppi_channel!(PPI_CH31, 31);
 
+impl_saadc_input!(P0_02, ANALOGINPUT0);
+impl_saadc_input!(P0_03, ANALOGINPUT1);
+impl_saadc_input!(P0_04, ANALOGINPUT2);
+impl_saadc_input!(P0_05, ANALOGINPUT3);
+impl_saadc_input!(P0_28, ANALOGINPUT4);
+impl_saadc_input!(P0_29, ANALOGINPUT5);
+impl_saadc_input!(P0_30, ANALOGINPUT6);
+impl_saadc_input!(P0_31, ANALOGINPUT7);
+
 pub mod irqs {
     use crate::pac::Interrupt as InterruptEnum;
     use embassy_macros::interrupt_declare as declare;
