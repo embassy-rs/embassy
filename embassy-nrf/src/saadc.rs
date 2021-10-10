@@ -1,4 +1,3 @@
-use core::convert::TryInto;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
@@ -189,7 +188,7 @@ impl<'d, const N: usize> OneShot<'d, N> {
             .write(|w| unsafe { w.ptr().bits(buf.as_mut_ptr() as u32) });
         r.result
             .maxcnt
-            .write(|w| unsafe { w.maxcnt().bits(N.try_into().unwrap()) });
+            .write(|w| unsafe { w.maxcnt().bits(N as _) });
 
         // Reset and enable the end event
         r.events_end.reset();
