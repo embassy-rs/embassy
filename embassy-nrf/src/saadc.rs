@@ -245,7 +245,7 @@ macro_rules! input_mappings {
 
 // TODO the variant names are unchecked
 // the inputs are copied from nrf hal
-#[cfg(feature = "9160")]
+#[cfg(feature = "nrf9160")]
 input_mappings! {
     ANALOGINPUT0 => P0_13,
     ANALOGINPUT1 => P0_14,
@@ -256,8 +256,13 @@ input_mappings! {
     ANALOGINPUT6 => P0_19,
     ANALOGINPUT7 => P0_20,
 }
+#[cfg(feature = "nrf52805")]
+input_mappings! {
+    ANALOGINPUT2 => P0_04,
+    ANALOGINPUT3 => P0_05,
+}
 
-#[cfg(not(feature = "9160"))]
+#[cfg(not(any(feature = "nrf52805", feature = "nrf9160")))]
 input_mappings! {
     ANALOGINPUT0 => P0_02,
     ANALOGINPUT1 => P0_03,

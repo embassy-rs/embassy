@@ -22,9 +22,6 @@ embassy_hal_common::peripherals! {
     TWISPI0,
     TWISPI1,
 
-    // SAADC
-    SAADC,
-
     // TIMER
     TIMER0,
     TIMER1,
