@@ -16,9 +16,13 @@ pub(crate) use pac::rtc0_ns as rtc0;
 
 fn rtc() -> &'static rtc0::RegisterBlock {
     #[cfg(not(feature = "nrf9160"))]
-    unsafe { &*pac::RTC1::ptr() }
+    unsafe {
+        &*pac::RTC1::ptr()
+    }
     #[cfg(feature = "nrf9160")]
-    unsafe { &*pac::RTC1_NS::ptr() }
+    unsafe {
+        &*pac::RTC1_NS::ptr()
+    }
 }
 
 // RTC timekeeping works with something we call "periods", which are time intervals

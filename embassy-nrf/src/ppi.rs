@@ -18,10 +18,10 @@ use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 
 use crate::{pac, peripherals};
 
-#[cfg(not(feature = "nrf9160"))]
-pub(crate) use pac::PPI;
 #[cfg(feature = "nrf9160")]
 pub(crate) use pac::DPPIC_NS as PPI;
+#[cfg(not(feature = "nrf9160"))]
+pub(crate) use pac::PPI;
 
 // ======================
 //       driver

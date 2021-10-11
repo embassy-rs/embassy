@@ -16,7 +16,6 @@ pub(crate) use pac::pwm0;
 #[cfg(feature = "nrf9160")]
 pub(crate) use pac::pwm0_ns as pwm0;
 
-
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Prescaler {
     Div1,

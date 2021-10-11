@@ -17,7 +17,7 @@ use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::Instance as TimerInstance;
 use crate::timer::{Frequency, Timer};
-use crate::uarte::{Config, Instance as UarteInstance, uarte0};
+use crate::uarte::{uarte0, Config, Instance as UarteInstance};
 
 // Re-export SVD variants to allow user to directly set values
 pub use uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};

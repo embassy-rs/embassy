@@ -79,10 +79,10 @@ pub(crate) use chip::pac;
 
 pub use chip::{peripherals, Peripherals};
 
-#[cfg(feature = "nrf9160")]
-use crate::pac::CLOCK_NS as CLOCK;
 #[cfg(not(feature = "nrf9160"))]
 use crate::pac::CLOCK;
+#[cfg(feature = "nrf9160")]
+use crate::pac::CLOCK_NS as CLOCK;
 
 pub mod interrupt {
     pub use crate::chip::irqs::*;
