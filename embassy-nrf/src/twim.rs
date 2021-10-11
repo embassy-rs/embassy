@@ -184,7 +184,7 @@ impl<'d, T: Instance> Twim<'d, T> {
             // The PTR field is a full 32 bits wide and accepts the full range
             // of values.
             w.ptr().bits(buffer.as_mut_ptr() as u32));
-        r.rxd.maxcnt.write(|w|
+            r.rxd.maxcnt.write(|w|
             // We're giving it the length of the buffer, so no danger of
             // accessing invalid memory. We have verified that the length of the
             // buffer fits in an `u8`, so the cast to the type of maxcnt
