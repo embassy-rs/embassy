@@ -8,7 +8,7 @@ pub(crate) fn slice_in_ram(slice: &[u8]) -> bool {
 }
 
 /// Return an error if slice is not in RAM.
-#[cfg(not(feature = "51"))]
+#[cfg(not(feature = "nrf51"))]
 pub(crate) fn slice_in_ram_or<T>(slice: &[u8], err: T) -> Result<(), T> {
     if slice.len() == 0 || slice_in_ram(slice) {
         Ok(())

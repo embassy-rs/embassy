@@ -266,14 +266,14 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
     }
 
     /// Triggers `task set` (set associated pin high).
-    #[cfg(not(feature = "51"))]
+    #[cfg(not(feature = "nrf51"))]
     pub fn set(&self) {
         let g = unsafe { &*GPIOTE::ptr() };
         g.tasks_set[self.ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
     /// Triggers `task clear` (set associated pin low).
-    #[cfg(not(feature = "51"))]
+    #[cfg(not(feature = "nrf51"))]
     pub fn clear(&self) {
         let g = unsafe { &*GPIOTE::ptr() };
         g.tasks_clr[self.ch.number()].write(|w| unsafe { w.bits(1) });
@@ -286,14 +286,14 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
     }
 
     /// Returns the CLR task, for use with PPI.
-    #[cfg(not(feature = "51"))]
+    #[cfg(not(feature = "nrf51"))]
     pub fn task_clr(&self) -> Task {
         let g = unsafe { &*GPIOTE::ptr() };
         Task::from_reg(&g.tasks_clr[self.ch.number()])
     }
 
     /// Returns the SET task, for use with PPI.
-    #[cfg(not(feature = "51"))]
+    #[cfg(not(feature = "nrf51"))]
     pub fn task_set(&self) -> Task {
         let g = unsafe { &*GPIOTE::ptr() };
         Task::from_reg(&g.tasks_set[self.ch.number()])

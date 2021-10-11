@@ -19,8 +19,12 @@ defmt-error = []
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-trace"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "stm32wl55jc_cm4", "time-driver-tim2", "memory-x", "subghz"]  }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "stm32wl55jc_cm4", "time-driver-tim2", "memory-x", "subghz", "unstable-pac"]  }
 embassy-hal-common = {version = "0.1.0", path = "../../embassy-hal-common" }
+embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["stm32wl", "time"] }
+
+lorawan-device = { git = "https://github.com/lulf/rust-lorawan.git", rev = "a373d06fa8858d251bc70d5789cebcd9a638ec42", default-features = false, features = ["async"] }
+lorawan-encoding = { git = "https://github.com/lulf/rust-lorawan.git", rev = "a373d06fa8858d251bc70d5789cebcd9a638ec42", default-features = false, features = ["default-crypto"] }
 
 defmt = "0.2.3"
 defmt-rtt = "0.2.0"

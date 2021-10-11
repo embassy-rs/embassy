@@ -1,3 +1,5 @@
+#![macro_use]
+
 //! HAL interface for the PPI peripheral.
 //!
 //! The Programmable Peripheral Interconnect interface allows for an autonomous interoperability
@@ -38,7 +40,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
             ch,
             phantom: PhantomData,
         };
-        #[cfg(not(any(feature = "51", feature = "nrf9160")))]
+        #[cfg(not(any(feature = "nrf51", feature = "nrf9160")))]
         this.clear_fork_task();
         this
     }
@@ -57,7 +59,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
             .write(|w| unsafe { w.bits(1 << self.ch.number()) });
     }
 
-    #[cfg(not(any(feature = "51", feature = "nrf9160")))]
+    #[cfg(not(any(feature = "nrf51", feature = "nrf9160")))]
     /// Sets the fork task that must be triggered when the configured event occurs. The user must
     /// provide a reference to the task.
     pub fn set_fork_task(&mut self, task: Task) {
@@ -67,7 +69,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
             .write(|w| unsafe { w.bits(task.0.as_ptr() as u32) })
     }
 
-    #[cfg(not(any(feature = "51", feature = "nrf9160")))]
+    #[cfg(not(any(feature = "nrf51", feature = "nrf9160")))]
     /// Clear the fork task endpoint. Previously set task will no longer be triggered.
     pub fn clear_fork_task(&mut self) {
         let r = unsafe { &*PPI::ptr() };
@@ -143,7 +145,7 @@ impl Event {
     }
 }
 
-mod sealed {
+pub(crate) mod sealed {
     pub trait ConfigurableChannel {}
     pub trait Channel {}
     pub trait Group {}
@@ -201,84 +203,20 @@ impl Channel for AnyConfigurableChannel {
     }
 }
 
-macro_rules! impl_channel {
+macro_rules! impl_ppi_channel {
     ($type:ident, $number:expr, configurable) => {
-        impl_channel!($type, $number);
-        impl sealed::ConfigurableChannel for peripherals::$type {}
-        impl ConfigurableChannel for peripherals::$type {}
+        impl_ppi_channel!($type, $number);
+        impl crate::ppi::sealed::ConfigurableChannel for peripherals::$type {}
+        impl crate::ppi::ConfigurableChannel for peripherals::$type {}
     };
     ($type:ident, $number:expr) => {
-        impl sealed::Channel for peripherals::$type {}
-        impl Channel for peripherals::$type {
+        impl crate::ppi::sealed::Channel for peripherals::$type {}
+        impl crate::ppi::Channel for peripherals::$type {
             fn number(&self) -> usize {
                 $number
             }
         }
     };
-}
-
-pub use channel_impl::*;
-#[cfg(not(feature = "nrf9160"))]
-mod channel_impl {
-    use super::*;
-
-    impl_channel!(PPI_CH0, 0, configurable);
-    impl_channel!(PPI_CH1, 1, configurable);
-    impl_channel!(PPI_CH2, 2, configurable);
-    impl_channel!(PPI_CH3, 3, configurable);
-    impl_channel!(PPI_CH4, 4, configurable);
-    impl_channel!(PPI_CH5, 5, configurable);
-    impl_channel!(PPI_CH6, 6, configurable);
-    impl_channel!(PPI_CH7, 7, configurable);
-    impl_channel!(PPI_CH8, 8, configurable);
-    impl_channel!(PPI_CH9, 9, configurable);
-    impl_channel!(PPI_CH10, 10, configurable);
-    impl_channel!(PPI_CH11, 11, configurable);
-    impl_channel!(PPI_CH12, 12, configurable);
-    impl_channel!(PPI_CH13, 13, configurable);
-    impl_channel!(PPI_CH14, 14, configurable);
-    impl_channel!(PPI_CH15, 15, configurable);
-    #[cfg(not(feature = "51",))]
-    impl_channel!(PPI_CH16, 16, configurable);
-    #[cfg(not(feature = "51"))]
-    impl_channel!(PPI_CH17, 17, configurable);
-    #[cfg(not(feature = "51"))]
-    impl_channel!(PPI_CH18, 18, configurable);
-    #[cfg(not(feature = "51"))]
-    impl_channel!(PPI_CH19, 19, configurable);
-    impl_channel!(PPI_CH20, 20);
-    impl_channel!(PPI_CH21, 21);
-    impl_channel!(PPI_CH22, 22);
-    impl_channel!(PPI_CH23, 23);
-    impl_channel!(PPI_CH24, 24);
-    impl_channel!(PPI_CH25, 25);
-    impl_channel!(PPI_CH26, 26);
-    impl_channel!(PPI_CH27, 27);
-    impl_channel!(PPI_CH28, 28);
-    impl_channel!(PPI_CH29, 29);
-    impl_channel!(PPI_CH30, 30);
-    impl_channel!(PPI_CH31, 31);
-}
-#[cfg(feature = "nrf9160")] // TODO: Implement configurability for nrf9160 and then remove these channel_impl modules
-mod channel_impl {
-    use super::*;
-
-    impl_channel!(PPI_CH0, 0, configurable);
-    impl_channel!(PPI_CH1, 1, configurable);
-    impl_channel!(PPI_CH2, 2, configurable);
-    impl_channel!(PPI_CH3, 3, configurable);
-    impl_channel!(PPI_CH4, 4, configurable);
-    impl_channel!(PPI_CH5, 5, configurable);
-    impl_channel!(PPI_CH6, 6, configurable);
-    impl_channel!(PPI_CH7, 7, configurable);
-    impl_channel!(PPI_CH8, 8, configurable);
-    impl_channel!(PPI_CH9, 9, configurable);
-    impl_channel!(PPI_CH10, 10, configurable);
-    impl_channel!(PPI_CH11, 11, configurable);
-    impl_channel!(PPI_CH12, 12, configurable);
-    impl_channel!(PPI_CH13, 13, configurable);
-    impl_channel!(PPI_CH14, 14, configurable);
-    impl_channel!(PPI_CH15, 15, configurable);
 }
 
 // ======================
@@ -310,7 +248,7 @@ impl_group!(PPI_GROUP0, 0);
 impl_group!(PPI_GROUP1, 1);
 impl_group!(PPI_GROUP2, 2);
 impl_group!(PPI_GROUP3, 3);
-#[cfg(not(feature = "51"))]
+#[cfg(not(feature = "nrf51"))]
 impl_group!(PPI_GROUP4, 4);
-#[cfg(not(feature = "51"))]
+#[cfg(not(feature = "nrf51"))]
 impl_group!(PPI_GROUP5, 5);

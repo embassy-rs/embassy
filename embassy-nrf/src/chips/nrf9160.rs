@@ -171,6 +171,32 @@ impl_pin!(P0_29, 0, 29);
 impl_pin!(P0_30, 0, 30);
 impl_pin!(P0_31, 0, 31);
 
+impl_ppi_channel!(PPI_CH0, 0, configurable);
+impl_ppi_channel!(PPI_CH1, 1, configurable);
+impl_ppi_channel!(PPI_CH2, 2, configurable);
+impl_ppi_channel!(PPI_CH3, 3, configurable);
+impl_ppi_channel!(PPI_CH4, 4, configurable);
+impl_ppi_channel!(PPI_CH5, 5, configurable);
+impl_ppi_channel!(PPI_CH6, 6, configurable);
+impl_ppi_channel!(PPI_CH7, 7, configurable);
+impl_ppi_channel!(PPI_CH8, 8, configurable);
+impl_ppi_channel!(PPI_CH9, 9, configurable);
+impl_ppi_channel!(PPI_CH10, 10, configurable);
+impl_ppi_channel!(PPI_CH11, 11, configurable);
+impl_ppi_channel!(PPI_CH12, 12, configurable);
+impl_ppi_channel!(PPI_CH13, 13, configurable);
+impl_ppi_channel!(PPI_CH14, 14, configurable);
+impl_ppi_channel!(PPI_CH15, 15, configurable);
+
+impl_saadc_input!(P0_13, ANALOGINPUT0);
+impl_saadc_input!(P0_14, ANALOGINPUT1);
+impl_saadc_input!(P0_15, ANALOGINPUT2);
+impl_saadc_input!(P0_16, ANALOGINPUT3);
+impl_saadc_input!(P0_17, ANALOGINPUT4);
+impl_saadc_input!(P0_18, ANALOGINPUT5);
+impl_saadc_input!(P0_19, ANALOGINPUT6);
+impl_saadc_input!(P0_20, ANALOGINPUT7);
+
 pub mod irqs {
     use crate::pac::Interrupt as InterruptEnum;
     use embassy_macros::interrupt_declare as declare;

@@ -35,6 +35,8 @@ The `embassy-nrf` crate contains implementations for nRF 52 series SoCs.
 - `uarte`: UARTE driver implementing `AsyncBufRead` and `AsyncWrite`.
 - `qspi`: QSPI driver implementing `Flash`.
 - `gpiote`: GPIOTE driver. Allows `await`ing GPIO pin changes. Great for reading buttons or receiving interrupts from external chips.
+- `saadc`: SAADC driver. Provides a full implementation of the one-shot sampling for analog channels.
+
 - `rtc`: RTC driver implementing `Clock` and `Alarm`, for use with `embassy::executor`.
 
 ## Examples

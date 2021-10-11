@@ -1,0 +1,33 @@
+[package]
+name = "embassy-lora"
+version = "0.1.0"
+authors = ["Ulf Lilleengen <lulf@redhat.com>"]
+edition = "2018"
+
+[lib]
+
+[features]
+sx127x = []
+stm32wl = ["embassy-stm32", "embassy-stm32/subghz"]
+time = []
+
+defmt-trace = []
+defmt-debug = []
+defmt-info = []
+defmt-warn = []
+defmt-error = []
+
+[dependencies]
+
+defmt = { version = "0.2.3", optional = true }
+log = { version = "0.4.14", optional = true }
+
+embassy = { version = "0.1.0", path = "../embassy", default-features = false }
+embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32", default-features = false, optional = true }
+embassy-hal-common = { version = "0.1.0", path = "../embassy-hal-common", default-features = false }
+futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
+embedded-hal = { version = "0.2", features = ["unproven"] }
+bit_field = { version = "0.10" }
+
+lorawan-device = { git = "https://github.com/lulf/rust-lorawan.git", rev = "a373d06fa8858d251bc70d5789cebcd9a638ec42", default-features = false, features = ["async"] }
+lorawan-encoding = { git = "https://github.com/lulf/rust-lorawan.git", rev = "a373d06fa8858d251bc70d5789cebcd9a638ec42", default-features = false }
