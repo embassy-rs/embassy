@@ -354,9 +354,7 @@ pub(crate) mod sealed {
     #[derive(Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum AFType {
-        // InputFloating,
-        // InputPullUp,
-        // InputPullDown,
+        Input,
         OutputPushPull,
         OutputOpenDrain,
     }
@@ -405,7 +403,12 @@ pub(crate) mod sealed {
             let n = self._pin() as usize;
             let crlh = if n < 8 { 0 } else { 1 };
             match af_type {
-                // TODO: Do we need to configure input AF pins differently?
+                AFType::Input => {
+                    r.cr(crlh).modify(|w| {
+                        w.set_mode(n % 8, vals::Mode::INPUT);
+                        w.set_cnf(n % 8, vals::Cnf::PUSHPULL);
+                    });
+                }
                 AFType::OutputPushPull => {
                     r.cr(crlh).modify(|w| {
                         w.set_mode(n % 8, vals::Mode::OUTPUT50);
@@ -428,6 +431,7 @@ pub(crate) mod sealed {
                 .afr(pin / 8)
                 .modify(|w| w.set_afr(pin % 8, vals::Afr(af_num)));
             match af_type {
+                AFType::Input => {}
                 AFType::OutputPushPull => {
                     block.otyper().modify(|w| w.set_ot(pin, vals::Ot::PUSHPULL))
                 }

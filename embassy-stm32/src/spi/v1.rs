@@ -1,13 +1,9 @@
 #![macro_use]
 
 use crate::dma::NoDma;
-use crate::gpio::{
-    sealed::{
-        AFType::{OutputOpenDrain, OutputPushPull},
-        Pin,
-    },
-    AnyPin, NoPin,
-};
+use crate::gpio::sealed::AFType;
+use crate::gpio::sealed::Pin;
+use crate::gpio::{AnyPin, NoPin};
 use crate::pac::spi;
 use crate::peripherals;
 use crate::spi::{
@@ -87,9 +83,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let miso = miso.degrade_optional();
 
         unsafe {
-            sck.as_ref().map(|x| x.set_as_af(sck_af, OutputPushPull));
-            mosi.as_ref().map(|x| x.set_as_af(mosi_af, OutputPushPull));
-            miso.as_ref().map(|x| x.set_as_af(miso_af, OutputOpenDrain));
+            sck.as_ref()
+                .map(|x| x.set_as_af(sck_af, AFType::OutputPushPull));
+            mosi.as_ref()
+                .map(|x| x.set_as_af(mosi_af, AFType::OutputPushPull));
+            miso.as_ref().map(|x| x.set_as_af(miso_af, AFType::Input));
         }
 
         unsafe {
