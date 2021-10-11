@@ -22,8 +22,13 @@ use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::Instance as TimerInstance;
 use crate::timer::{Frequency, Timer};
 
+#[cfg(not(feature = "nrf9160"))]
+pub(crate) use pac::uarte0;
+#[cfg(feature = "nrf9160")]
+pub(crate) use pac::uarte0_ns as uarte0;
+
 // Re-export SVD variants to allow user to directly set values.
-pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
+pub use uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
 #[non_exhaustive]
 pub struct Config {
@@ -458,7 +463,7 @@ pub(crate) mod sealed {
     }
 
     pub trait Instance {
-        fn regs() -> &'static pac::uarte0::RegisterBlock;
+        fn regs() -> &'static uarte0::RegisterBlock;
         fn state() -> &'static State;
     }
 }
@@ -470,7 +475,7 @@ pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static + Send 
 macro_rules! impl_uarte {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::uarte::sealed::Instance for peripherals::$type {
-            fn regs() -> &'static pac::uarte0::RegisterBlock {
+            fn regs() -> &'static crate::uarte::uarte0::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
             fn state() -> &'static crate::uarte::sealed::State {

@@ -10,7 +10,10 @@ use futures::future::poll_fn;
 use crate::interrupt;
 use crate::{pac, peripherals};
 
+#[cfg(not(feature = "nrf9160"))]
 use pac::{saadc, SAADC};
+#[cfg(feature = "nrf9160")]
+use pac::{saadc_ns as saadc, SAADC_NS as SAADC};
 
 pub use saadc::{
     ch::{
@@ -200,7 +203,7 @@ macro_rules! positive_pin_mappings {
 
 // TODO the variant names are unchecked
 // the pins are copied from nrf hal
-#[cfg(feature = "9160")]
+#[cfg(feature = "nrf9160")]
 positive_pin_mappings! {
     ANALOGINPUT0 => P0_13,
     ANALOGINPUT1 => P0_14,
@@ -212,7 +215,7 @@ positive_pin_mappings! {
     ANALOGINPUT7 => P0_20,
 }
 
-#[cfg(not(feature = "9160"))]
+#[cfg(not(feature = "nrf9160"))]
 positive_pin_mappings! {
     ANALOGINPUT0 => P0_02,
     ANALOGINPUT1 => P0_03,

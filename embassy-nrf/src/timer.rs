@@ -15,6 +15,11 @@ use crate::pac;
 use crate::ppi::Event;
 use crate::ppi::Task;
 
+#[cfg(not(feature = "nrf9160"))]
+pub(crate) use pac::timer0;
+#[cfg(feature = "nrf9160")]
+pub(crate) use pac::timer0_ns as timer0;
+
 pub(crate) mod sealed {
 
     use super::*;
@@ -22,7 +27,7 @@ pub(crate) mod sealed {
     pub trait Instance {
         /// The number of CC registers this instance has.
         const CCS: usize;
-        fn regs() -> &'static pac::timer0::RegisterBlock;
+        fn regs() -> &'static timer0::RegisterBlock;
         /// Storage for the waker for CC register `n`.
         fn waker(n: usize) -> &'static AtomicWaker;
     }
@@ -40,8 +45,8 @@ macro_rules! impl_timer {
     ($type:ident, $pac_type:ident, $irq:ident, $ccs:literal) => {
         impl crate::timer::sealed::Instance for peripherals::$type {
             const CCS: usize = $ccs;
-            fn regs() -> &'static pac::timer0::RegisterBlock {
-                unsafe { &*(pac::$pac_type::ptr() as *const pac::timer0::RegisterBlock) }
+            fn regs() -> &'static crate::timer::timer0::RegisterBlock {
+                unsafe { &*(pac::$pac_type::ptr() as *const crate::timer::timer0::RegisterBlock) }
             }
             fn waker(n: usize) -> &'static ::embassy::waitqueue::AtomicWaker {
                 use ::embassy::waitqueue::AtomicWaker;

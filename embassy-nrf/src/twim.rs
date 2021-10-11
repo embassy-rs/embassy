@@ -24,6 +24,11 @@ use crate::gpio::Pin as GpioPin;
 use crate::pac;
 use crate::util::{slice_in_ram, slice_in_ram_or};
 
+#[cfg(not(feature = "nrf9160"))]
+pub(crate) use pac::twim0;
+#[cfg(feature = "nrf9160")]
+pub(crate) use pac::twim0_ns as twim0;
+
 pub enum Frequency {
     #[doc = "26738688: 100 kbps"]
     K100 = 26738688,
@@ -721,7 +726,7 @@ pub(crate) mod sealed {
     }
 
     pub trait Instance {
-        fn regs() -> &'static pac::twim0::RegisterBlock;
+        fn regs() -> &'static twim0::RegisterBlock;
         fn state() -> &'static State;
     }
 }
@@ -733,7 +738,7 @@ pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static {
 macro_rules! impl_twim {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::twim::sealed::Instance for peripherals::$type {
-            fn regs() -> &'static pac::twim0::RegisterBlock {
+            fn regs() -> &'static crate::twim::twim0::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
             fn state() -> &'static crate::twim::sealed::State {

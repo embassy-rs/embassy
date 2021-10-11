@@ -11,6 +11,12 @@ use crate::gpio::OptionalPin as GpioOptionalPin;
 use crate::interrupt::Interrupt;
 use crate::pac;
 
+#[cfg(not(feature = "nrf9160"))]
+pub(crate) use pac::pwm0;
+#[cfg(feature = "nrf9160")]
+pub(crate) use pac::pwm0_ns as pwm0;
+
+
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Prescaler {
     Div1,
@@ -203,7 +209,7 @@ pub(crate) mod sealed {
     }
 
     pub trait Instance {
-        fn regs() -> &'static pac::pwm0::RegisterBlock;
+        fn regs() -> &'static pwm0::RegisterBlock;
         fn state() -> &'static State;
     }
 }
@@ -215,7 +221,7 @@ pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static {
 macro_rules! impl_pwm {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::pwm::sealed::Instance for peripherals::$type {
-            fn regs() -> &'static pac::pwm0::RegisterBlock {
+            fn regs() -> &'static crate::pwm::pwm0::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
             fn state() -> &'static crate::pwm::sealed::State {

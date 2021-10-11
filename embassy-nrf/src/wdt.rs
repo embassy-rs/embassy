@@ -3,7 +3,13 @@
 //! This HAL implements a basic watchdog timer with 1..=8 handles.
 //! Once the watchdog has been started, it cannot be stopped.
 
-use crate::pac::WDT;
+use crate::pac;
+
+#[cfg(not(feature = "nrf9160"))]
+pub(crate) use pac::WDT;
+#[cfg(feature = "nrf9160")]
+pub(crate) use pac::WDT_NS as WDT;
+
 use crate::peripherals;
 
 const MIN_TICKS: u32 = 15;
@@ -58,7 +64,12 @@ impl Watchdog {
         let crv = config.timeout_ticks.max(MIN_TICKS);
         let rren = (1u32 << N) - 1;
 
-        if r.runstatus.read().runstatus().bit() {
+        #[cfg(not(feature = "nrf9160"))]
+        let runstatus = r.runstatus.read().runstatus().bit();
+        #[cfg(feature = "nrf9160")]
+        let runstatus = r.runstatus.read().runstatuswdt().bit();
+
+        if runstatus {
             let curr_config = r.config.read();
             if curr_config.halt().bit() != config.run_during_debug_halt
                 || curr_config.sleep().bit() != config.run_during_sleep
