@@ -439,13 +439,18 @@ fn write_word<W: Word>(regs: &'static crate::pac::spi::Spi, word: W) -> Result<(
         let sr = unsafe { regs.sr().read() };
         if sr.ovr() {
             return Err(Error::Overrun);
-        } else if sr_fre(sr) {
+        }
+        #[cfg(not(spi_f1))]
+        if sr.fre() {
             return Err(Error::Framing);
-        } else if sr.modf() {
+        }
+        if sr.modf() {
             return Err(Error::ModeFault);
-        } else if sr.crcerr() {
+        }
+        if sr.crcerr() {
             return Err(Error::Crc);
-        } else if sr.txe() {
+        }
+        if sr.txe() {
             unsafe {
                 let dr = regs.dr().ptr() as *mut W;
                 ptr::write_volatile(dr, word);
@@ -461,31 +466,22 @@ fn read_word<W: Word>(regs: &'static crate::pac::spi::Spi) -> Result<W, Error> {
         let sr = unsafe { regs.sr().read() };
         if sr.ovr() {
             return Err(Error::Overrun);
-        } else if sr.modf() {
-            return Err(Error::ModeFault);
-        } else if sr_fre(sr) {
+        }
+        #[cfg(not(spi_f1))]
+        if sr.fre() {
             return Err(Error::Framing);
-        } else if sr.crcerr() {
+        }
+        if sr.modf() {
+            return Err(Error::ModeFault);
+        }
+        if sr.crcerr() {
             return Err(Error::Crc);
-        } else if sr.rxne() {
+        }
+        if sr.rxne() {
             unsafe {
                 let dr = regs.dr().ptr() as *const W;
                 return Ok(ptr::read_volatile(dr));
             }
         }
     }
-}
-
-// SPI on F1 is just V1 without FRE and FRF fields
-// This driver only uses FRE, so add a simple function here to read fre on v1,
-// and return false on f1
-
-#[cfg(spi_v1)]
-fn sr_fre(sr: crate::pac::spi::regs::Sr) -> bool {
-    sr.fre()
-}
-
-#[cfg(spi_f1)]
-fn sr_fre(_sr: crate::pac::spi::regs::Sr) -> bool {
-    false
 }
