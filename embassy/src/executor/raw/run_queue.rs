@@ -24,7 +24,7 @@ impl RunQueueItem {
 /// null. Then the batch is iterated following the next pointers until null is reached.
 ///
 /// Note that batches will be iterated in the reverse order as they were enqueued. This is OK
-/// for our purposes: it can't crate fairness problems since the next batch won't run until the
+/// for our purposes: it can't create fairness problems since the next batch won't run until the
 /// current batch is completely processed, so even if a task enqueues itself instantly (for example
 /// by waking its own waker) can't prevent other tasks from running.
 pub(crate) struct RunQueue {
