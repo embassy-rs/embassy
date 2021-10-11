@@ -2,15 +2,21 @@ name: Rust
 
 on:
   push:
-    branches: [master]
+    branches: [ staging, trying, master ]
   pull_request:
-    branches: [master]
+    branches: [ master ]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  ci:
+  all:
+    runs-on: ubuntu-20.04
+    needs: [build, fmt, test, metapac_gen]
+    steps:
+      - name: Done
+        run: exit 0
+  build:
     runs-on: ubuntu-latest
     strategy:
       matrix:
