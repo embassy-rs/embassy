@@ -13,7 +13,7 @@ use futures::TryFutureExt;
 
 use super::*;
 use crate::dma::NoDma;
-use crate::gpio::sealed::OutputType::{OpenDrain, PushPull};
+use crate::gpio::sealed::AFType::{OutputOpenDrain, OutputPushPull};
 use crate::pac::usart::{regs, vals};
 
 pub struct Uart<'d, T: Instance, TxDma = NoDma, RxDma = NoDma> {
@@ -43,8 +43,8 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         let r = inner.regs();
 
         unsafe {
-            rx.set_as_af(rx.af_num(), OpenDrain);
-            tx.set_as_af(tx.af_num(), PushPull);
+            rx.set_as_af(rx.af_num(), OutputOpenDrain);
+            tx.set_as_af(tx.af_num(), OutputPushPull);
 
             r.cr2().write(|_w| {});
             r.cr3().write(|_w| {});

@@ -9,7 +9,7 @@ use embedded_hal::blocking::i2c::WriteRead;
 
 use crate::pac::i2c;
 
-use crate::gpio::sealed::OutputType::OpenDrain;
+use crate::gpio::sealed::AFType::OutputOpenDrain;
 
 pub struct I2c<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
@@ -30,8 +30,8 @@ impl<'d, T: Instance> I2c<'d, T> {
         T::enable();
 
         unsafe {
-            scl.set_as_af(scl.af_num(), OpenDrain);
-            sda.set_as_af(sda.af_num(), OpenDrain);
+            scl.set_as_af(scl.af_num(), OutputOpenDrain);
+            sda.set_as_af(sda.af_num(), OutputOpenDrain);
         }
 
         unsafe {

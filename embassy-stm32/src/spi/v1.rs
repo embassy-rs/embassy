@@ -1,14 +1,11 @@
 #![macro_use]
 
 use crate::dma::NoDma;
-use crate::gpio::{
-    sealed::{
-        OutputType::{OpenDrain, PushPull},
-        Pin,
-    },
-    AnyPin,
-};
+use crate::gpio::sealed::AFType;
+use crate::gpio::sealed::Pin;
+use crate::gpio::{AnyPin, NoPin};
 use crate::pac::spi;
+use crate::peripherals;
 use crate::spi::{
     ByteOrder, Config, Error, Instance, MisoPin, MosiPin, RxDmaChannel, SckPin, TxDmaChannel,
     WordSize,
@@ -20,6 +17,7 @@ use core::ptr;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use embassy_traits::spi as traits;
+pub use embedded_hal::blocking;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::join3;
 
@@ -32,10 +30,29 @@ impl WordSize {
     }
 }
 
+macro_rules! impl_nopin {
+    ($inst:ident, $signal:ident) => {
+        impl $signal<peripherals::$inst> for NoPin {}
+
+        impl super::sealed::$signal<peripherals::$inst> for NoPin {
+            fn af_num(&self) -> u8 {
+                0
+            }
+        }
+    };
+}
+crate::pac::peripherals!(
+    (spi, $inst:ident) => {
+        impl_nopin!($inst, SckPin);
+        impl_nopin!($inst, MosiPin);
+        impl_nopin!($inst, MisoPin);
+    };
+);
+
 pub struct Spi<'d, T: Instance, Tx, Rx> {
-    sck: AnyPin,
-    mosi: AnyPin,
-    miso: AnyPin,
+    sck: Option<AnyPin>,
+    mosi: Option<AnyPin>,
+    miso: Option<AnyPin>,
     txdma: Tx,
     rxdma: Rx,
     current_word_size: WordSize,
@@ -58,15 +75,20 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     {
         unborrow!(sck, mosi, miso, txdma, rxdma);
 
-        unsafe {
-            sck.set_as_af(sck.af_num(), PushPull);
-            mosi.set_as_af(mosi.af_num(), PushPull);
-            miso.set_as_af(miso.af_num(), OpenDrain);
-        }
+        let sck_af = sck.af_num();
+        let mosi_af = mosi.af_num();
+        let miso_af = miso.af_num();
+        let sck = sck.degrade_optional();
+        let mosi = mosi.degrade_optional();
+        let miso = miso.degrade_optional();
 
-        let sck = sck.degrade();
-        let mosi = mosi.degrade();
-        let miso = miso.degrade();
+        unsafe {
+            sck.as_ref()
+                .map(|x| x.set_as_af(sck_af, AFType::OutputPushPull));
+            mosi.as_ref()
+                .map(|x| x.set_as_af(mosi_af, AFType::OutputPushPull));
+            miso.as_ref().map(|x| x.set_as_af(miso_af, AFType::Input));
+        }
 
         unsafe {
             T::regs().cr2().modify(|w| {
@@ -103,6 +125,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_ssm(true);
                 w.set_crcen(false);
                 w.set_bidimode(spi::vals::Bidimode::UNIDIRECTIONAL);
+                if mosi.is_none() {
+                    w.set_rxonly(spi::vals::Rxonly::OUTPUTDISABLED);
+                }
                 w.set_dff(WordSize::EightBit.dff())
             });
         }
@@ -294,9 +319,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 impl<'d, T: Instance, Tx, Rx> Drop for Spi<'d, T, Tx, Rx> {
     fn drop(&mut self) {
         unsafe {
-            self.sck.set_as_analog();
-            self.mosi.set_as_analog();
-            self.miso.set_as_analog();
+            self.sck.as_ref().map(|x| x.set_as_analog());
+            self.mosi.as_ref().map(|x| x.set_as_analog());
+            self.miso.as_ref().map(|x| x.set_as_analog());
         }
     }
 }
@@ -414,13 +439,18 @@ fn write_word<W: Word>(regs: &'static crate::pac::spi::Spi, word: W) -> Result<(
         let sr = unsafe { regs.sr().read() };
         if sr.ovr() {
             return Err(Error::Overrun);
-        } else if sr.fre() {
+        }
+        #[cfg(not(spi_f1))]
+        if sr.fre() {
             return Err(Error::Framing);
-        } else if sr.modf() {
+        }
+        if sr.modf() {
             return Err(Error::ModeFault);
-        } else if sr.crcerr() {
+        }
+        if sr.crcerr() {
             return Err(Error::Crc);
-        } else if sr.txe() {
+        }
+        if sr.txe() {
             unsafe {
                 let dr = regs.dr().ptr() as *mut W;
                 ptr::write_volatile(dr, word);
@@ -436,13 +466,18 @@ fn read_word<W: Word>(regs: &'static crate::pac::spi::Spi) -> Result<W, Error> {
         let sr = unsafe { regs.sr().read() };
         if sr.ovr() {
             return Err(Error::Overrun);
-        } else if sr.modf() {
-            return Err(Error::ModeFault);
-        } else if sr.fre() {
+        }
+        #[cfg(not(spi_f1))]
+        if sr.fre() {
             return Err(Error::Framing);
-        } else if sr.crcerr() {
+        }
+        if sr.modf() {
+            return Err(Error::ModeFault);
+        }
+        if sr.crcerr() {
             return Err(Error::Crc);
-        } else if sr.rxne() {
+        }
+        if sr.rxne() {
             unsafe {
                 let dr = regs.dr().ptr() as *const W;
                 return Ok(ptr::read_volatile(dr));

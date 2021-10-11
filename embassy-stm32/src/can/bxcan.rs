@@ -5,7 +5,7 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 use crate::gpio::{
-    sealed::OutputType::{OpenDrain, PushPull},
+    sealed::AFType::{OutputOpenDrain, OutputPushPull},
     Pin,
 };
 use crate::{peripherals, rcc::RccPeripheral};
@@ -26,8 +26,8 @@ impl<'d, T: Instance + bxcan::Instance> Can<'d, T> {
         unborrow!(peri, rx, tx);
 
         unsafe {
-            rx.set_as_af(rx.af_num(), OpenDrain);
-            tx.set_as_af(tx.af_num(), PushPull);
+            rx.set_as_af(rx.af_num(), OutputOpenDrain);
+            tx.set_as_af(tx.af_num(), OutputPushPull);
         }
 
         T::enable();

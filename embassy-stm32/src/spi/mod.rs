@@ -1,13 +1,14 @@
 #![macro_use]
 
 #[cfg_attr(spi_v1, path = "v1.rs")]
+#[cfg_attr(spi_f1, path = "v1.rs")]
 #[cfg_attr(spi_v2, path = "v2.rs")]
 #[cfg_attr(spi_v3, path = "v3.rs")]
 mod _version;
 use crate::{dma, peripherals, rcc::RccPeripheral};
 pub use _version::*;
 
-use crate::gpio::Pin;
+use crate::gpio::OptionalPin;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -52,15 +53,15 @@ pub(crate) mod sealed {
         fn regs() -> &'static crate::pac::spi::Spi;
     }
 
-    pub trait SckPin<T: Instance>: Pin {
+    pub trait SckPin<T: Instance>: OptionalPin {
         fn af_num(&self) -> u8;
     }
 
-    pub trait MosiPin<T: Instance>: Pin {
+    pub trait MosiPin<T: Instance>: OptionalPin {
         fn af_num(&self) -> u8;
     }
 
-    pub trait MisoPin<T: Instance>: Pin {
+    pub trait MisoPin<T: Instance>: OptionalPin {
         fn af_num(&self) -> u8;
     }
 
@@ -104,6 +105,7 @@ macro_rules! impl_pin {
     };
 }
 
+#[cfg(not(rcc_f1))]
 crate::pac::peripheral_pins!(
     ($inst:ident, spi, SPI, $pin:ident, SCK, $af:expr) => {
         impl_pin!($inst, $pin, SckPin, $af);
@@ -115,6 +117,21 @@ crate::pac::peripheral_pins!(
 
     ($inst:ident, spi, SPI, $pin:ident, MISO, $af:expr) => {
         impl_pin!($inst, $pin, MisoPin, $af);
+    };
+);
+
+#[cfg(rcc_f1)]
+crate::pac::peripheral_pins!(
+    ($inst:ident, spi, SPI, $pin:ident, SCK) => {
+        impl_pin!($inst, $pin, SckPin, 0);
+    };
+
+    ($inst:ident, spi, SPI, $pin:ident, MOSI) => {
+        impl_pin!($inst, $pin, MosiPin, 0);
+    };
+
+    ($inst:ident, spi, SPI, $pin:ident, MISO) => {
+        impl_pin!($inst, $pin, MisoPin, 0);
     };
 );
 

@@ -36,9 +36,9 @@ impl WordSize {
 }
 
 pub struct Spi<'d, T: Instance, Tx, Rx> {
-    sck: AnyPin,
-    mosi: AnyPin,
-    miso: AnyPin,
+    sck: Option<AnyPin>,
+    mosi: Option<AnyPin>,
+    miso: Option<AnyPin>,
     txdma: Tx,
     rxdma: Rx,
     phantom: PhantomData<&'d mut T>,
@@ -60,15 +60,21 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     {
         unborrow!(sck, mosi, miso, txdma, rxdma);
 
-        unsafe {
-            Self::configure_pin(sck.block(), sck.pin() as _, sck.af_num());
-            Self::configure_pin(mosi.block(), mosi.pin() as _, mosi.af_num());
-            Self::configure_pin(miso.block(), miso.pin() as _, miso.af_num());
-        }
+        let sck_af = sck.af_num();
+        let mosi_af = mosi.af_num();
+        let miso_af = miso.af_num();
+        let sck = sck.degrade_optional();
+        let mosi = mosi.degrade_optional();
+        let miso = miso.degrade_optional();
 
-        let sck = sck.degrade();
-        let mosi = mosi.degrade();
-        let miso = miso.degrade();
+        unsafe {
+            sck.as_ref()
+                .map(|x| Self::configure_pin(x.block(), x.pin() as _, sck_af));
+            sck.as_ref()
+                .map(|x| Self::configure_pin(x.block(), x.pin() as _, mosi_af));
+            sck.as_ref()
+                .map(|x| Self::configure_pin(x.block(), x.pin() as _, miso_af));
+        }
 
         let pclk = T::frequency();
         let freq = freq.into();
@@ -307,9 +313,15 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 impl<'d, T: Instance, Tx, Rx> Drop for Spi<'d, T, Tx, Rx> {
     fn drop(&mut self) {
         unsafe {
-            Self::unconfigure_pin(self.sck.block(), self.sck.pin() as _);
-            Self::unconfigure_pin(self.mosi.block(), self.mosi.pin() as _);
-            Self::unconfigure_pin(self.miso.block(), self.miso.pin() as _);
+            self.sck
+                .as_ref()
+                .map(|x| Self::unconfigure_pin(x.block(), x.pin() as _));
+            self.mosi
+                .as_ref()
+                .map(|x| Self::unconfigure_pin(x.block(), x.pin() as _));
+            self.miso
+                .as_ref()
+                .map(|x| Self::unconfigure_pin(x.block(), x.pin() as _));
         }
     }
 }
