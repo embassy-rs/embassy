@@ -14,13 +14,14 @@ use embassy_hal_common::{low_power_wait_until, unborrow};
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
+use crate::pac;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::Instance as TimerInstance;
 use crate::timer::{Frequency, Timer};
-use crate::uarte::{uarte0, Config, Instance as UarteInstance};
+use crate::uarte::{Config, Instance as UarteInstance};
 
 // Re-export SVD variants to allow user to directly set values
-pub use uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
+pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum RxState {

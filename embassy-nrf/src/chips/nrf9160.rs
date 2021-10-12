@@ -1,7 +1,32 @@
-pub use nrf9160_pac as pac;
+#[allow(unused_imports)]
+pub mod pac {
+    // The nRF9160 has a secure and non-secure (NS) mode.
+    // For now we only support the NS mode, but those peripherals have `_ns` appended to them.
+    // To avoid cfg spam, weŕe going to rename the ones we use here.
+    #[rustfmt::skip]
+    pub(crate) use nrf9160_pac::{
+        p0_ns as p0,
+        pwm0_ns as pwm0,
+        rtc0_ns as rtc0,
+        spim0_ns as spim0,
+        timer0_ns as timer0,
+        twim0_ns as twim0,
+        uarte0_ns as uarte0,
+        DPPIC_NS as PPI,
+        GPIOTE1_NS as GPIOTE,
+        P0_NS as P0,
+        RTC1_NS as RTC1,
+        WDT_NS as WDT,
+        saadc_ns as saadc,
+        SAADC_NS as SAADC,
+        CLOCK_NS as CLOCK,
+    };
+
+    pub use nrf9160_pac::*;
+}
 
 /// The maximum buffer size that the EasyDMA can send/recv in one operation.
-pub const EASY_DMA_SIZE: usize = (1 << 12) - 1;
+pub const EASY_DMA_SIZE: usize = (1 << 13) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
 embassy_hal_common::peripherals! {
@@ -12,23 +37,11 @@ embassy_hal_common::peripherals! {
     // WDT
     WDT,
 
-    // UARTE
-    UARTE0,
-    UARTE1,
-    UARTE2,
-    UARTE3,
-
-    // TWI
-    TWI0,
-    TWI1,
-    TWI2,
-    TWI3,
-
-    // SPI
-    SPI0,
-    SPI1,
-    SPI2,
-    SPI3,
+    // UARTE, TWI & SPI
+    UARTETWISPI0,
+    UARTETWISPI1,
+    UARTETWISPI2,
+    UARTETWISPI3,
 
     // SAADC
     SAADC,
@@ -114,20 +127,20 @@ embassy_hal_common::peripherals! {
     P0_31,
 }
 
-impl_uarte!(UARTE0, UARTE0_NS, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
-impl_uarte!(UARTE1, UARTE1_NS, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
-impl_uarte!(UARTE2, UARTE2_NS, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
-impl_uarte!(UARTE3, UARTE3_NS, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
+impl_uarte!(UARTETWISPI0, UARTE0_NS, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
+impl_uarte!(UARTETWISPI1, UARTE1_NS, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
+impl_uarte!(UARTETWISPI2, UARTE2_NS, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
+impl_uarte!(UARTETWISPI3, UARTE3_NS, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
 
-impl_spim!(SPI0, SPIM0_NS, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
-impl_spim!(SPI1, SPIM1_NS, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
-impl_spim!(SPI2, SPIM2_NS, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
-impl_spim!(SPI3, SPIM3_NS, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
+impl_spim!(UARTETWISPI0, SPIM0_NS, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
+impl_spim!(UARTETWISPI1, SPIM1_NS, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
+impl_spim!(UARTETWISPI2, SPIM2_NS, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
+impl_spim!(UARTETWISPI3, SPIM3_NS, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
 
-impl_twim!(TWI0, TWIM0_NS, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
-impl_twim!(TWI1, TWIM1_NS, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
-impl_twim!(TWI2, TWIM2_NS, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
-impl_twim!(TWI3, TWIM3_NS, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
+impl_twim!(UARTETWISPI0, TWIM0_NS, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
+impl_twim!(UARTETWISPI1, TWIM1_NS, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
+impl_twim!(UARTETWISPI2, TWIM2_NS, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
+impl_twim!(UARTETWISPI3, TWIM3_NS, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
 
 impl_pwm!(PWM0, PWM0_NS, PWM0);
 impl_pwm!(PWM1, PWM1_NS, PWM1);

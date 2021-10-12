@@ -77,12 +77,8 @@ pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
 
-pub use chip::{peripherals, Peripherals};
-
-#[cfg(not(feature = "nrf9160"))]
 use crate::pac::CLOCK;
-#[cfg(feature = "nrf9160")]
-use crate::pac::CLOCK_NS as CLOCK;
+pub use chip::{peripherals, Peripherals};
 
 pub mod interrupt {
     pub use crate::chip::irqs::*;

@@ -12,10 +12,7 @@ use futures::future::poll_fn;
 use crate::interrupt;
 use crate::{pac, peripherals};
 
-#[cfg(not(feature = "nrf9160"))]
 use pac::{saadc, SAADC};
-#[cfg(feature = "nrf9160")]
-use pac::{saadc_ns as saadc, SAADC_NS as SAADC};
 
 pub use saadc::{
     ch::{

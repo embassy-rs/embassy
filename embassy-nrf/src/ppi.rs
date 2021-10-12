@@ -11,17 +11,11 @@
 //! On nRF52 devices, there is also a fork task endpoint, where the user can configure one more task
 //! to be triggered by the same event, even fixed PPI channels have a configurable fork task.
 
+use crate::{pac, peripherals};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use embassy::util::Unborrow;
 use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
-
-use crate::{pac, peripherals};
-
-#[cfg(feature = "nrf9160")]
-pub(crate) use pac::DPPIC_NS as PPI;
-#[cfg(not(feature = "nrf9160"))]
-pub(crate) use pac::PPI;
 
 // ======================
 //       driver
@@ -47,14 +41,14 @@ impl<'d, C: Channel> Ppi<'d, C> {
 
     /// Enables the channel.
     pub fn enable(&mut self) {
-        let r = unsafe { &*PPI::ptr() };
+        let r = unsafe { &*pac::PPI::ptr() };
         r.chenset
             .write(|w| unsafe { w.bits(1 << self.ch.number()) });
     }
 
     /// Disables the channel.
     pub fn disable(&mut self) {
-        let r = unsafe { &*PPI::ptr() };
+        let r = unsafe { &*pac::PPI::ptr() };
         r.chenclr
             .write(|w| unsafe { w.bits(1 << self.ch.number()) });
     }
@@ -63,7 +57,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
     /// Sets the fork task that must be triggered when the configured event occurs. The user must
     /// provide a reference to the task.
     pub fn set_fork_task(&mut self, task: Task) {
-        let r = unsafe { &*PPI::ptr() };
+        let r = unsafe { &*pac::PPI::ptr() };
         r.fork[self.ch.number()]
             .tep
             .write(|w| unsafe { w.bits(task.0.as_ptr() as u32) })
@@ -72,7 +66,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
     #[cfg(not(any(feature = "nrf51", feature = "nrf9160")))]
     /// Clear the fork task endpoint. Previously set task will no longer be triggered.
     pub fn clear_fork_task(&mut self) {
-        let r = unsafe { &*PPI::ptr() };
+        let r = unsafe { &*pac::PPI::ptr() };
         r.fork[self.ch.number()].tep.write(|w| unsafe { w.bits(0) })
     }
 
@@ -100,7 +94,7 @@ impl<'d, C: Channel> Drop for Ppi<'d, C> {
 impl<'d, C: ConfigurableChannel> Ppi<'d, C> {
     /// Sets the task to be triggered when the configured event occurs.
     pub fn set_task(&mut self, task: Task) {
-        let r = unsafe { &*PPI::ptr() };
+        let r = unsafe { &*pac::PPI::ptr() };
         r.ch[self.ch.number()]
             .tep
             .write(|w| unsafe { w.bits(task.0.as_ptr() as u32) })
@@ -108,7 +102,7 @@ impl<'d, C: ConfigurableChannel> Ppi<'d, C> {
 
     /// Sets the event that will trigger the chosen task(s).
     pub fn set_event(&mut self, event: Event) {
-        let r = unsafe { &*PPI::ptr() };
+        let r = unsafe { &*pac::PPI::ptr() };
         r.ch[self.ch.number()]
             .eep
             .write(|w| unsafe { w.bits(event.0.as_ptr() as u32) })

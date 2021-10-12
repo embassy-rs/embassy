@@ -3,13 +3,7 @@
 //! This HAL implements a basic watchdog timer with 1..=8 handles.
 //! Once the watchdog has been started, it cannot be stopped.
 
-use crate::pac;
-
-#[cfg(not(feature = "nrf9160"))]
-pub(crate) use pac::WDT;
-#[cfg(feature = "nrf9160")]
-pub(crate) use pac::WDT_NS as WDT;
-
+use crate::pac::WDT;
 use crate::peripherals;
 
 const MIN_TICKS: u32 = 15;

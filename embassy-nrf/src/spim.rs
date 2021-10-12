@@ -17,13 +17,8 @@ use crate::gpio::{OptionalPin, Pin as GpioPin};
 use crate::interrupt::Interrupt;
 use crate::{pac, util::slice_in_ram_or};
 
-#[cfg(not(feature = "nrf9160"))]
-pub(crate) use pac::spim0;
-#[cfg(feature = "nrf9160")]
-pub(crate) use pac::spim0_ns as spim0;
-
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-pub use spim0::frequency::FREQUENCY_A as Frequency;
+pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -381,7 +376,7 @@ pub(crate) mod sealed {
     }
 
     pub trait Instance {
-        fn regs() -> &'static spim0::RegisterBlock;
+        fn regs() -> &'static pac::spim0::RegisterBlock;
         fn state() -> &'static State;
     }
 }
@@ -393,7 +388,7 @@ pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static {
 macro_rules! impl_spim {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::spim::sealed::Instance for peripherals::$type {
-            fn regs() -> &'static crate::spim::spim0::RegisterBlock {
+            fn regs() -> &'static pac::spim0::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
             fn state() -> &'static crate::spim::sealed::State {
