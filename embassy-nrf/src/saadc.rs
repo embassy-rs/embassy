@@ -229,7 +229,7 @@ impl<'d, const N: usize> Drop for OneShot<'d, N> {
 }
 
 /// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
-pub trait Input {
+pub trait Input: Unborrow<Target = Self> {
     fn channel(&self) -> InputChannel;
 }
 
