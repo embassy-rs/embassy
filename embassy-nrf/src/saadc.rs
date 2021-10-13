@@ -228,17 +228,24 @@ impl<'d, const N: usize> Drop for OneShot<'d, N> {
     }
 }
 
-/// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
-pub trait Input: Unborrow<Target = Self> {
-    fn channel(&self) -> InputChannel;
+pub(crate) mod sealed {
+    use super::*;
+
+    pub trait Input {
+        fn channel(&self) -> InputChannel;
+    }
 }
+
+/// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
+pub trait Input: sealed::Input + Unborrow<Target = Self> {}
 
 macro_rules! impl_saadc_input {
     ($pin:ident, $ch:ident) => {
-        impl crate::saadc::Input for crate::peripherals::$pin {
+        impl crate::saadc::sealed::Input for crate::peripherals::$pin {
             fn channel(&self) -> crate::saadc::InputChannel {
                 crate::saadc::InputChannel::$ch
             }
         }
+        impl crate::saadc::Input for crate::peripherals::$pin {}
     };
 }
