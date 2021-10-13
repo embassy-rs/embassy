@@ -68,8 +68,6 @@ impl<'d, T: Instance> Uarte<'d, T> {
 
         let r = T::regs();
 
-        assert!(r.enable.read().enable().is_disabled());
-
         rxd.conf().write(|w| w.input().connect().drive().h0h1());
         r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
 
