@@ -14,11 +14,11 @@ use crate::{pac, peripherals};
 
 use pac::{saadc, SAADC};
 
+// We treat the positive and negative channels with the same enum values to keep our type tidy and given they are the same
+pub(crate) use saadc::ch::pselp::PSELP_A as InputChannel;
+
 pub use saadc::{
-    ch::{
-        config::{GAIN_A as Gain, REFSEL_A as Reference, RESP_A as Resistor, TACQ_A as Time},
-        pselp::PSELP_A as InputChannel, // We treat the positive and negative channels with the same enum values to keep our type tidy and given they are the same
-    },
+    ch::config::{GAIN_A as Gain, REFSEL_A as Reference, RESP_A as Resistor, TACQ_A as Time},
     oversample::OVERSAMPLE_A as Oversample,
     resolution::VAL_A as Resolution,
 };
@@ -228,17 +228,24 @@ impl<'d, const N: usize> Drop for OneShot<'d, N> {
     }
 }
 
-/// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
-pub trait Input {
-    fn channel(&self) -> InputChannel;
+pub(crate) mod sealed {
+    use super::*;
+
+    pub trait Input {
+        fn channel(&self) -> InputChannel;
+    }
 }
+
+/// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
+pub trait Input: sealed::Input + Unborrow<Target = Self> {}
 
 macro_rules! impl_saadc_input {
     ($pin:ident, $ch:ident) => {
-        impl crate::saadc::Input for crate::peripherals::$pin {
+        impl crate::saadc::sealed::Input for crate::peripherals::$pin {
             fn channel(&self) -> crate::saadc::InputChannel {
                 crate::saadc::InputChannel::$ch
             }
         }
+        impl crate::saadc::Input for crate::peripherals::$pin {}
     };
 }
