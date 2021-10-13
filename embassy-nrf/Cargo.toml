@@ -25,6 +25,7 @@ nrf52820 = ["nrf52820-pac"]
 nrf52832 = ["nrf52832-pac"]
 nrf52833 = ["nrf52833-pac"]
 nrf52840 = ["nrf52840-pac"]
+nrf9160 = ["nrf9160-pac"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
@@ -55,3 +56,4 @@ nrf52820-pac  = { version = "0.10.1", optional = true, features = [ "rt" ] }
 nrf52832-pac  = { version = "0.10.1", optional = true, features = [ "rt" ] }
 nrf52833-pac  = { version = "0.10.1", optional = true, features = [ "rt" ] }
 nrf52840-pac  = { version = "0.10.1", optional = true, features = [ "rt" ] }
+nrf9160-pac = { version = "0.10.1", optional = true, features = [ "rt" ] }

@@ -55,7 +55,11 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
 
     // Enable interrupts
 
+    #[cfg(not(feature = "nrf9160"))]
     let irq = unsafe { interrupt::GPIOTE::steal() };
+    #[cfg(feature = "nrf9160")]
+    let irq = unsafe { interrupt::GPIOTE1::steal() };
+
     irq.unpend();
     irq.set_priority(irq_prio);
     irq.enable();
@@ -65,8 +69,19 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     g.intenset.write(|w| w.port().set());
 }
 
+#[cfg(not(feature = "nrf9160"))]
 #[interrupt]
-unsafe fn GPIOTE() {
+fn GPIOTE() {
+    unsafe { handle_gpiote_interrupt() };
+}
+
+#[cfg(feature = "nrf9160")]
+#[interrupt]
+fn GPIOTE1() {
+    unsafe { handle_gpiote_interrupt() };
+}
+
+unsafe fn handle_gpiote_interrupt() {
     let g = &*pac::GPIOTE::ptr();
 
     for i in 0..CHANNEL_COUNT {

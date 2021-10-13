@@ -17,7 +17,7 @@ use self::sealed::Pin as _;
 /// A GPIO port with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Port {
-    /// Port 0, available on all nRF52 and nRF51 MCUs.
+    /// Port 0, available on nRF9160 and all nRF52 and nRF51 MCUs.
     Port0,
 
     /// Port 1, only available on some nRF52 MCUs.
