@@ -20,6 +20,16 @@ use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 // ======================
 //       driver
 
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub enum Error {
+    NoCapacityLeft,
+    UnknownTask,
+    TaskAlreadyInUse,
+    UnknownEvent,
+    EventAlreadyInUse,
+}
+
 pub struct Ppi<'d, C: Channel> {
     ch: C,
     phantom: PhantomData<&'d mut C>,
@@ -29,14 +39,10 @@ impl<'d, C: Channel> Ppi<'d, C> {
     pub fn new(ch: impl Unborrow<Target = C> + 'd) -> Self {
         unborrow!(ch);
 
-        #[allow(unused_mut)]
-        let mut this = Self {
+        Self {
             ch,
             phantom: PhantomData,
-        };
-        #[cfg(not(any(feature = "nrf51", feature = "nrf9160")))]
-        this.clear_fork_task();
-        this
+        }
     }
 
     /// Enables the channel.
@@ -52,35 +58,279 @@ impl<'d, C: Channel> Ppi<'d, C> {
         r.chenclr
             .write(|w| unsafe { w.bits(1 << self.ch.number()) });
     }
+}
 
-    #[cfg(not(any(feature = "nrf51", feature = "nrf9160")))]
-    /// Sets the fork task that must be triggered when the configured event occurs. The user must
-    /// provide a reference to the task.
-    pub fn set_fork_task(&mut self, task: Task) {
+#[cfg(feature = "_ppi")]
+impl<'d, C: Channel> Ppi<'d, C> {
+    /// Makes it so that the given task is subscribed to this channel
+    pub fn subscribe(&mut self, task: Task) -> Result<(), Error> {
+        if self.is_main_task_free() {
+            self.set_main_task(Some(task));
+            Ok(())
+        } else if self.is_fork_task_free() {
+            self.set_fork_task(Some(task));
+            Ok(())
+        } else {
+            Err(Error::NoCapacityLeft)
+        }
+    }
+
+    /// Makes it so that the given task is not subscribed to this channel
+    pub fn unsubscribe(&mut self, task: Task) -> Result<(), Error> {
+        if self.get_main_task() == Some(task) {
+            // If there is a fork task, we move that to the main task for consistency
+            // If there is no fork task, then the main task is set to 0
+            let fork_task = self.get_fork_task();
+            self.set_main_task(fork_task);
+
+            if self.has_fork_task() {
+                // The fork task was copied to the main task, so reset the fork task
+                self.set_fork_task(None);
+            }
+            Ok(())
+        } else if self.get_fork_task() == Some(task) {
+            // Reset the fork task
+            self.set_fork_task(None);
+            Ok(())
+        } else {
+            Err(Error::UnknownTask)
+        }
+    }
+
+    /// Makes it so that the given event is published on this channel
+    pub fn publish(&mut self, event: Event) -> Result<(), Error> {
+        if self.is_event_free() {
+            self.set_event(Some(event));
+            Ok(())
+        } else {
+            Err(Error::NoCapacityLeft)
+        }
+    }
+
+    /// Makes it so that the given event is not published on this channel
+    pub fn unpublish(&mut self, event: Event) -> Result<(), Error> {
+        if self.get_event() == Some(event) {
+            self.set_event(None);
+            Ok(())
+        } else {
+            Err(Error::UnknownEvent)
+        }
+    }
+
+    fn set_main_task(&mut self, task: Option<Task>) {
         let r = unsafe { &*pac::PPI::ptr() };
-        r.fork[self.ch.number()]
-            .tep
-            .write(|w| unsafe { w.bits(task.0.as_ptr() as u32) })
+        if let Some(task) = task {
+            r.ch[self.ch.number()]
+                .tep
+                .write(|w| unsafe { w.bits(task.0.as_ptr() as u32) })
+        } else {
+            r.ch[self.ch.number()].tep.write(|w| unsafe { w.bits(0) })
+        }
     }
 
-    #[cfg(not(any(feature = "nrf51", feature = "nrf9160")))]
-    /// Clear the fork task endpoint. Previously set task will no longer be triggered.
-    pub fn clear_fork_task(&mut self) {
+    fn get_main_task(&mut self) -> Option<Task> {
         let r = unsafe { &*pac::PPI::ptr() };
-        r.fork[self.ch.number()].tep.write(|w| unsafe { w.bits(0) })
+
+        if !self.has_main_task() {
+            return None;
+        }
+
+        let bits = r.ch[self.ch.number()].tep.read().tep().bits();
+
+        if bits == 0 {
+            None
+        } else {
+            unsafe { Some(Task(NonNull::new_unchecked(bits as *mut _))) }
+        }
     }
 
-    #[cfg(feature = "nrf9160")]
-    /// Sets the fork task that must be triggered when the configured event occurs. The user must
-    /// provide a reference to the task.
-    pub fn set_fork_task(&mut self, _task: Task) {
-        todo!("Tasks not yet implemented for nrf9160");
+    fn set_fork_task(&mut self, task: Option<Task>) {
+        let r = unsafe { &*pac::PPI::ptr() };
+        if let Some(task) = task {
+            r.fork[self.ch.number()]
+                .tep
+                .write(|w| unsafe { w.bits(task.0.as_ptr() as u32) })
+        } else {
+            r.fork[self.ch.number()].tep.write(|w| unsafe { w.bits(0) })
+        }
     }
 
-    #[cfg(feature = "nrf9160")]
-    /// Clear the fork task endpoint. Previously set task will no longer be triggered.
-    pub fn clear_fork_task(&mut self) {
-        todo!("Tasks not yet implemented for nrf9160");
+    fn get_fork_task(&mut self) -> Option<Task> {
+        let r = unsafe { &*pac::PPI::ptr() };
+
+        if !self.has_fork_task() {
+            return None;
+        }
+
+        let bits = r.fork[self.ch.number()].tep.read().tep().bits();
+
+        if bits == 0 {
+            None
+        } else {
+            unsafe { Some(Task(NonNull::new_unchecked(bits as *mut _))) }
+        }
+    }
+
+    fn has_main_task(&self) -> bool {
+        match (self.ch.task_capacity(), self.ch.event_capacity()) {
+            (0, 0) => false,     // Static task
+            (1, 0) => false,     // Static task with fork
+            (1 | 2, 1) => true,  // Configurable task with possibly a fork
+            _ => unreachable!(), // Every PPI config is covered
+        }
+    }
+
+    fn has_fork_task(&self) -> bool {
+        match (self.ch.task_capacity(), self.ch.event_capacity()) {
+            (0, 0) => false,     // Static task
+            (1, 0) => true,      // Static task with fork
+            (1, 1) => false,     // Configurable task without fork
+            (2, 1) => true,      // Configurable task with fork
+            _ => unreachable!(), // Every PPI config is covered
+        }
+    }
+
+    fn is_main_task_free(&mut self) -> bool {
+        self.get_main_task().is_none()
+    }
+
+    fn is_fork_task_free(&mut self) -> bool {
+        self.get_fork_task().is_none()
+    }
+
+    fn set_event(&mut self, event: Option<Event>) {
+        let r = unsafe { &*pac::PPI::ptr() };
+        if let Some(event) = event {
+            r.ch[self.ch.number()]
+                .eep
+                .write(|w| unsafe { w.bits(event.0.as_ptr() as u32) })
+        } else {
+            r.ch[self.ch.number()].eep.write(|w| unsafe { w.bits(0) })
+        }
+    }
+
+    fn get_event(&mut self) -> Option<Event> {
+        let r = unsafe { &*pac::PPI::ptr() };
+
+        if !self.has_event() {
+            return None;
+        }
+
+        let bits = r.ch[self.ch.number()].eep.read().eep().bits();
+
+        if bits == 0 {
+            None
+        } else {
+            unsafe { Some(Event(NonNull::new_unchecked(bits as *mut _))) }
+        }
+    }
+
+    fn has_event(&self) -> bool {
+        match (self.ch.task_capacity(), self.ch.event_capacity()) {
+            (_, 0) => false,     // Static event
+            (_, 1) => true,      // Configurable event
+            _ => unreachable!(), // Every PPI config is covered
+        }
+    }
+
+    fn is_event_free(&mut self) -> bool {
+        self.get_event().is_none()
+    }
+}
+
+#[cfg(feature = "_dppi")]
+const DPPI_ENABLE_BIT: u32 = 0x8000_0000;
+#[cfg(feature = "_dppi")]
+const DPPI_CHANNEL_MASK: u32 = 0x0000_00FF;
+
+#[cfg(feature = "_dppi")]
+impl<'d, C: Channel> Ppi<'d, C> {
+    /// Makes it so that the given task is subscribed to this channel
+    pub fn subscribe(&mut self, task: Task) -> Result<(), Error> {
+        unsafe {
+            if Self::is_register_enabled(task.0) {
+                Err(Error::TaskAlreadyInUse)
+            } else {
+                Self::set_register_active(task.0, self.ch.number() as u8);
+                Ok(())
+            }
+        }
+    }
+
+    /// Makes it so that the given task is not subscribed to this channel
+    pub fn unsubscribe(&mut self, task: Task) -> Result<(), Error> {
+        unsafe {
+            if Self::get_register_channel(task.0) != self.ch.number() as u8 {
+                Err(Error::UnknownTask)
+            } else {
+                Self::set_register_inactive(task.0);
+                Ok(())
+            }
+        }
+    }
+
+    /// Makes it so that the given event is published on this channel
+    pub fn publish(&mut self, event: Event) -> Result<(), Error> {
+        unsafe {
+            if Self::is_register_enabled(event.0) {
+                Err(Error::TaskAlreadyInUse)
+            } else {
+                Self::set_register_active(event.0, self.ch.number() as u8);
+                Ok(())
+            }
+        }
+    }
+
+    /// Makes it so that the given event is not published on this channel
+    pub fn unpublish(&mut self, event: Event) -> Result<(), Error> {
+        unsafe {
+            if Self::get_register_channel(event.0) != self.ch.number() as u8 {
+                Err(Error::UnknownTask)
+            } else {
+                Self::set_register_inactive(event.0);
+                Ok(())
+            }
+        }
+    }
+
+    /// Checks if the DPPI_ENABLE_BIT is set in the register
+    ///
+    /// # Safety
+    ///
+    /// The register pointer must point at one of the many SUBSCRIBE_* or PUBLISH_* registers of the peripherals
+    unsafe fn is_register_enabled(register: NonNull<u32>) -> bool {
+        let bits = register.as_ptr().read_volatile();
+        bits & DPPI_ENABLE_BIT > 0
+    }
+
+    /// Sets the register to the given channel and enables it
+    ///
+    /// # Safety
+    ///
+    /// The register pointer must point at one of the many SUBSCRIBE_* or PUBLISH_* registers of the peripherals
+    unsafe fn set_register_active(register: NonNull<u32>, channel: u8) {
+        register
+            .as_ptr()
+            .write_volatile(DPPI_ENABLE_BIT | (channel as u32 & DPPI_CHANNEL_MASK));
+    }
+
+    /// Resets the channel number and disables the register
+    ///
+    /// # Safety
+    ///
+    /// The register pointer must point at one of the many SUBSCRIBE_* or PUBLISH_* registers of the peripherals
+    unsafe fn set_register_inactive(register: NonNull<u32>) {
+        register.as_ptr().write_volatile(0);
+    }
+
+    /// Gets the current configured channel number of the register
+    ///
+    /// # Safety
+    ///
+    /// The register pointer must point at one of the many SUBSCRIBE_* or PUBLISH_* registers of the peripherals
+    unsafe fn get_register_channel(register: NonNull<u32>) -> u8 {
+        let bits = register.as_ptr().read_volatile();
+        (bits & DPPI_CHANNEL_MASK) as u8
     }
 }
 
@@ -90,73 +340,59 @@ impl<'d, C: Channel> Drop for Ppi<'d, C> {
     }
 }
 
-#[cfg(not(feature = "nrf9160"))]
-impl<'d, C: ConfigurableChannel> Ppi<'d, C> {
-    /// Sets the task to be triggered when the configured event occurs.
-    pub fn set_task(&mut self, task: Task) {
-        let r = unsafe { &*pac::PPI::ptr() };
-        r.ch[self.ch.number()]
-            .tep
-            .write(|w| unsafe { w.bits(task.0.as_ptr() as u32) })
-    }
-
-    /// Sets the event that will trigger the chosen task(s).
-    pub fn set_event(&mut self, event: Event) {
-        let r = unsafe { &*pac::PPI::ptr() };
-        r.ch[self.ch.number()]
-            .eep
-            .write(|w| unsafe { w.bits(event.0.as_ptr() as u32) })
+/// Represents a task that a peripheral can do.
+/// When a task is subscribed to a PPI channel it will run when the channel is triggered by
+/// a published event.
+///
+/// The pointer in the task can point to two different kinds of register:
+/// - PPI *(nRF51 & nRF52)*: A pointer to a task register of the task of the peripheral that has
+/// to be registered with the PPI to subscribe to a channel
+/// - DPPI *(nRF53 & nRF91)*: A pointer to the subscribe register of the task of the peripheral
+/// that has to have the channel number and enable bit written tp it to subscribe to a channel
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub struct Task(pub NonNull<u32>);
+impl Task {
+    pub(crate) fn from_reg<T>(reg: &T) -> Self {
+        Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) })
     }
 }
 
-#[cfg(feature = "nrf9160")]
-impl<'d, C: ConfigurableChannel> Ppi<'d, C> {
-    /// Sets the task to be triggered when the configured event occurs.
-    pub fn set_task(&mut self, _task: Task) {
-        todo!("Tasks not yet implemented for nrf9160")
-    }
-
-    /// Sets the event that will trigger the chosen task(s).
-    pub fn set_event(&mut self, _event: Event) {
-        todo!("Events not yet implemented for nrf9160")
+/// Represents an event that a peripheral can publish.
+/// An event can be set to publish on a PPI channel when the event happens.
+///
+/// The pointer in the event can point to two different kinds of register:
+/// - PPI *(nRF51 & nRF52)*: A pointer to an event register of the event of the peripheral that has
+/// to be registered with the PPI to publish to a channel
+/// - DPPI *(nRF53 & nRF91)*: A pointer to the publish register of the event of the peripheral
+/// that has to have the channel number and enable bit written tp it to publish to a channel
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub struct Event(pub NonNull<u32>);
+impl Event {
+    pub(crate) fn from_reg<T>(reg: &T) -> Self {
+        Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) })
     }
 }
 
 // ======================
 //       traits
 
-pub struct Task(pub NonNull<()>);
-impl Task {
-    pub(crate) fn from_reg<T>(reg: &T) -> Self {
-        Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut ()) })
-    }
-}
-
-pub struct Event(pub NonNull<()>);
-impl Event {
-    pub(crate) fn from_reg<T>(reg: &T) -> Self {
-        Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut ()) })
-    }
-}
-
 pub(crate) mod sealed {
-    pub trait ConfigurableChannel {}
     pub trait Channel {}
     pub trait Group {}
 }
 
 pub trait Channel: sealed::Channel + Sized {
     fn number(&self) -> usize;
+    fn task_capacity(&self) -> usize;
+    fn event_capacity(&self) -> usize;
+
     fn degrade(self) -> AnyChannel {
+        pub trait ConfigurableChannel {}
+
         AnyChannel {
             number: self.number() as u8,
-        }
-    }
-}
-pub trait ConfigurableChannel: Channel + sealed::ConfigurableChannel {
-    fn degrade_configurable(self) -> AnyConfigurableChannel {
-        AnyConfigurableChannel {
-            number: self.number() as u8,
+            task_capacity: self.task_capacity() as _,
+            event_capacity: self.event_capacity() as _,
         }
     }
 }
@@ -175,6 +411,8 @@ pub trait Group: sealed::Group + Sized {
 
 pub struct AnyChannel {
     number: u8,
+    task_capacity: u8,
+    event_capacity: u8,
 }
 unsafe_impl_unborrow!(AnyChannel);
 impl sealed::Channel for AnyChannel {}
@@ -182,32 +420,42 @@ impl Channel for AnyChannel {
     fn number(&self) -> usize {
         self.number as usize
     }
-}
 
-pub struct AnyConfigurableChannel {
-    number: u8,
-}
-unsafe_impl_unborrow!(AnyConfigurableChannel);
-impl sealed::Channel for AnyConfigurableChannel {}
-impl sealed::ConfigurableChannel for AnyConfigurableChannel {}
-impl ConfigurableChannel for AnyConfigurableChannel {}
-impl Channel for AnyConfigurableChannel {
-    fn number(&self) -> usize {
-        self.number as usize
+    fn task_capacity(&self) -> usize {
+        self.task_capacity as _
+    }
+
+    fn event_capacity(&self) -> usize {
+        self.event_capacity as _
     }
 }
 
 macro_rules! impl_ppi_channel {
-    ($type:ident, $number:expr, configurable) => {
-        impl_ppi_channel!($type, $number);
-        impl crate::ppi::sealed::ConfigurableChannel for peripherals::$type {}
-        impl crate::ppi::ConfigurableChannel for peripherals::$type {}
+    ($type:ident, $number:expr, $task_capacity:expr, $event_capacity:expr) => {
+        impl crate::ppi::sealed::Channel for peripherals::$type {}
+        impl crate::ppi::Channel for peripherals::$type {
+            fn number(&self) -> usize {
+                $number
+            }
+            fn task_capacity(&self) -> usize {
+                $task_capacity
+            }
+            fn event_capacity(&self) -> usize {
+                $event_capacity
+            }
+        }
     };
     ($type:ident, $number:expr) => {
         impl crate::ppi::sealed::Channel for peripherals::$type {}
         impl crate::ppi::Channel for peripherals::$type {
             fn number(&self) -> usize {
                 $number
+            }
+            fn task_capacity(&self) -> usize {
+                usize::MAX
+            }
+            fn event_capacity(&self) -> usize {
+                usize::MAX
             }
         }
     };

@@ -52,24 +52,24 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     );
 
     let mut ppi = Ppi::new(p.PPI_CH0);
-    ppi.set_event(button1.event_in());
-    ppi.set_task(led1.task_out());
+    ppi.publish(button1.event_in()).unwrap();
+    ppi.subscribe(led1.task_out()).unwrap();
     ppi.enable();
 
     let mut ppi = Ppi::new(p.PPI_CH1);
-    ppi.set_event(button2.event_in());
-    ppi.set_task(led1.task_clr());
+    ppi.publish(button2.event_in()).unwrap();
+    ppi.subscribe(led1.task_clr()).unwrap();
     ppi.enable();
 
     let mut ppi = Ppi::new(p.PPI_CH2);
-    ppi.set_event(button3.event_in());
-    ppi.set_task(led1.task_set());
+    ppi.publish(button3.event_in()).unwrap();
+    ppi.subscribe(led1.task_set()).unwrap();
     ppi.enable();
 
     let mut ppi = Ppi::new(p.PPI_CH3);
-    ppi.set_event(button4.event_in());
-    ppi.set_task(led1.task_out());
-    ppi.set_fork_task(led2.task_out());
+    ppi.publish(button4.event_in()).unwrap();
+    ppi.subscribe(led1.task_out()).unwrap();
+    ppi.subscribe(led2.task_out()).unwrap();
     ppi.enable();
 
     info!("PPI setup!");

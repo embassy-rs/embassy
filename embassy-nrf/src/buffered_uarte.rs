@@ -5,7 +5,7 @@ use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 use embassy::interrupt::InterruptExt;
-use embassy::io::{AsyncBufRead, AsyncWrite, Result};
+use embassy::io::{AsyncBufRead, AsyncWrite};
 use embassy::util::Unborrow;
 use embassy::waitqueue::WakerRegistration;
 use embassy_hal_common::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
@@ -14,14 +14,26 @@ use embassy_hal_common::{low_power_wait_until, unborrow};
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
-use crate::pac;
-use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
+use crate::ppi::{AnyChannel, Channel, Event, Ppi, Task};
 use crate::timer::Instance as TimerInstance;
 use crate::timer::{Frequency, Timer};
 use crate::uarte::{Config, Instance as UarteInstance};
+use crate::{pac, ppi};
 
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
+
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub enum Error {
+    PpiError(ppi::Error),
+}
+
+impl From<ppi::Error> for Error {
+    fn from(e: ppi::Error) -> Self {
+        Self::PpiError(e)
+    }
+}
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum RxState {
@@ -45,8 +57,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> State<'d, U, T> {
 struct StateInner<'d, U: UarteInstance, T: TimerInstance> {
     phantom: PhantomData<&'d mut U>,
     timer: Timer<'d, T>,
-    _ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
-    _ppi_ch2: Ppi<'d, AnyConfigurableChannel>,
+    _ppi_ch1: Ppi<'d, AnyChannel>,
+    _ppi_ch2: Ppi<'d, AnyChannel>,
 
     rx: RingBuffer<'d>,
     rx_state: RxState,
@@ -66,12 +78,15 @@ impl<'d, U: UarteInstance, T: TimerInstance> Unpin for BufferedUarte<'d, U, T> {
 
 impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     /// unsafe: may not leak self or futures
+    ///
+    /// - *Note:* ppi_ch1 must have at least 1 free event and 2 free tasks or a PPI error is returned
+    /// - *Note:* ppi_ch2 must have at least 1 free event and 1 free tasks or a PPI error is returned
     pub unsafe fn new(
         state: &'d mut State<'d, U, T>,
         _uarte: impl Unborrow<Target = U> + 'd,
         timer: impl Unborrow<Target = T> + 'd,
-        ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel> + 'd,
-        ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel> + 'd,
+        ppi_ch1: impl Unborrow<Target = impl Channel> + 'd,
+        ppi_ch2: impl Unborrow<Target = impl Channel> + 'd,
         irq: impl Unborrow<Target = U::Interrupt> + 'd,
         rxd: impl Unborrow<Target = impl GpioPin> + 'd,
         txd: impl Unborrow<Target = impl GpioPin> + 'd,
@@ -80,7 +95,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         config: Config,
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
-    ) -> Self {
+    ) -> Result<Self, Error> {
         unborrow!(ppi_ch1, ppi_ch2, irq, rxd, txd, cts, rts);
 
         let r = U::regs();
@@ -144,18 +159,18 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         timer.cc(0).short_compare_clear();
         timer.cc(0).short_compare_stop();
 
-        let mut ppi_ch1 = Ppi::new(ppi_ch1.degrade_configurable());
-        ppi_ch1.set_event(Event::from_reg(&r.events_rxdrdy));
-        ppi_ch1.set_task(timer.task_clear());
-        ppi_ch1.set_fork_task(timer.task_start());
+        let mut ppi_ch1 = Ppi::new(ppi_ch1.degrade());
+        ppi_ch1.publish(Event::from_reg(&r.events_rxdrdy))?;
+        ppi_ch1.subscribe(timer.task_clear())?;
+        ppi_ch1.subscribe(timer.task_start())?;
         ppi_ch1.enable();
 
-        let mut ppi_ch2 = Ppi::new(ppi_ch2.degrade_configurable());
-        ppi_ch2.set_event(timer.cc(0).event_compare());
-        ppi_ch2.set_task(Task::from_reg(&r.tasks_stoprx));
+        let mut ppi_ch2 = Ppi::new(ppi_ch2.degrade());
+        ppi_ch2.publish(timer.cc(0).event_compare())?;
+        ppi_ch2.subscribe(Task::from_reg(&r.tasks_stoprx))?;
         ppi_ch2.enable();
 
-        Self {
+        Ok(Self {
             inner: PeripheralMutex::new_unchecked(irq, &mut state.0, move || StateInner {
                 phantom: PhantomData,
                 timer,
@@ -170,7 +185,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
                 tx_state: TxState::Idle,
                 tx_waker: WakerRegistration::new(),
             }),
-        }
+        })
     }
 
     pub fn set_baudrate(&mut self, baudrate: Baudrate) {
@@ -187,7 +202,10 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 }
 
 impl<'d, U: UarteInstance, T: TimerInstance> AsyncBufRead for BufferedUarte<'d, U, T> {
-    fn poll_fill_buf(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8]>> {
+    fn poll_fill_buf(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<embassy::io::Result<&[u8]>> {
         self.inner.with(|state| {
             // Conservative compiler fence to prevent optimizations that do not
             // take in to account actions by DMA. The fence has been placed here,
@@ -206,7 +224,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> AsyncBufRead for BufferedUarte<'d, 
 
             trace!("  empty");
             state.rx_waker.register(cx.waker());
-            Poll::<Result<&[u8]>>::Pending
+            Poll::<embassy::io::Result<&[u8]>>::Pending
         })
     }
 
@@ -224,7 +242,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U,
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
-    ) -> Poll<Result<usize>> {
+    ) -> Poll<embassy::io::Result<usize>> {
         let poll = self.inner.with(|state| {
             trace!("poll_write: {:?}", buf.len());
 

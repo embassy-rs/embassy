@@ -184,21 +184,36 @@ impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
     ///
     /// When triggered, this task starts the timer.
     pub fn task_start(&self) -> Task {
-        Task::from_reg(&T::regs().tasks_start)
+        #[cfg(feature = "_ppi")]
+        let reg = &T::regs().tasks_start;
+        #[cfg(feature = "_dppi")]
+        let reg = &T::regs().subscribe_start;
+
+        Task::from_reg(reg)
     }
 
     /// Returns the STOP task, for use with PPI.
     ///
     /// When triggered, this task stops the timer.
     pub fn task_stop(&self) -> Task {
-        Task::from_reg(&T::regs().tasks_stop)
+        #[cfg(feature = "_ppi")]
+        let reg = &T::regs().tasks_stop;
+        #[cfg(feature = "_dppi")]
+        let reg = &T::regs().subscribe_stop;
+
+        Task::from_reg(reg)
     }
 
     /// Returns the CLEAR task, for use with PPI.
     ///
     /// When triggered, this task resets the timer's counter to 0.
     pub fn task_clear(&self) -> Task {
-        Task::from_reg(&T::regs().tasks_clear)
+        #[cfg(feature = "_ppi")]
+        let reg = &T::regs().tasks_clear;
+        #[cfg(feature = "_dppi")]
+        let reg = &T::regs().subscribe_clear;
+
+        Task::from_reg(reg)
     }
 
     /// Change the timer's frequency.
@@ -319,14 +334,24 @@ impl<'a, T: Instance, I: TimerType> Cc<'a, T, I> {
     ///
     /// When triggered, this task will capture the current value of the timer's counter in this register.
     pub fn task_capture(&self) -> Task {
-        Task::from_reg(&T::regs().tasks_capture[self.n])
+        #[cfg(feature = "_ppi")]
+        let reg = &T::regs().tasks_capture;
+        #[cfg(feature = "_dppi")]
+        let reg = &T::regs().subscribe_capture;
+
+        Task::from_reg(reg)
     }
 
     /// Returns this CC register's COMPARE event, for use with PPI.
     ///
     /// This event will fire when the timer's counter reaches the value in this CC register.
     pub fn event_compare(&self) -> Event {
-        Event::from_reg(&T::regs().events_compare[self.n])
+        #[cfg(feature = "_ppi")]
+        let reg = &T::regs().events_compare[self.n];
+        #[cfg(feature = "_dppi")]
+        let reg = &T::regs().publish_compare[self.n];
+
+        Event::from_reg(reg)
     }
 
     /// Enable the shortcut between this CC register's COMPARE event and the timer's CLEAR task.

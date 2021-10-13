@@ -7,7 +7,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 use embassy::interrupt::InterruptExt;
-use embassy::traits::uart::{Error, Read, ReadUntilIdle, Write};
+use embassy::traits::uart::{Error as TraitError, Read, ReadUntilIdle, Write};
 use embassy::util::Unborrow;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
@@ -18,12 +18,24 @@ use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, OptionalPin as GpioOptionalPin, Pin as GpioPin};
 use crate::interrupt::Interrupt;
 use crate::pac;
-use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
+use crate::ppi::{AnyChannel, Channel, Event, Ppi, Task};
 use crate::timer::Instance as TimerInstance;
 use crate::timer::{Frequency, Timer};
 
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
+
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub enum Error {
+    PpiError(crate::ppi::Error),
+}
+
+impl From<crate::ppi::Error> for Error {
+    fn from(e: crate::ppi::Error) -> Self {
+        Self::PpiError(e)
+    }
+}
 
 #[non_exhaustive]
 pub struct Config {
@@ -219,7 +231,7 @@ impl<'a, T: Instance> Drop for Uarte<'a, T> {
 
 impl<'d, T: Instance> Read for Uarte<'d, T> {
     #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Error>> + 'a;
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
 
     fn read<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
         async move {
@@ -273,7 +285,7 @@ impl<'d, T: Instance> Read for Uarte<'d, T> {
 
 impl<'d, T: Instance> Write for Uarte<'d, T> {
     #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Error>> + 'a;
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
 
     fn write<'a>(&'a mut self, tx_buffer: &'a [u8]) -> Self::WriteFuture<'a> {
         async move {
@@ -331,13 +343,16 @@ impl<'d, T: Instance> Write for Uarte<'d, T> {
 pub struct UarteWithIdle<'d, U: Instance, T: TimerInstance> {
     uarte: Uarte<'d, U>,
     timer: Timer<'d, T>,
-    ppi_ch1: Ppi<'d, AnyConfigurableChannel>,
-    _ppi_ch2: Ppi<'d, AnyConfigurableChannel>,
+    ppi_ch1: Ppi<'d, AnyChannel>,
+    _ppi_ch2: Ppi<'d, AnyChannel>,
 }
 
 impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
     /// Creates the interface to a UARTE instance.
     /// Sets the baud rate, parity and assigns the pins to the UARTE peripheral.
+    ///
+    /// - *Note:* ppi_ch1 must have at least 1 free event and 2 free tasks or a PPI error is returned
+    /// - *Note:* ppi_ch2 must have at least 1 free event and 1 free tasks or a PPI error is returned
     ///
     /// # Safety
     ///
@@ -348,15 +363,15 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
     pub unsafe fn new(
         uarte: impl Unborrow<Target = U> + 'd,
         timer: impl Unborrow<Target = T> + 'd,
-        ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel> + 'd,
-        ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel> + 'd,
+        ppi_ch1: impl Unborrow<Target = impl Channel> + 'd,
+        ppi_ch2: impl Unborrow<Target = impl Channel> + 'd,
         irq: impl Unborrow<Target = U::Interrupt> + 'd,
         rxd: impl Unborrow<Target = impl GpioPin> + 'd,
         txd: impl Unborrow<Target = impl GpioPin> + 'd,
         cts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         rts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let baudrate = config.baudrate;
         let uarte = Uarte::new(uarte, irq, rxd, txd, cts, rts, config);
         let mut timer = Timer::new(timer);
@@ -378,29 +393,29 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         timer.cc(0).short_compare_clear();
         timer.cc(0).short_compare_stop();
 
-        let mut ppi_ch1 = Ppi::new(ppi_ch1.degrade_configurable());
-        ppi_ch1.set_event(Event::from_reg(&r.events_rxdrdy));
-        ppi_ch1.set_task(timer.task_clear());
-        ppi_ch1.set_fork_task(timer.task_start());
+        let mut ppi_ch1 = Ppi::new(ppi_ch1.degrade());
+        ppi_ch1.publish(Event::from_reg(&r.events_rxdrdy))?;
+        ppi_ch1.subscribe(timer.task_clear())?;
+        ppi_ch1.subscribe(timer.task_start())?;
         ppi_ch1.enable();
 
-        let mut ppi_ch2 = Ppi::new(ppi_ch2.degrade_configurable());
-        ppi_ch2.set_event(timer.cc(0).event_compare());
-        ppi_ch2.set_task(Task::from_reg(&r.tasks_stoprx));
+        let mut ppi_ch2 = Ppi::new(ppi_ch2.degrade());
+        ppi_ch2.publish(timer.cc(0).event_compare())?;
+        ppi_ch2.subscribe(Task::from_reg(&r.tasks_stoprx))?;
         ppi_ch2.enable();
 
-        Self {
+        Ok(Self {
             uarte,
             timer,
             ppi_ch1: ppi_ch1,
             _ppi_ch2: ppi_ch2,
-        }
+        })
     }
 }
 
 impl<'d, U: Instance, T: TimerInstance> ReadUntilIdle for UarteWithIdle<'d, U, T> {
     #[rustfmt::skip]
-    type ReadUntilIdleFuture<'a> where Self: 'a = impl Future<Output = Result<usize, Error>> + 'a;
+    type ReadUntilIdleFuture<'a> where Self: 'a = impl Future<Output = Result<usize, TraitError>> + 'a;
     fn read_until_idle<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadUntilIdleFuture<'a> {
         async move {
             let ptr = rx_buffer.as_ptr();
@@ -460,7 +475,7 @@ impl<'d, U: Instance, T: TimerInstance> ReadUntilIdle for UarteWithIdle<'d, U, T
 
 impl<'d, U: Instance, T: TimerInstance> Read for UarteWithIdle<'d, U, T> {
     #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Error>> + 'a;
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
     fn read<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
         async move {
             self.ppi_ch1.disable();
@@ -473,7 +488,7 @@ impl<'d, U: Instance, T: TimerInstance> Read for UarteWithIdle<'d, U, T> {
 
 impl<'d, U: Instance, T: TimerInstance> Write for UarteWithIdle<'d, U, T> {
     #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Error>> + 'a;
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
 
     fn write<'a>(&'a mut self, tx_buffer: &'a [u8]) -> Self::WriteFuture<'a> {
         self.uarte.write(tx_buffer)
