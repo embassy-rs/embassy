@@ -14,11 +14,11 @@ use crate::{pac, peripherals};
 
 use pac::{saadc, SAADC};
 
+// We treat the positive and negative channels with the same enum values to keep our type tidy and given they are the same
+pub(crate) use saadc::ch::pselp::PSELP_A as InputChannel;
+
 pub use saadc::{
-    ch::{
-        config::{GAIN_A as Gain, REFSEL_A as Reference, RESP_A as Resistor, TACQ_A as Time},
-        pselp::PSELP_A as InputChannel, // We treat the positive and negative channels with the same enum values to keep our type tidy and given they are the same
-    },
+    ch::config::{GAIN_A as Gain, REFSEL_A as Reference, RESP_A as Resistor, TACQ_A as Time},
     oversample::OVERSAMPLE_A as Oversample,
     resolution::VAL_A as Resolution,
 };
