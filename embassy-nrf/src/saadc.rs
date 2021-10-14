@@ -317,7 +317,6 @@ impl<'d, const N: usize> Saadc<'d, N> {
             if r.events_end.read().bits() != 0 {
                 r.events_end.reset();
                 r.intenset.write(|w| w.end().set());
-                info!("Ended");
 
                 if sampler(&bufs[current_buffer][0..r.result.amount.read().bits() as usize])
                     == SamplerState::Sampled
@@ -334,7 +333,6 @@ impl<'d, const N: usize> Saadc<'d, N> {
             if r.events_started.read().bits() != 0 {
                 r.events_started.reset();
                 r.intenset.write(|w| w.started().set());
-                info!("Started");
 
                 if let Mode::Timers(_) = mode {
                     r.tasks_sample.write(|w| unsafe { w.bits(1) });
