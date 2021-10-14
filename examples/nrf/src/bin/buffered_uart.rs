@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let irq = interrupt::take!(UARTE0_UART0);
     let mut state = State::new();
     let u = unsafe {
-        BufferedUarte::new(
+        unwrap!(BufferedUarte::new(
             &mut state,
             p.UARTE0,
             p.TIMER0,
@@ -40,7 +40,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
             config,
             &mut rx_buffer,
             &mut tx_buffer,
-        )
+        ))
     };
     pin_mut!(u);
 

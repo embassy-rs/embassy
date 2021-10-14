@@ -23,6 +23,7 @@ use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 /// Error type of the PPI driver
 #[non_exhaustive]
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// There is no capacity to enable this task or event (nRF51 & nRF52 only)
     NoCapacityLeft,

@@ -27,6 +27,7 @@ pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Pari
 
 #[non_exhaustive]
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     PpiError(crate::ppi::Error),
 }
