@@ -20,14 +20,16 @@ use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 // ======================
 //       driver
 
+/// Error type of the PPI driver
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub enum Error {
+    /// There is no capacity to enable this task or event (nRF51 & nRF52 only)
     NoCapacityLeft,
-    UnknownTask,
-    TaskAlreadyInUse,
-    UnknownEvent,
-    EventAlreadyInUse,
+    /// This task or event is not in use by the current channel
+    NotInUseByChannel,
+    /// This task or event is already enabled on another channel (nRF53 & nRF91 only)
+    AlreadyInUse,
 }
 
 pub struct Ppi<'d, C: Channel> {
@@ -93,7 +95,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
             self.set_fork_task(None);
             Ok(())
         } else {
-            Err(Error::UnknownTask)
+            Err(Error::NotInUseByChannel)
         }
     }
 
@@ -113,7 +115,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
             self.set_event(None);
             Ok(())
         } else {
-            Err(Error::UnknownEvent)
+            Err(Error::NotInUseByChannel)
         }
     }
 
@@ -249,7 +251,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
     pub fn subscribe(&mut self, task: Task) -> Result<(), Error> {
         unsafe {
             if Self::is_register_enabled(task.0) {
-                Err(Error::TaskAlreadyInUse)
+                Err(Error::AlreadyInUse)
             } else {
                 Self::set_register_active(task.0, self.ch.number() as u8);
                 Ok(())
@@ -261,7 +263,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
     pub fn unsubscribe(&mut self, task: Task) -> Result<(), Error> {
         unsafe {
             if Self::get_register_channel(task.0) != self.ch.number() as u8 {
-                Err(Error::UnknownTask)
+                Err(Error::NotInUseByChannel)
             } else {
                 Self::set_register_inactive(task.0);
                 Ok(())
@@ -273,7 +275,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
     pub fn publish(&mut self, event: Event) -> Result<(), Error> {
         unsafe {
             if Self::is_register_enabled(event.0) {
-                Err(Error::TaskAlreadyInUse)
+                Err(Error::AlreadyInUse)
             } else {
                 Self::set_register_active(event.0, self.ch.number() as u8);
                 Ok(())
@@ -285,7 +287,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
     pub fn unpublish(&mut self, event: Event) -> Result<(), Error> {
         unsafe {
             if Self::get_register_channel(event.0) != self.ch.number() as u8 {
-                Err(Error::UnknownTask)
+                Err(Error::NotInUseByChannel)
             } else {
                 Self::set_register_inactive(event.0);
                 Ok(())
@@ -382,8 +384,22 @@ pub(crate) mod sealed {
 }
 
 pub trait Channel: sealed::Channel + Sized {
+    /// Returns the number of the channel
     fn number(&self) -> usize;
+
+    /// Returns the amount of configurable tasks this channel has.
+    ///
+    /// - MAX for DPPI with unlimited capacity (nRF53 & nRF91)
+    /// - 0 for static channel without fork (nRF51)
+    /// - 1 for static channel with fork (nRF52) or for configurable channel (nRF51)
+    /// - 2 for configurable channel with fork (nRF52)
     fn task_capacity(&self) -> usize;
+
+    /// Returns the amount of configurable events this channels has
+    ///
+    /// - MAX for DPPI with unlimited capacity (nRF53 & nRF91)
+    /// - 0 for static channel (nRF51 & nRF52)
+    /// - 1 for configurable channel (nRF51 & nRF52)
     fn event_capacity(&self) -> usize;
 
     fn degrade(self) -> AnyChannel {
