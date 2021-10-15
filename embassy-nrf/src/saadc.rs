@@ -99,7 +99,7 @@ impl<'d> ChannelConfig<'d> {
     ) -> Self {
         unborrow!(p_input, n_input);
         Self {
-            reference: Reference::VDD1_4,
+            reference: Reference::INTERNAL,
             gain: Gain::GAIN1_6,
             resistor: Resistor::BYPASS,
             time: Time::_10US,
