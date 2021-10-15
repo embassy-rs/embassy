@@ -262,9 +262,9 @@ impl<'d, const N: usize> Saadc<'d, N> {
         &mut self,
         bufs: &mut [[i16; N0]; 2],
         mode: Mode,
-        sampler: S,
+        mut sampler: S,
     ) where
-        S: Fn(&[i16]) -> SamplerState,
+        S: FnMut(&[i16]) -> SamplerState,
     {
         let r = Self::regs();
 

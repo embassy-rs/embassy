@@ -40,9 +40,24 @@ async fn main(_spawner: Spawner, mut p: Peripherals) {
     timer.start();
 
     let mut bufs = [[0; 3 * 500]; 2]; // Each buffer of the double buffer has to be large enough for all channels.
+
+    let mut c = 0;
+    let mut a: i32 = 0;
+
     saadc
-        .run_sampler(&mut bufs, Mode::Task, |buf| {
-            info!("sample len={}", buf.len());
+        .run_sampler(&mut bufs, Mode::Task, move |buf| {
+            for (i, b) in buf.iter().enumerate() {
+                if i % 3 == 0 {
+                    a += *b as i32;
+                    c += 1;
+                }
+            }
+            if c > 10000 {
+                a = a / c as i32;
+                info!("sample: {=i32}", a);
+                c = 0;
+                a = 0;
+            }
             SamplerState::Sampled
         })
         .await;
