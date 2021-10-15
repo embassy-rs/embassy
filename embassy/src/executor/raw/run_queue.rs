@@ -1,6 +1,7 @@
 use atomic_polyfill::{AtomicPtr, Ordering};
 use core::ptr;
 use core::ptr::NonNull;
+use critical_section::CriticalSection;
 
 use super::TaskHeader;
 
@@ -43,19 +44,10 @@ impl RunQueue {
     /// # Safety
     ///
     /// `item` must NOT be already enqueued in any queue.
-    pub(crate) unsafe fn enqueue(&self, task: *mut TaskHeader) -> bool {
-        let mut prev = self.head.load(Ordering::Acquire);
-        loop {
-            (*task).run_queue_item.next.store(prev, Ordering::Relaxed);
-            match self
-                .head
-                .compare_exchange_weak(prev, task, Ordering::AcqRel, Ordering::Acquire)
-            {
-                Ok(_) => break,
-                Err(next_prev) => prev = next_prev,
-            }
-        }
-
+    pub(crate) unsafe fn enqueue(&self, _cs: CriticalSection, task: *mut TaskHeader) -> bool {
+        let prev = self.head.load(Ordering::Relaxed);
+        (*task).run_queue_item.next.store(prev, Ordering::Relaxed);
+        self.head.store(task, Ordering::Relaxed);
         prev.is_null()
     }
 

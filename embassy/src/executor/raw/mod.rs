@@ -20,6 +20,7 @@ use core::pin::Pin;
 use core::ptr::NonNull;
 use core::task::{Context, Poll};
 use core::{mem, ptr};
+use critical_section::CriticalSection;
 
 use self::run_queue::{RunQueue, RunQueueItem};
 use self::util::UninitCell;
@@ -71,30 +72,22 @@ impl TaskHeader {
     }
 
     pub(crate) unsafe fn enqueue(&self) {
-        let mut current = self.state.load(Ordering::Acquire);
-        loop {
+        critical_section::with(|cs| {
+            let state = self.state.load(Ordering::Relaxed);
+
             // If already scheduled, or if not started,
-            if (current & STATE_RUN_QUEUED != 0) || (current & STATE_SPAWNED == 0) {
+            if (state & STATE_RUN_QUEUED != 0) || (state & STATE_SPAWNED == 0) {
                 return;
             }
 
             // Mark it as scheduled
-            let new = current | STATE_RUN_QUEUED;
+            self.state
+                .store(state | STATE_RUN_QUEUED, Ordering::Relaxed);
 
-            match self.state.compare_exchange_weak(
-                current,
-                new,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => break,
-                Err(next_current) => current = next_current,
-            }
-        }
-
-        // We have just marked the task as scheduled, so enqueue it.
-        let executor = &*self.executor.get();
-        executor.enqueue(self as *const TaskHeader as *mut TaskHeader);
+            // We have just marked the task as scheduled, so enqueue it.
+            let executor = &*self.executor.get();
+            executor.enqueue(cs, self as *const TaskHeader as *mut TaskHeader);
+        })
     }
 }
 
@@ -264,8 +257,8 @@ impl Executor {
     /// - `task` must be a valid pointer to a spawned task.
     /// - `task` must be set up to run in this executor.
     /// - `task` must NOT be already enqueued (in this executor or another one).
-    unsafe fn enqueue(&self, task: *mut TaskHeader) {
-        if self.run_queue.enqueue(task) {
+    unsafe fn enqueue(&self, cs: CriticalSection, task: *mut TaskHeader) {
+        if self.run_queue.enqueue(cs, task) {
             (self.signal_fn)(self.signal_ctx)
         }
     }
@@ -282,7 +275,10 @@ impl Executor {
     pub(super) unsafe fn spawn(&'static self, task: NonNull<TaskHeader>) {
         let task = task.as_ref();
         task.executor.set(self);
-        self.enqueue(task as *const _ as _);
+
+        critical_section::with(|cs| {
+            self.enqueue(cs, task as *const _ as _);
+        })
     }
 
     /// Poll all queued tasks in this executor.
