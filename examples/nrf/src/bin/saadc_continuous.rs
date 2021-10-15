@@ -39,7 +39,7 @@ async fn main(_spawner: Spawner, mut p: Peripherals) {
 
     timer.start();
 
-    let mut bufs = [[0; 3 * 500]; 2]; // Each buffer of the double buffer has to be large enough for all channels.
+    let mut bufs = [[0; 3 * 50]; 2]; // Each buffer of the double buffer has to be large enough for all channels.
 
     let mut c = 0;
     let mut a: i32 = 0;
@@ -54,7 +54,7 @@ async fn main(_spawner: Spawner, mut p: Peripherals) {
             }
             if c > 10000 {
                 a = a / c as i32;
-                info!("sample: {=i32}", a);
+                info!("channel 1: {=i32}", a);
                 c = 0;
                 a = 0;
             }
