@@ -257,6 +257,7 @@ impl Executor {
     /// - `task` must be a valid pointer to a spawned task.
     /// - `task` must be set up to run in this executor.
     /// - `task` must NOT be already enqueued (in this executor or another one).
+    #[inline(always)]
     unsafe fn enqueue(&self, cs: CriticalSection, task: *mut TaskHeader) {
         if self.run_queue.enqueue(cs, task) {
             (self.signal_fn)(self.signal_ctx)
