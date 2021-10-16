@@ -249,25 +249,21 @@ impl<'d, const N: usize> Saadc<'d, N> {
     /// should continue or stop.
     pub async fn run_task_sampler<S, const N0: usize>(
         &mut self,
-        bufs: &mut [[i16; N0]; 2],
+        bufs: &mut [[[i16; N]; N0]; 2],
         sampler: S,
     ) where
-        S: FnMut(&[i16]) -> SamplerState,
+        S: FnMut(&[[i16; N]]) -> SamplerState,
     {
-        assert!(
-            N0 % N == 0,
-            "The buffer size must be a multiple of the number of channels"
-        );
         self.run_sampler(bufs, None, sampler).await;
     }
 
     async fn run_sampler<S, const N0: usize>(
         &mut self,
-        bufs: &mut [[i16; N0]; 2],
+        bufs: &mut [[[i16; N]; N0]; 2],
         sample_rate: Option<u16>,
         mut sampler: S,
     ) where
-        S: FnMut(&[i16]) -> SamplerState,
+        S: FnMut(&[[i16; N]]) -> SamplerState,
     {
         let r = Self::regs();
 
@@ -294,7 +290,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
             .write(|w| unsafe { w.ptr().bits(bufs[0].as_mut_ptr() as u32) });
         r.result
             .maxcnt
-            .write(|w| unsafe { w.maxcnt().bits(N0 as _) });
+            .write(|w| unsafe { w.maxcnt().bits((N0 * N) as _) });
 
         // Reset and enable the events
         r.events_end.reset();
@@ -323,7 +319,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
                 r.events_end.reset();
                 r.intenset.write(|w| w.end().set());
 
-                if sampler(&bufs[current_buffer][0..r.result.amount.read().bits() as usize])
+                if sampler(&bufs[current_buffer][0..r.result.amount.read().bits() as usize / N])
                     == SamplerState::Sampled
                 {
                     let next_buffer = 1 - current_buffer;
@@ -358,7 +354,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
 }
 
 impl<'d> Saadc<'d, 1> {
-    /// Continuous sampling on a single channel with double buffers. The sample 
+    /// Continuous sampling on a single channel with double buffers. The sample
     /// buffers generally should be a multiple of the number of channels configured.
     ///
     /// The internal clock is to be used with a sample rate expressed as a divisor of
@@ -371,11 +367,11 @@ impl<'d> Saadc<'d, 1> {
     /// should continue or stop.
     pub async fn run_timer_sampler<S, const N0: usize>(
         &mut self,
-        bufs: &mut [[i16; N0]; 2],
+        bufs: &mut [[[i16; 1]; N0]; 2],
         sample_rate: u16,
         sampler: S,
     ) where
-        S: FnMut(&[i16]) -> SamplerState,
+        S: FnMut(&[[i16; 1]]) -> SamplerState,
     {
         self.run_sampler(bufs, Some(sample_rate), sampler).await;
     }

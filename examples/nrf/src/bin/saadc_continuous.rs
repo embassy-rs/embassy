@@ -39,19 +39,17 @@ async fn main(_spawner: Spawner, mut p: Peripherals) {
 
     timer.start();
 
-    let mut bufs = [[0; 3 * 50]; 2]; // Each buffer of the double buffer has to be large enough for all channels.
+    let mut bufs = [[[0; 3]; 50]; 2];
 
     let mut c = 0;
     let mut a: i32 = 0;
 
     saadc
         .run_task_sampler(&mut bufs, move |buf| {
-            for (i, b) in buf.iter().enumerate() {
-                if i % 3 == 0 {
-                    a += *b as i32;
-                    c += 1;
-                }
+            for b in buf {
+                a += b[0] as i32;
             }
+            c += buf.len();
             if c > 10000 {
                 a = a / c as i32;
                 info!("channel 1: {=i32}", a);
