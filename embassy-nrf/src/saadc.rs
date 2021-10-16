@@ -271,20 +271,16 @@ impl<'d, const N: usize> Saadc<'d, N> {
         // Establish mode and sample rate
         match mode {
             Mode::Timers(sample_rate) => {
-                r.samplerate.write(|w| {
-                    unsafe {
-                        w.cc().bits(sample_rate);
-                        w.mode().timers();
-                    }
+                r.samplerate.write(|w| unsafe {
+                    w.cc().bits(sample_rate);
+                    w.mode().timers();
                     w
                 });
                 r.tasks_sample.write(|w| unsafe { w.bits(1) }); // Need to kick-start the internal timer
             }
-            Mode::Task => r.samplerate.write(|w| {
-                unsafe {
-                    w.cc().bits(0);
-                    w.mode().task();
-                }
+            Mode::Task => r.samplerate.write(|w| unsafe {
+                w.cc().bits(0);
+                w.mode().task();
                 w
             }),
         }
