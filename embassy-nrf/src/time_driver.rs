@@ -1,8 +1,8 @@
 use core::cell::Cell;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
-use core::{mem, ptr};
 use critical_section::CriticalSection;
 use embassy::blocking_mutex::CriticalSectionMutex as Mutex;
+use embassy::executor::ExecutorWaker;
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::time::driver::{AlarmHandle, Driver};
 
@@ -61,11 +61,7 @@ mod test {
 
 struct AlarmState {
     timestamp: Cell<u64>,
-
-    // This is really a Option<(fn(*mut ()), *mut ())>
-    // but fn pointers aren't allowed in const yet
-    callback: Cell<*const ()>,
-    ctx: Cell<*mut ()>,
+    callback: Cell<ExecutorWaker>,
 }
 
 unsafe impl Send for AlarmState {}
@@ -74,8 +70,7 @@ impl AlarmState {
     const fn new() -> Self {
         Self {
             timestamp: Cell::new(u64::MAX),
-            callback: Cell::new(ptr::null()),
-            ctx: Cell::new(ptr::null_mut()),
+            callback: Cell::new(unsafe { ExecutorWaker::poison() }),
         }
     }
 }
@@ -173,12 +168,7 @@ impl RtcDriver {
         alarm.timestamp.set(u64::MAX);
 
         // Call after clearing alarm, so the callback can set another alarm.
-
-        // safety:
-        // - we can ignore the possiblity of `f` being unset (null) because of the safety contract of `allocate_alarm`.
-        // - other than that we only store valid function pointers into alarm.callback
-        let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback.get()) };
-        f(alarm.ctx.get());
+        alarm.callback.get().wake();
     }
 }
 
@@ -208,12 +198,10 @@ impl Driver for RtcDriver {
         }
     }
 
-    fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
+    fn set_alarm_callback(&self, alarm: AlarmHandle, callback: ExecutorWaker) {
         critical_section::with(|cs| {
             let alarm = self.get_alarm(cs, alarm);
-
-            alarm.callback.set(callback as *const ());
-            alarm.ctx.set(ctx);
+            alarm.callback.set(callback);
         })
     }
 

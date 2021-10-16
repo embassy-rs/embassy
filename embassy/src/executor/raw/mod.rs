@@ -24,7 +24,7 @@ use critical_section::CriticalSection;
 
 use self::run_queue::{RunQueue, RunQueueItem};
 use self::util::UninitCell;
-use super::SpawnToken;
+use super::{ExecutorWaker, SpawnToken};
 #[cfg(feature = "time")]
 use crate::time::driver::{self, AlarmHandle};
 #[cfg(feature = "time")]
@@ -217,8 +217,7 @@ unsafe impl<F: Future + 'static> Sync for TaskStorage<F> {}
 /// the requirement for `poll` to not be called reentrantly.
 pub struct Executor {
     run_queue: RunQueue,
-    signal_fn: fn(*mut ()),
-    signal_ctx: *mut (),
+    waker: ExecutorWaker,
 
     #[cfg(feature = "time")]
     pub(crate) timer_queue: timer_queue::TimerQueue,
@@ -233,16 +232,15 @@ impl Executor {
     /// `signal_ctx` as argument.
     ///
     /// See [`Executor`] docs for details on `signal_fn`.
-    pub fn new(signal_fn: fn(*mut ()), signal_ctx: *mut ()) -> Self {
+    pub fn new(waker: ExecutorWaker) -> Self {
         #[cfg(feature = "time")]
         let alarm = unsafe { unwrap!(driver::allocate_alarm()) };
         #[cfg(feature = "time")]
-        driver::set_alarm_callback(alarm, signal_fn, signal_ctx);
+        driver::set_alarm_callback(alarm, waker);
 
         Self {
             run_queue: RunQueue::new(),
-            signal_fn,
-            signal_ctx,
+            waker,
 
             #[cfg(feature = "time")]
             timer_queue: timer_queue::TimerQueue::new(),
@@ -259,9 +257,8 @@ impl Executor {
     /// - `task` must NOT be already enqueued (in this executor or another one).
     #[inline(always)]
     unsafe fn enqueue(&self, cs: CriticalSection, task: *mut TaskHeader) {
-        if self.run_queue.enqueue(cs, task) {
-            (self.signal_fn)(self.signal_ctx)
-        }
+        self.run_queue.enqueue(cs, task);
+        self.waker.wake();
     }
 
     /// Spawn a task in this executor.

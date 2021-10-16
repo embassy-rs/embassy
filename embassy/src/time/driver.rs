@@ -46,7 +46,7 @@
 //!     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
 //!         todo!()
 //!     }
-//!     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
+//!     fn set_alarm_callback(&self, alarm: AlarmHandle, signaler: Signaler) {
 //!         todo!()
 //!     }
 //!     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) {
@@ -54,6 +54,8 @@
 //!     }
 //! }
 //! ```
+
+use crate::executor::ExecutorWaker;
 
 /// Alarm handle, assigned by the driver.
 #[derive(Clone, Copy)]
@@ -91,9 +93,9 @@ pub trait Driver: Send + Sync + 'static {
     /// It is UB to make the alarm fire before setting a callback.
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle>;
 
-    /// Sets the callback function to be called when the alarm triggers.
-    /// The callback may be called from any context (interrupt or thread mode).
-    fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ());
+    /// Sets the callback ExecutorWaker to be woken when the alarm triggers.
+    /// The waker may be called from any context (interrupt or thread mode).
+    fn set_alarm_callback(&self, alarm: AlarmHandle, callback: ExecutorWaker);
 
     /// Sets an alarm at the given timestamp. When the current timestamp reaches the alarm
     /// timestamp, the provided callback funcion will be called.
@@ -110,7 +112,7 @@ pub trait Driver: Send + Sync + 'static {
 extern "Rust" {
     fn _embassy_time_now() -> u64;
     fn _embassy_time_allocate_alarm() -> Option<AlarmHandle>;
-    fn _embassy_time_set_alarm_callback(alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ());
+    fn _embassy_time_set_alarm_callback(alarm: AlarmHandle, callback: ExecutorWaker);
     fn _embassy_time_set_alarm(alarm: AlarmHandle, timestamp: u64);
 }
 
@@ -121,8 +123,8 @@ pub(crate) fn now() -> u64 {
 pub(crate) unsafe fn allocate_alarm() -> Option<AlarmHandle> {
     _embassy_time_allocate_alarm()
 }
-pub(crate) fn set_alarm_callback(alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-    unsafe { _embassy_time_set_alarm_callback(alarm, callback, ctx) }
+pub(crate) fn set_alarm_callback(alarm: AlarmHandle, callback: ExecutorWaker) {
+    unsafe { _embassy_time_set_alarm_callback(alarm, callback) }
 }
 pub(crate) fn set_alarm(alarm: AlarmHandle, timestamp: u64) {
     unsafe { _embassy_time_set_alarm(alarm, timestamp) }
@@ -149,10 +151,9 @@ macro_rules! time_driver_impl {
         #[no_mangle]
         fn _embassy_time_set_alarm_callback(
             alarm: $crate::time::driver::AlarmHandle,
-            callback: fn(*mut ()),
-            ctx: *mut (),
+            callback: $crate::executor::ExecutorWaker,
         ) {
-            <$t as $crate::time::driver::Driver>::set_alarm_callback(&$name, alarm, callback, ctx)
+            <$t as $crate::time::driver::Driver>::set_alarm_callback(&$name, alarm, callback)
         }
 
         #[no_mangle]

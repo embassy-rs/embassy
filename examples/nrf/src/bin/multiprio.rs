@@ -62,7 +62,8 @@ mod example_common;
 use example_common::*;
 
 use cortex_m_rt::entry;
-use embassy::executor::{Executor, InterruptExecutor};
+use defmt::panic;
+use embassy::executor::Executor;
 use embassy::interrupt::InterruptExt;
 use embassy::time::{Duration, Instant, Timer};
 use embassy::util::Forever;
@@ -110,9 +111,9 @@ async fn run_low() {
     }
 }
 
-static EXECUTOR_HIGH: Forever<InterruptExecutor<interrupt::SWI1_EGU1>> = Forever::new();
-static EXECUTOR_MED: Forever<InterruptExecutor<interrupt::SWI0_EGU0>> = Forever::new();
-static EXECUTOR_LOW: Forever<Executor> = Forever::new();
+static EXECUTOR_HIGH: Forever<Executor<interrupt::SWI2_EGU2>> = Forever::new();
+static EXECUTOR_MED: Forever<Executor<interrupt::SWI1_EGU1>> = Forever::new();
+static EXECUTOR_LOW: Forever<Executor<interrupt::SWI0_EGU0>> = Forever::new();
 
 #[entry]
 fn main() -> ! {
@@ -120,25 +121,34 @@ fn main() -> ! {
 
     let _p = embassy_nrf::init(Default::default());
 
-    // High-priority executor: SWI1_EGU1, priority level 6
-    let irq = interrupt::take!(SWI1_EGU1);
-    irq.set_priority(interrupt::Priority::P6);
-    let executor = EXECUTOR_HIGH.put(InterruptExecutor::new(irq));
+    // High-priority executor: SWI2_EGU2, priority level 5
+    let irq = interrupt::take!(SWI2_EGU2);
+    irq.set_priority(interrupt::Priority::P5);
+    let executor = EXECUTOR_HIGH.put(Executor::new(irq));
     executor.start(|spawner| {
         unwrap!(spawner.spawn(run_high()));
     });
 
-    // Medium-priority executor: SWI0_EGU0, priority level 7
-    let irq = interrupt::take!(SWI0_EGU0);
-    irq.set_priority(interrupt::Priority::P7);
-    let executor = EXECUTOR_MED.put(InterruptExecutor::new(irq));
+    // Medium-priority executor: SWI1_EGU1, priority level 6
+    let irq = interrupt::take!(SWI1_EGU1);
+    irq.set_priority(interrupt::Priority::P6);
+    let executor = EXECUTOR_MED.put(Executor::new(irq));
     executor.start(|spawner| {
         unwrap!(spawner.spawn(run_med()));
     });
 
-    // Low priority executor: runs in thread mode, using WFE/SEV
-    let executor = EXECUTOR_LOW.put(Executor::new());
-    executor.run(|spawner| {
+    // Low-priority executor: SWI0_EGU0, priority level 7
+    let irq = interrupt::take!(SWI0_EGU0);
+    irq.set_priority(interrupt::Priority::P7);
+    let executor = EXECUTOR_LOW.put(Executor::new(irq));
+    executor.start(|spawner| {
         unwrap!(spawner.spawn(run_low()));
     });
+
+    let mut scb: cortex_m::peripheral::SCB = unsafe { core::mem::transmute(()) };
+    scb.set_sleeponexit();
+
+    loop {
+        cortex_m::asm::wfi()
+    }
 }
