@@ -1,7 +1,7 @@
+use atomic_polyfill::{compiler_fence, AtomicPtr, Ordering};
+use core::mem;
 use core::ptr;
 use cortex_m::peripheral::NVIC;
-
-use atomic_polyfill::{compiler_fence, AtomicPtr, Ordering};
 
 pub use embassy_macros::interrupt_declare as declare;
 pub use embassy_macros::interrupt_take as take;
@@ -124,9 +124,8 @@ impl<T: Interrupt + ?Sized> InterruptExt for T {
     #[inline]
     fn set_priority(&self, prio: Self::Priority) {
         unsafe {
-            cortex_m::peripheral::Peripherals::steal()
-                .NVIC
-                .set_priority(NrWrap(self.number()), prio.into())
+            let mut nvic: cortex_m::peripheral::NVIC = mem::transmute(());
+            nvic.set_priority(NrWrap(self.number()), prio.into())
         }
     }
 }
