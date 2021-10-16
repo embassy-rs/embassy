@@ -117,6 +117,9 @@ embassy_hal_common::peripherals! {
     P0_29,
     P0_30,
     P0_31,
+
+    // RADIO
+    RADIO,
 }
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
@@ -205,6 +208,8 @@ impl_saadc_input!(P0_28, ANALOGINPUT4);
 impl_saadc_input!(P0_29, ANALOGINPUT5);
 impl_saadc_input!(P0_30, ANALOGINPUT6);
 impl_saadc_input!(P0_31, ANALOGINPUT7);
+
+impl_radio!(RADIO, RADIO, RADIO);
 
 pub mod irqs {
     use crate::pac::Interrupt as InterruptEnum;

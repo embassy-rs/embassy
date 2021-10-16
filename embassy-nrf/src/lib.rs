@@ -42,6 +42,8 @@ pub mod timer;
 pub mod twim;
 pub mod uarte;
 pub mod wdt;
+#[cfg(feature = "nrf52810")]
+pub mod radio;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
 #[cfg(feature = "nrf52805")]
