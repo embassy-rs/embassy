@@ -7,7 +7,7 @@ mod example_common;
 use defmt::panic;
 use embassy::executor::Spawner;
 use embassy_nrf::ppi::Ppi;
-use embassy_nrf::saadc::{ChannelConfig, Config, Mode, Saadc, SamplerState};
+use embassy_nrf::saadc::{ChannelConfig, Config, Saadc, SamplerState};
 use embassy_nrf::timer::{Frequency, Timer};
 use embassy_nrf::{interrupt, Peripherals};
 use example_common::*;
@@ -45,7 +45,7 @@ async fn main(_spawner: Spawner, mut p: Peripherals) {
     let mut a: i32 = 0;
 
     saadc
-        .run_sampler(&mut bufs, Mode::Task, move |buf| {
+        .run_task_sampler(&mut bufs, move |buf| {
             for (i, b) in buf.iter().enumerate() {
                 if i % 3 == 0 {
                     a += *b as i32;

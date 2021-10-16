@@ -110,20 +110,6 @@ impl<'d> ChannelConfig<'d> {
     }
 }
 
-/// A sample rate can be provided for the internal clock of the SAADC when
-/// one channel is to be continuously sampled. When there are multiple channels
-/// to be continuously sampled then an external source is used to generate
-/// TASK_SAMPLE tasks.
-pub enum Mode {
-    /// The internal clock is to be used with a sample rate expressed as a divisor of
-    /// 16MHz, ranging from 80..2047. For example, 1600 represnts a sample rate of 10KHz
-    /// given 16_000_000 / 10_000_000 = 1600.
-    Timers(u16),
-    /// TASK_SAMPLE tasks are generated outside of the SAADC e.g. via PPI on a
-    /// timer.
-    Task,
-}
-
 /// The state of a continuously running sampler. While it reflects
 /// the progress of a sampler, it also signals what should be done
 /// next. For example, if the sampler has stopped then the Saadc implementation
@@ -254,14 +240,61 @@ impl<'d, const N: usize> Saadc<'d, N> {
     /// Continuous sampling with double buffers. The sample buffers generally
     /// should be a multiple of the number of channels configured.
     ///
+    /// The internal clock is to be used with a sample rate expressed as a divisor of
+    /// 16MHz, ranging from 80..2047. For example, 1600 represnts a sample rate of 10KHz
+    /// given 16_000_000 / 10_000_000 = 1600.
+    ///
     /// A sampler closure is provided that receives the buffer of samples, noting
     /// that the size of this buffer can be less than the original buffer's size.
     /// A command is return from the closure that indicates whether the sampling
     /// should continue or stop.
-    pub async fn run_sampler<S, const N0: usize>(
+    pub async fn run_timer_sampler<S, const N0: usize>(
         &mut self,
         bufs: &mut [[i16; N0]; 2],
-        mode: Mode,
+        sample_rate: u16,
+        sampler: S,
+    ) where
+        S: FnMut(&[i16]) -> SamplerState,
+    {
+        assert!(
+            N == 1,
+            "The internal timer can only be used with one channel"
+        );
+        assert!(
+            N0 % N == 0,
+            "The buffer size must be a multiple of the number of channels"
+        );
+        self.run_sampler(bufs, Some(sample_rate), sampler).await;
+    }
+
+    /// Continuous sampling with double buffers. The sample buffers generally
+    /// should be a multiple of the number of channels configured.
+    ///
+    /// A task-driven approach to driving TASK_SAMPLE is expected. With a task
+    /// driven approach, multiple channels can be used.
+    ///
+    /// A sampler closure is provided that receives the buffer of samples, noting
+    /// that the size of this buffer can be less than the original buffer's size.
+    /// A command is return from the closure that indicates whether the sampling
+    /// should continue or stop.
+    pub async fn run_task_sampler<S, const N0: usize>(
+        &mut self,
+        bufs: &mut [[i16; N0]; 2],
+        sampler: S,
+    ) where
+        S: FnMut(&[i16]) -> SamplerState,
+    {
+        assert!(
+            N0 % N == 0,
+            "The buffer size must be a multiple of the number of channels"
+        );
+        self.run_sampler(bufs, None, sampler).await;
+    }
+
+    async fn run_sampler<S, const N0: usize>(
+        &mut self,
+        bufs: &mut [[i16; N0]; 2],
+        sample_rate: Option<u16>,
         mut sampler: S,
     ) where
         S: FnMut(&[i16]) -> SamplerState,
@@ -269,16 +302,16 @@ impl<'d, const N: usize> Saadc<'d, N> {
         let r = Self::regs();
 
         // Establish mode and sample rate
-        match mode {
-            Mode::Timers(sample_rate) => {
+        match sample_rate {
+            Some(sr) => {
                 r.samplerate.write(|w| unsafe {
-                    w.cc().bits(sample_rate);
+                    w.cc().bits(sr);
                     w.mode().timers();
                     w
                 });
                 r.tasks_sample.write(|w| unsafe { w.bits(1) }); // Need to kick-start the internal timer
             }
-            Mode::Task => r.samplerate.write(|w| unsafe {
+            None => r.samplerate.write(|w| unsafe {
                 w.cc().bits(0);
                 w.mode().task();
                 w
