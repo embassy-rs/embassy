@@ -295,9 +295,12 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
         // Reset and enable the events
         r.events_end.reset();
-        r.intenset.write(|w| w.end().set());
         r.events_started.reset();
-        r.intenset.write(|w| w.started().set());
+        r.intenset.write(|w| {
+            w.end().set();
+            w.started().set();
+            w
+        });
 
         // Don't reorder the ADC start event before the previous writes. Hopefully self
         // wouldn't happen anyway.
