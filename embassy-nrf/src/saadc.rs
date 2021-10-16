@@ -240,36 +240,6 @@ impl<'d, const N: usize> Saadc<'d, N> {
     /// Continuous sampling with double buffers. The sample buffers generally
     /// should be a multiple of the number of channels configured.
     ///
-    /// The internal clock is to be used with a sample rate expressed as a divisor of
-    /// 16MHz, ranging from 80..2047. For example, 1600 represnts a sample rate of 10KHz
-    /// given 16_000_000 / 10_000_000 = 1600.
-    ///
-    /// A sampler closure is provided that receives the buffer of samples, noting
-    /// that the size of this buffer can be less than the original buffer's size.
-    /// A command is return from the closure that indicates whether the sampling
-    /// should continue or stop.
-    pub async fn run_timer_sampler<S, const N0: usize>(
-        &mut self,
-        bufs: &mut [[i16; N0]; 2],
-        sample_rate: u16,
-        sampler: S,
-    ) where
-        S: FnMut(&[i16]) -> SamplerState,
-    {
-        assert!(
-            N == 1,
-            "The internal timer can only be used with one channel"
-        );
-        assert!(
-            N0 % N == 0,
-            "The buffer size must be a multiple of the number of channels"
-        );
-        self.run_sampler(bufs, Some(sample_rate), sampler).await;
-    }
-
-    /// Continuous sampling with double buffers. The sample buffers generally
-    /// should be a multiple of the number of channels configured.
-    ///
     /// A task-driven approach to driving TASK_SAMPLE is expected. With a task
     /// driven approach, multiple channels can be used.
     ///
@@ -384,6 +354,30 @@ impl<'d, const N: usize> Saadc<'d, N> {
     pub fn task_sample(&self) -> Task {
         let r = Self::regs();
         Task::from_reg(&r.tasks_sample)
+    }
+}
+
+impl<'d> Saadc<'d, 1> {
+    /// Continuous sampling on a single channel with double buffers. The sample 
+    /// buffers generally should be a multiple of the number of channels configured.
+    ///
+    /// The internal clock is to be used with a sample rate expressed as a divisor of
+    /// 16MHz, ranging from 80..2047. For example, 1600 represnts a sample rate of 10KHz
+    /// given 16_000_000 / 10_000_000 = 1600.
+    ///
+    /// A sampler closure is provided that receives the buffer of samples, noting
+    /// that the size of this buffer can be less than the original buffer's size.
+    /// A command is return from the closure that indicates whether the sampling
+    /// should continue or stop.
+    pub async fn run_timer_sampler<S, const N0: usize>(
+        &mut self,
+        bufs: &mut [[i16; N0]; 2],
+        sample_rate: u16,
+        sampler: S,
+    ) where
+        S: FnMut(&[i16]) -> SamplerState,
+    {
+        self.run_sampler(bufs, Some(sample_rate), sampler).await;
     }
 }
 
