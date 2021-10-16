@@ -187,13 +187,6 @@ impl<'d, T: Instance> Uarte<'d, T> {
             s.endtx_waker.wake();
             r.intenclr.write(|w| w.endtx().clear());
         }
-
-        if r.events_rxto.read().bits() != 0 {
-            r.intenclr.write(|w| w.rxto().clear());
-        }
-        if r.events_txstopped.read().bits() != 0 {
-            r.intenclr.write(|w| w.txstopped().clear());
-        }
     }
 }
 
@@ -208,15 +201,9 @@ impl<'a, T: Instance> Drop for Uarte<'a, T> {
         info!("did_stoprx {} did_stoptx {}", did_stoprx, did_stoptx);
 
         // Wait for rxto or txstopped, if needed.
-        r.intenset.write(|w| w.rxto().set().txstopped().set());
         while (did_stoprx && r.events_rxto.read().bits() == 0)
             || (did_stoptx && r.events_txstopped.read().bits() == 0)
-        {
-            info!("uarte drop: wfe");
-            cortex_m::asm::wfe();
-        }
-
-        cortex_m::asm::sev();
+        {}
 
         // Finally we can disable!
         r.enable.write(|w| w.enable().disabled());
