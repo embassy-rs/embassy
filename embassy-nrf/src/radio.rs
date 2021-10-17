@@ -1,5 +1,9 @@
 #![macro_use]
 
+use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+use crate::pac;
+use crate::util::{slice_in_ram, slice_in_ram_or};
+use core::convert;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering::SeqCst};
@@ -9,19 +13,73 @@ use embassy::traits;
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
-use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
-use crate::pac;
-use crate::util::{slice_in_ram, slice_in_ram_or};
+
+#[derive(Clone)]
+pub struct Frequency {
+    val: u16,
+}
+
+impl Frequency {
+    pub fn new(frequency: u16) -> Self {
+        if frequency < 2400 || frequency > 2500 {
+            // do proper error handling
+            Frequency { val: 2400 }
+        } else {
+            Frequency { val: frequency }
+        }
+    }
+}
+
+impl From<u16> for Frequency {
+    fn from(frequency: u16) -> Self {
+        if frequency < 2400 || frequency > 2500 {
+            // do proper error handling
+            Frequency { val: 2400 }
+        } else {
+            Frequency { val: frequency }
+        }
+    }
+}
+
+impl From<Frequency> for u16 {
+    fn from(frequency: Frequency) -> Self {
+        frequency.val
+    }
+}
+
+pub enum Mode {
+    Ble1Mbit,
+    Ble2Mbit,
+    Nrf1Mbit,
+    Nrf2Mbit,
+}
+
+pub enum TxPower {
+    Pos4dBm,
+    Pos3dBm,
+    ZerodBm,
+    Neg4dBm,
+    Neg8dBm,
+    Neg12dBm,
+    Neg16dBm,
+    Neg20dBm,
+    Neg30dBm,
+    Neg40dBm,
+}
 
 #[non_exhaustive]
 pub struct Config {
-    pub frequency: u32,
+    pub frequency: Frequency,
+    pub mode: Mode,
+    pub tx_power: TxPower,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            frequency: 2490,
+            frequency: Frequency::new(2400),
+            mode: Mode::Ble1Mbit,
+            tx_power: TxPower::ZerodBm,
         }
     }
 }
@@ -44,9 +102,81 @@ impl<'d, T: Instance> Radio<'d, T> {
         // Enable RADIO instance.
         r.power.write(|w| w.power().enabled());
 
-        // Configure frequency.
-        // r.frequency
-        //     .write(|w| unsafe { w.frequency().bits(config.frequency as u32) });
+        // MODE: data rate and modulation
+        match config.mode {
+            Mode::Ble1Mbit => r.mode.write(|w| w.mode().ble_1mbit()),
+            Mode::Ble2Mbit => r.mode.write(|w| w.mode().ble_2mbit()),
+            Mode::Nrf1Mbit => r.mode.write(|w| w.mode().nrf_1mbit()),
+            Mode::Nrf2Mbit => r.mode.write(|w| w.mode().nrf_2mbit()),
+        }
+
+        // FREQUENCY
+        // FREQUENCY: [0..100] freq = 2400 MHz + freq
+        r.frequency.write(|w| unsafe {
+            w.frequency()
+                .bits((u16::from(config.frequency.clone()) - 2400) as u8)
+        });
+
+        // PCNF0
+        // LFLEN: length field length in bits => 8
+        // S0LEN: S0 length in bytes => 0 (default)
+        // S1LEN: S1 length in bits => 0 (default)
+        // S1INCL: 0 (default)
+        // PLEN: 0 (default)
+        r.pcnf0
+            .write(|w| unsafe { w.lflen().bits(8).plen().bit(true) });
+
+        // PCNF1
+        // MAXLEN: max length of payload packet => 255
+        // STATLEN: 0 (default)
+        // BALEN: base address length => 4
+        // ENDIAN: 0 (default) => 1
+        // WHITEEN: 0 (default)
+        r.pcnf1
+            .write(|w| unsafe { w.maxlen().bits(255).balen().bits(4).endian().bit(true) });
+
+        // BASE0
+        // BASE0: 0xABCDABCD
+        r.base0.write(|w| unsafe { w.base0().bits(0xABCDABCD) });
+
+        // PREFIX0
+        // AP0: 0xDA
+        r.prefix0.write(|w| unsafe { w.ap0().bits(0xEF) });
+
+        // TXADDRESS
+        // TXADDRESS: 0 (default)
+        r.txaddress.write(|w| unsafe { w.txaddress().bits(0) });
+
+        // TXPOWER
+        match config.tx_power {
+            TxPower::Pos4dBm => r.txpower.write(|w| w.txpower().pos4d_bm()),
+            TxPower::Pos3dBm => r.txpower.write(|w| w.txpower().pos3d_bm()),
+            TxPower::ZerodBm => r.txpower.write(|w| w.txpower()._0d_bm()),
+            TxPower::Neg4dBm => r.txpower.write(|w| w.txpower().neg4d_bm()),
+            TxPower::Neg8dBm => r.txpower.write(|w| w.txpower().neg8d_bm()),
+            TxPower::Neg12dBm => r.txpower.write(|w| w.txpower().neg12d_bm()),
+            TxPower::Neg16dBm => r.txpower.write(|w| w.txpower().neg16d_bm()),
+            TxPower::Neg20dBm => r.txpower.write(|w| w.txpower().neg20d_bm()),
+            TxPower::Neg30dBm => r.txpower.write(|w| w.txpower().neg30d_bm()),
+            TxPower::Neg40dBm => r.txpower.write(|w| w.txpower().neg40d_bm()),
+        }
+
+        // CRCCNF
+        // LEN: length => 3
+        // SKIPADDR: 0 (default)
+        r.crccnf.write(|w| w.len().bits(3));
+
+        // CRCPOLY
+        // x24 + x10 + x9 + x6 + x4 + x3 + x + 1
+        // CRCPOLY: 00000000_00000110_01011011
+        r.crcpoly
+            .write(|w| unsafe { w.bits(0b00000000_00000110_01011011) });
+
+        // Shortcuts
+        // READY - START
+        // ADDRESS - RSSISTART
+        r.shorts
+            .write(|w| w.ready_start().bit(true).end_disable().bit(true));
 
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
@@ -167,20 +297,20 @@ impl<'d, T: Instance> Radio<'d, T> {
     //     Ok(())
     // }
 
-    // /// Wait for stop or error
-    // fn wait(&mut self) {
-    //     let r = T::regs();
-    //     loop {
-    //         if r.events_stopped.read().bits() != 0 {
-    //             r.events_stopped.reset();
-    //             break;
-    //         }
-    //         if r.events_error.read().bits() != 0 {
-    //             r.events_error.reset();
-    //             r.tasks_stop.write(|w| unsafe { w.bits(1) });
-    //         }
-    //     }
-    // }
+    /// Wait for stop or error
+    fn wait(&mut self) {
+        let r = T::regs();
+        loop {
+            if r.events_end.read().bits() != 0 {
+                r.events_end.reset();
+                break;
+            }
+            if r.events_crcerror.read().bits() != 0 {
+                r.events_crcerror.reset();
+                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+            }
+        }
+    }
 
     // /// Write to an I2C slave.
     // ///
@@ -312,25 +442,25 @@ impl<'d, T: Instance> Radio<'d, T> {
     //     self.write_then_read(address, wr_ram_buffer, rd_buffer)
     // }
 
-    // fn wait_for_stopped_event(cx: &mut core::task::Context) -> Poll<()> {
-    //     let r = T::regs();
-    //     let s = T::state();
+    fn wait_for_end_event(cx: &mut core::task::Context) -> Poll<()> {
+        let r = T::regs();
+        let s = T::state();
 
-    //     s.end_waker.register(cx.waker());
-    //     if r.events_stopped.read().bits() != 0 {
-    //         r.events_stopped.reset();
+        s.end_waker.register(cx.waker());
+        if r.events_end.read().bits() != 0 {
+            r.events_end.reset();
 
-    //         return Poll::Ready(());
-    //     }
+            return Poll::Ready(());
+        }
 
-    //     // stop if an error occured
-    //     if r.events_error.read().bits() != 0 {
-    //         r.events_error.reset();
-    //         r.tasks_stop.write(|w| unsafe { w.bits(1) });
-    //     }
+        // stop if an error occured
+        if r.events_crcerror.read().bits() != 0 {
+            r.events_crcerror.reset();
+            r.tasks_stop.write(|w| unsafe { w.bits(1) });
+        }
 
-    //     Poll::Pending
-    // }
+        Poll::Pending
+    }
 }
 
 impl<'a, T: Instance> Drop for Radio<'a, T> {
