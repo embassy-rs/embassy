@@ -26,7 +26,7 @@ impl<T: Rng> Random<T> {
         Self { rng }
     }
 
-    pub async fn next_u8<'a>(&'a mut self, range: u8) -> Result<u8, T::Error> {
+    pub async fn next_u8(&mut self, range: u8) -> Result<u8, T::Error> {
         // Lemire's method
         let t = (-(range as i8) % (range as i8)) as u8;
         loop {
@@ -42,7 +42,7 @@ impl<T: Rng> Random<T> {
         }
     }
 
-    pub async fn next_u16<'a>(&'a mut self, range: u16) -> Result<u16, T::Error> {
+    pub async fn next_u16(&mut self, range: u16) -> Result<u16, T::Error> {
         // Lemire's method
         let t = (-(range as i16) % (range as i16)) as u16;
         loop {
@@ -58,7 +58,7 @@ impl<T: Rng> Random<T> {
         }
     }
 
-    pub async fn next_u32<'a>(&'a mut self, range: u32) -> Result<u32, T::Error> {
+    pub async fn next_u32(&mut self, range: u32) -> Result<u32, T::Error> {
         // Lemire's method
         let t = (-(range as i32) % (range as i32)) as u32;
         loop {

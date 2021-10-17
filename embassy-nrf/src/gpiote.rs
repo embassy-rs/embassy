@@ -22,6 +22,7 @@ pub const PIN_COUNT: usize = 48;
 #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
 pub const PIN_COUNT: usize = 32;
 
+#[allow(clippy::declare_interior_mutable_const)]
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AW; CHANNEL_COUNT];
 static PORT_WAKERS: [AtomicWaker; PIN_COUNT] = [NEW_AW; PIN_COUNT];
