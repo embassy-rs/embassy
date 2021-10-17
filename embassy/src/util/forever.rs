@@ -45,6 +45,7 @@ impl<T> Forever<T> {
     ///
     /// Returns a mutable reference to the stored value.
     #[inline(always)]
+    #[allow(clippy::mut_from_ref)]
     pub fn put(&'static self, val: T) -> &'static mut T {
         if self
             .used
@@ -63,6 +64,7 @@ impl<T> Forever<T> {
     }
 
     #[inline(always)]
+    #[allow(clippy::mut_from_ref)]
     pub fn put_with(&'static self, val: impl FnOnce() -> T) -> &'static mut T {
         if self
             .used
@@ -81,6 +83,7 @@ impl<T> Forever<T> {
     }
 
     #[inline(always)]
+    #[allow(clippy::mut_from_ref)]
     pub unsafe fn steal(&'static self) -> &'static mut T {
         let p = self.t.get();
         let p = (&mut *p).as_mut_ptr();

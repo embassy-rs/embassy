@@ -1,6 +1,6 @@
 #![feature(type_alias_impl_trait)]
 
-use clap::{AppSettings, Clap};
+use clap::Parser;
 use embassy::executor::{Executor, Spawner};
 use embassy::io::AsyncWriteExt;
 use embassy::util::Forever;
@@ -18,9 +18,8 @@ static CONFIG_STATIC: Forever<StaticConfigurator> = Forever::new();
 static CONFIG_DYNAMIC: Forever<DhcpConfigurator> = Forever::new();
 static NET_RESOURCES: Forever<StackResources<1, 2, 8>> = Forever::new();
 
-#[derive(Clap)]
+#[derive(Parser)]
 #[clap(version = "1.0")]
-#[clap(setting = AppSettings::ColoredHelp)]
 struct Opts {
     /// TAP device name
     #[clap(long, default_value = "tap0")]

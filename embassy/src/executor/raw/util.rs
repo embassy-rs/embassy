@@ -12,6 +12,7 @@ impl<T> UninitCell<T> {
         (*self.0.as_ptr()).get()
     }
 
+    #[allow(clippy::mut_from_ref)]
     pub unsafe fn as_mut(&self) -> &mut T {
         &mut *self.as_mut_ptr()
     }

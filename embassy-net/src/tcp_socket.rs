@@ -130,7 +130,7 @@ impl<'a> AsyncBufRead for TcpSocket<'a> {
     ) -> Poll<io::Result<&'z [u8]>> {
         self.with(|socket| match socket.peek(1 << 30) {
             // No data ready
-            Ok(buf) if buf.len() == 0 => {
+            Ok(buf) if buf.is_empty() => {
                 socket.register_recv_waker(cx.waker());
                 Poll::Pending
             }

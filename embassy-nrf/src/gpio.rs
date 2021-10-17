@@ -443,7 +443,7 @@ pub trait OptionalPin: Unborrow<Target = Self> + sealed::OptionalPin + Sized {
 
     #[inline]
     fn psel_bits(&self) -> u32 {
-        self.pin().map_or(1u32 << 31, |pin| Pin::psel_bits(pin))
+        self.pin().map_or(1u32 << 31, Pin::psel_bits)
     }
 
     /// Convert from concrete pin type PX_XX to type erased `Option<AnyPin>`.
