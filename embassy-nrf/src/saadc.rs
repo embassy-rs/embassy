@@ -316,6 +316,8 @@ impl<'d, const N: usize> Saadc<'d, N> {
             WAKER.register(cx.waker());
 
             if r.events_end.read().bits() != 0 {
+                compiler_fence(Ordering::SeqCst);
+
                 r.events_end.reset();
                 r.intenset.write(|w| w.end().set());
 
