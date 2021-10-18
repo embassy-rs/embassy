@@ -260,7 +260,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
     async fn run_sampler<S, const N0: usize>(
         &mut self,
         bufs: &mut [[[i16; N]; N0]; 2],
-        sample_rate: Option<u16>,
+        sample_rate_divisor: Option<u16>,
         mut sampler: S,
     ) where
         S: FnMut(&[[i16; N]]) -> SamplerState,
@@ -268,7 +268,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
         let r = Self::regs();
 
         // Establish mode and sample rate
-        match sample_rate {
+        match sample_rate_divisor {
             Some(sr) => {
                 r.samplerate.write(|w| unsafe {
                     w.cc().bits(sr);
@@ -369,12 +369,12 @@ impl<'d> Saadc<'d, 1> {
     pub async fn run_timer_sampler<S, const N0: usize>(
         &mut self,
         bufs: &mut [[[i16; 1]; N0]; 2],
-        sample_rate: u16,
+        sample_rate_divisor: u16,
         sampler: S,
     ) where
         S: FnMut(&[[i16; 1]]) -> SamplerState,
     {
-        self.run_sampler(bufs, Some(sample_rate), sampler).await;
+        self.run_sampler(bufs, Some(sample_rate_divisor), sampler).await;
     }
 }
 
