@@ -43,6 +43,8 @@ pub mod timer;
 pub mod twim;
 pub mod uarte;
 pub mod wdt;
+#[cfg(not(feature = "nrf9160"))]
+pub mod temp;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
 #[cfg(feature = "nrf52805")]
