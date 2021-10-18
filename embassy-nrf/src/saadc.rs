@@ -328,7 +328,6 @@ impl<'d, const N: usize> Saadc<'d, N> {
                     current_buffer = next_buffer;
                     r.tasks_start.write(|w| unsafe { w.bits(1) });
                 } else {
-                    r.tasks_stop.write(|w| unsafe { w.bits(1) });
                     return Poll::Ready(());
                 };
             }
