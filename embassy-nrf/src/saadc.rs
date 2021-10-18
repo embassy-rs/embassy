@@ -320,9 +320,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
                 r.events_end.reset();
                 r.intenset.write(|w| w.end().set());
 
-                if sampler(&bufs[current_buffer][0..r.result.amount.read().bits() as usize / N])
-                    == SamplerState::Sampled
-                {
+                if sampler(&bufs[current_buffer]) == SamplerState::Sampled {
                     let next_buffer = 1 - current_buffer;
                     current_buffer = next_buffer;
                     r.tasks_start.write(|w| unsafe { w.bits(1) });
