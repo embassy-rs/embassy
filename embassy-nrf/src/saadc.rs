@@ -10,6 +10,7 @@ use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
 use crate::interrupt;
+use crate::ppi::Task;
 use crate::{pac, peripherals};
 
 use pac::{saadc, SAADC};
@@ -29,7 +30,7 @@ pub use saadc::{
 pub enum Error {}
 
 /// One-shot saadc. Continuous sample mode TODO.
-pub struct OneShot<'d, const N: usize> {
+pub struct Saadc<'d, const N: usize> {
     phantom: PhantomData<&'d mut peripherals::SAADC>,
 }
 
@@ -50,7 +51,7 @@ impl Default for Config {
     /// Default configuration for single channel sampling.
     fn default() -> Self {
         Self {
-            resolution: Resolution::_14BIT,
+            resolution: Resolution::_12BIT,
             oversample: Oversample::BYPASS,
         }
     }
@@ -98,7 +99,7 @@ impl<'d> ChannelConfig<'d> {
     ) -> Self {
         unborrow!(p_input, n_input);
         Self {
-            reference: Reference::VDD1_4,
+            reference: Reference::INTERNAL,
             gain: Gain::GAIN1_6,
             resistor: Resistor::BYPASS,
             time: Time::_10US,
@@ -109,7 +110,17 @@ impl<'d> ChannelConfig<'d> {
     }
 }
 
-impl<'d, const N: usize> OneShot<'d, N> {
+/// The state of a continuously running sampler. While it reflects
+/// the progress of a sampler, it also signals what should be done
+/// next. For example, if the sampler has stopped then the Saadc implementation
+/// can then tear down its infrastructure.
+#[derive(PartialEq)]
+pub enum SamplerState {
+    Sampled,
+    Stopped,
+}
+
+impl<'d, const N: usize> Saadc<'d, N> {
     pub fn new(
         _saadc: impl Unborrow<Target = peripherals::SAADC> + 'd,
         irq: impl Unborrow<Target = interrupt::SAADC> + 'd,
@@ -176,12 +187,18 @@ impl<'d, const N: usize> OneShot<'d, N> {
             r.intenclr.write(|w| w.end().clear());
             WAKER.wake();
         }
+
+        if r.events_started.read().bits() != 0 {
+            r.intenclr.write(|w| w.started().clear());
+            WAKER.wake();
+        }
     }
 
     fn regs() -> &'static saadc::RegisterBlock {
         unsafe { &*SAADC::ptr() }
     }
 
+    /// One shot sampling. The buffer must be the same size as the number of channels configured.
     pub async fn sample(&mut self, buf: &mut [i16; N]) {
         let r = Self::regs();
 
@@ -219,9 +236,148 @@ impl<'d, const N: usize> OneShot<'d, N> {
         })
         .await;
     }
+
+    /// Continuous sampling with double buffers.
+    ///
+    /// A task-driven approach to driving TASK_SAMPLE is expected. With a task
+    /// driven approach, multiple channels can be used.
+    ///
+    /// A sampler closure is provided that receives the buffer of samples, noting
+    /// that the size of this buffer can be less than the original buffer's size.
+    /// A command is return from the closure that indicates whether the sampling
+    /// should continue or stop.
+    pub async fn run_task_sampler<S, const N0: usize>(
+        &mut self,
+        bufs: &mut [[[i16; N]; N0]; 2],
+        sampler: S,
+    ) where
+        S: FnMut(&[[i16; N]]) -> SamplerState,
+    {
+        self.run_sampler(bufs, None, sampler).await;
+    }
+
+    async fn run_sampler<S, const N0: usize>(
+        &mut self,
+        bufs: &mut [[[i16; N]; N0]; 2],
+        sample_rate_divisor: Option<u16>,
+        mut sampler: S,
+    ) where
+        S: FnMut(&[[i16; N]]) -> SamplerState,
+    {
+        let r = Self::regs();
+
+        // Establish mode and sample rate
+        match sample_rate_divisor {
+            Some(sr) => {
+                r.samplerate.write(|w| unsafe {
+                    w.cc().bits(sr);
+                    w.mode().timers();
+                    w
+                });
+                r.tasks_sample.write(|w| unsafe { w.bits(1) }); // Need to kick-start the internal timer
+            }
+            None => r.samplerate.write(|w| unsafe {
+                w.cc().bits(0);
+                w.mode().task();
+                w
+            }),
+        }
+
+        // Set up the initial DMA
+        r.result
+            .ptr
+            .write(|w| unsafe { w.ptr().bits(bufs[0].as_mut_ptr() as u32) });
+        r.result
+            .maxcnt
+            .write(|w| unsafe { w.maxcnt().bits((N0 * N) as _) });
+
+        // Reset and enable the events
+        r.events_end.reset();
+        r.events_started.reset();
+        r.intenset.write(|w| {
+            w.end().set();
+            w.started().set();
+            w
+        });
+
+        // Don't reorder the ADC start event before the previous writes. Hopefully self
+        // wouldn't happen anyway.
+        compiler_fence(Ordering::SeqCst);
+
+        r.tasks_start.write(|w| unsafe { w.bits(1) });
+
+        let mut current_buffer = 0;
+
+        // Wait for events and complete when the sampler indicates it has had enough.
+        poll_fn(|cx| {
+            let r = Self::regs();
+
+            WAKER.register(cx.waker());
+
+            if r.events_end.read().bits() != 0 {
+                compiler_fence(Ordering::SeqCst);
+
+                r.events_end.reset();
+                r.intenset.write(|w| w.end().set());
+
+                if sampler(&bufs[current_buffer][0..r.result.amount.read().bits() as usize / N])
+                    == SamplerState::Sampled
+                {
+                    let next_buffer = 1 - current_buffer;
+                    current_buffer = next_buffer;
+                    r.tasks_start.write(|w| unsafe { w.bits(1) });
+                } else {
+                    return Poll::Ready(());
+                };
+            }
+
+            if r.events_started.read().bits() != 0 {
+                r.events_started.reset();
+                r.intenset.write(|w| w.started().set());
+
+                let next_buffer = 1 - current_buffer;
+                r.result
+                    .ptr
+                    .write(|w| unsafe { w.ptr().bits(bufs[next_buffer].as_mut_ptr() as u32) });
+            }
+
+            Poll::Pending
+        })
+        .await;
+    }
+
+    /// Return the sample task for use with PPI
+    pub fn task_sample(&self) -> Task {
+        let r = Self::regs();
+        Task::from_reg(&r.tasks_sample)
+    }
 }
 
-impl<'d, const N: usize> Drop for OneShot<'d, N> {
+impl<'d> Saadc<'d, 1> {
+    /// Continuous sampling on a single channel with double buffers.
+    ///
+    /// The internal clock is to be used with a sample rate expressed as a divisor of
+    /// 16MHz, ranging from 80..2047. For example, 1600 represnts a sample rate of 10KHz
+    /// given 16_000_000 / 10_000_000 = 1600.
+    ///
+    /// A sampler closure is provided that receives the buffer of samples, noting
+    /// that the size of this buffer can be less than the original buffer's size.
+    /// A command is return from the closure that indicates whether the sampling
+    /// should continue or stop.
+    pub async fn run_timer_sampler<S, const N0: usize>(
+        &mut self,
+        bufs: &mut [[[i16; 1]; N0]; 2],
+        sample_rate_divisor: u16,
+        sampler: S,
+    ) where
+        S: FnMut(&[[i16; 1]]) -> SamplerState,
+    {
+        self.run_sampler(bufs, Some(sample_rate_divisor), sampler)
+            .await;
+    }
+}
+
+impl<'d, const N: usize> Drop for Saadc<'d, N> {
     fn drop(&mut self) {
         let r = Self::regs();
         r.enable.write(|w| w.enable().disabled());
