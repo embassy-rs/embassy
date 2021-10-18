@@ -16,27 +16,14 @@ use futures::future::poll_fn;
 use crate::chip::EASY_DMA_SIZE;
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, OptionalPin as GpioOptionalPin, Pin as GpioPin};
+use crate::interconnect::{AnyChannel, Event, OneToOneChannel, OneToTwoChannel, Ppi, Task};
 use crate::interrupt::Interrupt;
 use crate::pac;
-use crate::ppi::{AnyChannel, Channel, Event, Ppi, Task};
 use crate::timer::Instance as TimerInstance;
 use crate::timer::{Frequency, Timer};
 
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
-
-#[non_exhaustive]
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Error {
-    PpiError(crate::ppi::Error),
-}
-
-impl From<crate::ppi::Error> for Error {
-    fn from(e: crate::ppi::Error) -> Self {
-        Self::PpiError(e)
-    }
-}
 
 #[non_exhaustive]
 pub struct Config {
@@ -344,16 +331,13 @@ impl<'d, T: Instance> Write for Uarte<'d, T> {
 pub struct UarteWithIdle<'d, U: Instance, T: TimerInstance> {
     uarte: Uarte<'d, U>,
     timer: Timer<'d, T>,
-    ppi_ch1: Ppi<'d, AnyChannel>,
-    _ppi_ch2: Ppi<'d, AnyChannel>,
+    ppi_ch1: Ppi<'d, AnyChannel, 1, 2>,
+    _ppi_ch2: Ppi<'d, AnyChannel, 1, 1>,
 }
 
 impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
     /// Creates the interface to a UARTE instance.
     /// Sets the baud rate, parity and assigns the pins to the UARTE peripheral.
-    ///
-    /// - *Note:* ppi_ch1 must have at least 1 free event and 2 free tasks or a PPI error is returned
-    /// - *Note:* ppi_ch2 must have at least 1 free event and 1 free tasks or a PPI error is returned
     ///
     /// # Safety
     ///
@@ -364,15 +348,15 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
     pub unsafe fn new(
         uarte: impl Unborrow<Target = U> + 'd,
         timer: impl Unborrow<Target = T> + 'd,
-        ppi_ch1: impl Unborrow<Target = impl Channel> + 'd,
-        ppi_ch2: impl Unborrow<Target = impl Channel> + 'd,
+        ppi_ch1: impl Unborrow<Target = impl OneToTwoChannel + 'd> + 'd,
+        ppi_ch2: impl Unborrow<Target = impl OneToOneChannel + 'd> + 'd,
         irq: impl Unborrow<Target = U::Interrupt> + 'd,
         rxd: impl Unborrow<Target = impl GpioPin> + 'd,
         txd: impl Unborrow<Target = impl GpioPin> + 'd,
         cts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         rts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: Config,
-    ) -> Result<Self, Error> {
+    ) -> Self {
         let baudrate = config.baudrate;
         let uarte = Uarte::new(uarte, irq, rxd, txd, cts, rts, config);
         let mut timer = Timer::new(timer);
@@ -394,23 +378,29 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         timer.cc(0).short_compare_clear();
         timer.cc(0).short_compare_stop();
 
-        let mut ppi_ch1 = Ppi::new(ppi_ch1.degrade());
-        ppi_ch1.publish(Event::from_reg(&r.events_rxdrdy))?;
-        ppi_ch1.subscribe(timer.task_clear())?;
-        ppi_ch1.subscribe(timer.task_start())?;
+        let mut ppi_ch1 = Ppi::new_one_to_two(
+            ppi_ch1,
+            Event::from_reg(&r.events_rxdrdy),
+            timer.task_clear(),
+            timer.task_start(),
+        )
+        .degrade();
         ppi_ch1.enable();
 
-        let mut ppi_ch2 = Ppi::new(ppi_ch2.degrade());
-        ppi_ch2.publish(timer.cc(0).event_compare())?;
-        ppi_ch2.subscribe(Task::from_reg(&r.tasks_stoprx))?;
+        let mut ppi_ch2 = Ppi::new_one_to_one(
+            ppi_ch2,
+            timer.cc(0).event_compare(),
+            Task::from_reg(&r.tasks_stoprx),
+        )
+        .degrade();
         ppi_ch2.enable();
 
-        Ok(Self {
+        Self {
             uarte,
             timer,
             ppi_ch1: ppi_ch1,
             _ppi_ch2: ppi_ch2,
-        })
+        }
     }
 }
 

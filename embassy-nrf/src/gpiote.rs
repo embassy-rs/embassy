@@ -11,8 +11,8 @@ use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Input, Output, Pin as GpioPin};
+use crate::interconnect::{Event, Task};
 use crate::pac;
-use crate::ppi::{Event, Task};
 use crate::{interrupt, peripherals};
 
 pub const CHANNEL_COUNT: usize = 8;
@@ -190,13 +190,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
     /// Returns the IN event, for use with PPI.
     pub fn event_in(&self) -> Event {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-
-        #[cfg(feature = "_ppi")]
-        let reg = &g.events_in[self.ch.number()];
-        #[cfg(feature = "_dppi")]
-        let reg = &g.publish_in[self.ch.number()];
-
-        Event::from_reg(reg)
+        Event::from_reg(&g.events_in[self.ch.number()])
     }
 }
 
@@ -277,33 +271,21 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
     /// Returns the OUT task, for use with PPI.
     pub fn task_out(&self) -> Task {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        #[cfg(feature = "_ppi")]
-        let reg = &g.tasks_out[self.ch.number()];
-        #[cfg(feature = "_dppi")]
-        let reg = &g.subscribe_out[self.ch.number()];
-        Task::from_reg(reg)
+        Task::from_reg(&g.tasks_out[self.ch.number()])
     }
 
     /// Returns the CLR task, for use with PPI.
     #[cfg(not(feature = "nrf51"))]
     pub fn task_clr(&self) -> Task {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        #[cfg(feature = "_ppi")]
-        let reg = &g.tasks_clr[self.ch.number()];
-        #[cfg(feature = "_dppi")]
-        let reg = &g.subscribe_clr[self.ch.number()];
-        Task::from_reg(reg)
+        Task::from_reg(&g.tasks_clr[self.ch.number()])
     }
 
     /// Returns the SET task, for use with PPI.
     #[cfg(not(feature = "nrf51"))]
     pub fn task_set(&self) -> Task {
         let g = unsafe { &*pac::GPIOTE::ptr() };
-        #[cfg(feature = "_ppi")]
-        let reg = &g.tasks_set[self.ch.number()];
-        #[cfg(feature = "_dppi")]
-        let reg = &g.subscribe_set[self.ch.number()];
-        Task::from_reg(reg)
+        Task::from_reg(&g.tasks_set[self.ch.number()])
     }
 }
 

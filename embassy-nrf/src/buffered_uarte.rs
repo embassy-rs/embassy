@@ -14,27 +14,14 @@ use embassy_hal_common::{low_power_wait_until, unborrow};
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
-use crate::ppi::{AnyChannel, Channel, Event, Ppi, Task};
+use crate::interconnect::{AnyChannel, Event, OneToOneChannel, OneToTwoChannel, Ppi, Task};
+use crate::pac;
 use crate::timer::Instance as TimerInstance;
 use crate::timer::{Frequency, Timer};
 use crate::uarte::{Config, Instance as UarteInstance};
-use crate::{pac, ppi};
 
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
-
-#[non_exhaustive]
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Error {
-    PpiError(ppi::Error),
-}
-
-impl From<ppi::Error> for Error {
-    fn from(e: ppi::Error) -> Self {
-        Self::PpiError(e)
-    }
-}
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum RxState {
@@ -58,8 +45,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> State<'d, U, T> {
 struct StateInner<'d, U: UarteInstance, T: TimerInstance> {
     phantom: PhantomData<&'d mut U>,
     timer: Timer<'d, T>,
-    _ppi_ch1: Ppi<'d, AnyChannel>,
-    _ppi_ch2: Ppi<'d, AnyChannel>,
+    _ppi_ch1: Ppi<'d, AnyChannel, 1, 2>,
+    _ppi_ch2: Ppi<'d, AnyChannel, 1, 1>,
 
     rx: RingBuffer<'d>,
     rx_state: RxState,
@@ -79,15 +66,12 @@ impl<'d, U: UarteInstance, T: TimerInstance> Unpin for BufferedUarte<'d, U, T> {
 
 impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     /// unsafe: may not leak self or futures
-    ///
-    /// - *Note:* ppi_ch1 must have at least 1 free event and 2 free tasks or a PPI error is returned
-    /// - *Note:* ppi_ch2 must have at least 1 free event and 1 free tasks or a PPI error is returned
     pub unsafe fn new(
         state: &'d mut State<'d, U, T>,
         _uarte: impl Unborrow<Target = U> + 'd,
         timer: impl Unborrow<Target = T> + 'd,
-        ppi_ch1: impl Unborrow<Target = impl Channel> + 'd,
-        ppi_ch2: impl Unborrow<Target = impl Channel> + 'd,
+        ppi_ch1: impl Unborrow<Target = impl OneToTwoChannel + 'd> + 'd,
+        ppi_ch2: impl Unborrow<Target = impl OneToOneChannel + 'd> + 'd,
         irq: impl Unborrow<Target = U::Interrupt> + 'd,
         rxd: impl Unborrow<Target = impl GpioPin> + 'd,
         txd: impl Unborrow<Target = impl GpioPin> + 'd,
@@ -96,7 +80,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         config: Config,
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
-    ) -> Result<Self, Error> {
+    ) -> Self {
         unborrow!(ppi_ch1, ppi_ch2, irq, rxd, txd, cts, rts);
 
         let r = U::regs();
@@ -160,18 +144,24 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         timer.cc(0).short_compare_clear();
         timer.cc(0).short_compare_stop();
 
-        let mut ppi_ch1 = Ppi::new(ppi_ch1.degrade());
-        ppi_ch1.publish(Event::from_reg(&r.events_rxdrdy))?;
-        ppi_ch1.subscribe(timer.task_clear())?;
-        ppi_ch1.subscribe(timer.task_start())?;
+        let mut ppi_ch1 = Ppi::new_one_to_two(
+            ppi_ch1,
+            Event::from_reg(&r.events_rxdrdy),
+            timer.task_clear(),
+            timer.task_start(),
+        )
+        .degrade();
         ppi_ch1.enable();
 
-        let mut ppi_ch2 = Ppi::new(ppi_ch2.degrade());
-        ppi_ch2.publish(timer.cc(0).event_compare())?;
-        ppi_ch2.subscribe(Task::from_reg(&r.tasks_stoprx))?;
+        let mut ppi_ch2 = Ppi::new_one_to_one(
+            ppi_ch2,
+            timer.cc(0).event_compare(),
+            Task::from_reg(&r.tasks_stoprx),
+        )
+        .degrade();
         ppi_ch2.enable();
 
-        Ok(Self {
+        Self {
             inner: PeripheralMutex::new_unchecked(irq, &mut state.0, move || StateInner {
                 phantom: PhantomData,
                 timer,
@@ -186,7 +176,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
                 tx_state: TxState::Idle,
                 tx_waker: WakerRegistration::new(),
             }),
-        })
+        }
     }
 
     pub fn set_baudrate(&mut self, baudrate: Baudrate) {

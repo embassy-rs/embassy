@@ -10,7 +10,7 @@ use core::future::pending;
 use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::gpiote::{self, InputChannel, InputChannelPolarity};
-use embassy_nrf::ppi::Ppi;
+use embassy_nrf::interconnect::Ppi;
 use embassy_nrf::Peripherals;
 use gpiote::{OutputChannel, OutputChannelPolarity};
 
@@ -51,25 +51,21 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         OutputChannelPolarity::Toggle,
     );
 
-    let mut ppi = Ppi::new(p.PPI_CH0);
-    ppi.publish(button1.event_in()).unwrap();
-    ppi.subscribe(led1.task_out()).unwrap();
+    let mut ppi = Ppi::new_one_to_one(p.PPI_CH0, button1.event_in(), led1.task_out());
     ppi.enable();
 
-    let mut ppi = Ppi::new(p.PPI_CH1);
-    ppi.publish(button2.event_in()).unwrap();
-    ppi.subscribe(led1.task_clr()).unwrap();
+    let mut ppi = Ppi::new_one_to_one(p.PPI_CH1, button2.event_in(), led1.task_clr());
     ppi.enable();
 
-    let mut ppi = Ppi::new(p.PPI_CH2);
-    ppi.publish(button3.event_in()).unwrap();
-    ppi.subscribe(led1.task_set()).unwrap();
+    let mut ppi = Ppi::new_one_to_one(p.PPI_CH2, button3.event_in(), led1.task_set());
     ppi.enable();
 
-    let mut ppi = Ppi::new(p.PPI_CH3);
-    ppi.publish(button4.event_in()).unwrap();
-    ppi.subscribe(led1.task_out()).unwrap();
-    ppi.subscribe(led2.task_out()).unwrap();
+    let mut ppi = Ppi::new_one_to_two(
+        p.PPI_CH3,
+        button4.event_in(),
+        led1.task_out(),
+        led2.task_out(),
+    );
     ppi.enable();
 
     info!("PPI setup!");

@@ -31,7 +31,7 @@ pub mod gpio;
 pub mod gpiote;
 #[cfg(not(feature = "nrf9160"))]
 pub mod nvmc;
-pub mod ppi;
+pub mod interconnect;
 #[cfg(not(any(feature = "nrf52805", feature = "nrf52820")))]
 pub mod pwm;
 #[cfg(feature = "nrf52840")]
