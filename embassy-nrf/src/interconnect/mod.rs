@@ -10,10 +10,10 @@
 //!
 //! On nRF52 devices, there is also a fork task endpoint, where the user can configure one more task
 //! to be triggered by the same event, even fixed PPI channels have a configurable fork task.
-//! 
+//!
 //! The DPPI for nRF53 and nRF91 devices works in a different way. Every channel can support infinitely
 //! many tasks and events, but any single task or event can only be coupled with one channel.
-//! 
+//!
 
 use crate::{pac, peripherals};
 use core::marker::PhantomData;
