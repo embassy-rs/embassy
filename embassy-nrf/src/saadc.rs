@@ -237,8 +237,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
         .await;
     }
 
-    /// Continuous sampling with double buffers. The sample buffers generally
-    /// should be a multiple of the number of channels configured.
+    /// Continuous sampling with double buffers.
     ///
     /// A task-driven approach to driving TASK_SAMPLE is expected. With a task
     /// driven approach, multiple channels can be used.
@@ -355,8 +354,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
 }
 
 impl<'d> Saadc<'d, 1> {
-    /// Continuous sampling on a single channel with double buffers. The sample
-    /// buffers generally should be a multiple of the number of channels configured.
+    /// Continuous sampling on a single channel with double buffers.
     ///
     /// The internal clock is to be used with a sample rate expressed as a divisor of
     /// 16MHz, ranging from 80..2047. For example, 1600 represnts a sample rate of 10KHz
@@ -374,7 +372,8 @@ impl<'d> Saadc<'d, 1> {
     ) where
         S: FnMut(&[[i16; 1]]) -> SamplerState,
     {
-        self.run_sampler(bufs, Some(sample_rate_divisor), sampler).await;
+        self.run_sampler(bufs, Some(sample_rate_divisor), sampler)
+            .await;
     }
 }
 
