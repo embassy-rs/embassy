@@ -32,9 +32,7 @@ async fn main(_spawner: Spawner, mut p: Peripherals) {
     timer.cc(0).write(100); // We want to sample at 10KHz
     timer.cc(0).short_compare_clear();
 
-    let mut ppi = Ppi::new(p.PPI_CH0);
-    ppi.set_event(timer.cc(0).event_compare());
-    ppi.set_task(saadc.task_sample());
+    let mut ppi = Ppi::new_one_to_one(p.PPI_CH0, timer.cc(0).event_compare(), saadc.task_sample());
     ppi.enable();
 
     timer.start();

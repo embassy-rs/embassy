@@ -10,7 +10,7 @@ use core::future::pending;
 use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::gpiote::{self, InputChannel, InputChannelPolarity};
-use embassy_nrf::interconnect::Ppi;
+use embassy_nrf::ppi::Ppi;
 use embassy_nrf::Peripherals;
 use gpiote::{OutputChannel, OutputChannelPolarity};
 
