@@ -28,12 +28,14 @@ mod ppi;
 
 pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> {
     ch: C,
+    #[cfg(feature = "_dppi")]
     events: [Event; EVENT_COUNT],
+    #[cfg(feature = "_dppi")]
     tasks: [Task; TASK_COUNT],
     phantom: PhantomData<&'d mut C>,
 }
 
-impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize>
+impl<'d, C: Channel + 'd, const EVENT_COUNT: usize, const TASK_COUNT: usize>
     Ppi<'d, C, EVENT_COUNT, TASK_COUNT>
 {
     pub fn degrade(self) -> Ppi<'d, AnyChannel, EVENT_COUNT, TASK_COUNT> {
@@ -43,7 +45,9 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize>
                 #[cfg(feature = "_ppi")]
                 has_configurable_task: self.ch.is_task_configurable(),
             },
+            #[cfg(feature = "_dppi")]
             events: self.events,
+            #[cfg(feature = "_dppi")]
             tasks: self.tasks,
             phantom: PhantomData,
         }
@@ -62,26 +66,6 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize>
         r.chenclr
             .write(|w| unsafe { w.bits(1 << self.ch.number()) });
     }
-
-    /// Enables all tasks and events
-    fn enable_all(&self) {
-        for (index, task) in self.tasks.iter().enumerate() {
-            Self::enable_task(task, &self.ch, index);
-        }
-        for (index, event) in self.events.iter().enumerate() {
-            Self::enable_event(event, &self.ch, index);
-        }
-    }
-
-    /// Disable all tasks and events
-    fn disable_all(&self) {
-        for (index, task) in self.tasks.iter().enumerate() {
-            Self::disable_task(task, &self.ch, index);
-        }
-        for (index, event) in self.events.iter().enumerate() {
-            Self::disable_event(event, &self.ch, index);
-        }
-    }
 }
 
 impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Drop
@@ -93,19 +77,23 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Drop
     }
 }
 
-impl<'d, C: StaticToOneChannel> Ppi<'d, C, 0, 1> {
+impl<'d, C: ZeroToOneChannel> Ppi<'d, C, 0, 1> {
     pub fn new_static_to_one(ch: impl Unborrow<Target = C> + 'd, task: Task) -> Self {
         unborrow!(ch);
 
-        let s = Self {
-            ch,
-            events: [],
-            tasks: [task],
-            phantom: PhantomData,
-        };
+        let events = [];
+        let tasks = [task];
 
-        s.enable_all();
-        s
+        Self::enable_all(&tasks, &events, &ch);
+
+        Self {
+            ch,
+            #[cfg(feature = "_dppi")]
+            events,
+            #[cfg(feature = "_dppi")]
+            tasks,
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -113,15 +101,19 @@ impl<'d, C: OneToOneChannel> Ppi<'d, C, 1, 1> {
     pub fn new_one_to_one(ch: impl Unborrow<Target = C> + 'd, event: Event, task: Task) -> Self {
         unborrow!(ch);
 
-        let s = Self {
-            ch,
-            events: [event],
-            tasks: [task],
-            phantom: PhantomData,
-        };
+        let events = [event];
+        let tasks = [task];
 
-        s.enable_all();
-        s
+        Self::enable_all(&tasks, &events, &ch);
+
+        Self {
+            ch,
+            #[cfg(feature = "_dppi")]
+            events,
+            #[cfg(feature = "_dppi")]
+            tasks,
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -134,15 +126,19 @@ impl<'d, C: OneToTwoChannel> Ppi<'d, C, 1, 2> {
     ) -> Self {
         unborrow!(ch);
 
-        let s = Self {
-            ch,
-            events: [event],
-            tasks: [task1, task2],
-            phantom: PhantomData,
-        };
+        let events = [event];
+        let tasks = [task1, task2];
 
-        s.enable_all();
-        s
+        Self::enable_all(&tasks, &events, &ch);
+
+        Self {
+            ch,
+            #[cfg(feature = "_dppi")]
+            events,
+            #[cfg(feature = "_dppi")]
+            tasks,
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -156,17 +152,20 @@ impl<'d, C: ManyToManyChannel, const EVENT_COUNT: usize, const TASK_COUNT: usize
     ) -> Self {
         unborrow!(ch);
 
-        let s = Self {
+        Self::enable_all(&tasks, &events, &ch);
+
+        Self {
             ch,
+            #[cfg(feature = "_dppi")]
             events,
+            #[cfg(feature = "_dppi")]
             tasks,
             phantom: PhantomData,
-        };
-
-        s.enable_all();
-        s
+        }
     }
 }
+
+const REGISTER_DPPI_CONFIG_OFFSET: usize = 0x80 / core::mem::size_of::<u32>();
 
 /// Represents a task that a peripheral can do.
 /// When a task is subscribed to a PPI channel it will run when the channel is triggered by
@@ -178,6 +177,10 @@ pub struct Task(pub NonNull<u32>);
 impl Task {
     pub(crate) fn from_reg<T>(reg: &T) -> Self {
         Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) })
+    }
+
+    pub fn subscribe_reg(&self) -> *mut u32 {
+        unsafe { self.0.as_ptr().add(REGISTER_DPPI_CONFIG_OFFSET) }
     }
 }
 
@@ -195,6 +198,10 @@ pub struct Event(pub NonNull<u32>);
 impl Event {
     pub(crate) fn from_reg<T>(reg: &T) -> Self {
         Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) })
+    }
+
+    pub fn publish_reg(&self) -> *mut u32 {
+        unsafe { self.0.as_ptr().add(REGISTER_DPPI_CONFIG_OFFSET) }
     }
 }
 
@@ -218,8 +225,8 @@ pub trait Channel: sealed::Channel + Unborrow<Target = Self> + Sized {
     fn is_task_configurable(&self) -> bool;
 }
 
-pub trait StaticToOneChannel: Channel {}
-pub trait OneToOneChannel: StaticToOneChannel {}
+pub trait ZeroToOneChannel: Channel {}
+pub trait OneToOneChannel: ZeroToOneChannel {}
 pub trait OneToTwoChannel: OneToOneChannel {}
 pub trait ManyToManyChannel: OneToTwoChannel {}
 
@@ -250,8 +257,8 @@ impl Channel for AnyChannel {
 
 macro_rules! impl_ppi_channel {
     ($type:ident, $number:expr, $has_configurable_task:expr) => {
-        impl crate::interconnect::sealed::Channel for peripherals::$type {}
-        impl crate::interconnect::Channel for peripherals::$type {
+        impl crate::ppi::sealed::Channel for peripherals::$type {}
+        impl crate::ppi::Channel for peripherals::$type {
             fn number(&self) -> usize {
                 $number
             }
@@ -267,19 +274,19 @@ macro_rules! impl_ppi_channel {
     };
     ($type:ident, $number:expr, $has_configurable_task:expr, 0, 1) => {
         impl_ppi_channel!($type, $number, $has_configurable_task, 0, 0);
-        impl crate::interconnect::StaticToOneChannel for peripherals::$type {}
+        impl crate::ppi::ZeroToOneChannel for peripherals::$type {}
     };
     ($type:ident, $number:expr, $has_configurable_task:expr, 1, 1) => {
         impl_ppi_channel!($type, $number, $has_configurable_task, 0, 1);
-        impl crate::interconnect::OneToOneChannel for peripherals::$type {}
+        impl crate::ppi::OneToOneChannel for peripherals::$type {}
     };
     ($type:ident, $number:expr, $has_configurable_task:expr, 1, 2) => {
         impl_ppi_channel!($type, $number, $has_configurable_task, 1, 1);
-        impl crate::interconnect::OneToTwoChannel for peripherals::$type {}
+        impl crate::ppi::OneToTwoChannel for peripherals::$type {}
     };
     ($type:ident, $number:expr, $has_configurable_task:expr, many, many) => {
         impl_ppi_channel!($type, $number, $has_configurable_task, 1, 2);
-        impl crate::interconnect::ManyToManyChannel for peripherals::$type {}
+        impl crate::ppi::ManyToManyChannel for peripherals::$type {}
     };
 }
 

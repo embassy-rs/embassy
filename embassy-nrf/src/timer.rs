@@ -11,8 +11,8 @@ use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
-use crate::interconnect::{Event, Task};
 use crate::pac;
+use crate::ppi::{Event, Task};
 
 pub(crate) mod sealed {
 

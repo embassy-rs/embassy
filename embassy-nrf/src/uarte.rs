@@ -16,9 +16,9 @@ use futures::future::poll_fn;
 use crate::chip::EASY_DMA_SIZE;
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, OptionalPin as GpioOptionalPin, Pin as GpioPin};
-use crate::interconnect::{AnyChannel, Event, OneToOneChannel, OneToTwoChannel, Ppi, Task};
 use crate::interrupt::Interrupt;
 use crate::pac;
+use crate::ppi::{AnyChannel, Event, OneToOneChannel, OneToTwoChannel, Ppi, Task};
 use crate::timer::Instance as TimerInstance;
 use crate::timer::{Frequency, Timer};
 

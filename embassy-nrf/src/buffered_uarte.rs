@@ -14,8 +14,8 @@ use embassy_hal_common::{low_power_wait_until, unborrow};
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
-use crate::interconnect::{AnyChannel, Event, OneToOneChannel, OneToTwoChannel, Ppi, Task};
 use crate::pac;
+use crate::ppi::{AnyChannel, Event, OneToOneChannel, OneToTwoChannel, Ppi, Task};
 use crate::timer::Instance as TimerInstance;
 use crate::timer::{Frequency, Timer};
 use crate::uarte::{Config, Instance as UarteInstance};

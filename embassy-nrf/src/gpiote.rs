@@ -11,8 +11,8 @@ use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Input, Output, Pin as GpioPin};
-use crate::interconnect::{Event, Task};
 use crate::pac;
+use crate::ppi::{Event, Task};
 use crate::{interrupt, peripherals};
 
 pub const CHANNEL_COUNT: usize = 8;
