@@ -20,7 +20,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     loop {
         let value = temp.read().await;
-        info!("temperature: {}", value.to_num::<u16>());
+        info!("temperature: {}℃", value.to_num::<u16>());
         Timer::after(Duration::from_secs(1)).await;
     }
 }
