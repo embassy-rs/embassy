@@ -6,11 +6,13 @@ use crate::peripherals::TEMP;
 
 use core::future::Future;
 use core::marker::PhantomData;
-use embassy::channel::signal::Signal;
+use core::task::Poll;
 use embassy::interrupt::InterruptExt;
 use embassy::util::Unborrow;
+use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::{drop::OnDrop, unborrow};
 use fixed::types::I30F2;
+use futures::future::poll_fn;
 
 /// Integrated temperature sensor.
 pub struct Temp<'d> {
@@ -18,7 +20,7 @@ pub struct Temp<'d> {
     _irq: interrupt::TEMP,
 }
 
-static IRQ: Signal<I30F2> = Signal::new();
+static WAKER: AtomicWaker = AtomicWaker::new();
 
 impl<'d> Temp<'d> {
     pub fn new(
@@ -27,16 +29,12 @@ impl<'d> Temp<'d> {
     ) -> Self {
         unborrow!(_t, irq);
 
-        let t = Self::regs();
-
         // Enable interrupt that signals temperature values
-        t.intenset.write(|w| w.datardy().set());
         irq.disable();
         irq.set_handler(|_| {
             let t = Self::regs();
-            t.events_datardy.reset();
-            let raw = t.temp.read().bits();
-            IRQ.signal(I30F2::from_bits(raw as i32));
+            t.intenclr.write(|w| w.datardy().clear());
+            WAKER.wake();
         });
         irq.enable();
         Self {
@@ -60,19 +58,26 @@ impl<'d> Temp<'d> {
         // In case the future is dropped, stop the task and reset events.
         let on_drop = OnDrop::new(|| {
             let t = Self::regs();
-            unsafe {
-                t.tasks_stop.write(|w| w.bits(1));
-            }
+            t.tasks_stop.write(|w| unsafe { w.bits(1) });
             t.events_datardy.reset();
         });
 
         let t = Self::regs();
-        // Empty signal channel and start measurement.
-        IRQ.reset();
+        t.intenset.write(|w| w.datardy().set());
         unsafe { t.tasks_start.write(|w| w.bits(1)) };
 
         async move {
-            let value = IRQ.wait().await;
+            let value = poll_fn(|cx| {
+                WAKER.register(cx.waker());
+                if t.events_datardy.read().bits() == 0 {
+                    return Poll::Pending;
+                } else {
+                    t.events_datardy.reset();
+                    let raw = t.temp.read().bits();
+                    Poll::Ready(I30F2::from_bits(raw as i32))
+                }
+            })
+            .await;
             on_drop.defuse();
             value
         }
