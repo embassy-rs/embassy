@@ -4,7 +4,6 @@ use crate::interrupt;
 use crate::pac;
 use crate::peripherals::TEMP;
 
-use core::future::Future;
 use core::marker::PhantomData;
 use core::task::Poll;
 use embassy::interrupt::InterruptExt;
@@ -54,7 +53,7 @@ impl<'d> Temp<'d> {
     /// let mut t = Temp::new(p.TEMP, interrupt::take!(TEMP));
     /// let v: u16 = t.read().await.to_num::<u16>();
     /// ```
-    pub fn read(&mut self) -> impl Future<Output = I30F2> {
+    pub async fn read(&mut self) -> I30F2 {
         // In case the future is dropped, stop the task and reset events.
         let on_drop = OnDrop::new(|| {
             let t = Self::regs();
@@ -66,21 +65,19 @@ impl<'d> Temp<'d> {
         t.intenset.write(|w| w.datardy().set());
         unsafe { t.tasks_start.write(|w| w.bits(1)) };
 
-        async move {
-            let value = poll_fn(|cx| {
-                WAKER.register(cx.waker());
-                if t.events_datardy.read().bits() == 0 {
-                    return Poll::Pending;
-                } else {
-                    t.events_datardy.reset();
-                    let raw = t.temp.read().bits();
-                    Poll::Ready(I30F2::from_bits(raw as i32))
-                }
-            })
-            .await;
-            on_drop.defuse();
-            value
-        }
+        let value = poll_fn(|cx| {
+            WAKER.register(cx.waker());
+            if t.events_datardy.read().bits() == 0 {
+                return Poll::Pending;
+            } else {
+                t.events_datardy.reset();
+                let raw = t.temp.read().bits();
+                Poll::Ready(I30F2::from_bits(raw as i32))
+            }
+        })
+        .await;
+        on_drop.defuse();
+        value
     }
 
     fn regs() -> &'static pac::temp::RegisterBlock {
