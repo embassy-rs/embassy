@@ -119,7 +119,7 @@ crate::pac::peripherals!(
         unsafe impl bxcan::MasterInstance for peripherals::CAN1 {}
     };
     (can, CAN3) => {
-        unsafe impl bxcan::FilterOwner for peripherals::$inst {
+        unsafe impl bxcan::FilterOwner for peripherals::CAN3 {
             const NUM_FILTER_BANKS: u8 = 14;
         }
     };
