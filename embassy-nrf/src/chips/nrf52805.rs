@@ -114,6 +114,9 @@ embassy_hal_common::peripherals! {
     P0_29,
     P0_30,
     P0_31,
+
+    // TEMP
+    TEMP,
 }
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);

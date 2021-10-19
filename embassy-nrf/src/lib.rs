@@ -39,6 +39,8 @@ pub mod rng;
 #[cfg(not(feature = "nrf52820"))]
 pub mod saadc;
 pub mod spim;
+#[cfg(not(feature = "nrf9160"))]
+pub mod temp;
 pub mod timer;
 pub mod twim;
 pub mod uarte;
