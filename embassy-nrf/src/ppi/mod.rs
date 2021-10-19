@@ -78,7 +78,7 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Drop
 }
 
 impl<'d, C: ZeroToOneChannel> Ppi<'d, C, 0, 1> {
-    pub fn new_static_to_one(ch: impl Unborrow<Target = C> + 'd, task: Task) -> Self {
+    pub fn new_zero_to_one(ch: impl Unborrow<Target = C> + 'd, task: Task) -> Self {
         unborrow!(ch);
 
         let events = [];
