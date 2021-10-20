@@ -5,6 +5,7 @@ use std::mem::MaybeUninit;
 use std::sync::{Condvar, Mutex, Once};
 use std::time::Duration as StdDuration;
 use std::time::Instant as StdInstant;
+use std::time::SystemTime;
 use std::{ptr, thread};
 
 use crate::time::driver::{AlarmHandle, Driver};
@@ -63,6 +64,7 @@ impl TimeDriver {
     }
 
     fn alarm_thread() {
+        let zero = unsafe { DRIVER.zero_instant.read() };
         loop {
             let now = DRIVER.now();
 
@@ -86,8 +88,10 @@ impl TimeDriver {
                 }
             }
 
-            let until =
-                unsafe { DRIVER.zero_instant.read() } + StdDuration::from_micros(next_alarm);
+            // Ensure we don't overflow
+            let until = zero
+                .checked_add(StdDuration::from_micros(next_alarm))
+                .unwrap_or(zero + StdDuration::from_secs(1));
 
             unsafe { DRIVER.signaler.as_ref() }.wait_until(until);
         }
