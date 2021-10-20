@@ -5,7 +5,6 @@ use std::mem::MaybeUninit;
 use std::sync::{Condvar, Mutex, Once};
 use std::time::Duration as StdDuration;
 use std::time::Instant as StdInstant;
-use std::time::SystemTime;
 use std::{ptr, thread};
 
 use crate::time::driver::{AlarmHandle, Driver};
