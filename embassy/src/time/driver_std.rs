@@ -90,7 +90,7 @@ impl TimeDriver {
             // Ensure we don't overflow
             let until = zero
                 .checked_add(StdDuration::from_micros(next_alarm))
-                .unwrap_or(zero + StdDuration::from_secs(1));
+                .unwrap_or_else(|| StdInstant::now() + StdDuration::from_secs(1));
 
             unsafe { DRIVER.signaler.as_ref() }.wait_until(until);
         }
