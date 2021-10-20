@@ -63,6 +63,7 @@ impl TimeDriver {
     }
 
     fn alarm_thread() {
+        let zero = unsafe { DRIVER.zero_instant.read() };
         loop {
             let now = DRIVER.now();
 
@@ -86,8 +87,10 @@ impl TimeDriver {
                 }
             }
 
-            let until =
-                unsafe { DRIVER.zero_instant.read() } + StdDuration::from_micros(next_alarm);
+            // Ensure we don't overflow
+            let until = zero
+                .checked_add(StdDuration::from_micros(next_alarm))
+                .unwrap_or_else(|| StdInstant::now() + StdDuration::from_secs(1));
 
             unsafe { DRIVER.signaler.as_ref() }.wait_until(until);
         }
