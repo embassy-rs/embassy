@@ -379,19 +379,27 @@ pub fn gen(options: Options) {
                         row.push(bi.module.clone());
                         row.push(bi.block.clone());
                         row.push(request.clone());
-                        if let Some(channel) = &channel.channel {
-                            row.push(format!("{{channel: {}}}", channel));
+                        row.push(if let Some(channel) = &channel.channel {
+                            format!("{{channel: {}}}", channel)
                         } else if let Some(dmamux) = &channel.dmamux {
-                            row.push(format!("{{dmamux: {}}}", dmamux));
+                            format!("{{dmamux: {}}}", dmamux)
                         } else {
                             unreachable!();
-                        }
-                        if let Some(request) = channel.request {
-                            row.push(request.to_string());
+                        });
+
+                        row.push(if let Some(request) = channel.request {
+                            request.to_string()
                         } else {
-                            row.push("()".to_string());
+                            "()".to_string()
+                        });
+
+                        if peripheral_dma_channels_table
+                            .iter()
+                            .find(|a| a[..a.len() - 1] == row[..row.len() - 1])
+                            .is_none()
+                        {
+                            peripheral_dma_channels_table.push(row);
                         }
-                        peripheral_dma_channels_table.push(row);
                     }
                 }
 
