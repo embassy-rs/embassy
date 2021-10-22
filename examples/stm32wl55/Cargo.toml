@@ -23,8 +23,8 @@ embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["
 embassy-hal-common = {version = "0.1.0", path = "../../embassy-hal-common" }
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["stm32wl", "time"] }
 
-lorawan-device = { git = "https://github.com/lulf/rust-lorawan.git", rev = "e529b74421346cb6537f8872d3c8eddcf14804b4", default-features = false, features = ["async"] }
-lorawan-encoding = { git = "https://github.com/lulf/rust-lorawan.git", rev = "e529b74421346cb6537f8872d3c8eddcf14804b4", default-features = false, features = ["default-crypto"] }
+lorawan-device = { git = "https://github.com/ivajloip/rust-lorawan.git", rev = "4bff2e0021103adfbccedcbf49dbcd0474adc4b2", default-features = false, features = ["async"] }
+lorawan-encoding = { git = "https://github.com/ivajloip/rust-lorawan.git", rev = "4bff2e0021103adfbccedcbf49dbcd0474adc4b2", default-features = false, features = ["default-crypto"] }
 
 defmt = "0.2.3"
 defmt-rtt = "0.2.0"
