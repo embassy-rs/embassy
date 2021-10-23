@@ -109,6 +109,13 @@ pub enum Endianness {
     Big,
 }
 
+pub enum CrcLength {
+    CrcDisabled,
+    Crc1byte,
+    Crc2bytes,
+    Crc3bytes,
+}
+
 #[non_exhaustive]
 pub struct Config {
     /// Frequency
@@ -155,6 +162,14 @@ pub struct Config {
     pub prefix_6: u8,
     /// Prefix 7
     pub prefix_7: u8,
+    /// CRC length
+    pub crc_length: CrcLength,
+    /// CRC skip address
+    pub crc_skip_address: bool,
+    /// CRC polynomial TODO: implement 24-bit value
+    pub crc_poly: u32,
+    /// CRC initial value TODO: implement 24-bit value
+    pub crc_init: u32,
 }
 
 impl Default for Config {
@@ -182,6 +197,10 @@ impl Default for Config {
             prefix_5: 0,
             prefix_6: 0,
             prefix_7: 0,
+            crc_length: CrcLength::CrcDisabled,
+            crc_skip_address: false,
+            crc_poly: 0,
+            crc_init: 0,
         }
     }
 }
@@ -264,11 +283,6 @@ impl<'d, T: Instance> Radio<'d, T> {
         });
 
         // PCNF0
-        // LFLEN: length field length in bits => 8
-        // S0LEN: S0 length in bytes => 0 (default)
-        // S1LEN: S1 length in bits => 0 (default)
-        // S1INCL: 0 (default)
-        // PLEN: 0 (default)
         r.pcnf0.write(|w| unsafe {
             w.lflen()
                 .bits(config.length_length)
@@ -292,11 +306,6 @@ impl<'d, T: Instance> Radio<'d, T> {
         });
 
         // PCNF1
-        // MAXLEN: max length of payload packet => 255
-        // STATLEN: 0 (default)
-        // BALEN: base address length => 4
-        // ENDIAN: 0 (default) => 1
-        // WHITEEN: 0 (default)
         r.pcnf1.write(|w| unsafe {
             w.maxlen()
                 .bits(config.payload_max)
@@ -348,15 +357,21 @@ impl<'d, T: Instance> Radio<'d, T> {
         });
 
         // CRCCNF
-        // LEN: length => 3
-        // SKIPADDR: 0 (default)
-        r.crccnf.write(|w| w.len().bits(3));
+        r.crccnf.write(|w| {
+            w.len()
+                .bits(match config.crc_length {
+                    CrcLength::CrcDisabled => 0,
+                    CrcLength::Crc1byte => 1,
+                    CrcLength::Crc2bytes => 2,
+                    CrcLength::Crc3bytes => 3,
+                })
+                .skipaddr()
+                .bit(config.crc_skip_address)
+        });
 
         // CRCPOLY
-        // x24 + x10 + x9 + x6 + x4 + x3 + x + 1
-        // CRCPOLY: 00000000_00000110_01011011
-        r.crcpoly
-            .write(|w| unsafe { w.bits(0b00000000_00000110_01011011) });
+        r.crcpoly.write(|w| unsafe { w.bits(config.crc_poly) });
+        r.crcinit.write(|w| unsafe { w.bits(config.crc_init) });
 
         // Shortcuts
         // READY - START
