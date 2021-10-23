@@ -142,6 +142,8 @@ pub struct Config {
     pub endianness: Endianness,
     /// Use packet whitening
     pub whitening: bool,
+    /// Initial value for packet whitening TODO: create specialized type
+    pub whitening_iv: u8,
     /// Base address 0
     pub base_address_0: u32,
     /// Base address 1
@@ -187,6 +189,7 @@ impl Default for Config {
             base_address_length: BaseAddressLength::BAL4bytes,
             endianness: Endianness::Big,
             whitening: false,
+            whitening_iv: 0,
             base_address_0: 0,
             base_address_1: 0,
             prefix_0: 0,
@@ -372,6 +375,10 @@ impl<'d, T: Instance> Radio<'d, T> {
         // CRCPOLY
         r.crcpoly.write(|w| unsafe { w.bits(config.crc_poly) });
         r.crcinit.write(|w| unsafe { w.bits(config.crc_init) });
+
+        // DATAWHITEIV
+        r.datawhiteiv
+            .write(|w| unsafe { w.bits(config.whitening_iv) });
 
         // Shortcuts
         // READY - START
