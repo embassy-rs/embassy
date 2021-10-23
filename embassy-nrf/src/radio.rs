@@ -115,18 +115,16 @@ pub struct Config {
     pub frequency: Frequency,
     /// Mode (modulation and bitrate)
     pub mode: Mode,
-    /// Transmit power
-    pub tx_power: TxPower,
     /// Length of the length field of the packet in bits; TODO: implement 4 bit value
     pub length_length: u8,
     /// Length of S0 in bytes
-    pub length_s0: S0Length,
+    pub s0_length: S0Length,
     /// Length of S1 in bits; TODO: implement 4bit value
-    pub length_s1: u8,
+    pub s1_length: u8,
     /// Inclusion mode of S1
     pub s1_include: S1Include,
     /// Length of the preamble
-    pub length_preamble: PreambleLength,
+    pub preamble_length: PreambleLength,
     /// Maximum length of the packet payload
     pub payload_max: u8,
     /// Static length in bytes
@@ -137,6 +135,26 @@ pub struct Config {
     pub endianness: Endianness,
     /// Use packet whitening
     pub whitening: bool,
+    /// Base address 0
+    pub base_address_0: u32,
+    /// Base address 1
+    pub base_address_1: u32,
+    /// Prefix 0
+    pub prefix_0: u8,
+    /// Prefix 1
+    pub prefix_1: u8,
+    /// Prefix 2
+    pub prefix_2: u8,
+    /// Prefix 3
+    pub prefix_3: u8,
+    /// Prefix 4
+    pub prefix_4: u8,
+    /// Prefix 5
+    pub prefix_5: u8,
+    /// Prefix 6
+    pub prefix_6: u8,
+    /// Prefix 7
+    pub prefix_7: u8,
 }
 
 impl Default for Config {
@@ -144,19 +162,57 @@ impl Default for Config {
         Self {
             frequency: Frequency::new(2400),
             mode: Mode::Ble1Mbit,
-            tx_power: TxPower::ZerodBm,
             length_length: 8,
-            length_s0: S0Length::S00bytes,
-            length_s1: 0,
+            s0_length: S0Length::S00bytes,
+            s1_length: 0,
             s1_include: S1Include::Automatic,
-            length_preamble: PreambleLength::P16bit,
+            preamble_length: PreambleLength::P16bit,
             payload_max: 255,
             static_length: 0,
             base_address_length: BaseAddressLength::BAL4bytes,
             endianness: Endianness::Big,
             whitening: false,
+            base_address_0: 0,
+            base_address_1: 0,
+            prefix_0: 0,
+            prefix_1: 0,
+            prefix_2: 0,
+            prefix_3: 0,
+            prefix_4: 0,
+            prefix_5: 0,
+            prefix_6: 0,
+            prefix_7: 0,
         }
     }
+}
+
+#[non_exhaustive]
+pub struct TxConfig {
+    /// Transmit power
+    pub tx_power: TxPower,
+    /// Transmission address TODO: limit to 3-bit values
+    pub tx_address: u8,
+}
+
+impl Default for TxConfig {
+    fn default() -> Self {
+        Self {
+            tx_power: TxPower::ZerodBm,
+            tx_address: 0,
+        }
+    }
+}
+
+#[non_exhaustive]
+pub struct RxConfig {
+    pub rx_address_0_active: bool,
+    pub rx_address_1_active: bool,
+    pub rx_address_2_active: bool,
+    pub rx_address_3_active: bool,
+    pub rx_address_4_active: bool,
+    pub rx_address_5_active: bool,
+    pub rx_address_6_active: bool,
+    pub rx_address_7_active: bool,
 }
 
 /// Interface to a RADIO instance.
@@ -202,19 +258,19 @@ impl<'d, T: Instance> Radio<'d, T> {
             w.lflen()
                 .bits(config.length_length)
                 .s0len()
-                .bit(match config.length_s0 {
+                .bit(match config.s0_length {
                     S0Length::S00bytes => false,
                     S0Length::S01byte => true,
                 })
                 .s1len()
-                .bits(config.length_s1)
+                .bits(config.s1_length)
                 .s1incl()
                 .bit(match config.s1_include {
                     S1Include::Automatic => false,
                     S1Include::Include => true,
                 })
                 .plen()
-                .bit(match config.length_preamble {
+                .bit(match config.preamble_length {
                     PreambleLength::P8bit => false,
                     PreambleLength::P16bit => true,
                 })
@@ -247,30 +303,34 @@ impl<'d, T: Instance> Radio<'d, T> {
         });
 
         // BASE0
-        // BASE0: 0xABCDABCD
-        r.base0.write(|w| unsafe { w.base0().bits(0xABCDABCD) });
+        r.base0
+            .write(|w| unsafe { w.base0().bits(config.base_address_0) });
+        // BASE1
+        r.base1
+            .write(|w| unsafe { w.base1().bits(config.base_address_1) });
 
         // PREFIX0
-        // AP0: 0xDA
-        r.prefix0.write(|w| unsafe { w.ap0().bits(0xEF) });
-
-        // TXADDRESS
-        // TXADDRESS: 0 (default)
-        r.txaddress.write(|w| unsafe { w.txaddress().bits(0) });
-
-        // TXPOWER
-        match config.tx_power {
-            TxPower::Pos4dBm => r.txpower.write(|w| w.txpower().pos4d_bm()),
-            TxPower::Pos3dBm => r.txpower.write(|w| w.txpower().pos3d_bm()),
-            TxPower::ZerodBm => r.txpower.write(|w| w.txpower()._0d_bm()),
-            TxPower::Neg4dBm => r.txpower.write(|w| w.txpower().neg4d_bm()),
-            TxPower::Neg8dBm => r.txpower.write(|w| w.txpower().neg8d_bm()),
-            TxPower::Neg12dBm => r.txpower.write(|w| w.txpower().neg12d_bm()),
-            TxPower::Neg16dBm => r.txpower.write(|w| w.txpower().neg16d_bm()),
-            TxPower::Neg20dBm => r.txpower.write(|w| w.txpower().neg20d_bm()),
-            TxPower::Neg30dBm => r.txpower.write(|w| w.txpower().neg30d_bm()),
-            TxPower::Neg40dBm => r.txpower.write(|w| w.txpower().neg40d_bm()),
-        }
+        r.prefix0.write(|w| unsafe {
+            w.ap0()
+                .bits(config.prefix_0)
+                .ap1()
+                .bits(config.prefix_1)
+                .ap2()
+                .bits(config.prefix_2)
+                .ap3()
+                .bits(config.prefix_3)
+        });
+        // PREFIX1
+        r.prefix1.write(|w| unsafe {
+            w.ap4()
+                .bits(config.prefix_4)
+                .ap5()
+                .bits(config.prefix_5)
+                .ap6()
+                .bits(config.prefix_6)
+                .ap7()
+                .bits(config.prefix_7)
+        });
 
         // CRCCNF
         // LEN: length => 3
@@ -444,8 +504,9 @@ impl<'d, T: Instance> Radio<'d, T> {
     }
 
     // the first byte of packet needs to be the packet length
-    pub fn write<'a>(
+    pub fn transmit<'a>(
         &'a mut self,
+        tx_config: &'a TxConfig,
         packet: &'a [u8],
     ) -> impl Future<Output = Result<(), Error>> + 'a {
         async move {
@@ -458,15 +519,24 @@ impl<'d, T: Instance> Radio<'d, T> {
 
             let r = T::regs();
 
-            // // copy data into buffer
-            // let mut len = 0;
+            // TXADDRESS
+            // TXADDRESS: 0 (default)
+            r.txaddress
+                .write(|w| unsafe { w.txaddress().bits(tx_config.tx_address) });
 
-            // for byte in bytes {
-            //     self.packet[len + 1] = *byte;
-            //     len += 1;
-            // }
-
-            // self.packet[0] = (len + 1) as u8;
+            // TXPOWER
+            match tx_config.tx_power {
+                TxPower::Pos4dBm => r.txpower.write(|w| w.txpower().pos4d_bm()),
+                TxPower::Pos3dBm => r.txpower.write(|w| w.txpower().pos3d_bm()),
+                TxPower::ZerodBm => r.txpower.write(|w| w.txpower()._0d_bm()),
+                TxPower::Neg4dBm => r.txpower.write(|w| w.txpower().neg4d_bm()),
+                TxPower::Neg8dBm => r.txpower.write(|w| w.txpower().neg8d_bm()),
+                TxPower::Neg12dBm => r.txpower.write(|w| w.txpower().neg12d_bm()),
+                TxPower::Neg16dBm => r.txpower.write(|w| w.txpower().neg16d_bm()),
+                TxPower::Neg20dBm => r.txpower.write(|w| w.txpower().neg20d_bm()),
+                TxPower::Neg30dBm => r.txpower.write(|w| w.txpower().neg30d_bm()),
+                TxPower::Neg40dBm => r.txpower.write(|w| w.txpower().neg40d_bm()),
+            }
 
             // enable "disabled" interrupt
             r.intenset.write(|w| w.disabled().bit(true));
