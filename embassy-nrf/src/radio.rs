@@ -215,6 +215,21 @@ pub struct RxConfig {
     pub rx_address_7_active: bool,
 }
 
+impl Default for RxConfig {
+    fn default() -> Self {
+        Self {
+            rx_address_0_active: false,
+            rx_address_1_active: true,
+            rx_address_2_active: false,
+            rx_address_3_active: false,
+            rx_address_4_active: false,
+            rx_address_5_active: false,
+            rx_address_6_active: false,
+            rx_address_7_active: false,
+        }
+    }
+}
+
 /// Interface to a RADIO instance.
 pub struct Radio<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
