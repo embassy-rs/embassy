@@ -83,11 +83,39 @@ pub enum TxPower {
     Neg40dBm,
 }
 
+pub enum PreambleLength {
+    P8bit,
+    P16bit,
+}
+
+pub enum S0Length {
+    S00bytes,
+    S01byte,
+}
+
+pub enum S1Include {
+    Automatic,
+    Include,
+}
+
 #[non_exhaustive]
 pub struct Config {
+    /// Frequency
     pub frequency: Frequency,
+    /// Mode (modulation and bitrate)
     pub mode: Mode,
+    /// Transmit power
     pub tx_power: TxPower,
+    /// Length of the length field of the packet in bits; TODO: implement 4 bit value
+    pub length_length: u8,
+    /// Length of S0 in bytes
+    pub length_s0: S0Length,
+    /// Length of S1 in bits; TODO: implement 4bit value
+    pub length_s1: u8,
+    /// Inclusion mode of S1
+    pub s1_include: S1Include,
+    /// Length of the preamble
+    pub length_preamble: PreambleLength,
 }
 
 impl Default for Config {
@@ -96,6 +124,11 @@ impl Default for Config {
             frequency: Frequency::new(2400),
             mode: Mode::Ble1Mbit,
             tx_power: TxPower::ZerodBm,
+            length_length: 8,
+            length_s0: S0Length::S00bytes,
+            length_s1: 0,
+            s1_include: S1Include::Automatic,
+            length_preamble: PreambleLength::P16bit,
         }
     }
 }
@@ -139,8 +172,27 @@ impl<'d, T: Instance> Radio<'d, T> {
         // S1LEN: S1 length in bits => 0 (default)
         // S1INCL: 0 (default)
         // PLEN: 0 (default)
-        r.pcnf0
-            .write(|w| unsafe { w.lflen().bits(8).plen().bit(true) });
+        r.pcnf0.write(|w| unsafe {
+            w.lflen()
+                .bits(config.length_length)
+                .s0len()
+                .bit(match config.length_s0 {
+                    S0Length::S00bytes => false,
+                    S0Length::S01byte => true,
+                })
+                .s1len()
+                .bits(config.length_s1)
+                .s1incl()
+                .bit(match config.s1_include {
+                    S1Include::Automatic => false,
+                    S1Include::Include => true,
+                })
+                .plen()
+                .bit(match config.length_preamble {
+                    PreambleLength::P8bit => false,
+                    PreambleLength::P16bit => true,
+                })
+        });
 
         // PCNF1
         // MAXLEN: max length of payload packet => 255
