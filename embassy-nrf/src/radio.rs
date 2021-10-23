@@ -98,6 +98,17 @@ pub enum S1Include {
     Include,
 }
 
+pub enum BaseAddressLength {
+    BAL2bytes,
+    BAL3bytes,
+    BAL4bytes,
+}
+
+pub enum Endianness {
+    Little,
+    Big,
+}
+
 #[non_exhaustive]
 pub struct Config {
     /// Frequency
@@ -116,6 +127,16 @@ pub struct Config {
     pub s1_include: S1Include,
     /// Length of the preamble
     pub length_preamble: PreambleLength,
+    /// Maximum length of the packet payload
+    pub payload_max: u8,
+    /// Static length in bytes
+    pub static_length: u8,
+    /// Base address length in bytes
+    pub base_address_length: BaseAddressLength,
+    /// Endianness of the packet
+    pub endianness: Endianness,
+    /// Use packet whitening
+    pub whitening: bool,
 }
 
 impl Default for Config {
@@ -129,6 +150,11 @@ impl Default for Config {
             length_s1: 0,
             s1_include: S1Include::Automatic,
             length_preamble: PreambleLength::P16bit,
+            payload_max: 255,
+            static_length: 0,
+            base_address_length: BaseAddressLength::BAL4bytes,
+            endianness: Endianness::Big,
+            whitening: false,
         }
     }
 }
@@ -200,8 +226,25 @@ impl<'d, T: Instance> Radio<'d, T> {
         // BALEN: base address length => 4
         // ENDIAN: 0 (default) => 1
         // WHITEEN: 0 (default)
-        r.pcnf1
-            .write(|w| unsafe { w.maxlen().bits(255).balen().bits(4).endian().bit(true) });
+        r.pcnf1.write(|w| unsafe {
+            w.maxlen()
+                .bits(config.payload_max)
+                .statlen()
+                .bits(config.static_length)
+                .balen()
+                .bits(match config.base_address_length {
+                    BaseAddressLength::BAL2bytes => 2,
+                    BaseAddressLength::BAL3bytes => 3,
+                    BaseAddressLength::BAL4bytes => 4,
+                })
+                .endian()
+                .bit(match config.endianness {
+                    Endianness::Little => false,
+                    Endianness::Big => true,
+                })
+                .whiteen()
+                .bit(config.whitening)
+        });
 
         // BASE0
         // BASE0: 0xABCDABCD
