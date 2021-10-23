@@ -49,6 +49,7 @@ futures     = { version = "0.3.17", default-features = false }
 critical-section = "0.2.3"
 rand_core = "0.6.3"
 fixed = "1.10.0"
+embedded-storage = "0.2.0"
 
 nrf52805-pac  = { version = "0.10.1", optional = true, features = [ "rt" ] }
 nrf52810-pac  = { version = "0.10.1", optional = true, features = [ "rt" ] }

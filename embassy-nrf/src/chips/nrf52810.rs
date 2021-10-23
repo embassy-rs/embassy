@@ -4,6 +4,8 @@ pub use nrf52810_pac as pac;
 pub const EASY_DMA_SIZE: usize = (1 << 10) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 256;
 
+pub const FLASH_SIZE: usize = 192 * 1024;
+
 embassy_hal_common::peripherals! {
     // RTC
     RTC0,
@@ -11,6 +13,9 @@ embassy_hal_common::peripherals! {
 
     // WDT
     WDT,
+
+    // NVMC
+    NVMC,
 
     // RNG
     RNG,
