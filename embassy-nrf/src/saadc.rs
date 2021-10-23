@@ -78,6 +78,29 @@ pub struct ChannelConfig<'d> {
     phantom: PhantomData<&'d ()>,
 }
 
+/// A dummy `Input` pin implementation for SAADC peripheral sampling from the
+/// internal voltage.
+pub struct VddInput;
+
+unsafe impl Unborrow for VddInput {
+    type Target = VddInput;
+    unsafe fn unborrow(self) -> Self::Target {
+        self
+    }
+}
+
+impl sealed::Input for VddInput {
+    #[cfg(not(feature = "nrf9160"))]
+    fn channel(&self) -> InputChannel {
+        InputChannel::VDD
+    }
+    #[cfg(feature = "nrf9160")]
+    fn channel(&self) -> InputChannel {
+        InputChannel::VDDGPIO
+    }
+}
+impl Input for VddInput {}
+
 impl<'d> ChannelConfig<'d> {
     /// Default configuration for single ended channel sampling.
     pub fn single_ended(input: impl Unborrow<Target = impl Input> + 'd) -> Self {
