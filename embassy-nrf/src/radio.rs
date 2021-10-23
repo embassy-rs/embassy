@@ -13,10 +13,26 @@ use embassy::traits;
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
+use futures::future::poll_fn;
 
 #[derive(Clone)]
 pub struct Frequency {
     val: u16,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    TxBufferTooLong,
+    RxBufferTooLong,
+    TxBufferZeroLength,
+    RxBufferZeroLength,
+    Transmit,
+    Receive,
+    DMABufferNotInDataMemory,
+    AddressNack,
+    DataNack,
+    Overrun,
 }
 
 impl Frequency {
@@ -174,7 +190,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         // Shortcuts
         // READY - START
-        // ADDRESS - RSSISTART
+        // END - DISABLE
         r.shorts
             .write(|w| w.ready_start().bit(true).end_disable().bit(true));
 
@@ -194,9 +210,9 @@ impl<'d, T: Instance> Radio<'d, T> {
         let r = T::regs();
         let s = T::state();
 
-        if r.events_end.read().bits() != 0 {
+        if r.events_disabled.read().bits() != 0 {
             s.end_waker.wake();
-            r.intenclr.write(|w| w.end().clear());
+            r.intenclr.write(|w| w.disabled().clear());
         }
         if r.events_crcerror.read().bits() != 0 {
             s.end_waker.wake();
@@ -298,148 +314,18 @@ impl<'d, T: Instance> Radio<'d, T> {
     // }
 
     /// Wait for stop or error
-    fn wait(&mut self) {
-        let r = T::regs();
-        loop {
-            if r.events_end.read().bits() != 0 {
-                r.events_end.reset();
-                break;
-            }
-            if r.events_crcerror.read().bits() != 0 {
-                r.events_crcerror.reset();
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
-            }
-        }
-    }
-
-    // /// Write to an I2C slave.
-    // ///
-    // /// The buffer must have a length of at most 255 bytes on the nRF52832
-    // /// and at most 65535 bytes on the nRF52840.
-    // pub fn write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
+    // fn wait(&mut self) {
     //     let r = T::regs();
-
-    //     // Conservative compiler fence to prevent optimizations that do not
-    //     // take in to account actions by DMA. The fence has been placed here,
-    //     // before any DMA action has started.
-    //     compiler_fence(SeqCst);
-
-    //     r.address.write(|w| unsafe { w.address().bits(address) });
-
-    //     // Set up the DMA write.
-    //     unsafe { self.set_tx_buffer(buffer)? };
-
-    //     // Clear events
-    //     r.events_stopped.reset();
-    //     r.events_error.reset();
-    //     r.events_lasttx.reset();
-    //     self.clear_errorsrc();
-
-    //     // Start write operation.
-    //     r.shorts.write(|w| w.lasttx_stop().enabled());
-    //     r.tasks_starttx.write(|w|
-    //         // `1` is a valid value to write to task registers.
-    //         unsafe { w.bits(1) });
-
-    //     self.wait();
-
-    //     // Conservative compiler fence to prevent optimizations that do not
-    //     // take in to account actions by DMA. The fence has been placed here,
-    //     // after all possible DMA actions have completed.
-    //     compiler_fence(SeqCst);
-
-    //     self.read_errorsrc()?;
-
-    //     if r.txd.amount.read().bits() != buffer.len() as u32 {
-    //         return Err(Error::Transmit);
+    //     loop {
+    //         if r.events_end.read().bits() != 0 {
+    //             r.events_end.reset();
+    //             break;
+    //         }
+    //         if r.events_crcerror.read().bits() != 0 {
+    //             r.events_crcerror.reset();
+    //             r.tasks_stop.write(|w| unsafe { w.bits(1) });
+    //         }
     //     }
-
-    //     Ok(())
-    // }
-
-    // /// Read from an I2C slave.
-    // ///
-    // /// The buffer must have a length of at most 255 bytes on the nRF52832
-    // /// and at most 65535 bytes on the nRF52840.
-    // pub fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-    //     let r = T::regs();
-
-    //     // Conservative compiler fence to prevent optimizations that do not
-    //     // take in to account actions by DMA. The fence has been placed here,
-    //     // before any DMA action has started.
-    //     compiler_fence(SeqCst);
-
-    //     r.address.write(|w| unsafe { w.address().bits(address) });
-
-    //     // Set up the DMA read.
-    //     unsafe { self.set_rx_buffer(buffer)? };
-
-    //     // Clear events
-    //     r.events_stopped.reset();
-    //     r.events_error.reset();
-    //     self.clear_errorsrc();
-
-    //     // Start read operation.
-    //     r.shorts.write(|w| w.lastrx_stop().enabled());
-    //     r.tasks_startrx.write(|w|
-    //         // `1` is a valid value to write to task registers.
-    //         unsafe { w.bits(1) });
-
-    //     self.wait();
-
-    //     // Conservative compiler fence to prevent optimizations that do not
-    //     // take in to account actions by DMA. The fence has been placed here,
-    //     // after all possible DMA actions have completed.
-    //     compiler_fence(SeqCst);
-
-    //     self.read_errorsrc()?;
-
-    //     if r.rxd.amount.read().bits() != buffer.len() as u32 {
-    //         return Err(Error::Receive);
-    //     }
-
-    //     Ok(())
-    // }
-
-    // /// Copy data into RAM and write to an I2C slave.
-    // ///
-    // /// The write buffer must have a length of at most 255 bytes on the nRF52832
-    // /// and at most 1024 bytes on the nRF52840.
-    // pub fn copy_write(&mut self, address: u8, wr_buffer: &[u8]) -> Result<(), Error> {
-    //     if wr_buffer.len() > FORCE_COPY_BUFFER_SIZE {
-    //         return Err(Error::TxBufferTooLong);
-    //     }
-
-    //     // Copy to RAM
-    //     let wr_ram_buffer = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
-    //     wr_ram_buffer.copy_from_slice(wr_buffer);
-
-    //     self.write(address, wr_ram_buffer)
-    // }
-
-    // /// Copy data into RAM and write to an I2C slave, then read data from the slave without
-    // /// triggering a stop condition between the two.
-    // ///
-    // /// The write buffer must have a length of at most 255 bytes on the nRF52832
-    // /// and at most 1024 bytes on the nRF52840.
-    // ///
-    // /// The read buffer must have a length of at most 255 bytes on the nRF52832
-    // /// and at most 65535 bytes on the nRF52840.
-    // pub fn copy_write_then_read(
-    //     &mut self,
-    //     address: u8,
-    //     wr_buffer: &[u8],
-    //     rd_buffer: &mut [u8],
-    // ) -> Result<(), Error> {
-    //     if wr_buffer.len() > FORCE_COPY_BUFFER_SIZE {
-    //         return Err(Error::TxBufferTooLong);
-    //     }
-
-    //     // Copy to RAM
-    //     let wr_ram_buffer = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
-    //     wr_ram_buffer.copy_from_slice(wr_buffer);
-
-    //     self.write_then_read(address, wr_ram_buffer, rd_buffer)
     // }
 
     fn wait_for_end_event(cx: &mut core::task::Context) -> Poll<()> {
@@ -447,8 +333,8 @@ impl<'d, T: Instance> Radio<'d, T> {
         let s = T::state();
 
         s.end_waker.register(cx.waker());
-        if r.events_end.read().bits() != 0 {
-            r.events_end.reset();
+        if r.events_disabled.read().bits() != 0 {
+            r.events_disabled.reset();
 
             return Poll::Ready(());
         }
@@ -460,6 +346,78 @@ impl<'d, T: Instance> Radio<'d, T> {
         }
 
         Poll::Pending
+    }
+
+    // the first byte of packet needs to be the packet length
+    pub fn write<'a>(
+        &'a mut self,
+        packet: &'a [u8],
+    ) -> impl Future<Output = Result<(), Error>> + 'a {
+        async move {
+            slice_in_ram_or(packet, Error::DMABufferNotInDataMemory)?;
+
+            // Conservative compiler fence to prevent optimizations that do not
+            // take in to account actions by DMA. The fence has been placed here,
+            // before any DMA action has started.
+            compiler_fence(SeqCst);
+
+            let r = T::regs();
+
+            // // copy data into buffer
+            // let mut len = 0;
+
+            // for byte in bytes {
+            //     self.packet[len + 1] = *byte;
+            //     len += 1;
+            // }
+
+            // self.packet[0] = (len + 1) as u8;
+
+            // enable "disabled" interrupt
+            r.intenset.write(|w| w.disabled().bit(true));
+
+            // set packet pointer
+            r.packetptr
+                .write(|w| unsafe { w.packetptr().bits(packet.as_ptr() as u32) });
+            // start transmission task
+            r.tasks_txen.write(|w| w.tasks_txen().bit(true));
+
+            // Set up DMA write.
+            // unsafe {
+            //     self.set_tx_buffer(bytes)?;
+            // }
+
+            // // Reset events
+            // r.events_stopped.reset();
+            // r.events_error.reset();
+            // r.events_lasttx.reset();
+            // self.clear_errorsrc();
+
+            // // Enable events
+            // r.intenset.write(|w| w.stopped().set().error().set());
+
+            // // Start write operation.
+            // r.shorts.write(|w| w.lasttx_stop().enabled());
+            // r.tasks_starttx.write(|w|
+            // // `1` is a valid value to write to task registers.
+            // unsafe { w.bits(1) });
+
+            // Conservative compiler fence to prevent optimizations that do not
+            // take in to account actions by DMA. The fence has been placed here,
+            // after all possible DMA actions have completed.
+            compiler_fence(SeqCst);
+
+            // Wait for 'end' event.
+            poll_fn(Self::wait_for_end_event).await;
+
+            // self.read_errorsrc()?;
+
+            // if r.txd.amount.read().bits() != bytes.len() as u32 {
+            //     return Err(Error::Transmit);
+            // }
+
+            Ok(())
+        }
     }
 }
 
