@@ -378,7 +378,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         // DATAWHITEIV
         r.datawhiteiv
-            .write(|w| unsafe { w.bits(config.whitening_iv) });
+            .write(|w| unsafe { w.bits(config.whitening_iv.into()) });
 
         // Shortcuts
         // READY - START
