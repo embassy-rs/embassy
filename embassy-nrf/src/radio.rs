@@ -253,6 +253,14 @@ impl Default for RxConfig {
 }
 
 /// Interface to a RADIO instance.
+///
+/// The following features are not supported:
+/// * Bit counter compare
+/// * Device address match
+/// * RSSI
+/// * Rx
+/// * Combined Tx-Rx and Rx-Tx (incl. inter frame spacing)
+/// * Radio mode configuration (ramp up time and default TX value)
 pub struct Radio<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
@@ -380,7 +388,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         r.datawhiteiv
             .write(|w| unsafe { w.bits(config.whitening_iv.into()) });
 
-        // Shortcuts
+        // Shortcuts TODO move shortcuts to tx and rx functions
         // READY - START
         // END - DISABLE
         r.shorts
@@ -412,114 +420,6 @@ impl<'d, T: Instance> Radio<'d, T> {
         }
     }
 
-    // /// Set TX buffer, checking that it is in RAM and has suitable length.
-    // unsafe fn set_tx_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
-    //     slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
-
-    //     if buffer.len() == 0 {
-    //         return Err(Error::TxBufferZeroLength);
-    //     }
-    //     if buffer.len() > EASY_DMA_SIZE {
-    //         return Err(Error::TxBufferTooLong);
-    //     }
-
-    //     let r = T::regs();
-
-    //     r.txd.ptr.write(|w|
-    //         // We're giving the register a pointer to the stack. Since we're
-    //         // waiting for the I2C transaction to end before this stack pointer
-    //         // becomes invalid, there's nothing wrong here.
-    //         //
-    //         // The PTR field is a full 32 bits wide and accepts the full range
-    //         // of values.
-    //         w.ptr().bits(buffer.as_ptr() as u32));
-    //     r.txd.maxcnt.write(|w|
-    //         // We're giving it the length of the buffer, so no danger of
-    //         // accessing invalid memory. We have verified that the length of the
-    //         // buffer fits in an `u8`, so the cast to `u8` is also fine.
-    //         //
-    //         // The MAXCNT field is 8 bits wide and accepts the full range of
-    //         // values.
-    //         w.maxcnt().bits(buffer.len() as _));
-
-    //     Ok(())
-    // }
-
-    // /// Set RX buffer, checking that it has suitable length.
-    // unsafe fn set_rx_buffer(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-    //     // NOTE: RAM slice check is not necessary, as a mutable
-    //     // slice can only be built from data located in RAM.
-
-    //     if buffer.len() == 0 {
-    //         return Err(Error::RxBufferZeroLength);
-    //     }
-    //     if buffer.len() > EASY_DMA_SIZE {
-    //         return Err(Error::RxBufferTooLong);
-    //     }
-
-    //     let r = T::regs();
-
-    //     r.rxd.ptr.write(|w|
-    //         // We're giving the register a pointer to the stack. Since we're
-    //         // waiting for the I2C transaction to end before this stack pointer
-    //         // becomes invalid, there's nothing wrong here.
-    //         //
-    //         // The PTR field is a full 32 bits wide and accepts the full range
-    //         // of values.
-    //         w.ptr().bits(buffer.as_mut_ptr() as u32));
-    //     r.rxd.maxcnt.write(|w|
-    //         // We're giving it the length of the buffer, so no danger of
-    //         // accessing invalid memory. We have verified that the length of the
-    //         // buffer fits in an `u8`, so the cast to the type of maxcnt
-    //         // is also fine.
-    //         //
-    //         // Note that that nrf52840 maxcnt is a wider
-    //         // type than a u8, so we use a `_` cast rather than a `u8` cast.
-    //         // The MAXCNT field is thus at least 8 bits wide and accepts the
-    //         // full range of values that fit in a `u8`.
-    //         w.maxcnt().bits(buffer.len() as _));
-
-    //     Ok(())
-    // }
-
-    // fn clear_errorsrc(&mut self) {
-    //     let r = T::regs();
-    //     r.errorsrc
-    //         .write(|w| w.anack().bit(true).dnack().bit(true).overrun().bit(true));
-    // }
-
-    // /// Get Error instance, if any occurred.
-    // fn read_errorsrc(&self) -> Result<(), Error> {
-    //     let r = T::regs();
-
-    //     let err = r.errorsrc.read();
-    //     if err.anack().is_received() {
-    //         return Err(Error::AddressNack);
-    //     }
-    //     if err.dnack().is_received() {
-    //         return Err(Error::DataNack);
-    //     }
-    //     if err.overrun().is_received() {
-    //         return Err(Error::DataNack);
-    //     }
-    //     Ok(())
-    // }
-
-    /// Wait for stop or error
-    // fn wait(&mut self) {
-    //     let r = T::regs();
-    //     loop {
-    //         if r.events_end.read().bits() != 0 {
-    //             r.events_end.reset();
-    //             break;
-    //         }
-    //         if r.events_crcerror.read().bits() != 0 {
-    //             r.events_crcerror.reset();
-    //             r.tasks_stop.write(|w| unsafe { w.bits(1) });
-    //         }
-    //     }
-    // }
-
     fn wait_for_end_event(cx: &mut core::task::Context) -> Poll<()> {
         let r = T::regs();
         let s = T::state();
@@ -531,7 +431,7 @@ impl<'d, T: Instance> Radio<'d, T> {
             return Poll::Ready(());
         }
 
-        // stop if an error occured
+        // stop if an error occured TODO activate error interrupts
         if r.events_crcerror.read().bits() != 0 {
             r.events_crcerror.reset();
             r.tasks_stop.write(|w| unsafe { w.bits(1) });
@@ -584,26 +484,6 @@ impl<'d, T: Instance> Radio<'d, T> {
             // start transmission task
             r.tasks_txen.write(|w| w.tasks_txen().bit(true));
 
-            // Set up DMA write.
-            // unsafe {
-            //     self.set_tx_buffer(bytes)?;
-            // }
-
-            // // Reset events
-            // r.events_stopped.reset();
-            // r.events_error.reset();
-            // r.events_lasttx.reset();
-            // self.clear_errorsrc();
-
-            // // Enable events
-            // r.intenset.write(|w| w.stopped().set().error().set());
-
-            // // Start write operation.
-            // r.shorts.write(|w| w.lasttx_stop().enabled());
-            // r.tasks_starttx.write(|w|
-            // // `1` is a valid value to write to task registers.
-            // unsafe { w.bits(1) });
-
             // Conservative compiler fence to prevent optimizations that do not
             // take in to account actions by DMA. The fence has been placed here,
             // after all possible DMA actions have completed.
@@ -629,7 +509,7 @@ impl<'a, T: Instance> Drop for Radio<'a, T> {
 
         // TODO when implementing async here, check for abort
 
-        // disable!
+        // disable
         let r = T::regs();
         r.power.write(|w| w.power().disabled());
 
