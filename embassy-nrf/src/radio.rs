@@ -3,7 +3,6 @@
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::pac;
 use crate::util::{slice_in_ram, slice_in_ram_or};
-use core::convert;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering::SeqCst};
@@ -15,11 +14,6 @@ use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
-#[derive(Clone)]
-pub struct Frequency {
-    val: u16,
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
@@ -30,36 +24,102 @@ pub enum Error {
     Transmit,
     Receive,
     DMABufferNotInDataMemory,
-    AddressNack,
-    DataNack,
-    Overrun,
+    FrequencyTooLow,
+    FrequencyTooHigh,
+    TxAddressSelectionInvalid,
+    ValueTooSmall,
+    ValueTooLarge,
 }
+
+#[derive(Clone)]
+pub struct Frequency(u16);
 
 impl Frequency {
-    pub fn new(frequency: u16) -> Self {
-        if frequency < 2400 || frequency > 2500 {
-            // do proper error handling
-            Frequency { val: 2400 }
-        } else {
-            Frequency { val: frequency }
-        }
-    }
-}
-
-impl From<u16> for Frequency {
-    fn from(frequency: u16) -> Self {
-        if frequency < 2400 || frequency > 2500 {
-            // do proper error handling
-            Frequency { val: 2400 }
-        } else {
-            Frequency { val: frequency }
+    pub fn new(frequency: u16) -> Result<Self, Error> {
+        match frequency {
+            0..=2399 => Err(Error::FrequencyTooLow),
+            2400..=2500 => Ok(Frequency(frequency)),
+            _ => Err(Error::FrequencyTooHigh),
         }
     }
 }
 
 impl From<Frequency> for u16 {
-    fn from(frequency: Frequency) -> Self {
-        frequency.val
+    fn from(val: Frequency) -> Self {
+        val.0
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct TxAddressSelection(u8);
+
+impl TxAddressSelection {
+    pub fn new(selection: u8) -> Result<Self, Error> {
+        match selection {
+            0..=7 => Ok(TxAddressSelection(selection)),
+            _ => Err(Error::TxAddressSelectionInvalid),
+        }
+    }
+}
+
+impl Into<u8> for TxAddressSelection {
+    fn into(self) -> u8 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct Value4Bit(u8);
+
+impl Value4Bit {
+    pub fn new(val: u8) -> Result<Self, Error> {
+        match val {
+            0..=0x0f => Ok(Value4Bit(val)),
+            _ => Err(Error::ValueTooLarge),
+        }
+    }
+}
+
+impl Into<u8> for Value4Bit {
+    fn into(self) -> u8 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct Value24Bit(u32);
+
+impl Value24Bit {
+    pub fn new(val: u32) -> Result<Self, Error> {
+        match val {
+            0..=0x0fff => Ok(Value24Bit(val)),
+            _ => Err(Error::ValueTooLarge),
+        }
+    }
+}
+
+impl Into<u32> for Value24Bit {
+    fn into(self) -> u32 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct DataWhiteningIv(u8);
+
+impl DataWhiteningIv {
+    pub fn new(val: u8) -> Result<Self, Error> {
+        match val {
+            0..=0b0011_1111 => Err(Error::ValueTooSmall),
+            0b0100_0000..=0b0111_1111 => Ok(DataWhiteningIv(val)),
+            _ => Err(Error::ValueTooLarge),
+        }
+    }
+}
+
+impl Into<u32> for DataWhiteningIv {
+    fn into(self) -> u32 {
+        self.0.into()
     }
 }
 
@@ -122,12 +182,12 @@ pub struct Config {
     pub frequency: Frequency,
     /// Mode (modulation and bitrate)
     pub mode: Mode,
-    /// Length of the length field of the packet in bits; TODO: implement 4 bit value
-    pub length_length: u8,
+    /// Length of the length field of the packet in bits
+    pub length_length: Value4Bit,
     /// Length of S0 in bytes
     pub s0_length: S0Length,
-    /// Length of S1 in bits; TODO: implement 4bit value
-    pub s1_length: u8,
+    /// Length of S1 in bits
+    pub s1_length: Value4Bit,
     /// Inclusion mode of S1
     pub s1_include: S1Include,
     /// Length of the preamble
@@ -142,8 +202,8 @@ pub struct Config {
     pub endianness: Endianness,
     /// Use packet whitening
     pub whitening: bool,
-    /// Initial value for packet whitening TODO: create specialized type
-    pub whitening_iv: u8,
+    /// Initial value for packet whitening
+    pub whitening_iv: DataWhiteningIv,
     /// Base address 0
     pub base_address_0: u32,
     /// Base address 1
@@ -168,20 +228,20 @@ pub struct Config {
     pub crc_length: CrcLength,
     /// CRC skip address
     pub crc_skip_address: bool,
-    /// CRC polynomial TODO: implement 24-bit value
-    pub crc_poly: u32,
-    /// CRC initial value TODO: implement 24-bit value
-    pub crc_init: u32,
+    /// CRC polynomial
+    pub crc_poly: Value24Bit,
+    /// CRC initial value
+    pub crc_init: Value24Bit,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            frequency: Frequency::new(2400),
+            frequency: Frequency::new(2400).unwrap(),
             mode: Mode::Ble1Mbit,
-            length_length: 8,
+            length_length: Value4Bit::new(8).unwrap(),
             s0_length: S0Length::S00bytes,
-            s1_length: 0,
+            s1_length: Value4Bit::new(0).unwrap(),
             s1_include: S1Include::Automatic,
             preamble_length: PreambleLength::P16bit,
             payload_max: 255,
@@ -189,7 +249,7 @@ impl Default for Config {
             base_address_length: BaseAddressLength::BAL4bytes,
             endianness: Endianness::Big,
             whitening: false,
-            whitening_iv: 0,
+            whitening_iv: DataWhiteningIv::new(0).unwrap(),
             base_address_0: 0,
             base_address_1: 0,
             prefix_0: 0,
@@ -202,8 +262,8 @@ impl Default for Config {
             prefix_7: 0,
             crc_length: CrcLength::CrcDisabled,
             crc_skip_address: false,
-            crc_poly: 0,
-            crc_init: 0,
+            crc_poly: Value24Bit::new(0).unwrap(),
+            crc_init: Value24Bit::new(0).unwrap(),
         }
     }
 }
@@ -212,15 +272,15 @@ impl Default for Config {
 pub struct TxConfig {
     /// Transmit power
     pub tx_power: TxPower,
-    /// Transmission address TODO: limit to 3-bit values
-    pub tx_address: u8,
+    /// Transmission address
+    pub tx_address: TxAddressSelection,
 }
 
 impl Default for TxConfig {
     fn default() -> Self {
         Self {
             tx_power: TxPower::ZerodBm,
-            tx_address: 0,
+            tx_address: TxAddressSelection::new(0).unwrap(),
         }
     }
 }
@@ -294,14 +354,14 @@ impl<'d, T: Instance> Radio<'d, T> {
         // PCNF0
         r.pcnf0.write(|w| unsafe {
             w.lflen()
-                .bits(config.length_length)
+                .bits(config.length_length.into())
                 .s0len()
                 .bit(match config.s0_length {
                     S0Length::S00bytes => false,
                     S0Length::S01byte => true,
                 })
                 .s1len()
-                .bits(config.s1_length)
+                .bits(config.s1_length.into())
                 .s1incl()
                 .bit(match config.s1_include {
                     S1Include::Automatic => false,
@@ -379,8 +439,10 @@ impl<'d, T: Instance> Radio<'d, T> {
         });
 
         // CRCPOLY
-        r.crcpoly.write(|w| unsafe { w.bits(config.crc_poly) });
-        r.crcinit.write(|w| unsafe { w.bits(config.crc_init) });
+        r.crcpoly
+            .write(|w| unsafe { w.bits(config.crc_poly.into()) });
+        r.crcinit
+            .write(|w| unsafe { w.bits(config.crc_init.into()) });
 
         // DATAWHITEIV
         r.datawhiteiv
@@ -455,7 +517,7 @@ impl<'d, T: Instance> Radio<'d, T> {
             // TXADDRESS
             // TXADDRESS: 0 (default)
             r.txaddress
-                .write(|w| unsafe { w.txaddress().bits(tx_config.tx_address) });
+                .write(|w| unsafe { w.txaddress().bits(tx_config.tx_address.into()) });
 
             // TXPOWER
             match tx_config.tx_power {
