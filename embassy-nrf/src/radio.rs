@@ -257,7 +257,6 @@ impl Default for RxConfig {
 /// The following features are not supported:
 /// * Bit counter compare
 /// * Device address match
-/// * RSSI
 /// * Combined Tx-Rx and Rx-Tx (incl. inter frame spacing)
 /// * Radio mode configuration (ramp up time and default TX value)
 pub struct Radio<'d, T: Instance> {
@@ -387,12 +386,6 @@ impl<'d, T: Instance> Radio<'d, T> {
         r.datawhiteiv
             .write(|w| unsafe { w.bits(config.whitening_iv.into()) });
 
-        // Shortcuts TODO move shortcuts to tx and rx functions
-        // READY - START
-        // END - DISABLE
-        r.shorts
-            .write(|w| w.ready_start().bit(true).end_disable().bit(true));
-
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
 
@@ -455,6 +448,10 @@ impl<'d, T: Instance> Radio<'d, T> {
 
             let r = T::regs();
 
+            // Set tx shorts
+            r.shorts
+                .write(|w| w.ready_start().bit(true).end_disable().bit(true));
+
             // TXADDRESS
             // TXADDRESS: 0 (default)
             r.txaddress
@@ -506,7 +503,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         &'a mut self,
         rx_config: &'a RxConfig,
         packet: &'a mut [u8],
-    ) -> impl Future<Output = Result<(), Error>> + 'a {
+    ) -> impl Future<Output = Result<i8, Error>> + 'a {
         async move {
             slice_in_ram_or(packet, Error::DMABufferNotInDataMemory)?;
 
@@ -516,6 +513,18 @@ impl<'d, T: Instance> Radio<'d, T> {
             compiler_fence(SeqCst);
 
             let r = T::regs();
+
+            // Set rx shorts
+            r.shorts.write(|w| {
+                w.ready_start()
+                    .bit(true)
+                    .end_disable()
+                    .bit(true)
+                    .address_rssistart()
+                    .bit(true)
+                    .disabled_rssistop()
+                    .bit(true)
+            });
 
             // RXADDRESSES
             r.rxaddresses.write(|w| {
@@ -560,7 +569,7 @@ impl<'d, T: Instance> Radio<'d, T> {
             //     return Err(Error::Transmit);
             // }
 
-            Ok(())
+            Ok(-(r.rssisample.read().rssisample().bits() as i8))
         }
     }
 }
