@@ -26,6 +26,8 @@ pub(crate) mod util;
 mod time_driver;
 
 pub mod buffered_uarte;
+#[cfg(feature = "nrf52810")]
+pub mod clock;
 pub mod gpio;
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
@@ -36,6 +38,8 @@ pub mod ppi;
 pub mod pwm;
 #[cfg(feature = "nrf52840")]
 pub mod qspi;
+#[cfg(feature = "nrf52810")]
+pub mod radio;
 #[cfg(not(feature = "nrf9160"))]
 pub mod rng;
 #[cfg(not(feature = "nrf52820"))]
@@ -47,8 +51,6 @@ pub mod timer;
 pub mod twim;
 pub mod uarte;
 pub mod wdt;
-#[cfg(feature = "nrf52810")]
-pub mod radio;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
 #[cfg(feature = "nrf52805")]

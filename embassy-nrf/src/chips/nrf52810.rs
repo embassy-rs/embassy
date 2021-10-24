@@ -125,8 +125,12 @@ embassy_hal_common::peripherals! {
 
     // RADIO
     RADIO,
+
     // TEMP
     TEMP,
+
+    // CLOCK
+    CLOCK,
 }
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
@@ -217,6 +221,8 @@ impl_saadc_input!(P0_30, ANALOGINPUT6);
 impl_saadc_input!(P0_31, ANALOGINPUT7);
 
 impl_radio!(RADIO, RADIO, RADIO);
+
+impl_clock!(CLOCK, CLOCK, POWER_CLOCK);
 
 pub mod irqs {
     use crate::pac::Interrupt as InterruptEnum;
