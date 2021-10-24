@@ -39,7 +39,7 @@ impl<R: AsyncBufRead + ?Sized + Unpin> Future for ReadExact<'_, R> {
             this.buf[..n].copy_from_slice(&buf[..n]);
             Pin::new(&mut this.reader).consume(n);
             {
-                let (_, rest) = mem::replace(&mut this.buf, &mut []).split_at_mut(n);
+                let (_, rest) = mem::take(&mut this.buf).split_at_mut(n);
                 this.buf = rest;
             }
         }

@@ -31,7 +31,7 @@ impl<W: AsyncWrite + ?Sized + Unpin> Future for WriteAll<'_, W> {
         while !this.buf.is_empty() {
             let n = ready!(Pin::new(&mut this.writer).poll_write(cx, this.buf))?;
             {
-                let (_, rest) = mem::replace(&mut this.buf, &[]).split_at(n);
+                let (_, rest) = mem::take(&mut this.buf).split_at(n);
                 this.buf = rest;
             }
             if n == 0 {

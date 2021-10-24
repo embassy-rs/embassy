@@ -11,12 +11,11 @@
 //! On nRF52 devices, there is also a fork task endpoint, where the user can configure one more task
 //! to be triggered by the same event, even fixed PPI channels have a configurable fork task.
 
+use crate::{pac, peripherals};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use embassy::util::Unborrow;
 use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
-
-use crate::{pac, peripherals};
 
 // ======================
 //       driver
@@ -29,11 +28,13 @@ pub struct Ppi<'d, C: Channel> {
 impl<'d, C: Channel> Ppi<'d, C> {
     pub fn new(ch: impl Unborrow<Target = C> + 'd) -> Self {
         unborrow!(ch);
+
+        #[allow(unused_mut)]
         let mut this = Self {
             ch,
             phantom: PhantomData,
         };
-        #[cfg(not(feature = "nrf51"))]
+        #[cfg(not(any(feature = "nrf51", feature = "nrf9160")))]
         this.clear_fork_task();
         this
     }
@@ -52,7 +53,7 @@ impl<'d, C: Channel> Ppi<'d, C> {
             .write(|w| unsafe { w.bits(1 << self.ch.number()) });
     }
 
-    #[cfg(not(feature = "nrf51"))]
+    #[cfg(not(any(feature = "nrf51", feature = "nrf9160")))]
     /// Sets the fork task that must be triggered when the configured event occurs. The user must
     /// provide a reference to the task.
     pub fn set_fork_task(&mut self, task: Task) {
@@ -62,11 +63,24 @@ impl<'d, C: Channel> Ppi<'d, C> {
             .write(|w| unsafe { w.bits(task.0.as_ptr() as u32) })
     }
 
-    #[cfg(not(feature = "nrf51"))]
+    #[cfg(not(any(feature = "nrf51", feature = "nrf9160")))]
     /// Clear the fork task endpoint. Previously set task will no longer be triggered.
     pub fn clear_fork_task(&mut self) {
         let r = unsafe { &*pac::PPI::ptr() };
         r.fork[self.ch.number()].tep.write(|w| unsafe { w.bits(0) })
+    }
+
+    #[cfg(feature = "nrf9160")]
+    /// Sets the fork task that must be triggered when the configured event occurs. The user must
+    /// provide a reference to the task.
+    pub fn set_fork_task(&mut self, _task: Task) {
+        todo!("Tasks not yet implemented for nrf9160");
+    }
+
+    #[cfg(feature = "nrf9160")]
+    /// Clear the fork task endpoint. Previously set task will no longer be triggered.
+    pub fn clear_fork_task(&mut self) {
+        todo!("Tasks not yet implemented for nrf9160");
     }
 }
 
@@ -76,6 +90,7 @@ impl<'d, C: Channel> Drop for Ppi<'d, C> {
     }
 }
 
+#[cfg(not(feature = "nrf9160"))]
 impl<'d, C: ConfigurableChannel> Ppi<'d, C> {
     /// Sets the task to be triggered when the configured event occurs.
     pub fn set_task(&mut self, task: Task) {
@@ -91,6 +106,19 @@ impl<'d, C: ConfigurableChannel> Ppi<'d, C> {
         r.ch[self.ch.number()]
             .eep
             .write(|w| unsafe { w.bits(event.0.as_ptr() as u32) })
+    }
+}
+
+#[cfg(feature = "nrf9160")]
+impl<'d, C: ConfigurableChannel> Ppi<'d, C> {
+    /// Sets the task to be triggered when the configured event occurs.
+    pub fn set_task(&mut self, _task: Task) {
+        todo!("Tasks not yet implemented for nrf9160")
+    }
+
+    /// Sets the event that will trigger the chosen task(s).
+    pub fn set_event(&mut self, _event: Event) {
+        todo!("Events not yet implemented for nrf9160")
     }
 }
 

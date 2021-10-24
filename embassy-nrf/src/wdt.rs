@@ -58,7 +58,12 @@ impl Watchdog {
         let crv = config.timeout_ticks.max(MIN_TICKS);
         let rren = (1u32 << N) - 1;
 
-        if r.runstatus.read().runstatus().bit() {
+        #[cfg(not(feature = "nrf9160"))]
+        let runstatus = r.runstatus.read().runstatus().bit();
+        #[cfg(feature = "nrf9160")]
+        let runstatus = r.runstatus.read().runstatuswdt().bit();
+
+        if runstatus {
             let curr_config = r.config.read();
             if curr_config.halt().bit() != config.run_during_debug_halt
                 || curr_config.sleep().bit() != config.run_during_sleep

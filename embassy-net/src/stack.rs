@@ -140,7 +140,7 @@ impl Stack {
         self.waker.register(cx.waker());
 
         let timestamp = instant_to_smoltcp(Instant::now());
-        if let Err(_) = self.iface.poll(&mut self.sockets, timestamp) {
+        if self.iface.poll(&mut self.sockets, timestamp).is_err() {
             // If poll() returns error, it may not be done yet, so poll again later.
             cx.waker().wake_by_ref();
             return;
@@ -152,18 +152,14 @@ impl Stack {
 
         // Print when changed
         if old_link_up != self.link_up {
-            if self.link_up {
-                info!("Link up!");
-            } else {
-                info!("Link down!");
-            }
+            info!("link_up = {:?}", self.link_up);
         }
 
         if old_link_up || self.link_up {
             self.poll_configurator(timestamp)
         }
 
-        if let Some(poll_at) = self.iface.poll_at(&mut self.sockets, timestamp) {
+        if let Some(poll_at) = self.iface.poll_at(&self.sockets, timestamp) {
             let t = Timer::at(instant_from_smoltcp(poll_at));
             pin_mut!(t);
             if t.poll(cx).is_ready() {
@@ -215,7 +211,7 @@ pub fn init<const ADDR: usize, const SOCK: usize, const NEIGH: usize>(
         let mut res = [0u8; 2];
         rand(&mut res);
         let port = u16::from_le_bytes(res);
-        if port >= LOCAL_PORT_MIN && port <= LOCAL_PORT_MAX {
+        if (LOCAL_PORT_MIN..=LOCAL_PORT_MAX).contains(&port) {
             break port;
         }
     };
