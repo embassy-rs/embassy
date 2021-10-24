@@ -118,6 +118,7 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
             use #embassy_path::executor::raw::TaskStorage;
             #task_fn
             type F = #impl_ty;
+            #[allow(clippy::declare_interior_mutable_const)]
             const NEW_TASK: TaskStorage<F> = TaskStorage::new();
             static POOL: [TaskStorage<F>; #pool_size] = [NEW_TASK; #pool_size];
             unsafe { TaskStorage::spawn_pool(&POOL, move || task(#arg_names)) }

@@ -37,7 +37,7 @@ pub trait Flash {
     /// Erases a single page from the flash device.
     ///
     /// address must be a multiple of self.erase_size().
-    fn erase<'a>(&'a mut self, address: usize) -> Self::ErasePageFuture<'a>;
+    fn erase(&mut self, address: usize) -> Self::ErasePageFuture<'_>;
 
     /// Returns the total size, in bytes.
     /// This is not guaranteed to be a power of 2.

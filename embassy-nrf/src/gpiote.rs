@@ -22,6 +22,7 @@ pub const PIN_COUNT: usize = 48;
 #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
 pub const PIN_COUNT: usize = 32;
 
+#[allow(clippy::declare_interior_mutable_const)]
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AW; CHANNEL_COUNT];
 static PORT_WAKERS: [AtomicWaker; PIN_COUNT] = [NEW_AW; PIN_COUNT];
@@ -55,7 +56,11 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
 
     // Enable interrupts
 
+    #[cfg(not(feature = "nrf9160"))]
     let irq = unsafe { interrupt::GPIOTE::steal() };
+    #[cfg(feature = "nrf9160")]
+    let irq = unsafe { interrupt::GPIOTE1::steal() };
+
     irq.unpend();
     irq.set_priority(irq_prio);
     irq.enable();
@@ -65,8 +70,19 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     g.intenset.write(|w| w.port().set());
 }
 
+#[cfg(not(feature = "nrf9160"))]
 #[interrupt]
-unsafe fn GPIOTE() {
+fn GPIOTE() {
+    unsafe { handle_gpiote_interrupt() };
+}
+
+#[cfg(feature = "nrf9160")]
+#[interrupt]
+fn GPIOTE1() {
+    unsafe { handle_gpiote_interrupt() };
+}
+
+unsafe fn handle_gpiote_interrupt() {
     let g = &*pac::GPIOTE::ptr();
 
     for i in 0..CHANNEL_COUNT {

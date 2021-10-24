@@ -29,15 +29,20 @@ pub mod buffered_uarte;
 pub mod gpio;
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
+#[cfg(not(feature = "nrf9160"))]
+pub mod nvmc;
 pub mod ppi;
 #[cfg(not(any(feature = "nrf52805", feature = "nrf52820")))]
 pub mod pwm;
 #[cfg(feature = "nrf52840")]
 pub mod qspi;
+#[cfg(not(feature = "nrf9160"))]
 pub mod rng;
 #[cfg(not(feature = "nrf52820"))]
 pub mod saadc;
 pub mod spim;
+#[cfg(not(feature = "nrf9160"))]
+pub mod temp;
 pub mod timer;
 pub mod twim;
 pub mod uarte;
@@ -67,6 +72,9 @@ mod chip;
 #[cfg(feature = "nrf52840")]
 #[path = "chips/nrf52840.rs"]
 mod chip;
+#[cfg(feature = "nrf9160")]
+#[path = "chips/nrf9160.rs"]
+mod chip;
 
 pub use chip::EASY_DMA_SIZE;
 
@@ -75,6 +83,7 @@ pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
 
+use crate::pac::CLOCK;
 pub use chip::{peripherals, Peripherals};
 
 pub mod interrupt {
@@ -93,9 +102,12 @@ pub mod config {
 
     pub enum LfclkSource {
         InternalRC,
+        #[cfg(not(feature = "nrf9160"))]
         Synthesized,
         ExternalXtal,
+        #[cfg(not(feature = "nrf9160"))]
         ExternalLowSwing,
+        #[cfg(not(feature = "nrf9160"))]
         ExternalFullSwing,
     }
 
@@ -131,7 +143,7 @@ pub fn init(config: config::Config) -> Peripherals {
     // before doing anything important.
     let peripherals = Peripherals::take();
 
-    let r = unsafe { &*pac::CLOCK::ptr() };
+    let r = unsafe { &*CLOCK::ptr() };
 
     // Start HFCLK.
     match config.hfclk_source {
@@ -145,6 +157,7 @@ pub fn init(config: config::Config) -> Peripherals {
     }
 
     // Configure LFCLK.
+    #[cfg(not(feature = "nrf9160"))]
     match config.lfclk_source {
         config::LfclkSource::InternalRC => r.lfclksrc.write(|w| w.src().rc()),
         config::LfclkSource::Synthesized => r.lfclksrc.write(|w| w.src().synth()),
@@ -163,6 +176,11 @@ pub fn init(config: config::Config) -> Peripherals {
             w.bypass().enabled();
             w
         }),
+    }
+    #[cfg(feature = "nrf9160")]
+    match config.lfclk_source {
+        config::LfclkSource::InternalRC => r.lfclksrc.write(|w| w.src().lfrc()),
+        config::LfclkSource::ExternalXtal => r.lfclksrc.write(|w| w.src().lfxo()),
     }
 
     // Start LFCLK.

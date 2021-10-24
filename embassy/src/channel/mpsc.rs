@@ -130,7 +130,7 @@ where
     /// closed by `recv` until they are all consumed.
     ///
     /// [`close`]: Self::close
-    pub fn recv<'m>(&'m mut self) -> RecvFuture<'m, M, T, N> {
+    pub fn recv(&mut self) -> RecvFuture<'_, M, T, N> {
         RecvFuture {
             channel: self.channel,
         }
@@ -469,7 +469,7 @@ impl<T, const N: usize> ChannelState<T, N> {
             }
             Err(message) => {
                 cx.into_iter()
-                    .for_each(|cx| self.set_senders_waker(&cx.waker()));
+                    .for_each(|cx| self.set_senders_waker(cx.waker()));
                 Err(TrySendError::Full(message))
             }
         }
@@ -487,7 +487,7 @@ impl<T, const N: usize> ChannelState<T, N> {
     fn is_closed_with_context(&mut self, cx: Option<&mut Context<'_>>) -> bool {
         if self.closed {
             cx.into_iter()
-                .for_each(|cx| self.set_senders_waker(&cx.waker()));
+                .for_each(|cx| self.set_senders_waker(cx.waker()));
             true
         } else {
             false

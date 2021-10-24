@@ -95,7 +95,7 @@ impl Spawner {
     /// fails. This is here to allow conditional use of `defmt::unwrap!`
     /// without introducing a `defmt` feature in the `embassy_macros` package,
     /// which would require use of `-Z namespaced-features`.
-    pub fn must_spawn<F>(&self, token: SpawnToken<F>) -> () {
+    pub fn must_spawn<F>(&self, token: SpawnToken<F>) {
         unwrap!(self.spawn(token));
     }
 

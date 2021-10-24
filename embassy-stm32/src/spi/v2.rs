@@ -70,9 +70,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         unsafe {
             sck.as_ref()
                 .map(|x| Self::configure_pin(x.block(), x.pin() as _, sck_af));
-            sck.as_ref()
+            mosi.as_ref()
                 .map(|x| Self::configure_pin(x.block(), x.pin() as _, mosi_af));
-            sck.as_ref()
+            miso.as_ref()
                 .map(|x| Self::configure_pin(x.block(), x.pin() as _, miso_af));
         }
 

@@ -50,7 +50,6 @@ fn ifreq_ioctl(
 #[derive(Debug)]
 pub struct TunTap {
     fd: libc::c_int,
-    ifreq: ifreq,
     mtu: usize,
 }
 
@@ -88,7 +87,7 @@ impl TunTap {
             // smoltcp counts the entire Ethernet packet in the MTU, so add the Ethernet header size to it.
             let mtu = ip_mtu + EthernetFrame::<&[u8]>::header_len();
 
-            Ok(TunTap { fd, mtu, ifreq })
+            Ok(TunTap { fd, mtu })
         }
     }
 }

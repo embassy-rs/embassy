@@ -7,7 +7,7 @@ mod example_common;
 use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_nrf::saadc::{ChannelConfig, Config, OneShot};
+use embassy_nrf::saadc::{ChannelConfig, Config, Saadc};
 use embassy_nrf::{interrupt, Peripherals};
 use example_common::*;
 
@@ -15,7 +15,7 @@ use example_common::*;
 async fn main(_spawner: Spawner, mut p: Peripherals) {
     let config = Config::default();
     let channel_config = ChannelConfig::single_ended(&mut p.P0_02);
-    let mut saadc = OneShot::new(p.SAADC, interrupt::take!(SAADC), config, [channel_config]);
+    let mut saadc = Saadc::new(p.SAADC, interrupt::take!(SAADC), config, [channel_config]);
 
     loop {
         let mut buf = [0; 1];

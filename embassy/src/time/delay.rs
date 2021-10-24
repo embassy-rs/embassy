@@ -13,10 +13,10 @@ pub struct Delay;
 impl crate::traits::delay::Delay for Delay {
     type DelayFuture<'a> = impl Future<Output = ()> + 'a;
 
-    fn delay_ms<'a>(&'a mut self, millis: u64) -> Self::DelayFuture<'a> {
+    fn delay_ms(&mut self, millis: u64) -> Self::DelayFuture<'_> {
         Timer::after(Duration::from_millis(millis))
     }
-    fn delay_us<'a>(&'a mut self, micros: u64) -> Self::DelayFuture<'a> {
+    fn delay_us(&mut self, micros: u64) -> Self::DelayFuture<'_> {
         Timer::after(Duration::from_micros(micros))
     }
 }

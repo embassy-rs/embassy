@@ -17,7 +17,7 @@ use self::sealed::Pin as _;
 /// A GPIO port with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Port {
-    /// Port 0, available on all nRF52 and nRF51 MCUs.
+    /// Port 0, available on nRF9160 and all nRF52 and nRF51 MCUs.
     Port0,
 
     /// Port 1, only available on some nRF52 MCUs.
@@ -443,7 +443,7 @@ pub trait OptionalPin: Unborrow<Target = Self> + sealed::OptionalPin + Sized {
 
     #[inline]
     fn psel_bits(&self) -> u32 {
-        self.pin().map_or(1u32 << 31, |pin| Pin::psel_bits(pin))
+        self.pin().map_or(1u32 << 31, Pin::psel_bits)
     }
 
     /// Convert from concrete pin type PX_XX to type erased `Option<AnyPin>`.
