@@ -1,5 +1,18 @@
 #![macro_use]
 
+//! HAL interface to the RADIO peripheral.
+//!
+//! See product specification:
+//!
+//! - nRF52810: v1.3 Section 6.14
+//!
+//! TODO:
+//! *) Check error handling
+//!
+//! Open Points:
+//! *) rx and tx traits (what signature should be used)
+//! *) "rx then tx" and "tx then rx" support (interesting for protocols)
+//!
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::pac;
 use crate::util::{slice_in_ram, slice_in_ram_or};
@@ -8,7 +21,6 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering::SeqCst};
 use core::task::Poll;
 use embassy::interrupt::{Interrupt, InterruptExt};
-use embassy::traits;
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
@@ -23,6 +35,7 @@ pub enum Error {
     RxBufferZeroLength,
     Transmit,
     Receive,
+    CrcError,
     DMABufferNotInDataMemory,
     FrequencyTooLow,
     FrequencyTooHigh,
@@ -474,7 +487,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         }
     }
 
-    fn wait_for_end_event(cx: &mut core::task::Context) -> Poll<()> {
+    fn wait_for_disabled_event(cx: &mut core::task::Context) -> Poll<()> {
         let r = T::regs();
         let s = T::state();
 
@@ -548,13 +561,7 @@ impl<'d, T: Instance> Radio<'d, T> {
             compiler_fence(SeqCst);
 
             // Wait for 'end' event.
-            poll_fn(Self::wait_for_end_event).await;
-
-            // self.read_errorsrc()?;
-
-            // if r.txd.amount.read().bits() != bytes.len() as u32 {
-            //     return Err(Error::Transmit);
-            // }
+            poll_fn(Self::wait_for_disabled_event).await;
 
             Ok(())
         }
@@ -623,13 +630,11 @@ impl<'d, T: Instance> Radio<'d, T> {
             compiler_fence(SeqCst);
 
             // Wait for 'end' event.
-            poll_fn(Self::wait_for_end_event).await;
+            poll_fn(Self::wait_for_disabled_event).await;
 
-            // self.read_errorsrc()?;
-
-            // if r.txd.amount.read().bits() != bytes.len() as u32 {
-            //     return Err(Error::Transmit);
-            // }
+            if r.crcstatus.read().crcstatus().is_crcerror() {
+                return Err(Error::CrcError);
+            }
 
             Ok(-(r.rssisample.read().rssisample().bits() as i8))
         }
