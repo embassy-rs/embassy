@@ -241,7 +241,7 @@ impl Default for RxConfig {
     fn default() -> Self {
         Self {
             rx_address_0_active: false,
-            rx_address_1_active: true,
+            rx_address_1_active: false,
             rx_address_2_active: false,
             rx_address_3_active: false,
             rx_address_4_active: false,
@@ -258,7 +258,6 @@ impl Default for RxConfig {
 /// * Bit counter compare
 /// * Device address match
 /// * RSSI
-/// * Rx
 /// * Combined Tx-Rx and Rx-Tx (incl. inter frame spacing)
 /// * Radio mode configuration (ramp up time and default TX value)
 pub struct Radio<'d, T: Instance> {
@@ -483,6 +482,69 @@ impl<'d, T: Instance> Radio<'d, T> {
                 .write(|w| unsafe { w.packetptr().bits(packet.as_ptr() as u32) });
             // start transmission task
             r.tasks_txen.write(|w| w.tasks_txen().bit(true));
+
+            // Conservative compiler fence to prevent optimizations that do not
+            // take in to account actions by DMA. The fence has been placed here,
+            // after all possible DMA actions have completed.
+            compiler_fence(SeqCst);
+
+            // Wait for 'end' event.
+            poll_fn(Self::wait_for_end_event).await;
+
+            // self.read_errorsrc()?;
+
+            // if r.txd.amount.read().bits() != bytes.len() as u32 {
+            //     return Err(Error::Transmit);
+            // }
+
+            Ok(())
+        }
+    }
+
+    // the first byte of packet needs to be the packet length
+    pub fn receive<'a>(
+        &'a mut self,
+        rx_config: &'a RxConfig,
+        packet: &'a mut [u8],
+    ) -> impl Future<Output = Result<(), Error>> + 'a {
+        async move {
+            slice_in_ram_or(packet, Error::DMABufferNotInDataMemory)?;
+
+            // Conservative compiler fence to prevent optimizations that do not
+            // take in to account actions by DMA. The fence has been placed here,
+            // before any DMA action has started.
+            compiler_fence(SeqCst);
+
+            let r = T::regs();
+
+            // RXADDRESSES
+            r.rxaddresses.write(|w| {
+                w.addr0()
+                    .bit(rx_config.rx_address_0_active)
+                    .addr1()
+                    .bit(rx_config.rx_address_1_active)
+                    .addr2()
+                    .bit(rx_config.rx_address_2_active)
+                    .addr3()
+                    .bit(rx_config.rx_address_3_active)
+                    .addr4()
+                    .bit(rx_config.rx_address_4_active)
+                    .addr5()
+                    .bit(rx_config.rx_address_5_active)
+                    .addr6()
+                    .bit(rx_config.rx_address_6_active)
+                    .addr7()
+                    .bit(rx_config.rx_address_7_active)
+            });
+
+            // enable "disabled" interrupt
+            r.intenset.write(|w| w.disabled().bit(true));
+
+            // set packet pointer
+            r.packetptr
+                .write(|w| unsafe { w.packetptr().bits(packet.as_ptr() as u32) });
+            // start transmission task
+            r.tasks_rxen.write(|w| w.tasks_rxen().bit(true));
 
             // Conservative compiler fence to prevent optimizations that do not
             // take in to account actions by DMA. The fence has been placed here,
