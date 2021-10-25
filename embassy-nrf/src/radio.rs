@@ -262,7 +262,7 @@ impl Default for Config {
             base_address_length: BaseAddressLength::BAL4bytes,
             endianness: Endianness::Big,
             whitening: false,
-            whitening_iv: DataWhiteningIv::new(0).unwrap(),
+            whitening_iv: DataWhiteningIv::new(0b0100_0000).unwrap(),
             base_address_0: 0,
             base_address_1: 0,
             prefix_0: 0,
