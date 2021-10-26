@@ -53,7 +53,11 @@ use crate::rcc::sealed::RccPeripheral;
 pub(crate) unsafe fn init() {
     pac::peripherals! {
         (dmamux, $peri:ident) => {
-            crate::peripherals::$peri::enable();
+            pac::peripheral_rcc! {
+                ($peri, $clock:ident, $en_reg:ident, $rst_reg:ident, $en_fn:ident, $rst_fn:ident) => {
+                    crate::peripherals::$peri::enable()
+                };
+            }
         };
     }
 }
