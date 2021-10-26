@@ -9,7 +9,8 @@ use embassy_hal_common::unborrow;
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::OptionalPin as GpioOptionalPin;
 use crate::interrupt::Interrupt;
-use crate::pac;
+use crate::util::slice_in_ram_or;
+use crate::{pac, EASY_DMA_SIZE};
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Prescaler {
@@ -23,9 +24,55 @@ pub enum Prescaler {
     Div128,
 }
 
-/// Interface to the UARTE peripheral
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum SequenceLoad {
+    Common,
+    Grouped,
+    Individual,
+    Waveform,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum CounterMode {
+    Up,
+    UpAndDown,
+}
+
+/// Interface to the PWM peripheral
 pub struct Pwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
+}
+
+// Configure an infinite looping sequence for `simple_playback`
+pub struct LoopingConfig<'a> {
+    /// Selects up mode or up-and-down mode for the counter
+    pub counter_mode: CounterMode,
+    // top value to be compared against buffer values
+    pub top: u16,
+    /// Configuration for PWM_CLK
+    pub prescaler: Prescaler,
+    /// In ram buffer to be played back
+    pub sequence: &'a [u16],
+    /// Common Mode means seq in buffer will be used across all channels
+    /// Individual Mode buffer holds [ch0_0, ch1_0, ch2_0, ch3_0, ch0_1, ch1_1,
+    /// ch2_1, ch3_1 ... ch0_n, ch1_n, ch2_n, ch3_n]
+    pub sequence_load: SequenceLoad,
+    /// will instruct a new RAM stored pulse width value on every (N+1)th PWM
+    /// period. Setting the register to zero will result in a new duty cycle
+    /// update every PWM period as long as the minimum PWM period is observed.
+    pub repeats: u32,
+    /// enddelay PWM period delays between last period on sequence 0 before repeating
+    pub enddelay: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Error {
+    Seq0BufferTooLong,
+    Seq1BufferTooLong,
+    /// EasyDMA can only read from data memory, read only buffers in flash will fail.
+    DMABufferNotInDataMemory,
 }
 
 impl<'d, T: Instance> Pwm<'d, T> {
@@ -99,6 +146,120 @@ impl<'d, T: Instance> Pwm<'d, T> {
         }
     }
 
+    pub fn simple_playback(
+        _pwm: impl Unborrow<Target = T> + 'd,
+        ch0: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
+        ch1: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
+        ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
+        ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
+        config: LoopingConfig,
+        count: u16,
+    ) -> Result<Self, Error> {
+        slice_in_ram_or(config.sequence, Error::DMABufferNotInDataMemory)?;
+
+        if config.sequence.len() > EASY_DMA_SIZE {
+            return Err(Error::Seq0BufferTooLong);
+        }
+
+        unborrow!(ch0, ch1, ch2, ch3);
+
+        let odd: bool = count & 1 == 1;
+
+        let r = T::regs();
+
+        if let Some(pin) = ch0.pin_mut() {
+            pin.set_low();
+            pin.conf().write(|w| w.dir().output());
+            r.psel.out[0].write(|w| unsafe { w.bits(ch0.psel_bits()) });
+        }
+        if let Some(pin) = ch1.pin_mut() {
+            pin.set_low();
+            pin.conf().write(|w| w.dir().output());
+            r.psel.out[1].write(|w| unsafe { w.bits(ch1.psel_bits()) });
+        }
+        if let Some(pin) = ch2.pin_mut() {
+            pin.set_low();
+            pin.conf().write(|w| w.dir().output());
+            r.psel.out[2].write(|w| unsafe { w.bits(ch2.psel_bits()) });
+        }
+        if let Some(pin) = ch3.pin_mut() {
+            pin.set_low();
+            pin.conf().write(|w| w.dir().output());
+            r.psel.out[3].write(|w| unsafe { w.bits(ch3.psel_bits()) });
+        }
+
+        r.enable.write(|w| w.enable().enabled());
+
+        r.mode
+            .write(|w| unsafe { w.bits(config.counter_mode as u32) });
+        r.prescaler
+            .write(|w| w.prescaler().bits(config.prescaler as u8));
+        r.countertop
+            .write(|w| unsafe { w.countertop().bits(config.top) });
+
+        r.decoder.write(|w| {
+            w.load().bits(config.sequence_load as u8);
+            w.mode().refresh_count()
+        });
+
+        r.seq0
+            .ptr
+            .write(|w| unsafe { w.bits(config.sequence.as_ptr() as u32) });
+        r.seq0
+            .cnt
+            .write(|w| unsafe { w.bits(config.sequence.len() as u32) });
+        r.seq0.refresh.write(|w| unsafe { w.bits(config.repeats) });
+        r.seq0
+            .enddelay
+            .write(|w| unsafe { w.bits(config.enddelay) });
+
+        r.seq1
+            .ptr
+            .write(|w| unsafe { w.bits(config.sequence.as_ptr() as u32) });
+        r.seq1
+            .cnt
+            .write(|w| unsafe { w.bits(config.sequence.len() as u32) });
+        r.seq1.refresh.write(|w| unsafe { w.bits(config.repeats) });
+        r.seq1
+            .enddelay
+            .write(|w| unsafe { w.bits(config.enddelay) });
+
+        let mut loop_: u16 = count / 2;
+        if odd {
+            loop_ += 1;
+        }
+
+        r.loop_.write(|w| unsafe { w.cnt().bits(loop_) });
+
+        if odd {
+            r.shorts.write(|w| w.loopsdone_seqstart1().set_bit());
+        } else {
+            r.shorts.write(|w| w.loopsdone_seqstart0().set_bit());
+        }
+
+        // tasks_seqstart doesnt exist in all svds so write its bit instead
+        if odd {
+            r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
+        } else {
+            r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
+        }
+
+        Ok(Self {
+            phantom: PhantomData,
+        })
+    }
+
+    /// Stop playback
+    #[inline(always)]
+    pub fn stop(&self) {
+        let r = T::regs();
+
+        r.shorts.write(|w| unsafe { w.bits(0x0) });
+
+        // tasks_stop doesnt exist in all svds so write its bit instead
+        r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
+    }
+
     /// Enables the PWM generator.
     #[inline(always)]
     pub fn enable(&self) {
@@ -128,7 +289,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
         T::regs().prescaler.write(|w| w.prescaler().bits(div as u8));
     }
 
-    /// Sets the PWM clock prescaler.
+    /// Gets the PWM clock prescaler.
     #[inline(always)]
     pub fn prescaler(&self) -> Prescaler {
         match T::regs().prescaler.read().prescaler().bits() {
