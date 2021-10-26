@@ -47,5 +47,13 @@ pac::dma_channels! {
     };
 }
 
+use crate::rcc::sealed::RccPeripheral;
+
 /// safety: must be called only once
-pub(crate) unsafe fn init() {}
+pub(crate) unsafe fn init() {
+    pac::peripherals! {
+        (dmamux, $peri:ident) => {
+            crate::peripherals::$peri::enable();
+        };
+    }
+}
