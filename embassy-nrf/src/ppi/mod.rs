@@ -19,7 +19,7 @@ use crate::{pac, peripherals};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use embassy::util::Unborrow;
-use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
+use embassy_hal_common::unsafe_impl_unborrow;
 
 #[cfg(feature = "_dppi")]
 mod dppi;
@@ -50,106 +50,6 @@ impl<'d, C: Channel + 'd, const EVENT_COUNT: usize, const TASK_COUNT: usize>
         let r = unsafe { &*pac::PPI::ptr() };
         r.chenclr
             .write(|w| unsafe { w.bits(1 << self.ch.number()) });
-    }
-}
-
-impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Drop
-    for Ppi<'d, C, EVENT_COUNT, TASK_COUNT>
-{
-    fn drop(&mut self) {
-        self.disable();
-        self.disable_all();
-    }
-}
-
-#[cfg(not(feature = "nrf51"))] // Not for nrf51 because of the fork task
-impl<'d, C: StaticChannel> Ppi<'d, C, 0, 1> {
-    pub fn new_zero_to_one(ch: impl Unborrow<Target = C> + 'd, task: Task) -> Self {
-        unborrow!(ch);
-
-        let events = [];
-        let tasks = [task];
-
-        Self::enable_all(&tasks, &events, &ch);
-
-        Self {
-            ch,
-            #[cfg(feature = "_dppi")]
-            events,
-            #[cfg(feature = "_dppi")]
-            tasks,
-            phantom: PhantomData,
-        }
-    }
-}
-
-impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
-    pub fn new_one_to_one(ch: impl Unborrow<Target = C> + 'd, event: Event, task: Task) -> Self {
-        unborrow!(ch);
-
-        let events = [event];
-        let tasks = [task];
-
-        Self::enable_all(&tasks, &events, &ch);
-
-        Self {
-            ch,
-            #[cfg(feature = "_dppi")]
-            events,
-            #[cfg(feature = "_dppi")]
-            tasks,
-            phantom: PhantomData,
-        }
-    }
-}
-
-#[cfg(not(feature = "nrf51"))] // Not for nrf51 because of the fork task
-impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
-    pub fn new_one_to_two(
-        ch: impl Unborrow<Target = C> + 'd,
-        event: Event,
-        task1: Task,
-        task2: Task,
-    ) -> Self {
-        unborrow!(ch);
-
-        let events = [event];
-        let tasks = [task1, task2];
-
-        Self::enable_all(&tasks, &events, &ch);
-
-        Self {
-            ch,
-            #[cfg(feature = "_dppi")]
-            events,
-            #[cfg(feature = "_dppi")]
-            tasks,
-            phantom: PhantomData,
-        }
-    }
-}
-
-#[cfg(feature = "_dppi")]
-impl<'d, C: ConfigurableChannel, const EVENT_COUNT: usize, const TASK_COUNT: usize>
-    Ppi<'d, C, EVENT_COUNT, TASK_COUNT>
-{
-    pub fn new_many_to_many(
-        ch: impl Unborrow<Target = C> + 'd,
-        events: [Event; EVENT_COUNT],
-        tasks: [Task; TASK_COUNT],
-    ) -> Self {
-        unborrow!(ch);
-
-        Self::enable_all(&tasks, &events, &ch);
-
-        Self {
-            ch,
-            #[cfg(feature = "_dppi")]
-            events,
-            #[cfg(feature = "_dppi")]
-            tasks,
-            phantom: PhantomData,
-        }
     }
 }
 
@@ -209,7 +109,6 @@ pub(crate) mod sealed {
 pub trait Channel: sealed::Channel + Unborrow<Target = Self> + Sized {
     /// Returns the number of the channel
     fn number(&self) -> usize;
-    fn configurable() -> bool;
 }
 
 pub trait ConfigurableChannel: Channel {
@@ -243,10 +142,6 @@ impl Channel for AnyStaticChannel {
     fn number(&self) -> usize {
         self.number as usize
     }
-
-    fn configurable() -> bool {
-        false
-    }
 }
 impl StaticChannel for AnyStaticChannel {
     fn degrade(self) -> AnyStaticChannel {
@@ -265,10 +160,6 @@ impl Channel for AnyConfigurableChannel {
     fn number(&self) -> usize {
         self.number as usize
     }
-
-    fn configurable() -> bool {
-        true
-    }
 }
 impl ConfigurableChannel for AnyConfigurableChannel {
     fn degrade(self) -> AnyConfigurableChannel {
@@ -277,20 +168,16 @@ impl ConfigurableChannel for AnyConfigurableChannel {
 }
 
 macro_rules! impl_ppi_channel {
-    ($type:ident, $number:expr, $configurability:expr) => {
+    ($type:ident, $number:expr) => {
         impl crate::ppi::sealed::Channel for peripherals::$type {}
         impl crate::ppi::Channel for peripherals::$type {
             fn number(&self) -> usize {
                 $number
             }
-
-            fn configurable() -> bool {
-                $configurability
-            }
         }
     };
     ($type:ident, $number:expr => static) => {
-        impl_ppi_channel!($type, $number, false);
+        impl_ppi_channel!($type, $number);
         impl crate::ppi::StaticChannel for peripherals::$type {
             fn degrade(self) -> crate::ppi::AnyStaticChannel {
                 use crate::ppi::Channel;
@@ -301,7 +188,7 @@ macro_rules! impl_ppi_channel {
         }
     };
     ($type:ident, $number:expr => configurable) => {
-        impl_ppi_channel!($type, $number, true);
+        impl_ppi_channel!($type, $number);
         impl crate::ppi::ConfigurableChannel for peripherals::$type {
             fn degrade(self) -> crate::ppi::AnyConfigurableChannel {
                 use crate::ppi::Channel;

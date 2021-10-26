@@ -1,61 +1,74 @@
-use super::{Channel, Event, Ppi, Task};
+use core::marker::PhantomData;
+
+use embassy::util::Unborrow;
+use embassy_hal_common::unborrow;
+
+use super::{Channel, ConfigurableChannel, Event, Ppi, Task};
 
 const DPPI_ENABLE_BIT: u32 = 0x8000_0000;
 const DPPI_CHANNEL_MASK: u32 = 0x0000_00FF;
 
-impl<'d, C: Channel + 'd, const EVENT_COUNT: usize, const TASK_COUNT: usize>
+impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
+    pub fn new_one_to_one(ch: impl Unborrow<Target = C> + 'd, event: Event, task: Task) -> Self {
+        Ppi::new_many_to_many(ch, [event], [task])
+    }
+}
+
+impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
+    pub fn new_one_to_two(
+        ch: impl Unborrow<Target = C> + 'd,
+        event: Event,
+        task1: Task,
+        task2: Task,
+    ) -> Self {
+        Ppi::new_many_to_many(ch, [event], [task1, task2])
+    }
+}
+
+impl<'d, C: ConfigurableChannel, const EVENT_COUNT: usize, const TASK_COUNT: usize>
     Ppi<'d, C, EVENT_COUNT, TASK_COUNT>
 {
-    pub(super) fn enable_task(task: &Task, channel: &C, _index: usize) {
-        unsafe {
-            if task.subscribe_reg().read_volatile() != 0 {
+    pub fn new_many_to_many(
+        ch: impl Unborrow<Target = C> + 'd,
+        events: [Event; EVENT_COUNT],
+        tasks: [Task; TASK_COUNT],
+    ) -> Self {
+        unborrow!(ch);
+
+        let val = DPPI_ENABLE_BIT | (ch.number() as u32 & DPPI_CHANNEL_MASK);
+        for task in tasks {
+            if unsafe { task.subscribe_reg().read_volatile() } != 0 {
                 panic!("Task is already in use");
             }
-            task.subscribe_reg()
-                .write_volatile(DPPI_ENABLE_BIT | (channel.number() as u32 & DPPI_CHANNEL_MASK));
+            unsafe { task.subscribe_reg().write_volatile(val) }
         }
-    }
-
-    pub(super) fn disable_task(task: &Task, _channel: &C, _index: usize) {
-        unsafe {
-            task.subscribe_reg().write_volatile(0);
-        }
-    }
-
-    pub(super) fn enable_event(event: &Event, channel: &C, _index: usize) {
-        unsafe {
-            if event.publish_reg().read_volatile() != 0 {
-                panic!("Task is already in use");
+        for event in events {
+            if unsafe { event.publish_reg().read_volatile() } != 0 {
+                panic!("Event is already in use");
             }
-            event
-                .publish_reg()
-                .write_volatile(DPPI_ENABLE_BIT | (channel.number() as u32 & DPPI_CHANNEL_MASK));
+            unsafe { event.publish_reg().write_volatile(val) }
+        }
+
+        Self {
+            ch,
+            events,
+            tasks,
+            phantom: PhantomData,
         }
     }
+}
 
-    pub(super) fn disable_event(event: &Event, _channel: &C, _index: usize) {
-        unsafe {
-            event.publish_reg().write_volatile(0);
-        }
-    }
+impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Drop
+    for Ppi<'d, C, EVENT_COUNT, TASK_COUNT>
+{
+    fn drop(&mut self) {
+        self.disable();
 
-    /// Enables all tasks and events
-    pub(super) fn enable_all(tasks: &[Task], events: &[Event], channel: &C) {
-        for (index, task) in tasks.iter().enumerate() {
-            Self::enable_task(task, channel, index);
+        for task in self.tasks {
+            unsafe { task.subscribe_reg().write_volatile(0) }
         }
-        for (index, event) in events.iter().enumerate() {
-            Self::enable_event(event, channel, index);
-        }
-    }
-
-    /// Disable all tasks and events
-    pub(super) fn disable_all(&self) {
-        for (index, task) in self.tasks.iter().enumerate() {
-            Self::disable_task(task, &self.ch, index);
-        }
-        for (index, event) in self.events.iter().enumerate() {
-            Self::disable_event(event, &self.ch, index);
+        for event in self.events {
+            unsafe { event.publish_reg().write_volatile(0) }
         }
     }
 }
