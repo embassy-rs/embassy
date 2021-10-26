@@ -15,6 +15,7 @@ impl<'d, C: Channel + 'd, const EVENT_COUNT: usize, const TASK_COUNT: usize>
         }
     }
 
+    #[cfg(not(feature = "nrf51"))]
     fn set_fork_task(task: Option<&Task>, channel: usize) {
         let r = unsafe { &*pac::PPI::ptr() };
         if let Some(task) = task {
@@ -40,16 +41,18 @@ impl<'d, C: Channel + 'd, const EVENT_COUNT: usize, const TASK_COUNT: usize>
     /// Enables all tasks and events
     pub(super) fn enable_all(tasks: &[Task], events: &[Event], channel: &C) {
         // One configurable task, no fork
-        if channel.is_task_configurable() && TASK_COUNT == 1 {
+        if C::configurable() && TASK_COUNT == 1 {
             Self::set_main_task(Some(&tasks[0]), channel.number());
         }
 
         // One configurable task, as fork
-        if !channel.is_task_configurable() && TASK_COUNT == 1 {
+        #[cfg(not(feature = "nrf51"))]
+        if !C::configurable() && TASK_COUNT == 1 {
             Self::set_fork_task(Some(&tasks[0]), channel.number());
         }
 
         // Two configurable tasks (main + fork)
+        #[cfg(not(feature = "nrf51"))]
         if TASK_COUNT == 2 {
             Self::set_main_task(Some(&tasks[0]), channel.number());
             Self::set_fork_task(Some(&tasks[1]), channel.number());
@@ -62,11 +65,12 @@ impl<'d, C: Channel + 'd, const EVENT_COUNT: usize, const TASK_COUNT: usize>
 
     /// Disable all tasks and events
     pub(super) fn disable_all(&self) {
-        if self.ch.is_task_configurable() {
+        if C::configurable() {
             Self::set_main_task(None, self.ch.number());
         }
 
-        if TASK_COUNT == 1 && !self.ch.is_task_configurable() || TASK_COUNT == 2 {
+        #[cfg(not(feature = "nrf51"))]
+        if TASK_COUNT == 1 && !C::configurable() || TASK_COUNT == 2 {
             Self::set_fork_task(None, self.ch.number());
         }
 

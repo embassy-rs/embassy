@@ -15,7 +15,7 @@ use embassy_hal_common::{low_power_wait_until, unborrow};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
 use crate::pac;
-use crate::ppi::{AnyChannel, Event, OneToOneChannel, OneToTwoChannel, Ppi, Task};
+use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::Instance as TimerInstance;
 use crate::timer::{Frequency, Timer};
 use crate::uarte::{Config, Instance as UarteInstance};
@@ -45,8 +45,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> State<'d, U, T> {
 struct StateInner<'d, U: UarteInstance, T: TimerInstance> {
     phantom: PhantomData<&'d mut U>,
     timer: Timer<'d, T>,
-    _ppi_ch1: Ppi<'d, AnyChannel, 1, 2>,
-    _ppi_ch2: Ppi<'d, AnyChannel, 1, 1>,
+    _ppi_ch1: Ppi<'d, AnyConfigurableChannel, 1, 2>,
+    _ppi_ch2: Ppi<'d, AnyConfigurableChannel, 1, 1>,
 
     rx: RingBuffer<'d>,
     rx_state: RxState,
@@ -70,8 +70,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         state: &'d mut State<'d, U, T>,
         _uarte: impl Unborrow<Target = U> + 'd,
         timer: impl Unborrow<Target = T> + 'd,
-        ppi_ch1: impl Unborrow<Target = impl OneToTwoChannel + 'd> + 'd,
-        ppi_ch2: impl Unborrow<Target = impl OneToOneChannel + 'd> + 'd,
+        ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
+        ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
         irq: impl Unborrow<Target = U::Interrupt> + 'd,
         rxd: impl Unborrow<Target = impl GpioPin> + 'd,
         txd: impl Unborrow<Target = impl GpioPin> + 'd,
@@ -145,20 +145,18 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         timer.cc(0).short_compare_stop();
 
         let mut ppi_ch1 = Ppi::new_one_to_two(
-            ppi_ch1,
+            ppi_ch1.degrade(),
             Event::from_reg(&r.events_rxdrdy),
             timer.task_clear(),
             timer.task_start(),
-        )
-        .degrade();
+        );
         ppi_ch1.enable();
 
         let mut ppi_ch2 = Ppi::new_one_to_one(
-            ppi_ch2,
+            ppi_ch2.degrade(),
             timer.cc(0).event_compare(),
             Task::from_reg(&r.tasks_stoprx),
-        )
-        .degrade();
+        );
         ppi_ch2.enable();
 
         Self {

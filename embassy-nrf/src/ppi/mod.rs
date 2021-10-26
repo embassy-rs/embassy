@@ -38,21 +38,6 @@ pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize
 impl<'d, C: Channel + 'd, const EVENT_COUNT: usize, const TASK_COUNT: usize>
     Ppi<'d, C, EVENT_COUNT, TASK_COUNT>
 {
-    pub fn degrade(self) -> Ppi<'d, AnyChannel, EVENT_COUNT, TASK_COUNT> {
-        Ppi {
-            ch: AnyChannel {
-                number: self.ch.number() as u8,
-                #[cfg(feature = "_ppi")]
-                has_configurable_task: self.ch.is_task_configurable(),
-            },
-            #[cfg(feature = "_dppi")]
-            events: self.events,
-            #[cfg(feature = "_dppi")]
-            tasks: self.tasks,
-            phantom: PhantomData,
-        }
-    }
-
     /// Enables the channel.
     pub fn enable(&mut self) {
         let r = unsafe { &*pac::PPI::ptr() };
@@ -77,7 +62,8 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Drop
     }
 }
 
-impl<'d, C: ZeroToOneChannel> Ppi<'d, C, 0, 1> {
+#[cfg(not(feature = "nrf51"))] // Not for nrf51 because of the fork task
+impl<'d, C: StaticChannel> Ppi<'d, C, 0, 1> {
     pub fn new_zero_to_one(ch: impl Unborrow<Target = C> + 'd, task: Task) -> Self {
         unborrow!(ch);
 
@@ -97,7 +83,7 @@ impl<'d, C: ZeroToOneChannel> Ppi<'d, C, 0, 1> {
     }
 }
 
-impl<'d, C: OneToOneChannel> Ppi<'d, C, 1, 1> {
+impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
     pub fn new_one_to_one(ch: impl Unborrow<Target = C> + 'd, event: Event, task: Task) -> Self {
         unborrow!(ch);
 
@@ -117,7 +103,8 @@ impl<'d, C: OneToOneChannel> Ppi<'d, C, 1, 1> {
     }
 }
 
-impl<'d, C: OneToTwoChannel> Ppi<'d, C, 1, 2> {
+#[cfg(not(feature = "nrf51"))] // Not for nrf51 because of the fork task
+impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
     pub fn new_one_to_two(
         ch: impl Unborrow<Target = C> + 'd,
         event: Event,
@@ -142,7 +129,8 @@ impl<'d, C: OneToTwoChannel> Ppi<'d, C, 1, 2> {
     }
 }
 
-impl<'d, C: ManyToManyChannel, const EVENT_COUNT: usize, const TASK_COUNT: usize>
+#[cfg(feature = "_dppi")]
+impl<'d, C: ConfigurableChannel, const EVENT_COUNT: usize, const TASK_COUNT: usize>
     Ppi<'d, C, EVENT_COUNT, TASK_COUNT>
 {
     pub fn new_many_to_many(
@@ -221,72 +209,107 @@ pub(crate) mod sealed {
 pub trait Channel: sealed::Channel + Unborrow<Target = Self> + Sized {
     /// Returns the number of the channel
     fn number(&self) -> usize;
-    #[cfg(feature = "_ppi")]
-    fn is_task_configurable(&self) -> bool;
+    fn configurable() -> bool;
 }
 
-pub trait ZeroToOneChannel: Channel {}
-pub trait OneToOneChannel: ZeroToOneChannel {}
-pub trait OneToTwoChannel: OneToOneChannel {}
-pub trait ManyToManyChannel: OneToTwoChannel {}
+pub trait ConfigurableChannel: Channel {
+    fn degrade(self) -> AnyConfigurableChannel;
+}
+
+pub trait StaticChannel: Channel {
+    fn degrade(self) -> AnyStaticChannel;
+}
 
 pub trait Group: sealed::Group + Sized {
     fn number(&self) -> usize;
+    fn degrade(self) -> AnyGroup {
+        AnyGroup {
+            number: self.number() as u8,
+        }
+    }
 }
 
 // ======================
 //       channels
 
-pub struct AnyChannel {
-    number: u8,
-    #[cfg(feature = "_ppi")]
-    has_configurable_task: bool,
+/// The any channel can represent any static channel at runtime.
+/// This can be used to have fewer generic parameters in some places.
+pub struct AnyStaticChannel {
+    pub(crate) number: u8,
 }
-unsafe_impl_unborrow!(AnyChannel);
-impl sealed::Channel for AnyChannel {}
-impl Channel for AnyChannel {
+unsafe_impl_unborrow!(AnyStaticChannel);
+impl sealed::Channel for AnyStaticChannel {}
+impl Channel for AnyStaticChannel {
     fn number(&self) -> usize {
         self.number as usize
     }
 
-    #[cfg(feature = "_ppi")]
-    fn is_task_configurable(&self) -> bool {
-        self.has_configurable_task
+    fn configurable() -> bool {
+        false
+    }
+}
+impl StaticChannel for AnyStaticChannel {
+    fn degrade(self) -> AnyStaticChannel {
+        self
+    }
+}
+
+/// The any configurable channel can represent any configurable channel at runtime.
+/// This can be used to have fewer generic parameters in some places.
+pub struct AnyConfigurableChannel {
+    pub(crate) number: u8,
+}
+unsafe_impl_unborrow!(AnyConfigurableChannel);
+impl sealed::Channel for AnyConfigurableChannel {}
+impl Channel for AnyConfigurableChannel {
+    fn number(&self) -> usize {
+        self.number as usize
+    }
+
+    fn configurable() -> bool {
+        true
+    }
+}
+impl ConfigurableChannel for AnyConfigurableChannel {
+    fn degrade(self) -> AnyConfigurableChannel {
+        self
     }
 }
 
 macro_rules! impl_ppi_channel {
-    ($type:ident, $number:expr, $has_configurable_task:expr) => {
+    ($type:ident, $number:expr, $configurability:expr) => {
         impl crate::ppi::sealed::Channel for peripherals::$type {}
         impl crate::ppi::Channel for peripherals::$type {
             fn number(&self) -> usize {
                 $number
             }
 
-            #[cfg(feature = "_ppi")]
-            fn is_task_configurable(&self) -> bool {
-                $has_configurable_task
+            fn configurable() -> bool {
+                $configurability
             }
         }
     };
-    ($type:ident, $number:expr, $has_configurable_task:expr, 0, 0) => {
-        impl_ppi_channel!($type, $number, $has_configurable_task);
+    ($type:ident, $number:expr => static) => {
+        impl_ppi_channel!($type, $number, false);
+        impl crate::ppi::StaticChannel for peripherals::$type {
+            fn degrade(self) -> crate::ppi::AnyStaticChannel {
+                use crate::ppi::Channel;
+                crate::ppi::AnyStaticChannel {
+                    number: self.number() as u8,
+                }
+            }
+        }
     };
-    ($type:ident, $number:expr, $has_configurable_task:expr, 0, 1) => {
-        impl_ppi_channel!($type, $number, $has_configurable_task, 0, 0);
-        impl crate::ppi::ZeroToOneChannel for peripherals::$type {}
-    };
-    ($type:ident, $number:expr, $has_configurable_task:expr, 1, 1) => {
-        impl_ppi_channel!($type, $number, $has_configurable_task, 0, 1);
-        impl crate::ppi::OneToOneChannel for peripherals::$type {}
-    };
-    ($type:ident, $number:expr, $has_configurable_task:expr, 1, 2) => {
-        impl_ppi_channel!($type, $number, $has_configurable_task, 1, 1);
-        impl crate::ppi::OneToTwoChannel for peripherals::$type {}
-    };
-    ($type:ident, $number:expr, $has_configurable_task:expr, many, many) => {
-        impl_ppi_channel!($type, $number, $has_configurable_task, 1, 2);
-        impl crate::ppi::ManyToManyChannel for peripherals::$type {}
+    ($type:ident, $number:expr => configurable) => {
+        impl_ppi_channel!($type, $number, true);
+        impl crate::ppi::ConfigurableChannel for peripherals::$type {
+            fn degrade(self) -> crate::ppi::AnyConfigurableChannel {
+                use crate::ppi::Channel;
+                crate::ppi::AnyConfigurableChannel {
+                    number: self.number() as u8,
+                }
+            }
+        }
     };
 }
 
