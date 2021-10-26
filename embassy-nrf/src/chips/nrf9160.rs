@@ -1,10 +1,14 @@
 #[allow(unused_imports)]
+#[rustfmt::skip]
 pub mod pac {
     // The nRF9160 has a secure and non-secure (NS) mode.
     // For now we only support the NS mode, but those peripherals have `_ns` appended to them.
     // To avoid cfg spam, weŕe going to rename the ones we use here.
-    #[rustfmt::skip]
-    pub(crate) use nrf9160_pac::{
+
+    pub use nrf9160_pac::{
+        interrupt,
+        Interrupt,
+
         p0_ns as p0,
         pwm0_ns as pwm0,
         rtc0_ns as rtc0,
@@ -12,17 +16,123 @@ pub mod pac {
         timer0_ns as timer0,
         twim0_ns as twim0,
         uarte0_ns as uarte0,
-        DPPIC_NS as PPI,
-        GPIOTE1_NS as GPIOTE,
-        P0_NS as P0,
-        RTC1_NS as RTC1,
-        WDT_NS as WDT,
         saadc_ns as saadc,
-        SAADC_NS as SAADC,
+    };
+    
+    #[cfg(feature = "nrf9160-ns")]
+    pub use nrf9160_pac::{
         CLOCK_NS as CLOCK,
+        DPPIC_NS as PPI,
+        EGU0_NS as EGU0,
+        EGU1_NS as EGU1,
+        EGU2_NS as EGU2,
+        EGU3_NS as EGU3,
+        EGU4_NS as EGU4,
+        EGU5_NS as EGU5,
+        FPU_NS as FPU,
+        GPIOTE1_NS as GPIOTE,
+        I2S_NS as I2S,
+        IPC_NS as IPC,
+        KMU_NS as KMU,
+        NVMC_NS as NVMC,
+        P0_NS as P0,
+        PDM_NS as PDM,
+        POWER_NS as POWER,
+        PWM0_NS as PWM0,
+        PWM1_NS as PWM1,
+        PWM2_NS as PWM2,
+        PWM3_NS as PWM3,
+        REGULATORS_NS as REGULATORS,
+        RTC0_NS as RTC0,
+        RTC1_NS as RTC1,
+        SAADC_NS as SAADC,
+        SPIM0_NS as SPIM0,
+        SPIM1_NS as SPIM1,
+        SPIM2_NS as SPIM2,
+        SPIM3_NS as SPIM3,
+        SPIS0_NS as SPIS0,
+        SPIS1_NS as SPIS1,
+        SPIS2_NS as SPIS2,
+        SPIS3_NS as SPIS3,
+        TIMER0_NS as TIMER0,
+        TIMER1_NS as TIMER1,
+        TIMER2_NS as TIMER2,
+        TWIM0_NS as TWIM0,
+        TWIM1_NS as TWIM1,
+        TWIM2_NS as TWIM2,
+        TWIM3_NS as TWIM3,
+        TWIS0_NS as TWIS0,
+        TWIS1_NS as TWIS1,
+        TWIS2_NS as TWIS2,
+        TWIS3_NS as TWIS3,
+        UARTE0_NS as UARTE0,
+        UARTE1_NS as UARTE1,
+        UARTE2_NS as UARTE2,
+        UARTE3_NS as UARTE3,
+        VMC_NS as VMC,
+        WDT_NS as WDT,
     };
 
-    pub use nrf9160_pac::*;
+    #[cfg(feature = "nrf9160-s")]
+    pub use nrf9160_pac::{
+        CC_HOST_RGF_S as CC_HOST_RGF,
+        CLOCK_S as CLOCK,
+        CRYPTOCELL_S as CRYPTOCELL,
+        CTRL_AP_PERI_S as CTRL_AP_PERI,
+        DPPIC_S as PPI,
+        EGU0_S as EGU0,
+        EGU1_S as EGU1,
+        EGU2_S as EGU2,
+        EGU3_S as EGU3,
+        EGU4_S as EGU4,
+        EGU5_S as EGU5,
+        FICR_S as FICR,
+        FPU_S as FPU,
+        GPIOTE0_S as GPIOTE,
+        I2S_S as I2S,
+        IPC_S as IPC,
+        KMU_S as KMU,
+        NVMC_S as NVMC,
+        P0_S as P0,
+        PDM_S as PDM,
+        POWER_S as POWER,
+        PWM0_S as PWM0,
+        PWM1_S as PWM1,
+        PWM2_S as PWM2,
+        PWM3_S as PWM3,
+        REGULATORS_S as REGULATORS,
+        RTC0_S as RTC0,
+        RTC1_S as RTC1,
+        SAADC_S as SAADC,
+        SPIM0_S as SPIM0,
+        SPIM1_S as SPIM1,
+        SPIM2_S as SPIM2,
+        SPIM3_S as SPIM3,
+        SPIS0_S as SPIS0,
+        SPIS1_S as SPIS1,
+        SPIS2_S as SPIS2,
+        SPIS3_S as SPIS3,
+        SPU_S as SPU,
+        TAD_S as TAD,
+        TIMER0_S as TIMER0,
+        TIMER1_S as TIMER1,
+        TIMER2_S as TIMER2,
+        TWIM0_S as TWIM0,
+        TWIM1_S as TWIM1,
+        TWIM2_S as TWIM2,
+        TWIM3_S as TWIM3,
+        TWIS0_S as TWIS0,
+        TWIS1_S as TWIS1,
+        TWIS2_S as TWIS2,
+        TWIS3_S as TWIS3,
+        UARTE0_S as UARTE0,
+        UARTE1_S as UARTE1,
+        UARTE2_S as UARTE2,
+        UARTE3_S as UARTE3,
+        UICR_S as UICR,
+        VMC_S as VMC,
+        WDT_S as WDT,
+    };
 }
 
 /// The maximum buffer size that the EasyDMA can send/recv in one operation.
@@ -127,29 +237,29 @@ embassy_hal_common::peripherals! {
     P0_31,
 }
 
-impl_uarte!(UARTETWISPI0, UARTE0_NS, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
-impl_uarte!(UARTETWISPI1, UARTE1_NS, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
-impl_uarte!(UARTETWISPI2, UARTE2_NS, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
-impl_uarte!(UARTETWISPI3, UARTE3_NS, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
+impl_uarte!(UARTETWISPI0, UARTE0, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
+impl_uarte!(UARTETWISPI1, UARTE1, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
+impl_uarte!(UARTETWISPI2, UARTE2, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
+impl_uarte!(UARTETWISPI3, UARTE3, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
 
-impl_spim!(UARTETWISPI0, SPIM0_NS, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
-impl_spim!(UARTETWISPI1, SPIM1_NS, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
-impl_spim!(UARTETWISPI2, SPIM2_NS, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
-impl_spim!(UARTETWISPI3, SPIM3_NS, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
+impl_spim!(UARTETWISPI0, SPIM0, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
+impl_spim!(UARTETWISPI1, SPIM1, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
+impl_spim!(UARTETWISPI2, SPIM2, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
+impl_spim!(UARTETWISPI3, SPIM3, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
 
-impl_twim!(UARTETWISPI0, TWIM0_NS, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
-impl_twim!(UARTETWISPI1, TWIM1_NS, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
-impl_twim!(UARTETWISPI2, TWIM2_NS, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
-impl_twim!(UARTETWISPI3, TWIM3_NS, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
+impl_twim!(UARTETWISPI0, TWIM0, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
+impl_twim!(UARTETWISPI1, TWIM1, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
+impl_twim!(UARTETWISPI2, TWIM2, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
+impl_twim!(UARTETWISPI3, TWIM3, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
 
-impl_pwm!(PWM0, PWM0_NS, PWM0);
-impl_pwm!(PWM1, PWM1_NS, PWM1);
-impl_pwm!(PWM2, PWM2_NS, PWM2);
-impl_pwm!(PWM3, PWM3_NS, PWM3);
+impl_pwm!(PWM0, PWM0, PWM0);
+impl_pwm!(PWM1, PWM1, PWM1);
+impl_pwm!(PWM2, PWM2, PWM2);
+impl_pwm!(PWM3, PWM3, PWM3);
 
-impl_timer!(TIMER0, TIMER0_NS, TIMER0);
-impl_timer!(TIMER1, TIMER1_NS, TIMER1);
-impl_timer!(TIMER2, TIMER2_NS, TIMER2);
+impl_timer!(TIMER0, TIMER0, TIMER0);
+impl_timer!(TIMER1, TIMER1, TIMER1);
+impl_timer!(TIMER2, TIMER2, TIMER2);
 
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);

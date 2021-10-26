@@ -14,7 +14,8 @@
     feature = "nrf52840",
     feature = "nrf5340-app",
     feature = "nrf5340-net",
-    feature = "nrf9160",
+    feature = "nrf9160-s",
+    feature = "nrf9160-ns",
 )))]
 compile_error!("No chip feature activated. You must activate exactly one of the following features: nrf52810, nrf52811, nrf52832, nrf52833, nrf52840");
 
@@ -29,19 +30,19 @@ pub mod buffered_uarte;
 pub mod gpio;
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
-#[cfg(not(feature = "nrf9160"))]
+#[cfg(not(feature = "_nrf9160"))]
 pub mod nvmc;
 pub mod ppi;
 #[cfg(not(any(feature = "nrf52805", feature = "nrf52820")))]
 pub mod pwm;
 #[cfg(feature = "nrf52840")]
 pub mod qspi;
-#[cfg(not(feature = "nrf9160"))]
+#[cfg(not(feature = "_nrf9160"))]
 pub mod rng;
 #[cfg(not(feature = "nrf52820"))]
 pub mod saadc;
 pub mod spim;
-#[cfg(not(feature = "nrf9160"))]
+#[cfg(not(feature = "_nrf9160"))]
 pub mod temp;
 pub mod timer;
 pub mod twim;
@@ -49,29 +50,14 @@ pub mod uarte;
 pub mod wdt;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
-#[cfg(feature = "nrf52805")]
-#[path = "chips/nrf52805.rs"]
-mod chip;
-#[cfg(feature = "nrf52810")]
-#[path = "chips/nrf52810.rs"]
-mod chip;
-#[cfg(feature = "nrf52811")]
-#[path = "chips/nrf52811.rs"]
-mod chip;
-#[cfg(feature = "nrf52820")]
-#[path = "chips/nrf52820.rs"]
-mod chip;
-#[cfg(feature = "nrf52832")]
-#[path = "chips/nrf52832.rs"]
-mod chip;
-#[cfg(feature = "nrf52833")]
-#[path = "chips/nrf52833.rs"]
-mod chip;
-#[cfg(feature = "nrf52840")]
-#[path = "chips/nrf52840.rs"]
-mod chip;
-#[cfg(feature = "nrf9160")]
-#[path = "chips/nrf9160.rs"]
+#[cfg_attr(feature = "nrf52805", path = "chips/nrf52805.rs")]
+#[cfg_attr(feature = "nrf52810", path = "chips/nrf52810.rs")]
+#[cfg_attr(feature = "nrf52811", path = "chips/nrf52811.rs")]
+#[cfg_attr(feature = "nrf52820", path = "chips/nrf52820.rs")]
+#[cfg_attr(feature = "nrf52832", path = "chips/nrf52832.rs")]
+#[cfg_attr(feature = "nrf52833", path = "chips/nrf52833.rs")]
+#[cfg_attr(feature = "nrf52840", path = "chips/nrf52840.rs")]
+#[cfg_attr(feature = "_nrf9160", path = "chips/nrf9160.rs")]
 mod chip;
 
 pub use chip::EASY_DMA_SIZE;
@@ -100,12 +86,12 @@ pub mod config {
 
     pub enum LfclkSource {
         InternalRC,
-        #[cfg(not(feature = "nrf9160"))]
+        #[cfg(not(feature = "_nrf9160"))]
         Synthesized,
         ExternalXtal,
-        #[cfg(not(feature = "nrf9160"))]
+        #[cfg(not(feature = "_nrf9160"))]
         ExternalLowSwing,
-        #[cfg(not(feature = "nrf9160"))]
+        #[cfg(not(feature = "_nrf9160"))]
         ExternalFullSwing,
     }
 
@@ -155,7 +141,7 @@ pub fn init(config: config::Config) -> Peripherals {
     }
 
     // Configure LFCLK.
-    #[cfg(not(feature = "nrf9160"))]
+    #[cfg(not(feature = "_nrf9160"))]
     match config.lfclk_source {
         config::LfclkSource::InternalRC => r.lfclksrc.write(|w| w.src().rc()),
         config::LfclkSource::Synthesized => r.lfclksrc.write(|w| w.src().synth()),
@@ -175,7 +161,7 @@ pub fn init(config: config::Config) -> Peripherals {
             w
         }),
     }
-    #[cfg(feature = "nrf9160")]
+    #[cfg(feature = "_nrf9160")]
     match config.lfclk_source {
         config::LfclkSource::InternalRC => r.lfclksrc.write(|w| w.src().lfrc()),
         config::LfclkSource::ExternalXtal => r.lfclksrc.write(|w| w.src().lfxo()),

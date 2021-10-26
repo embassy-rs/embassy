@@ -56,7 +56,10 @@ jobs:
             features: nrf52833
           - package: embassy-nrf
             target: thumbv8m.main-none-eabihf
-            features: nrf9160
+            features: nrf9160-s
+          - package: embassy-nrf
+            target: thumbv8m.main-none-eabihf
+            features: nrf9160-ns
           - package: embassy-nrf
             target: thumbv7em-none-eabi
             features: nrf52840

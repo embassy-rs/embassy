@@ -90,11 +90,11 @@ unsafe impl Unborrow for VddInput {
 }
 
 impl sealed::Input for VddInput {
-    #[cfg(not(feature = "nrf9160"))]
+    #[cfg(not(feature = "_nrf9160"))]
     fn channel(&self) -> InputChannel {
         InputChannel::VDD
     }
-    #[cfg(feature = "nrf9160")]
+    #[cfg(feature = "_nrf9160")]
     fn channel(&self) -> InputChannel {
         InputChannel::VDDGPIO
     }
