@@ -2,10 +2,11 @@
 
 use std::{iter::FilterMap, path::Path, slice::Iter};
 
-const SUPPORTED_FAMILIES: [&str; 10] = [
+const SUPPORTED_FAMILIES: [&str; 11] = [
     "stm32f0",
     "stm32f1",
     "stm32f4",
+    "stm32f7",
     "stm32g0",
     "stm32l0",
     "stm32l1",

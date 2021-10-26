@@ -1,6 +1,7 @@
 #![macro_use]
 
 #[cfg_attr(adc_v3, path = "v3.rs")]
+#[cfg_attr(adc_v2, path = "v2.rs")]
 #[cfg_attr(adc_g0, path = "v3.rs")]
 mod _version;
 
