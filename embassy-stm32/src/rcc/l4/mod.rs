@@ -1,4 +1,3 @@
-pub use super::types::*;
 use crate::pac;
 use crate::peripherals::{self, RCC};
 use crate::rcc::{get_freqs, set_freqs, Clocks};
@@ -14,16 +13,114 @@ use stm32_metapac::rcc::vals::Msirange;
 
 /// Only the basic setup using the HSE and HSI clocks are supported as of now.
 
-/// HSI speed
-pub const HSI_FREQ: u32 = 16_000_000;
+/// HSI16 speed
+pub const HSI16_FREQ: u32 = 16_000_000;
 
 /// System clock mux source
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
-    PLL(PLLSource, PLLClkDiv, PLLSrcDiv, PLLMul),
+    PLL(PLLSource, PLLClkDiv, PLLSrcDiv, PLLMul, Option<PLL48Div>),
     MSI(MSIRange),
     HSE(Hertz),
     HSI16,
+}
+
+/// MSI Clock Range
+///
+/// These ranges control the frequency of the MSI. Internally, these ranges map
+/// to the `MSIRANGE` bits in the `RCC_ICSCR` register.
+#[derive(Clone, Copy)]
+pub enum MSIRange {
+    /// Around 100 kHz
+    Range0,
+    /// Around 200 kHz
+    Range1,
+    /// Around 400 kHz
+    Range2,
+    /// Around 800 kHz
+    Range3,
+    /// Around 1 MHz
+    Range4,
+    /// Around 2 MHz
+    Range5,
+    /// Around 4 MHz (reset value)
+    Range6,
+    /// Around 8 MHz
+    Range7,
+    /// Around 16 MHz
+    Range8,
+    /// Around 24 MHz
+    Range9,
+    /// Around 32 MHz
+    Range10,
+    /// Around 48 MHz
+    Range11,
+}
+
+impl Into<u32> for MSIRange {
+    fn into(self) -> u32 {
+        match self {
+            MSIRange::Range0 => 100_000,
+            MSIRange::Range1 => 200_000,
+            MSIRange::Range2 => 400_000,
+            MSIRange::Range3 => 800_000,
+            MSIRange::Range4 => 1_000_000,
+            MSIRange::Range5 => 2_000_000,
+            MSIRange::Range6 => 4_000_000,
+            MSIRange::Range7 => 8_000_000,
+            MSIRange::Range8 => 16_000_000,
+            MSIRange::Range9 => 24_000_000,
+            MSIRange::Range10 => 32_000_000,
+            MSIRange::Range11 => 48_000_000,
+        }
+    }
+}
+
+impl Default for MSIRange {
+    fn default() -> MSIRange {
+        MSIRange::Range6
+    }
+}
+
+pub type PLL48Div = PLLClkDiv;
+
+/// PLL divider
+#[derive(Clone, Copy)]
+pub enum PLLDiv {
+    Div2,
+    Div3,
+    Div4,
+}
+
+/// AHB prescaler
+#[derive(Clone, Copy, PartialEq)]
+pub enum AHBPrescaler {
+    NotDivided,
+    Div2,
+    Div4,
+    Div8,
+    Div16,
+    Div64,
+    Div128,
+    Div256,
+    Div512,
+}
+
+/// APB prescaler
+#[derive(Clone, Copy)]
+pub enum APBPrescaler {
+    NotDivided,
+    Div2,
+    Div4,
+    Div8,
+    Div16,
+}
+
+/// PLL clock input source
+#[derive(Clone, Copy)]
+pub enum PLLSource {
+    HSI16,
+    HSE(Hertz),
 }
 
 seq_macro::seq!(N in 8..=86 {
@@ -134,6 +231,11 @@ impl Into<Msirange> for MSIRange {
             MSIRange::Range4 => Msirange::RANGE1M,
             MSIRange::Range5 => Msirange::RANGE2M,
             MSIRange::Range6 => Msirange::RANGE4M,
+            MSIRange::Range7 => Msirange::RANGE8M,
+            MSIRange::Range8 => Msirange::RANGE16M,
+            MSIRange::Range9 => Msirange::RANGE24M,
+            MSIRange::Range10 => Msirange::RANGE32M,
+            MSIRange::Range11 => Msirange::RANGE48M,
         }
     }
 }
@@ -177,7 +279,7 @@ impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
-            mux: ClockSrc::HSI16,
+            mux: ClockSrc::MSI(MSIRange::Range6),
             ahb_pre: AHBPrescaler::NotDivided,
             apb1_pre: APBPrescaler::NotDivided,
             apb2_pre: APBPrescaler::NotDivided,
@@ -249,7 +351,7 @@ impl RccExt for RCC {
                     while !rcc.cr().read().hsirdy() {}
                 }
 
-                (HSI_FREQ, 0x01)
+                (HSI16_FREQ, 0b01)
             }
             ClockSrc::HSE(freq) => {
                 // Enable HSE
@@ -258,22 +360,30 @@ impl RccExt for RCC {
                     while !rcc.cr().read().hserdy() {}
                 }
 
-                (freq.0, 0x02)
+                (freq.0, 0b10)
             }
             ClockSrc::MSI(range) => {
                 // Enable MSI
                 unsafe {
                     rcc.cr().write(|w| {
-                        w.set_msirange(range.into());
+                        let bits: Msirange = range.into();
+                        w.set_msirange(bits);
+                        w.set_msipllen(false);
+                        w.set_msirgsel(true);
                         w.set_msion(true);
                     });
                     while !rcc.cr().read().msirdy() {}
-                }
 
-                let freq = 32_768 * (1 << (range as u8 + 1));
-                (freq, 0b00)
+                    // Enable as clock source for USB, RNG if running at 48 MHz
+                    if let MSIRange::Range11 = range {
+                        rcc.ccipr().modify(|w| {
+                            w.set_clk48sel(0b11);
+                        });
+                    }
+                }
+                (range.into(), 0b00)
             }
-            ClockSrc::PLL(src, div, prediv, mul) => {
+            ClockSrc::PLL(src, div, prediv, mul, pll48div) => {
                 let freq = match src {
                     PLLSource::HSE(freq) => {
                         // Enable HSE
@@ -289,7 +399,7 @@ impl RccExt for RCC {
                             rcc.cr().write(|w| w.set_hsion(true));
                             while !rcc.cr().read().hsirdy() {}
                         }
-                        HSI_FREQ
+                        HSI16_FREQ
                     }
                 };
 
@@ -308,8 +418,19 @@ impl RccExt for RCC {
                         w.set_plln(mul.into());
                         w.set_pllm(prediv.into());
                         w.set_pllr(div.into());
+                        if let Some(pll48div) = pll48div {
+                            w.set_pllq(pll48div.into());
+                            w.set_pllqen(true);
+                        }
                         w.set_pllsrc(src.into());
                     });
+
+                    // Enable as clock source for USB, RNG if PLL48 divisor is provided
+                    if pll48div.is_some() {
+                        rcc.ccipr().modify(|w| {
+                            w.set_clk48sel(0b10);
+                        });
+                    }
 
                     // Enable PLL
                     rcc.cr().modify(|w| w.set_pllon(true));
