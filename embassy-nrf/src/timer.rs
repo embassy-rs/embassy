@@ -12,8 +12,7 @@ use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
 use crate::pac;
-use crate::ppi::Event;
-use crate::ppi::Task;
+use crate::ppi::{Event, Task};
 
 pub(crate) mod sealed {
 
@@ -319,7 +318,7 @@ impl<'a, T: Instance, I: TimerType> Cc<'a, T, I> {
     ///
     /// When triggered, this task will capture the current value of the timer's counter in this register.
     pub fn task_capture(&self) -> Task {
-        Task::from_reg(&T::regs().tasks_capture[self.n])
+        Task::from_reg(&T::regs().tasks_capture)
     }
 
     /// Returns this CC register's COMPARE event, for use with PPI.

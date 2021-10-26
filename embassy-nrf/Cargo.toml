@@ -18,18 +18,20 @@ defmt-info = [ ]
 defmt-warn = [ ]
 defmt-error = [ ]
 
-nrf52805 = ["nrf52805-pac"]
-nrf52810 = ["nrf52810-pac"]
-nrf52811 = ["nrf52811-pac"]
-nrf52820 = ["nrf52820-pac"]
-nrf52832 = ["nrf52832-pac"]
-nrf52833 = ["nrf52833-pac"]
-nrf52840 = ["nrf52840-pac"]
-nrf9160 = ["nrf9160-pac"]
+nrf52805 = ["nrf52805-pac", "_ppi"]
+nrf52810 = ["nrf52810-pac", "_ppi"]
+nrf52811 = ["nrf52811-pac", "_ppi"]
+nrf52820 = ["nrf52820-pac", "_ppi"]
+nrf52832 = ["nrf52832-pac", "_ppi"]
+nrf52833 = ["nrf52833-pac", "_ppi"]
+nrf52840 = ["nrf52840-pac", "_ppi"]
+nrf9160 = ["nrf9160-pac", "_dppi"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
 _time-driver = ["embassy/time-tick-32768hz"]
+_ppi = []
+_dppi = []
 
 gpiote = []
 time-driver-rtc1 = ["_time-driver"]
