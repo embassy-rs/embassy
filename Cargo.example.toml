@@ -34,11 +34,17 @@ members = [
     #"embassy-stm32",
     #"stm32-metapac",
     # uncomment ONLY ONE example crate.
+    #"examples/stm32f0",
+    #"examples/stm32f1",
     #"examples/stm32f4",
+    #"examples/stm32f7",
+    #"examples/stm32g0",
     #"examples/stm32h7",
     #"examples/stm32l0",
+    #"examples/stm32l1",
     #"examples/stm32l4",
     #"examples/stm32wb55",
+    #"examples/stm32wl55",
 
     # rp2040
     #"embassy-rp",
