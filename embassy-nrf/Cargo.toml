@@ -25,10 +25,13 @@ nrf52820 = ["nrf52820-pac", "_ppi"]
 nrf52832 = ["nrf52832-pac", "_ppi"]
 nrf52833 = ["nrf52833-pac", "_ppi"]
 nrf52840 = ["nrf52840-pac", "_ppi"]
-nrf9160 = ["nrf9160-pac", "_dppi"]
+nrf9160-s = ["_nrf9160"]
+nrf9160-ns = ["_nrf9160"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
+
+_nrf9160 = ["nrf9160-pac", "_dppi"]
 _time-driver = ["embassy/time-tick-32768hz"]
 _ppi = []
 _dppi = []

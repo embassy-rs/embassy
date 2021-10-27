@@ -120,12 +120,12 @@ impl<'d, T: Instance> Uarte<'d, T> {
         }
     }
 
-    #[cfg(not(any(feature = "nrf9160", feature = "nrf5340")))]
+    #[cfg(not(any(feature = "_nrf9160", feature = "nrf5340")))]
     fn apply_workaround_for_enable_anomaly() {
         // Do nothing
     }
 
-    #[cfg(any(feature = "nrf9160", feature = "nrf5340"))]
+    #[cfg(any(feature = "_nrf9160", feature = "nrf5340"))]
     fn apply_workaround_for_enable_anomaly() {
         use core::ops::Deref;
 
