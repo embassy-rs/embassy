@@ -75,6 +75,7 @@ impl Stack {
         f(stack)
     }
 
+    #[allow(clippy::absurd_extreme_comparisons)]
     pub fn get_local_port(&mut self) -> u16 {
         let res = self.next_local_port;
         self.next_local_port = if res >= LOCAL_PORT_MAX {

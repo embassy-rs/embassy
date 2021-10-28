@@ -12,7 +12,8 @@
     feature = "nrf52832",
     feature = "nrf52833",
     feature = "nrf52840",
-    feature = "nrf5340-app",
+    feature = "nrf5340-app-s",
+    feature = "nrf5340-app-ns",
     feature = "nrf5340-net",
     feature = "nrf9160-s",
     feature = "nrf9160-ns",
@@ -30,23 +31,24 @@ pub mod buffered_uarte;
 pub mod gpio;
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
-#[cfg(not(feature = "_nrf9160"))]
+#[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
 pub mod nvmc;
 pub mod ppi;
-#[cfg(not(any(feature = "nrf52805", feature = "nrf52820")))]
+#[cfg(not(any(feature = "nrf52805", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod pwm;
 #[cfg(feature = "nrf52840")]
 pub mod qspi;
-#[cfg(not(feature = "_nrf9160"))]
+#[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
 pub mod rng;
-#[cfg(not(feature = "nrf52820"))]
+#[cfg(not(any(feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
 pub mod spim;
-#[cfg(not(feature = "_nrf9160"))]
+#[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
 pub mod temp;
 pub mod timer;
 pub mod twim;
 pub mod uarte;
+#[cfg(not(feature = "_nrf5340"))]
 pub mod wdt;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
@@ -57,6 +59,8 @@ pub mod wdt;
 #[cfg_attr(feature = "nrf52832", path = "chips/nrf52832.rs")]
 #[cfg_attr(feature = "nrf52833", path = "chips/nrf52833.rs")]
 #[cfg_attr(feature = "nrf52840", path = "chips/nrf52840.rs")]
+#[cfg_attr(feature = "_nrf5340-app", path = "chips/nrf5340_app.rs")]
+#[cfg_attr(feature = "_nrf5340-net", path = "chips/nrf5340_net.rs")]
 #[cfg_attr(feature = "_nrf9160", path = "chips/nrf9160.rs")]
 mod chip;
 
@@ -67,7 +71,6 @@ pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
 
-use crate::pac::CLOCK;
 pub use chip::{peripherals, Peripherals};
 
 pub mod interrupt {
@@ -86,12 +89,12 @@ pub mod config {
 
     pub enum LfclkSource {
         InternalRC,
-        #[cfg(not(feature = "_nrf9160"))]
+        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
         Synthesized,
         ExternalXtal,
-        #[cfg(not(feature = "_nrf9160"))]
+        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
         ExternalLowSwing,
-        #[cfg(not(feature = "_nrf9160"))]
+        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
         ExternalFullSwing,
     }
 
@@ -127,7 +130,7 @@ pub fn init(config: config::Config) -> Peripherals {
     // before doing anything important.
     let peripherals = Peripherals::take();
 
-    let r = unsafe { &*CLOCK::ptr() };
+    let r = unsafe { &*pac::CLOCK::ptr() };
 
     // Start HFCLK.
     match config.hfclk_source {
@@ -141,7 +144,7 @@ pub fn init(config: config::Config) -> Peripherals {
     }
 
     // Configure LFCLK.
-    #[cfg(not(feature = "_nrf9160"))]
+    #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
     match config.lfclk_source {
         config::LfclkSource::InternalRC => r.lfclksrc.write(|w| w.src().rc()),
         config::LfclkSource::Synthesized => r.lfclksrc.write(|w| w.src().synth()),

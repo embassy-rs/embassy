@@ -41,6 +41,18 @@ pub enum OutputChannelPolarity {
     Toggle,
 }
 
+fn regs() -> &'static pac::gpiote::RegisterBlock {
+    cfg_if::cfg_if! {
+        if #[cfg(any(feature="nrf5340-app-s", feature="nrf9160-s"))] {
+            unsafe { &*pac::GPIOTE0::ptr() }
+        } else if #[cfg(any(feature="nrf5340-app-ns", feature="nrf9160-ns"))] {
+            unsafe { &*pac::GPIOTE1::ptr() }
+        } else {
+            unsafe { &*pac::GPIOTE::ptr() }
+        }
+    }
+}
+
 pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
     let ports = unsafe { &[&*pac::P0::ptr(), &*pac::P1::ptr()] };
@@ -55,35 +67,46 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     }
 
     // Enable interrupts
-
-    #[cfg(not(feature = "_nrf9160"))]
-    let irq = unsafe { interrupt::GPIOTE::steal() };
-    #[cfg(feature = "_nrf9160")]
-    let irq = unsafe { interrupt::GPIOTE1::steal() };
+    cfg_if::cfg_if! {
+        if #[cfg(any(feature="nrf5340-app-s", feature="nrf9160-s"))] {
+            let irq = unsafe { interrupt::GPIOTE0::steal() };
+        } else if #[cfg(any(feature="nrf5340-app-ns", feature="nrf9160-ns"))] {
+            let irq = unsafe { interrupt::GPIOTE1::steal() };
+        } else {
+            let irq = unsafe { interrupt::GPIOTE::steal() };
+        }
+    }
 
     irq.unpend();
     irq.set_priority(irq_prio);
     irq.enable();
 
-    let g = unsafe { &*pac::GPIOTE::ptr() };
+    let g = regs();
     g.events_port.write(|w| w);
     g.intenset.write(|w| w.port().set());
 }
 
-#[cfg(not(feature = "_nrf9160"))]
-#[interrupt]
-fn GPIOTE() {
-    unsafe { handle_gpiote_interrupt() };
-}
-
-#[cfg(feature = "_nrf9160")]
-#[interrupt]
-fn GPIOTE1() {
-    unsafe { handle_gpiote_interrupt() };
+cfg_if::cfg_if! {
+    if #[cfg(any(feature="nrf5340-app-s", feature="nrf9160-s"))] {
+        #[interrupt]
+        fn GPIOTE0() {
+            unsafe { handle_gpiote_interrupt() };
+        }
+    } else if #[cfg(any(feature="nrf5340-app-ns", feature="nrf9160-ns"))] {
+        #[interrupt]
+        fn GPIOTE1() {
+            unsafe { handle_gpiote_interrupt() };
+        }
+    } else {
+        #[interrupt]
+        fn GPIOTE() {
+            unsafe { handle_gpiote_interrupt() };
+        }
+    }
 }
 
 unsafe fn handle_gpiote_interrupt() {
-    let g = &*pac::GPIOTE::ptr();
+    let g = regs();
 
     for i in 0..CHANNEL_COUNT {
         if g.events_in[i].read().bits() != 0 {
@@ -135,7 +158,7 @@ pub struct InputChannel<'d, C: Channel, T: GpioPin> {
 
 impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
     fn drop(&mut self) {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let g = regs();
         let num = self.ch.number();
         g.config[num].write(|w| w.mode().disabled());
         g.intenclr.write(|w| unsafe { w.bits(1 << num) });
@@ -144,7 +167,7 @@ impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
 
 impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
     pub fn new(ch: C, pin: Input<'d, T>, polarity: InputChannelPolarity) -> Self {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let g = regs();
         let num = ch.number();
 
         g.config[num].write(|w| {
@@ -168,7 +191,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
     }
 
     pub async fn wait(&self) {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let g = regs();
         let num = self.ch.number();
 
         // Enable interrupt
@@ -189,7 +212,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
 
     /// Returns the IN event, for use with PPI.
     pub fn event_in(&self) -> Event {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let g = regs();
         Event::from_reg(&g.events_in[self.ch.number()])
     }
 }
@@ -214,7 +237,7 @@ pub struct OutputChannel<'d, C: Channel, T: GpioPin> {
 
 impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
     fn drop(&mut self) {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let g = regs();
         let num = self.ch.number();
         g.config[num].write(|w| w.mode().disabled());
         g.intenclr.write(|w| unsafe { w.bits(1 << num) });
@@ -223,7 +246,7 @@ impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
 
 impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
     pub fn new(ch: C, pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let g = regs();
         let num = ch.number();
 
         g.config[num].write(|w| {
@@ -250,41 +273,41 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
 
     /// Triggers `task out` (as configured with task_out_polarity, defaults to Toggle).
     pub fn out(&self) {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let g = regs();
         g.tasks_out[self.ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
     /// Triggers `task set` (set associated pin high).
     #[cfg(not(feature = "nrf51"))]
     pub fn set(&self) {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let g = regs();
         g.tasks_set[self.ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
     /// Triggers `task clear` (set associated pin low).
     #[cfg(not(feature = "nrf51"))]
     pub fn clear(&self) {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let g = regs();
         g.tasks_clr[self.ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
     /// Returns the OUT task, for use with PPI.
     pub fn task_out(&self) -> Task {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let g = regs();
         Task::from_reg(&g.tasks_out[self.ch.number()])
     }
 
     /// Returns the CLR task, for use with PPI.
     #[cfg(not(feature = "nrf51"))]
     pub fn task_clr(&self) -> Task {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let g = regs();
         Task::from_reg(&g.tasks_clr[self.ch.number()])
     }
 
     /// Returns the SET task, for use with PPI.
     #[cfg(not(feature = "nrf51"))]
     pub fn task_set(&self) -> Task {
-        let g = unsafe { &*pac::GPIOTE::ptr() };
+        let g = regs();
         Task::from_reg(&g.tasks_set[self.ch.number()])
     }
 }
