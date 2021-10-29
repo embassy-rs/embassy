@@ -176,9 +176,9 @@ pub trait WriteIter<A: AddressMode = SevenBitAddress> {
     /// Error type
     type Error;
 
-    type WriteIterFuture<'a, U>: Future<Output = Result<(), Self::Error>> + 'a
+    type WriteIterFuture<'a, V>: Future<Output = Result<(), Self::Error>> + 'a
     where
-        U: 'a,
+        V: 'a + IntoIterator<Item = u8>,
         Self: 'a;
 
     /// Sends bytes to slave with address `address`
