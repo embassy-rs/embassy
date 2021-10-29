@@ -153,7 +153,6 @@ impl<'d, T: Instance> Pwm<'d, T> {
         ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: LoopingConfig,
-        count: u16,
     ) -> Result<Self, Error> {
         slice_in_ram_or(config.sequence, Error::DMABufferNotInDataMemory)?;
 
@@ -162,8 +161,6 @@ impl<'d, T: Instance> Pwm<'d, T> {
         }
 
         unborrow!(ch0, ch1, ch2, ch3);
-
-        let odd: bool = count & 1 == 1;
 
         let r = T::regs();
 
@@ -224,25 +221,12 @@ impl<'d, T: Instance> Pwm<'d, T> {
             .enddelay
             .write(|w| unsafe { w.bits(config.enddelay) });
 
-        let mut loop_: u16 = count / 2;
-        if odd {
-            loop_ += 1;
-        }
+        r.loop_.write(|w| unsafe { w.cnt().bits(0x1) });
 
-        r.loop_.write(|w| unsafe { w.cnt().bits(loop_) });
-
-        if odd {
-            r.shorts.write(|w| w.loopsdone_seqstart1().set_bit());
-        } else {
-            r.shorts.write(|w| w.loopsdone_seqstart0().set_bit());
-        }
+        r.shorts.write(|w| w.loopsdone_seqstart1().set_bit());
 
         // tasks_seqstart doesnt exist in all svds so write its bit instead
-        if odd {
-            r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
-        } else {
-            r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
-        }
+        r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
 
         Ok(Self {
             phantom: PhantomData,
