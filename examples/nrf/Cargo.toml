@@ -31,3 +31,4 @@ panic-probe = { version = "0.2.0", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.2.0"
+micromath = "2.0.0"
