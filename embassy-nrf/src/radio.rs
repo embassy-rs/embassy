@@ -6,16 +6,12 @@
 //!
 //! - nRF52810: v1.3 Section 6.14
 //!
-//! TODO:
-//! *) Check error handling
-//!
 //! Open Points:
 //! *) rx and tx traits (what signature should be used)
 //! *) "rx then tx" and "tx then rx" support (interesting for protocols)
 //!
-use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::pac;
-use crate::util::{slice_in_ram, slice_in_ram_or};
+use crate::util::{slice_in_ram_or};
 use core::future::Future;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering::SeqCst};
