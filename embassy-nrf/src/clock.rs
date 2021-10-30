@@ -9,7 +9,6 @@
 use crate::pac;
 use core::future::Future;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering::SeqCst};
 use core::task::Poll;
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::util::Unborrow;
@@ -21,13 +20,24 @@ use futures::future::poll_fn;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     HfClkError,
+    LfClkConfigError,
 }
 
 #[derive(Clone, Copy)]
 pub enum LfClkSource {
     Rc,
     Xtal,
-    Sync,
+    Synth,
+}
+
+impl From<LfClkSource> for u8 {
+    fn from(src: LfClkSource) -> Self {
+        match src {
+            LfClkSource::Rc => 0,
+            LfClkSource::Xtal => 1,
+            LfClkSource::Synth => 2,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -44,6 +54,8 @@ pub struct LfClockConfig {
     pub bypass: bool,
     /// Low-frequency clock external
     pub external: bool,
+    /// Low-frequency clock running
+    pub running: bool,
 }
 
 impl Default for LfClockConfig {
@@ -52,6 +64,7 @@ impl Default for LfClockConfig {
             source: LfClkSource::Rc,
             bypass: false,
             external: false,
+            running: false,
         }
     }
 }
@@ -100,14 +113,14 @@ impl<'d, T: Instance> Clock<'d, T> {
         async move {
             let r = T::regs();
 
-            match (config.source, r.hfclkstat.read().bits() & 0x0000_0001) {
+            match (config.source, r.hfclkstat.read().state().bit()) {
                 // source is xtal, but rc is requested => stop hfxo
-                (HfClkSource::Rc, 1) => {
+                (HfClkSource::Rc, true) => {
                     r.tasks_hfclkstop.write(|w| w.tasks_hfclkstop().set_bit());
                     Ok(())
                 },
                 // source is rc, but xtal is requested => start hfxo
-                (HfClkSource::Xtal, 0) => {
+                (HfClkSource::Xtal, false) => {
                     // enable "disabled" interrupt
                     r.intenset.write(|w| w.hfclkstarted().bit(true));
 
@@ -115,12 +128,59 @@ impl<'d, T: Instance> Clock<'d, T> {
                     r.tasks_hfclkstart.write(|w| w.tasks_hfclkstart().set_bit());
 
                     // Wait for 'started' event.
-                    poll_fn(Self::wait_for_started_event).await;
+                    poll_fn(Self::wait_for_start_event).await;
 
                     // r.hfclkstat is not immediately updated, so we can´t check it
                     Ok(())
                 },
                 _ => Ok(())
+            }
+        }
+    }
+
+    pub fn set_lf_clock_config<'a>(&mut self, config: &'a LfClockConfig) -> impl Future<Output = Result<(), Error>> + 'a {
+        async move {
+            let r = T::regs();
+
+            match (config.source, config.bypass, config.external) {
+                // source RC (0), bypass disabled (0), external disabled (0)
+                (LfClkSource::Rc, false, false) |
+                // source XTAL (1), bypass disabled (0), external disabled (0)
+                (LfClkSource::Xtal, false, false) |
+                // source XTAL (1), bypass enabled (1), external disabled (0)
+                (LfClkSource::Xtal, true, false) |
+                // source XTAL (1), bypass enabled (1), external enabled (1)
+                (LfClkSource::Xtal, true, true) |
+                // source synth (2), bypass disabled (0), external disabled (0)
+                (LfClkSource::Synth, false, false) => {
+                    // if the desired configuration equals the current configuration, do nothing
+                    if config.running == r.lfclkstat.read().state().bit() &&
+                        u8::from(config.source) == r.lfclksrc.read().src().bits() &&
+                        config.bypass == r.lfclksrc.read().bypass().is_enabled() &&
+                        config.external == r.lfclksrc.read().external().is_enabled()
+                    {
+                        return Ok(());
+                    }
+
+                    // if the lfclk is running, stop it
+                    if r.lfclkstat.read().state().bit() {
+                        r.tasks_lfclkstop.write(|w| w.tasks_lfclkstop().trigger());
+                    }
+
+                    // set the new configuration
+                    r.lfclksrc.write(|w| unsafe { w.src().bits(u8::from(config.source))
+                        .bypass().bit(config.bypass)
+                        .external().bit(config.external) });
+
+                    // if lfclk should be running, start it
+                    if config.running {
+                        r.tasks_lfclkstart.write(|w| w.tasks_lfclkstart().trigger());
+                        poll_fn(Self::wait_for_start_event).await;
+                    }
+
+                    Ok(())
+                },
+                _ => Err(Error::LfClkConfigError)
             }
         }
     }
@@ -133,13 +193,14 @@ impl<'d, T: Instance> Clock<'d, T> {
             s.end_waker.wake();
             r.intenclr.write(|w| w.lfclkstarted().clear());
         }
+        
         if r.events_hfclkstarted.read().bits() != 0 {
             s.end_waker.wake();
             r.intenclr.write(|w| w.hfclkstarted().clear());
         }
     }
 
-    fn wait_for_started_event(cx: &mut core::task::Context) -> Poll<()> {
+    fn wait_for_start_event(cx: &mut core::task::Context) -> Poll<()> {
         let r = T::regs();
         let s = T::state();
 
@@ -160,20 +221,6 @@ impl<'d, T: Instance> Clock<'d, T> {
         Poll::Pending
     }
 }
-
-// impl<'a, T: Instance> Drop for Clock<'a, T> {
-//     fn drop(&mut self) {
-//         info!("clock drop");
-
-//         // TODO when implementing async here, check for abort
-
-//         // disable TODO check
-//         // let r = T::regs();
-//         // r.power.write(|w| w.power().disabled());
-
-//         info!("clock drop: done");
-//     }
-// }
 
 pub(crate) mod sealed {
     use super::*;
