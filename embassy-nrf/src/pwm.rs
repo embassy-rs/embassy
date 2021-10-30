@@ -167,23 +167,27 @@ impl<'d, T: Instance> Pwm<'d, T> {
         if let Some(pin) = ch0.pin_mut() {
             pin.set_low();
             pin.conf().write(|w| w.dir().output());
-            r.psel.out[0].write(|w| unsafe { w.bits(ch0.psel_bits()) });
         }
+
         if let Some(pin) = ch1.pin_mut() {
             pin.set_low();
             pin.conf().write(|w| w.dir().output());
-            r.psel.out[1].write(|w| unsafe { w.bits(ch1.psel_bits()) });
         }
         if let Some(pin) = ch2.pin_mut() {
             pin.set_low();
             pin.conf().write(|w| w.dir().output());
-            r.psel.out[2].write(|w| unsafe { w.bits(ch2.psel_bits()) });
         }
         if let Some(pin) = ch3.pin_mut() {
             pin.set_low();
             pin.conf().write(|w| w.dir().output());
-            r.psel.out[3].write(|w| unsafe { w.bits(ch3.psel_bits()) });
         }
+
+        // if NoPin provided writes disconnected (top bit 1) 0x80000000 else
+        // writes pin number ex 13 (0x0D) which is connected (top bit 0)
+        r.psel.out[0].write(|w| unsafe { w.bits(ch0.psel_bits()) });
+        r.psel.out[1].write(|w| unsafe { w.bits(ch1.psel_bits()) });
+        r.psel.out[2].write(|w| unsafe { w.bits(ch2.psel_bits()) });
+        r.psel.out[3].write(|w| unsafe { w.bits(ch3.psel_bits()) });
 
         r.enable.write(|w| w.enable().enabled());
 
@@ -323,6 +327,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
 impl<'a, T: Instance> Drop for Pwm<'a, T> {
     fn drop(&mut self) {
         let r = T::regs();
+
         r.enable.write(|w| w.enable().disabled());
 
         info!("pwm drop: done");
