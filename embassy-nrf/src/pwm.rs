@@ -328,6 +328,7 @@ impl<'a, T: Instance> Drop for Pwm<'a, T> {
     fn drop(&mut self) {
         let r = T::regs();
 
+        self.stop();
         r.enable.write(|w| w.enable().disabled());
 
         info!("pwm drop: done");
