@@ -1,15 +1,15 @@
 #![allow(dead_code)]
 #![deny(unused_must_use)]
 
+mod tests;
+
 use std::format;
+use std::process::Command;
 use std::{env, fs, path::PathBuf};
 
+use anyhow::bail;
 use std::path::Path;
 use walkdir::WalkDir;
-use xshell::{cmd, Cmd};
-use yaml_rust::YamlLoader;
-
-extern crate yaml_rust;
 
 fn main() -> Result<(), anyhow::Error> {
     let args = env::args().skip(1).collect::<Vec<_>>();
@@ -65,60 +65,41 @@ impl Realm {
 }
 
 fn task_check(realm: Realm) -> Result<(), anyhow::Error> {
-    let _e = xshell::pushenv("CI", "true");
-
-    let matrix_yaml = root_dir()
-        .join(".github")
-        .join("workflows")
-        .join("rust.yml");
-
-    let matrix = YamlLoader::load_from_str(&*fs::read_to_string(matrix_yaml).unwrap()).unwrap();
-
-    let matrix = &matrix.get(0).unwrap()["jobs"]["ci"]["strategy"]["matrix"]["include"];
-
-    let entries = matrix.as_vec().unwrap();
-
-    for entry in entries {
-        let package = entry["package"].as_str().unwrap();
-        if !realm.accepts(package) {
+    for t in tests::TESTS {
+        //if t.target != "thumbv7em-none-eabi" {
+        //    continue;
+        //}
+        if !realm.accepts(t.package) {
             continue;
         }
-        let target = entry["target"].as_str().unwrap();
-        let features = entry["features"].as_str();
-        let package_dir = root_dir().join(entry["package"].as_str().unwrap());
-        let _p = xshell::pushd(package_dir)?;
+
         banner(&*format!(
             "Building {} [target={}] [features={}]",
-            package,
-            target,
-            features.unwrap_or("default-features")
+            t.package, t.target, t.features
         ));
 
-        let root_cargo_dir = root_dir().join(".cargo");
-        fs::create_dir_all(root_cargo_dir.clone()).unwrap();
-        fs::write(
-            root_cargo_dir.join("config"),
-            "[target.\"cfg(all())\"]\nrustflags = [\"-D\", \"warnings\"]",
-        )
-        .unwrap();
+        let package_dir = root_dir().join(t.package);
+        let target_dir = root_dir().join("target");
+        let mut cmd = Command::new(PathBuf::from("cargo"));
+        cmd.env("RUSTFLAGS", "-Dwarnings");
+        cmd.env("CARGO_TARGET_DIR", target_dir);
+        cmd.env("CARGO_INCREMENTAL", "0");
+        cmd.current_dir(package_dir);
 
         let mut args = Vec::new();
-        args.push("check");
-        args.push("--target");
-        args.push(target);
-
-        if let Some(features) = features {
-            args.push("--features");
-            args.push(features);
+        args.push("check".to_string());
+        args.push(format!("--features={}", t.features));
+        if !t.target.is_empty() {
+            args.push(format!("--target={}", t.target));
         }
+        cmd.args(args);
+        println!("{:?}", cmd);
 
-        let command = Cmd::new(PathBuf::from("cargo"));
-        let command = command.args(args);
-        let result = command.run();
+        let result = cmd.spawn().unwrap().wait().unwrap();
 
-        fs::remove_file(root_cargo_dir.join("config")).unwrap();
-
-        result?;
+        if !result.success() {
+            bail!("cargo failed {:?}", result);
+        }
     }
 
     Ok(())
@@ -126,16 +107,20 @@ fn task_check(realm: Realm) -> Result<(), anyhow::Error> {
 
 fn task_metapac_gen() -> Result<(), anyhow::Error> {
     banner("Building metapac");
-    let _p = xshell::pushd(root_dir().join("stm32-metapac-gen"));
-    cmd!("cargo run").run()?;
+    //let _p = xshell::pushd(root_dir().join("stm32-metapac-gen"));
+    //cmd!("cargo run").run()?;
     Ok(())
 }
 
 fn task_cargo_fmt() -> Result<(), anyhow::Error> {
+    /*
     for entry in WalkDir::new(root_dir())
         .follow_links(false)
         .into_iter()
         .filter_map(|e| e.ok())
+        .filter(|e| is_primary_source(e.file_name()))
+        .map(|e| e.file_name().to_string_lossy())
+        .filter(|e| e.ends_with(".rs"))
     {
         let f_name = entry.file_name().to_string_lossy();
 
@@ -152,11 +137,13 @@ fn task_cargo_fmt() -> Result<(), anyhow::Error> {
             command.args(args).run()?;
         }
     }
+     */
 
     Ok(())
 }
 
 fn task_cargo_fmt_check() -> Result<(), anyhow::Error> {
+    /*
     let mut actual_result = Ok(());
     for entry in WalkDir::new(root_dir())
         .follow_links(false)
@@ -183,6 +170,9 @@ fn task_cargo_fmt_check() -> Result<(), anyhow::Error> {
     }
 
     actual_result
+     */
+
+    Ok(())
 }
 
 fn root_dir() -> PathBuf {

@@ -35,5 +35,9 @@ fn main() -> Result<(), Error> {
     // Tell Cargo where to find the file.
     println!("cargo:rustc-link-search={}", out_dir.display());
 
+    println!("cargo:rustc-link-arg-bins=--nmagic");
+    println!("cargo:rustc-link-arg-bins=-Tlink.x");
+    println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
+
     Ok(())
 }

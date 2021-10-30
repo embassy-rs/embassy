@@ -1,16 +1,5 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 runner = "probe-run-rp --chip RP2040"
 
-rustflags = [
-  # LLD (shipped with the Rust toolchain) is used as the default linker
-  "-C", "link-arg=--nmagic",
-  "-C", "link-arg=-Tlink.x",
-  "-C", "link-arg=-Tlink-rp.x",
-  "-C", "link-arg=-Tdefmt.x",
-
-  # Code-size optimizations.
-  "-Z", "trap-unreachable=no",
-]
-
 [build]
 target = "thumbv6m-none-eabi"        # Cortex-M0 and Cortex-M0+

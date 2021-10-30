@@ -272,6 +272,7 @@ mod chip;
 #[path = "chip/rp.rs"]
 mod chip;
 
+#[allow(unused)]
 #[derive(Debug, FromMeta)]
 struct MainArgs {
     #[darling(default)]

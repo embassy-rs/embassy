@@ -11,7 +11,7 @@ smoltcp = { git = "https://github.com/smoltcp-rs/smoltcp", rev="e4241510337e095b
 
 async-io = "1.6.0"
 env_logger = "0.9.0"
-futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
+futures = { version = "0.3.17" }
 log = "0.4.14"
 nix = "0.22.1"
 libc = "0.2.101"
