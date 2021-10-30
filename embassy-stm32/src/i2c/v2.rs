@@ -1,9 +1,11 @@
 use core::cmp;
+use core::future::Future;
 use core::marker::PhantomData;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicUsize, Ordering};
 use embassy::interrupt::InterruptExt;
+use embassy::traits::i2c::I2c as I2cTrait;
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
@@ -139,14 +141,14 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         }
     }
 
-    fn master_read(&mut self, address: u8, length: usize, stop: Stop, reload: bool, restart: bool) {
+    unsafe fn master_read(address: u8, length: usize, stop: Stop, reload: bool, restart: bool) {
         assert!(length < 256 && length > 0);
 
         if !restart {
             // Wait for any previous address sequence to end
             // automatically. This could be up to 50% of a bus
             // cycle (ie. up to 0.5/freq)
-            while unsafe { T::regs().cr2().read().start() == i2c::vals::Start::START } {}
+            while T::regs().cr2().read().start() == i2c::vals::Start::START {}
         }
 
         // Set START and prepare to receive bytes into
@@ -159,17 +161,15 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             i2c::vals::Reload::COMPLETED
         };
 
-        unsafe {
-            T::regs().cr2().modify(|w| {
-                w.set_sadd((address << 1 | 0) as u16);
-                w.set_add10(i2c::vals::Add::BIT7);
-                w.set_rd_wrn(i2c::vals::RdWrn::READ);
-                w.set_nbytes(length as u8);
-                w.set_start(i2c::vals::Start::START);
-                w.set_autoend(stop.autoend());
-                w.set_reload(reload);
-            });
-        }
+        T::regs().cr2().modify(|w| {
+            w.set_sadd((address << 1 | 0) as u16);
+            w.set_add10(i2c::vals::Add::BIT7);
+            w.set_rd_wrn(i2c::vals::RdWrn::READ);
+            w.set_nbytes(length as u8);
+            w.set_start(i2c::vals::Start::START);
+            w.set_autoend(stop.autoend());
+            w.set_reload(reload);
+        });
     }
 
     unsafe fn master_write(address: u8, length: usize, stop: Stop, reload: bool) {
@@ -309,13 +309,15 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         };
         let last_chunk_idx = total_chunks.saturating_sub(1);
 
-        self.master_read(
-            address,
-            buffer.len().min(255),
-            Stop::Automatic,
-            last_chunk_idx != 0,
-            restart,
-        );
+        unsafe {
+            Self::master_read(
+                address,
+                buffer.len().min(255),
+                Stop::Automatic,
+                last_chunk_idx != 0,
+                restart,
+            );
+        }
 
         for (number, chunk) in buffer.chunks_mut(255).enumerate() {
             if number != 0 {
@@ -482,6 +484,88 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
 
+    async fn read_dma_internal(
+        &mut self,
+        address: u8,
+        buffer: &mut [u8],
+        restart: bool,
+    ) -> Result<(), Error>
+    where
+        RXDMA: crate::i2c::RxDma<T>,
+    {
+        let total_len = buffer.len();
+        let completed_chunks = total_len / 255;
+        let total_chunks = if completed_chunks * 255 == total_len {
+            completed_chunks
+        } else {
+            completed_chunks + 1
+        };
+
+        let dma_transfer = unsafe {
+            let regs = T::regs();
+            regs.cr1().modify(|w| {
+                w.set_rxdmaen(true);
+                w.set_tcie(true);
+            });
+            let src = regs.rxdr().ptr() as *mut u8;
+
+            let ch = &mut self.rx_dma;
+            ch.read(ch.request(), src, buffer)
+        };
+
+        let state_number = T::state_number();
+        STATE.chunks_transferred[state_number].store(0, Ordering::Relaxed);
+        let mut remaining_len = total_len;
+
+        let _on_drop = OnDrop::new(|| {
+            let regs = T::regs();
+            unsafe {
+                regs.cr1().modify(|w| {
+                    w.set_rxdmaen(false);
+                    w.set_tcie(false);
+                })
+            }
+        });
+
+        // NOTE(unsafe) self.rx_dma does not fiddle with the i2c registers
+        unsafe {
+            Self::master_read(
+                address,
+                total_len.min(255),
+                Stop::Software,
+                total_chunks != 1,
+                restart,
+            );
+        }
+
+        poll_fn(|cx| {
+            STATE.waker[state_number].register(cx.waker());
+            let chunks_transferred = STATE.chunks_transferred[state_number].load(Ordering::Relaxed);
+
+            if chunks_transferred == total_chunks {
+                return Poll::Ready(());
+            } else if chunks_transferred != 0 {
+                remaining_len = remaining_len.saturating_sub(255);
+                let last_piece = chunks_transferred + 1 == total_chunks;
+
+                // NOTE(unsafe) self.rx_dma does not fiddle with the i2c registers
+                unsafe {
+                    Self::master_continue(remaining_len.min(255), !last_piece);
+                    T::regs().cr1().modify(|w| w.set_tcie(true));
+                }
+            }
+            Poll::Pending
+        })
+        .await;
+
+        dma_transfer.await;
+
+        // This should be done already
+        self.wait_tc()?;
+        self.master_stop();
+        Ok(())
+    }
+
     pub async fn write_dma(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
@@ -509,6 +593,18 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             current = next;
         }
         Ok(())
+    }
+
+    pub async fn read_dma(
+        &mut self,
+        address: u8,
+        buffer: &mut [u8],
+        restart: bool,
+    ) -> Result<(), Error>
+    where
+        RXDMA: crate::i2c::RxDma<T>,
+    {
+        self.read_dma_internal(address, buffer, restart).await
     }
 
     pub fn write_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error> {
@@ -751,6 +847,39 @@ impl Timings {
             sclh,
             sdadel,
             scldel,
+        }
+    }
+}
+
+impl<'d, T: Instance, TXDMA: super::TxDma<T>, RXDMA: super::RxDma<T>> I2cTrait<u8>
+    for I2c<'d, T, TXDMA, RXDMA>
+{
+    type Error = super::Error;
+
+    #[rustfmt::skip]
+    type WriteFuture<'a> where 'd: 'a, T: 'a, TXDMA: 'a, RXDMA: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+    #[rustfmt::skip]
+    type ReadFuture<'a> where 'd: 'a, T: 'a, TXDMA: 'a, RXDMA: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+    #[rustfmt::skip]
+    type WriteReadFuture<'a> where 'd: 'a, T: 'a, TXDMA: 'a, RXDMA: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+    fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        self.read_dma(address, buffer, false)
+    }
+
+    fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
+        self.write_dma(address, bytes)
+    }
+
+    fn write_read<'a>(
+        &'a mut self,
+        address: u8,
+        bytes: &'a [u8],
+        buffer: &'a mut [u8],
+    ) -> Self::WriteReadFuture<'a> {
+        async move {
+            self.write_dma(address, bytes).await?;
+            self.read_dma(address, buffer, true).await
         }
     }
 }

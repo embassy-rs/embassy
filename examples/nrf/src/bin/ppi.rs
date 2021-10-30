@@ -51,25 +51,21 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         OutputChannelPolarity::Toggle,
     );
 
-    let mut ppi = Ppi::new(p.PPI_CH0);
-    ppi.set_event(button1.event_in());
-    ppi.set_task(led1.task_out());
+    let mut ppi = Ppi::new_one_to_one(p.PPI_CH0, button1.event_in(), led1.task_out());
     ppi.enable();
 
-    let mut ppi = Ppi::new(p.PPI_CH1);
-    ppi.set_event(button2.event_in());
-    ppi.set_task(led1.task_clr());
+    let mut ppi = Ppi::new_one_to_one(p.PPI_CH1, button2.event_in(), led1.task_clr());
     ppi.enable();
 
-    let mut ppi = Ppi::new(p.PPI_CH2);
-    ppi.set_event(button3.event_in());
-    ppi.set_task(led1.task_set());
+    let mut ppi = Ppi::new_one_to_one(p.PPI_CH2, button3.event_in(), led1.task_set());
     ppi.enable();
 
-    let mut ppi = Ppi::new(p.PPI_CH3);
-    ppi.set_event(button4.event_in());
-    ppi.set_task(led1.task_out());
-    ppi.set_fork_task(led2.task_out());
+    let mut ppi = Ppi::new_one_to_two(
+        p.PPI_CH3,
+        button4.event_in(),
+        led1.task_out(),
+        led2.task_out(),
+    );
     ppi.enable();
 
     info!("PPI setup!");
