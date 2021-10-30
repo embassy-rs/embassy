@@ -109,7 +109,10 @@ impl<'d, T: Instance> Clock<'d, T> {
         }
     }
 
-    pub fn set_hf_clock_config<'a>(&mut self, config: &'a HfClockConfig) -> impl Future<Output = Result<(), Error>> + 'a {
+    pub fn set_hf_clock_config<'a>(
+        &mut self,
+        config: &'a HfClockConfig,
+    ) -> impl Future<Output = Result<(), Error>> + 'a {
         async move {
             let r = T::regs();
 
@@ -118,7 +121,7 @@ impl<'d, T: Instance> Clock<'d, T> {
                 (HfClkSource::Rc, true) => {
                     r.tasks_hfclkstop.write(|w| w.tasks_hfclkstop().set_bit());
                     Ok(())
-                },
+                }
                 // source is rc, but xtal is requested => start hfxo
                 (HfClkSource::Xtal, false) => {
                     // enable "disabled" interrupt
@@ -132,13 +135,16 @@ impl<'d, T: Instance> Clock<'d, T> {
 
                     // r.hfclkstat is not immediately updated, so we can´t check it
                     Ok(())
-                },
-                _ => Ok(())
+                }
+                _ => Ok(()),
             }
         }
     }
 
-    pub fn set_lf_clock_config<'a>(&mut self, config: &'a LfClockConfig) -> impl Future<Output = Result<(), Error>> + 'a {
+    pub fn set_lf_clock_config<'a>(
+        &mut self,
+        config: &'a LfClockConfig,
+    ) -> impl Future<Output = Result<(), Error>> + 'a {
         async move {
             let r = T::regs();
 
@@ -193,7 +199,7 @@ impl<'d, T: Instance> Clock<'d, T> {
             s.end_waker.wake();
             r.intenclr.write(|w| w.lfclkstarted().clear());
         }
-        
+
         if r.events_hfclkstarted.read().bits() != 0 {
             s.end_waker.wake();
             r.intenclr.write(|w| w.hfclkstarted().clear());

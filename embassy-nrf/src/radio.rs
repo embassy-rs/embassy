@@ -11,7 +11,7 @@
 //! *) "rx then tx" and "tx then rx" support (interesting for protocols)
 //!
 use crate::pac;
-use crate::util::{slice_in_ram_or};
+use crate::util::slice_in_ram_or;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering::SeqCst};
