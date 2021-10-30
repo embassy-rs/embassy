@@ -9,7 +9,7 @@ use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::gpio::NoPin;
-use embassy_nrf::pwm::{CounterMode, LoopingConfig, Prescaler, Pwm, SequenceLoad};
+use embassy_nrf::pwm::{CounterMode, LoopMode, LoopingConfig, Prescaler, Pwm, SequenceLoad};
 use embassy_nrf::Peripherals;
 use micromath::F32Ext;
 
@@ -26,14 +26,20 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         prescaler: Prescaler::Div16,
         sequence: &seq_values,
         sequence_load: SequenceLoad::Common,
-        repeats: 0,
+        refresh: 0,
         enddelay: 0,
+        additional_loops: LoopMode::Infinite,
     };
 
-    let _pwm = unwrap!(Pwm::simple_playback(
+    let pwm = unwrap!(Pwm::simple_playback(
         p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config
     ));
     info!("pwm started!");
+
+    Timer::after(Duration::from_millis(20000)).await;
+
+    pwm.stop();
+    info!("pwm stopped!");
 
     loop {
         Timer::after(Duration::from_millis(1000)).await;

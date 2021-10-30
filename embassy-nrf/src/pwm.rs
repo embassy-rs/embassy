@@ -24,10 +24,13 @@ pub enum Prescaler {
     Div128,
 }
 
+/// How a sequence is read from RAM and is spread to the compare register
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum SequenceLoad {
+    /// sequence in buffer will be used across all channels
     Common,
     Grouped,
+    /// buffer holds [ch0_0, ch1_0, ch2_0, ch3_0... ch0_n, ch1_n, ch2_n, ch3_n]
     Individual,
     Waveform,
 }
@@ -43,26 +46,32 @@ pub struct Pwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
 
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum LoopMode {
+    // Repeat n additional times after the first
+    Additional(u16),
+    /// Repeat until `stop` is called
+    Infinite,
+}
+
 // Configure an infinite looping sequence for `simple_playback`
 pub struct LoopingConfig<'a> {
     /// Selects up mode or up-and-down mode for the counter
     pub counter_mode: CounterMode,
-    // top value to be compared against buffer values
+    // Top value to be compared against buffer values
     pub top: u16,
     /// Configuration for PWM_CLK
     pub prescaler: Prescaler,
     /// In ram buffer to be played back
     pub sequence: &'a [u16],
-    /// Common Mode means seq in buffer will be used across all channels
-    /// Individual Mode buffer holds [ch0_0, ch1_0, ch2_0, ch3_0, ch0_1, ch1_1,
-    /// ch2_1, ch3_1 ... ch0_n, ch1_n, ch2_n, ch3_n]
+    /// How a sequence is read from RAM and is spread to the compare register
     pub sequence_load: SequenceLoad,
-    /// will instruct a new RAM stored pulse width value on every (N+1)th PWM
-    /// period. Setting the register to zero will result in a new duty cycle
-    /// update every PWM period as long as the minimum PWM period is observed.
-    pub repeats: u32,
-    /// enddelay PWM period delays between last period on sequence 0 before repeating
+    /// Number of additional PWM periods between samples loaded into compare register
+    pub refresh: u32,
+    /// Number of additional PWM periods after the sequence ends
     pub enddelay: u32,
+    /// How many times to repeat the sequence
+    pub additional_loops: LoopMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,6 +155,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
         }
     }
 
+    /// Returns a configured pwm that has had start called on it
     pub fn simple_playback(
         _pwm: impl Unborrow<Target = T> + 'd,
         ch0: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
@@ -209,7 +219,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
         r.seq0
             .cnt
             .write(|w| unsafe { w.bits(config.sequence.len() as u32) });
-        r.seq0.refresh.write(|w| unsafe { w.bits(config.repeats) });
+        r.seq0.refresh.write(|w| unsafe { w.bits(config.refresh) });
         r.seq0
             .enddelay
             .write(|w| unsafe { w.bits(config.enddelay) });
@@ -220,17 +230,42 @@ impl<'d, T: Instance> Pwm<'d, T> {
         r.seq1
             .cnt
             .write(|w| unsafe { w.bits(config.sequence.len() as u32) });
-        r.seq1.refresh.write(|w| unsafe { w.bits(config.repeats) });
+        r.seq1.refresh.write(|w| unsafe { w.bits(config.refresh) });
         r.seq1
             .enddelay
             .write(|w| unsafe { w.bits(config.enddelay) });
 
-        r.loop_.write(|w| unsafe { w.cnt().bits(0x1) });
+        match config.additional_loops {
+            LoopMode::Additional(0) => {
+                r.loop_.write(|w| w.cnt().disabled());
+                r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
+            }
+            LoopMode::Additional(n) => {
+                let times = (n / 2) + 1;
 
-        r.shorts.write(|w| w.loopsdone_seqstart1().set_bit());
+                r.loop_.write(|w| unsafe { w.cnt().bits(times) });
+                r.shorts.write(|w| {
+                    w.loopsdone_seqstart1().enabled();
+                    w.loopsdone_seqstart0().disabled();
+                    w.loopsdone_stop().enabled()
+                });
 
-        // tasks_seqstart doesnt exist in all svds so write its bit instead
-        r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
+                if n & 1 == 1 {
+                    r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
+                } else {
+                    r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
+                }
+            }
+
+            LoopMode::Infinite => {
+                r.loop_.write(|w| unsafe { w.cnt().bits(0x1) });
+                r.shorts.write(|w| {
+                    w.loopsdone_seqstart1().enabled();
+                    w.loopsdone_seqstart0().disabled()
+                });
+                r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
+            }
+        }
 
         Ok(Self {
             phantom: PhantomData,
@@ -326,10 +361,8 @@ impl<'d, T: Instance> Pwm<'d, T> {
 
 impl<'a, T: Instance> Drop for Pwm<'a, T> {
     fn drop(&mut self) {
-        let r = T::regs();
-
         self.stop();
-        r.enable.write(|w| w.enable().disabled());
+        self.disable();
 
         info!("pwm drop: done");
 
