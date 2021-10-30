@@ -251,8 +251,10 @@ impl<'d, T: Instance> Pwm<'d, T> {
                 });
 
                 if n & 1 == 1 {
+                    // tasks_seqstart doesnt exist in all svds so write its bit instead
                     r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
                 } else {
+                    // tasks_seqstart doesnt exist in all svds so write its bit instead
                     r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
                 }
             }
