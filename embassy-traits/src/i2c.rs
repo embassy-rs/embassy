@@ -171,3 +171,22 @@ pub trait I2c<A: AddressMode = SevenBitAddress> {
         buffer: &'a mut [u8],
     ) -> Self::WriteReadFuture<'a>;
 }
+
+pub trait WriteIter<A: AddressMode = SevenBitAddress> {
+    /// Error type
+    type Error;
+
+    type WriteIterFuture<'a, V>: Future<Output = Result<(), Self::Error>> + 'a
+    where
+        V: 'a + IntoIterator<Item = u8>,
+        Self: 'a;
+
+    /// Sends bytes to slave with address `address`
+    ///
+    /// # I2C Events (contract)
+    ///
+    /// Same as `I2c::write`
+    fn write_iter<'a, U>(&'a mut self, address: A, bytes: U) -> Self::WriteIterFuture<'a, U>
+    where
+        U: IntoIterator<Item = u8> + 'a;
+}
