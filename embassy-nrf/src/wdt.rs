@@ -58,9 +58,9 @@ impl Watchdog {
         let crv = config.timeout_ticks.max(MIN_TICKS);
         let rren = (1u32 << N) - 1;
 
-        #[cfg(not(feature = "nrf9160"))]
+        #[cfg(not(feature = "_nrf9160"))]
         let runstatus = r.runstatus.read().runstatus().bit();
-        #[cfg(feature = "nrf9160")]
+        #[cfg(feature = "_nrf9160")]
         let runstatus = r.runstatus.read().runstatuswdt().bit();
 
         if runstatus {

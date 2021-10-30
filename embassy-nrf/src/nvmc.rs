@@ -10,8 +10,8 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use embedded_storage::nor_flash::{MultiwriteNorFlash, NorFlash, ReadNorFlash};
 
-const PAGE_SIZE: usize = 4096;
-const FLASH_SIZE: usize = crate::chip::FLASH_SIZE;
+pub const PAGE_SIZE: usize = 4096;
+pub const FLASH_SIZE: usize = crate::chip::FLASH_SIZE;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
