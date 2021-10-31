@@ -116,7 +116,7 @@ impl<'d, T: Instance> Clock<'d, T> {
         async move {
             let r = T::regs();
 
-            match (config.source, r.hfclkstat.read().state().bit()) {
+            match (config.source, r.hfclkstat.read().src().bit()) {
                 // source is xtal, but rc is requested => stop hfxo
                 (HfClkSource::Rc, true) => {
                     r.tasks_hfclkstop.write(|w| w.tasks_hfclkstop().set_bit());
