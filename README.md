@@ -38,7 +38,6 @@ The `embassy-nrf` crate contains implementations for nRF 52 series SoCs.
 - `saadc`: SAADC driver. Provides a full implementation of the one-shot sampling for analog channels.
 - `rtc`: RTC driver implementing `Clock` and `Alarm`, for use with `embassy::executor`.
 - `radio`: RADIO driver. Allows configuration of most settings. Provides generic transmit and receive methods. Currently, nrf52810 only.
-- `clock`: CLOCK driver. Provides functions to configure the low- and high-frequency clocks. Currently, nrf52810 only.
 
 ## Examples
 

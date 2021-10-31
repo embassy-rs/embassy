@@ -27,8 +27,6 @@ pub(crate) mod util;
 mod time_driver;
 
 pub mod buffered_uarte;
-#[cfg(feature = "nrf52810")]
-pub mod clock;
 pub mod gpio;
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
