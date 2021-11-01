@@ -9,9 +9,10 @@ use embassy_hal_common::unborrow;
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::OptionalPin as GpioOptionalPin;
 use crate::interrupt::Interrupt;
+use crate::pac;
 use crate::util::slice_in_ram_or;
-use crate::{pac, EASY_DMA_SIZE};
 
+/// PWM Base clock is system clock (16MHz) divided by prescaler
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Prescaler {
     Div1,
@@ -24,7 +25,7 @@ pub enum Prescaler {
     Div128,
 }
 
-/// How a sequence is read from RAM and is spread to the compare register
+/// How the sequence values are distributed across the channels
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum SequenceLoad {
     /// Provided sequence will be used across all channels
@@ -42,7 +43,9 @@ pub enum SequenceLoad {
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum CounterMode {
+    /// Up counter (edge-aligned PWM duty cycle)
     Up,
+    /// Up and down counter (center-aligned PWM duty cycle)
     UpAndDown,
 }
 
@@ -53,13 +56,13 @@ pub struct Pwm<'d, T: Instance> {
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum LoopMode {
-    // Repeat n additional times after the first
+    /// Repeat n additional times after the first
     Additional(u16),
-    /// Repeat until `stop` is called
+    /// Repeat until `stop` is called.
     Infinite,
 }
 
-// Configure an infinite looping sequence for `simple_playback`
+/// Configure an infinite looping sequence for `simple_playback`
 pub struct LoopingConfig<'a> {
     /// Selects up mode or up-and-down mode for the counter
     pub counter_mode: CounterMode,
@@ -83,8 +86,8 @@ pub struct LoopingConfig<'a> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
-    Seq0BufferTooLong,
-    Seq1BufferTooLong,
+    /// Max Sequence size is 32767
+    SequenceTooLong,
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
     DMABufferNotInDataMemory,
 }
@@ -171,8 +174,8 @@ impl<'d, T: Instance> Pwm<'d, T> {
     ) -> Result<Self, Error> {
         slice_in_ram_or(config.sequence, Error::DMABufferNotInDataMemory)?;
 
-        if config.sequence.len() > EASY_DMA_SIZE {
-            return Err(Error::Seq0BufferTooLong);
+        if config.sequence.len() > 32767 {
+            return Err(Error::SequenceTooLong);
         }
 
         unborrow!(ch0, ch1, ch2, ch3);
