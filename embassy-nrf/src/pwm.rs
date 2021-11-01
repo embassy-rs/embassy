@@ -282,8 +282,15 @@ impl<'d, T: Instance> Pwm<'d, T> {
         let s = T::state();
         unsafe { (*s.duty.get())[channel] = duty & 0x7FFF };
 
+        // todo justify? should i fence elsehwere we task start? or
         compiler_fence(Ordering::SeqCst);
-        T::regs().tasks_seqstart[0].write(|w| unsafe { w.bits(1) });
+
+        // play duty cycle infinitely
+        let r = T::regs();
+        r.loop_.write(|w| unsafe { w.cnt().bits(0x1) });
+        r.shorts.write(|w| w.loopsdone_seqstart0().enabled());
+        // tasks_seqstart doesnt exist in all svds so write its bit instead
+        r.tasks_seqstart[0].write(|w| unsafe { w.bits(1) });
     }
 
     /// Sets the PWM clock prescaler.
