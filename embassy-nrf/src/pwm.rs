@@ -55,7 +55,7 @@ pub struct Pwm<'d, T: Instance> {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
-pub enum LoopMode {
+pub enum SequenceMode {
     /// Run sequence n Times total
     Times(u16),
     /// Repeat until `stop` is called.
@@ -63,7 +63,7 @@ pub enum LoopMode {
 }
 
 /// Configure an infinite looping sequence for `simple_playback`
-pub struct LoopingConfig<'a> {
+pub struct SequenceConfig<'a> {
     /// Selects up mode or up-and-down mode for the counter
     pub counter_mode: CounterMode,
     // Top value to be compared against buffer values
@@ -79,7 +79,7 @@ pub struct LoopingConfig<'a> {
     /// Number of Times PWM periods after the sequence ends before starting the next sequence
     pub end_delay: u32,
     /// How many times to play the sequence
-    pub times: LoopMode,
+    pub times: SequenceMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,6 +132,9 @@ impl<'d, T: Instance> Pwm<'d, T> {
             pin.set_low();
             pin.conf().write(|w| w.dir().output());
         }
+
+        // if NoPin provided writes disconnected (top bit 1) 0x80000000 else
+        // writes pin number ex 13 (0x0D) which is connected (top bit 0)
         r.psel.out[0].write(|w| unsafe { w.bits(ch0.psel_bits()) });
         r.psel.out[1].write(|w| unsafe { w.bits(ch1.psel_bits()) });
         r.psel.out[2].write(|w| unsafe { w.bits(ch2.psel_bits()) });
@@ -166,53 +169,17 @@ impl<'d, T: Instance> Pwm<'d, T> {
     }
 
     /// Returns a configured pwm that has had start called on it
-    pub fn simple_playback(
-        _pwm: impl Unborrow<Target = T> + 'd,
-        ch0: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        ch1: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        config: LoopingConfig,
-    ) -> Result<Self, Error> {
+    pub fn play_sequence(&self, config: SequenceConfig) -> Result<(), Error> {
         slice_in_ram_or(config.sequence, Error::DMABufferNotInDataMemory)?;
 
         if config.sequence.len() > 32767 {
             return Err(Error::SequenceTooLong);
         }
-        if let LoopMode::Times(0) = config.times {
+        if let SequenceMode::Times(0) = config.times {
             return Err(Error::SequenceTooShort);
         }
 
-        unborrow!(ch0, ch1, ch2, ch3);
-
         let r = T::regs();
-
-        if let Some(pin) = ch0.pin_mut() {
-            pin.set_low();
-            pin.conf().write(|w| w.dir().output());
-        }
-
-        if let Some(pin) = ch1.pin_mut() {
-            pin.set_low();
-            pin.conf().write(|w| w.dir().output());
-        }
-        if let Some(pin) = ch2.pin_mut() {
-            pin.set_low();
-            pin.conf().write(|w| w.dir().output());
-        }
-        if let Some(pin) = ch3.pin_mut() {
-            pin.set_low();
-            pin.conf().write(|w| w.dir().output());
-        }
-
-        // if NoPin provided writes disconnected (top bit 1) 0x80000000 else
-        // writes pin number ex 13 (0x0D) which is connected (top bit 0)
-        r.psel.out[0].write(|w| unsafe { w.bits(ch0.psel_bits()) });
-        r.psel.out[1].write(|w| unsafe { w.bits(ch1.psel_bits()) });
-        r.psel.out[2].write(|w| unsafe { w.bits(ch2.psel_bits()) });
-        r.psel.out[3].write(|w| unsafe { w.bits(ch3.psel_bits()) });
-
-        r.enable.write(|w| w.enable().enabled());
 
         r.mode
             .write(|w| unsafe { w.bits(config.counter_mode as u32) });
@@ -250,7 +217,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
 
         match config.times {
             // just the one time, no loop count
-            LoopMode::Times(1) => {
+            SequenceMode::Times(1) => {
                 r.loop_.write(|w| w.cnt().disabled());
                 // tasks_seqstart doesnt exist in all svds so write its bit instead
                 r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
@@ -258,7 +225,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
             // loop count is how many times to play BOTH sequences
             // 2 total  (1 x 2)
             // 3 total, (2 x 2) - 1
-            LoopMode::Times(n) => {
+            SequenceMode::Times(n) => {
                 let odd = n & 1 == 1;
                 let times = if odd { (n / 2) + 1 } else { n / 2 };
 
@@ -273,17 +240,14 @@ impl<'d, T: Instance> Pwm<'d, T> {
                 }
             }
             // to play infinitely, repeat the sequence one time, then have loops done self trigger seq0 again
-            LoopMode::Infinite => {
+            SequenceMode::Infinite => {
                 r.loop_.write(|w| unsafe { w.cnt().bits(0x1) });
                 r.shorts.write(|w| w.loopsdone_seqstart0().enabled());
                 // tasks_seqstart doesnt exist in all svds so write its bit instead
                 r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
             }
         }
-
-        Ok(Self {
-            phantom: PhantomData,
-        })
+        Ok(())
     }
 
     /// Stop playback
