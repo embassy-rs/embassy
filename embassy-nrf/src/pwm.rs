@@ -56,8 +56,8 @@ pub struct Pwm<'d, T: Instance> {
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum LoopMode {
-    /// Repeat n additional times after the first
-    Additional(u16),
+    /// Run sequence n Times total
+    Times(u16),
     /// Repeat until `stop` is called.
     Infinite,
 }
@@ -74,12 +74,12 @@ pub struct LoopingConfig<'a> {
     pub sequence: &'a [u16],
     /// How a sequence is read from RAM and is spread to the compare register
     pub sequence_load: SequenceLoad,
-    /// Number of additional PWM periods to delay between each sequence sample
+    /// Number of Times PWM periods to delay between each sequence sample
     pub refresh: u32,
-    /// Number of additional PWM periods after the sequence ends before starting the next sequence
+    /// Number of Times PWM periods after the sequence ends before starting the next sequence
     pub end_delay: u32,
-    /// How many times to repeat the sequence
-    pub additional_loops: LoopMode,
+    /// How many times to play the sequence
+    pub times: LoopMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +88,8 @@ pub struct LoopingConfig<'a> {
 pub enum Error {
     /// Max Sequence size is 32767
     SequenceTooLong,
+    /// Min Sequence size is 1
+    SequenceTooShort,
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
     DMABufferNotInDataMemory,
 }
@@ -177,6 +179,9 @@ impl<'d, T: Instance> Pwm<'d, T> {
         if config.sequence.len() > 32767 {
             return Err(Error::SequenceTooLong);
         }
+        if let LoopMode::Times(0) = config.times {
+            return Err(Error::SequenceTooShort);
+        }
 
         unborrow!(ch0, ch1, ch2, ch3);
 
@@ -243,27 +248,28 @@ impl<'d, T: Instance> Pwm<'d, T> {
             .enddelay
             .write(|w| unsafe { w.bits(config.end_delay) });
 
-        match config.additional_loops {
+        match config.times {
             // just the one time, no loop count
-            LoopMode::Additional(0) => {
+            LoopMode::Times(1) => {
                 r.loop_.write(|w| w.cnt().disabled());
                 // tasks_seqstart doesnt exist in all svds so write its bit instead
                 r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
             }
             // loop count is how many times to play BOTH sequences
-            // the one time + 1 = 2 total, play the sequence once starting from seq0
-            // the one time + 2 = 3 total, playing the sequence twice would be too much, but we can start on seq1 to subtract one
-            // the one time + 3 = 4 total, play the sequence twice starting from seq0
-            LoopMode::Additional(n) => {
-                let times = (n / 2) + 1;
+            // 2 total  (1 x 2)
+            // 3 total, (2 x 2) - 1
+            LoopMode::Times(n) => {
+                let odd = n & 1 == 1;
+                let times = if odd { (n / 2) + 1 } else { n / 2 };
+
                 r.loop_.write(|w| unsafe { w.cnt().bits(times) });
 
-                if n & 1 == 1 {
-                    // tasks_seqstart doesnt exist in all svds so write its bit instead
-                    r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
-                } else {
+                if odd {
                     // tasks_seqstart doesnt exist in all svds so write its bit instead
                     r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
+                } else {
+                    // tasks_seqstart doesnt exist in all svds so write its bit instead
+                    r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
                 }
             }
             // to play infinitely, repeat the sequence one time, then have loops done self trigger seq0 again

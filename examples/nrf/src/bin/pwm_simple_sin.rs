@@ -27,8 +27,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         sequence: &seq_values,
         sequence_load: SequenceLoad::Common,
         refresh: 0,
-        end_delay: 1,
-        additional_loops: LoopMode::Infinite,
+        end_delay: 0,
+        times: LoopMode::Infinite,
     };
 
     let pwm = unwrap!(Pwm::simple_playback(
