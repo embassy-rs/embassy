@@ -236,18 +236,19 @@ impl<'d, T: Instance> Pwm<'d, T> {
             .write(|w| unsafe { w.bits(config.enddelay) });
 
         match config.additional_loops {
+            // just the one time, no loop count
             LoopMode::Additional(0) => {
                 r.loop_.write(|w| w.cnt().disabled());
+                // tasks_seqstart doesnt exist in all svds so write its bit instead
                 r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
             }
+            // loop count is how many times to play BOTH sequences
+            // the one time + 1 = 2 total, play the sequence once starting from seq0
+            // the one time + 2 = 3 total, playing the sequence twice would be too much, but we can start on seq1 to subtract one
+            // the one time + 3 = 4 total, play the sequence twice starting from seq0
             LoopMode::Additional(n) => {
                 let times = (n / 2) + 1;
-
                 r.loop_.write(|w| unsafe { w.cnt().bits(times) });
-                r.shorts.write(|w| {
-                    w.loopsdone_seqstart1().enabled();
-                    w.loopsdone_stop().enabled()
-                });
 
                 if n & 1 == 1 {
                     // tasks_seqstart doesnt exist in all svds so write its bit instead
@@ -257,13 +258,10 @@ impl<'d, T: Instance> Pwm<'d, T> {
                     r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
                 }
             }
-
             LoopMode::Infinite => {
                 r.loop_.write(|w| unsafe { w.cnt().bits(0x1) });
-                r.shorts.write(|w| {
-                    w.loopsdone_seqstart1().enabled();
-                    w.loopsdone_seqstart0().disabled()
-                });
+                r.shorts.write(|w| w.loopsdone_seqstart1().enabled());
+                // tasks_seqstart doesnt exist in all svds so write its bit instead
                 r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
             }
         }
