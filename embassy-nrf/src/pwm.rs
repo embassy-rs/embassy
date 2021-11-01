@@ -258,11 +258,12 @@ impl<'d, T: Instance> Pwm<'d, T> {
                     r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
                 }
             }
+            // to play infinitely, repeat the sequence one time, then have loops done self trigger seq0 again
             LoopMode::Infinite => {
                 r.loop_.write(|w| unsafe { w.cnt().bits(0x1) });
-                r.shorts.write(|w| w.loopsdone_seqstart1().enabled());
+                r.shorts.write(|w| w.loopsdone_seqstart0().enabled());
                 // tasks_seqstart doesnt exist in all svds so write its bit instead
-                r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
+                r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
             }
         }
 
