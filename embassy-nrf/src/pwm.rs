@@ -95,14 +95,15 @@ pub enum Error {
 }
 
 impl<'d, T: Instance> Pwm<'d, T> {
-    /// Creates the interface to a UARTE instance.
-    /// Sets the baud rate, parity and assigns the pins to the UARTE peripheral.
+    /// Creates the interface to a PWM instance.
+    ///
+    /// Defaults the freq to 1Mhz, max_duty 32767, duty 0, and channels low.
     ///
     /// # Safety
     ///
-    /// The returned API is safe unless you use `mem::forget` (or similar safe mechanisms)
-    /// on stack allocated buffers which which have been passed to [`send()`](Pwm::send)
-    /// or [`receive`](Pwm::receive).
+    /// The returned API is safe unless you use `mem::forget` (or similar safe
+    /// mechanisms) on stack allocated buffers which which have been passed to
+    /// [`send()`](Pwm::send) or [`receive`](Pwm::receive).
     #[allow(unused_unsafe)]
     pub fn new(
         _pwm: impl Unborrow<Target = T> + 'd,
@@ -141,7 +142,9 @@ impl<'d, T: Instance> Pwm<'d, T> {
         r.psel.out[3].write(|w| unsafe { w.bits(ch3.psel_bits()) });
 
         // Disable all interrupts
+        r.intenset.reset();
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
+        r.shorts.reset();
 
         // Enable
         r.enable.write(|w| w.enable().enabled());
@@ -150,7 +153,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
             .ptr
             .write(|w| unsafe { w.bits(&s.duty as *const _ as u32) });
         r.seq0.cnt.write(|w| unsafe { w.bits(4) });
-        r.seq0.refresh.write(|w| unsafe { w.bits(32) });
+        r.seq0.refresh.write(|w| unsafe { w.bits(0) });
         r.seq0.enddelay.write(|w| unsafe { w.bits(0) });
 
         r.decoder.write(|w| {
@@ -158,9 +161,8 @@ impl<'d, T: Instance> Pwm<'d, T> {
             w.mode().refresh_count()
         });
         r.mode.write(|w| w.updown().up());
-        r.prescaler.write(|w| w.prescaler().div_1());
-        r.countertop
-            .write(|w| unsafe { w.countertop().bits(32767) });
+        r.prescaler.write(|w| w.prescaler().div_16());
+        r.countertop.write(|w| unsafe { w.countertop().bits(1000) });
         r.loop_.write(|w| w.cnt().disabled());
 
         Self {
@@ -255,7 +257,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
     pub fn sequence_stop(&self) {
         let r = T::regs();
 
-        r.shorts.write(|w| unsafe { w.bits(0x0) });
+        r.shorts.reset();
 
         // tasks_stop doesnt exist in all svds so write its bit instead
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
