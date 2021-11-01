@@ -246,7 +246,6 @@ impl<'d, T: Instance> Pwm<'d, T> {
                 r.loop_.write(|w| unsafe { w.cnt().bits(times) });
                 r.shorts.write(|w| {
                     w.loopsdone_seqstart1().enabled();
-                    w.loopsdone_seqstart0().disabled();
                     w.loopsdone_stop().enabled()
                 });
 
