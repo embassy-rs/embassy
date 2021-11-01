@@ -276,7 +276,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
 
     /// Stop playback
     #[inline(always)]
-    pub fn stop(&self) {
+    pub fn sequence_stop(&self) {
         let r = T::regs();
 
         r.shorts.write(|w| unsafe { w.bits(0x0) });
@@ -363,7 +363,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
 
 impl<'a, T: Instance> Drop for Pwm<'a, T> {
     fn drop(&mut self) {
-        self.stop();
+        self.sequence_stop();
         self.disable();
 
         info!("pwm drop: done");

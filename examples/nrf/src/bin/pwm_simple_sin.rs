@@ -38,7 +38,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     Timer::after(Duration::from_millis(20000)).await;
 
-    pwm.stop();
+    pwm.sequence_stop();
     info!("pwm stopped!");
 
     loop {
