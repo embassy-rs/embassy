@@ -27,7 +27,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         sequence: &seq_values,
         sequence_load: SequenceLoad::Common,
         refresh: 0,
-        enddelay: 0,
+        end_delay: 1,
         additional_loops: LoopMode::Infinite,
     };
 

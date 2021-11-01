@@ -27,11 +27,16 @@ pub enum Prescaler {
 /// How a sequence is read from RAM and is spread to the compare register
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum SequenceLoad {
-    /// sequence in buffer will be used across all channels
+    /// Provided sequence will be used across all channels
     Common,
+    /// Provided sequence contains grouped values for each channel ex:
+    /// [ch0_0_and_ch1_0, ch2_0_and_ch3_0, ... ch0_n_and_ch1_n, ch2_n_and_ch3_n]
     Grouped,
-    /// buffer holds [ch0_0, ch1_0, ch2_0, ch3_0... ch0_n, ch1_n, ch2_n, ch3_n]
+    /// Provided sequence contains individual values for each channel ex:
+    /// [ch0_0, ch1_0, ch2_0, ch3_0... ch0_n, ch1_n, ch2_n, ch3_n]
     Individual,
+    /// Similar to Individual mode, but only three channels are used. The fourth
+    /// value is loaded into the pulse generator counter as its top value.
     Waveform,
 }
 
@@ -66,10 +71,10 @@ pub struct LoopingConfig<'a> {
     pub sequence: &'a [u16],
     /// How a sequence is read from RAM and is spread to the compare register
     pub sequence_load: SequenceLoad,
-    /// Number of additional PWM periods between samples loaded into compare register
+    /// Number of additional PWM periods to delay between each sequence sample
     pub refresh: u32,
-    /// Number of additional PWM periods after the sequence ends
-    pub enddelay: u32,
+    /// Number of additional PWM periods after the sequence ends before starting the next sequence
+    pub end_delay: u32,
     /// How many times to repeat the sequence
     pub additional_loops: LoopMode,
 }
@@ -222,7 +227,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
         r.seq0.refresh.write(|w| unsafe { w.bits(config.refresh) });
         r.seq0
             .enddelay
-            .write(|w| unsafe { w.bits(config.enddelay) });
+            .write(|w| unsafe { w.bits(config.end_delay) });
 
         r.seq1
             .ptr
@@ -233,7 +238,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
         r.seq1.refresh.write(|w| unsafe { w.bits(config.refresh) });
         r.seq1
             .enddelay
-            .write(|w| unsafe { w.bits(config.enddelay) });
+            .write(|w| unsafe { w.bits(config.end_delay) });
 
         match config.additional_loops {
             // just the one time, no loop count
