@@ -66,7 +66,7 @@ pub enum SequenceMode {
 pub struct SequenceConfig<'a> {
     /// Selects up mode or up-and-down mode for the counter
     pub counter_mode: CounterMode,
-    // Top value to be compared against buffer values
+    /// Top value to be compared against buffer values
     pub top: u16,
     /// Configuration for PWM_CLK
     pub prescaler: Prescaler,
@@ -170,7 +170,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
         }
     }
 
-    /// Returns a configured pwm that has had start called on it
+    /// Play a `SequenceConfig` sequence instead of a stable `set_duty` output
     pub fn play_sequence(&self, config: SequenceConfig) -> Result<(), Error> {
         slice_in_ram_or(config.sequence, Error::DMABufferNotInDataMemory)?;
 
@@ -233,6 +233,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
 
                 r.loop_.write(|w| unsafe { w.cnt().bits(times) });
 
+                // we can subtract 1 by starting at seq1 instead of seq0
                 if odd {
                     // tasks_seqstart doesnt exist in all svds so write its bit instead
                     r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
