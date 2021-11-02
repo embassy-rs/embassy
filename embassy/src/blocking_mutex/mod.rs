@@ -7,7 +7,7 @@ use critical_section::CriticalSection;
 
 /// Any object implementing this trait guarantees exclusive access to the data contained
 /// within the mutex for the duration of the lock.
-/// Adapted from https://github.com/rust-embedded/mutex-trait.
+/// Adapted from <https://github.com/rust-embedded/mutex-trait>.
 pub trait Mutex {
     /// Data protected by the mutex.
     type Data;

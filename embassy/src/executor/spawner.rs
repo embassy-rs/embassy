@@ -77,7 +77,7 @@ impl Spawner {
 
     /// Spawn a task into an executor.
     ///
-    /// You obtain the `token` by calling a task function (i.e. one marked with `#[embassy::task]).
+    /// You obtain the `token` by calling a task function (i.e. one marked with `#[embassy::task]`).
     pub fn spawn<F>(&self, token: SpawnToken<F>) -> Result<(), SpawnError> {
         let task = token.raw_task;
         mem::forget(token);
@@ -129,7 +129,7 @@ unsafe impl Sync for SendSpawner {}
 impl SendSpawner {
     /// Spawn a task into an executor.
     ///
-    /// You obtain the `token` by calling a task function (i.e. one marked with `#[embassy::task]).
+    /// You obtain the `token` by calling a task function (i.e. one marked with `#[embassy::task]`).
     pub fn spawn<F: Send>(&self, token: SpawnToken<F>) -> Result<(), SpawnError> {
         let header = token.raw_task;
         mem::forget(token);
