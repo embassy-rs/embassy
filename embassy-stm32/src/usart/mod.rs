@@ -215,6 +215,7 @@ crate::pac::peripheral_pins!(
     };
 );
 
+#[allow(unused)]
 macro_rules! impl_dma {
     ($inst:ident, {dmamux: $dmamux:ident}, $signal:ident, $request:expr) => {
         impl<T> sealed::$signal<peripherals::$inst> for T
