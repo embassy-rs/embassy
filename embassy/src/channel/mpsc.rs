@@ -35,7 +35,7 @@
 //! consumes the channel to completion, at which point the receiver can be
 //! dropped.
 //!
-//! This channel and its associated types were derived from https://docs.rs/tokio/0.1.22/tokio/sync/mpsc/fn.channel.html
+//! This channel and its associated types were derived from <https://docs.rs/tokio/0.1.22/tokio/sync/mpsc/fn.channel.html>
 
 use core::cell::RefCell;
 use core::fmt;
@@ -259,8 +259,8 @@ where
     /// [`Receiver`] is dropped, or when the [`Receiver::close`] method is
     /// called.
     ///
-    /// [`Receiver`]: crate::sync::mpsc::Receiver
-    /// [`Receiver::close`]: crate::sync::mpsc::Receiver::close
+    /// [`Receiver`]: Receiver
+    /// [`Receiver::close`]: Receiver::close
     pub fn is_closed(&self) -> bool {
         self.channel.lock(|c| c.is_closed())
     }
@@ -342,7 +342,7 @@ where
 
 /// An error returned from the [`try_recv`] method.
 ///
-/// [`try_recv`]: super::Receiver::try_recv
+/// [`try_recv`]: Receiver::try_recv
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TryRecvError {
@@ -371,7 +371,7 @@ impl<T> defmt::Format for SendError<T> {
 }
 
 /// This enumeration is the list of the possible error outcomes for the
-/// [try_send](super::Sender::try_send) method.
+/// [try_send](Sender::try_send) method.
 #[derive(Debug)]
 pub enum TrySendError<T> {
     /// The data could not be sent on the channel because the channel is
