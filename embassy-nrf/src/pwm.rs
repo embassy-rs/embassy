@@ -161,7 +161,7 @@ impl<'d, T: Instance> PwmSeq<'d, T> {
     #[inline(always)]
     pub fn start(&self, times: SequenceMode) -> Result<(), Error> {
         if let SequenceMode::Times(0) = times {
-            return Err(Error::SequenceNoZero);
+            return Err(Error::SequenceTimesAtLeastOne);
         }
         let r = T::regs();
 
@@ -272,7 +272,7 @@ pub enum Error {
     /// Max Sequence size is 32767
     SequenceTooLong,
     /// Min Sequence size is 1
-    SequenceNoZero,
+    SequenceTimesAtLeastOne,
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
     DMABufferNotInDataMemory,
 }

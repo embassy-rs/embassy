@@ -33,7 +33,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     };
 
     let pwm = unwrap!(PwmSeq::new(p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config));
-    unwrap!(pwm.start(SequenceMode::Infinite));
+    let _ = pwm.start(SequenceMode::Infinite);
     info!("pwm started!");
 
     Timer::after(Duration::from_millis(20000)).await;
