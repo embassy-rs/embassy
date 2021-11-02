@@ -243,7 +243,6 @@ macro_rules! impl_dma {
     };
 }
 
-#[allow(unused)]
 crate::pac::peripheral_dma_channels! {
     ($peri:ident, usart, $kind:ident, RX, $channel:tt, $request:expr) => {
         impl_dma!($peri, $channel, RxDma, $request);
