@@ -12,4 +12,4 @@ impl Default for Config {
     }
 }
 
-pub unsafe fn init(config: Config) {}
+pub unsafe fn init(_config: Config) {}
