@@ -7,7 +7,9 @@ mod example_common;
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_nrf::pwm::{CounterMode, Prescaler, Pwm, SequenceConfig, SequenceLoad, SequenceMode};
+use embassy_nrf::pwm::{
+    CounterMode, Prescaler, PwmSeq, SequenceConfig, SequenceLoad, SequenceMode,
+};
 use embassy_nrf::Peripherals;
 
 #[embassy::main]
@@ -27,8 +29,9 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         times: SequenceMode::Times(5),
     };
 
-    let pwm = Pwm::new(p.PWM0, p.P0_13, p.P0_15, p.P0_16, p.P0_14);
-    unwrap!(pwm.play_sequence(config));
+    let _pwm = unwrap!(PwmSeq::new(
+        p.PWM0, p.P0_13, p.P0_15, p.P0_16, p.P0_14, config
+    ));
     info!("pwm started!");
 
     loop {

@@ -54,6 +54,176 @@ pub struct Pwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
 
+pub struct PwmSeq<'d, T: Instance> {
+    phantom: PhantomData<&'d mut T>,
+}
+
+impl<'d, T: Instance> PwmSeq<'d, T> {
+    /// Creates the interface to a PWM instance.
+    ///
+    /// Defaults the freq to 1Mhz, max_duty 32767, duty 0, and channels low.
+    ///
+    /// # Safety
+    ///
+    /// The returned API is safe unless you use `mem::forget` (or similar safe
+    /// mechanisms) on stack allocated buffers which which have been passed to
+    /// [`send()`](Pwm::send) or [`receive`](Pwm::receive).
+    #[allow(unused_unsafe)]
+    pub fn new(
+        _pwm: impl Unborrow<Target = T> + 'd,
+        ch0: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
+        ch1: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
+        ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
+        ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
+        config: SequenceConfig,
+    ) -> Result<Self, Error> {
+        slice_in_ram_or(config.sequence, Error::DMABufferNotInDataMemory)?;
+
+        if config.sequence.len() > 32767 {
+            return Err(Error::SequenceTooLong);
+        }
+        if let SequenceMode::Times(0) = config.times {
+            return Err(Error::SequenceTooShort);
+        }
+
+        unborrow!(ch0, ch1, ch2, ch3);
+
+        let r = T::regs();
+
+        if let Some(pin) = ch0.pin_mut() {
+            pin.set_low();
+            pin.conf().write(|w| w.dir().output());
+        }
+        if let Some(pin) = ch1.pin_mut() {
+            pin.set_low();
+            pin.conf().write(|w| w.dir().output());
+        }
+        if let Some(pin) = ch2.pin_mut() {
+            pin.set_low();
+            pin.conf().write(|w| w.dir().output());
+        }
+        if let Some(pin) = ch3.pin_mut() {
+            pin.set_low();
+            pin.conf().write(|w| w.dir().output());
+        }
+
+        // if NoPin provided writes disconnected (top bit 1) 0x80000000 else
+        // writes pin number ex 13 (0x0D) which is connected (top bit 0)
+        r.psel.out[0].write(|w| unsafe { w.bits(ch0.psel_bits()) });
+        r.psel.out[1].write(|w| unsafe { w.bits(ch1.psel_bits()) });
+        r.psel.out[2].write(|w| unsafe { w.bits(ch2.psel_bits()) });
+        r.psel.out[3].write(|w| unsafe { w.bits(ch3.psel_bits()) });
+
+        // Disable all interrupts
+        r.intenset.reset();
+        r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
+        r.shorts.reset();
+
+        // Enable
+        r.enable.write(|w| w.enable().enabled());
+        r.mode
+            .write(|w| unsafe { w.bits(config.counter_mode as u32) });
+        r.prescaler
+            .write(|w| w.prescaler().bits(config.prescaler as u8));
+        r.countertop
+            .write(|w| unsafe { w.countertop().bits(config.top) });
+
+        r.decoder.write(|w| {
+            w.load().bits(config.sequence_load as u8);
+            w.mode().refresh_count()
+        });
+
+        r.seq0
+            .ptr
+            .write(|w| unsafe { w.bits(config.sequence.as_ptr() as u32) });
+        r.seq0
+            .cnt
+            .write(|w| unsafe { w.bits(config.sequence.len() as u32) });
+        r.seq0.refresh.write(|w| unsafe { w.bits(config.refresh) });
+        r.seq0
+            .enddelay
+            .write(|w| unsafe { w.bits(config.end_delay) });
+
+        r.seq1
+            .ptr
+            .write(|w| unsafe { w.bits(config.sequence.as_ptr() as u32) });
+        r.seq1
+            .cnt
+            .write(|w| unsafe { w.bits(config.sequence.len() as u32) });
+        r.seq1.refresh.write(|w| unsafe { w.bits(config.refresh) });
+        r.seq1
+            .enddelay
+            .write(|w| unsafe { w.bits(config.end_delay) });
+
+        match config.times {
+            // just the one time, no loop count
+            SequenceMode::Times(1) => {
+                r.loop_.write(|w| w.cnt().disabled());
+                // tasks_seqstart doesnt exist in all svds so write its bit instead
+                r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
+            }
+            // loop count is how many times to play BOTH sequences
+            // 2 total  (1 x 2)
+            // 3 total, (2 x 2) - 1
+            SequenceMode::Times(n) => {
+                let odd = n & 1 == 1;
+                let times = if odd { (n / 2) + 1 } else { n / 2 };
+
+                r.loop_.write(|w| unsafe { w.cnt().bits(times) });
+
+                // we can subtract 1 by starting at seq1 instead of seq0
+                if odd {
+                    // tasks_seqstart doesnt exist in all svds so write its bit instead
+                    r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
+                } else {
+                    // tasks_seqstart doesnt exist in all svds so write its bit instead
+                    r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
+                }
+            }
+            // to play infinitely, repeat the sequence one time, then have loops done self trigger seq0 again
+            SequenceMode::Infinite => {
+                r.loop_.write(|w| unsafe { w.cnt().bits(0x1) });
+                r.shorts.write(|w| w.loopsdone_seqstart0().enabled());
+                // tasks_seqstart doesnt exist in all svds so write its bit instead
+                r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
+            }
+        }
+
+        Ok(Self {
+            phantom: PhantomData,
+        })
+    }
+
+    /// Stop playback
+    #[inline(always)]
+    pub fn stop(&self) {
+        let r = T::regs();
+
+        r.shorts.reset();
+
+        // tasks_stop doesnt exist in all svds so write its bit instead
+        r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
+    }
+
+    /// Disables the PWM generator.
+    #[inline(always)]
+    pub fn disable(&self) {
+        let r = T::regs();
+        r.enable.write(|w| w.enable().disabled());
+    }
+}
+
+impl<'a, T: Instance> Drop for PwmSeq<'a, T> {
+    fn drop(&mut self) {
+        self.stop();
+        self.disable();
+
+        info!("pwm drop: done");
+
+        // TODO: disable pins
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum SequenceMode {
     /// Run sequence n Times total
@@ -98,6 +268,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
     /// Creates the interface to a PWM instance.
     ///
     /// Defaults the freq to 1Mhz, max_duty 32767, duty 0, and channels low.
+    /// Must be started by calling `set_duty`
     ///
     /// # Safety
     ///
@@ -170,92 +341,9 @@ impl<'d, T: Instance> Pwm<'d, T> {
         }
     }
 
-    /// Play a `SequenceConfig` sequence instead of a stable `set_duty` output
-    pub fn play_sequence(&self, config: SequenceConfig) -> Result<(), Error> {
-        slice_in_ram_or(config.sequence, Error::DMABufferNotInDataMemory)?;
-
-        if config.sequence.len() > 32767 {
-            return Err(Error::SequenceTooLong);
-        }
-        if let SequenceMode::Times(0) = config.times {
-            return Err(Error::SequenceTooShort);
-        }
-
-        let r = T::regs();
-
-        r.mode
-            .write(|w| unsafe { w.bits(config.counter_mode as u32) });
-        r.prescaler
-            .write(|w| w.prescaler().bits(config.prescaler as u8));
-        r.countertop
-            .write(|w| unsafe { w.countertop().bits(config.top) });
-
-        r.decoder.write(|w| {
-            w.load().bits(config.sequence_load as u8);
-            w.mode().refresh_count()
-        });
-
-        r.seq0
-            .ptr
-            .write(|w| unsafe { w.bits(config.sequence.as_ptr() as u32) });
-        r.seq0
-            .cnt
-            .write(|w| unsafe { w.bits(config.sequence.len() as u32) });
-        r.seq0.refresh.write(|w| unsafe { w.bits(config.refresh) });
-        r.seq0
-            .enddelay
-            .write(|w| unsafe { w.bits(config.end_delay) });
-
-        r.seq1
-            .ptr
-            .write(|w| unsafe { w.bits(config.sequence.as_ptr() as u32) });
-        r.seq1
-            .cnt
-            .write(|w| unsafe { w.bits(config.sequence.len() as u32) });
-        r.seq1.refresh.write(|w| unsafe { w.bits(config.refresh) });
-        r.seq1
-            .enddelay
-            .write(|w| unsafe { w.bits(config.end_delay) });
-
-        match config.times {
-            // just the one time, no loop count
-            SequenceMode::Times(1) => {
-                r.loop_.write(|w| w.cnt().disabled());
-                // tasks_seqstart doesnt exist in all svds so write its bit instead
-                r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
-            }
-            // loop count is how many times to play BOTH sequences
-            // 2 total  (1 x 2)
-            // 3 total, (2 x 2) - 1
-            SequenceMode::Times(n) => {
-                let odd = n & 1 == 1;
-                let times = if odd { (n / 2) + 1 } else { n / 2 };
-
-                r.loop_.write(|w| unsafe { w.cnt().bits(times) });
-
-                // we can subtract 1 by starting at seq1 instead of seq0
-                if odd {
-                    // tasks_seqstart doesnt exist in all svds so write its bit instead
-                    r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
-                } else {
-                    // tasks_seqstart doesnt exist in all svds so write its bit instead
-                    r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
-                }
-            }
-            // to play infinitely, repeat the sequence one time, then have loops done self trigger seq0 again
-            SequenceMode::Infinite => {
-                r.loop_.write(|w| unsafe { w.cnt().bits(0x1) });
-                r.shorts.write(|w| w.loopsdone_seqstart0().enabled());
-                // tasks_seqstart doesnt exist in all svds so write its bit instead
-                r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
-            }
-        }
-        Ok(())
-    }
-
     /// Stop playback
     #[inline(always)]
-    pub fn sequence_stop(&self) {
+    pub fn stop(&self) {
         let r = T::regs();
 
         r.shorts.reset();
@@ -264,6 +352,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
     }
 
+    // todo should this do.. something useful
     /// Enables the PWM generator.
     #[inline(always)]
     pub fn enable(&self) {
@@ -271,6 +360,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
         r.enable.write(|w| w.enable().enabled());
     }
 
+    // todo should this stop the task? or should you just use set_duty to 0?
     /// Disables the PWM generator.
     #[inline(always)]
     pub fn disable(&self) {
@@ -349,7 +439,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
 
 impl<'a, T: Instance> Drop for Pwm<'a, T> {
     fn drop(&mut self) {
-        self.sequence_stop();
+        self.stop();
         self.disable();
 
         info!("pwm drop: done");
