@@ -51,7 +51,7 @@ cortex-m = "0.7.3"
 embedded-hal    = "0.2.6"
 embedded-dma    = "0.1.2"
 futures     = { version = "0.3.17", default-features = false }
-critical-section = "0.2.3"
+critical-section = "0.2.5"
 rand_core = "0.6.3"
 fixed = "1.10.0"
 embedded-storage = "0.2.0"

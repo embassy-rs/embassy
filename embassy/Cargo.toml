@@ -40,8 +40,8 @@ futures     = { version = "0.3.17", default-features = false, features = [ "cfg-
 pin-project = { version = "1.0.8", default-features = false }
 embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
 embassy-traits  = { version = "0.1.0", path = "../embassy-traits"}
-atomic-polyfill  = "0.1.3"
-critical-section = "0.2.3"
+atomic-polyfill = "0.1.5"
+critical-section = "0.2.5"
 embedded-hal = "0.2.6"
 heapless = "0.7.5"
 
