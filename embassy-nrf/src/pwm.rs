@@ -59,9 +59,9 @@ pub struct PwmSeq<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> PwmSeq<'d, T> {
-    /// Creates the interface to a PWM instance.
+    /// Creates the interface to a PWM Sequence interface.
     ///
-    /// Defaults the freq to 1Mhz, max_duty 32767, duty 0, and channels low.
+    /// Must be started by calling `start`
     ///
     /// # Safety
     ///
@@ -81,9 +81,6 @@ impl<'d, T: Instance> PwmSeq<'d, T> {
 
         if config.sequence.len() > 32767 {
             return Err(Error::SequenceTooLong);
-        }
-        if let SequenceMode::Times(0) = config.times {
-            return Err(Error::SequenceTooShort);
         }
 
         unborrow!(ch0, ch1, ch2, ch3);
@@ -155,7 +152,27 @@ impl<'d, T: Instance> PwmSeq<'d, T> {
             .enddelay
             .write(|w| unsafe { w.bits(config.end_delay) });
 
-        match config.times {
+        Ok(Self {
+            phantom: PhantomData,
+        })
+    }
+
+    /// Start or restart playback
+    #[inline(always)]
+    pub fn start(&self, times: SequenceMode) -> Result<(), Error> {
+        if let SequenceMode::Times(0) = times {
+            return Err(Error::SequenceNoZero);
+        }
+        let r = T::regs();
+
+        r.shorts.reset();
+
+        // tasks_stop doesnt exist in all svds so write its bit instead
+        r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
+
+        r.enable.write(|w| w.enable().enabled());
+
+        match times {
             // just the one time, no loop count
             SequenceMode::Times(1) => {
                 r.loop_.write(|w| w.cnt().disabled());
@@ -189,9 +206,7 @@ impl<'d, T: Instance> PwmSeq<'d, T> {
             }
         }
 
-        Ok(Self {
-            phantom: PhantomData,
-        })
+        Ok(())
     }
 
     /// Stop playback
@@ -248,8 +263,6 @@ pub struct SequenceConfig<'a> {
     pub refresh: u32,
     /// Number of Times PWM periods after the sequence ends before starting the next sequence
     pub end_delay: u32,
-    /// How many times to play the sequence
-    pub times: SequenceMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -259,7 +272,7 @@ pub enum Error {
     /// Max Sequence size is 32767
     SequenceTooLong,
     /// Min Sequence size is 1
-    SequenceTooShort,
+    SequenceNoZero,
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
     DMABufferNotInDataMemory,
 }
