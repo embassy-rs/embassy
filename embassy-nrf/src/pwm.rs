@@ -165,18 +165,16 @@ impl<'d, T: Instance> PwmSeq<'d, T> {
         }
         let r = T::regs();
 
-        r.shorts.reset();
-
-        // tasks_stop doesnt exist in all svds so write its bit instead
-        r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
+        self.stop();
 
         r.enable.write(|w| w.enable().enabled());
 
         match times {
+            // todo why doesn't this play forever? set_duty does...
             // just the one time, no loop count
             SequenceMode::Times(1) => {
                 r.loop_.write(|w| w.cnt().disabled());
-                // tasks_seqstart doesnt exist in all svds so write its bit instead
+                // tasks_seqstart() doesn't exist in all svds so write its bit instead
                 r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
             }
             // loop count is how many times to play BOTH sequences
@@ -190,10 +188,10 @@ impl<'d, T: Instance> PwmSeq<'d, T> {
 
                 // we can subtract 1 by starting at seq1 instead of seq0
                 if odd {
-                    // tasks_seqstart doesnt exist in all svds so write its bit instead
+                    // tasks_seqstart() doesn't exist in all svds so write its bit instead
                     r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
                 } else {
-                    // tasks_seqstart doesnt exist in all svds so write its bit instead
+                    // tasks_seqstart() doesn't exist in all svds so write its bit instead
                     r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
                 }
             }
@@ -201,7 +199,7 @@ impl<'d, T: Instance> PwmSeq<'d, T> {
             SequenceMode::Infinite => {
                 r.loop_.write(|w| unsafe { w.cnt().bits(0x1) });
                 r.shorts.write(|w| w.loopsdone_seqstart0().enabled());
-                // tasks_seqstart doesnt exist in all svds so write its bit instead
+                // tasks_seqstart() doesn't exist in all svds so write its bit instead
                 r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
             }
         }
@@ -216,7 +214,7 @@ impl<'d, T: Instance> PwmSeq<'d, T> {
 
         r.shorts.reset();
 
-        // tasks_stop doesnt exist in all svds so write its bit instead
+        // tasks_stop() doesn't exist in all svds so write its bit instead
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
     }
 
@@ -361,7 +359,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
 
         r.shorts.reset();
 
-        // tasks_stop doesnt exist in all svds so write its bit instead
+        // tasks_stop() doesn't exist in all svds so write its bit instead
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
     }
 
@@ -383,17 +381,15 @@ impl<'d, T: Instance> Pwm<'d, T> {
 
     /// Sets duty cycle (15 bit) for a PWM channel.
     pub fn set_duty(&self, channel: usize, duty: u16) {
+        let r = T::regs();
         let s = T::state();
         unsafe { (*s.duty.get())[channel] = duty & 0x7FFF };
 
         // todo justify? should i fence elsehwere we task start? or
         compiler_fence(Ordering::SeqCst);
 
-        // play duty cycle infinitely
-        let r = T::regs();
-        r.loop_.write(|w| unsafe { w.cnt().bits(0x1) });
-        r.shorts.write(|w| w.loopsdone_seqstart0().enabled());
-        // tasks_seqstart doesnt exist in all svds so write its bit instead
+        // todo why does this play forever when times(1) doesn't?
+        // tasks_seqstart() doesn't exist in all svds so write its bit instead
         r.tasks_seqstart[0].write(|w| unsafe { w.bits(1) });
     }
 
