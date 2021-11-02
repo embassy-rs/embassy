@@ -6,6 +6,9 @@
 mod example_common;
 use example_common::*;
 
+use embassy_stm32 as _;
+
+
 #[cortex_m_rt::entry]
 fn main() -> ! {
     info!("Hello World!");
