@@ -19,10 +19,10 @@ fn main() -> ! {
     //let button = Input::new(p.PC13, Pull::Up);
 
     //loop {
-        //if unwrap!(button.is_high()) {
-            //info!("high");
-        //} else {
-            //info!("low");
-        //}
+    //if unwrap!(button.is_high()) {
+    //info!("high");
+    //} else {
+    //info!("low");
+    //}
     //}
 }
