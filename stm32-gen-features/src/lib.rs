@@ -2,7 +2,7 @@
 
 use std::{iter::FilterMap, path::Path, slice::Iter};
 
-const SUPPORTED_FAMILIES: [&str; 11] = [
+const SUPPORTED_FAMILIES: [&str; 12] = [
     "stm32f0",
     "stm32f1",
     "stm32f4",
@@ -12,6 +12,7 @@ const SUPPORTED_FAMILIES: [&str; 11] = [
     "stm32l1",
     "stm32l4",
     "stm32h7",
+    "stm32u5",
     "stm32wb55",
     "stm32wl55",
 ];

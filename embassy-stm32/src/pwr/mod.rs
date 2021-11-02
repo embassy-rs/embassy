@@ -4,6 +4,7 @@
 #[cfg_attr(pwr_wl5, path = "wl5.rs")]
 #[cfg_attr(pwr_g0, path = "g0.rs")]
 #[cfg_attr(pwr_l1, path = "l1.rs")]
+#[cfg_attr(pwr_u5, path = "u5.rs")]
 mod _version;
 
 pub use _version::*;

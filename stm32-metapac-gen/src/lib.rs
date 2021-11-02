@@ -150,6 +150,9 @@ macro_rules! peripheral_count {{
 }
 
 fn make_dma_channel_counts(out: &mut String, data: &BTreeMap<String, u8>) {
+    if data.len() == 0 {
+        return;
+    }
     write!(
         out,
         "#[macro_export]
