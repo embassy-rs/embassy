@@ -423,6 +423,12 @@ impl<'d, T: Instance> Pwm<'d, T> {
             .write(|w| unsafe { w.countertop().bits(duty.min(32767u16)) });
     }
 
+    /// Additional number of PWM periods spent on each duty cycle value.
+    #[inline(always)]
+    pub fn set_time_stretch(&self, refresh: u32) {
+        T::regs().seq0.refresh.write(|w| unsafe { w.bits(refresh) });
+    }
+
     /// Returns the maximum duty cycle value.
     #[inline(always)]
     pub fn max_duty(&self) -> u16 {
