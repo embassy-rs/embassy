@@ -67,7 +67,7 @@ impl<'d, T: Instance> PwmSeq<'d, T> {
     ///
     /// The returned API is safe unless you use `mem::forget` (or similar safe
     /// mechanisms) on stack allocated buffers which which have been passed to
-    /// [`send()`](Pwm::send) or [`receive`](Pwm::receive).
+    /// [`new()`](PwmSeq::new).
     #[allow(unused_unsafe)]
     pub fn new(
         _pwm: impl Unborrow<Target = T> + 'd,
@@ -285,7 +285,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
     ///
     /// The returned API is safe unless you use `mem::forget` (or similar safe
     /// mechanisms) on stack allocated buffers which which have been passed to
-    /// [`send()`](Pwm::send) or [`receive`](Pwm::receive).
+    /// [`new()`](Pwm::new).
     #[allow(unused_unsafe)]
     pub fn new(
         _pwm: impl Unborrow<Target = T> + 'd,
