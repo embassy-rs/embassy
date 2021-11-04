@@ -429,8 +429,8 @@ macro_rules! impl_pin {
 }
 
 crate::pac::peripheral_pins!(
-    ($inst:ident, eth, ETH, $pin:ident, REF_CLK) => {
-        impl_pin!($pin, RefClkPin, 11);
+    ($inst:ident, eth, ETH, $pin:ident, REF_CLK, $af:expr) => {
+        impl_pin!($pin, RefClkPin, $af);
     };
     ($inst:ident, eth, ETH, $pin:ident, MDIO, $af:expr) => {
         impl_pin!($pin, MDIOPin, $af);

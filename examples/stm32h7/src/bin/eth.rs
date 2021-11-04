@@ -105,8 +105,8 @@ fn main() -> ! {
     let state = STATE.put(State::new());
     let eth = unsafe {
         ETH.put(Ethernet::new(
-            state, p.ETH, eth_int, p.PA1, p.PA2, p.PC1, p.PA7, p.PC4, p.PC5, p.PB12, p.PB13,
-            p.PB11, LAN8742A, mac_addr, 1,
+            state, p.ETH, eth_int, p.PA1, p.PA2, p.PC1, p.PA7, p.PC4, p.PC5, p.PG13, p.PB13,
+            p.PG11, LAN8742A, mac_addr, 0,
         ))
     };
 
