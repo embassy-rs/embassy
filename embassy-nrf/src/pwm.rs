@@ -112,7 +112,6 @@ impl<'d, T: Instance> PwmSeq<'d, T> {
         r.psel.out[3].write(|w| unsafe { w.bits(ch3.psel_bits()) });
 
         // Disable all interrupts
-        r.intenset.reset();
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
         r.shorts.reset();
 
@@ -325,7 +324,6 @@ impl<'d, T: Instance> Pwm<'d, T> {
         r.psel.out[3].write(|w| unsafe { w.bits(ch3.psel_bits()) });
 
         // Disable all interrupts
-        r.intenset.reset();
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
         r.shorts.reset();
 
