@@ -9,9 +9,7 @@ use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::gpio::NoPin;
-use embassy_nrf::pwm::{
-    CounterMode, Prescaler, SequenceConfig, SequenceLoad, SequenceMode, SequencePwm,
-};
+use embassy_nrf::pwm::{CounterMode, SequenceConfig, SequenceMode, SequencePwm};
 use embassy_nrf::Peripherals;
 use micromath::F32Ext;
 
@@ -22,18 +20,18 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // probably not best use of resources to create the table at runtime, but makes testing fast
     let seq_values: [u16; 220] = core::array::from_fn(|n| ((W1 * n as f32).sin() * 10000.0) as u16);
 
-    let config = SequenceConfig {
-        counter_mode: CounterMode::UpAndDown,
-        top: 12000,
-        prescaler: Prescaler::Div16,
-        sequence: &seq_values,
-        sequence_load: SequenceLoad::Common,
-        refresh: 0,
-        end_delay: 0,
-    };
+    let mut config = SequenceConfig::default();
+    config.counter_mode = CounterMode::UpAndDown;
+    config.top = 12000;
 
     let pwm = unwrap!(SequencePwm::new(
-        p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config
+        p.PWM0,
+        p.P0_13,
+        NoPin,
+        NoPin,
+        NoPin,
+        config,
+        &seq_values
     ));
     let _ = pwm.start(SequenceMode::Infinite);
     info!("pwm started!");

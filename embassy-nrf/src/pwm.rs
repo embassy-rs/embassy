@@ -12,43 +12,6 @@ use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::util::slice_in_ram_or;
 
-/// PWM Base clock is system clock (16MHz) divided by prescaler
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
-pub enum Prescaler {
-    Div1,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-    Div32,
-    Div64,
-    Div128,
-}
-
-/// How the sequence values are distributed across the channels
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
-pub enum SequenceLoad {
-    /// Provided sequence will be used across all channels
-    Common,
-    /// Provided sequence contains grouped values for each channel ex:
-    /// [ch0_0_and_ch1_0, ch2_0_and_ch3_0, ... ch0_n_and_ch1_n, ch2_n_and_ch3_n]
-    Grouped,
-    /// Provided sequence contains individual values for each channel ex:
-    /// [ch0_0, ch1_0, ch2_0, ch3_0... ch0_n, ch1_n, ch2_n, ch3_n]
-    Individual,
-    /// Similar to Individual mode, but only three channels are used. The fourth
-    /// value is loaded into the pulse generator counter as its top value.
-    Waveform,
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
-pub enum CounterMode {
-    /// Up counter (edge-aligned PWM duty cycle)
-    Up,
-    /// Up and down counter (center-aligned PWM duty cycle)
-    UpAndDown,
-}
-
 /// Interface to the PWM peripheral
 pub struct SimplePwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
@@ -56,6 +19,18 @@ pub struct SimplePwm<'d, T: Instance> {
 
 pub struct SequencePwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Error {
+    /// Max Sequence size is 32767
+    SequenceTooLong,
+    /// Min Sequence count is 1
+    SequenceTimesAtLeastOne,
+    /// EasyDMA can only read from data memory, read only buffers in flash will fail.
+    DMABufferNotInDataMemory,
 }
 
 impl<'d, T: Instance> SequencePwm<'d, T> {
@@ -69,17 +44,18 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     /// mechanisms) on stack allocated buffers which which have been passed to
     /// [`new()`](SequencePwm::new).
     #[allow(unused_unsafe)]
-    pub fn new(
+    pub fn new<'a>(
         _pwm: impl Unborrow<Target = T> + 'd,
         ch0: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch1: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: SequenceConfig,
+        sequence: &'a [u16],
     ) -> Result<Self, Error> {
-        slice_in_ram_or(config.sequence, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(sequence, Error::DMABufferNotInDataMemory)?;
 
-        if config.sequence.len() > 32767 {
+        if sequence.len() > 32767 {
             return Err(Error::SequenceTooLong);
         }
 
@@ -120,10 +96,10 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
         r.seq0
             .ptr
-            .write(|w| unsafe { w.bits(config.sequence.as_ptr() as u32) });
+            .write(|w| unsafe { w.bits(sequence.as_ptr() as u32) });
         r.seq0
             .cnt
-            .write(|w| unsafe { w.bits(config.sequence.len() as u32) });
+            .write(|w| unsafe { w.bits(sequence.len() as u32) });
         r.seq0.refresh.write(|w| unsafe { w.bits(config.refresh) });
         r.seq0
             .enddelay
@@ -131,10 +107,10 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
         r.seq1
             .ptr
-            .write(|w| unsafe { w.bits(config.sequence.as_ptr() as u32) });
+            .write(|w| unsafe { w.bits(sequence.as_ptr() as u32) });
         r.seq1
             .cnt
-            .write(|w| unsafe { w.bits(config.sequence.len() as u32) });
+            .write(|w| unsafe { w.bits(sequence.len() as u32) });
         r.seq1.refresh.write(|w| unsafe { w.bits(config.refresh) });
         r.seq1
             .enddelay
@@ -237,24 +213,15 @@ impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
-pub enum SequenceMode {
-    /// Run sequence n Times total
-    Times(u16),
-    /// Repeat until `stop` is called.
-    Infinite,
-}
-
 /// Configure an infinite looping sequence for `simple_playback`
-pub struct SequenceConfig<'a> {
+#[non_exhaustive]
+pub struct SequenceConfig {
     /// Selects up mode or up-and-down mode for the counter
     pub counter_mode: CounterMode,
     /// Top value to be compared against buffer values
     pub top: u16,
     /// Configuration for PWM_CLK
     pub prescaler: Prescaler,
-    /// In ram buffer to be played back
-    pub sequence: &'a [u16],
     /// How a sequence is read from RAM and is spread to the compare register
     pub sequence_load: SequenceLoad,
     /// Number of Times PWM periods to delay between each sequence sample
@@ -263,16 +230,62 @@ pub struct SequenceConfig<'a> {
     pub end_delay: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[non_exhaustive]
-pub enum Error {
-    /// Max Sequence size is 32767
-    SequenceTooLong,
-    /// Min Sequence size is 1
-    SequenceTimesAtLeastOne,
-    /// EasyDMA can only read from data memory, read only buffers in flash will fail.
-    DMABufferNotInDataMemory,
+impl Default for SequenceConfig {
+    fn default() -> SequenceConfig {
+        SequenceConfig {
+            counter_mode: CounterMode::Up,
+            top: 1000,
+            prescaler: Prescaler::Div16,
+            sequence_load: SequenceLoad::Common,
+            refresh: 0,
+            end_delay: 0,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum SequenceMode {
+    /// Run sequence n Times total
+    Times(u16),
+    /// Repeat until `stop` is called.
+    Infinite,
+}
+
+/// PWM Base clock is system clock (16MHz) divided by prescaler
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum Prescaler {
+    Div1,
+    Div2,
+    Div4,
+    Div8,
+    Div16,
+    Div32,
+    Div64,
+    Div128,
+}
+
+/// How the sequence values are distributed across the channels
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum SequenceLoad {
+    /// Provided sequence will be used across all channels
+    Common,
+    /// Provided sequence contains grouped values for each channel ex:
+    /// [ch0_0_and_ch1_0, ch2_0_and_ch3_0, ... ch0_n_and_ch1_n, ch2_n_and_ch3_n]
+    Grouped,
+    /// Provided sequence contains individual values for each channel ex:
+    /// [ch0_0, ch1_0, ch2_0, ch3_0... ch0_n, ch1_n, ch2_n, ch3_n]
+    Individual,
+    /// Similar to Individual mode, but only three channels are used. The fourth
+    /// value is loaded into the pulse generator counter as its top value.
+    Waveform,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum CounterMode {
+    /// Up counter (edge-aligned PWM duty cycle)
+    Up,
+    /// Up and down counter (center-aligned PWM duty cycle)
+    UpAndDown,
 }
 
 impl<'d, T: Instance> SimplePwm<'d, T> {
