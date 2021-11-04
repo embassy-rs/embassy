@@ -50,15 +50,15 @@ pub enum CounterMode {
 }
 
 /// Interface to the PWM peripheral
-pub struct Pwm<'d, T: Instance> {
+pub struct SimplePwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
 
-pub struct PwmSeq<'d, T: Instance> {
+pub struct SequencePwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
 
-impl<'d, T: Instance> PwmSeq<'d, T> {
+impl<'d, T: Instance> SequencePwm<'d, T> {
     /// Creates the interface to a PWM Sequence interface.
     ///
     /// Must be started by calling `start`
@@ -67,7 +67,7 @@ impl<'d, T: Instance> PwmSeq<'d, T> {
     ///
     /// The returned API is safe unless you use `mem::forget` (or similar safe
     /// mechanisms) on stack allocated buffers which which have been passed to
-    /// [`new()`](PwmSeq::new).
+    /// [`new()`](SequencePwm::new).
     #[allow(unused_unsafe)]
     pub fn new(
         _pwm: impl Unborrow<Target = T> + 'd,
@@ -226,7 +226,7 @@ impl<'d, T: Instance> PwmSeq<'d, T> {
     }
 }
 
-impl<'a, T: Instance> Drop for PwmSeq<'a, T> {
+impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
     fn drop(&mut self) {
         self.stop();
         self.disable();
@@ -275,7 +275,7 @@ pub enum Error {
     DMABufferNotInDataMemory,
 }
 
-impl<'d, T: Instance> Pwm<'d, T> {
+impl<'d, T: Instance> SimplePwm<'d, T> {
     /// Creates the interface to a PWM instance.
     ///
     /// Defaults the freq to 1Mhz, max_duty 32767, duty 0, and channels low.
@@ -285,7 +285,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
     ///
     /// The returned API is safe unless you use `mem::forget` (or similar safe
     /// mechanisms) on stack allocated buffers which which have been passed to
-    /// [`new()`](Pwm::new).
+    /// [`new()`](SimplePwm::new).
     #[allow(unused_unsafe)]
     pub fn new(
         _pwm: impl Unborrow<Target = T> + 'd,
@@ -422,12 +422,6 @@ impl<'d, T: Instance> Pwm<'d, T> {
             .write(|w| unsafe { w.countertop().bits(duty.min(32767u16)) });
     }
 
-    /// Additional number of PWM periods spent on each duty cycle value.
-    #[inline(always)]
-    pub fn set_time_stretch(&self, refresh: u32) {
-        T::regs().seq0.refresh.write(|w| unsafe { w.bits(refresh) });
-    }
-
     /// Returns the maximum duty cycle value.
     #[inline(always)]
     pub fn max_duty(&self) -> u16 {
@@ -451,7 +445,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
     }
 }
 
-impl<'a, T: Instance> Drop for Pwm<'a, T> {
+impl<'a, T: Instance> Drop for SimplePwm<'a, T> {
     fn drop(&mut self) {
         self.stop();
         self.disable();

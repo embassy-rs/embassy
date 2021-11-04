@@ -8,12 +8,12 @@ use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::gpio::NoPin;
-use embassy_nrf::pwm::{Prescaler, Pwm};
+use embassy_nrf::pwm::{Prescaler, SimplePwm};
 use embassy_nrf::Peripherals;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    let pwm = Pwm::new(p.PWM0, p.P0_13, NoPin, NoPin, NoPin);
+    let pwm = SimplePwm::new(p.PWM0, p.P0_13, NoPin, NoPin, NoPin);
     // set_period doesnt actually set what you give it, because it only has a
     // few options from the hardhware so be explicit instead
     // Div128 is slowest, 125khz still crazy fast for our eyes

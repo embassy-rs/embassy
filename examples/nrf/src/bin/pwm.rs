@@ -7,7 +7,7 @@ mod example_common;
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_nrf::pwm::{Prescaler, Pwm};
+use embassy_nrf::pwm::{Prescaler, SimplePwm};
 use embassy_nrf::Peripherals;
 
 // for i in range(1024): print(int((math.sin(i/512*math.pi)*0.4+0.5)**2*32767), ', ', end='')
@@ -85,10 +85,9 @@ static DUTY: [u16; 1024] = [
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    let pwm = Pwm::new(p.PWM0, p.P0_13, p.P0_14, p.P0_16, p.P0_15);
+    let pwm = SimplePwm::new(p.PWM0, p.P0_13, p.P0_14, p.P0_16, p.P0_15);
     pwm.set_prescaler(Prescaler::Div1);
     pwm.set_max_duty(32767);
-    pwm.set_time_stretch(32);
     info!("pwm initialized!");
 
     let mut i = 0;
