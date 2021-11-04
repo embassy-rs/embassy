@@ -118,17 +118,6 @@ impl<'d, T: Instance> PwmSeq<'d, T> {
 
         // Enable
         r.enable.write(|w| w.enable().enabled());
-        r.mode
-            .write(|w| unsafe { w.bits(config.counter_mode as u32) });
-        r.prescaler
-            .write(|w| w.prescaler().bits(config.prescaler as u8));
-        r.countertop
-            .write(|w| unsafe { w.countertop().bits(config.top) });
-
-        r.decoder.write(|w| {
-            w.load().bits(config.sequence_load as u8);
-            w.mode().refresh_count()
-        });
 
         r.seq0
             .ptr
@@ -151,6 +140,18 @@ impl<'d, T: Instance> PwmSeq<'d, T> {
         r.seq1
             .enddelay
             .write(|w| unsafe { w.bits(config.end_delay) });
+
+        r.decoder.write(|w| {
+            w.load().bits(config.sequence_load as u8);
+            w.mode().refresh_count()
+        });
+
+        r.mode
+            .write(|w| unsafe { w.bits(config.counter_mode as u32) });
+        r.prescaler
+            .write(|w| w.prescaler().bits(config.prescaler as u8));
+        r.countertop
+            .write(|w| unsafe { w.countertop().bits(config.top) });
 
         Ok(Self {
             phantom: PhantomData,
