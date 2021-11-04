@@ -58,6 +58,26 @@ impl<'a> TcpSocket<'a> {
         .await
     }
 
+    pub async fn listen<T>(&mut self, local_endpoint: T) -> Result<()>
+    where
+        T: Into<IpEndpoint>,
+    {
+        self.with(|s| s.listen(local_endpoint))?;
+
+        futures::future::poll_fn(|cx| {
+            self.with(|s| match s.state() {
+                TcpState::Closed | TcpState::TimeWait => Poll::Ready(Err(Error::Unaddressable)),
+                TcpState::Listen => Poll::Ready(Ok(())),
+                TcpState::SynSent | TcpState::SynReceived => {
+                    s.register_send_waker(cx.waker());
+                    Poll::Pending
+                }
+                _ => Poll::Ready(Ok(())),
+            })
+        })
+        .await
+    }
+
     pub fn set_timeout(&mut self, duration: Option<Duration>) {
         self.with(|s| s.set_timeout(duration))
     }
