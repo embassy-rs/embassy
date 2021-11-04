@@ -146,7 +146,6 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         r.enable.write(|w| w.enable().enabled());
 
         match times {
-            // todo why doesn't this play forever? set_duty does...
             // just the one time, no loop count
             SequenceMode::Times(1) => {
                 r.loop_.write(|w| w.cnt().disabled());
@@ -400,7 +399,6 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         // todo justify? should i fence elsehwere we task start? or
         compiler_fence(Ordering::SeqCst);
 
-        // todo why does this play forever when times(1) doesn't?
         // tasks_seqstart() doesn't exist in all svds so write its bit instead
         r.tasks_seqstart[0].write(|w| unsafe { w.bits(1) });
     }
