@@ -1,10 +1,5 @@
 [target.thumbv7em-none-eabihf]
 runner = 'probe-run --chip STM32H743ZITx'
-rustflags = [
-  # LLD (shipped with the Rust toolchain) is used as the default linker
-  "-C", "link-arg=-Tlink.x",
-  "-C", "link-arg=-Tdefmt.x",
-]
 
 [build]
 target = "thumbv7em-none-eabihf" # Cortex-M4F and Cortex-M7F (with FPU)
