@@ -61,6 +61,15 @@ jobs:
             target: thumbv8m.main-none-eabihf
             features: nrf9160-ns
           - package: embassy-nrf
+            target: thumbv8m.main-none-eabihf
+            features: nrf5340-app-s
+          - package: embassy-nrf
+            target: thumbv8m.main-none-eabihf
+            features: nrf5340-app-ns
+          - package: embassy-nrf
+            target: thumbv8m.main-none-eabihf
+            features: nrf5340-net
+          - package: embassy-nrf
             target: thumbv7em-none-eabi
             features: nrf52840
           - package: embassy-nrf

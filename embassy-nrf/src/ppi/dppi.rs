@@ -3,10 +3,16 @@ use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
+use crate::pac;
+
 use super::{Channel, ConfigurableChannel, Event, Ppi, Task};
 
 const DPPI_ENABLE_BIT: u32 = 0x8000_0000;
 const DPPI_CHANNEL_MASK: u32 = 0x0000_00FF;
+
+fn regs() -> &'static pac::dppic::RegisterBlock {
+    unsafe { &*pac::DPPIC::ptr() }
+}
 
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
     pub fn new_one_to_one(ch: impl Unborrow<Target = C> + 'd, event: Event, task: Task) -> Self {
@@ -55,6 +61,22 @@ impl<'d, C: ConfigurableChannel, const EVENT_COUNT: usize, const TASK_COUNT: usi
             tasks,
             phantom: PhantomData,
         }
+    }
+}
+
+impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize>
+    Ppi<'d, C, EVENT_COUNT, TASK_COUNT>
+{
+    /// Enables the channel.
+    pub fn enable(&mut self) {
+        let n = self.ch.number();
+        regs().chenset.write(|w| unsafe { w.bits(1 << n) });
+    }
+
+    /// Disables the channel.
+    pub fn disable(&mut self) {
+        let n = self.ch.number();
+        regs().chenclr.write(|w| unsafe { w.bits(1 << n) });
     }
 }
 

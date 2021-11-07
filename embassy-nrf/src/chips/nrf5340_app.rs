@@ -1,31 +1,44 @@
 #[allow(unused_imports)]
 #[rustfmt::skip]
 pub mod pac {
-    // The nRF9160 has a secure and non-secure (NS) mode.
+    // The nRF5340 has a secure and non-secure (NS) mode.
     // To avoid cfg spam, we remove _ns or _s suffixes here.
 
-    pub use nrf9160_pac::{
+    pub use nrf5340_app_pac::{
         interrupt,
         Interrupt,
+        Peripherals,
 
-        cc_host_rgf_s as cc_host_rgf,
+        cache_s as cache,
+        cachedata_s as cachedata,
+        cacheinfo_s as cacheinfo,
         clock_ns as clock,
+        comp_ns as comp,
         cryptocell_s as cryptocell,
-        ctrl_ap_peri_s as ctrl_ap_peri,
+        cti_s as cti,
+        ctrlap_ns as ctrlap,
+        dcnf_ns as dcnf,
         dppic_ns as dppic,
         egu0_ns as egu0,
         ficr_s as ficr,
         fpu_ns as fpu,
-        gpiote0_s as gpiote0,
-        i2s_ns as i2s,
+        gpiote0_s as gpiote,
+        i2s0_ns as i2s0,
         ipc_ns as ipc,
         kmu_ns as kmu,
+        lpcomp_ns as lpcomp,
+        mutex_ns as mutex,
+        nfct_ns as nfct,
         nvmc_ns as nvmc,
+        oscillators_ns as oscillators,
         p0_ns as p0,
-        pdm_ns as pdm,
+        pdm0_ns as pdm0,
         power_ns as power,
         pwm0_ns as pwm0,
+        qdec0_ns as qdec0,
+        qspi_ns as qspi,
         regulators_ns as regulators,
+        reset_ns as reset,
         rtc0_ns as rtc0,
         saadc_ns as saadc,
         spim0_ns as spim0,
@@ -37,13 +50,18 @@ pub mod pac {
         twis0_ns as twis0,
         uarte0_ns as uarte0,
         uicr_s as uicr,
+        usbd_ns as usbd,
+        usbregulator_ns as usbregulator,
         vmc_ns as vmc,
-        wdt_ns as wdt,
+        wdt0_ns as wdt0,
     };
     
-    #[cfg(feature = "nrf9160-ns")]
-    pub use nrf9160_pac::{
+    #[cfg(feature = "nrf5340-app-ns")]
+    pub use nrf5340_app_pac::{
         CLOCK_NS as CLOCK,
+        COMP_NS as COMP,
+        CTRLAP_NS as CTRLAP,
+        DCNF_NS as DCNF,
         DPPIC_NS as DPPIC,
         EGU0_NS as EGU0,
         EGU1_NS as EGU1,
@@ -52,19 +70,28 @@ pub mod pac {
         EGU4_NS as EGU4,
         EGU5_NS as EGU5,
         FPU_NS as FPU,
-        GPIOTE1_NS as GPIOTE,
-        I2S_NS as I2S,
+        GPIOTE1_NS as GPIOTE1,
+        I2S0_NS as I2S0,
         IPC_NS as IPC,
         KMU_NS as KMU,
+        LPCOMP_NS as LPCOMP,
+        MUTEX_NS as MUTEX,
+        NFCT_NS as NFCT,
         NVMC_NS as NVMC,
+        OSCILLATORS_NS as OSCILLATORS,
         P0_NS as P0,
-        PDM_NS as PDM,
+        P1_NS as P1,
+        PDM0_NS as PDM0,
         POWER_NS as POWER,
         PWM0_NS as PWM0,
         PWM1_NS as PWM1,
         PWM2_NS as PWM2,
         PWM3_NS as PWM3,
+        QDEC0_NS as QDEC0,
+        QDEC1_NS as QDEC1,
+        QSPI_NS as QSPI,
         REGULATORS_NS as REGULATORS,
+        RESET_NS as RESET,
         RTC0_NS as RTC0,
         RTC1_NS as RTC1,
         SAADC_NS as SAADC,
@@ -72,6 +99,7 @@ pub mod pac {
         SPIM1_NS as SPIM1,
         SPIM2_NS as SPIM2,
         SPIM3_NS as SPIM3,
+        SPIM4_NS as SPIM4,
         SPIS0_NS as SPIS0,
         SPIS1_NS as SPIS1,
         SPIS2_NS as SPIS2,
@@ -91,16 +119,24 @@ pub mod pac {
         UARTE1_NS as UARTE1,
         UARTE2_NS as UARTE2,
         UARTE3_NS as UARTE3,
+        USBD_NS as USBD,
+        USBREGULATOR_NS as USBREGULATOR,
         VMC_NS as VMC,
-        WDT_NS as WDT,
+        WDT0_NS as WDT0,
+        WDT1_NS as WDT1,
     };
 
-    #[cfg(feature = "nrf9160-s")]
-    pub use nrf9160_pac::{
-        CC_HOST_RGF_S as CC_HOST_RGF,
+    #[cfg(feature = "nrf5340-app-s")]
+    pub use nrf5340_app_pac::{
+        CACHEDATA_S as CACHEDATA,
+        CACHEINFO_S as CACHEINFO,
+        CACHE_S as CACHE,
         CLOCK_S as CLOCK,
+        COMP_S as COMP,
         CRYPTOCELL_S as CRYPTOCELL,
-        CTRL_AP_PERI_S as CTRL_AP_PERI,
+        CTI_S as CTI,
+        CTRLAP_S as CTRLAP,
+        DCNF_S as DCNF,
         DPPIC_S as DPPIC,
         EGU0_S as EGU0,
         EGU1_S as EGU1,
@@ -110,19 +146,28 @@ pub mod pac {
         EGU5_S as EGU5,
         FICR_S as FICR,
         FPU_S as FPU,
-        GPIOTE0_S as GPIOTE,
-        I2S_S as I2S,
+        GPIOTE0_S as GPIOTE0,
+        I2S0_S as I2S0,
         IPC_S as IPC,
         KMU_S as KMU,
+        LPCOMP_S as LPCOMP,
+        MUTEX_S as MUTEX,
+        NFCT_S as NFCT,
         NVMC_S as NVMC,
+        OSCILLATORS_S as OSCILLATORS,
         P0_S as P0,
-        PDM_S as PDM,
+        P1_S as P1,
+        PDM0_S as PDM0,
         POWER_S as POWER,
         PWM0_S as PWM0,
         PWM1_S as PWM1,
         PWM2_S as PWM2,
         PWM3_S as PWM3,
+        QDEC0_S as QDEC0,
+        QDEC1_S as QDEC1,
+        QSPI_S as QSPI,
         REGULATORS_S as REGULATORS,
+        RESET_S as RESET,
         RTC0_S as RTC0,
         RTC1_S as RTC1,
         SAADC_S as SAADC,
@@ -130,6 +175,7 @@ pub mod pac {
         SPIM1_S as SPIM1,
         SPIM2_S as SPIM2,
         SPIM3_S as SPIM3,
+        SPIM4_S as SPIM4,
         SPIS0_S as SPIS0,
         SPIS1_S as SPIS1,
         SPIS2_S as SPIS2,
@@ -152,13 +198,16 @@ pub mod pac {
         UARTE2_S as UARTE2,
         UARTE3_S as UARTE3,
         UICR_S as UICR,
+        USBD_S as USBD,
+        USBREGULATOR_S as USBREGULATOR,
         VMC_S as VMC,
-        WDT_S as WDT,
+        WDT0_S as WDT0,
+        WDT1_S as WDT1,
     };
 }
 
 /// The maximum buffer size that the EasyDMA can send/recv in one operation.
-pub const EASY_DMA_SIZE: usize = (1 << 13) - 1;
+pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
 embassy_hal_common::peripherals! {
@@ -216,6 +265,22 @@ embassy_hal_common::peripherals! {
     PPI_CH13,
     PPI_CH14,
     PPI_CH15,
+    PPI_CH16,
+    PPI_CH17,
+    PPI_CH18,
+    PPI_CH19,
+    PPI_CH20,
+    PPI_CH21,
+    PPI_CH22,
+    PPI_CH23,
+    PPI_CH24,
+    PPI_CH25,
+    PPI_CH26,
+    PPI_CH27,
+    PPI_CH28,
+    PPI_CH29,
+    PPI_CH30,
+    PPI_CH31,
 
     PPI_GROUP0,
     PPI_GROUP1,
@@ -257,22 +322,40 @@ embassy_hal_common::peripherals! {
     P0_29,
     P0_30,
     P0_31,
+
+    // GPIO port 1
+    P1_00,
+    P1_01,
+    P1_02,
+    P1_03,
+    P1_04,
+    P1_05,
+    P1_06,
+    P1_07,
+    P1_08,
+    P1_09,
+    P1_10,
+    P1_11,
+    P1_12,
+    P1_13,
+    P1_14,
+    P1_15,
 }
 
-impl_uarte!(UARTETWISPI0, UARTE0, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
-impl_uarte!(UARTETWISPI1, UARTE1, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
-impl_uarte!(UARTETWISPI2, UARTE2, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
-impl_uarte!(UARTETWISPI3, UARTE3, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
+impl_uarte!(UARTETWISPI0, UARTE0, SERIAL0);
+impl_uarte!(UARTETWISPI1, UARTE1, SERIAL1);
+impl_uarte!(UARTETWISPI2, UARTE2, SERIAL2);
+impl_uarte!(UARTETWISPI3, UARTE3, SERIAL3);
 
-impl_spim!(UARTETWISPI0, SPIM0, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
-impl_spim!(UARTETWISPI1, SPIM1, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
-impl_spim!(UARTETWISPI2, SPIM2, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
-impl_spim!(UARTETWISPI3, SPIM3, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
+impl_spim!(UARTETWISPI0, SPIM0, SERIAL0);
+impl_spim!(UARTETWISPI1, SPIM1, SERIAL1);
+impl_spim!(UARTETWISPI2, SPIM2, SERIAL2);
+impl_spim!(UARTETWISPI3, SPIM3, SERIAL3);
 
-impl_twim!(UARTETWISPI0, TWIM0, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
-impl_twim!(UARTETWISPI1, TWIM1, UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
-impl_twim!(UARTETWISPI2, TWIM2, UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
-impl_twim!(UARTETWISPI3, TWIM3, UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
+impl_twim!(UARTETWISPI0, TWIM0, SERIAL0);
+impl_twim!(UARTETWISPI1, TWIM1, SERIAL1);
+impl_twim!(UARTETWISPI2, TWIM2, SERIAL2);
+impl_twim!(UARTETWISPI3, TWIM3, SERIAL3);
 
 impl_pwm!(PWM0, PWM0, PWM0);
 impl_pwm!(PWM1, PWM1, PWM1);
@@ -316,6 +399,23 @@ impl_pin!(P0_29, 0, 29);
 impl_pin!(P0_30, 0, 30);
 impl_pin!(P0_31, 0, 31);
 
+impl_pin!(P1_00, 1, 0);
+impl_pin!(P1_01, 1, 1);
+impl_pin!(P1_02, 1, 2);
+impl_pin!(P1_03, 1, 3);
+impl_pin!(P1_04, 1, 4);
+impl_pin!(P1_05, 1, 5);
+impl_pin!(P1_06, 1, 6);
+impl_pin!(P1_07, 1, 7);
+impl_pin!(P1_08, 1, 8);
+impl_pin!(P1_09, 1, 9);
+impl_pin!(P1_10, 1, 10);
+impl_pin!(P1_11, 1, 11);
+impl_pin!(P1_12, 1, 12);
+impl_pin!(P1_13, 1, 13);
+impl_pin!(P1_14, 1, 14);
+impl_pin!(P1_15, 1, 15);
+
 impl_ppi_channel!(PPI_CH0, 0 => configurable);
 impl_ppi_channel!(PPI_CH1, 1 => configurable);
 impl_ppi_channel!(PPI_CH2, 2 => configurable);
@@ -332,6 +432,22 @@ impl_ppi_channel!(PPI_CH12, 12 => configurable);
 impl_ppi_channel!(PPI_CH13, 13 => configurable);
 impl_ppi_channel!(PPI_CH14, 14 => configurable);
 impl_ppi_channel!(PPI_CH15, 15 => configurable);
+impl_ppi_channel!(PPI_CH16, 16 => configurable);
+impl_ppi_channel!(PPI_CH17, 17 => configurable);
+impl_ppi_channel!(PPI_CH18, 18 => configurable);
+impl_ppi_channel!(PPI_CH19, 19 => configurable);
+impl_ppi_channel!(PPI_CH20, 20 => configurable);
+impl_ppi_channel!(PPI_CH21, 21 => configurable);
+impl_ppi_channel!(PPI_CH22, 22 => configurable);
+impl_ppi_channel!(PPI_CH23, 23 => configurable);
+impl_ppi_channel!(PPI_CH24, 24 => configurable);
+impl_ppi_channel!(PPI_CH25, 25 => configurable);
+impl_ppi_channel!(PPI_CH26, 26 => configurable);
+impl_ppi_channel!(PPI_CH27, 27 => configurable);
+impl_ppi_channel!(PPI_CH28, 28 => configurable);
+impl_ppi_channel!(PPI_CH29, 29 => configurable);
+impl_ppi_channel!(PPI_CH30, 30 => configurable);
+impl_ppi_channel!(PPI_CH31, 31 => configurable);
 
 impl_saadc_input!(P0_13, ANALOGINPUT0);
 impl_saadc_input!(P0_14, ANALOGINPUT1);
@@ -346,12 +462,15 @@ pub mod irqs {
     use crate::pac::Interrupt as InterruptEnum;
     use embassy_macros::interrupt_declare as declare;
 
+    declare!(FPU);
+    declare!(CACHE);
     declare!(SPU);
     declare!(CLOCK_POWER);
-    declare!(UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
-    declare!(UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
-    declare!(UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
-    declare!(UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
+    declare!(SERIAL0);
+    declare!(SERIAL1);
+    declare!(SPIM4);
+    declare!(SERIAL2);
+    declare!(SERIAL3);
     declare!(GPIOTE0);
     declare!(SAADC);
     declare!(TIMER0);
@@ -359,7 +478,9 @@ pub mod irqs {
     declare!(TIMER2);
     declare!(RTC0);
     declare!(RTC1);
-    declare!(WDT);
+    declare!(WDT0);
+    declare!(WDT1);
+    declare!(COMP_LPCOMP);
     declare!(EGU0);
     declare!(EGU1);
     declare!(EGU2);
@@ -369,12 +490,17 @@ pub mod irqs {
     declare!(PWM0);
     declare!(PWM1);
     declare!(PWM2);
-    declare!(PDM);
     declare!(PWM3);
-    declare!(I2S);
+    declare!(PDM0);
+    declare!(I2S0);
     declare!(IPC);
-    declare!(FPU);
+    declare!(QSPI);
+    declare!(NFCT);
     declare!(GPIOTE1);
+    declare!(QDEC0);
+    declare!(QDEC1);
+    declare!(USBD);
+    declare!(USBREGULATOR);
     declare!(KMU);
     declare!(CRYPTOCELL);
 }

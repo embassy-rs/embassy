@@ -15,7 +15,7 @@
 //! many tasks and events, but any single task or event can only be coupled with one channel.
 //!
 
-use crate::{pac, peripherals};
+use crate::peripherals;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use embassy::util::Unborrow;
@@ -33,24 +33,6 @@ pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize
     #[cfg(feature = "_dppi")]
     tasks: [Task; TASK_COUNT],
     phantom: PhantomData<&'d mut C>,
-}
-
-impl<'d, C: Channel + 'd, const EVENT_COUNT: usize, const TASK_COUNT: usize>
-    Ppi<'d, C, EVENT_COUNT, TASK_COUNT>
-{
-    /// Enables the channel.
-    pub fn enable(&mut self) {
-        let r = unsafe { &*pac::PPI::ptr() };
-        r.chenset
-            .write(|w| unsafe { w.bits(1 << self.ch.number()) });
-    }
-
-    /// Disables the channel.
-    pub fn disable(&mut self) {
-        let r = unsafe { &*pac::PPI::ptr() };
-        r.chenclr
-            .write(|w| unsafe { w.bits(1 << self.ch.number()) });
-    }
 }
 
 const REGISTER_DPPI_CONFIG_OFFSET: usize = 0x80 / core::mem::size_of::<u32>();

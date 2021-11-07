@@ -4,6 +4,7 @@ use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
 
+use cfg_if::cfg_if;
 use embassy::util::Unborrow;
 use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin};
@@ -20,8 +21,8 @@ pub enum Port {
     /// Port 0, available on nRF9160 and all nRF52 and nRF51 MCUs.
     Port0,
 
-    /// Port 1, only available on some nRF52 MCUs.
-    #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
+    /// Port 1, only available on some MCUs.
+    #[cfg(feature = "_gpio-p1")]
     Port1,
 }
 
@@ -284,14 +285,12 @@ pub(crate) mod sealed {
 
         #[inline]
         fn _pin(&self) -> u8 {
-            #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
-            {
-                self.pin_port() % 32
-            }
-
-            #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
-            {
-                self.pin_port()
+            cfg_if! {
+                if #[cfg(feature = "_gpio-p1")] {
+                    self.pin_port() % 32
+                } else {
+                    self.pin_port()
+                }
             }
         }
 
@@ -300,7 +299,7 @@ pub(crate) mod sealed {
             unsafe {
                 match self.pin_port() / 32 {
                     0 => &*pac::P0::ptr(),
-                    #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
+                    #[cfg(feature = "_gpio-p1")]
                     1 => &*pac::P1::ptr(),
                     _ => unreachable_unchecked(),
                 }
@@ -344,7 +343,7 @@ pub trait Pin: Unborrow<Target = Self> + sealed::Pin + Sized + 'static {
     fn port(&self) -> Port {
         match self.pin_port() / 32 {
             0 => Port::Port0,
-            #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
+            #[cfg(feature = "_gpio-p1")]
             1 => Port::Port1,
             _ => unsafe { unreachable_unchecked() },
         }
