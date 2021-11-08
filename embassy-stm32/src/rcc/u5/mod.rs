@@ -1,7 +1,7 @@
 use crate::pac;
 use crate::peripherals::{self, RCC};
 use crate::pwr::{Power, VoltageScale};
-use crate::rcc::{get_freqs, set_freqs, Clocks};
+use crate::rcc::{set_freqs, Clocks};
 use crate::time::{Hertz, U32Ext};
 use stm32_metapac::rcc::vals::{Hpre, Msirange, Msirgsel, Pllm, Pllsrc, Ppre, Sw};
 
@@ -106,12 +106,6 @@ pub enum PllM {
     Div14 = 0b1101,
     Div15 = 0b1110,
     Div16 = 0b1111,
-}
-
-impl PllM {
-    fn to_div(&self) -> u32 {
-        (*self as u32) + 1
-    }
 }
 
 impl Into<Pllm> for PllM {
@@ -490,7 +484,7 @@ impl RccExt for RCC {
             }
         };
 
-        let (apb3_freq, apb3_tim_freq) = match cfgr.apb3_pre {
+        let (apb3_freq, _apb3_tim_freq) = match cfgr.apb3_pre {
             APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
             pre => {
                 let pre: u8 = pre.into();
