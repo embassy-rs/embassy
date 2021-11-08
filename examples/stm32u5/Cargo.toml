@@ -22,8 +22,8 @@ embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = 
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "unstable-pac", "stm32u585ai", "memory-x" ]  }
 embassy-hal-common = {version = "0.1.0", path = "../../embassy-hal-common" }
 
-defmt = "0.2.3"
-defmt-rtt = "0.2.0"
+defmt = "0.2"
+defmt-rtt = "0.2"
 
 cortex-m = "0.7.3"
 cortex-m-rt = "0.7.0"
@@ -34,4 +34,8 @@ rtt-target = { version = "0.3.1", features = ["cortex-m"] }
 heapless = { version = "0.7.5", default-features = false }
 
 micromath = "2.0.0"
+
+#[patch.crates-io]
+#defmt = { git="https://github.com/knurling-rs/defmt.git" }
+#defmt-rtt = { git="https://github.com/knurling-rs/defmt.git" }
 
