@@ -1,7 +1,11 @@
 use core::marker::PhantomData;
 
 use embassy::util::Unborrow;
+use embassy_hal_common::unborrow;
+use stm32_metapac::rcc::vals::{Mco1, Mco2};
 
+use crate::gpio::sealed::Pin as __GpioPin;
+use crate::gpio::Pin;
 use crate::pac::rcc::vals::Timpre;
 use crate::pac::{RCC, SYSCFG};
 use crate::peripherals;
@@ -505,6 +509,181 @@ impl<'d> Rcc<'d> {
                 w.set_latency(wait_states)
             });
             while FLASH.acr().read().latency() != wait_states {}
+        }
+    }
+}
+pub enum McoClock {
+    Disabled,
+    Bypassed,
+    Divided(u8),
+}
+
+impl McoClock {
+    fn into_raw(&self) -> u8 {
+        match self {
+            McoClock::Disabled => 0,
+            McoClock::Bypassed => 1,
+            McoClock::Divided(divisor) => {
+                if *divisor > 15 {
+                    panic!("Mco divisor must be less than 15. Refer to the reference manual for more information.")
+                }
+                *divisor
+            }
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub enum Mco1Source {
+    Hsi,
+    Lse,
+    Hse,
+    Pll1Q,
+    Hsi48,
+}
+
+impl Default for Mco1Source {
+    fn default() -> Self {
+        Self::Hsi
+    }
+}
+
+pub trait McoSource {
+    type Raw;
+
+    fn into_raw(&self) -> Self::Raw;
+}
+
+impl McoSource for Mco1Source {
+    type Raw = Mco1;
+    fn into_raw(&self) -> Self::Raw {
+        match self {
+            Mco1Source::Hsi => Mco1::HSI,
+            Mco1Source::Lse => Mco1::LSE,
+            Mco1Source::Hse => Mco1::HSE,
+            Mco1Source::Pll1Q => Mco1::PLL1_Q,
+            Mco1Source::Hsi48 => Mco1::HSI48,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub enum Mco2Source {
+    SysClk,
+    Pll2Q,
+    Hse,
+    Pll1Q,
+    Csi,
+    Lsi,
+}
+
+impl Default for Mco2Source {
+    fn default() -> Self {
+        Self::SysClk
+    }
+}
+
+impl McoSource for Mco2Source {
+    type Raw = Mco2;
+    fn into_raw(&self) -> Self::Raw {
+        match self {
+            Mco2Source::SysClk => Mco2::SYSCLK,
+            Mco2Source::Pll2Q => Mco2::PLL2_P,
+            Mco2Source::Hse => Mco2::HSE,
+            Mco2Source::Pll1Q => Mco2::PLL1_P,
+            Mco2Source::Csi => Mco2::CSI,
+            Mco2Source::Lsi => Mco2::LSI,
+        }
+    }
+}
+
+pub(crate) mod sealed {
+    use super::*;
+
+    pub trait McoInstance {
+        type Source;
+        unsafe fn apply_clock_settings(source: Self::Source, prescaler: u8);
+    }
+
+    pub trait McoPin<T: McoInstance>: Pin {
+        fn configure(&mut self);
+    }
+}
+
+pub trait McoInstance: sealed::McoInstance + 'static {}
+
+pub trait McoPin<T: McoInstance>: sealed::McoPin<T> + 'static {}
+
+macro_rules! impl_peri {
+    ($peri:ident, $source:ident, $set_source:ident, $set_prescaler:ident) => {
+        impl sealed::McoInstance for peripherals::$peri {
+            type Source = $source;
+
+            unsafe fn apply_clock_settings(source: Self::Source, prescaler: u8) {
+                RCC.cfgr().modify(|w| {
+                    w.$set_source(source);
+                    w.$set_prescaler(prescaler);
+                });
+            }
+        }
+
+        impl McoInstance for peripherals::$peri {}
+    };
+}
+
+impl_peri!(MCO1, Mco1, set_mco1, set_mco1pre);
+impl_peri!(MCO2, Mco2, set_mco2, set_mco2pre);
+
+macro_rules! impl_pin {
+    ($peri:ident, $pin:ident, $af:expr) => {
+        impl McoPin<peripherals::$peri> for peripherals::$pin {}
+
+        impl sealed::McoPin<peripherals::$peri> for peripherals::$pin {
+            fn configure(&mut self) {
+                critical_section::with(|_| unsafe {
+                    self.set_as_af($af, crate::gpio::sealed::AFType::OutputPushPull);
+                    self.block().ospeedr().modify(|w| {
+                        w.set_ospeedr(
+                            self.pin() as usize,
+                            crate::pac::gpio::vals::Ospeedr::VERYHIGHSPEED,
+                        )
+                    });
+                })
+            }
+        }
+    };
+}
+
+crate::pac::peripheral_pins!(
+    ($inst:ident, rcc, RCC, $pin:ident, MCO_1, $af:expr) => {
+        impl_pin!(MCO1, $pin, $af);
+    };
+    ($inst:ident, rcc, RCC, $pin:ident, MCO_2, $af:expr) => {
+        impl_pin!(MCO2, $pin, $af);
+    };
+);
+
+pub struct Mco<'d, T: McoInstance> {
+    phantom: PhantomData<&'d mut T>,
+}
+
+impl<'d, T: McoInstance> Mco<'d, T> {
+    pub fn new(
+        _peri: impl Unborrow<Target = T> + 'd,
+        pin: impl Unborrow<Target = impl McoPin<T>> + 'd,
+        source: impl McoSource<Raw = T::Source>,
+        prescaler: McoClock,
+    ) -> Self {
+        unborrow!(pin);
+
+        unsafe {
+            T::apply_clock_settings(source.into_raw(), prescaler.into_raw());
+        }
+
+        pin.configure();
+
+        Self {
+            phantom: PhantomData,
         }
     }
 }

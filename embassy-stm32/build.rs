@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -14,7 +15,17 @@ fn main() {
     struct Peripheral {
         kind: String,
         name: String,
+        version: String,
     }
+
+    let mut peripheral_version_mapping = HashMap::<String, String>::new();
+    stm32_metapac::peripheral_versions!(
+        ($peri:ident, $version:ident) => {
+            peripheral_version_mapping.insert(stringify!($peri).to_string(), stringify!($version).to_string());
+            println!("cargo:rustc-cfg={}", stringify!($peri));
+            println!("cargo:rustc-cfg={}_{}", stringify!($peri), stringify!($version));
+        };
+    );
 
     let mut peripherals: Vec<Peripheral> = Vec::new();
     stm32_metapac::peripherals!(
@@ -22,6 +33,7 @@ fn main() {
             peripherals.push(Peripheral{
                 kind: stringify!($kind).to_string(),
                 name: stringify!($name).to_string(),
+                version: peripheral_version_mapping[&stringify!($kind).to_ascii_lowercase()].clone()
             });
         };
     );
@@ -43,7 +55,13 @@ fn main() {
 
             // We *shouldn't* have singletons for these, but the HAL currently requires
             // singletons, for using with RccPeripheral to enable/disable clocks to them.
-            //"rcc" => {}
+            "rcc" => {
+                if p.version == "h7" {
+                    singletons.push("MCO1".to_string());
+                    singletons.push("MCO2".to_string());
+                }
+                singletons.push(p.name.clone());
+            }
             //"dbgmcu" => {}
             //"syscfg" => {}
             //"dma" => {}
@@ -77,13 +95,6 @@ fn main() {
         ),
     )
     .unwrap();
-
-    stm32_metapac::peripheral_versions!(
-        ($peri:ident, $version:ident) => {
-            println!("cargo:rustc-cfg={}", stringify!($peri));
-            println!("cargo:rustc-cfg={}_{}", stringify!($peri), stringify!($version));
-        };
-    );
 
     let mut s = chip_name.split('_');
     let mut chip_name: String = s.next().unwrap().to_string();
