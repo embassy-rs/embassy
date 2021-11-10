@@ -3,7 +3,7 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use embassy::util::Unborrow;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{low_power_wait_until, unborrow};
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, OptionalPin as GpioOptionalPin};
@@ -157,12 +157,19 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
         r.enable.write(|w| w.enable().enabled());
 
+        // defensive before seqstart
+        compiler_fence(Ordering::SeqCst);
+
         match times {
             // just the one time, no loop count
             SequenceMode::Times(1) => {
                 r.loop_.write(|w| w.cnt().disabled());
                 // tasks_seqstart() doesn't exist in all svds so write its bit instead
                 r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
+
+                // defensive wait until waveform is loaded after seqstart
+                low_power_wait_until(|| r.events_seqend[0].read().bits() == 1);
+                r.events_seqend[0].write(|w| w);
             }
             // loop count is how many times to play BOTH sequences
             // 2 total  (1 x 2)
@@ -177,17 +184,30 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
                 if odd {
                     // tasks_seqstart() doesn't exist in all svds so write its bit instead
                     r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
+
+                    // defensive wait until waveform is loaded after seqstart
+                    low_power_wait_until(|| r.events_seqend[1].read().bits() == 1);
+                    r.events_seqend[1].write(|w| w);
                 } else {
                     // tasks_seqstart() doesn't exist in all svds so write its bit instead
                     r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
+
+                    // defensive wait until waveform is loaded after seqstart
+                    low_power_wait_until(|| r.events_seqend[0].read().bits() == 1);
+                    r.events_seqend[0].write(|w| w);
                 }
             }
             // to play infinitely, repeat the sequence one time, then have loops done self trigger seq0 again
             SequenceMode::Infinite => {
                 r.loop_.write(|w| unsafe { w.cnt().bits(0x1) });
                 r.shorts.write(|w| w.loopsdone_seqstart0().enabled());
+
                 // tasks_seqstart() doesn't exist in all svds so write its bit instead
                 r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
+
+                // defensive wait until waveform is loaded after seqstart
+                low_power_wait_until(|| r.events_seqend[0].read().bits() == 1);
+                r.events_seqend[0].write(|w| w);
             }
         }
 
@@ -200,6 +220,8 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         let r = T::regs();
 
         r.shorts.reset();
+
+        compiler_fence(Ordering::SeqCst);
 
         // tasks_stop() doesn't exist in all svds so write its bit instead
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
@@ -404,6 +426,8 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
 
         r.shorts.reset();
 
+        compiler_fence(Ordering::SeqCst);
+
         // tasks_stop() doesn't exist in all svds so write its bit instead
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
     }
@@ -432,11 +456,15 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
             .ptr
             .write(|w| unsafe { w.bits(&self.duty as *const _ as u32) });
 
-        // todo justify? should i fence elsehwere we task start? or
+        // defensive before seqstart
         compiler_fence(Ordering::SeqCst);
 
         // tasks_seqstart() doesn't exist in all svds so write its bit instead
         r.tasks_seqstart[0].write(|w| unsafe { w.bits(1) });
+
+        // defensive wait until waveform is loaded after seqstart
+        low_power_wait_until(|| r.events_seqend[0].read().bits() == 1);
+        r.events_seqend[0].write(|w| w);
     }
 
     /// Sets the PWM clock prescaler.
