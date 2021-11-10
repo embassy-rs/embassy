@@ -32,6 +32,8 @@ pub mod can;
 pub mod dac;
 #[cfg(dbgmcu)]
 pub mod dbgmcu;
+#[cfg(dcmi)]
+pub mod dcmi;
 #[cfg(all(eth, feature = "net"))]
 pub mod eth;
 #[cfg(exti)]

@@ -73,6 +73,7 @@ pub struct Config {
     pub pll2: PllConfig,
     pub pll3: PllConfig,
     pub enable_dma1: bool,
+    pub enable_dma2: bool,
 }
 
 pub struct Rcc<'d> {
@@ -332,6 +333,10 @@ impl<'d> Rcc<'d> {
 
             if self.config.enable_dma1 {
                 RCC.ahb1enr().modify(|w| w.set_dma1en(true));
+            }
+
+            if self.config.enable_dma2 {
+                RCC.ahb1enr().modify(|w| w.set_dma2en(true));
             }
 
             CoreClocks {
