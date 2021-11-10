@@ -1,6 +1,5 @@
 #![macro_use]
 
-use core::cell::UnsafeCell;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use embassy::util::Unborrow;
@@ -15,6 +14,7 @@ use crate::util::slice_in_ram_or;
 /// Interface to the PWM peripheral
 pub struct SimplePwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
+    duty: [u16; 4],
     ch0: Option<AnyPin>,
     ch1: Option<AnyPin>,
     ch2: Option<AnyPin>,
@@ -336,7 +336,6 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         unborrow!(ch0, ch1, ch2, ch3);
 
         let r = T::regs();
-        let s = T::state();
 
         if let Some(pin) = ch0.pin_mut() {
             pin.set_low();
@@ -362,6 +361,15 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         r.psel.out[2].write(|w| unsafe { w.bits(ch2.psel_bits()) });
         r.psel.out[3].write(|w| unsafe { w.bits(ch3.psel_bits()) });
 
+        let pwm = Self {
+            phantom: PhantomData,
+            ch0: ch0.degrade_optional(),
+            ch1: ch1.degrade_optional(),
+            ch2: ch2.degrade_optional(),
+            ch3: ch3.degrade_optional(),
+            duty: [0; 4],
+        };
+
         // Disable all interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
         r.shorts.reset();
@@ -371,7 +379,8 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
 
         r.seq0
             .ptr
-            .write(|w| unsafe { w.bits(&s.duty as *const _ as u32) });
+            .write(|w| unsafe { w.bits(&pwm.duty as *const _ as u32) });
+
         r.seq0.cnt.write(|w| unsafe { w.bits(4) });
         r.seq0.refresh.write(|w| unsafe { w.bits(0) });
         r.seq0.enddelay.write(|w| unsafe { w.bits(0) });
@@ -385,13 +394,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         r.countertop.write(|w| unsafe { w.countertop().bits(1000) });
         r.loop_.write(|w| w.cnt().disabled());
 
-        Self {
-            phantom: PhantomData,
-            ch0: ch0.degrade_optional(),
-            ch1: ch1.degrade_optional(),
-            ch2: ch2.degrade_optional(),
-            ch3: ch3.degrade_optional(),
-        }
+        pwm
     }
 
     /// Stop playback
@@ -420,10 +423,14 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     }
 
     /// Sets duty cycle (15 bit) for a PWM channel.
-    pub fn set_duty(&self, channel: usize, duty: u16) {
+    pub fn set_duty(&mut self, channel: usize, duty: u16) {
         let r = T::regs();
-        let s = T::state();
-        unsafe { (*s.duty.get())[channel] = duty & 0x7FFF };
+
+        self.duty[channel] = duty & 0x7FFF;
+
+        r.seq0
+            .ptr
+            .write(|w| unsafe { w.bits(&self.duty as *const _ as u32) });
 
         // todo justify? should i fence elsehwere we task start? or
         compiler_fence(Ordering::SeqCst);
@@ -514,22 +521,8 @@ impl<'a, T: Instance> Drop for SimplePwm<'a, T> {
 pub(crate) mod sealed {
     use super::*;
 
-    pub struct State {
-        pub duty: UnsafeCell<[u16; 4]>,
-    }
-    unsafe impl Sync for State {}
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                duty: UnsafeCell::new([0; 4]),
-            }
-        }
-    }
-
     pub trait Instance {
         fn regs() -> &'static pac::pwm0::RegisterBlock;
-        fn state() -> &'static State;
     }
 }
 
@@ -542,10 +535,6 @@ macro_rules! impl_pwm {
         impl crate::pwm::sealed::Instance for peripherals::$type {
             fn regs() -> &'static pac::pwm0::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
-            }
-            fn state() -> &'static crate::pwm::sealed::State {
-                static STATE: crate::pwm::sealed::State = crate::pwm::sealed::State::new();
-                &STATE
             }
         }
         impl crate::pwm::Instance for peripherals::$type {
