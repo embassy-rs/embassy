@@ -7,7 +7,7 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::OptionalPin as GpioOptionalPin;
+use crate::gpio::{AnyPin, OptionalPin as GpioOptionalPin, Pin};
 use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::util::slice_in_ram_or;
@@ -15,10 +15,18 @@ use crate::util::slice_in_ram_or;
 /// Interface to the PWM peripheral
 pub struct SimplePwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
+    ch0: Option<AnyPin>,
+    ch1: Option<AnyPin>,
+    ch2: Option<AnyPin>,
+    ch3: Option<AnyPin>,
 }
 
 pub struct SequencePwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
+    ch0: Option<AnyPin>,
+    ch1: Option<AnyPin>,
+    ch2: Option<AnyPin>,
+    ch3: Option<AnyPin>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +138,10 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
         Ok(Self {
             phantom: PhantomData,
+            ch0: ch0.degrade_optional(),
+            ch1: ch1.degrade_optional(),
+            ch2: ch2.degrade_optional(),
+            ch3: ch3.degrade_optional(),
         })
     }
 
@@ -206,9 +218,24 @@ impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
         self.stop();
         self.disable();
 
-        info!("pwm drop: done");
+        if let Some(pin) = &self.ch0 {
+            pin.set_low();
+            pin.conf().write(|w| w);
+        }
+        if let Some(pin) = &self.ch1 {
+            pin.set_low();
+            pin.conf().write(|w| w);
+        }
+        if let Some(pin) = &self.ch2 {
+            pin.set_low();
+            pin.conf().write(|w| w);
+        }
+        if let Some(pin) = &self.ch3 {
+            pin.set_low();
+            pin.conf().write(|w| w);
+        }
 
-        // TODO: disable pins
+        info!("pwm drop: done");
     }
 }
 
@@ -360,6 +387,10 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
 
         Self {
             phantom: PhantomData,
+            ch0: ch0.degrade_optional(),
+            ch1: ch1.degrade_optional(),
+            ch2: ch2.degrade_optional(),
+            ch3: ch3.degrade_optional(),
         }
     }
 
@@ -374,7 +405,6 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
     }
 
-    // todo should this do.. something useful
     /// Enables the PWM generator.
     #[inline(always)]
     pub fn enable(&self) {
@@ -382,7 +412,6 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         r.enable.write(|w| w.enable().enabled());
     }
 
-    // todo should this stop the task? or should you just use set_duty to 0?
     /// Disables the PWM generator.
     #[inline(always)]
     pub fn disable(&self) {
@@ -461,9 +490,24 @@ impl<'a, T: Instance> Drop for SimplePwm<'a, T> {
         self.stop();
         self.disable();
 
-        info!("pwm drop: done");
+        if let Some(pin) = &self.ch0 {
+            pin.set_low();
+            pin.conf().write(|w| w);
+        }
+        if let Some(pin) = &self.ch1 {
+            pin.set_low();
+            pin.conf().write(|w| w);
+        }
+        if let Some(pin) = &self.ch2 {
+            pin.set_low();
+            pin.conf().write(|w| w);
+        }
+        if let Some(pin) = &self.ch3 {
+            pin.set_low();
+            pin.conf().write(|w| w);
+        }
 
-        // TODO: disable pins
+        info!("pwm drop: done");
     }
 }
 
