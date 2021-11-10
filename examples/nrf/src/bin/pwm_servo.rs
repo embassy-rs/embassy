@@ -13,7 +13,7 @@ use embassy_nrf::Peripherals;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    let pwm = SimplePwm::new(p.PWM0, p.P0_05, NoPin, NoPin, NoPin);
+    let mut pwm = SimplePwm::new(p.PWM0, p.P0_05, NoPin, NoPin, NoPin);
     // sg90 microervo requires 50hz or 20ms period
     // set_period can only set down to 125khz so we cant use it directly
     // Div128 is 125khz or 0.000008s or 0.008ms, 20/0.008 is 2500 is top
