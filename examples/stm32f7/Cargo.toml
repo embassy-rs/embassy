@@ -19,8 +19,10 @@ defmt-error = []
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-trace"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "stm32f767zi", "unstable-pac", "time-driver-tim2"]  }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "net", "stm32f767zi", "unstable-pac", "time-driver-tim2"]  }
 embassy-hal-common = {version = "0.1.0", path = "../../embassy-hal-common" }
+embassy-net = { path = "../../embassy-net", default-features = false, features = ["defmt-debug", "defmt", "tcp", "medium-ethernet", "pool-16"] }
+embassy-macros = { path = "../../embassy-macros" }
 
 defmt = "0.2.3"
 defmt-rtt = "0.2.0"
@@ -33,3 +35,17 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 rtt-target = { version = "0.3.1", features = ["cortex-m"] }
 heapless = { version = "0.7.5", default-features = false }
 nb = "1.0.0"
+rand_core = "0.6.3"
+critical-section = "0.2.3"
+
+
+[dependencies.smoltcp]
+git = "https://github.com/smoltcp-rs/smoltcp"
+rev = "e4241510337e095b9d21136c5f58b2eaa1b78479"
+default-features = false
+features = [
+    "proto-ipv4",
+    "socket",
+    "async",
+    "defmt",
+]
