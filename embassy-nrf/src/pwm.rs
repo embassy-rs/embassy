@@ -3,7 +3,7 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use embassy::util::Unborrow;
-use embassy_hal_common::{low_power_wait_until, unborrow};
+use embassy_hal_common::unborrow;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, OptionalPin as GpioOptionalPin};
@@ -168,7 +168,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
                 r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
 
                 // defensive wait until waveform is loaded after seqstart
-                low_power_wait_until(|| r.events_seqend[0].read().bits() == 1);
+                while r.events_seqend[0].read().bits() == 0 {}
                 r.events_seqend[0].write(|w| w);
             }
             // loop count is how many times to play BOTH sequences
@@ -186,14 +186,14 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
                     r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
 
                     // defensive wait until waveform is loaded after seqstart
-                    low_power_wait_until(|| r.events_seqend[1].read().bits() == 1);
+                    while r.events_seqend[1].read().bits() == 0 {}
                     r.events_seqend[1].write(|w| w);
                 } else {
                     // tasks_seqstart() doesn't exist in all svds so write its bit instead
                     r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
 
                     // defensive wait until waveform is loaded after seqstart
-                    low_power_wait_until(|| r.events_seqend[0].read().bits() == 1);
+                    while r.events_seqend[0].read().bits() == 0 {}
                     r.events_seqend[0].write(|w| w);
                 }
             }
@@ -206,7 +206,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
                 r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
 
                 // defensive wait until waveform is loaded after seqstart
-                low_power_wait_until(|| r.events_seqend[0].read().bits() == 1);
+                while r.events_seqend[0].read().bits() == 0 {}
                 r.events_seqend[0].write(|w| w);
             }
         }
@@ -463,7 +463,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         r.tasks_seqstart[0].write(|w| unsafe { w.bits(1) });
 
         // defensive wait until waveform is loaded after seqstart
-        low_power_wait_until(|| r.events_seqend[0].read().bits() == 1);
+        while r.events_seqend[0].read().bits() == 0 {}
         r.events_seqend[0].write(|w| w);
     }
 
