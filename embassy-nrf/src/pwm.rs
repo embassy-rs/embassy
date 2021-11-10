@@ -7,7 +7,7 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, OptionalPin as GpioOptionalPin, Pin};
+use crate::gpio::{AnyPin, OptionalPin as GpioOptionalPin};
 use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::util::slice_in_ram_or;
