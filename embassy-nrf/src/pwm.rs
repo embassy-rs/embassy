@@ -22,8 +22,8 @@ pub struct SimplePwm<'d, T: Instance> {
     ch3: Option<AnyPin>,
 }
 
-/// SequencePwm allows you to offloader the updating of a sequence of duty
-/// cycles to up to four channels, as well as repeat that sequence n times.
+/// SequencePwm allows you to offload the updating of a sequence of duty cycles
+/// to up to four channels, as well as repeat that sequence n times.
 pub struct SequencePwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ch0: Option<AnyPin>,
