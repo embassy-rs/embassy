@@ -166,10 +166,6 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
                 r.loop_.write(|w| w.cnt().disabled());
                 // tasks_seqstart() doesn't exist in all svds so write its bit instead
                 r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
-
-                // defensive wait until waveform is loaded after seqstart
-                while r.events_seqend[0].read().bits() == 0 {}
-                r.events_seqend[0].write(|w| w);
             }
             // loop count is how many times to play BOTH sequences
             // 2 total  (1 x 2)
@@ -184,17 +180,9 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
                 if odd {
                     // tasks_seqstart() doesn't exist in all svds so write its bit instead
                     r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
-
-                    // defensive wait until waveform is loaded after seqstart
-                    while r.events_seqend[1].read().bits() == 0 {}
-                    r.events_seqend[1].write(|w| w);
                 } else {
                     // tasks_seqstart() doesn't exist in all svds so write its bit instead
                     r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
-
-                    // defensive wait until waveform is loaded after seqstart
-                    while r.events_seqend[0].read().bits() == 0 {}
-                    r.events_seqend[0].write(|w| w);
                 }
             }
             // to play infinitely, repeat the sequence one time, then have loops done self trigger seq0 again
@@ -204,10 +192,6 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
                 // tasks_seqstart() doesn't exist in all svds so write its bit instead
                 r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
-
-                // defensive wait until waveform is loaded after seqstart
-                while r.events_seqend[0].read().bits() == 0 {}
-                r.events_seqend[0].write(|w| w);
             }
         }
 
