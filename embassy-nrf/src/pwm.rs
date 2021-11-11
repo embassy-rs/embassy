@@ -129,8 +129,10 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             w.mode().refresh_count()
         });
 
-        r.mode
-            .write(|w| unsafe { w.bits(config.counter_mode as u32) });
+        r.mode.write(|w| match config.counter_mode {
+            CounterMode::UpAndDown => w.updown().up_and_down(),
+            CounterMode::Up => w.updown().up(),
+        });
         r.prescaler
             .write(|w| w.prescaler().bits(config.prescaler as u8));
         r.countertop
