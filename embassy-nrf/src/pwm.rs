@@ -203,7 +203,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         Ok(())
     }
 
-    /// Stop playback
+    /// Stop playback.
     #[inline(always)]
     pub fn stop(&self) {
         let r = T::regs();
