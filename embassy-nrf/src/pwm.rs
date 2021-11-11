@@ -260,9 +260,9 @@ pub struct SequenceConfig {
     pub prescaler: Prescaler,
     /// How a sequence is read from RAM and is spread to the compare register
     pub sequence_load: SequenceLoad,
-    /// Number of Times PWM periods to delay between each sequence sample
+    /// Number of PWM periods to delay between each sequence sample
     pub refresh: u32,
-    /// Number of Times PWM periods after the sequence ends before starting the next sequence
+    /// Number of PWM periods after the sequence ends before starting the next sequence
     pub end_delay: u32,
 }
 
@@ -329,7 +329,7 @@ pub enum CounterMode {
 impl<'d, T: Instance> SimplePwm<'d, T> {
     /// Creates the interface to a PWM instance.
     ///
-    /// Defaults the freq to 1Mhz, max_duty 1000, duty 0, and pins low.
+    /// Defaults the freq to 1Mhz, max_duty 1000, duty 0, up mode, and pins low.
     /// Must be started by calling `set_duty`
     ///
     /// # Safety
