@@ -11,7 +11,8 @@ use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::util::slice_in_ram_or;
 
-/// Interface to the PWM peripheral
+/// SimplePwm is the traditional pwm interface you're probably used to, allowing
+/// to simply set a duty cycle across up to four channels.
 pub struct SimplePwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     duty: [u16; 4],
@@ -21,6 +22,8 @@ pub struct SimplePwm<'d, T: Instance> {
     ch3: Option<AnyPin>,
 }
 
+/// SequencePwm allows you to offloader the updating of a sequence of duty
+/// cycles to up to four channels, as well as repeat that sequence n times.
 pub struct SequencePwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ch0: Option<AnyPin>,
@@ -42,7 +45,7 @@ pub enum Error {
 }
 
 impl<'d, T: Instance> SequencePwm<'d, T> {
-    /// Creates the interface to a PWM Sequence interface.
+    /// Creates the interface to a `SequencePwm`.
     ///
     /// Must be started by calling `start`
     ///
@@ -329,7 +332,7 @@ pub enum CounterMode {
 }
 
 impl<'d, T: Instance> SimplePwm<'d, T> {
-    /// Creates the interface to a PWM instance.
+    /// Creates the interface to a `SimplePwm`
     ///
     /// Defaults the freq to 1Mhz, max_duty 1000, duty 0, up mode, and pins low.
     /// Must be started by calling `set_duty`
