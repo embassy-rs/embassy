@@ -265,7 +265,7 @@ impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
     }
 }
 
-/// Configure an infinite looping sequence for `simple_playback`
+/// Configure an infinite looping sequence for `SequencePwm`
 #[non_exhaustive]
 pub struct SequenceConfig {
     /// Selects up mode or up-and-down mode for the counter
@@ -295,6 +295,7 @@ impl Default for SequenceConfig {
     }
 }
 
+/// How many times to run the sequence
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum SequenceMode {
     /// Run sequence n Times total
@@ -332,6 +333,7 @@ pub enum SequenceLoad {
     Waveform,
 }
 
+/// Selects up mode or up-and-down mode for the counter
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum CounterMode {
     /// Up counter (edge-aligned PWM duty cycle)
@@ -343,7 +345,7 @@ pub enum CounterMode {
 impl<'d, T: Instance> SimplePwm<'d, T> {
     /// Creates the interface to a PWM instance.
     ///
-    /// Defaults the freq to 1Mhz, max_duty 32767, duty 0, and channels low.
+    /// Defaults the freq to 1Mhz, max_duty 1000, duty 0, and pins low.
     /// Must be started by calling `set_duty`
     ///
     /// # Safety
