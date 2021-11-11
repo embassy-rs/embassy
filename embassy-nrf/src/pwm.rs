@@ -237,24 +237,30 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
 impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
     fn drop(&mut self) {
+        let r = T::regs();
+
         self.stop();
         self.disable();
 
         if let Some(pin) = &self.ch0 {
             pin.set_low();
             pin.conf().write(|w| w);
+            r.psel.out[0].write(|w| unsafe { w.bits(0x80000000) });
         }
         if let Some(pin) = &self.ch1 {
             pin.set_low();
             pin.conf().write(|w| w);
+            r.psel.out[1].write(|w| unsafe { w.bits(0x80000000) });
         }
         if let Some(pin) = &self.ch2 {
             pin.set_low();
             pin.conf().write(|w| w);
+            r.psel.out[2].write(|w| unsafe { w.bits(0x80000000) });
         }
         if let Some(pin) = &self.ch3 {
             pin.set_low();
             pin.conf().write(|w| w);
+            r.psel.out[3].write(|w| unsafe { w.bits(0x80000000) });
         }
 
         info!("pwm drop: done");
@@ -522,24 +528,30 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
 
 impl<'a, T: Instance> Drop for SimplePwm<'a, T> {
     fn drop(&mut self) {
+        let r = T::regs();
+
         self.stop();
         self.disable();
 
         if let Some(pin) = &self.ch0 {
             pin.set_low();
             pin.conf().write(|w| w);
+            r.psel.out[0].write(|w| unsafe { w.bits(0x80000000) });
         }
         if let Some(pin) = &self.ch1 {
             pin.set_low();
             pin.conf().write(|w| w);
+            r.psel.out[1].write(|w| unsafe { w.bits(0x80000000) });
         }
         if let Some(pin) = &self.ch2 {
             pin.set_low();
             pin.conf().write(|w| w);
+            r.psel.out[2].write(|w| unsafe { w.bits(0x80000000) });
         }
         if let Some(pin) = &self.ch3 {
             pin.set_low();
             pin.conf().write(|w| w);
+            r.psel.out[3].write(|w| unsafe { w.bits(0x80000000) });
         }
 
         info!("pwm drop: done");
