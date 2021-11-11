@@ -262,8 +262,6 @@ impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
             pin.conf().write(|w| w);
             r.psel.out[3].write(|w| unsafe { w.bits(0x80000000) });
         }
-
-        info!("pwm drop: done");
     }
 }
 
@@ -553,8 +551,6 @@ impl<'a, T: Instance> Drop for SimplePwm<'a, T> {
             pin.conf().write(|w| w);
             r.psel.out[3].write(|w| unsafe { w.bits(0x80000000) });
         }
-
-        info!("pwm drop: done");
     }
 }
 
