@@ -26,6 +26,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // 1ms 0deg (1/.008=125), 1.5ms 90deg (1.5/.008=187.5), 2ms 180deg (2/.008=250),
     loop {
         info!("45 deg");
+        // poor mans inverting, subtract our value from max_duty
         pwm.set_duty(0, 2500 - 156);
         Timer::after(Duration::from_millis(5000)).await;
 
