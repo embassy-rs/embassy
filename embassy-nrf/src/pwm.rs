@@ -438,6 +438,11 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
 
         self.duty[channel] = duty & 0x7FFF;
 
+        // reload ptr in case self was moved
+        r.seq0
+            .ptr
+            .write(|w| unsafe { w.bits((&self.duty).as_ptr() as u32) });
+
         // defensive before seqstart
         compiler_fence(Ordering::SeqCst);
 
