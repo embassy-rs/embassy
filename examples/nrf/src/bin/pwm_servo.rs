@@ -18,13 +18,12 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // set_period can only set down to 125khz so we cant use it directly
     // Div128 is 125khz or 0.000008s or 0.008ms, 20/0.008 is 2500 is top
     config.prescaler = Prescaler::Div128;
-    config.top = 25000;
+    config.top = 2500;
 
     let mut duty = [0];
     let mut pwm = unwrap!(Pwm::new(
         p.PWM0, p.P0_05, NoPin, NoPin, NoPin, config, &mut duty
     ));
-    let _ = pwm.start(SequenceMode::Infinite);
     info!("pwm initialized!");
 
     Timer::after(Duration::from_millis(5000)).await;
