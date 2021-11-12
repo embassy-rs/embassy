@@ -102,9 +102,6 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
         r.shorts.reset();
 
-        // Enable
-        r.enable.write(|w| w.enable().enabled());
-
         r.seq0
             .ptr
             .write(|w| unsafe { w.bits(sequence.as_ptr() as u32) });
@@ -208,19 +205,14 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     pub fn stop(&self) {
         let r = T::regs();
 
+        r.enable.write(|w| w.enable().disabled());
+
         r.shorts.reset();
 
         compiler_fence(Ordering::SeqCst);
 
         // tasks_stop() doesn't exist in all svds so write its bit instead
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
-    }
-
-    /// Disables the PWM generator.
-    #[inline(always)]
-    pub fn disable(&self) {
-        let r = T::regs();
-        r.enable.write(|w| w.enable().disabled());
     }
 }
 
@@ -229,7 +221,6 @@ impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
         let r = T::regs();
 
         self.stop();
-        self.disable();
 
         if let Some(pin) = &self.ch0 {
             pin.set_low();
