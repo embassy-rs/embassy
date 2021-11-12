@@ -14,7 +14,7 @@ use embassy_nrf::Peripherals;
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     // for i in range(1024): print(int((math.sin(i/512*math.pi)*0.4+0.5)**2*32767), ', ', end='')
-    let mut seq_values: [u16; 1024] = [
+    let seq_values: [u16; 1024] = [
         8191, 8272, 8353, 8434, 8516, 8598, 8681, 8764, 8847, 8931, 9015, 9099, 9184, 9269, 9354,
         9440, 9526, 9613, 9700, 9787, 9874, 9962, 10050, 10139, 10227, 10316, 10406, 10495, 10585,
         10675, 10766, 10857, 10948, 11039, 11131, 11223, 11315, 11407, 11500, 11592, 11685, 11779,
@@ -104,7 +104,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         NoPin,
         NoPin,
         config,
-        &mut seq_values
+        &seq_values
     ));
     let _ = pwm.start(SequenceMode::Infinite);
     info!("pwm started!");
