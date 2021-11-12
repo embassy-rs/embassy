@@ -11,9 +11,9 @@ use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::util::slice_in_ram_or;
 
-/// SimplePwm is the traditional pwm interface you're probably used to, allowing
+/// SimplifiedPwm is an Arduino-style PWM interface allowing
 /// to simply set a duty cycle across up to four channels.
-pub struct SimplePwm<'d, T: Instance> {
+pub struct SimplifiedPwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     duty: [u16; 4],
     ch0: Option<AnyPin>,
@@ -22,7 +22,7 @@ pub struct SimplePwm<'d, T: Instance> {
     ch3: Option<AnyPin>,
 }
 
-/// SequencePwm allows you to offload the updating of a sequence of duty cycles
+/// SequencePwm offloads the updating of a sequence of duty cycles
 /// to up to four channels, as well as repeat that sequence n times.
 pub struct SequencePwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
@@ -216,6 +216,13 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
     }
 
+    /// Enables the PWM generator.
+    #[inline(always)]
+    pub fn enable(&self) {
+        let r = T::regs();
+        r.enable.write(|w| w.enable().enabled());
+    }
+
     /// Disables the PWM generator.
     #[inline(always)]
     pub fn disable(&self) {
@@ -331,8 +338,8 @@ pub enum CounterMode {
     UpAndDown,
 }
 
-impl<'d, T: Instance> SimplePwm<'d, T> {
-    /// Creates the interface to a `SimplePwm`
+impl<'d, T: Instance> SimplifiedPwm<'d, T> {
+    /// Creates the interface to a `SimplifiedPwm`
     ///
     /// Defaults the freq to 1Mhz, max_duty 1000, duty 0, up mode, and pins low.
     /// Must be started by calling `set_duty`
@@ -341,7 +348,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     ///
     /// The returned API is safe unless you use `mem::forget` (or similar safe
     /// mechanisms) on stack allocated buffers which which have been passed to
-    /// [`new()`](SimplePwm::new).
+    /// [`new()`](SimplifiedPwm::new).
     #[allow(unused_unsafe)]
     pub fn new(
         _pwm: impl Unborrow<Target = T> + 'd,
@@ -396,7 +403,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
 
         r.seq0
             .ptr
-            .write(|w| unsafe { w.bits(&pwm.duty as *const _ as u32) });
+            .write(|w| unsafe { w.bits(pwm.duty.as_ptr() as u32) });
 
         r.seq0.cnt.write(|w| unsafe { w.bits(4) });
         r.seq0.refresh.write(|w| unsafe { w.bits(0) });
@@ -515,7 +522,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     }
 }
 
-impl<'a, T: Instance> Drop for SimplePwm<'a, T> {
+impl<'a, T: Instance> Drop for SimplifiedPwm<'a, T> {
     fn drop(&mut self) {
         let r = T::regs();
 
