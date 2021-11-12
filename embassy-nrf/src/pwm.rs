@@ -55,14 +55,14 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     /// mechanisms) on stack allocated buffers which which have been passed to
     /// [`new()`](SequencePwm::new).
     #[allow(unused_unsafe)]
-    pub fn new<'a>(
+    pub fn new(
         _pwm: impl Unborrow<Target = T> + 'd,
         ch0: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch1: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: SequenceConfig,
-        sequence: &'a [u16],
+        sequence: &'d [u16],
     ) -> Result<Self, Error> {
         slice_in_ram_or(sequence, Error::DMABufferNotInDataMemory)?;
 
@@ -102,9 +102,6 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
         r.shorts.reset();
 
-        // Enable
-        r.enable.write(|w| w.enable().enabled());
-
         r.seq0
             .ptr
             .write(|w| unsafe { w.bits(sequence.as_ptr() as u32) });
@@ -139,7 +136,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         r.prescaler
             .write(|w| w.prescaler().bits(config.prescaler as u8));
         r.countertop
-            .write(|w| unsafe { w.countertop().bits(config.top) });
+            .write(|w| unsafe { w.countertop().bits(config.max_duty) });
 
         Ok(Self {
             phantom: PhantomData,
@@ -208,19 +205,14 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     pub fn stop(&self) {
         let r = T::regs();
 
+        r.enable.write(|w| w.enable().disabled());
+
         r.shorts.reset();
 
         compiler_fence(Ordering::SeqCst);
 
         // tasks_stop() doesn't exist in all svds so write its bit instead
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
-    }
-
-    /// Disables the PWM generator.
-    #[inline(always)]
-    pub fn disable(&self) {
-        let r = T::regs();
-        r.enable.write(|w| w.enable().disabled());
     }
 }
 
@@ -229,7 +221,6 @@ impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
         let r = T::regs();
 
         self.stop();
-        self.disable();
 
         if let Some(pin) = &self.ch0 {
             pin.set_low();
@@ -260,7 +251,7 @@ pub struct SequenceConfig {
     /// Selects up mode or up-and-down mode for the counter
     pub counter_mode: CounterMode,
     /// Top value to be compared against buffer values
-    pub top: u16,
+    pub max_duty: u16,
     /// Configuration for PWM_CLK
     pub prescaler: Prescaler,
     /// How a sequence is read from RAM and is spread to the compare register
@@ -275,7 +266,7 @@ impl Default for SequenceConfig {
     fn default() -> SequenceConfig {
         SequenceConfig {
             counter_mode: CounterMode::Up,
-            top: 1000,
+            max_duty: 1000,
             prescaler: Prescaler::Div16,
             sequence_load: SequenceLoad::Common,
             refresh: 0,
@@ -396,7 +387,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
 
         r.seq0
             .ptr
-            .write(|w| unsafe { w.bits(&pwm.duty as *const _ as u32) });
+            .write(|w| unsafe { w.bits((&pwm.duty).as_ptr() as u32) });
 
         r.seq0.cnt.write(|w| unsafe { w.bits(4) });
         r.seq0.refresh.write(|w| unsafe { w.bits(0) });
@@ -447,9 +438,10 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
 
         self.duty[channel] = duty & 0x7FFF;
 
+        // reload ptr in case self was moved
         r.seq0
             .ptr
-            .write(|w| unsafe { w.bits(&self.duty as *const _ as u32) });
+            .write(|w| unsafe { w.bits((&self.duty).as_ptr() as u32) });
 
         // defensive before seqstart
         compiler_fence(Ordering::SeqCst);
@@ -457,7 +449,8 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         // tasks_seqstart() doesn't exist in all svds so write its bit instead
         r.tasks_seqstart[0].write(|w| unsafe { w.bits(1) });
 
-        // defensive wait until waveform is loaded after seqstart
+        // defensive wait until waveform is loaded after seqstart so set_duty
+        // can't be called again while dma is still reading
         while r.events_seqend[0].read().bits() == 0 {}
         r.events_seqend[0].write(|w| w);
     }
