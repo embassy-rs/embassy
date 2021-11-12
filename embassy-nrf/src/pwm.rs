@@ -62,7 +62,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: SequenceConfig,
-        sequence: &mut [u16],
+        sequence: &'d [u16],
     ) -> Result<Self, Error> {
         slice_in_ram_or(sequence, Error::DMABufferNotInDataMemory)?;
 
