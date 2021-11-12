@@ -13,40 +13,27 @@ use embassy_nrf::Peripherals;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    let mut config = Config::default();
-    // set_period doesnt actually set what you give it, because it only has a
-    // few options from the hardhware so be explicit instead
-    // Div128 is slowest, 125khz still crazy fast for our eyes
-    config.prescaler = Prescaler::Div128;
+    let seq_values: [u16; 5] = [1000, 250, 100, 50, 0];
 
-    let mut duty = [0; 1];
+    let mut config = Config::default();
+    config.prescaler = Prescaler::Div128;
+    // 1 period is 1000 * 1/16mhz/128 =0.000008= 0.008ms
+    config.refresh = 625; // Why am I off by like a factor of 1000?
+
     let pwm = unwrap!(Pwm::new(
-        p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config, &duty
+        p.PWM0,
+        p.P0_13,
+        NoPin,
+        NoPin,
+        NoPin,
+        config,
+        &seq_values
     ));
     let _ = pwm.start(SequenceMode::Infinite);
-    info!("pwm initialized!");
 
-    // default max_duty if not specified is 1000
-    // so 0 would be fully off and 1000 or above would be fully on
+    info!("pwm started!");
+
     loop {
-        info!("100%");
-        duty[0] = 1000;
-        Timer::after(Duration::from_millis(5000)).await;
-
-        info!("25%");
-        duty[0] = 250;
-        Timer::after(Duration::from_millis(5000)).await;
-
-        info!("10%");
-        duty[0] = 100;
-        Timer::after(Duration::from_millis(5000)).await;
-
-        info!("5%");
-        duty[0] = 50;
-        Timer::after(Duration::from_millis(5000)).await;
-
-        info!("0%");
-        duty[0] = 0;
         Timer::after(Duration::from_millis(5000)).await;
     }
 }
