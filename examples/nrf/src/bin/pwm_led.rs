@@ -17,8 +17,9 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let mut config = Config::default();
     config.prescaler = Prescaler::Div128;
-    // 1 period is 1000 * 1/16mhz/128 =0.000008= 0.008ms
-    config.refresh = 625; // Why am I off by like a factor of 1000?
+    // 1 period is 1000 * (128/16mhz =0.000008 = 0.008ms) = 8ms
+    // 5000ms wait = 5000/8 = 625
+    config.refresh = 625;
 
     let pwm = unwrap!(Pwm::new(
         p.PWM0,
