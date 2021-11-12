@@ -44,14 +44,14 @@ impl<'d, T: Instance> Pwm<'d, T> {
     /// mechanisms) on stack allocated buffers which which have been passed to
     /// [`new()`](Pwm::new).
     #[allow(unused_unsafe)]
-    pub fn new<'a>(
+    pub fn new(
         _pwm: impl Unborrow<Target = T> + 'd,
         ch0: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch1: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: Config,
-        sequence: &'a [u16],
+        sequence: &'d [u16],
     ) -> Result<Self, Error> {
         slice_in_ram_or(sequence, Error::DMABufferNotInDataMemory)?;
 
