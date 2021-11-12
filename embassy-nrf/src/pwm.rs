@@ -24,7 +24,7 @@ pub struct SimplePwm<'d, T: Instance> {
 
 /// SequencePwm allows you to offload the updating of a sequence of duty cycles
 /// to up to four channels, as well as repeat that sequence n times.
-pub struct SequencePwm<'d, T: Instance, const N: usize> {
+pub struct SequencePwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ch0: Option<AnyPin>,
     ch1: Option<AnyPin>,
@@ -44,7 +44,7 @@ pub enum Error {
     DMABufferNotInDataMemory,
 }
 
-impl<'d, T: Instance, const N: usize> SequencePwm<'d, T, N> {
+impl<'d, T: Instance> SequencePwm<'d, T> {
     /// Creates the interface to a `SequencePwm`.
     ///
     /// Must be started by calling `start`
@@ -62,11 +62,11 @@ impl<'d, T: Instance, const N: usize> SequencePwm<'d, T, N> {
         ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: SequenceConfig,
-        sequence: [u16; N],
+        sequence: &mut [u16],
     ) -> Result<Self, Error> {
-        slice_in_ram_or(&sequence, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(sequence, Error::DMABufferNotInDataMemory)?;
 
-        if N > 32767 {
+        if sequence.len() > 32767 {
             return Err(Error::SequenceTooLong);
         }
 
@@ -108,7 +108,9 @@ impl<'d, T: Instance, const N: usize> SequencePwm<'d, T, N> {
         r.seq0
             .ptr
             .write(|w| unsafe { w.bits(sequence.as_ptr() as u32) });
-        r.seq0.cnt.write(|w| unsafe { w.bits(N as u32) });
+        r.seq0
+            .cnt
+            .write(|w| unsafe { w.bits(sequence.len() as u32) });
         r.seq0.refresh.write(|w| unsafe { w.bits(config.refresh) });
         r.seq0
             .enddelay
@@ -222,7 +224,7 @@ impl<'d, T: Instance, const N: usize> SequencePwm<'d, T, N> {
     }
 }
 
-impl<'a, T: Instance, const N: usize> Drop for SequencePwm<'a, T, N> {
+impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
     fn drop(&mut self) {
         let r = T::regs();
 
