@@ -22,6 +22,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // so we want to repeat our value as many times as necessary until 5000ms passes
     // want 5000/8 = 625 periods total to occur, so 624 (we get the one period for free remember)
     config.refresh = 624;
+    // thus our sequence takes 5 * 5000ms or 25 seconds
 
     let pwm = unwrap!(SequencePwm::new(
         p.PWM0,
@@ -36,7 +37,9 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     info!("pwm started!");
 
-    loop {
-        Timer::after(Duration::from_millis(5000)).await;
-    }
+    // we can abort a sequence if we need to before its complete with pwm.stop()
+    // or stop is also implicitly called when the pwm peripheral is dropped
+    // when it goes out of scope
+    Timer::after(Duration::from_millis(20000)).await;
+    info!("pwm stopped early!");
 }
