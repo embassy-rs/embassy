@@ -8,7 +8,7 @@ use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::gpio::NoPin;
-use embassy_nrf::pwm::{Prescaler, SequenceConfig, SequenceMode, SequencePwm};
+use embassy_nrf::pwm::{Config, Prescaler, Pwm, SequenceMode};
 use embassy_nrf::Peripherals;
 
 #[embassy::main]
@@ -88,7 +88,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         7255, 7331, 7407, 7484, 7561, 7638, 7716, 7794, 7873, 7952, 8031, 8111,
     ];
 
-    let mut config = SequenceConfig::default();
+    let mut config = Config::default();
     config.prescaler = Prescaler::Div1;
     // 1 period is 32767 * 1/16mhz = 0.002047938 = 2.047938ms
     config.top = 32767;
@@ -97,7 +97,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // which for us is ~1-2 periods
     config.refresh = 3;
 
-    let pwm = unwrap!(SequencePwm::new(
+    let pwm = unwrap!(Pwm::new(
         p.PWM0,
         p.P0_13,
         NoPin,

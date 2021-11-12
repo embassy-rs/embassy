@@ -7,7 +7,7 @@ mod example_common;
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_nrf::pwm::{Prescaler, SimplePwm};
+use embassy_nrf::pwm::{Config, Prescaler, Pwm, SequenceLoad, SequenceMode};
 use embassy_nrf::Peripherals;
 
 // for i in range(1024): print(int((math.sin(i/512*math.pi)*0.4+0.5)**2*32767), ', ', end='')
@@ -85,18 +85,30 @@ static DUTY: [u16; 1024] = [
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    let mut pwm = SimplePwm::new(p.PWM0, p.P0_13, p.P0_14, p.P0_16, p.P0_15);
-    pwm.set_prescaler(Prescaler::Div1);
-    pwm.set_max_duty(32767);
+    let mut config = Config::default();
+    config.prescaler = Prescaler::Div1;
+    // 1 period is 32767 * 1/16mhz = 0.002047938 = 2.047938ms
+    config.top = 32767;
+    config.sequence_load = SequenceLoad::Individual;
+    // pwm example is delaying >~3ms before updating duty cycle, our refreshes
+    // happen exactly at 2.047938ms so we need a delay after each value of >~1ms
+    // which for us is ~1-2 periods
+    config.refresh = 3;
+
+    let mut duty = [0; 4];
+    let pwm = unwrap!(Pwm::new(
+        p.PWM0, p.P0_13, p.P0_14, p.P0_16, p.P0_15, config, &duty
+    ));
+    let _ = pwm.start(SequenceMode::Infinite);
     info!("pwm initialized!");
 
     let mut i = 0;
     loop {
         i += 1;
-        pwm.set_duty(0, DUTY[i % 1024]);
-        pwm.set_duty(1, DUTY[(i + 256) % 1024]);
-        pwm.set_duty(2, DUTY[(i + 512) % 1024]);
-        pwm.set_duty(3, DUTY[(i + 768) % 1024]);
+        duty[0] = DUTY[i % 1024];
+        duty[1] = DUTY[(i + 256) % 1024];
+        duty[2] = DUTY[(i + 512) % 1024];
+        duty[3] = DUTY[(i + 768) % 1024];
         Timer::after(Duration::from_millis(3)).await;
     }
 }

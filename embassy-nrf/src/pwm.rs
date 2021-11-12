@@ -11,20 +11,9 @@ use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::util::slice_in_ram_or;
 
-/// SimplePwm is the traditional pwm interface you're probably used to, allowing
-/// to simply set a duty cycle across up to four channels.
-pub struct SimplePwm<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
-    duty: [u16; 4],
-    ch0: Option<AnyPin>,
-    ch1: Option<AnyPin>,
-    ch2: Option<AnyPin>,
-    ch3: Option<AnyPin>,
-}
-
-/// SequencePwm allows you to offload the updating of a sequence of duty cycles
+/// Pwm allows you to offload the updating of a sequence of duty cycles
 /// to up to four channels, as well as repeat that sequence n times.
-pub struct SequencePwm<'d, T: Instance> {
+pub struct Pwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ch0: Option<AnyPin>,
     ch1: Option<AnyPin>,
@@ -44,8 +33,8 @@ pub enum Error {
     DMABufferNotInDataMemory,
 }
 
-impl<'d, T: Instance> SequencePwm<'d, T> {
-    /// Creates the interface to a `SequencePwm`.
+impl<'d, T: Instance> Pwm<'d, T> {
+    /// Creates the interface to a `Pwm`.
     ///
     /// Must be started by calling `start`
     ///
@@ -53,7 +42,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     ///
     /// The returned API is safe unless you use `mem::forget` (or similar safe
     /// mechanisms) on stack allocated buffers which which have been passed to
-    /// [`new()`](SequencePwm::new).
+    /// [`new()`](Pwm::new).
     #[allow(unused_unsafe)]
     pub fn new<'a>(
         _pwm: impl Unborrow<Target = T> + 'd,
@@ -61,7 +50,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         ch1: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        config: SequenceConfig,
+        config: Config,
         sequence: &'a [u16],
     ) -> Result<Self, Error> {
         slice_in_ram_or(sequence, Error::DMABufferNotInDataMemory)?;
@@ -224,7 +213,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     }
 }
 
-impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
+impl<'a, T: Instance> Drop for Pwm<'a, T> {
     fn drop(&mut self) {
         let r = T::regs();
 
@@ -254,9 +243,9 @@ impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
     }
 }
 
-/// Configure an infinite looping sequence for `SequencePwm`
+/// Configure an infinite looping sequence for `Pwm`
 #[non_exhaustive]
-pub struct SequenceConfig {
+pub struct Config {
     /// Selects up mode or up-and-down mode for the counter
     pub counter_mode: CounterMode,
     /// Top value to be compared against buffer values
@@ -271,9 +260,9 @@ pub struct SequenceConfig {
     pub end_delay: u32,
 }
 
-impl Default for SequenceConfig {
-    fn default() -> SequenceConfig {
-        SequenceConfig {
+impl Default for Config {
+    fn default() -> Config {
+        Config {
             counter_mode: CounterMode::Up,
             top: 1000,
             prescaler: Prescaler::Div16,
@@ -329,220 +318,6 @@ pub enum CounterMode {
     Up,
     /// Up and down counter (center-aligned PWM duty cycle)
     UpAndDown,
-}
-
-impl<'d, T: Instance> SimplePwm<'d, T> {
-    /// Creates the interface to a `SimplePwm`
-    ///
-    /// Defaults the freq to 1Mhz, max_duty 1000, duty 0, up mode, and pins low.
-    /// Must be started by calling `set_duty`
-    ///
-    /// # Safety
-    ///
-    /// The returned API is safe unless you use `mem::forget` (or similar safe
-    /// mechanisms) on stack allocated buffers which which have been passed to
-    /// [`new()`](SimplePwm::new).
-    #[allow(unused_unsafe)]
-    pub fn new(
-        _pwm: impl Unborrow<Target = T> + 'd,
-        ch0: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        ch1: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-    ) -> Self {
-        unborrow!(ch0, ch1, ch2, ch3);
-
-        let r = T::regs();
-
-        if let Some(pin) = ch0.pin_mut() {
-            pin.set_low();
-            pin.conf().write(|w| w.dir().output());
-        }
-        if let Some(pin) = ch1.pin_mut() {
-            pin.set_low();
-            pin.conf().write(|w| w.dir().output());
-        }
-        if let Some(pin) = ch2.pin_mut() {
-            pin.set_low();
-            pin.conf().write(|w| w.dir().output());
-        }
-        if let Some(pin) = ch3.pin_mut() {
-            pin.set_low();
-            pin.conf().write(|w| w.dir().output());
-        }
-
-        // if NoPin provided writes disconnected (top bit 1) 0x80000000 else
-        // writes pin number ex 13 (0x0D) which is connected (top bit 0)
-        r.psel.out[0].write(|w| unsafe { w.bits(ch0.psel_bits()) });
-        r.psel.out[1].write(|w| unsafe { w.bits(ch1.psel_bits()) });
-        r.psel.out[2].write(|w| unsafe { w.bits(ch2.psel_bits()) });
-        r.psel.out[3].write(|w| unsafe { w.bits(ch3.psel_bits()) });
-
-        let pwm = Self {
-            phantom: PhantomData,
-            ch0: ch0.degrade_optional(),
-            ch1: ch1.degrade_optional(),
-            ch2: ch2.degrade_optional(),
-            ch3: ch3.degrade_optional(),
-            duty: [0; 4],
-        };
-
-        // Disable all interrupts
-        r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
-        r.shorts.reset();
-
-        // Enable
-        r.enable.write(|w| w.enable().enabled());
-
-        r.seq0
-            .ptr
-            .write(|w| unsafe { w.bits(&pwm.duty as *const _ as u32) });
-
-        r.seq0.cnt.write(|w| unsafe { w.bits(4) });
-        r.seq0.refresh.write(|w| unsafe { w.bits(0) });
-        r.seq0.enddelay.write(|w| unsafe { w.bits(0) });
-
-        r.decoder.write(|w| {
-            w.load().individual();
-            w.mode().refresh_count()
-        });
-        r.mode.write(|w| w.updown().up());
-        r.prescaler.write(|w| w.prescaler().div_16());
-        r.countertop.write(|w| unsafe { w.countertop().bits(1000) });
-        r.loop_.write(|w| w.cnt().disabled());
-
-        pwm
-    }
-
-    /// Stop playback
-    #[inline(always)]
-    pub fn stop(&self) {
-        let r = T::regs();
-
-        r.shorts.reset();
-
-        compiler_fence(Ordering::SeqCst);
-
-        // tasks_stop() doesn't exist in all svds so write its bit instead
-        r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
-    }
-
-    /// Enables the PWM generator.
-    #[inline(always)]
-    pub fn enable(&self) {
-        let r = T::regs();
-        r.enable.write(|w| w.enable().enabled());
-    }
-
-    /// Disables the PWM generator.
-    #[inline(always)]
-    pub fn disable(&self) {
-        let r = T::regs();
-        r.enable.write(|w| w.enable().disabled());
-    }
-
-    /// Sets duty cycle (15 bit) for a PWM channel.
-    pub fn set_duty(&mut self, channel: usize, duty: u16) {
-        let r = T::regs();
-
-        self.duty[channel] = duty & 0x7FFF;
-
-        r.seq0
-            .ptr
-            .write(|w| unsafe { w.bits(&self.duty as *const _ as u32) });
-
-        // defensive before seqstart
-        compiler_fence(Ordering::SeqCst);
-
-        // tasks_seqstart() doesn't exist in all svds so write its bit instead
-        r.tasks_seqstart[0].write(|w| unsafe { w.bits(1) });
-
-        // defensive wait until waveform is loaded after seqstart
-        while r.events_seqend[0].read().bits() == 0 {}
-        r.events_seqend[0].write(|w| w);
-    }
-
-    /// Sets the PWM clock prescaler.
-    #[inline(always)]
-    pub fn set_prescaler(&self, div: Prescaler) {
-        T::regs().prescaler.write(|w| w.prescaler().bits(div as u8));
-    }
-
-    /// Gets the PWM clock prescaler.
-    #[inline(always)]
-    pub fn prescaler(&self) -> Prescaler {
-        match T::regs().prescaler.read().prescaler().bits() {
-            0 => Prescaler::Div1,
-            1 => Prescaler::Div2,
-            2 => Prescaler::Div4,
-            3 => Prescaler::Div8,
-            4 => Prescaler::Div16,
-            5 => Prescaler::Div32,
-            6 => Prescaler::Div64,
-            7 => Prescaler::Div128,
-            _ => unreachable!(),
-        }
-    }
-
-    /// Sets the maximum duty cycle value.
-    #[inline(always)]
-    pub fn set_max_duty(&self, duty: u16) {
-        T::regs()
-            .countertop
-            .write(|w| unsafe { w.countertop().bits(duty.min(32767u16)) });
-    }
-
-    /// Returns the maximum duty cycle value.
-    #[inline(always)]
-    pub fn max_duty(&self) -> u16 {
-        T::regs().countertop.read().countertop().bits()
-    }
-
-    /// Sets the PWM output frequency.
-    #[inline(always)]
-    pub fn set_period(&self, freq: u32) {
-        let clk = 16_000_000u32 >> (self.prescaler() as u8);
-        let duty = clk / freq;
-        self.set_max_duty(duty.min(32767) as u16);
-    }
-
-    /// Returns the PWM output frequency.
-    #[inline(always)]
-    pub fn period(&self) -> u32 {
-        let clk = 16_000_000u32 >> (self.prescaler() as u8);
-        let max_duty = self.max_duty() as u32;
-        clk / max_duty
-    }
-}
-
-impl<'a, T: Instance> Drop for SimplePwm<'a, T> {
-    fn drop(&mut self) {
-        let r = T::regs();
-
-        self.stop();
-        self.disable();
-
-        if let Some(pin) = &self.ch0 {
-            pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[0].write(|w| unsafe { w.bits(0x80000000) });
-        }
-        if let Some(pin) = &self.ch1 {
-            pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[1].write(|w| unsafe { w.bits(0x80000000) });
-        }
-        if let Some(pin) = &self.ch2 {
-            pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[2].write(|w| unsafe { w.bits(0x80000000) });
-        }
-        if let Some(pin) = &self.ch3 {
-            pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[3].write(|w| unsafe { w.bits(0x80000000) });
-        }
-    }
 }
 
 pub(crate) mod sealed {
