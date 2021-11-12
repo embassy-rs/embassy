@@ -8,7 +8,7 @@ use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::gpio::NoPin;
-use embassy_nrf::pwm::{Config, Prescaler, Pwm, SequenceMode};
+use embassy_nrf::pwm::{Config, Prescaler, Pwm};
 use embassy_nrf::Peripherals;
 
 #[embassy::main]

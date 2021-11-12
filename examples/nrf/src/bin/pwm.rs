@@ -7,7 +7,7 @@ mod example_common;
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_nrf::pwm::{Config, Prescaler, Pwm, SequenceLoad, SequenceMode};
+use embassy_nrf::pwm::{Config, Prescaler, Pwm, SequenceLoad};
 use embassy_nrf::Peripherals;
 
 // for i in range(1024): print(int((math.sin(i/512*math.pi)*0.4+0.5)**2*32767), ', ', end='')
