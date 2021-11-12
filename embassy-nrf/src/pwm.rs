@@ -396,7 +396,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
 
         r.seq0
             .ptr
-            .write(|w| unsafe { w.bits(&pwm.duty as *const _ as u32) });
+            .write(|w| unsafe { w.bits((&pwm.duty).as_ptr() as u32) });
 
         r.seq0.cnt.write(|w| unsafe { w.bits(4) });
         r.seq0.refresh.write(|w| unsafe { w.bits(0) });
@@ -447,17 +447,14 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
 
         self.duty[channel] = duty & 0x7FFF;
 
-        r.seq0
-            .ptr
-            .write(|w| unsafe { w.bits(&self.duty as *const _ as u32) });
-
         // defensive before seqstart
         compiler_fence(Ordering::SeqCst);
 
         // tasks_seqstart() doesn't exist in all svds so write its bit instead
         r.tasks_seqstart[0].write(|w| unsafe { w.bits(1) });
 
-        // defensive wait until waveform is loaded after seqstart
+        // defensive wait until waveform is loaded after seqstart so set_duty
+        // can't be called again while dma is still reading
         while r.events_seqend[0].read().bits() == 0 {}
         r.events_seqend[0].write(|w| w);
     }
