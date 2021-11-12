@@ -4,8 +4,21 @@ use core::mem;
 use core::task::{Context, Poll, Waker};
 
 /// Synchronization primitive. Allows creating awaitable signals that may be passed between tasks.
+/// For a simple use-case where the receiver is only ever interested in the latest value of
+/// something, Signals work well. For more advanced use cases, please consider [crate::channel::mpsc].
 ///
-/// For more advanced use cases, please consider [futures-intrusive](https://crates.io/crates/futures-intrusive) channels or mutexes.
+/// Signals are generally declared as being a static const and then borrowed as required.
+///
+/// ```
+/// use embassy::channel::signal::Signal;
+///
+/// enum SomeCommand {
+///   On,
+///   Off,
+/// }
+///
+/// static SOME_SIGNAL: Signal<SomeCommand> = Signal::new();
+/// ```
 pub struct Signal<T> {
     state: UnsafeCell<State<T>>,
 }

@@ -29,7 +29,7 @@ use saadc::{
 #[non_exhaustive]
 pub enum Error {}
 
-/// One-shot saadc. Continuous sample mode TODO.
+/// One-shot and continuous SAADC.
 pub struct Saadc<'d, const N: usize> {
     phantom: PhantomData<&'d mut peripherals::SAADC>,
 }
