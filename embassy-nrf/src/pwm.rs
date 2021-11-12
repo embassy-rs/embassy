@@ -19,6 +19,7 @@ pub struct Pwm<'d, T: Instance> {
     ch1: Option<AnyPin>,
     ch2: Option<AnyPin>,
     ch3: Option<AnyPin>,
+    sequence: &'d mut [u16],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,7 +52,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
         ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: Config,
-        sequence: &'d [u16],
+        sequence: &'d mut [u16],
     ) -> Result<Self, Error> {
         slice_in_ram_or(sequence, Error::DMABufferNotInDataMemory)?;
 
@@ -136,6 +137,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
             ch1: ch1.degrade_optional(),
             ch2: ch2.degrade_optional(),
             ch3: ch3.degrade_optional(),
+            sequence,
         })
     }
 
@@ -205,11 +207,39 @@ impl<'d, T: Instance> Pwm<'d, T> {
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
     }
 
+    /// Enables the PWM generator.
+    #[inline(always)]
+    pub fn enable(&self) {
+        let r = T::regs();
+        r.enable.write(|w| w.enable().enabled());
+    }
+
     /// Disables the PWM generator.
     #[inline(always)]
     pub fn disable(&self) {
         let r = T::regs();
         r.enable.write(|w| w.enable().disabled());
+    }
+
+    /// Sets duty cycle (15 bit) for a PWM channel.
+    pub fn set_duty(&mut self, channel: usize, duty: u16) {
+        let r = T::regs();
+
+        self.sequence[channel] = duty & 0x7FFF;
+
+        r.seq0
+            .ptr
+            .write(|w| unsafe { w.bits(self.sequence.as_ptr() as u32) });
+
+        // defensive before seqstart
+        compiler_fence(Ordering::SeqCst);
+
+        // tasks_seqstart() doesn't exist in all svds so write its bit instead
+        r.tasks_seqstart[0].write(|w| unsafe { w.bits(1) });
+
+        // defensive wait until waveform is loaded after seqstart
+        while r.events_seqend[0].read().bits() == 0 {}
+        r.events_seqend[0].write(|w| w);
     }
 }
 

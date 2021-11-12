@@ -13,7 +13,7 @@ use embassy_nrf::Peripherals;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    let seq_values: [u16; 5] = [1000, 250, 100, 50, 0];
+    let mut seq_values: [u16; 5] = [1000, 250, 100, 50, 0];
 
     let mut config = Config::default();
     config.prescaler = Prescaler::Div128;
@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         NoPin,
         NoPin,
         config,
-        &seq_values
+        &mut seq_values
     ));
     let _ = pwm.start(SequenceMode::Infinite);
 

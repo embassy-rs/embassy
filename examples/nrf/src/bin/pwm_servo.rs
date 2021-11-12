@@ -21,8 +21,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     config.top = 25000;
 
     let mut duty = [0];
-    let pwm = unwrap!(Pwm::new(
-        p.PWM0, p.P0_05, NoPin, NoPin, NoPin, config, &duty
+    let mut pwm = unwrap!(Pwm::new(
+        p.PWM0, p.P0_05, NoPin, NoPin, NoPin, config, &mut duty
     ));
     let _ = pwm.start(SequenceMode::Infinite);
     info!("pwm initialized!");
@@ -32,23 +32,23 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // 1ms 0deg (1/.008=125), 1.5ms 90deg (1.5/.008=187.5), 2ms 180deg (2/.008=250),
     loop {
         info!("45 deg");
-        duty[0] = 2500 - 156;
+        pwm.set_duty(0, 2500 - 156);
         Timer::after(Duration::from_millis(5000)).await;
 
         info!("90 deg");
-        duty[0] = 2500 - 187;
+        pwm.set_duty(0, 2500 - 187);
         Timer::after(Duration::from_millis(5000)).await;
 
         info!("135 deg");
-        duty[0] = 2500 - 218;
+        pwm.set_duty(0, 2500 - 218);
         Timer::after(Duration::from_millis(5000)).await;
 
         info!("180 deg");
-        duty[0] = 2500 - 250;
+        pwm.set_duty(0, 2500 - 250);
         Timer::after(Duration::from_millis(5000)).await;
 
         info!("0 deg");
-        duty[0] = 2500 - 125;
+        pwm.set_duty(0, 2500 - 125);
         Timer::after(Duration::from_millis(5000)).await;
     }
 }
