@@ -139,7 +139,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         r.prescaler
             .write(|w| w.prescaler().bits(config.prescaler as u8));
         r.countertop
-            .write(|w| unsafe { w.countertop().bits(config.top) });
+            .write(|w| unsafe { w.countertop().bits(config.max_duty) });
 
         Ok(Self {
             phantom: PhantomData,
@@ -260,7 +260,7 @@ pub struct SequenceConfig {
     /// Selects up mode or up-and-down mode for the counter
     pub counter_mode: CounterMode,
     /// Top value to be compared against buffer values
-    pub top: u16,
+    pub max_duty: u16,
     /// Configuration for PWM_CLK
     pub prescaler: Prescaler,
     /// How a sequence is read from RAM and is spread to the compare register
@@ -275,7 +275,7 @@ impl Default for SequenceConfig {
     fn default() -> SequenceConfig {
         SequenceConfig {
             counter_mode: CounterMode::Up,
-            top: 1000,
+            max_duty: 1000,
             prescaler: Prescaler::Div16,
             sequence_load: SequenceLoad::Common,
             refresh: 0,

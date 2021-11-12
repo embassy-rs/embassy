@@ -91,7 +91,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut config = SequenceConfig::default();
     config.prescaler = Prescaler::Div1;
     // 1 period is 32767 * 1/16mhz = 0.002047938 = 2.047938ms
-    config.top = 32767;
+    config.max_duty = 32767;
     // pwm example is delaying >~3ms before updating duty cycle, our refreshes
     // happen exactly at 2.047938ms so we need a delay after each value of >~1ms
     // which for us is ~1-2 periods
