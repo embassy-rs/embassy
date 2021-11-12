@@ -98,13 +98,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     config.refresh = 3;
 
     let pwm = unwrap!(SequencePwm::new(
-        p.PWM0,
-        p.P0_13,
-        NoPin,
-        NoPin,
-        NoPin,
-        config,
-        &seq_values
+        p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config, seq_values
     ));
     let _ = pwm.start(SequenceMode::Infinite);
     info!("pwm started!");
