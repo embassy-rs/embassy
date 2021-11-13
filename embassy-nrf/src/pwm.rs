@@ -9,6 +9,7 @@ use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, OptionalPin as GpioOptionalPin};
 use crate::interrupt::Interrupt;
 use crate::pac;
+use crate::ppi::{Event, Task};
 use crate::util::slice_in_ram_or;
 
 /// SimplePwm is the traditional pwm interface you're probably used to, allowing
@@ -101,6 +102,13 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         // Disable all interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
         r.shorts.reset();
+        r.events_stopped.reset();
+        r.events_loopsdone.reset();
+        r.events_seqend[0].reset();
+        r.events_seqend[1].reset();
+        r.events_pwmperiodend.reset();
+        r.events_seqstarted[0].reset();
+        r.events_seqstarted[1].reset();
 
         r.seq0
             .ptr
@@ -198,6 +206,106 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         }
 
         Ok(())
+    }
+
+    /// Returns reference to `Stopped` event endpoint for PPI.
+    #[inline(always)]
+    pub fn event_stopped(&self) -> Event {
+        let r = T::regs();
+
+        Event::from_reg(&r.events_stopped)
+    }
+
+    /// Returns reference to `LoopsDone` event endpoint for PPI.
+    #[inline(always)]
+    pub fn event_loops_done(&self) -> Event {
+        let r = T::regs();
+
+        Event::from_reg(&r.events_loopsdone)
+    }
+
+    /// Returns reference to `PwmPeriodEnd` event endpoint for PPI.
+    #[inline(always)]
+    pub fn event_pwm_period_end(&self) -> Event {
+        let r = T::regs();
+
+        Event::from_reg(&r.events_pwmperiodend)
+    }
+
+    /// Returns reference to `Seq0 End` event endpoint for PPI.
+    #[inline(always)]
+    pub fn event_seq_end(&self) -> Event {
+        let r = T::regs();
+
+        Event::from_reg(&r.events_seqend[0])
+    }
+
+    /// Returns reference to `Seq1 End` event endpoint for PPI.
+    #[inline(always)]
+    pub fn event_seq1_end(&self) -> Event {
+        let r = T::regs();
+
+        Event::from_reg(&r.events_seqend[1])
+    }
+
+    /// Returns reference to `Seq0 Started` event endpoint for PPI.
+    #[inline(always)]
+    pub fn event_seq0_started(&self) -> Event {
+        let r = T::regs();
+
+        Event::from_reg(&r.events_seqstarted[0])
+    }
+
+    /// Returns reference to `Seq1 Started` event endpoint for PPI.
+    #[inline(always)]
+    pub fn event_seq1_started(&self) -> Event {
+        let r = T::regs();
+
+        Event::from_reg(&r.events_seqstarted[1])
+    }
+
+    /// Returns reference to `Seq0 Start` task endpoint for PPI.
+    /// # Safety
+    ///
+    /// Interacting with the sequence while it runs puts it in an unknown state
+    #[inline(always)]
+    pub unsafe fn task_start_seq0(&self) -> Task {
+        let r = T::regs();
+
+        Task::from_reg(&r.tasks_seqstart[0])
+    }
+
+    /// Returns reference to `Seq1 Started` task endpoint for PPI.
+    /// # Safety
+    ///
+    /// Interacting with the sequence while it runs puts it in an unknown state
+    #[inline(always)]
+    pub unsafe fn task_start_seq1(&self) -> Task {
+        let r = T::regs();
+
+        Task::from_reg(&r.tasks_seqstart[1])
+    }
+
+    /// Returns reference to `NextStep` task endpoint for PPI.
+    /// # Safety
+    ///
+    /// Interacting with the sequence while it runs puts it in an unknown state
+    #[inline(always)]
+    pub unsafe fn task_next_step(&self) -> Task {
+        let r = T::regs();
+
+        Task::from_reg(&r.tasks_nextstep)
+    }
+
+    /// Returns reference to `Stop` task endpoint for PPI.
+    /// # Safety
+    ///
+    /// Interacting with the sequence while it runs puts it in an unknown state
+    #[inline(always)]
+    pub unsafe fn task_stop(&self) -> Task {
+        let r = T::regs();
+
+        Task::from_reg(&r.tasks_stop)
     }
 
     /// Stop playback.
