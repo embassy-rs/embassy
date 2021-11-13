@@ -336,23 +336,23 @@ impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
 
         if let Some(pin) = &self.ch0 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[0].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[0].reset();
         }
         if let Some(pin) = &self.ch1 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[1].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[1].reset();
         }
         if let Some(pin) = &self.ch2 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[2].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[2].reset();
         }
         if let Some(pin) = &self.ch3 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[3].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[3].reset();
         }
     }
 }
@@ -616,23 +616,23 @@ impl<'a, T: Instance> Drop for SimplePwm<'a, T> {
 
         if let Some(pin) = &self.ch0 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[0].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[0].reset();
         }
         if let Some(pin) = &self.ch1 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[1].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[1].reset();
         }
         if let Some(pin) = &self.ch2 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[2].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[2].reset();
         }
         if let Some(pin) = &self.ch3 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[3].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[3].reset();
         }
     }
 }
