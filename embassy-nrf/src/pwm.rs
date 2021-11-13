@@ -308,19 +308,23 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         Task::from_reg(&r.tasks_stop)
     }
 
-    /// Stop playback.
+    /// Stop playback. Does NOT clear the last duty cycle from the pin.
     #[inline(always)]
     pub fn stop(&self) {
         let r = T::regs();
-
-        r.enable.write(|w| w.enable().disabled());
 
         r.shorts.reset();
 
         compiler_fence(Ordering::SeqCst);
 
+        r.events_stopped.reset();
+
         // tasks_stop() doesn't exist in all svds so write its bit instead
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
+
+        while r.events_stopped.read().bits() == 0 {}
+
+        r.enable.write(|w| w.enable().disabled());
     }
 }
 
@@ -513,19 +517,6 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         pwm
     }
 
-    /// Stop playback
-    #[inline(always)]
-    pub fn stop(&self) {
-        let r = T::regs();
-
-        r.shorts.reset();
-
-        compiler_fence(Ordering::SeqCst);
-
-        // tasks_stop() doesn't exist in all svds so write its bit instead
-        r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
-    }
-
     /// Enables the PWM generator.
     #[inline(always)]
     pub fn enable(&self) {
@@ -533,7 +524,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         r.enable.write(|w| w.enable().enabled());
     }
 
-    /// Disables the PWM generator.
+    /// Disables the PWM generator. Does NOT clear the last duty cycle from the pin.
     #[inline(always)]
     pub fn disable(&self) {
         let r = T::regs();
@@ -554,13 +545,14 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         // defensive before seqstart
         compiler_fence(Ordering::SeqCst);
 
+        r.events_seqend[0].reset();
+
         // tasks_seqstart() doesn't exist in all svds so write its bit instead
         r.tasks_seqstart[0].write(|w| unsafe { w.bits(1) });
 
         // defensive wait until waveform is loaded after seqstart so set_duty
         // can't be called again while dma is still reading
         while r.events_seqend[0].read().bits() == 0 {}
-        r.events_seqend[0].write(|w| w);
     }
 
     /// Sets the PWM clock prescaler.
@@ -620,7 +612,6 @@ impl<'a, T: Instance> Drop for SimplePwm<'a, T> {
     fn drop(&mut self) {
         let r = T::regs();
 
-        self.stop();
         self.disable();
 
         if let Some(pin) = &self.ch0 {
