@@ -317,12 +317,8 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
         compiler_fence(Ordering::SeqCst);
 
-        r.events_stopped.reset();
-
         // tasks_stop() doesn't exist in all svds so write its bit instead
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
-
-        while r.events_stopped.read().bits() == 0 {}
 
         r.enable.write(|w| w.enable().disabled());
     }
