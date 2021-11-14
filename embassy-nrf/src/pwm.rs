@@ -308,7 +308,8 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         Task::from_reg(&r.tasks_stop)
     }
 
-    /// Stop playback. Does NOT clear the last duty cycle from the pin.
+    /// Stop playback. Disables the peripheral. Does NOT clear the last duty
+    /// cycle from the pin.
     #[inline(always)]
     pub fn stop(&self) {
         let r = T::regs();
@@ -433,8 +434,8 @@ pub enum CounterMode {
 impl<'d, T: Instance> SimplePwm<'d, T> {
     /// Creates the interface to a `SimplePwm`
     ///
-    /// Defaults the freq to 1Mhz, max_duty 1000, duty 0, up mode, and pins low.
-    /// Must be started by calling `set_duty`
+    /// Enables the peripheral, defaults the freq to 1Mhz, max_duty 1000, duty
+    /// 0, up mode, and pins low. Must be started by calling `set_duty`
     ///
     /// # Safety
     ///
