@@ -11,15 +11,9 @@ sx127x = []
 stm32wl = ["embassy-stm32", "embassy-stm32/subghz"]
 time = []
 
-defmt-trace = []
-defmt-debug = []
-defmt-info = []
-defmt-warn = []
-defmt-error = []
-
 [dependencies]
 
-defmt = { version = "0.2.3", optional = true }
+defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
 embassy = { version = "0.1.0", path = "../embassy", default-features = false }

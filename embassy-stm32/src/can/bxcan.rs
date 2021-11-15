@@ -35,7 +35,7 @@ impl<'d, T: Instance + bxcan::Instance> Can<'d, T> {
 
         Self {
             phantom: PhantomData,
-            can: bxcan::Can::new(peri),
+            can: bxcan::Can::builder(peri).enable(),
         }
     }
 }

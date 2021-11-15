@@ -23,16 +23,10 @@ time-tick-32768hz = ["time"]
 time-tick-1000hz = ["time"]
 time-tick-1mhz = ["time"]
 
-defmt-trace = []
-defmt-debug = []
-defmt-info = []
-defmt-warn = []
-defmt-error = []
-
 executor-agnostic = []
 
 [dependencies]
-defmt = { version = "0.2.3", optional = true }
+defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
 cortex-m = "0.7.3"

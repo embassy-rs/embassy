@@ -6,31 +6,22 @@ version = "0.1.0"
 resolver = "2"
 
 [features]
-default = [
-    "defmt-default",
-]
-defmt-default = []
-defmt-trace = []
-defmt-debug = []
-defmt-info = []
-defmt-warn = []
-defmt-error = []
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-trace"] }
+embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "stm32h743zi", "net", "time-driver-tim2"] }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32h743zi", "net", "time-driver-tim2"] }
 embassy-hal-common = {version = "0.1.0", path = "../../embassy-hal-common" }
-embassy-net = { path = "../../embassy-net", default-features = false, features = ["defmt-debug", "defmt", "tcp", "medium-ethernet", "pool-16"] }
+embassy-net = { path = "../../embassy-net", default-features = false, features = ["defmt", "tcp", "medium-ethernet", "pool-16"] }
 embassy-macros = { path = "../../embassy-macros" }
 
-defmt = "0.2.3"
-defmt-rtt = "0.2.0"
+defmt = "0.3"
+defmt-rtt = "0.3"
 
 cortex-m = "0.7.3"
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
-panic-probe = { version = "0.2.0", features = ["print-defmt"] }
+panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 rtt-target = { version = "0.3.1", features = ["cortex-m"] }
 heapless = { version = "0.7.5", default-features = false }
@@ -40,8 +31,8 @@ critical-section = "0.2.5"
 micromath = "2.0.0"
 
 [dependencies.smoltcp]
-git = "https://github.com/smoltcp-rs/smoltcp"
-rev = "e4241510337e095b9d21136c5f58b2eaa1b78479"
+git = "https://github.com/bobmcwhirter/smoltcp"
+rev = "faf81d21daae16b650b16e59a8422a8283e8a302"
 default-features = false
 features = [
   "proto-ipv4",

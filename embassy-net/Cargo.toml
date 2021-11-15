@@ -7,11 +7,6 @@ edition = "2018"
 [features]
 default = ["pool-4"]
 std = []
-defmt-trace = []
-defmt-debug = []
-defmt-info = []
-defmt-warn = []
-defmt-error = []
 
 tcp = ["smoltcp/socket-tcp"]
 dhcpv4 = ["medium-ethernet", "smoltcp/socket-dhcpv4"]
@@ -25,7 +20,7 @@ pool-32 = []
 
 [dependencies]
 
-defmt = { version = "0.2.3", optional = true }
+defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
 embassy             = { version = "0.1.0", path = "../embassy" }
@@ -39,8 +34,8 @@ futures             = { version = "0.3.17", default-features = false, features =
 atomic-pool = "0.2.1"
 
 [dependencies.smoltcp]
-git = "https://github.com/smoltcp-rs/smoltcp"
-rev = "e4241510337e095b9d21136c5f58b2eaa1b78479"
+git = "https://github.com/bobmcwhirter/smoltcp"
+rev = "faf81d21daae16b650b16e59a8422a8283e8a302"
 default-features = false
 features = [
   "proto-ipv4",

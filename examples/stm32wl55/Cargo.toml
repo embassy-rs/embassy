@@ -5,34 +5,23 @@ name = "embassy-stm32wl55-examples"
 version = "0.1.0"
 resolver = "2"
 
-[features]
-default = [
-    "defmt-default",
-]
-defmt-default = []
-defmt-trace = []
-defmt-debug = []
-defmt-info = []
-defmt-warn = []
-defmt-error = []
-
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-trace"] }
+embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "defmt-trace", "stm32wl55jc_cm4", "time-driver-tim2", "memory-x", "subghz", "unstable-pac"]  }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32wl55jc_cm4", "time-driver-tim2", "memory-x", "subghz", "unstable-pac"]  }
 embassy-hal-common = {version = "0.1.0", path = "../../embassy-hal-common" }
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["stm32wl", "time"] }
 
 lorawan-device = { git = "https://github.com/ivajloip/rust-lorawan.git", rev = "4bff2e0021103adfbccedcbf49dbcd0474adc4b2", default-features = false, features = ["async"] }
 lorawan-encoding = { git = "https://github.com/ivajloip/rust-lorawan.git", rev = "4bff2e0021103adfbccedcbf49dbcd0474adc4b2", default-features = false, features = ["default-crypto"] }
 
-defmt = "0.2.3"
-defmt-rtt = "0.2.0"
+defmt = "0.3"
+defmt-rtt = "0.3"
 
 cortex-m = "0.7.3"
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
-panic-probe = { version = "0.2.0", features = ["print-defmt"] }
+panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 rtt-target = { version = "0.3.1", features = ["cortex-m"] }
 heapless = { version = "0.7.5", default-features = false }
