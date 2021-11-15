@@ -26,7 +26,7 @@ bare-metal = "1.0.0"
 atomic-polyfill = "0.1.5"
 stm32-metapac = { version = "0.1.0", path = "../stm32-metapac", features = ["rt"] }
 vcell = { version = "0.1.3", optional = true }
-bxcan = { git = "https://github.com/bobmcwhirter/bxcan.git", rev="8e011c6e1ecec318da5b8e13ac743ce34e969de9" }
+bxcan = "0.6.2"
 
 seq-macro = "0.2.2"
 
