@@ -13,7 +13,7 @@ atomic-polyfill = "0.1.5"
 defmt = "0.3"
 defmt-rtt = "0.3"
 
-cortex-m = { version = "0.7.3", features = ["inline-asm"] }
+cortex-m = "0.7.3"
 cortex-m-rt = "0.7.0"
 embedded-hal    = "0.2.6"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
