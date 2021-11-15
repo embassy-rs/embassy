@@ -29,8 +29,8 @@ critical-section = "0.2.3"
 
 
 [dependencies.smoltcp]
-git = "https://github.com/smoltcp-rs/smoltcp"
-rev = "e4241510337e095b9d21136c5f58b2eaa1b78479"
+git = "https://github.com/bobmcwhirter/smoltcp"
+rev = "faf81d21daae16b650b16e59a8422a8283e8a302"
 default-features = false
 features = [
     "proto-ipv4",
