@@ -26,12 +26,13 @@ fn main() -> ! {
 
     let mut can = Can::new(p.CAN1, p.PA11, p.PA12);
 
+    can.modify_filters().enable_bank(0, Mask32::accept_all());
+
     can.modify_config()
         .set_bit_timing(0x001c0003) // http://www.bittiming.can-wiki.info/
         .set_loopback(true) // Receive own frames
-        .set_silent(true);
-    can.modify_filters().enable_bank(0, Mask32::accept_all());
-    unwrap!(nb::block!(can.enable()));
+        .set_silent(true)
+        .enable();
 
     let mut i: u8 = 0;
     loop {
