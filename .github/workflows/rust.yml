@@ -2,9 +2,9 @@ name: Rust
 
 on:
   push:
-    branches: [ staging, trying, master ]
+    branches: [staging, trying, master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,162 +12,37 @@ env:
 jobs:
   all:
     runs-on: ubuntu-20.04
-    needs: [build, fmt, test, metapac_gen]
+    needs: [build, test, metapac_gen]
     steps:
       - name: Done
         run: exit 0
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - package: embassy
-            target: thumbv7em-none-eabi
-          - package: embassy
-            target: thumbv7em-none-eabi
-            features: log,executor-agnostic
-          - package: embassy
-            target: thumbv7em-none-eabi
-            features: defmt
-          - package: embassy
-            target: thumbv6m-none-eabi
-            features: defmt
-
-          - package: examples/std
-            target: x86_64-unknown-linux-gnu
-
-          - package: embassy-nrf
-            target: thumbv7em-none-eabi
-            features: nrf52805
-          - package: embassy-nrf
-            target: thumbv7em-none-eabi
-            features: nrf52810
-          - package: embassy-nrf
-            target: thumbv7em-none-eabi
-            features: nrf52811
-          - package: embassy-nrf
-            target: thumbv7em-none-eabi
-            features: nrf52820
-          - package: embassy-nrf
-            target: thumbv7em-none-eabi
-            features: nrf52832
-          - package: embassy-nrf
-            target: thumbv7em-none-eabi
-            features: nrf52833
-          - package: embassy-nrf
-            target: thumbv8m.main-none-eabihf
-            features: nrf9160-s
-          - package: embassy-nrf
-            target: thumbv8m.main-none-eabihf
-            features: nrf9160-ns
-          - package: embassy-nrf
-            target: thumbv8m.main-none-eabihf
-            features: nrf5340-app-s
-          - package: embassy-nrf
-            target: thumbv8m.main-none-eabihf
-            features: nrf5340-app-ns
-          - package: embassy-nrf
-            target: thumbv8m.main-none-eabihf
-            features: nrf5340-net
-          - package: embassy-nrf
-            target: thumbv7em-none-eabi
-            features: nrf52840
-          - package: embassy-nrf
-            target: thumbv7em-none-eabi
-            features: nrf52840,log
-          - package: embassy-nrf
-            target: thumbv7em-none-eabi
-            features: nrf52840,defmt
-          - package: examples/nrf
-            target: thumbv7em-none-eabi
-
-          - package: examples/rp
-            target: thumbv6m-none-eabi
-
-          - package: embassy-stm32
-            target: thumbv7em-none-eabi
-            features: stm32f411ce,defmt
-          - package: embassy-stm32
-            target: thumbv7em-none-eabi
-            features: stm32f429zi,log
-          - package: embassy-stm32
-            target: thumbv7em-none-eabi
-            features: stm32h755zi_cm7,defmt
-          - package: embassy-stm32
-            target: thumbv7em-none-eabi
-            features: stm32l476vg,defmt
-          - package: embassy-stm32
-            target: thumbv6m-none-eabi
-            features: stm32l072cz,defmt
-          - package: embassy-stm32
-            target: thumbv7m-none-eabi
-            features: stm32l151cb-a,defmt
-          - package: examples/stm32f4
-            target: thumbv7em-none-eabi
-          - package: examples/stm32l4
-            target: thumbv7em-none-eabi
-          - package: examples/stm32h7
-            target: thumbv7em-none-eabi
-          - package: examples/stm32l0
-            target: thumbv6m-none-eabi
-          - package: examples/stm32l1
-            target: thumbv7m-none-eabi
-          - package: examples/stm32wb55
-            target: thumbv7em-none-eabihf
-          - package: examples/stm32wl55
-            target: thumbv7em-none-eabihf
-          - package: examples/stm32f0
-            target: thumbv6m-none-eabi
-          - package: examples/stm32g0
-            target: thumbv6m-none-eabi
-          - package: examples/wasm
-            target: wasm32-unknown-unknown
-          - package: examples/stm32f1
-            target: thumbv7m-none-eabi
-          - package: examples/stm32f7
-            target: thumbv7em-none-eabihf
-          - package: examples/stm32u5
-            target: thumbv7em-none-eabihf
     steps:
       - uses: actions/checkout@v2
         with:
           submodules: true
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - name: cache
-        id: cache-target
+      - name: Cache multiple paths
         uses: actions/cache@v2
         with:
-          path: target
-          key: ${{ runner.os }}-${{ matrix.target }}
-
-      # We have to append the "-D warnings" flag to .cargo/config rather than
-      # using the RUSTFLAGS environment variable because if we set RUSTFLAGS
-      # cargo will ignore the rustflags config in .cargo/config.
-      - name: Check
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target_ci
+          key: rust3-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
+      - name: build
         run: |
-          mkdir -p .cargo
-          echo -e '[target."cfg(all())"]\nrustflags = ["-D", "warnings"]' >> .cargo/config
-          cd ${{ matrix.package }} && RUSTFLAGS=-Dwarnings cargo check --features=${{ matrix.features }} --target=${{ matrix.target }}
-
-  fmt:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - name: Check fmt
-        run: find -name '*.rs' | xargs rustfmt --check  --skip-children --unstable-features --edition 2018
+          curl -L -o /usr/local/bin/cargo-batch https://github.com/embassy-rs/cargo-batch/releases/download/batch-0.1.0/cargo-batch
+          chmod +x /usr/local/bin/cargo-batch
+          ./ci.sh
+          rm -rf target_ci/*{,/release}/{build,deps,.fingerprint}/{lib,}{embassy,stm32}*
 
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
       - name: Test
         run: cd embassy && cargo test
 
@@ -177,8 +52,5 @@ jobs:
       - uses: actions/checkout@v2
         with:
           submodules: true
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
       - name: Generate pregenerated metapac
         run: cd stm32-metapac-gen; cargo run --release
