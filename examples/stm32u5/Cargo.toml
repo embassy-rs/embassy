@@ -5,8 +5,6 @@ name = "embassy-stm32u5-examples"
 version = "0.1.0"
 resolver = "2"
 
-[features]
-
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
