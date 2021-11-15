@@ -12,5 +12,7 @@ use embassy_stm32 as _;
 fn main() -> ! {
     info!("Hello World!");
 
-    loop {}
+    loop {
+        //defmt::info!("loop!");
+    }
 }
