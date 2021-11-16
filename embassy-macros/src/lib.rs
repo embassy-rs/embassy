@@ -223,7 +223,11 @@ pub fn interrupt_declare(item: TokenStream) -> TokenStream {
     };
     result.into()
 }
-
+/// # interrupt_take procedural macro
+///
+/// core::panic! is used as a default way to panic in this macro as there is no sensible way of enabling/disabling defmt for macro generation.
+/// We are aware that this brings bloat in the form of core::fmt, but the bloat is already included with e.g. array indexing panics.
+/// To get rid of this bloat, use the compiler flags `-Zbuild-std=core -Zbuild-std-features=panic_immediate_abort`.
 #[proc_macro]
 pub fn interrupt_take(item: TokenStream) -> TokenStream {
     let name = syn::parse_macro_input!(item as syn::Ident);
@@ -250,7 +254,7 @@ pub fn interrupt_take(item: TokenStream) -> TokenStream {
             static TAKEN: ::embassy::export::atomic::AtomicBool = ::embassy::export::atomic::AtomicBool::new(false);
 
             if TAKEN.compare_exchange(false, true, ::embassy::export::atomic::Ordering::AcqRel, ::embassy::export::atomic::Ordering::Acquire).is_err() {
-                panic!("IRQ Already taken");
+                core::panic!("IRQ Already taken");
             }
 
             let irq: interrupt::#name_interrupt = unsafe { ::core::mem::transmute(()) };

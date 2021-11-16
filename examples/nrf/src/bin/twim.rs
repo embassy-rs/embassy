@@ -9,7 +9,7 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use defmt::{panic, *};
+use defmt::*;
 use embassy::executor::Spawner;
 use embassy_nrf::twim::{self, Twim};
 use embassy_nrf::{interrupt, Peripherals};

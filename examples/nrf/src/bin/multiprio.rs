@@ -62,7 +62,6 @@ mod example_common;
 use example_common::*;
 
 use cortex_m_rt::entry;
-use defmt::panic;
 use embassy::executor::{Executor, InterruptExecutor};
 use embassy::interrupt::InterruptExt;
 use embassy::time::{Duration, Instant, Timer};

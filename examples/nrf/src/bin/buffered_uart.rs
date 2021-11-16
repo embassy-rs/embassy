@@ -5,7 +5,6 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy_nrf::buffered_uarte::State;

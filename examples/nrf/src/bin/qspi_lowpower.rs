@@ -6,7 +6,6 @@
 mod example_common;
 
 use core::mem;
-use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy::traits::flash::Flash;

@@ -7,7 +7,6 @@ mod example_common;
 use embassy_traits::uart::ReadUntilIdle;
 use example_common::*;
 
-use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::traits::uart::Write;
 use embassy_nrf::gpio::NoPin;
