@@ -272,6 +272,13 @@ mod chip;
 #[path = "chip/rp.rs"]
 mod chip;
 
+#[cfg(any(
+    feature = "nrf",
+    feature = "rp",
+    feature = "stm32",
+    feature = "wasm",
+    feature = "std"
+))]
 #[derive(Debug, FromMeta)]
 struct MainArgs {
     #[darling(default)]
