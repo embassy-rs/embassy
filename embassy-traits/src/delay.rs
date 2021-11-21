@@ -1,7 +1,9 @@
 use core::future::Future;
 
 pub trait Delay {
-    type DelayFuture<'a>: Future<Output = ()> + 'a;
+    type DelayFuture<'a>: Future<Output = ()> + 'a
+    where
+        Self: 'a;
 
     /// Future that completes after now + millis
     fn delay_ms(&mut self, millis: u64) -> Self::DelayFuture<'_>;

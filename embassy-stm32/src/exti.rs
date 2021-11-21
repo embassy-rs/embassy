@@ -109,7 +109,10 @@ impl<'d, T: GpioPin> InputPin for ExtiInput<'d, T> {
 }
 
 impl<'d, T: GpioPin> WaitForRisingEdge for ExtiInput<'d, T> {
-    type Future<'a> = ExtiInputFuture<'a>;
+    type Future<'a>
+    where
+        Self: 'a,
+    = ExtiInputFuture<'a>;
 
     fn wait_for_rising_edge<'a>(&'a mut self) -> Self::Future<'a> {
         ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, false)
@@ -117,7 +120,10 @@ impl<'d, T: GpioPin> WaitForRisingEdge for ExtiInput<'d, T> {
 }
 
 impl<'d, T: GpioPin> WaitForFallingEdge for ExtiInput<'d, T> {
-    type Future<'a> = ExtiInputFuture<'a>;
+    type Future<'a>
+    where
+        Self: 'a,
+    = ExtiInputFuture<'a>;
 
     fn wait_for_falling_edge<'a>(&'a mut self) -> Self::Future<'a> {
         ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), false, true)
@@ -125,7 +131,10 @@ impl<'d, T: GpioPin> WaitForFallingEdge for ExtiInput<'d, T> {
 }
 
 impl<'d, T: GpioPin> WaitForAnyEdge for ExtiInput<'d, T> {
-    type Future<'a> = ExtiInputFuture<'a>;
+    type Future<'a>
+    where
+        Self: 'a,
+    = ExtiInputFuture<'a>;
 
     fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
         ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, true)
