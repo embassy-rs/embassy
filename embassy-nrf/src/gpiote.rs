@@ -338,7 +338,10 @@ impl<'d, T: GpioPin> InputPin for PortInput<'d, T> {
 }
 
 impl<'d, T: GpioPin> WaitForHigh for PortInput<'d, T> {
-    type Future<'a> = PortInputFuture<'a>;
+    type Future<'a>
+    where
+        Self: 'a,
+    = PortInputFuture<'a>;
 
     fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
         self.pin.pin.conf().modify(|_, w| w.sense().high());
@@ -351,7 +354,10 @@ impl<'d, T: GpioPin> WaitForHigh for PortInput<'d, T> {
 }
 
 impl<'d, T: GpioPin> WaitForLow for PortInput<'d, T> {
-    type Future<'a> = PortInputFuture<'a>;
+    type Future<'a>
+    where
+        Self: 'a,
+    = PortInputFuture<'a>;
 
     fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
         self.pin.pin.conf().modify(|_, w| w.sense().low());
@@ -364,7 +370,11 @@ impl<'d, T: GpioPin> WaitForLow for PortInput<'d, T> {
 }
 
 impl<'d, T: GpioPin> WaitForAnyEdge for PortInput<'d, T> {
-    type Future<'a> = PortInputFuture<'a>;
+    type Future<'a>
+    where
+        Self: 'a,
+    = PortInputFuture<'a>;
+
     fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
         if self.is_high().ok().unwrap() {
             self.pin.pin.conf().modify(|_, w| w.sense().low());
