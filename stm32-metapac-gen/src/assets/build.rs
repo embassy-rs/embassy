@@ -1,7 +1,7 @@
 use std::env;
 
 fn main() {
-    let _chip_name = env::vars_os()
+    let chip_name = env::vars_os()
         .map(|(a, _)| a.to_string_lossy().to_string())
         .find(|x| x.starts_with("CARGO_FEATURE_STM32"))
         .expect("No stm32xx Cargo feature enabled")
