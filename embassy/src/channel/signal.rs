@@ -1,3 +1,5 @@
+use crate::blocking_mutex::kind::MutexKind;
+use crate::blocking_mutex::Mutex;
 use core::cell::UnsafeCell;
 use core::future::Future;
 use core::mem;
@@ -10,17 +12,25 @@ use core::task::{Context, Poll, Waker};
 /// Signals are generally declared as being a static const and then borrowed as required.
 ///
 /// ```
+/// use embassy::blocking_mutex::kind::Noop;
 /// use embassy::channel::signal::Signal;
+/// use embassy::util::Forever;
 ///
 /// enum SomeCommand {
 ///   On,
 ///   Off,
 /// }
 ///
-/// static SOME_SIGNAL: Signal<SomeCommand> = Signal::new();
+/// static SOME_SIGNAL: Forever<Signal<Noop, SomeCommand>> = Forever::new();
+///
+/// // Then, during initialization...
+/// let some_signal = SOME_SIGNAL.put(Signal::new());
 /// ```
-pub struct Signal<T> {
-    state: UnsafeCell<State<T>>,
+pub struct Signal<M, T>
+where
+    M: MutexKind,
+{
+    state: M::Mutex<UnsafeCell<State<T>>>,
 }
 
 enum State<T> {
@@ -29,20 +39,34 @@ enum State<T> {
     Signaled(T),
 }
 
-unsafe impl<T: Send> Send for Signal<T> {}
-unsafe impl<T: Send> Sync for Signal<T> {}
+unsafe impl<M, T> Send for Signal<M, T>
+where
+    M: MutexKind,
+    T: Send,
+{
+}
+unsafe impl<M, T> Sync for Signal<M, T>
+where
+    M: MutexKind,
+    T: Send,
+{
+}
 
-impl<T: Send> Signal<T> {
-    pub const fn new() -> Self {
+impl<M, T> Signal<M, T>
+where
+    M: MutexKind,
+    T: Send,
+{
+    pub fn new() -> Self {
         Self {
-            state: UnsafeCell::new(State::None),
+            state: M::Mutex::new(UnsafeCell::new(State::None)),
         }
     }
 
     /// Mark this Signal as completed.
     pub fn signal(&self, val: T) {
-        critical_section::with(|_| unsafe {
-            let state = &mut *self.state.get();
+        self.state.lock(|cell| unsafe {
+            let state = &mut *cell.get();
             if let State::Waiting(waker) = mem::replace(state, State::Signaled(val)) {
                 waker.wake();
             }
@@ -50,15 +74,15 @@ impl<T: Send> Signal<T> {
     }
 
     pub fn reset(&self) {
-        critical_section::with(|_| unsafe {
-            let state = &mut *self.state.get();
+        self.state.lock(|cell| unsafe {
+            let state = &mut *cell.get();
             *state = State::None
         })
     }
 
     pub fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
-        critical_section::with(|_| unsafe {
-            let state = &mut *self.state.get();
+        self.state.lock(|cell| unsafe {
+            let state = &mut *cell.get();
             match state {
                 State::None => {
                     *state = State::Waiting(cx.waker().clone());
@@ -81,6 +105,9 @@ impl<T: Send> Signal<T> {
 
     /// non-blocking method to check whether this signal has been signaled.
     pub fn signaled(&self) -> bool {
-        critical_section::with(|_| matches!(unsafe { &*self.state.get() }, State::Signaled(_)))
+        self.state.lock(|cell| unsafe {
+            let state = &*cell.get();
+            matches!(state, State::Signaled(_))
+        })
     }
 }
