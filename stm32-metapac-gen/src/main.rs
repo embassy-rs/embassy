@@ -17,7 +17,6 @@ fn main() {
                 .unwrap()
                 .filter_map(|res| res.unwrap().file_name().to_str().map(|s| s.to_string()))
                 .filter(|s| s.ends_with(".yaml"))
-                .filter(|s| !s.starts_with("STM32L1")) // cursed gpio stride
                 .filter(|s| !s.starts_with("STM32GBK")) // cursed weird STM32G4
                 .map(|s| s.strip_suffix(".yaml").unwrap().to_string())
                 .collect()
