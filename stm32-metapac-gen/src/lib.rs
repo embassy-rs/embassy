@@ -1,5 +1,6 @@
 use chiptool::generate::CommonModule;
 use chiptool::ir::IR;
+use proc_macro2::TokenStream;
 use regex::Regex;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -8,6 +9,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use chiptool::util::ToSanitizedSnakeCase;
 use chiptool::{generate, ir, transform};
@@ -471,10 +473,7 @@ pub fn gen_chip(
         .join(chip_core_name.to_ascii_lowercase());
     fs::create_dir_all(&chip_dir).unwrap();
 
-    let generate_opts = generate::Options {
-        common_module: CommonModule::Builtin,
-    };
-    let items = generate::render(&ir, &generate_opts).unwrap();
+    let items = generate::render(&ir, &gen_opts()).unwrap();
     let mut file = File::create(chip_dir.join("pac.rs")).unwrap();
     let data = items.to_string().replace("] ", "]\n");
 
@@ -513,11 +512,13 @@ fn load_chip(options: &Options, name: &str) -> Chip {
     serde_yaml::from_slice(&chip).unwrap()
 }
 
-pub fn gen(options: Options) {
-    let generate_opts = generate::Options {
-        common_module: CommonModule::Builtin,
-    };
+fn gen_opts() -> generate::Options {
+    generate::Options {
+        common_module: CommonModule::External(TokenStream::from_str("crate::common").unwrap()),
+    }
+}
 
+pub fn gen(options: Options) {
     fs::create_dir_all(options.out_dir.join("src/peripherals")).unwrap();
     fs::create_dir_all(options.out_dir.join("src/chips")).unwrap();
 
@@ -567,7 +568,7 @@ pub fn gen(options: Options) {
         transform::sort::Sort {}.run(&mut ir).unwrap();
         transform::Sanitize {}.run(&mut ir).unwrap();
 
-        let items = generate::render(&ir, &generate_opts).unwrap();
+        let items = generate::render(&ir, &gen_opts()).unwrap();
         let mut file = File::create(
             options
                 .out_dir
