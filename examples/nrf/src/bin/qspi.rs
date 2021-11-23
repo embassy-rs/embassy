@@ -5,7 +5,7 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use defmt::{assert_eq, panic};
+use defmt::assert_eq;
 use embassy::executor::Spawner;
 use embassy::traits::flash::Flash;
 use embassy_nrf::Peripherals;

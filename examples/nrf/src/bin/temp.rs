@@ -6,7 +6,6 @@
 mod example_common;
 use example_common::*;
 
-use defmt::panic;
 use embassy::{
     executor::Spawner,
     time::{Duration, Timer},

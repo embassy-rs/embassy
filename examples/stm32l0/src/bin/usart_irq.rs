@@ -7,7 +7,6 @@ mod example_common;
 
 use example_common::*;
 
-use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy_stm32::dma::NoDma;

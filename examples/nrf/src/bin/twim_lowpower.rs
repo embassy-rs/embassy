@@ -13,7 +13,7 @@ mod example_common;
 
 use core::mem;
 
-use defmt::{panic, *};
+use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::twim::{self, Twim};

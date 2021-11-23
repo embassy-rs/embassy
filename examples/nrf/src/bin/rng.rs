@@ -5,7 +5,7 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use defmt::{panic, unwrap};
+use defmt::unwrap;
 use embassy::executor::Spawner;
 use embassy::traits::rng::Rng as _;
 use embassy_nrf::interrupt;

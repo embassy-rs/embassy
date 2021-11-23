@@ -6,7 +6,6 @@
 mod example_common;
 use example_common::*;
 
-use defmt::panic;
 use embassy::executor::Spawner;
 use embassy::traits::uart::{Read, Write};
 use embassy_nrf::gpio::NoPin;

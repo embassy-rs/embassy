@@ -4,7 +4,6 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use defmt::panic;
 use embassy::executor::Spawner;
 use embassy_nrf::ppi::Ppi;
 use embassy_nrf::saadc::{ChannelConfig, Config, Saadc, SamplerState};
