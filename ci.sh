@@ -7,6 +7,13 @@ export RUSTFLAGS=-Dwarnings
 
 find -name '*.rs' -not -path '*target*' -not -path '*stm32-metapac-gen/out/*'  | xargs rustfmt --check  --skip-children --unstable-features --edition 2018
 
+# Generate stm32-metapac
+# for some reason Cargo stomps the cache if we don't specify --target.
+# This happens with vanilla Cargo, not just cargo-batch. Bug?
+(cd stm32-metapac-gen; cargo run --release --target x86_64-unknown-linux-gnu)
+rm -rf stm32-metapac
+mv stm32-metapac-gen/out stm32-metapac
+
 cargo batch  \
     --- build --release --manifest-path embassy/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path embassy/Cargo.toml --target thumbv7em-none-eabi --features log,executor-agnostic \
