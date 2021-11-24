@@ -425,29 +425,7 @@ pub fn gen_chip(
         gpio_base, gpio_stride,
     );
 
-    let peripheral_version_table = peripheral_versions
-        .iter()
-        .map(|(kind, version)| vec![kind.clone(), version.clone()])
-        .collect();
-
-    make_table(&mut extra, "pins", &pin_table);
-    make_table(&mut extra, "interrupts", &interrupt_table);
-    make_table(&mut extra, "peripherals", &peripherals_table);
-    make_table(&mut extra, "peripheral_versions", &peripheral_version_table);
-    make_table(&mut extra, "peripheral_pins", &peripheral_pins_table);
-    make_table(
-        &mut extra,
-        "peripheral_dma_channels",
-        &peripheral_dma_channels_table,
-    );
-    make_table(&mut extra, "peripheral_rcc", &peripheral_rcc_table);
-    make_table(&mut extra, "gpio_rcc", &gpio_rcc_table);
-    make_table(&mut extra, "dma_channels", &dma_channels_table);
-    make_table(&mut extra, "dbgmcu", &dbgmcu_table);
-    make_peripheral_counts(&mut extra, &peripheral_counts);
-    make_dma_channel_counts(&mut extra, &dma_channel_counts);
-
-    for (module, version) in peripheral_versions {
+    for (module, version) in &peripheral_versions {
         all_peripheral_versions.insert((module.clone(), version.clone()));
         write!(
             &mut extra,
@@ -467,19 +445,25 @@ pub fn gen_chip(
     transform::sort::Sort {}.run(&mut ir).unwrap();
     transform::Sanitize {}.run(&mut ir).unwrap();
 
+    // ==============================
+    // Setup chip dir
+
     let chip_dir = options
         .out_dir
         .join("src/chips")
         .join(chip_core_name.to_ascii_lowercase());
     fs::create_dir_all(&chip_dir).unwrap();
 
-    let items = generate::render(&ir, &gen_opts()).unwrap();
-    let mut file = File::create(chip_dir.join("pac.rs")).unwrap();
-    let data = items.to_string().replace("] ", "]\n");
+    // ==============================
+    // generate pac.rs
+
+    let data = generate::render(&ir, &gen_opts()).unwrap().to_string();
+    let data = data.replace("] ", "]\n");
 
     // Remove inner attributes like #![no_std]
-    let re = Regex::new("# *! *\\[.*\\]").unwrap();
-    let data = re.replace_all(&data, "");
+    let data = Regex::new("# *! *\\[.*\\]").unwrap().replace_all(&data, "");
+
+    let mut file = File::create(chip_dir.join("pac.rs")).unwrap();
     file.write_all(data.as_bytes()).unwrap();
     file.write_all(extra.as_bytes()).unwrap();
 
@@ -494,11 +478,48 @@ pub fn gen_chip(
         .unwrap();
     }
 
+    // ==============================
+    // generate mod.rs
+
+    let mut data = String::new();
+
+    write!(&mut data, "#[cfg(feature=\"pac\")] mod pac;").unwrap();
+    write!(&mut data, "#[cfg(feature=\"pac\")] pub use pac::*; ").unwrap();
+
+    let peripheral_version_table = peripheral_versions
+        .iter()
+        .map(|(kind, version)| vec![kind.clone(), version.clone()])
+        .collect();
+
+    make_table(&mut data, "pins", &pin_table);
+    make_table(&mut data, "interrupts", &interrupt_table);
+    make_table(&mut data, "peripherals", &peripherals_table);
+    make_table(&mut data, "peripheral_versions", &peripheral_version_table);
+    make_table(&mut data, "peripheral_pins", &peripheral_pins_table);
+    make_table(
+        &mut data,
+        "peripheral_dma_channels",
+        &peripheral_dma_channels_table,
+    );
+    make_table(&mut data, "peripheral_rcc", &peripheral_rcc_table);
+    make_table(&mut data, "gpio_rcc", &gpio_rcc_table);
+    make_table(&mut data, "dma_channels", &dma_channels_table);
+    make_table(&mut data, "dbgmcu", &dbgmcu_table);
+    make_peripheral_counts(&mut data, &peripheral_counts);
+    make_dma_channel_counts(&mut data, &dma_channel_counts);
+
+    let mut file = File::create(chip_dir.join("mod.rs")).unwrap();
+    file.write_all(data.as_bytes()).unwrap();
+
+    // ==============================
+    // generate device.x
+
     File::create(chip_dir.join("device.x"))
         .unwrap()
         .write_all(device_x.as_bytes())
         .unwrap();
 
+    // ==============================
     // generate default memory.x
     gen_memory_x(&chip_dir, &chip);
 }
@@ -594,7 +615,7 @@ pub fn gen(options: Options) {
         let x = name.to_ascii_lowercase();
         write!(
             &mut paths,
-            "#[cfg_attr(feature=\"{}\", path = \"chips/{}/pac.rs\")]",
+            "#[cfg_attr(feature=\"{}\", path = \"chips/{}/mod.rs\")]",
             x, x
         )
         .unwrap();

@@ -16,6 +16,13 @@ regex = "1.5.4"
 # END BUILD DEPENDENCIES
 
 [features]
+default = ["pac"]
+
+# Build the actual PAC. Set by default.
+# If not set, only the macrotables will be generated. You may want to not set it
+# if you're using stm32-metapac from a build.rs script to use the macros.
+pac = []
+
 rt = ["cortex-m-rt/device"]
 memory-x = []
 
