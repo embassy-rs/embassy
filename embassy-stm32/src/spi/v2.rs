@@ -17,7 +17,7 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use embassy_traits::spi as traits;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-use futures::future::join3;
+use futures::future::{join, join3};
 
 impl WordSize {
     fn ds(&self) -> spi::vals::Ds {
@@ -186,7 +186,16 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
         }
 
-        f.await;
+        join(f, Self::wait_for_idle()).await;
+
+        unsafe {
+            T::regs().cr2().modify(|reg| {
+                reg.set_txdmaen(false);
+            });
+            T::regs().cr1().modify(|w| {
+                w.set_spe(false);
+            });
+        }
         Ok(())
     }
 
