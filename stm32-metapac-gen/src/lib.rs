@@ -1,121 +1,21 @@
 use chiptool::generate::CommonModule;
 use chiptool::ir::IR;
+use proc_macro2::TokenStream;
 use regex::Regex;
-use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::env;
 use std::fmt::Write as _;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use chiptool::util::ToSanitizedSnakeCase;
 use chiptool::{generate, ir, transform};
 
-#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
-pub struct Chip {
-    pub name: String,
-    pub family: String,
-    pub line: String,
-    pub cores: Vec<Core>,
-    pub flash: Memory,
-    pub ram: Memory,
-    pub packages: Vec<Package>,
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
-pub struct Memory {
-    pub bytes: u32,
-    pub regions: HashMap<String, MemoryRegion>,
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
-pub struct MemoryRegion {
-    pub base: u32,
-    pub bytes: Option<u32>,
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
-pub struct Core {
-    pub name: String,
-    pub peripherals: BTreeMap<String, Peripheral>,
-    pub interrupts: BTreeMap<String, u32>,
-    pub dma_channels: BTreeMap<String, DmaChannel>,
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
-pub struct Package {
-    pub name: String,
-    pub package: String,
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
-pub struct Peripheral {
-    pub address: u64,
-    #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub block: Option<String>,
-    #[serde(default)]
-    pub clock: Option<String>,
-    #[serde(default)]
-    pub pins: Vec<Pin>,
-    #[serde(default)]
-    pub dma_channels: BTreeMap<String, Vec<PeripheralDmaChannel>>,
-    #[serde(default)]
-    pub interrupts: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
-pub struct Pin {
-    pub pin: String,
-    pub signal: String,
-    pub af: Option<String>,
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
-pub struct DmaChannel {
-    pub dma: String,
-    pub channel: u32,
-    pub dmamux: Option<String>,
-    pub dmamux_channel: Option<u32>,
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Deserialize, Hash)]
-pub struct PeripheralDmaChannel {
-    pub channel: Option<String>,
-    pub dmamux: Option<String>,
-    pub request: Option<u32>,
-}
-
-struct BlockInfo {
-    /// usart_v1/USART -> usart
-    module: String,
-    /// usart_v1/USART -> v1
-    version: String,
-    /// usart_v1/USART -> USART
-    block: String,
-}
-
-impl BlockInfo {
-    fn parse(s: &str) -> Self {
-        let mut s = s.split("/");
-        let module = s.next().unwrap();
-        let block = s.next().unwrap();
-        assert!(s.next().is_none());
-        let mut s = module.split("_");
-        let module = s.next().unwrap();
-        let version = s.next().unwrap();
-        assert!(s.next().is_none());
-        Self {
-            module: module.to_string(),
-            version: version.to_string(),
-            block: block.to_string(),
-        }
-    }
-}
+mod data;
+use data::*;
 
 fn find_reg<'c>(rcc: &'c ir::IR, reg_regex: &str, field_name: &str) -> Option<(&'c str, &'c str)> {
     let reg_regex = Regex::new(reg_regex).unwrap();
@@ -199,474 +99,477 @@ pub struct Options {
     pub data_dir: PathBuf,
 }
 
-pub fn gen(options: Options) {
-    let generate_opts = generate::Options {
-        common_module: CommonModule::Builtin,
+pub fn gen_chip(
+    options: &Options,
+    chip_core_name: &str,
+    chip: &Chip,
+    core: &Core,
+    core_index: usize,
+    all_peripheral_versions: &mut HashSet<(String, String)>,
+) {
+    let mut ir = ir::IR::new();
+
+    let mut dev = ir::Device {
+        interrupts: Vec::new(),
+        peripherals: Vec::new(),
     };
 
-    let out_dir = options.out_dir;
-    let data_dir = options.data_dir;
-
-    fs::create_dir_all(out_dir.join("src/peripherals")).unwrap();
-    fs::create_dir_all(out_dir.join("src/chips")).unwrap();
-
-    println!("cwd: {:?}", env::current_dir());
-
-    let mut all_peripheral_versions: HashSet<(String, String)> = HashSet::new();
-    let mut chip_cores: BTreeMap<String, Option<String>> = BTreeMap::new();
-
-    for chip_name in &options.chips {
-        let mut s = chip_name.split('_');
-        let mut chip_name: String = s.next().unwrap().to_string();
-        let core_name: Option<&str> = if let Some(c) = s.next() {
-            if !c.starts_with("CM") {
-                println!("Core not detected, adding as variant");
-                chip_name.push('-');
-                chip_name.push_str(c);
-                None
-            } else {
-                println!("Detected core {}", c);
-                Some(c)
-            }
+    // Load DBGMCU register for chip
+    let mut dbgmcu: Option<ir::IR> = core.peripherals.iter().find_map(|(name, p)| {
+        if name == "DBGMCU" {
+            p.block.as_ref().map(|block| {
+                let bi = BlockInfo::parse(block);
+                let dbgmcu_reg_path = options
+                    .data_dir
+                    .join("registers")
+                    .join(&format!("{}_{}.yaml", bi.module, bi.version));
+                serde_yaml::from_reader(File::open(dbgmcu_reg_path).unwrap()).unwrap()
+            })
         } else {
             None
+        }
+    });
+
+    // Load RCC register for chip
+    let (_, rcc) = core
+        .peripherals
+        .iter()
+        .find(|(name, _)| name == &"RCC")
+        .expect("RCC peripheral missing");
+
+    let rcc_block = rcc.block.as_ref().expect("RCC peripheral has no block");
+    let bi = BlockInfo::parse(&rcc_block);
+    let rcc_reg_path = options
+        .data_dir
+        .join("registers")
+        .join(&format!("{}_{}.yaml", bi.module, bi.version));
+    let rcc: IR = serde_yaml::from_reader(File::open(rcc_reg_path).unwrap()).unwrap();
+
+    let mut peripheral_versions: BTreeMap<String, String> = BTreeMap::new();
+    let mut pin_table: Vec<Vec<String>> = Vec::new();
+    let mut interrupt_table: Vec<Vec<String>> = Vec::new();
+    let mut peripherals_table: Vec<Vec<String>> = Vec::new();
+    let mut peripheral_pins_table: Vec<Vec<String>> = Vec::new();
+    let mut peripheral_rcc_table: Vec<Vec<String>> = Vec::new();
+    let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
+    let mut peripheral_dma_channels_table: Vec<Vec<String>> = Vec::new();
+    let mut peripheral_counts: BTreeMap<String, u8> = BTreeMap::new();
+    let mut dma_channel_counts: BTreeMap<String, u8> = BTreeMap::new();
+    let mut dbgmcu_table: Vec<Vec<String>> = Vec::new();
+    let mut gpio_rcc_table: Vec<Vec<String>> = Vec::new();
+    let mut gpio_regs: HashSet<String> = HashSet::new();
+
+    let gpio_base = core.peripherals.get(&"GPIOA".to_string()).unwrap().address as u32;
+    let gpio_stride = 0x400;
+
+    let number_suffix_re = Regex::new("^(.*?)[0-9]*$").unwrap();
+
+    if let Some(ref mut reg) = dbgmcu {
+        if let Some(ref cr) = reg.fieldsets.get("CR") {
+            for field in cr.fields.iter().filter(|e| e.name.contains("DBG")) {
+                let mut fn_name = String::new();
+                fn_name.push_str("set_");
+                fn_name.push_str(&field.name.to_sanitized_snake_case());
+                dbgmcu_table.push(vec!["cr".into(), fn_name]);
+            }
+        }
+    }
+
+    for (name, p) in &core.peripherals {
+        let captures = number_suffix_re.captures(&name).unwrap();
+        let root_peri_name = captures.get(1).unwrap().as_str().to_string();
+        peripheral_counts.insert(
+            root_peri_name.clone(),
+            peripheral_counts.get(&root_peri_name).map_or(1, |v| v + 1),
+        );
+        let mut ir_peri = ir::Peripheral {
+            name: name.clone(),
+            array: None,
+            base_address: p.address,
+            block: None,
+            description: None,
+            interrupts: HashMap::new(),
         };
 
-        chip_cores.insert(
-            chip_name.to_string(),
-            core_name.map(|s| s.to_ascii_lowercase().to_string()),
-        );
+        if let Some(block) = &p.block {
+            let bi = BlockInfo::parse(block);
 
-        let chip_path = data_dir.join("chips").join(&format!("{}.yaml", chip_name));
-        println!("chip_path: {:?}", chip_path);
-        let chip = fs::read(chip_path).unwrap();
-        let chip: Chip = serde_yaml::from_slice(&chip).unwrap();
+            peripheral_counts.insert(
+                bi.module.clone(),
+                peripheral_counts.get(&bi.module).map_or(1, |v| v + 1),
+            );
 
-        println!("looking for core {:?}", core_name);
-        let core: Option<(&Core, usize)> = if let Some(core_name) = core_name {
-            let core_name = core_name.to_ascii_lowercase();
-            let mut c = None;
-            let mut idx = 0;
-            for (i, core) in chip.cores.iter().enumerate() {
-                if core.name == core_name {
-                    c = Some(core);
-                    idx = i;
-                    break;
+            for pin in &p.pins {
+                let mut row = Vec::new();
+                row.push(name.clone());
+                row.push(bi.module.clone());
+                row.push(bi.block.clone());
+                row.push(pin.pin.clone());
+                row.push(pin.signal.clone());
+                if let Some(ref af) = pin.af {
+                    row.push(af.clone());
+                }
+                peripheral_pins_table.push(row);
+            }
+
+            for (signal, irq_name) in &p.interrupts {
+                let mut row = Vec::new();
+                row.push(name.clone());
+                row.push(bi.module.clone());
+                row.push(bi.block.clone());
+                row.push(signal.clone());
+                row.push(irq_name.to_ascii_uppercase());
+                interrupt_table.push(row)
+            }
+
+            for (request, dma_channels) in &p.dma_channels {
+                for channel in dma_channels.iter() {
+                    let mut row = Vec::new();
+                    row.push(name.clone());
+                    row.push(bi.module.clone());
+                    row.push(bi.block.clone());
+                    row.push(request.clone());
+                    row.push(if let Some(channel) = &channel.channel {
+                        format!("{{channel: {}}}", channel)
+                    } else if let Some(dmamux) = &channel.dmamux {
+                        format!("{{dmamux: {}}}", dmamux)
+                    } else {
+                        unreachable!();
+                    });
+
+                    row.push(if let Some(request) = channel.request {
+                        request.to_string()
+                    } else {
+                        "()".to_string()
+                    });
+
+                    if peripheral_dma_channels_table
+                        .iter()
+                        .find(|a| a[..a.len() - 1] == row[..row.len() - 1])
+                        .is_none()
+                    {
+                        peripheral_dma_channels_table.push(row);
+                    }
                 }
             }
-            c.map(|c| (c, idx))
-        } else {
-            Some((&chip.cores[0], 0))
-        };
 
-        let (core, core_index) = core.unwrap();
-        let core_name = &core.name;
+            let mut peripheral_row = Vec::new();
+            peripheral_row.push(bi.module.clone());
+            peripheral_row.push(name.clone());
+            peripherals_table.push(peripheral_row);
 
-        let mut ir = ir::IR::new();
-
-        let mut dev = ir::Device {
-            interrupts: Vec::new(),
-            peripherals: Vec::new(),
-        };
-
-        // Load DBGMCU register for chip
-        let mut dbgmcu: Option<ir::IR> = core.peripherals.iter().find_map(|(name, p)| {
-            if name == "DBGMCU" {
-                p.block.as_ref().map(|block| {
-                    let bi = BlockInfo::parse(block);
-                    let dbgmcu_reg_path = data_dir
-                        .join("registers")
-                        .join(&format!("{}_{}.yaml", bi.module, bi.version));
-                    serde_yaml::from_reader(File::open(dbgmcu_reg_path).unwrap()).unwrap()
-                })
-            } else {
-                None
+            if let Some(old_version) =
+                peripheral_versions.insert(bi.module.clone(), bi.version.clone())
+            {
+                if old_version != bi.version {
+                    panic!(
+                        "Peripheral {} has multiple versions: {} and {}",
+                        bi.module, old_version, bi.version
+                    );
+                }
             }
+            ir_peri.block = Some(format!("{}::{}", bi.module, bi.block));
+
+            match bi.module.as_str() {
+                "gpio" => {
+                    let port_letter = name.chars().skip(4).next().unwrap();
+                    assert_eq!(0, (p.address as u32 - gpio_base) % gpio_stride);
+                    let port_num = (p.address as u32 - gpio_base) / gpio_stride;
+
+                    for pin_num in 0..16 {
+                        let pin_name = format!("P{}{}", port_letter, pin_num);
+                        pin_table.push(vec![
+                            pin_name.clone(),
+                            name.clone(),
+                            port_num.to_string(),
+                            pin_num.to_string(),
+                            format!("EXTI{}", pin_num),
+                        ]);
+                    }
+                }
+                _ => {}
+            }
+
+            // Workaround for clock registers being split on some chip families. Assume fields are
+            // named after peripheral and look for first field matching and use that register.
+            let mut en = find_reg(&rcc, "^.+ENR\\d*$", &format!("{}EN", name));
+            let mut rst = find_reg(&rcc, "^.+RSTR\\d*$", &format!("{}RST", name));
+
+            if en.is_none() && name.ends_with("1") {
+                en = find_reg(
+                    &rcc,
+                    "^.+ENR\\d*$",
+                    &format!("{}EN", &name[..name.len() - 1]),
+                );
+                rst = find_reg(
+                    &rcc,
+                    "^.+RSTR\\d*$",
+                    &format!("{}RST", &name[..name.len() - 1]),
+                );
+            }
+
+            match (en, rst) {
+                (Some((enable_reg, enable_field)), reset_reg_field) => {
+                    let clock = match &p.clock {
+                        Some(clock) => clock.as_str(),
+                        None => {
+                            // No clock was specified, derive the clock name from the enable register name.
+                            // N.B. STM32G0 has only one APB bus but split ENR registers
+                            // (e.g. APBENR1).
+                            Regex::new("([A-Z]+\\d*)ENR\\d*")
+                                .unwrap()
+                                .captures(enable_reg)
+                                .unwrap()
+                                .get(1)
+                                .unwrap()
+                                .as_str()
+                        }
+                    };
+
+                    let clock = if name.starts_with("TIM") {
+                        format!("{}_tim", clock.to_ascii_lowercase())
+                    } else {
+                        clock.to_ascii_lowercase()
+                    };
+
+                    let mut row = Vec::with_capacity(6);
+                    row.push(name.clone());
+                    row.push(clock);
+                    row.push(enable_reg.to_ascii_lowercase());
+
+                    if let Some((reset_reg, reset_field)) = reset_reg_field {
+                        row.push(reset_reg.to_ascii_lowercase());
+                        row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
+                        row.push(format!("set_{}", reset_field.to_ascii_lowercase()));
+                    } else {
+                        row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
+                    }
+
+                    if !name.starts_with("GPIO") {
+                        peripheral_rcc_table.push(row);
+                    } else {
+                        gpio_rcc_table.push(row);
+                        gpio_regs.insert(enable_reg.to_ascii_lowercase());
+                    }
+                }
+                (None, Some(_)) => {
+                    println!("Unable to find enable register for {}", name)
+                }
+                (None, None) => {
+                    println!("Unable to find enable and reset register for {}", name)
+                }
+            }
+        }
+
+        dev.peripherals.push(ir_peri);
+    }
+
+    for reg in gpio_regs {
+        gpio_rcc_table.push(vec![reg]);
+    }
+
+    // We should always find GPIO RCC regs. If not, it means something
+    // is broken and GPIO won't work because it's not enabled.
+    assert!(!gpio_rcc_table.is_empty());
+
+    for (id, channel_info) in &core.dma_channels {
+        let mut row = Vec::new();
+        let dma_peri = core.peripherals.get(&channel_info.dma).unwrap();
+        let bi = BlockInfo::parse(dma_peri.block.as_ref().unwrap());
+
+        row.push(id.clone());
+        row.push(channel_info.dma.clone());
+        row.push(bi.module.clone());
+        row.push(channel_info.channel.to_string());
+        if let Some(dmamux) = &channel_info.dmamux {
+            let dmamux_channel = channel_info.dmamux_channel.unwrap();
+            row.push(format!(
+                "{{dmamux: {}, dmamux_channel: {}}}",
+                dmamux, dmamux_channel
+            ));
+        } else {
+            row.push("{}".to_string());
+        }
+
+        dma_channels_table.push(row);
+
+        let dma_peri_name = channel_info.dma.clone();
+        dma_channel_counts.insert(
+            dma_peri_name.clone(),
+            dma_channel_counts.get(&dma_peri_name).map_or(1, |v| v + 1),
+        );
+    }
+
+    for (name, &num) in &core.interrupts {
+        dev.interrupts.push(ir::Interrupt {
+            name: name.clone(),
+            description: None,
+            value: num,
         });
 
-        // Load RCC register for chip
-        let (_, rcc) = core
-            .peripherals
-            .iter()
-            .find(|(name, _)| name == &"RCC")
-            .expect("RCC peripheral missing");
+        let name = name.to_ascii_uppercase();
 
-        let rcc_block = rcc.block.as_ref().expect("RCC peripheral has no block");
-        let bi = BlockInfo::parse(&rcc_block);
-        let rcc_reg_path = data_dir
-            .join("registers")
-            .join(&format!("{}_{}.yaml", bi.module, bi.version));
-        let rcc: IR = serde_yaml::from_reader(File::open(rcc_reg_path).unwrap()).unwrap();
+        interrupt_table.push(vec![name.clone()]);
 
-        let mut peripheral_versions: BTreeMap<String, String> = BTreeMap::new();
-        let mut pin_table: Vec<Vec<String>> = Vec::new();
-        let mut interrupt_table: Vec<Vec<String>> = Vec::new();
-        let mut peripherals_table: Vec<Vec<String>> = Vec::new();
-        let mut peripheral_pins_table: Vec<Vec<String>> = Vec::new();
-        let mut peripheral_rcc_table: Vec<Vec<String>> = Vec::new();
-        let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
-        let mut peripheral_dma_channels_table: Vec<Vec<String>> = Vec::new();
-        let mut peripheral_counts: BTreeMap<String, u8> = BTreeMap::new();
-        let mut dma_channel_counts: BTreeMap<String, u8> = BTreeMap::new();
-        let mut dbgmcu_table: Vec<Vec<String>> = Vec::new();
-        let mut gpio_rcc_table: Vec<Vec<String>> = Vec::new();
-        let mut gpio_regs: HashSet<String> = HashSet::new();
-
-        let gpio_base = core.peripherals.get(&"GPIOA".to_string()).unwrap().address as u32;
-        let gpio_stride = 0x400;
-
-        let number_suffix_re = Regex::new("^(.*?)[0-9]*$").unwrap();
-
-        if let Some(ref mut reg) = dbgmcu {
-            if let Some(ref cr) = reg.fieldsets.get("CR") {
-                for field in cr.fields.iter().filter(|e| e.name.contains("DBG")) {
-                    let mut fn_name = String::new();
-                    fn_name.push_str("set_");
-                    fn_name.push_str(&field.name.to_sanitized_snake_case());
-                    dbgmcu_table.push(vec!["cr".into(), fn_name]);
-                }
-            }
+        if name.contains("EXTI") {
+            interrupt_table.push(vec!["EXTI".to_string(), name.clone()]);
         }
+    }
 
-        for (name, p) in &core.peripherals {
-            let captures = number_suffix_re.captures(&name).unwrap();
-            let root_peri_name = captures.get(1).unwrap().as_str().to_string();
-            peripheral_counts.insert(
-                root_peri_name.clone(),
-                peripheral_counts.get(&root_peri_name).map_or(1, |v| v + 1),
-            );
-            let mut ir_peri = ir::Peripheral {
-                name: name.clone(),
-                array: None,
-                base_address: p.address,
-                block: None,
-                description: None,
-                interrupts: HashMap::new(),
-            };
+    ir.devices.insert("".to_string(), dev);
 
-            if let Some(block) = &p.block {
-                let bi = BlockInfo::parse(block);
-
-                peripheral_counts.insert(
-                    bi.module.clone(),
-                    peripheral_counts.get(&bi.module).map_or(1, |v| v + 1),
-                );
-
-                for pin in &p.pins {
-                    let mut row = Vec::new();
-                    row.push(name.clone());
-                    row.push(bi.module.clone());
-                    row.push(bi.block.clone());
-                    row.push(pin.pin.clone());
-                    row.push(pin.signal.clone());
-                    if let Some(ref af) = pin.af {
-                        row.push(af.clone());
-                    }
-                    peripheral_pins_table.push(row);
-                }
-
-                for (signal, irq_name) in &p.interrupts {
-                    let mut row = Vec::new();
-                    row.push(name.clone());
-                    row.push(bi.module.clone());
-                    row.push(bi.block.clone());
-                    row.push(signal.clone());
-                    row.push(irq_name.to_ascii_uppercase());
-                    interrupt_table.push(row)
-                }
-
-                for (request, dma_channels) in &p.dma_channels {
-                    for channel in dma_channels.iter() {
-                        let mut row = Vec::new();
-                        row.push(name.clone());
-                        row.push(bi.module.clone());
-                        row.push(bi.block.clone());
-                        row.push(request.clone());
-                        row.push(if let Some(channel) = &channel.channel {
-                            format!("{{channel: {}}}", channel)
-                        } else if let Some(dmamux) = &channel.dmamux {
-                            format!("{{dmamux: {}}}", dmamux)
-                        } else {
-                            unreachable!();
-                        });
-
-                        row.push(if let Some(request) = channel.request {
-                            request.to_string()
-                        } else {
-                            "()".to_string()
-                        });
-
-                        if peripheral_dma_channels_table
-                            .iter()
-                            .find(|a| a[..a.len() - 1] == row[..row.len() - 1])
-                            .is_none()
-                        {
-                            peripheral_dma_channels_table.push(row);
-                        }
-                    }
-                }
-
-                let mut peripheral_row = Vec::new();
-                peripheral_row.push(bi.module.clone());
-                peripheral_row.push(name.clone());
-                peripherals_table.push(peripheral_row);
-
-                if let Some(old_version) =
-                    peripheral_versions.insert(bi.module.clone(), bi.version.clone())
-                {
-                    if old_version != bi.version {
-                        panic!(
-                            "Peripheral {} has multiple versions: {} and {}",
-                            bi.module, old_version, bi.version
-                        );
-                    }
-                }
-                ir_peri.block = Some(format!("{}::{}", bi.module, bi.block));
-
-                match bi.module.as_str() {
-                    "gpio" => {
-                        let port_letter = name.chars().skip(4).next().unwrap();
-                        assert_eq!(0, (p.address as u32 - gpio_base) % gpio_stride);
-                        let port_num = (p.address as u32 - gpio_base) / gpio_stride;
-
-                        for pin_num in 0..16 {
-                            let pin_name = format!("P{}{}", port_letter, pin_num);
-                            pin_table.push(vec![
-                                pin_name.clone(),
-                                name.clone(),
-                                port_num.to_string(),
-                                pin_num.to_string(),
-                                format!("EXTI{}", pin_num),
-                            ]);
-                        }
-                    }
-                    _ => {}
-                }
-
-                // Workaround for clock registers being split on some chip families. Assume fields are
-                // named after peripheral and look for first field matching and use that register.
-                let mut en = find_reg(&rcc, "^.+ENR\\d*$", &format!("{}EN", name));
-                let mut rst = find_reg(&rcc, "^.+RSTR\\d*$", &format!("{}RST", name));
-
-                if en.is_none() && name.ends_with("1") {
-                    en = find_reg(
-                        &rcc,
-                        "^.+ENR\\d*$",
-                        &format!("{}EN", &name[..name.len() - 1]),
-                    );
-                    rst = find_reg(
-                        &rcc,
-                        "^.+RSTR\\d*$",
-                        &format!("{}RST", &name[..name.len() - 1]),
-                    );
-                }
-
-                match (en, rst) {
-                    (Some((enable_reg, enable_field)), reset_reg_field) => {
-                        let clock = match &p.clock {
-                            Some(clock) => clock.as_str(),
-                            None => {
-                                // No clock was specified, derive the clock name from the enable register name.
-                                // N.B. STM32G0 has only one APB bus but split ENR registers
-                                // (e.g. APBENR1).
-                                Regex::new("([A-Z]+\\d*)ENR\\d*")
-                                    .unwrap()
-                                    .captures(enable_reg)
-                                    .unwrap()
-                                    .get(1)
-                                    .unwrap()
-                                    .as_str()
-                            }
-                        };
-
-                        let clock = if name.starts_with("TIM") {
-                            format!("{}_tim", clock.to_ascii_lowercase())
-                        } else {
-                            clock.to_ascii_lowercase()
-                        };
-
-                        let mut row = Vec::with_capacity(6);
-                        row.push(name.clone());
-                        row.push(clock);
-                        row.push(enable_reg.to_ascii_lowercase());
-
-                        if let Some((reset_reg, reset_field)) = reset_reg_field {
-                            row.push(reset_reg.to_ascii_lowercase());
-                            row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
-                            row.push(format!("set_{}", reset_field.to_ascii_lowercase()));
-                        } else {
-                            row.push(format!("set_{}", enable_field.to_ascii_lowercase()));
-                        }
-
-                        if !name.starts_with("GPIO") {
-                            peripheral_rcc_table.push(row);
-                        } else {
-                            gpio_rcc_table.push(row);
-                            gpio_regs.insert(enable_reg.to_ascii_lowercase());
-                        }
-                    }
-                    (None, Some(_)) => {
-                        println!("Unable to find enable register for {}", name)
-                    }
-                    (None, None) => {
-                        println!("Unable to find enable and reset register for {}", name)
-                    }
-                }
-            }
-
-            dev.peripherals.push(ir_peri);
-        }
-
-        for reg in gpio_regs {
-            gpio_rcc_table.push(vec![reg]);
-        }
-
-        // We should always find GPIO RCC regs. If not, it means something
-        // is broken and GPIO won't work because it's not enabled.
-        assert!(!gpio_rcc_table.is_empty());
-
-        for (id, channel_info) in &core.dma_channels {
-            let mut row = Vec::new();
-            let dma_peri = core.peripherals.get(&channel_info.dma).unwrap();
-            let bi = BlockInfo::parse(dma_peri.block.as_ref().unwrap());
-
-            row.push(id.clone());
-            row.push(channel_info.dma.clone());
-            row.push(bi.module.clone());
-            row.push(channel_info.channel.to_string());
-            if let Some(dmamux) = &channel_info.dmamux {
-                let dmamux_channel = channel_info.dmamux_channel.unwrap();
-                row.push(format!(
-                    "{{dmamux: {}, dmamux_channel: {}}}",
-                    dmamux, dmamux_channel
-                ));
-            } else {
-                row.push("{}".to_string());
-            }
-
-            dma_channels_table.push(row);
-
-            let dma_peri_name = channel_info.dma.clone();
-            dma_channel_counts.insert(
-                dma_peri_name.clone(),
-                dma_channel_counts.get(&dma_peri_name).map_or(1, |v| v + 1),
-            );
-        }
-
-        for (name, &num) in &core.interrupts {
-            dev.interrupts.push(ir::Interrupt {
-                name: name.clone(),
-                description: None,
-                value: num,
-            });
-
-            let name = name.to_ascii_uppercase();
-
-            interrupt_table.push(vec![name.clone()]);
-
-            if name.contains("EXTI") {
-                interrupt_table.push(vec!["EXTI".to_string(), name.clone()]);
-            }
-        }
-
-        ir.devices.insert("".to_string(), dev);
-
-        let mut extra = format!(
-            "pub fn GPIO(n: usize) -> gpio::Gpio {{
+    let mut extra = format!(
+        "pub fn GPIO(n: usize) -> gpio::Gpio {{
             gpio::Gpio(({} + {}*n) as _)
         }}",
-            gpio_base, gpio_stride,
-        );
+        gpio_base, gpio_stride,
+    );
 
-        let peripheral_version_table = peripheral_versions
-            .iter()
-            .map(|(kind, version)| vec![kind.clone(), version.clone()])
-            .collect();
-
-        make_table(&mut extra, "pins", &pin_table);
-        make_table(&mut extra, "interrupts", &interrupt_table);
-        make_table(&mut extra, "peripherals", &peripherals_table);
-        make_table(&mut extra, "peripheral_versions", &peripheral_version_table);
-        make_table(&mut extra, "peripheral_pins", &peripheral_pins_table);
-        make_table(
-            &mut extra,
-            "peripheral_dma_channels",
-            &peripheral_dma_channels_table,
-        );
-        make_table(&mut extra, "peripheral_rcc", &peripheral_rcc_table);
-        make_table(&mut extra, "gpio_rcc", &gpio_rcc_table);
-        make_table(&mut extra, "dma_channels", &dma_channels_table);
-        make_table(&mut extra, "dbgmcu", &dbgmcu_table);
-        make_peripheral_counts(&mut extra, &peripheral_counts);
-        make_dma_channel_counts(&mut extra, &dma_channel_counts);
-
-        for (module, version) in peripheral_versions {
-            all_peripheral_versions.insert((module.clone(), version.clone()));
-            write!(
-                &mut extra,
-                "#[path=\"../../peripherals/{}_{}.rs\"] pub mod {};\n",
-                module, version, module
-            )
-            .unwrap();
-        }
+    for (module, version) in &peripheral_versions {
+        all_peripheral_versions.insert((module.clone(), version.clone()));
         write!(
             &mut extra,
-            "pub const CORE_INDEX: usize = {};\n",
-            core_index
+            "#[path=\"../../peripherals/{}_{}.rs\"] pub mod {};\n",
+            module, version, module
         )
         .unwrap();
+    }
+    write!(
+        &mut extra,
+        "pub const CORE_INDEX: usize = {};\n",
+        core_index
+    )
+    .unwrap();
 
-        // Cleanups!
-        transform::sort::Sort {}.run(&mut ir).unwrap();
-        transform::Sanitize {}.run(&mut ir).unwrap();
+    // Cleanups!
+    transform::sort::Sort {}.run(&mut ir).unwrap();
+    transform::Sanitize {}.run(&mut ir).unwrap();
 
-        let chip_dir = if chip.cores.len() > 1 {
-            out_dir.join("src/chips").join(format!(
-                "{}_{}",
-                chip_name.to_ascii_lowercase(),
-                core_name.to_ascii_lowercase()
-            ))
-        } else {
-            out_dir
-                .join("src/chips")
-                .join(chip_name.to_ascii_lowercase())
-        };
-        fs::create_dir_all(&chip_dir).unwrap();
+    // ==============================
+    // Setup chip dir
 
-        let items = generate::render(&ir, &generate_opts).unwrap();
-        let mut file = File::create(chip_dir.join("pac.rs")).unwrap();
-        let data = items.to_string().replace("] ", "]\n");
+    let chip_dir = options
+        .out_dir
+        .join("src/chips")
+        .join(chip_core_name.to_ascii_lowercase());
+    fs::create_dir_all(&chip_dir).unwrap();
 
-        // Remove inner attributes like #![no_std]
-        let re = Regex::new("# *! *\\[.*\\]").unwrap();
-        let data = re.replace_all(&data, "");
-        file.write_all(data.as_bytes()).unwrap();
-        file.write_all(extra.as_bytes()).unwrap();
+    // ==============================
+    // generate pac.rs
 
-        let mut device_x = String::new();
+    let data = generate::render(&ir, &gen_opts()).unwrap().to_string();
+    let data = data.replace("] ", "]\n");
 
-        for (name, _) in &core.interrupts {
-            write!(
-                &mut device_x,
-                "PROVIDE({} = DefaultHandler);\n",
-                name.to_ascii_uppercase()
+    // Remove inner attributes like #![no_std]
+    let data = Regex::new("# *! *\\[.*\\]").unwrap().replace_all(&data, "");
+
+    let mut file = File::create(chip_dir.join("pac.rs")).unwrap();
+    file.write_all(data.as_bytes()).unwrap();
+    file.write_all(extra.as_bytes()).unwrap();
+
+    let mut device_x = String::new();
+
+    for (name, _) in &core.interrupts {
+        write!(
+            &mut device_x,
+            "PROVIDE({} = DefaultHandler);\n",
+            name.to_ascii_uppercase()
+        )
+        .unwrap();
+    }
+
+    // ==============================
+    // generate mod.rs
+
+    let mut data = String::new();
+
+    write!(&mut data, "#[cfg(feature=\"pac\")] mod pac;").unwrap();
+    write!(&mut data, "#[cfg(feature=\"pac\")] pub use pac::*; ").unwrap();
+
+    let peripheral_version_table = peripheral_versions
+        .iter()
+        .map(|(kind, version)| vec![kind.clone(), version.clone()])
+        .collect();
+
+    make_table(&mut data, "pins", &pin_table);
+    make_table(&mut data, "interrupts", &interrupt_table);
+    make_table(&mut data, "peripherals", &peripherals_table);
+    make_table(&mut data, "peripheral_versions", &peripheral_version_table);
+    make_table(&mut data, "peripheral_pins", &peripheral_pins_table);
+    make_table(
+        &mut data,
+        "peripheral_dma_channels",
+        &peripheral_dma_channels_table,
+    );
+    make_table(&mut data, "peripheral_rcc", &peripheral_rcc_table);
+    make_table(&mut data, "gpio_rcc", &gpio_rcc_table);
+    make_table(&mut data, "dma_channels", &dma_channels_table);
+    make_table(&mut data, "dbgmcu", &dbgmcu_table);
+    make_peripheral_counts(&mut data, &peripheral_counts);
+    make_dma_channel_counts(&mut data, &dma_channel_counts);
+
+    let mut file = File::create(chip_dir.join("mod.rs")).unwrap();
+    file.write_all(data.as_bytes()).unwrap();
+
+    // ==============================
+    // generate device.x
+
+    File::create(chip_dir.join("device.x"))
+        .unwrap()
+        .write_all(device_x.as_bytes())
+        .unwrap();
+
+    // ==============================
+    // generate default memory.x
+    gen_memory_x(&chip_dir, &chip);
+}
+
+fn load_chip(options: &Options, name: &str) -> Chip {
+    let chip_path = options
+        .data_dir
+        .join("chips")
+        .join(&format!("{}.yaml", name));
+    let chip = fs::read(chip_path).expect(&format!("Could not load chip {}", name));
+    serde_yaml::from_slice(&chip).unwrap()
+}
+
+fn gen_opts() -> generate::Options {
+    generate::Options {
+        common_module: CommonModule::External(TokenStream::from_str("crate::common").unwrap()),
+    }
+}
+
+pub fn gen(options: Options) {
+    fs::create_dir_all(options.out_dir.join("src/peripherals")).unwrap();
+    fs::create_dir_all(options.out_dir.join("src/chips")).unwrap();
+
+    let mut all_peripheral_versions: HashSet<(String, String)> = HashSet::new();
+    let mut chip_core_names: Vec<String> = Vec::new();
+
+    for chip_name in &options.chips {
+        let chip = load_chip(&options, chip_name);
+        for (core_index, core) in chip.cores.iter().enumerate() {
+            let chip_core_name = match chip.cores.len() {
+                1 => chip_name.clone(),
+                _ => format!("{}-{}", chip_name, core.name),
+            };
+
+            chip_core_names.push(chip_core_name.clone());
+            gen_chip(
+                &options,
+                &chip_core_name,
+                &chip,
+                core,
+                core_index,
+                &mut all_peripheral_versions,
             )
-            .unwrap();
         }
-
-        File::create(chip_dir.join("device.x"))
-            .unwrap()
-            .write_all(device_x.as_bytes())
-            .unwrap();
-
-        // generate default memory.x
-        gen_memory_x(&chip_dir, &chip);
     }
 
     for (module, version) in all_peripheral_versions {
         println!("loading {} {}", module, version);
 
-        let regs_path = Path::new(&data_dir)
+        let regs_path = Path::new(&options.data_dir)
             .join("registers")
             .join(&format!("{}_{}.yaml", module, version));
 
@@ -686,9 +589,10 @@ pub fn gen(options: Options) {
         transform::sort::Sort {}.run(&mut ir).unwrap();
         transform::Sanitize {}.run(&mut ir).unwrap();
 
-        let items = generate::render(&ir, &generate_opts).unwrap();
+        let items = generate::render(&ir, &gen_opts()).unwrap();
         let mut file = File::create(
-            out_dir
+            options
+                .out_dir
                 .join("src/peripherals")
                 .join(format!("{}_{}.rs", module, version)),
         )
@@ -707,29 +611,20 @@ pub fn gen(options: Options) {
     let i = bytes_find(librs, PATHS_MARKER).unwrap();
     let mut paths = String::new();
 
-    for (chip, cores) in chip_cores.iter() {
-        let x = chip.to_ascii_lowercase();
-        if let Some(c) = cores {
-            write!(
-                &mut paths,
-                "#[cfg_attr(feature=\"{}_{}\", path = \"chips/{}_{}/pac.rs\")]",
-                x, c, x, c
-            )
-            .unwrap();
-        } else {
-            write!(
-                &mut paths,
-                "#[cfg_attr(feature=\"{}\", path = \"chips/{}/pac.rs\")]",
-                x, x
-            )
-            .unwrap();
-        }
+    for name in chip_core_names {
+        let x = name.to_ascii_lowercase();
+        write!(
+            &mut paths,
+            "#[cfg_attr(feature=\"{}\", path = \"chips/{}/mod.rs\")]",
+            x, x
+        )
+        .unwrap();
     }
     let mut contents: Vec<u8> = Vec::new();
     contents.extend(&librs[..i]);
     contents.extend(paths.as_bytes());
     contents.extend(&librs[i + PATHS_MARKER.len()..]);
-    fs::write(out_dir.join("src").join("lib_inner.rs"), &contents).unwrap();
+    fs::write(options.out_dir.join("src").join("lib_inner.rs"), &contents).unwrap();
 
     // Generate src/lib.rs
     const CUT_MARKER: &[u8] = b"// GEN CUT HERE";
@@ -738,11 +633,11 @@ pub fn gen(options: Options) {
     let mut contents: Vec<u8> = Vec::new();
     contents.extend(&librs[..i]);
     contents.extend(b"include!(\"lib_inner.rs\");\n");
-    fs::write(out_dir.join("src").join("lib.rs"), contents).unwrap();
+    fs::write(options.out_dir.join("src").join("lib.rs"), contents).unwrap();
 
     // Generate src/common.rs
     fs::write(
-        out_dir.join("src").join("common.rs"),
+        options.out_dir.join("src").join("common.rs"),
         generate::COMMON_MODULE,
     )
     .unwrap();
@@ -755,10 +650,14 @@ pub fn gen(options: Options) {
     let begin = bytes_find(&contents, BUILDDEP_BEGIN).unwrap();
     let end = bytes_find(&contents, BUILDDEP_END).unwrap() + BUILDDEP_END.len();
     contents.drain(begin..end);
-    fs::write(out_dir.join("Cargo.toml"), contents).unwrap();
+    fs::write(options.out_dir.join("Cargo.toml"), contents).unwrap();
 
     // Generate build.rs
-    fs::write(out_dir.join("build.rs"), include_bytes!("assets/build.rs")).unwrap();
+    fs::write(
+        options.out_dir.join("build.rs"),
+        include_bytes!("assets/build.rs"),
+    )
+    .unwrap();
 }
 
 fn bytes_find(haystack: &[u8], needle: &[u8]) -> Option<usize> {

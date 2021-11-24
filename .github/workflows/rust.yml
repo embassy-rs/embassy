@@ -12,7 +12,7 @@ env:
 jobs:
   all:
     runs-on: ubuntu-20.04
-    needs: [build, test, metapac_gen]
+    needs: [build, test]
     steps:
       - name: Done
         run: exit 0
@@ -45,12 +45,3 @@ jobs:
       - uses: actions/checkout@v2
       - name: Test
         run: cd embassy && cargo test
-
-  metapac_gen:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          submodules: true
-      - name: Generate pregenerated metapac
-        run: cd stm32-metapac-gen; cargo run --release

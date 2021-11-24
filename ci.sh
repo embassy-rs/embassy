@@ -7,6 +7,13 @@ export RUSTFLAGS=-Dwarnings
 
 find -name '*.rs' -not -path '*target*' -not -path '*stm32-metapac-gen/out/*'  | xargs rustfmt --check  --skip-children --unstable-features --edition 2018
 
+# Generate stm32-metapac
+# for some reason Cargo stomps the cache if we don't specify --target.
+# This happens with vanilla Cargo, not just cargo-batch. Bug?
+(cd stm32-metapac-gen; cargo run --release --target x86_64-unknown-linux-gnu)
+rm -rf stm32-metapac
+mv stm32-metapac-gen/out stm32-metapac
+
 cargo batch  \
     --- build --release --manifest-path embassy/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path embassy/Cargo.toml --target thumbv7em-none-eabi --features log,executor-agnostic \
@@ -28,7 +35,7 @@ cargo batch  \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52840,defmt \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f411ce,defmt \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f429zi,log \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h755zi_cm7,defmt \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h755zi-cm7,defmt \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32l476vg,defmt \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32l072cz,defmt \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32l151cb-a,defmt \

@@ -123,7 +123,7 @@ pub fn stm32_metapac_needed_data(names_and_cores: &[(String, Vec<String>)]) -> S
     for (chip_name, cores) in names_and_cores {
         if cores.len() > 1 {
             for core_name in cores {
-                result += &format!("{}_{} = []\n", chip_name, core_name);
+                result += &format!("{}-{} = []\n", chip_name, core_name);
             }
         } else {
             result += &format!("{} = []\n", chip_name);
