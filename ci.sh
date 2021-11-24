@@ -4,15 +4,16 @@ set -euo pipefail
 
 export CARGO_TARGET_DIR=$PWD/target_ci
 export RUSTFLAGS=-Dwarnings
+export DEFMT_LOG=trace
 
-find . -name '*.rs' -not -path '*target*' -not -path '*stm32-metapac-gen/out/*'  | xargs rustfmt --check  --skip-children --unstable-features --edition 2018
+#find . -name '*.rs' -not -path '*target*' -not -path '*stm32-metapac-gen/out/*'  | xargs rustfmt --check  --skip-children --unstable-features --edition 2018
 
 # Generate stm32-metapac
 # for some reason Cargo stomps the cache if we don't specify --target.
 # This happens with vanilla Cargo, not just cargo-batch. Bug?
-(cd stm32-metapac-gen; cargo run --release --target x86_64-unknown-linux-gnu)
-rm -rf stm32-metapac
-mv stm32-metapac-gen/out stm32-metapac
+#(cd stm32-metapac-gen; cargo run --release --target x86_64-unknown-linux-gnu)
+#rm -rf stm32-metapac
+#mv stm32-metapac-gen/out stm32-metapac
 
 cargo batch  \
     --- build --release --manifest-path embassy/Cargo.toml --target thumbv7em-none-eabi \
@@ -56,3 +57,32 @@ cargo batch  \
     --- build --release --manifest-path examples/stm32wb55/Cargo.toml --target thumbv7em-none-eabihf --out-dir out/examples/stm32wb55 \
     --- build --release --manifest-path examples/stm32wl55/Cargo.toml --target thumbv7em-none-eabihf --out-dir out/examples/stm32wl55 \
     --- build --release --manifest-path examples/wasm/Cargo.toml --target wasm32-unknown-unknown --out-dir out/examples/wasm \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --out-dir out/tests/stm32f4 \
+
+
+function run_elf {
+    echo Running target=$1 elf=$2
+    STATUSCODE=$(
+        curl \
+            -sS \
+            --output /dev/stderr \
+            --write-out "%{http_code}" \
+            -H "Authorization: Bearer $TELEPROBE_TOKEN" \
+            https://teleprobe.embassy.dev/targets/$1/run --data-binary @$2
+    )
+    echo HTTP Status code: $STATUSCODE
+    test "$STATUSCODE" -eq 200
+}
+
+if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
+    if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN-}" ]]; then
+        echo No teleprobe token found, skipping running HIL tests
+        exit
+    fi
+
+    export TELEPROBE_TOKEN=$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r '.value')
+fi
+
+
+run_elf nucleo-stm32f429zi out/tests/stm32f4/gpio
+

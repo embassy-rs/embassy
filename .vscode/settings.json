@@ -16,7 +16,7 @@
     //"embassy-net/pool-16",
   ],
   "rust-analyzer.linkedProjects": [
-    "examples/stm32g4/Cargo.toml"
+    "examples/stm32f1/Cargo.toml"
   ],
   "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.cargo.runBuildScripts": true,

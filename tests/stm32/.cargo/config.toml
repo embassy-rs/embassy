@@ -1,0 +1,17 @@
+[unstable]
+build-std = ["core"]
+build-std-features = ["panic_immediate_abort"]
+
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# replace STM32F429ZITx with your chip as listed in `probe-run --list-chips`
+runner = "probe-run --chip STM32F429ZITx"
+
+rustflags = [
+  # Code-size optimizations.
+  "-Z", "trap-unreachable=no",
+  "-C", "inline-threshold=5",
+  "-C", "no-vectorize-loops",
+]
+
+[build]
+target = "thumbv7em-none-eabi"
