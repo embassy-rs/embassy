@@ -1,7 +1,5 @@
 use async_io::Async;
-use libc;
 use log::*;
-use smoltcp::wire::EthernetFrame;
 use std::io;
 use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -13,6 +11,8 @@ pub const TUNSETIFF: libc::c_ulong = 0x400454CA;
 pub const _IFF_TUN: libc::c_int = 0x0001;
 pub const IFF_TAP: libc::c_int = 0x0002;
 pub const IFF_NO_PI: libc::c_int = 0x1000;
+
+const ETHERNET_HEADER_LEN: usize = 14;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -85,7 +85,7 @@ impl TunTap {
 
             // SIOCGIFMTU returns the IP MTU (typically 1500 bytes.)
             // smoltcp counts the entire Ethernet packet in the MTU, so add the Ethernet header size to it.
-            let mtu = ip_mtu + EthernetFrame::<&[u8]>::header_len();
+            let mtu = ip_mtu + ETHERNET_HEADER_LEN;
 
             Ok(TunTap { fd, mtu })
         }
