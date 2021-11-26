@@ -26,6 +26,8 @@ pub use tcp_socket::TcpSocket;
 pub use smoltcp::phy::{DeviceCapabilities, Medium};
 pub use smoltcp::time::Duration as SmolDuration;
 pub use smoltcp::time::Instant as SmolInstant;
-pub use smoltcp::wire::{HardwareAddress, IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
+#[cfg(feature = "medium-ethernet")]
+pub use smoltcp::wire::{EthernetAddress, HardwareAddress};
+pub use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
 pub type Interface = smoltcp::iface::Interface<'static, device::DeviceAdapter>;
 pub use smoltcp::{Error, Result};

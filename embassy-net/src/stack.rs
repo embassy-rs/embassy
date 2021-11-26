@@ -8,18 +8,15 @@ use embassy::waitqueue::WakerRegistration;
 use futures::pin_mut;
 use smoltcp::iface::InterfaceBuilder;
 use smoltcp::iface::SocketStorage;
+use smoltcp::time::Instant as SmolInstant;
+use smoltcp::wire::{IpCidr, Ipv4Address, Ipv4Cidr};
+
 #[cfg(feature = "medium-ethernet")]
 use smoltcp::iface::{Neighbor, NeighborCache, Route, Routes};
 #[cfg(feature = "medium-ethernet")]
-use smoltcp::phy::Device as _;
+use smoltcp::phy::{Device as _, Medium};
 #[cfg(feature = "medium-ethernet")]
-use smoltcp::phy::Medium;
-use smoltcp::time::Instant as SmolInstant;
-#[cfg(feature = "medium-ethernet")]
-use smoltcp::wire::EthernetAddress;
-#[cfg(feature = "medium-ethernet")]
-use smoltcp::wire::IpAddress;
-use smoltcp::wire::{HardwareAddress, IpCidr, Ipv4Address, Ipv4Cidr};
+use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress};
 
 use crate::config::Configurator;
 use crate::config::Event;
