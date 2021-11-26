@@ -9,6 +9,7 @@ use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, OptionalPin as GpioOptionalPin};
 use crate::interrupt::Interrupt;
 use crate::pac;
+use crate::ppi::{Event, Task};
 use crate::util::slice_in_ram_or;
 
 /// SimplePwm is the traditional pwm interface you're probably used to, allowing
@@ -101,6 +102,13 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         // Disable all interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
         r.shorts.reset();
+        r.events_stopped.reset();
+        r.events_loopsdone.reset();
+        r.events_seqend[0].reset();
+        r.events_seqend[1].reset();
+        r.events_pwmperiodend.reset();
+        r.events_seqstarted[0].reset();
+        r.events_seqstarted[1].reset();
 
         r.seq0
             .ptr
@@ -200,12 +208,111 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         Ok(())
     }
 
-    /// Stop playback.
+    /// Returns reference to `Stopped` event endpoint for PPI.
+    #[inline(always)]
+    pub fn event_stopped(&self) -> Event {
+        let r = T::regs();
+
+        Event::from_reg(&r.events_stopped)
+    }
+
+    /// Returns reference to `LoopsDone` event endpoint for PPI.
+    #[inline(always)]
+    pub fn event_loops_done(&self) -> Event {
+        let r = T::regs();
+
+        Event::from_reg(&r.events_loopsdone)
+    }
+
+    /// Returns reference to `PwmPeriodEnd` event endpoint for PPI.
+    #[inline(always)]
+    pub fn event_pwm_period_end(&self) -> Event {
+        let r = T::regs();
+
+        Event::from_reg(&r.events_pwmperiodend)
+    }
+
+    /// Returns reference to `Seq0 End` event endpoint for PPI.
+    #[inline(always)]
+    pub fn event_seq_end(&self) -> Event {
+        let r = T::regs();
+
+        Event::from_reg(&r.events_seqend[0])
+    }
+
+    /// Returns reference to `Seq1 End` event endpoint for PPI.
+    #[inline(always)]
+    pub fn event_seq1_end(&self) -> Event {
+        let r = T::regs();
+
+        Event::from_reg(&r.events_seqend[1])
+    }
+
+    /// Returns reference to `Seq0 Started` event endpoint for PPI.
+    #[inline(always)]
+    pub fn event_seq0_started(&self) -> Event {
+        let r = T::regs();
+
+        Event::from_reg(&r.events_seqstarted[0])
+    }
+
+    /// Returns reference to `Seq1 Started` event endpoint for PPI.
+    #[inline(always)]
+    pub fn event_seq1_started(&self) -> Event {
+        let r = T::regs();
+
+        Event::from_reg(&r.events_seqstarted[1])
+    }
+
+    /// Returns reference to `Seq0 Start` task endpoint for PPI.
+    /// # Safety
+    ///
+    /// Interacting with the sequence while it runs puts it in an unknown state
+    #[inline(always)]
+    pub unsafe fn task_start_seq0(&self) -> Task {
+        let r = T::regs();
+
+        Task::from_reg(&r.tasks_seqstart[0])
+    }
+
+    /// Returns reference to `Seq1 Started` task endpoint for PPI.
+    /// # Safety
+    ///
+    /// Interacting with the sequence while it runs puts it in an unknown state
+    #[inline(always)]
+    pub unsafe fn task_start_seq1(&self) -> Task {
+        let r = T::regs();
+
+        Task::from_reg(&r.tasks_seqstart[1])
+    }
+
+    /// Returns reference to `NextStep` task endpoint for PPI.
+    /// # Safety
+    ///
+    /// Interacting with the sequence while it runs puts it in an unknown state
+    #[inline(always)]
+    pub unsafe fn task_next_step(&self) -> Task {
+        let r = T::regs();
+
+        Task::from_reg(&r.tasks_nextstep)
+    }
+
+    /// Returns reference to `Stop` task endpoint for PPI.
+    /// # Safety
+    ///
+    /// Interacting with the sequence while it runs puts it in an unknown state
+    #[inline(always)]
+    pub unsafe fn task_stop(&self) -> Task {
+        let r = T::regs();
+
+        Task::from_reg(&r.tasks_stop)
+    }
+
+    /// Stop playback. Disables the peripheral. Does NOT clear the last duty
+    /// cycle from the pin.
     #[inline(always)]
     pub fn stop(&self) {
         let r = T::regs();
-
-        r.enable.write(|w| w.enable().disabled());
 
         r.shorts.reset();
 
@@ -213,6 +320,8 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
         // tasks_stop() doesn't exist in all svds so write its bit instead
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
+
+        r.enable.write(|w| w.enable().disabled());
     }
 }
 
@@ -224,23 +333,23 @@ impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
 
         if let Some(pin) = &self.ch0 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[0].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[0].reset();
         }
         if let Some(pin) = &self.ch1 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[1].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[1].reset();
         }
         if let Some(pin) = &self.ch2 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[2].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[2].reset();
         }
         if let Some(pin) = &self.ch3 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[3].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[3].reset();
         }
     }
 }
@@ -325,8 +434,8 @@ pub enum CounterMode {
 impl<'d, T: Instance> SimplePwm<'d, T> {
     /// Creates the interface to a `SimplePwm`
     ///
-    /// Defaults the freq to 1Mhz, max_duty 1000, duty 0, up mode, and pins low.
-    /// Must be started by calling `set_duty`
+    /// Enables the peripheral, defaults the freq to 1Mhz, max_duty 1000, duty
+    /// 0, up mode, and pins low. Must be started by calling `set_duty`
     ///
     /// # Safety
     ///
@@ -405,19 +514,6 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         pwm
     }
 
-    /// Stop playback
-    #[inline(always)]
-    pub fn stop(&self) {
-        let r = T::regs();
-
-        r.shorts.reset();
-
-        compiler_fence(Ordering::SeqCst);
-
-        // tasks_stop() doesn't exist in all svds so write its bit instead
-        r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
-    }
-
     /// Enables the PWM generator.
     #[inline(always)]
     pub fn enable(&self) {
@@ -425,7 +521,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         r.enable.write(|w| w.enable().enabled());
     }
 
-    /// Disables the PWM generator.
+    /// Disables the PWM generator. Does NOT clear the last duty cycle from the pin.
     #[inline(always)]
     pub fn disable(&self) {
         let r = T::regs();
@@ -446,13 +542,14 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         // defensive before seqstart
         compiler_fence(Ordering::SeqCst);
 
+        r.events_seqend[0].reset();
+
         // tasks_seqstart() doesn't exist in all svds so write its bit instead
         r.tasks_seqstart[0].write(|w| unsafe { w.bits(1) });
 
         // defensive wait until waveform is loaded after seqstart so set_duty
         // can't be called again while dma is still reading
         while r.events_seqend[0].read().bits() == 0 {}
-        r.events_seqend[0].write(|w| w);
     }
 
     /// Sets the PWM clock prescaler.
@@ -512,28 +609,27 @@ impl<'a, T: Instance> Drop for SimplePwm<'a, T> {
     fn drop(&mut self) {
         let r = T::regs();
 
-        self.stop();
         self.disable();
 
         if let Some(pin) = &self.ch0 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[0].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[0].reset();
         }
         if let Some(pin) = &self.ch1 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[1].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[1].reset();
         }
         if let Some(pin) = &self.ch2 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[2].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[2].reset();
         }
         if let Some(pin) = &self.ch3 {
             pin.set_low();
-            pin.conf().write(|w| w);
-            r.psel.out[3].write(|w| unsafe { w.bits(0x80000000) });
+            pin.conf().reset();
+            r.psel.out[3].reset();
         }
     }
 }
