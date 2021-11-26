@@ -170,8 +170,7 @@ impl crate::Device for TunTapDevice {
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                     let ready = if let Some(w) = self.waker.as_ref() {
                         let mut cx = Context::from_waker(w);
-                        let ready = self.device.poll_readable(&mut cx).is_ready();
-                        ready
+                        self.device.poll_readable(&mut cx).is_ready()
                     } else {
                         false
                     };

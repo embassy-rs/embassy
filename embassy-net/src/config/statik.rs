@@ -1,7 +1,7 @@
 use smoltcp::time::Instant;
 
 use super::*;
-use crate::{Interface, SocketSet};
+use crate::Interface;
 
 pub struct StaticConfigurator {
     config: Config,
@@ -18,12 +18,7 @@ impl StaticConfigurator {
 }
 
 impl Configurator for StaticConfigurator {
-    fn poll(
-        &mut self,
-        _iface: &mut Interface,
-        _sockets: &mut SocketSet,
-        _timestamp: Instant,
-    ) -> Event {
+    fn poll(&mut self, _iface: &mut Interface, _timestamp: Instant) -> Event {
         if self.returned {
             Event::NoChange
         } else {

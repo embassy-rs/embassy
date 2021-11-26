@@ -2,7 +2,7 @@ use heapless::Vec;
 use smoltcp::time::Instant;
 use smoltcp::wire::{Ipv4Address, Ipv4Cidr};
 
-use crate::{Interface, SocketSet};
+use crate::Interface;
 
 mod statik;
 pub use statik::StaticConfigurator;
@@ -31,6 +31,5 @@ pub struct Config {
 }
 
 pub trait Configurator {
-    fn poll(&mut self, iface: &mut Interface, sockets: &mut SocketSet, timestamp: Instant)
-        -> Event;
+    fn poll(&mut self, iface: &mut Interface, timestamp: Instant) -> Event;
 }

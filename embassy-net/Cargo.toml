@@ -34,8 +34,8 @@ futures             = { version = "0.3.17", default-features = false, features =
 atomic-pool = "0.2.1"
 
 [dependencies.smoltcp]
-git = "https://github.com/bobmcwhirter/smoltcp"
-rev = "faf81d21daae16b650b16e59a8422a8283e8a302"
+git = "https://github.com/smoltcp-rs/smoltcp"
+rev = "453183f8a1d16daf2f6739b565d3dc7ac93b662e"
 default-features = false
 features = [
   "proto-ipv4",

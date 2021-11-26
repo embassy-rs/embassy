@@ -4,7 +4,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 use embassy::io;
 use embassy::io::{AsyncBufRead, AsyncWrite};
-use smoltcp::socket::SocketHandle;
+use smoltcp::iface::{Context as SmolContext, SocketHandle};
 use smoltcp::socket::TcpSocket as SyncTcpSocket;
 use smoltcp::socket::{TcpSocketBuffer, TcpState};
 use smoltcp::time::Duration;
@@ -25,7 +25,7 @@ impl<'a> TcpSocket<'a> {
         let handle = Stack::with(|stack| {
             let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
             let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
-            stack.sockets.add(SyncTcpSocket::new(
+            stack.iface.add_socket(SyncTcpSocket::new(
                 TcpSocketBuffer::new(rx_buffer),
                 TcpSocketBuffer::new(tx_buffer),
             ))
@@ -42,10 +42,10 @@ impl<'a> TcpSocket<'a> {
         T: Into<IpEndpoint>,
     {
         let local_port = Stack::with(|stack| stack.get_local_port());
-        self.with(|s| s.connect(remote_endpoint, local_port))?;
+        self.with(|s, cx| s.connect(cx, remote_endpoint, local_port))?;
 
         futures::future::poll_fn(|cx| {
-            self.with(|s| match s.state() {
+            self.with(|s, _| match s.state() {
                 TcpState::Closed | TcpState::TimeWait => Poll::Ready(Err(Error::Unaddressable)),
                 TcpState::Listen => Poll::Ready(Err(Error::Illegal)),
                 TcpState::SynSent | TcpState::SynReceived => {
@@ -62,10 +62,10 @@ impl<'a> TcpSocket<'a> {
     where
         T: Into<IpEndpoint>,
     {
-        self.with(|s| s.listen(local_endpoint))?;
+        self.with(|s, _| s.listen(local_endpoint))?;
 
         futures::future::poll_fn(|cx| {
-            self.with(|s| match s.state() {
+            self.with(|s, _| match s.state() {
                 TcpState::Closed | TcpState::TimeWait => Poll::Ready(Err(Error::Unaddressable)),
                 TcpState::Listen => Poll::Ready(Ok(())),
                 TcpState::SynSent | TcpState::SynReceived => {
@@ -79,50 +79,52 @@ impl<'a> TcpSocket<'a> {
     }
 
     pub fn set_timeout(&mut self, duration: Option<Duration>) {
-        self.with(|s| s.set_timeout(duration))
+        self.with(|s, _| s.set_timeout(duration))
     }
 
     pub fn set_keep_alive(&mut self, interval: Option<Duration>) {
-        self.with(|s| s.set_keep_alive(interval))
+        self.with(|s, _| s.set_keep_alive(interval))
     }
 
     pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) {
-        self.with(|s| s.set_hop_limit(hop_limit))
+        self.with(|s, _| s.set_hop_limit(hop_limit))
     }
 
     pub fn local_endpoint(&self) -> IpEndpoint {
-        self.with(|s| s.local_endpoint())
+        self.with(|s, _| s.local_endpoint())
     }
 
     pub fn remote_endpoint(&self) -> IpEndpoint {
-        self.with(|s| s.remote_endpoint())
+        self.with(|s, _| s.remote_endpoint())
     }
 
     pub fn state(&self) -> TcpState {
-        self.with(|s| s.state())
+        self.with(|s, _| s.state())
     }
 
     pub fn close(&mut self) {
-        self.with(|s| s.close())
+        self.with(|s, _| s.close())
     }
 
     pub fn abort(&mut self) {
-        self.with(|s| s.abort())
+        self.with(|s, _| s.abort())
     }
 
     pub fn may_send(&self) -> bool {
-        self.with(|s| s.may_send())
+        self.with(|s, _| s.may_send())
     }
 
     pub fn may_recv(&self) -> bool {
-        self.with(|s| s.may_recv())
+        self.with(|s, _| s.may_recv())
     }
 
-    fn with<R>(&self, f: impl FnOnce(&mut SyncTcpSocket) -> R) -> R {
+    fn with<R>(&self, f: impl FnOnce(&mut SyncTcpSocket, &mut SmolContext) -> R) -> R {
         Stack::with(|stack| {
             let res = {
-                let mut s = stack.sockets.get::<SyncTcpSocket>(self.handle);
-                f(&mut *s)
+                let (s, cx) = stack
+                    .iface
+                    .get_socket_and_context::<SyncTcpSocket>(self.handle);
+                f(s, cx)
             };
             stack.wake();
             res
@@ -138,7 +140,7 @@ fn to_ioerr(_err: Error) -> io::Error {
 impl<'a> Drop for TcpSocket<'a> {
     fn drop(&mut self) {
         Stack::with(|stack| {
-            stack.sockets.remove(self.handle);
+            stack.iface.remove_socket(self.handle);
         })
     }
 }
@@ -148,10 +150,10 @@ impl<'a> AsyncBufRead for TcpSocket<'a> {
         self: Pin<&'z mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<io::Result<&'z [u8]>> {
-        self.with(|socket| match socket.peek(1 << 30) {
+        self.with(|s, _| match s.peek(1 << 30) {
             // No data ready
             Ok(buf) if buf.is_empty() => {
-                socket.register_recv_waker(cx.waker());
+                s.register_recv_waker(cx.waker());
                 Poll::Pending
             }
             // Data ready!
@@ -176,7 +178,7 @@ impl<'a> AsyncBufRead for TcpSocket<'a> {
             // even if we're "reading" 0 bytes.
             return;
         }
-        self.with(|s| s.recv(|_| (amt, ()))).unwrap()
+        self.with(|s, _| s.recv(|_| (amt, ()))).unwrap()
     }
 }
 
@@ -186,7 +188,7 @@ impl<'a> AsyncWrite for TcpSocket<'a> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        self.with(|s| match s.send_slice(buf) {
+        self.with(|s, _| match s.send_slice(buf) {
             // Not ready to send (no space in the tx buffer)
             Ok(0) => {
                 s.register_send_waker(cx.waker());

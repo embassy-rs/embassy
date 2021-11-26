@@ -1,10 +1,11 @@
 use heapless::Vec;
-use smoltcp::socket::{Dhcpv4Event, Dhcpv4Socket, SocketHandle};
+use smoltcp::iface::SocketHandle;
+use smoltcp::socket::{Dhcpv4Event, Dhcpv4Socket};
 use smoltcp::time::Instant;
 
 use super::*;
 use crate::device::LinkState;
-use crate::{Interface, SocketSet};
+use crate::Interface;
 
 pub struct DhcpConfigurator {
     handle: Option<SocketHandle>,
@@ -17,20 +18,16 @@ impl DhcpConfigurator {
 }
 
 impl Configurator for DhcpConfigurator {
-    fn poll(
-        &mut self,
-        iface: &mut Interface,
-        sockets: &mut SocketSet,
-        _timestamp: Instant,
-    ) -> Event {
+    fn poll(&mut self, iface: &mut Interface, _timestamp: Instant) -> Event {
         if self.handle.is_none() {
-            let handle = sockets.add(Dhcpv4Socket::new());
+            let handle = iface.add_socket(Dhcpv4Socket::new());
             self.handle = Some(handle)
         }
 
-        let mut socket = sockets.get::<Dhcpv4Socket>(self.handle.unwrap());
-
         let link_up = iface.device_mut().device.link_state() == LinkState::Up;
+
+        let socket = iface.get_socket::<Dhcpv4Socket>(self.handle.unwrap());
+
         if !link_up {
             socket.reset();
             return Event::Deconfigured;
