@@ -9,7 +9,7 @@ pub struct SerialPort {
 }
 
 impl SerialPort {
-    pub fn new<'a, P: ?Sized + nix::NixPath>(
+    pub fn new<P: ?Sized + nix::NixPath>(
         path: &P,
         baudrate: termios::BaudRate,
     ) -> io::Result<Self> {

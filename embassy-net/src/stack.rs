@@ -7,31 +7,31 @@ use embassy::time::{Instant, Timer};
 use embassy::waitqueue::WakerRegistration;
 use futures::pin_mut;
 use smoltcp::iface::InterfaceBuilder;
+use smoltcp::iface::SocketStorage;
 #[cfg(feature = "medium-ethernet")]
 use smoltcp::iface::{Neighbor, NeighborCache, Route, Routes};
 #[cfg(feature = "medium-ethernet")]
 use smoltcp::phy::Device as _;
 #[cfg(feature = "medium-ethernet")]
 use smoltcp::phy::Medium;
-use smoltcp::socket::SocketSetItem;
 use smoltcp::time::Instant as SmolInstant;
 #[cfg(feature = "medium-ethernet")]
 use smoltcp::wire::EthernetAddress;
 #[cfg(feature = "medium-ethernet")]
 use smoltcp::wire::IpAddress;
-use smoltcp::wire::{IpCidr, Ipv4Address, Ipv4Cidr};
+use smoltcp::wire::{HardwareAddress, IpCidr, Ipv4Address, Ipv4Cidr};
 
 use crate::config::Configurator;
 use crate::config::Event;
 use crate::device::{Device, DeviceAdapter, LinkState};
-use crate::{Interface, SocketSet};
+use crate::Interface;
 
 const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
 
 pub struct StackResources<const ADDR: usize, const SOCK: usize, const NEIGHBOR: usize> {
     addresses: [IpCidr; ADDR],
-    sockets: [Option<SocketSetItem<'static>>; SOCK],
+    sockets: [SocketStorage<'static>; SOCK],
 
     #[cfg(feature = "medium-ethernet")]
     routes: [Option<(IpCidr, Route)>; 1],
@@ -43,11 +43,9 @@ impl<const ADDR: usize, const SOCK: usize, const NEIGHBOR: usize>
     StackResources<ADDR, SOCK, NEIGHBOR>
 {
     pub fn new() -> Self {
-        const NONE_SOCKET: Option<SocketSetItem<'static>> = None;
-
         Self {
             addresses: [IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 32); ADDR],
-            sockets: [NONE_SOCKET; SOCK],
+            sockets: [SocketStorage::EMPTY; SOCK],
             #[cfg(feature = "medium-ethernet")]
             routes: [None; 1],
             #[cfg(feature = "medium-ethernet")]
@@ -59,8 +57,7 @@ impl<const ADDR: usize, const SOCK: usize, const NEIGHBOR: usize>
 static STACK: ThreadModeMutex<RefCell<Option<Stack>>> = ThreadModeMutex::new(RefCell::new(None));
 
 pub(crate) struct Stack {
-    iface: Interface,
-    pub sockets: SocketSet,
+    pub iface: Interface,
     link_up: bool,
     config_up: bool,
     next_local_port: u16,
@@ -94,10 +91,7 @@ impl Stack {
         #[cfg(feature = "medium-ethernet")]
         let medium = self.iface.device().capabilities().medium;
 
-        match self
-            .configurator
-            .poll(&mut self.iface, &mut self.sockets, timestamp)
-        {
+        match self.configurator.poll(&mut self.iface, timestamp) {
             Event::NoChange => {}
             Event::Configured(config) => {
                 debug!("Acquired IP configuration:");
@@ -141,7 +135,7 @@ impl Stack {
         self.waker.register(cx.waker());
 
         let timestamp = instant_to_smoltcp(Instant::now());
-        if self.iface.poll(&mut self.sockets, timestamp).is_err() {
+        if self.iface.poll(timestamp).is_err() {
             // If poll() returns error, it may not be done yet, so poll again later.
             cx.waker().wake_by_ref();
             return;
@@ -160,7 +154,7 @@ impl Stack {
             self.poll_configurator(timestamp)
         }
 
-        if let Some(poll_at) = self.iface.poll_at(&self.sockets, timestamp) {
+        if let Some(poll_at) = self.iface.poll_at(timestamp) {
             let t = Timer::at(instant_from_smoltcp(poll_at));
             pin_mut!(t);
             if t.poll(cx).is_ready() {
@@ -194,19 +188,17 @@ pub fn init<const ADDR: usize, const SOCK: usize, const NEIGH: usize>(
         [0, 0, 0, 0, 0, 0]
     };
 
-    let mut b = InterfaceBuilder::new(DeviceAdapter::new(device));
+    let mut b = InterfaceBuilder::new(DeviceAdapter::new(device), &mut resources.sockets[..]);
     b = b.ip_addrs(&mut resources.addresses[..]);
 
     #[cfg(feature = "medium-ethernet")]
     if medium == Medium::Ethernet {
-        b = b.ethernet_addr(EthernetAddress(ethernet_addr));
+        b = b.hardware_addr(HardwareAddress::Ethernet(EthernetAddress(ethernet_addr)));
         b = b.neighbor_cache(NeighborCache::new(&mut resources.neighbor_cache[..]));
         b = b.routes(Routes::new(&mut resources.routes[..]));
     }
 
     let iface = b.finalize();
-
-    let sockets = SocketSet::new(&mut resources.sockets[..]);
 
     let local_port = loop {
         let mut res = [0u8; 2];
@@ -219,7 +211,6 @@ pub fn init<const ADDR: usize, const SOCK: usize, const NEIGH: usize>(
 
     let stack = Stack {
         iface,
-        sockets,
         link_up: false,
         config_up: false,
         configurator,
