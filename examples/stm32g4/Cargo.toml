@@ -1,14 +1,14 @@
 [package]
 authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>", "Ben Gamari <ben@smart-cactus.org>"]
 edition = "2018"
-name = "embassy-stm32g0-examples"
+name = "embassy-stm32g4-examples"
 version = "0.1.0"
 resolver = "2"
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "time-driver-tim2", "stm32g071rb", "memory-x", "unstable-pac"]  }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "time-driver-tim2", "stm32g491re", "memory-x", "unstable-pac"]  }
 embassy-hal-common = {version = "0.1.0", path = "../../embassy-hal-common" }
 
 defmt = "0.3"
