@@ -2,12 +2,13 @@
 
 use std::{iter::FilterMap, path::Path, slice::Iter};
 
-const SUPPORTED_FAMILIES: [&str; 12] = [
+const SUPPORTED_FAMILIES: &[&str] = &[
     "stm32f0",
     "stm32f1",
     "stm32f4",
     "stm32f7",
     "stm32g0",
+    "stm32g4",
     "stm32l0",
     "stm32l1",
     "stm32l4",
@@ -99,7 +100,7 @@ pub fn embassy_stm32_needed_data(names_and_cores: &[(String, Vec<String>)]) -> S
         if cores.len() > 1 {
             for core_name in cores.iter() {
                 result += &format!(
-                    "{chip}_{core} = [ \"stm32-metapac/{chip}_{core}\" ]\n",
+                    "{chip}-{core} = [ \"stm32-metapac/{chip}-{core}\" ]\n",
                     chip = chip_name,
                     core = core_name
                 );
