@@ -179,17 +179,21 @@ macro_rules! impl_pwm_pin {
     };
 }
 
-#[cfg(rcc_g0)]
-mod impls {
-    crate::pac::peripherals!(
-        (timer, TIM2) => { impl_timer!(TIM2); };
-        (timer, TIM3) => { impl_timer!(TIM3); };
-        (timer, TIM4) => { impl_timer!(TIM4); };
-        (timer, TIM5) => { impl_timer!(TIM5); };
-    );
+crate::pac::peripherals!(
+    (timer, $inst:ident) => { impl_timer!($inst); };
+);
 
-    impl_pwm_pin!(TIM2, Ch1, PA0, 2);
-    impl_pwm_pin!(TIM2, Ch2, PA1, 2);
-    impl_pwm_pin!(TIM2, Ch3, PA2, 2);
-    impl_pwm_pin!(TIM2, Ch4, PA3, 2);
-}
+crate::pac::peripheral_pins!(
+    ($inst:ident, timer,TIM_GP16, $pin:ident, CH1, $af:expr) => {
+        impl_pwm_pin!($inst, Ch1, $pin, $af);
+    };
+    ($inst:ident, timer,TIM_GP16, $pin:ident, CH2, $af:expr) => {
+        impl_pwm_pin!($inst, Ch2, $pin, $af);
+    };
+    ($inst:ident, timer,TIM_GP16, $pin:ident, CH3, $af:expr) => {
+        impl_pwm_pin!($inst, Ch3, $pin, $af);
+    };
+    ($inst:ident, timer,TIM_GP16, $pin:ident, CH4, $af:expr) => {
+        impl_pwm_pin!($inst, Ch4, $pin, $af);
+    };
+);
