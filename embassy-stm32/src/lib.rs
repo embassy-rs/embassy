@@ -41,6 +41,7 @@ pub mod i2c;
 
 #[cfg(crc)]
 pub mod crc;
+pub mod pwm;
 #[cfg(pwr)]
 pub mod pwr;
 #[cfg(rng)]
@@ -51,8 +52,6 @@ pub mod sdmmc;
 pub mod spi;
 #[cfg(usart)]
 pub mod usart;
-//#[cfg(pwm)]
-pub mod pwm;
 
 #[cfg(feature = "subghz")]
 pub mod subghz;

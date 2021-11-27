@@ -87,15 +87,11 @@ impl<'d, T: Instance> Pwm<'d, T> {
     }
 
     pub fn enable(&mut self, channel: Channel) {
-        unsafe {
-            self.set_enable(channel, true);
-        }
+        unsafe { self.set_enable(channel, true) }
     }
 
     pub fn disable(&mut self, channel: Channel) {
-        unsafe {
-            self.set_enable(channel, false);
-        }
+        unsafe { self.set_enable(channel, false) }
     }
 
     pub fn set_freq<F: Into<Hertz>>(&mut self, freq: F) {
