@@ -142,7 +142,7 @@ macro_rules! impl_timer {
     ($inst:ident) => {
         impl crate::pwm::sealed::Instance for crate::peripherals::$inst {
             fn regs() -> crate::pac::timer::TimGp16 {
-                crate::pac::$inst
+                crate::pac::timer::TimGp16(crate::pac::$inst.0)
             }
         }
 

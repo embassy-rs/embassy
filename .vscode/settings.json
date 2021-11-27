@@ -6,6 +6,7 @@
   "rust-analyzer.checkOnSave.allTargets": false,
   "rust-analyzer.checkOnSave.command": "clippy",
   "rust-analyzer.cargo.noDefaultFeatures": true,
+  "rust-analyzer.experimental.procAttrMacros": false,
   "rust-analyzer.checkOnSave.noDefaultFeatures": true,
   "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
   "rust-analyzer.cargo.features": [
