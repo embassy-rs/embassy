@@ -5,7 +5,7 @@ set -euo pipefail
 export CARGO_TARGET_DIR=$PWD/target_ci
 export RUSTFLAGS=-Dwarnings
 
-find -name '*.rs' -not -path '*target*' -not -path '*stm32-metapac-gen/out/*'  | xargs rustfmt --check  --skip-children --unstable-features --edition 2018
+find . -name '*.rs' -not -path '*target*' -not -path '*stm32-metapac-gen/out/*'  | xargs rustfmt --check  --skip-children --unstable-features --edition 2018
 
 # Generate stm32-metapac
 # for some reason Cargo stomps the cache if we don't specify --target.
