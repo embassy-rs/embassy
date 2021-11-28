@@ -1,4 +1,3 @@
-pub use super::types::*;
 use crate::pac;
 use crate::peripherals::{self, RCC};
 use crate::rcc::{get_freqs, set_freqs, Clocks};
@@ -47,6 +46,30 @@ impl Into<u8> for HSI16Prescaler {
             HSI16Prescaler::Div128 => 0x07,
         }
     }
+}
+
+/// AHB prescaler
+#[derive(Clone, Copy, PartialEq)]
+pub enum AHBPrescaler {
+    NotDivided,
+    Div2,
+    Div4,
+    Div8,
+    Div16,
+    Div64,
+    Div128,
+    Div256,
+    Div512,
+}
+
+/// APB prescaler
+#[derive(Clone, Copy)]
+pub enum APBPrescaler {
+    NotDivided,
+    Div2,
+    Div4,
+    Div8,
+    Div16,
 }
 
 impl Into<u8> for APBPrescaler {

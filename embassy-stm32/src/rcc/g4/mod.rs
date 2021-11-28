@@ -1,4 +1,3 @@
-pub use super::types::*;
 use crate::pac;
 use crate::peripherals::{self, RCC};
 use crate::rcc::{get_freqs, set_freqs, Clocks};
@@ -19,6 +18,30 @@ pub const LSI_FREQ: u32 = 32_000;
 pub enum ClockSrc {
     HSE(Hertz),
     HSI16,
+}
+
+/// AHB prescaler
+#[derive(Clone, Copy, PartialEq)]
+pub enum AHBPrescaler {
+    NotDivided,
+    Div2,
+    Div4,
+    Div8,
+    Div16,
+    Div64,
+    Div128,
+    Div256,
+    Div512,
+}
+
+/// APB prescaler
+#[derive(Clone, Copy)]
+pub enum APBPrescaler {
+    NotDivided,
+    Div2,
+    Div4,
+    Div8,
+    Div16,
 }
 
 impl Into<u8> for APBPrescaler {
