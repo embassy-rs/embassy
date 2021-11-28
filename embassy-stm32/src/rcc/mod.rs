@@ -3,7 +3,6 @@
 use crate::peripherals;
 use crate::time::Hertz;
 use core::mem::MaybeUninit;
-mod types;
 
 #[derive(Clone, Copy)]
 pub struct Clocks {

@@ -1,4 +1,3 @@
-pub use super::types::*;
 use crate::pac;
 use crate::peripherals::{self, RCC};
 use crate::rcc::{get_freqs, set_freqs, Clocks};
@@ -19,6 +18,58 @@ pub enum ClockSrc {
     MSI(MSIRange),
     HSE(Hertz),
     HSI,
+}
+
+/// MSI Clock Range
+///
+/// These ranges control the frequency of the MSI. Internally, these ranges map
+/// to the `MSIRANGE` bits in the `RCC_ICSCR` register.
+#[derive(Clone, Copy)]
+pub enum MSIRange {
+    /// Around 65.536 kHz
+    Range0,
+    /// Around 131.072 kHz
+    Range1,
+    /// Around 262.144 kHz
+    Range2,
+    /// Around 524.288 kHz
+    Range3,
+    /// Around 1.048 MHz
+    Range4,
+    /// Around 2.097 MHz (reset value)
+    Range5,
+    /// Around 4.194 MHz
+    Range6,
+}
+
+impl Default for MSIRange {
+    fn default() -> MSIRange {
+        MSIRange::Range5
+    }
+}
+
+/// AHB prescaler
+#[derive(Clone, Copy, PartialEq)]
+pub enum AHBPrescaler {
+    NotDivided,
+    Div2,
+    Div4,
+    Div8,
+    Div16,
+    Div64,
+    Div128,
+    Div256,
+    Div512,
+}
+
+/// APB prescaler
+#[derive(Clone, Copy)]
+pub enum APBPrescaler {
+    NotDivided,
+    Div2,
+    Div4,
+    Div8,
+    Div16,
 }
 
 type Ppre = u8;
