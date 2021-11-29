@@ -8,7 +8,7 @@ fn main() {
 
     let args: Vec<String> = args().collect();
 
-    let chips = match &args[..] {
+    let mut chips = match &args[..] {
         [_, chip] => {
             vec![chip.clone()]
         }
@@ -23,6 +23,8 @@ fn main() {
         }
         _ => panic!("usage: stm32-metapac-gen [chip?]"),
     };
+
+    chips.sort();
 
     gen(Options {
         out_dir,

@@ -9,7 +9,6 @@ resolver = "2"
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "time-driver-tim2", "stm32g071rb", "memory-x", "unstable-pac"]  }
-embassy-hal-common = {version = "0.1.0", path = "../../embassy-hal-common" }
 
 defmt = "0.3"
 defmt-rtt = "0.3"

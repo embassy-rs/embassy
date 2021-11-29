@@ -601,14 +601,10 @@ crate::pac::pins!(
 );
 
 pub(crate) unsafe fn init() {
-    crate::pac::gpio_rcc! {
-        ($en_reg:ident) => {
-            crate::pac::RCC.$en_reg().modify(|reg| {
-                crate::pac::gpio_rcc! {
-                    ($name:ident, $clock:ident, $en_reg, $rst_reg:ident, $en_fn:ident, $rst_fn:ident) => {
-                        reg.$en_fn(true);
-                    };
-                }
+    crate::pac::peripheral_rcc! {
+        ($name:ident, gpio, GPIO, $clock:ident, ($reg:ident, $field:ident, $set_field:ident), $rst:tt) => {
+            crate::pac::RCC.$reg().modify(|reg| {
+                reg.$set_field(true);
             });
         };
     }

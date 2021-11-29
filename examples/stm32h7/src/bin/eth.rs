@@ -13,7 +13,6 @@ use embassy::executor::{Executor, Spawner};
 use embassy::io::AsyncWriteExt;
 use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
-use embassy_macros::interrupt_take;
 use embassy_net::{
     Config as NetConfig, Ipv4Address, Ipv4Cidr, StackResources, StaticConfigurator, TcpSocket,
 };
@@ -100,7 +99,7 @@ fn main() -> ! {
         RNG_INST.replace(rng);
     }
 
-    let eth_int = interrupt_take!(ETH);
+    let eth_int = interrupt::take!(ETH);
     let mac_addr = [0x10; 6];
     let state = STATE.put(State::new());
     let eth = unsafe {
