@@ -49,16 +49,11 @@ pac::dma_channels! {
 
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
-    pac::peripherals! {
-        (dmamux, $peri:ident) => {
-            {
-                pac::peripheral_rcc! {
-                    ($peri, $clock:ident, $en_reg:ident, $rst_reg:ident, $en_fn:ident, $rst_fn:ident) => {
-                        use crate::rcc::sealed::RccPeripheral;
-                        crate::peripherals::$peri::enable()
-                    };
-                }
-            }
+    crate::pac::peripheral_rcc! {
+        ($name:ident, dmamux, DMAMUX, $clock:ident, ($reg:ident, $field:ident, $set_field:ident), $rst:tt) => {
+            crate::pac::RCC.$reg().modify(|reg| {
+                reg.$set_field(true);
+            });
         };
     }
 }

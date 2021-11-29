@@ -42,17 +42,35 @@ pub struct Package {
 pub struct Peripheral {
     pub address: u64,
     #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
     pub block: Option<String>,
     #[serde(default)]
-    pub clock: Option<String>,
+    pub rcc: Option<PeripheralRcc>,
     #[serde(default)]
     pub pins: Vec<Pin>,
     #[serde(default)]
     pub dma_channels: BTreeMap<String, Vec<PeripheralDmaChannel>>,
     #[serde(default)]
     pub interrupts: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
+pub struct PeripheralRcc {
+    pub clock: String,
+    pub registers: PeripheralRccRegisters,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
+pub struct PeripheralRccRegisters {
+    #[serde(default)]
+    pub enable: Option<PeripheralRccRegister>,
+    #[serde(default)]
+    pub reset: Option<PeripheralRccRegister>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
+pub struct PeripheralRccRegister {
+    pub register: String,
+    pub field: String,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]

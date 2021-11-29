@@ -103,7 +103,7 @@ crate::pac::peripherals!(
 
 crate::pac::peripherals!(
     (can, CAN) => {
-        unsafe impl bxcan::FilterOwner for peripherals::$inst {
+        unsafe impl bxcan::FilterOwner for peripherals::CAN {
             const NUM_FILTER_BANKS: u8 = 14;
         }
     };
@@ -143,5 +143,11 @@ crate::pac::peripheral_pins!(
     };
     ($inst:ident, can, CAN, $pin:ident, RX, $af:expr) => {
         impl_pin!($inst, $pin, RxPin, $af);
+    };
+    ($inst:ident, can, CAN, $pin:ident, TX) => {
+        impl_pin!($inst, $pin, TxPin, 0);
+    };
+    ($inst:ident, can, CAN, $pin:ident, RX) => {
+        impl_pin!($inst, $pin, RxPin, 0);
     };
 );
