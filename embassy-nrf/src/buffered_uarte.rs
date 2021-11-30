@@ -65,8 +65,7 @@ pub struct BufferedUarte<'d, U: UarteInstance, T: TimerInstance> {
 impl<'d, U: UarteInstance, T: TimerInstance> Unpin for BufferedUarte<'d, U, T> {}
 
 impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
-    /// unsafe: may not leak self or futures
-    pub unsafe fn new(
+    pub fn new(
         state: &'d mut State<'d, U, T>,
         _uarte: impl Unborrow<Target = U> + 'd,
         timer: impl Unborrow<Target = T> + 'd,
@@ -160,20 +159,22 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch2.enable();
 
         Self {
-            inner: PeripheralMutex::new_unchecked(irq, &mut state.0, move || StateInner {
-                phantom: PhantomData,
-                timer,
-                _ppi_ch1: ppi_ch1,
-                _ppi_ch2: ppi_ch2,
+            inner: unsafe {
+                PeripheralMutex::new_unchecked(irq, &mut state.0, move || StateInner {
+                    phantom: PhantomData,
+                    timer,
+                    _ppi_ch1: ppi_ch1,
+                    _ppi_ch2: ppi_ch2,
 
-                rx: RingBuffer::new(rx_buffer),
-                rx_state: RxState::Idle,
-                rx_waker: WakerRegistration::new(),
+                    rx: RingBuffer::new(rx_buffer),
+                    rx_state: RxState::Idle,
+                    rx_waker: WakerRegistration::new(),
 
-                tx: RingBuffer::new(tx_buffer),
-                tx_state: TxState::Idle,
-                tx_waker: WakerRegistration::new(),
-            }),
+                    tx: RingBuffer::new(tx_buffer),
+                    tx_state: TxState::Idle,
+                    tx_waker: WakerRegistration::new(),
+                })
+            },
         }
     }
 

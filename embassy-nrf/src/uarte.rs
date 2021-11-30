@@ -48,14 +48,7 @@ pub struct Uarte<'d, T: Instance> {
 impl<'d, T: Instance> Uarte<'d, T> {
     /// Creates the interface to a UARTE instance.
     /// Sets the baud rate, parity and assigns the pins to the UARTE peripheral.
-    ///
-    /// # Safety
-    ///
-    /// The returned API is safe unless you use `mem::forget` (or similar safe mechanisms)
-    /// on stack allocated buffers which which have been passed to [`send()`](Uarte::send)
-    /// or [`receive`](Uarte::receive).
-    #[allow(unused_unsafe)]
-    pub unsafe fn new(
+    pub fn new(
         _uarte: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
         rxd: impl Unborrow<Target = impl GpioPin> + 'd,
