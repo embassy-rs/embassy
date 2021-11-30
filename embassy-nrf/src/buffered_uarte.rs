@@ -1,3 +1,7 @@
+//! Async buffered UART
+//!
+//! Please ee [uarte] to understand when [BufferedUarte] should be used.
+
 use core::cmp::min;
 use core::marker::PhantomData;
 use core::mem;
