@@ -1,6 +1,17 @@
 #![macro_use]
 
 //! Async UART
+//!
+//! Async UART is provided in two flavors - this one and also [buffered_uarte::BufferedUarte].
+//! The [Uarte] here is useful for those use-cases where reading the UARTE peripheral is
+//! exclusively awaited on. If the [Uarte] is required to be awaited on with some other future,
+//! for example when using `futures_util::future::select`, then you should consider
+//! [buffered_uarte::BufferedUarte] so that reads may continue while processing these
+//! other futures. If you do not then you may lose data between reads.
+//!
+//! An advantage of the [Uarte] has over [buffered_uarte::BufferedUarte] is that less
+//! memory may be used given that buffers are passed in directly to its read and write
+//! methods.
 
 use core::future::Future;
 use core::marker::PhantomData;
@@ -48,14 +59,7 @@ pub struct Uarte<'d, T: Instance> {
 impl<'d, T: Instance> Uarte<'d, T> {
     /// Creates the interface to a UARTE instance.
     /// Sets the baud rate, parity and assigns the pins to the UARTE peripheral.
-    ///
-    /// # Safety
-    ///
-    /// The returned API is safe unless you use `mem::forget` (or similar safe mechanisms)
-    /// on stack allocated buffers which which have been passed to [`send()`](Uarte::send)
-    /// or [`receive`](Uarte::receive).
-    #[allow(unused_unsafe)]
-    pub unsafe fn new(
+    pub fn new(
         _uarte: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
         rxd: impl Unborrow<Target = impl GpioPin> + 'd,

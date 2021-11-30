@@ -18,8 +18,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     config.baudrate = uarte::Baudrate::BAUD115200;
 
     let irq = interrupt::take!(UARTE0_UART0);
-    let mut uart =
-        unsafe { uarte::Uarte::new(p.UARTE0, irq, p.P0_08, p.P0_06, NoPin, NoPin, config) };
+    let mut uart = uarte::Uarte::new(p.UARTE0, irq, p.P0_08, p.P0_06, NoPin, NoPin, config);
 
     info!("uarte initialized!");
 
