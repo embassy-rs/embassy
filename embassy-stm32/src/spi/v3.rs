@@ -1,9 +1,8 @@
 #![macro_use]
 
 use crate::dma::NoDma;
-use crate::gpio::{AnyPin, Pin};
-use crate::pac::gpio::vals::{Afr, Moder};
-use crate::pac::gpio::Gpio;
+use crate::gpio::sealed::Pin;
+use crate::gpio::AnyPin;
 use crate::pac::spi;
 use crate::spi::{
     ByteOrder, Config, Error, Instance, MisoPin, MosiPin, RxDmaChannel, SckPin, TxDmaChannel,
@@ -70,14 +69,18 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let miso = miso.degrade_optional();
 
         unsafe {
-            sck.as_ref()
-                .map(|x| Self::configure_pin(x.block(), x.pin() as _, sck_af));
-            //sck.block().otyper().modify(|w| w.set_ot(Pin::pin(sck) as _, crate::pac::gpio::vals::Ot::PUSHPULL));
-            sck.as_ref()
-                .map(|x| Self::configure_pin(x.block(), x.pin() as _, mosi_af));
-            //mosi.block().otyper().modify(|w| w.set_ot(Pin::pin(mosi) as _, crate::pac::gpio::vals::Ot::PUSHPULL));
-            sck.as_ref()
-                .map(|x| Self::configure_pin(x.block(), x.pin() as _, miso_af));
+            sck.as_ref().map(|x| {
+                x.set_as_af(sck_af, crate::gpio::sealed::AFType::OutputPushPull);
+                x.set_speed(crate::gpio::Speed::VeryHigh);
+            });
+            mosi.as_ref().map(|x| {
+                x.set_as_af(mosi_af, crate::gpio::sealed::AFType::OutputPushPull);
+                x.set_speed(crate::gpio::Speed::VeryHigh);
+            });
+            miso.as_ref().map(|x| {
+                x.set_as_af(miso_af, crate::gpio::sealed::AFType::Input);
+                x.set_speed(crate::gpio::Speed::VeryHigh);
+            });
         }
 
         let pclk = T::frequency();
@@ -135,19 +138,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             rxdma,
             phantom: PhantomData,
         }
-    }
-
-    unsafe fn configure_pin(block: Gpio, pin: usize, af_num: u8) {
-        let (afr, n_af) = if pin < 8 { (0, pin) } else { (1, pin - 8) };
-        block.moder().modify(|w| w.set_moder(pin, Moder::ALTERNATE));
-        block.afr(afr).modify(|w| w.set_afr(n_af, Afr(af_num)));
-        block
-            .ospeedr()
-            .modify(|w| w.set_ospeedr(pin, crate::pac::gpio::vals::Ospeedr::VERYHIGHSPEED));
-    }
-
-    unsafe fn unconfigure_pin(block: Gpio, pin: usize) {
-        block.moder().modify(|w| w.set_moder(pin, Moder::ANALOG));
     }
 
     fn compute_baud_rate(clocks: Hertz, freq: Hertz) -> u8 {
@@ -346,15 +336,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 impl<'d, T: Instance, Tx, Rx> Drop for Spi<'d, T, Tx, Rx> {
     fn drop(&mut self) {
         unsafe {
-            self.sck
-                .as_ref()
-                .map(|x| Self::unconfigure_pin(x.block(), x.pin() as _));
-            self.mosi
-                .as_ref()
-                .map(|x| Self::unconfigure_pin(x.block(), x.pin() as _));
-            self.miso
-                .as_ref()
-                .map(|x| Self::unconfigure_pin(x.block(), x.pin() as _));
+            self.sck.as_ref().map(|x| x.set_as_analog());
+            self.mosi.as_ref().map(|x| x.set_as_analog());
+            self.miso.as_ref().map(|x| x.set_as_analog());
         }
     }
 }
