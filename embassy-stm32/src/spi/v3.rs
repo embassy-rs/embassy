@@ -284,6 +284,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::regs().cfg1().modify(|reg| {
                 reg.set_rxdmaen(true);
             });
+
+            // Flush the read buffer to avoid errornous data from being read
+            while T::regs().sr().read().rxp() {
+                let _ = T::regs().rxdr().read();
+            }
         }
 
         let rx_request = self.rxdma.request();

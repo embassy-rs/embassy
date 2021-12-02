@@ -560,9 +560,8 @@ where
         byte: u8,
     ) -> Result<(), Error<E, CS::Error, RESET::Error>> {
         self.cs.set_low().map_err(CS)?;
-        let mut rx = [0, 0];
         let buffer = [reg | 0x80, byte];
-        self.spi.read_write(&mut rx, &buffer).await.map_err(SPI)?;
+        self.spi.write(&buffer).await.map_err(SPI)?;
         self.cs.set_high().map_err(CS)?;
         Ok(())
     }
