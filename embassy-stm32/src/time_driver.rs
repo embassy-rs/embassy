@@ -295,7 +295,7 @@ macro_rules! impl_timer {
             type Interrupt = crate::interrupt::$inst;
 
             fn regs() -> TimGp16 {
-                crate::pac::$inst
+                crate::pac::timer::TimGp16(crate::pac::$inst.0)
             }
         }
 
