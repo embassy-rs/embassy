@@ -1,9 +1,5 @@
 #![macro_use]
 
-#[cfg_attr(spi_v1, path = "v1.rs")]
-#[cfg_attr(spi_f1, path = "v1.rs")]
-#[cfg_attr(spi_v2, path = "v2.rs")]
-#[cfg_attr(spi_v3, path = "v3.rs")]
 mod _version;
 use crate::{dma, peripherals, rcc::RccPeripheral};
 pub use _version::*;
