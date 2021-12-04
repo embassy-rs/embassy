@@ -3,9 +3,8 @@
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
 use crate::gpio::sealed::Pin;
-use crate::gpio::{AnyPin, NoPin};
+use crate::gpio::AnyPin;
 use crate::pac::spi;
-use crate::peripherals;
 use crate::spi::{
     ByteOrder, Config, Error, Instance, MisoPin, MosiPin, RxDmaChannel, SckPin, TxDmaChannel,
     WordSize,
@@ -17,9 +16,7 @@ use core::ptr;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use embassy_traits::spi as traits;
-pub use embedded_hal::blocking;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-use futures::future::join3;
 
 impl WordSize {
     fn dff(&self) -> spi::vals::Dff {
@@ -32,9 +29,9 @@ impl WordSize {
 
 macro_rules! impl_nopin {
     ($inst:ident, $signal:ident) => {
-        impl $signal<peripherals::$inst> for NoPin {}
+        impl $signal<crate::peripherals::$inst> for crate::gpio::NoPin {}
 
-        impl super::sealed::$signal<peripherals::$inst> for NoPin {
+        impl super::sealed::$signal<crate::peripherals::$inst> for crate::gpio::NoPin {
             fn af_num(&self) -> u8 {
                 0
             }
@@ -49,7 +46,8 @@ crate::pac::peripherals!(
     };
 );
 
-pub struct Spi<'d, T: Instance, Tx, Rx> {
+#[allow(unused)]
+pub struct Spi<'d, T: Instance, Tx = NoDma, Rx = NoDma> {
     sck: Option<AnyPin>,
     mosi: Option<AnyPin>,
     miso: Option<AnyPin>,
@@ -162,12 +160,12 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             return;
         }
         unsafe {
-            T::regs().cr1().modify(|reg| {
-                reg.set_spe(false);
-                reg.set_dff(word_size.dff())
+            T::regs().cr1().modify(|w| {
+                w.set_spe(false);
+                w.set_dff(word_size.dff());
             });
-            T::regs().cr1().modify(|reg| {
-                reg.set_spe(true);
+            T::regs().cr1().modify(|w| {
+                w.set_spe(true);
             });
             self.current_word_size = word_size;
         }
@@ -199,6 +197,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
 
         f.await;
+
         Ok(())
     }
 
@@ -240,7 +239,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
         }
 
-        join3(tx_f, rx_f, Self::wait_for_idle()).await;
+        futures::future::join3(tx_f, rx_f, Self::wait_for_idle()).await;
 
         unsafe {
             T::regs().cr2().modify(|reg| {
@@ -292,7 +291,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
         }
 
-        join3(tx_f, rx_f, Self::wait_for_idle()).await;
+        futures::future::join3(tx_f, rx_f, Self::wait_for_idle()).await;
 
         unsafe {
             T::regs().cr2().modify(|reg| {
@@ -322,6 +321,64 @@ impl<'d, T: Instance, Tx, Rx> Drop for Spi<'d, T, Tx, Rx> {
             self.sck.as_ref().map(|x| x.set_as_analog());
             self.mosi.as_ref().map(|x| x.set_as_analog());
             self.miso.as_ref().map(|x| x.set_as_analog());
+        }
+    }
+}
+
+trait Word {}
+
+impl Word for u8 {}
+impl Word for u16 {}
+
+/// Write a single word blocking. Assumes word size have already been set.
+fn write_word<W: Word>(regs: &'static crate::pac::spi::Spi, word: W) -> Result<(), Error> {
+    loop {
+        let sr = unsafe { regs.sr().read() };
+        if sr.ovr() {
+            return Err(Error::Overrun);
+        }
+        #[cfg(not(spi_f1))]
+        if sr.fre() {
+            return Err(Error::Framing);
+        }
+        if sr.modf() {
+            return Err(Error::ModeFault);
+        }
+        if sr.crcerr() {
+            return Err(Error::Crc);
+        }
+        if sr.txe() {
+            unsafe {
+                let dr = regs.dr().ptr() as *mut W;
+                ptr::write_volatile(dr, word);
+            }
+            return Ok(());
+        }
+    }
+}
+
+/// Read a single word blocking. Assumes word size have already been set.
+fn read_word<W: Word>(regs: &'static crate::pac::spi::Spi) -> Result<W, Error> {
+    loop {
+        let sr = unsafe { regs.sr().read() };
+        if sr.ovr() {
+            return Err(Error::Overrun);
+        }
+        #[cfg(not(spi_f1))]
+        if sr.fre() {
+            return Err(Error::Framing);
+        }
+        if sr.modf() {
+            return Err(Error::ModeFault);
+        }
+        if sr.crcerr() {
+            return Err(Error::Crc);
+        }
+        if sr.rxne() {
+            unsafe {
+                let dr = regs.dr().ptr() as *const W;
+                return Ok(ptr::read_volatile(dr));
+            }
         }
     }
 }
@@ -367,7 +424,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T, NoD
 
         for word in words.iter() {
             write_word(regs, *word)?;
-            let _: u8 = read_word(regs)?;
+            let _: u16 = read_word(regs)?;
         }
 
         Ok(())
@@ -418,7 +475,7 @@ impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::FullDupl
     for Spi<'d, T, Tx, Rx>
 {
     #[rustfmt::skip]
-    type WriteReadFuture<'a> where Self: 'a = impl Future<Output=Result<(), Self::Error>> + 'a;
+    type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read_write<'a>(
         &'a mut self,
@@ -426,62 +483,5 @@ impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::FullDupl
         write: &'a [u8],
     ) -> Self::WriteReadFuture<'a> {
         self.read_write_dma_u8(read, write)
-    }
-}
-
-trait Word {}
-
-impl Word for u8 {}
-impl Word for u16 {}
-
-fn write_word<W: Word>(regs: &'static crate::pac::spi::Spi, word: W) -> Result<(), Error> {
-    loop {
-        let sr = unsafe { regs.sr().read() };
-        if sr.ovr() {
-            return Err(Error::Overrun);
-        }
-        #[cfg(not(spi_f1))]
-        if sr.fre() {
-            return Err(Error::Framing);
-        }
-        if sr.modf() {
-            return Err(Error::ModeFault);
-        }
-        if sr.crcerr() {
-            return Err(Error::Crc);
-        }
-        if sr.txe() {
-            unsafe {
-                let dr = regs.dr().ptr() as *mut W;
-                ptr::write_volatile(dr, word);
-            }
-            return Ok(());
-        }
-    }
-}
-
-/// Read a single word blocking. Assumes word size have already been set.
-fn read_word<W: Word>(regs: &'static crate::pac::spi::Spi) -> Result<W, Error> {
-    loop {
-        let sr = unsafe { regs.sr().read() };
-        if sr.ovr() {
-            return Err(Error::Overrun);
-        }
-        #[cfg(not(spi_f1))]
-        if sr.fre() {
-            return Err(Error::Framing);
-        }
-        if sr.modf() {
-            return Err(Error::ModeFault);
-        }
-        if sr.crcerr() {
-            return Err(Error::Crc);
-        }
-        if sr.rxne() {
-            unsafe {
-                let dr = regs.dr().ptr() as *const W;
-                return Ok(ptr::read_volatile(dr));
-            }
-        }
     }
 }

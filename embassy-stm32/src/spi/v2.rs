@@ -1,6 +1,7 @@
 #![macro_use]
 
 use crate::dma::NoDma;
+use crate::gpio::sealed::AFType;
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
 use crate::pac::spi;
@@ -16,7 +17,6 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use embassy_traits::spi as traits;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-use futures::future::{join, join3};
 
 impl WordSize {
     fn ds(&self) -> spi::vals::Ds {
@@ -34,7 +34,8 @@ impl WordSize {
     }
 }
 
-pub struct Spi<'d, T: Instance, Tx, Rx> {
+#[allow(unused)]
+pub struct Spi<'d, T: Instance, Tx = NoDma, Rx = NoDma> {
     sck: Option<AnyPin>,
     mosi: Option<AnyPin>,
     miso: Option<AnyPin>,
@@ -68,22 +69,21 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         unsafe {
             sck.as_ref().map(|x| {
-                x.set_as_af(sck_af, crate::gpio::sealed::AFType::OutputPushPull);
+                x.set_as_af(sck_af, AFType::OutputPushPull);
                 x.set_speed(crate::gpio::Speed::VeryHigh);
             });
             mosi.as_ref().map(|x| {
-                x.set_as_af(mosi_af, crate::gpio::sealed::AFType::OutputPushPull);
+                x.set_as_af(mosi_af, AFType::OutputPushPull);
                 x.set_speed(crate::gpio::Speed::VeryHigh);
             });
             miso.as_ref().map(|x| {
-                x.set_as_af(miso_af, crate::gpio::sealed::AFType::Input);
+                x.set_as_af(miso_af, AFType::Input);
                 x.set_speed(crate::gpio::Speed::VeryHigh);
             });
         }
 
         let pclk = T::frequency();
-        let freq = freq.into();
-        let br = Self::compute_baud_rate(pclk, freq);
+        let br = Self::compute_baud_rate(pclk, freq.into());
 
         unsafe {
             T::enable();
@@ -141,7 +141,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
     }
 
-    fn set_word_size(word_size: WordSize) {
+    fn set_word_size(&mut self, word_size: WordSize) {
         unsafe {
             T::regs().cr1().modify(|w| {
                 w.set_spe(false);
@@ -166,7 +166,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_spe(false);
             });
         }
-        Self::set_word_size(WordSize::EightBit);
+        self.set_word_size(WordSize::EightBit);
 
         let request = self.txdma.request();
         let dst = T::regs().dr().ptr() as *mut u8;
@@ -181,7 +181,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
         }
 
-        join(f, Self::wait_for_idle()).await;
+        futures::future::join(f, Self::wait_for_idle()).await;
 
         unsafe {
             T::regs().cr2().modify(|reg| {
@@ -191,6 +191,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_spe(false);
             });
         }
+
         Ok(())
     }
 
@@ -208,7 +209,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 reg.set_rxdmaen(true);
             });
         }
-        Self::set_word_size(WordSize::EightBit);
+        self.set_word_size(WordSize::EightBit);
 
         let clock_byte_count = read.len();
 
@@ -232,7 +233,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
         }
 
-        join3(tx_f, rx_f, Self::wait_for_idle()).await;
+        futures::future::join3(tx_f, rx_f, Self::wait_for_idle()).await;
 
         unsafe {
             T::regs().cr2().modify(|reg| {
@@ -263,7 +264,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 reg.set_rxdmaen(true);
             });
         }
-        Self::set_word_size(WordSize::EightBit);
+        self.set_word_size(WordSize::EightBit);
 
         let rx_request = self.rxdma.request();
         let rx_src = T::regs().dr().ptr() as *mut u8;
@@ -284,7 +285,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
         }
 
-        join3(tx_f, rx_f, Self::wait_for_idle()).await;
+        futures::future::join3(tx_f, rx_f, Self::wait_for_idle()).await;
 
         unsafe {
             T::regs().cr2().modify(|reg| {
@@ -335,13 +336,17 @@ fn write_word<W: Word>(regs: &'static crate::pac::spi::Spi, word: W) -> Result<(
         let sr = unsafe { regs.sr().read() };
         if sr.ovr() {
             return Err(Error::Overrun);
-        } else if sr.fre() {
+        }
+        if sr.fre() {
             return Err(Error::Framing);
-        } else if sr.modf() {
+        }
+        if sr.modf() {
             return Err(Error::ModeFault);
-        } else if sr.crcerr() {
+        }
+        if sr.crcerr() {
             return Err(Error::Crc);
-        } else if sr.txe() {
+        }
+        if sr.txe() {
             unsafe {
                 let dr = regs.dr().ptr() as *mut W;
                 ptr::write_volatile(dr, word);
@@ -357,13 +362,17 @@ fn read_word<W: Word>(regs: &'static crate::pac::spi::Spi) -> Result<W, Error> {
         let sr = unsafe { regs.sr().read() };
         if sr.ovr() {
             return Err(Error::Overrun);
-        } else if sr.modf() {
-            return Err(Error::ModeFault);
-        } else if sr.fre() {
+        }
+        if sr.fre() {
             return Err(Error::Framing);
-        } else if sr.crcerr() {
+        }
+        if sr.modf() {
+            return Err(Error::ModeFault);
+        }
+        if sr.crcerr() {
             return Err(Error::Crc);
-        } else if sr.rxne() {
+        }
+        if sr.rxne() {
             unsafe {
                 let dr = regs.dr().ptr() as *const W;
                 return Ok(ptr::read_volatile(dr));
@@ -372,11 +381,11 @@ fn read_word<W: Word>(regs: &'static crate::pac::spi::Spi) -> Result<W, Error> {
     }
 }
 
-impl<'d, T: Instance, Rx> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T, NoDma, Rx> {
+impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T, NoDma, NoDma> {
     type Error = Error;
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        Self::set_word_size(WordSize::EightBit);
+        self.set_word_size(WordSize::EightBit);
         let regs = T::regs();
 
         for word in words.iter() {
@@ -392,7 +401,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T, N
     type Error = Error;
 
     fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
-        Self::set_word_size(WordSize::EightBit);
+        self.set_word_size(WordSize::EightBit);
         let regs = T::regs();
 
         for word in words.iter_mut() {
@@ -404,11 +413,11 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T, N
     }
 }
 
-impl<'d, T: Instance, Rx> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T, NoDma, Rx> {
+impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T, NoDma, NoDma> {
     type Error = Error;
 
     fn write(&mut self, words: &[u16]) -> Result<(), Self::Error> {
-        Self::set_word_size(WordSize::SixteenBit);
+        self.set_word_size(WordSize::SixteenBit);
         let regs = T::regs();
 
         for word in words.iter() {
@@ -424,7 +433,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T, 
     type Error = Error;
 
     fn transfer<'w>(&mut self, words: &'w mut [u16]) -> Result<&'w [u16], Self::Error> {
-        Self::set_word_size(WordSize::SixteenBit);
+        self.set_word_size(WordSize::SixteenBit);
         let regs = T::regs();
 
         for word in words.iter_mut() {
