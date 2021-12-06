@@ -4,7 +4,8 @@ build-std-features = ["panic_immediate_abort"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 # replace STM32F429ZITx with your chip as listed in `probe-run --list-chips`
-runner = "probe-run --chip STM32F429ZITx"
+#runner = "teleprobe run --chip STM32G071RBTx --elf"
+runner = "./teleprobe.sh nucleo-stm32f429zi"
 
 rustflags = [
   # Code-size optimizations.
