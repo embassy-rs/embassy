@@ -52,18 +52,15 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             miso.as_ref().map(|x| x.set_as_af(miso_af, AFType::Input));
         }
 
-        unsafe {
-            T::regs().cr2().modify(|w| {
-                w.set_ssoe(false);
-            });
-        }
-
         let pclk = T::frequency();
         let br = Self::compute_baud_rate(pclk, freq.into());
 
         unsafe {
             T::enable();
             T::reset();
+            T::regs().cr2().modify(|w| {
+                w.set_ssoe(false);
+            });
             T::regs().cr1().modify(|w| {
                 w.set_cpha(
                     match config.mode.phase == Phase::CaptureOnSecondTransition {
