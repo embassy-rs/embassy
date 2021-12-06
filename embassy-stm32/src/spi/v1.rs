@@ -140,8 +140,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::regs().cr1().modify(|reg| {
                 reg.set_spe(true);
             });
-            self.current_word_size = word_size;
         }
+        self.current_word_size = word_size;
     }
 
     #[allow(unused)]
