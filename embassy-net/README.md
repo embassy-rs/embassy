@@ -17,10 +17,11 @@ sudo ip -6 route add fe80::/64 dev tap0
 sudo ip -6 route add fdaa::/64 dev tap0
 ```
 
-Then, run it
+Then run the example located in the `examples` folder:
 
 ```sh
-cargo run --bin embassy-net-examples
+cd $EMBASSY_ROOT/examples/std/
+cargo run --bin net
 ```
 
 ## License
