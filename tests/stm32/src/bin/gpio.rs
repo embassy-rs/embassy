@@ -15,6 +15,13 @@ use example_common::*;
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
+    // Arduino pins D0 and D1
+    // They're connected together with a 1K resistor.
+    #[cfg(feature = "stm32g491re")]
+    let (mut a, mut b) = (p.PC4, p.PC5);
+    #[cfg(feature = "stm32g071rb")]
+    let (mut a, mut b) = (p.PC4, p.PC5);
+    #[cfg(feature = "stm32f429zi")]
     let (mut a, mut b) = (p.PG14, p.PG9);
 
     // Test initial output

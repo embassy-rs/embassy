@@ -57,7 +57,9 @@ cargo batch  \
     --- build --release --manifest-path examples/stm32wb55/Cargo.toml --target thumbv7em-none-eabihf --out-dir out/examples/stm32wb55 \
     --- build --release --manifest-path examples/stm32wl55/Cargo.toml --target thumbv7em-none-eabihf --out-dir out/examples/stm32wl55 \
     --- build --release --manifest-path examples/wasm/Cargo.toml --target wasm32-unknown-unknown --out-dir out/examples/wasm \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --out-dir out/tests/stm32f4 \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f429zi --out-dir out/tests/nucleo-stm32f429zi \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32g491re --out-dir out/tests/nucleo-stm32g491re \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32g071rb --out-dir out/tests/nucleo-stm32g071rb \
 
 
 function run_elf {
@@ -70,6 +72,7 @@ function run_elf {
             -H "Authorization: Bearer $TELEPROBE_TOKEN" \
             https://teleprobe.embassy.dev/targets/$1/run --data-binary @$2
     )
+    echo
     echo HTTP Status code: $STATUSCODE
     test "$STATUSCODE" -eq 200
 }
@@ -83,6 +86,9 @@ if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     export TELEPROBE_TOKEN=$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r '.value')
 fi
 
-
-run_elf nucleo-stm32f429zi out/tests/stm32f4/gpio
-
+for board in $(ls out/tests); do 
+    echo Running tests fo board: $board
+    for elf in $(ls out/tests/$board); do 
+        run_elf $board out/tests/$board/$elf
+    done
+done
