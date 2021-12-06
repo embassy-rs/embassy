@@ -13,22 +13,6 @@ use futures::future::join3;
 use super::Spi;
 
 impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
-    fn set_word_size(&mut self, word_size: WordSize) {
-        if self.current_word_size == word_size {
-            return;
-        }
-        unsafe {
-            T::regs().cr1().modify(|reg| {
-                reg.set_spe(false);
-                reg.set_dff(word_size.dff())
-            });
-            T::regs().cr1().modify(|reg| {
-                reg.set_spe(true);
-            });
-        }
-        self.current_word_size = word_size;
-    }
-
     #[allow(unused)]
     async fn write_dma_u8(&mut self, write: &[u8]) -> Result<(), Error>
     where

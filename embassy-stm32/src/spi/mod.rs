@@ -288,6 +288,55 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             _ => 0b111,
         }
     }
+
+    fn set_word_size(&mut self, word_size: WordSize) {
+        if self.current_word_size == word_size {
+            return;
+        }
+
+        #[cfg(any(spi_v1, spi_f1))]
+        unsafe {
+            T::regs().cr1().modify(|reg| {
+                reg.set_spe(false);
+                reg.set_dff(word_size.dff())
+            });
+            T::regs().cr1().modify(|reg| {
+                reg.set_spe(true);
+            });
+        }
+        #[cfg(spi_v2)]
+        unsafe {
+            T::regs().cr1().modify(|w| {
+                w.set_spe(false);
+            });
+            T::regs().cr2().modify(|w| {
+                w.set_frxth(word_size.frxth());
+                w.set_ds(word_size.ds());
+            });
+            T::regs().cr1().modify(|w| {
+                w.set_spe(true);
+            });
+        }
+        #[cfg(spi_v3)]
+        unsafe {
+            T::regs().cr1().modify(|w| {
+                w.set_csusp(true);
+            });
+            while T::regs().sr().read().eot() {}
+            T::regs().cr1().modify(|w| {
+                w.set_spe(false);
+            });
+            T::regs().cfg1().modify(|w| {
+                w.set_dsize(word_size.dsize());
+            });
+            T::regs().cr1().modify(|w| {
+                w.set_csusp(false);
+                w.set_spe(true);
+            });
+        }
+
+        self.current_word_size = word_size;
+    }
 }
 
 trait RegsExt {
