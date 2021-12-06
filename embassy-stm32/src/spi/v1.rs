@@ -3,9 +3,8 @@
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
 use crate::gpio::sealed::Pin;
-use crate::gpio::{AnyPin, NoPin};
+use crate::gpio::AnyPin;
 use crate::pac::spi;
-use crate::peripherals;
 use crate::spi::{
     ByteOrder, Config, Error, Instance, MisoPin, MosiPin, RxDmaChannel, SckPin, TxDmaChannel,
     WordSize,
@@ -29,25 +28,6 @@ impl WordSize {
         }
     }
 }
-
-macro_rules! impl_nopin {
-    ($inst:ident, $signal:ident) => {
-        impl $signal<peripherals::$inst> for NoPin {}
-
-        impl super::sealed::$signal<peripherals::$inst> for NoPin {
-            fn af_num(&self) -> u8 {
-                0
-            }
-        }
-    };
-}
-crate::pac::peripherals!(
-    (spi, $inst:ident) => {
-        impl_nopin!($inst, SckPin);
-        impl_nopin!($inst, MosiPin);
-        impl_nopin!($inst, MisoPin);
-    };
-);
 
 pub struct Spi<'d, T: Instance, Tx, Rx> {
     sck: Option<AnyPin>,

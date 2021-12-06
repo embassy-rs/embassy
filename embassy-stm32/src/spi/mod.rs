@@ -8,7 +8,7 @@ mod _version;
 use crate::{dma, peripherals, rcc::RccPeripheral};
 pub use _version::*;
 
-use crate::gpio::OptionalPin;
+use crate::gpio::{NoPin, OptionalPin};
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -132,6 +132,26 @@ crate::pac::peripheral_pins!(
 
     ($inst:ident, spi, SPI, $pin:ident, MISO) => {
         impl_pin!($inst, $pin, MisoPin, 0);
+    };
+);
+
+macro_rules! impl_nopin {
+    ($inst:ident, $signal:ident) => {
+        impl $signal<peripherals::$inst> for NoPin {}
+
+        impl sealed::$signal<peripherals::$inst> for NoPin {
+            fn af_num(&self) -> u8 {
+                0
+            }
+        }
+    };
+}
+
+crate::pac::peripherals!(
+    (spi, $inst:ident) => {
+        impl_nopin!($inst, SckPin);
+        impl_nopin!($inst, MosiPin);
+        impl_nopin!($inst, MisoPin);
     };
 );
 
