@@ -2,17 +2,9 @@
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::Pin;
-use crate::pac::spi;
-use crate::spi::{
-    ByteOrder, Config, Error, Instance, MisoPin, MosiPin, RxDmaChannel, SckPin, TxDmaChannel,
-    WordSize,
-};
-use crate::time::Hertz;
+use crate::spi::{Error, Instance, RxDmaChannel, TxDmaChannel, WordSize};
 use core::future::Future;
-use core::marker::PhantomData;
 use core::ptr;
-use embassy::util::Unborrow;
-use embassy_hal_common::unborrow;
 use embassy_traits::spi as traits;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
@@ -21,115 +13,6 @@ use futures::future::join3;
 use super::Spi;
 
 impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
-    pub fn new<F>(
-        _peri: impl Unborrow<Target = T> + 'd,
-        sck: impl Unborrow<Target = impl SckPin<T>>,
-        mosi: impl Unborrow<Target = impl MosiPin<T>>,
-        miso: impl Unborrow<Target = impl MisoPin<T>>,
-        txdma: impl Unborrow<Target = Tx>,
-        rxdma: impl Unborrow<Target = Rx>,
-        freq: F,
-        config: Config,
-    ) -> Self
-    where
-        F: Into<Hertz>,
-    {
-        unborrow!(sck, mosi, miso, txdma, rxdma);
-
-        let sck_af = sck.af_num();
-        let mosi_af = mosi.af_num();
-        let miso_af = miso.af_num();
-        let sck = sck.degrade_optional();
-        let mosi = mosi.degrade_optional();
-        let miso = miso.degrade_optional();
-
-        unsafe {
-            sck.as_ref().map(|x| {
-                x.set_as_af(sck_af, crate::gpio::sealed::AFType::OutputPushPull);
-                x.set_speed(crate::gpio::Speed::VeryHigh);
-            });
-            mosi.as_ref().map(|x| {
-                x.set_as_af(mosi_af, crate::gpio::sealed::AFType::OutputPushPull);
-                x.set_speed(crate::gpio::Speed::VeryHigh);
-            });
-            miso.as_ref().map(|x| {
-                x.set_as_af(miso_af, crate::gpio::sealed::AFType::Input);
-                x.set_speed(crate::gpio::Speed::VeryHigh);
-            });
-        }
-
-        let pclk = T::frequency();
-        let br = Self::compute_baud_rate(pclk, freq.into());
-        unsafe {
-            T::enable();
-            T::reset();
-            T::regs().ifcr().write(|w| w.0 = 0xffff_ffff);
-            T::regs().cfg2().modify(|w| {
-                //w.set_ssoe(true);
-                w.set_ssoe(false);
-                w.set_cpha(
-                    match config.mode.phase == Phase::CaptureOnSecondTransition {
-                        true => spi::vals::Cpha::SECONDEDGE,
-                        false => spi::vals::Cpha::FIRSTEDGE,
-                    },
-                );
-                w.set_cpol(match config.mode.polarity == Polarity::IdleHigh {
-                    true => spi::vals::Cpol::IDLEHIGH,
-                    false => spi::vals::Cpol::IDLELOW,
-                });
-                w.set_lsbfrst(match config.byte_order {
-                    ByteOrder::LsbFirst => spi::vals::Lsbfrst::LSBFIRST,
-                    ByteOrder::MsbFirst => spi::vals::Lsbfrst::MSBFIRST,
-                });
-                w.set_ssm(true);
-                w.set_master(spi::vals::Master::MASTER);
-                w.set_comm(spi::vals::Comm::FULLDUPLEX);
-                w.set_ssom(spi::vals::Ssom::ASSERTED);
-                w.set_midi(0);
-                w.set_mssi(0);
-                w.set_afcntr(spi::vals::Afcntr::CONTROLLED);
-                w.set_ssiop(spi::vals::Ssiop::ACTIVEHIGH);
-            });
-            T::regs().cfg1().modify(|w| {
-                w.set_crcen(false);
-                w.set_mbr(spi::vals::Mbr(br));
-                w.set_dsize(WordSize::EightBit.dsize());
-            });
-            T::regs().cr2().modify(|w| {
-                w.set_tsize(0);
-                w.set_tser(0);
-            });
-            T::regs().cr1().modify(|w| {
-                w.set_ssi(false);
-                w.set_spe(true);
-            });
-        }
-
-        Self {
-            sck,
-            mosi,
-            miso,
-            txdma,
-            rxdma,
-            current_word_size: WordSize::EightBit,
-            phantom: PhantomData,
-        }
-    }
-
-    fn compute_baud_rate(clocks: Hertz, freq: Hertz) -> u8 {
-        match clocks.0 / freq.0 {
-            0 => unreachable!(),
-            1..=2 => 0b000,
-            3..=5 => 0b001,
-            6..=11 => 0b010,
-            12..=23 => 0b011,
-            24..=39 => 0b100,
-            40..=95 => 0b101,
-            96..=191 => 0b110,
-            _ => 0b111,
-        }
-    }
-
     fn set_word_size(&mut self, word_size: WordSize) {
         if self.current_word_size == word_size {
             return;
