@@ -2,7 +2,7 @@
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::Pin;
-use crate::spi::{Error, Instance, RxDmaChannel, TxDmaChannel, WordSize};
+use crate::spi::{Error, Instance, RegsExt, RxDmaChannel, TxDmaChannel, WordSize};
 use core::future::Future;
 use core::ptr;
 use embassy_traits::spi as traits;
@@ -49,7 +49,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
 
         let request = self.txdma.request();
-        let dst = T::regs().txdr().ptr() as *mut u8;
+        let dst = T::regs().tx_ptr();
         let f = self.txdma.write(request, write, dst);
 
         unsafe {
@@ -96,11 +96,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let clock_byte_count = read.len();
 
         let rx_request = self.rxdma.request();
-        let rx_src = T::regs().rxdr().ptr() as *mut u8;
+        let rx_src = T::regs().rx_ptr();
         let rx_f = self.rxdma.read(rx_request, rx_src, read);
 
         let tx_request = self.txdma.request();
-        let tx_dst = T::regs().txdr().ptr() as *mut u8;
+        let tx_dst = T::regs().tx_ptr();
         let clock_byte = 0x00;
         let tx_f = self
             .txdma
@@ -155,13 +155,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
 
         let rx_request = self.rxdma.request();
-        let rx_src = T::regs().rxdr().ptr() as *mut u8;
+        let rx_src = T::regs().rx_ptr();
         let rx_f = self
             .rxdma
             .read(rx_request, rx_src, &mut read[0..write.len()]);
 
         let tx_request = self.txdma.request();
-        let tx_dst = T::regs().txdr().ptr() as *mut u8;
+        let tx_dst = T::regs().tx_ptr();
         let tx_f = self.txdma.write(tx_request, write, tx_dst);
 
         unsafe {
@@ -223,8 +223,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T, NoDm
                 // spin
             }
             unsafe {
-                let txdr = regs.txdr().ptr() as *mut u8;
-                ptr::write_volatile(txdr, *word);
+                ptr::write_volatile(regs.tx_ptr(), *word);
                 regs.cr1().modify(|reg| reg.set_cstart(true));
             }
             loop {
@@ -245,9 +244,8 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T, NoDm
                 break;
             }
             unsafe {
-                let rxdr = regs.rxdr().ptr() as *const u8;
                 // discard read to prevent pverrun.
-                let _ = ptr::read_volatile(rxdr);
+                let _: u8 = ptr::read_volatile(T::regs().rx_ptr());
             }
         }
 
@@ -276,8 +274,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T, N
                 // spin
             }
             unsafe {
-                let txdr = regs.txdr().ptr() as *mut u8;
-                ptr::write_volatile(txdr, *word);
+                ptr::write_volatile(T::regs().tx_ptr(), *word);
                 regs.cr1().modify(|reg| reg.set_cstart(true));
             }
             loop {
@@ -297,8 +294,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T, N
                 }
             }
             unsafe {
-                let rxdr = regs.rxdr().ptr() as *const u8;
-                *word = ptr::read_volatile(rxdr);
+                *word = ptr::read_volatile(T::regs().rx_ptr());
             }
             let sr = unsafe { regs.sr().read() };
             if sr.tifre() {

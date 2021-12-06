@@ -290,6 +290,29 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 }
 
+trait RegsExt {
+    fn tx_ptr<W>(&self) -> *mut W;
+    fn rx_ptr<W>(&self) -> *mut W;
+}
+
+impl RegsExt for crate::pac::spi::Spi {
+    fn tx_ptr<W>(&self) -> *mut W {
+        #[cfg(not(spi_v3))]
+        let dr = self.dr();
+        #[cfg(spi_v3)]
+        let dr = self.txdr();
+        dr.ptr() as *mut W
+    }
+
+    fn rx_ptr<W>(&self) -> *mut W {
+        #[cfg(not(spi_v3))]
+        let dr = self.dr();
+        #[cfg(spi_v3)]
+        let dr = self.rxdr();
+        dr.ptr() as *mut W
+    }
+}
+
 pub(crate) mod sealed {
     use super::*;
 

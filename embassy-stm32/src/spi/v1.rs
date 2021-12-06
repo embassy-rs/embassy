@@ -2,7 +2,7 @@
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::Pin;
-use crate::spi::{Error, Instance, RxDmaChannel, TxDmaChannel, WordSize};
+use crate::spi::{Error, Instance, RegsExt, RxDmaChannel, TxDmaChannel, WordSize};
 use core::future::Future;
 use core::ptr;
 use embassy_traits::spi as traits;
@@ -42,7 +42,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         self.set_word_size(WordSize::EightBit);
 
         let request = self.txdma.request();
-        let dst = T::regs().dr().ptr() as *mut u8;
+        let dst = T::regs().tx_ptr();
         let f = self.txdma.write(request, write, dst);
 
         unsafe {
@@ -77,11 +77,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let clock_byte_count = read.len();
 
         let rx_request = self.rxdma.request();
-        let rx_src = T::regs().dr().ptr() as *mut u8;
+        let rx_src = T::regs().rx_ptr();
         let rx_f = self.rxdma.read(rx_request, rx_src, read);
 
         let tx_request = self.txdma.request();
-        let tx_dst = T::regs().dr().ptr() as *mut u8;
+        let tx_dst = T::regs().tx_ptr();
         let clock_byte = 0x00;
         let tx_f = self
             .txdma
@@ -130,13 +130,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         self.set_word_size(WordSize::EightBit);
 
         let rx_request = self.rxdma.request();
-        let rx_src = T::regs().dr().ptr() as *mut u8;
+        let rx_src = T::regs().rx_ptr();
         let rx_f = self
             .rxdma
             .read(rx_request, rx_src, &mut read[0..write.len()]);
 
         let tx_request = self.txdma.request();
-        let tx_dst = T::regs().dr().ptr() as *mut u8;
+        let tx_dst = T::regs().tx_ptr();
         let tx_f = self.txdma.write(tx_request, write, tx_dst);
 
         unsafe {
@@ -308,8 +308,7 @@ fn write_word<W: Word>(regs: &'static crate::pac::spi::Spi, word: W) -> Result<(
         }
         if sr.txe() {
             unsafe {
-                let dr = regs.dr().ptr() as *mut W;
-                ptr::write_volatile(dr, word);
+                ptr::write_volatile(regs.tx_ptr(), word);
             }
             return Ok(());
         }
@@ -335,8 +334,7 @@ fn read_word<W: Word>(regs: &'static crate::pac::spi::Spi) -> Result<W, Error> {
         }
         if sr.rxne() {
             unsafe {
-                let dr = regs.dr().ptr() as *const W;
-                return Ok(ptr::read_volatile(dr));
+                return Ok(ptr::read_volatile(regs.rx_ptr()));
             }
         }
     }
