@@ -3,7 +3,6 @@
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
 use crate::gpio::sealed::Pin;
-use crate::gpio::AnyPin;
 use crate::pac::spi;
 use crate::spi::{
     ByteOrder, Config, Error, Instance, MisoPin, MosiPin, RxDmaChannel, SckPin, TxDmaChannel,
@@ -20,15 +19,7 @@ pub use embedded_hal::blocking;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::join3;
 
-pub struct Spi<'d, T: Instance, Tx, Rx> {
-    sck: Option<AnyPin>,
-    mosi: Option<AnyPin>,
-    miso: Option<AnyPin>,
-    txdma: Tx,
-    rxdma: Rx,
-    current_word_size: WordSize,
-    phantom: PhantomData<&'d mut T>,
-}
+use super::Spi;
 
 impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     pub fn new<F>(

@@ -2,7 +2,6 @@
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::Pin;
-use crate::gpio::AnyPin;
 use crate::pac::spi;
 use crate::spi::{
     ByteOrder, Config, Error, Instance, MisoPin, MosiPin, RxDmaChannel, SckPin, TxDmaChannel,
@@ -19,16 +18,7 @@ pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_
 
 use futures::future::join3;
 
-#[allow(unused)]
-pub struct Spi<'d, T: Instance, Tx = NoDma, Rx = NoDma> {
-    sck: Option<AnyPin>,
-    mosi: Option<AnyPin>,
-    miso: Option<AnyPin>,
-    txdma: Tx,
-    rxdma: Rx,
-    current_word_size: WordSize,
-    phantom: PhantomData<&'d mut T>,
-}
+use super::Spi;
 
 impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     pub fn new<F>(
@@ -338,7 +328,7 @@ impl<'d, T: Instance, Tx, Rx> Drop for Spi<'d, T, Tx, Rx> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T, NoDma> {
+impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T, NoDma, NoDma> {
     type Error = Error;
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
@@ -386,7 +376,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T, NoDm
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T, NoDma> {
+impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T, NoDma, NoDma> {
     type Error = Error;
 
     fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
@@ -443,7 +433,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T, N
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T, NoDma> {
+impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T, NoDma, NoDma> {
     type Error = Error;
 
     fn write(&mut self, words: &[u16]) -> Result<(), Self::Error> {
@@ -492,7 +482,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T, NoD
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T, NoDma> {
+impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T, NoDma, NoDma> {
     type Error = Error;
 
     fn transfer<'w>(&mut self, words: &'w mut [u16]) -> Result<&'w [u16], Self::Error> {

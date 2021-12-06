@@ -1,15 +1,18 @@
 #![macro_use]
 
+use crate::dma;
+use crate::gpio::{AnyPin, NoPin, OptionalPin};
+use crate::pac::spi::vals;
+use crate::peripherals;
+use crate::rcc::RccPeripheral;
+use core::marker::PhantomData;
+
 #[cfg_attr(spi_v1, path = "v1.rs")]
 #[cfg_attr(spi_f1, path = "v1.rs")]
 #[cfg_attr(spi_v2, path = "v2.rs")]
 #[cfg_attr(spi_v3, path = "v3.rs")]
 mod _version;
-use crate::pac::spi::vals;
-use crate::{dma, peripherals, rcc::RccPeripheral};
 pub use _version::*;
-
-use crate::gpio::{NoPin, OptionalPin};
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -87,6 +90,16 @@ impl Default for Config {
             byte_order: ByteOrder::MsbFirst,
         }
     }
+}
+
+pub struct Spi<'d, T: Instance, Tx, Rx> {
+    sck: Option<AnyPin>,
+    mosi: Option<AnyPin>,
+    miso: Option<AnyPin>,
+    txdma: Tx,
+    rxdma: Rx,
+    current_word_size: WordSize,
+    phantom: PhantomData<&'d mut T>,
 }
 
 pub(crate) mod sealed {
