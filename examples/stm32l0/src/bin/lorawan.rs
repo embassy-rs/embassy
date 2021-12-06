@@ -12,7 +12,6 @@ mod example_common;
 use embassy_lora::{sx127x::*, LoraTimer};
 use embassy_stm32::{
     dbgmcu::Dbgmcu,
-    dma::NoDma,
     exti::ExtiInput,
     gpio::{Input, Level, Output, Pull, Speed},
     rcc,
@@ -45,8 +44,8 @@ async fn main(_spawner: embassy::executor::Spawner, mut p: Peripherals) {
         p.PB3,
         p.PA7,
         p.PA6,
-        NoDma,
-        NoDma,
+        p.DMA1_CH3,
+        p.DMA1_CH2,
         200_000.hz(),
         spi::Config::default(),
     );
@@ -58,15 +57,9 @@ async fn main(_spawner: embassy::executor::Spawner, mut p: Peripherals) {
     let ready = Input::new(p.PB4, Pull::Up);
     let ready_pin = ExtiInput::new(ready, p.EXTI4);
 
-    let radio = Sx127xRadio::new(
-        spi,
-        cs,
-        reset,
-        ready_pin,
-        DummySwitch,
-        &mut embassy::time::Delay,
-    )
-    .unwrap();
+    let radio = Sx127xRadio::new(spi, cs, reset, ready_pin, DummySwitch)
+        .await
+        .unwrap();
 
     let region = region::EU868::default().into();
     let mut radio_buffer = [0; 256];

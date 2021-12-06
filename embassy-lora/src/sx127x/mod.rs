@@ -1,7 +1,6 @@
 use core::future::Future;
 use embassy::traits::gpio::WaitForRisingEdge;
-use embedded_hal::blocking::delay::DelayMs;
-use embedded_hal::blocking::spi::{Transfer, Write};
+use embassy::traits::spi::*;
 use embedded_hal::digital::v2::OutputPin;
 use lorawan_device::async_device::{
     radio::{Bandwidth, PhyRxTx, RfConfig, RxQuality, SpreadingFactor, TxConfig},
@@ -21,7 +20,7 @@ pub trait RadioSwitch {
 /// Semtech Sx127x radio peripheral
 pub struct Sx127xRadio<SPI, CS, RESET, E, I, RFS>
 where
-    SPI: Transfer<u8, Error = E> + Write<u8, Error = E> + 'static,
+    SPI: FullDuplex<u8, Error = E> + 'static,
     E: 'static,
     CS: OutputPin + 'static,
     RESET: OutputPin + 'static,
@@ -43,29 +42,29 @@ pub enum State {
 
 impl<SPI, CS, RESET, E, I, RFS> Sx127xRadio<SPI, CS, RESET, E, I, RFS>
 where
-    SPI: Transfer<u8, Error = E> + Write<u8, Error = E> + 'static,
+    SPI: FullDuplex<u8, Error = E> + 'static,
     CS: OutputPin + 'static,
     RESET: OutputPin + 'static,
     I: WaitForRisingEdge + 'static,
     RFS: RadioSwitch + 'static,
+    E: 'static,
 {
-    pub fn new<D: DelayMs<u32>>(
+    pub async fn new(
         spi: SPI,
         cs: CS,
         reset: RESET,
         irq: I,
         rfs: RFS,
-        d: &mut D,
     ) -> Result<Self, RadioError<E, CS::Error, RESET::Error>> {
         let mut radio = LoRa::new(spi, cs, reset);
-        radio.reset(d)?;
+        radio.reset().await?;
         Ok(Self { radio, irq, rfs })
     }
 }
 
 impl<SPI, CS, RESET, E, I, RFS> Timings for Sx127xRadio<SPI, CS, RESET, E, I, RFS>
 where
-    SPI: Transfer<u8, Error = E> + Write<u8, Error = E> + 'static,
+    SPI: FullDuplex<u8, Error = E> + 'static,
     CS: OutputPin + 'static,
     RESET: OutputPin + 'static,
     I: WaitForRisingEdge + 'static,
@@ -81,7 +80,7 @@ where
 
 impl<SPI, CS, RESET, E, I, RFS> PhyRxTx for Sx127xRadio<SPI, CS, RESET, E, I, RFS>
 where
-    SPI: Transfer<u8, Error = E> + Write<u8, Error = E> + 'static,
+    SPI: FullDuplex<u8, Error = E> + 'static,
     CS: OutputPin + 'static,
     E: 'static,
     RESET: OutputPin + 'static,
@@ -96,29 +95,33 @@ where
     fn tx<'m>(&'m mut self, config: TxConfig, buf: &'m [u8]) -> Self::TxFuture<'m> {
         trace!("TX START");
         async move {
+            self.radio.set_mode(RadioMode::Stdby).await.ok().unwrap();
             self.rfs.set_tx();
-            self.radio.set_tx_power(14, 0)?;
-            self.radio.set_frequency(config.rf.frequency)?;
+            self.radio.set_tx_power(14, 0).await?;
+            self.radio.set_frequency(config.rf.frequency).await?;
             // TODO: Modify radio to support other coding rates
-            self.radio.set_coding_rate_4(5)?;
+            self.radio.set_coding_rate_4(5).await?;
             self.radio
-                .set_signal_bandwidth(bandwidth_to_i64(config.rf.bandwidth))?;
+                .set_signal_bandwidth(bandwidth_to_i64(config.rf.bandwidth))
+                .await?;
             self.radio
-                .set_spreading_factor(spreading_factor_to_u8(config.rf.spreading_factor))?;
+                .set_spreading_factor(spreading_factor_to_u8(config.rf.spreading_factor))
+                .await?;
 
-            self.radio.set_preamble_length(8)?;
-            self.radio.set_lora_pa_ramp()?;
-            self.radio.set_lora_sync_word()?;
-            self.radio.set_invert_iq(false)?;
-            self.radio.set_crc(true)?;
+            self.radio.set_preamble_length(8).await?;
+            self.radio.set_lora_pa_ramp().await?;
+            self.radio.set_lora_sync_word().await?;
+            self.radio.set_invert_iq(false).await?;
+            self.radio.set_crc(true).await?;
 
-            self.radio.set_dio0_tx_done()?;
-            self.radio.transmit_payload(buf)?;
+            self.radio.set_dio0_tx_done().await?;
+
+            self.radio.transmit_start(buf).await?;
 
             loop {
                 self.irq.wait_for_rising_edge().await;
-                self.radio.set_mode(RadioMode::Stdby).ok().unwrap();
-                let irq = self.radio.clear_irq().ok().unwrap();
+                self.radio.set_mode(RadioMode::Stdby).await.ok().unwrap();
+                let irq = self.radio.clear_irq().await.ok().unwrap();
                 if (irq & IRQ::IrqTxDoneMask.addr()) != 0 {
                     trace!("TX DONE");
                     return Ok(0);
@@ -134,32 +137,34 @@ where
         trace!("RX START");
         async move {
             self.rfs.set_rx();
-            self.radio.reset_payload_length()?;
-            self.radio.set_frequency(config.frequency)?;
+            self.radio.reset_payload_length().await?;
+            self.radio.set_frequency(config.frequency).await?;
             // TODO: Modify radio to support other coding rates
-            self.radio.set_coding_rate_4(5)?;
+            self.radio.set_coding_rate_4(5).await?;
             self.radio
-                .set_signal_bandwidth(bandwidth_to_i64(config.bandwidth))?;
+                .set_signal_bandwidth(bandwidth_to_i64(config.bandwidth))
+                .await?;
             self.radio
-                .set_spreading_factor(spreading_factor_to_u8(config.spreading_factor))?;
+                .set_spreading_factor(spreading_factor_to_u8(config.spreading_factor))
+                .await?;
 
-            self.radio.set_preamble_length(8)?;
-            self.radio.set_lora_sync_word()?;
-            self.radio.set_invert_iq(true)?;
-            self.radio.set_crc(true)?;
+            self.radio.set_preamble_length(8).await?;
+            self.radio.set_lora_sync_word().await?;
+            self.radio.set_invert_iq(true).await?;
+            self.radio.set_crc(true).await?;
 
-            self.radio.set_dio0_rx_done()?;
-            self.radio.set_mode(RadioMode::RxContinuous)?;
+            self.radio.set_dio0_rx_done().await?;
+            self.radio.set_mode(RadioMode::RxContinuous).await?;
 
             loop {
                 self.irq.wait_for_rising_edge().await;
-                self.radio.set_mode(RadioMode::Stdby).ok().unwrap();
-                let irq = self.radio.clear_irq().ok().unwrap();
+                self.radio.set_mode(RadioMode::Stdby).await.ok().unwrap();
+                let irq = self.radio.clear_irq().await.ok().unwrap();
                 if (irq & IRQ::IrqRxDoneMask.addr()) != 0 {
-                    let rssi = self.radio.get_packet_rssi().unwrap_or(0) as i16;
-                    let snr = self.radio.get_packet_snr().unwrap_or(0.0) as i8;
-                    let response = if let Ok(size) = self.radio.read_packet_size() {
-                        self.radio.read_packet(buf)?;
+                    let rssi = self.radio.get_packet_rssi().await.unwrap_or(0) as i16;
+                    let snr = self.radio.get_packet_snr().await.unwrap_or(0.0) as i8;
+                    let response = if let Ok(size) = self.radio.read_packet_size().await {
+                        self.radio.read_packet(buf).await?;
                         Ok((size, RxQuality::new(rssi, snr)))
                     } else {
                         Ok((0, RxQuality::new(rssi, snr)))
