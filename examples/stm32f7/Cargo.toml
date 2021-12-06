@@ -23,3 +23,9 @@ heapless = { version = "0.7.5", default-features = false }
 nb = "1.0.0"
 rand_core = "0.6.3"
 critical-section = "0.2.3"
+
+[dependencies.smoltcp]
+git = "https://github.com/smoltcp-rs/smoltcp"
+rev = "f5bc05cda8d83595c98688991f4b69fc963a88f6"
+default-features = false
+features = ["defmt"]

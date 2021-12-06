@@ -18,6 +18,9 @@ jobs:
         run: exit 0
   build:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v2
         with:
