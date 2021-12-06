@@ -18,22 +18,6 @@ use embassy_traits::spi as traits;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::{join, join3};
 
-impl WordSize {
-    fn ds(&self) -> spi::vals::Ds {
-        match self {
-            WordSize::EightBit => spi::vals::Ds::EIGHTBIT,
-            WordSize::SixteenBit => spi::vals::Ds::SIXTEENBIT,
-        }
-    }
-
-    fn frxth(&self) -> spi::vals::Frxth {
-        match self {
-            WordSize::EightBit => spi::vals::Frxth::QUARTER,
-            WordSize::SixteenBit => spi::vals::Frxth::HALF,
-        }
-    }
-}
-
 pub struct Spi<'d, T: Instance, Tx, Rx> {
     sck: Option<AnyPin>,
     mosi: Option<AnyPin>,

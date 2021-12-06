@@ -19,22 +19,6 @@ pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_
 
 use futures::future::join3;
 
-impl WordSize {
-    fn dsize(&self) -> u8 {
-        match self {
-            WordSize::EightBit => 0b0111,
-            WordSize::SixteenBit => 0b1111,
-        }
-    }
-
-    fn _frxth(&self) -> spi::vals::Fthlv {
-        match self {
-            WordSize::EightBit => spi::vals::Fthlv::ONEFRAME,
-            WordSize::SixteenBit => spi::vals::Fthlv::ONEFRAME,
-        }
-    }
-}
-
 #[allow(unused)]
 pub struct Spi<'d, T: Instance, Tx = NoDma, Rx = NoDma> {
     sck: Option<AnyPin>,

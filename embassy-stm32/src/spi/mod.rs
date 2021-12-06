@@ -5,6 +5,7 @@
 #[cfg_attr(spi_v2, path = "v2.rs")]
 #[cfg_attr(spi_v3, path = "v3.rs")]
 mod _version;
+use crate::pac::spi::vals;
 use crate::{dma, peripherals, rcc::RccPeripheral};
 pub use _version::*;
 
@@ -29,6 +30,48 @@ pub enum ByteOrder {
 enum WordSize {
     EightBit,
     SixteenBit,
+}
+
+impl WordSize {
+    #[cfg(any(spi_v1, spi_f1))]
+    fn dff(&self) -> vals::Dff {
+        match self {
+            WordSize::EightBit => vals::Dff::EIGHTBIT,
+            WordSize::SixteenBit => vals::Dff::SIXTEENBIT,
+        }
+    }
+
+    #[cfg(spi_v2)]
+    fn ds(&self) -> vals::Ds {
+        match self {
+            WordSize::EightBit => vals::Ds::EIGHTBIT,
+            WordSize::SixteenBit => vals::Ds::SIXTEENBIT,
+        }
+    }
+
+    #[cfg(spi_v2)]
+    fn frxth(&self) -> vals::Frxth {
+        match self {
+            WordSize::EightBit => vals::Frxth::QUARTER,
+            WordSize::SixteenBit => vals::Frxth::HALF,
+        }
+    }
+
+    #[cfg(spi_v3)]
+    fn dsize(&self) -> u8 {
+        match self {
+            WordSize::EightBit => 0b0111,
+            WordSize::SixteenBit => 0b1111,
+        }
+    }
+
+    #[cfg(spi_v3)]
+    fn _frxth(&self) -> vals::Fthlv {
+        match self {
+            WordSize::EightBit => vals::Fthlv::ONEFRAME,
+            WordSize::SixteenBit => vals::Fthlv::ONEFRAME,
+        }
+    }
 }
 
 #[non_exhaustive]

@@ -20,15 +20,6 @@ pub use embedded_hal::blocking;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::join3;
 
-impl WordSize {
-    fn dff(&self) -> spi::vals::Dff {
-        match self {
-            WordSize::EightBit => spi::vals::Dff::EIGHTBIT,
-            WordSize::SixteenBit => spi::vals::Dff::SIXTEENBIT,
-        }
-    }
-}
-
 pub struct Spi<'d, T: Instance, Tx, Rx> {
     sck: Option<AnyPin>,
     mosi: Option<AnyPin>,
