@@ -14,6 +14,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::regs().cr1().modify(|w| {
                 w.set_spe(false);
             });
+
+            // Flush the read buffer to avoid errornous data from being read
+            while T::regs().sr().read().rxne() {
+                let _ = T::regs().dr().read();
+            }
         }
         self.set_word_size(WordSize::EightBit);
 
