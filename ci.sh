@@ -60,6 +60,8 @@ cargo batch  \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f429zi --out-dir out/tests/nucleo-stm32f429zi \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32g491re --out-dir out/tests/nucleo-stm32g491re \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32g071rb --out-dir out/tests/nucleo-stm32g071rb \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h755zi --out-dir out/tests/nucleo-stm32h755zi \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wb55rg --out-dir out/tests/nucleo-stm32wb55rg \
 
 
 function run_elf {
@@ -87,7 +89,7 @@ if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
 fi
 
 for board in $(ls out/tests); do 
-    echo Running tests fo board: $board
+    echo Running tests for board: $board
     for elf in $(ls out/tests/$board); do 
         run_elf $board out/tests/$board/$elf
     done

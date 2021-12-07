@@ -23,6 +23,10 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let (mut a, mut b) = (p.PC4, p.PC5);
     #[cfg(feature = "stm32f429zi")]
     let (mut a, mut b) = (p.PG14, p.PG9);
+    #[cfg(feature = "stm32wb55rg")]
+    let (mut a, mut b) = (p.PA3, p.PA2);
+    #[cfg(feature = "stm32h755zi")]
+    let (mut a, mut b) = (p.PB6, p.PB7);
 
     // Test initial output
     {

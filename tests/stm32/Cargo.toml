@@ -9,6 +9,8 @@ resolver = "2"
 stm32f429zi = ["embassy-stm32/stm32f429zi"]
 stm32g071rb = ["embassy-stm32/stm32g071rb"]
 stm32g491re = ["embassy-stm32/stm32g491re"]
+stm32h755zi = ["embassy-stm32/stm32h755zi-cm7"]
+stm32wb55rg = ["embassy-stm32/stm32wb55rg"]
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
