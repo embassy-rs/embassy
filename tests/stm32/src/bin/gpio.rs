@@ -11,7 +11,7 @@ use embassy_stm32::Peripherals;
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use example_common::*;
 
-#[embassy::main]
+#[embassy::main(config = "config()")]
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
@@ -34,12 +34,12 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
         {
             let _a = Output::new(&mut a, Level::Low, Speed::Low);
-            cortex_m::asm::delay(1000);
+            delay();
             assert!(b.is_low().unwrap());
         }
         {
             let _a = Output::new(&mut a, Level::High, Speed::Low);
-            cortex_m::asm::delay(1000);
+            delay();
             assert!(b.is_high().unwrap());
         }
     }
@@ -50,41 +50,48 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         // no pull, the status is undefined
 
         let mut a = Output::new(&mut a, Level::Low, Speed::Low);
-        cortex_m::asm::delay(1000);
+        delay();
         assert!(b.is_low().unwrap());
         a.set_high().unwrap();
-        cortex_m::asm::delay(1000);
+        delay();
         assert!(b.is_high().unwrap());
     }
 
     // Test input pulldown
     {
         let b = Input::new(&mut b, Pull::Down);
-        cortex_m::asm::delay(1000);
+        delay();
         assert!(b.is_low().unwrap());
 
         let mut a = Output::new(&mut a, Level::Low, Speed::Low);
-        cortex_m::asm::delay(1000);
+        delay();
         assert!(b.is_low().unwrap());
         a.set_high().unwrap();
-        cortex_m::asm::delay(1000);
+        delay();
         assert!(b.is_high().unwrap());
     }
 
     // Test input pullup
     {
         let b = Input::new(&mut b, Pull::Up);
-        cortex_m::asm::delay(1000);
+        delay();
         assert!(b.is_high().unwrap());
 
         let mut a = Output::new(&mut a, Level::Low, Speed::Low);
-        cortex_m::asm::delay(1000);
+        delay();
         assert!(b.is_low().unwrap());
         a.set_high().unwrap();
-        cortex_m::asm::delay(1000);
+        delay();
         assert!(b.is_high().unwrap());
     }
 
     info!("Test OK");
     cortex_m::asm::bkpt();
+}
+
+fn delay() {
+    #[cfg(feature = "stm32h755zi")]
+    cortex_m::asm::delay(10000);
+    #[cfg(not(feature = "stm32h755zi"))]
+    cortex_m::asm::delay(1000);
 }
