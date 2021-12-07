@@ -374,6 +374,11 @@ impl RegsExt for crate::pac::spi::Spi {
     }
 }
 
+trait Word {}
+
+impl Word for u8 {}
+impl Word for u16 {}
+
 pub(crate) mod sealed {
     use super::*;
 

@@ -258,10 +258,7 @@ impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::FullDupl
     }
 }
 
-trait Word {}
-
-impl Word for u8 {}
-impl Word for u16 {}
+use super::Word;
 
 fn write_word<W: Word>(regs: &'static crate::pac::spi::Spi, word: W) -> Result<(), Error> {
     loop {

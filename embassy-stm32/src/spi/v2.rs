@@ -174,10 +174,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 }
 
-trait Word {}
-
-impl Word for u8 {}
-impl Word for u16 {}
+use super::Word;
 
 /// Write a single word blocking. Assumes word size have already been set.
 fn write_word<W: Word>(regs: &'static crate::pac::spi::Spi, word: W) -> Result<(), Error> {
