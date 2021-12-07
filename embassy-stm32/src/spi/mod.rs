@@ -3,7 +3,7 @@
 use crate::dma;
 use crate::gpio::sealed::{AFType, Pin};
 use crate::gpio::{AnyPin, NoPin, OptionalPin};
-use crate::pac::spi::vals;
+use crate::pac::spi::{regs, vals};
 use crate::peripherals;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
@@ -372,6 +372,33 @@ impl RegsExt for crate::pac::spi::Spi {
         let dr = self.rxdr();
         dr.ptr() as *mut W
     }
+}
+
+fn check_error_flags(sr: regs::Sr) -> Result<(), Error> {
+    if sr.ovr() {
+        return Err(Error::Overrun);
+    }
+    #[cfg(not(any(spi_f1, spi_v3)))]
+    if sr.fre() {
+        return Err(Error::Framing);
+    }
+    #[cfg(spi_v3)]
+    if sr.tifre() {
+        return Err(Error::Framing);
+    }
+    if sr.modf() {
+        return Err(Error::ModeFault);
+    }
+    #[cfg(not(spi_v3))]
+    if sr.crcerr() {
+        return Err(Error::Crc);
+    }
+    #[cfg(spi_v3)]
+    if sr.crce() {
+        return Err(Error::Crc);
+    }
+
+    Ok(())
 }
 
 trait Word {}

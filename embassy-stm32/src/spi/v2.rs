@@ -1,7 +1,7 @@
 #![macro_use]
 
 use crate::dma::NoDma;
-use crate::spi::{Error, Instance, RegsExt, RxDmaChannel, TxDmaChannel, WordSize};
+use crate::spi::{Error, Instance, RegsExt, RxDmaChannel, TxDmaChannel, WordSize, check_error_flags};
 use core::future::Future;
 use core::ptr;
 use embassy_traits::spi as traits;
@@ -180,15 +180,10 @@ use super::Word;
 fn write_word<W: Word>(regs: &'static crate::pac::spi::Spi, word: W) -> Result<(), Error> {
     loop {
         let sr = unsafe { regs.sr().read() };
-        if sr.ovr() {
-            return Err(Error::Overrun);
-        } else if sr.fre() {
-            return Err(Error::Framing);
-        } else if sr.modf() {
-            return Err(Error::ModeFault);
-        } else if sr.crcerr() {
-            return Err(Error::Crc);
-        } else if sr.txe() {
+
+        check_error_flags(sr)?;
+
+        if sr.txe() {
             unsafe {
                 ptr::write_volatile(regs.tx_ptr(), word);
             }
@@ -201,15 +196,10 @@ fn write_word<W: Word>(regs: &'static crate::pac::spi::Spi, word: W) -> Result<(
 fn read_word<W: Word>(regs: &'static crate::pac::spi::Spi) -> Result<W, Error> {
     loop {
         let sr = unsafe { regs.sr().read() };
-        if sr.ovr() {
-            return Err(Error::Overrun);
-        } else if sr.modf() {
-            return Err(Error::ModeFault);
-        } else if sr.fre() {
-            return Err(Error::Framing);
-        } else if sr.crcerr() {
-            return Err(Error::Crc);
-        } else if sr.rxne() {
+
+        check_error_flags(sr)?;
+
+        if sr.rxne() {
             unsafe {
                 return Ok(ptr::read_volatile(regs.rx_ptr()));
             }

@@ -1,7 +1,7 @@
 #![macro_use]
 
 use crate::dma::NoDma;
-use crate::spi::{Error, Instance, RegsExt, RxDmaChannel, TxDmaChannel, WordSize};
+use crate::spi::{Error, Instance, RegsExt, RxDmaChannel, TxDmaChannel, WordSize, check_error_flags};
 use core::future::Future;
 use core::ptr;
 use embassy_traits::spi as traits;
@@ -249,29 +249,14 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T, N
                 if sr.rxp() {
                     break;
                 }
-                if sr.tifre() {
-                    return Err(Error::Framing);
-                }
-                if sr.ovr() {
-                    return Err(Error::Overrun);
-                }
-                if sr.crce() {
-                    return Err(Error::Crc);
-                }
+
+                check_error_flags(sr)?;
             }
             unsafe {
                 *word = ptr::read_volatile(T::regs().rx_ptr());
             }
             let sr = unsafe { regs.sr().read() };
-            if sr.tifre() {
-                return Err(Error::Framing);
-            }
-            if sr.ovr() {
-                return Err(Error::Overrun);
-            }
-            if sr.crce() {
-                return Err(Error::Crc);
-            }
+            check_error_flags(sr)?;
         }
 
         Ok(words)
@@ -296,15 +281,9 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T, NoD
             }
             loop {
                 let sr = unsafe { regs.sr().read() };
-                if sr.tifre() {
-                    return Err(Error::Framing);
-                }
-                if sr.ovr() {
-                    return Err(Error::Overrun);
-                }
-                if sr.crce() {
-                    return Err(Error::Crc);
-                }
+
+                check_error_flags(sr)?;
+
                 if !sr.txp() {
                     // loop waiting for TXE
                     continue;
@@ -350,15 +329,8 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T, 
                 if sr.rxp() {
                     break;
                 }
-                if sr.tifre() {
-                    return Err(Error::Framing);
-                }
-                if sr.ovr() {
-                    return Err(Error::Overrun);
-                }
-                if sr.crce() {
-                    return Err(Error::Crc);
-                }
+
+                check_error_flags(sr)?;
             }
 
             unsafe {
@@ -366,15 +338,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T, 
                 *word = ptr::read_volatile(rxdr);
             }
             let sr = unsafe { regs.sr().read() };
-            if sr.tifre() {
-                return Err(Error::Framing);
-            }
-            if sr.ovr() {
-                return Err(Error::Overrun);
-            }
-            if sr.crce() {
-                return Err(Error::Crc);
-            }
+            check_error_flags(sr)?;
         }
 
         Ok(words)
