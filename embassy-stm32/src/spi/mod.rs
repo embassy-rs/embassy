@@ -191,6 +191,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::enable();
             T::reset();
             T::regs().cr2().modify(|w| {
+                w.set_frxth(WordSize::EightBit.frxth());
+                w.set_ds(WordSize::EightBit.ds());
                 w.set_ssoe(false);
             });
             T::regs().cr1().modify(|w| {
