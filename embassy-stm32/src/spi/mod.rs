@@ -1,15 +1,19 @@
 #![macro_use]
 
 use crate::dma;
+use crate::dma::NoDma;
 use crate::gpio::sealed::{AFType, Pin};
 use crate::gpio::{AnyPin, NoPin, OptionalPin};
-use crate::pac::spi::vals;
+use crate::pac::spi::{regs, vals};
 use crate::peripherals;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
+use core::future::Future;
 use core::marker::PhantomData;
+use core::ptr;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
+use embassy_traits::spi as traits;
 
 #[cfg_attr(spi_v1, path = "v1.rs")]
 #[cfg_attr(spi_f1, path = "v1.rs")]
@@ -371,6 +375,174 @@ impl RegsExt for crate::pac::spi::Spi {
         #[cfg(spi_v3)]
         let dr = self.rxdr();
         dr.ptr() as *mut W
+    }
+}
+
+fn check_error_flags(sr: regs::Sr) -> Result<(), Error> {
+    if sr.ovr() {
+        return Err(Error::Overrun);
+    }
+    #[cfg(not(any(spi_f1, spi_v3)))]
+    if sr.fre() {
+        return Err(Error::Framing);
+    }
+    #[cfg(spi_v3)]
+    if sr.tifre() {
+        return Err(Error::Framing);
+    }
+    if sr.modf() {
+        return Err(Error::ModeFault);
+    }
+    #[cfg(not(spi_v3))]
+    if sr.crcerr() {
+        return Err(Error::Crc);
+    }
+    #[cfg(spi_v3)]
+    if sr.crce() {
+        return Err(Error::Crc);
+    }
+
+    Ok(())
+}
+
+fn spin_until_tx_ready(regs: &'static crate::pac::spi::Spi) -> Result<(), Error> {
+    loop {
+        let sr = unsafe { regs.sr().read() };
+
+        check_error_flags(sr)?;
+
+        #[cfg(not(spi_v3))]
+        if sr.txe() {
+            return Ok(());
+        }
+        #[cfg(spi_v3)]
+        if sr.txp() {
+            return Ok(());
+        }
+    }
+}
+
+fn spin_until_rx_ready(regs: &'static crate::pac::spi::Spi) -> Result<(), Error> {
+    loop {
+        let sr = unsafe { regs.sr().read() };
+
+        check_error_flags(sr)?;
+
+        #[cfg(not(spi_v3))]
+        if sr.rxne() {
+            return Ok(());
+        }
+        #[cfg(spi_v3)]
+        if sr.rxp() {
+            return Ok(());
+        }
+    }
+}
+
+trait Word {
+    const WORDSIZE: WordSize;
+}
+
+impl Word for u8 {
+    const WORDSIZE: WordSize = WordSize::EightBit;
+}
+impl Word for u16 {
+    const WORDSIZE: WordSize = WordSize::SixteenBit;
+}
+
+fn transfer_word<W: Word>(regs: &'static crate::pac::spi::Spi, tx_word: W) -> Result<W, Error> {
+    spin_until_tx_ready(regs)?;
+
+    unsafe {
+        ptr::write_volatile(regs.tx_ptr(), tx_word);
+
+        #[cfg(spi_v3)]
+        regs.cr1().modify(|reg| reg.set_cstart(true));
+    }
+
+    spin_until_rx_ready(regs)?;
+
+    let rx_word = unsafe { ptr::read_volatile(regs.rx_ptr()) };
+    return Ok(rx_word);
+}
+
+// Note: It is not possible to impl these traits generically in embedded-hal 0.2 due to a conflict with
+// some marker traits. For details, see https://github.com/rust-embedded/embedded-hal/pull/289
+macro_rules! impl_blocking {
+    ($w:ident) => {
+        impl<'d, T: Instance> embedded_hal::blocking::spi::Write<$w> for Spi<'d, T, NoDma, NoDma> {
+            type Error = Error;
+
+            fn write(&mut self, words: &[$w]) -> Result<(), Self::Error> {
+                self.set_word_size($w::WORDSIZE);
+                let regs = T::regs();
+
+                for word in words.iter() {
+                    let _ = transfer_word(regs, *word)?;
+                }
+
+                Ok(())
+            }
+        }
+
+        impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<$w>
+            for Spi<'d, T, NoDma, NoDma>
+        {
+            type Error = Error;
+
+            fn transfer<'w>(&mut self, words: &'w mut [$w]) -> Result<&'w [$w], Self::Error> {
+                self.set_word_size($w::WORDSIZE);
+                let regs = T::regs();
+
+                for word in words.iter_mut() {
+                    *word = transfer_word(regs, *word)?;
+                }
+
+                Ok(words)
+            }
+        }
+    };
+}
+
+impl_blocking!(u8);
+impl_blocking!(u16);
+
+impl<'d, T: Instance, Tx, Rx> traits::Spi<u8> for Spi<'d, T, Tx, Rx> {
+    type Error = Error;
+}
+
+impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx> traits::Write<u8> for Spi<'d, T, Tx, Rx> {
+    #[rustfmt::skip]
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+    fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
+        self.write_dma_u8(data)
+    }
+}
+
+impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::Read<u8>
+    for Spi<'d, T, Tx, Rx>
+{
+    #[rustfmt::skip]
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+    fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        self.read_dma_u8(data)
+    }
+}
+
+impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::FullDuplex<u8>
+    for Spi<'d, T, Tx, Rx>
+{
+    #[rustfmt::skip]
+    type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+    fn read_write<'a>(
+        &'a mut self,
+        read: &'a mut [u8],
+        write: &'a [u8],
+    ) -> Self::WriteReadFuture<'a> {
+        self.read_write_dma_u8(read, write)
     }
 }
 
