@@ -22,6 +22,8 @@ use embassy_traits::spi as traits;
 mod _version;
 pub use _version::*;
 
+type Regs = &'static crate::pac::spi::Spi;
+
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
@@ -395,7 +397,7 @@ fn check_error_flags(sr: regs::Sr) -> Result<(), Error> {
     Ok(())
 }
 
-fn spin_until_tx_ready(regs: &'static crate::pac::spi::Spi) -> Result<(), Error> {
+fn spin_until_tx_ready(regs: Regs) -> Result<(), Error> {
     loop {
         let sr = unsafe { regs.sr().read() };
 
@@ -412,7 +414,7 @@ fn spin_until_tx_ready(regs: &'static crate::pac::spi::Spi) -> Result<(), Error>
     }
 }
 
-fn spin_until_rx_ready(regs: &'static crate::pac::spi::Spi) -> Result<(), Error> {
+fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
     loop {
         let sr = unsafe { regs.sr().read() };
 
@@ -440,7 +442,7 @@ impl Word for u16 {
     const WORDSIZE: WordSize = WordSize::SixteenBit;
 }
 
-fn transfer_word<W: Word>(regs: &'static crate::pac::spi::Spi, tx_word: W) -> Result<W, Error> {
+fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     spin_until_tx_ready(regs)?;
 
     unsafe {
