@@ -439,10 +439,16 @@ fn spin_until_rx_ready(regs: &'static crate::pac::spi::Spi) -> Result<(), Error>
     }
 }
 
-trait Word {}
+trait Word {
+    const WORDSIZE: WordSize;
+}
 
-impl Word for u8 {}
-impl Word for u16 {}
+impl Word for u8 {
+    const WORDSIZE: WordSize = WordSize::EightBit;
+}
+impl Word for u16 {
+    const WORDSIZE: WordSize = WordSize::SixteenBit;
+}
 
 fn transfer_word<W: Word>(regs: &'static crate::pac::spi::Spi, tx_word: W) -> Result<W, Error> {
     spin_until_tx_ready(regs)?;
@@ -460,65 +466,46 @@ fn transfer_word<W: Word>(regs: &'static crate::pac::spi::Spi, tx_word: W) -> Re
     return Ok(rx_word);
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T, NoDma, NoDma> {
-    type Error = Error;
+// Note: It is not possible to impl these traits generically in embedded-hal 0.2 due to a conflict with
+// some marker traits. For details, see https://github.com/rust-embedded/embedded-hal/pull/289
+macro_rules! impl_blocking {
+    ($w:ident) => {
+        impl<'d, T: Instance> embedded_hal::blocking::spi::Write<$w> for Spi<'d, T, NoDma, NoDma> {
+            type Error = Error;
 
-    fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        self.set_word_size(WordSize::EightBit);
-        let regs = T::regs();
+            fn write(&mut self, words: &[$w]) -> Result<(), Self::Error> {
+                self.set_word_size($w::WORDSIZE);
+                let regs = T::regs();
 
-        for word in words.iter() {
-            let _ = transfer_word(regs, *word)?;
+                for word in words.iter() {
+                    let _ = transfer_word(regs, *word)?;
+                }
+
+                Ok(())
+            }
         }
 
-        Ok(())
-    }
-}
+        impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<$w>
+            for Spi<'d, T, NoDma, NoDma>
+        {
+            type Error = Error;
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T, NoDma, NoDma> {
-    type Error = Error;
+            fn transfer<'w>(&mut self, words: &'w mut [$w]) -> Result<&'w [$w], Self::Error> {
+                self.set_word_size($w::WORDSIZE);
+                let regs = T::regs();
 
-    fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
-        self.set_word_size(WordSize::EightBit);
-        let regs = T::regs();
+                for word in words.iter_mut() {
+                    *word = transfer_word(regs, *word)?;
+                }
 
-        for word in words.iter_mut() {
-            *word = transfer_word(regs, *word)?;
+                Ok(words)
+            }
         }
-
-        Ok(words)
-    }
+    };
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T, NoDma, NoDma> {
-    type Error = Error;
-
-    fn write(&mut self, words: &[u16]) -> Result<(), Self::Error> {
-        self.set_word_size(WordSize::SixteenBit);
-        let regs = T::regs();
-
-        for word in words.iter() {
-            let _ = transfer_word(regs, *word)?;
-        }
-
-        Ok(())
-    }
-}
-
-impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T, NoDma, NoDma> {
-    type Error = Error;
-
-    fn transfer<'w>(&mut self, words: &'w mut [u16]) -> Result<&'w [u16], Self::Error> {
-        self.set_word_size(WordSize::SixteenBit);
-        let regs = T::regs();
-
-        for word in words.iter_mut() {
-            *word = transfer_word(regs, *word)?;
-        }
-
-        Ok(words)
-    }
-}
+impl_blocking!(u8);
+impl_blocking!(u16);
 
 impl<'d, T: Instance, Tx, Rx> traits::Spi<u8> for Spi<'d, T, Tx, Rx> {
     type Error = Error;
