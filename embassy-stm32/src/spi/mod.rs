@@ -7,9 +7,11 @@ use crate::pac::spi::{regs, vals};
 use crate::peripherals;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
+use core::future::Future;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
+use embassy_traits::spi as traits;
 
 #[cfg_attr(spi_v1, path = "v1.rs")]
 #[cfg_attr(spi_f1, path = "v1.rs")]
@@ -405,6 +407,45 @@ trait Word {}
 
 impl Word for u8 {}
 impl Word for u16 {}
+
+impl<'d, T: Instance, Tx, Rx> traits::Spi<u8> for Spi<'d, T, Tx, Rx> {
+    type Error = Error;
+}
+
+impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx> traits::Write<u8> for Spi<'d, T, Tx, Rx> {
+    #[rustfmt::skip]
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+    fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
+        self.write_dma_u8(data)
+    }
+}
+
+impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::Read<u8>
+    for Spi<'d, T, Tx, Rx>
+{
+    #[rustfmt::skip]
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+    fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        self.read_dma_u8(data)
+    }
+}
+
+impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::FullDuplex<u8>
+    for Spi<'d, T, Tx, Rx>
+{
+    #[rustfmt::skip]
+    type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+    fn read_write<'a>(
+        &'a mut self,
+        read: &'a mut [u8],
+        write: &'a [u8],
+    ) -> Self::WriteReadFuture<'a> {
+        self.read_write_dma_u8(read, write)
+    }
+}
 
 pub(crate) mod sealed {
     use super::*;

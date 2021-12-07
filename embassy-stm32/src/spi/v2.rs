@@ -1,18 +1,17 @@
 #![macro_use]
 
 use crate::dma::NoDma;
-use crate::spi::{Error, Instance, RegsExt, RxDmaChannel, TxDmaChannel, WordSize, check_error_flags};
-use core::future::Future;
+use crate::spi::{
+    check_error_flags, Error, Instance, RegsExt, RxDmaChannel, TxDmaChannel, WordSize,
+};
 use core::ptr;
-use embassy_traits::spi as traits;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::{join, join3};
 
 use super::Spi;
 
 impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
-    #[allow(unused)]
-    async fn write_dma_u8(&mut self, write: &[u8]) -> Result<(), Error>
+    pub(super) async fn write_dma_u8(&mut self, write: &[u8]) -> Result<(), Error>
     where
         Tx: TxDmaChannel<T>,
     {
@@ -49,8 +48,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
-    #[allow(unused)]
-    async fn read_dma_u8(&mut self, read: &mut [u8]) -> Result<(), Error>
+    pub(super) async fn read_dma_u8(&mut self, read: &mut [u8]) -> Result<(), Error>
     where
         Tx: TxDmaChannel<T>,
         Rx: RxDmaChannel<T>,
@@ -102,8 +100,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
-    #[allow(unused)]
-    async fn read_write_dma_u8(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error>
+    pub(super) async fn read_write_dma_u8(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error>
     where
         Tx: TxDmaChannel<T>,
         Rx: RxDmaChannel<T>,
@@ -268,44 +265,5 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T, 
         }
 
         Ok(words)
-    }
-}
-
-impl<'d, T: Instance, Tx, Rx> traits::Spi<u8> for Spi<'d, T, Tx, Rx> {
-    type Error = super::Error;
-}
-
-impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx> traits::Write<u8> for Spi<'d, T, Tx, Rx> {
-    #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
-
-    fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.write_dma_u8(data)
-    }
-}
-
-impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::Read<u8>
-    for Spi<'d, T, Tx, Rx>
-{
-    #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
-
-    fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.read_dma_u8(data)
-    }
-}
-
-impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::FullDuplex<u8>
-    for Spi<'d, T, Tx, Rx>
-{
-    #[rustfmt::skip]
-    type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
-
-    fn read_write<'a>(
-        &'a mut self,
-        read: &'a mut [u8],
-        write: &'a [u8],
-    ) -> Self::WriteReadFuture<'a> {
-        self.read_write_dma_u8(read, write)
     }
 }
