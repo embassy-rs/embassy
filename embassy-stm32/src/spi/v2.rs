@@ -1,14 +1,9 @@
 #![macro_use]
 
-use crate::dma::NoDma;
-use crate::spi::{
-    check_error_flags, Error, Instance, RegsExt, RxDmaChannel, TxDmaChannel, WordSize,
-};
-use core::ptr;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::{join, join3};
 
-use super::Spi;
+use super::*;
 
 impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     pub(super) async fn write_dma_u8(&mut self, write: &[u8]) -> Result<(), Error>
@@ -100,7 +95,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
-    pub(super) async fn read_write_dma_u8(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error>
+    pub(super) async fn read_write_dma_u8(
+        &mut self,
+        read: &mut [u8],
+        write: &[u8],
+    ) -> Result<(), Error>
     where
         Tx: TxDmaChannel<T>,
         Rx: RxDmaChannel<T>,
@@ -168,102 +167,5 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 // spin
             }
         }
-    }
-}
-
-use super::Word;
-
-/// Write a single word blocking. Assumes word size have already been set.
-fn write_word<W: Word>(regs: &'static crate::pac::spi::Spi, word: W) -> Result<(), Error> {
-    loop {
-        let sr = unsafe { regs.sr().read() };
-
-        check_error_flags(sr)?;
-
-        if sr.txe() {
-            unsafe {
-                ptr::write_volatile(regs.tx_ptr(), word);
-            }
-            return Ok(());
-        }
-    }
-}
-
-/// Read a single word blocking. Assumes word size have already been set.
-fn read_word<W: Word>(regs: &'static crate::pac::spi::Spi) -> Result<W, Error> {
-    loop {
-        let sr = unsafe { regs.sr().read() };
-
-        check_error_flags(sr)?;
-
-        if sr.rxne() {
-            unsafe {
-                return Ok(ptr::read_volatile(regs.rx_ptr()));
-            }
-        }
-    }
-}
-
-impl<'d, T: Instance, Rx> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T, NoDma, Rx> {
-    type Error = Error;
-
-    fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        self.set_word_size(WordSize::EightBit);
-        let regs = T::regs();
-
-        for word in words.iter() {
-            write_word(regs, *word)?;
-            let _: u8 = read_word(regs)?;
-        }
-
-        Ok(())
-    }
-}
-
-impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T, NoDma, NoDma> {
-    type Error = Error;
-
-    fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
-        self.set_word_size(WordSize::EightBit);
-        let regs = T::regs();
-
-        for word in words.iter_mut() {
-            write_word(regs, *word)?;
-            *word = read_word(regs)?;
-        }
-
-        Ok(words)
-    }
-}
-
-impl<'d, T: Instance, Rx> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T, NoDma, Rx> {
-    type Error = Error;
-
-    fn write(&mut self, words: &[u16]) -> Result<(), Self::Error> {
-        self.set_word_size(WordSize::SixteenBit);
-        let regs = T::regs();
-
-        for word in words.iter() {
-            write_word(regs, *word)?;
-            let _: u16 = read_word(regs)?;
-        }
-
-        Ok(())
-    }
-}
-
-impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T, NoDma, NoDma> {
-    type Error = Error;
-
-    fn transfer<'w>(&mut self, words: &'w mut [u16]) -> Result<&'w [u16], Self::Error> {
-        self.set_word_size(WordSize::SixteenBit);
-        let regs = T::regs();
-
-        for word in words.iter_mut() {
-            write_word(regs, *word)?;
-            *word = read_word(regs)?;
-        }
-
-        Ok(words)
     }
 }

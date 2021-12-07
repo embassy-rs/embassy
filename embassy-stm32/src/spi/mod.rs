@@ -1,6 +1,7 @@
 #![macro_use]
 
 use crate::dma;
+use crate::dma::NoDma;
 use crate::gpio::sealed::{AFType, Pin};
 use crate::gpio::{AnyPin, NoPin, OptionalPin};
 use crate::pac::spi::{regs, vals};
@@ -9,6 +10,7 @@ use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 use core::future::Future;
 use core::marker::PhantomData;
+use core::ptr;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use embassy_traits::spi as traits;
@@ -403,10 +405,120 @@ fn check_error_flags(sr: regs::Sr) -> Result<(), Error> {
     Ok(())
 }
 
+fn spin_until_tx_ready(regs: &'static crate::pac::spi::Spi) -> Result<(), Error> {
+    loop {
+        let sr = unsafe { regs.sr().read() };
+
+        check_error_flags(sr)?;
+
+        #[cfg(not(spi_v3))]
+        if sr.txe() {
+            return Ok(());
+        }
+        #[cfg(spi_v3)]
+        if sr.txp() {
+            return Ok(());
+        }
+    }
+}
+
+fn spin_until_rx_ready(regs: &'static crate::pac::spi::Spi) -> Result<(), Error> {
+    loop {
+        let sr = unsafe { regs.sr().read() };
+
+        check_error_flags(sr)?;
+
+        #[cfg(not(spi_v3))]
+        if sr.rxne() {
+            return Ok(());
+        }
+        #[cfg(spi_v3)]
+        if sr.rxp() {
+            return Ok(());
+        }
+    }
+}
+
 trait Word {}
 
 impl Word for u8 {}
 impl Word for u16 {}
+
+fn transfer_word<W: Word>(regs: &'static crate::pac::spi::Spi, tx_word: W) -> Result<W, Error> {
+    spin_until_tx_ready(regs)?;
+
+    unsafe {
+        ptr::write_volatile(regs.tx_ptr(), tx_word);
+
+        #[cfg(spi_v3)]
+        regs.cr1().modify(|reg| reg.set_cstart(true));
+    }
+
+    spin_until_rx_ready(regs)?;
+
+    let rx_word = unsafe { ptr::read_volatile(regs.rx_ptr()) };
+    return Ok(rx_word);
+}
+
+impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T, NoDma, NoDma> {
+    type Error = Error;
+
+    fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
+        self.set_word_size(WordSize::EightBit);
+        let regs = T::regs();
+
+        for word in words.iter() {
+            let _ = transfer_word(regs, *word)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T, NoDma, NoDma> {
+    type Error = Error;
+
+    fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
+        self.set_word_size(WordSize::EightBit);
+        let regs = T::regs();
+
+        for word in words.iter_mut() {
+            *word = transfer_word(regs, *word)?;
+        }
+
+        Ok(words)
+    }
+}
+
+impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T, NoDma, NoDma> {
+    type Error = Error;
+
+    fn write(&mut self, words: &[u16]) -> Result<(), Self::Error> {
+        self.set_word_size(WordSize::SixteenBit);
+        let regs = T::regs();
+
+        for word in words.iter() {
+            let _ = transfer_word(regs, *word)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T, NoDma, NoDma> {
+    type Error = Error;
+
+    fn transfer<'w>(&mut self, words: &'w mut [u16]) -> Result<&'w [u16], Self::Error> {
+        self.set_word_size(WordSize::SixteenBit);
+        let regs = T::regs();
+
+        for word in words.iter_mut() {
+            *word = transfer_word(regs, *word)?;
+        }
+
+        Ok(words)
+    }
+}
 
 impl<'d, T: Instance, Tx, Rx> traits::Spi<u8> for Spi<'d, T, Tx, Rx> {
     type Error = Error;

@@ -1,15 +1,9 @@
 #![macro_use]
 
-use crate::dma::NoDma;
-use crate::spi::{
-    check_error_flags, Error, Instance, RegsExt, RxDmaChannel, TxDmaChannel, WordSize,
-};
-use core::ptr;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-
 use futures::future::join3;
 
-use super::Spi;
+use super::*;
 
 impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     pub(super) async fn write_dma_u8(&mut self, write: &[u8]) -> Result<(), Error>
@@ -105,7 +99,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
-    pub(super) async fn read_write_dma_u8(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error>
+    pub(super) async fn read_write_dma_u8(
+        &mut self,
+        read: &mut [u8],
+        write: &[u8],
+    ) -> Result<(), Error>
     where
         Tx: TxDmaChannel<T>,
         Rx: RxDmaChannel<T>,
@@ -171,173 +169,5 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 // spin
             }
         }
-    }
-}
-
-impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spi<'d, T, NoDma, NoDma> {
-    type Error = Error;
-
-    fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        self.set_word_size(WordSize::EightBit);
-        let regs = T::regs();
-
-        for word in words.iter() {
-            while unsafe { !regs.sr().read().txp() } {
-                // spin
-            }
-            unsafe {
-                ptr::write_volatile(regs.tx_ptr(), *word);
-                regs.cr1().modify(|reg| reg.set_cstart(true));
-            }
-            loop {
-                let sr = unsafe { regs.sr().read() };
-                if sr.tifre() {
-                    return Err(Error::Framing);
-                }
-                if sr.ovr() {
-                    return Err(Error::Overrun);
-                }
-                if sr.crce() {
-                    return Err(Error::Crc);
-                }
-                if !sr.txp() {
-                    // loop waiting for TXE
-                    continue;
-                }
-                break;
-            }
-            unsafe {
-                // discard read to prevent pverrun.
-                let _: u8 = ptr::read_volatile(T::regs().rx_ptr());
-            }
-        }
-
-        while unsafe { !regs.sr().read().txc() } {
-            // spin
-        }
-
-        Ok(())
-    }
-}
-
-impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spi<'d, T, NoDma, NoDma> {
-    type Error = Error;
-
-    fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
-        self.set_word_size(WordSize::EightBit);
-        let regs = T::regs();
-
-        for word in words.iter_mut() {
-            unsafe {
-                regs.cr1().modify(|reg| {
-                    reg.set_ssi(false);
-                });
-            }
-            while unsafe { !regs.sr().read().txp() } {
-                // spin
-            }
-            unsafe {
-                ptr::write_volatile(T::regs().tx_ptr(), *word);
-                regs.cr1().modify(|reg| reg.set_cstart(true));
-            }
-            loop {
-                let sr = unsafe { regs.sr().read() };
-
-                if sr.rxp() {
-                    break;
-                }
-
-                check_error_flags(sr)?;
-            }
-            unsafe {
-                *word = ptr::read_volatile(T::regs().rx_ptr());
-            }
-            let sr = unsafe { regs.sr().read() };
-            check_error_flags(sr)?;
-        }
-
-        Ok(words)
-    }
-}
-
-impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u16> for Spi<'d, T, NoDma, NoDma> {
-    type Error = Error;
-
-    fn write(&mut self, words: &[u16]) -> Result<(), Self::Error> {
-        self.set_word_size(WordSize::SixteenBit);
-        let regs = T::regs();
-
-        for word in words.iter() {
-            while unsafe { !regs.sr().read().txp() } {
-                // spin
-            }
-            unsafe {
-                let txdr = regs.txdr().ptr() as *mut u16;
-                ptr::write_volatile(txdr, *word);
-                regs.cr1().modify(|reg| reg.set_cstart(true));
-            }
-            loop {
-                let sr = unsafe { regs.sr().read() };
-
-                check_error_flags(sr)?;
-
-                if !sr.txp() {
-                    // loop waiting for TXE
-                    continue;
-                }
-                break;
-            }
-
-            unsafe {
-                let rxdr = regs.rxdr().ptr() as *const u8;
-                // discard read to prevent pverrun.
-                let _ = ptr::read_volatile(rxdr);
-            }
-        }
-
-        while unsafe { !regs.sr().read().txc() } {
-            // spin
-        }
-
-        Ok(())
-    }
-}
-
-impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u16> for Spi<'d, T, NoDma, NoDma> {
-    type Error = Error;
-
-    fn transfer<'w>(&mut self, words: &'w mut [u16]) -> Result<&'w [u16], Self::Error> {
-        self.set_word_size(WordSize::SixteenBit);
-        let regs = T::regs();
-
-        for word in words.iter_mut() {
-            while unsafe { !regs.sr().read().txp() } {
-                // spin
-            }
-            unsafe {
-                let txdr = regs.txdr().ptr() as *mut u16;
-                ptr::write_volatile(txdr, *word);
-                regs.cr1().modify(|reg| reg.set_cstart(true));
-            }
-
-            loop {
-                let sr = unsafe { regs.sr().read() };
-
-                if sr.rxp() {
-                    break;
-                }
-
-                check_error_flags(sr)?;
-            }
-
-            unsafe {
-                let rxdr = regs.rxdr().ptr() as *const u16;
-                *word = ptr::read_volatile(rxdr);
-            }
-            let sr = unsafe { regs.sr().read() };
-            check_error_flags(sr)?;
-        }
-
-        Ok(words)
     }
 }
