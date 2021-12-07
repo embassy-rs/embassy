@@ -10,7 +10,7 @@ use embassy::time::{Duration, Instant, Timer};
 use embassy_stm32::Peripherals;
 use example_common::*;
 
-#[embassy::main]
+#[embassy::main(config = "config()")]
 async fn main(_spawner: Spawner, _p: Peripherals) {
     info!("Hello World!");
 
