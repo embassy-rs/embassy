@@ -276,7 +276,7 @@ impl<'d, T: Instance> Write for Uarte<'d, T> {
 }
 
 #[cfg(not(any(feature = "_nrf9160", feature = "nrf5340")))]
-pub(in crate) fn apply_workaround_for_enable_anomaly(r: &crate::pac::uarte0::RegisterBlock) {
+pub(in crate) fn apply_workaround_for_enable_anomaly(_r: &crate::pac::uarte0::RegisterBlock) {
     // Do nothing
 }
 
