@@ -163,7 +163,7 @@ pac::dma_channels! {
             }
 
             fn set_waker(&mut self, waker: &Waker) {
-                unsafe {low_level_api::set_waker(crate::pac::$dma_peri,  $channel_num, waker )}
+                unsafe {low_level_api::set_waker(dma_num!($dma_peri) * 8 + $channel_num, waker )}
             }
         }
 
@@ -255,9 +255,8 @@ mod low_level_api {
     }
 
     /// Sets the waker for the specified DMA channel
-    pub unsafe fn set_waker(_dma: pac::bdma::Dma, state_number: u8, waker: &Waker) {
-        let n = state_number as usize;
-        STATE.ch_wakers[n].register(waker);
+    pub unsafe fn set_waker(state_number: usize, waker: &Waker) {
+        STATE.ch_wakers[state_number].register(waker);
     }
 
     pub unsafe fn reset_status(dma: pac::bdma::Dma, channel_number: u8) {
