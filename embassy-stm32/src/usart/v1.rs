@@ -77,7 +77,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
             });
         }
         let r = self.inner.regs();
-        let dst = r.dr().ptr() as *mut u32;
+        let dst = r.dr().ptr() as *mut u8;
         crate::dma::write(ch, request, buffer, dst).await;
         Ok(())
     }
@@ -94,7 +94,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
             });
         }
         let r = self.inner.regs();
-        let src = r.dr().ptr() as *mut u32;
+        let src = r.dr().ptr() as *mut u8;
         crate::dma::read(ch, request, src, buffer).await;
         Ok(())
     }

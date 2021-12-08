@@ -30,37 +30,59 @@ pub type Request = ();
 pub(crate) mod sealed {
     use super::*;
 
+    pub trait Word {}
+
     pub trait Channel {
         /// Starts this channel for writing a stream of words.
-        unsafe fn start_write<W: Word>(&mut self, request: Request, buf: &[W], reg_addr: *mut u32);
+        ///
+        /// Safety:
+        /// - `buf` must be alive for the entire duration of the DMA transfer.
+        /// - `reg_addr` must be a valid peripheral register address to write to.
+        unsafe fn start_write<W: super::Word>(
+            &mut self,
+            request: Request,
+            buf: &[W],
+            reg_addr: *mut W,
+        );
 
         /// Starts this channel for writing a word repeatedly.
-        unsafe fn start_write_repeated<W: Word>(
+        ///
+        /// Safety:
+        /// - `reg_addr` must be a valid peripheral register address to write to.
+        unsafe fn start_write_repeated<W: super::Word>(
             &mut self,
             request: Request,
             repeated: W,
             count: usize,
-            reg_addr: *mut u32,
+            reg_addr: *mut W,
         );
 
         /// Starts this channel for reading a stream of words.
-        unsafe fn start_read<W: Word>(
+        ///
+        /// Safety:
+        /// - `buf` must be alive for the entire duration of the DMA transfer.
+        /// - `reg_addr` must be a valid peripheral register address to write to.
+        unsafe fn start_read<W: super::Word>(
             &mut self,
             request: Request,
-            reg_addr: *mut u32,
+            reg_addr: *mut W,
             buf: &mut [W],
         );
 
-        /// Stops this channel.
+        /// Requests the channel to stop.
+        /// NOTE: The channel does not immediately stop, you have to wait
+        /// for `is_running() = false`.
         fn request_stop(&mut self);
 
-        /// Returns whether this channel is active or stopped.
+        /// Returns whether this channel is running or stopped.
+        ///
+        /// The channel stops running when it either completes or is manually stopped.
         fn is_running(&self) -> bool;
 
         /// Returns the total number of remaining transfers.
         fn remaining_transfers(&mut self) -> u16;
 
-        /// Sets the waker that is called when this channel completes.
+        /// Sets the waker that is called when this channel stops (either completed or manually stopped)
         fn set_waker(&mut self, waker: &Waker);
     }
 }
@@ -70,21 +92,25 @@ pub enum WordSize {
     TwoBytes,
     FourBytes,
 }
-pub trait Word {
+pub trait Word: sealed::Word {
     fn bits() -> WordSize;
 }
 
+impl sealed::Word for u8 {}
 impl Word for u8 {
     fn bits() -> WordSize {
         WordSize::OneByte
     }
 }
 
+impl sealed::Word for u16 {}
 impl Word for u16 {
     fn bits() -> WordSize {
         WordSize::TwoBytes
     }
 }
+
+impl sealed::Word for u32 {}
 impl Word for u32 {
     fn bits() -> WordSize {
         WordSize::FourBytes
@@ -98,7 +124,7 @@ mod transfers {
     pub fn read<'a, W: Word>(
         channel: impl Unborrow<Target = impl Channel> + 'a,
         request: Request,
-        reg_addr: *mut u32,
+        reg_addr: *mut W,
         buf: &'a mut [W],
     ) -> impl Future<Output = ()> + 'a {
         assert!(buf.len() <= 0xFFFF);
@@ -117,7 +143,7 @@ mod transfers {
         channel: impl Unborrow<Target = impl Channel> + 'a,
         request: Request,
         buf: &'a [W],
-        reg_addr: *mut u32,
+        reg_addr: *mut W,
     ) -> impl Future<Output = ()> + 'a {
         assert!(buf.len() <= 0xFFFF);
         unborrow!(channel);
@@ -136,7 +162,7 @@ mod transfers {
         request: Request,
         repeated: W,
         count: usize,
-        reg_addr: *mut u32,
+        reg_addr: *mut W,
     ) -> impl Future<Output = ()> + 'a {
         unborrow!(channel);
 

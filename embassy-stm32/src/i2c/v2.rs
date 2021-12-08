@@ -415,7 +415,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                     w.set_tcie(true);
                 }
             });
-            let dst = regs.txdr().ptr() as *mut u32;
+            let dst = regs.txdr().ptr() as *mut u8;
 
             let ch = &mut self.tx_dma;
             let request = ch.request();
@@ -508,7 +508,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 w.set_rxdmaen(true);
                 w.set_tcie(true);
             });
-            let src = regs.rxdr().ptr() as *mut u32;
+            let src = regs.rxdr().ptr() as *mut u8;
 
             let ch = &mut self.rx_dma;
             let request = ch.request();

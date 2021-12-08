@@ -84,7 +84,7 @@ pub(crate) unsafe fn init() {
 pac::dma_channels! {
     ($channel_peri:ident, $dma_peri:ident, dma, $channel_num:expr, $dmamux:tt) => {
         impl crate::dma::sealed::Channel for crate::peripherals::$channel_peri {
-            unsafe fn start_write<W: Word>(&mut self, request: Request, buf: &[W], reg_addr: *mut u32) {
+            unsafe fn start_write<W: Word>(&mut self, request: Request, buf: &[W], reg_addr: *mut W) {
                 let isrn = $channel_num as usize / 4;
                 let isrbit = $channel_num as usize % 4;
                 low_level_api::reset_status(&crate::pac::$dma_peri, isrn, isrbit);
@@ -104,7 +104,7 @@ pac::dma_channels! {
                 )
             }
 
-            unsafe fn start_write_repeated<W: Word>(&mut self, request: Request, repeated: W, count: usize, reg_addr: *mut u32) {
+            unsafe fn start_write_repeated<W: Word>(&mut self, request: Request, repeated: W, count: usize, reg_addr: *mut W) {
                 let buf = [repeated];
                 let isrn = $channel_num as usize / 4;
                 let isrbit = $channel_num as usize % 4;
@@ -125,7 +125,7 @@ pac::dma_channels! {
                 )
             }
 
-            unsafe fn start_read<W: Word>(&mut self, request: Request, reg_addr: *mut u32, buf: &mut [W]) {
+            unsafe fn start_read<W: Word>(&mut self, request: Request, reg_addr: *mut W, buf: &mut [W]) {
                 let isrn = $channel_num as usize / 4;
                 let isrbit = $channel_num as usize % 4;
                 low_level_api::reset_status(&crate::pac::$dma_peri, isrn, isrbit);
