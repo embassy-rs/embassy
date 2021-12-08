@@ -149,8 +149,8 @@ pac::dma_channels! {
                 unsafe {low_level_api::request_stop(&crate::pac::$dma_peri, $channel_num);}
             }
 
-            fn is_stopped(&self) -> bool {
-                unsafe {low_level_api::is_stopped(&crate::pac::$dma_peri, $channel_num)}
+            fn is_running(&self) -> bool {
+                unsafe {low_level_api::is_running(&crate::pac::$dma_peri, $channel_num)}
             }
 
             fn remaining_transfers(&mut self) -> u16 {
@@ -240,7 +240,7 @@ mod low_level_api {
     }
 
     /// Gets the running status of the channel
-    pub unsafe fn is_stopped(dma: &pac::dma::Dma, ch: u8) -> bool {
+    pub unsafe fn is_running(dma: &pac::dma::Dma, ch: u8) -> bool {
         // get a handle on the channel itself
         let ch = dma.st(ch as _);
 

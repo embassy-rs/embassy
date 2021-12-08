@@ -155,8 +155,8 @@ pac::dma_channels! {
                 unsafe {low_level_api::request_stop(crate::pac::$dma_peri, $channel_num);}
             }
 
-            fn is_stopped(&self) -> bool {
-                unsafe {low_level_api::is_stopped(crate::pac::$dma_peri, $channel_num)}
+            fn is_running(&self) -> bool {
+                unsafe {low_level_api::is_running(crate::pac::$dma_peri, $channel_num)}
             }
             fn remaining_transfers(&mut self) -> u16 {
                 unsafe {low_level_api::get_remaining_transfers(crate::pac::$dma_peri, $channel_num)}
@@ -240,7 +240,7 @@ mod low_level_api {
         fence(Ordering::SeqCst);
     }
 
-    pub unsafe fn is_stopped(dma: pac::bdma::Dma, ch: u8) -> bool {
+    pub unsafe fn is_running(dma: pac::bdma::Dma, ch: u8) -> bool {
         let ch = dma.ch(ch as _);
         ch.cr().read().en()
     }

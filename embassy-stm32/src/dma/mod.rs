@@ -49,7 +49,7 @@ pub(crate) mod sealed {
         fn request_stop(&mut self);
 
         /// Returns whether this channel is active or stopped.
-        fn is_stopped(&self) -> bool;
+        fn is_running(&self) -> bool;
 
         /// Returns the total number of remaining transfers.
         fn remaining_transfers(&mut self) -> u16;
@@ -173,10 +173,10 @@ mod transfers {
 
             // TODO in the future, error checking could be added so that this function returns an error
 
-            if channel.is_stopped() {
-                Poll::Ready(())
-            } else {
+            if channel.is_running() {
                 Poll::Pending
+            } else {
+                Poll::Ready(())
             }
         })
         .await
