@@ -1,21 +1,17 @@
-use crate::gpio;
-use crate::rcc::RccPeripheral;
-use crate::time::Hertz;
-use core::marker::PhantomData;
-use embassy::util::Unborrow;
-use embassy_hal_common::unborrow;
-use stm32_metapac::timer::vals::Ocm;
+#[cfg(feature = "unstable-pac")]
+#[macro_use]
+pub mod pins;
 
-pub struct Pwm<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+#[cfg(not(feature = "unstable-pac"))]
+#[macro_use]
+pub(crate) mod pins;
+
+pub mod simple_pwm;
+
+#[cfg(feature = "unstable-pac")]
+pub mod low_level {
+    pub use super::sealed::*;
 }
-
-// TIM2
-
-pub struct Ch1 {}
-pub struct Ch2 {}
-pub struct Ch3 {}
-pub struct Ch4 {}
 
 #[derive(Clone, Copy)]
 pub enum Channel {
@@ -25,171 +21,241 @@ pub enum Channel {
     Ch4,
 }
 
-impl<'d, T: Instance> Pwm<'d, T> {
-    pub fn new<F: Into<Hertz>>(
-        _tim: impl Unborrow<Target = T> + 'd,
-        ch1: impl Unborrow<Target = impl PwmPin<T, Ch1>> + 'd,
-        ch2: impl Unborrow<Target = impl PwmPin<T, Ch2>> + 'd,
-        ch3: impl Unborrow<Target = impl PwmPin<T, Ch3>> + 'd,
-        ch4: impl Unborrow<Target = impl PwmPin<T, Ch4>> + 'd,
-        freq: F,
-    ) -> Self {
-        unborrow!(ch1, ch2, ch3, ch4);
-
-        T::enable();
-        T::reset();
-        let r = T::regs();
-
-        let mut this = Pwm {
-            phantom: PhantomData,
-        };
-        unsafe {
-            ch1.configure();
-            ch2.configure();
-            ch3.configure();
-            ch4.configure();
-        }
-
-        unsafe {
-            use stm32_metapac::timer::vals::Dir;
-            this.set_freq(freq);
-            r.cr1().write(|w| {
-                w.set_cen(true);
-                w.set_dir(Dir::UP)
-            });
-
-            this.set_ocm(Channel::Ch1, Ocm::PWMMODE1);
-            this.set_ocm(Channel::Ch2, Ocm::PWMMODE1);
-            this.set_ocm(Channel::Ch3, Ocm::PWMMODE1);
-            this.set_ocm(Channel::Ch4, Ocm::PWMMODE1);
-        }
-        this
-    }
-
-    unsafe fn set_ocm(&mut self, channel: Channel, mode: Ocm) {
-        let r = T::regs();
-        match channel {
-            Channel::Ch1 => r.ccmr_output(0).modify(|w| w.set_ocm(0, mode)),
-            Channel::Ch2 => r.ccmr_output(0).modify(|w| w.set_ocm(1, mode)),
-            Channel::Ch3 => r.ccmr_output(1).modify(|w| w.set_ocm(0, mode)),
-            Channel::Ch4 => r.ccmr_output(1).modify(|w| w.set_ocm(1, mode)),
+impl Channel {
+    pub fn raw(&self) -> usize {
+        match self {
+            Channel::Ch1 => 0,
+            Channel::Ch2 => 1,
+            Channel::Ch3 => 2,
+            Channel::Ch4 => 3,
         }
     }
+}
 
-    unsafe fn set_enable(&mut self, channel: Channel, enable: bool) {
-        let r = T::regs();
-        match channel {
-            Channel::Ch1 => r.ccer().modify(|w| w.set_cce(0, enable)),
-            Channel::Ch2 => r.ccer().modify(|w| w.set_cce(1, enable)),
-            Channel::Ch3 => r.ccer().modify(|w| w.set_cce(2, enable)),
-            Channel::Ch4 => r.ccer().modify(|w| w.set_cce(3, enable)),
-        }
-    }
+#[derive(Clone, Copy)]
+pub enum OutputCompareMode {
+    Frozen,
+    ActiveOnMatch,
+    InactiveOnMatch,
+    Toggle,
+    ForceInactive,
+    ForceActive,
+    PwmMode1,
+    PwmMode2,
+}
 
-    pub fn enable(&mut self, channel: Channel) {
-        unsafe { self.set_enable(channel, true) }
-    }
-
-    pub fn disable(&mut self, channel: Channel) {
-        unsafe { self.set_enable(channel, false) }
-    }
-
-    pub fn set_freq<F: Into<Hertz>>(&mut self, freq: F) {
-        use core::convert::TryInto;
-        let clk = T::frequency();
-        let r = T::regs();
-        let freq: Hertz = freq.into();
-        let ticks: u32 = clk.0 / freq.0;
-        let psc: u16 = (ticks / (1 << 16)).try_into().unwrap();
-        let arr: u16 = (ticks / (u32::from(psc) + 1)).try_into().unwrap();
-        unsafe {
-            r.psc().write(|w| w.set_psc(psc));
-            r.arr().write(|w| w.set_arr(arr));
-        }
-    }
-
-    pub fn get_max_duty(&self) -> u32 {
-        let r = T::regs();
-        unsafe { r.arr().read().arr() as u32 }
-    }
-
-    pub fn set_duty(&mut self, channel: Channel, duty: u32) {
-        use core::convert::TryInto;
-        assert!(duty < self.get_max_duty());
-        let duty: u16 = duty.try_into().unwrap();
-        let r = T::regs();
-        unsafe {
-            match channel {
-                Channel::Ch1 => r.ccr(0).modify(|w| w.set_ccr(duty)),
-                Channel::Ch2 => r.ccr(1).modify(|w| w.set_ccr(duty)),
-                Channel::Ch3 => r.ccr(2).modify(|w| w.set_ccr(duty)),
-                Channel::Ch4 => r.ccr(3).modify(|w| w.set_ccr(duty)),
-            }
+impl From<OutputCompareMode> for stm32_metapac::timer::vals::Ocm {
+    fn from(mode: OutputCompareMode) -> Self {
+        match mode {
+            OutputCompareMode::Frozen => stm32_metapac::timer::vals::Ocm::FROZEN,
+            OutputCompareMode::ActiveOnMatch => stm32_metapac::timer::vals::Ocm::ACTIVEONMATCH,
+            OutputCompareMode::InactiveOnMatch => stm32_metapac::timer::vals::Ocm::INACTIVEONMATCH,
+            OutputCompareMode::Toggle => stm32_metapac::timer::vals::Ocm::TOGGLE,
+            OutputCompareMode::ForceInactive => stm32_metapac::timer::vals::Ocm::FORCEINACTIVE,
+            OutputCompareMode::ForceActive => stm32_metapac::timer::vals::Ocm::FORCEACTIVE,
+            OutputCompareMode::PwmMode1 => stm32_metapac::timer::vals::Ocm::PWMMODE1,
+            OutputCompareMode::PwmMode2 => stm32_metapac::timer::vals::Ocm::PWMMODE2,
         }
     }
 }
 
 pub(crate) mod sealed {
-    pub trait Instance {
-        fn regs() -> crate::pac::timer::TimGp16;
+    use super::*;
+
+    pub trait CaptureCompareCapable16bitInstance:
+        crate::timer::sealed::GeneralPurpose16bitInstance
+    {
+        unsafe fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode);
+
+        unsafe fn enable_channel(&mut self, channel: Channel, enable: bool);
+
+        unsafe fn set_compare_value(&mut self, channel: Channel, value: u16);
+
+        unsafe fn get_max_compare_value(&self) -> u16;
+    }
+
+    pub trait CaptureCompareCapable32bitInstance:
+        crate::timer::sealed::GeneralPurpose32bitInstance
+    {
+        unsafe fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode);
+
+        unsafe fn enable_channel(&mut self, channel: Channel, enable: bool);
+
+        unsafe fn set_compare_value(&mut self, channel: Channel, value: u32);
+
+        unsafe fn get_max_compare_value(&self) -> u32;
     }
 }
 
-pub trait Instance: sealed::Instance + Sized + RccPeripheral + 'static {}
+pub trait CaptureCompareCapable16bitInstance:
+    sealed::CaptureCompareCapable16bitInstance + crate::timer::GeneralPurpose16bitInstance + 'static
+{
+}
+pub trait CaptureCompareCapable32bitInstance:
+    sealed::CaptureCompareCapable32bitInstance + crate::timer::GeneralPurpose32bitInstance + 'static
+{
+}
 
 #[allow(unused)]
-macro_rules! impl_timer {
+macro_rules! impl_compare_capable_16bit {
     ($inst:ident) => {
-        impl crate::pwm::sealed::Instance for crate::peripherals::$inst {
-            fn regs() -> crate::pac::timer::TimGp16 {
-                crate::pac::timer::TimGp16(crate::pac::$inst.0)
+        impl crate::pwm::sealed::CaptureCompareCapable16bitInstance for crate::peripherals::$inst {
+            unsafe fn set_output_compare_mode(
+                &mut self,
+                channel: crate::pwm::Channel,
+                mode: OutputCompareMode,
+            ) {
+                use crate::timer::sealed::GeneralPurpose16bitInstance;
+                let r = self.regs_gp16();
+                let raw_channel: usize = channel.raw();
+                r.ccmr_output(raw_channel / 2)
+                    .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
+            }
+
+            unsafe fn enable_channel(&mut self, channel: Channel, enable: bool) {
+                use crate::timer::sealed::GeneralPurpose16bitInstance;
+                self.regs_gp16()
+                    .ccer()
+                    .modify(|w| w.set_cce(channel.raw(), enable));
+            }
+
+            unsafe fn set_compare_value(&mut self, channel: Channel, value: u16) {
+                use crate::timer::sealed::GeneralPurpose16bitInstance;
+                self.regs_gp16()
+                    .ccr(channel.raw())
+                    .modify(|w| w.set_ccr(value));
+            }
+
+            unsafe fn get_max_compare_value(&self) -> u16 {
+                use crate::timer::sealed::GeneralPurpose16bitInstance;
+                self.regs_gp16().arr().read().arr()
             }
         }
-
-        impl crate::pwm::Instance for crate::peripherals::$inst {}
     };
 }
 
-pub trait PwmPin<Timer, Channel>: gpio::OptionalPin {
-    unsafe fn configure(&mut self);
-}
+crate::pac::interrupts! {
+    ($inst:ident, timer, TIM_GP16, UP, $irq:ident) => {
+        impl_compare_capable_16bit!($inst);
 
-impl<Timer, Channel> PwmPin<Timer, Channel> for gpio::NoPin {
-    unsafe fn configure(&mut self) {}
+        impl CaptureCompareCapable16bitInstance for crate::peripherals::$inst {
+
+        }
+    };
+
+    ($inst:ident, timer, TIM_GP32, UP, $irq:ident) => {
+        impl_compare_capable_16bit!($inst);
+        impl crate::pwm::sealed::CaptureCompareCapable32bitInstance for crate::peripherals::$inst {
+            unsafe fn set_output_compare_mode(
+                &mut self,
+                channel: crate::pwm::Channel,
+                mode: OutputCompareMode,
+            ) {
+                use crate::timer::sealed::GeneralPurpose32bitInstance;
+                let raw_channel = channel.raw();
+                self.regs_gp32().ccmr_output(raw_channel / 2).modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
+            }
+
+            unsafe fn enable_channel(&mut self, channel: Channel, enable: bool) {
+                use crate::timer::sealed::GeneralPurpose32bitInstance;
+                self.regs_gp32().ccer().modify(|w| w.set_cce(channel.raw(), enable));
+            }
+
+            unsafe fn set_compare_value(&mut self, channel: Channel, value: u32) {
+                use crate::timer::sealed::GeneralPurpose32bitInstance;
+                self.regs_gp32().ccr(channel.raw()).modify(|w| w.set_ccr(value));
+            }
+
+            unsafe fn get_max_compare_value(&self) -> u32 {
+                use crate::timer::sealed::GeneralPurpose32bitInstance;
+                self.regs_gp32().arr().read().arr() as u32
+            }
+        }
+        impl CaptureCompareCapable16bitInstance for crate::peripherals::$inst {
+
+        }
+        impl CaptureCompareCapable32bitInstance for crate::peripherals::$inst {
+
+        }
+    };
+
+    ($inst:ident, timer, TIM_ADV, UP, $irq:ident) => {
+        impl_compare_capable_16bit!($inst);
+        impl CaptureCompareCapable16bitInstance for crate::peripherals::$inst {
+
+        }
+    };
 }
 
 #[allow(unused)]
-macro_rules! impl_pwm_pin {
-    ($timer:ident, $channel:ident, $pin:ident, $af:expr) => {
-        impl crate::pwm::PwmPin<crate::peripherals::$timer, crate::pwm::$channel>
-            for crate::peripherals::$pin
-        {
-            unsafe fn configure(&mut self) {
-                use crate::gpio::sealed::{AFType, Pin};
-                use crate::gpio::Speed;
-                self.set_low();
-                self.set_speed(Speed::VeryHigh);
-                self.set_as_af($af, AFType::OutputPushPull);
-            }
-        }
+macro_rules! impl_pwm_nopin {
+    ($inst:ident) => {
+        impl_no_pin!($inst, Channel1Pin);
+        impl_no_pin!($inst, Channel1ComplementaryPin);
+        impl_no_pin!($inst, Channel2Pin);
+        impl_no_pin!($inst, Channel2ComplementaryPin);
+        impl_no_pin!($inst, Channel3Pin);
+        impl_no_pin!($inst, Channel3ComplementaryPin);
+        impl_no_pin!($inst, Channel4Pin);
+        impl_no_pin!($inst, Channel4ComplementaryPin);
+        impl_no_pin!($inst, ExternalTriggerPin);
+        impl_no_pin!($inst, BreakInputPin);
+        impl_no_pin!($inst, BreakInputComparator1Pin);
+        impl_no_pin!($inst, BreakInputComparator2Pin);
+        impl_no_pin!($inst, BreakInput2Pin);
+        impl_no_pin!($inst, BreakInput2Comparator1Pin);
+        impl_no_pin!($inst, BreakInput2Comparator2Pin);
     };
 }
 
 crate::pac::peripherals!(
-    (timer, $inst:ident) => { impl_timer!($inst); };
+    (timer, $inst:ident) => { impl_pwm_nopin!($inst); };
 );
 
 crate::pac::peripheral_pins!(
-    ($inst:ident, timer,TIM_GP16, $pin:ident, CH1, $af:expr) => {
-        impl_pwm_pin!($inst, Ch1, $pin, $af);
+    ($inst:ident, timer, $block:ident, $pin:ident, CH1, $af:expr) => {
+        impl_pin!($inst, Channel1Pin, $pin, $af);
     };
-    ($inst:ident, timer,TIM_GP16, $pin:ident, CH2, $af:expr) => {
-        impl_pwm_pin!($inst, Ch2, $pin, $af);
+    ($inst:ident, timer, $block:ident, $pin:ident, CH1N, $af:expr) => {
+        impl_pin!($inst, Channel1ComplementaryPin, $pin, $af);
     };
-    ($inst:ident, timer,TIM_GP16, $pin:ident, CH3, $af:expr) => {
-        impl_pwm_pin!($inst, Ch3, $pin, $af);
+    ($inst:ident, timer, $block:ident, $pin:ident, CH2, $af:expr) => {
+        impl_pin!($inst, Channel2Pin, $pin, $af);
     };
-    ($inst:ident, timer,TIM_GP16, $pin:ident, CH4, $af:expr) => {
-        impl_pwm_pin!($inst, Ch4, $pin, $af);
+    ($inst:ident, timer, $block:ident, $pin:ident, CH2N, $af:expr) => {
+        impl_pin!($inst, Channel2ComplementaryPin, $pin, $af);
+    };
+    ($inst:ident, timer, $block:ident, $pin:ident, CH3, $af:expr) => {
+        impl_pin!($inst, Channel3Pin, $pin, $af);
+    };
+    ($inst:ident, timer, $block:ident, $pin:ident, CH3N, $af:expr) => {
+        impl_pin!($inst, Channel3ComplementaryPin, $pin, $af);
+    };
+    ($inst:ident, timer, $block:ident, $pin:ident, CH4, $af:expr) => {
+        impl_pin!($inst, Channel4Pin, $pin, $af);
+    };
+    ($inst:ident, timer, $block:ident, $pin:ident, CH4N, $af:expr) => {
+        impl_pin!($inst, Channel4ComplementaryPin, $pin, $af);
+    };
+    ($inst:ident, timer, $block:ident, $pin:ident, ETR, $af:expr) => {
+        impl_pin!($inst, ExternalTriggerPin, $pin, $af);
+    };
+    ($inst:ident, timer, $block:ident, $pin:ident, BKIN, $af:expr) => {
+        impl_pin!($inst, BreakInputPin, $pin, $af);
+    };
+    ($inst:ident, timer, $block:ident, $pin:ident, BKIN_COMP1, $af:expr) => {
+        impl_pin!($inst, BreakInputComparator1Pin, $pin, $af);
+    };
+    ($inst:ident, timer, $block:ident, $pin:ident, BKIN_COMP2, $af:expr) => {
+        impl_pin!($inst, BreakInputComparator2Pin, $pin, $af);
+    };
+    ($inst:ident, timer, $block:ident, $pin:ident, BKIN2, $af:expr) => {
+        impl_pin!($inst, BreakInput2Pin, $pin, $af);
+    };
+    ($inst:ident, timer, $block:ident, $pin:ident, BKIN2_COMP1, $af:expr) => {
+        impl_pin!($inst, BreakInput2Comparator1Pin, $pin, $af);
+    };
+    ($inst:ident, timer, $block:ident, $pin:ident, BKIN2_COMP2, $af:expr) => {
+        impl_pin!($inst, BreakInput2Comparator2Pin, $pin, $af);
     };
 );
