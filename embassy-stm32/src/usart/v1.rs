@@ -70,6 +70,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         TxDma: crate::usart::TxDma<T>,
     {
         let ch = &mut self.tx_dma;
+        let request = ch.request();
         unsafe {
             self.inner.regs().cr3().modify(|reg| {
                 reg.set_dmat(true);
@@ -77,7 +78,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         }
         let r = self.inner.regs();
         let dst = r.dr().ptr() as *mut u8;
-        ch.write(ch.request(), buffer, dst).await;
+        crate::dma::write(ch, request, buffer, dst).await;
         Ok(())
     }
 
@@ -86,6 +87,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         RxDma: crate::usart::RxDma<T>,
     {
         let ch = &mut self.rx_dma;
+        let request = ch.request();
         unsafe {
             self.inner.regs().cr3().modify(|reg| {
                 reg.set_dmar(true);
@@ -93,7 +95,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         }
         let r = self.inner.regs();
         let src = r.dr().ptr() as *mut u8;
-        ch.read(ch.request(), src, buffer).await;
+        crate::dma::read(ch, request, src, buffer).await;
         Ok(())
     }
 

@@ -24,7 +24,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let request = self.txdma.request();
         let dst = T::regs().tx_ptr();
-        let f = self.txdma.write(request, write, dst);
+        let f = crate::dma::write(&mut self.txdma, request, write, dst);
 
         unsafe {
             T::regs().cfg1().modify(|reg| {
@@ -70,14 +70,18 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let rx_request = self.rxdma.request();
         let rx_src = T::regs().rx_ptr();
-        let rx_f = self.rxdma.read(rx_request, rx_src, read);
+        let rx_f = crate::dma::read(&mut self.rxdma, rx_request, rx_src, read);
 
         let tx_request = self.txdma.request();
         let tx_dst = T::regs().tx_ptr();
-        let clock_byte = 0x00;
-        let tx_f = self
-            .txdma
-            .write_x(tx_request, &clock_byte, clock_byte_count, tx_dst);
+        let clock_byte = 0x00u8;
+        let tx_f = crate::dma::write_repeated(
+            &mut self.txdma,
+            tx_request,
+            clock_byte,
+            clock_byte_count,
+            tx_dst,
+        );
 
         unsafe {
             T::regs().cfg1().modify(|reg| {
@@ -132,13 +136,16 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let rx_request = self.rxdma.request();
         let rx_src = T::regs().rx_ptr();
-        let rx_f = self
-            .rxdma
-            .read(rx_request, rx_src, &mut read[0..write.len()]);
+        let rx_f = crate::dma::read(
+            &mut self.rxdma,
+            rx_request,
+            rx_src,
+            &mut read[0..write.len()],
+        );
 
         let tx_request = self.txdma.request();
         let tx_dst = T::regs().tx_ptr();
-        let tx_f = self.txdma.write(tx_request, write, tx_dst);
+        let tx_f = crate::dma::write(&mut self.txdma, tx_request, write, tx_dst);
 
         unsafe {
             T::regs().cfg1().modify(|reg| {
