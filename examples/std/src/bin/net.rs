@@ -4,7 +4,10 @@ use clap::Parser;
 use embassy::executor::{Executor, Spawner};
 use embassy::io::AsyncWriteExt;
 use embassy::util::Forever;
-use embassy_net::*;
+use embassy_net::{
+    Config, Configurator, DhcpConfigurator, Ipv4Address, Ipv4Cidr, StackResources,
+    StaticConfigurator, TcpSocket,
+};
 use heapless::Vec;
 use log::*;
 

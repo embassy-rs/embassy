@@ -141,10 +141,12 @@ impl TunTapDevice {
 }
 
 use core::task::Waker;
-use embassy_net::{DeviceCapabilities, LinkState, Packet, PacketBox, PacketBoxExt, PacketBuf};
+use embassy_net::{
+    Device, DeviceCapabilities, LinkState, Packet, PacketBox, PacketBoxExt, PacketBuf,
+};
 use std::task::Context;
 
-impl crate::Device for TunTapDevice {
+impl Device for TunTapDevice {
     fn is_transmit_ready(&mut self) -> bool {
         true
     }
