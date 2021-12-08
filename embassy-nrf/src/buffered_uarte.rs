@@ -22,7 +22,7 @@ use crate::pac;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::Instance as TimerInstance;
 use crate::timer::{Frequency, Timer};
-use crate::uarte::{Config, Instance as UarteInstance};
+use crate::uarte::{apply_workaround_for_enable_anomaly, Config, Instance as UarteInstance};
 
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
@@ -132,6 +132,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         irq.pend();
 
         // Enable UARTE instance
+        apply_workaround_for_enable_anomaly(&r);
         r.enable.write(|w| w.enable().enabled());
 
         // BAUDRATE register values are `baudrate * 2^32 / 16000000`
