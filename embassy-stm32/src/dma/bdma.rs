@@ -59,7 +59,7 @@ unsafe fn on_irq() {
                 let isr = pac::$dma.isr().read();
                 let dman = dma_num!($dma);
 
-                for chn in 0..crate::pac::dma_channels_count!($dma) {
+                for chn in 0..pac::dma_channels_count!($dma) {
                     let cr = pac::$dma.ch(chn).cr();
                     if isr.tcif(chn) && cr.read().tcie() {
                         cr.write(|_| ()); // Disable channel interrupts with the default value.
@@ -90,9 +90,8 @@ pac::dma_channels! {
         impl crate::dma::sealed::Channel for crate::peripherals::$channel_peri {
 
             unsafe fn start_write<W: Word>(&mut self, request: Request, buf: &[W], reg_addr: *mut W) {
-                low_level_api::reset_status(crate::pac::$dma_peri, $channel_num);
                 low_level_api::start_transfer(
-                    crate::pac::$dma_peri,
+                    pac::$dma_peri,
                     $channel_num,
                     #[cfg(any(bdma_v2, dmamux))]
                     request,
@@ -112,9 +111,8 @@ pac::dma_channels! {
 
             unsafe fn start_write_repeated<W: Word>(&mut self, request: Request, repeated: W, count: usize, reg_addr: *mut W) {
                 let buf = [repeated];
-                low_level_api::reset_status(crate::pac::$dma_peri, $channel_num);
                 low_level_api::start_transfer(
-                    crate::pac::$dma_peri,
+                    pac::$dma_peri,
                     $channel_num,
                     #[cfg(any(bdma_v2, dmamux))]
                     request,
@@ -132,9 +130,8 @@ pac::dma_channels! {
             }
 
             unsafe fn start_read<W: Word>(&mut self, request: Request, reg_addr: *mut W, buf: &mut [W]) {
-                low_level_api::reset_status(crate::pac::$dma_peri, $channel_num);
                 low_level_api::start_transfer(
-                    crate::pac::$dma_peri,
+                    pac::$dma_peri,
                     $channel_num,
                     #[cfg(any(bdma_v2, dmamux))]
                     request,
@@ -152,14 +149,14 @@ pac::dma_channels! {
             }
 
             fn request_stop(&mut self){
-                unsafe {low_level_api::request_stop(crate::pac::$dma_peri, $channel_num);}
+                unsafe {low_level_api::request_stop(pac::$dma_peri, $channel_num);}
             }
 
             fn is_running(&self) -> bool {
-                unsafe {low_level_api::is_running(crate::pac::$dma_peri, $channel_num)}
+                unsafe {low_level_api::is_running(pac::$dma_peri, $channel_num)}
             }
             fn remaining_transfers(&mut self) -> u16 {
-                unsafe {low_level_api::get_remaining_transfers(crate::pac::$dma_peri, $channel_num)}
+                unsafe {low_level_api::get_remaining_transfers(pac::$dma_peri, $channel_num)}
             }
 
             fn set_waker(&mut self, waker: &Waker) {
@@ -197,6 +194,8 @@ mod low_level_api {
         #[cfg(dmamux)] dmamux_ch_num: u8,
     ) {
         let ch = dma.ch(channel_number as _);
+
+        reset_status(dma, channel_number);
 
         #[cfg(dmamux)]
         super::super::dmamux::configure_dmamux(dmamux_regs, dmamux_ch_num, request);
