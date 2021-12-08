@@ -8,7 +8,13 @@ mod dmamux;
 #[cfg(dmamux)]
 pub use dmamux::*;
 
+use core::future::Future;
+use core::marker::PhantomData;
+use core::pin::Pin;
+use core::task::Waker;
+use core::task::{Context, Poll};
 use embassy::util::Unborrow;
+use embassy_hal_common::unborrow;
 
 #[cfg(feature = "unstable-pac")]
 pub use transfers::*;
@@ -23,7 +29,7 @@ pub type Request = ();
 
 pub(crate) mod sealed {
     use super::*;
-    use core::task::Waker;
+
     pub trait Channel {
         /// Starts this channel for writing a stream of words.
         unsafe fn start_write<W: Word>(&mut self, request: Request, buf: &[W], reg_addr: *mut u32);
@@ -86,104 +92,89 @@ impl Word for u32 {
 }
 
 mod transfers {
-    use core::task::Poll;
-
-    use super::Channel;
-    use embassy_hal_common::{drop::OnDrop, unborrow};
-    use futures::future::poll_fn;
-
     use super::*;
 
     #[allow(unused)]
-    pub async fn read<'a, W: Word>(
-        channel: &mut impl Unborrow<Target = impl Channel>,
+    pub fn read<'a, W: Word>(
+        channel: impl Unborrow<Target = impl Channel> + 'a,
         request: Request,
         reg_addr: *mut u32,
         buf: &'a mut [W],
-    ) {
+    ) -> impl Future<Output = ()> + 'a {
         assert!(buf.len() <= 0xFFFF);
-        let drop_clone = unsafe { channel.unborrow() };
         unborrow!(channel);
 
-        channel.request_stop();
-        let on_drop = OnDrop::new({
-            let mut channel = drop_clone;
-            move || {
-                channel.request_stop();
-            }
-        });
-
         unsafe { channel.start_read::<W>(request, reg_addr, buf) };
-        wait_for_stopped(&mut channel).await;
-        drop(on_drop)
+
+        Transfer {
+            channel,
+            _phantom: PhantomData,
+        }
     }
 
     #[allow(unused)]
-    pub async fn write<'a, W: Word>(
-        channel: &mut impl Unborrow<Target = impl Channel>,
+    pub fn write<'a, W: Word>(
+        channel: impl Unborrow<Target = impl Channel> + 'a,
         request: Request,
         buf: &'a [W],
         reg_addr: *mut u32,
-    ) {
+    ) -> impl Future<Output = ()> + 'a {
         assert!(buf.len() <= 0xFFFF);
-        let drop_clone = unsafe { channel.unborrow() };
         unborrow!(channel);
 
-        channel.request_stop();
-        let on_drop = OnDrop::new({
-            let mut channel = drop_clone;
-            move || {
-                channel.request_stop();
-            }
-        });
-
         unsafe { channel.start_write::<W>(request, buf, reg_addr) };
-        wait_for_stopped(&mut channel).await;
-        drop(on_drop)
+
+        Transfer {
+            channel,
+            _phantom: PhantomData,
+        }
     }
 
     #[allow(unused)]
-    pub async fn write_repeated<W: Word>(
-        channel: &mut impl Unborrow<Target = impl Channel>,
+    pub fn write_repeated<'a, W: Word>(
+        channel: impl Unborrow<Target = impl Channel> + 'a,
         request: Request,
         repeated: W,
         count: usize,
         reg_addr: *mut u32,
-    ) {
-        let drop_clone = unsafe { channel.unborrow() };
+    ) -> impl Future<Output = ()> + 'a {
         unborrow!(channel);
-
-        channel.request_stop();
-        let on_drop = OnDrop::new({
-            let mut channel = drop_clone;
-            move || {
-                channel.request_stop();
-            }
-        });
 
         unsafe { channel.start_write_repeated::<W>(request, repeated, count, reg_addr) };
-        wait_for_stopped(&mut channel).await;
-        drop(on_drop)
+
+        Transfer {
+            channel,
+            _phantom: PhantomData,
+        }
     }
 
-    async fn wait_for_stopped(channel: &mut impl Unborrow<Target = impl Channel>) {
-        unborrow!(channel);
-        poll_fn(move |cx| {
-            channel.set_waker(cx.waker());
+    struct Transfer<'a, C: Channel> {
+        channel: C,
+        _phantom: PhantomData<&'a mut C>,
+    }
 
-            // TODO in the future, error checking could be added so that this function returns an error
+    impl<'a, C: Channel> Drop for Transfer<'a, C> {
+        fn drop(&mut self) {
+            self.channel.request_stop();
+            while self.channel.is_running() {}
+        }
+    }
 
-            if channel.is_running() {
+    impl<'a, C: Channel> Unpin for Transfer<'a, C> {}
+    impl<'a, C: Channel> Future for Transfer<'a, C> {
+        type Output = ();
+        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            self.channel.set_waker(cx.waker());
+            if self.channel.is_running() {
                 Poll::Pending
             } else {
                 Poll::Ready(())
             }
-        })
-        .await
+        }
     }
 }
 
-pub trait Channel: sealed::Channel + Unborrow<Target = Self> {}
+pub trait Channel: sealed::Channel + Unborrow<Target = Self> + 'static {}
 
 pub struct NoDma;
 
