@@ -28,9 +28,10 @@ The `embassy::executor` module provides an async/await executor designed for emb
 
 `embassy::util` contains some lightweight async/await utilities, mainly helpful for async driver development (signaling a task that an interrupt has occured, for example).
 
-## embassy-nrf
+## HALs
 
-The `embassy-nrf` crate contains implementations for nRF 52 series SoCs.
+Hardware Absraction Layers with asynchronous behaviors are provided for a variety of platforms.
+For example, the `embassy-nrf` crate contains implementations for nRF 52 series SoCs.
 
 - `uarte`: UARTE driver implementing `AsyncBufRead` and `AsyncWrite`.
 - `qspi`: QSPI driver implementing `Flash`.
@@ -41,7 +42,8 @@ The `embassy-nrf` crate contains implementations for nRF 52 series SoCs.
 
 ## Examples
 
-Examples are found in the `examples/` folder seperated by the chip manufacturer they are designed to run on:
+Examples are found in the `examples/` folder seperated by the chip manufacturer they are designed to run on. For example:
+
 *   `examples/nrf` are designed to run on the `nrf52840-dk` board (PCA10056) but should be easily adaptable to other nRF52 chips and boards.
 *   `examples/rp` are for the RP2040 chip.
 *   `examples/stm32` are designed for the STM32F429ZI chip but should be easily adaptable to other STM32F4xx chips.
@@ -61,11 +63,26 @@ git submodule update
 cargo install probe-run
 ```
 
-- Run the example
+- Change directory to the sample's base directory. For example:
 
 ```
-cargo run --bin rtc_async
+cd examples/nrf
 ```
+
+- Run the example
+
+For example:
+
+```
+cargo run --bin blinky
+```
+
+## Developing Embassy with Rust Analyzer based editors
+
+The [Rust Analyzer](https://rust-analyzer.github.io/) is used by [Visual Studio Code](https://code.visualstudio.com/)
+and others. Given the multiple targets that Embassy serves, there is no Cargo workspace file. Instead, the Rust Analyzer 
+must be told of the target project to work with. In the case of Visual Studio Code, 
+please refer to the `.vscode/settings.json` file's `rust-analyzer.linkedProjects`setting.
 
 ## Minimum supported Rust version (MSRV)
 
