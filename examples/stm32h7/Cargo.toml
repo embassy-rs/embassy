@@ -28,6 +28,6 @@ micromath = "2.0.0"
 
 [dependencies.smoltcp]
 git = "https://github.com/smoltcp-rs/smoltcp"
-rev = "f5bc05cda8d83595c98688991f4b69fc963a88f6"
+rev = "3644b94b82d9433313c75281fdc78942c2450bdf"
 default-features = false
 features = ["defmt"]
