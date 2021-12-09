@@ -2,23 +2,14 @@
 
 Embassy is a project to make async/await a first-class option for embedded development.
 
-== Traits and types
+== What is async?
 
-`embassy` provides a set of traits and types specifically designed for `async` usage.
+Software written without async blocks on I/O operations. In a std environment, such as a PC, software handles this problem with threads. When one thread blocks on an I/O operation, another is able to take its place. However, even on a PC, threads are relatively heavy, and therefore some programming languages, such as Go, have implemented a concept called coroutines or 'goroutines' that are much lighter and less-intensive than threads.
 
-* `embassy::io`: `AsyncBufRead`, `AsyncWrite`. Traits for byte-stream IO, essentially `no_std` compatible versions of `futures::io`.
-* `embassy::traits::flash`: Flash device trait.
-* `embassy::time`: `Clock` and `Alarm` traits. Std-like `Duration` and `Instant`.
-* More traits for SPI, I2C, UART async HAL coming soon.
+In rust, this concept is implemented as async. async works by transforming each async function into an object called a future. When a future blocks on I/O the future yields, and the scheduler, called an executor, can select a different future to execute. Compared to alternatives such as an RTOS, async can yield better performance and lower power consumption because the executor doesn't have to guess when a future is ready to execute. However, program size may be higher than other alternatives, which may be a problem for certain space-constrained devices with very low memory. On the devices Embassy supports, such as stm32 and nrf, memory is generally large enough to accommodate the modestly-increased program size.
 
-== Executor
+== What is Embassy?
 
-The `embassy::executor` module provides an async/await executor designed for embedded usage.
+Embassy is an executor and a Hardware Access Layer (HAL). The executor is a scheduler that generally executes a fixed number of tasks, allocated at startup, though more can be added later. The HAL is an API that you can use to access certain blocking functionality, such as USART, UART, I2C, SPI, CAN, and USB. Embassy doesn't provide access to non-blocking functionality, such as GPIO, because non-blocking functionality doesn't require special treatment to work with Embassy. For such functionality, existing HALs are recommended.
 
-* No `alloc`, no heap needed. Task futures are statically allocated.
-* No "fixed capacity" data structures, executor works with 1 or 1000 tasks without needing config/tuning.
-* Integrated timer queue: sleeping is easy, just do `Timer::after(Duration::from_secs(1)).await;`.
-* No busy-loop polling: CPU sleeps when there's no work to do, using interrupts or `WFE/SEV`.
-* Efficient polling: a wake will only poll the woken task, not all of them.
-* Fair: a task can't monopolize CPU time even if it's constantly being woken. All other tasks get a chance to run before a given task gets polled for the second time.
-* Creating multiple executor instances is supported, to run tasks with multiple priority levels. This allows higher-priority tasks to preempt lower-priority tasks.
+Embassy also provides a delay trait that can be used to delay a task by a fixed number of microseconds or milliseconds. For less than one microsecond, blocking delays should be used because the cost of context-switching is too high and the executor will be unable to provide accurate timing.

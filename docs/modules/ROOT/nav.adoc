@@ -1,4 +1,4 @@
-* xref:runtime.adoc[Runtime]
-* xref:traits.adoc[Traits]
-* xref:nrf.adoc[Nordic nRF HAL]
-* xref:stm32.adoc[STM32 HAL]
+* xref:runtime.adoc[Executor]
+* xref:traits.adoc[Async traits]
+* xref:hal.adoc[Hardware Interface]
+* xref:examples.adoc[Examples]

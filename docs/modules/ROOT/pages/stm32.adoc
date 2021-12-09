@@ -1,3 +1,0 @@
-= Embassy STM32 HAL
-
-TODO

@@ -1,0 +1,3 @@
+= Examples
+
+Embassy provides examples for all HALs supported. You can find them in the `examples/` folder.
