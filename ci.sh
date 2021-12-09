@@ -6,9 +6,17 @@ export CARGO_TARGET_DIR=$PWD/target_ci
 export RUSTFLAGS=-Dwarnings
 export DEFMT_LOG=trace
 
-find . -name '*.rs' -not -path '*target*' -not -path '*stm32-metapac-gen/out/*'  | xargs rustfmt --check  --skip-children --unstable-features --edition 2018
+find . -name '*.rs' -not -path '*target*' -not -path '*stm32-metapac-gen/out/*' -not -path '*stm32-metapac/src/*' | xargs rustfmt --check  --skip-children --unstable-features --edition 2018
 
 # Generate stm32-metapac
+if [ ! -d "stm32-metapac-backup" ]
+then
+    cp -r stm32-metapac stm32-metapac-backup
+fi
+
+rm -rf stm32-metapac
+cp -r stm32-metapac-backup stm32-metapac
+
 # for some reason Cargo stomps the cache if we don't specify --target.
 # This happens with vanilla Cargo, not just cargo-batch. Bug?
 (cd stm32-metapac-gen; cargo run --release --target x86_64-unknown-linux-gnu)
