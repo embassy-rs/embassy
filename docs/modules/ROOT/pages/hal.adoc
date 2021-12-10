@@ -2,8 +2,8 @@
 
 Embassy provides HAL's for several microcontroller families:
 
-* embassy-nrf for the nRF family of devices from Nordic Semiconductor
-* embassy-stm32 for STM32 family of devices from ST Microelectronics
-* embassy-rp for Raspberry Pi Pico
+* `embassy-nrf` for the nRF microcontroller sfrom Nordic Semiconductor
+* `embassy-stm32` for STM32 microcontrollers from ST Microelectronics
+* `embassy-rp` for the Raspberry Pi RP2040 microcontrollers
 
-These HALs provide async/await access to most peripherals while also implementing the async traits in Embassy.
+These HALs implement async/await functionality for most peripherals while also implementing the async traits in Embassy.

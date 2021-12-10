@@ -1,3 +1,25 @@
 = Embassy nRF HAL
 
-TODO
+The link:https://github.com/embassy-rs/embassy/tree/master/embassy-nrf[Embassy nRF HAL] is based on the PACs (Peripheral Access Crate) from link:https://github.com/nrf-rs/[nrf-rs].
+
+== Timer driver
+
+The nRF timer driver operates at 32768 Hz by default.
+
+== Peripherals
+
+The following peripherals have a HAL implementation at present:
+
+* PWM
+* SPIM
+* QSPI
+* NVMC
+* GPIOTE
+* RNG
+* TIMER
+* WDT
+* TEMP
+* PPI
+* UARTE
+* TWIM
+* SAADC

@@ -20,6 +20,8 @@ IMPORTANT: The executor relies on tasks not blocking indefinitely, as this preve
 
 image::embassy_executor.png[Executor model]
 
+If you use the `#[embassy::main]` macro in your application, it creates the `Executor` for you and spawns the main entry point as the first task. You can also create the Executor manually, and you can in fact create multiple Executors.
+
 
 == Interrupts
 
@@ -29,10 +31,16 @@ The peripheral HAL then (4) ensures that interrupt signals are routed to to the 
 
 image::embassy_irq.png[Interrupt handling]
 
+NOTE: There exists a special executor named `InterruptExecutor` which can be driven by an interrupt. This can be used to drive tasks at different priority levels by creating multiple `InterruptExecutor` instances.
+
 == Time
 
 Embassy features an internal timer queue enabled by the `time` feature flag. When enabled, Embassy assumes a time `Driver` implementation existing for the platform. Embassy provides time drivers for the nRF, STM32, RPi Pico, WASM and Std platforms.
 
-The timer driver implementations for the embedded platforms support a fixed number of alarms that can be set, which is normally the number of tasks you expect wanting to use the timer at the same time.
+The timer driver implementations for the embedded platforms might support only a fixed number of alarms that can be set. Make sure the number of tasks you expect wanting to use the timer at the same time do not exceed this limit.
+
+The timer speed is configurable at compile time using the `time-tick-<frequency>`. At present, the the timer may be configured to run at 1000 Hz, 32768 Hz, or 1 MHz. Before changing the defaults, make sure the target HAL supports the particular frequency setting.
+
+
 
 NOTE: If you do not require timers in your application, not enabling the `time` feature can save some CPU cycles and reduce power usage.

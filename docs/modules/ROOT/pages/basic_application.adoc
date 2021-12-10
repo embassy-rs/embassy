@@ -1,0 +1,75 @@
+= A basic Embassy application
+
+So you've got one of the xref:examples.adoc[examples] running, but what now? Let's go through a simple Embassy application for the nRF52 DK to understand it better.
+
+
+== The Cargo.toml
+
+== The main
+
+=== Rust Nightly
+
+The first thing you'll notice is a few declarations stating that Embassy requires some nightly features:
+
+[source,rust]
+----
+#![no_std]
+#![no_main]
+#![feature(type_alias_impl_trait)]
+----
+
+=== Dealing with errors
+
+Then, what follows are some declarations on how to deal with panics and faults. During development, a good practice is to rely on `defmt-rtt` and `panic-probe` to print diagnostics to the terminal:
+
+[source,rust]
+----
+use defmt_rtt as _;
+use panic_probe as _;
+----
+
+=== Task declaration
+
+After a bit of import declaration, the tasks run by the application should be declared:
+
+[source,rust]
+----
+#[embassy::task]
+async fn blinker(led: Output<'static, P0_13>, interval: Duration) {
+    loop {
+        let _ = led.set_high();
+        Timer::after(interval).await;
+        let _ = led.set_low();
+        Timer::after(interval).await;
+    }
+}
+----
+
+An embassy task must be declared `async`, and may NOT take generic arguments. In this case, we are handed the LED that should be blinked and the interval of the blinking.
+
+NOTE: Notice that there is not busy waiting going on in this task. It is using the Embassy timer to yield execution, allowing the microcontroller to sleep in between the blinking.
+
+=== Main
+
+The main entry point of an Embassy application is defined using the `#[embassy::main]` macro. The entry point is also required to take a `Spawner` and a `Peripherals` argument.
+
+The `Spawner` is the way the main application spawns other tasks. The `Peripherals` type holds all peripherals that the application may use. In this case, we want to configure one of the pins as a GPIO output driving the LED:
+
+[source, rust]
+----
+#[embassy::main]
+async fn main(spawner: Spawner, p: Peripherals) {
+    let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
+    let _ = spawner.spawn(blinker(led, Duration::from_millis(300)));
+}
+----
+
+
+What happens when the `blinker` task have been spawned and main returns? Well, the main entry point is actually just like any other task, except that you can only have one and it takes some specific type arguments. The magic lies within the `#[embassy::main]` macro. The macro does the following:
+
+. Creates an Embassy Executor instance
+. Initializes the microcontroller to get the `Peripherals`
+. Defines a main task for the entry point
+. Runs the executor spawning the main task
+
+There is also a way to run the executor without using the macro, in which case you have to create the `Executor` instance yourself.
