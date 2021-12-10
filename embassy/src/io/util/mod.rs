@@ -27,6 +27,9 @@ pub use self::skip_while::SkipWhile;
 mod drain;
 pub use self::drain::Drain;
 
+mod flush;
+pub use self::flush::Flush;
+
 mod write;
 pub use self::write::Write;
 
@@ -159,6 +162,15 @@ pub trait AsyncWriteExt: AsyncWrite {
         Self: Unpin,
     {
         Write::new(self, buf)
+    }
+
+    /// Awaits until all bytes have actually been written, and
+    /// not just enqueued as per the other "write" methods.
+    fn flush<'a>(&mut self) -> Flush<Self>
+    where
+        Self: Unpin,
+    {
+        Flush::new(self)
     }
 }
 

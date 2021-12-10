@@ -266,6 +266,20 @@ impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U,
 
         poll
     }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<embassy::io::Result<()>> {
+        self.inner.with(|state| {
+            trace!("poll_flush");
+
+            if !state.tx.is_empty() {
+                trace!("poll_flush: pending");
+                state.tx_waker.register(cx.waker());
+                return Poll::Pending;
+            }
+
+            Poll::Ready(Ok(()))
+        })
+    }
 }
 
 impl<'a, U: UarteInstance, T: TimerInstance> Drop for StateInner<'a, U, T> {

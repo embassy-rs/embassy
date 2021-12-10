@@ -125,5 +125,12 @@ mod tests {
         let buf = rb.pop_buf();
         assert_eq!(1, buf.len());
         assert_eq!(4, buf[0]);
+        rb.pop(1);
+
+        let buf = rb.pop_buf();
+        assert_eq!(0, buf.len());
+
+        let buf = rb.push_buf();
+        assert_eq!(4, buf.len());
     }
 }
