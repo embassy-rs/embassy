@@ -1,6 +1,8 @@
 = Embassy runtime
 
-The Embassy executor is an async/await executor designed for embedded usage.
+The Embassy runtime is an async/await executor designed for embedded usage along with support functionality for interrupts and timers.
+
+== Features
 
 * No `alloc`, no heap needed. Task are statically allocated.
 * No "fixed capacity" data structures, executor works with 1 or 1000 tasks without needing config/tuning.
@@ -26,3 +28,11 @@ Interrupts are a common way for peripherals to signal completion of some operati
 The peripheral HAL then (4) ensures that interrupt signals are routed to to the peripheral and updating the peripheral state with the results of the operation. The executor is then (5) notified that the task should be polled, which it will do.
 
 image::embassy_irq.png[Interrupt handling]
+
+== Time
+
+Embassy features an internal timer queue enabled by the `time` feature flag. When enabled, Embassy assumes a time `Driver` implementation existing for the platform. Embassy provides time drivers for the nRF, STM32, RPi Pico, WASM and Std platforms.
+
+The timer driver implementations for the embedded platforms support a fixed number of alarms that can be set, which is normally the number of tasks you expect wanting to use the timer at the same time.
+
+NOTE: If you do not require timers in your application, not enabling the `time` feature can save some CPU cycles and reduce power usage.
