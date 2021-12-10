@@ -200,4 +200,8 @@ impl<'a> AsyncWrite for TcpSocket<'a> {
             Err(e) => Poll::Ready(Err(to_ioerr(e))),
         })
     }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(())) // TODO: Is there a better implementation for this?
+    }
 }
