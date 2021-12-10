@@ -3,8 +3,6 @@
 So you've got one of the xref:examples.adoc[examples] running, but what now? Let's go through a simple Embassy application for the nRF52 DK to understand it better.
 
 
-== The Cargo.toml
-
 == The main
 
 === Rust Nightly
@@ -73,3 +71,16 @@ What happens when the `blinker` task have been spawned and main returns? Well, t
 . Runs the executor spawning the main task
 
 There is also a way to run the executor without using the macro, in which case you have to create the `Executor` instance yourself.
+
+== The Cargo.toml
+
+The project definition needs to contain the embassy dependencies:
+
+[source,toml]
+----
+include::example$examples/nrf/Cargo.toml[lines="9..11"]
+----
+
+Depending on your microcontroller, you may need to replace `embassy-nrf` with something else (`embassy-stm32` for STM32. Remember to update feature flags as well).
+
+In this particular case, the nrf52840 chip is selected, and the RTC1 peripheral is used as the time driver.
