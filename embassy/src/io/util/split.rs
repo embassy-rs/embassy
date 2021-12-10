@@ -32,6 +32,9 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for WriteHalf<T> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
         Pin::new(unsafe { &mut *self.handle.get() }).poll_write(cx, buf)
     }
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        Pin::new(unsafe { &mut *self.handle.get() }).poll_flush(cx)
+    }
 }
 
 pub fn split<T: AsyncBufRead + AsyncWrite>(t: T) -> (ReadHalf<T>, WriteHalf<T>) {

@@ -449,6 +449,20 @@ mod buffered {
             }
             poll
         }
+
+        fn poll_flush(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<Result<(), embassy::io::Error>> {
+            self.inner.with(|state| {
+                if !state.tx.is_empty() {
+                    state.tx_waker.register(cx.waker());
+                    return Poll::Pending;
+                }
+
+                Poll::Ready(Ok(()))
+            })
+        }
     }
 }
 
