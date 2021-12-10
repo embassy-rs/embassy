@@ -61,5 +61,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         info!("writing...");
         unwrap!(u.write_all(&buf).await);
         info!("write done");
+
+        // Wait until the bytes are actually finished being transmitted
+        unwrap!(u.flush().await);
     }
 }

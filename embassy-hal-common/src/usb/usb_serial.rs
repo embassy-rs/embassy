@@ -106,6 +106,17 @@ where
             serial.poll_write(cx, buf)
         })
     }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        let mut mutex = this.inner.borrow_mut();
+        mutex.with(|state| {
+            let serial = state.classes.get_serial();
+            let serial = Pin::new(serial);
+
+            serial.poll_flush(cx)
+        })
+    }
 }
 
 pub struct UsbSerial<'bus, 'a, B: UsbBus> {
@@ -166,6 +177,10 @@ impl<'bus, 'a, B: UsbBus> AsyncWrite for UsbSerial<'bus, 'a, B> {
 
         this.flush_write();
         Poll::Ready(Ok(count))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
     }
 }
 

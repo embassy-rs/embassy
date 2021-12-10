@@ -89,6 +89,15 @@ pub trait AsyncWrite {
     /// `poll_write` must try to make progress by flushing the underlying object if
     /// that is the only way the underlying object can become writable again.
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>>;
+
+    /// Attempt to flush the object, ensuring that any buffered data reach their destination.
+    ///
+    /// On success, returns Poll::Ready(Ok(())).
+    ///
+    /// If flushing cannot immediately complete, this method returns [Poll::Pending] and arranges for the
+    /// current task (via cx.waker()) to receive a notification when the object can make progress
+    /// towards flushing.
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>>;
 }
 
 macro_rules! defer_async_read {
@@ -135,6 +144,10 @@ macro_rules! deref_async_write {
         ) -> Poll<Result<usize>> {
             Pin::new(&mut **self).poll_write(cx, buf)
         }
+
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+            Pin::new(&mut **self).poll_flush(cx)
+        }
     };
 }
 
@@ -154,5 +167,9 @@ where
 {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
         self.get_mut().as_mut().poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        self.get_mut().as_mut().poll_flush(cx)
     }
 }
