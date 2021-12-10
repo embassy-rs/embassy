@@ -32,4 +32,10 @@ impl<T: std_io::AsyncWrite> AsyncWrite for FromStdIo<T> {
             .poll_write(cx, buf)
             .map_err(|e| e.into())
     }
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        let Self(inner) = unsafe { self.get_unchecked_mut() };
+        unsafe { Pin::new_unchecked(inner) }
+            .poll_flush(cx)
+            .map_err(|e| e.into())
+    }
 }
