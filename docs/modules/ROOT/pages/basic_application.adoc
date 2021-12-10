@@ -30,7 +30,7 @@ After a bit of import declaration, the tasks run by the application should be de
 
 [source,rust]
 ----
-include::example$basic/src/main.rs[lines="16..24"]
+include::example$basic/src/main.rs[lines="18..27"]
 ----
 
 An embassy task must be declared `async`, and may NOT take generic arguments. In this case, we are handed the LED that should be blinked and the interval of the blinking.
@@ -45,7 +45,7 @@ The `Spawner` is the way the main application spawns other tasks. The `Periphera
 
 [source,rust]
 ----
-include::example$basic/src/main.rs[lines="26..30"]
+include::example$basic/src/main.rs[lines="28..-1"]
 ----
 
 
@@ -64,7 +64,7 @@ The project definition needs to contain the embassy dependencies:
 
 [source,toml]
 ----
-include::example$basic/Cargo.toml[lines="8..10"]
+include::example$basic/Cargo.toml[lines="8..9"]
 ----
 
 Depending on your microcontroller, you may need to replace `embassy-nrf` with something else (`embassy-stm32` for STM32. Remember to update feature flags as well).

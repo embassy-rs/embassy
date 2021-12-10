@@ -9,8 +9,11 @@ use defmt::*;
 
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_nrf::gpio::{Level, Output, OutputDrive};
-use embassy_nrf::Peripherals;
+use embassy_nrf::{
+    gpio::{Level, Output, OutputDrive},
+    peripherals::P0_13,
+    Peripherals,
+};
 use embedded_hal::digital::v2::OutputPin;
 
 #[embassy::task]
