@@ -2,8 +2,9 @@
 
 So you've got one of the xref:examples.adoc[examples] running, but what now? Let's go through a simple Embassy application for the nRF52 DK to understand it better.
 
+== Main
 
-== The main
+The full example can be found link:https://github.com/embassy-rs/embassy/tree/book-poc/docs/modules/ROOT/examples/basic[here].
 
 === Rust Nightly
 
@@ -11,9 +12,7 @@ The first thing you'll notice is a few declarations stating that Embassy require
 
 [source,rust]
 ----
-#![no_std]
-#![no_main]
-#![feature(type_alias_impl_trait)]
+include::example$basic/src/main.rs[lines="1..3"]
 ----
 
 === Dealing with errors
@@ -22,8 +21,7 @@ Then, what follows are some declarations on how to deal with panics and faults. 
 
 [source,rust]
 ----
-use defmt_rtt as _;
-use panic_probe as _;
+include::example$basic/src/main.rs[lines="5..6"]
 ----
 
 === Task declaration
@@ -32,15 +30,7 @@ After a bit of import declaration, the tasks run by the application should be de
 
 [source,rust]
 ----
-#[embassy::task]
-async fn blinker(led: Output<'static, P0_13>, interval: Duration) {
-    loop {
-        let _ = led.set_high();
-        Timer::after(interval).await;
-        let _ = led.set_low();
-        Timer::after(interval).await;
-    }
-}
+include::example$basic/src/main.rs[lines="16..24"]
 ----
 
 An embassy task must be declared `async`, and may NOT take generic arguments. In this case, we are handed the LED that should be blinked and the interval of the blinking.
@@ -53,13 +43,9 @@ The main entry point of an Embassy application is defined using the `#[embassy::
 
 The `Spawner` is the way the main application spawns other tasks. The `Peripherals` type holds all peripherals that the application may use. In this case, we want to configure one of the pins as a GPIO output driving the LED:
 
-[source, rust]
+[source,rust]
 ----
-#[embassy::main]
-async fn main(spawner: Spawner, p: Peripherals) {
-    let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
-    let _ = spawner.spawn(blinker(led, Duration::from_millis(300)));
-}
+include::example$basic/src/main.rs[lines="26..30"]
 ----
 
 
@@ -78,7 +64,7 @@ The project definition needs to contain the embassy dependencies:
 
 [source,toml]
 ----
-include::example$examples/nrf/Cargo.toml[lines="9..11"]
+include::example$basic/Cargo.toml[lines="8..10"]
 ----
 
 Depending on your microcontroller, you may need to replace `embassy-nrf` with something else (`embassy-stm32` for STM32. Remember to update feature flags as well).
