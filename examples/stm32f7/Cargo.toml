@@ -25,7 +25,6 @@ rand_core = "0.6.3"
 critical-section = "0.2.3"
 
 [dependencies.smoltcp]
-git = "https://github.com/smoltcp-rs/smoltcp"
-rev = "3644b94b82d9433313c75281fdc78942c2450bdf"
+version = "0.8.0"
 default-features = false
 features = ["defmt"]
