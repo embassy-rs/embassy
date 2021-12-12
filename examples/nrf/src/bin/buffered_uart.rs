@@ -8,7 +8,6 @@ mod example_common;
 use embassy::executor::Spawner;
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy_nrf::buffered_uarte::State;
-use embassy_nrf::gpio::NoPin;
 use embassy_nrf::{buffered_uarte::BufferedUarte, interrupt, uarte, Peripherals};
 use example_common::*;
 use futures::pin_mut;
@@ -24,6 +23,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let irq = interrupt::take!(UARTE0_UART0);
     let mut state = State::new();
+    // Please note - important to have hardware flow control (https://github.com/embassy-rs/embassy/issues/536)
     let u = BufferedUarte::new(
         &mut state,
         p.UARTE0,
@@ -33,8 +33,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         irq,
         p.P0_08,
         p.P0_06,
-        NoPin,
-        NoPin,
+        p.P0_07,
+        p.P0_05,
         config,
         &mut rx_buffer,
         &mut tx_buffer,

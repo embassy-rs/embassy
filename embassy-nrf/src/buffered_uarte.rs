@@ -1,6 +1,17 @@
 //! Async buffered UART
 //!
-//! Please ee [uarte] to understand when [BufferedUarte] should be used.
+//! WARNING!!! The functionality provided here is intended to be used only
+//! in situations where hardware flow control are available i.e. CTS and RTS.
+//! This is a problem that should be addressed at a later stage and can be
+//! fully explained at https://github.com/embassy-rs/embassy/issues/536.
+//!
+//! Note that discarding a future from a read or write operation may lead to losing
+//! data. For example, when using `futures_util::future::select` and completion occurs
+//! on the "other" future, you should capture the incomplete future and continue to use
+//! it for the next read or write. This pattern is a consideration for all IO, and not
+//! just serial communications.
+//!
+//! Please also see [crate::uarte] to understand when [BufferedUarte] should be used.
 
 use core::cmp::min;
 use core::marker::PhantomData;
