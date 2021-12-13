@@ -11,7 +11,7 @@ pub mod usb_serial;
 
 use crate::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy::interrupt::Interrupt;
-use usb_serial::{ReadInterface, UsbSerial, WriteInterface};
+pub use usb_serial::{ReadInterface, UsbSerial, WriteInterface};
 
 /// Marker trait to mark an interrupt to be used with the [`Usb`] abstraction.
 pub unsafe trait USBInterrupt: Interrupt + Send {}

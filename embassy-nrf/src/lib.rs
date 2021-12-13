@@ -73,21 +73,25 @@ pub(crate) use chip::pac;
 
 pub use chip::{peripherals, Peripherals};
 
-use nrf_usbd::{UsbPeripheral, Usbd};
-use usb_device::bus::UsbBusAllocator;
+#[cfg(any(feature = "nrf52820", feature = "nrf52833", feature = "nrf52840"))]
+pub mod usb {
 
-pub struct UsbBus;
-unsafe impl UsbPeripheral for UsbBus {
-    const REGISTERS: *const () = pac::USBD::ptr() as *const ();
-}
+    use nrf_usbd::{UsbPeripheral, Usbd};
+    use usb_device::bus::UsbBusAllocator;
 
-impl UsbBus {
-    pub fn new() -> UsbBusAllocator<Usbd<UsbBus>> {
-        Usbd::new(UsbBus)
+    pub struct UsbBus;
+    unsafe impl UsbPeripheral for UsbBus {
+        const REGISTERS: *const () = crate::pac::USBD::ptr() as *const ();
     }
-}
 
-unsafe impl embassy_hal_common::usb::USBInterrupt for interrupt::USBD {}
+    impl UsbBus {
+        pub fn new() -> UsbBusAllocator<Usbd<UsbBus>> {
+            Usbd::new(UsbBus)
+        }
+    }
+
+    unsafe impl embassy_hal_common::usb::USBInterrupt for crate::interrupt::USBD {}
+}
 
 pub mod interrupt {
     pub use crate::chip::irqs::*;
