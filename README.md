@@ -1,7 +1,6 @@
 # Embassy
 
-Embassy is a project to make async/await a first-class option for embedded development. For more information and instructions to
-get started, click [here](https://github.com/embassy-rs/embassy/wiki).
+Embassy is a project to make async/await a first-class option for embedded development. For more information and instructions to get started, go to [https://embassy.dev](https://embassy.dev).
 
 ## Traits and types
 
@@ -92,6 +91,10 @@ Required nightly version is specified in the `rust-toolchain.toml` file. Nightly
 - `type_alias_impl_trait`: for trait funcs returning futures implemented with `async{}` blocks, and for `static-executor`.
 
 Stable support is a non-goal until these features get stabilized.
+
+## Documentation
+
+Embassy documentation is located in the `docs/` folder. The documentation is built in [embassy-book](https://github.com/embassy-rs/embassy-book) and published to [https://embassy.dev](https://embassy.dev) by CI.
 
 ## Why the name?
 
