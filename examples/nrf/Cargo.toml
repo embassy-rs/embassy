@@ -9,6 +9,7 @@ version = "0.1.0"
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote"] }
+embassy-hal-common = { version = "0.1.0", path = "../../embassy-hal-common" }
 
 defmt = "0.3"
 defmt-rtt = "0.3"
@@ -20,3 +21,7 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.2.0"
+
+usb-device = "0.2"
+usbd-serial = "0.1.1"
+nrf-usbd = "0.1.0"

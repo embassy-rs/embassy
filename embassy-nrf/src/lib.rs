@@ -73,6 +73,22 @@ pub(crate) use chip::pac;
 
 pub use chip::{peripherals, Peripherals};
 
+use nrf_usbd::{UsbPeripheral, Usbd};
+use usb_device::bus::UsbBusAllocator;
+
+pub struct UsbBus;
+unsafe impl UsbPeripheral for UsbBus {
+    const REGISTERS: *const () = pac::USBD::ptr() as *const ();
+}
+
+impl UsbBus {
+    pub fn new() -> UsbBusAllocator<Usbd<UsbBus>> {
+        Usbd::new(UsbBus)
+    }
+}
+
+unsafe impl embassy_hal_common::usb::USBInterrupt for interrupt::USBD {}
+
 pub mod interrupt {
     pub use crate::chip::irqs::*;
     pub use cortex_m::interrupt::{CriticalSection, Mutex};
