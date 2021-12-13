@@ -48,6 +48,7 @@ cargo batch  \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32l476vg,defmt \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32l072cz,defmt \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32l151cb-a,defmt \
+    --- build --release --manifest-path docs/modules/ROOT/examples/basic/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path examples/std/Cargo.toml --target x86_64-unknown-linux-gnu --out-dir out/examples/std \
     --- build --release --manifest-path examples/nrf/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf \
     --- build --release --manifest-path examples/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/rp \

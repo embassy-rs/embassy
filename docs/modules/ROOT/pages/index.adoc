@@ -1,0 +1,20 @@
+= Embassy
+
+Embassy is a project to make async/await a first-class option for embedded development.
+
+== What is async?
+
+Software written without async may block on I/O operations. In an std environment, such as a PC, software can handle this either by using threads or non-blocking operations.
+
+With threads, one thread blocks on an I/O operation, another is able to take its place. However, even on a PC, threads are relatively heavy, and therefore some programming languages, such as Go, have implemented a concept called coroutines or 'goroutines' that are much lighter and less-intensive than threads.
+
+The other way to handle blocking I/O operations is to support polling the state of the underlying peripherals to check whether it is available to perform the requested operation. In programming languages without builtin async support,
+this requires building a complex loop checking for events.
+
+In Rust, non-blocking operations can be implemented using async-await. Async-await works by transforming each async function into an object called a future. When a future blocks on I/O the future yields, and the scheduler, called an executor, can select a different future to execute. Compared to alternatives such as an RTOS, async can yield better performance and lower power consumption because the executor doesn't have to guess when a future is ready to execute. However, program size may be higher than other alternatives, which may be a problem for certain space-constrained devices with very low memory. On the devices Embassy supports, such as stm32 and nrf, memory is generally large enough to accommodate the modestly-increased program size.
+
+== What is Embassy?
+
+Embassy is an executor and a Hardware Access Layer (HAL). The executor is a scheduler that generally executes a fixed number of tasks, allocated at startup, though more can be added later. The HAL is an API that you can use to access peripherals, such as USART, UART, I2C, SPI, CAN, and USB. Embassy provides implementations of both async and blocking APIs where it makes sense. DMA (Direct Memory Access) is an example where async is a good fit, whereas GPIO states are a better fit for a blocking API.
+
+Embassy may also provide a system timer that you can use for both async and blocking delays. For less than one microsecond, blocking delays should be used because the cost of context-switching is too high and the executor will be unable to provide accurate timing.

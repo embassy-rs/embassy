@@ -1,0 +1,17 @@
+[package]
+authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
+edition = "2018"
+name = "embassy-basic-example"
+version = "0.1.0"
+
+[dependencies]
+embassy = { version = "0.1.0", path = "../../../../../embassy", features = ["defmt"] }
+embassy-nrf = { version = "0.1.0", path = "../../../../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote"] }
+
+defmt = "0.3"
+defmt-rtt = "0.3"
+
+cortex-m = "0.7.3"
+cortex-m-rt = "0.7.0"
+embedded-hal = "0.2.6"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
