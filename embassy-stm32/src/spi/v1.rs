@@ -2,7 +2,7 @@
 
 pub use embedded_hal::blocking;
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-use futures::future::join3;
+use futures::future::join;
 
 use super::*;
 
@@ -76,7 +76,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
         }
 
-        join3(tx_f, rx_f, Self::wait_for_idle()).await;
+        join(tx_f, rx_f).await;
+
+        spin_until_idle(T::regs());
 
         unsafe {
             T::regs().cr2().modify(|reg| {
@@ -134,7 +136,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
         }
 
-        join3(tx_f, rx_f, Self::wait_for_idle()).await;
+        join(tx_f, rx_f).await;
+
+        spin_until_idle(T::regs());
 
         unsafe {
             T::regs().cr2().modify(|reg| {
@@ -147,13 +151,5 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
 
         Ok(())
-    }
-
-    async fn wait_for_idle() {
-        unsafe {
-            while T::regs().sr().read().bsy() {
-                // spin
-            }
-        }
     }
 }

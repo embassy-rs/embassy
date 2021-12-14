@@ -431,6 +431,26 @@ fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
     }
 }
 
+fn spin_until_idle(regs: Regs) {
+    #[cfg(any(spi_v1, spi_f1))]
+    unsafe {
+        while regs.sr().read().bsy() {}
+    }
+
+    #[cfg(spi_v2)]
+    unsafe {
+        while regs.sr().read().ftlvl() > 0 {}
+        while regs.sr().read().frlvl() > 0 {}
+        while regs.sr().read().bsy() {}
+    }
+
+    #[cfg(spi_v3)]
+    unsafe {
+        while !regs.sr().read().txc() {}
+        while regs.sr().read().rxplvl().0 > 0 {}
+    }
+}
+
 trait Word {
     const WORDSIZE: WordSize;
 }
