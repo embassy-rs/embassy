@@ -1,6 +1,7 @@
 #![macro_use]
 
 use core::convert::Infallible;
+use core::future::Future;
 use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
 
@@ -69,6 +70,54 @@ impl<'d, T: Pin> InputPin for Input<'d, T> {
 
     fn is_low(&self) -> Result<bool, Self::Error> {
         Ok(self.pin.block().in_.read().bits() & (1 << self.pin.pin()) == 0)
+    }
+}
+
+#[cfg(feature = "gpiote")]
+impl<'d, T: Pin> embassy::traits::gpio::WaitForHigh for Input<'d, T> {
+    #[rustfmt::skip]
+    type Future<'a> where Self: 'a = impl Future<Output=()> + Unpin + 'a;
+
+    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
+        self.pin.conf().modify(|_, w| w.sense().high());
+
+        crate::gpiote::PortInputFuture {
+            pin_port: self.pin.pin_port(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "gpiote")]
+impl<'d, T: Pin> embassy::traits::gpio::WaitForLow for Input<'d, T> {
+    #[rustfmt::skip]
+    type Future<'a> where Self: 'a = impl Future<Output=()> + Unpin + 'a;
+
+    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
+        self.pin.conf().modify(|_, w| w.sense().low());
+
+        crate::gpiote::PortInputFuture {
+            pin_port: self.pin.pin_port(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "gpiote")]
+impl<'d, T: Pin> embassy::traits::gpio::WaitForAnyEdge for Input<'d, T> {
+    #[rustfmt::skip]
+    type Future<'a> where Self: 'a = impl Future<Output=()> + Unpin + 'a;
+
+    fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
+        if self.is_high().ok().unwrap() {
+            self.pin.conf().modify(|_, w| w.sense().low());
+        } else {
+            self.pin.conf().modify(|_, w| w.sense().high());
+        }
+        crate::gpiote::PortInputFuture {
+            pin_port: self.pin.pin_port(),
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -274,6 +323,54 @@ impl<'d, T: Pin> StatefulOutputPin for FlexPin<'d, T> {
     /// Is the output pin set as low?
     fn is_set_low(&self) -> Result<bool, Self::Error> {
         Ok(self.pin.block().out.read().bits() & (1 << self.pin.pin()) == 0)
+    }
+}
+
+#[cfg(feature = "gpiote")]
+impl<'d, T: Pin> embassy::traits::gpio::WaitForHigh for FlexPin<'d, T> {
+    #[rustfmt::skip]
+    type Future<'a> where Self: 'a = impl Future<Output=()> + Unpin + 'a;
+
+    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
+        self.pin.conf().modify(|_, w| w.sense().high());
+
+        crate::gpiote::PortInputFuture {
+            pin_port: self.pin.pin_port(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "gpiote")]
+impl<'d, T: Pin> embassy::traits::gpio::WaitForLow for FlexPin<'d, T> {
+    #[rustfmt::skip]
+    type Future<'a> where Self: 'a = impl Future<Output=()> + Unpin + 'a;
+
+    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
+        self.pin.conf().modify(|_, w| w.sense().low());
+
+        crate::gpiote::PortInputFuture {
+            pin_port: self.pin.pin_port(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "gpiote")]
+impl<'d, T: Pin> embassy::traits::gpio::WaitForAnyEdge for FlexPin<'d, T> {
+    #[rustfmt::skip]
+    type Future<'a> where Self: 'a = impl Future<Output=()> + Unpin + 'a;
+
+    fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
+        if self.is_high().ok().unwrap() {
+            self.pin.conf().modify(|_, w| w.sense().low());
+        } else {
+            self.pin.conf().modify(|_, w| w.sense().high());
+        }
+        crate::gpiote::PortInputFuture {
+            pin_port: self.pin.pin_port(),
+            phantom: PhantomData,
+        }
     }
 }
 

@@ -8,7 +8,6 @@ mod example_common;
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Input, Pull};
-use embassy_nrf::gpiote::PortInput;
 use embassy_nrf::wdt::{Config, Watchdog};
 use embassy_nrf::Peripherals;
 use embassy_traits::gpio::{WaitForHigh, WaitForLow};
@@ -32,7 +31,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         }
     };
 
-    let mut button = PortInput::new(Input::new(p.P0_11, Pull::Up));
+    let mut button = Input::new(p.P0_11, Pull::Up);
 
     info!("Watchdog started, press button 1 to pet it or I'll reset in 3 seconds!");
 
