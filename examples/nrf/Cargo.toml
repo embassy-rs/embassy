@@ -23,4 +23,3 @@ embedded-storage = "0.2.0"
 
 usb-device = "0.2"
 usbd-serial = "0.1.1"
-nrf-usbd = "0.1.0"
