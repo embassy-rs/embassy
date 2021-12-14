@@ -5,64 +5,49 @@ use embassy::util::Unborrow;
 
 use crate::interrupt::Interrupt;
 use crate::pac;
+use embassy_hal_common::usb::{ClassSet, IntoClassSet, USBInterrupt};
+pub use embassy_hal_common::usb::{ReadInterface, State, UsbSerial, WriteInterface};
 use nrf_usbd::{UsbPeripheral, Usbd};
-use usb_device::bus::UsbBusAllocator;
+use usb_device::{bus::UsbBusAllocator, class_prelude::UsbBus, device::UsbDevice};
 
-// todo using different type than Usb because T isnt Send
-pub struct UsbBus;
-unsafe impl UsbPeripheral for UsbBus {
+pub struct UsbThing;
+unsafe impl UsbPeripheral for UsbThing {
     // todo hardcoding
     const REGISTERS: *const () = crate::pac::USBD::ptr() as *const ();
 }
 
-impl UsbBus {
-    pub fn new() -> UsbBusAllocator<Usbd<UsbBus>> {
-        Usbd::new(UsbBus)
+impl UsbThing {
+    pub fn new() -> UsbBusAllocator<Usbd<UsbThing>> {
+        Usbd::new(UsbThing)
     }
 }
 
 unsafe impl embassy_hal_common::usb::USBInterrupt for crate::interrupt::USBD {}
 
-pub struct Usb<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+pub struct Usb<'bus, B, T, I>
+where
+    B: UsbBus,
+    T: ClassSet<B>,
+    I: USBInterrupt,
+{
+    // Don't you dare moving out `PeripheralMutex`
+    usb: embassy_hal_common::usb::Usb<'bus, B, T, I>,
 }
 
-impl<'d, T: Instance> Usb<'d, T> {
-    #[allow(unused_unsafe)]
-    pub fn new(_usb: impl Unborrow<Target = T> + 'd) -> Self {
-        let r = T::regs();
+impl<'bus, B, T, I> Usb<'bus, B, T, I>
+where
+    B: UsbBus,
+    T: ClassSet<B>,
+    I: USBInterrupt,
+{
+    pub unsafe fn new<S: IntoClassSet<B, T>>(
+        state: &'bus mut State<'bus, B, T, I>,
+        device: UsbDevice<'bus, B>,
+        class_set: S,
+        irq: I,
+    ) -> Self {
+        let usb = embassy_hal_common::usb::Usb::new(state, device, class_set, irq);
 
-        Self {
-            phantom: PhantomData,
-        }
+        Self { usb }
     }
-
-    fn on_interrupt(_: *mut ()) {
-        let r = T::regs();
-    }
-}
-
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        fn regs() -> &'static pac::usbd::RegisterBlock;
-    }
-}
-
-pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static {
-    type Interrupt: Interrupt;
-}
-
-macro_rules! impl_usb {
-    ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::usb::sealed::Instance for peripherals::$type {
-            fn regs() -> &'static pac::usbd::RegisterBlock {
-                unsafe { &*pac::$pac_type::ptr() }
-            }
-        }
-        impl crate::usb::Instance for peripherals::$type {
-            type Interrupt = crate::interrupt::$irq;
-        }
-    };
 }
