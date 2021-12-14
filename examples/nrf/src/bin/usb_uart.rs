@@ -16,18 +16,19 @@ use panic_probe as _; // print out panic messages
 use embassy::executor::Spawner;
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy::time::{Duration, Timer};
-use embassy_nrf::usb::{ReadInterface, State, Usb, UsbSerial, UsbThing, WriteInterface};
+use embassy_nrf::usb::{State, Usb, UsbSerial, UsbThing};
 use embassy_nrf::{interrupt, Peripherals};
 use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
 
 #[embassy::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner, _p: Peripherals) {
     let mut tx_buffer = [0u8; 1024];
     let mut rx_buffer = [0u8; 640];
 
     let usb_bus = UsbThing::new();
 
     let serial = UsbSerial::new(&usb_bus, &mut rx_buffer, &mut tx_buffer);
+
     let device = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
         .manufacturer("Fake company")
         .product("Serial port")
@@ -42,7 +43,6 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let usb = unsafe { Usb::new(&mut state, device, serial, irq) };
     pin_mut!(usb);
-    // usb.start();
 
     let (mut read_interface, mut write_interface) = usb.as_ref().take_serial_0();
 
