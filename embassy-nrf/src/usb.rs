@@ -8,8 +8,17 @@ use crate::pac;
 use nrf_usbd::{UsbPeripheral, Usbd};
 use usb_device::bus::UsbBusAllocator;
 
-unsafe impl<'d, T: Instance> UsbPeripheral for Usb<'d, T> {
-    const REGISTERS: *const () = T::regs as *const ();
+// todo using different type than Usb because T isnt Send
+pub struct UsbBus;
+unsafe impl UsbPeripheral for UsbBus {
+    // todo hardcoding
+    const REGISTERS: *const () = crate::pac::USBD::ptr() as *const ();
+}
+
+impl UsbBus {
+    pub fn new() -> UsbBusAllocator<Usbd<UsbBus>> {
+        Usbd::new(UsbBus)
+    }
 }
 
 unsafe impl embassy_hal_common::usb::USBInterrupt for crate::interrupt::USBD {}
@@ -20,12 +29,12 @@ pub struct Usb<'d, T: Instance> {
 
 impl<'d, T: Instance> Usb<'d, T> {
     #[allow(unused_unsafe)]
-    pub fn new(_usb: impl Unborrow<Target = T> + 'd) -> UsbBusAllocator<Usbd<Self>> {
+    pub fn new(_usb: impl Unborrow<Target = T> + 'd) -> Self {
         let r = T::regs();
 
-        Usbd::new(Self {
+        Self {
             phantom: PhantomData,
-        })
+        }
     }
 
     fn on_interrupt(_: *mut ()) {
@@ -41,7 +50,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static + Send {
+pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 
