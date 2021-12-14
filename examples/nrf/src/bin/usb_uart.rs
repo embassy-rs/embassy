@@ -17,14 +17,16 @@ use embassy::executor::Spawner;
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy::time::{Duration, Timer};
 use embassy_hal_common::usb::{State, Usb, UsbSerial};
-use embassy_nrf::usb::UsbBus;
+use embassy_nrf::usb::{Usb as UsbDevice, UsbBus};
 use embassy_nrf::{interrupt, Peripherals};
 use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
 
 #[embassy::main]
-async fn main(_spawner: Spawner, _p: Peripherals) {
+async fn main(_spawner: Spawner, p: Peripherals) {
     let mut tx_buffer = [0u8; 1024];
     let mut rx_buffer = [0u8; 640];
+
+    let _usb_dev = UsbDevice::new(p.USBD);
 
     let usb_bus = UsbBus::new();
 

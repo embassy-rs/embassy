@@ -48,6 +48,9 @@ pub mod temp;
 pub mod timer;
 pub mod twim;
 pub mod uarte;
+//todo add nrf52833 nrf52840
+#[cfg(feature = "nrf52840")]
+pub mod usb;
 #[cfg(not(feature = "_nrf5340"))]
 pub mod wdt;
 
@@ -72,26 +75,6 @@ pub use chip::pac;
 pub(crate) use chip::pac;
 
 pub use chip::{peripherals, Peripherals};
-
-#[cfg(any(feature = "nrf52820", feature = "nrf52833", feature = "nrf52840"))]
-pub mod usb {
-
-    use nrf_usbd::{UsbPeripheral, Usbd};
-    use usb_device::bus::UsbBusAllocator;
-
-    pub struct UsbBus;
-    unsafe impl UsbPeripheral for UsbBus {
-        const REGISTERS: *const () = crate::pac::USBD::ptr() as *const ();
-    }
-
-    impl UsbBus {
-        pub fn new() -> UsbBusAllocator<Usbd<UsbBus>> {
-            Usbd::new(UsbBus)
-        }
-    }
-
-    unsafe impl embassy_hal_common::usb::USBInterrupt for crate::interrupt::USBD {}
-}
 
 pub mod interrupt {
     pub use crate::chip::irqs::*;
