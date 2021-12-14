@@ -32,6 +32,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
 
         f.await;
+
+        finish_dma(T::regs());
+
         Ok(())
     }
 
@@ -78,17 +81,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         join(tx_f, rx_f).await;
 
-        spin_until_idle(T::regs());
-
-        unsafe {
-            T::regs().cr2().modify(|reg| {
-                reg.set_txdmaen(false);
-                reg.set_rxdmaen(false);
-            });
-            T::regs().cr1().modify(|w| {
-                w.set_spe(false);
-            });
-        }
+        finish_dma(T::regs());
 
         Ok(())
     }
@@ -138,17 +131,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         join(tx_f, rx_f).await;
 
-        spin_until_idle(T::regs());
-
-        unsafe {
-            T::regs().cr2().modify(|reg| {
-                reg.set_txdmaen(false);
-                reg.set_rxdmaen(false);
-            });
-            T::regs().cr1().modify(|w| {
-                w.set_spe(false);
-            });
-        }
+        finish_dma(T::regs());
 
         Ok(())
     }

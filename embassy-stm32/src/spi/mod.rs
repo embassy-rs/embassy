@@ -451,6 +451,27 @@ fn spin_until_idle(regs: Regs) {
     }
 }
 
+fn finish_dma(regs: Regs) {
+    spin_until_idle(regs);
+
+    unsafe {
+        regs.cr1().modify(|w| {
+            w.set_spe(false);
+        });
+
+        #[cfg(not(spi_v3))]
+        regs.cr2().modify(|reg| {
+            reg.set_txdmaen(false);
+            reg.set_rxdmaen(false);
+        });
+        #[cfg(spi_v3)]
+        regs.cfg1().modify(|reg| {
+            reg.set_txdmaen(false);
+            reg.set_rxdmaen(false);
+        });
+    }
+}
+
 trait Word {
     const WORDSIZE: WordSize;
 }
