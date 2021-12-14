@@ -3,7 +3,6 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::task::{Context, Poll};
 use embassy::interrupt::{Interrupt, InterruptExt};
-use embassy::traits::gpio::{WaitForAnyEdge, WaitForHigh, WaitForLow};
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unsafe_impl_unborrow;
 use embedded_hal::digital::v2::{InputPin, StatefulOutputPin};
@@ -312,86 +311,12 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
     }
 }
 
-/// GPIOTE port input driver
-pub struct PortInput<'d, T: GpioPin> {
-    pin: Input<'d, T>,
+pub(crate) struct PortInputFuture<'a> {
+    pub(crate) pin_port: u8,
+    pub(crate) phantom: PhantomData<&'a mut AnyPin>,
 }
 
-impl<'d, T: GpioPin> Unpin for PortInput<'d, T> {}
-
-impl<'d, T: GpioPin> PortInput<'d, T> {
-    pub fn new(pin: Input<'d, T>) -> Self {
-        Self { pin }
-    }
-}
-
-impl<'d, T: GpioPin> InputPin for PortInput<'d, T> {
-    type Error = Infallible;
-
-    fn is_high(&self) -> Result<bool, Self::Error> {
-        self.pin.is_high()
-    }
-
-    fn is_low(&self) -> Result<bool, Self::Error> {
-        self.pin.is_low()
-    }
-}
-
-impl<'d, T: GpioPin> WaitForHigh for PortInput<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = PortInputFuture<'a>;
-
-    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
-        self.pin.pin.conf().modify(|_, w| w.sense().high());
-
-        PortInputFuture {
-            pin_port: self.pin.pin.pin_port(),
-            phantom: PhantomData,
-        }
-    }
-}
-
-impl<'d, T: GpioPin> WaitForLow for PortInput<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = PortInputFuture<'a>;
-
-    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
-        self.pin.pin.conf().modify(|_, w| w.sense().low());
-
-        PortInputFuture {
-            pin_port: self.pin.pin.pin_port(),
-            phantom: PhantomData,
-        }
-    }
-}
-
-impl<'d, T: GpioPin> WaitForAnyEdge for PortInput<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = PortInputFuture<'a>;
-
-    fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
-        if self.is_high().ok().unwrap() {
-            self.pin.pin.conf().modify(|_, w| w.sense().low());
-        } else {
-            self.pin.pin.conf().modify(|_, w| w.sense().high());
-        }
-        PortInputFuture {
-            pin_port: self.pin.pin.pin_port(),
-            phantom: PhantomData,
-        }
-    }
-}
-
-pub struct PortInputFuture<'a> {
-    pin_port: u8,
-    phantom: PhantomData<&'a mut AnyPin>,
-}
+impl<'a> Unpin for PortInputFuture<'a> {}
 
 impl<'a> Drop for PortInputFuture<'a> {
     fn drop(&mut self) {
