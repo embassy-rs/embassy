@@ -40,53 +40,55 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     irq.set_priority(interrupt::Priority::P3);
 
     let mut state = State::new();
-
     let usb = unsafe { Usb::new(&mut state, device, serial, irq) };
     pin_mut!(usb);
 
-    let (mut read_interface, mut write_interface) = usb.as_ref().take_serial_0();
+    let (mut reader, mut writer) = usb.as_ref().take_serial_0();
 
-    unwrap!(write_interface.write_all(b"\r\nSend something\r\n").await);
+    unwrap!(writer.write_all(b"\r\nSend something\r\n").await);
 
     info!("usb initialized!");
 
     let mut buf = [0u8; 64];
     loop {
         let mut n = 0;
-        let left = {
-            let recv_fut = async {
+        let timed_out = {
+            let newline_fut = async {
                 loop {
-                    let byte = unwrap!(read_interface.read_byte().await);
-                    unwrap!(write_interface.write_byte(byte).await);
-                    buf[n] = byte;
+                    let char = unwrap!(reader.read_byte().await);
+                    // echo input back to screen
+                    unwrap!(writer.write_byte(char).await);
+                    buf[n] = char;
 
                     n += 1;
-                    if byte == b'\n' || byte == b'\r' || n == buf.len() {
+                    if char == b'\n' || char == b'\r' || n == buf.len() {
                         break;
                     }
                 }
             };
-            pin_mut!(recv_fut);
+            pin_mut!(newline_fut);
 
-            let timeout = Timer::after(Duration::from_ticks(32768 * 10));
+            let timeout_fut = Timer::after(Duration::from_ticks(32768 * 10));
 
-            match select(recv_fut, timeout).await {
-                Either::Left(_) => true,
-                Either::Right(_) => false,
+            // select chooses whichever returns first
+            match select(newline_fut, timeout_fut).await {
+                Either::Left(_) => false,
+                Either::Right(_) => true,
             }
         };
 
-        if left {
-            for c in buf[..n].iter_mut() {
-                if 0x61 <= *c && *c <= 0x7a {
-                    *c &= !0x20;
+        if timed_out {
+            unwrap!(writer.write_all(b"\r\nTimed out\r\n").await);
+        } else {
+            for char in buf[..n].iter_mut() {
+                // upper case
+                if 0x61 <= *char && *char <= 0x7a {
+                    *char &= !0x20;
                 }
             }
-            unwrap!(write_interface.write_byte(b'\n').await);
-            unwrap!(write_interface.write_all(&buf[..n]).await);
-            unwrap!(write_interface.write_byte(b'\n').await);
-        } else {
-            unwrap!(write_interface.write_all(b"\r\nSend something\r\n").await);
+            unwrap!(writer.write_byte(b'\n').await);
+            unwrap!(writer.write_all(&buf[..n]).await);
+            unwrap!(writer.write_byte(b'\n').await);
         }
     }
 }
