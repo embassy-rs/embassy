@@ -20,15 +20,15 @@ unsafe impl<'d, T: Instance> UsbPeripheral for UsbBus<'d, T> {
 
 impl<'d, T: Instance> UsbBus<'d, T> {
     pub fn new(_usb: impl Unborrow<Target = T> + 'd) -> UsbBusAllocator<Usbd<UsbBus<'d, T>>> {
-        unsafe {
-            (*pac::USBD::ptr()).intenset.write(|w| {
-                w.sof().set_bit();
-                w.usbevent().set_bit();
-                w.ep0datadone().set_bit();
-                w.ep0setup().set_bit();
-                w.usbreset().set_bit()
-            })
-        };
+        let r = T::regs();
+
+        r.intenset.write(|w| {
+            w.sof().set_bit();
+            w.usbevent().set_bit();
+            w.ep0datadone().set_bit();
+            w.ep0setup().set_bit();
+            w.usbreset().set_bit()
+        });
 
         Usbd::new(UsbBus {
             phantom: PhantomData,
