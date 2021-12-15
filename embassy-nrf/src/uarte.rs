@@ -188,60 +188,6 @@ impl<'d, T: Instance> UarteTx<'d, T> {
     }
 }
 
-impl<'d, T: Instance> Read for UarteTx<'d, T> {
-    #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
-
-    fn read<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        async move {
-            let ptr = rx_buffer.as_ptr();
-            let len = rx_buffer.len();
-            assert!(len <= EASY_DMA_SIZE);
-
-            let r = T::regs();
-            let s = T::state();
-
-            let drop = OnDrop::new(move || {
-                info!("read drop: stopping");
-
-                r.intenclr.write(|w| w.endrx().clear());
-                r.events_rxto.reset();
-                r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
-
-                while r.events_endrx.read().bits() == 0 {}
-
-                info!("read drop: stopped");
-            });
-
-            r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
-            r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
-
-            r.events_endrx.reset();
-            r.intenset.write(|w| w.endrx().set());
-
-            compiler_fence(Ordering::SeqCst);
-
-            trace!("startrx");
-            r.tasks_startrx.write(|w| unsafe { w.bits(1) });
-
-            poll_fn(|cx| {
-                s.endrx_waker.register(cx.waker());
-                if r.events_endrx.read().bits() != 0 {
-                    return Poll::Ready(());
-                }
-                Poll::Pending
-            })
-            .await;
-
-            compiler_fence(Ordering::SeqCst);
-            r.events_rxstarted.reset();
-            drop.defuse();
-
-            Ok(())
-        }
-    }
-}
-
 impl<'d, T: Instance> Write for UarteTx<'d, T> {
     #[rustfmt::skip]
     type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
@@ -370,61 +316,6 @@ impl<'d, T: Instance> Read for UarteRx<'d, T> {
 
             compiler_fence(Ordering::SeqCst);
             r.events_rxstarted.reset();
-            drop.defuse();
-
-            Ok(())
-        }
-    }
-}
-
-impl<'d, T: Instance> Write for UarteRx<'d, T> {
-    #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
-
-    fn write<'a>(&'a mut self, tx_buffer: &'a [u8]) -> Self::WriteFuture<'a> {
-        async move {
-            let ptr = tx_buffer.as_ptr();
-            let len = tx_buffer.len();
-            assert!(len <= EASY_DMA_SIZE);
-            // TODO: panic if buffer is not in SRAM
-
-            let r = T::regs();
-            let s = T::state();
-
-            let drop = OnDrop::new(move || {
-                info!("write drop: stopping");
-
-                r.intenclr.write(|w| w.endtx().clear());
-                r.events_txstopped.reset();
-                r.tasks_stoptx.write(|w| unsafe { w.bits(1) });
-
-                // TX is stopped almost instantly, spinning is fine.
-                while r.events_endtx.read().bits() == 0 {}
-                info!("write drop: stopped");
-            });
-
-            r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
-            r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
-
-            r.events_endtx.reset();
-            r.intenset.write(|w| w.endtx().set());
-
-            compiler_fence(Ordering::SeqCst);
-
-            trace!("starttx");
-            r.tasks_starttx.write(|w| unsafe { w.bits(1) });
-
-            poll_fn(|cx| {
-                s.endtx_waker.register(cx.waker());
-                if r.events_endtx.read().bits() != 0 {
-                    return Poll::Ready(());
-                }
-                Poll::Pending
-            })
-            .await;
-
-            compiler_fence(Ordering::SeqCst);
-            r.events_txstarted.reset();
             drop.defuse();
 
             Ok(())
