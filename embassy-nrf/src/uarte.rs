@@ -309,7 +309,9 @@ impl<'a, T: Instance> Drop for UarteTx<'a, T> {
         // Wait for txstopped, if needed.
         while did_stoptx && r.events_txstopped.read().bits() == 0 {}
 
-        info!("uarte txdrop: done");
+        let s = T::state();
+
+        drop_tx_rx(&r, &s);
     }
 }
 
@@ -442,16 +444,9 @@ impl<'a, T: Instance> Drop for UarteRx<'a, T> {
         // Wait for rxto, if needed.
         while did_stoprx && r.events_rxto.read().bits() == 0 {}
 
-        // Finally we can disable, and we do so for the peripheral
-        // i.e. not just rx concerns.
-        r.enable.write(|w| w.enable().disabled());
+        let s = T::state();
 
-        gpio::deconfigure_pin(r.psel.rxd.read().bits());
-        gpio::deconfigure_pin(r.psel.txd.read().bits());
-        gpio::deconfigure_pin(r.psel.rts.read().bits());
-        gpio::deconfigure_pin(r.psel.cts.read().bits());
-
-        info!("uarte drop: done");
+        drop_tx_rx(&r, &s);
     }
 }
 
@@ -505,6 +500,21 @@ pub(in crate) fn apply_workaround_for_enable_anomaly(r: &crate::pac::uarte0::Reg
         // NB Safety: safe to write back the bits we just read to clear them
         r.errorsrc.write(|w| unsafe { w.bits(errors) });
         r.enable.write(|w| w.enable().disabled());
+    }
+}
+
+pub(in crate) fn drop_tx_rx(r: &pac::uarte0::RegisterBlock, s: &sealed::State) {
+    if s.tx_rx_refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
+        // Finally we can disable, and we do so for the peripheral
+        // i.e. not just rx concerns.
+        r.enable.write(|w| w.enable().disabled());
+
+        gpio::deconfigure_pin(r.psel.rxd.read().bits());
+        gpio::deconfigure_pin(r.psel.txd.read().bits());
+        gpio::deconfigure_pin(r.psel.rts.read().bits());
+        gpio::deconfigure_pin(r.psel.cts.read().bits());
+
+        info!("uarte tx and rx drop: done");
     }
 }
 
@@ -667,6 +677,8 @@ impl<'d, U: Instance, T: TimerInstance> Write for UarteWithIdle<'d, U, T> {
 }
 
 pub(crate) mod sealed {
+    use core::sync::atomic::AtomicU8;
+
     use embassy::waitqueue::AtomicWaker;
 
     use super::*;
@@ -674,12 +686,14 @@ pub(crate) mod sealed {
     pub struct State {
         pub endrx_waker: AtomicWaker,
         pub endtx_waker: AtomicWaker,
+        pub tx_rx_refcount: AtomicU8,
     }
     impl State {
         pub const fn new() -> Self {
             Self {
                 endrx_waker: AtomicWaker::new(),
                 endtx_waker: AtomicWaker::new(),
+                tx_rx_refcount: AtomicU8::new(2),
             }
         }
     }
