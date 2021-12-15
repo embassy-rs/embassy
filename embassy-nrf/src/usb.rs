@@ -15,7 +15,8 @@ pub struct UsbBus<'d, T: Instance> {
 }
 
 unsafe impl<'d, T: Instance> UsbPeripheral for UsbBus<'d, T> {
-    const REGISTERS: *const () = T::regs as *const ();
+    // todo how to use T::regs
+    const REGISTERS: *const () = pac::USBD::ptr() as *const ();
 }
 
 impl<'d, T: Instance> UsbBus<'d, T> {
