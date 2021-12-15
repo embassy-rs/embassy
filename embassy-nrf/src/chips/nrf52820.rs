@@ -125,6 +125,8 @@ embassy_hal_common::peripherals! {
     TEMP,
 }
 
+impl_usb!(USBD, USBD, USBD);
+
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
 
 impl_spim!(TWISPI0, SPIM0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
