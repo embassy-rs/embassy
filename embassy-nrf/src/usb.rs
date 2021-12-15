@@ -4,15 +4,15 @@ pub use embassy_hal_common::usb::*;
 use nrf_usbd::{UsbPeripheral, Usbd};
 use usb_device::bus::UsbBusAllocator;
 
-pub struct UsbThing;
-unsafe impl UsbPeripheral for UsbThing {
+pub struct UsbBus;
+unsafe impl UsbPeripheral for UsbBus {
     // todo hardcoding
     const REGISTERS: *const () = crate::pac::USBD::ptr() as *const ();
 }
 
-impl UsbThing {
+impl UsbBus {
     // todo should it consume a USBD peripheral?
-    pub fn new() -> UsbBusAllocator<Usbd<UsbThing>> {
+    pub fn new() -> UsbBusAllocator<Usbd<UsbBus>> {
         unsafe {
             (*crate::pac::USBD::ptr()).intenset.write(|w| {
                 w.sof().set_bit();
@@ -23,7 +23,7 @@ impl UsbThing {
             })
         };
 
-        Usbd::new(UsbThing)
+        Usbd::new(UsbBus)
     }
 }
 

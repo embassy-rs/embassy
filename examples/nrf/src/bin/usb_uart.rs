@@ -16,7 +16,7 @@ use panic_probe as _; // print out panic messages
 use embassy::executor::Spawner;
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy::time::{Duration, Timer};
-use embassy_nrf::usb::{State, Usb, UsbSerial, UsbThing};
+use embassy_nrf::usb::{State, Usb, UsbBus, UsbSerial};
 use embassy_nrf::{interrupt, Peripherals};
 use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
 
@@ -25,7 +25,7 @@ async fn main(_spawner: Spawner, _p: Peripherals) {
     let mut tx_buffer = [0u8; 1024];
     let mut rx_buffer = [0u8; 640];
 
-    let usb_bus = UsbThing::new();
+    let usb_bus = UsbBus::new();
 
     let serial = UsbSerial::new(&usb_bus, &mut rx_buffer, &mut tx_buffer);
 
