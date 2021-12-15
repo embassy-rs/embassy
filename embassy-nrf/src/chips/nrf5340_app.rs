@@ -211,6 +211,9 @@ pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
 embassy_hal_common::peripherals! {
+    // USB
+    USBD,
+
     // RTC
     RTC0,
     RTC1,
@@ -341,6 +344,8 @@ embassy_hal_common::peripherals! {
     P1_14,
     P1_15,
 }
+
+impl_usb!(USBD, USBD, USBD);
 
 impl_uarte!(UARTETWISPI0, UARTE0, SERIAL0);
 impl_uarte!(UARTETWISPI1, UARTE1, SERIAL1);

@@ -48,8 +48,12 @@ pub mod temp;
 pub mod timer;
 pub mod twim;
 pub mod uarte;
-//todo add nrf52833 nrf52840
-#[cfg(feature = "nrf52840")]
+#[cfg(any(
+    feature = "_nrf5340-app",
+    feature = "nrf52820",
+    feature = "nrf52833",
+    feature = "nrf52840"
+))]
 pub mod usb;
 #[cfg(not(feature = "_nrf5340"))]
 pub mod wdt;

@@ -1,20 +1,27 @@
 #![macro_use]
 
-pub use embassy_hal_common::usb::*;
+use crate::interrupt::Interrupt;
+use crate::pac;
+
+use core::marker::PhantomData;
+use embassy::util::Unborrow;
 use nrf_usbd::{UsbPeripheral, Usbd};
 use usb_device::bus::UsbBusAllocator;
 
-pub struct UsbBus;
-unsafe impl UsbPeripheral for UsbBus {
-    // todo hardcoding
-    const REGISTERS: *const () = crate::pac::USBD::ptr() as *const ();
+pub use embassy_hal_common::usb::*;
+
+pub struct UsbBus<'d, T: Instance> {
+    phantom: PhantomData<&'d mut T>,
 }
 
-impl UsbBus {
-    // todo should it consume a USBD peripheral?
-    pub fn new() -> UsbBusAllocator<Usbd<UsbBus>> {
+unsafe impl<'d, T: Instance> UsbPeripheral for UsbBus<'d, T> {
+    const REGISTERS: *const () = T::regs as *const ();
+}
+
+impl<'d, T: Instance> UsbBus<'d, T> {
+    pub fn new(_usb: impl Unborrow<Target = T> + 'd) -> UsbBusAllocator<Usbd<UsbBus<'d, T>>> {
         unsafe {
-            (*crate::pac::USBD::ptr()).intenset.write(|w| {
+            (*pac::USBD::ptr()).intenset.write(|w| {
                 w.sof().set_bit();
                 w.usbevent().set_bit();
                 w.ep0datadone().set_bit();
@@ -23,8 +30,35 @@ impl UsbBus {
             })
         };
 
-        Usbd::new(UsbBus)
+        Usbd::new(UsbBus {
+            phantom: PhantomData,
+        })
     }
 }
 
 unsafe impl embassy_hal_common::usb::USBInterrupt for crate::interrupt::USBD {}
+
+pub(crate) mod sealed {
+    use super::*;
+
+    pub trait Instance {
+        fn regs() -> &'static pac::usbd::RegisterBlock;
+    }
+}
+
+pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static + Send {
+    type Interrupt: Interrupt;
+}
+
+macro_rules! impl_usb {
+    ($type:ident, $pac_type:ident, $irq:ident) => {
+        impl crate::usb::sealed::Instance for peripherals::$type {
+            fn regs() -> &'static pac::usbd::RegisterBlock {
+                unsafe { &*pac::$pac_type::ptr() }
+            }
+        }
+        impl crate::usb::Instance for peripherals::$type {
+            type Interrupt = crate::interrupt::$irq;
+        }
+    };
+}

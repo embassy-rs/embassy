@@ -21,11 +21,11 @@ use embassy_nrf::{interrupt, Peripherals};
 use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
 
 #[embassy::main]
-async fn main(_spawner: Spawner, _p: Peripherals) {
+async fn main(_spawner: Spawner, p: Peripherals) {
     let mut tx_buffer = [0u8; 1024];
     let mut rx_buffer = [0u8; 640];
 
-    let usb_bus = UsbBus::new();
+    let usb_bus = UsbBus::new(p.USBD);
 
     let serial = UsbSerial::new(&usb_bus, &mut rx_buffer, &mut tx_buffer);
 
