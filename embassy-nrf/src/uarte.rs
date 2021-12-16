@@ -133,6 +133,10 @@ impl<'d, T: Instance> Uarte<'d, T> {
         apply_workaround_for_enable_anomaly(&r);
         r.enable.write(|w| w.enable().enabled());
 
+        let s = T::state();
+
+        s.tx_rx_refcount.store(2, Ordering::Relaxed);
+
         Self {
             phantom: PhantomData,
             tx: UarteTx::new(),
@@ -584,7 +588,7 @@ pub(crate) mod sealed {
             Self {
                 endrx_waker: AtomicWaker::new(),
                 endtx_waker: AtomicWaker::new(),
-                tx_rx_refcount: AtomicU8::new(2),
+                tx_rx_refcount: AtomicU8::new(0),
             }
         }
     }
