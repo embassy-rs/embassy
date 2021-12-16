@@ -1,0 +1,22 @@
+[package]
+authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
+edition = "2018"
+name = "embassy-stm32f3-examples"
+version = "0.1.0"
+resolver = "2"
+
+[dependencies]
+embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
+embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32f303vc", "unstable-pac", "memory-x", "time-driver-tim2"]  }
+
+defmt = "0.3"
+defmt-rtt = "0.3"
+
+cortex-m = "0.7.3"
+cortex-m-rt = "0.7.0"
+embedded-hal = "0.2.6"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
+heapless = { version = "0.7.5", default-features = false }
+nb = "1.0.0"
