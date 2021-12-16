@@ -6,11 +6,9 @@
 mod example_common;
 
 use defmt::{info, unwrap};
-use defmt_rtt as _;
+use defmt_rtt as _; // global logger
 use embassy::interrupt::InterruptExt;
-use futures::future::{select, Either};
 use futures::pin_mut;
-// global logger
 use panic_probe as _; // print out panic messages
 
 use embassy::executor::Spawner;

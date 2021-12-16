@@ -6,8 +6,7 @@
 mod example_common;
 
 use defmt::{info, unwrap};
-use defmt_rtt as _;
-// global logger
+use defmt_rtt as _; // global logger
 use panic_probe as _; // print out panic messages
 
 use embassy::executor::Spawner;
