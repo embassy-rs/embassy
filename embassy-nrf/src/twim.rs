@@ -469,12 +469,18 @@ where
 {
     type Error = Error;
 
-    #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
-    #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
-    #[rustfmt::skip]
-    type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+    type WriteFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), Self::Error>> + 'a;
+    type ReadFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), Self::Error>> + 'a;
+    type WriteReadFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
         async move {

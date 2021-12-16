@@ -89,8 +89,15 @@ where
 {
     type PhyError = Sx127xError;
 
-    #[rustfmt::skip]
-    type TxFuture<'m> where SPI: 'm, CS: 'm, RESET: 'm, E: 'm, I: 'm, RFS: 'm = impl Future<Output = Result<u32, Self::PhyError>> + 'm;
+    type TxFuture<'m>
+    where
+        SPI: 'm,
+        CS: 'm,
+        RESET: 'm,
+        E: 'm,
+        I: 'm,
+        RFS: 'm,
+    = impl Future<Output = Result<u32, Self::PhyError>> + 'm;
 
     fn tx<'m>(&'m mut self, config: TxConfig, buf: &'m [u8]) -> Self::TxFuture<'m> {
         trace!("TX START");
@@ -130,8 +137,15 @@ where
         }
     }
 
-    #[rustfmt::skip]
-    type RxFuture<'m> where SPI: 'm, CS: 'm, RESET: 'm, E: 'm, I: 'm, RFS: 'm = impl Future<Output = Result<(usize, RxQuality), Self::PhyError>> + 'm;
+    type RxFuture<'m>
+    where
+        SPI: 'm,
+        CS: 'm,
+        RESET: 'm,
+        E: 'm,
+        I: 'm,
+        RFS: 'm,
+    = impl Future<Output = Result<(usize, RxQuality), Self::PhyError>> + 'm;
 
     fn rx<'m>(&'m mut self, config: RfConfig, buf: &'m mut [u8]) -> Self::RxFuture<'m> {
         trace!("RX START");

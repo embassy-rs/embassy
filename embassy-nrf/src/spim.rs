@@ -182,8 +182,10 @@ impl<'d, T: Instance> Spi<u8> for Spim<'d, T> {
 }
 
 impl<'d, T: Instance> Read<u8> for Spim<'d, T> {
-    #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output=Result<(), Self::Error>> + 'a;
+    type ReadFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
         self.read_write(data, &[])
@@ -191,8 +193,10 @@ impl<'d, T: Instance> Read<u8> for Spim<'d, T> {
 }
 
 impl<'d, T: Instance> Write<u8> for Spim<'d, T> {
-    #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output=Result<(), Self::Error>> + 'a;
+    type WriteFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
         self.read_write(&mut [], data)
@@ -200,8 +204,10 @@ impl<'d, T: Instance> Write<u8> for Spim<'d, T> {
 }
 
 impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
-    #[rustfmt::skip]
-    type WriteReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+    type WriteReadFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read_write<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::WriteReadFuture<'a> {
         async move {

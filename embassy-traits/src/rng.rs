@@ -4,10 +4,9 @@ use core::future::Future;
 pub trait Rng {
     type Error;
 
-    #[rustfmt::skip]
-    type RngFuture<'a>: Future<Output = Result<(), Self::Error> > + 'a
+    type RngFuture<'a>: Future<Output = Result<(), Self::Error>> + 'a
     where
-    Self: 'a;
+        Self: 'a;
 
     /// Completely fill the provided buffer with random bytes.
     ///

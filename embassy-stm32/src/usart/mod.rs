@@ -219,8 +219,10 @@ impl<'d, T: Instance, TxDma, RxDma> embassy_traits::uart::Write for Uart<'d, T, 
 where
     TxDma: crate::usart::TxDma<T>,
 {
-    #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), embassy_traits::uart::Error>> + 'a;
+    type WriteFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), embassy_traits::uart::Error>> + 'a;
 
     fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
         self.write_dma(buf)
@@ -232,8 +234,10 @@ impl<'d, T: Instance, TxDma, RxDma> embassy_traits::uart::Read for Uart<'d, T, T
 where
     RxDma: crate::usart::RxDma<T>,
 {
-    #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), embassy_traits::uart::Error>> + 'a;
+    type ReadFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), embassy_traits::uart::Error>> + 'a;
 
     fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
         self.read_dma(buf)
