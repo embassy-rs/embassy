@@ -22,6 +22,8 @@ use embassy_traits::spi as traits;
 mod _version;
 pub use _version::*;
 
+type Regs = &'static crate::pac::spi::Spi;
+
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
@@ -152,34 +154,43 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
 
         let pclk = T::frequency();
-        let br = Self::compute_baud_rate(pclk, freq.into());
+        let br = compute_baud_rate(pclk, freq.into());
+
+        let cpha = match config.mode.phase {
+            Phase::CaptureOnSecondTransition => vals::Cpha::SECONDEDGE,
+            Phase::CaptureOnFirstTransition => vals::Cpha::FIRSTEDGE,
+        };
+        let cpol = match config.mode.polarity {
+            Polarity::IdleHigh => vals::Cpol::IDLEHIGH,
+            Polarity::IdleLow => vals::Cpol::IDLELOW,
+        };
+
+        #[cfg(not(spi_v3))]
+        use vals::Lsbfirst;
+        #[cfg(spi_v3)]
+        use vals::Lsbfrst as Lsbfirst;
+
+        let lsbfirst = match config.byte_order {
+            ByteOrder::LsbFirst => Lsbfirst::LSBFIRST,
+            ByteOrder::MsbFirst => Lsbfirst::MSBFIRST,
+        };
+
+        T::enable();
+        T::reset();
 
         #[cfg(any(spi_v1, spi_f1))]
         unsafe {
-            T::enable();
-            T::reset();
             T::regs().cr2().modify(|w| {
                 w.set_ssoe(false);
             });
             T::regs().cr1().modify(|w| {
-                w.set_cpha(
-                    match config.mode.phase == Phase::CaptureOnSecondTransition {
-                        true => vals::Cpha::SECONDEDGE,
-                        false => vals::Cpha::FIRSTEDGE,
-                    },
-                );
-                w.set_cpol(match config.mode.polarity == Polarity::IdleHigh {
-                    true => vals::Cpol::IDLEHIGH,
-                    false => vals::Cpol::IDLELOW,
-                });
+                w.set_cpha(cpha);
+                w.set_cpol(cpol);
 
                 w.set_mstr(vals::Mstr::MASTER);
-                w.set_br(vals::Br(br));
+                w.set_br(br);
                 w.set_spe(true);
-                w.set_lsbfirst(match config.byte_order {
-                    ByteOrder::LsbFirst => vals::Lsbfirst::LSBFIRST,
-                    ByteOrder::MsbFirst => vals::Lsbfirst::MSBFIRST,
-                });
+                w.set_lsbfirst(lsbfirst);
                 w.set_ssi(true);
                 w.set_ssm(true);
                 w.set_crcen(false);
@@ -192,31 +203,18 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
         #[cfg(spi_v2)]
         unsafe {
-            T::enable();
-            T::reset();
             T::regs().cr2().modify(|w| {
                 w.set_frxth(WordSize::EightBit.frxth());
                 w.set_ds(WordSize::EightBit.ds());
                 w.set_ssoe(false);
             });
             T::regs().cr1().modify(|w| {
-                w.set_cpha(
-                    match config.mode.phase == Phase::CaptureOnSecondTransition {
-                        true => vals::Cpha::SECONDEDGE,
-                        false => vals::Cpha::FIRSTEDGE,
-                    },
-                );
-                w.set_cpol(match config.mode.polarity == Polarity::IdleHigh {
-                    true => vals::Cpol::IDLEHIGH,
-                    false => vals::Cpol::IDLELOW,
-                });
+                w.set_cpha(cpha);
+                w.set_cpol(cpol);
 
                 w.set_mstr(vals::Mstr::MASTER);
-                w.set_br(vals::Br(br));
-                w.set_lsbfirst(match config.byte_order {
-                    ByteOrder::LsbFirst => vals::Lsbfirst::LSBFIRST,
-                    ByteOrder::MsbFirst => vals::Lsbfirst::MSBFIRST,
-                });
+                w.set_br(br);
+                w.set_lsbfirst(lsbfirst);
                 w.set_ssi(true);
                 w.set_ssm(true);
                 w.set_crcen(false);
@@ -226,26 +224,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
         #[cfg(spi_v3)]
         unsafe {
-            T::enable();
-            T::reset();
             T::regs().ifcr().write(|w| w.0 = 0xffff_ffff);
             T::regs().cfg2().modify(|w| {
                 //w.set_ssoe(true);
                 w.set_ssoe(false);
-                w.set_cpha(
-                    match config.mode.phase == Phase::CaptureOnSecondTransition {
-                        true => vals::Cpha::SECONDEDGE,
-                        false => vals::Cpha::FIRSTEDGE,
-                    },
-                );
-                w.set_cpol(match config.mode.polarity == Polarity::IdleHigh {
-                    true => vals::Cpol::IDLEHIGH,
-                    false => vals::Cpol::IDLELOW,
-                });
-                w.set_lsbfrst(match config.byte_order {
-                    ByteOrder::LsbFirst => vals::Lsbfrst::LSBFIRST,
-                    ByteOrder::MsbFirst => vals::Lsbfrst::MSBFIRST,
-                });
+                w.set_cpha(cpha);
+                w.set_cpol(cpol);
+                w.set_lsbfrst(lsbfirst);
                 w.set_ssm(true);
                 w.set_master(vals::Master::MASTER);
                 w.set_comm(vals::Comm::FULLDUPLEX);
@@ -257,7 +242,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
             T::regs().cfg1().modify(|w| {
                 w.set_crcen(false);
-                w.set_mbr(vals::Mbr(br));
+                w.set_mbr(br);
                 w.set_dsize(WordSize::EightBit.dsize());
             });
             T::regs().cr2().modify(|w| {
@@ -278,20 +263,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             rxdma,
             current_word_size: WordSize::EightBit,
             phantom: PhantomData,
-        }
-    }
-
-    fn compute_baud_rate(clocks: Hertz, freq: Hertz) -> u8 {
-        match clocks.0 / freq.0 {
-            0 => unreachable!(),
-            1..=2 => 0b000,
-            3..=5 => 0b001,
-            6..=11 => 0b010,
-            12..=23 => 0b011,
-            24..=39 => 0b100,
-            40..=95 => 0b101,
-            96..=191 => 0b110,
-            _ => 0b111,
         }
     }
 
@@ -355,6 +326,27 @@ impl<'d, T: Instance, Tx, Rx> Drop for Spi<'d, T, Tx, Rx> {
     }
 }
 
+#[cfg(not(spi_v3))]
+use vals::Br;
+#[cfg(spi_v3)]
+use vals::Mbr as Br;
+
+fn compute_baud_rate(clocks: Hertz, freq: Hertz) -> Br {
+    let val = match clocks.0 / freq.0 {
+        0 => unreachable!(),
+        1..=2 => 0b000,
+        3..=5 => 0b001,
+        6..=11 => 0b010,
+        12..=23 => 0b011,
+        24..=39 => 0b100,
+        40..=95 => 0b101,
+        96..=191 => 0b110,
+        _ => 0b111,
+    };
+
+    Br(val)
+}
+
 trait RegsExt {
     fn tx_ptr<W>(&self) -> *mut W;
     fn rx_ptr<W>(&self) -> *mut W;
@@ -405,7 +397,7 @@ fn check_error_flags(sr: regs::Sr) -> Result<(), Error> {
     Ok(())
 }
 
-fn spin_until_tx_ready(regs: &'static crate::pac::spi::Spi) -> Result<(), Error> {
+fn spin_until_tx_ready(regs: Regs) -> Result<(), Error> {
     loop {
         let sr = unsafe { regs.sr().read() };
 
@@ -422,7 +414,7 @@ fn spin_until_tx_ready(regs: &'static crate::pac::spi::Spi) -> Result<(), Error>
     }
 }
 
-fn spin_until_rx_ready(regs: &'static crate::pac::spi::Spi) -> Result<(), Error> {
+fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
     loop {
         let sr = unsafe { regs.sr().read() };
 
@@ -439,6 +431,47 @@ fn spin_until_rx_ready(regs: &'static crate::pac::spi::Spi) -> Result<(), Error>
     }
 }
 
+fn spin_until_idle(regs: Regs) {
+    #[cfg(any(spi_v1, spi_f1))]
+    unsafe {
+        while regs.sr().read().bsy() {}
+    }
+
+    #[cfg(spi_v2)]
+    unsafe {
+        while regs.sr().read().ftlvl() > 0 {}
+        while regs.sr().read().frlvl() > 0 {}
+        while regs.sr().read().bsy() {}
+    }
+
+    #[cfg(spi_v3)]
+    unsafe {
+        while !regs.sr().read().txc() {}
+        while regs.sr().read().rxplvl().0 > 0 {}
+    }
+}
+
+fn finish_dma(regs: Regs) {
+    spin_until_idle(regs);
+
+    unsafe {
+        regs.cr1().modify(|w| {
+            w.set_spe(false);
+        });
+
+        #[cfg(not(spi_v3))]
+        regs.cr2().modify(|reg| {
+            reg.set_txdmaen(false);
+            reg.set_rxdmaen(false);
+        });
+        #[cfg(spi_v3)]
+        regs.cfg1().modify(|reg| {
+            reg.set_txdmaen(false);
+            reg.set_rxdmaen(false);
+        });
+    }
+}
+
 trait Word {
     const WORDSIZE: WordSize;
 }
@@ -450,7 +483,7 @@ impl Word for u16 {
     const WORDSIZE: WordSize = WordSize::SixteenBit;
 }
 
-fn transfer_word<W: Word>(regs: &'static crate::pac::spi::Spi, tx_word: W) -> Result<W, Error> {
+fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     spin_until_tx_ready(regs)?;
 
     unsafe {
