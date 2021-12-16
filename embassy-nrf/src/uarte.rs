@@ -54,6 +54,20 @@ impl Default for Config {
 /// Interface to the UARTE peripheral
 pub struct Uarte<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
+    tx: UarteTx<'d, T>,
+    rx: UarteRx<'d, T>,
+}
+
+/// Transmitter interface to the UARTE peripheral obtained
+/// via [Uarte]::split.
+pub struct UarteTx<'d, T: Instance> {
+    phantom: PhantomData<&'d mut T>,
+}
+
+/// Receiver interface to the UARTE peripheral obtained
+/// via [Uarte]::split.
+pub struct UarteRx<'d, T: Instance> {
+    phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance> Uarte<'d, T> {
@@ -119,9 +133,22 @@ impl<'d, T: Instance> Uarte<'d, T> {
         apply_workaround_for_enable_anomaly(&r);
         r.enable.write(|w| w.enable().enabled());
 
+        let s = T::state();
+
+        s.tx_rx_refcount.store(2, Ordering::Relaxed);
+
         Self {
             phantom: PhantomData,
+            tx: UarteTx::new(),
+            rx: UarteRx::new(),
         }
+    }
+
+    /// Split the Uarte into a transmitter and receiver, which is
+    /// particuarly useful when having two tasks correlating to
+    /// transmitting and receiving.
+    pub fn split(self) -> (UarteTx<'d, T>, UarteRx<'d, T>) {
+        (self.tx, self.rx)
     }
 
     fn on_interrupt(_: *mut ()) {
@@ -139,88 +166,33 @@ impl<'d, T: Instance> Uarte<'d, T> {
     }
 }
 
-impl<'a, T: Instance> Drop for Uarte<'a, T> {
-    fn drop(&mut self) {
-        info!("uarte drop");
-
-        let r = T::regs();
-
-        let did_stoprx = r.events_rxstarted.read().bits() != 0;
-        let did_stoptx = r.events_txstarted.read().bits() != 0;
-        info!("did_stoprx {} did_stoptx {}", did_stoprx, did_stoptx);
-
-        // Wait for rxto or txstopped, if needed.
-        while (did_stoprx && r.events_rxto.read().bits() == 0)
-            || (did_stoptx && r.events_txstopped.read().bits() == 0)
-        {}
-
-        // Finally we can disable!
-        r.enable.write(|w| w.enable().disabled());
-
-        gpio::deconfigure_pin(r.psel.rxd.read().bits());
-        gpio::deconfigure_pin(r.psel.txd.read().bits());
-        gpio::deconfigure_pin(r.psel.rts.read().bits());
-        gpio::deconfigure_pin(r.psel.cts.read().bits());
-
-        info!("uarte drop: done");
-    }
-}
-
 impl<'d, T: Instance> Read for Uarte<'d, T> {
     #[rustfmt::skip]
     type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
 
     fn read<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        async move {
-            let ptr = rx_buffer.as_ptr();
-            let len = rx_buffer.len();
-            assert!(len <= EASY_DMA_SIZE);
-
-            let r = T::regs();
-            let s = T::state();
-
-            let drop = OnDrop::new(move || {
-                info!("read drop: stopping");
-
-                r.intenclr.write(|w| w.endrx().clear());
-                r.events_rxto.reset();
-                r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
-
-                while r.events_endrx.read().bits() == 0 {}
-
-                info!("read drop: stopped");
-            });
-
-            r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
-            r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
-
-            r.events_endrx.reset();
-            r.intenset.write(|w| w.endrx().set());
-
-            compiler_fence(Ordering::SeqCst);
-
-            trace!("startrx");
-            r.tasks_startrx.write(|w| unsafe { w.bits(1) });
-
-            poll_fn(|cx| {
-                s.endrx_waker.register(cx.waker());
-                if r.events_endrx.read().bits() != 0 {
-                    return Poll::Ready(());
-                }
-                Poll::Pending
-            })
-            .await;
-
-            compiler_fence(Ordering::SeqCst);
-            r.events_rxstarted.reset();
-            drop.defuse();
-
-            Ok(())
-        }
+        self.rx.read(rx_buffer)
     }
 }
 
 impl<'d, T: Instance> Write for Uarte<'d, T> {
+    #[rustfmt::skip]
+    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
+
+    fn write<'a>(&'a mut self, tx_buffer: &'a [u8]) -> Self::WriteFuture<'a> {
+        self.tx.write(tx_buffer)
+    }
+}
+
+impl<'d, T: Instance> UarteTx<'d, T> {
+    pub fn new() -> Self {
+        Self {
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d, T: Instance> Write for UarteTx<'d, T> {
     #[rustfmt::skip]
     type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
 
@@ -275,6 +247,104 @@ impl<'d, T: Instance> Write for Uarte<'d, T> {
     }
 }
 
+impl<'a, T: Instance> Drop for UarteTx<'a, T> {
+    fn drop(&mut self) {
+        info!("uarte tx drop");
+
+        let r = T::regs();
+
+        let did_stoptx = r.events_txstarted.read().bits() != 0;
+        info!("did_stoptx {}", did_stoptx);
+
+        // Wait for txstopped, if needed.
+        while did_stoptx && r.events_txstopped.read().bits() == 0 {}
+
+        let s = T::state();
+
+        drop_tx_rx(&r, &s);
+    }
+}
+
+impl<'d, T: Instance> UarteRx<'d, T> {
+    pub fn new() -> Self {
+        Self {
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d, T: Instance> Read for UarteRx<'d, T> {
+    #[rustfmt::skip]
+    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
+
+    fn read<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        async move {
+            let ptr = rx_buffer.as_ptr();
+            let len = rx_buffer.len();
+            assert!(len <= EASY_DMA_SIZE);
+
+            let r = T::regs();
+            let s = T::state();
+
+            let drop = OnDrop::new(move || {
+                info!("read drop: stopping");
+
+                r.intenclr.write(|w| w.endrx().clear());
+                r.events_rxto.reset();
+                r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
+
+                while r.events_endrx.read().bits() == 0 {}
+
+                info!("read drop: stopped");
+            });
+
+            r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
+            r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+
+            r.events_endrx.reset();
+            r.intenset.write(|w| w.endrx().set());
+
+            compiler_fence(Ordering::SeqCst);
+
+            trace!("startrx");
+            r.tasks_startrx.write(|w| unsafe { w.bits(1) });
+
+            poll_fn(|cx| {
+                s.endrx_waker.register(cx.waker());
+                if r.events_endrx.read().bits() != 0 {
+                    return Poll::Ready(());
+                }
+                Poll::Pending
+            })
+            .await;
+
+            compiler_fence(Ordering::SeqCst);
+            r.events_rxstarted.reset();
+            drop.defuse();
+
+            Ok(())
+        }
+    }
+}
+
+impl<'a, T: Instance> Drop for UarteRx<'a, T> {
+    fn drop(&mut self) {
+        info!("uarte rx drop");
+
+        let r = T::regs();
+
+        let did_stoprx = r.events_rxstarted.read().bits() != 0;
+        info!("did_stoprx {}", did_stoprx);
+
+        // Wait for rxto, if needed.
+        while did_stoprx && r.events_rxto.read().bits() == 0 {}
+
+        let s = T::state();
+
+        drop_tx_rx(&r, &s);
+    }
+}
+
 #[cfg(not(any(feature = "_nrf9160", feature = "nrf5340")))]
 pub(in crate) fn apply_workaround_for_enable_anomaly(_r: &crate::pac::uarte0::RegisterBlock) {
     // Do nothing
@@ -325,6 +395,21 @@ pub(in crate) fn apply_workaround_for_enable_anomaly(r: &crate::pac::uarte0::Reg
         // NB Safety: safe to write back the bits we just read to clear them
         r.errorsrc.write(|w| unsafe { w.bits(errors) });
         r.enable.write(|w| w.enable().disabled());
+    }
+}
+
+pub(in crate) fn drop_tx_rx(r: &pac::uarte0::RegisterBlock, s: &sealed::State) {
+    if s.tx_rx_refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
+        // Finally we can disable, and we do so for the peripheral
+        // i.e. not just rx concerns.
+        r.enable.write(|w| w.enable().disabled());
+
+        gpio::deconfigure_pin(r.psel.rxd.read().bits());
+        gpio::deconfigure_pin(r.psel.txd.read().bits());
+        gpio::deconfigure_pin(r.psel.rts.read().bits());
+        gpio::deconfigure_pin(r.psel.cts.read().bits());
+
+        info!("uarte tx and rx drop: done");
     }
 }
 
@@ -487,6 +572,8 @@ impl<'d, U: Instance, T: TimerInstance> Write for UarteWithIdle<'d, U, T> {
 }
 
 pub(crate) mod sealed {
+    use core::sync::atomic::AtomicU8;
+
     use embassy::waitqueue::AtomicWaker;
 
     use super::*;
@@ -494,12 +581,14 @@ pub(crate) mod sealed {
     pub struct State {
         pub endrx_waker: AtomicWaker,
         pub endtx_waker: AtomicWaker,
+        pub tx_rx_refcount: AtomicU8,
     }
     impl State {
         pub const fn new() -> Self {
             Self {
                 endrx_waker: AtomicWaker::new(),
                 endtx_waker: AtomicWaker::new(),
+                tx_rx_refcount: AtomicU8::new(0),
             }
         }
     }
