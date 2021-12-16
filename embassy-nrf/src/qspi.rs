@@ -286,12 +286,18 @@ impl<'d, T: Instance> Drop for Qspi<'d, T> {
 }
 
 impl<'d, T: Instance> Flash for Qspi<'d, T> {
-    #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), Error>> + 'a;
-    #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), Error>> + 'a;
-    #[rustfmt::skip]
-    type ErasePageFuture<'a> where Self: 'a = impl Future<Output = Result<(), Error>> + 'a;
+    type ReadFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), Error>> + 'a;
+    type WriteFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), Error>> + 'a;
+    type ErasePageFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), Error>> + 'a;
 
     fn read<'a>(&'a mut self, address: usize, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
         async move {

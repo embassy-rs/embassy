@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(asm)]
 #![feature(type_alias_impl_trait)]
 
 #[path = "../example_common.rs"]

@@ -288,6 +288,7 @@ struct MainArgs {
     #[darling(default)]
     embassy_prefix: ModulePrefix,
 
+    #[allow(unused)]
     #[darling(default)]
     config: Option<syn::LitStr>,
 }

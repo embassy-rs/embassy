@@ -157,8 +157,10 @@ impl<'d> Drop for Rng<'d> {
 impl<'d> traits::rng::Rng for Rng<'d> {
     type Error = Infallible;
 
-    #[rustfmt::skip] // For some reason rustfmt removes the where clause
-    type RngFuture<'a> where 'd: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+    type RngFuture<'a>
+    where
+        'd: 'a,
+    = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn fill_bytes<'a>(&'a mut self, dest: &'a mut [u8]) -> Self::RngFuture<'a> {
         async move {

@@ -75,8 +75,10 @@ impl<'d, T: Pin> InputPin for Input<'d, T> {
 
 #[cfg(feature = "gpiote")]
 impl<'d, T: Pin> embassy::traits::gpio::WaitForHigh for Input<'d, T> {
-    #[rustfmt::skip]
-    type Future<'a> where Self: 'a = impl Future<Output=()> + Unpin + 'a;
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + Unpin + 'a;
 
     fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
         self.pin.conf().modify(|_, w| w.sense().high());
@@ -90,8 +92,10 @@ impl<'d, T: Pin> embassy::traits::gpio::WaitForHigh for Input<'d, T> {
 
 #[cfg(feature = "gpiote")]
 impl<'d, T: Pin> embassy::traits::gpio::WaitForLow for Input<'d, T> {
-    #[rustfmt::skip]
-    type Future<'a> where Self: 'a = impl Future<Output=()> + Unpin + 'a;
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + Unpin + 'a;
 
     fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
         self.pin.conf().modify(|_, w| w.sense().low());
@@ -105,8 +109,10 @@ impl<'d, T: Pin> embassy::traits::gpio::WaitForLow for Input<'d, T> {
 
 #[cfg(feature = "gpiote")]
 impl<'d, T: Pin> embassy::traits::gpio::WaitForAnyEdge for Input<'d, T> {
-    #[rustfmt::skip]
-    type Future<'a> where Self: 'a = impl Future<Output=()> + Unpin + 'a;
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + Unpin + 'a;
 
     fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
         if self.is_high().ok().unwrap() {
@@ -328,8 +334,10 @@ impl<'d, T: Pin> StatefulOutputPin for FlexPin<'d, T> {
 
 #[cfg(feature = "gpiote")]
 impl<'d, T: Pin> embassy::traits::gpio::WaitForHigh for FlexPin<'d, T> {
-    #[rustfmt::skip]
-    type Future<'a> where Self: 'a = impl Future<Output=()> + Unpin + 'a;
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + Unpin + 'a;
 
     fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
         self.pin.conf().modify(|_, w| w.sense().high());
@@ -343,8 +351,10 @@ impl<'d, T: Pin> embassy::traits::gpio::WaitForHigh for FlexPin<'d, T> {
 
 #[cfg(feature = "gpiote")]
 impl<'d, T: Pin> embassy::traits::gpio::WaitForLow for FlexPin<'d, T> {
-    #[rustfmt::skip]
-    type Future<'a> where Self: 'a = impl Future<Output=()> + Unpin + 'a;
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + Unpin + 'a;
 
     fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
         self.pin.conf().modify(|_, w| w.sense().low());
@@ -358,8 +368,10 @@ impl<'d, T: Pin> embassy::traits::gpio::WaitForLow for FlexPin<'d, T> {
 
 #[cfg(feature = "gpiote")]
 impl<'d, T: Pin> embassy::traits::gpio::WaitForAnyEdge for FlexPin<'d, T> {
-    #[rustfmt::skip]
-    type Future<'a> where Self: 'a = impl Future<Output=()> + Unpin + 'a;
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + Unpin + 'a;
 
     fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
         if self.is_high().ok().unwrap() {

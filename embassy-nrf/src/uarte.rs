@@ -167,8 +167,10 @@ impl<'d, T: Instance> Uarte<'d, T> {
 }
 
 impl<'d, T: Instance> Read for Uarte<'d, T> {
-    #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
+    type ReadFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), TraitError>> + 'a;
 
     fn read<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
         self.rx.read(rx_buffer)
@@ -176,8 +178,10 @@ impl<'d, T: Instance> Read for Uarte<'d, T> {
 }
 
 impl<'d, T: Instance> Write for Uarte<'d, T> {
-    #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
+    type WriteFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), TraitError>> + 'a;
 
     fn write<'a>(&'a mut self, tx_buffer: &'a [u8]) -> Self::WriteFuture<'a> {
         self.tx.write(tx_buffer)
@@ -193,8 +197,10 @@ impl<'d, T: Instance> UarteTx<'d, T> {
 }
 
 impl<'d, T: Instance> Write for UarteTx<'d, T> {
-    #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
+    type WriteFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), TraitError>> + 'a;
 
     fn write<'a>(&'a mut self, tx_buffer: &'a [u8]) -> Self::WriteFuture<'a> {
         async move {
@@ -274,8 +280,10 @@ impl<'d, T: Instance> UarteRx<'d, T> {
 }
 
 impl<'d, T: Instance> Read for UarteRx<'d, T> {
-    #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
+    type ReadFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), TraitError>> + 'a;
 
     fn read<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
         async move {
@@ -490,8 +498,10 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
 }
 
 impl<'d, U: Instance, T: TimerInstance> ReadUntilIdle for UarteWithIdle<'d, U, T> {
-    #[rustfmt::skip]
-    type ReadUntilIdleFuture<'a> where Self: 'a = impl Future<Output = Result<usize, TraitError>> + 'a;
+    type ReadUntilIdleFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<usize, TraitError>> + 'a;
     fn read_until_idle<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadUntilIdleFuture<'a> {
         async move {
             let ptr = rx_buffer.as_ptr();
@@ -550,8 +560,10 @@ impl<'d, U: Instance, T: TimerInstance> ReadUntilIdle for UarteWithIdle<'d, U, T
 }
 
 impl<'d, U: Instance, T: TimerInstance> Read for UarteWithIdle<'d, U, T> {
-    #[rustfmt::skip]
-    type ReadFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
+    type ReadFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), TraitError>> + 'a;
     fn read<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
         async move {
             self.ppi_ch1.disable();
@@ -563,8 +575,10 @@ impl<'d, U: Instance, T: TimerInstance> Read for UarteWithIdle<'d, U, T> {
 }
 
 impl<'d, U: Instance, T: TimerInstance> Write for UarteWithIdle<'d, U, T> {
-    #[rustfmt::skip]
-    type WriteFuture<'a> where Self: 'a = impl Future<Output = Result<(), TraitError>> + 'a;
+    type WriteFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), TraitError>> + 'a;
 
     fn write<'a>(&'a mut self, tx_buffer: &'a [u8]) -> Self::WriteFuture<'a> {
         self.uarte.write(tx_buffer)

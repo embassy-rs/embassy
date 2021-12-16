@@ -858,12 +858,27 @@ impl<'d, T: Instance, TXDMA: super::TxDma<T>, RXDMA: super::RxDma<T>> I2cTrait<u
 {
     type Error = super::Error;
 
-    #[rustfmt::skip]
-    type WriteFuture<'a> where 'd: 'a, T: 'a, TXDMA: 'a, RXDMA: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
-    #[rustfmt::skip]
-    type ReadFuture<'a> where 'd: 'a, T: 'a, TXDMA: 'a, RXDMA: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
-    #[rustfmt::skip]
-    type WriteReadFuture<'a> where 'd: 'a, T: 'a, TXDMA: 'a, RXDMA: 'a = impl Future<Output = Result<(), Self::Error>> + 'a;
+    type WriteFuture<'a>
+    where
+        'd: 'a,
+        T: 'a,
+        TXDMA: 'a,
+        RXDMA: 'a,
+    = impl Future<Output = Result<(), Self::Error>> + 'a;
+    type ReadFuture<'a>
+    where
+        'd: 'a,
+        T: 'a,
+        TXDMA: 'a,
+        RXDMA: 'a,
+    = impl Future<Output = Result<(), Self::Error>> + 'a;
+    type WriteReadFuture<'a>
+    where
+        'd: 'a,
+        T: 'a,
+        TXDMA: 'a,
+        RXDMA: 'a,
+    = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
         self.read_dma(address, buffer, false)
