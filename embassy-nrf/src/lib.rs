@@ -1,6 +1,5 @@
 #![no_std]
 #![feature(generic_associated_types)]
-#![feature(asm)]
 #![feature(type_alias_impl_trait)]
 
 #[cfg(not(any(
