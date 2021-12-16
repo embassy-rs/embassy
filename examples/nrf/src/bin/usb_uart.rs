@@ -15,15 +15,15 @@ use panic_probe as _; // print out panic messages
 
 use embassy::executor::Spawner;
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
-use embassy::time::{Duration, Timer};
 use embassy_nrf::usb::{State, Usb, UsbBus, UsbSerial};
 use embassy_nrf::{interrupt, Peripherals};
 use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    let mut tx_buffer = [0u8; 1024];
-    let mut rx_buffer = [0u8; 640];
+    let mut rx_buffer = [0u8; 64];
+    // we send back input + cr + lf
+    let mut tx_buffer = [0u8; 66];
 
     let usb_bus = UsbBus::new(p.USBD);
 
@@ -45,50 +45,50 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let (mut reader, mut writer) = usb.as_ref().take_serial_0();
 
-    unwrap!(writer.write_all(b"\r\nSend something\r\n").await);
-
     info!("usb initialized!");
+
+    unwrap!(
+        writer
+            .write_all(b"\r\nInput returned upper cased on CR+LF\r\n")
+            .await
+    );
 
     let mut buf = [0u8; 64];
     loop {
         let mut n = 0;
-        let timed_out = {
-            let newline_fut = async {
-                loop {
-                    let char = unwrap!(reader.read_byte().await);
-                    // echo input back to screen
-                    unwrap!(writer.write_byte(char).await);
-                    buf[n] = char;
 
-                    n += 1;
-                    if char == b'\n' || char == b'\r' || n == buf.len() {
-                        break;
-                    }
+        async {
+            loop {
+                let char = unwrap!(reader.read_byte().await);
+
+                // throw away, read more on cr, exit on lf
+                if char == b'\r' {
+                    continue;
+                } else if char == b'\n' {
+                    break;
                 }
-            };
-            pin_mut!(newline_fut);
 
-            let timeout_fut = Timer::after(Duration::from_ticks(32768 * 10));
+                buf[n] = char;
+                n += 1;
 
-            // select chooses whichever returns first
-            match select(newline_fut, timeout_fut).await {
-                Either::Left(_) => false,
-                Either::Right(_) => true,
+                // stop if we're out of room
+                if n == buf.len() {
+                    break;
+                }
             }
-        };
+        }
+        .await;
 
-        if timed_out {
-            unwrap!(writer.write_all(b"\r\nTimed out\r\n").await);
-        } else {
+        if n > 0 {
             for char in buf[..n].iter_mut() {
                 // upper case
                 if 0x61 <= *char && *char <= 0x7a {
                     *char &= !0x20;
                 }
             }
-            unwrap!(writer.write_byte(b'\n').await);
             unwrap!(writer.write_all(&buf[..n]).await);
-            unwrap!(writer.write_byte(b'\n').await);
+            unwrap!(writer.write_all(b"\r\n").await);
+            unwrap!(writer.flush().await);
         }
     }
 }
