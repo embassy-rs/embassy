@@ -2,6 +2,7 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
+pub mod adapter;
 pub mod delay;
 pub mod flash;
 pub mod gpio;

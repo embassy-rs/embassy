@@ -192,8 +192,35 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     }
 }
 
-impl<'d, T: Instance, RxDma> embedded_hal::blocking::serial::Write<u8>
-    for Uart<'d, T, NoDma, RxDma>
+impl<'d, T: Instance, TxDma, RxDma> embedded_hal::serial::Read<u8> for Uart<'d, T, TxDma, RxDma> {
+    type Error = Error;
+    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+        let r = self.inner.regs();
+        unsafe {
+            let sr = sr(r).read();
+            if sr.pe() {
+                rdr(r).read_volatile();
+                Err(nb::Error::Other(Error::Parity))
+            } else if sr.fe() {
+                rdr(r).read_volatile();
+                Err(nb::Error::Other(Error::Framing))
+            } else if sr.ne() {
+                rdr(r).read_volatile();
+                Err(nb::Error::Other(Error::Noise))
+            } else if sr.ore() {
+                rdr(r).read_volatile();
+                Err(nb::Error::Other(Error::Overrun))
+            } else if sr.rxne() {
+                Ok(rdr(r).read_volatile())
+            } else {
+                Err(nb::Error::WouldBlock)
+            }
+        }
+    }
+}
+
+impl<'d, T: Instance, TxDma, RxDma> embedded_hal::blocking::serial::Write<u8>
+    for Uart<'d, T, TxDma, RxDma>
 {
     type Error = Error;
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {

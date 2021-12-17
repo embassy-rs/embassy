@@ -10,3 +10,4 @@ std = []
 [dependencies]
 defmt = { version = "0.3", optional = true }
 embedded-hal = { version = "0.2.6", features = ["unproven"] }
+nb = "1.0.0"
