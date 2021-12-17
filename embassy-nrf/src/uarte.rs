@@ -213,7 +213,7 @@ impl<'d, T: Instance> Write for UarteTx<'d, T> {
             let s = T::state();
 
             let drop = OnDrop::new(move || {
-                info!("write drop: stopping");
+                trace!("write drop: stopping");
 
                 r.intenclr.write(|w| w.endtx().clear());
                 r.events_txstopped.reset();
@@ -221,7 +221,7 @@ impl<'d, T: Instance> Write for UarteTx<'d, T> {
 
                 // TX is stopped almost instantly, spinning is fine.
                 while r.events_endtx.read().bits() == 0 {}
-                info!("write drop: stopped");
+                trace!("write drop: stopped");
             });
 
             r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
@@ -255,12 +255,12 @@ impl<'d, T: Instance> Write for UarteTx<'d, T> {
 
 impl<'a, T: Instance> Drop for UarteTx<'a, T> {
     fn drop(&mut self) {
-        info!("uarte tx drop");
+        trace!("uarte tx drop");
 
         let r = T::regs();
 
         let did_stoptx = r.events_txstarted.read().bits() != 0;
-        info!("did_stoptx {}", did_stoptx);
+        trace!("did_stoptx {}", did_stoptx);
 
         // Wait for txstopped, if needed.
         while did_stoptx && r.events_txstopped.read().bits() == 0 {}
@@ -295,7 +295,7 @@ impl<'d, T: Instance> Read for UarteRx<'d, T> {
             let s = T::state();
 
             let drop = OnDrop::new(move || {
-                info!("read drop: stopping");
+                trace!("read drop: stopping");
 
                 r.intenclr.write(|w| w.endrx().clear());
                 r.events_rxto.reset();
@@ -303,7 +303,7 @@ impl<'d, T: Instance> Read for UarteRx<'d, T> {
 
                 while r.events_endrx.read().bits() == 0 {}
 
-                info!("read drop: stopped");
+                trace!("read drop: stopped");
             });
 
             r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
@@ -337,12 +337,12 @@ impl<'d, T: Instance> Read for UarteRx<'d, T> {
 
 impl<'a, T: Instance> Drop for UarteRx<'a, T> {
     fn drop(&mut self) {
-        info!("uarte rx drop");
+        trace!("uarte rx drop");
 
         let r = T::regs();
 
         let did_stoprx = r.events_rxstarted.read().bits() != 0;
-        info!("did_stoprx {}", did_stoprx);
+        trace!("did_stoprx {}", did_stoprx);
 
         // Wait for rxto, if needed.
         while did_stoprx && r.events_rxto.read().bits() == 0 {}
@@ -417,7 +417,7 @@ pub(in crate) fn drop_tx_rx(r: &pac::uarte0::RegisterBlock, s: &sealed::State) {
         gpio::deconfigure_pin(r.psel.rts.read().bits());
         gpio::deconfigure_pin(r.psel.cts.read().bits());
 
-        info!("uarte tx and rx drop: done");
+        trace!("uarte tx and rx drop: done");
     }
 }
 
@@ -512,7 +512,7 @@ impl<'d, U: Instance, T: TimerInstance> ReadUntilIdle for UarteWithIdle<'d, U, T
             let s = U::state();
 
             let drop = OnDrop::new(|| {
-                info!("read drop: stopping");
+                trace!("read drop: stopping");
 
                 self.timer.stop();
 
@@ -522,7 +522,7 @@ impl<'d, U: Instance, T: TimerInstance> ReadUntilIdle for UarteWithIdle<'d, U, T
 
                 while r.events_endrx.read().bits() == 0 {}
 
-                info!("read drop: stopped");
+                trace!("read drop: stopped");
             });
 
             r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
