@@ -46,6 +46,7 @@ pub trait Write<Word>: Spi<Word> {
         Self: 'a,
         Word: 'a;
 
+    /// Writes `data` to the peripheral, ignoring all the incoming words.
     fn write<'a>(&'a mut self, data: &'a [Word]) -> Self::WriteFuture<'a>;
 }
 
@@ -55,5 +56,6 @@ pub trait Read<Word>: Write<Word> {
         Self: 'a,
         Word: 'a;
 
+    /// Reads words into `data` from the peripheral.
     fn read<'a>(&'a mut self, data: &'a mut [Word]) -> Self::ReadFuture<'a>;
 }
