@@ -10,7 +10,6 @@ use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::Peripherals;
 use embassy_nrf::{interrupt, spim};
 use embassy_traits::spi::FullDuplex;
-use embedded_hal::digital::v2::*;
 use example_common::*;
 
 #[embassy::main]
@@ -29,12 +28,12 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     // softreset
     cortex_m::asm::delay(10);
-    unwrap!(ncs.set_low());
+    ncs.set_low();
     cortex_m::asm::delay(5);
     let tx = [0xFF];
     unwrap!(spim.read_write(&mut [], &tx).await);
     cortex_m::asm::delay(10);
-    unwrap!(ncs.set_high());
+    ncs.set_high();
 
     cortex_m::asm::delay(100000);
 
@@ -42,31 +41,31 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     // read ESTAT
     cortex_m::asm::delay(5000);
-    unwrap!(ncs.set_low());
+    ncs.set_low();
     cortex_m::asm::delay(5000);
     let tx = [0b000_11101, 0];
     unwrap!(spim.read_write(&mut rx, &tx).await);
     cortex_m::asm::delay(5000);
-    unwrap!(ncs.set_high());
+    ncs.set_high();
     info!("estat: {=[?]}", rx);
 
     // Switch to bank 3
     cortex_m::asm::delay(10);
-    unwrap!(ncs.set_low());
+    ncs.set_low();
     cortex_m::asm::delay(5);
     let tx = [0b100_11111, 0b11];
     unwrap!(spim.read_write(&mut rx, &tx).await);
     cortex_m::asm::delay(10);
-    unwrap!(ncs.set_high());
+    ncs.set_high();
 
     // read EREVID
     cortex_m::asm::delay(10);
-    unwrap!(ncs.set_low());
+    ncs.set_low();
     cortex_m::asm::delay(5);
     let tx = [0b000_10010, 0];
     unwrap!(spim.read_write(&mut rx, &tx).await);
     cortex_m::asm::delay(10);
-    unwrap!(ncs.set_high());
+    ncs.set_high();
 
     info!("erevid: {=[?]}", rx);
 }
