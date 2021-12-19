@@ -21,7 +21,7 @@
 //! For demonstration purposes the address mode parameter has been omitted in this example.
 //!
 //! ```
-//! # use embedded_hal::blocking::i2c::WriteRead;
+//! # use embassy_traits::i2c::I2c;
 //! const ADDR: u8  = 0x15;
 //! # const TEMP_REGISTER: u8 = 0x1;
 //! pub struct TemperatureSensorDriver<I2C> {
@@ -30,7 +30,7 @@
 //!
 //! impl<I2C, E> TemperatureSensorDriver<I2C>
 //! where
-//!     I2C: WriteRead<Error = E>,
+//!     I2C: I2c<Error = E>,
 //! {
 //!     pub fn read_temperature(&mut self) -> Result<u8, E> {
 //!         let mut temp = [0];
@@ -45,7 +45,7 @@
 //! ### Device driver compatible only with 10-bit addresses
 //!
 //! ```
-//! # use embedded_hal::blocking::i2c::{TenBitAddress, WriteRead};
+//! # use embassy_traits::i2c::{TenBitAddress, I2c};
 //! const ADDR: u16  = 0x158;
 //! # const TEMP_REGISTER: u8 = 0x1;
 //! pub struct TemperatureSensorDriver<I2C> {
@@ -54,7 +54,7 @@
 //!
 //! impl<I2C, E> TemperatureSensorDriver<I2C>
 //! where
-//!     I2C: WriteRead<TenBitAddress, Error = E>,
+//!     I2C: I2c<TenBitAddress, Error = E>,
 //! {
 //!     pub fn read_temperature(&mut self) -> Result<u8, E> {
 //!         let mut temp = [0];

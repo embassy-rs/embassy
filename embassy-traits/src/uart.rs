@@ -12,6 +12,7 @@ pub trait Read {
     where
         Self: 'a;
 
+    /// Receive into the buffer until the buffer is full.
     fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a>;
 }
 
@@ -30,5 +31,6 @@ pub trait Write {
     where
         Self: 'a;
 
+    /// Write all bytes in `buf`.
     fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a>;
 }
