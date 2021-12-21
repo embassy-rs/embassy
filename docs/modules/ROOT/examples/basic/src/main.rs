@@ -14,14 +14,13 @@ use embassy_nrf::{
     peripherals::P0_13,
     Peripherals,
 };
-use embedded_hal::digital::v2::OutputPin;
 
 #[embassy::task]
 async fn blinker(mut led: Output<'static, P0_13>, interval: Duration) {
     loop {
-        unwrap!(led.set_high());
+        led.set_high();
         Timer::after(interval).await;
-        unwrap!(led.set_low());
+        led.set_low();
         Timer::after(interval).await;
     }
 }

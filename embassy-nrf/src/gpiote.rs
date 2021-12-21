@@ -5,11 +5,11 @@ use core::task::{Context, Poll};
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unsafe_impl_unborrow;
-use embedded_hal::digital::v2::{InputPin, StatefulOutputPin};
+use embedded_hal::digital::v2::InputPin;
 use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, Input, Output, Pin as GpioPin};
+use crate::gpio::{AnyPin, FlexPin, Input, Output, Pin as GpioPin};
 use crate::pac;
 use crate::ppi::{Event, Task};
 use crate::{interrupt, peripherals};
@@ -177,11 +177,11 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
                 InputChannelPolarity::Toggle => w.mode().event().polarity().toggle(),
             };
             #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
-            w.port().bit(match pin.pin.port() {
+            w.port().bit(match pin.pin.pin.port() {
                 crate::gpio::Port::Port0 => false,
                 crate::gpio::Port::Port1 => true,
             });
-            unsafe { w.psel().bits(pin.pin.pin()) }
+            unsafe { w.psel().bits(pin.pin.pin.pin()) }
         });
 
         g.events_in[num].reset();
@@ -250,7 +250,7 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
 
         g.config[num].write(|w| {
             w.mode().task();
-            match pin.is_set_high().unwrap() {
+            match pin.is_set_high() {
                 true => w.outinit().high(),
                 false => w.outinit().low(),
             };
@@ -260,11 +260,11 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
                 OutputChannelPolarity::Toggle => w.polarity().toggle(),
             };
             #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
-            w.port().bit(match pin.pin.port() {
+            w.port().bit(match pin.pin.pin.port() {
                 crate::gpio::Port::Port0 => false,
                 crate::gpio::Port::Port1 => true,
             });
-            unsafe { w.psel().bits(pin.pin.pin()) }
+            unsafe { w.psel().bits(pin.pin.pin.pin()) }
         });
 
         OutputChannel { ch, _pin: pin }
@@ -311,9 +311,11 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
     }
 }
 
+// =======================
+
 pub(crate) struct PortInputFuture<'a> {
-    pub(crate) pin_port: u8,
-    pub(crate) phantom: PhantomData<&'a mut AnyPin>,
+    pin_port: u8,
+    phantom: PhantomData<&'a mut AnyPin>,
 }
 
 impl<'a> Unpin for PortInputFuture<'a> {}
@@ -339,6 +341,92 @@ impl<'a> Future for PortInputFuture<'a> {
         }
     }
 }
+
+impl<'d, T: GpioPin> embassy::traits::gpio::WaitForHigh for Input<'d, T> {
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + Unpin + 'a;
+
+    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
+        self.pin.wait_for_high()
+    }
+}
+
+impl<'d, T: GpioPin> embassy::traits::gpio::WaitForLow for Input<'d, T> {
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + Unpin + 'a;
+
+    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
+        self.pin.wait_for_low()
+    }
+}
+
+impl<'d, T: GpioPin> embassy::traits::gpio::WaitForAnyEdge for Input<'d, T> {
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + Unpin + 'a;
+
+    fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
+        self.pin.wait_for_any_edge()
+    }
+}
+
+impl<'d, T: GpioPin> embassy::traits::gpio::WaitForHigh for FlexPin<'d, T> {
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + Unpin + 'a;
+
+    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
+        self.pin.conf().modify(|_, w| w.sense().high());
+
+        PortInputFuture {
+            pin_port: self.pin.pin_port(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d, T: GpioPin> embassy::traits::gpio::WaitForLow for FlexPin<'d, T> {
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + Unpin + 'a;
+
+    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
+        self.pin.conf().modify(|_, w| w.sense().low());
+
+        PortInputFuture {
+            pin_port: self.pin.pin_port(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d, T: GpioPin> embassy::traits::gpio::WaitForAnyEdge for FlexPin<'d, T> {
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + Unpin + 'a;
+
+    fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
+        if self.is_high() {
+            self.pin.conf().modify(|_, w| w.sense().low());
+        } else {
+            self.pin.conf().modify(|_, w| w.sense().high());
+        }
+        PortInputFuture {
+            pin_port: self.pin.pin_port(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+// =======================
 
 mod sealed {
     pub trait Channel {}

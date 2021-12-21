@@ -13,7 +13,6 @@ use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::Peripherals;
-use embedded_hal::digital::v2::OutputPin;
 
 enum LedState {
     On,
@@ -53,8 +52,8 @@ async fn main(spawner: Spawner, p: Peripherals) {
             Err(TryRecvError::Closed) => break,
         };
         match maybe_message {
-            Some(LedState::On) => unwrap!(led.set_high()),
-            Some(LedState::Off) => unwrap!(led.set_low()),
+            Some(LedState::On) => led.set_high(),
+            Some(LedState::Off) => led.set_low(),
             _ => (),
         }
     }

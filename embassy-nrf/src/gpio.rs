@@ -1,7 +1,6 @@
 #![macro_use]
 
 use core::convert::Infallible;
-use core::future::Future;
 use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
 
@@ -38,26 +37,23 @@ pub enum Pull {
 
 /// GPIO input driver.
 pub struct Input<'d, T: Pin> {
-    pub(crate) pin: T,
-    phantom: PhantomData<&'d mut T>,
+    pub(crate) pin: FlexPin<'d, T>,
 }
 
 impl<'d, T: Pin> Input<'d, T> {
     pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
-        unborrow!(pin);
+        let mut pin = FlexPin::new(pin);
+        pin.set_as_input(pull);
 
-        init_input(&pin, pull);
-
-        Self {
-            pin,
-            phantom: PhantomData,
-        }
+        Self { pin }
     }
-}
 
-impl<'d, T: Pin> Drop for Input<'d, T> {
-    fn drop(&mut self) {
-        self.pin.conf().reset();
+    fn is_high(&self) -> bool {
+        self.pin.is_high()
+    }
+
+    fn is_low(&self) -> bool {
+        self.pin.is_low()
     }
 }
 
@@ -65,65 +61,11 @@ impl<'d, T: Pin> InputPin for Input<'d, T> {
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
-        self.is_low().map(|v| !v)
+        Ok(self.is_high())
     }
 
     fn is_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.pin.block().in_.read().bits() & (1 << self.pin.pin()) == 0)
-    }
-}
-
-#[cfg(feature = "gpiote")]
-impl<'d, T: Pin> embassy::traits::gpio::WaitForHigh for Input<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
-
-    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
-        self.pin.conf().modify(|_, w| w.sense().high());
-
-        crate::gpiote::PortInputFuture {
-            pin_port: self.pin.pin_port(),
-            phantom: PhantomData,
-        }
-    }
-}
-
-#[cfg(feature = "gpiote")]
-impl<'d, T: Pin> embassy::traits::gpio::WaitForLow for Input<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
-
-    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
-        self.pin.conf().modify(|_, w| w.sense().low());
-
-        crate::gpiote::PortInputFuture {
-            pin_port: self.pin.pin_port(),
-            phantom: PhantomData,
-        }
-    }
-}
-
-#[cfg(feature = "gpiote")]
-impl<'d, T: Pin> embassy::traits::gpio::WaitForAnyEdge for Input<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
-
-    fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
-        if self.is_high().ok().unwrap() {
-            self.pin.conf().modify(|_, w| w.sense().low());
-        } else {
-            self.pin.conf().modify(|_, w| w.sense().high());
-        }
-        crate::gpiote::PortInputFuture {
-            pin_port: self.pin.pin_port(),
-            phantom: PhantomData,
-        }
+        Ok(self.is_low())
     }
 }
 
@@ -160,8 +102,7 @@ pub enum OutputDrive {
 
 /// GPIO output driver.
 pub struct Output<'d, T: Pin> {
-    pub(crate) pin: T,
-    phantom: PhantomData<&'d mut T>,
+    pub(crate) pin: FlexPin<'d, T>,
 }
 
 impl<'d, T: Pin> Output<'d, T> {
@@ -170,63 +111,56 @@ impl<'d, T: Pin> Output<'d, T> {
         initial_output: Level,
         drive: OutputDrive,
     ) -> Self {
-        unborrow!(pin);
-
+        let mut pin = FlexPin::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
             Level::Low => pin.set_low(),
         }
+        pin.set_as_output(drive);
 
-        init_output(&pin, drive);
-
-        Self {
-            pin,
-            phantom: PhantomData,
-        }
+        Self { pin }
     }
-}
 
-impl<'d, T: Pin> Drop for Output<'d, T> {
-    fn drop(&mut self) {
-        self.pin.conf().reset();
+    /// Set the output as high.
+    pub fn set_high(&mut self) {
+        self.pin.set_high()
+    }
+
+    /// Set the output as low.
+    pub fn set_low(&mut self) {
+        self.pin.set_low()
+    }
+
+    /// Is the output pin set as high?
+    pub fn is_set_high(&self) -> bool {
+        self.pin.is_set_high()
+    }
+
+    /// Is the output pin set as low?
+    pub fn is_set_low(&self) -> bool {
+        self.pin.is_set_low()
     }
 }
 
 impl<'d, T: Pin> OutputPin for Output<'d, T> {
     type Error = Infallible;
 
-    /// Set the output as high.
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        unsafe {
-            self.pin
-                .block()
-                .outset
-                .write(|w| w.bits(1u32 << self.pin.pin()));
-        }
-        Ok(())
+        Ok(self.set_high())
     }
 
-    /// Set the output as low.
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        unsafe {
-            self.pin
-                .block()
-                .outclr
-                .write(|w| w.bits(1u32 << self.pin.pin()));
-        }
-        Ok(())
+        Ok(self.set_low())
     }
 }
 
 impl<'d, T: Pin> StatefulOutputPin for Output<'d, T> {
-    /// Is the output pin set as high?
     fn is_set_high(&self) -> Result<bool, Self::Error> {
-        self.is_set_low().map(|v| !v)
+        Ok(self.is_set_high())
     }
 
-    /// Is the output pin set as low?
     fn is_set_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.pin.block().out.read().bits() & (1 << self.pin.pin()) == 0)
+        Ok(self.is_set_low())
     }
 }
 
@@ -256,7 +190,24 @@ impl<'d, T: Pin> FlexPin<'d, T> {
 
     /// Put the pin into input mode.
     pub fn set_as_input(&mut self, pull: Pull) {
-        init_input(&self.pin, pull);
+        self.pin.conf().write(|w| {
+            w.dir().input();
+            w.input().connect();
+            match pull {
+                Pull::None => {
+                    w.pull().disabled();
+                }
+                Pull::Up => {
+                    w.pull().pullup();
+                }
+                Pull::Down => {
+                    w.pull().pulldown();
+                }
+            }
+            w.drive().s0s1();
+            w.sense().disabled();
+            w
+        });
     }
 
     /// Put the pin into output mode.
@@ -264,12 +215,58 @@ impl<'d, T: Pin> FlexPin<'d, T> {
     /// The pin level will be whatever was set before (or low by default). If you want it to begin
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     pub fn set_as_output(&mut self, drive: OutputDrive) {
-        init_output(&self.pin, drive);
+        let drive = match drive {
+            OutputDrive::Standard => DRIVE_A::S0S1,
+            OutputDrive::HighDrive0Standard1 => DRIVE_A::H0S1,
+            OutputDrive::Standard0HighDrive1 => DRIVE_A::S0H1,
+            OutputDrive::HighDrive => DRIVE_A::H0H1,
+            OutputDrive::Disconnect0Standard1 => DRIVE_A::D0S1,
+            OutputDrive::Disconnect0HighDrive1 => DRIVE_A::D0H1,
+            OutputDrive::Standard0Disconnect1 => DRIVE_A::S0D1,
+            OutputDrive::HighDrive0Disconnect1 => DRIVE_A::H0D1,
+        };
+
+        self.pin.conf().write(|w| {
+            w.dir().output();
+            w.input().disconnect();
+            w.pull().disabled();
+            w.drive().variant(drive);
+            w.sense().disabled();
+            w
+        });
     }
 
     /// Put the pin into disconnected mode.
     pub fn set_as_disconnected(&mut self) {
         self.pin.conf().reset();
+    }
+
+    pub fn is_high(&self) -> bool {
+        !self.is_low()
+    }
+
+    pub fn is_low(&self) -> bool {
+        self.pin.block().in_.read().bits() & (1 << self.pin.pin()) == 0
+    }
+
+    /// Set the output as high.
+    pub fn set_high(&mut self) {
+        self.pin.set_high()
+    }
+
+    /// Set the output as low.
+    pub fn set_low(&mut self) {
+        self.pin.set_low()
+    }
+
+    /// Is the output pin set as high?
+    pub fn is_set_high(&self) -> bool {
+        !self.is_set_low()
+    }
+
+    /// Is the output pin set as low?
+    pub fn is_set_low(&self) -> bool {
+        self.pin.block().out.read().bits() & (1 << self.pin.pin()) == 0
     }
 }
 
@@ -286,103 +283,33 @@ impl<'d, T: Pin> InputPin for FlexPin<'d, T> {
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
-        self.is_low().map(|v| !v)
+        Ok(self.is_high())
     }
 
     fn is_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.pin.block().in_.read().bits() & (1 << self.pin.pin()) == 0)
+        Ok(self.is_low())
     }
 }
 
 impl<'d, T: Pin> OutputPin for FlexPin<'d, T> {
     type Error = Infallible;
 
-    /// Set the output as high.
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        unsafe {
-            self.pin
-                .block()
-                .outset
-                .write(|w| w.bits(1u32 << self.pin.pin()));
-        }
-        Ok(())
+        Ok(self.set_high())
     }
 
-    /// Set the output as low.
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        unsafe {
-            self.pin
-                .block()
-                .outclr
-                .write(|w| w.bits(1u32 << self.pin.pin()));
-        }
-        Ok(())
+        Ok(self.set_low())
     }
 }
 
 impl<'d, T: Pin> StatefulOutputPin for FlexPin<'d, T> {
-    /// Is the output pin set as high?
     fn is_set_high(&self) -> Result<bool, Self::Error> {
-        self.is_set_low().map(|v| !v)
+        Ok(self.is_set_high())
     }
 
-    /// Is the output pin set as low?
     fn is_set_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.pin.block().out.read().bits() & (1 << self.pin.pin()) == 0)
-    }
-}
-
-#[cfg(feature = "gpiote")]
-impl<'d, T: Pin> embassy::traits::gpio::WaitForHigh for FlexPin<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
-
-    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
-        self.pin.conf().modify(|_, w| w.sense().high());
-
-        crate::gpiote::PortInputFuture {
-            pin_port: self.pin.pin_port(),
-            phantom: PhantomData,
-        }
-    }
-}
-
-#[cfg(feature = "gpiote")]
-impl<'d, T: Pin> embassy::traits::gpio::WaitForLow for FlexPin<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
-
-    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
-        self.pin.conf().modify(|_, w| w.sense().low());
-
-        crate::gpiote::PortInputFuture {
-            pin_port: self.pin.pin_port(),
-            phantom: PhantomData,
-        }
-    }
-}
-
-#[cfg(feature = "gpiote")]
-impl<'d, T: Pin> embassy::traits::gpio::WaitForAnyEdge for FlexPin<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
-
-    fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
-        if self.is_high().ok().unwrap() {
-            self.pin.conf().modify(|_, w| w.sense().low());
-        } else {
-            self.pin.conf().modify(|_, w| w.sense().high());
-        }
-        crate::gpiote::PortInputFuture {
-            pin_port: self.pin.pin_port(),
-            phantom: PhantomData,
-        }
+        Ok(self.is_set_low())
     }
 }
 
@@ -493,55 +420,6 @@ impl sealed::Pin for AnyPin {
     }
 }
 
-// =====================
-
-/// Set up a pin for input
-#[inline]
-fn init_input<T: Pin>(pin: &T, pull: Pull) {
-    pin.conf().write(|w| {
-        w.dir().input();
-        w.input().connect();
-        match pull {
-            Pull::None => {
-                w.pull().disabled();
-            }
-            Pull::Up => {
-                w.pull().pullup();
-            }
-            Pull::Down => {
-                w.pull().pulldown();
-            }
-        }
-        w.drive().s0s1();
-        w.sense().disabled();
-        w
-    });
-}
-
-/// Set up a pin for output
-#[inline]
-fn init_output<T: Pin>(pin: &T, drive: OutputDrive) {
-    let drive = match drive {
-        OutputDrive::Standard => DRIVE_A::S0S1,
-        OutputDrive::HighDrive0Standard1 => DRIVE_A::H0S1,
-        OutputDrive::Standard0HighDrive1 => DRIVE_A::S0H1,
-        OutputDrive::HighDrive => DRIVE_A::H0H1,
-        OutputDrive::Disconnect0Standard1 => DRIVE_A::D0S1,
-        OutputDrive::Disconnect0HighDrive1 => DRIVE_A::D0H1,
-        OutputDrive::Standard0Disconnect1 => DRIVE_A::S0D1,
-        OutputDrive::HighDrive0Disconnect1 => DRIVE_A::H0D1,
-    };
-
-    pin.conf().write(|w| {
-        w.dir().output();
-        w.input().disconnect();
-        w.pull().disabled();
-        w.drive().variant(drive);
-        w.sense().disabled();
-        w
-    });
-}
-
 // ====================
 
 pub trait OptionalPin: Unborrow<Target = Self> + sealed::OptionalPin + Sized {
@@ -601,9 +479,7 @@ pub(crate) fn deconfigure_pin(psel_bits: u32) {
     if psel_bits & 0x8000_0000 != 0 {
         return;
     }
-    unsafe {
-        AnyPin::steal(psel_bits as _).conf().reset();
-    }
+    unsafe { AnyPin::steal(psel_bits as _).conf().reset() }
 }
 
 // ====================
