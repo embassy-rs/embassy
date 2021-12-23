@@ -29,7 +29,6 @@ executor-agnostic = []
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-cortex-m = "0.7.3"
 futures     = { version = "0.3.17", default-features = false, features = [ "cfg-target-has-atomic", "unstable" ] }
 pin-project = { version = "1.0.8", default-features = false }
 embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
@@ -38,11 +37,27 @@ atomic-polyfill = "0.1.5"
 critical-section = "0.2.5"
 embedded-hal = "0.2.6"
 heapless = "0.7.5"
+cfg-if = "1.0.0"
 
 # WASM dependencies
 wasm-bindgen = { version = "0.2.76", features = ["nightly"], optional = true }
 js-sys = { version = "0.3", optional = true }
 wasm-timer = { version = "0.2.5", optional = true }
+
+[target."thumbv6m-none-eabi".dependencies]
+cortex-m = "0.7.3"
+[target."thumbv7m-none-eabi".dependencies]
+cortex-m = "0.7.3"
+[target."thumbv7em-none-eabi".dependencies]
+cortex-m = "0.7.3"
+[target."thumbv7em-none-eabihf".dependencies]
+cortex-m = "0.7.3"
+[target."thumbv8m.base-none-eabi".dependencies]
+cortex-m = "0.7.3"
+[target."thumbv8m.main-none-eabi".dependencies]
+cortex-m = "0.7.3"
+[target."thumbv8m.main-none-eabihf".dependencies]
+cortex-m = "0.7.3"
 
 [dev-dependencies]
 embassy = { path = ".", features = ["executor-agnostic"] }
