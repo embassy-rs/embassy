@@ -247,7 +247,7 @@ impl<'d, T: Instance> Drop for Qspi<'d, T> {
         let r = T::regs();
 
         if self.dpm_enabled {
-            info!("qspi: doing deep powerdown...");
+            trace!("qspi: doing deep powerdown...");
 
             r.ifconfig1.modify(|_, w| w.dpmen().enter());
 
@@ -281,7 +281,7 @@ impl<'d, T: Instance> Drop for Qspi<'d, T> {
         gpio::deconfigure_pin(r.psel.io2.read().bits());
         gpio::deconfigure_pin(r.psel.io3.read().bits());
 
-        info!("qspi: dropped");
+        trace!("qspi: dropped");
     }
 }
 

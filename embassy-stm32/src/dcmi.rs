@@ -157,15 +157,15 @@ where
     unsafe fn on_interrupt(_: *mut ()) {
         let ris = crate::pac::DCMI.ris().read();
         if ris.err_ris() {
-            error!("DCMI IRQ: Error.");
+            trace!("DCMI IRQ: Error.");
             crate::pac::DCMI.ier().modify(|ier| ier.set_err_ie(false));
         }
         if ris.ovr_ris() {
-            error!("DCMI IRQ: Overrun.");
+            trace!("DCMI IRQ: Overrun.");
             crate::pac::DCMI.ier().modify(|ier| ier.set_ovr_ie(false));
         }
         if ris.frame_ris() {
-            info!("DCMI IRQ: Frame captured.");
+            trace!("DCMI IRQ: Frame captured.");
             crate::pac::DCMI.ier().modify(|ier| ier.set_frame_ie(false));
         }
         STATE.waker.wake();

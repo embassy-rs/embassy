@@ -448,7 +448,7 @@ impl<'d, T: Instance> Twim<'d, T> {
 
 impl<'a, T: Instance> Drop for Twim<'a, T> {
     fn drop(&mut self) {
-        info!("twim drop");
+        trace!("twim drop");
 
         // TODO when implementing async here, check for abort
 
@@ -459,7 +459,7 @@ impl<'a, T: Instance> Drop for Twim<'a, T> {
         gpio::deconfigure_pin(r.psel.sda.read().bits());
         gpio::deconfigure_pin(r.psel.scl.read().bits());
 
-        info!("twim drop: done");
+        trace!("twim drop: done");
     }
 }
 
