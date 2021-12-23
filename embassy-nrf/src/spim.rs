@@ -161,7 +161,7 @@ impl<'d, T: Instance> Spim<'d, T> {
 
 impl<'d, T: Instance> Drop for Spim<'d, T> {
     fn drop(&mut self) {
-        info!("spim drop");
+        trace!("spim drop");
 
         // TODO check for abort, wait for xxxstopped
 
@@ -173,7 +173,7 @@ impl<'d, T: Instance> Drop for Spim<'d, T> {
         gpio::deconfigure_pin(r.psel.miso.read().bits());
         gpio::deconfigure_pin(r.psel.mosi.read().bits());
 
-        info!("spim drop: done");
+        trace!("spim drop: done");
     }
 }
 
