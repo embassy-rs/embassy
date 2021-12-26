@@ -483,16 +483,14 @@ fn sr(r: crate::pac::usart::Usart) -> crate::pac::common::Reg<regs::Sr, crate::p
 }
 
 #[cfg(usart_v1)]
-fn clear_interrupt_flag(r: crate::pac::usart::Usart, _flag: InterruptFlag) {
+unsafe fn clear_interrupt_flag(r: crate::pac::usart::Usart, _flag: InterruptFlag) {
     // This bit is set by hardware when noise is detected on a received frame. It is cleared by a
     // software sequence (an read to the USART_SR register followed by a read to the
     // USART_DR register).
 
     // this is the same as what st's HAL does on v1 hardware
-    unsafe {
-        r.sr().read();
-        r.dr().read();
-    }
+    r.sr().read();
+    r.dr().read();
 }
 
 #[cfg(usart_v2)]
@@ -512,7 +510,7 @@ fn sr(r: crate::pac::usart::Usart) -> crate::pac::common::Reg<regs::Ixr, crate::
 
 #[cfg(usart_v2)]
 #[inline]
-fn clear_interrupt_flag(r: crate::pac::usart::Usart, flag: InterruptFlag) {
+unsafe fn clear_interrupt_flag(r: crate::pac::usart::Usart, flag: InterruptFlag) {
     // v2 has a separate register for clearing flags (nice)
     match flag {
         InterruptFlag::PE => r.icr().write(|w| {
