@@ -202,6 +202,7 @@ impl<'d> Rcc<'d> {
             apb1_tim: Hertz(pclk1 * timer_mul1),
             apb2_tim: Hertz(pclk2 * timer_mul2),
             ahb: Hertz(hclk),
+            adc: Hertz(adcclk),
         }
     }
 }
