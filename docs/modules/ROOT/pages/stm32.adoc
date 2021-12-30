@@ -11,7 +11,7 @@ code-generated register types that are identical for STM32 families with the sam
 
 === The metapac
 
-The `stm32-metapac` module uses pre-generated chip and register definitions for STM32 chip families to generate register types. This is done at compile time based on Cargo feataure flags.
+The `stm32-metapac` module uses pre-generated chip and register definitions for STM32 chip families to generate register types. This is done at compile time based on Cargo feature flags.
 
 The chip and register definitions are located in a separate module, `stm32-data`, which is modified whenever a bug is found in the definitions, or when adding support for new chip families.
 
