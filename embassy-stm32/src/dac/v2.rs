@@ -131,7 +131,7 @@ impl<'d, T: Instance> Dac<'d, T> {
         }
     }
 
-    pub fn enable_channel(&mut self, ch: Channel) -> Result<(), Error> {
+    fn set_channel_enable(&mut self, ch: Channel, on: bool) -> Result<(), Error> {
         match ch {
             Channel::Ch1 => {
                 if self.ch1.is_none() {
@@ -139,7 +139,7 @@ impl<'d, T: Instance> Dac<'d, T> {
                 } else {
                     unsafe {
                         T::regs().cr().modify(|reg| {
-                            reg.set_en1(true);
+                            reg.set_en1(on);
                         });
                     }
                     Ok(())
@@ -151,7 +151,7 @@ impl<'d, T: Instance> Dac<'d, T> {
                 } else {
                     unsafe {
                         T::regs().cr().modify(|reg| {
-                            reg.set_en2(true);
+                            reg.set_en2(on);
                         });
                     }
                     Ok(())
@@ -160,33 +160,12 @@ impl<'d, T: Instance> Dac<'d, T> {
         }
     }
 
+    pub fn enable_channel(&mut self, ch: Channel) -> Result<(), Error> {
+        self.set_channel_enable(ch, true)
+    }
+
     pub fn disable_channel(&mut self, ch: Channel) -> Result<(), Error> {
-        match ch {
-            Channel::Ch1 => {
-                if self.ch1.is_none() {
-                    Err(Error::UnconfiguredChannel)
-                } else {
-                    unsafe {
-                        T::regs().cr().modify(|reg| {
-                            reg.set_en1(true);
-                        });
-                    }
-                    Ok(())
-                }
-            }
-            Channel::Ch2 => {
-                if self.ch2.is_none() {
-                    Err(Error::UnconfiguredChannel)
-                } else {
-                    unsafe {
-                        T::regs().cr().modify(|reg| {
-                            reg.set_en2(true);
-                        });
-                    }
-                    Ok(())
-                }
-            }
-        }
+        self.set_channel_enable(ch, false)
     }
 
     pub fn select_trigger_ch1(&mut self, trigger: Ch1Trigger) -> Result<(), Error> {
