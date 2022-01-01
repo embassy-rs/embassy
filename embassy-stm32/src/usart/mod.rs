@@ -245,9 +245,7 @@ where
     }
 }
 
-#[cfg(usart_v2)]
 pub use buffered::*;
-#[cfg(usart_v2)]
 mod buffered {
     use atomic_polyfill::{compiler_fence, Ordering};
     use core::pin::Pin;
@@ -323,39 +321,30 @@ mod buffered {
         fn on_rx(&mut self) {
             let r = self.uart.inner.regs();
             unsafe {
-                let sr = r.isr().read();
+                let sr = sr(r).read();
+                // TODO: do we want to handle interrupts the same way on v1 hardware?
                 if sr.pe() {
-                    r.icr().write(|w| {
-                        w.set_pe(true);
-                    });
+                    clear_interrupt_flag(r, InterruptFlag::PE);
                     trace!("Parity error");
                 } else if sr.fe() {
-                    r.icr().write(|w| {
-                        w.set_fe(true);
-                    });
+                    clear_interrupt_flag(r, InterruptFlag::FE);
                     trace!("Framing error");
                 } else if sr.ne() {
-                    r.icr().write(|w| {
-                        w.set_ne(true);
-                    });
+                    clear_interrupt_flag(r, InterruptFlag::NE);
                     trace!("Noise error");
                 } else if sr.ore() {
-                    r.icr().write(|w| {
-                        w.set_ore(true);
-                    });
+                    clear_interrupt_flag(r, InterruptFlag::ORE);
                     trace!("Overrun error");
                 } else if sr.rxne() {
                     let buf = self.rx.push_buf();
                     if buf.is_empty() {
                         self.rx_waker.wake();
                     } else {
-                        buf[0] = r.rdr().read().0 as u8;
+                        buf[0] = rdr(r).read_volatile();
                         self.rx.push(1);
                     }
                 } else if sr.idle() {
-                    r.icr().write(|w| {
-                        w.set_idle(true);
-                    });
+                    clear_interrupt_flag(r, InterruptFlag::IDLE);
                     self.rx_waker.wake();
                 };
             }
@@ -364,13 +353,13 @@ mod buffered {
         fn on_tx(&mut self) {
             let r = self.uart.inner.regs();
             unsafe {
-                if r.isr().read().txe() {
+                if sr(r).read().txe() {
                     let buf = self.tx.pop_buf();
                     if !buf.is_empty() {
                         r.cr1().modify(|w| {
                             w.set_txeie(true);
                         });
-                        r.tdr().write_value(regs::Dr(buf[0].into()));
+                        tdr(r).write_volatile(buf[0].into());
                         self.tx.pop(1);
                         self.tx_waker.wake();
                     } else {
@@ -480,9 +469,28 @@ fn rdr(r: crate::pac::usart::Usart) -> *mut u8 {
     r.dr().ptr() as _
 }
 
+enum InterruptFlag {
+    PE,
+    FE,
+    NE,
+    ORE,
+    IDLE,
+}
+
 #[cfg(usart_v1)]
 fn sr(r: crate::pac::usart::Usart) -> crate::pac::common::Reg<regs::Sr, crate::pac::common::RW> {
     r.sr()
+}
+
+#[cfg(usart_v1)]
+unsafe fn clear_interrupt_flag(r: crate::pac::usart::Usart, _flag: InterruptFlag) {
+    // This bit is set by hardware when noise is detected on a received frame. It is cleared by a
+    // software sequence (an read to the USART_SR register followed by a read to the
+    // USART_DR register).
+
+    // this is the same as what st's HAL does on v1 hardware
+    r.sr().read();
+    r.dr().read();
 }
 
 #[cfg(usart_v2)]
@@ -498,6 +506,29 @@ fn rdr(r: crate::pac::usart::Usart) -> *mut u8 {
 #[cfg(usart_v2)]
 fn sr(r: crate::pac::usart::Usart) -> crate::pac::common::Reg<regs::Ixr, crate::pac::common::R> {
     r.isr()
+}
+
+#[cfg(usart_v2)]
+#[inline]
+unsafe fn clear_interrupt_flag(r: crate::pac::usart::Usart, flag: InterruptFlag) {
+    // v2 has a separate register for clearing flags (nice)
+    match flag {
+        InterruptFlag::PE => r.icr().write(|w| {
+            w.set_pe(true);
+        }),
+        InterruptFlag::FE => r.icr().write(|w| {
+            w.set_fe(true);
+        }),
+        InterruptFlag::NE => r.icr().write(|w| {
+            w.set_ne(true);
+        }),
+        InterruptFlag::ORE => r.icr().write(|w| {
+            w.set_ore(true);
+        }),
+        InterruptFlag::IDLE => r.icr().write(|w| {
+            w.set_idle(true);
+        }),
+    }
 }
 
 pub(crate) mod sealed {
