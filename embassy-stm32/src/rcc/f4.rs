@@ -7,17 +7,18 @@ use embassy::util::Unborrow;
 
 const HSI: u32 = 16_000_000;
 
-/// Clocks configutation
+/// Clocks configuration
 #[non_exhaustive]
 #[derive(Default)]
 pub struct Config {
     pub hse: Option<Hertz>,
     pub bypass_hse: bool,
-    pub pll48: bool,
-    pub sys_ck: Option<Hertz>,
     pub hclk: Option<Hertz>,
+    pub sys_ck: Option<Hertz>,
     pub pclk1: Option<Hertz>,
     pub pclk2: Option<Hertz>,
+
+    pub pll48: bool,
 }
 
 /// RCC peripheral
@@ -38,6 +39,8 @@ impl<'d> Rcc<'d> {
         use super::sealed::RccPeripheral;
         use crate::pac::rcc::vals::{Hpre, Hsebyp, Ppre, Sw};
 
+        peripherals::PWR::enable();
+
         let pllsrcclk = self.config.hse.map(|hse| hse.0).unwrap_or(HSI);
         let sysclk = self.config.sys_ck.map(|sys| sys.0).unwrap_or(pllsrcclk);
         let sysclk_on_pll = sysclk != pllsrcclk;
@@ -50,12 +53,9 @@ impl<'d> Rcc<'d> {
         );
 
         if self.config.pll48 {
-            assert!(
-                // USB specification allows +-0.25%
-                plls.pll48clk
-                    .map(|freq| (48_000_000 - freq as i32).abs() <= 120_000)
-                    .unwrap_or(false)
-            );
+            let freq = unwrap!(plls.pll48clk);
+
+            assert!((max::PLL_48_CLK as i32 - freq as i32).abs() <= max::PLL_48_TOLERANCE as i32);
         }
 
         let sysclk = if sysclk_on_pll {
@@ -64,6 +64,7 @@ impl<'d> Rcc<'d> {
             sysclk
         };
 
+        // AHB prescaler
         let hclk = self.config.hclk.map(|h| h.0).unwrap_or(sysclk);
         let (hpre_bits, hpre_div) = match (sysclk + hclk - 1) / hclk {
             0 => unreachable!(),
@@ -86,6 +87,7 @@ impl<'d> Rcc<'d> {
             .pclk1
             .map(|p| p.0)
             .unwrap_or_else(|| core::cmp::min(max::PCLK1_MAX, hclk));
+
         let (ppre1_bits, ppre1) = match (hclk + pclk1 - 1) / pclk1 {
             0 => unreachable!(),
             1 => (0b000, 1),
@@ -136,14 +138,12 @@ impl<'d> Rcc<'d> {
             unsafe {
                 RCC.cr().modify(|w| w.set_pllon(true));
 
-                if hclk > 168_000_000 {
-                    peripherals::PWR::enable();
+                if hclk > max::HCLK_OVERDRIVE_FREQUENCY {
+                    PWR.cr1().modify(|w| w.set_oden(true));
+                    while !PWR.csr1().read().odrdy() {}
 
-                    PWR.cr().modify(|w| w.set_oden(true));
-                    while !PWR.csr().read().odrdy() {}
-
-                    PWR.cr().modify(|w| w.set_odswen(true));
-                    while !PWR.csr().read().odswrdy() {}
+                    PWR.cr1().modify(|w| w.set_odswen(true));
+                    while !PWR.csr1().read().odswrdy() {}
                 }
 
                 while !RCC.cr().read().pllrdy() {}
@@ -310,23 +310,24 @@ struct PllResults {
 mod max {
     #[cfg(stm32f401)]
     pub(crate) const SYSCLK_MAX: u32 = 84_000_000;
-
     #[cfg(any(stm32f405, stm32f407, stm32f415, stm32f417,))]
     pub(crate) const SYSCLK_MAX: u32 = 168_000_000;
-
     #[cfg(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423,))]
     pub(crate) const SYSCLK_MAX: u32 = 100_000_000;
-
     #[cfg(any(
         stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479,
     ))]
     pub(crate) const SYSCLK_MAX: u32 = 180_000_000;
 
+    pub(crate) const HCLK_OVERDRIVE_FREQUENCY: u32 = 168_000_000;
+
+    pub(crate) const PCLK1_MAX: u32 = PCLK2_MAX / 2;
+
     #[cfg(any(stm32f401, stm32f410, stm32f411, stm32f412, stm32f413, stm32f423,))]
     pub(crate) const PCLK2_MAX: u32 = SYSCLK_MAX;
-
     #[cfg(not(any(stm32f401, stm32f410, stm32f411, stm32f412, stm32f413, stm32f423,)))]
     pub(crate) const PCLK2_MAX: u32 = SYSCLK_MAX / 2;
 
-    pub(crate) const PCLK1_MAX: u32 = PCLK2_MAX / 2;
+    pub(crate) const PLL_48_CLK: u32 = 48_000_000;
+    pub(crate) const PLL_48_TOLERANCE: u32 = 120_000;
 }

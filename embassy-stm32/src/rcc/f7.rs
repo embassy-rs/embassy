@@ -7,6 +7,7 @@ use embassy::util::Unborrow;
 
 const HSI: u32 = 16_000_000;
 
+/// Clocks configuration
 #[non_exhaustive]
 #[derive(Default)]
 pub struct Config {
@@ -46,27 +47,25 @@ impl<'d> Rcc<'d> {
         use crate::pac::pwr::vals::Vos;
         use crate::pac::rcc::vals::{Hpre, Hsebyp, Ppre, Sw};
 
-        let base_clock = self.config.hse.map(|hse| hse.0).unwrap_or(HSI);
-        let sysclk = self.config.sys_ck.map(|sys| sys.0).unwrap_or(base_clock);
-        let sysclk_on_pll = sysclk != base_clock;
+        peripherals::PWR::enable();
+
+        let pllsrcclk = self.config.hse.map(|hse| hse.0).unwrap_or(HSI);
+        let sysclk = self.config.sys_ck.map(|sys| sys.0).unwrap_or(pllsrcclk);
+        let sysclk_on_pll = sysclk != pllsrcclk;
 
         assert!((max::SYSCLK_MIN..=max::SYSCLK_MAX).contains(&sysclk));
 
         let plls = self.setup_pll(
-            base_clock,
+            pllsrcclk,
             self.config.hse.is_some(),
             if sysclk_on_pll { Some(sysclk) } else { None },
             self.config.pll48,
         );
 
         if self.config.pll48 {
-            assert!(
-                // USB specification allows +-0.25%
-                plls.pll48clk
-                    .map(|freq| (max::PLL_48_CLK as i32 - freq as i32).abs()
-                        <= max::PLL_48_TOLERANCE as i32)
-                    .unwrap_or(false)
-            );
+            let freq = unwrap!(plls.pll48clk);
+
+            assert!((max::PLL_48_CLK as i32 - freq as i32).abs() <= max::PLL_48_TOLERANCE as i32);
         }
 
         let sysclk = if sysclk_on_pll {
@@ -173,11 +172,7 @@ impl<'d> Rcc<'d> {
 
                 RCC.cr().modify(|w| w.set_pllon(true));
 
-                while !RCC.cr().read().pllrdy() {}
-
                 if hclk > max::HCLK_OVERDRIVE_FREQUENCY {
-                    peripherals::PWR::enable();
-
                     PWR.cr1().modify(|w| w.set_oden(true));
                     while !PWR.csr1().read().odrdy() {}
 
@@ -222,6 +217,8 @@ impl<'d> Rcc<'d> {
             ahb1: Hertz(hclk),
             ahb2: Hertz(hclk),
             ahb3: Hertz(hclk),
+
+            pll48: plls.pll48clk.map(Hertz),
         }
     }
 
@@ -362,6 +359,7 @@ mod max {
     pub(crate) const PCLK2_MIN: u32 = SYSCLK_MIN;
     pub(crate) const PCLK2_MAX: u32 = SYSCLK_MAX / 2;
 
+    // USB specification allows +-0.25%
     pub(crate) const PLL_48_CLK: u32 = 48_000_000;
     pub(crate) const PLL_48_TOLERANCE: u32 = 120_000;
 }
