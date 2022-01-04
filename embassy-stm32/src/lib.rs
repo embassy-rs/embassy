@@ -43,8 +43,6 @@ pub mod i2c;
 #[cfg(crc)]
 pub mod crc;
 pub mod pwm;
-#[cfg(pwr)]
-pub mod pwr;
 #[cfg(rng)]
 pub mod rng;
 #[cfg(sdmmc)]

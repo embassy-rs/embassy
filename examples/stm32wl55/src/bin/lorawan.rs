@@ -10,10 +10,9 @@ mod example_common;
 
 use embassy_lora::{stm32wl::*, LoraTimer};
 use embassy_stm32::{
-    dbgmcu::Dbgmcu,
     dma::NoDma,
     gpio::{Level, Output, Pin, Speed},
-    interrupt, pac, rcc,
+    interrupt, pac,
     rng::Rng,
     subghz::*,
     Peripherals,
@@ -24,19 +23,13 @@ use lorawan_encoding::default_crypto::DefaultFactory as Crypto;
 fn config() -> embassy_stm32::Config {
     let mut config = embassy_stm32::Config::default();
     config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSI16;
+    config.rcc.enable_lsi = true;
     config
 }
 
 #[embassy::main(config = "config()")]
 async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
-    unsafe {
-        Dbgmcu::enable_all();
-        let mut rcc = rcc::Rcc::new(p.RCC);
-        rcc.enable_lsi();
-        pac::RCC.ccipr().modify(|w| {
-            w.set_rngsel(0b01);
-        });
-    }
+    unsafe { pac::RCC.ccipr().modify(|w| w.set_rngsel(0b01)) }
 
     let ctrl1 = Output::new(p.PC3.degrade(), Level::High, Speed::High);
     let ctrl2 = Output::new(p.PC4.degrade(), Level::High, Speed::High);

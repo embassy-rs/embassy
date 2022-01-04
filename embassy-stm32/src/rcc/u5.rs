@@ -1,12 +1,24 @@
-use crate::pac;
-use crate::peripherals::{self, RCC};
-use crate::pwr::{Power, VoltageScale};
+use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::{Hertz, U32Ext};
 use stm32_metapac::rcc::vals::{Hpre, Msirange, Msirgsel, Pllm, Pllsrc, Ppre, Sw};
 
 /// HSI16 speed
 pub const HSI16_FREQ: u32 = 16_000_000;
+
+/// Voltage Scale
+///
+/// Represents the voltage range feeding the CPU core. The maximum core
+/// clock frequency depends on this value.
+#[derive(Copy, Clone, PartialEq)]
+pub enum VoltageScale {
+    // Highest frequency
+    Range1,
+    Range2,
+    Range3,
+    // Lowest power
+    Range4,
+}
 
 #[derive(Copy, Clone)]
 pub enum ClockSrc {
@@ -293,218 +305,188 @@ impl Default for Config {
     }
 }
 
-/// Extension trait that freezes the `RCC` peripheral with provided clocks configuration
-pub trait RccExt {
-    fn freeze(self, config: Config, power: &Power) -> Clocks;
-}
-
-impl RccExt for RCC {
-    #[inline]
-    fn freeze(self, cfgr: Config, power: &Power) -> Clocks {
-        let rcc = pac::RCC;
-
-        let sys_clk = match cfgr.mux {
-            ClockSrc::MSI(range) => {
-                unsafe {
-                    rcc.icscr1().modify(|w| {
-                        let bits: Msirange = range.into();
-                        w.set_msisrange(bits);
-                        w.set_msirgsel(Msirgsel::RCC_ICSCR1);
-                    });
-                    rcc.cr().write(|w| {
-                        w.set_msipllen(false);
-                        w.set_msison(true);
-                        w.set_msison(true);
-                    });
-                    while !rcc.cr().read().msisrdy() {}
-                }
-
-                range.into()
-            }
-            ClockSrc::HSE(freq) => {
-                unsafe {
-                    rcc.cr().write(|w| w.set_hseon(true));
-                    while !rcc.cr().read().hserdy() {}
-                }
-
-                freq.0
-            }
-            ClockSrc::HSI16 => {
-                unsafe {
-                    rcc.cr().write(|w| w.set_hsion(true));
-                    while !rcc.cr().read().hsirdy() {}
-                }
-
-                HSI16_FREQ
-            }
-            ClockSrc::PLL1R(src, m, n, div) => {
-                let freq = match src {
-                    PllSrc::MSI(_) => MSIRange::default().into(),
-                    PllSrc::HSE(hertz) => hertz.0,
-                    PllSrc::HSI16 => HSI16_FREQ,
-                };
-
-                // disable
-                unsafe {
-                    rcc.cr().modify(|w| w.set_pllon(0, false));
-                    while rcc.cr().read().pllrdy(0) {}
-                }
-
-                let vco = freq * n as u8 as u32;
-                let pll_ck = vco / (div as u8 as u32 + 1);
-
-                unsafe {
-                    rcc.pll1cfgr().write(|w| {
-                        w.set_pllm(m.into());
-                        w.set_pllsrc(src.into());
-                    });
-
-                    rcc.pll1divr().modify(|w| {
-                        w.set_pllr(div.to_div());
-                        w.set_plln(n.to_mul());
-                    });
-
-                    // Enable PLL
-                    rcc.cr().modify(|w| w.set_pllon(0, true));
-                    while !rcc.cr().read().pllrdy(0) {}
-                    rcc.pll1cfgr().modify(|w| w.set_pllren(true));
-                }
-
-                unsafe {
-                    rcc.cr().write(|w| w.set_pllon(0, true));
-                    while !rcc.cr().read().pllrdy(0) {}
-                }
-
-                pll_ck
-            }
-        };
-
-        // states and programming delay
-        let wait_states = match power.vos {
-            // VOS 0 range VCORE 1.26V - 1.40V
-            VoltageScale::Range1 => {
-                if sys_clk < 32_000_000 {
-                    0
-                } else if sys_clk < 64_000_000 {
-                    1
-                } else if sys_clk < 96_000_000 {
-                    2
-                } else if sys_clk < 128_000_000 {
-                    3
-                } else {
-                    4
-                }
-            }
-            // VOS 1 range VCORE 1.15V - 1.26V
-            VoltageScale::Range2 => {
-                if sys_clk < 30_000_000 {
-                    0
-                } else if sys_clk < 60_000_000 {
-                    1
-                } else if sys_clk < 90_000_000 {
-                    2
-                } else {
-                    3
-                }
-            }
-            // VOS 2 range VCORE 1.05V - 1.15V
-            VoltageScale::Range3 => {
-                if sys_clk < 24_000_000 {
-                    0
-                } else if sys_clk < 48_000_000 {
-                    1
-                } else {
-                    2
-                }
-            }
-            // VOS 3 range VCORE 0.95V - 1.05V
-            VoltageScale::Range4 => {
-                if sys_clk < 12_000_000 {
-                    0
-                } else {
-                    1
-                }
-            }
-        };
-
-        unsafe {
-            pac::FLASH.acr().modify(|w| {
-                w.set_latency(wait_states);
-            })
-        }
-
-        unsafe {
-            rcc.cfgr1().modify(|w| {
-                w.set_sw(cfgr.mux.into());
-            });
-
-            rcc.cfgr2().modify(|w| {
-                w.set_hpre(cfgr.ahb_pre.into());
-                w.set_ppre1(cfgr.apb1_pre.into());
-                w.set_ppre2(cfgr.apb2_pre.into());
-            });
-
-            rcc.cfgr3().modify(|w| {
-                w.set_ppre3(cfgr.apb3_pre.into());
-            });
-        }
-
-        let ahb_freq: u32 = match cfgr.ahb_pre {
-            AHBPrescaler::NotDivided => sys_clk,
-            pre => {
-                let pre: u8 = pre.into();
-                let pre = 1 << (pre as u32 - 7);
-                sys_clk / pre
-            }
-        };
-
-        let (apb1_freq, apb1_tim_freq) = match cfgr.apb1_pre {
-            APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
-            pre => {
-                let pre: u8 = pre.into();
-                let pre: u8 = 1 << (pre - 3);
-                let freq = ahb_freq / pre as u32;
-                (freq, freq * 2)
-            }
-        };
-
-        let (apb2_freq, apb2_tim_freq) = match cfgr.apb2_pre {
-            APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
-            pre => {
-                let pre: u8 = pre.into();
-                let pre: u8 = 1 << (pre - 3);
-                let freq = ahb_freq / (1 << (pre as u8 - 3));
-                (freq, freq * 2)
-            }
-        };
-
-        let (apb3_freq, _apb3_tim_freq) = match cfgr.apb3_pre {
-            APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
-            pre => {
-                let pre: u8 = pre.into();
-                let pre: u8 = 1 << (pre - 3);
-                let freq = ahb_freq / (1 << (pre as u8 - 3));
-                (freq, freq * 2)
-            }
-        };
-
-        Clocks {
-            sys: sys_clk.hz(),
-            ahb1: ahb_freq.hz(),
-            ahb2: ahb_freq.hz(),
-            ahb3: ahb_freq.hz(),
-            apb1: apb1_freq.hz(),
-            apb2: apb2_freq.hz(),
-            apb3: apb3_freq.hz(),
-            apb1_tim: apb1_tim_freq.hz(),
-            apb2_tim: apb2_tim_freq.hz(),
-        }
-    }
-}
-
 pub(crate) unsafe fn init(config: Config) {
-    let r = <peripherals::RCC as embassy::util::Steal>::steal();
-    let power = Power::new(<peripherals::PWR as embassy::util::Steal>::steal());
-    let clocks = r.freeze(config, &power);
-    set_freqs(clocks);
+    let sys_clk = match config.mux {
+        ClockSrc::MSI(range) => {
+            RCC.icscr1().modify(|w| {
+                let bits: Msirange = range.into();
+                w.set_msisrange(bits);
+                w.set_msirgsel(Msirgsel::RCC_ICSCR1);
+            });
+            RCC.cr().write(|w| {
+                w.set_msipllen(false);
+                w.set_msison(true);
+                w.set_msison(true);
+            });
+            while !RCC.cr().read().msisrdy() {}
+
+            range.into()
+        }
+        ClockSrc::HSE(freq) => {
+            RCC.cr().write(|w| w.set_hseon(true));
+            while !RCC.cr().read().hserdy() {}
+
+            freq.0
+        }
+        ClockSrc::HSI16 => {
+            RCC.cr().write(|w| w.set_hsion(true));
+            while !RCC.cr().read().hsirdy() {}
+
+            HSI16_FREQ
+        }
+        ClockSrc::PLL1R(src, m, n, div) => {
+            let freq = match src {
+                PllSrc::MSI(_) => MSIRange::default().into(),
+                PllSrc::HSE(hertz) => hertz.0,
+                PllSrc::HSI16 => HSI16_FREQ,
+            };
+
+            // disable
+            RCC.cr().modify(|w| w.set_pllon(0, false));
+            while RCC.cr().read().pllrdy(0) {}
+
+            let vco = freq * n as u8 as u32;
+            let pll_ck = vco / (div as u8 as u32 + 1);
+
+            RCC.pll1cfgr().write(|w| {
+                w.set_pllm(m.into());
+                w.set_pllsrc(src.into());
+            });
+
+            RCC.pll1divr().modify(|w| {
+                w.set_pllr(div.to_div());
+                w.set_plln(n.to_mul());
+            });
+
+            // Enable PLL
+            RCC.cr().modify(|w| w.set_pllon(0, true));
+            while !RCC.cr().read().pllrdy(0) {}
+            RCC.pll1cfgr().modify(|w| w.set_pllren(true));
+
+            RCC.cr().write(|w| w.set_pllon(0, true));
+            while !RCC.cr().read().pllrdy(0) {}
+
+            pll_ck
+        }
+    };
+
+    // TODO make configurable
+    let power_vos = VoltageScale::Range4;
+
+    // states and programming delay
+    let wait_states = match power_vos {
+        // VOS 0 range VCORE 1.26V - 1.40V
+        VoltageScale::Range1 => {
+            if sys_clk < 32_000_000 {
+                0
+            } else if sys_clk < 64_000_000 {
+                1
+            } else if sys_clk < 96_000_000 {
+                2
+            } else if sys_clk < 128_000_000 {
+                3
+            } else {
+                4
+            }
+        }
+        // VOS 1 range VCORE 1.15V - 1.26V
+        VoltageScale::Range2 => {
+            if sys_clk < 30_000_000 {
+                0
+            } else if sys_clk < 60_000_000 {
+                1
+            } else if sys_clk < 90_000_000 {
+                2
+            } else {
+                3
+            }
+        }
+        // VOS 2 range VCORE 1.05V - 1.15V
+        VoltageScale::Range3 => {
+            if sys_clk < 24_000_000 {
+                0
+            } else if sys_clk < 48_000_000 {
+                1
+            } else {
+                2
+            }
+        }
+        // VOS 3 range VCORE 0.95V - 1.05V
+        VoltageScale::Range4 => {
+            if sys_clk < 12_000_000 {
+                0
+            } else {
+                1
+            }
+        }
+    };
+
+    FLASH.acr().modify(|w| {
+        w.set_latency(wait_states);
+    });
+
+    RCC.cfgr1().modify(|w| {
+        w.set_sw(config.mux.into());
+    });
+
+    RCC.cfgr2().modify(|w| {
+        w.set_hpre(config.ahb_pre.into());
+        w.set_ppre1(config.apb1_pre.into());
+        w.set_ppre2(config.apb2_pre.into());
+    });
+
+    RCC.cfgr3().modify(|w| {
+        w.set_ppre3(config.apb3_pre.into());
+    });
+
+    let ahb_freq: u32 = match config.ahb_pre {
+        AHBPrescaler::NotDivided => sys_clk,
+        pre => {
+            let pre: u8 = pre.into();
+            let pre = 1 << (pre as u32 - 7);
+            sys_clk / pre
+        }
+    };
+
+    let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
+        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        pre => {
+            let pre: u8 = pre.into();
+            let pre: u8 = 1 << (pre - 3);
+            let freq = ahb_freq / pre as u32;
+            (freq, freq * 2)
+        }
+    };
+
+    let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
+        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        pre => {
+            let pre: u8 = pre.into();
+            let pre: u8 = 1 << (pre - 3);
+            let freq = ahb_freq / (1 << (pre as u8 - 3));
+            (freq, freq * 2)
+        }
+    };
+
+    let (apb3_freq, _apb3_tim_freq) = match config.apb3_pre {
+        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        pre => {
+            let pre: u8 = pre.into();
+            let pre: u8 = 1 << (pre - 3);
+            let freq = ahb_freq / (1 << (pre as u8 - 3));
+            (freq, freq * 2)
+        }
+    };
+
+    set_freqs(Clocks {
+        sys: sys_clk.hz(),
+        ahb1: ahb_freq.hz(),
+        ahb2: ahb_freq.hz(),
+        ahb3: ahb_freq.hz(),
+        apb1: apb1_freq.hz(),
+        apb2: apb2_freq.hz(),
+        apb3: apb3_freq.hz(),
+        apb1_tim: apb1_tim_freq.hz(),
+        apb2_tim: apb2_tim_freq.hz(),
+    });
 }

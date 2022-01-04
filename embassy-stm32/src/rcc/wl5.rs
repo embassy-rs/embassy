@@ -1,10 +1,6 @@
-use crate::pac;
-use crate::peripherals::{self, RCC};
-use crate::rcc::{get_freqs, set_freqs, Clocks};
+use crate::pac::RCC;
+use crate::rcc::{set_freqs, Clocks};
 use crate::time::U32Ext;
-use core::marker::PhantomData;
-use embassy::util::Unborrow;
-use embassy_hal_common::unborrow;
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
 /// and with the addition of the init function to configure a system clock.
@@ -91,6 +87,7 @@ pub struct Config {
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
+    pub enable_lsi: bool,
 }
 
 impl Default for Config {
@@ -101,136 +98,92 @@ impl Default for Config {
             ahb_pre: AHBPrescaler::NotDivided,
             apb1_pre: APBPrescaler::NotDivided,
             apb2_pre: APBPrescaler::NotDivided,
-        }
-    }
-}
-
-/// RCC peripheral
-pub struct Rcc<'d> {
-    _rb: peripherals::RCC,
-    phantom: PhantomData<&'d mut peripherals::RCC>,
-}
-
-impl<'d> Rcc<'d> {
-    pub fn new(rcc: impl Unborrow<Target = peripherals::RCC> + 'd) -> Self {
-        unborrow!(rcc);
-        Self {
-            _rb: rcc,
-            phantom: PhantomData,
-        }
-    }
-
-    pub fn enable_lsi(&mut self) {
-        let rcc = pac::RCC;
-        unsafe {
-            let csr = rcc.csr().read();
-            if !csr.lsion() {
-                rcc.csr().modify(|w| w.set_lsion(true));
-                while !rcc.csr().read().lsirdy() {}
-            }
-        }
-    }
-
-    // Safety: RCC init must have been called
-    pub fn clocks(&self) -> &'static Clocks {
-        unsafe { get_freqs() }
-    }
-}
-
-/// Extension trait that freezes the `RCC` peripheral with provided clocks configuration
-pub trait RccExt {
-    fn freeze(self, config: Config) -> Clocks;
-}
-
-impl RccExt for RCC {
-    #[inline]
-    fn freeze(self, cfgr: Config) -> Clocks {
-        let rcc = pac::RCC;
-        let (sys_clk, sw) = match cfgr.mux {
-            ClockSrc::HSI16 => {
-                // Enable HSI16
-                unsafe {
-                    rcc.cr().write(|w| w.set_hsion(true));
-                    while !rcc.cr().read().hsirdy() {}
-                }
-
-                (HSI_FREQ, 0x01)
-            }
-            ClockSrc::HSE32 => {
-                // Enable HSE32
-                unsafe {
-                    rcc.cr().write(|w| {
-                        w.set_hsebyppwr(true);
-                        w.set_hseon(true);
-                    });
-                    while !rcc.cr().read().hserdy() {}
-                }
-
-                (HSE32_FREQ, 0x02)
-            }
-        };
-
-        unsafe {
-            rcc.cfgr().modify(|w| {
-                w.set_sw(sw.into());
-                if cfgr.ahb_pre == AHBPrescaler::NotDivided {
-                    w.set_hpre(0);
-                } else {
-                    w.set_hpre(cfgr.ahb_pre.into());
-                }
-                w.set_ppre1(cfgr.apb1_pre.into());
-                w.set_ppre2(cfgr.apb2_pre.into());
-            });
-        }
-
-        let ahb_freq: u32 = match cfgr.ahb_pre {
-            AHBPrescaler::NotDivided => sys_clk,
-            pre => {
-                let pre: u8 = pre.into();
-                let pre = 1 << (pre as u32 - 7);
-                sys_clk / pre
-            }
-        };
-
-        let (apb1_freq, apb1_tim_freq) = match cfgr.apb1_pre {
-            APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
-            pre => {
-                let pre: u8 = pre.into();
-                let pre: u8 = 1 << (pre - 3);
-                let freq = ahb_freq / pre as u32;
-                (freq, freq * 2)
-            }
-        };
-
-        let (apb2_freq, apb2_tim_freq) = match cfgr.apb2_pre {
-            APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
-            pre => {
-                let pre: u8 = pre.into();
-                let pre: u8 = 1 << (pre - 3);
-                let freq = ahb_freq / (1 << (pre as u8 - 3));
-                (freq, freq * 2)
-            }
-        };
-
-        // TODO: completely untested
-        let apb3_freq = ahb_freq;
-
-        Clocks {
-            sys: sys_clk.hz(),
-            ahb1: ahb_freq.hz(),
-            ahb2: ahb_freq.hz(),
-            ahb3: ahb_freq.hz(),
-            apb1: apb1_freq.hz(),
-            apb2: apb2_freq.hz(),
-            apb3: apb3_freq.hz(),
-            apb1_tim: apb1_tim_freq.hz(),
-            apb2_tim: apb2_tim_freq.hz(),
+            enable_lsi: false,
         }
     }
 }
 
 pub(crate) unsafe fn init(config: Config) {
-    let r = <peripherals::RCC as embassy::util::Steal>::steal();
-    let clocks = r.freeze(config);
-    set_freqs(clocks);
+    let (sys_clk, sw) = match config.mux {
+        ClockSrc::HSI16 => {
+            // Enable HSI16
+            RCC.cr().write(|w| w.set_hsion(true));
+            while !RCC.cr().read().hsirdy() {}
+
+            (HSI_FREQ, 0x01)
+        }
+        ClockSrc::HSE32 => {
+            // Enable HSE32
+            RCC.cr().write(|w| {
+                w.set_hsebyppwr(true);
+                w.set_hseon(true);
+            });
+            while !RCC.cr().read().hserdy() {}
+
+            (HSE32_FREQ, 0x02)
+        }
+    };
+
+    RCC.cfgr().modify(|w| {
+        w.set_sw(sw.into());
+        if config.ahb_pre == AHBPrescaler::NotDivided {
+            w.set_hpre(0);
+        } else {
+            w.set_hpre(config.ahb_pre.into());
+        }
+        w.set_ppre1(config.apb1_pre.into());
+        w.set_ppre2(config.apb2_pre.into());
+    });
+
+    let ahb_freq: u32 = match config.ahb_pre {
+        AHBPrescaler::NotDivided => sys_clk,
+        pre => {
+            let pre: u8 = pre.into();
+            let pre = 1 << (pre as u32 - 7);
+            sys_clk / pre
+        }
+    };
+
+    let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
+        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        pre => {
+            let pre: u8 = pre.into();
+            let pre: u8 = 1 << (pre - 3);
+            let freq = ahb_freq / pre as u32;
+            (freq, freq * 2)
+        }
+    };
+
+    let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
+        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        pre => {
+            let pre: u8 = pre.into();
+            let pre: u8 = 1 << (pre - 3);
+            let freq = ahb_freq / (1 << (pre as u8 - 3));
+            (freq, freq * 2)
+        }
+    };
+
+    // TODO: completely untested
+    let apb3_freq = ahb_freq;
+
+    if config.enable_lsi {
+        let csr = RCC.csr().read();
+        if !csr.lsion() {
+            RCC.csr().modify(|w| w.set_lsion(true));
+            while !RCC.csr().read().lsirdy() {}
+        }
+    }
+
+    set_freqs(Clocks {
+        sys: sys_clk.hz(),
+        ahb1: ahb_freq.hz(),
+        ahb2: ahb_freq.hz(),
+        ahb3: ahb_freq.hz(),
+        apb1: apb1_freq.hz(),
+        apb2: apb2_freq.hz(),
+        apb3: apb3_freq.hz(),
+        apb1_tim: apb1_tim_freq.hz(),
+        apb2_tim: apb2_tim_freq.hz(),
+    });
 }
