@@ -66,7 +66,7 @@ const TX_PARAMS: TxParams = TxParams::new()
 
 fn config() -> embassy_stm32::Config {
     let mut config = embassy_stm32::Config::default();
-    config.rcc = config.rcc.clock_src(embassy_stm32::rcc::ClockSrc::HSE32);
+    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE32;
     config
 }
 

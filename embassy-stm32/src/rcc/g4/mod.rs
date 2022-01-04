@@ -74,11 +74,11 @@ impl Into<u8> for AHBPrescaler {
 
 /// Clocks configutation
 pub struct Config {
-    mux: ClockSrc,
-    ahb_pre: AHBPrescaler,
-    apb1_pre: APBPrescaler,
-    apb2_pre: APBPrescaler,
-    low_power_run: bool,
+    pub mux: ClockSrc,
+    pub ahb_pre: AHBPrescaler,
+    pub apb1_pre: APBPrescaler,
+    pub apb2_pre: APBPrescaler,
+    pub low_power_run: bool,
 }
 
 impl Default for Config {
@@ -91,38 +91,6 @@ impl Default for Config {
             apb2_pre: APBPrescaler::NotDivided,
             low_power_run: false,
         }
-    }
-}
-
-impl Config {
-    #[inline]
-    pub fn clock_src(mut self, mux: ClockSrc) -> Self {
-        self.mux = mux;
-        self
-    }
-
-    #[inline]
-    pub fn ahb_pre(mut self, pre: AHBPrescaler) -> Self {
-        self.ahb_pre = pre;
-        self
-    }
-
-    #[inline]
-    pub fn apb1_pre(mut self, pre: APBPrescaler) -> Self {
-        self.apb1_pre = pre;
-        self
-    }
-
-    #[inline]
-    pub fn apb2_pre(mut self, pre: APBPrescaler) -> Self {
-        self.apb2_pre = pre;
-        self
-    }
-
-    #[inline]
-    pub fn low_power_run(mut self, on: bool) -> Self {
-        self.low_power_run = on;
-        self
     }
 }
 

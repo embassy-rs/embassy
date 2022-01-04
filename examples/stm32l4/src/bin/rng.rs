@@ -14,13 +14,13 @@ use example_common::*;
 
 fn config() -> Config {
     let mut config = Config::default();
-    config.rcc = config.rcc.clock_src(ClockSrc::PLL(
+    config.rcc.mux = ClockSrc::PLL(
         PLLSource::HSI16,
         PLLClkDiv::Div2,
         PLLSrcDiv::Div1,
         PLLMul::Mul8,
         Some(PLLClkDiv::Div2),
-    ));
+    );
     config
 }
 
