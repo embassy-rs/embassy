@@ -201,7 +201,7 @@ impl<'d> Rcc<'d> {
     }
 }
 
-pub unsafe fn init(config: Config) {
+pub(crate) unsafe fn init(config: Config) {
     let rcc = Rcc::new(<peripherals::RCC as embassy::util::Steal>::steal(), config);
     let clocks = rcc.freeze();
     set_freqs(clocks);

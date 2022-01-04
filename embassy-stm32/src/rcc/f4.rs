@@ -5,9 +5,6 @@ use crate::time::Hertz;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 
-mod max;
-use max::{PCLK1_MAX, PCLK2_MAX};
-
 const HSI: u32 = 16_000_000;
 
 /// Clocks configutation
@@ -88,7 +85,7 @@ impl<'d> Rcc<'d> {
             .config
             .pclk1
             .map(|p| p.0)
-            .unwrap_or_else(|| core::cmp::min(PCLK1_MAX, hclk));
+            .unwrap_or_else(|| core::cmp::min(max::PCLK1_MAX, hclk));
         let (ppre1_bits, ppre1) = match (hclk + pclk1 - 1) / pclk1 {
             0 => unreachable!(),
             1 => (0b000, 1),
@@ -101,13 +98,13 @@ impl<'d> Rcc<'d> {
 
         // Calculate real APB1 clock
         let pclk1 = hclk / ppre1;
-        assert!(pclk1 <= PCLK1_MAX);
+        assert!(pclk1 <= max::PCLK1_MAX);
 
         let pclk2 = self
             .config
             .pclk2
             .map(|p| p.0)
-            .unwrap_or_else(|| core::cmp::min(PCLK2_MAX, hclk));
+            .unwrap_or_else(|| core::cmp::min(max::PCLK2_MAX, hclk));
         let (ppre2_bits, ppre2) = match (hclk + pclk2 - 1) / pclk2 {
             0 => unreachable!(),
             1 => (0b000, 1),
@@ -120,7 +117,7 @@ impl<'d> Rcc<'d> {
 
         // Calculate real APB2 clock
         let pclk2 = hclk / ppre2;
-        assert!(pclk2 <= PCLK2_MAX);
+        assert!(pclk2 <= max::PCLK2_MAX);
 
         Self::flash_setup(sysclk);
 
@@ -298,7 +295,7 @@ impl<'d> Rcc<'d> {
     }
 }
 
-pub unsafe fn init(config: Config) {
+pub(crate) unsafe fn init(config: Config) {
     let r = <peripherals::RCC as embassy::util::Steal>::steal();
     let clocks = Rcc::new(r, config).freeze();
     set_freqs(clocks);
@@ -308,4 +305,28 @@ struct PllResults {
     use_pll: bool,
     pllsysclk: Option<u32>,
     pll48clk: Option<u32>,
+}
+
+mod max {
+    #[cfg(stm32f401)]
+    pub(crate) const SYSCLK_MAX: u32 = 84_000_000;
+
+    #[cfg(any(stm32f405, stm32f407, stm32f415, stm32f417,))]
+    pub(crate) const SYSCLK_MAX: u32 = 168_000_000;
+
+    #[cfg(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423,))]
+    pub(crate) const SYSCLK_MAX: u32 = 100_000_000;
+
+    #[cfg(any(
+        stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479,
+    ))]
+    pub(crate) const SYSCLK_MAX: u32 = 180_000_000;
+
+    #[cfg(any(stm32f401, stm32f410, stm32f411, stm32f412, stm32f413, stm32f423,))]
+    pub(crate) const PCLK2_MAX: u32 = SYSCLK_MAX;
+
+    #[cfg(not(any(stm32f401, stm32f410, stm32f411, stm32f412, stm32f413, stm32f423,)))]
+    pub(crate) const PCLK2_MAX: u32 = SYSCLK_MAX / 2;
+
+    pub(crate) const PCLK1_MAX: u32 = PCLK2_MAX / 2;
 }

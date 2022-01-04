@@ -54,7 +54,7 @@ struct PllConfig {
 }
 
 /// Initialize and Set the clock frequencies
-pub unsafe fn init(config: Config) {
+pub(crate) unsafe fn init(config: Config) {
     let r = <peripherals::RCC as embassy::util::Steal>::steal();
     let clocks = Rcc::new(r, config).freeze();
     set_freqs(clocks);

@@ -1,7 +1,6 @@
 use crate::pac;
 use crate::peripherals::{self, RCC};
 use crate::rcc::{get_freqs, set_freqs, Clocks};
-use crate::time::Hertz;
 use crate::time::U32Ext;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
@@ -15,10 +14,12 @@ use embassy_hal_common::unborrow;
 /// HSI speed
 pub const HSI_FREQ: u32 = 16_000_000;
 
+pub const HSE32_FREQ: u32 = 32_000_000;
+
 /// System clock mux source
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
-    HSE(Hertz),
+    HSE32,
     HSI16,
 }
 
@@ -119,6 +120,17 @@ impl<'d> Rcc<'d> {
         }
     }
 
+    pub fn enable_lsi(&mut self) {
+        let rcc = pac::RCC;
+        unsafe {
+            let csr = rcc.csr().read();
+            if !csr.lsion() {
+                rcc.csr().modify(|w| w.set_lsion(true));
+                while !rcc.csr().read().lsirdy() {}
+            }
+        }
+    }
+
     // Safety: RCC init must have been called
     pub fn clocks(&self) -> &'static Clocks {
         unsafe { get_freqs() }
@@ -144,21 +156,28 @@ impl RccExt for RCC {
 
                 (HSI_FREQ, 0x01)
             }
-            ClockSrc::HSE(freq) => {
-                // Enable HSE
+            ClockSrc::HSE32 => {
+                // Enable HSE32
                 unsafe {
-                    rcc.cr().write(|w| w.set_hseon(true));
+                    rcc.cr().write(|w| {
+                        w.set_hsebyppwr(true);
+                        w.set_hseon(true);
+                    });
                     while !rcc.cr().read().hserdy() {}
                 }
 
-                (freq.0, 0x02)
+                (HSE32_FREQ, 0x02)
             }
         };
 
         unsafe {
             rcc.cfgr().modify(|w| {
                 w.set_sw(sw.into());
-                w.set_hpre(cfgr.ahb_pre.into());
+                if cfgr.ahb_pre == AHBPrescaler::NotDivided {
+                    w.set_hpre(0);
+                } else {
+                    w.set_hpre(cfgr.ahb_pre.into());
+                }
                 w.set_ppre1(cfgr.apb1_pre.into());
                 w.set_ppre2(cfgr.apb2_pre.into());
             });
@@ -193,6 +212,9 @@ impl RccExt for RCC {
             }
         };
 
+        // TODO: completely untested
+        let apb3_freq = ahb_freq;
+
         Clocks {
             sys: sys_clk.hz(),
             ahb1: ahb_freq.hz(),
@@ -200,13 +222,14 @@ impl RccExt for RCC {
             ahb3: ahb_freq.hz(),
             apb1: apb1_freq.hz(),
             apb2: apb2_freq.hz(),
+            apb3: apb3_freq.hz(),
             apb1_tim: apb1_tim_freq.hz(),
             apb2_tim: apb2_tim_freq.hz(),
         }
     }
 }
 
-pub unsafe fn init(config: Config) {
+pub(crate) unsafe fn init(config: Config) {
     let r = <peripherals::RCC as embassy::util::Steal>::steal();
     let clocks = r.freeze(config);
     set_freqs(clocks);

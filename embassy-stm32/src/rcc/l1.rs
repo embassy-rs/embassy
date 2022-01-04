@@ -7,17 +7,45 @@ use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
+/// Most of clock setup is copied from rcc/l0
+
 /// HSI speed
 pub const HSI_FREQ: u32 = 16_000_000;
-
-/// LSI speed
-pub const LSI_FREQ: u32 = 32_000;
 
 /// System clock mux source
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
+    MSI(MSIRange),
     HSE(Hertz),
-    HSI16,
+    HSI,
+}
+
+/// MSI Clock Range
+///
+/// These ranges control the frequency of the MSI. Internally, these ranges map
+/// to the `MSIRANGE` bits in the `RCC_ICSCR` register.
+#[derive(Clone, Copy)]
+pub enum MSIRange {
+    /// Around 65.536 kHz
+    Range0,
+    /// Around 131.072 kHz
+    Range1,
+    /// Around 262.144 kHz
+    Range2,
+    /// Around 524.288 kHz
+    Range3,
+    /// Around 1.048 MHz
+    Range4,
+    /// Around 2.097 MHz (reset value)
+    Range5,
+    /// Around 4.194 MHz
+    Range6,
+}
+
+impl Default for MSIRange {
+    fn default() -> MSIRange {
+        MSIRange::Range5
+    }
 }
 
 /// AHB prescaler
@@ -44,30 +72,46 @@ pub enum APBPrescaler {
     Div16,
 }
 
-impl Into<u8> for APBPrescaler {
-    fn into(self) -> u8 {
+type Ppre = u8;
+impl Into<Ppre> for APBPrescaler {
+    fn into(self) -> Ppre {
         match self {
-            APBPrescaler::NotDivided => 1,
-            APBPrescaler::Div2 => 0x04,
-            APBPrescaler::Div4 => 0x05,
-            APBPrescaler::Div8 => 0x06,
-            APBPrescaler::Div16 => 0x07,
+            APBPrescaler::NotDivided => 0b000,
+            APBPrescaler::Div2 => 0b100,
+            APBPrescaler::Div4 => 0b101,
+            APBPrescaler::Div8 => 0b110,
+            APBPrescaler::Div16 => 0b111,
         }
     }
 }
 
-impl Into<u8> for AHBPrescaler {
+type Hpre = u8;
+impl Into<Hpre> for AHBPrescaler {
+    fn into(self) -> Hpre {
+        match self {
+            AHBPrescaler::NotDivided => 0b0000,
+            AHBPrescaler::Div2 => 0b1000,
+            AHBPrescaler::Div4 => 0b1001,
+            AHBPrescaler::Div8 => 0b1010,
+            AHBPrescaler::Div16 => 0b1011,
+            AHBPrescaler::Div64 => 0b1100,
+            AHBPrescaler::Div128 => 0b1101,
+            AHBPrescaler::Div256 => 0b1110,
+            AHBPrescaler::Div512 => 0b1111,
+        }
+    }
+}
+
+impl Into<u8> for MSIRange {
     fn into(self) -> u8 {
         match self {
-            AHBPrescaler::NotDivided => 1,
-            AHBPrescaler::Div2 => 0x08,
-            AHBPrescaler::Div4 => 0x09,
-            AHBPrescaler::Div8 => 0x0a,
-            AHBPrescaler::Div16 => 0x0b,
-            AHBPrescaler::Div64 => 0x0c,
-            AHBPrescaler::Div128 => 0x0d,
-            AHBPrescaler::Div256 => 0x0e,
-            AHBPrescaler::Div512 => 0x0f,
+            MSIRange::Range0 => 0b000,
+            MSIRange::Range1 => 0b001,
+            MSIRange::Range2 => 0b010,
+            MSIRange::Range3 => 0b011,
+            MSIRange::Range4 => 0b100,
+            MSIRange::Range5 => 0b101,
+            MSIRange::Range6 => 0b110,
         }
     }
 }
@@ -78,18 +122,16 @@ pub struct Config {
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
-    pub low_power_run: bool,
 }
 
 impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
-            mux: ClockSrc::HSI16,
+            mux: ClockSrc::MSI(MSIRange::default()),
             ahb_pre: AHBPrescaler::NotDivided,
             apb1_pre: APBPrescaler::NotDivided,
             apb2_pre: APBPrescaler::NotDivided,
-            low_power_run: false,
         }
     }
 }
@@ -121,18 +163,36 @@ pub trait RccExt {
 }
 
 impl RccExt for RCC {
+    // `cfgr` is almost always a constant, so make sure it can be constant-propagated properly by
+    // marking this function and all `Config` constructors and setters as `#[inline]`.
+    // This saves ~900 Bytes for the `pwr.rs` example.
     #[inline]
     fn freeze(self, cfgr: Config) -> Clocks {
         let rcc = pac::RCC;
         let (sys_clk, sw) = match cfgr.mux {
-            ClockSrc::HSI16 => {
-                // Enable HSI16
+            ClockSrc::MSI(range) => {
+                // Set MSI range
+                unsafe {
+                    rcc.icscr().write(|w| w.set_msirange(range.into()));
+                }
+
+                // Enable MSI
+                unsafe {
+                    rcc.cr().write(|w| w.set_msion(true));
+                    while !rcc.cr().read().msirdy() {}
+                }
+
+                let freq = 32_768 * (1 << (range as u8 + 1));
+                (freq, 0b00)
+            }
+            ClockSrc::HSI => {
+                // Enable HSI
                 unsafe {
                     rcc.cr().write(|w| w.set_hsion(true));
                     while !rcc.cr().read().hsirdy() {}
                 }
 
-                (HSI_FREQ, 0x01)
+                (HSI_FREQ, 0b01)
             }
             ClockSrc::HSE(freq) => {
                 // Enable HSE
@@ -141,7 +201,7 @@ impl RccExt for RCC {
                     while !rcc.cr().read().hserdy() {}
                 }
 
-                (freq.0, 0x02)
+                (freq.0, 0b10)
             }
         };
 
@@ -157,7 +217,7 @@ impl RccExt for RCC {
         let ahb_freq: u32 = match cfgr.ahb_pre {
             AHBPrescaler::NotDivided => sys_clk,
             pre => {
-                let pre: u8 = pre.into();
+                let pre: Hpre = pre.into();
                 let pre = 1 << (pre as u32 - 7);
                 sys_clk / pre
             }
@@ -166,7 +226,7 @@ impl RccExt for RCC {
         let (apb1_freq, apb1_tim_freq) = match cfgr.apb1_pre {
             APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
             pre => {
-                let pre: u8 = pre.into();
+                let pre: Ppre = pre.into();
                 let pre: u8 = 1 << (pre - 3);
                 let freq = ahb_freq / pre as u32;
                 (freq, freq * 2)
@@ -176,34 +236,25 @@ impl RccExt for RCC {
         let (apb2_freq, apb2_tim_freq) = match cfgr.apb2_pre {
             APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
             pre => {
-                let pre: u8 = pre.into();
+                let pre: Ppre = pre.into();
                 let pre: u8 = 1 << (pre - 3);
-                let freq = ahb_freq / pre as u32;
+                let freq = ahb_freq / (1 << (pre as u8 - 3));
                 (freq, freq * 2)
             }
         };
 
-        let pwr = pac::PWR;
-        if cfgr.low_power_run {
-            assert!(sys_clk.hz() <= 2_000_000.hz());
-            unsafe {
-                pwr.cr1().modify(|w| w.set_lpr(true));
-            }
-        }
-
         Clocks {
             sys: sys_clk.hz(),
-            ahb1: ahb_freq.hz(),
-            ahb2: ahb_freq.hz(),
+            ahb: ahb_freq.hz(),
             apb1: apb1_freq.hz(),
-            apb1_tim: apb1_tim_freq.hz(),
             apb2: apb2_freq.hz(),
+            apb1_tim: apb1_tim_freq.hz(),
             apb2_tim: apb2_tim_freq.hz(),
         }
     }
 }
 
-pub unsafe fn init(config: Config) {
+pub(crate) unsafe fn init(config: Config) {
     let r = <peripherals::RCC as embassy::util::Steal>::steal();
     let clocks = r.freeze(config);
     set_freqs(clocks);

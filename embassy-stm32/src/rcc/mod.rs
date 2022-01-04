@@ -4,6 +4,23 @@ use crate::peripherals;
 use crate::time::Hertz;
 use core::mem::MaybeUninit;
 
+#[cfg_attr(any(rcc_f0, rcc_f0x0), path = "f0.rs")]
+#[cfg_attr(rcc_f1, path = "f1.rs")]
+#[cfg_attr(rcc_f3, path = "f3.rs")]
+#[cfg_attr(any(rcc_f4, rcc_f410), path = "f4.rs")]
+#[cfg_attr(rcc_f7, path = "f7.rs")]
+#[cfg_attr(rcc_g0, path = "g0.rs")]
+#[cfg_attr(rcc_g4, path = "g4.rs")]
+#[cfg_attr(any(rcc_h7, rcc_h7ab), path = "h7.rs")]
+#[cfg_attr(rcc_l0, path = "l0.rs")]
+#[cfg_attr(rcc_l1, path = "l1.rs")]
+#[cfg_attr(rcc_l4, path = "l4.rs")]
+#[cfg_attr(rcc_u5, path = "u5.rs")]
+#[cfg_attr(rcc_wb, path = "wb.rs")]
+#[cfg_attr(rcc_wl5, path = "wl5.rs")]
+mod _version;
+pub use _version::*;
+
 #[derive(Clone, Copy)]
 pub struct Clocks {
     pub sys: Hertz,
@@ -59,59 +76,13 @@ static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
 /// Sets the clock frequencies
 ///
 /// Safety: Sets a mutable global.
-pub unsafe fn set_freqs(freqs: Clocks) {
+pub(crate) unsafe fn set_freqs(freqs: Clocks) {
     CLOCK_FREQS.as_mut_ptr().write(freqs);
 }
 
 /// Safety: Reads a mutable global.
-pub unsafe fn get_freqs() -> &'static Clocks {
+pub(crate) unsafe fn get_freqs() -> &'static Clocks {
     &*CLOCK_FREQS.as_ptr()
-}
-
-cfg_if::cfg_if! {
-    if #[cfg(rcc_h7)] {
-        mod h7;
-        pub use h7::*;
-    } else if #[cfg(rcc_l0)] {
-        mod l0;
-        pub use l0::*;
-    } else if #[cfg(rcc_l1)] {
-        mod l1;
-        pub use l1::*;
-    } else if #[cfg(rcc_l4)] {
-        mod l4;
-        pub use l4::*;
-    } else if #[cfg(rcc_f1)] {
-        mod f1;
-        pub use f1::*;
-    } else if #[cfg(rcc_f3)] {
-        mod f3;
-        pub use f3::*;
-    } else if #[cfg(rcc_f4)] {
-        mod f4;
-        pub use f4::*;
-    } else if #[cfg(rcc_f7)] {
-        mod f7;
-        pub use f7::*;
-    } else if #[cfg(rcc_wb)] {
-        mod wb;
-        pub use wb::*;
-    } else if #[cfg(rcc_wl5)] {
-        mod wl5x;
-        pub use wl5x::*;
-    } else if #[cfg(any(rcc_f0, rcc_f0x0))] {
-        mod f0;
-        pub use f0::*;
-    } else if #[cfg(any(rcc_g0))] {
-        mod g0;
-        pub use g0::*;
-    } else if #[cfg(any(rcc_g4))] {
-        mod g4;
-        pub use g4::*;
-    } else if #[cfg(any(rcc_u5))] {
-        mod u5;
-        pub use u5::*;
-    }
 }
 
 pub(crate) mod sealed {

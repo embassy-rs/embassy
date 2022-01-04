@@ -430,7 +430,7 @@ impl RccExt for RCC {
 #[derive(Clone, Copy)]
 pub struct HSI48(());
 
-pub unsafe fn init(config: Config) {
+pub(crate) unsafe fn init(config: Config) {
     let r = <peripherals::RCC as embassy::util::Steal>::steal();
     let clocks = r.freeze(config);
     set_freqs(clocks);
