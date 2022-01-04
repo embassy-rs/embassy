@@ -23,6 +23,5 @@ pub fn config() -> Config {
     let mut config = Config::default();
     config.rcc.sys_ck = Some(400.mhz().into());
     config.rcc.pll1.q_ck = Some(100.mhz().into());
-    config.rcc.enable_dma1 = true;
     config
 }

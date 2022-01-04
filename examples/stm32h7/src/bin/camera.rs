@@ -34,8 +34,6 @@ pub fn config() -> Config {
     config.rcc.sys_ck = Some(400.mhz().into());
     config.rcc.hclk = Some(400.mhz().into());
     config.rcc.pll1.q_ck = Some(100.mhz().into());
-    config.rcc.enable_dma1 = true;
-    config.rcc.enable_dma2 = true;
     config.rcc.pclk1 = Some(100.mhz().into());
     config.rcc.pclk2 = Some(100.mhz().into());
     config.rcc.pclk3 = Some(100.mhz().into());

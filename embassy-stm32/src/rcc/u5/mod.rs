@@ -274,28 +274,22 @@ impl Default for MSIRange {
 
 #[derive(Copy, Clone)]
 pub struct Config {
-    mux: ClockSrc,
-    ahb_pre: AHBPrescaler,
-    apb1_pre: APBPrescaler,
-    apb2_pre: APBPrescaler,
-    apb3_pre: APBPrescaler,
+    pub mux: ClockSrc,
+    pub ahb_pre: AHBPrescaler,
+    pub apb1_pre: APBPrescaler,
+    pub apb2_pre: APBPrescaler,
+    pub apb3_pre: APBPrescaler,
 }
 
-impl Config {
-    pub fn new() -> Self {
-        Config {
+impl Default for Config {
+    fn default() -> Self {
+        Self {
             mux: ClockSrc::MSI(MSIRange::default()),
             ahb_pre: Default::default(),
             apb1_pre: Default::default(),
             apb2_pre: Default::default(),
             apb3_pre: Default::default(),
         }
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config::new()
     }
 }
 
