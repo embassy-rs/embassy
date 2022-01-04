@@ -59,6 +59,8 @@ rand_core = "0.6.3"
 fixed = "1.10.0"
 embedded-storage = "0.2.0"
 cfg-if = "1.0.0"
+nrf-usbd = {version = "0.1.1"}
+usb-device = "0.2.8"
 
 nrf52805-pac  = { version = "0.10.1", optional = true, features = [ "rt" ] }
 nrf52810-pac  = { version = "0.10.1", optional = true, features = [ "rt" ] }

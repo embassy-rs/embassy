@@ -7,6 +7,9 @@ pub const FORCE_COPY_BUFFER_SIZE: usize = 512;
 pub const FLASH_SIZE: usize = 1024 * 1024;
 
 embassy_hal_common::peripherals! {
+    // USB
+    USBD,
+
     // RTC
     RTC0,
     RTC1,
@@ -156,6 +159,8 @@ embassy_hal_common::peripherals! {
     // TEMP
     TEMP,
 }
+
+impl_usb!(USBD, USBD, USBD);
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
 impl_uarte!(UARTE1, UARTE1, UARTE1);
