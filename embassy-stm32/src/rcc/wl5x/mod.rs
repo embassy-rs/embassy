@@ -231,13 +231,6 @@ impl RccExt for RCC {
 
 pub unsafe fn init(config: Config) {
     let r = <peripherals::RCC as embassy::util::Steal>::steal();
-    let rcc = pac::RCC;
-    rcc.ahb2enr().write(|w| {
-        w.set_gpioaen(true);
-        w.set_gpioben(true);
-        w.set_gpiocen(true);
-        w.set_gpiohen(true);
-    });
     let clocks = r.freeze(config);
     set_freqs(clocks);
 }
