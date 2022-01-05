@@ -52,7 +52,7 @@ impl<'d> Rng<'d> {
     /// e.g. using `mem::forget`.
     ///
     /// The synchronous API is safe.
-    pub unsafe fn new(
+    pub fn new(
         _rng: impl Unborrow<Target = RNG> + 'd,
         irq: impl Unborrow<Target = interrupt::RNG> + 'd,
     ) -> Self {
