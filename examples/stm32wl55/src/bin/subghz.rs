@@ -11,7 +11,6 @@ mod example_common;
 use embassy::channel::signal::Signal;
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::traits::gpio::WaitForRisingEdge;
-use embassy_stm32::dbgmcu::Dbgmcu;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
@@ -72,10 +71,6 @@ fn config() -> embassy_stm32::Config {
 
 #[embassy::main(config = "config()")]
 async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
-    unsafe {
-        Dbgmcu::enable_all();
-    }
-
     let mut led1 = Output::new(p.PB15, Level::High, Speed::Low);
     let mut led2 = Output::new(p.PB9, Level::Low, Speed::Low);
     let mut led3 = Output::new(p.PB11, Level::Low, Speed::Low);

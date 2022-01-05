@@ -125,6 +125,7 @@ SECTIONS
   {
     . = ALIGN(4);
     __sdata = .;
+    __edata = .;
     *(.data .data.*);
     . = ALIGN(4); /* 4-byte align the end (VMA) of this section */
   } > RAM
@@ -132,7 +133,6 @@ SECTIONS
    * use the .data loading mechanism by pushing __edata. Note: do not change
    * output region or load region in those user sections! */
   . = ALIGN(4);
-  __edata = .;
 
   /* LMA of .data */
   __sidata = LOADADDR(.data);

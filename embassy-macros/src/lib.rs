@@ -370,16 +370,14 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
                 ::core::mem::transmute(t)
             }
 
-            let mut executor = #embassy_path::executor::Executor::new();
-
-            let executor = unsafe { make_static(&mut executor) };
-
             #chip_setup
+
+            let mut executor = #embassy_path::executor::Executor::new();
+            let executor = unsafe { make_static(&mut executor) };
 
             executor.run(|spawner| {
                 spawner.must_spawn(__embassy_main(spawner, p));
             })
-
         }
     };
     result.into()

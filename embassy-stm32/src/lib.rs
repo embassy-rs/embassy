@@ -29,8 +29,6 @@ pub mod adc;
 pub mod can;
 #[cfg(dac)]
 pub mod dac;
-#[cfg(dbgmcu)]
-pub mod dbgmcu;
 #[cfg(dcmi)]
 pub mod dcmi;
 #[cfg(all(eth, feature = "net"))]
@@ -43,8 +41,6 @@ pub mod i2c;
 #[cfg(crc)]
 pub mod crc;
 pub mod pwm;
-#[cfg(pwr)]
-pub mod pwr;
 #[cfg(rng)]
 pub mod rng;
 #[cfg(sdmmc)]
@@ -92,7 +88,13 @@ pub fn init(config: Config) -> Peripherals {
 
     unsafe {
         if config.enable_debug_during_sleep {
-            dbgmcu::Dbgmcu::enable_all();
+            crate::pac::DBGMCU.cr().modify(|cr| {
+                crate::pac::dbgmcu! {
+                    (cr, $fn_name:ident) => {
+                        cr.$fn_name(true);
+                    };
+                }
+            });
         }
 
         gpio::init();

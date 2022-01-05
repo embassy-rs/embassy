@@ -11,10 +11,8 @@ mod example_common;
 
 use embassy_lora::{sx127x::*, LoraTimer};
 use embassy_stm32::{
-    dbgmcu::Dbgmcu,
     exti::ExtiInput,
     gpio::{Input, Level, Output, Pull, Speed},
-    rcc,
     rng::Rng,
     spi,
     time::U32Ext,
@@ -26,18 +24,12 @@ use lorawan_encoding::default_crypto::DefaultFactory as Crypto;
 fn config() -> embassy_stm32::Config {
     let mut config = embassy_stm32::Config::default();
     config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSI16;
+    config.rcc.enable_hsi48 = true;
     config
 }
 
 #[embassy::main(config = "config()")]
-async fn main(_spawner: embassy::executor::Spawner, mut p: Peripherals) {
-    unsafe {
-        Dbgmcu::enable_all();
-    }
-
-    let mut rcc = rcc::Rcc::new(p.RCC);
-    let _ = rcc.enable_hsi48(&mut p.SYSCFG, p.CRS);
-
+async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
     // SPI for sx127x
     let spi = spi::Spi::new(
         p.SPI1,
