@@ -15,7 +15,7 @@ use rand::Rng as _;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    let mut rng = unsafe { Rng::new(p.RNG, interrupt::take!(RNG)) };
+    let mut rng = Rng::new(p.RNG, interrupt::take!(RNG));
 
     // Async API
     let mut bytes = [0; 4];
