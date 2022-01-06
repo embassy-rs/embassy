@@ -2,7 +2,7 @@
 
 Embassy provides HAL's for several microcontroller families:
 
-* `embassy-nrf` for the nRF microcontroller sfrom Nordic Semiconductor
+* `embassy-nrf` for the nRF microcontrollers from Nordic Semiconductor
 * `embassy-stm32` for STM32 microcontrollers from ST Microelectronics
 * `embassy-rp` for the Raspberry Pi RP2040 microcontrollers
 
