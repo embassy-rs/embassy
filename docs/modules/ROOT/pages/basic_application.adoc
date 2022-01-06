@@ -35,7 +35,7 @@ include::example$basic/src/main.rs[lines="18..27"]
 
 An embassy task must be declared `async`, and may NOT take generic arguments. In this case, we are handed the LED that should be blinked and the interval of the blinking.
 
-NOTE: Notice that there is not busy waiting going on in this task. It is using the Embassy timer to yield execution, allowing the microcontroller to sleep in between the blinking.
+NOTE: Notice that there is no busy waiting going on in this task. It is using the Embassy timer to yield execution, allowing the microcontroller to sleep in between the blinking.
 
 === Main
 
