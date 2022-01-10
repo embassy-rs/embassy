@@ -82,7 +82,7 @@ use crate::{
     pac,
     peripherals::SUBGHZSPI,
     rcc::sealed::RccPeripheral,
-    spi::{ByteOrder, Config as SpiConfig, MisoPin, MosiPin, SckPin, Spi},
+    spi::{BitOrder, Config as SpiConfig, MisoPin, MosiPin, SckPin, Spi},
     time::Hertz,
 };
 use embassy::util::Unborrow;
@@ -233,7 +233,7 @@ impl<'d, Tx, Rx> SubGhz<'d, Tx, Rx> {
         let clk = Hertz(core::cmp::min(SUBGHZSPI::frequency().0 / 2, 16_000_000));
         let mut config = SpiConfig::default();
         config.mode = MODE_0;
-        config.byte_order = ByteOrder::MsbFirst;
+        config.bit_order = BitOrder::MsbFirst;
         let spi = Spi::new(peri, sck, mosi, miso, txdma, rxdma, clk, config);
 
         unsafe { wakeup() };
