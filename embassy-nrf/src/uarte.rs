@@ -151,6 +151,12 @@ impl<'d, T: Instance> Uarte<'d, T> {
         (self.tx, self.rx)
     }
 
+    /// Return the endtx event for use with PPI
+    pub fn event_endtx(&self) -> Event {
+        let r = T::regs();
+        Event::from_reg(&r.events_endtx)
+    }
+
     fn on_interrupt(_: *mut ()) {
         let r = T::regs();
         let s = T::state();
