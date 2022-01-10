@@ -14,7 +14,7 @@ The Embassy runtime is an async/await executor designed for embedded usage along
 
 == Executor
 
-The executor function is described below. The executor keeps a queue of tasks that it should poll. When a task is created, it is polled (1). The task will attempt to make progress until reaches a point where it would be blocked. This may happen whenever a task is .await'ing an async function. When that happens, the task yields execution by (2) returning `Poll::Pending`. Once a task yields, the executor enqueues the task at the end of the run queue, and proceeds to (3) poll the next task in the queue. If a task returns `Poll::Ready` it essentially means that the task is finished and will not be enqueued again.
+The executor function is described below. The executor keeps a queue of tasks that it should poll. When a task is created, it is polled (1). The task will attempt to make progress until it reaches a point where it would be blocked. This may happen whenever a task is .await'ing an async function. When that happens, the task yields execution by (2) returning `Poll::Pending`. Once a task yields, the executor enqueues the task at the end of the run queue, and proceeds to (3) poll the next task in the queue. If a task returns `Poll::Ready` it essentially means that the task is finished and will not be enqueued again.
 
 IMPORTANT: The executor relies on tasks not blocking indefinitely, as this prevents the executor to regain control and schedule another task.
 
@@ -39,7 +39,7 @@ Embassy features an internal timer queue enabled by the `time` feature flag. Whe
 
 The timer driver implementations for the embedded platforms might support only a fixed number of alarms that can be set. Make sure the number of tasks you expect wanting to use the timer at the same time do not exceed this limit.
 
-The timer speed is configurable at compile time using the `time-tick-<frequency>`. At present, the the timer may be configured to run at 1000 Hz, 32768 Hz, or 1 MHz. Before changing the defaults, make sure the target HAL supports the particular frequency setting.
+The timer speed is configurable at compile time using the `time-tick-<frequency>`. At present, the timer may be configured to run at 1000 Hz, 32768 Hz, or 1 MHz. Before changing the defaults, make sure the target HAL supports the particular frequency setting.
 
 
 
