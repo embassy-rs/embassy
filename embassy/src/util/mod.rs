@@ -1,7 +1,11 @@
 //! Misc utilities
+
 mod forever;
+mod yield_now;
 
 pub use forever::*;
+pub use yield_now::*;
+
 /// Unsafely unborrow an owned singleton out of a `&mut`.
 ///
 /// It is intended to be implemented for owned peripheral singletons, such as `USART3` or `AnyPin`.
