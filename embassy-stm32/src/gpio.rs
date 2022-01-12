@@ -480,6 +480,7 @@ pub(crate) mod sealed {
 }
 
 pub trait Pin: sealed::Pin + Sized {
+    #[cfg(feature = "exti")]
     type ExtiChannel: crate::exti::Channel;
 
     /// Number of the pin within the port (0..31)
@@ -527,6 +528,7 @@ impl AnyPin {
 
 unsafe_impl_unborrow!(AnyPin);
 impl Pin for AnyPin {
+    #[cfg(feature = "exti")]
     type ExtiChannel = crate::exti::AnyChannel;
 }
 impl sealed::Pin for AnyPin {
@@ -589,6 +591,7 @@ impl OptionalPin for NoPin {
 crate::pac::pins!(
     ($pin_name:ident, $port_name:ident, $port_num:expr, $pin_num:expr, $exti_ch:ident) => {
         impl Pin for peripherals::$pin_name {
+            #[cfg(feature = "exti")]
             type ExtiChannel = peripherals::$exti_ch;
         }
         impl sealed::Pin for peripherals::$pin_name {
