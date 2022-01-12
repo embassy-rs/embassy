@@ -41,6 +41,7 @@ sdmmc-rs = ["embedded-sdmmc"]
 net = ["embassy-net", "vcell"]
 memory-x = ["stm32-metapac/memory-x"]
 subghz = []
+exti = []
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.

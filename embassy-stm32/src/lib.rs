@@ -33,7 +33,7 @@ pub mod dac;
 pub mod dcmi;
 #[cfg(all(eth, feature = "net"))]
 pub mod eth;
-#[cfg(exti)]
+#[cfg(feature = "exti")]
 pub mod exti;
 #[cfg(i2c)]
 pub mod i2c;
@@ -99,7 +99,7 @@ pub fn init(config: Config) -> Peripherals {
 
         gpio::init();
         dma::init();
-        #[cfg(exti)]
+        #[cfg(feature = "exti")]
         exti::init();
 
         rcc::init(config.rcc);
