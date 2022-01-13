@@ -9,7 +9,7 @@ use embedded_hal::digital::v2::InputPin;
 use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, FlexPin, Input, Output, Pin as GpioPin};
+use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin};
 use crate::pac;
 use crate::ppi::{Event, Task};
 use crate::{interrupt, peripherals};
@@ -375,7 +375,7 @@ impl<'d, T: GpioPin> embassy::traits::gpio::WaitForAnyEdge for Input<'d, T> {
     }
 }
 
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForHigh for FlexPin<'d, T> {
+impl<'d, T: GpioPin> embassy::traits::gpio::WaitForHigh for Flex<'d, T> {
     type Future<'a>
     where
         Self: 'a,
@@ -391,7 +391,7 @@ impl<'d, T: GpioPin> embassy::traits::gpio::WaitForHigh for FlexPin<'d, T> {
     }
 }
 
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForLow for FlexPin<'d, T> {
+impl<'d, T: GpioPin> embassy::traits::gpio::WaitForLow for Flex<'d, T> {
     type Future<'a>
     where
         Self: 'a,
@@ -407,7 +407,7 @@ impl<'d, T: GpioPin> embassy::traits::gpio::WaitForLow for FlexPin<'d, T> {
     }
 }
 
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForAnyEdge for FlexPin<'d, T> {
+impl<'d, T: GpioPin> embassy::traits::gpio::WaitForAnyEdge for Flex<'d, T> {
     type Future<'a>
     where
         Self: 'a,

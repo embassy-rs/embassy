@@ -37,12 +37,12 @@ pub enum Pull {
 
 /// GPIO input driver.
 pub struct Input<'d, T: Pin> {
-    pub(crate) pin: FlexPin<'d, T>,
+    pub(crate) pin: Flex<'d, T>,
 }
 
 impl<'d, T: Pin> Input<'d, T> {
     pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
-        let mut pin = FlexPin::new(pin);
+        let mut pin = Flex::new(pin);
         pin.set_as_input(pull);
 
         Self { pin }
@@ -102,7 +102,7 @@ pub enum OutputDrive {
 
 /// GPIO output driver.
 pub struct Output<'d, T: Pin> {
-    pub(crate) pin: FlexPin<'d, T>,
+    pub(crate) pin: Flex<'d, T>,
 }
 
 impl<'d, T: Pin> Output<'d, T> {
@@ -111,7 +111,7 @@ impl<'d, T: Pin> Output<'d, T> {
         initial_output: Level,
         drive: OutputDrive,
     ) -> Self {
-        let mut pin = FlexPin::new(pin);
+        let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
             Level::Low => pin.set_low(),
@@ -169,13 +169,13 @@ impl<'d, T: Pin> StatefulOutputPin for Output<'d, T> {
 /// This pin can either be a disconnected, input, or output pin. The level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
-pub struct FlexPin<'d, T: Pin> {
+pub struct Flex<'d, T: Pin> {
     pub(crate) pin: T,
     phantom: PhantomData<&'d mut T>,
 }
 
-impl<'d, T: Pin> FlexPin<'d, T> {
-    /// Wrap the pin in a `FlexPin`.
+impl<'d, T: Pin> Flex<'d, T> {
+    /// Wrap the pin in a `Flex`.
     ///
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
@@ -270,16 +270,16 @@ impl<'d, T: Pin> FlexPin<'d, T> {
     }
 }
 
-impl<'d, T: Pin> Drop for FlexPin<'d, T> {
+impl<'d, T: Pin> Drop for Flex<'d, T> {
     fn drop(&mut self) {
         self.pin.conf().reset();
     }
 }
 
-/// Implement [`InputPin`] for [`FlexPin`];
+/// Implement [`InputPin`] for [`Flex`];
 ///
 /// If the pin is not in input mode the result is unspecified.
-impl<'d, T: Pin> InputPin for FlexPin<'d, T> {
+impl<'d, T: Pin> InputPin for Flex<'d, T> {
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
@@ -291,7 +291,7 @@ impl<'d, T: Pin> InputPin for FlexPin<'d, T> {
     }
 }
 
-impl<'d, T: Pin> OutputPin for FlexPin<'d, T> {
+impl<'d, T: Pin> OutputPin for Flex<'d, T> {
     type Error = Infallible;
 
     fn set_high(&mut self) -> Result<(), Self::Error> {
@@ -303,7 +303,7 @@ impl<'d, T: Pin> OutputPin for FlexPin<'d, T> {
     }
 }
 
-impl<'d, T: Pin> StatefulOutputPin for FlexPin<'d, T> {
+impl<'d, T: Pin> StatefulOutputPin for Flex<'d, T> {
     fn is_set_high(&self) -> Result<bool, Self::Error> {
         Ok(self.is_set_high())
     }
