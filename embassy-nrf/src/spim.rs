@@ -15,6 +15,7 @@ use crate::gpio;
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin, Pin as GpioPin};
 use crate::interrupt::Interrupt;
+use crate::util::{slice_ptr_parts, slice_ptr_parts_mut};
 use crate::{pac, util::slice_in_ram_or};
 
 pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
@@ -157,6 +158,74 @@ impl<'d, T: Instance> Spim<'d, T> {
             r.intenclr.write(|w| w.end().clear());
         }
     }
+
+    fn start_transfer(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+        slice_in_ram_or(tx, Error::DMABufferNotInDataMemory)?;
+        // NOTE: RAM slice check for rx is not necessary, as a mutable
+        // slice can only be built from data located in RAM.
+
+        // Conservative compiler fence to prevent optimizations that do not
+        // take in to account actions by DMA. The fence has been placed here,
+        // before any DMA action has started.
+        compiler_fence(Ordering::SeqCst);
+
+        let r = T::regs();
+
+        // Set up the DMA write.
+        let (ptr, len) = slice_ptr_parts(tx);
+        r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
+        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+
+        // Set up the DMA read.
+        let (ptr, len) = slice_ptr_parts_mut(rx);
+        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
+        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+
+        // Reset and enable the event
+        r.events_end.reset();
+        r.intenset.write(|w| w.end().set());
+
+        // Start SPI transaction.
+        r.tasks_start.write(|w| unsafe { w.bits(1) });
+
+        Ok(())
+    }
+
+    fn blocking_transfer(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+        self.start_transfer(rx, tx)?;
+
+        // Wait for 'end' event.
+        while T::regs().events_end.read().bits() == 0 {}
+
+        // Conservative compiler fence to prevent optimizations that do not
+        // take in to account actions by DMA. The fence has been placed here,
+        // after all possible DMA actions have completed.
+        compiler_fence(Ordering::SeqCst);
+
+        Ok(())
+    }
+
+    async fn async_transfer(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+        self.start_transfer(rx, tx)?;
+
+        // Wait for 'end' event.
+        poll_fn(|cx| {
+            T::state().end_waker.register(cx.waker());
+            if T::regs().events_end.read().bits() != 0 {
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+
+        // Conservative compiler fence to prevent optimizations that do not
+        // take in to account actions by DMA. The fence has been placed here,
+        // after all possible DMA actions have completed.
+        compiler_fence(Ordering::SeqCst);
+
+        Ok(())
+    }
 }
 
 impl<'d, T: Instance> Drop for Spim<'d, T> {
@@ -210,108 +279,14 @@ impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
     = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read_write<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::WriteReadFuture<'a> {
-        async move {
-            slice_in_ram_or(tx, Error::DMABufferNotInDataMemory)?;
-            // NOTE: RAM slice check for rx is not necessary, as a mutable
-            // slice can only be built from data located in RAM.
-
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // before any DMA action has started.
-            compiler_fence(Ordering::SeqCst);
-
-            let r = T::regs();
-            let s = T::state();
-
-            // Set up the DMA write.
-            r.txd
-                .ptr
-                .write(|w| unsafe { w.ptr().bits(tx.as_ptr() as u32) });
-            r.txd
-                .maxcnt
-                .write(|w| unsafe { w.maxcnt().bits(tx.len() as _) });
-
-            // Set up the DMA read.
-            r.rxd
-                .ptr
-                .write(|w| unsafe { w.ptr().bits(rx.as_mut_ptr() as u32) });
-            r.rxd
-                .maxcnt
-                .write(|w| unsafe { w.maxcnt().bits(rx.len() as _) });
-
-            // Reset and enable the event
-            r.events_end.reset();
-            r.intenset.write(|w| w.end().set());
-
-            // Start SPI transaction.
-            r.tasks_start.write(|w| unsafe { w.bits(1) });
-
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // after all possible DMA actions have completed.
-            compiler_fence(Ordering::SeqCst);
-
-            // Wait for 'end' event.
-            poll_fn(|cx| {
-                s.end_waker.register(cx.waker());
-                if r.events_end.read().bits() != 0 {
-                    return Poll::Ready(());
-                }
-
-                Poll::Pending
-            })
-            .await;
-
-            Ok(())
-        }
+        self.async_transfer(rx, tx)
     }
 }
 
-// Blocking functions are provided by implementing `embedded_hal` traits.
-//
-// Code could be shared between traits to reduce code size.
 impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spim<'d, T> {
     type Error = Error;
     fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
-        slice_in_ram_or(words, Error::DMABufferNotInDataMemory)?;
-
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // before any DMA action has started.
-        compiler_fence(Ordering::SeqCst);
-
-        let r = T::regs();
-
-        // Set up the DMA write.
-        r.txd
-            .ptr
-            .write(|w| unsafe { w.ptr().bits(words.as_ptr() as u32) });
-        r.txd
-            .maxcnt
-            .write(|w| unsafe { w.maxcnt().bits(words.len() as _) });
-
-        // Set up the DMA read.
-        r.rxd
-            .ptr
-            .write(|w| unsafe { w.ptr().bits(words.as_mut_ptr() as u32) });
-        r.rxd
-            .maxcnt
-            .write(|w| unsafe { w.maxcnt().bits(words.len() as _) });
-
-        // Disable the end event since we are busy-polling.
-        r.events_end.reset();
-
-        // Start SPI transaction.
-        r.tasks_start.write(|w| unsafe { w.bits(1) });
-
-        // Wait for 'end' event.
-        while r.events_end.read().bits() == 0 {}
-
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // after all possible DMA actions have completed.
-        compiler_fence(Ordering::SeqCst);
-
+        self.blocking_transfer(words, words)?;
         Ok(words)
     }
 }
@@ -320,47 +295,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spim<'d, T> {
     type Error = Error;
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        slice_in_ram_or(words, Error::DMABufferNotInDataMemory)?;
-        let recv: &mut [u8] = &mut [];
-
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // before any DMA action has started.
-        compiler_fence(Ordering::SeqCst);
-
-        let r = T::regs();
-
-        // Set up the DMA write.
-        r.txd
-            .ptr
-            .write(|w| unsafe { w.ptr().bits(words.as_ptr() as u32) });
-        r.txd
-            .maxcnt
-            .write(|w| unsafe { w.maxcnt().bits(words.len() as _) });
-
-        // Set up the DMA read.
-        r.rxd
-            .ptr
-            .write(|w| unsafe { w.ptr().bits(recv.as_mut_ptr() as u32) });
-        r.rxd
-            .maxcnt
-            .write(|w| unsafe { w.maxcnt().bits(recv.len() as _) });
-
-        // Disable the end event since we are busy-polling.
-        r.events_end.reset();
-
-        // Start SPI transaction.
-        r.tasks_start.write(|w| unsafe { w.bits(1) });
-
-        // Wait for 'end' event.
-        while r.events_end.read().bits() == 0 {}
-
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // after all possible DMA actions have completed.
-        compiler_fence(Ordering::SeqCst);
-
-        Ok(())
+        self.blocking_transfer(&mut [], words)
     }
 }
 
