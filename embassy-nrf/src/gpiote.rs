@@ -342,78 +342,60 @@ impl<'a> Future for PortInputFuture<'a> {
     }
 }
 
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForHigh for Input<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
+impl<'d, T: GpioPin> Input<'d, T> {
+    pub async fn wait_for_high(&mut self) {
+        self.pin.wait_for_high().await
+    }
 
-    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
-        self.pin.wait_for_high()
+    pub async fn wait_for_low(&mut self) {
+        self.pin.wait_for_low().await
+    }
+
+    pub async fn wait_for_rising_edge(&mut self) {
+        self.pin.wait_for_rising_edge().await
+    }
+
+    pub async fn wait_for_falling_edge(&mut self) {
+        self.pin.wait_for_falling_edge().await
+    }
+
+    pub async fn wait_for_any_edge(&mut self) {
+        self.pin.wait_for_any_edge().await
     }
 }
 
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForLow for Input<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
-
-    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
-        self.pin.wait_for_low()
-    }
-}
-
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForAnyEdge for Input<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
-
-    fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
-        self.pin.wait_for_any_edge()
-    }
-}
-
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForHigh for Flex<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
-
-    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
+impl<'d, T: GpioPin> Flex<'d, T> {
+    pub async fn wait_for_high(&mut self) {
         self.pin.conf().modify(|_, w| w.sense().high());
 
         PortInputFuture {
             pin_port: self.pin.pin_port(),
             phantom: PhantomData,
         }
+        .await
     }
-}
 
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForLow for Flex<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
-
-    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
+    pub async fn wait_for_low(&mut self) {
         self.pin.conf().modify(|_, w| w.sense().low());
 
         PortInputFuture {
             pin_port: self.pin.pin_port(),
             phantom: PhantomData,
         }
+        .await
     }
-}
 
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForAnyEdge for Flex<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
+    pub async fn wait_for_rising_edge(&mut self) {
+        self.wait_for_low().await;
+        self.wait_for_high().await;
+    }
 
-    fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
+    pub async fn wait_for_falling_edge(&mut self) {
+        self.wait_for_high().await;
+        self.wait_for_low().await;
+    }
+
+    pub async fn wait_for_any_edge(&mut self) {
         if self.is_high() {
             self.pin.conf().modify(|_, w| w.sense().low());
         } else {
@@ -423,6 +405,7 @@ impl<'d, T: GpioPin> embassy::traits::gpio::WaitForAnyEdge for Flex<'d, T> {
             pin_port: self.pin.pin_port(),
             phantom: PhantomData,
         }
+        .await
     }
 }
 

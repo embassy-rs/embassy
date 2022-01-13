@@ -350,17 +350,13 @@ pub(crate) mod sealed {
         /// Set the output as high.
         #[inline]
         fn set_high(&self) {
-            unsafe {
-                self.block().outset.write(|w| w.bits(1u32 << self._pin()));
-            }
+            unsafe { self.block().outset.write(|w| w.bits(1u32 << self._pin())) }
         }
 
         /// Set the output as low.
         #[inline]
         fn set_low(&self) {
-            unsafe {
-                self.block().outclr.write(|w| w.bits(1u32 << self._pin()));
-            }
+            unsafe { self.block().outclr.write(|w| w.bits(1u32 << self._pin())) }
         }
     }
 
