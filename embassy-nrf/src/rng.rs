@@ -1,5 +1,3 @@
-use core::convert::Infallible;
-use core::future::Future;
 use core::marker::PhantomData;
 use core::ptr;
 use core::sync::atomic::AtomicPtr;
@@ -7,13 +5,11 @@ use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use embassy::interrupt::InterruptExt;
-use embassy::traits;
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
-use rand_core::RngCore;
 
 use crate::interrupt;
 use crate::pac;
@@ -39,7 +35,7 @@ struct State {
 
 /// A wrapper around an nRF RNG peripheral.
 ///
-/// It has a non-blocking API, through `embassy::traits::Rng`, and a blocking api through `rand`.
+/// It has a non-blocking API, and a blocking api through `rand`.
 pub struct Rng<'d> {
     irq: interrupt::RNG,
     phantom: PhantomData<(&'d mut RNG, &'d mut interrupt::RNG)>,
@@ -146,72 +142,51 @@ impl<'d> Rng<'d> {
     pub fn bias_correction(&self, enable: bool) {
         RNG::regs().config.write(|w| w.dercen().bit(enable))
     }
-}
 
-impl<'d> Drop for Rng<'d> {
-    fn drop(&mut self) {
-        self.irq.disable()
-    }
-}
-
-impl<'d> traits::rng::Rng for Rng<'d> {
-    type Error = Infallible;
-
-    type RngFuture<'a>
-    where
-        'd: 'a,
-    = impl Future<Output = Result<(), Self::Error>> + 'a;
-
-    fn fill_bytes<'a>(&'a mut self, dest: &'a mut [u8]) -> Self::RngFuture<'a> {
-        async move {
-            if dest.len() == 0 {
-                return Ok(()); // Nothing to fill
-            }
-
-            let range = dest.as_mut_ptr_range();
-            // Even if we've preempted the interrupt, it can't preempt us again,
-            // so we don't need to worry about the order we write these in.
-            STATE.ptr.store(range.start, Ordering::Relaxed);
-            STATE.end.store(range.end, Ordering::Relaxed);
-
-            self.enable_irq();
-            self.start();
-
-            let on_drop = OnDrop::new(|| {
-                self.stop();
-                self.disable_irq();
-
-                // The interrupt is now disabled and can't preempt us anymore, so the order doesn't matter here.
-                STATE.ptr.store(ptr::null_mut(), Ordering::Relaxed);
-                STATE.end.store(ptr::null_mut(), Ordering::Relaxed);
-            });
-
-            poll_fn(|cx| {
-                STATE.waker.register(cx.waker());
-
-                // The interrupt will never modify `end`, so load it first and then get the most up-to-date `ptr`.
-                let end = STATE.end.load(Ordering::Relaxed);
-                let ptr = STATE.ptr.load(Ordering::Relaxed);
-
-                if ptr == end {
-                    // We're done.
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            // Trigger the teardown
-            drop(on_drop);
-
-            Ok(())
+    pub async fn fill_bytes(&mut self, dest: &mut [u8]) {
+        if dest.len() == 0 {
+            return; // Nothing to fill
         }
-    }
-}
 
-impl<'d> RngCore for Rng<'d> {
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        let range = dest.as_mut_ptr_range();
+        // Even if we've preempted the interrupt, it can't preempt us again,
+        // so we don't need to worry about the order we write these in.
+        STATE.ptr.store(range.start, Ordering::Relaxed);
+        STATE.end.store(range.end, Ordering::Relaxed);
+
+        self.enable_irq();
+        self.start();
+
+        let on_drop = OnDrop::new(|| {
+            self.stop();
+            self.disable_irq();
+
+            // The interrupt is now disabled and can't preempt us anymore, so the order doesn't matter here.
+            STATE.ptr.store(ptr::null_mut(), Ordering::Relaxed);
+            STATE.end.store(ptr::null_mut(), Ordering::Relaxed);
+        });
+
+        poll_fn(|cx| {
+            STATE.waker.register(cx.waker());
+
+            // The interrupt will never modify `end`, so load it first and then get the most up-to-date `ptr`.
+            let end = STATE.end.load(Ordering::Relaxed);
+            let ptr = STATE.ptr.load(Ordering::Relaxed);
+
+            if ptr == end {
+                // We're done.
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        // Trigger the teardown
+        drop(on_drop);
+    }
+
+    pub fn blocking_fill_bytes(&mut self, dest: &mut [u8]) {
         self.start();
 
         for byte in dest.iter_mut() {
@@ -223,24 +198,36 @@ impl<'d> RngCore for Rng<'d> {
 
         self.stop();
     }
+}
+
+impl<'d> Drop for Rng<'d> {
+    fn drop(&mut self) {
+        self.irq.disable()
+    }
+}
+
+impl<'d> rand_core::RngCore for Rng<'d> {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.blocking_fill_bytes(dest);
+    }
 
     fn next_u32(&mut self) -> u32 {
         let mut bytes = [0; 4];
-        self.fill_bytes(&mut bytes);
+        self.blocking_fill_bytes(&mut bytes);
         // We don't care about the endianness, so just use the native one.
         u32::from_ne_bytes(bytes)
     }
 
     fn next_u64(&mut self) -> u64 {
         let mut bytes = [0; 8];
-        self.fill_bytes(&mut bytes);
+        self.blocking_fill_bytes(&mut bytes);
         u64::from_ne_bytes(bytes)
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.fill_bytes(dest);
+        self.blocking_fill_bytes(dest);
         Ok(())
     }
 }
 
-// TODO: Should `Rng` implement `CryptoRng`? It's 'suitable for cryptographic purposes' according to the specification.
+impl<'d> rand_core::CryptoRng for Rng<'d> {}
