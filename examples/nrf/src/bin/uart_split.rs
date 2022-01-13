@@ -4,16 +4,15 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy::blocking_mutex::kind::Noop;
-use embassy::channel::mpsc::{self, Channel, Sender};
-use embassy::util::Forever;
-use embassy_nrf::peripherals::UARTE0;
-use embassy_nrf::uarte::UarteRx;
 use example_common::*;
 
+use embassy::blocking_mutex::kind::Noop;
+use embassy::channel::mpsc::{self, Channel, Sender};
 use embassy::executor::Spawner;
-use embassy::traits::uart::{Read, Write};
+use embassy::util::Forever;
 use embassy_nrf::gpio::NoPin;
+use embassy_nrf::peripherals::UARTE0;
+use embassy_nrf::uarte::UarteRx;
 use embassy_nrf::{interrupt, uarte, Peripherals};
 
 static CHANNEL: Forever<Channel<Noop, [u8; 8], 1>> = Forever::new();

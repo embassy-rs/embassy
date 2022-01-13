@@ -4,11 +4,9 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy_traits::uart::ReadUntilIdle;
 use example_common::*;
 
 use embassy::executor::Spawner;
-use embassy::traits::uart::Write;
 use embassy_nrf::gpio::NoPin;
 use embassy_nrf::{interrupt, uarte, Peripherals};
 
@@ -19,11 +17,9 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     config.baudrate = uarte::Baudrate::BAUD115200;
 
     let irq = interrupt::take!(UARTE0_UART0);
-    let mut uart = unsafe {
-        uarte::UarteWithIdle::new(
-            p.UARTE0, p.TIMER0, p.PPI_CH0, p.PPI_CH1, irq, p.P0_08, p.P0_06, NoPin, NoPin, config,
-        )
-    };
+    let mut uart = uarte::UarteWithIdle::new(
+        p.UARTE0, p.TIMER0, p.PPI_CH0, p.PPI_CH1, irq, p.P0_08, p.P0_06, NoPin, NoPin, config,
+    );
 
     info!("uarte initialized!");
 
