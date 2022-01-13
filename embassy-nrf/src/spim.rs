@@ -133,9 +133,7 @@ impl<'d, T: Instance> Spim<'d, T> {
 
         // Set over-read character
         let orc = config.orc;
-        r.orc.write(|w|
-            // The ORC field is 8 bits long, so any u8 is a valid value to write.
-            unsafe { w.orc().bits(orc) });
+        r.orc.write(|w| unsafe { w.orc().bits(orc) });
 
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
@@ -159,14 +157,11 @@ impl<'d, T: Instance> Spim<'d, T> {
         }
     }
 
-    fn start_transfer(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+    fn prepare(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
         slice_in_ram_or(tx, Error::DMABufferNotInDataMemory)?;
         // NOTE: RAM slice check for rx is not necessary, as a mutable
         // slice can only be built from data located in RAM.
 
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // before any DMA action has started.
         compiler_fence(Ordering::SeqCst);
 
         let r = T::regs();
@@ -191,22 +186,19 @@ impl<'d, T: Instance> Spim<'d, T> {
         Ok(())
     }
 
-    fn blocking_transfer(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
-        self.start_transfer(rx, tx)?;
+    fn blocking_inner(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+        self.prepare(rx, tx)?;
 
         // Wait for 'end' event.
         while T::regs().events_end.read().bits() == 0 {}
 
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // after all possible DMA actions have completed.
         compiler_fence(Ordering::SeqCst);
 
         Ok(())
     }
 
-    async fn async_transfer(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
-        self.start_transfer(rx, tx)?;
+    async fn async_inner(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+        self.prepare(rx, tx)?;
 
         // Wait for 'end' event.
         poll_fn(|cx| {
@@ -219,12 +211,41 @@ impl<'d, T: Instance> Spim<'d, T> {
         })
         .await;
 
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // after all possible DMA actions have completed.
         compiler_fence(Ordering::SeqCst);
 
         Ok(())
+    }
+
+    pub fn blocking_read(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        self.blocking_inner(data, &[])
+    }
+
+    pub fn blocking_transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
+        self.blocking_inner(read, write)
+    }
+
+    pub fn blocking_transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        self.blocking_inner(data, data)
+    }
+
+    pub fn blocking_write(&mut self, data: &[u8]) -> Result<(), Error> {
+        self.blocking_inner(&mut [], data)
+    }
+
+    pub async fn read(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        self.async_inner(data, &[]).await
+    }
+
+    pub async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
+        self.async_inner(read, write).await
+    }
+
+    pub async fn transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        self.async_inner(data, data).await
+    }
+
+    pub async fn write(&mut self, data: &[u8]) -> Result<(), Error> {
+        self.async_inner(&mut [], data).await
     }
 }
 
@@ -257,7 +278,7 @@ impl<'d, T: Instance> Read<u8> for Spim<'d, T> {
     = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.read_write(data, &[])
+        self.read(data)
     }
 }
 
@@ -268,7 +289,7 @@ impl<'d, T: Instance> Write<u8> for Spim<'d, T> {
     = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.read_write(&mut [], data)
+        self.write(data)
     }
 }
 
@@ -279,14 +300,14 @@ impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
     = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read_write<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::WriteReadFuture<'a> {
-        self.async_transfer(rx, tx)
+        self.transfer(rx, tx)
     }
 }
 
 impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spim<'d, T> {
     type Error = Error;
     fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
-        self.blocking_transfer(words, words)?;
+        self.blocking_transfer_in_place(words)?;
         Ok(words)
     }
 }
@@ -295,7 +316,7 @@ impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spim<'d, T> {
     type Error = Error;
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_transfer(&mut [], words)
+        self.blocking_write(words)
     }
 }
 
