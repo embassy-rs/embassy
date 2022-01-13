@@ -712,3 +712,206 @@ macro_rules! impl_uarte {
         }
     };
 }
+
+// ====================
+
+mod eh02 {
+    use super::*;
+
+    impl<'d, T: Instance> embedded_hal_02::blocking::serial::Write<u8> for Uarte<'d, T> {
+        type Error = Error;
+
+        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn bflush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_02::blocking::serial::Write<u8> for UarteTx<'d, T> {
+        type Error = Error;
+
+        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn bflush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl<'d, U: Instance, T: TimerInstance> embedded_hal_02::blocking::serial::Write<u8>
+        for UarteWithIdle<'d, U, T>
+    {
+        type Error = Error;
+
+        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn bflush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(feature = "unstable-traits")]
+mod eh1 {
+    use super::*;
+    use core::future::Future;
+
+    impl embedded_hal_1::serial::Error for Error {
+        fn kind(&self) -> embedded_hal_1::serial::ErrorKind {
+            match *self {
+                Self::BufferTooLong => embedded_hal_1::serial::ErrorKind::Other,
+                Self::BufferZeroLength => embedded_hal_1::serial::ErrorKind::Other,
+                Self::DMABufferNotInDataMemory => embedded_hal_1::serial::ErrorKind::Other,
+            }
+        }
+    }
+
+    // =====================
+
+    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for Uarte<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::serial::blocking::Write for Uarte<'d, T> {
+        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::serial::Read for Uarte<'d, T> {
+        type ReadFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn read<'a>(&'a mut self, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.read(buffer)
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::serial::Write for Uarte<'d, T> {
+        type WriteFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn write<'a>(&'a mut self, buffer: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.write(buffer)
+        }
+
+        type FlushFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            async move { Ok(()) }
+        }
+    }
+
+    // =====================
+
+    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for UarteTx<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::serial::blocking::Write for UarteTx<'d, T> {
+        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::serial::Write for UarteTx<'d, T> {
+        type WriteFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn write<'a>(&'a mut self, buffer: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.write(buffer)
+        }
+
+        type FlushFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            async move { Ok(()) }
+        }
+    }
+
+    // =====================
+
+    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for UarteRx<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::serial::Read for UarteRx<'d, T> {
+        type ReadFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn read<'a>(&'a mut self, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.read(buffer)
+        }
+    }
+
+    // =====================
+
+    impl<'d, U: Instance, T: TimerInstance> embedded_hal_1::serial::ErrorType
+        for UarteWithIdle<'d, U, T>
+    {
+        type Error = Error;
+    }
+
+    impl<'d, U: Instance, T: TimerInstance> embedded_hal_async::serial::Read
+        for UarteWithIdle<'d, U, T>
+    {
+        type ReadFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn read<'a>(&'a mut self, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.read(buffer)
+        }
+    }
+
+    impl<'d, U: Instance, T: TimerInstance> embedded_hal_async::serial::Write
+        for UarteWithIdle<'d, U, T>
+    {
+        type WriteFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn write<'a>(&'a mut self, buffer: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.write(buffer)
+        }
+
+        type FlushFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            async move { Ok(()) }
+        }
+    }
+}

@@ -15,7 +15,6 @@ defmt-rtt = "0.3"
 
 cortex-m = "0.7.3"
 cortex-m-rt = "0.7.0"
-embedded-hal = "0.2.6"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 rand = { version = "0.8.4", default-features = false }

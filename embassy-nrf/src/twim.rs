@@ -11,12 +11,10 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering::SeqCst};
 use core::task::Poll;
 use embassy::interrupt::{Interrupt, InterruptExt};
-use embassy::traits;
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
-use traits::i2c::I2c;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio;
@@ -48,6 +46,22 @@ impl Default for Config {
             scl_pullup: false,
         }
     }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Error {
+    TxBufferTooLong,
+    RxBufferTooLong,
+    TxBufferZeroLength,
+    RxBufferZeroLength,
+    Transmit,
+    Receive,
+    DMABufferNotInDataMemory,
+    AddressNack,
+    DataNack,
+    Overrun,
 }
 
 /// Interface to a TWIM instance.
@@ -506,101 +520,6 @@ impl<'a, T: Instance> Drop for Twim<'a, T> {
     }
 }
 
-impl<'d, T> I2c for Twim<'d, T>
-where
-    T: Instance,
-{
-    type Error = Error;
-
-    type WriteFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Self::Error>> + 'a;
-    type ReadFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Self::Error>> + 'a;
-    type WriteReadFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Self::Error>> + 'a;
-
-    fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.read(address, buffer)
-    }
-
-    fn write<'a>(&'a mut self, address: u8, buffer: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.write(address, buffer)
-    }
-
-    fn write_read<'a>(
-        &'a mut self,
-        address: u8,
-        wr_buffer: &'a [u8],
-        rd_buffer: &'a mut [u8],
-    ) -> Self::WriteReadFuture<'a> {
-        self.write_read(address, wr_buffer, rd_buffer)
-    }
-}
-
-impl<'a, T: Instance> embedded_hal::blocking::i2c::Write for Twim<'a, T> {
-    type Error = Error;
-
-    fn write<'w>(&mut self, addr: u8, bytes: &'w [u8]) -> Result<(), Error> {
-        if slice_in_ram(bytes) {
-            self.blocking_write(addr, bytes)
-        } else {
-            let buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..];
-            for chunk in bytes.chunks(FORCE_COPY_BUFFER_SIZE) {
-                buf[..chunk.len()].copy_from_slice(chunk);
-                self.blocking_write(addr, &buf[..chunk.len()])?;
-            }
-            Ok(())
-        }
-    }
-}
-
-impl<'a, T: Instance> embedded_hal::blocking::i2c::Read for Twim<'a, T> {
-    type Error = Error;
-
-    fn read<'w>(&mut self, addr: u8, bytes: &'w mut [u8]) -> Result<(), Error> {
-        self.blocking_read(addr, bytes)
-    }
-}
-
-impl<'a, T: Instance> embedded_hal::blocking::i2c::WriteRead for Twim<'a, T> {
-    type Error = Error;
-
-    fn write_read<'w>(
-        &mut self,
-        addr: u8,
-        bytes: &'w [u8],
-        buffer: &'w mut [u8],
-    ) -> Result<(), Error> {
-        if slice_in_ram(bytes) {
-            self.blocking_write_read(addr, bytes, buffer)
-        } else {
-            self.blocking_copy_write_read(addr, bytes, buffer)
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[non_exhaustive]
-pub enum Error {
-    TxBufferTooLong,
-    RxBufferTooLong,
-    TxBufferZeroLength,
-    RxBufferZeroLength,
-    Transmit,
-    Receive,
-    DMABufferNotInDataMemory,
-    AddressNack,
-    DataNack,
-    Overrun,
-}
-
 pub(crate) mod sealed {
     use super::*;
 
@@ -641,4 +560,188 @@ macro_rules! impl_twim {
             type Interrupt = crate::interrupt::$irq;
         }
     };
+}
+
+// ====================
+
+mod eh02 {
+    use super::*;
+
+    impl<'a, T: Instance> embedded_hal_02::blocking::i2c::Write for Twim<'a, T> {
+        type Error = Error;
+
+        fn write<'w>(&mut self, addr: u8, bytes: &'w [u8]) -> Result<(), Error> {
+            if slice_in_ram(bytes) {
+                self.blocking_write(addr, bytes)
+            } else {
+                let buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..];
+                for chunk in bytes.chunks(FORCE_COPY_BUFFER_SIZE) {
+                    buf[..chunk.len()].copy_from_slice(chunk);
+                    self.blocking_write(addr, &buf[..chunk.len()])?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    impl<'a, T: Instance> embedded_hal_02::blocking::i2c::Read for Twim<'a, T> {
+        type Error = Error;
+
+        fn read<'w>(&mut self, addr: u8, bytes: &'w mut [u8]) -> Result<(), Error> {
+            self.blocking_read(addr, bytes)
+        }
+    }
+
+    impl<'a, T: Instance> embedded_hal_02::blocking::i2c::WriteRead for Twim<'a, T> {
+        type Error = Error;
+
+        fn write_read<'w>(
+            &mut self,
+            addr: u8,
+            bytes: &'w [u8],
+            buffer: &'w mut [u8],
+        ) -> Result<(), Error> {
+            if slice_in_ram(bytes) {
+                self.blocking_write_read(addr, bytes, buffer)
+            } else {
+                self.blocking_copy_write_read(addr, bytes, buffer)
+            }
+        }
+    }
+}
+
+#[cfg(feature = "unstable-traits")]
+mod eh1 {
+    use super::*;
+
+    impl embedded_hal_1::i2c::Error for Error {
+        fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
+            match *self {
+                Self::TxBufferTooLong => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::RxBufferTooLong => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::TxBufferZeroLength => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::RxBufferZeroLength => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::Transmit => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::Receive => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::DMABufferNotInDataMemory => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::AddressNack => embedded_hal_1::i2c::ErrorKind::NoAcknowledge(
+                    embedded_hal_1::i2c::NoAcknowledgeSource::Address,
+                ),
+                Self::DataNack => embedded_hal_1::i2c::ErrorKind::NoAcknowledge(
+                    embedded_hal_1::i2c::NoAcknowledgeSource::Data,
+                ),
+                Self::Overrun => embedded_hal_1::i2c::ErrorKind::Overrun,
+            }
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::i2c::ErrorType for Twim<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::i2c::blocking::I2c for Twim<'d, T> {
+        fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+            self.blocking_read(address, buffer)
+        }
+
+        fn write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(address, buffer)
+        }
+
+        fn write_iter<B>(&mut self, _address: u8, _bytes: B) -> Result<(), Self::Error>
+        where
+            B: IntoIterator<Item = u8>,
+        {
+            todo!();
+        }
+
+        fn write_iter_read<B>(
+            &mut self,
+            _address: u8,
+            _bytes: B,
+            _buffer: &mut [u8],
+        ) -> Result<(), Self::Error>
+        where
+            B: IntoIterator<Item = u8>,
+        {
+            todo!();
+        }
+
+        fn write_read(
+            &mut self,
+            address: u8,
+            wr_buffer: &[u8],
+            rd_buffer: &mut [u8],
+        ) -> Result<(), Self::Error> {
+            self.blocking_write_read(address, wr_buffer, rd_buffer)
+        }
+
+        fn transaction<'a>(
+            &mut self,
+            _address: u8,
+            _operations: &mut [embedded_hal_async::i2c::Operation<'a>],
+        ) -> Result<(), Self::Error> {
+            todo!();
+        }
+
+        fn transaction_iter<'a, O>(
+            &mut self,
+            _address: u8,
+            _operations: O,
+        ) -> Result<(), Self::Error>
+        where
+            O: IntoIterator<Item = embedded_hal_async::i2c::Operation<'a>>,
+        {
+            todo!();
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::i2c::I2c for Twim<'d, T> {
+        type ReadFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.read(address, buffer)
+        }
+
+        type WriteFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.write(address, bytes)
+        }
+
+        type WriteReadFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn write_read<'a>(
+            &'a mut self,
+            address: u8,
+            wr_buffer: &'a [u8],
+            rd_buffer: &'a mut [u8],
+        ) -> Self::WriteReadFuture<'a> {
+            self.write_read(address, wr_buffer, rd_buffer)
+        }
+
+        type TransactionFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn transaction<'a>(
+            &'a mut self,
+            address: u8,
+            operations: &mut [embedded_hal_async::i2c::Operation<'a>],
+        ) -> Self::TransactionFuture<'a> {
+            let _ = address;
+            let _ = operations;
+            async move { todo!() }
+        }
+    }
 }
