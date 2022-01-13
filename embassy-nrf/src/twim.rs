@@ -201,7 +201,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     }
 
     /// Get Error instance, if any occurred.
-    fn read_errorsrc(&self) -> Result<(), Error> {
+    fn check_errorsrc(&self) -> Result<(), Error> {
         let r = T::regs();
 
         let err = r.errorsrc.read();
@@ -217,8 +217,26 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
+    fn check_rx(&self, len: usize) -> Result<(), Error> {
+        let r = T::regs();
+        if r.rxd.amount.read().bits() != len as u32 {
+            Err(Error::Receive)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn check_tx(&self, len: usize) -> Result<(), Error> {
+        let r = T::regs();
+        if r.txd.amount.read().bits() != len as u32 {
+            Err(Error::Transmit)
+        } else {
+            Ok(())
+        }
+    }
+
     /// Wait for stop or error
-    fn wait(&mut self) {
+    fn blocking_wait(&mut self) {
         let r = T::regs();
         loop {
             if r.events_stopped.read().bits() != 0 {
@@ -232,16 +250,32 @@ impl<'d, T: Instance> Twim<'d, T> {
         }
     }
 
-    /// Write to an I2C slave.
-    ///
-    /// The buffer must have a length of at most 255 bytes on the nRF52832
-    /// and at most 65535 bytes on the nRF52840.
-    pub fn write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
+    /// Wait for stop or error
+    fn async_wait(&mut self) -> impl Future<Output = ()> {
+        poll_fn(move |cx| {
+            let r = T::regs();
+            let s = T::state();
+
+            s.end_waker.register(cx.waker());
+            if r.events_stopped.read().bits() != 0 {
+                r.events_stopped.reset();
+
+                return Poll::Ready(());
+            }
+
+            // stop if an error occured
+            if r.events_error.read().bits() != 0 {
+                r.events_error.reset();
+                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+            }
+
+            Poll::Pending
+        })
+    }
+
+    fn setup_write(&mut self, address: u8, buffer: &[u8], inten: bool) -> Result<(), Error> {
         let r = T::regs();
 
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // before any DMA action has started.
         compiler_fence(SeqCst);
 
         r.address.write(|w| unsafe { w.address().bits(address) });
@@ -255,38 +289,21 @@ impl<'d, T: Instance> Twim<'d, T> {
         r.events_lasttx.reset();
         self.clear_errorsrc();
 
-        // Start write operation.
-        r.shorts.write(|w| w.lasttx_stop().enabled());
-        r.tasks_starttx.write(|w|
-            // `1` is a valid value to write to task registers.
-            unsafe { w.bits(1) });
-
-        self.wait();
-
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // after all possible DMA actions have completed.
-        compiler_fence(SeqCst);
-
-        self.read_errorsrc()?;
-
-        if r.txd.amount.read().bits() != buffer.len() as u32 {
-            return Err(Error::Transmit);
+        if inten {
+            r.intenset.write(|w| w.stopped().set().error().set());
+        } else {
+            r.intenclr.write(|w| w.stopped().clear().error().clear());
         }
 
+        // Start write operation.
+        r.shorts.write(|w| w.lasttx_stop().enabled());
+        r.tasks_starttx.write(|w| unsafe { w.bits(1) });
         Ok(())
     }
 
-    /// Read from an I2C slave.
-    ///
-    /// The buffer must have a length of at most 255 bytes on the nRF52832
-    /// and at most 65535 bytes on the nRF52840.
-    pub fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+    fn setup_read(&mut self, address: u8, buffer: &mut [u8], inten: bool) -> Result<(), Error> {
         let r = T::regs();
 
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // before any DMA action has started.
         compiler_fence(SeqCst);
 
         r.address.write(|w| unsafe { w.address().bits(address) });
@@ -299,44 +316,27 @@ impl<'d, T: Instance> Twim<'d, T> {
         r.events_error.reset();
         self.clear_errorsrc();
 
-        // Start read operation.
-        r.shorts.write(|w| w.lastrx_stop().enabled());
-        r.tasks_startrx.write(|w|
-            // `1` is a valid value to write to task registers.
-            unsafe { w.bits(1) });
-
-        self.wait();
-
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // after all possible DMA actions have completed.
-        compiler_fence(SeqCst);
-
-        self.read_errorsrc()?;
-
-        if r.rxd.amount.read().bits() != buffer.len() as u32 {
-            return Err(Error::Receive);
+        if inten {
+            r.intenset.write(|w| w.stopped().set().error().set());
+        } else {
+            r.intenclr.write(|w| w.stopped().clear().error().clear());
         }
 
+        // Start read operation.
+        r.shorts.write(|w| w.lastrx_stop().enabled());
+        r.tasks_startrx.write(|w| unsafe { w.bits(1) });
         Ok(())
     }
 
-    /// Write data to an I2C slave, then read data from the slave without
-    /// triggering a stop condition between the two.
-    ///
-    /// The buffers must have a length of at most 255 bytes on the nRF52832
-    /// and at most 65535 bytes on the nRF52840.
-    pub fn write_then_read(
+    fn setup_write_read(
         &mut self,
         address: u8,
         wr_buffer: &[u8],
         rd_buffer: &mut [u8],
+        inten: bool,
     ) -> Result<(), Error> {
         let r = T::regs();
 
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // before any DMA action has started.
         compiler_fence(SeqCst);
 
         r.address.write(|w| unsafe { w.address().bits(address) });
@@ -352,35 +352,65 @@ impl<'d, T: Instance> Twim<'d, T> {
         r.events_error.reset();
         self.clear_errorsrc();
 
+        if inten {
+            r.intenset.write(|w| w.stopped().set().error().set());
+        } else {
+            r.intenclr.write(|w| w.stopped().clear().error().clear());
+        }
+
         // Start write+read operation.
         r.shorts.write(|w| {
             w.lasttx_startrx().enabled();
             w.lastrx_stop().enabled();
             w
         });
-        // `1` is a valid value to write to task registers.
         r.tasks_starttx.write(|w| unsafe { w.bits(1) });
+        Ok(())
+    }
 
-        self.wait();
-
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // after all possible DMA actions have completed.
+    /// Write to an I2C slave.
+    ///
+    /// The buffer must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
+    pub fn blocking_write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
+        self.setup_write(address, buffer, false)?;
+        self.blocking_wait();
         compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_tx(buffer.len())?;
+        Ok(())
+    }
 
-        self.read_errorsrc()?;
+    /// Read from an I2C slave.
+    ///
+    /// The buffer must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
+    pub fn blocking_read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        self.setup_read(address, buffer, false)?;
+        self.blocking_wait();
+        compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_rx(buffer.len())?;
+        Ok(())
+    }
 
-        let bad_write = r.txd.amount.read().bits() != wr_buffer.len() as u32;
-        let bad_read = r.rxd.amount.read().bits() != rd_buffer.len() as u32;
-
-        if bad_write {
-            return Err(Error::Transmit);
-        }
-
-        if bad_read {
-            return Err(Error::Receive);
-        }
-
+    /// Write data to an I2C slave, then read data from the slave without
+    /// triggering a stop condition between the two.
+    ///
+    /// The buffers must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
+    pub fn blocking_write_read(
+        &mut self,
+        address: u8,
+        wr_buffer: &[u8],
+        rd_buffer: &mut [u8],
+    ) -> Result<(), Error> {
+        self.setup_write_read(address, wr_buffer, rd_buffer, false)?;
+        self.blocking_wait();
+        compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_tx(wr_buffer.len())?;
+        self.check_rx(rd_buffer.len())?;
         Ok(())
     }
 
@@ -388,7 +418,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     ///
     /// The write buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 1024 bytes on the nRF52840.
-    pub fn copy_write(&mut self, address: u8, wr_buffer: &[u8]) -> Result<(), Error> {
+    pub fn blocking_copy_write(&mut self, address: u8, wr_buffer: &[u8]) -> Result<(), Error> {
         if wr_buffer.len() > FORCE_COPY_BUFFER_SIZE {
             return Err(Error::TxBufferTooLong);
         }
@@ -397,7 +427,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         let wr_ram_buffer = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
         wr_ram_buffer.copy_from_slice(wr_buffer);
 
-        self.write(address, wr_ram_buffer)
+        self.blocking_write(address, wr_ram_buffer)
     }
 
     /// Copy data into RAM and write to an I2C slave, then read data from the slave without
@@ -408,7 +438,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     ///
     /// The read buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
-    pub fn copy_write_then_read(
+    pub fn blocking_copy_write_read(
         &mut self,
         address: u8,
         wr_buffer: &[u8],
@@ -422,27 +452,40 @@ impl<'d, T: Instance> Twim<'d, T> {
         let wr_ram_buffer = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
         wr_ram_buffer.copy_from_slice(wr_buffer);
 
-        self.write_then_read(address, wr_ram_buffer, rd_buffer)
+        self.blocking_write_read(address, wr_ram_buffer, rd_buffer)
     }
 
-    fn wait_for_stopped_event(cx: &mut core::task::Context) -> Poll<()> {
-        let r = T::regs();
-        let s = T::state();
+    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        self.setup_read(address, buffer, true)?;
+        self.async_wait().await;
+        compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_rx(buffer.len())?;
+        Ok(())
+    }
 
-        s.end_waker.register(cx.waker());
-        if r.events_stopped.read().bits() != 0 {
-            r.events_stopped.reset();
+    pub async fn write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
+        self.setup_write(address, buffer, true)?;
+        self.async_wait().await;
+        compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_tx(buffer.len())?;
+        Ok(())
+    }
 
-            return Poll::Ready(());
-        }
-
-        // stop if an error occured
-        if r.events_error.read().bits() != 0 {
-            r.events_error.reset();
-            r.tasks_stop.write(|w| unsafe { w.bits(1) });
-        }
-
-        Poll::Pending
+    pub async fn write_read(
+        &mut self,
+        address: u8,
+        wr_buffer: &[u8],
+        rd_buffer: &mut [u8],
+    ) -> Result<(), Error> {
+        self.setup_write_read(address, wr_buffer, rd_buffer, true)?;
+        self.async_wait().await;
+        compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_tx(wr_buffer.len())?;
+        self.check_rx(rd_buffer.len())?;
+        Ok(())
     }
 }
 
@@ -450,7 +493,7 @@ impl<'a, T: Instance> Drop for Twim<'a, T> {
     fn drop(&mut self) {
         trace!("twim drop");
 
-        // TODO when implementing async here, check for abort
+        // TODO: check for abort
 
         // disable!
         let r = T::regs();
@@ -483,174 +526,20 @@ where
     = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        async move {
-            // NOTE: RAM slice check for buffer is not necessary, as a mutable
-            // slice can only be built from data located in RAM.
-
-            let r = T::regs();
-
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // before any DMA action has started.
-            compiler_fence(SeqCst);
-
-            r.address.write(|w| unsafe { w.address().bits(address) });
-
-            // Set up the DMA read.
-            unsafe { self.set_rx_buffer(buffer)? };
-
-            // Reset events
-            r.events_stopped.reset();
-            r.events_error.reset();
-            self.clear_errorsrc();
-
-            // Enable events
-            r.intenset.write(|w| w.stopped().set().error().set());
-
-            // Start read operation.
-            r.shorts.write(|w| w.lastrx_stop().enabled());
-            r.tasks_startrx.write(|w|
-            // `1` is a valid value to write to task registers.
-            unsafe { w.bits(1) });
-
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // after all possible DMA actions have completed.
-            compiler_fence(SeqCst);
-
-            // Wait for 'stopped' event.
-            poll_fn(Self::wait_for_stopped_event).await;
-
-            self.read_errorsrc()?;
-
-            if r.rxd.amount.read().bits() != buffer.len() as u32 {
-                return Err(Error::Receive);
-            }
-
-            Ok(())
-        }
+        self.read(address, buffer)
     }
 
-    fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
-        async move {
-            slice_in_ram_or(bytes, Error::DMABufferNotInDataMemory)?;
-
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // before any DMA action has started.
-            compiler_fence(SeqCst);
-
-            let r = T::regs();
-
-            // Set up current address we're trying to talk to
-            r.address.write(|w| unsafe { w.address().bits(address) });
-
-            // Set up DMA write.
-            unsafe {
-                self.set_tx_buffer(bytes)?;
-            }
-
-            // Reset events
-            r.events_stopped.reset();
-            r.events_error.reset();
-            r.events_lasttx.reset();
-            self.clear_errorsrc();
-
-            // Enable events
-            r.intenset.write(|w| w.stopped().set().error().set());
-
-            // Start write operation.
-            r.shorts.write(|w| w.lasttx_stop().enabled());
-            r.tasks_starttx.write(|w|
-            // `1` is a valid value to write to task registers.
-            unsafe { w.bits(1) });
-
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // after all possible DMA actions have completed.
-            compiler_fence(SeqCst);
-
-            // Wait for 'stopped' event.
-            poll_fn(Self::wait_for_stopped_event).await;
-
-            self.read_errorsrc()?;
-
-            if r.txd.amount.read().bits() != bytes.len() as u32 {
-                return Err(Error::Transmit);
-            }
-
-            Ok(())
-        }
+    fn write<'a>(&'a mut self, address: u8, buffer: &'a [u8]) -> Self::WriteFuture<'a> {
+        self.write(address, buffer)
     }
 
     fn write_read<'a>(
         &'a mut self,
         address: u8,
-        bytes: &'a [u8],
-        buffer: &'a mut [u8],
+        wr_buffer: &'a [u8],
+        rd_buffer: &'a mut [u8],
     ) -> Self::WriteReadFuture<'a> {
-        async move {
-            slice_in_ram_or(bytes, Error::DMABufferNotInDataMemory)?;
-            // NOTE: RAM slice check for buffer is not necessary, as a mutable
-            // slice can only be built from data located in RAM.
-
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // before any DMA action has started.
-            compiler_fence(SeqCst);
-
-            let r = T::regs();
-
-            // Set up current address we're trying to talk to
-            r.address.write(|w| unsafe { w.address().bits(address) });
-
-            // Set up DMA buffers.
-            unsafe {
-                self.set_tx_buffer(bytes)?;
-                self.set_rx_buffer(buffer)?;
-            }
-
-            // Reset events
-            r.events_stopped.reset();
-            r.events_error.reset();
-            r.events_lasttx.reset();
-            self.clear_errorsrc();
-
-            // Enable events
-            r.intenset.write(|w| w.stopped().set().error().set());
-
-            // Start write+read operation.
-            r.shorts.write(|w| {
-                w.lasttx_startrx().enabled();
-                w.lastrx_stop().enabled();
-                w
-            });
-            // `1` is a valid value to write to task registers.
-            r.tasks_starttx.write(|w| unsafe { w.bits(1) });
-
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // after all possible DMA actions have completed.
-            compiler_fence(SeqCst);
-
-            // Wait for 'stopped' event.
-            poll_fn(Self::wait_for_stopped_event).await;
-
-            self.read_errorsrc()?;
-
-            let bad_write = r.txd.amount.read().bits() != bytes.len() as u32;
-            let bad_read = r.rxd.amount.read().bits() != buffer.len() as u32;
-
-            if bad_write {
-                return Err(Error::Transmit);
-            }
-
-            if bad_read {
-                return Err(Error::Receive);
-            }
-
-            Ok(())
-        }
+        self.write_read(address, wr_buffer, rd_buffer)
     }
 }
 
@@ -659,12 +548,12 @@ impl<'a, T: Instance> embedded_hal::blocking::i2c::Write for Twim<'a, T> {
 
     fn write<'w>(&mut self, addr: u8, bytes: &'w [u8]) -> Result<(), Error> {
         if slice_in_ram(bytes) {
-            self.write(addr, bytes)
+            self.blocking_write(addr, bytes)
         } else {
             let buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..];
             for chunk in bytes.chunks(FORCE_COPY_BUFFER_SIZE) {
                 buf[..chunk.len()].copy_from_slice(chunk);
-                self.write(addr, &buf[..chunk.len()])?;
+                self.blocking_write(addr, &buf[..chunk.len()])?;
             }
             Ok(())
         }
@@ -675,7 +564,7 @@ impl<'a, T: Instance> embedded_hal::blocking::i2c::Read for Twim<'a, T> {
     type Error = Error;
 
     fn read<'w>(&mut self, addr: u8, bytes: &'w mut [u8]) -> Result<(), Error> {
-        self.read(addr, bytes)
+        self.blocking_read(addr, bytes)
     }
 }
 
@@ -689,15 +578,16 @@ impl<'a, T: Instance> embedded_hal::blocking::i2c::WriteRead for Twim<'a, T> {
         buffer: &'w mut [u8],
     ) -> Result<(), Error> {
         if slice_in_ram(bytes) {
-            self.write_then_read(addr, bytes, buffer)
+            self.blocking_write_read(addr, bytes, buffer)
         } else {
-            self.copy_write_then_read(addr, bytes, buffer)
+            self.blocking_copy_write_read(addr, bytes, buffer)
         }
     }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum Error {
     TxBufferTooLong,
     RxBufferTooLong,

@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Reading...");
 
     let mut buf = [0u8; 16];
-    unwrap!(twi.write_then_read(ADDRESS, &mut [0x00], &mut buf));
+    unwrap!(twi.blocking_write_read(ADDRESS, &mut [0x00], &mut buf));
 
     info!("Read: {=[u8]:x}", buf);
 }
