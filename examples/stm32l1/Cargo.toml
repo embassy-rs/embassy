@@ -5,6 +5,9 @@ name = "embassy-stm32l1-examples"
 version = "0.1.0"
 resolver = "2"
 
+[profile.release]
+debug = true
+
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
@@ -19,3 +22,9 @@ embedded-hal = "0.2.6"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.7.5", default-features = false }
+stm32-usbd = "0.6.0"
+usb-device = "0.2.8"
+
+[[bin]]
+name = "usb_uart"
+required-features = ["embassy-stm32/usb"]
