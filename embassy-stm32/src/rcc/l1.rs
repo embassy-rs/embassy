@@ -258,7 +258,7 @@ pub(crate) unsafe fn init(config: Config) {
                 PLLDiv::Div3 => freq / 3,
                 PLLDiv::Div4 => freq / 4,
             };
-            assert!(freq <= 32_u32.mhz().0);
+            assert!(freq <= 32_000_000);
 
             RCC.cfgr().write(move |w| {
                 w.set_pllmul(mul.into());
