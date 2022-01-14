@@ -6,7 +6,6 @@
 mod example_common;
 
 use embassy::executor::Spawner;
-use embassy::traits::i2c::I2c as I2cTrait;
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::interrupt;
 use embassy_stm32::time::Hertz;
