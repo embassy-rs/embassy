@@ -1,5 +1,5 @@
 use crate::pac::rcc::vals::{Hpre, Msirange, Plldiv, Pllmul, Pllsrc, Ppre, Sw};
-use crate::pac::RCC;
+use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 use crate::time::U32Ext;
@@ -258,7 +258,7 @@ pub(crate) unsafe fn init(config: Config) {
                 PLLDiv::Div3 => freq / 3,
                 PLLDiv::Div4 => freq / 4,
             };
-            assert!(freq <= 32_u32.mhz().0);
+            assert!(freq <= 32_000_000);
 
             RCC.cfgr().write(move |w| {
                 w.set_pllmul(mul.into());
@@ -273,6 +273,13 @@ pub(crate) unsafe fn init(config: Config) {
             (freq, Sw::PLL)
         }
     };
+
+    // Set flash 64-bit access, prefetch and wait states
+    if sys_clk >= 16_000_000 {
+        FLASH.acr().write(|w| w.set_acc64(true));
+        FLASH.acr().modify(|w| w.set_prften(true));
+        FLASH.acr().modify(|w| w.set_latency(true));
+    }
 
     RCC.cfgr().modify(|w| {
         w.set_sw(sw);
