@@ -6,7 +6,7 @@ use std::path::PathBuf;
 fn main() {
     let chip_name = match env::vars()
         .map(|(a, _)| a)
-        .filter(|x| x.starts_with("CARGO_FEATURE_STM32"))
+        .filter(|x| x.starts_with("CARGO_FEATURE_STM32") && x != "CARGO_FEATURE_STM32_USBD")
         .get_one()
     {
         Ok(x) => x,
@@ -128,6 +128,8 @@ fn main() {
     if chip_name.starts_with("stm32f3") {
         println!("cargo:rustc-cfg={}x{}", &chip_name[..9], &chip_name[10..11]);
     }
+
+    println!("cargo:rustc-cfg={}", &chip_name[..7]);
 
     // ========
     // Handle time-driver-XXXX features.
