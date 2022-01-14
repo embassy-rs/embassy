@@ -34,7 +34,8 @@ pub enum Error {
 }
 
 // TODO move upwards in the tree
-pub enum ByteOrder {
+#[derive(Copy, Clone)]
+pub enum BitOrder {
     LsbFirst,
     MsbFirst,
 }
@@ -88,16 +89,40 @@ impl WordSize {
 }
 
 #[non_exhaustive]
+#[derive(Copy, Clone)]
 pub struct Config {
     pub mode: Mode,
-    pub byte_order: ByteOrder,
+    pub bit_order: BitOrder,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             mode: MODE_0,
-            byte_order: ByteOrder::MsbFirst,
+            bit_order: BitOrder::MsbFirst,
+        }
+    }
+}
+
+impl Config {
+    fn raw_phase(&self) -> vals::Cpha {
+        match self.mode.phase {
+            Phase::CaptureOnSecondTransition => vals::Cpha::SECONDEDGE,
+            Phase::CaptureOnFirstTransition => vals::Cpha::FIRSTEDGE,
+        }
+    }
+
+    fn raw_polarity(&self) -> vals::Cpol {
+        match self.mode.polarity {
+            Polarity::IdleHigh => vals::Cpol::IDLEHIGH,
+            Polarity::IdleLow => vals::Cpol::IDLELOW,
+        }
+    }
+
+    fn raw_byte_order(&self) -> vals::Lsbfirst {
+        match self.bit_order {
+            BitOrder::LsbFirst => vals::Lsbfirst::LSBFIRST,
+            BitOrder::MsbFirst => vals::Lsbfirst::MSBFIRST,
         }
     }
 }
@@ -156,24 +181,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let pclk = T::frequency();
         let br = compute_baud_rate(pclk, freq.into());
 
-        let cpha = match config.mode.phase {
-            Phase::CaptureOnSecondTransition => vals::Cpha::SECONDEDGE,
-            Phase::CaptureOnFirstTransition => vals::Cpha::FIRSTEDGE,
-        };
-        let cpol = match config.mode.polarity {
-            Polarity::IdleHigh => vals::Cpol::IDLEHIGH,
-            Polarity::IdleLow => vals::Cpol::IDLELOW,
-        };
+        let cpha = config.raw_phase();
+        let cpol = config.raw_polarity();
 
-        #[cfg(not(spi_v3))]
-        use vals::Lsbfirst;
-        #[cfg(spi_v3)]
-        use vals::Lsbfrst as Lsbfirst;
-
-        let lsbfirst = match config.byte_order {
-            ByteOrder::LsbFirst => Lsbfirst::LSBFIRST,
-            ByteOrder::MsbFirst => Lsbfirst::MSBFIRST,
-        };
+        let lsbfirst = config.raw_byte_order();
 
         T::enable();
         T::reset();
@@ -230,7 +241,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_ssoe(false);
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
-                w.set_lsbfrst(lsbfirst);
+                w.set_lsbfirst(lsbfirst);
                 w.set_ssm(true);
                 w.set_master(vals::Master::MASTER);
                 w.set_comm(vals::Comm::FULLDUPLEX);
@@ -263,6 +274,60 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             rxdma,
             current_word_size: WordSize::EightBit,
             phantom: PhantomData,
+        }
+    }
+
+    /// Reconfigures it with the supplied config.
+    pub fn reconfigure(&mut self, config: Config) {
+        let cpha = config.raw_phase();
+        let cpol = config.raw_polarity();
+
+        let lsbfirst = config.raw_byte_order();
+
+        #[cfg(any(spi_v1, spi_f1, spi_v2))]
+        unsafe {
+            T::regs().cr1().modify(|w| {
+                w.set_cpha(cpha);
+                w.set_cpol(cpol);
+                w.set_lsbfirst(lsbfirst);
+            });
+        }
+
+        #[cfg(spi_v3)]
+        unsafe {
+            T::regs().cfg2().modify(|w| {
+                w.set_cpha(cpha);
+                w.set_cpol(cpol);
+                w.set_lsbfirst(lsbfirst);
+            });
+        }
+    }
+
+    pub fn get_current_config(&self) -> Config {
+        #[cfg(any(spi_v1, spi_f1, spi_v2))]
+        let cfg = unsafe { T::regs().cr1().read() };
+        #[cfg(spi_v3)]
+        let cfg = unsafe { T::regs().cfg2().read() };
+        let polarity = if cfg.cpol() == vals::Cpol::IDLELOW {
+            Polarity::IdleLow
+        } else {
+            Polarity::IdleHigh
+        };
+        let phase = if cfg.cpha() == vals::Cpha::FIRSTEDGE {
+            Phase::CaptureOnFirstTransition
+        } else {
+            Phase::CaptureOnSecondTransition
+        };
+
+        let bit_order = if cfg.lsbfirst() == vals::Lsbfirst::LSBFIRST {
+            BitOrder::LsbFirst
+        } else {
+            BitOrder::MsbFirst
+        };
+
+        Config {
+            mode: Mode { polarity, phase },
+            bit_order,
         }
     }
 
