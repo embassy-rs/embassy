@@ -8,7 +8,6 @@ use defmt::assert_eq;
 use embassy::executor::Spawner;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_stm32::Peripherals;
-use embassy_traits::uart::{Read, Write};
 use example_common::*;
 
 #[embassy::main(config = "config()")]

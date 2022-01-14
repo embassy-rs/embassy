@@ -9,7 +9,6 @@ use embassy::executor::Executor;
 use embassy::util::Forever;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
-use embassy_traits::uart::Write as _Write;
 use example_common::*;
 
 use cortex_m_rt::entry;
