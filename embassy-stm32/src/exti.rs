@@ -94,17 +94,25 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
     pub fn new(pin: Input<'d, T>, _ch: impl Unborrow<Target = T::ExtiChannel> + 'd) -> Self {
         Self { pin }
     }
+
+    pub fn is_high(&self) -> bool {
+        self.pin.is_high()
+    }
+
+    pub fn is_low(&self) -> bool {
+        self.pin.is_low()
+    }
 }
 
 impl<'d, T: GpioPin> InputPin for ExtiInput<'d, T> {
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
-        self.pin.is_high()
+        Ok(self.is_high())
     }
 
     fn is_low(&self) -> Result<bool, Self::Error> {
-        self.pin.is_low()
+        Ok(self.is_low())
     }
 }
 

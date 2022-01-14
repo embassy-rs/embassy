@@ -7,7 +7,6 @@ mod example_common;
 
 use embassy::executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embedded_hal::digital::v2::OutputPin;
 use example_common::*;
 
 use embassy_stm32::dma::NoDma;
@@ -35,9 +34,9 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     loop {
         let mut buf = [0x0Au8; 4];
-        unwrap!(cs.set_low());
+        cs.set_low();
         unwrap!(spi.transfer(&mut buf));
-        unwrap!(cs.set_high());
+        cs.set_high();
         info!("xfer {=[u8]:x}", buf);
     }
 }

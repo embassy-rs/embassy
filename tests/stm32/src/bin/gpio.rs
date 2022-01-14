@@ -8,7 +8,6 @@ use defmt::assert;
 use embassy::executor::Spawner;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::Peripherals;
-use embedded_hal::digital::v2::{InputPin, OutputPin};
 use example_common::*;
 
 #[embassy::main(config = "config()")]
@@ -35,12 +34,12 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         {
             let _a = Output::new(&mut a, Level::Low, Speed::Low);
             delay();
-            assert!(b.is_low().unwrap());
+            assert!(b.is_low());
         }
         {
             let _a = Output::new(&mut a, Level::High, Speed::Low);
             delay();
-            assert!(b.is_high().unwrap());
+            assert!(b.is_high());
         }
     }
 
@@ -51,38 +50,38 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
         let mut a = Output::new(&mut a, Level::Low, Speed::Low);
         delay();
-        assert!(b.is_low().unwrap());
-        a.set_high().unwrap();
+        assert!(b.is_low());
+        a.set_high();
         delay();
-        assert!(b.is_high().unwrap());
+        assert!(b.is_high());
     }
 
     // Test input pulldown
     {
         let b = Input::new(&mut b, Pull::Down);
         delay();
-        assert!(b.is_low().unwrap());
+        assert!(b.is_low());
 
         let mut a = Output::new(&mut a, Level::Low, Speed::Low);
         delay();
-        assert!(b.is_low().unwrap());
-        a.set_high().unwrap();
+        assert!(b.is_low());
+        a.set_high();
         delay();
-        assert!(b.is_high().unwrap());
+        assert!(b.is_high());
     }
 
     // Test input pullup
     {
         let b = Input::new(&mut b, Pull::Up);
         delay();
-        assert!(b.is_high().unwrap());
+        assert!(b.is_high());
 
         let mut a = Output::new(&mut a, Level::Low, Speed::Low);
         delay();
-        assert!(b.is_low().unwrap());
-        a.set_high().unwrap();
+        assert!(b.is_low());
+        a.set_high();
         delay();
-        assert!(b.is_high().unwrap());
+        assert!(b.is_high());
     }
 
     info!("Test OK");

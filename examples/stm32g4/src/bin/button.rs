@@ -6,7 +6,6 @@
 mod example_common;
 use cortex_m_rt::entry;
 use embassy_stm32::gpio::{Input, Pull};
-use embedded_hal::digital::v2::InputPin;
 use example_common::*;
 
 #[entry]
@@ -18,7 +17,7 @@ fn main() -> ! {
     let button = Input::new(p.PC13, Pull::Down);
 
     loop {
-        if unwrap!(button.is_high()) {
+        if button.is_high() {
             info!("high");
         } else {
             info!("low");
