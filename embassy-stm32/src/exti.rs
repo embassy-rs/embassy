@@ -3,7 +3,9 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use embassy::traits::gpio::{WaitForAnyEdge, WaitForFallingEdge, WaitForRisingEdge};
+use embassy::traits::gpio::{
+    WaitForAnyEdge, WaitForFallingEdge, WaitForHigh, WaitForLow, WaitForRisingEdge,
+};
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unsafe_impl_unborrow;
@@ -103,6 +105,22 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
         self.pin.is_low()
     }
 
+    pub async fn wait_for_high<'a>(&'a mut self) {
+        let fut = ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, false);
+        if self.is_high() {
+            return;
+        }
+        fut.await
+    }
+
+    pub async fn wait_for_low<'a>(&'a mut self) {
+        let fut = ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), false, true);
+        if self.is_low() {
+            return;
+        }
+        fut.await
+    }
+
     pub async fn wait_for_rising_edge<'a>(&'a mut self) {
         ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, false).await
     }
@@ -125,6 +143,28 @@ impl<'d, T: GpioPin> InputPin for ExtiInput<'d, T> {
 
     fn is_low(&self) -> Result<bool, Self::Error> {
         Ok(self.is_low())
+    }
+}
+
+impl<'d, T: GpioPin> WaitForHigh for ExtiInput<'d, T> {
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + 'a;
+
+    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
+        self.wait_for_high()
+    }
+}
+
+impl<'d, T: GpioPin> WaitForLow for ExtiInput<'d, T> {
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + 'a;
+
+    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
+        self.wait_for_low()
     }
 }
 
