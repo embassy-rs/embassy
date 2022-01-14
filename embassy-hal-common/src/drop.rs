@@ -38,7 +38,7 @@ impl DropBomb {
         Self { _private: () }
     }
 
-    /// Diffuses the bomb, rendering it safe to drop.
+    /// Defuses the bomb, rendering it safe to drop.
     pub fn defuse(self) {
         mem::forget(self)
     }
