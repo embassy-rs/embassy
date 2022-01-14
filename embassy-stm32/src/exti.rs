@@ -102,6 +102,18 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
     pub fn is_low(&self) -> bool {
         self.pin.is_low()
     }
+
+    pub async fn wait_for_rising_edge<'a>(&'a mut self) {
+        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, false).await
+    }
+
+    pub async fn wait_for_falling_edge<'a>(&'a mut self) {
+        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), false, true).await
+    }
+
+    pub async fn wait_for_any_edge<'a>(&'a mut self) {
+        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, true).await
+    }
 }
 
 impl<'d, T: GpioPin> InputPin for ExtiInput<'d, T> {
@@ -120,10 +132,10 @@ impl<'d, T: GpioPin> WaitForRisingEdge for ExtiInput<'d, T> {
     type Future<'a>
     where
         Self: 'a,
-    = ExtiInputFuture<'a>;
+    = impl Future<Output = ()> + 'a;
 
     fn wait_for_rising_edge<'a>(&'a mut self) -> Self::Future<'a> {
-        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, false)
+        self.wait_for_rising_edge()
     }
 }
 
@@ -131,10 +143,10 @@ impl<'d, T: GpioPin> WaitForFallingEdge for ExtiInput<'d, T> {
     type Future<'a>
     where
         Self: 'a,
-    = ExtiInputFuture<'a>;
+    = impl Future<Output = ()> + 'a;
 
     fn wait_for_falling_edge<'a>(&'a mut self) -> Self::Future<'a> {
-        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), false, true)
+        self.wait_for_falling_edge()
     }
 }
 
@@ -142,14 +154,14 @@ impl<'d, T: GpioPin> WaitForAnyEdge for ExtiInput<'d, T> {
     type Future<'a>
     where
         Self: 'a,
-    = ExtiInputFuture<'a>;
+    = impl Future<Output = ()> + 'a;
 
     fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
-        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, true)
+        self.wait_for_any_edge()
     }
 }
 
-pub struct ExtiInputFuture<'a> {
+struct ExtiInputFuture<'a> {
     pin: u8,
     phantom: PhantomData<&'a mut AnyPin>,
 }

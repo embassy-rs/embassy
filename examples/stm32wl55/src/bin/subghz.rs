@@ -10,7 +10,6 @@ mod example_common;
 
 use embassy::channel::signal::Signal;
 use embassy::interrupt::{Interrupt, InterruptExt};
-use embassy::traits::gpio::WaitForRisingEdge;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
