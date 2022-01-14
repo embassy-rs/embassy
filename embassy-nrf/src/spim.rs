@@ -1,23 +1,21 @@
 #![macro_use]
 
-use core::future::Future;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 use embassy::interrupt::InterruptExt;
-use embassy::traits;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
-use traits::spi::{FullDuplex, Read, Spi, Write};
 
 use crate::gpio;
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{OptionalPin, Pin as GpioPin};
 use crate::interrupt::Interrupt;
+use crate::util::{slice_ptr_parts, slice_ptr_parts_mut};
 use crate::{pac, util::slice_in_ram_or};
 
-pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
+pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,9 +130,7 @@ impl<'d, T: Instance> Spim<'d, T> {
 
         // Set over-read character
         let orc = config.orc;
-        r.orc.write(|w|
-            // The ORC field is 8 bits long, so any u8 is a valid value to write.
-            unsafe { w.orc().bits(orc) });
+        r.orc.write(|w| unsafe { w.orc().bits(orc) });
 
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
@@ -157,6 +153,97 @@ impl<'d, T: Instance> Spim<'d, T> {
             r.intenclr.write(|w| w.end().clear());
         }
     }
+
+    fn prepare(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+        slice_in_ram_or(tx, Error::DMABufferNotInDataMemory)?;
+        // NOTE: RAM slice check for rx is not necessary, as a mutable
+        // slice can only be built from data located in RAM.
+
+        compiler_fence(Ordering::SeqCst);
+
+        let r = T::regs();
+
+        // Set up the DMA write.
+        let (ptr, len) = slice_ptr_parts(tx);
+        r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
+        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+
+        // Set up the DMA read.
+        let (ptr, len) = slice_ptr_parts_mut(rx);
+        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
+        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+
+        // Reset and enable the event
+        r.events_end.reset();
+        r.intenset.write(|w| w.end().set());
+
+        // Start SPI transaction.
+        r.tasks_start.write(|w| unsafe { w.bits(1) });
+
+        Ok(())
+    }
+
+    fn blocking_inner(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+        self.prepare(rx, tx)?;
+
+        // Wait for 'end' event.
+        while T::regs().events_end.read().bits() == 0 {}
+
+        compiler_fence(Ordering::SeqCst);
+
+        Ok(())
+    }
+
+    async fn async_inner(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+        self.prepare(rx, tx)?;
+
+        // Wait for 'end' event.
+        poll_fn(|cx| {
+            T::state().end_waker.register(cx.waker());
+            if T::regs().events_end.read().bits() != 0 {
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+
+        compiler_fence(Ordering::SeqCst);
+
+        Ok(())
+    }
+
+    pub fn blocking_read(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        self.blocking_inner(data, &[])
+    }
+
+    pub fn blocking_transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
+        self.blocking_inner(read, write)
+    }
+
+    pub fn blocking_transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        self.blocking_inner(data, data)
+    }
+
+    pub fn blocking_write(&mut self, data: &[u8]) -> Result<(), Error> {
+        self.blocking_inner(&mut [], data)
+    }
+
+    pub async fn read(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        self.async_inner(data, &[]).await
+    }
+
+    pub async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
+        self.async_inner(read, write).await
+    }
+
+    pub async fn transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        self.async_inner(data, data).await
+    }
+
+    pub async fn write(&mut self, data: &[u8]) -> Result<(), Error> {
+        self.async_inner(&mut [], data).await
+    }
 }
 
 impl<'d, T: Instance> Drop for Spim<'d, T> {
@@ -174,193 +261,6 @@ impl<'d, T: Instance> Drop for Spim<'d, T> {
         gpio::deconfigure_pin(r.psel.mosi.read().bits());
 
         trace!("spim drop: done");
-    }
-}
-
-impl<'d, T: Instance> Spi<u8> for Spim<'d, T> {
-    type Error = Error;
-}
-
-impl<'d, T: Instance> Read<u8> for Spim<'d, T> {
-    type ReadFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Self::Error>> + 'a;
-
-    fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.read_write(data, &[])
-    }
-}
-
-impl<'d, T: Instance> Write<u8> for Spim<'d, T> {
-    type WriteFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Self::Error>> + 'a;
-
-    fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.read_write(&mut [], data)
-    }
-}
-
-impl<'d, T: Instance> FullDuplex<u8> for Spim<'d, T> {
-    type WriteReadFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Self::Error>> + 'a;
-
-    fn read_write<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::WriteReadFuture<'a> {
-        async move {
-            slice_in_ram_or(tx, Error::DMABufferNotInDataMemory)?;
-            // NOTE: RAM slice check for rx is not necessary, as a mutable
-            // slice can only be built from data located in RAM.
-
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // before any DMA action has started.
-            compiler_fence(Ordering::SeqCst);
-
-            let r = T::regs();
-            let s = T::state();
-
-            // Set up the DMA write.
-            r.txd
-                .ptr
-                .write(|w| unsafe { w.ptr().bits(tx.as_ptr() as u32) });
-            r.txd
-                .maxcnt
-                .write(|w| unsafe { w.maxcnt().bits(tx.len() as _) });
-
-            // Set up the DMA read.
-            r.rxd
-                .ptr
-                .write(|w| unsafe { w.ptr().bits(rx.as_mut_ptr() as u32) });
-            r.rxd
-                .maxcnt
-                .write(|w| unsafe { w.maxcnt().bits(rx.len() as _) });
-
-            // Reset and enable the event
-            r.events_end.reset();
-            r.intenset.write(|w| w.end().set());
-
-            // Start SPI transaction.
-            r.tasks_start.write(|w| unsafe { w.bits(1) });
-
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // after all possible DMA actions have completed.
-            compiler_fence(Ordering::SeqCst);
-
-            // Wait for 'end' event.
-            poll_fn(|cx| {
-                s.end_waker.register(cx.waker());
-                if r.events_end.read().bits() != 0 {
-                    return Poll::Ready(());
-                }
-
-                Poll::Pending
-            })
-            .await;
-
-            Ok(())
-        }
-    }
-}
-
-// Blocking functions are provided by implementing `embedded_hal` traits.
-//
-// Code could be shared between traits to reduce code size.
-impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<u8> for Spim<'d, T> {
-    type Error = Error;
-    fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
-        slice_in_ram_or(words, Error::DMABufferNotInDataMemory)?;
-
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // before any DMA action has started.
-        compiler_fence(Ordering::SeqCst);
-
-        let r = T::regs();
-
-        // Set up the DMA write.
-        r.txd
-            .ptr
-            .write(|w| unsafe { w.ptr().bits(words.as_ptr() as u32) });
-        r.txd
-            .maxcnt
-            .write(|w| unsafe { w.maxcnt().bits(words.len() as _) });
-
-        // Set up the DMA read.
-        r.rxd
-            .ptr
-            .write(|w| unsafe { w.ptr().bits(words.as_mut_ptr() as u32) });
-        r.rxd
-            .maxcnt
-            .write(|w| unsafe { w.maxcnt().bits(words.len() as _) });
-
-        // Disable the end event since we are busy-polling.
-        r.events_end.reset();
-
-        // Start SPI transaction.
-        r.tasks_start.write(|w| unsafe { w.bits(1) });
-
-        // Wait for 'end' event.
-        while r.events_end.read().bits() == 0 {}
-
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // after all possible DMA actions have completed.
-        compiler_fence(Ordering::SeqCst);
-
-        Ok(words)
-    }
-}
-
-impl<'d, T: Instance> embedded_hal::blocking::spi::Write<u8> for Spim<'d, T> {
-    type Error = Error;
-
-    fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        slice_in_ram_or(words, Error::DMABufferNotInDataMemory)?;
-        let recv: &mut [u8] = &mut [];
-
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // before any DMA action has started.
-        compiler_fence(Ordering::SeqCst);
-
-        let r = T::regs();
-
-        // Set up the DMA write.
-        r.txd
-            .ptr
-            .write(|w| unsafe { w.ptr().bits(words.as_ptr() as u32) });
-        r.txd
-            .maxcnt
-            .write(|w| unsafe { w.maxcnt().bits(words.len() as _) });
-
-        // Set up the DMA read.
-        r.rxd
-            .ptr
-            .write(|w| unsafe { w.ptr().bits(recv.as_mut_ptr() as u32) });
-        r.rxd
-            .maxcnt
-            .write(|w| unsafe { w.maxcnt().bits(recv.len() as _) });
-
-        // Disable the end event since we are busy-polling.
-        r.events_end.reset();
-
-        // Start SPI transaction.
-        r.tasks_start.write(|w| unsafe { w.bits(1) });
-
-        // Wait for 'end' event.
-        while r.events_end.read().bits() == 0 {}
-
-        // Conservative compiler fence to prevent optimizations that do not
-        // take in to account actions by DMA. The fence has been placed here,
-        // after all possible DMA actions have completed.
-        compiler_fence(Ordering::SeqCst);
-
-        Ok(())
     }
 }
 
@@ -406,4 +306,210 @@ macro_rules! impl_spim {
             type Interrupt = crate::interrupt::$irq;
         }
     };
+}
+
+// ====================
+
+mod eh02 {
+    use super::*;
+
+    impl<'d, T: Instance> embedded_hal_02::blocking::spi::Transfer<u8> for Spim<'d, T> {
+        type Error = Error;
+        fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
+            self.blocking_transfer_in_place(words)?;
+            Ok(words)
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_02::blocking::spi::Write<u8> for Spim<'d, T> {
+        type Error = Error;
+
+        fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(words)
+        }
+    }
+}
+
+#[cfg(feature = "unstable-traits")]
+mod eh1 {
+    use super::*;
+    use core::future::Future;
+
+    impl embedded_hal_1::spi::Error for Error {
+        fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
+            match *self {
+                Self::TxBufferTooLong => embedded_hal_1::spi::ErrorKind::Other,
+                Self::RxBufferTooLong => embedded_hal_1::spi::ErrorKind::Other,
+                Self::DMABufferNotInDataMemory => embedded_hal_1::spi::ErrorKind::Other,
+            }
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::spi::ErrorType for Spim<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::spi::blocking::Read<u8> for Spim<'d, T> {
+        fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
+            self.blocking_transfer(words, &[])
+        }
+
+        fn read_transaction(&mut self, words: &mut [&mut [u8]]) -> Result<(), Self::Error> {
+            for buf in words {
+                self.blocking_read(buf)?
+            }
+            Ok(())
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::spi::blocking::Write<u8> for Spim<'d, T> {
+        fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(words)
+        }
+
+        fn write_transaction(&mut self, words: &[&[u8]]) -> Result<(), Self::Error> {
+            for buf in words {
+                self.blocking_write(buf)?
+            }
+            Ok(())
+        }
+
+        fn write_iter<WI>(&mut self, words: WI) -> Result<(), Self::Error>
+        where
+            WI: IntoIterator<Item = u8>,
+        {
+            for w in words {
+                self.blocking_write(&[w])?;
+            }
+            Ok(())
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::spi::blocking::ReadWrite<u8> for Spim<'d, T> {
+        fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_transfer(read, write)
+        }
+
+        fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
+            self.blocking_transfer_in_place(words)
+        }
+
+        fn transaction<'a>(
+            &mut self,
+            operations: &mut [embedded_hal_async::spi::Operation<'a, u8>],
+        ) -> Result<(), Self::Error> {
+            use embedded_hal_1::spi::blocking::Operation;
+            for o in operations {
+                match o {
+                    Operation::Read(b) => self.blocking_read(b)?,
+                    Operation::Write(b) => self.blocking_write(b)?,
+                    Operation::Transfer(r, w) => self.blocking_transfer(r, w)?,
+                    Operation::TransferInPlace(b) => self.blocking_transfer_in_place(b)?,
+                }
+            }
+            Ok(())
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::spi::Read<u8> for Spim<'d, T> {
+        type ReadFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn read<'a>(&'a mut self, words: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.read(words)
+        }
+
+        type ReadTransactionFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn read_transaction<'a>(
+            &'a mut self,
+            words: &'a mut [&'a mut [u8]],
+        ) -> Self::ReadTransactionFuture<'a> {
+            async move {
+                for buf in words {
+                    self.read(buf).await?
+                }
+                Ok(())
+            }
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::spi::Write<u8> for Spim<'d, T> {
+        type WriteFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.write(data)
+        }
+
+        type WriteTransactionFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn write_transaction<'a>(
+            &'a mut self,
+            words: &'a [&'a [u8]],
+        ) -> Self::WriteTransactionFuture<'a> {
+            async move {
+                for buf in words {
+                    self.write(buf).await?
+                }
+                Ok(())
+            }
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::spi::ReadWrite<u8> for Spim<'d, T> {
+        type TransferFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn transfer<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::TransferFuture<'a> {
+            self.transfer(rx, tx)
+        }
+
+        type TransferInPlaceFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn transfer_in_place<'a>(
+            &'a mut self,
+            words: &'a mut [u8],
+        ) -> Self::TransferInPlaceFuture<'a> {
+            self.transfer_in_place(words)
+        }
+
+        type TransactionFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn transaction<'a>(
+            &'a mut self,
+            operations: &'a mut [embedded_hal_async::spi::Operation<'a, u8>],
+        ) -> Self::TransactionFuture<'a> {
+            use embedded_hal_1::spi::blocking::Operation;
+            async move {
+                for o in operations {
+                    match o {
+                        Operation::Read(b) => self.read(b).await?,
+                        Operation::Write(b) => self.write(b).await?,
+                        Operation::Transfer(r, w) => self.transfer(r, w).await?,
+                        Operation::TransferInPlace(b) => self.transfer_in_place(b).await?,
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
 }

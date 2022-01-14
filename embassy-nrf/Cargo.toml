@@ -12,6 +12,9 @@ edition = "2018"
 # There are no plans to make this stable.
 unstable-pac = []
 
+# Implement embedded-hal 1.0 alpha and embedded-hal-async traits.
+unstable-traits = ["embedded-hal-1", "embedded-hal-async"]
+
 nrf52805 = ["nrf52805-pac", "_ppi"]
 nrf52810 = ["nrf52810-pac", "_ppi"]
 nrf52811 = ["nrf52811-pac", "_ppi"]
@@ -47,11 +50,14 @@ embassy = { version = "0.1.0", path = "../embassy" }
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["nrf"]}
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.6", git = "https://github.com/embassy-rs/embedded-hal", branch = "embassy", optional = true}
+embedded-hal-async = { version = "0.0.1", git = "https://github.com/embassy-rs/embedded-hal", branch = "embassy", optional = true}
+
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.3"
-embedded-hal    = "0.2.6"
 embedded-dma    = "0.1.2"
 futures     = { version = "0.3.17", default-features = false }
 critical-section = "0.2.5"

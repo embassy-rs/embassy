@@ -13,12 +13,10 @@
 //! memory may be used given that buffers are passed in directly to its read and write
 //! methods.
 
-use core::future::Future;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 use embassy::interrupt::InterruptExt;
-use embassy::traits::uart::{Error as TraitError, Read, ReadUntilIdle, Write};
 use embassy::util::Unborrow;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
@@ -32,6 +30,7 @@ use crate::pac;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::Instance as TimerInstance;
 use crate::timer::{Frequency, Timer};
+use crate::util::slice_in_ram_or;
 
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
@@ -49,6 +48,16 @@ impl Default for Config {
             baudrate: Baudrate::BAUD115200,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Error {
+    BufferTooLong,
+    BufferZeroLength,
+    DMABufferNotInDataMemory,
+    // TODO: add other error variants.
 }
 
 /// Interface to the UARTE peripheral
@@ -139,8 +148,12 @@ impl<'d, T: Instance> Uarte<'d, T> {
 
         Self {
             phantom: PhantomData,
-            tx: UarteTx::new(),
-            rx: UarteRx::new(),
+            tx: UarteTx {
+                phantom: PhantomData,
+            },
+            rx: UarteRx {
+                phantom: PhantomData,
+            },
         }
     }
 
@@ -170,92 +183,110 @@ impl<'d, T: Instance> Uarte<'d, T> {
             r.intenclr.write(|w| w.endtx().clear());
         }
     }
-}
 
-impl<'d, T: Instance> Read for Uarte<'d, T> {
-    type ReadFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), TraitError>> + 'a;
-
-    fn read<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.rx.read(rx_buffer)
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.rx.read(buffer).await
     }
-}
 
-impl<'d, T: Instance> Write for Uarte<'d, T> {
-    type WriteFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), TraitError>> + 'a;
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.tx.write(buffer).await
+    }
 
-    fn write<'a>(&'a mut self, tx_buffer: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.tx.write(tx_buffer)
+    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.rx.blocking_read(buffer)
+    }
+
+    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.tx.blocking_write(buffer)
     }
 }
 
 impl<'d, T: Instance> UarteTx<'d, T> {
-    pub fn new() -> Self {
-        Self {
-            phantom: PhantomData,
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
+        if buffer.len() == 0 {
+            return Err(Error::BufferZeroLength);
         }
+        if buffer.len() > EASY_DMA_SIZE {
+            return Err(Error::BufferTooLong);
+        }
+
+        let ptr = buffer.as_ptr();
+        let len = buffer.len();
+
+        let r = T::regs();
+        let s = T::state();
+
+        let drop = OnDrop::new(move || {
+            trace!("write drop: stopping");
+
+            r.intenclr.write(|w| w.endtx().clear());
+            r.events_txstopped.reset();
+            r.tasks_stoptx.write(|w| unsafe { w.bits(1) });
+
+            // TX is stopped almost instantly, spinning is fine.
+            while r.events_endtx.read().bits() == 0 {}
+            trace!("write drop: stopped");
+        });
+
+        r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
+        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+
+        r.events_endtx.reset();
+        r.intenset.write(|w| w.endtx().set());
+
+        compiler_fence(Ordering::SeqCst);
+
+        trace!("starttx");
+        r.tasks_starttx.write(|w| unsafe { w.bits(1) });
+
+        poll_fn(|cx| {
+            s.endtx_waker.register(cx.waker());
+            if r.events_endtx.read().bits() != 0 {
+                return Poll::Ready(());
+            }
+            Poll::Pending
+        })
+        .await;
+
+        compiler_fence(Ordering::SeqCst);
+        r.events_txstarted.reset();
+        drop.defuse();
+
+        Ok(())
     }
-}
 
-impl<'d, T: Instance> Write for UarteTx<'d, T> {
-    type WriteFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), TraitError>> + 'a;
-
-    fn write<'a>(&'a mut self, tx_buffer: &'a [u8]) -> Self::WriteFuture<'a> {
-        async move {
-            let ptr = tx_buffer.as_ptr();
-            let len = tx_buffer.len();
-            assert!(len <= EASY_DMA_SIZE);
-            // TODO: panic if buffer is not in SRAM
-
-            let r = T::regs();
-            let s = T::state();
-
-            let drop = OnDrop::new(move || {
-                trace!("write drop: stopping");
-
-                r.intenclr.write(|w| w.endtx().clear());
-                r.events_txstopped.reset();
-                r.tasks_stoptx.write(|w| unsafe { w.bits(1) });
-
-                // TX is stopped almost instantly, spinning is fine.
-                while r.events_endtx.read().bits() == 0 {}
-                trace!("write drop: stopped");
-            });
-
-            r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
-            r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
-
-            r.events_endtx.reset();
-            r.intenset.write(|w| w.endtx().set());
-
-            compiler_fence(Ordering::SeqCst);
-
-            trace!("starttx");
-            r.tasks_starttx.write(|w| unsafe { w.bits(1) });
-
-            poll_fn(|cx| {
-                s.endtx_waker.register(cx.waker());
-                if r.events_endtx.read().bits() != 0 {
-                    return Poll::Ready(());
-                }
-                Poll::Pending
-            })
-            .await;
-
-            compiler_fence(Ordering::SeqCst);
-            r.events_txstarted.reset();
-            drop.defuse();
-
-            Ok(())
+    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
+        if buffer.len() == 0 {
+            return Err(Error::BufferZeroLength);
         }
+        if buffer.len() > EASY_DMA_SIZE {
+            return Err(Error::BufferTooLong);
+        }
+
+        let ptr = buffer.as_ptr();
+        let len = buffer.len();
+
+        let r = T::regs();
+
+        r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
+        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+
+        r.events_endtx.reset();
+        r.intenclr.write(|w| w.endtx().clear());
+
+        compiler_fence(Ordering::SeqCst);
+
+        trace!("starttx");
+        r.tasks_starttx.write(|w| unsafe { w.bits(1) });
+
+        while r.events_endtx.read().bits() == 0 {}
+
+        compiler_fence(Ordering::SeqCst);
+        r.events_txstarted.reset();
+
+        Ok(())
     }
 }
 
@@ -278,66 +309,89 @@ impl<'a, T: Instance> Drop for UarteTx<'a, T> {
 }
 
 impl<'d, T: Instance> UarteRx<'d, T> {
-    pub fn new() -> Self {
-        Self {
-            phantom: PhantomData,
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        if buffer.len() == 0 {
+            return Err(Error::BufferZeroLength);
         }
+        if buffer.len() > EASY_DMA_SIZE {
+            return Err(Error::BufferTooLong);
+        }
+
+        let ptr = buffer.as_ptr();
+        let len = buffer.len();
+
+        let r = T::regs();
+        let s = T::state();
+
+        let drop = OnDrop::new(move || {
+            trace!("read drop: stopping");
+
+            r.intenclr.write(|w| w.endrx().clear());
+            r.events_rxto.reset();
+            r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
+
+            while r.events_endrx.read().bits() == 0 {}
+
+            trace!("read drop: stopped");
+        });
+
+        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
+        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+
+        r.events_endrx.reset();
+        r.intenset.write(|w| w.endrx().set());
+
+        compiler_fence(Ordering::SeqCst);
+
+        trace!("startrx");
+        r.tasks_startrx.write(|w| unsafe { w.bits(1) });
+
+        poll_fn(|cx| {
+            s.endrx_waker.register(cx.waker());
+            if r.events_endrx.read().bits() != 0 {
+                return Poll::Ready(());
+            }
+            Poll::Pending
+        })
+        .await;
+
+        compiler_fence(Ordering::SeqCst);
+        r.events_rxstarted.reset();
+        drop.defuse();
+
+        Ok(())
     }
-}
 
-impl<'d, T: Instance> Read for UarteRx<'d, T> {
-    type ReadFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), TraitError>> + 'a;
-
-    fn read<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        async move {
-            let ptr = rx_buffer.as_ptr();
-            let len = rx_buffer.len();
-            assert!(len <= EASY_DMA_SIZE);
-
-            let r = T::regs();
-            let s = T::state();
-
-            let drop = OnDrop::new(move || {
-                trace!("read drop: stopping");
-
-                r.intenclr.write(|w| w.endrx().clear());
-                r.events_rxto.reset();
-                r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
-
-                while r.events_endrx.read().bits() == 0 {}
-
-                trace!("read drop: stopped");
-            });
-
-            r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
-            r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
-
-            r.events_endrx.reset();
-            r.intenset.write(|w| w.endrx().set());
-
-            compiler_fence(Ordering::SeqCst);
-
-            trace!("startrx");
-            r.tasks_startrx.write(|w| unsafe { w.bits(1) });
-
-            poll_fn(|cx| {
-                s.endrx_waker.register(cx.waker());
-                if r.events_endrx.read().bits() != 0 {
-                    return Poll::Ready(());
-                }
-                Poll::Pending
-            })
-            .await;
-
-            compiler_fence(Ordering::SeqCst);
-            r.events_rxstarted.reset();
-            drop.defuse();
-
-            Ok(())
+    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        if buffer.len() == 0 {
+            return Err(Error::BufferZeroLength);
         }
+        if buffer.len() > EASY_DMA_SIZE {
+            return Err(Error::BufferTooLong);
+        }
+
+        let ptr = buffer.as_ptr();
+        let len = buffer.len();
+
+        let r = T::regs();
+
+        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
+        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+
+        r.events_endrx.reset();
+        r.intenclr.write(|w| w.endrx().clear());
+
+        compiler_fence(Ordering::SeqCst);
+
+        trace!("startrx");
+        r.tasks_startrx.write(|w| unsafe { w.bits(1) });
+
+        while r.events_endrx.read().bits() == 0 {}
+
+        compiler_fence(Ordering::SeqCst);
+        r.events_rxstarted.reset();
+
+        Ok(())
     }
 }
 
@@ -439,14 +493,7 @@ pub struct UarteWithIdle<'d, U: Instance, T: TimerInstance> {
 impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
     /// Creates the interface to a UARTE instance.
     /// Sets the baud rate, parity and assigns the pins to the UARTE peripheral.
-    ///
-    /// # Safety
-    ///
-    /// The returned API is safe unless you use `mem::forget` (or similar safe mechanisms)
-    /// on stack allocated buffers which which have been passed to [`send()`](Uarte::send)
-    /// or [`receive`](Uarte::receive).
-    #[allow(unused_unsafe)]
-    pub unsafe fn new(
+    pub fn new(
         uarte: impl Unborrow<Target = U> + 'd,
         timer: impl Unborrow<Target = T> + 'd,
         ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
@@ -501,93 +548,119 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
             _ppi_ch2: ppi_ch2,
         }
     }
-}
 
-impl<'d, U: Instance, T: TimerInstance> ReadUntilIdle for UarteWithIdle<'d, U, T> {
-    type ReadUntilIdleFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<usize, TraitError>> + 'a;
-    fn read_until_idle<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadUntilIdleFuture<'a> {
-        async move {
-            let ptr = rx_buffer.as_ptr();
-            let len = rx_buffer.len();
-            assert!(len <= EASY_DMA_SIZE);
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.ppi_ch1.disable();
+        self.uarte.read(buffer).await
+    }
 
-            let r = U::regs();
-            let s = U::state();
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.uarte.write(buffer).await
+    }
 
-            let drop = OnDrop::new(|| {
-                trace!("read drop: stopping");
+    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.ppi_ch1.disable();
+        self.uarte.blocking_read(buffer)
+    }
 
-                self.timer.stop();
+    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.uarte.blocking_write(buffer)
+    }
 
-                r.intenclr.write(|w| w.endrx().clear());
-                r.events_rxto.reset();
-                r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
+    pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() == 0 {
+            return Err(Error::BufferZeroLength);
+        }
+        if buffer.len() > EASY_DMA_SIZE {
+            return Err(Error::BufferTooLong);
+        }
 
-                while r.events_endrx.read().bits() == 0 {}
+        let ptr = buffer.as_ptr();
+        let len = buffer.len();
 
-                trace!("read drop: stopped");
-            });
+        let r = U::regs();
+        let s = U::state();
 
-            r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
-            r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+        self.ppi_ch1.enable();
 
-            r.events_endrx.reset();
-            r.intenset.write(|w| w.endrx().set());
+        let drop = OnDrop::new(|| {
+            trace!("read drop: stopping");
 
-            compiler_fence(Ordering::SeqCst);
-
-            trace!("startrx");
-            r.tasks_startrx.write(|w| unsafe { w.bits(1) });
-
-            poll_fn(|cx| {
-                s.endrx_waker.register(cx.waker());
-                if r.events_endrx.read().bits() != 0 {
-                    return Poll::Ready(());
-                }
-                Poll::Pending
-            })
-            .await;
-
-            compiler_fence(Ordering::SeqCst);
-            let n = r.rxd.amount.read().amount().bits() as usize;
-
-            // Stop timer
             self.timer.stop();
-            r.events_rxstarted.reset();
 
-            drop.defuse();
+            r.intenclr.write(|w| w.endrx().clear());
+            r.events_rxto.reset();
+            r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
 
-            Ok(n)
-        }
+            while r.events_endrx.read().bits() == 0 {}
+
+            trace!("read drop: stopped");
+        });
+
+        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
+        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+
+        r.events_endrx.reset();
+        r.intenset.write(|w| w.endrx().set());
+
+        compiler_fence(Ordering::SeqCst);
+
+        r.tasks_startrx.write(|w| unsafe { w.bits(1) });
+
+        poll_fn(|cx| {
+            s.endrx_waker.register(cx.waker());
+            if r.events_endrx.read().bits() != 0 {
+                return Poll::Ready(());
+            }
+            Poll::Pending
+        })
+        .await;
+
+        compiler_fence(Ordering::SeqCst);
+        let n = r.rxd.amount.read().amount().bits() as usize;
+
+        self.timer.stop();
+        r.events_rxstarted.reset();
+
+        drop.defuse();
+
+        Ok(n)
     }
-}
 
-impl<'d, U: Instance, T: TimerInstance> Read for UarteWithIdle<'d, U, T> {
-    type ReadFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), TraitError>> + 'a;
-    fn read<'a>(&'a mut self, rx_buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        async move {
-            self.ppi_ch1.disable();
-            let result = self.uarte.read(rx_buffer).await;
-            self.ppi_ch1.enable();
-            result
+    pub fn blocking_read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        if buffer.len() == 0 {
+            return Err(Error::BufferZeroLength);
         }
-    }
-}
+        if buffer.len() > EASY_DMA_SIZE {
+            return Err(Error::BufferTooLong);
+        }
 
-impl<'d, U: Instance, T: TimerInstance> Write for UarteWithIdle<'d, U, T> {
-    type WriteFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), TraitError>> + 'a;
+        let ptr = buffer.as_ptr();
+        let len = buffer.len();
 
-    fn write<'a>(&'a mut self, tx_buffer: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.uarte.write(tx_buffer)
+        let r = U::regs();
+
+        self.ppi_ch1.enable();
+
+        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
+        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+
+        r.events_endrx.reset();
+        r.intenclr.write(|w| w.endrx().clear());
+
+        compiler_fence(Ordering::SeqCst);
+
+        r.tasks_startrx.write(|w| unsafe { w.bits(1) });
+
+        while r.events_endrx.read().bits() == 0 {}
+
+        compiler_fence(Ordering::SeqCst);
+        let n = r.rxd.amount.read().amount().bits() as usize;
+
+        self.timer.stop();
+        r.events_rxstarted.reset();
+
+        Ok(n)
     }
 }
 
@@ -638,4 +711,207 @@ macro_rules! impl_uarte {
             type Interrupt = crate::interrupt::$irq;
         }
     };
+}
+
+// ====================
+
+mod eh02 {
+    use super::*;
+
+    impl<'d, T: Instance> embedded_hal_02::blocking::serial::Write<u8> for Uarte<'d, T> {
+        type Error = Error;
+
+        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn bflush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_02::blocking::serial::Write<u8> for UarteTx<'d, T> {
+        type Error = Error;
+
+        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn bflush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl<'d, U: Instance, T: TimerInstance> embedded_hal_02::blocking::serial::Write<u8>
+        for UarteWithIdle<'d, U, T>
+    {
+        type Error = Error;
+
+        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn bflush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(feature = "unstable-traits")]
+mod eh1 {
+    use super::*;
+    use core::future::Future;
+
+    impl embedded_hal_1::serial::Error for Error {
+        fn kind(&self) -> embedded_hal_1::serial::ErrorKind {
+            match *self {
+                Self::BufferTooLong => embedded_hal_1::serial::ErrorKind::Other,
+                Self::BufferZeroLength => embedded_hal_1::serial::ErrorKind::Other,
+                Self::DMABufferNotInDataMemory => embedded_hal_1::serial::ErrorKind::Other,
+            }
+        }
+    }
+
+    // =====================
+
+    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for Uarte<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::serial::blocking::Write for Uarte<'d, T> {
+        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::serial::Read for Uarte<'d, T> {
+        type ReadFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn read<'a>(&'a mut self, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.read(buffer)
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::serial::Write for Uarte<'d, T> {
+        type WriteFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn write<'a>(&'a mut self, buffer: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.write(buffer)
+        }
+
+        type FlushFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            async move { Ok(()) }
+        }
+    }
+
+    // =====================
+
+    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for UarteTx<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::serial::blocking::Write for UarteTx<'d, T> {
+        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::serial::Write for UarteTx<'d, T> {
+        type WriteFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn write<'a>(&'a mut self, buffer: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.write(buffer)
+        }
+
+        type FlushFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            async move { Ok(()) }
+        }
+    }
+
+    // =====================
+
+    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for UarteRx<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::serial::Read for UarteRx<'d, T> {
+        type ReadFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn read<'a>(&'a mut self, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.read(buffer)
+        }
+    }
+
+    // =====================
+
+    impl<'d, U: Instance, T: TimerInstance> embedded_hal_1::serial::ErrorType
+        for UarteWithIdle<'d, U, T>
+    {
+        type Error = Error;
+    }
+
+    impl<'d, U: Instance, T: TimerInstance> embedded_hal_async::serial::Read
+        for UarteWithIdle<'d, U, T>
+    {
+        type ReadFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn read<'a>(&'a mut self, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.read(buffer)
+        }
+    }
+
+    impl<'d, U: Instance, T: TimerInstance> embedded_hal_async::serial::Write
+        for UarteWithIdle<'d, U, T>
+    {
+        type WriteFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn write<'a>(&'a mut self, buffer: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.write(buffer)
+        }
+
+        type FlushFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            async move { Ok(()) }
+        }
+    }
 }

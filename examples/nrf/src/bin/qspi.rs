@@ -7,7 +7,6 @@ mod example_common;
 
 use defmt::assert_eq;
 use embassy::executor::Spawner;
-use embassy::traits::flash::Flash;
 use embassy_nrf::Peripherals;
 use embassy_nrf::{interrupt, qspi};
 use example_common::*;

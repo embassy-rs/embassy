@@ -8,7 +8,6 @@ mod example_common;
 use core::mem;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy::traits::flash::Flash;
 use embassy_nrf::Peripherals;
 use embassy_nrf::{interrupt, qspi};
 use example_common::*;

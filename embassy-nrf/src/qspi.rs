@@ -1,11 +1,9 @@
 #![macro_use]
 
-use core::future::Future;
 use core::marker::PhantomData;
 use core::ptr;
 use core::task::Poll;
 use embassy::interrupt::{Interrupt, InterruptExt};
-use embassy::traits::flash::{Error, Flash};
 use embassy::util::Unborrow;
 use embassy_hal_common::drop::DropBomb;
 use embassy_hal_common::unborrow;
@@ -56,6 +54,13 @@ impl Default for Config {
             deep_power_down: None,
         }
     }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Error {
+    // TODO add "not in data memory" error and check for it
 }
 
 pub struct Qspi<'d, T: Instance> {
@@ -240,6 +245,87 @@ impl<'d, T: Instance> Qspi<'d, T> {
         })
         .await
     }
+
+    pub async fn read(&mut self, address: usize, data: &mut [u8]) -> Result<(), Error> {
+        let bomb = DropBomb::new();
+
+        assert_eq!(data.as_ptr() as u32 % 4, 0);
+        assert_eq!(data.len() as u32 % 4, 0);
+        assert_eq!(address as u32 % 4, 0);
+
+        let r = T::regs();
+
+        r.read
+            .src
+            .write(|w| unsafe { w.src().bits(address as u32) });
+        r.read
+            .dst
+            .write(|w| unsafe { w.dst().bits(data.as_ptr() as u32) });
+        r.read
+            .cnt
+            .write(|w| unsafe { w.cnt().bits(data.len() as u32) });
+
+        r.events_ready.reset();
+        r.intenset.write(|w| w.ready().set());
+        r.tasks_readstart.write(|w| w.tasks_readstart().bit(true));
+
+        self.wait_ready().await;
+
+        bomb.defuse();
+
+        Ok(())
+    }
+
+    pub async fn write(&mut self, address: usize, data: &[u8]) -> Result<(), Error> {
+        let bomb = DropBomb::new();
+
+        assert_eq!(data.as_ptr() as u32 % 4, 0);
+        assert_eq!(data.len() as u32 % 4, 0);
+        assert_eq!(address as u32 % 4, 0);
+
+        let r = T::regs();
+        r.write
+            .src
+            .write(|w| unsafe { w.src().bits(data.as_ptr() as u32) });
+        r.write
+            .dst
+            .write(|w| unsafe { w.dst().bits(address as u32) });
+        r.write
+            .cnt
+            .write(|w| unsafe { w.cnt().bits(data.len() as u32) });
+
+        r.events_ready.reset();
+        r.intenset.write(|w| w.ready().set());
+        r.tasks_writestart.write(|w| w.tasks_writestart().bit(true));
+
+        self.wait_ready().await;
+
+        bomb.defuse();
+
+        Ok(())
+    }
+
+    pub async fn erase(&mut self, address: usize) -> Result<(), Error> {
+        let bomb = DropBomb::new();
+
+        assert_eq!(address as u32 % 4096, 0);
+
+        let r = T::regs();
+        r.erase
+            .ptr
+            .write(|w| unsafe { w.ptr().bits(address as u32) });
+        r.erase.len.write(|w| w.len()._4kb());
+
+        r.events_ready.reset();
+        r.intenset.write(|w| w.ready().set());
+        r.tasks_erasestart.write(|w| w.tasks_erasestart().bit(true));
+
+        self.wait_ready().await;
+
+        bomb.defuse();
+
+        Ok(())
+    }
 }
 
 impl<'d, T: Instance> Drop for Qspi<'d, T> {
@@ -282,124 +368,6 @@ impl<'d, T: Instance> Drop for Qspi<'d, T> {
         gpio::deconfigure_pin(r.psel.io3.read().bits());
 
         trace!("qspi: dropped");
-    }
-}
-
-impl<'d, T: Instance> Flash for Qspi<'d, T> {
-    type ReadFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Error>> + 'a;
-    type WriteFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Error>> + 'a;
-    type ErasePageFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Error>> + 'a;
-
-    fn read<'a>(&'a mut self, address: usize, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        async move {
-            let bomb = DropBomb::new();
-
-            assert_eq!(data.as_ptr() as u32 % 4, 0);
-            assert_eq!(data.len() as u32 % 4, 0);
-            assert_eq!(address as u32 % 4, 0);
-
-            let r = T::regs();
-
-            r.read
-                .src
-                .write(|w| unsafe { w.src().bits(address as u32) });
-            r.read
-                .dst
-                .write(|w| unsafe { w.dst().bits(data.as_ptr() as u32) });
-            r.read
-                .cnt
-                .write(|w| unsafe { w.cnt().bits(data.len() as u32) });
-
-            r.events_ready.reset();
-            r.intenset.write(|w| w.ready().set());
-            r.tasks_readstart.write(|w| w.tasks_readstart().bit(true));
-
-            self.wait_ready().await;
-
-            bomb.defuse();
-
-            Ok(())
-        }
-    }
-
-    fn write<'a>(&'a mut self, address: usize, data: &'a [u8]) -> Self::WriteFuture<'a> {
-        async move {
-            let bomb = DropBomb::new();
-
-            assert_eq!(data.as_ptr() as u32 % 4, 0);
-            assert_eq!(data.len() as u32 % 4, 0);
-            assert_eq!(address as u32 % 4, 0);
-
-            let r = T::regs();
-            r.write
-                .src
-                .write(|w| unsafe { w.src().bits(data.as_ptr() as u32) });
-            r.write
-                .dst
-                .write(|w| unsafe { w.dst().bits(address as u32) });
-            r.write
-                .cnt
-                .write(|w| unsafe { w.cnt().bits(data.len() as u32) });
-
-            r.events_ready.reset();
-            r.intenset.write(|w| w.ready().set());
-            r.tasks_writestart.write(|w| w.tasks_writestart().bit(true));
-
-            self.wait_ready().await;
-
-            bomb.defuse();
-
-            Ok(())
-        }
-    }
-
-    fn erase<'a>(&'a mut self, address: usize) -> Self::ErasePageFuture<'a> {
-        async move {
-            let bomb = DropBomb::new();
-
-            assert_eq!(address as u32 % 4096, 0);
-
-            let r = T::regs();
-            r.erase
-                .ptr
-                .write(|w| unsafe { w.ptr().bits(address as u32) });
-            r.erase.len.write(|w| w.len()._4kb());
-
-            r.events_ready.reset();
-            r.intenset.write(|w| w.ready().set());
-            r.tasks_erasestart.write(|w| w.tasks_erasestart().bit(true));
-
-            self.wait_ready().await;
-
-            bomb.defuse();
-
-            Ok(())
-        }
-    }
-
-    fn size(&self) -> usize {
-        256 * 4096 // TODO
-    }
-
-    fn read_size(&self) -> usize {
-        4 // TODO
-    }
-
-    fn write_size(&self) -> usize {
-        4 // TODO
-    }
-
-    fn erase_size(&self) -> usize {
-        4096 // TODO
     }
 }
 

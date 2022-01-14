@@ -5,11 +5,10 @@ use core::task::{Context, Poll};
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unsafe_impl_unborrow;
-use embedded_hal::digital::v2::InputPin;
 use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, FlexPin, Input, Output, Pin as GpioPin};
+use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin};
 use crate::pac;
 use crate::ppi::{Event, Task};
 use crate::{interrupt, peripherals};
@@ -216,18 +215,6 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
     }
 }
 
-impl<'d, C: Channel, T: GpioPin> InputPin for InputChannel<'d, C, T> {
-    type Error = Infallible;
-
-    fn is_high(&self) -> Result<bool, Self::Error> {
-        self.pin.is_high()
-    }
-
-    fn is_low(&self) -> Result<bool, Self::Error> {
-        self.pin.is_low()
-    }
-}
-
 /// GPIOTE channel driver in output mode
 pub struct OutputChannel<'d, C: Channel, T: GpioPin> {
     ch: C,
@@ -342,78 +329,60 @@ impl<'a> Future for PortInputFuture<'a> {
     }
 }
 
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForHigh for Input<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
+impl<'d, T: GpioPin> Input<'d, T> {
+    pub async fn wait_for_high(&mut self) {
+        self.pin.wait_for_high().await
+    }
 
-    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
-        self.pin.wait_for_high()
+    pub async fn wait_for_low(&mut self) {
+        self.pin.wait_for_low().await
+    }
+
+    pub async fn wait_for_rising_edge(&mut self) {
+        self.pin.wait_for_rising_edge().await
+    }
+
+    pub async fn wait_for_falling_edge(&mut self) {
+        self.pin.wait_for_falling_edge().await
+    }
+
+    pub async fn wait_for_any_edge(&mut self) {
+        self.pin.wait_for_any_edge().await
     }
 }
 
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForLow for Input<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
-
-    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
-        self.pin.wait_for_low()
-    }
-}
-
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForAnyEdge for Input<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
-
-    fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
-        self.pin.wait_for_any_edge()
-    }
-}
-
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForHigh for FlexPin<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
-
-    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
+impl<'d, T: GpioPin> Flex<'d, T> {
+    pub async fn wait_for_high(&mut self) {
         self.pin.conf().modify(|_, w| w.sense().high());
 
         PortInputFuture {
             pin_port: self.pin.pin_port(),
             phantom: PhantomData,
         }
+        .await
     }
-}
 
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForLow for FlexPin<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
-
-    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
+    pub async fn wait_for_low(&mut self) {
         self.pin.conf().modify(|_, w| w.sense().low());
 
         PortInputFuture {
             pin_port: self.pin.pin_port(),
             phantom: PhantomData,
         }
+        .await
     }
-}
 
-impl<'d, T: GpioPin> embassy::traits::gpio::WaitForAnyEdge for FlexPin<'d, T> {
-    type Future<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = ()> + Unpin + 'a;
+    pub async fn wait_for_rising_edge(&mut self) {
+        self.wait_for_low().await;
+        self.wait_for_high().await;
+    }
 
-    fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
+    pub async fn wait_for_falling_edge(&mut self) {
+        self.wait_for_high().await;
+        self.wait_for_low().await;
+    }
+
+    pub async fn wait_for_any_edge(&mut self) {
         if self.is_high() {
             self.pin.conf().modify(|_, w| w.sense().low());
         } else {
@@ -423,6 +392,7 @@ impl<'d, T: GpioPin> embassy::traits::gpio::WaitForAnyEdge for FlexPin<'d, T> {
             pin_port: self.pin.pin_port(),
             phantom: PhantomData,
         }
+        .await
     }
 }
 
@@ -471,3 +441,137 @@ impl_channel!(GPIOTE_CH4, 4);
 impl_channel!(GPIOTE_CH5, 5);
 impl_channel!(GPIOTE_CH6, 6);
 impl_channel!(GPIOTE_CH7, 7);
+
+// ====================
+
+mod eh02 {
+    use super::*;
+
+    impl<'d, C: Channel, T: GpioPin> embedded_hal_02::digital::v2::InputPin for InputChannel<'d, C, T> {
+        type Error = Infallible;
+
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            self.pin.is_high()
+        }
+
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            self.pin.is_low()
+        }
+    }
+}
+
+#[cfg(feature = "unstable-traits")]
+mod eh1 {
+    use super::*;
+    use futures::FutureExt;
+
+    impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::ErrorType for InputChannel<'d, C, T> {
+        type Error = Infallible;
+    }
+
+    impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::blocking::InputPin
+        for InputChannel<'d, C, T>
+    {
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            self.pin.is_high()
+        }
+
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            self.pin.is_low()
+        }
+    }
+
+    impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Input<'d, T> {
+        type WaitForHighFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn wait_for_high<'a>(&'a mut self) -> Self::WaitForHighFuture<'a> {
+            self.wait_for_high().map(Ok)
+        }
+
+        type WaitForLowFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn wait_for_low<'a>(&'a mut self) -> Self::WaitForLowFuture<'a> {
+            self.wait_for_low().map(Ok)
+        }
+
+        type WaitForRisingEdgeFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn wait_for_rising_edge<'a>(&'a mut self) -> Self::WaitForRisingEdgeFuture<'a> {
+            self.wait_for_rising_edge().map(Ok)
+        }
+
+        type WaitForFallingEdgeFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn wait_for_falling_edge<'a>(&'a mut self) -> Self::WaitForFallingEdgeFuture<'a> {
+            self.wait_for_falling_edge().map(Ok)
+        }
+
+        type WaitForAnyEdgeFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn wait_for_any_edge<'a>(&'a mut self) -> Self::WaitForAnyEdgeFuture<'a> {
+            self.wait_for_any_edge().map(Ok)
+        }
+    }
+
+    impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Flex<'d, T> {
+        type WaitForHighFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn wait_for_high<'a>(&'a mut self) -> Self::WaitForHighFuture<'a> {
+            self.wait_for_high().map(Ok)
+        }
+
+        type WaitForLowFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn wait_for_low<'a>(&'a mut self) -> Self::WaitForLowFuture<'a> {
+            self.wait_for_low().map(Ok)
+        }
+
+        type WaitForRisingEdgeFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn wait_for_rising_edge<'a>(&'a mut self) -> Self::WaitForRisingEdgeFuture<'a> {
+            self.wait_for_rising_edge().map(Ok)
+        }
+
+        type WaitForFallingEdgeFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn wait_for_falling_edge<'a>(&'a mut self) -> Self::WaitForFallingEdgeFuture<'a> {
+            self.wait_for_falling_edge().map(Ok)
+        }
+
+        type WaitForAnyEdgeFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn wait_for_any_edge<'a>(&'a mut self) -> Self::WaitForAnyEdgeFuture<'a> {
+            self.wait_for_any_edge().map(Ok)
+        }
+    }
+}

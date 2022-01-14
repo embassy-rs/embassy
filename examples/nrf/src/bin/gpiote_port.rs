@@ -6,7 +6,6 @@
 mod example_common;
 
 use embassy::executor::Spawner;
-use embassy::traits::gpio::{WaitForHigh, WaitForLow};
 use embassy_nrf::gpio::{AnyPin, Input, Pin as _, Pull};
 use embassy_nrf::Peripherals;
 use example_common::*;

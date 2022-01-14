@@ -10,7 +10,6 @@ use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Input, Pull};
 use embassy_nrf::wdt::{Config, Watchdog};
 use embassy_nrf::Peripherals;
-use embassy_traits::gpio::{WaitForHigh, WaitForLow};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

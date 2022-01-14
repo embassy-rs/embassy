@@ -213,9 +213,6 @@ impl<'d, U: UarteInstance, T: TimerInstance> AsyncBufRead for BufferedUarte<'d, 
         cx: &mut Context<'_>,
     ) -> Poll<embassy::io::Result<&[u8]>> {
         self.inner.with(|state| {
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // before any DMA action has started
             compiler_fence(Ordering::SeqCst);
             trace!("poll_read");
 
@@ -265,9 +262,6 @@ impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U,
 
             trace!("poll_write: queued {:?}", n);
 
-            // Conservative compiler fence to prevent optimizations that do not
-            // take in to account actions by DMA. The fence has been placed here,
-            // before any DMA action has started
             compiler_fence(Ordering::SeqCst);
 
             Poll::Ready(Ok(n))
@@ -347,9 +341,7 @@ impl<'a, U: UarteInstance, T: TimerInstance> PeripheralState for StateInner<'a, 
                         trace!("  irq_rx: buf {:?} {:?}", buf.as_ptr() as u32, buf.len());
 
                         // Start UARTE Receive transaction
-                        r.tasks_startrx.write(|w|
-                            // `1` is a valid value to write to task registers.
-                            unsafe { w.bits(1) });
+                        r.tasks_startrx.write(|w| unsafe { w.bits(1) });
                     }
                     break;
                 }
@@ -397,9 +389,7 @@ impl<'a, U: UarteInstance, T: TimerInstance> PeripheralState for StateInner<'a, 
                             unsafe { w.maxcnt().bits(buf.len() as _) });
 
                         // Start UARTE Transmit transaction
-                        r.tasks_starttx.write(|w|
-                            // `1` is a valid value to write to task registers.
-                            unsafe { w.bits(1) });
+                        r.tasks_starttx.write(|w| unsafe { w.bits(1) });
                     }
                     break;
                 }
