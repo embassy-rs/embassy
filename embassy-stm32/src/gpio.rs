@@ -80,7 +80,7 @@ impl<'d, T: Pin> Input<'d, T> {
     pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
         unborrow!(pin);
 
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let r = pin.block();
             let n = pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -117,7 +117,7 @@ impl<'d, T: Pin> Input<'d, T> {
 
 impl<'d, T: Pin> Drop for Input<'d, T> {
     fn drop(&mut self) {
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -168,7 +168,7 @@ impl<'d, T: Pin> Output<'d, T> {
             Level::Low => pin.set_low(),
         }
 
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let r = pin.block();
             let n = pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -195,7 +195,7 @@ impl<'d, T: Pin> Output<'d, T> {
 
 impl<'d, T: Pin> Drop for Output<'d, T> {
     fn drop(&mut self) {
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -265,7 +265,7 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
             Level::Low => pin.set_low(),
         }
 
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let r = pin.block();
             let n = pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -298,7 +298,7 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
 
 impl<'d, T: Pin> Drop for OutputOpenDrain<'d, T> {
     fn drop(&mut self) {
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             #[cfg(gpio_v1)]

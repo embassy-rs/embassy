@@ -148,7 +148,7 @@ pub struct ExtiInputFuture<'a> {
 
 impl<'a> ExtiInputFuture<'a> {
     fn new(pin: u8, port: u8, rising: bool, falling: bool) -> Self {
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let pin = pin as usize;
             exticr_regs()
                 .exticr(pin / 4)
@@ -177,7 +177,7 @@ impl<'a> ExtiInputFuture<'a> {
 
 impl<'a> Drop for ExtiInputFuture<'a> {
     fn drop(&mut self) {
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let pin = self.pin as _;
             cpu_regs().imr(0).modify(|w| w.set_line(pin, false));
         });
