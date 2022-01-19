@@ -10,7 +10,6 @@ use embassy::executor::Executor;
 use embassy::util::Forever;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::spi;
-use embedded_hal::blocking::spi::Transfer;
 use example_common::*;
 
 use core::str::from_utf8;
@@ -25,7 +24,7 @@ async fn main_task(mut spi: spi::Spi<'static, SPI3, NoDma, NoDma>) {
         let mut write: String<128> = String::new();
         core::write!(&mut write, "Hello DMA World {}!\r\n", n).unwrap();
         unsafe {
-            let result = spi.transfer(write.as_bytes_mut());
+            let result = spi.blocking_transfer_in_place(write.as_bytes_mut());
             if let Err(_) = result {
                 defmt::panic!("crap");
             }

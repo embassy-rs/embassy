@@ -13,7 +13,6 @@ use embassy_stm32::dma::NoDma;
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peripherals;
-use embedded_hal::blocking::spi::Transfer;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
@@ -35,7 +34,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     loop {
         let mut buf = [0x0Au8; 4];
         cs.set_low();
-        unwrap!(spi.transfer(&mut buf));
+        unwrap!(spi.blocking_transfer_in_place(&mut buf));
         cs.set_high();
         info!("xfer {=[u8]:x}", buf);
     }

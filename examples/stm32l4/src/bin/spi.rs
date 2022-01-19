@@ -9,7 +9,6 @@ use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
-use embedded_hal::blocking::spi::Transfer;
 use example_common::*;
 
 #[cortex_m_rt::entry]
@@ -34,7 +33,7 @@ fn main() -> ! {
     loop {
         let mut buf = [0x0Au8; 4];
         cs.set_low();
-        unwrap!(spi.transfer(&mut buf));
+        unwrap!(spi.blocking_transfer_in_place(&mut buf));
         cs.set_high();
         info!("xfer {=[u8]:x}", buf);
     }
