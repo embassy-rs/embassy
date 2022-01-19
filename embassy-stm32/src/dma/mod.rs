@@ -10,6 +10,7 @@ pub use dmamux::*;
 
 use core::future::Future;
 use core::marker::PhantomData;
+use core::mem;
 use core::pin::Pin;
 use core::task::Waker;
 use core::task::{Context, Poll};
@@ -36,12 +37,13 @@ pub(crate) mod sealed {
         /// Starts this channel for writing a stream of words.
         ///
         /// Safety:
+        /// - `buf` must point to a valid buffer for DMA reading.
         /// - `buf` must be alive for the entire duration of the DMA transfer.
         /// - `reg_addr` must be a valid peripheral register address to write to.
         unsafe fn start_write<W: super::Word>(
             &mut self,
             request: Request,
-            buf: &[W],
+            buf: *const [W],
             reg_addr: *mut W,
         );
 
@@ -60,13 +62,14 @@ pub(crate) mod sealed {
         /// Starts this channel for reading a stream of words.
         ///
         /// Safety:
+        /// - `buf` must point to a valid buffer for DMA writing.
         /// - `buf` must be alive for the entire duration of the DMA transfer.
-        /// - `reg_addr` must be a valid peripheral register address to write to.
+        /// - `reg_addr` must be a valid peripheral register address to read from.
         unsafe fn start_read<W: super::Word>(
             &mut self,
             request: Request,
-            reg_addr: *mut W,
-            buf: &mut [W],
+            reg_addr: *const W,
+            buf: *mut [W],
         );
 
         /// Requests the channel to stop.
@@ -132,10 +135,7 @@ mod transfers {
 
         unsafe { channel.start_read::<W>(request, reg_addr, buf) };
 
-        Transfer {
-            channel,
-            _phantom: PhantomData,
-        }
+        Transfer::new(channel)
     }
 
     #[allow(unused)]
@@ -150,10 +150,7 @@ mod transfers {
 
         unsafe { channel.start_write::<W>(request, buf, reg_addr) };
 
-        Transfer {
-            channel,
-            _phantom: PhantomData,
-        }
+        Transfer::new(channel)
     }
 
     #[allow(unused)]
@@ -168,15 +165,22 @@ mod transfers {
 
         unsafe { channel.start_write_repeated::<W>(request, repeated, count, reg_addr) };
 
-        Transfer {
-            channel,
-            _phantom: PhantomData,
-        }
+        Transfer::new(channel)
     }
 
-    struct Transfer<'a, C: Channel> {
+    pub(crate) struct Transfer<'a, C: Channel> {
         channel: C,
         _phantom: PhantomData<&'a mut C>,
+    }
+
+    impl<'a, C: Channel> Transfer<'a, C> {
+        pub(crate) fn new(channel: impl Unborrow<Target = C> + 'a) -> Self {
+            unborrow!(channel);
+            Self {
+                channel,
+                _phantom: PhantomData,
+            }
+        }
     }
 
     impl<'a, C: Channel> Drop for Transfer<'a, C> {
@@ -220,4 +224,15 @@ pub(crate) unsafe fn init() {
     dma::init();
     #[cfg(dmamux)]
     dmamux::init();
+}
+
+// TODO: replace transmutes with core::ptr::metadata once it's stable
+#[allow(unused)]
+pub(crate) fn slice_ptr_parts<T>(slice: *const [T]) -> (usize, usize) {
+    unsafe { mem::transmute(slice) }
+}
+
+#[allow(unused)]
+pub(crate) fn slice_ptr_parts_mut<T>(slice: *mut [T]) -> (usize, usize) {
+    unsafe { mem::transmute(slice) }
 }

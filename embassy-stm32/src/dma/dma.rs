@@ -84,15 +84,16 @@ pub(crate) unsafe fn init() {
 pac::dma_channels! {
     ($channel_peri:ident, $dma_peri:ident, dma, $channel_num:expr, $dmamux:tt) => {
         impl crate::dma::sealed::Channel for crate::peripherals::$channel_peri {
-            unsafe fn start_write<W: Word>(&mut self, request: Request, buf: &[W], reg_addr: *mut W) {
+            unsafe fn start_write<W: Word>(&mut self, request: Request, buf: *const [W], reg_addr: *mut W) {
+                let (ptr, len) = super::slice_ptr_parts(buf);
                 low_level_api::start_transfer(
                     pac::$dma_peri,
                     $channel_num,
                     request,
                     vals::Dir::MEMORYTOPERIPHERAL,
                     reg_addr as *const u32,
-                    buf.as_ptr() as *mut u32,
-                    buf.len(),
+                    ptr as *mut u32,
+                    len,
                     true,
                     vals::Size::from(W::bits()),
                     #[cfg(dmamux)]
@@ -121,15 +122,16 @@ pac::dma_channels! {
                 )
             }
 
-            unsafe fn start_read<W: Word>(&mut self, request: Request, reg_addr: *mut W, buf: &mut [W]) {
+            unsafe fn start_read<W: Word>(&mut self, request: Request, reg_addr: *const W, buf: *mut [W]) {
+                let (ptr, len) = super::slice_ptr_parts_mut(buf);
                 low_level_api::start_transfer(
                     pac::$dma_peri,
                     $channel_num,
                     request,
                     vals::Dir::PERIPHERALTOMEMORY,
                     reg_addr as *const u32,
-                    buf.as_ptr() as *mut u32,
-                    buf.len(),
+                    ptr as *mut u32,
+                    len,
                     true,
                     vals::Size::from(W::bits()),
                     #[cfg(dmamux)]
