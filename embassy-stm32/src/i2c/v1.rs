@@ -3,9 +3,6 @@ use crate::time::Hertz;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
-use embedded_hal::blocking::i2c::Read;
-use embedded_hal::blocking::i2c::Write;
-use embedded_hal::blocking::i2c::WriteRead;
 
 use crate::pac::i2c;
 
@@ -179,12 +176,8 @@ impl<'d, T: Instance> I2c<'d, T> {
         let value = T::regs().dr().read().dr();
         Ok(value)
     }
-}
 
-impl<'d, T: Instance> Read for I2c<'d, T> {
-    type Error = Error;
-
-    fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+    pub fn blocking_read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Error> {
         if let Some((last, buffer)) = buffer.split_last_mut() {
             // Send a START condition and set ACK bit
             unsafe {
@@ -248,12 +241,8 @@ impl<'d, T: Instance> Read for I2c<'d, T> {
             Err(Error::Overrun)
         }
     }
-}
 
-impl<'d, T: Instance> Write for I2c<'d, T> {
-    type Error = Error;
-
-    fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Self::Error> {
+    pub fn blocking_write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
         unsafe {
             self.write_bytes(addr, bytes)?;
             // Send a STOP condition
@@ -267,16 +256,41 @@ impl<'d, T: Instance> Write for I2c<'d, T> {
         // Fallthrough is success
         Ok(())
     }
+
+    pub fn blocking_write_read(
+        &mut self,
+        addr: u8,
+        bytes: &[u8],
+        buffer: &mut [u8],
+    ) -> Result<(), Error> {
+        unsafe { self.write_bytes(addr, bytes)? };
+        self.blocking_read(addr, buffer)?;
+
+        Ok(())
+    }
 }
 
-impl<'d, T: Instance> WriteRead for I2c<'d, T> {
+impl<'d, T: Instance> embedded_hal::blocking::i2c::Read for I2c<'d, T> {
+    type Error = Error;
+
+    fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(addr, buffer)
+    }
+}
+
+impl<'d, T: Instance> embedded_hal::blocking::i2c::Write for I2c<'d, T> {
+    type Error = Error;
+
+    fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(addr, bytes)
+    }
+}
+
+impl<'d, T: Instance> embedded_hal::blocking::i2c::WriteRead for I2c<'d, T> {
     type Error = Error;
 
     fn write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
-        unsafe { self.write_bytes(addr, bytes)? };
-        self.read(addr, buffer)?;
-
-        Ok(())
+        self.blocking_write_read(addr, bytes, buffer)
     }
 }
 

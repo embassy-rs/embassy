@@ -3,7 +3,9 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use embassy::traits::gpio::{WaitForAnyEdge, WaitForFallingEdge, WaitForRisingEdge};
+use embassy::traits::gpio::{
+    WaitForAnyEdge, WaitForFallingEdge, WaitForHigh, WaitForLow, WaitForRisingEdge,
+};
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unsafe_impl_unborrow;
@@ -94,17 +96,75 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
     pub fn new(pin: Input<'d, T>, _ch: impl Unborrow<Target = T::ExtiChannel> + 'd) -> Self {
         Self { pin }
     }
+
+    pub fn is_high(&self) -> bool {
+        self.pin.is_high()
+    }
+
+    pub fn is_low(&self) -> bool {
+        self.pin.is_low()
+    }
+
+    pub async fn wait_for_high<'a>(&'a mut self) {
+        let fut = ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, false);
+        if self.is_high() {
+            return;
+        }
+        fut.await
+    }
+
+    pub async fn wait_for_low<'a>(&'a mut self) {
+        let fut = ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), false, true);
+        if self.is_low() {
+            return;
+        }
+        fut.await
+    }
+
+    pub async fn wait_for_rising_edge<'a>(&'a mut self) {
+        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, false).await
+    }
+
+    pub async fn wait_for_falling_edge<'a>(&'a mut self) {
+        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), false, true).await
+    }
+
+    pub async fn wait_for_any_edge<'a>(&'a mut self) {
+        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, true).await
+    }
 }
 
 impl<'d, T: GpioPin> InputPin for ExtiInput<'d, T> {
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
-        self.pin.is_high()
+        Ok(self.is_high())
     }
 
     fn is_low(&self) -> Result<bool, Self::Error> {
-        self.pin.is_low()
+        Ok(self.is_low())
+    }
+}
+
+impl<'d, T: GpioPin> WaitForHigh for ExtiInput<'d, T> {
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + 'a;
+
+    fn wait_for_high<'a>(&'a mut self) -> Self::Future<'a> {
+        self.wait_for_high()
+    }
+}
+
+impl<'d, T: GpioPin> WaitForLow for ExtiInput<'d, T> {
+    type Future<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = ()> + 'a;
+
+    fn wait_for_low<'a>(&'a mut self) -> Self::Future<'a> {
+        self.wait_for_low()
     }
 }
 
@@ -112,10 +172,10 @@ impl<'d, T: GpioPin> WaitForRisingEdge for ExtiInput<'d, T> {
     type Future<'a>
     where
         Self: 'a,
-    = ExtiInputFuture<'a>;
+    = impl Future<Output = ()> + 'a;
 
     fn wait_for_rising_edge<'a>(&'a mut self) -> Self::Future<'a> {
-        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, false)
+        self.wait_for_rising_edge()
     }
 }
 
@@ -123,10 +183,10 @@ impl<'d, T: GpioPin> WaitForFallingEdge for ExtiInput<'d, T> {
     type Future<'a>
     where
         Self: 'a,
-    = ExtiInputFuture<'a>;
+    = impl Future<Output = ()> + 'a;
 
     fn wait_for_falling_edge<'a>(&'a mut self) -> Self::Future<'a> {
-        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), false, true)
+        self.wait_for_falling_edge()
     }
 }
 
@@ -134,21 +194,21 @@ impl<'d, T: GpioPin> WaitForAnyEdge for ExtiInput<'d, T> {
     type Future<'a>
     where
         Self: 'a,
-    = ExtiInputFuture<'a>;
+    = impl Future<Output = ()> + 'a;
 
     fn wait_for_any_edge<'a>(&'a mut self) -> Self::Future<'a> {
-        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, true)
+        self.wait_for_any_edge()
     }
 }
 
-pub struct ExtiInputFuture<'a> {
+struct ExtiInputFuture<'a> {
     pin: u8,
     phantom: PhantomData<&'a mut AnyPin>,
 }
 
 impl<'a> ExtiInputFuture<'a> {
     fn new(pin: u8, port: u8, rising: bool, falling: bool) -> Self {
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let pin = pin as usize;
             exticr_regs()
                 .exticr(pin / 4)
@@ -177,7 +237,7 @@ impl<'a> ExtiInputFuture<'a> {
 
 impl<'a> Drop for ExtiInputFuture<'a> {
     fn drop(&mut self) {
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let pin = self.pin as _;
             cpu_regs().imr(0).modify(|w| w.set_line(pin, false));
         });

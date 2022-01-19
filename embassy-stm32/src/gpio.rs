@@ -3,7 +3,7 @@ use core::convert::Infallible;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
-use embedded_hal::digital::v2::{toggleable, InputPin, OutputPin, StatefulOutputPin};
+use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin, ToggleableOutputPin};
 
 use crate::pac;
 use crate::pac::gpio::{self, vals};
@@ -80,7 +80,7 @@ impl<'d, T: Pin> Input<'d, T> {
     pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
         unborrow!(pin);
 
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let r = pin.block();
             let n = pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -113,11 +113,20 @@ impl<'d, T: Pin> Input<'d, T> {
             phantom: PhantomData,
         }
     }
+
+    pub fn is_high(&self) -> bool {
+        !self.is_low()
+    }
+
+    pub fn is_low(&self) -> bool {
+        let state = unsafe { self.pin.block().idr().read().idr(self.pin.pin() as _) };
+        state == vals::Idr::LOW
+    }
 }
 
 impl<'d, T: Pin> Drop for Input<'d, T> {
     fn drop(&mut self) {
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -129,19 +138,6 @@ impl<'d, T: Pin> Drop for Input<'d, T> {
             #[cfg(gpio_v2)]
             r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
         });
-    }
-}
-
-impl<'d, T: Pin> InputPin for Input<'d, T> {
-    type Error = Infallible;
-
-    fn is_high(&self) -> Result<bool, Self::Error> {
-        self.is_low().map(|v| !v)
-    }
-
-    fn is_low(&self) -> Result<bool, Self::Error> {
-        let state = unsafe { self.pin.block().idr().read().idr(self.pin.pin() as _) };
-        Ok(state == vals::Idr::LOW)
     }
 }
 
@@ -168,7 +164,7 @@ impl<'d, T: Pin> Output<'d, T> {
             Level::Low => pin.set_low(),
         }
 
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let r = pin.block();
             let n = pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -191,11 +187,41 @@ impl<'d, T: Pin> Output<'d, T> {
             phantom: PhantomData,
         }
     }
+
+    /// Set the output as high.
+    pub fn set_high(&mut self) {
+        self.pin.set_high();
+    }
+
+    /// Set the output as low.
+    pub fn set_low(&mut self) {
+        self.pin.set_low();
+    }
+
+    /// Is the output pin set as high?
+    pub fn is_set_high(&self) -> bool {
+        !self.is_set_low()
+    }
+
+    /// Is the output pin set as low?
+    pub fn is_set_low(&self) -> bool {
+        let state = unsafe { self.pin.block().odr().read().odr(self.pin.pin() as _) };
+        state == vals::Odr::LOW
+    }
+
+    /// Toggle pin output
+    pub fn toggle(&mut self) {
+        if self.is_set_low() {
+            self.set_high()
+        } else {
+            self.set_low()
+        }
+    }
 }
 
 impl<'d, T: Pin> Drop for Output<'d, T> {
     fn drop(&mut self) {
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -213,37 +239,6 @@ impl<'d, T: Pin> Drop for Output<'d, T> {
         });
     }
 }
-
-impl<'d, T: Pin> OutputPin for Output<'d, T> {
-    type Error = Infallible;
-
-    /// Set the output as high.
-    fn set_high(&mut self) -> Result<(), Self::Error> {
-        self.pin.set_high();
-        Ok(())
-    }
-
-    /// Set the output as low.
-    fn set_low(&mut self) -> Result<(), Self::Error> {
-        self.pin.set_low();
-        Ok(())
-    }
-}
-
-impl<'d, T: Pin> StatefulOutputPin for Output<'d, T> {
-    /// Is the output pin set as high?
-    fn is_set_high(&self) -> Result<bool, Self::Error> {
-        self.is_set_low().map(|v| !v)
-    }
-
-    /// Is the output pin set as low?
-    fn is_set_low(&self) -> Result<bool, Self::Error> {
-        let state = unsafe { self.pin.block().odr().read().odr(self.pin.pin() as _) };
-        Ok(state == vals::Odr::LOW)
-    }
-}
-
-impl<'d, T: Pin> toggleable::Default for Output<'d, T> {}
 
 /// GPIO output open-drain driver.
 pub struct OutputOpenDrain<'d, T: Pin> {
@@ -265,7 +260,7 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
             Level::Low => pin.set_low(),
         }
 
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let r = pin.block();
             let n = pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -294,11 +289,50 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
             phantom: PhantomData,
         }
     }
+
+    pub fn is_high(&self) -> bool {
+        !self.is_low()
+    }
+
+    pub fn is_low(&self) -> bool {
+        let state = unsafe { self.pin.block().idr().read().idr(self.pin.pin() as _) };
+        state == vals::Idr::LOW
+    }
+
+    /// Set the output as high.
+    pub fn set_high(&mut self) {
+        self.pin.set_high();
+    }
+
+    /// Set the output as low.
+    pub fn set_low(&mut self) {
+        self.pin.set_low();
+    }
+
+    /// Is the output pin set as high?
+    pub fn is_set_high(&self) -> bool {
+        !self.is_set_low()
+    }
+
+    /// Is the output pin set as low?
+    pub fn is_set_low(&self) -> bool {
+        let state = unsafe { self.pin.block().odr().read().odr(self.pin.pin() as _) };
+        state == vals::Odr::LOW
+    }
+
+    /// Toggle pin output
+    pub fn toggle(&mut self) {
+        if self.is_set_low() {
+            self.set_high()
+        } else {
+            self.set_low()
+        }
+    }
 }
 
 impl<'d, T: Pin> Drop for OutputOpenDrain<'d, T> {
     fn drop(&mut self) {
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -314,36 +348,6 @@ impl<'d, T: Pin> Drop for OutputOpenDrain<'d, T> {
                 r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
             }
         });
-    }
-}
-
-impl<'d, T: Pin> OutputPin for OutputOpenDrain<'d, T> {
-    type Error = Infallible;
-
-    /// Set the output as high.
-    fn set_high(&mut self) -> Result<(), Self::Error> {
-        self.pin.set_high();
-        Ok(())
-    }
-
-    /// Set the output as low.
-    fn set_low(&mut self) -> Result<(), Self::Error> {
-        self.pin.set_low();
-        Ok(())
-    }
-}
-
-impl<'d, T: Pin> InputPin for OutputOpenDrain<'d, T> {
-    type Error = Infallible;
-
-    fn is_high(&self) -> Result<bool, Self::Error> {
-        self.is_low().map(|v| !v)
-    }
-
-    fn is_low(&self) -> Result<bool, Self::Error> {
-        // NOTE(safety) Atomic read
-        let state = unsafe { self.pin.block().idr().read().idr(self.pin.pin() as usize) };
-        Ok(state == vals::Idr::LOW)
     }
 }
 
@@ -610,5 +614,81 @@ pub(crate) unsafe fn init() {
                 reg.$set_field(true);
             });
         };
+    }
+}
+
+mod eh02 {
+    use super::*;
+
+    impl<'d, T: Pin> InputPin for Input<'d, T> {
+        type Error = Infallible;
+
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
+    }
+
+    impl<'d, T: Pin> OutputPin for Output<'d, T> {
+        type Error = Infallible;
+
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_high())
+        }
+
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_low())
+        }
+    }
+
+    impl<'d, T: Pin> StatefulOutputPin for Output<'d, T> {
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_high())
+        }
+
+        /// Is the output pin set as low?
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_low())
+        }
+    }
+
+    impl<'d, T: Pin> ToggleableOutputPin for Output<'d, T> {
+        type Error = Infallible;
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            Ok(self.toggle())
+        }
+    }
+
+    impl<'d, T: Pin> OutputPin for OutputOpenDrain<'d, T> {
+        type Error = Infallible;
+
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_high())
+        }
+
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_low())
+        }
+    }
+
+    impl<'d, T: Pin> StatefulOutputPin for OutputOpenDrain<'d, T> {
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_high())
+        }
+
+        /// Is the output pin set as low?
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_low())
+        }
+    }
+
+    impl<'d, T: Pin> ToggleableOutputPin for OutputOpenDrain<'d, T> {
+        type Error = Infallible;
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            Ok(self.toggle())
+        }
     }
 }

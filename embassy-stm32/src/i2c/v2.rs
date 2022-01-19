@@ -10,9 +10,6 @@ use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
-use embedded_hal::blocking::i2c::Read;
-use embedded_hal::blocking::i2c::Write;
-use embedded_hal::blocking::i2c::WriteRead;
 use futures::future::poll_fn;
 
 use crate::dma::NoDma;
@@ -300,7 +297,12 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         }
     }
 
-    fn read(&mut self, address: u8, buffer: &mut [u8], restart: bool) -> Result<(), Error> {
+    fn read_internal(
+        &mut self,
+        address: u8,
+        buffer: &mut [u8],
+        restart: bool,
+    ) -> Result<(), Error> {
         let completed_chunks = buffer.len() / 255;
         let total_chunks = if completed_chunks * 255 == buffer.len() {
             completed_chunks
@@ -339,7 +341,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
 
-    fn write(&mut self, address: u8, bytes: &[u8], send_stop: bool) -> Result<(), Error> {
+    fn write_internal(&mut self, address: u8, bytes: &[u8], send_stop: bool) -> Result<(), Error> {
         let completed_chunks = bytes.len() / 255;
         let total_chunks = if completed_chunks * 255 == bytes.len() {
             completed_chunks
@@ -568,14 +570,17 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
 
-    pub async fn write_dma(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error>
+    // =========================
+    //  Async public API
+
+    pub async fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
         self.write_dma_internal(address, bytes, true, true).await
     }
 
-    pub async fn write_dma_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error>
+    pub async fn write_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
@@ -597,19 +602,52 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
 
-    pub async fn read_dma(
-        &mut self,
-        address: u8,
-        buffer: &mut [u8],
-        restart: bool,
-    ) -> Result<(), Error>
+    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error>
     where
         RXDMA: crate::i2c::RxDma<T>,
     {
-        self.read_dma_internal(address, buffer, restart).await
+        self.read_dma_internal(address, buffer, false).await
     }
 
-    pub fn write_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error> {
+    pub async fn write_read(
+        &mut self,
+        address: u8,
+        bytes: &[u8],
+        buffer: &mut [u8],
+    ) -> Result<(), Error>
+    where
+        TXDMA: super::TxDma<T>,
+        RXDMA: super::RxDma<T>,
+    {
+        self.write_dma_internal(address, bytes, true, true).await?;
+        self.read_dma_internal(address, buffer, true).await?;
+        Ok(())
+    }
+
+    // =========================
+    //  Blocking public API
+
+    pub fn blocking_read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        self.read_internal(address, buffer, false)
+        // Automatic Stop
+    }
+
+    pub fn blocking_write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error> {
+        self.write_internal(address, bytes, true)
+    }
+
+    pub fn blocking_write_read(
+        &mut self,
+        address: u8,
+        bytes: &[u8],
+        buffer: &mut [u8],
+    ) -> Result<(), Error> {
+        self.write_internal(address, bytes, false)?;
+        self.read_internal(address, buffer, true)
+        // Automatic Stop
+    }
+
+    pub fn blocking_write_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error> {
         if bytes.is_empty() {
             return Err(Error::ZeroLengthTransfer);
         }
@@ -679,24 +717,23 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 }
 
-impl<'d, T: Instance> Read for I2c<'d, T> {
+impl<'d, T: Instance> embedded_hal::blocking::i2c::Read for I2c<'d, T> {
     type Error = Error;
 
     fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
-        self.read(address, buffer, false)
-        // Automatic Stop
+        self.blocking_read(address, buffer)
     }
 }
 
-impl<'d, T: Instance> Write for I2c<'d, T> {
+impl<'d, T: Instance> embedded_hal::blocking::i2c::Write for I2c<'d, T> {
     type Error = Error;
 
     fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.write(address, bytes, true)
+        self.blocking_write(address, bytes)
     }
 }
 
-impl<'d, T: Instance> WriteRead for I2c<'d, T> {
+impl<'d, T: Instance> embedded_hal::blocking::i2c::WriteRead for I2c<'d, T> {
     type Error = Error;
 
     fn write_read(
@@ -705,9 +742,7 @@ impl<'d, T: Instance> WriteRead for I2c<'d, T> {
         bytes: &[u8],
         buffer: &mut [u8],
     ) -> Result<(), Self::Error> {
-        self.write(address, bytes, false)?;
-        self.read(address, buffer, true)
-        // Automatic Stop
+        self.blocking_write_read(address, bytes, buffer)
     }
 }
 
@@ -715,7 +750,7 @@ impl<'d, T: Instance> WriteRead for I2c<'d, T> {
 ///
 /// Peripheral options for generating the STOP condition
 #[derive(Copy, Clone, PartialEq)]
-pub enum Stop {
+enum Stop {
     /// Software end mode: Must write register to generate STOP condition
     Software,
     /// Automatic end mode: A STOP condition is automatically generated once the
@@ -860,32 +895,23 @@ impl<'d, T: Instance, TXDMA: super::TxDma<T>, RXDMA: super::RxDma<T>> I2cTrait<u
 
     type WriteFuture<'a>
     where
-        'd: 'a,
-        T: 'a,
-        TXDMA: 'a,
-        RXDMA: 'a,
+        Self: 'a,
     = impl Future<Output = Result<(), Self::Error>> + 'a;
     type ReadFuture<'a>
     where
-        'd: 'a,
-        T: 'a,
-        TXDMA: 'a,
-        RXDMA: 'a,
+        Self: 'a,
     = impl Future<Output = Result<(), Self::Error>> + 'a;
     type WriteReadFuture<'a>
     where
-        'd: 'a,
-        T: 'a,
-        TXDMA: 'a,
-        RXDMA: 'a,
+        Self: 'a,
     = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.read_dma(address, buffer, false)
+        self.read(address, buffer)
     }
 
     fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.write_dma(address, bytes)
+        self.write(address, bytes)
     }
 
     fn write_read<'a>(
@@ -894,9 +920,6 @@ impl<'d, T: Instance, TXDMA: super::TxDma<T>, RXDMA: super::RxDma<T>> I2cTrait<u
         bytes: &'a [u8],
         buffer: &'a mut [u8],
     ) -> Self::WriteReadFuture<'a> {
-        async move {
-            self.write_dma(address, bytes).await?;
-            self.read_dma(address, buffer, true).await
-        }
+        self.write_read(address, bytes, buffer)
     }
 }

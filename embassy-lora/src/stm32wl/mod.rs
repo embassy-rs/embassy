@@ -16,7 +16,6 @@ use embassy_stm32::{
         TxParams,
     },
 };
-use embedded_hal::digital::v2::OutputPin;
 use lorawan_device::async_device::{
     radio::{Bandwidth, PhyRxTx, RfConfig, RxQuality, SpreadingFactor, TxConfig},
     Timings,
@@ -329,22 +328,22 @@ impl<'a> RadioSwitch<'a> {
     }
 
     pub(crate) fn set_rx(&mut self) {
-        self.ctrl1.set_high().unwrap();
-        self.ctrl2.set_low().unwrap();
-        self.ctrl3.set_high().unwrap();
+        self.ctrl1.set_high();
+        self.ctrl2.set_low();
+        self.ctrl3.set_high();
     }
 
     pub(crate) fn set_tx_lp(&mut self) {
-        self.ctrl1.set_high().unwrap();
-        self.ctrl2.set_high().unwrap();
-        self.ctrl3.set_high().unwrap();
+        self.ctrl1.set_high();
+        self.ctrl2.set_high();
+        self.ctrl3.set_high();
     }
 
     #[allow(dead_code)]
     pub(crate) fn set_tx_hp(&mut self) {
-        self.ctrl2.set_high().unwrap();
-        self.ctrl1.set_low().unwrap();
-        self.ctrl3.set_high().unwrap();
+        self.ctrl2.set_high();
+        self.ctrl1.set_low();
+        self.ctrl3.set_high();
     }
 }
 

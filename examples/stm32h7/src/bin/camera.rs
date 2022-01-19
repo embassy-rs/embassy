@@ -11,7 +11,6 @@ use embassy_stm32::interrupt;
 use embassy_stm32::rcc::{Mco, Mco1Source, McoClock};
 use embassy_stm32::time::U32Ext;
 use embassy_stm32::Peripherals;
-use embedded_hal::digital::v2::OutputPin;
 
 use defmt_rtt as _; // global logger
 use panic_probe as _;
@@ -114,11 +113,11 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     defmt::info!("main loop running");
     loop {
         defmt::info!("high");
-        defmt::unwrap!(led.set_high());
+        led.set_high();
         Timer::after(Duration::from_millis(500)).await;
 
         defmt::info!("low");
-        defmt::unwrap!(led.set_low());
+        led.set_low();
         Timer::after(Duration::from_millis(500)).await;
     }
 }

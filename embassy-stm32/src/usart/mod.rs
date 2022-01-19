@@ -129,7 +129,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         }
     }
 
-    async fn write_dma(&mut self, buffer: &[u8]) -> Result<(), Error>
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error>
     where
         TxDma: crate::usart::TxDma<T>,
     {
@@ -146,7 +146,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         Ok(())
     }
 
-    async fn read_dma(&mut self, buffer: &mut [u8]) -> Result<(), Error>
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error>
     where
         RxDma: crate::usart::RxDma<T>,
     {
@@ -163,7 +163,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         Ok(())
     }
 
-    pub fn read_blocking(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         unsafe {
             let r = self.inner.regs();
             for b in buffer {
@@ -187,6 +187,25 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
                 }
                 *b = rdr(r).read_volatile();
             }
+        }
+        Ok(())
+    }
+
+    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        unsafe {
+            let r = self.inner.regs();
+            for &b in buffer {
+                while !sr(r).read().txe() {}
+                tdr(r).write_volatile(b);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn blocking_flush(&mut self) -> Result<(), Error> {
+        unsafe {
+            let r = self.inner.regs();
+            while !sr(r).read().tc() {}
         }
         Ok(())
     }
@@ -224,21 +243,10 @@ impl<'d, T: Instance, TxDma, RxDma> embedded_hal::blocking::serial::Write<u8>
 {
     type Error = Error;
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-        unsafe {
-            let r = self.inner.regs();
-            for &b in buffer {
-                while !sr(r).read().txe() {}
-                tdr(r).write_volatile(b);
-            }
-        }
-        Ok(())
+        self.blocking_write(buffer)
     }
     fn bflush(&mut self) -> Result<(), Self::Error> {
-        unsafe {
-            let r = self.inner.regs();
-            while !sr(r).read().tc() {}
-        }
-        Ok(())
+        self.blocking_flush()
     }
 }
 
@@ -252,7 +260,7 @@ where
     = impl Future<Output = Result<(), embassy_traits::uart::Error>> + 'a;
 
     fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.write_dma(buf)
+        self.write(buf)
             .map_err(|_| embassy_traits::uart::Error::Other)
     }
 }
@@ -267,7 +275,7 @@ where
     = impl Future<Output = Result<(), embassy_traits::uart::Error>> + 'a;
 
     fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.read_dma(buf)
+        self.read(buf)
             .map_err(|_| embassy_traits::uart::Error::Other)
     }
 }

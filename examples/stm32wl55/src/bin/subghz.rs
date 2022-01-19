@@ -10,14 +10,12 @@ mod example_common;
 
 use embassy::channel::signal::Signal;
 use embassy::interrupt::{Interrupt, InterruptExt};
-use embassy::traits::gpio::WaitForRisingEdge;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::subghz::*;
 use embassy_stm32::Peripherals;
-use embedded_hal::digital::v2::OutputPin;
 use example_common::unwrap;
 
 const PING_DATA: &str = "PING";
@@ -89,9 +87,9 @@ async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
 
     defmt::info!("Radio ready for use");
 
-    unwrap!(led1.set_low());
+    led1.set_low();
 
-    unwrap!(led2.set_high());
+    led2.set_high();
 
     unwrap!(radio.set_standby(StandbyClk::Rc));
     unwrap!(radio.set_tcxo_mode(&TCXO_MODE));
@@ -110,11 +108,11 @@ async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
 
     defmt::info!("Status: {:?}", unwrap!(radio.status()));
 
-    unwrap!(led2.set_low());
+    led2.set_low();
 
     loop {
         pin.wait_for_rising_edge().await;
-        unwrap!(led3.set_high());
+        led3.set_high();
         unwrap!(radio.set_irq_cfg(&CfgIrq::new().irq_enable_all(Irq::TxDone)));
         unwrap!(radio.write_buffer(TX_BUF_OFFSET, PING_DATA_BYTES));
         unwrap!(radio.set_tx(Timeout::DISABLED));
@@ -127,6 +125,6 @@ async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
             defmt::info!("TX done");
         }
         unwrap!(radio.clear_irq_status(irq_status));
-        unwrap!(led3.set_low());
+        led3.set_low();
     }
 }

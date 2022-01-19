@@ -7,7 +7,6 @@ mod example_common;
 use embassy::executor::Spawner;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::Peripherals;
-use embedded_hal::digital::v2::{InputPin, OutputPin};
 use example_common::*;
 
 #[embassy::main]
@@ -19,14 +18,14 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut led2 = Output::new(p.PB5, Level::High, Speed::Low);
 
     loop {
-        if unwrap!(button.is_high()) {
+        if button.is_high() {
             info!("high");
-            unwrap!(led1.set_high());
-            unwrap!(led2.set_low());
+            led1.set_high();
+            led2.set_low();
         } else {
             info!("low");
-            unwrap!(led1.set_low());
-            unwrap!(led2.set_high());
+            led1.set_low();
+            led2.set_high();
         }
     }
 }

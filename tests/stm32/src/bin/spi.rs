@@ -10,7 +10,6 @@ use embassy_stm32::dma::NoDma;
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peripherals;
-use embedded_hal::blocking::spi::Transfer;
 use example_common::*;
 
 #[embassy::main(config = "config()")]
@@ -38,7 +37,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // Arduino pins D11 and D12 (MOSI-MISO) are connected together with a 1K resistor.
     // so we should get the data we sent back.
     let mut buf = data;
-    spi.transfer(&mut buf).unwrap();
+    spi.blocking_transfer_in_place(&mut buf).unwrap();
     assert_eq!(buf, data);
 
     info!("Test OK");

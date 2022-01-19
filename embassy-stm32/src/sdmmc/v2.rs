@@ -1254,7 +1254,7 @@ where
     fn configure(&mut self) {
         let (clk_pin, cmd_pin, d0_pin, d1_pin, d2_pin, d3_pin) = self;
 
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             // clk
             let block = clk_pin.block();
             let n = clk_pin.pin() as usize;
@@ -1298,7 +1298,7 @@ where
 
         let (clk_pin, cmd_pin, d0_pin, d1_pin, d2_pin, d3_pin) = self;
 
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             // clk
             let n = clk_pin.pin().into();
             clk_pin
@@ -1400,7 +1400,7 @@ where
     fn configure(&mut self) {
         let (clk_pin, cmd_pin, d0_pin) = self;
 
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             // clk
             let block = clk_pin.block();
             let n = clk_pin.pin() as usize;
@@ -1426,7 +1426,7 @@ where
 
         let (clk_pin, cmd_pin, d0_pin) = self;
 
-        cortex_m::interrupt::free(|_| unsafe {
+        critical_section::with(|_| unsafe {
             // clk
             let n = clk_pin.pin().into();
             clk_pin

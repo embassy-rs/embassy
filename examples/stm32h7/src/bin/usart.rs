@@ -4,7 +4,6 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use cortex_m::prelude::_embedded_hal_blocking_serial_Write;
 use embassy::executor::Executor;
 use embassy::util::Forever;
 use embassy_stm32::dma::NoDma;
@@ -20,13 +19,13 @@ async fn main_task() {
     let config = Config::default();
     let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, NoDma, NoDma, config);
 
-    unwrap!(usart.bwrite_all(b"Hello Embassy World!\r\n"));
+    unwrap!(usart.blocking_write(b"Hello Embassy World!\r\n"));
     info!("wrote Hello, starting echo");
 
     let mut buf = [0u8; 1];
     loop {
-        unwrap!(usart.read_blocking(&mut buf));
-        unwrap!(usart.bwrite_all(&buf));
+        unwrap!(usart.blocking_read(&mut buf));
+        unwrap!(usart.blocking_write(&buf));
     }
 }
 

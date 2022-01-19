@@ -9,7 +9,6 @@ use embassy::executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_stm32::Peripherals;
-use embassy_traits::uart::Write as _;
 use example_common::*;
 use heapless::String;
 

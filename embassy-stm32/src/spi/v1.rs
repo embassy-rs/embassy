@@ -1,13 +1,12 @@
 #![macro_use]
 
-pub use embedded_hal::blocking;
-pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::join;
 
 use super::*;
+use crate::dma::{slice_ptr_parts, slice_ptr_parts_mut, Transfer};
 
 impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
-    pub(super) async fn write_dma_u8(&mut self, write: &[u8]) -> Result<(), Error>
+    pub(super) async fn write_dma_u8(&mut self, write: *const [u8]) -> Result<(), Error>
     where
         Tx: TxDmaChannel<T>,
     {
@@ -18,9 +17,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
         self.set_word_size(WordSize::EightBit);
 
-        let request = self.txdma.request();
-        let dst = T::regs().tx_ptr();
-        let f = crate::dma::write(&mut self.txdma, request, write, dst);
+        let tx_request = self.txdma.request();
+        let tx_dst = T::regs().tx_ptr();
+        unsafe { self.txdma.start_write(tx_request, write, tx_dst) }
+        let tx_f = Transfer::new(&mut self.txdma);
 
         unsafe {
             T::regs().cr2().modify(|reg| {
@@ -31,14 +31,14 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
         }
 
-        f.await;
+        tx_f.await;
 
         finish_dma(T::regs());
 
         Ok(())
     }
 
-    pub(super) async fn read_dma_u8(&mut self, read: &mut [u8]) -> Result<(), Error>
+    pub(super) async fn read_dma_u8(&mut self, read: *mut [u8]) -> Result<(), Error>
     where
         Tx: TxDmaChannel<T>,
         Rx: RxDmaChannel<T>,
@@ -53,11 +53,12 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
         self.set_word_size(WordSize::EightBit);
 
-        let clock_byte_count = read.len();
+        let (_, clock_byte_count) = slice_ptr_parts_mut(read);
 
         let rx_request = self.rxdma.request();
         let rx_src = T::regs().rx_ptr();
-        let rx_f = crate::dma::read(&mut self.rxdma, rx_request, rx_src, read);
+        unsafe { self.rxdma.start_read(rx_request, rx_src, read) };
+        let rx_f = Transfer::new(&mut self.rxdma);
 
         let tx_request = self.txdma.request();
         let tx_dst = T::regs().tx_ptr();
@@ -86,16 +87,18 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
-    pub(super) async fn read_write_dma_u8(
+    pub(super) async fn transfer_dma_u8(
         &mut self,
-        read: &mut [u8],
-        write: &[u8],
+        read: *mut [u8],
+        write: *const [u8],
     ) -> Result<(), Error>
     where
         Tx: TxDmaChannel<T>,
         Rx: RxDmaChannel<T>,
     {
-        assert!(read.len() >= write.len());
+        let (_, rx_len) = slice_ptr_parts(read);
+        let (_, tx_len) = slice_ptr_parts(write);
+        assert_eq!(rx_len, tx_len);
 
         unsafe {
             T::regs().cr1().modify(|w| {
@@ -109,16 +112,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let rx_request = self.rxdma.request();
         let rx_src = T::regs().rx_ptr();
-        let rx_f = crate::dma::read(
-            &mut self.rxdma,
-            rx_request,
-            rx_src,
-            &mut read[0..write.len()],
-        );
+        unsafe { self.rxdma.start_read(rx_request, rx_src, read) };
+        let rx_f = Transfer::new(&mut self.rxdma);
 
         let tx_request = self.txdma.request();
         let tx_dst = T::regs().tx_ptr();
-        let tx_f = crate::dma::write(&mut self.txdma, tx_request, write, tx_dst);
+        unsafe { self.txdma.start_write(tx_request, write, tx_dst) }
+        let tx_f = Transfer::new(&mut self.txdma);
 
         unsafe {
             T::regs().cr2().modify(|reg| {

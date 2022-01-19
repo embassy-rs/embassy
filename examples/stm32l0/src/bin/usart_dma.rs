@@ -10,7 +10,6 @@ use example_common::*;
 use embassy::executor::Spawner;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_stm32::Peripherals;
-use embassy_traits::uart::{Read, Write};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

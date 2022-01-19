@@ -1,5 +1,13 @@
 #![macro_use]
 
+use core::future::Future;
+use core::marker::PhantomData;
+use core::ptr;
+use embassy::util::Unborrow;
+use embassy_hal_common::unborrow;
+use embassy_traits::spi as traits;
+
+use self::sealed::WordSize;
 use crate::dma;
 use crate::dma::NoDma;
 use crate::gpio::sealed::{AFType, Pin};
@@ -8,19 +16,14 @@ use crate::pac::spi::{regs, vals};
 use crate::peripherals;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
-use core::future::Future;
-use core::marker::PhantomData;
-use core::ptr;
-use embassy::util::Unborrow;
-use embassy_hal_common::unborrow;
-use embassy_traits::spi as traits;
+
+pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
 #[cfg_attr(spi_v1, path = "v1.rs")]
 #[cfg_attr(spi_f1, path = "v1.rs")]
 #[cfg_attr(spi_v2, path = "v2.rs")]
 #[cfg_attr(spi_v3, path = "v3.rs")]
 mod _version;
-pub use _version::*;
 
 type Regs = &'static crate::pac::spi::Spi;
 
@@ -38,54 +41,6 @@ pub enum Error {
 pub enum BitOrder {
     LsbFirst,
     MsbFirst,
-}
-
-#[derive(Copy, Clone, PartialOrd, PartialEq)]
-enum WordSize {
-    EightBit,
-    SixteenBit,
-}
-
-impl WordSize {
-    #[cfg(any(spi_v1, spi_f1))]
-    fn dff(&self) -> vals::Dff {
-        match self {
-            WordSize::EightBit => vals::Dff::EIGHTBIT,
-            WordSize::SixteenBit => vals::Dff::SIXTEENBIT,
-        }
-    }
-
-    #[cfg(spi_v2)]
-    fn ds(&self) -> vals::Ds {
-        match self {
-            WordSize::EightBit => vals::Ds::EIGHTBIT,
-            WordSize::SixteenBit => vals::Ds::SIXTEENBIT,
-        }
-    }
-
-    #[cfg(spi_v2)]
-    fn frxth(&self) -> vals::Frxth {
-        match self {
-            WordSize::EightBit => vals::Frxth::QUARTER,
-            WordSize::SixteenBit => vals::Frxth::HALF,
-        }
-    }
-
-    #[cfg(spi_v3)]
-    fn dsize(&self) -> u8 {
-        match self {
-            WordSize::EightBit => 0b0111,
-            WordSize::SixteenBit => 0b1111,
-        }
-    }
-
-    #[cfg(spi_v3)]
-    fn _frxth(&self) -> vals::Fthlv {
-        match self {
-            WordSize::EightBit => vals::Fthlv::ONEFRAME,
-            WordSize::SixteenBit => vals::Fthlv::ONEFRAME,
-        }
-    }
 }
 
 #[non_exhaustive]
@@ -379,6 +334,47 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         self.current_word_size = word_size;
     }
+
+    pub async fn write(&mut self, data: &[u8]) -> Result<(), Error>
+    where
+        Tx: TxDmaChannel<T>,
+    {
+        self.write_dma_u8(data).await
+    }
+
+    pub async fn read(&mut self, data: &mut [u8]) -> Result<(), Error>
+    where
+        Tx: TxDmaChannel<T>,
+        Rx: RxDmaChannel<T>,
+    {
+        self.read_dma_u8(data).await
+    }
+
+    pub async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error>
+    where
+        Tx: TxDmaChannel<T>,
+        Rx: RxDmaChannel<T>,
+    {
+        self.transfer_dma_u8(read, write).await
+    }
+
+    pub fn blocking_write<W: Word>(&mut self, words: &[W]) -> Result<(), Error> {
+        self.set_word_size(W::WORDSIZE);
+        let regs = T::regs();
+        for word in words.iter() {
+            let _ = transfer_word(regs, *word)?;
+        }
+        Ok(())
+    }
+
+    pub fn blocking_transfer_in_place<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
+        self.set_word_size(W::WORDSIZE);
+        let regs = T::regs();
+        for word in words.iter_mut() {
+            *word = transfer_word(regs, *word)?;
+        }
+        Ok(())
+    }
 }
 
 impl<'d, T: Instance, Tx, Rx> Drop for Spi<'d, T, Tx, Rx> {
@@ -537,17 +533,6 @@ fn finish_dma(regs: Regs) {
     }
 }
 
-trait Word {
-    const WORDSIZE: WordSize;
-}
-
-impl Word for u8 {
-    const WORDSIZE: WordSize = WordSize::EightBit;
-}
-impl Word for u16 {
-    const WORDSIZE: WordSize = WordSize::SixteenBit;
-}
-
 fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     spin_until_tx_ready(regs)?;
 
@@ -572,14 +557,7 @@ macro_rules! impl_blocking {
             type Error = Error;
 
             fn write(&mut self, words: &[$w]) -> Result<(), Self::Error> {
-                self.set_word_size($w::WORDSIZE);
-                let regs = T::regs();
-
-                for word in words.iter() {
-                    let _ = transfer_word(regs, *word)?;
-                }
-
-                Ok(())
+                self.blocking_write(words)
             }
         }
 
@@ -589,13 +567,7 @@ macro_rules! impl_blocking {
             type Error = Error;
 
             fn transfer<'w>(&mut self, words: &'w mut [$w]) -> Result<&'w [$w], Self::Error> {
-                self.set_word_size($w::WORDSIZE);
-                let regs = T::regs();
-
-                for word in words.iter_mut() {
-                    *word = transfer_word(regs, *word)?;
-                }
-
+                self.blocking_transfer_in_place(words)?;
                 Ok(words)
             }
         }
@@ -616,7 +588,7 @@ impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx> traits::Write<u8> for Spi<'d, T, 
     = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.write_dma_u8(data)
+        self.write(data)
     }
 }
 
@@ -629,7 +601,7 @@ impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::Read<u8>
     = impl Future<Output = Result<(), Self::Error>> + 'a;
 
     fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.read_dma_u8(data)
+        self.read(data)
     }
 }
 
@@ -646,7 +618,7 @@ impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::FullDupl
         read: &'a mut [u8],
         write: &'a [u8],
     ) -> Self::WriteReadFuture<'a> {
-        self.read_write_dma_u8(read, write)
+        self.transfer(read, write)
     }
 }
 
@@ -676,7 +648,71 @@ pub(crate) mod sealed {
     pub trait RxDmaChannel<T: Instance> {
         fn request(&self) -> dma::Request;
     }
+
+    pub trait Word: Copy + 'static {
+        const WORDSIZE: WordSize;
+    }
+
+    impl Word for u8 {
+        const WORDSIZE: WordSize = WordSize::EightBit;
+    }
+    impl Word for u16 {
+        const WORDSIZE: WordSize = WordSize::SixteenBit;
+    }
+
+    #[derive(Copy, Clone, PartialOrd, PartialEq)]
+    pub enum WordSize {
+        EightBit,
+        SixteenBit,
+    }
+
+    impl WordSize {
+        #[cfg(any(spi_v1, spi_f1))]
+        pub fn dff(&self) -> vals::Dff {
+            match self {
+                WordSize::EightBit => vals::Dff::EIGHTBIT,
+                WordSize::SixteenBit => vals::Dff::SIXTEENBIT,
+            }
+        }
+
+        #[cfg(spi_v2)]
+        pub fn ds(&self) -> vals::Ds {
+            match self {
+                WordSize::EightBit => vals::Ds::EIGHTBIT,
+                WordSize::SixteenBit => vals::Ds::SIXTEENBIT,
+            }
+        }
+
+        #[cfg(spi_v2)]
+        pub fn frxth(&self) -> vals::Frxth {
+            match self {
+                WordSize::EightBit => vals::Frxth::QUARTER,
+                WordSize::SixteenBit => vals::Frxth::HALF,
+            }
+        }
+
+        #[cfg(spi_v3)]
+        pub fn dsize(&self) -> u8 {
+            match self {
+                WordSize::EightBit => 0b0111,
+                WordSize::SixteenBit => 0b1111,
+            }
+        }
+
+        #[cfg(spi_v3)]
+        pub fn _frxth(&self) -> vals::Fthlv {
+            match self {
+                WordSize::EightBit => vals::Fthlv::ONEFRAME,
+                WordSize::SixteenBit => vals::Fthlv::ONEFRAME,
+            }
+        }
+    }
 }
+
+pub trait Word: Copy + 'static + sealed::Word {}
+
+impl Word for u8 {}
+impl Word for u16 {}
 
 pub trait Instance: sealed::Instance + RccPeripheral {}
 pub trait SckPin<T: Instance>: sealed::SckPin<T> {}
