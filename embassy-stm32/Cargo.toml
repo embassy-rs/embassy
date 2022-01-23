@@ -47,6 +47,8 @@ _time-driver = ["embassy/time-tick-32768hz"]
 time-driver-any = ["_time-driver"]
 time-driver-tim2 = ["_time-driver"]
 time-driver-tim3 = ["_time-driver"]
+time-driver-tim4 = ["_time-driver"]
+time-driver-tim5 = ["_time-driver"]
 
 # Reexport stm32-metapac at `embassy_stm32::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.
