@@ -10,7 +10,7 @@ resolver = "2"
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32h743zi", "net", "time-driver-tim2", "exti", "unstable-pac"] }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32h743zi", "net", "time-driver-any", "exti", "unstable-pac"] }
 embassy-net = { path = "../../embassy-net", default-features = false, features = ["defmt", "tcp", "medium-ethernet", "pool-16"] }
 embassy-hal-common = { path = "../../embassy-hal-common", default-features = false, features = ["defmt"] }
 

@@ -14,5 +14,5 @@ defmt = "0.3"
 defmt-rtt = "0.3"
 panic-probe = "0.3"
 embassy = { path = "../../embassy", features = ["defmt"] }
-embassy-stm32 = { path = "../../embassy-stm32", features = ["defmt", "memory-x", "stm32f030f4", "time-driver-tim3"] }
+embassy-stm32 = { path = "../../embassy-stm32", features = ["defmt", "memory-x", "stm32f030f4", "time-driver-any"] }
 

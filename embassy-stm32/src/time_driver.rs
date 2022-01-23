@@ -18,17 +18,17 @@ use self::sealed::Instance as _;
 
 const ALARM_COUNT: usize = 3;
 
-#[cfg(feature = "time-driver-tim2")]
+#[cfg(time_driver_tim2)]
 type T = peripherals::TIM2;
-#[cfg(feature = "time-driver-tim3")]
+#[cfg(time_driver_tim3)]
 type T = peripherals::TIM3;
 
-#[cfg(feature = "time-driver-tim2")]
+#[cfg(time_driver_tim2)]
 #[interrupt]
 fn TIM2() {
     DRIVER.on_interrupt()
 }
-#[cfg(feature = "time-driver-tim3")]
+#[cfg(time_driver_tim3)]
 #[interrupt]
 fn TIM3() {
     DRIVER.on_interrupt()
