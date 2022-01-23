@@ -46,13 +46,17 @@ pub struct Clocks {
     #[cfg(any(rcc_l0, rcc_l1, rcc_f0, rcc_f1, rcc_f3, rcc_f0x0, rcc_g0))]
     pub ahb: Hertz,
 
-    #[cfg(any(rcc_l4, rcc_f4, rcc_f7, rcc_h7, rcc_g4, rcc_u5, rcc_wb, rcc_wl5))]
+    #[cfg(any(
+        rcc_l4, rcc_f4, rcc_f410, rcc_f7, rcc_h7, rcc_g4, rcc_u5, rcc_wb, rcc_wl5
+    ))]
     pub ahb1: Hertz,
 
-    #[cfg(any(rcc_l4, rcc_f4, rcc_f7, rcc_h7, rcc_g4, rcc_u5, rcc_wb, rcc_wl5))]
+    #[cfg(any(
+        rcc_l4, rcc_f4, rcc_f410, rcc_f7, rcc_h7, rcc_g4, rcc_u5, rcc_wb, rcc_wl5
+    ))]
     pub ahb2: Hertz,
 
-    #[cfg(any(rcc_l4, rcc_f4, rcc_f7, rcc_h7, rcc_u5, rcc_wb, rcc_wl5))]
+    #[cfg(any(rcc_l4, rcc_f4, rcc_f410, rcc_f7, rcc_h7, rcc_u5, rcc_wb, rcc_wl5))]
     pub ahb3: Hertz,
 
     #[cfg(any(rcc_h7))]
@@ -61,7 +65,7 @@ pub struct Clocks {
     #[cfg(any(rcc_h7))]
     pub apb4: Hertz,
 
-    #[cfg(any(rcc_f4, rcc_f7))]
+    #[cfg(any(rcc_f4, rcc_f410, rcc_f7))]
     pub pll48: Option<Hertz>,
 
     #[cfg(rcc_f1)]
