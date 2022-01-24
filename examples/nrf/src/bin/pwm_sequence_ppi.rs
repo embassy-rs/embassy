@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // thus our sequence takes 5 * 250ms or 1.25 seconds
     config.refresh = 30;
 
-    let pwm = unwrap!(SequencePwm::new(
+    let mut pwm = unwrap!(SequencePwm::new(
         p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config,
     ));
 

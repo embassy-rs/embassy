@@ -138,7 +138,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
     /// Start or restart playback
     #[inline(always)]
-    pub fn start(&self, sequence: &'d [u16], times: SequenceMode) -> Result<(), Error> {
+    pub fn start(&mut self, sequence: &'d [u16], times: SequenceMode) -> Result<(), Error> {
         slice_in_ram_or(sequence, Error::DMABufferNotInDataMemory)?;
 
         if sequence.len() > 32767 {
