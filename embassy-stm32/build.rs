@@ -4,13 +4,18 @@ use std::fs;
 use std::path::PathBuf;
 
 fn main() {
-    let chip_name = env::vars_os()
-        .map(|(a, _)| a.to_string_lossy().to_string())
-        .find(|x| x.starts_with("CARGO_FEATURE_STM32"))
-        .expect("No stm32xx Cargo feature enabled")
-        .strip_prefix("CARGO_FEATURE_")
-        .unwrap()
-        .to_ascii_lowercase();
+    let chip_name = match env::vars()
+        .map(|(a, _)| a)
+        .filter(|x| x.starts_with("CARGO_FEATURE_STM32"))
+        .get_one()
+    {
+        Ok(x) => x,
+        Err(GetOneError::None) => panic!("No stm32xx Cargo feature enabled"),
+        Err(GetOneError::Multiple) => panic!("Multiple stm32xx Cargo features enabled"),
+    }
+    .strip_prefix("CARGO_FEATURE_")
+    .unwrap()
+    .to_ascii_lowercase();
 
     struct Peripheral {
         kind: String,
@@ -120,5 +125,69 @@ fn main() {
         println!("cargo:rustc-cfg={}", &chip_name[..chip_name.len() - 2]);
     }
 
+    // ========
+    // Handle time-driver-XXXX features.
+
+    let time_driver = match env::vars()
+        .map(|(a, _)| a)
+        .filter(|x| x.starts_with("CARGO_FEATURE_TIME_DRIVER_"))
+        .get_one()
+    {
+        Ok(x) => Some(
+            x.strip_prefix("CARGO_FEATURE_TIME_DRIVER_")
+                .unwrap()
+                .to_ascii_lowercase(),
+        ),
+        Err(GetOneError::None) => None,
+        Err(GetOneError::Multiple) => panic!("Multiple stm32xx Cargo features enabled"),
+    };
+
+    match time_driver.as_ref().map(|x| x.as_ref()) {
+        None => {}
+        Some("tim2") => println!("cargo:rustc-cfg=time_driver_tim2"),
+        Some("tim3") => println!("cargo:rustc-cfg=time_driver_tim3"),
+        Some("tim4") => println!("cargo:rustc-cfg=time_driver_tim4"),
+        Some("tim5") => println!("cargo:rustc-cfg=time_driver_tim5"),
+        Some("any") => {
+            if singletons.contains(&"TIM2".to_string()) {
+                println!("cargo:rustc-cfg=time_driver_tim2");
+            } else if singletons.contains(&"TIM3".to_string()) {
+                println!("cargo:rustc-cfg=time_driver_tim3");
+            } else if singletons.contains(&"TIM4".to_string()) {
+                println!("cargo:rustc-cfg=time_driver_tim4");
+            } else if singletons.contains(&"TIM5".to_string()) {
+                println!("cargo:rustc-cfg=time_driver_tim5");
+            } else {
+                panic!("time-driver-any requested, but the chip doesn't have TIM2, TIM3, TIM4 or TIM5.")
+            }
+        }
+        _ => panic!("unknown time_driver {:?}", time_driver),
+    }
+
+    // Handle time-driver-XXXX features.
+    if env::var("CARGO_FEATURE_TIME_DRIVER_ANY").is_ok() {}
+    println!("cargo:rustc-cfg={}", &chip_name[..chip_name.len() - 2]);
+
     println!("cargo:rerun-if-changed=build.rs");
+}
+
+enum GetOneError {
+    None,
+    Multiple,
+}
+
+trait IteratorExt: Iterator {
+    fn get_one(self) -> Result<Self::Item, GetOneError>;
+}
+
+impl<T: Iterator> IteratorExt for T {
+    fn get_one(mut self) -> Result<Self::Item, GetOneError> {
+        match self.next() {
+            None => Err(GetOneError::None),
+            Some(res) => match self.next() {
+                Some(_) => Err(GetOneError::Multiple),
+                None => Ok(res),
+            },
+        }
+    }
 }

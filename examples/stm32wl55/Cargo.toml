@@ -8,7 +8,7 @@ resolver = "2"
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits", features = ["defmt"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32wl55jc-cm4", "time-driver-tim2", "memory-x", "subghz", "unstable-pac", "exti"]  }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32wl55jc-cm4", "time-driver-any", "memory-x", "subghz", "unstable-pac", "exti"]  }
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["stm32wl", "time"] }
 
 lorawan-device = { git = "https://github.com/ivajloip/rust-lorawan.git", rev = "0de1a2a31933f7c97887b5718c1755fa5ab93a42", default-features = false, features = ["async"] }

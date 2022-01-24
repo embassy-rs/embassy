@@ -28,9 +28,7 @@ stm32-metapac = { version = "0.1.0", path = "../stm32-metapac", features = ["rt"
 vcell = { version = "0.1.3", optional = true }
 bxcan = "0.6.2"
 nb = "1.0.0"
-
 seq-macro = "0.2.2"
-
 cfg-if = "1.0.0"
 
 [build-dependencies]
@@ -46,8 +44,11 @@ exti = []
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
 _time-driver = ["embassy/time-tick-32768hz"]
+time-driver-any = ["_time-driver"]
 time-driver-tim2 = ["_time-driver"]
 time-driver-tim3 = ["_time-driver"]
+time-driver-tim4 = ["_time-driver"]
+time-driver-tim5 = ["_time-driver"]
 
 # Reexport stm32-metapac at `embassy_stm32::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.
