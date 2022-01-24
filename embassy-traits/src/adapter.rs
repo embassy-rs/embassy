@@ -254,3 +254,56 @@ where
         async move { self.wrapped.bflush() }
     }
 }
+
+/// NOR flash wrapper
+use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
+use embedded_storage_async::nor_flash::{AsyncNorFlash, AsyncReadNorFlash};
+
+impl<T> ErrorType for BlockingAsync<T>
+where
+    T: ErrorType,
+{
+    type Error = T::Error;
+}
+
+impl<T> AsyncNorFlash for BlockingAsync<T>
+where
+    T: NorFlash,
+{
+    const WRITE_SIZE: usize = <T as NorFlash>::WRITE_SIZE;
+    const ERASE_SIZE: usize = <T as NorFlash>::ERASE_SIZE;
+
+    type WriteFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), Self::Error>> + 'a;
+    fn write<'a>(&'a mut self, offset: u32, data: &'a [u8]) -> Self::WriteFuture<'a> {
+        async move { self.wrapped.write(offset, data) }
+    }
+
+    type EraseFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), Self::Error>> + 'a;
+    fn erase<'a>(&'a mut self, from: u32, to: u32) -> Self::EraseFuture<'a> {
+        async move { self.wrapped.erase(from, to) }
+    }
+}
+
+impl<T> AsyncReadNorFlash for BlockingAsync<T>
+where
+    T: ReadNorFlash,
+{
+    const READ_SIZE: usize = <T as ReadNorFlash>::READ_SIZE;
+    type ReadFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Result<(), Self::Error>> + 'a;
+    fn read<'a>(&'a mut self, address: u32, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        async move { self.wrapped.read(address, data) }
+    }
+
+    fn capacity(&self) -> usize {
+        self.wrapped.capacity()
+    }
+}

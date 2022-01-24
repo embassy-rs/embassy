@@ -1,0 +1,18 @@
+[unstable]
+namespaced-features = true
+build-std = ["core"]
+build-std-features = ["panic_immediate_abort"]
+
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+#runner = "./fruitrunner"
+runner = "probe-run --chip nrf52840_xxAA"
+
+rustflags = [
+  # Code-size optimizations.
+  "-Z", "trap-unreachable=no",
+  #"-C", "no-vectorize-loops",
+  "-C", "force-frame-pointers=yes",
+]
+
+[build]
+target = "thumbv7em-none-eabi"
