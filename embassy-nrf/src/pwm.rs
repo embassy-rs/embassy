@@ -63,14 +63,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: SequenceConfig,
-        sequence: &'d [u16],
     ) -> Result<Self, Error> {
-        slice_in_ram_or(sequence, Error::DMABufferNotInDataMemory)?;
-
-        if sequence.len() > 32767 {
-            return Err(Error::SequenceTooLong);
-        }
-
         unborrow!(ch0, ch1, ch2, ch3);
 
         let r = T::regs();
@@ -110,28 +103,6 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         r.events_seqstarted[0].reset();
         r.events_seqstarted[1].reset();
 
-        r.seq0
-            .ptr
-            .write(|w| unsafe { w.bits(sequence.as_ptr() as u32) });
-        r.seq0
-            .cnt
-            .write(|w| unsafe { w.bits(sequence.len() as u32) });
-        r.seq0.refresh.write(|w| unsafe { w.bits(config.refresh) });
-        r.seq0
-            .enddelay
-            .write(|w| unsafe { w.bits(config.end_delay) });
-
-        r.seq1
-            .ptr
-            .write(|w| unsafe { w.bits(sequence.as_ptr() as u32) });
-        r.seq1
-            .cnt
-            .write(|w| unsafe { w.bits(sequence.len() as u32) });
-        r.seq1.refresh.write(|w| unsafe { w.bits(config.refresh) });
-        r.seq1
-            .enddelay
-            .write(|w| unsafe { w.bits(config.end_delay) });
-
         r.decoder.write(|w| {
             w.load().bits(config.sequence_load as u8);
             w.mode().refresh_count()
@@ -146,6 +117,16 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         r.countertop
             .write(|w| unsafe { w.countertop().bits(config.max_duty) });
 
+        r.seq0.refresh.write(|w| unsafe { w.bits(config.refresh) });
+        r.seq0
+            .enddelay
+            .write(|w| unsafe { w.bits(config.end_delay) });
+
+        r.seq1.refresh.write(|w| unsafe { w.bits(config.refresh) });
+        r.seq1
+            .enddelay
+            .write(|w| unsafe { w.bits(config.end_delay) });
+
         Ok(Self {
             phantom: PhantomData,
             ch0: ch0.degrade_optional(),
@@ -157,11 +138,32 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
     /// Start or restart playback
     #[inline(always)]
-    pub fn start(&self, times: SequenceMode) -> Result<(), Error> {
+    pub fn start(&mut self, sequence: &'d [u16], times: SequenceMode) -> Result<(), Error> {
+        slice_in_ram_or(sequence, Error::DMABufferNotInDataMemory)?;
+
+        if sequence.len() > 32767 {
+            return Err(Error::SequenceTooLong);
+        }
+
         if let SequenceMode::Times(0) = times {
             return Err(Error::SequenceTimesAtLeastOne);
         }
+
         let r = T::regs();
+
+        r.seq0
+            .ptr
+            .write(|w| unsafe { w.bits(sequence.as_ptr() as u32) });
+        r.seq0
+            .cnt
+            .write(|w| unsafe { w.bits(sequence.len() as u32) });
+
+        r.seq1
+            .ptr
+            .write(|w| unsafe { w.bits(sequence.as_ptr() as u32) });
+        r.seq1
+            .cnt
+            .write(|w| unsafe { w.bits(sequence.len() as u32) });
 
         self.stop();
 

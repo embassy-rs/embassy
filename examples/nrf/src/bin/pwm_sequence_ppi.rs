@@ -26,17 +26,11 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // thus our sequence takes 5 * 250ms or 1.25 seconds
     config.refresh = 30;
 
-    let pwm = unwrap!(SequencePwm::new(
-        p.PWM0,
-        p.P0_13,
-        NoPin,
-        NoPin,
-        NoPin,
-        config,
-        &seq_values
+    let mut pwm = unwrap!(SequencePwm::new(
+        p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config,
     ));
 
-    let _ = pwm.start(SequenceMode::Times(1));
+    let _ = pwm.start(&seq_values, SequenceMode::Times(1));
     // pwm.stop() deconfigures pins, and then the task_start_seq0 task cant work
     // so its going to have to start running in order load the configuration
 
