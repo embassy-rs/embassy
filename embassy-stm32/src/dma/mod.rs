@@ -130,7 +130,7 @@ mod transfers {
         reg_addr: *mut W,
         buf: &'a mut [W],
     ) -> impl Future<Output = ()> + 'a {
-        assert!(buf.len() <= 0xFFFF);
+        assert!(buf.len() > 0 && buf.len() <= 0xFFFF);
         unborrow!(channel);
 
         unsafe { channel.start_read::<W>(request, reg_addr, buf) };
@@ -145,7 +145,7 @@ mod transfers {
         buf: &'a [W],
         reg_addr: *mut W,
     ) -> impl Future<Output = ()> + 'a {
-        assert!(buf.len() <= 0xFFFF);
+        assert!(buf.len() > 0 && buf.len() <= 0xFFFF);
         unborrow!(channel);
 
         unsafe { channel.start_write::<W>(request, buf, reg_addr) };

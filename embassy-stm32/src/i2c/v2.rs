@@ -139,7 +139,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     unsafe fn master_read(address: u8, length: usize, stop: Stop, reload: bool, restart: bool) {
-        assert!(length < 256 && length > 0);
+        assert!(length < 256);
 
         if !restart {
             // Wait for any previous address sequence to end
@@ -170,7 +170,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     unsafe fn master_write(address: u8, length: usize, stop: Stop, reload: bool) {
-        assert!(length < 256 && length > 0);
+        assert!(length < 256);
 
         // Wait for any previous address sequence to end
         // automatically. This could be up to 50% of a bus
@@ -577,7 +577,11 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
-        self.write_dma_internal(address, bytes, true, true).await
+        if bytes.is_empty() {
+            self.write_internal(address, bytes, true)
+        } else {
+            self.write_dma_internal(address, bytes, true, true).await
+        }
     }
 
     pub async fn write_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error>
@@ -606,7 +610,11 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     where
         RXDMA: crate::i2c::RxDma<T>,
     {
-        self.read_dma_internal(address, buffer, false).await
+        if buffer.is_empty() {
+            self.read_internal(address, buffer, false)
+        } else {
+            self.read_dma_internal(address, buffer, false).await
+        }
     }
 
     pub async fn write_read(
@@ -619,8 +627,18 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         TXDMA: super::TxDma<T>,
         RXDMA: super::RxDma<T>,
     {
-        self.write_dma_internal(address, bytes, true, true).await?;
-        self.read_dma_internal(address, buffer, true).await?;
+        if bytes.is_empty() {
+            self.write_internal(address, bytes, false)?;
+        } else {
+            self.write_dma_internal(address, bytes, true, true).await?;
+        }
+
+        if buffer.is_empty() {
+            self.read_internal(address, buffer, true)?;
+        } else {
+            self.read_dma_internal(address, buffer, true).await?;
+        }
+
         Ok(())
     }
 
