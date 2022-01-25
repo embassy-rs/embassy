@@ -149,6 +149,8 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             return Err(Error::SequenceTimesAtLeastOne);
         }
 
+        self.stop();
+
         let r = T::regs();
 
         r.seq0
@@ -164,8 +166,6 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         r.seq1
             .cnt
             .write(|w| unsafe { w.bits(sequence.len() as u32) });
-
-        self.stop();
 
         r.enable.write(|w| w.enable().enabled());
 
