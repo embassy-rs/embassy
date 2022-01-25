@@ -20,7 +20,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let mut config = SequenceConfig::default();
     config.prescaler = Prescaler::Div128;
-    // 1 period is 1000 * (128/16mhz = 0.000008s = 0.008ms) = 8ms
+    // 1 period is 1000 * (128/16mhz = 0.000008s = 0.008ms) = 8us
     // but say we want to hold the value for 250ms 250ms/8 = 31.25 periods
     // so round to 31 - 1 (we get the one period for free remember)
     // thus our sequence takes 5 * 250ms or 1.25 seconds
