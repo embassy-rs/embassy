@@ -45,6 +45,8 @@ pub enum Error {
     DMABufferNotInDataMemory,
 }
 
+const MAX_SEQUENCE_LEN: usize = 32767;
+
 impl<'d, T: Instance> SequencePwm<'d, T> {
     /// Creates the interface to a `SequencePwm`.
     ///
@@ -62,7 +64,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         ch1: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        config: SequenceConfig,
+        config: Config,
     ) -> Result<Self, Error> {
         unborrow!(ch0, ch1, ch2, ch3);
 
@@ -117,16 +119,6 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         r.countertop
             .write(|w| unsafe { w.countertop().bits(config.max_duty) });
 
-        r.seq0.refresh.write(|w| unsafe { w.bits(config.refresh) });
-        r.seq0
-            .enddelay
-            .write(|w| unsafe { w.bits(config.end_delay) });
-
-        r.seq1.refresh.write(|w| unsafe { w.bits(config.refresh) });
-        r.seq1
-            .enddelay
-            .write(|w| unsafe { w.bits(config.end_delay) });
-
         Ok(Self {
             phantom: PhantomData,
             ch0: ch0.degrade_optional(),
@@ -136,12 +128,28 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         })
     }
 
-    /// Start or restart playback
+    /// Start or restart playback. Takes at least one sequence along with its
+    /// configuration. Optionally takes a second sequence and/or its configuration.
+    /// In the case where no second sequence is provided then the first sequence
+    /// is used. In the case where no second sequence configuration is supplied,
+    /// the first sequence configuration is used. The sequence mode applies to both
+    /// sequences combined as one.
     #[inline(always)]
-    pub fn start(&mut self, sequence: &'d [u16], times: SequenceMode) -> Result<(), Error> {
-        slice_in_ram_or(sequence, Error::DMABufferNotInDataMemory)?;
+    pub fn start(
+        &mut self,
+        sequence0: &'d [u16],
+        sequence_config0: SequenceConfig,
+        sequence1: Option<&'d [u16]>,
+        sequence_config1: Option<SequenceConfig>,
+        times: SequenceMode,
+    ) -> Result<(), Error> {
+        let alt_sequence = sequence1.unwrap_or(sequence0);
+        let alt_sequence_config = (&sequence_config1).as_ref().unwrap_or(&sequence_config0);
 
-        if sequence.len() > 32767 {
+        slice_in_ram_or(sequence0, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(alt_sequence, Error::DMABufferNotInDataMemory)?;
+
+        if sequence0.len() > MAX_SEQUENCE_LEN || alt_sequence.len() > MAX_SEQUENCE_LEN {
             return Err(Error::SequenceTooLong);
         }
 
@@ -154,18 +162,30 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         let r = T::regs();
 
         r.seq0
+            .refresh
+            .write(|w| unsafe { w.bits(sequence_config0.refresh) });
+        r.seq0
+            .enddelay
+            .write(|w| unsafe { w.bits(sequence_config0.end_delay) });
+        r.seq0
             .ptr
-            .write(|w| unsafe { w.bits(sequence.as_ptr() as u32) });
+            .write(|w| unsafe { w.bits(sequence0.as_ptr() as u32) });
         r.seq0
             .cnt
-            .write(|w| unsafe { w.bits(sequence.len() as u32) });
+            .write(|w| unsafe { w.bits(sequence0.len() as u32) });
 
         r.seq1
+            .refresh
+            .write(|w| unsafe { w.bits(alt_sequence_config.refresh) });
+        r.seq1
+            .enddelay
+            .write(|w| unsafe { w.bits(alt_sequence_config.end_delay) });
+        r.seq1
             .ptr
-            .write(|w| unsafe { w.bits(sequence.as_ptr() as u32) });
+            .write(|w| unsafe { w.bits(alt_sequence.as_ptr() as u32) });
         r.seq1
             .cnt
-            .write(|w| unsafe { w.bits(sequence.len() as u32) });
+            .write(|w| unsafe { w.bits(alt_sequence.len() as u32) });
 
         r.enable.write(|w| w.enable().enabled());
 
@@ -356,9 +376,8 @@ impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
     }
 }
 
-/// Configure an infinite looping sequence for `SequencePwm`
 #[non_exhaustive]
-pub struct SequenceConfig {
+pub struct Config {
     /// Selects up mode or up-and-down mode for the counter
     pub counter_mode: CounterMode,
     /// Top value to be compared against buffer values
@@ -367,6 +386,21 @@ pub struct SequenceConfig {
     pub prescaler: Prescaler,
     /// How a sequence is read from RAM and is spread to the compare register
     pub sequence_load: SequenceLoad,
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        Config {
+            counter_mode: CounterMode::Up,
+            max_duty: 1000,
+            prescaler: Prescaler::Div16,
+            sequence_load: SequenceLoad::Common,
+        }
+    }
+}
+
+#[non_exhaustive]
+pub struct SequenceConfig {
     /// Number of PWM periods to delay between each sequence sample
     pub refresh: u32,
     /// Number of PWM periods after the sequence ends before starting the next sequence
@@ -376,10 +410,6 @@ pub struct SequenceConfig {
 impl Default for SequenceConfig {
     fn default() -> SequenceConfig {
         SequenceConfig {
-            counter_mode: CounterMode::Up,
-            max_duty: 1000,
-            prescaler: Prescaler::Div16,
-            sequence_load: SequenceLoad::Common,
             refresh: 0,
             end_delay: 0,
         }
@@ -389,7 +419,12 @@ impl Default for SequenceConfig {
 /// How many times to run the sequence
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum SequenceMode {
-    /// Run sequence n Times total
+    /// Run sequence n Times total.
+    /// 1 = Run sequence 0 once
+    /// 2 = Run sequence 0 and then sequence 1
+    /// 3 to 4 = Run sequence 0, sequence 1, sequence 0 and then sequence 1
+    /// 5 to 6 = Run sequence 0, sequence 1, sequence 0, sequence 1, sequence 0 and then sequence 1
+    /// i.e the when >= 2 the loop count is determined by dividing by 2 and rounding up
     Times(u16),
     /// Repeat until `stop` is called.
     Infinite,
