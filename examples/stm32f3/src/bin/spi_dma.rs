@@ -10,7 +10,6 @@ use embassy::executor::Spawner;
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peripherals;
-use embassy_traits::spi::FullDuplex;
 use example_common::*;
 use heapless::String;
 
@@ -33,7 +32,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         let mut write: String<128> = String::new();
         let mut read = [0; 128];
         core::write!(&mut write, "Hello DMA World {}!\r\n", n).unwrap();
-        spi.read_write(&mut read[0..write.len()], write.as_bytes())
+        spi.transfer(&mut read[0..write.len()], write.as_bytes())
             .await
             .ok();
         info!("read via spi+dma: {}", from_utf8(&read).unwrap());

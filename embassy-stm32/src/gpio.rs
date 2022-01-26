@@ -3,7 +3,7 @@ use core::convert::Infallible;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
-use embedded_hal::digital::v2::{InputPin, OutputPin, StatefulOutputPin, ToggleableOutputPin};
+use embedded_hal_02::digital::v2::{InputPin, OutputPin, StatefulOutputPin, ToggleableOutputPin};
 
 use crate::pac;
 use crate::pac::gpio::{self, vals};

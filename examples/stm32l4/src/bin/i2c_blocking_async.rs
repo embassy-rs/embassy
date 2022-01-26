@@ -11,7 +11,8 @@ use embassy_stm32::i2c::I2c;
 use embassy_stm32::interrupt;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peripherals;
-use embassy_traits::{adapter::BlockingAsync, i2c::I2c as _};
+use embassy_traits::adapter::BlockingAsync;
+use embedded_hal_async::i2c::I2c as I2cTrait;
 use example_common::{info, unwrap};
 
 const ADDRESS: u8 = 0x5F;

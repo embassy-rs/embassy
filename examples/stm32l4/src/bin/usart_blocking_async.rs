@@ -6,13 +6,11 @@
 mod example_common;
 
 use embassy::executor::Spawner;
-use embassy::traits::{
-    adapter::BlockingAsync,
-    uart::{Read, Write},
-};
+use embassy::traits::adapter::BlockingAsync;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_stm32::Peripherals;
+use embedded_hal_async::serial::{Read, Write};
 use example_common::*;
 
 #[embassy::main]

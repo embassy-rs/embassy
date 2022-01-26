@@ -1,7 +1,7 @@
 use core::future::Future;
-use embassy::traits::gpio::WaitForRisingEdge;
-use embassy::traits::spi::*;
 use embedded_hal::digital::v2::OutputPin;
+use embedded_hal_async::digital::Wait;
+use embedded_hal_async::spi::*;
 use lorawan_device::async_device::{
     radio::{Bandwidth, PhyRxTx, RfConfig, RxQuality, SpreadingFactor, TxConfig},
     Timings,
@@ -20,11 +20,11 @@ pub trait RadioSwitch {
 /// Semtech Sx127x radio peripheral
 pub struct Sx127xRadio<SPI, CS, RESET, E, I, RFS>
 where
-    SPI: FullDuplex<u8, Error = E> + 'static,
+    SPI: ReadWrite<u8, Error = E> + 'static,
     E: 'static,
     CS: OutputPin + 'static,
     RESET: OutputPin + 'static,
-    I: WaitForRisingEdge + 'static,
+    I: Wait + 'static,
     RFS: RadioSwitch + 'static,
 {
     radio: LoRa<SPI, CS, RESET>,
@@ -42,10 +42,10 @@ pub enum State {
 
 impl<SPI, CS, RESET, E, I, RFS> Sx127xRadio<SPI, CS, RESET, E, I, RFS>
 where
-    SPI: FullDuplex<u8, Error = E> + 'static,
+    SPI: ReadWrite<u8, Error = E> + 'static,
     CS: OutputPin + 'static,
     RESET: OutputPin + 'static,
-    I: WaitForRisingEdge + 'static,
+    I: Wait + 'static,
     RFS: RadioSwitch + 'static,
     E: 'static,
 {
@@ -64,10 +64,10 @@ where
 
 impl<SPI, CS, RESET, E, I, RFS> Timings for Sx127xRadio<SPI, CS, RESET, E, I, RFS>
 where
-    SPI: FullDuplex<u8, Error = E> + 'static,
+    SPI: ReadWrite<u8, Error = E> + 'static,
     CS: OutputPin + 'static,
     RESET: OutputPin + 'static,
-    I: WaitForRisingEdge + 'static,
+    I: Wait + 'static,
     RFS: RadioSwitch + 'static,
 {
     fn get_rx_window_offset_ms(&self) -> i32 {
@@ -80,11 +80,11 @@ where
 
 impl<SPI, CS, RESET, E, I, RFS> PhyRxTx for Sx127xRadio<SPI, CS, RESET, E, I, RFS>
 where
-    SPI: FullDuplex<u8, Error = E> + 'static,
+    SPI: ReadWrite<u8, Error = E> + 'static,
     CS: OutputPin + 'static,
     E: 'static,
     RESET: OutputPin + 'static,
-    I: WaitForRisingEdge + 'static,
+    I: Wait + 'static,
     RFS: RadioSwitch + 'static,
 {
     type PhyError = Sx127xError;
@@ -126,7 +126,7 @@ where
             self.radio.transmit_start(buf).await?;
 
             loop {
-                self.irq.wait_for_rising_edge().await;
+                self.irq.wait_for_rising_edge().await.unwrap();
                 self.radio.set_mode(RadioMode::Stdby).await.ok().unwrap();
                 let irq = self.radio.clear_irq().await.ok().unwrap();
                 if (irq & IRQ::IrqTxDoneMask.addr()) != 0 {
@@ -171,7 +171,7 @@ where
             self.radio.set_mode(RadioMode::RxContinuous).await?;
 
             loop {
-                self.irq.wait_for_rising_edge().await;
+                self.irq.wait_for_rising_edge().await.unwrap();
                 self.radio.set_mode(RadioMode::Stdby).await.ok().unwrap();
                 let irq = self.radio.clear_irq().await.ok().unwrap();
                 if (irq & IRQ::IrqRxDoneMask.addr()) != 0 {

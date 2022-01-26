@@ -128,7 +128,7 @@ mod ov7725 {
     use defmt::Format;
     use embassy::time::{Duration, Timer};
     use embassy_stm32::rcc::{Mco, McoInstance};
-    use embassy_traits::i2c::I2c;
+    use embedded_hal_async::i2c::I2c;
 
     #[repr(u8)]
     pub enum RgbFormat {

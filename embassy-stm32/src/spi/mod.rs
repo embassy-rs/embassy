@@ -1,11 +1,9 @@
 #![macro_use]
 
-use core::future::Future;
 use core::marker::PhantomData;
 use core::ptr;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
-use embassy_traits::spi as traits;
 
 use self::sealed::WordSize;
 use crate::dma;
@@ -17,7 +15,7 @@ use crate::peripherals;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 
-pub use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
+pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
 #[cfg_attr(spi_v1, path = "v1.rs")]
 #[cfg_attr(spi_f1, path = "v1.rs")]
@@ -549,76 +547,168 @@ fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     return Ok(rx_word);
 }
 
-// Note: It is not possible to impl these traits generically in embedded-hal 0.2 due to a conflict with
-// some marker traits. For details, see https://github.com/rust-embedded/embedded-hal/pull/289
-macro_rules! impl_blocking {
-    ($w:ident) => {
-        impl<'d, T: Instance> embedded_hal::blocking::spi::Write<$w> for Spi<'d, T, NoDma, NoDma> {
-            type Error = Error;
+mod eh02 {
+    use super::*;
 
-            fn write(&mut self, words: &[$w]) -> Result<(), Self::Error> {
-                self.blocking_write(words)
+    // Note: It is not possible to impl these traits generically in embedded-hal 0.2 due to a conflict with
+    // some marker traits. For details, see https://github.com/rust-embedded/embedded-hal/pull/289
+    macro_rules! impl_blocking {
+        ($w:ident) => {
+            impl<'d, T: Instance> embedded_hal_02::blocking::spi::Write<$w>
+                for Spi<'d, T, NoDma, NoDma>
+            {
+                type Error = Error;
+
+                fn write(&mut self, words: &[$w]) -> Result<(), Self::Error> {
+                    self.blocking_write(words)
+                }
+            }
+
+            impl<'d, T: Instance> embedded_hal_02::blocking::spi::Transfer<$w>
+                for Spi<'d, T, NoDma, NoDma>
+            {
+                type Error = Error;
+
+                fn transfer<'w>(&mut self, words: &'w mut [$w]) -> Result<&'w [$w], Self::Error> {
+                    self.blocking_transfer_in_place(words)?;
+                    Ok(words)
+                }
+            }
+        };
+    }
+
+    impl_blocking!(u8);
+    impl_blocking!(u16);
+}
+
+#[cfg(feature = "unstable-traits")]
+mod eh1 {
+    use super::*;
+    use core::future::Future;
+
+    impl<'d, T: Instance, Tx, Rx> embedded_hal_1::spi::ErrorType for Spi<'d, T, Tx, Rx> {
+        type Error = Error;
+    }
+
+    impl embedded_hal_1::spi::Error for Error {
+        fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
+            match *self {
+                Self::Framing => embedded_hal_1::spi::ErrorKind::FrameFormat,
+                Self::Crc => embedded_hal_1::spi::ErrorKind::Other,
+                Self::ModeFault => embedded_hal_1::spi::ErrorKind::ModeFault,
+                Self::Overrun => embedded_hal_1::spi::ErrorKind::Overrun,
             }
         }
+    }
 
-        impl<'d, T: Instance> embedded_hal::blocking::spi::Transfer<$w>
-            for Spi<'d, T, NoDma, NoDma>
-        {
-            type Error = Error;
+    impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx> embedded_hal_async::spi::Write<u8>
+        for Spi<'d, T, Tx, Rx>
+    {
+        type WriteFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
 
-            fn transfer<'w>(&mut self, words: &'w mut [$w]) -> Result<&'w [$w], Self::Error> {
-                self.blocking_transfer_in_place(words)?;
-                Ok(words)
+        fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.write(data)
+        }
+
+        type WriteTransactionFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn write_transaction<'a>(
+            &'a mut self,
+            words: &'a [&'a [u8]],
+        ) -> Self::WriteTransactionFuture<'a> {
+            async move {
+                for buf in words {
+                    self.write(buf).await?
+                }
+                Ok(())
             }
         }
-    };
-}
-
-impl_blocking!(u8);
-impl_blocking!(u16);
-
-impl<'d, T: Instance, Tx, Rx> traits::Spi<u8> for Spi<'d, T, Tx, Rx> {
-    type Error = Error;
-}
-
-impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx> traits::Write<u8> for Spi<'d, T, Tx, Rx> {
-    type WriteFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Self::Error>> + 'a;
-
-    fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.write(data)
     }
-}
 
-impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::Read<u8>
-    for Spi<'d, T, Tx, Rx>
-{
-    type ReadFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Self::Error>> + 'a;
+    impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>>
+        embedded_hal_async::spi::Read<u8> for Spi<'d, T, Tx, Rx>
+    {
+        type ReadFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
 
-    fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.read(data)
+        fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.read(data)
+        }
+
+        type ReadTransactionFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn read_transaction<'a>(
+            &'a mut self,
+            words: &'a mut [&'a mut [u8]],
+        ) -> Self::ReadTransactionFuture<'a> {
+            async move {
+                for buf in words {
+                    self.read(buf).await?
+                }
+                Ok(())
+            }
+        }
     }
-}
 
-impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>> traits::FullDuplex<u8>
-    for Spi<'d, T, Tx, Rx>
-{
-    type WriteReadFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Self::Error>> + 'a;
+    impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>>
+        embedded_hal_async::spi::ReadWrite<u8> for Spi<'d, T, Tx, Rx>
+    {
+        type TransferFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
 
-    fn read_write<'a>(
-        &'a mut self,
-        read: &'a mut [u8],
-        write: &'a [u8],
-    ) -> Self::WriteReadFuture<'a> {
-        self.transfer(read, write)
+        fn transfer<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::TransferFuture<'a> {
+            self.transfer(rx, tx)
+        }
+
+        type TransferInPlaceFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn transfer_in_place<'a>(
+            &'a mut self,
+            words: &'a mut [u8],
+        ) -> Self::TransferInPlaceFuture<'a> {
+            // TODO: Implement async version
+            let result = self.blocking_transfer_in_place(words);
+            async move { result }
+        }
+
+        type TransactionFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn transaction<'a>(
+            &'a mut self,
+            operations: &'a mut [embedded_hal_async::spi::Operation<'a, u8>],
+        ) -> Self::TransactionFuture<'a> {
+            use embedded_hal_1::spi::blocking::Operation;
+            async move {
+                for o in operations {
+                    match o {
+                        Operation::Read(b) => self.read(b).await?,
+                        Operation::Write(b) => self.write(b).await?,
+                        Operation::Transfer(r, w) => self.transfer(r, w).await?,
+                        Operation::TransferInPlace(b) => self.transfer_in_place(b).await?,
+                    }
+                }
+                Ok(())
+            }
+        }
     }
 }
 

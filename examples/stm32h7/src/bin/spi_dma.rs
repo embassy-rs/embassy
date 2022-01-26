@@ -9,7 +9,6 @@ use core::fmt::Write;
 use embassy::executor::Executor;
 use embassy::util::Forever;
 use embassy_stm32::time::U32Ext;
-use embassy_traits::spi::FullDuplex;
 use example_common::*;
 
 use core::str::from_utf8;
@@ -24,8 +23,8 @@ async fn main_task(mut spi: spi::Spi<'static, SPI3, DMA1_CH3, DMA1_CH4>) {
         let mut write: String<128> = String::new();
         let mut read = [0; 128];
         core::write!(&mut write, "Hello DMA World {}!\r\n", n).unwrap();
-        // read_write will slice the &mut read down to &write's actual length.
-        spi.read_write(&mut read, write.as_bytes()).await.ok();
+        // transfer will slice the &mut read down to &write's actual length.
+        spi.transfer(&mut read, write.as_bytes()).await.ok();
         info!("read via spi+dma: {}", from_utf8(&read).unwrap());
     }
 }

@@ -8,6 +8,7 @@ mod _version;
 use crate::{dma, peripherals};
 pub use _version::*;
 
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     Bus,

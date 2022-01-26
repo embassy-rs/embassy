@@ -1,11 +1,9 @@
 #![macro_use]
 
-use core::future::Future;
 use core::marker::PhantomData;
 use embassy::interrupt::Interrupt;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
-use futures::TryFutureExt;
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType::{OutputOpenDrain, OutputPushPull};
@@ -211,72 +209,108 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     }
 }
 
-impl<'d, T: Instance, TxDma, RxDma> embedded_hal::serial::Read<u8> for Uart<'d, T, TxDma, RxDma> {
-    type Error = Error;
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        let r = self.inner.regs();
-        unsafe {
-            let sr = sr(r).read();
-            if sr.pe() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Parity))
-            } else if sr.fe() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Framing))
-            } else if sr.ne() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Noise))
-            } else if sr.ore() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Overrun))
-            } else if sr.rxne() {
-                Ok(rdr(r).read_volatile())
-            } else {
-                Err(nb::Error::WouldBlock)
+mod eh02 {
+    use super::*;
+
+    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_02::serial::Read<u8>
+        for Uart<'d, T, TxDma, RxDma>
+    {
+        type Error = Error;
+        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+            let r = self.inner.regs();
+            unsafe {
+                let sr = sr(r).read();
+                if sr.pe() {
+                    rdr(r).read_volatile();
+                    Err(nb::Error::Other(Error::Parity))
+                } else if sr.fe() {
+                    rdr(r).read_volatile();
+                    Err(nb::Error::Other(Error::Framing))
+                } else if sr.ne() {
+                    rdr(r).read_volatile();
+                    Err(nb::Error::Other(Error::Noise))
+                } else if sr.ore() {
+                    rdr(r).read_volatile();
+                    Err(nb::Error::Other(Error::Overrun))
+                } else if sr.rxne() {
+                    Ok(rdr(r).read_volatile())
+                } else {
+                    Err(nb::Error::WouldBlock)
+                }
             }
+        }
+    }
+
+    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_02::blocking::serial::Write<u8>
+        for Uart<'d, T, TxDma, RxDma>
+    {
+        type Error = Error;
+        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+        fn bflush(&mut self) -> Result<(), Self::Error> {
+            self.blocking_flush()
         }
     }
 }
 
-impl<'d, T: Instance, TxDma, RxDma> embedded_hal::blocking::serial::Write<u8>
-    for Uart<'d, T, TxDma, RxDma>
-{
-    type Error = Error;
-    fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(buffer)
-    }
-    fn bflush(&mut self) -> Result<(), Self::Error> {
-        self.blocking_flush()
-    }
-}
+#[cfg(feature = "unstable-traits")]
+mod eh1 {
+    use super::*;
+    use core::future::Future;
 
-impl<'d, T: Instance, TxDma, RxDma> embassy_traits::uart::Write for Uart<'d, T, TxDma, RxDma>
-where
-    TxDma: crate::usart::TxDma<T>,
-{
-    type WriteFuture<'a>
+    impl embedded_hal_1::serial::Error for Error {
+        fn kind(&self) -> embedded_hal_1::serial::ErrorKind {
+            match *self {
+                Self::Framing => embedded_hal_1::serial::ErrorKind::FrameFormat,
+                Self::Noise => embedded_hal_1::serial::ErrorKind::Noise,
+                Self::Overrun => embedded_hal_1::serial::ErrorKind::Overrun,
+                Self::Parity => embedded_hal_1::serial::ErrorKind::Parity,
+            }
+        }
+    }
+
+    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_1::serial::ErrorType
+        for Uart<'d, T, TxDma, RxDma>
+    {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_async::serial::Write for Uart<'d, T, TxDma, RxDma>
     where
-        Self: 'a,
-    = impl Future<Output = Result<(), embassy_traits::uart::Error>> + 'a;
+        TxDma: crate::usart::TxDma<T>,
+    {
+        type WriteFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
 
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.write(buf)
-            .map_err(|_| embassy_traits::uart::Error::Other)
+        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.write(buf)
+        }
+
+        type FlushFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            async move { Ok(()) }
+        }
     }
-}
 
-impl<'d, T: Instance, TxDma, RxDma> embassy_traits::uart::Read for Uart<'d, T, TxDma, RxDma>
-where
-    RxDma: crate::usart::RxDma<T>,
-{
-    type ReadFuture<'a>
+    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_async::serial::Read for Uart<'d, T, TxDma, RxDma>
     where
-        Self: 'a,
-    = impl Future<Output = Result<(), embassy_traits::uart::Error>> + 'a;
+        RxDma: crate::usart::RxDma<T>,
+    {
+        type ReadFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
 
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.read(buf)
-            .map_err(|_| embassy_traits::uart::Error::Other)
+        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.read(buf)
+        }
     }
 }
 

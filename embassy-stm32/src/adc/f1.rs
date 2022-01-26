@@ -4,7 +4,7 @@ use crate::time::Hertz;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
-use embedded_hal::blocking::delay::DelayUs;
+use embedded_hal_02::blocking::delay::DelayUs;
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
