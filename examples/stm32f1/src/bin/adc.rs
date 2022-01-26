@@ -6,10 +6,9 @@
 mod example_common;
 
 use embassy::executor::Spawner;
-use embassy::time::Delay;
+use embassy::time::{Delay, Duration, Timer};
 use embassy_stm32::adc::Adc;
 use embassy_stm32::Peripherals;
-use embassy_traits::delay::Delay as _;
 use example_common::*;
 
 #[embassy::main]
@@ -24,6 +23,6 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     loop {
         let v = adc.read(&mut pin);
         info!("--> {} - {} mV", v, adc.to_millivolts(v));
-        Delay.delay_ms(100).await;
+        Timer::after(Duration::from_millis(100)).await;
     }
 }

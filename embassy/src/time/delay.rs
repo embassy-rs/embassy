@@ -1,6 +1,10 @@
-use core::future::Future;
+use super::{Duration, Instant};
 
-use super::{Duration, Instant, Timer};
+/// Blocks for at least `duration`.
+pub fn block_for(duration: Duration) {
+    let expires_at = Instant::now() + duration;
+    while Instant::now() < expires_at {}
+}
 
 /// Type implementing async delays and blocking `embedded-hal` delays.
 ///
@@ -10,55 +14,86 @@ use super::{Duration, Instant, Timer};
 /// active driver.
 pub struct Delay;
 
-impl crate::traits::delay::Delay for Delay {
-    type DelayFuture<'a> = impl Future<Output = ()> + 'a;
+#[cfg(feature = "unstable-traits")]
+mod eh1 {
+    use core::future::Future;
+    use futures::FutureExt;
 
-    fn delay_ms(&mut self, millis: u64) -> Self::DelayFuture<'_> {
-        Timer::after(Duration::from_millis(millis))
-    }
-    fn delay_us(&mut self, micros: u64) -> Self::DelayFuture<'_> {
-        Timer::after(Duration::from_micros(micros))
-    }
-}
+    use super::*;
+    use crate::time::Timer;
 
-impl embedded_hal::blocking::delay::DelayMs<u8> for Delay {
-    fn delay_ms(&mut self, ms: u8) {
-        block_for(Duration::from_millis(ms as u64))
-    }
-}
+    impl embedded_hal_1::delay::blocking::DelayUs for Delay {
+        type Error = core::convert::Infallible;
 
-impl embedded_hal::blocking::delay::DelayMs<u16> for Delay {
-    fn delay_ms(&mut self, ms: u16) {
-        block_for(Duration::from_millis(ms as u64))
-    }
-}
+        fn delay_us(&mut self, us: u32) -> Result<(), Self::Error> {
+            Ok(block_for(Duration::from_micros(us as u64)))
+        }
 
-impl embedded_hal::blocking::delay::DelayMs<u32> for Delay {
-    fn delay_ms(&mut self, ms: u32) {
-        block_for(Duration::from_millis(ms as u64))
+        fn delay_ms(&mut self, ms: u32) -> Result<(), Self::Error> {
+            Ok(block_for(Duration::from_millis(ms as u64)))
+        }
     }
-}
 
-impl embedded_hal::blocking::delay::DelayUs<u8> for Delay {
-    fn delay_us(&mut self, us: u8) {
-        block_for(Duration::from_micros(us as u64))
-    }
-}
+    impl embedded_hal_async::delay::DelayUs for Delay {
+        type Error = core::convert::Infallible;
 
-impl embedded_hal::blocking::delay::DelayUs<u16> for Delay {
-    fn delay_us(&mut self, us: u16) {
-        block_for(Duration::from_micros(us as u64))
-    }
-}
+        type DelayUsFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
 
-impl embedded_hal::blocking::delay::DelayUs<u32> for Delay {
-    fn delay_us(&mut self, us: u32) {
-        block_for(Duration::from_micros(us as u64))
+        fn delay_us(&mut self, micros: u32) -> Self::DelayUsFuture<'_> {
+            Timer::after(Duration::from_micros(micros as _)).map(Ok)
+        }
+
+        type DelayMsFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn delay_ms(&mut self, millis: u32) -> Self::DelayMsFuture<'_> {
+            Timer::after(Duration::from_millis(millis as _)).map(Ok)
+        }
     }
 }
 
-/// Blocks for at least `duration`.
-pub fn block_for(duration: Duration) {
-    let expires_at = Instant::now() + duration;
-    while Instant::now() < expires_at {}
+mod eh02 {
+    use super::*;
+    use embedded_hal_02::blocking::delay::{DelayMs, DelayUs};
+
+    impl DelayMs<u8> for Delay {
+        fn delay_ms(&mut self, ms: u8) {
+            block_for(Duration::from_millis(ms as u64))
+        }
+    }
+
+    impl DelayMs<u16> for Delay {
+        fn delay_ms(&mut self, ms: u16) {
+            block_for(Duration::from_millis(ms as u64))
+        }
+    }
+
+    impl DelayMs<u32> for Delay {
+        fn delay_ms(&mut self, ms: u32) {
+            block_for(Duration::from_millis(ms as u64))
+        }
+    }
+
+    impl DelayUs<u8> for Delay {
+        fn delay_us(&mut self, us: u8) {
+            block_for(Duration::from_micros(us as u64))
+        }
+    }
+
+    impl DelayUs<u16> for Delay {
+        fn delay_us(&mut self, us: u16) {
+            block_for(Duration::from_micros(us as u64))
+        }
+    }
+
+    impl DelayUs<u32> for Delay {
+        fn delay_us(&mut self, us: u32) {
+            block_for(Duration::from_micros(us as u64))
+        }
+    }
 }

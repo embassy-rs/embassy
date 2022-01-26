@@ -7,8 +7,11 @@ resolver = "2"
 
 [features]
 default = []
-std = ["futures/std", "embassy-traits/std", "time", "time-tick-1mhz", "embassy-macros/std"]
+std = ["futures/std", "time", "time-tick-1mhz", "embassy-macros/std"]
 wasm = ["wasm-bindgen", "js-sys", "embassy-macros/wasm", "wasm-timer", "time", "time-tick-1mhz"]
+
+# Implement embedded-hal 1.0 alpha and embedded-hal-async traits.
+unstable-traits = ["embedded-hal-1", "embedded-hal-async"]
 
 # Enable `embassy::time` module. 
 # NOTE: This feature is only intended to be enabled by crates providing the time driver implementation.
@@ -29,13 +32,15 @@ executor-agnostic = []
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.6", git = "https://github.com/embassy-rs/embedded-hal", branch = "embassy", optional = true}
+embedded-hal-async = { version = "0.0.1", git = "https://github.com/embassy-rs/embedded-hal", branch = "embassy", optional = true}
+
 futures     = { version = "0.3.17", default-features = false, features = [ "cfg-target-has-atomic", "unstable" ] }
 pin-project = { version = "1.0.8", default-features = false }
 embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
-embassy-traits  = { version = "0.1.0", path = "../embassy-traits"}
 atomic-polyfill = "0.1.5"
 critical-section = "0.2.5"
-embedded-hal = "0.2.6"
 heapless = "0.7.5"
 cfg-if = "1.0.0"
 

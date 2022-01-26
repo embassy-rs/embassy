@@ -2,15 +2,6 @@
 
 Embassy is a project to make async/await a first-class option for embedded development. For more information and instructions to get started, go to [https://embassy.dev](https://embassy.dev).
 
-## Traits and types
-
-`embassy` provides a set of traits and types specifically designed for `async` usage.
-
-- `embassy::io`: `AsyncBufRead`, `AsyncWrite`. Traits for byte-stream IO, essentially `no_std` compatible versions of `futures::io`.
-- `embassy::traits::flash`: Flash device trait.
-- `embassy::time`: `Clock` and `Alarm` traits. Std-like `Duration` and `Instant`.
-- More traits for SPI, I2C, UART async HAL coming soon.
-
 ## Executor
 
 The `embassy::executor` module provides an async/await executor designed for embedded usage.
