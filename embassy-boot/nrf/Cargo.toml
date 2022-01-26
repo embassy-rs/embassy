@@ -18,10 +18,15 @@ cortex-m = { version = "0.7" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.2.0"
 
+nrf-softdevice-mbr = { version = "0.1.0", git = "https://github.com/embassy-rs/nrf-softdevice.git", rev = "6e196a3c48857aba00ff400e4e31e730faab20b1", optional = true }
+
 [features]
 defmt = [
     "dep:defmt",
     "embassy-boot/defmt",
+]
+softdevice = [
+    "nrf-softdevice-mbr",
 ]
 debug = ["defmt-rtt"]
 

@@ -7,8 +7,7 @@ use cortex_m_rt::entry;
 use defmt_rtt as _;
 
 use embassy_boot_nrf::*;
-use embassy_nrf::{nvmc::Nvmc, pac};
-use embedded_storage::nor_flash::{MultiwriteNorFlash, NorFlash, ReadNorFlash};
+use embassy_nrf::nvmc::Nvmc;
 
 #[entry]
 fn main() -> ! {
