@@ -1,11 +1,9 @@
 use core::cmp;
-use core::future::Future;
 use core::marker::PhantomData;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicUsize, Ordering};
 use embassy::interrupt::InterruptExt;
-use embassy::traits::i2c::I2c as I2cTrait;
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
@@ -735,32 +733,36 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::i2c::Read for I2c<'d, T> {
-    type Error = Error;
+mod eh02 {
+    use super::*;
 
-    fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_read(address, buffer)
+    impl<'d, T: Instance> embedded_hal_02::blocking::i2c::Read for I2c<'d, T> {
+        type Error = Error;
+
+        fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+            self.blocking_read(address, buffer)
+        }
     }
-}
 
-impl<'d, T: Instance> embedded_hal::blocking::i2c::Write for I2c<'d, T> {
-    type Error = Error;
+    impl<'d, T: Instance> embedded_hal_02::blocking::i2c::Write for I2c<'d, T> {
+        type Error = Error;
 
-    fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(address, bytes)
+        fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(address, bytes)
+        }
     }
-}
 
-impl<'d, T: Instance> embedded_hal::blocking::i2c::WriteRead for I2c<'d, T> {
-    type Error = Error;
+    impl<'d, T: Instance> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, T> {
+        type Error = Error;
 
-    fn write_read(
-        &mut self,
-        address: u8,
-        bytes: &[u8],
-        buffer: &mut [u8],
-    ) -> Result<(), Self::Error> {
-        self.blocking_write_read(address, bytes, buffer)
+        fn write_read(
+            &mut self,
+            address: u8,
+            bytes: &[u8],
+            buffer: &mut [u8],
+        ) -> Result<(), Self::Error> {
+            self.blocking_write_read(address, bytes, buffer)
+        }
     }
 }
 
@@ -906,38 +908,80 @@ impl Timings {
     }
 }
 
-impl<'d, T: Instance, TXDMA: super::TxDma<T>, RXDMA: super::RxDma<T>> I2cTrait<u8>
-    for I2c<'d, T, TXDMA, RXDMA>
-{
-    type Error = super::Error;
+#[cfg(feature = "unstable-traits")]
+mod eh1 {
+    use super::super::{RxDma, TxDma};
+    use super::*;
+    use core::future::Future;
 
-    type WriteFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Self::Error>> + 'a;
-    type ReadFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Self::Error>> + 'a;
-    type WriteReadFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Self::Error>> + 'a;
-
-    fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.read(address, buffer)
+    impl embedded_hal_1::i2c::Error for Error {
+        fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
+            match *self {
+                Self::Bus => embedded_hal_1::i2c::ErrorKind::Bus,
+                Self::Arbitration => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
+                Self::Nack => embedded_hal_1::i2c::ErrorKind::NoAcknowledge(
+                    embedded_hal_1::i2c::NoAcknowledgeSource::Unknown,
+                ),
+                Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::Crc => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::Overrun => embedded_hal_1::i2c::ErrorKind::Overrun,
+                Self::ZeroLengthTransfer => embedded_hal_1::i2c::ErrorKind::Other,
+            }
+        }
     }
 
-    fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.write(address, bytes)
+    impl<'d, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_1::i2c::ErrorType
+        for I2c<'d, T, TXDMA, RXDMA>
+    {
+        type Error = Error;
     }
 
-    fn write_read<'a>(
-        &'a mut self,
-        address: u8,
-        bytes: &'a [u8],
-        buffer: &'a mut [u8],
-    ) -> Self::WriteReadFuture<'a> {
-        self.write_read(address, bytes, buffer)
+    impl<'d, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_async::i2c::I2c
+        for I2c<'d, T, TXDMA, RXDMA>
+    {
+        type ReadFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.read(address, buffer)
+        }
+
+        type WriteFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+        fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.write(address, bytes)
+        }
+
+        type WriteReadFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+        fn write_read<'a>(
+            &'a mut self,
+            address: u8,
+            bytes: &'a [u8],
+            buffer: &'a mut [u8],
+        ) -> Self::WriteReadFuture<'a> {
+            self.write_read(address, bytes, buffer)
+        }
+
+        type TransactionFuture<'a>
+        where
+            Self: 'a,
+        = impl Future<Output = Result<(), Self::Error>> + 'a;
+
+        fn transaction<'a>(
+            &'a mut self,
+            address: u8,
+            operations: &mut [embedded_hal_async::i2c::Operation<'a>],
+        ) -> Self::TransactionFuture<'a> {
+            let _ = address;
+            let _ = operations;
+            async move { todo!() }
+        }
     }
 }

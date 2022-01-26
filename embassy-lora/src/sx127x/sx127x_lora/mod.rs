@@ -7,8 +7,8 @@
 
 use bit_field::BitField;
 use embassy::time::{Duration, Timer};
-use embassy::traits::spi::*;
 use embedded_hal::digital::v2::OutputPin;
+use embedded_hal_async::spi::ReadWrite;
 
 mod register;
 use self::register::PaConfig;
@@ -36,8 +36,9 @@ pub enum Error<SPI, CS, RESET> {
     Transmitting,
 }
 
-use super::sx127x_lora::register::{FskDataModulationShaping, FskRampUpRamDown};
 use Error::*;
+
+use super::sx127x_lora::register::{FskDataModulationShaping, FskRampUpRamDown};
 
 #[cfg(not(feature = "version_0x09"))]
 const VERSION_CHECK: u8 = 0x12;
@@ -47,7 +48,7 @@ const VERSION_CHECK: u8 = 0x09;
 
 impl<SPI, CS, RESET, E> LoRa<SPI, CS, RESET>
 where
-    SPI: FullDuplex<u8, Error = E>,
+    SPI: ReadWrite<u8, Error = E>,
     CS: OutputPin,
     RESET: OutputPin,
 {
@@ -546,7 +547,7 @@ where
 
         let _ = self
             .spi
-            .read_write(&mut buffer, &[reg & 0x7f, 0])
+            .transfer(&mut buffer, &[reg & 0x7f, 0])
             .await
             .map_err(SPI)?;
 

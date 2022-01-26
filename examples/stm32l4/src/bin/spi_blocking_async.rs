@@ -11,7 +11,8 @@ use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peripherals;
-use embassy_traits::{adapter::BlockingAsync, spi::FullDuplex};
+use embassy_traits::adapter::BlockingAsync;
+use embedded_hal_async::spi::ReadWrite;
 use example_common::*;
 
 #[embassy::main]
@@ -47,10 +48,10 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         info!("waiting for ready");
     }
 
-    let write = [0x0A; 10];
-    let mut read = [0; 10];
+    let write: [u8; 10] = [0x0A; 10];
+    let mut read: [u8; 10] = [0; 10];
     cs.set_low();
-    spi.read_write(&mut read, &write).await.ok();
+    spi.transfer(&mut read, &write).await.ok();
     cs.set_high();
     info!("xfer {=[u8]:x}", read);
 }

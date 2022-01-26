@@ -270,7 +270,7 @@ impl<'d, T: Instance> I2c<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::i2c::Read for I2c<'d, T> {
+impl<'d, T: Instance> embedded_hal_02::blocking::i2c::Read for I2c<'d, T> {
     type Error = Error;
 
     fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
@@ -278,7 +278,7 @@ impl<'d, T: Instance> embedded_hal::blocking::i2c::Read for I2c<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::i2c::Write for I2c<'d, T> {
+impl<'d, T: Instance> embedded_hal_02::blocking::i2c::Write for I2c<'d, T> {
     type Error = Error;
 
     fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Self::Error> {
@@ -286,7 +286,7 @@ impl<'d, T: Instance> embedded_hal::blocking::i2c::Write for I2c<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal::blocking::i2c::WriteRead for I2c<'d, T> {
+impl<'d, T: Instance> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, T> {
     type Error = Error;
 
     fn write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
