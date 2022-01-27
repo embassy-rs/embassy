@@ -1,4 +1,5 @@
 #![feature(type_alias_impl_trait)]
+#![feature(generic_associated_types)]
 #![no_std]
 ///! embassy-boot is a bootloader and firmware updater for embedded devices with flash
 ///! storage implemented using embedded-storage
@@ -14,6 +15,7 @@
 mod fmt;
 
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+use embedded_storage_async::nor_flash::AsyncNorFlash;
 
 pub const BOOT_MAGIC: u32 = 0xDAADD00D;
 pub const SWAP_MAGIC: u32 = 0xD00DDAAD;
@@ -312,35 +314,47 @@ impl FirmwareUpdater {
     }
 
     /// Instruct bootloader that DFU should commence at next boot.
-    pub fn mark_update<F: NorFlash>(&mut self, flash: &mut F) -> Result<(), F::Error> {
-        flash.write(self.state.from as u32, &[0, 0, 0, 0])?;
-        flash.erase(self.state.from as u32, self.state.to as u32)?;
-        flash.write(self.state.from as u32, &SWAP_MAGIC.to_le_bytes())?;
+    pub async fn mark_update<F: AsyncNorFlash>(&mut self, flash: &mut F) -> Result<(), F::Error> {
+        flash.write(self.state.from as u32, &[0, 0, 0, 0]).await?;
+        flash
+            .erase(self.state.from as u32, self.state.to as u32)
+            .await?;
+        flash
+            .write(self.state.from as u32, &SWAP_MAGIC.to_le_bytes())
+            .await?;
         Ok(())
     }
 
     /// Mark firmware boot successfully
-    pub fn mark_booted<F: NorFlash>(&mut self, flash: &mut F) -> Result<(), F::Error> {
-        flash.write(self.state.from as u32, &[0, 0, 0, 0])?;
-        flash.erase(self.state.from as u32, self.state.to as u32)?;
-        flash.write(self.state.from as u32, &BOOT_MAGIC.to_le_bytes())?;
+    pub async fn mark_booted<F: AsyncNorFlash>(&mut self, flash: &mut F) -> Result<(), F::Error> {
+        flash.write(self.state.from as u32, &[0, 0, 0, 0]).await?;
+        flash
+            .erase(self.state.from as u32, self.state.to as u32)
+            .await?;
+        flash
+            .write(self.state.from as u32, &BOOT_MAGIC.to_le_bytes())
+            .await?;
         Ok(())
     }
 
     // Write to a region of the DFU page
-    pub fn write_firmware<F: NorFlash>(
+    pub async fn write_firmware<F: AsyncNorFlash>(
         &mut self,
         offset: usize,
         data: &[u8],
         flash: &mut F,
     ) -> Result<(), F::Error> {
-        flash.write((self.dfu.from + offset) as u32, data)
+        flash.write((self.dfu.from + offset) as u32, data).await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::convert::Infallible;
+    use core::future::Future;
+    use embedded_storage_async::nor_flash::AsyncReadNorFlash;
+    use futures::executor::block_on;
 
     const STATE: Partition = Partition::new(0, 4096);
     const ACTIVE: Partition = Partition::new(4096, 61440);
@@ -390,11 +404,9 @@ mod tests {
                 update[base + 2],
                 update[base + 3],
             ];
-            updater
-                .write_firmware(i - DFU.from, &data, &mut flash)
-                .unwrap();
+            block_on(updater.write_firmware(i - DFU.from, &data, &mut flash)).unwrap();
         }
-        updater.mark_update(&mut flash).unwrap();
+        block_on(updater.mark_update(&mut flash)).unwrap();
 
         assert_eq!(State::Swap, bootloader.prepare_boot(&mut flash).unwrap());
 
@@ -420,7 +432,7 @@ mod tests {
         }
 
         // Mark as booted
-        updater.mark_booted(&mut flash).unwrap();
+        block_on(updater.mark_booted(&mut flash)).unwrap();
         assert_eq!(State::Boot, bootloader.prepare_boot(&mut flash).unwrap());
     }
 
@@ -454,7 +466,7 @@ mod tests {
 
     impl ReadNorFlash for MemFlash {
         const READ_SIZE: usize = 4;
-        type Error = ();
+        type Error = Infallible;
 
         fn read(&mut self, offset: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
             let len = buf.len();
@@ -464,6 +476,57 @@ mod tests {
 
         fn capacity(&self) -> usize {
             131072
+        }
+    }
+
+    impl AsyncReadNorFlash for MemFlash {
+        const READ_SIZE: usize = 4;
+        type Error = Infallible;
+
+        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a;
+        fn read<'a>(&'a mut self, offset: usize, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            async move {
+                let len = buf.len();
+                buf[..].copy_from_slice(&self.0[offset as usize..offset as usize + len]);
+                Ok(())
+            }
+        }
+
+        fn capacity(&self) -> usize {
+            131072
+        }
+    }
+
+    impl AsyncNorFlash for MemFlash {
+        const WRITE_SIZE: usize = 4;
+        const ERASE_SIZE: usize = 4096;
+
+        type EraseFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a;
+        fn erase<'a>(&'a mut self, from: u32, to: u32) -> Self::EraseFuture<'a> {
+            async move {
+                let from = from as usize;
+                let to = to as usize;
+                for i in from..to {
+                    self.0[i] = 0xFF;
+                    self.0[i] = 0xFF;
+                    self.0[i] = 0xFF;
+                    self.0[i] = 0xFF;
+                }
+                Ok(())
+            }
+        }
+
+        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a;
+        fn write<'a>(&'a mut self, offset: u32, data: &'a [u8]) -> Self::WriteFuture<'a> {
+            async move {
+                assert!(data.len() % 4 == 0);
+                assert!(offset % 4 == 0);
+                assert!(offset as usize + data.len() < 131072);
+
+                self.0[offset as usize..offset as usize + data.len()].copy_from_slice(data);
+
+                Ok(())
+            }
         }
     }
 }

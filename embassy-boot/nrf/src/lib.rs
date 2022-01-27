@@ -112,21 +112,21 @@ impl FirmwareUpdater {
         Self(embassy_boot::FirmwareUpdater::new(DFU, BOOTLOADER))
     }
 
-    pub fn mark_update(&mut self, flash: &mut Nvmc) -> Result<(), Error> {
-        self.0.mark_update(flash)
+    pub async fn mark_update(&mut self, flash: &mut Nvmc) -> Result<(), Error> {
+        self.0.mark_update(flash).await
     }
 
-    pub fn mark_booted(&mut self, flash: &mut Nvmc) -> Result<(), Error> {
-        self.0.mark_booted(flash)
+    pub async fn mark_booted(&mut self, flash: &mut Nvmc) -> Result<(), Error> {
+        self.0.mark_booted(flash).await
     }
 
-    pub fn write_firmware(
+    pub async fn write_firmware(
         &mut self,
         offset: usize,
         data: &[u8],
         flash: &mut Nvmc,
     ) -> Result<(), Error> {
-        self.0.write_firmware(offset, data, flash)
+        self.0.write_firmware(offset, data, flash).await
     }
 
     pub fn reset(&mut self) {
