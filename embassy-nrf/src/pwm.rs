@@ -137,19 +137,16 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     #[inline(always)]
     pub fn start(
         &mut self,
-        sequence0: &'d [u16],
-        sequence_config0: SequenceConfig,
-        sequence1: Option<&'d [u16]>,
-        sequence_config1: Option<SequenceConfig>,
+        sequence0: Sequence<'d>,
+        sequence1: Option<Sequence<'d>>,
         times: SequenceMode,
     ) -> Result<(), Error> {
-        let alt_sequence = sequence1.unwrap_or(sequence0);
-        let alt_sequence_config = (&sequence_config1).as_ref().unwrap_or(&sequence_config0);
+        let alt_sequence = sequence1.as_ref().unwrap_or(&sequence0);
 
-        slice_in_ram_or(sequence0, Error::DMABufferNotInDataMemory)?;
-        slice_in_ram_or(alt_sequence, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(sequence0.words, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(alt_sequence.words, Error::DMABufferNotInDataMemory)?;
 
-        if sequence0.len() > MAX_SEQUENCE_LEN || alt_sequence.len() > MAX_SEQUENCE_LEN {
+        if sequence0.words.len() > MAX_SEQUENCE_LEN || alt_sequence.words.len() > MAX_SEQUENCE_LEN {
             return Err(Error::SequenceTooLong);
         }
 
@@ -163,29 +160,29 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
         r.seq0
             .refresh
-            .write(|w| unsafe { w.bits(sequence_config0.refresh) });
+            .write(|w| unsafe { w.bits(sequence0.config.refresh) });
         r.seq0
             .enddelay
-            .write(|w| unsafe { w.bits(sequence_config0.end_delay) });
+            .write(|w| unsafe { w.bits(sequence0.config.end_delay) });
         r.seq0
             .ptr
-            .write(|w| unsafe { w.bits(sequence0.as_ptr() as u32) });
+            .write(|w| unsafe { w.bits(sequence0.words.as_ptr() as u32) });
         r.seq0
             .cnt
-            .write(|w| unsafe { w.bits(sequence0.len() as u32) });
+            .write(|w| unsafe { w.bits(sequence0.words.len() as u32) });
 
         r.seq1
             .refresh
-            .write(|w| unsafe { w.bits(alt_sequence_config.refresh) });
+            .write(|w| unsafe { w.bits(alt_sequence.config.refresh) });
         r.seq1
             .enddelay
-            .write(|w| unsafe { w.bits(alt_sequence_config.end_delay) });
+            .write(|w| unsafe { w.bits(alt_sequence.config.end_delay) });
         r.seq1
             .ptr
-            .write(|w| unsafe { w.bits(alt_sequence.as_ptr() as u32) });
+            .write(|w| unsafe { w.bits(alt_sequence.words.as_ptr() as u32) });
         r.seq1
             .cnt
-            .write(|w| unsafe { w.bits(alt_sequence.len() as u32) });
+            .write(|w| unsafe { w.bits(alt_sequence.words.len() as u32) });
 
         r.enable.write(|w| w.enable().enabled());
 
@@ -400,6 +397,7 @@ impl Default for Config {
 }
 
 #[non_exhaustive]
+#[derive(Clone)]
 pub struct SequenceConfig {
     /// Number of PWM periods to delay between each sequence sample
     pub refresh: u32,
@@ -413,6 +411,20 @@ impl Default for SequenceConfig {
             refresh: 0,
             end_delay: 0,
         }
+    }
+}
+
+#[non_exhaustive]
+pub struct Sequence<'d> {
+    /// The words comprising the sequence. Must not exceed 32767 words.
+    pub words: &'d [u16],
+    /// Configuration associated with the sequence.
+    pub config: SequenceConfig,
+}
+
+impl<'d> Sequence<'d> {
+    pub fn new(words: &'d [u16], config: SequenceConfig) -> Self {
+        Self { words, config }
     }
 }
 

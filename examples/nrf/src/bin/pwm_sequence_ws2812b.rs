@@ -9,7 +9,7 @@ use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::gpio::NoPin;
 use embassy_nrf::pwm::{
-    Config, Prescaler, SequenceConfig, SequenceLoad, SequenceMode, SequencePwm,
+    Config, Prescaler, Sequence, SequenceConfig, SequenceLoad, SequenceMode, SequencePwm,
 };
 use embassy_nrf::Peripherals;
 
@@ -29,12 +29,17 @@ const RES: u16 = 0x8000;
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     // Declare the bits of 24 bits
-    let mut blue_seq: [u16; 8 * 3] = [
+    let blue_seq_words = [
         T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, // G
         T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, // R
         T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, // B
     ];
-    let reset_seq = [RES; 1];
+    let blue_seq = Sequence::new(&blue_seq_words, SequenceConfig::default());
+
+    let reset_seq_words = [RES; 1];
+    let mut reset_seq_config = SequenceConfig::default();
+    reset_seq_config.end_delay = 799; // 50us (20 ticks * 40) - 1 tick because we've already got one RES;
+    let reset_seq = Sequence::new(&reset_seq_words, reset_seq_config);
 
     let mut config = Config::default();
     config.sequence_load = SequenceLoad::Common;
@@ -44,16 +49,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         p.PWM0, p.P1_05, NoPin, NoPin, NoPin, config,
     ));
 
-    let blue_seq_config = SequenceConfig::default();
-    let mut reset_seq_config = SequenceConfig::default();
-    reset_seq_config.end_delay = 799; // 50us (20 ticks * 40) - 1 tick because we've already got one RES
-    unwrap!(pwm.start(
-        &blue_seq,
-        blue_seq_config,
-        Some(&reset_seq),
-        Some(reset_seq_config),
-        SequenceMode::Times(2)
-    ));
+    unwrap!(pwm.start(blue_seq, Some(reset_seq), SequenceMode::Times(2)));
 
     Timer::after(Duration::from_millis(20000)).await;
     info!("Program stopped");

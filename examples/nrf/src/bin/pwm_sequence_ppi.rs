@@ -11,12 +11,12 @@ use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Input, NoPin, Pull};
 use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
 use embassy_nrf::ppi::Ppi;
-use embassy_nrf::pwm::{Config, Prescaler, SequenceConfig, SequenceMode, SequencePwm};
+use embassy_nrf::pwm::{Config, Prescaler, Sequence, SequenceConfig, SequenceMode, SequencePwm};
 use embassy_nrf::Peripherals;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    let seq_values: [u16; 5] = [1000, 250, 100, 50, 0];
+    let seq_words: [u16; 5] = [1000, 250, 100, 50, 0];
 
     let mut config = Config::default();
     config.prescaler = Prescaler::Div128;
@@ -31,7 +31,11 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config,
     ));
 
-    let _ = pwm.start(&seq_values, seq_config, None, None, SequenceMode::Infinite);
+    let _ = pwm.start(
+        Sequence::new(&seq_words, seq_config),
+        None,
+        SequenceMode::Infinite,
+    );
     // pwm.stop() deconfigures pins, and then the task_start_seq0 task cant work
     // so its going to have to start running in order load the configuration
 
