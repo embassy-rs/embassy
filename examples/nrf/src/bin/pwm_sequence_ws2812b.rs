@@ -15,7 +15,9 @@ use embassy_nrf::Peripherals;
 
 // WS2812B LED light demonstration. Drives just one light.
 // The following reference on WS2812B may be of use:
-// https://cdn-shop.adafruit.com/datasheets/WS2812B.pdf
+// https://cdn-shop.adafruit.com/datasheets/WS2812B.pdf.
+// This demo lights up a single LED in blue. It then proceeds
+// to pulsate the LED rapidly.
 
 // In the following declarations, setting the high bit tells the PWM
 // to reverse polarity, which is what the WS2812B expects.
@@ -29,17 +31,17 @@ const RES: u16 = 0x8000;
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     // Declare the bits of 24 bits
-    let blue_seq_words = [
+    let mut color_seq_words = [
         T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, // G
         T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, // R
         T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, // B
     ];
-    let blue_seq = Sequence::new(&blue_seq_words, SequenceConfig::default());
+    let color_seq = Sequence::new(&mut color_seq_words, SequenceConfig::default());
 
-    let reset_seq_words = [RES; 1];
+    let mut reset_seq_words = [RES; 1];
     let mut reset_seq_config = SequenceConfig::default();
     reset_seq_config.end_delay = 799; // 50us (20 ticks * 40) - 1 tick because we've already got one RES;
-    let reset_seq = Sequence::new(&reset_seq_words, reset_seq_config);
+    let reset_seq = Sequence::new(&mut reset_seq_words, reset_seq_config);
 
     let mut config = Config::default();
     config.sequence_load = SequenceLoad::Common;
@@ -49,8 +51,33 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         p.PWM0, p.P1_05, NoPin, NoPin, NoPin, config,
     ));
 
-    unwrap!(pwm.start(blue_seq, Some(reset_seq), SequenceMode::Times(2)));
+    unwrap!(pwm.start(color_seq, Some(reset_seq), SequenceMode::Times(2)));
 
-    Timer::after(Duration::from_millis(20000)).await;
-    info!("Program stopped");
+    Timer::after(Duration::from_millis(1000)).await;
+
+    let mut color_bit = 16;
+    let mut bit_value = T0H;
+
+    loop {
+        if let (Some(color_seq), Some(reset_seq)) = pwm.stop() {
+            color_seq.words[color_bit] = bit_value;
+            unwrap!(pwm.start(color_seq, Some(reset_seq), SequenceMode::Times(2)));
+        }
+
+        Timer::after(Duration::from_millis(50)).await;
+
+        if bit_value == T0H {
+            if color_bit == 20 {
+                bit_value = T1H;
+            } else {
+                color_bit += 1;
+            }
+        } else {
+            if color_bit == 16 {
+                bit_value = T0H;
+            } else {
+                color_bit -= 1;
+            }
+        }
+    }
 }

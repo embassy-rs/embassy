@@ -31,6 +31,8 @@ pub struct SequencePwm<'d, T: Instance> {
     ch1: Option<AnyPin>,
     ch2: Option<AnyPin>,
     ch3: Option<AnyPin>,
+    sequence0: Option<Sequence<'d>>,
+    sequence1: Option<Sequence<'d>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,11 +127,13 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             ch1: ch1.degrade_optional(),
             ch2: ch2.degrade_optional(),
             ch3: ch3.degrade_optional(),
+            sequence0: None,
+            sequence1: None,
         })
     }
 
     /// Start or restart playback. Takes at least one sequence along with its
-    /// configuration. Optionally takes a second sequence and/or its configuration.
+    /// configuration. Optionally takes a second sequence and its configuration.
     /// In the case where no second sequence is provided then the first sequence
     /// is used. The sequence mode applies to both sequences combined as one.
     #[inline(always)]
@@ -152,7 +156,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             return Err(Error::SequenceTimesAtLeastOne);
         }
 
-        self.stop();
+        let _ = self.stop();
 
         let r = T::regs();
 
@@ -221,6 +225,9 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
                 r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
             }
         }
+
+        self.sequence0 = Some(sequence0);
+        self.sequence1 = sequence1;
 
         Ok(())
     }
@@ -326,9 +333,10 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     }
 
     /// Stop playback. Disables the peripheral. Does NOT clear the last duty
-    /// cycle from the pin.
+    /// cycle from the pin. Returns any sequences previously provided to
+    /// `start` so that they may be further mutated.
     #[inline(always)]
-    pub fn stop(&self) {
+    pub fn stop(&mut self) -> (Option<Sequence<'d>>, Option<Sequence<'d>>) {
         let r = T::regs();
 
         r.shorts.reset();
@@ -339,6 +347,8 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
 
         r.enable.write(|w| w.enable().disabled());
+
+        (self.sequence0.take(), self.sequence1.take())
     }
 }
 
@@ -346,7 +356,7 @@ impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
     fn drop(&mut self) {
         let r = T::regs();
 
-        self.stop();
+        let _ = self.stop();
 
         if let Some(pin) = &self.ch0 {
             pin.set_low();
@@ -415,13 +425,13 @@ impl Default for SequenceConfig {
 #[non_exhaustive]
 pub struct Sequence<'d> {
     /// The words comprising the sequence. Must not exceed 32767 words.
-    pub words: &'d [u16],
+    pub words: &'d mut [u16],
     /// Configuration associated with the sequence.
     pub config: SequenceConfig,
 }
 
 impl<'d> Sequence<'d> {
-    pub fn new(words: &'d [u16], config: SequenceConfig) -> Self {
+    pub fn new(words: &'d mut [u16], config: SequenceConfig) -> Self {
         Self { words, config }
     }
 }
