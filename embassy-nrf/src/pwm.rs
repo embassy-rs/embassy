@@ -131,9 +131,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     /// Start or restart playback. Takes at least one sequence along with its
     /// configuration. Optionally takes a second sequence and/or its configuration.
     /// In the case where no second sequence is provided then the first sequence
-    /// is used. In the case where no second sequence configuration is supplied,
-    /// the first sequence configuration is used. The sequence mode applies to both
-    /// sequences combined as one.
+    /// is used. The sequence mode applies to both sequences combined as one.
     #[inline(always)]
     pub fn start(
         &mut self,
