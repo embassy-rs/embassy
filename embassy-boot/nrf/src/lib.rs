@@ -1,6 +1,9 @@
 #![no_std]
+#![feature(generic_associated_types)]
+#![feature(type_alias_impl_trait)]
+
 pub use embassy_boot::{Partition, BOOT_MAGIC};
-use embassy_nrf::nvmc::{Error, Nvmc, FLASH_SIZE, PAGE_SIZE};
+use embassy_nrf::nvmc::{Nvmc, FLASH_SIZE, PAGE_SIZE};
 
 pub struct BootLoader {
     boot: embassy_boot::BootLoader<PAGE_SIZE>,
@@ -105,31 +108,133 @@ impl BootLoader {
     }
 }
 
-pub struct FirmwareUpdater(embassy_boot::FirmwareUpdater);
+pub use updater::*;
 
-impl FirmwareUpdater {
-    pub fn new() -> Self {
-        Self(embassy_boot::FirmwareUpdater::new(DFU, BOOTLOADER))
+#[cfg(feature = "softdevice")]
+mod updater {
+    use super::*;
+
+    use embedded_storage_async::nor_flash::AsyncNorFlash;
+    pub struct FirmwareUpdater(embassy_boot::FirmwareUpdater);
+
+    impl FirmwareUpdater {
+        pub fn new() -> Self {
+            Self(embassy_boot::FirmwareUpdater::new(DFU, BOOTLOADER))
+        }
+
+        pub async fn mark_update<'m, F: AsyncNorFlash>(
+            &'m mut self,
+            flash: &'m mut F,
+        ) -> Result<(), F::Error> {
+            self.0.mark_update(flash).await
+        }
+
+        pub async fn mark_booted<'m, F: AsyncNorFlash>(
+            &'m mut self,
+            flash: &'m mut F,
+        ) -> Result<(), F::Error> {
+            self.0.mark_booted(flash).await
+        }
+
+        pub async fn write_firmware<'m, F: AsyncNorFlash>(
+            &'m mut self,
+            offset: usize,
+            data: &'m [u8],
+            flash: &'m mut F,
+        ) -> Result<(), F::Error> {
+            self.0.write_firmware(offset, data, flash).await
+        }
+
+        pub fn reset(&mut self) {
+            embassy_nrf::pac::SCB::sys_reset();
+        }
+    }
+}
+
+#[cfg(not(feature = "softdevice"))]
+mod updater {
+    use core::future::Future;
+    use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+
+    use super::*;
+
+    pub struct FirmwareUpdater(embassy_boot::FirmwareUpdater);
+
+    impl FirmwareUpdater {
+        pub fn new() -> Self {
+            Self(embassy_boot::FirmwareUpdater::new(DFU, BOOTLOADER))
+        }
+
+        pub async fn mark_update<F: ReadNorFlash + NorFlash>(
+            &mut self,
+            flash: &mut F,
+        ) -> Result<(), F::Error> {
+            self.0.mark_update(&mut FlashWrapper(flash)).await
+        }
+
+        pub async fn mark_booted<F: ReadNorFlash + NorFlash>(
+            &mut self,
+            flash: &mut F,
+        ) -> Result<(), F::Error> {
+            self.0.mark_booted(&mut FlashWrapper(flash)).await
+        }
+
+        pub async fn write_firmware<F: ReadNorFlash + NorFlash>(
+            &mut self,
+            offset: usize,
+            data: &[u8],
+            flash: &mut F,
+        ) -> Result<(), F::Error> {
+            self.0
+                .write_firmware(offset, data, &mut FlashWrapper(flash))
+                .await
+        }
+
+        pub fn reset(&mut self) {
+            embassy_nrf::pac::SCB::sys_reset();
+        }
     }
 
-    pub async fn mark_update(&mut self, flash: &mut Nvmc) -> Result<(), Error> {
-        self.0.mark_update(flash).await
+    struct FlashWrapper<'a, F: NorFlash + ReadNorFlash>(&'a mut F);
+    impl<'a, F: NorFlash + ReadNorFlash> embedded_storage_async::nor_flash::AsyncReadNorFlash
+        for FlashWrapper<'a, F>
+    {
+        type Error = F::Error;
+        const READ_SIZE: usize = F::READ_SIZE;
+
+        type ReadFuture<'m>
+        where
+            Self: 'm,
+        = impl Future<Output = Result<(), Self::Error>> + 'm;
+        fn read<'m>(&'m mut self, address: usize, data: &'m mut [u8]) -> Self::ReadFuture<'m> {
+            async move { self.0.read(address as u32, data) }
+        }
+
+        fn capacity(&self) -> usize {
+            self.0.capacity()
+        }
     }
 
-    pub async fn mark_booted(&mut self, flash: &mut Nvmc) -> Result<(), Error> {
-        self.0.mark_booted(flash).await
-    }
+    impl<'a, F: NorFlash + ReadNorFlash> embedded_storage_async::nor_flash::AsyncNorFlash
+        for FlashWrapper<'a, F>
+    {
+        const WRITE_SIZE: usize = F::WRITE_SIZE;
+        const ERASE_SIZE: usize = F::ERASE_SIZE;
 
-    pub async fn write_firmware(
-        &mut self,
-        offset: usize,
-        data: &[u8],
-        flash: &mut Nvmc,
-    ) -> Result<(), Error> {
-        self.0.write_firmware(offset, data, flash).await
-    }
+        type WriteFuture<'m>
+        where
+            Self: 'm,
+        = impl Future<Output = Result<(), Self::Error>> + 'm;
+        fn write<'m>(&'m mut self, offset: u32, data: &'m [u8]) -> Self::WriteFuture<'m> {
+            async move { self.0.write(offset, data) }
+        }
 
-    pub fn reset(&mut self) {
-        embassy_nrf::pac::SCB::sys_reset();
+        type EraseFuture<'m>
+        where
+            Self: 'm,
+        = impl Future<Output = Result<(), Self::Error>> + 'm;
+        fn erase<'m>(&'m mut self, from: u32, to: u32) -> Self::EraseFuture<'m> {
+            async move { self.0.erase(from, to) }
+        }
     }
 }

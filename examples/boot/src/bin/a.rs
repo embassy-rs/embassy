@@ -31,10 +31,13 @@ async fn main(_s: embassy::executor::Spawner, p: Peripherals) {
             for chunk in APP_B.chunks(4096) {
                 let mut buf: [u8; 4096] = [0; 4096];
                 buf[..chunk.len()].copy_from_slice(chunk);
-                updater.write_firmware(offset, &buf, &mut nvmc).unwrap();
+                updater
+                    .write_firmware(offset, &buf, &mut nvmc)
+                    .await
+                    .unwrap();
                 offset += chunk.len();
             }
-            updater.mark_update(&mut nvmc).unwrap();
+            updater.mark_update(&mut nvmc).await.unwrap();
             led.set_high();
             updater.reset();
         }
