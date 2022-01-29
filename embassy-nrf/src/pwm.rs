@@ -25,14 +25,14 @@ pub struct SimplePwm<'d, T: Instance> {
 
 /// SequencePwm allows you to offload the updating of a sequence of duty cycles
 /// to up to four channels, as well as repeat that sequence n times.
-pub struct SequencePwm<'d, T: Instance> {
+pub struct SequencePwm<'d, T: Instance, const S0: usize, const S1: usize> {
     phantom: PhantomData<&'d mut T>,
     ch0: Option<AnyPin>,
     ch1: Option<AnyPin>,
     ch2: Option<AnyPin>,
     ch3: Option<AnyPin>,
-    sequence0: Option<Sequence<'d>>,
-    sequence1: Option<Sequence<'d>>,
+    sequence0: Option<Sequence<S0>>,
+    sequence1: Option<Sequence<S1>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,13 +43,17 @@ pub enum Error {
     SequenceTooLong,
     /// Min Sequence count is 1
     SequenceTimesAtLeastOne,
+    /// Sequence 0 is required, Sequence 1 is NOT required
+    SequenceTimesRequireSeq0Only,
+    /// Sequence 0 is required, Sequence 1 is required
+    SequenceTimesRequireBothSeq0AndSeq1,
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
     DMABufferNotInDataMemory,
 }
 
 const MAX_SEQUENCE_LEN: usize = 32767;
 
-impl<'d, T: Instance> SequencePwm<'d, T> {
+impl<'d, T: Instance, const S0: usize, const S1: usize> SequencePwm<'d, T, S0, S1> {
     /// Creates the interface to a `SequencePwm`.
     ///
     /// Must be started by calling `start`
@@ -68,6 +72,10 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
+        if S0 > MAX_SEQUENCE_LEN || S1 > MAX_SEQUENCE_LEN {
+            return Err(Error::SequenceTooLong);
+        }
+
         unborrow!(ch0, ch1, ch2, ch3);
 
         let r = T::regs();
@@ -133,30 +141,48 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     }
 
     /// Start or restart playback. Takes at least one sequence along with its
-    /// configuration. Optionally takes a second sequence and its configuration.
-    /// In the case where no second sequence is provided then the first sequence
-    /// is used. The sequence mode applies to both sequences combined as one.
+    /// configuration. A second sequence must be provided when looping i.e.
+    /// when the sequence mode is anything other than Times(1).
     #[inline(always)]
     pub fn start(
         &mut self,
-        sequence0: Sequence<'d>,
-        sequence1: Option<Sequence<'d>>,
+        sequence0: Sequence<S0>,
+        sequence1: Sequence<S1>,
         times: SequenceMode,
     ) -> Result<(), Error> {
-        let alt_sequence = sequence1.as_ref().unwrap_or(&sequence0);
+        slice_in_ram_or(&sequence0.words, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(&sequence1.words, Error::DMABufferNotInDataMemory)?;
 
-        slice_in_ram_or(sequence0.words, Error::DMABufferNotInDataMemory)?;
-        slice_in_ram_or(alt_sequence.words, Error::DMABufferNotInDataMemory)?;
-
-        if sequence0.words.len() > MAX_SEQUENCE_LEN || alt_sequence.words.len() > MAX_SEQUENCE_LEN {
+        let seq_0_word_count = sequence0.word_count.unwrap_or(S0);
+        let seq_1_word_count = sequence0.word_count.unwrap_or(S1);
+        if seq_0_word_count > S0 || seq_1_word_count > S1 {
             return Err(Error::SequenceTooLong);
         }
 
-        if let SequenceMode::Times(0) = times {
-            return Err(Error::SequenceTimesAtLeastOne);
+        match times {
+            SequenceMode::Times(0) => return Err(Error::SequenceTimesAtLeastOne),
+            SequenceMode::Times(1) if seq_0_word_count == 0 || seq_1_word_count != 0 => {
+                return Err(Error::SequenceTimesRequireSeq0Only)
+            }
+            SequenceMode::Times(1) => (),
+            SequenceMode::Times(_) | SequenceMode::Infinite
+                if seq_0_word_count == 0 || seq_1_word_count == 0 =>
+            {
+                return Err(Error::SequenceTimesRequireBothSeq0AndSeq1)
+            }
+            SequenceMode::Times(_) | SequenceMode::Infinite => (),
         }
 
         let _ = self.stop();
+
+        // We now own these sequences and they will be moved. We want
+        // the peripheral to point at the right bits of memory hence
+        // moving the sequences early.
+        self.sequence0 = Some(sequence0);
+        self.sequence1 = Some(sequence1);
+
+        let sequence0 = self.sequence0.as_ref().unwrap();
+        let sequence1 = self.sequence1.as_ref().unwrap();
 
         let r = T::regs();
 
@@ -171,20 +197,20 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             .write(|w| unsafe { w.bits(sequence0.words.as_ptr() as u32) });
         r.seq0
             .cnt
-            .write(|w| unsafe { w.bits(sequence0.words.len() as u32) });
+            .write(|w| unsafe { w.bits(seq_0_word_count as u32) });
 
         r.seq1
             .refresh
-            .write(|w| unsafe { w.bits(alt_sequence.config.refresh) });
+            .write(|w| unsafe { w.bits(sequence1.config.refresh) });
         r.seq1
             .enddelay
-            .write(|w| unsafe { w.bits(alt_sequence.config.end_delay) });
+            .write(|w| unsafe { w.bits(sequence1.config.end_delay) });
         r.seq1
             .ptr
-            .write(|w| unsafe { w.bits(alt_sequence.words.as_ptr() as u32) });
+            .write(|w| unsafe { w.bits(sequence1.words.as_ptr() as u32) });
         r.seq1
             .cnt
-            .write(|w| unsafe { w.bits(alt_sequence.words.len() as u32) });
+            .write(|w| unsafe { w.bits(seq_1_word_count as u32) });
 
         r.enable.write(|w| w.enable().enabled());
 
@@ -225,9 +251,6 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
                 r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
             }
         }
-
-        self.sequence0 = Some(sequence0);
-        self.sequence1 = sequence1;
 
         Ok(())
     }
@@ -336,7 +359,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     /// cycle from the pin. Returns any sequences previously provided to
     /// `start` so that they may be further mutated.
     #[inline(always)]
-    pub fn stop(&mut self) -> (Option<Sequence<'d>>, Option<Sequence<'d>>) {
+    pub fn stop(&mut self) -> (Option<Sequence<S0>>, Option<Sequence<S1>>) {
         let r = T::regs();
 
         r.shorts.reset();
@@ -352,7 +375,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     }
 }
 
-impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
+impl<'a, T: Instance, const S0: usize, const S1: usize> Drop for SequencePwm<'a, T, S0, S1> {
     fn drop(&mut self) {
         let r = T::regs();
 
@@ -381,6 +404,7 @@ impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
     }
 }
 
+/// Configuration for the PWM as a whole.
 #[non_exhaustive]
 pub struct Config {
     /// Selects up mode or up-and-down mode for the counter
@@ -404,6 +428,7 @@ impl Default for Config {
     }
 }
 
+/// Configuration per sequence
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct SequenceConfig {
@@ -422,19 +447,38 @@ impl Default for SequenceConfig {
     }
 }
 
+/// A composition of a sequence buffer and its configuration.
 #[non_exhaustive]
-pub struct Sequence<'d> {
+#[derive(Clone)]
+pub struct Sequence<const S: usize> {
     /// The words comprising the sequence. Must not exceed 32767 words.
-    pub words: &'d mut [u16],
+    pub words: [u16; S],
+    /// The count of words to use. If None the S will be used.
+    pub word_count: Option<usize>,
     /// Configuration associated with the sequence.
     pub config: SequenceConfig,
 }
 
-impl<'d> Sequence<'d> {
-    pub fn new(words: &'d mut [u16], config: SequenceConfig) -> Self {
-        Self { words, config }
+impl<const S: usize> Sequence<S> {
+    pub const fn new(words: [u16; S], config: SequenceConfig) -> Self {
+        Self {
+            words,
+            word_count: None,
+            config,
+        }
     }
 }
+
+/// Declares an empty sequence which will cause it to be disabled.
+/// Note that any looping i.e. !Times(1), will require a second
+/// sequence given the way the PWM peripheral works.
+pub const EMPTY_SEQ: Sequence<0> = Sequence::new(
+    [],
+    SequenceConfig {
+        refresh: 0,
+        end_delay: 0,
+    },
+);
 
 /// How many times to run the sequence
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -446,7 +490,7 @@ pub enum SequenceMode {
     /// 5 to 6 = Run sequence 0, sequence 1, sequence 0, sequence 1, sequence 0 and then sequence 1
     /// i.e the when >= 2 the loop count is determined by dividing by 2 and rounding up
     Times(u16),
-    /// Repeat until `stop` is called.
+    /// Repeat until `stop` is called. Both sequences must be provided.
     Infinite,
 }
 
