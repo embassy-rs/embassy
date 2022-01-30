@@ -16,7 +16,7 @@ use embassy_nrf::Peripherals;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    let seq_words: [u16; 5] = [1000, 250, 100, 50, 0];
+    let mut seq_words: [u16; 5] = [1000, 250, 100, 50, 0];
 
     let mut config = Config::default();
     config.prescaler = Prescaler::Div128;
@@ -31,12 +31,11 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config,
     ));
 
-    // If we loop in any way i.e. not Times(1), then we must provide
-    // the PWM peripheral with two sequences.
-    let seq_0 = Sequence::new(seq_words, seq_config);
-    let seq_1 = seq_0.clone();
-
-    unwrap!(pwm.start(seq_0, seq_1, SequenceMode::Infinite));
+    let _ = pwm.start(
+        Sequence::new(&mut seq_words, seq_config),
+        None,
+        SequenceMode::Infinite,
+    );
     // pwm.stop() deconfigures pins, and then the task_start_seq0 task cant work
     // so its going to have to start running in order load the configuration
 
