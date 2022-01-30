@@ -32,7 +32,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let _ = pwm.start(
         Sequence::new(&mut seq_words_1, seq_config.clone()),
         None,
-        SequenceMode::Infinite,
+        SequenceMode::Times(1),
     );
 
     info!("pwm started!");
@@ -43,7 +43,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let _ = pwm.start(
         Sequence::new(&mut seq_words_2, seq_config),
         None,
-        SequenceMode::Infinite,
+        SequenceMode::Times(1),
     );
 
     // we can abort a sequence if we need to before its complete with pwm.stop()

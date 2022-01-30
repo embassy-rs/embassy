@@ -381,6 +381,7 @@ impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
     }
 }
 
+/// Configuration for the PWM as a whole.
 #[non_exhaustive]
 pub struct Config {
     /// Selects up mode or up-and-down mode for the counter
@@ -404,6 +405,7 @@ impl Default for Config {
     }
 }
 
+/// Configuration per sequence
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct SequenceConfig {
@@ -422,6 +424,7 @@ impl Default for SequenceConfig {
     }
 }
 
+/// A composition of a sequence buffer and its configuration.
 #[non_exhaustive]
 pub struct Sequence<'d> {
     /// The words comprising the sequence. Must not exceed 32767 words.
