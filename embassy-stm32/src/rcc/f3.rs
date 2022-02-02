@@ -217,8 +217,8 @@ fn calc_pll(config: &Config, Hertz(sysclk): Hertz) -> (Hertz, PllConfig) {
             cfg_if::cfg_if! {
                 // For some chips PREDIV is always two, and cannot be changed
                 if #[cfg(any(
-                        feature="stm32f302xd", feature="stm32f302xe", feature="stm32f303xd",
-                        feature="stm32f303xe", feature="stm32f398xe"
+                        stm32f302xd, stm32f302xe, stm32f303xd,
+                        stm32f303xe, stm32f398xe
                     ))] {
                     let (multiplier, divisor) = get_mul_div(sysclk, HSI);
                     (

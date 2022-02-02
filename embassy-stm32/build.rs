@@ -125,6 +125,10 @@ fn main() {
         println!("cargo:rustc-cfg={}", &chip_name[..chip_name.len() - 2]);
     }
 
+    if chip_name.starts_with("stm32f3") {
+        println!("cargo:rustc-cfg={}x{}", &chip_name[..9], &chip_name[10..11]);
+    }
+
     // ========
     // Handle time-driver-XXXX features.
 
