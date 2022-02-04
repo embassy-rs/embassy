@@ -342,6 +342,14 @@ impl<'d, 's, T: Instance> SingleSequencer<'d, 's, T> {
         };
         self.sequencer.start(start_seq, times)
     }
+
+    /// Stop playback. Disables the peripheral. Does NOT clear the last duty
+    /// cycle from the pin. Returns any sequences previously provided to
+    /// `start` so that they may be further mutated.
+    #[inline(always)]
+    pub fn stop(&self) {
+        self.sequencer.stop();
+    }
 }
 
 /// A composition of sequences that can be started and stopped.
