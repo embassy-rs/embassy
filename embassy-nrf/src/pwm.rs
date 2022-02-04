@@ -323,9 +323,9 @@ pub struct SingleSequencer<'d, 's, T: Instance> {
 
 impl<'d, 's, T: Instance> SingleSequencer<'d, 's, T> {
     /// Create a new sequencer
-    pub fn new(pwm: &'s mut SequencePwm<'d, T>, sequence: Sequence<'s>) -> Self {
+    pub fn new(pwm: &'s mut SequencePwm<'d, T>, words: &'s [u16], config: SequenceConfig) -> Self {
         Self {
-            sequencer: Sequencer::new(pwm, sequence, None),
+            sequencer: Sequencer::new(pwm, Sequence::new(words, config), None),
         }
     }
 

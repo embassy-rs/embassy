@@ -12,7 +12,7 @@ use embassy_nrf::gpio::{Input, NoPin, Pull};
 use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
 use embassy_nrf::ppi::Ppi;
 use embassy_nrf::pwm::{
-    Config, Prescaler, Sequence, SequenceConfig, SequencePwm, SingleSequenceMode, SingleSequencer,
+    Config, Prescaler, SequenceConfig, SequencePwm, SingleSequenceMode, SingleSequencer,
 };
 use embassy_nrf::Peripherals;
 
@@ -53,8 +53,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let start = unsafe { pwm.task_start_seq0() };
     let stop = unsafe { pwm.task_stop() };
 
-    let sequence = Sequence::new(&seq_words, seq_config);
-    let sequencer = SingleSequencer::new(&mut pwm, sequence);
+    let sequencer = SingleSequencer::new(&mut pwm, &seq_words, seq_config);
     unwrap!(sequencer.start(SingleSequenceMode::Infinite));
 
     let mut ppi = Ppi::new_one_to_one(p.PPI_CH1, button1.event_in(), start);
