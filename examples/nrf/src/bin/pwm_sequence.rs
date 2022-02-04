@@ -8,13 +8,15 @@ use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::gpio::NoPin;
-use embassy_nrf::pwm::{Config, Prescaler, Sequence, SequenceConfig, SequenceMode, SequencePwm};
+use embassy_nrf::pwm::{
+    Config, Prescaler, Sequence, SequenceConfig, SequenceMode, SequencePwm, Sequences,
+};
 use embassy_nrf::Peripherals;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    let mut seq_words_1: [u16; 5] = [1000, 250, 100, 50, 0];
-    let mut seq_words_2: [u16; 5] = [0, 50, 100, 250, 1000];
+    let seq_words_1: [u16; 5] = [1000, 250, 100, 50, 0];
+    let seq_words_2: [u16; 5] = [0, 50, 100, 250, 1000];
 
     let mut config = Config::default();
     config.prescaler = Prescaler::Div128;
@@ -29,22 +31,21 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut pwm = unwrap!(SequencePwm::new(
         p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config,
     ));
-    let _ = pwm.start(
-        Sequence::new(&mut seq_words_1, seq_config.clone()),
-        None,
-        SequenceMode::Times(1),
-    );
+
+    let sequence0 = Sequence::new(&seq_words_1, seq_config.clone());
+    let sequences = Sequences::new(&mut pwm, sequence0, None);
+    unwrap!(sequences.start(SequenceMode::Times(1)));
 
     info!("pwm started!");
 
     Timer::after(Duration::from_millis(20000)).await;
     info!("pwm starting with another sequence!");
 
-    let _ = pwm.start(
-        Sequence::new(&mut seq_words_2, seq_config),
-        None,
-        SequenceMode::Times(1),
-    );
+    drop(sequences); // This stops the previous sequence and returns pwm ownership back
+
+    let sequence0 = Sequence::new(&seq_words_2, seq_config);
+    let sequences = Sequences::new(&mut pwm, sequence0, None);
+    unwrap!(sequences.start(SequenceMode::Times(1)));
 
     // we can abort a sequence if we need to before its complete with pwm.stop()
     // or stop is also implicitly called when the pwm peripheral is dropped
