@@ -55,7 +55,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     loop {
         let sequence0 = Sequence::new(&seq_words, seq_config.clone());
         let sequences = Sequences::new(&mut pwm, sequence0, None);
-        unwrap!(sequences.start(SequenceMode::Times(2)));
+        unwrap!(sequences.start(SequenceMode::Times(1)));
 
         Timer::after(Duration::from_millis(50)).await;
 
