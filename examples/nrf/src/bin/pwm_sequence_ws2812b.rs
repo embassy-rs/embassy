@@ -7,12 +7,11 @@ mod example_common;
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy::util::Forever;
 use embassy_nrf::gpio::NoPin;
 use embassy_nrf::pwm::{
     Config, Prescaler, Sequence, SequenceConfig, SequenceLoad, SequenceMode, SequencePwm, Sequences,
 };
-use embassy_nrf::{peripherals, Peripherals};
+use embassy_nrf::Peripherals;
 
 // WS2812B LED light demonstration. Drives just one light.
 // The following reference on WS2812B may be of use:
@@ -27,8 +26,6 @@ const T1H: u16 = 0x8000 | 13; // Duty = 13/20 ticks (0.8us/1.25us) for a 1
 const T0H: u16 = 0x8000 | 7; // Duty 7/20 ticks (0.4us/1.25us) for a 0
 const RES: u16 = 0x8000;
 
-static PWM: Forever<SequencePwm<peripherals::PWM0>> = Forever::new();
-
 // Provides data to a WS2812b (Neopixel) LED and makes it go blue. The data
 // line is assumed to be P1_05.
 #[embassy::main]
@@ -37,11 +34,9 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     config.sequence_load = SequenceLoad::Common;
     config.prescaler = Prescaler::Div1;
     config.max_duty = 20; // 1.25us (1s / 16Mhz * 20)
-    let pwm = unwrap!(SequencePwm::new(
+    let mut pwm = unwrap!(SequencePwm::new(
         p.PWM0, p.P1_05, NoPin, NoPin, NoPin, config,
     ));
-
-    let mut pwm = PWM.put(pwm);
 
     // Declare the bits of 24 bits in a buffer we'll be
     // mutating later.
