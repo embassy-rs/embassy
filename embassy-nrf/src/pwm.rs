@@ -459,9 +459,9 @@ pub enum SequenceMode {
     /// Run sequence n Times total.
     /// 1 = Run sequence 0 once
     /// 2 = Run sequence 0 and then sequence 1
-    /// 3 to 4 = Run sequence 0, sequence 1, sequence 0 and then sequence 1
-    /// 5 to 6 = Run sequence 0, sequence 1, sequence 0, sequence 1, sequence 0 and then sequence 1
-    /// i.e the when >= 2 the loop count is determined by dividing by 2 and rounding up
+    /// 3 = Run sequence 1, sequence 0, sequence 1 and then sequence 0
+    /// 4 = Run sequence 0, sequence 1, sequence 0 and then sequence 1
+    /// ...and so on.
     Times(u16),
     /// Repeat until `stop` is called.
     Infinite,
