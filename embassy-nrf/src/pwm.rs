@@ -428,6 +428,8 @@ impl Default for SequenceConfig {
 #[non_exhaustive]
 pub struct Sequence<'d> {
     /// The words comprising the sequence. Must not exceed 32767 words.
+    /// The reason for this buffer to be mutable is so that stopping
+    /// the PWM can relinquish the sequence for subsequent modification.
     pub words: &'d mut [u16],
     /// Configuration associated with the sequence.
     pub config: SequenceConfig,
