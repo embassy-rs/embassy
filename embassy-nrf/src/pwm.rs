@@ -321,7 +321,7 @@ impl<'s> Sequence<'s> {
 /// is used.
 #[non_exhaustive]
 pub struct Sequences<'d, 's, T: Instance> {
-    _pwm: &'s mut SequencePwm<'d, T>,
+    pub pwm: &'s mut SequencePwm<'d, T>,
     sequence0: Sequence<'s>,
     sequence1: Option<Sequence<'s>>,
 }
@@ -333,7 +333,7 @@ impl<'d, 's, T: Instance> Sequences<'d, 's, T> {
         sequence1: Option<Sequence<'s>>,
     ) -> Self {
         Sequences {
-            _pwm: pwm,
+            pwm,
             sequence0,
             sequence1,
         }
