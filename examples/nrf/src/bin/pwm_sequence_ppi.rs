@@ -12,7 +12,7 @@ use embassy_nrf::gpio::{Input, NoPin, Pull};
 use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
 use embassy_nrf::ppi::Ppi;
 use embassy_nrf::pwm::{
-    Config, Prescaler, Sequence, SequenceConfig, SequenceMode, SequencePwm, Sequences,
+    Config, Prescaler, Sequence, SequenceConfig, SequencePwm, SingleSequenceMode, SingleSequencer,
 };
 use embassy_nrf::Peripherals;
 
@@ -33,10 +33,6 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config,
     ));
 
-    let sequence0 = Sequence::new(&seq_words, seq_config);
-    let sequences = Sequences::new(&mut pwm, sequence0, None);
-    unwrap!(sequences.start(SequenceMode::Infinite));
-
     // pwm.stop() deconfigures pins, and then the task_start_seq0 task cant work
     // so its going to have to start running in order load the configuration
 
@@ -54,8 +50,12 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     // messing with the pwm tasks is ill advised
     // Times::Ininite and Times even are seq0, Times odd is seq1
-    let start = unsafe { sequences.pwm.task_start_seq0() };
-    let stop = unsafe { sequences.pwm.task_stop() };
+    let start = unsafe { pwm.task_start_seq0() };
+    let stop = unsafe { pwm.task_stop() };
+
+    let sequence = Sequence::new(&seq_words, seq_config);
+    let sequencer = SingleSequencer::new(&mut pwm, sequence);
+    unwrap!(sequencer.start(SingleSequenceMode::Infinite));
 
     let mut ppi = Ppi::new_one_to_one(p.PPI_CH1, button1.event_in(), start);
     ppi.enable();

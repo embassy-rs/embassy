@@ -9,7 +9,8 @@ use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::gpio::NoPin;
 use embassy_nrf::pwm::{
-    Config, Prescaler, Sequence, SequenceConfig, SequenceLoad, SequenceMode, SequencePwm, Sequences,
+    Config, Prescaler, Sequence, SequenceConfig, SequenceLoad, SequencePwm, SingleSequenceMode,
+    SingleSequencer,
 };
 use embassy_nrf::Peripherals;
 
@@ -54,8 +55,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     loop {
         let sequence0 = Sequence::new(&seq_words, seq_config.clone());
-        let sequences = Sequences::new(&mut pwm, sequence0, None);
-        unwrap!(sequences.start(SequenceMode::Times(1)));
+        let sequences = SingleSequencer::new(&mut pwm, sequence0);
+        unwrap!(sequences.start(SingleSequenceMode::Times(1)));
 
         Timer::after(Duration::from_millis(50)).await;
 
