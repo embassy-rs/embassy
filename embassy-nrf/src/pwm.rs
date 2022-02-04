@@ -31,8 +31,6 @@ pub struct SequencePwm<'d, T: Instance> {
     ch1: Option<AnyPin>,
     ch2: Option<AnyPin>,
     ch3: Option<AnyPin>,
-    sequence0: Option<Sequence<'d>>,
-    sequence1: Option<Sequence<'d>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,109 +125,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             ch1: ch1.degrade_optional(),
             ch2: ch2.degrade_optional(),
             ch3: ch3.degrade_optional(),
-            sequence0: None,
-            sequence1: None,
         })
-    }
-
-    /// Start or restart playback. Takes at least one sequence along with its
-    /// configuration. Optionally takes a second sequence and its configuration.
-    /// In the case where no second sequence is provided then the first sequence
-    /// is used. The sequence mode applies to both sequences combined as one.
-    #[inline(always)]
-    pub fn start(
-        &mut self,
-        sequence0: Sequence<'d>,
-        sequence1: Option<Sequence<'d>>,
-        times: SequenceMode,
-    ) -> Result<(), Error> {
-        let alt_sequence = sequence1.as_ref().unwrap_or(&sequence0);
-
-        slice_in_ram_or(sequence0.words, Error::DMABufferNotInDataMemory)?;
-        slice_in_ram_or(alt_sequence.words, Error::DMABufferNotInDataMemory)?;
-
-        if sequence0.words.len() > MAX_SEQUENCE_LEN || alt_sequence.words.len() > MAX_SEQUENCE_LEN {
-            return Err(Error::SequenceTooLong);
-        }
-
-        if let SequenceMode::Times(0) = times {
-            return Err(Error::SequenceTimesAtLeastOne);
-        }
-
-        let _ = self.stop();
-
-        let r = T::regs();
-
-        r.seq0
-            .refresh
-            .write(|w| unsafe { w.bits(sequence0.config.refresh) });
-        r.seq0
-            .enddelay
-            .write(|w| unsafe { w.bits(sequence0.config.end_delay) });
-        r.seq0
-            .ptr
-            .write(|w| unsafe { w.bits(sequence0.words.as_ptr() as u32) });
-        r.seq0
-            .cnt
-            .write(|w| unsafe { w.bits(sequence0.words.len() as u32) });
-
-        r.seq1
-            .refresh
-            .write(|w| unsafe { w.bits(alt_sequence.config.refresh) });
-        r.seq1
-            .enddelay
-            .write(|w| unsafe { w.bits(alt_sequence.config.end_delay) });
-        r.seq1
-            .ptr
-            .write(|w| unsafe { w.bits(alt_sequence.words.as_ptr() as u32) });
-        r.seq1
-            .cnt
-            .write(|w| unsafe { w.bits(alt_sequence.words.len() as u32) });
-
-        r.enable.write(|w| w.enable().enabled());
-
-        // defensive before seqstart
-        compiler_fence(Ordering::SeqCst);
-
-        match times {
-            // just the one time, no loop count
-            SequenceMode::Times(1) => {
-                r.loop_.write(|w| w.cnt().disabled());
-                // tasks_seqstart() doesn't exist in all svds so write its bit instead
-                r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
-            }
-            // loop count is how many times to play BOTH sequences
-            // 2 total  (1 x 2)
-            // 3 total, (2 x 2) - 1
-            SequenceMode::Times(n) => {
-                let odd = n & 1 == 1;
-                let times = if odd { (n / 2) + 1 } else { n / 2 };
-
-                r.loop_.write(|w| unsafe { w.cnt().bits(times) });
-
-                // we can subtract 1 by starting at seq1 instead of seq0
-                if odd {
-                    // tasks_seqstart() doesn't exist in all svds so write its bit instead
-                    r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
-                } else {
-                    // tasks_seqstart() doesn't exist in all svds so write its bit instead
-                    r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
-                }
-            }
-            // to play infinitely, repeat the sequence one time, then have loops done self trigger seq0 again
-            SequenceMode::Infinite => {
-                r.loop_.write(|w| unsafe { w.cnt().bits(0x1) });
-                r.shorts.write(|w| w.loopsdone_seqstart0().enabled());
-
-                // tasks_seqstart() doesn't exist in all svds so write its bit instead
-                r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
-            }
-        }
-
-        self.sequence0 = Some(sequence0);
-        self.sequence1 = sequence1;
-
-        Ok(())
     }
 
     /// Returns reference to `Stopped` event endpoint for PPI.
@@ -331,32 +227,11 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
         Task::from_reg(&r.tasks_stop)
     }
-
-    /// Stop playback. Disables the peripheral. Does NOT clear the last duty
-    /// cycle from the pin. Returns any sequences previously provided to
-    /// `start` so that they may be further mutated.
-    #[inline(always)]
-    pub fn stop(&mut self) -> (Option<Sequence<'d>>, Option<Sequence<'d>>) {
-        let r = T::regs();
-
-        r.shorts.reset();
-
-        compiler_fence(Ordering::SeqCst);
-
-        // tasks_stop() doesn't exist in all svds so write its bit instead
-        r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
-
-        r.enable.write(|w| w.enable().disabled());
-
-        (self.sequence0.take(), self.sequence1.take())
-    }
 }
 
 impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
     fn drop(&mut self) {
         let r = T::regs();
-
-        let _ = self.stop();
 
         if let Some(pin) = &self.ch0 {
             pin.set_low();
@@ -426,18 +301,155 @@ impl Default for SequenceConfig {
 
 /// A composition of a sequence buffer and its configuration.
 #[non_exhaustive]
-pub struct Sequence<'d> {
+pub struct Sequence<'s> {
     /// The words comprising the sequence. Must not exceed 32767 words.
-    /// The reason for this buffer to be mutable is so that stopping
-    /// the PWM can relinquish the sequence for subsequent modification.
-    pub words: &'d mut [u16],
+    pub words: &'s [u16],
     /// Configuration associated with the sequence.
     pub config: SequenceConfig,
 }
 
-impl<'d> Sequence<'d> {
-    pub fn new(words: &'d mut [u16], config: SequenceConfig) -> Self {
+impl<'s> Sequence<'s> {
+    pub fn new(words: &'s [u16], config: SequenceConfig) -> Self {
         Self { words, config }
+    }
+}
+
+/// A composition of sequences that can be started and stopped.
+/// Takes at least one sequence along with its configuration.
+/// Optionally takes a second sequence and its configuration.
+/// In the case where no second sequence is provided then the first sequence
+/// is used.
+#[non_exhaustive]
+pub struct Sequences<'d, 's, T: Instance> {
+    _pwm: &'s mut SequencePwm<'d, T>,
+    sequence0: Sequence<'s>,
+    sequence1: Option<Sequence<'s>>,
+}
+
+impl<'d, 's, T: Instance> Sequences<'d, 's, T> {
+    pub fn new(
+        pwm: &'s mut SequencePwm<'d, T>,
+        sequence0: Sequence<'s>,
+        sequence1: Option<Sequence<'s>>,
+    ) -> Self {
+        Sequences {
+            _pwm: pwm,
+            sequence0,
+            sequence1,
+        }
+    }
+
+    /// Start or restart playback. The sequence mode applies to both sequences combined as one.
+    #[inline(always)]
+    pub fn start(&self, times: SequenceMode) -> Result<(), Error> {
+        let sequence0 = &self.sequence0;
+        let alt_sequence = self.sequence1.as_ref().unwrap_or(&self.sequence0);
+
+        slice_in_ram_or(sequence0.words, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(alt_sequence.words, Error::DMABufferNotInDataMemory)?;
+
+        if sequence0.words.len() > MAX_SEQUENCE_LEN || alt_sequence.words.len() > MAX_SEQUENCE_LEN {
+            return Err(Error::SequenceTooLong);
+        }
+
+        if let SequenceMode::Times(0) = times {
+            return Err(Error::SequenceTimesAtLeastOne);
+        }
+
+        let _ = self.stop();
+
+        let r = T::regs();
+
+        r.seq0
+            .refresh
+            .write(|w| unsafe { w.bits(sequence0.config.refresh) });
+        r.seq0
+            .enddelay
+            .write(|w| unsafe { w.bits(sequence0.config.end_delay) });
+        r.seq0
+            .ptr
+            .write(|w| unsafe { w.bits(sequence0.words.as_ptr() as u32) });
+        r.seq0
+            .cnt
+            .write(|w| unsafe { w.bits(sequence0.words.len() as u32) });
+
+        r.seq1
+            .refresh
+            .write(|w| unsafe { w.bits(alt_sequence.config.refresh) });
+        r.seq1
+            .enddelay
+            .write(|w| unsafe { w.bits(alt_sequence.config.end_delay) });
+        r.seq1
+            .ptr
+            .write(|w| unsafe { w.bits(alt_sequence.words.as_ptr() as u32) });
+        r.seq1
+            .cnt
+            .write(|w| unsafe { w.bits(alt_sequence.words.len() as u32) });
+
+        r.enable.write(|w| w.enable().enabled());
+
+        // defensive before seqstart
+        compiler_fence(Ordering::SeqCst);
+
+        match times {
+            // just the one time, no loop count
+            SequenceMode::Times(1) => {
+                r.loop_.write(|w| w.cnt().disabled());
+                // tasks_seqstart() doesn't exist in all svds so write its bit instead
+                r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
+            }
+            // loop count is how many times to play BOTH sequences
+            // 2 total  (1 x 2)
+            // 3 total, (2 x 2) - 1
+            SequenceMode::Times(n) => {
+                let odd = n & 1 == 1;
+                let times = if odd { (n / 2) + 1 } else { n / 2 };
+
+                r.loop_.write(|w| unsafe { w.cnt().bits(times) });
+
+                // we can subtract 1 by starting at seq1 instead of seq0
+                if odd {
+                    // tasks_seqstart() doesn't exist in all svds so write its bit instead
+                    r.tasks_seqstart[1].write(|w| unsafe { w.bits(0x01) });
+                } else {
+                    // tasks_seqstart() doesn't exist in all svds so write its bit instead
+                    r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
+                }
+            }
+            // to play infinitely, repeat the sequence one time, then have loops done self trigger seq0 again
+            SequenceMode::Infinite => {
+                r.loop_.write(|w| unsafe { w.cnt().bits(0x1) });
+                r.shorts.write(|w| w.loopsdone_seqstart0().enabled());
+
+                // tasks_seqstart() doesn't exist in all svds so write its bit instead
+                r.tasks_seqstart[0].write(|w| unsafe { w.bits(0x01) });
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Stop playback. Disables the peripheral. Does NOT clear the last duty
+    /// cycle from the pin. Returns any sequences previously provided to
+    /// `start` so that they may be further mutated.
+    #[inline(always)]
+    pub fn stop(&self) {
+        let r = T::regs();
+
+        r.shorts.reset();
+
+        compiler_fence(Ordering::SeqCst);
+
+        // tasks_stop() doesn't exist in all svds so write its bit instead
+        r.tasks_stop.write(|w| unsafe { w.bits(0x01) });
+
+        r.enable.write(|w| w.enable().disabled());
+    }
+}
+
+impl<'d, 's, T: Instance> Drop for Sequences<'d, 's, T> {
+    fn drop(&mut self) {
+        let _ = self.stop();
     }
 }
 

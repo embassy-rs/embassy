@@ -9,7 +9,7 @@ use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::gpio::NoPin;
 use embassy_nrf::pwm::{
-    Config, Prescaler, Sequence, SequenceConfig, SequenceLoad, SequenceMode, SequencePwm,
+    Config, Prescaler, Sequence, SequenceConfig, SequenceLoad, SequenceMode, SequencePwm, Sequences,
 };
 use embassy_nrf::Peripherals;
 
@@ -30,19 +30,6 @@ const RES: u16 = 0x8000;
 // line is assumed to be P1_05.
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    // Declare the bits of 24 bits
-    let mut color_seq_words = [
-        T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, // G
-        T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, // R
-        T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, // B
-    ];
-    let color_seq = Sequence::new(&mut color_seq_words, SequenceConfig::default());
-
-    let mut reset_seq_words = [RES; 1];
-    let mut reset_seq_config = SequenceConfig::default();
-    reset_seq_config.end_delay = 799; // 50us (20 ticks * 40) - 1 tick because we've already got one RES;
-    let reset_seq = Sequence::new(&mut reset_seq_words, reset_seq_config);
-
     let mut config = Config::default();
     config.sequence_load = SequenceLoad::Common;
     config.prescaler = Prescaler::Div1;
@@ -51,18 +38,24 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         p.PWM0, p.P1_05, NoPin, NoPin, NoPin, config,
     ));
 
-    unwrap!(pwm.start(color_seq, Some(reset_seq), SequenceMode::Times(2)));
-
-    Timer::after(Duration::from_millis(1000)).await;
+    // Declare the bits of 24 bits in a buffer we'll be
+    // mutating later.
+    let mut seq_words = [
+        T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, // G
+        T0H, T0H, T0H, T0H, T0H, T0H, T0H, T0H, // R
+        T1H, T1H, T1H, T1H, T1H, T1H, T1H, T1H, // B
+        RES,
+    ];
+    let mut seq_config = SequenceConfig::default();
+    seq_config.end_delay = 799; // 50us (20 ticks * 40) - 1 tick because we've already got one RES;
 
     let mut color_bit = 16;
     let mut bit_value = T0H;
 
     loop {
-        if let (Some(color_seq), Some(reset_seq)) = pwm.stop() {
-            color_seq.words[color_bit] = bit_value;
-            unwrap!(pwm.start(color_seq, Some(reset_seq), SequenceMode::Times(2)));
-        }
+        let sequence0 = Sequence::new(&seq_words, seq_config.clone());
+        let sequences = Sequences::new(&mut pwm, sequence0, None);
+        unwrap!(sequences.start(SequenceMode::Times(2)));
 
         Timer::after(Duration::from_millis(50)).await;
 
@@ -79,5 +72,9 @@ async fn main(_spawner: Spawner, p: Peripherals) {
                 color_bit -= 1;
             }
         }
+
+        drop(sequences);
+
+        seq_words[color_bit] = bit_value;
     }
 }
