@@ -31,7 +31,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config,
     ));
 
-    let sequence = Sequence::new(&seq_words, seq_config.clone());
+    let sequence = Sequence::new(&seq_words, seq_config);
     let sequencer = SingleSequencer::new(&mut pwm, sequence);
     unwrap!(sequencer.start(SingleSequenceMode::Times(1)));
 
