@@ -180,10 +180,10 @@ impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
                 // since the app has failed to mark boot as successful
                 //
                 if !self.is_swapped(flash)? {
-                    trace!("Swapping");
+                    info!("Swapping");
                     self.swap(flash)?;
                 } else {
-                    trace!("Reverting");
+                    info!("Reverting");
                     self.revert(flash)?;
 
                     // Overwrite magic and reset progress
@@ -290,8 +290,7 @@ impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
 
         match u32::from_le_bytes(magic) {
             SWAP_MAGIC => Ok(State::Swap),
-            BOOT_MAGIC => Ok(State::Boot),
-            _ => Err(BootError::BadMagic),
+            _ => Ok(State::Boot),
         }
     }
 }
@@ -319,6 +318,12 @@ impl FirmwareUpdater {
         flash
             .erase(self.state.from as u32, self.state.to as u32)
             .await?;
+        info!(
+            "Setting swap magic at {} to 0x{:x}, LE: 0x{:x}",
+            self.state.from,
+            &SWAP_MAGIC,
+            &SWAP_MAGIC.to_le_bytes()
+        );
         flash
             .write(self.state.from as u32, &SWAP_MAGIC.to_le_bytes())
             .await?;
@@ -344,6 +349,18 @@ impl FirmwareUpdater {
         data: &[u8],
         flash: &mut F,
     ) -> Result<(), F::Error> {
+        info!(
+            "Writing firmware at offset {} len {}",
+            self.dfu.from + offset,
+            data.len()
+        );
+
+        flash
+            .erase(
+                (self.dfu.from + offset) as u32,
+                (self.dfu.from + offset + data.len()) as u32,
+            )
+            .await?;
         flash.write((self.dfu.from + offset) as u32, data).await
     }
 }

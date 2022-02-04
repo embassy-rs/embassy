@@ -2,7 +2,9 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-pub use embassy_boot::{Partition, BOOT_MAGIC};
+mod fmt;
+
+pub use embassy_boot::{Partition, State, BOOT_MAGIC};
 use embassy_nrf::nvmc::{Nvmc, FLASH_SIZE, PAGE_SIZE};
 
 pub struct BootLoader {
@@ -13,9 +15,11 @@ pub struct BootLoader {
 #[cfg(not(feature = "softdevice"))]
 mod partitions {
     use super::*;
-    pub const BOOTLOADER: Partition = Partition::new(0x3000, 0x4000);
-    pub const PARTITION_SIZE: usize = ((FLASH_SIZE - BOOTLOADER.to) / 2) - PAGE_SIZE;
-    pub const ACTIVE: Partition = Partition::new(BOOTLOADER.to, BOOTLOADER.to + PARTITION_SIZE);
+    pub const BOOTLOADER: Partition = Partition::new(0x0000, 0x3000);
+    pub const BOOTLOADER_STATE: Partition = Partition::new(0x3000, 0x4000);
+    pub const PARTITION_SIZE: usize = ((FLASH_SIZE - BOOTLOADER_STATE.to) / 2) - PAGE_SIZE;
+    pub const ACTIVE: Partition =
+        Partition::new(BOOTLOADER_STATE.to, BOOTLOADER_STATE.to + PARTITION_SIZE);
     pub const DFU: Partition = Partition::new(ACTIVE.to, ACTIVE.to + PARTITION_SIZE + PAGE_SIZE);
 }
 
@@ -25,25 +29,29 @@ mod partitions {
     // TODO: Make it work with !s140 too
     pub const SOFTDEVICE: Partition = Partition::new(0x1000, 0x27000);
 
-    pub const BOOTLOADER: Partition = Partition::new(FLASH_SIZE - 0x1000, FLASH_SIZE);
+    pub const BOOTLOADER: Partition = Partition::new(FLASH_SIZE - 0x7000, FLASH_SIZE - 0x2000);
+    pub const MBR_PARAMS_PAGE: Partition = Partition::new(BOOTLOADER.to, FLASH_SIZE - 0x1000);
+    pub const BOOTLOADER_STATE: Partition = Partition::new(FLASH_SIZE - 0x1000, FLASH_SIZE);
     pub const PARTITION_SIZE: usize = ((BOOTLOADER.from - SOFTDEVICE.to) / 2) - PAGE_SIZE;
     pub const ACTIVE: Partition = Partition::new(SOFTDEVICE.to, SOFTDEVICE.to + PARTITION_SIZE);
     pub const DFU: Partition = Partition::new(ACTIVE.to, ACTIVE.to + PARTITION_SIZE + PAGE_SIZE);
 }
-use partitions::*;
+pub use partitions::*;
 
 impl BootLoader {
     pub fn new() -> Self {
         Self {
-            boot: embassy_boot::BootLoader::new(ACTIVE, DFU, BOOTLOADER),
+            boot: embassy_boot::BootLoader::new(ACTIVE, DFU, BOOTLOADER_STATE),
         }
     }
 
     /// Boots the application without softdevice mechanisms
     pub fn boot<'d>(&mut self, mut flash: Nvmc<'d>) -> ! {
+        info!("Booting!");
         match self.boot.prepare_boot(&mut flash) {
-            Ok(_) => {
+            Ok(p) => {
                 let start = self.boot.boot_address();
+                info!("Prepared with state {:?}. Jumping to {}", p, start);
                 unsafe {
                     self.load(start);
                 }
@@ -62,11 +70,6 @@ impl BootLoader {
 
     #[cfg(feature = "softdevice")]
     pub unsafe fn load(&mut self, _start: usize) -> ! {
-        #[used]
-        #[no_mangle]
-        #[link_section = ".uicr_bootloader_start_address"]
-        pub static UICR_BOOTLOADER_START_ADDRESS: usize = BOOTLOADER.from;
-
         use nrf_softdevice_mbr as mbr;
         const NRF_SUCCESS: u32 = 0;
 
@@ -119,7 +122,14 @@ mod updater {
 
     impl FirmwareUpdater {
         pub fn new() -> Self {
-            Self(embassy_boot::FirmwareUpdater::new(DFU, BOOTLOADER))
+            info!("Flash size: {}", FLASH_SIZE);
+            info!("Bootloader from: {:x}", BOOTLOADER.from);
+            info!("Softdevice end: {:x}", SOFTDEVICE.to);
+            info!("Page size: {}", PAGE_SIZE);
+            info!("Partition size is {}", PARTITION_SIZE);
+            info!("Active partition starts at {:x}", ACTIVE.from);
+            info!("DFU partition starts at {:x}", DFU.from);
+            Self(embassy_boot::FirmwareUpdater::new(DFU, BOOTLOADER_STATE))
         }
 
         pub async fn mark_update<'m, F: AsyncNorFlash>(
@@ -146,6 +156,7 @@ mod updater {
         }
 
         pub fn reset(&mut self) {
+            info!("RESET");
             embassy_nrf::pac::SCB::sys_reset();
         }
     }
@@ -162,7 +173,7 @@ mod updater {
 
     impl FirmwareUpdater {
         pub fn new() -> Self {
-            Self(embassy_boot::FirmwareUpdater::new(DFU, BOOTLOADER))
+            Self(embassy_boot::FirmwareUpdater::new(DFU, BOOTLOADER_STATE))
         }
 
         pub async fn mark_update<F: ReadNorFlash + NorFlash>(

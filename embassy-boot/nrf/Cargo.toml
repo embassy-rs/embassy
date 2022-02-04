@@ -25,6 +25,7 @@ nrf-softdevice-mbr = { version = "0.1.0", git = "https://github.com/embassy-rs/n
 defmt = [
     "dep:defmt",
     "embassy-boot/defmt",
+    "embassy-nrf/defmt",
 ]
 softdevice = [
     "nrf-softdevice-mbr",
