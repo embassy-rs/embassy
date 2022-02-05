@@ -21,7 +21,6 @@ pub mod time;
 pub mod util;
 
 pub use embassy_macros::*;
-pub use embassy_traits as traits;
 
 #[doc(hidden)]
 /// Implementation details for embassy macros. DO NOT USE.

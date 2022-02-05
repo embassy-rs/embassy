@@ -3,7 +3,6 @@
 Embassy provides a set of traits and types specifically designed for `async` usage. Many of these futures will be upstreamed to the `embedded-hal` crate at some point in the future, probably when the required GAT (Generic Associated Types) feature is stabilized in Rust.
 
 * `embassy::io`: `AsyncBufRead`, `AsyncWrite`. Traits for byte-stream IO, essentially `no_std` compatible versions of `futures::io`. The primary reason for re-defining these traits is that the `futures::io` variant requires `std::io::Error`, which does not work in the `no_std` environment.
-* `embassy::traits`: Async traits for Flash, SPI, I2C, UART, RNG, GPIO and more.
 * `embassy::time`: Time `Driver` trait that is implemented for different platforms. Time in Embassy is represented using the `Duration` and `Instant` types.
 
 These traits are implemented by the platform-specific crates, such as `embassy-nrf` or `embassy-stm32`.

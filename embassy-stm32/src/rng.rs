@@ -1,8 +1,6 @@
 #![macro_use]
 
-use core::future::Future;
 use core::task::Poll;
-use embassy::traits;
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
@@ -48,6 +46,46 @@ impl<T: Instance> Rng<T> {
         // Reference manual says to discard the first.
         let _ = self.next_u32();
     }
+
+    pub async fn async_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
+        unsafe {
+            T::regs().cr().modify(|reg| {
+                reg.set_rngen(true);
+            })
+        }
+
+        for chunk in dest.chunks_mut(4) {
+            poll_fn(|cx| {
+                RNG_WAKER.register(cx.waker());
+                unsafe {
+                    T::regs().cr().modify(|reg| {
+                        reg.set_ie(true);
+                    });
+                }
+
+                let bits = unsafe { T::regs().sr().read() };
+
+                if bits.drdy() {
+                    Poll::Ready(Ok(()))
+                } else if bits.seis() {
+                    self.reset();
+                    Poll::Ready(Err(Error::SeedError))
+                } else if bits.ceis() {
+                    self.reset();
+                    Poll::Ready(Err(Error::ClockError))
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await?;
+            let random_bytes = unsafe { T::regs().dr().read() }.to_be_bytes();
+            for (dest, src) in chunk.iter_mut().zip(random_bytes.iter()) {
+                *dest = *src
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<T: Instance> RngCore for Rng<T> {
@@ -82,54 +120,6 @@ impl<T: Instance> RngCore for Rng<T> {
 }
 
 impl<T: Instance> CryptoRng for Rng<T> {}
-
-impl<T: Instance> traits::rng::Rng for Rng<T> {
-    type Error = Error;
-    type RngFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), Self::Error>> + 'a;
-
-    fn fill_bytes<'a>(&'a mut self, dest: &'a mut [u8]) -> Self::RngFuture<'a> {
-        unsafe {
-            T::regs().cr().modify(|reg| {
-                reg.set_rngen(true);
-            });
-        }
-        async move {
-            for chunk in dest.chunks_mut(4) {
-                poll_fn(|cx| {
-                    RNG_WAKER.register(cx.waker());
-                    unsafe {
-                        T::regs().cr().modify(|reg| {
-                            reg.set_ie(true);
-                        });
-                    }
-
-                    let bits = unsafe { T::regs().sr().read() };
-
-                    if bits.drdy() {
-                        Poll::Ready(Ok(()))
-                    } else if bits.seis() {
-                        self.reset();
-                        Poll::Ready(Err(Error::SeedError))
-                    } else if bits.ceis() {
-                        self.reset();
-                        Poll::Ready(Err(Error::ClockError))
-                    } else {
-                        Poll::Pending
-                    }
-                })
-                .await?;
-                let random_bytes = unsafe { T::regs().dr().read() }.to_be_bytes();
-                for (dest, src) in chunk.iter_mut().zip(random_bytes.iter()) {
-                    *dest = *src
-                }
-            }
-            Ok(())
-        }
-    }
-}
 
 pub(crate) mod sealed {
     use super::*;

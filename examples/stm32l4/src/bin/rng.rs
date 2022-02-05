@@ -5,8 +5,6 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
-use embassy::traits::rng::Random;
 use embassy_stm32::rcc::{ClockSrc, PLLClkDiv, PLLMul, PLLSource, PLLSrcDiv};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{Config, Peripherals};
@@ -28,10 +26,9 @@ fn config() -> Config {
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
-    let mut rng = Random::new(Rng::new(p.RNG));
+    let mut rng = Rng::new(p.RNG);
 
-    loop {
-        info!("random {}", unwrap!(rng.next_u8(16).await));
-        Timer::after(Duration::from_secs(1)).await;
-    }
+    let mut buf = [0u8; 16];
+    unwrap!(rng.async_fill_bytes(&mut buf).await);
+    info!("random bytes: {:02x}", buf);
 }
