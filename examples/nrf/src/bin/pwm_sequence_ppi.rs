@@ -11,26 +11,28 @@ use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Input, NoPin, Pull};
 use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
 use embassy_nrf::ppi::Ppi;
-use embassy_nrf::pwm::{Prescaler, SequenceConfig, SequenceMode, SequencePwm};
+use embassy_nrf::pwm::{
+    Config, Prescaler, SequenceConfig, SequencePwm, SingleSequenceMode, SingleSequencer,
+};
 use embassy_nrf::Peripherals;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    let seq_values: [u16; 5] = [1000, 250, 100, 50, 0];
+    let seq_words: [u16; 5] = [1000, 250, 100, 50, 0];
 
-    let mut config = SequenceConfig::default();
+    let mut config = Config::default();
     config.prescaler = Prescaler::Div128;
     // 1 period is 1000 * (128/16mhz = 0.000008s = 0.008ms) = 8us
     // but say we want to hold the value for 250ms 250ms/8 = 31.25 periods
     // so round to 31 - 1 (we get the one period for free remember)
     // thus our sequence takes 5 * 250ms or 1.25 seconds
-    config.refresh = 30;
+    let mut seq_config = SequenceConfig::default();
+    seq_config.refresh = 30;
 
     let mut pwm = unwrap!(SequencePwm::new(
         p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config,
     ));
 
-    let _ = pwm.start(&seq_values, SequenceMode::Times(1));
     // pwm.stop() deconfigures pins, and then the task_start_seq0 task cant work
     // so its going to have to start running in order load the configuration
 
@@ -50,6 +52,9 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // Times::Ininite and Times even are seq0, Times odd is seq1
     let start = unsafe { pwm.task_start_seq0() };
     let stop = unsafe { pwm.task_stop() };
+
+    let sequencer = SingleSequencer::new(&mut pwm, &seq_words, seq_config);
+    unwrap!(sequencer.start(SingleSequenceMode::Infinite));
 
     let mut ppi = Ppi::new_one_to_one(p.PPI_CH1, button1.event_in(), start);
     ppi.enable();

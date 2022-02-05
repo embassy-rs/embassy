@@ -9,13 +9,15 @@ use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::gpio::NoPin;
 use embassy_nrf::pwm::{
-    Config, Prescaler, SequenceConfig, SequencePwm, SingleSequenceMode, SingleSequencer,
+    Config, Prescaler, Sequence, SequenceConfig, SequenceMode, SequencePwm, Sequencer,
+    StartSequence,
 };
 use embassy_nrf::Peripherals;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    let seq_words: [u16; 5] = [1000, 250, 100, 50, 0];
+    let seq_words_0: [u16; 5] = [1000, 250, 100, 50, 0];
+    let seq_words_1: [u16; 4] = [50, 100, 250, 1000];
 
     let mut config = Config::default();
     config.prescaler = Prescaler::Div128;
@@ -31,12 +33,14 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config,
     ));
 
-    let sequencer = SingleSequencer::new(&mut pwm, &seq_words, seq_config);
-    unwrap!(sequencer.start(SingleSequenceMode::Times(1)));
+    let sequence_0 = Sequence::new(&seq_words_0, seq_config.clone());
+    let sequence_1 = Sequence::new(&seq_words_1, seq_config);
+    let sequencer = Sequencer::new(&mut pwm, sequence_0, Some(sequence_1));
+    unwrap!(sequencer.start(StartSequence::Zero, SequenceMode::Loop(1)));
 
     // we can abort a sequence if we need to before its complete with pwm.stop()
     // or stop is also implicitly called when the pwm peripheral is dropped
     // when it goes out of scope
-    Timer::after(Duration::from_millis(20000)).await;
+    Timer::after(Duration::from_millis(40000)).await;
     info!("pwm stopped early!");
 }
