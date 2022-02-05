@@ -7,7 +7,6 @@ use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::waitqueue::AtomicWaker;
 
 use crate::dma::Request;
-use crate::interrupt;
 use crate::pac;
 use crate::pac::bdma::vals;
 use crate::rcc::sealed::RccPeripheral;
@@ -53,7 +52,7 @@ macro_rules! dma_num {
     };
 }
 
-unsafe fn on_irq() {
+pub(crate) unsafe fn on_irq() {
     pac::peripherals! {
         (bdma, $dma:ident) => {
                 let isr = pac::$dma.isr().read();
@@ -167,15 +166,6 @@ pac::dma_channels! {
         }
 
         impl crate::dma::Channel for crate::peripherals::$channel_peri {}
-    };
-}
-
-pac::interrupts! {
-    ($peri:ident, bdma, $block:ident, $signal_name:ident, $irq:ident) => {
-        #[crate::interrupt]
-        unsafe fn $irq () {
-            on_irq()
-        }
     };
 }
 

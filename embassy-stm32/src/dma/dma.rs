@@ -47,7 +47,7 @@ macro_rules! dma_num {
     };
 }
 
-unsafe fn on_irq() {
+pub(crate) unsafe fn on_irq() {
     pac::peripherals! {
         (dma, $dma:ident) => {
             for isrn in 0..2 {
@@ -159,15 +159,6 @@ pac::dma_channels! {
         }
 
         impl crate::dma::Channel for crate::peripherals::$channel_peri { }
-    };
-}
-
-pac::interrupts! {
-    ($peri:ident, dma, $block:ident, $signal_name:ident, $irq:ident) => {
-        #[crate::interrupt]
-        unsafe fn $irq () {
-            on_irq()
-        }
     };
 }
 

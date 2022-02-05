@@ -1,7 +1,7 @@
 #[cfg(bdma)]
-mod bdma;
+pub(crate) mod bdma;
 #[cfg(dma)]
-mod dma;
+pub(crate) mod dma;
 #[cfg(dmamux)]
 mod dmamux;
 

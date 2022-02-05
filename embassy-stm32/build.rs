@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::fmt::Write;
 use std::fs;
 use std::path::PathBuf;
 
@@ -42,6 +43,9 @@ fn main() {
             });
         };
     );
+
+    // ========
+    // Generate singletons
 
     let mut singletons: Vec<String> = Vec::new();
     for p in peripherals {
@@ -90,16 +94,65 @@ fn main() {
         };
     }
 
-    let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    let out_file = out_dir.join("generated.rs").to_string_lossy().to_string();
-    fs::write(
-        out_file,
-        format!(
-            "embassy_hal_common::peripherals!({});",
-            singletons.join(",")
-        ),
+    let mut generated = String::new();
+    write!(
+        &mut generated,
+        "embassy_hal_common::peripherals!({});\n",
+        singletons.join(",")
     )
     .unwrap();
+
+    // ========
+    // Generate DMA IRQs.
+    // This can't be done with macrotables alone because in many chips, one irq is shared between many
+    // channels, so we have to deduplicate them.
+
+    #[allow(unused_mut)]
+    let mut dma_irqs: Vec<String> = Vec::new();
+    #[allow(unused_mut)]
+    let mut bdma_irqs: Vec<String> = Vec::new();
+
+    stm32_metapac::interrupts! {
+        ($peri:ident, dma, $block:ident, $signal_name:ident, $irq:ident) => {
+            dma_irqs.push(stringify!($irq).to_string());
+        };
+        ($peri:ident, bdma, $block:ident, $signal_name:ident, $irq:ident) => {
+            bdma_irqs.push(stringify!($irq).to_string());
+        };
+    }
+
+    dma_irqs.sort();
+    dma_irqs.dedup();
+    bdma_irqs.sort();
+    bdma_irqs.dedup();
+
+    for irq in dma_irqs {
+        write!(
+            &mut generated,
+            "#[crate::interrupt] unsafe fn {} () {{ crate::dma::dma::on_irq(); }}\n",
+            irq
+        )
+        .unwrap();
+    }
+
+    for irq in bdma_irqs {
+        write!(
+            &mut generated,
+            "#[crate::interrupt] unsafe fn {} () {{ crate::dma::bdma::on_irq(); }}\n",
+            irq
+        )
+        .unwrap();
+    }
+
+    // ========
+    // Write generated.rs
+
+    let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    let out_file = out_dir.join("generated.rs").to_string_lossy().to_string();
+    fs::write(out_file, &generated).unwrap();
+
+    // ========
+    // Multicore
 
     let mut s = chip_name.split('_');
     let mut chip_name: String = s.next().unwrap().to_string();
@@ -124,6 +177,9 @@ fn main() {
     } else {
         println!("cargo:rustc-cfg={}", &chip_name[..chip_name.len() - 2]);
     }
+
+    // ========
+    // stm32f3 wildcard features used in RCC
 
     if chip_name.starts_with("stm32f3") {
         println!("cargo:rustc-cfg={}x{}", &chip_name[..9], &chip_name[10..11]);
