@@ -52,15 +52,6 @@ impl<'d> Nvmc<'d> {
     }
 }
 
-impl NorFlashError for Error {
-    fn kind(&self) -> NorFlashErrorKind {
-        match self {
-            Self::OutOfBounds => NorFlashErrorKind::OutOfBounds,
-            Self::Unaligned => NorFlashErrorKind::NotAligned,
-        }
-    }
-}
-
 impl<'d> MultiwriteNorFlash for Nvmc<'d> {}
 
 impl<'d> ErrorType for Nvmc<'d> {

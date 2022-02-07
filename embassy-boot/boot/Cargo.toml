@@ -13,8 +13,8 @@ description = "Bootloader using Embassy"
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4", optional = true  }
 embassy = { path = "../../embassy", default-features = false }
-embedded-storage = { git = "https://github.com/embassy-rs/embedded-storage.git", branch = "embassy" }
-embedded-storage-async = { git = "https://github.com/embassy-rs/embedded-storage.git", branch = "embassy" }
+embedded-storage = "0.3.0"
+embedded-storage-async = "0.3.0"
 
 [dev-dependencies]
 log = "0.4"

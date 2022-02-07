@@ -16,10 +16,10 @@ embassy-nrf = { path = "../../embassy-nrf", default-features = false, features =
 embassy-boot = { path = "../boot", default-features = false }
 cortex-m = { version = "0.7" }
 cortex-m-rt = { version = "0.7" }
-embedded-storage = { git = "https://github.com/embassy-rs/embedded-storage.git", branch = "embassy" }
-embedded-storage-async = { git = "https://github.com/embassy-rs/embedded-storage.git", branch = "embassy" }
+embedded-storage = "0.3.0"
+embedded-storage-async = "0.3.0"
 
-nrf-softdevice-mbr = { version = "0.1.0", git = "https://github.com/embassy-rs/nrf-softdevice.git", rev = "c63cb6359964926470e424fc899fa5e15612a5e6", optional = true }
+nrf-softdevice-mbr = { version = "0.1.0", git = "https://github.com/embassy-rs/nrf-softdevice.git", branch = "master", optional = true }
 
 [features]
 defmt = [
