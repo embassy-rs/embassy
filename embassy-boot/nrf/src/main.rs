@@ -14,6 +14,12 @@ use embassy_nrf::nvmc::Nvmc;
 #[link_section = ".uicr_bootloader_start_address"]
 pub static UICR_BOOTLOADER_START_ADDRESS: usize = BOOTLOADER.from;
 
+#[used]
+#[no_mangle]
+#[link_section = ".uicr_mbr_params_page"]
+#[cfg(feature = "softdevice")]
+pub static UICR_MBR_PARAMS_PAGE: usize = MBR_PARAMS_PAGE.from;
+
 #[entry]
 fn main() -> ! {
     for i in 0..10000000 {
