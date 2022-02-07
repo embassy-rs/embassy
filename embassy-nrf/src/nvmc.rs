@@ -8,7 +8,9 @@ use core::ptr;
 use core::slice;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
-use embedded_storage::nor_flash::{MultiwriteNorFlash, NorFlash, ReadNorFlash};
+use embedded_storage::nor_flash::{
+    ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
+};
 
 pub const PAGE_SIZE: usize = 4096;
 pub const FLASH_SIZE: usize = crate::chip::FLASH_SIZE;
@@ -18,6 +20,15 @@ pub const FLASH_SIZE: usize = crate::chip::FLASH_SIZE;
 pub enum Error {
     OutOfBounds,
     Unaligned,
+}
+
+impl NorFlashError for Error {
+    fn kind(&self) -> NorFlashErrorKind {
+        match self {
+            Self::OutOfBounds => NorFlashErrorKind::OutOfBounds,
+            Self::Unaligned => NorFlashErrorKind::NotAligned,
+        }
+    }
 }
 
 pub struct Nvmc<'d> {
@@ -43,9 +54,11 @@ impl<'d> Nvmc<'d> {
 
 impl<'d> MultiwriteNorFlash for Nvmc<'d> {}
 
-impl<'d> ReadNorFlash for Nvmc<'d> {
+impl<'d> ErrorType for Nvmc<'d> {
     type Error = Error;
+}
 
+impl<'d> ReadNorFlash for Nvmc<'d> {
     const READ_SIZE: usize = 1;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {

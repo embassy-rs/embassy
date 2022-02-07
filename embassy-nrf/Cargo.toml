@@ -63,7 +63,7 @@ futures     = { version = "0.3.17", default-features = false }
 critical-section = "0.2.5"
 rand_core = "0.6.3"
 fixed = "1.10.0"
-embedded-storage = "0.2.0"
+embedded-storage = "0.3.0"
 cfg-if = "1.0.0"
 nrf-usbd = {version = "0.1.1"}
 usb-device = "0.2.8"
