@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
 pub struct Chip {
@@ -27,9 +27,15 @@ pub struct MemoryRegion {
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
 pub struct Core {
     pub name: String,
-    pub peripherals: BTreeMap<String, Peripheral>,
-    pub interrupts: BTreeMap<String, u32>,
-    pub dma_channels: BTreeMap<String, DmaChannel>,
+    pub peripherals: Vec<Peripheral>,
+    pub interrupts: Vec<Interrupt>,
+    pub dma_channels: Vec<DmaChannel>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
+pub struct Interrupt {
+    pub name: String,
+    pub number: u32,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
@@ -40,17 +46,24 @@ pub struct Package {
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
 pub struct Peripheral {
+    pub name: String,
     pub address: u64,
     #[serde(default)]
     pub block: Option<String>,
     #[serde(default)]
     pub rcc: Option<PeripheralRcc>,
     #[serde(default)]
-    pub pins: Vec<Pin>,
+    pub pins: Vec<PeripheralPin>,
     #[serde(default)]
-    pub dma_channels: BTreeMap<String, Vec<PeripheralDmaChannel>>,
+    pub dma_channels: Vec<PeripheralDmaChannel>,
     #[serde(default)]
-    pub interrupts: BTreeMap<String, String>,
+    pub interrupts: Vec<PeripheralInterrupt>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
+pub struct PeripheralInterrupt {
+    pub signal: String,
+    pub interrupt: String,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
@@ -74,7 +87,7 @@ pub struct PeripheralRccRegister {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
-pub struct Pin {
+pub struct PeripheralPin {
     pub pin: String,
     pub signal: String,
     pub af: Option<String>,
@@ -82,6 +95,7 @@ pub struct Pin {
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
 pub struct DmaChannel {
+    pub name: String,
     pub dma: String,
     pub channel: u32,
     pub dmamux: Option<String>,
@@ -90,6 +104,7 @@ pub struct DmaChannel {
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize, Hash)]
 pub struct PeripheralDmaChannel {
+    pub signal: String,
     pub channel: Option<String>,
     pub dmamux: Option<String>,
     pub request: Option<u32>,

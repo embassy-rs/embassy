@@ -16,9 +16,9 @@ fn main() {
             std::fs::read_dir(data_dir.join("chips"))
                 .unwrap()
                 .filter_map(|res| res.unwrap().file_name().to_str().map(|s| s.to_string()))
-                .filter(|s| s.ends_with(".yaml"))
+                .filter(|s| s.ends_with(".json"))
                 .filter(|s| !s.starts_with("STM32GBK")) // cursed weird STM32G4
-                .map(|s| s.strip_suffix(".yaml").unwrap().to_string())
+                .map(|s| s.strip_suffix(".json").unwrap().to_string())
                 .collect()
         }
         _ => panic!("usage: stm32-metapac-gen [chip?]"),

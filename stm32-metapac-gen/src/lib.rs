@@ -96,8 +96,8 @@ pub fn gen_chip(
     };
 
     // Load DBGMCU register for chip
-    let mut dbgmcu: Option<ir::IR> = core.peripherals.iter().find_map(|(name, p)| {
-        if name == "DBGMCU" {
+    let mut dbgmcu: Option<ir::IR> = core.peripherals.iter().find_map(|p| {
+        if p.name == "DBGMCU" {
             p.block.as_ref().map(|block| {
                 let bi = BlockInfo::parse(block);
                 let dbgmcu_reg_path = options
@@ -123,7 +123,12 @@ pub fn gen_chip(
     let mut dma_channel_counts: BTreeMap<String, u8> = BTreeMap::new();
     let mut dbgmcu_table: Vec<Vec<String>> = Vec::new();
 
-    let gpio_base = core.peripherals.get(&"GPIOA".to_string()).unwrap().address as u32;
+    let gpio_base = core
+        .peripherals
+        .iter()
+        .find(|p| p.name == "GPIOA")
+        .unwrap()
+        .address as u32;
     let gpio_stride = 0x400;
 
     let number_suffix_re = Regex::new("^(.*?)[0-9]*$").unwrap();
@@ -139,15 +144,15 @@ pub fn gen_chip(
         }
     }
 
-    for (name, p) in &core.peripherals {
-        let captures = number_suffix_re.captures(&name).unwrap();
+    for p in &core.peripherals {
+        let captures = number_suffix_re.captures(&p.name).unwrap();
         let root_peri_name = captures.get(1).unwrap().as_str().to_string();
         peripheral_counts.insert(
             root_peri_name.clone(),
             peripheral_counts.get(&root_peri_name).map_or(1, |v| v + 1),
         );
         let mut ir_peri = ir::Peripheral {
-            name: name.clone(),
+            name: p.name.clone(),
             array: None,
             base_address: p.address,
             block: None,
@@ -165,7 +170,7 @@ pub fn gen_chip(
 
             for pin in &p.pins {
                 let mut row = Vec::new();
-                row.push(name.clone());
+                row.push(p.name.clone());
                 row.push(bi.module.clone());
                 row.push(bi.block.clone());
                 row.push(pin.pin.clone());
@@ -176,50 +181,48 @@ pub fn gen_chip(
                 peripheral_pins_table.push(row);
             }
 
-            for (signal, irq_name) in &p.interrupts {
+            for irq in &p.interrupts {
                 let mut row = Vec::new();
-                row.push(name.clone());
+                row.push(p.name.clone());
                 row.push(bi.module.clone());
                 row.push(bi.block.clone());
-                row.push(signal.clone());
-                row.push(irq_name.to_ascii_uppercase());
+                row.push(irq.signal.clone());
+                row.push(irq.interrupt.to_ascii_uppercase());
                 interrupt_table.push(row)
             }
 
-            for (request, dma_channels) in &p.dma_channels {
-                for channel in dma_channels.iter() {
-                    let mut row = Vec::new();
-                    row.push(name.clone());
-                    row.push(bi.module.clone());
-                    row.push(bi.block.clone());
-                    row.push(request.clone());
-                    row.push(if let Some(channel) = &channel.channel {
-                        format!("{{channel: {}}}", channel)
-                    } else if let Some(dmamux) = &channel.dmamux {
-                        format!("{{dmamux: {}}}", dmamux)
-                    } else {
-                        unreachable!();
-                    });
+            for ch in &p.dma_channels {
+                let mut row = Vec::new();
+                row.push(p.name.clone());
+                row.push(bi.module.clone());
+                row.push(bi.block.clone());
+                row.push(ch.signal.clone());
+                row.push(if let Some(channel) = &ch.channel {
+                    format!("{{channel: {}}}", channel)
+                } else if let Some(dmamux) = &ch.dmamux {
+                    format!("{{dmamux: {}}}", dmamux)
+                } else {
+                    unreachable!();
+                });
 
-                    row.push(if let Some(request) = channel.request {
-                        request.to_string()
-                    } else {
-                        "()".to_string()
-                    });
+                row.push(if let Some(request) = ch.request {
+                    request.to_string()
+                } else {
+                    "()".to_string()
+                });
 
-                    if peripheral_dma_channels_table
-                        .iter()
-                        .find(|a| a[..a.len() - 1] == row[..row.len() - 1])
-                        .is_none()
-                    {
-                        peripheral_dma_channels_table.push(row);
-                    }
+                if peripheral_dma_channels_table
+                    .iter()
+                    .find(|a| a[..a.len() - 1] == row[..row.len() - 1])
+                    .is_none()
+                {
+                    peripheral_dma_channels_table.push(row);
                 }
             }
 
             let mut peripheral_row = Vec::new();
             peripheral_row.push(bi.module.clone());
-            peripheral_row.push(name.clone());
+            peripheral_row.push(p.name.clone());
             peripherals_table.push(peripheral_row);
 
             if let Some(old_version) =
@@ -236,15 +239,15 @@ pub fn gen_chip(
 
             match bi.module.as_str() {
                 "gpio" => {
-                    let port_letter = name.chars().skip(4).next().unwrap();
+                    let port_letter = p.name.chars().skip(4).next().unwrap();
                     assert_eq!(0, (p.address as u32 - gpio_base) % gpio_stride);
                     let port_num = (p.address as u32 - gpio_base) / gpio_stride;
 
-                    for pin_num in 0..16 {
+                    for pin_num in 0u32..16 {
                         let pin_name = format!("P{}{}", port_letter, pin_num);
                         pin_table.push(vec![
                             pin_name.clone(),
-                            name.clone(),
+                            p.name.clone(),
                             port_num.to_string(),
                             pin_num.to_string(),
                             format!("EXTI{}", pin_num),
@@ -256,12 +259,12 @@ pub fn gen_chip(
 
             if let Some(rcc) = &p.rcc {
                 let mut clock = rcc.clock.to_ascii_lowercase();
-                if name.starts_with("TIM") {
+                if p.name.starts_with("TIM") {
                     clock = format!("{}_tim", clock)
                 }
 
                 let mut row = Vec::new();
-                row.push(name.clone());
+                row.push(p.name.clone());
                 row.push(bi.module.clone());
                 row.push(bi.block.clone());
                 row.push(clock);
@@ -286,17 +289,17 @@ pub fn gen_chip(
         dev.peripherals.push(ir_peri);
     }
 
-    for (id, channel_info) in &core.dma_channels {
+    for ch in &core.dma_channels {
         let mut row = Vec::new();
-        let dma_peri = core.peripherals.get(&channel_info.dma).unwrap();
+        let dma_peri = core.peripherals.iter().find(|p| p.name == ch.dma).unwrap();
         let bi = BlockInfo::parse(dma_peri.block.as_ref().unwrap());
 
-        row.push(id.clone());
-        row.push(channel_info.dma.clone());
+        row.push(ch.name.clone());
+        row.push(ch.dma.clone());
         row.push(bi.module.clone());
-        row.push(channel_info.channel.to_string());
-        if let Some(dmamux) = &channel_info.dmamux {
-            let dmamux_channel = channel_info.dmamux_channel.unwrap();
+        row.push(ch.channel.to_string());
+        if let Some(dmamux) = &ch.dmamux {
+            let dmamux_channel = ch.dmamux_channel.unwrap();
             row.push(format!(
                 "{{dmamux: {}, dmamux_channel: {}}}",
                 dmamux, dmamux_channel
@@ -307,21 +310,21 @@ pub fn gen_chip(
 
         dma_channels_table.push(row);
 
-        let dma_peri_name = channel_info.dma.clone();
+        let dma_peri_name = ch.dma.clone();
         dma_channel_counts.insert(
             dma_peri_name.clone(),
             dma_channel_counts.get(&dma_peri_name).map_or(1, |v| v + 1),
         );
     }
 
-    for (name, &num) in &core.interrupts {
+    for irq in &core.interrupts {
         dev.interrupts.push(ir::Interrupt {
-            name: name.clone(),
+            name: irq.name.clone(),
             description: None,
-            value: num,
+            value: irq.number,
         });
 
-        let name = name.to_ascii_uppercase();
+        let name = irq.name.to_ascii_uppercase();
 
         interrupt_table.push(vec![name.clone()]);
 
@@ -383,11 +386,11 @@ pub fn gen_chip(
 
     let mut device_x = String::new();
 
-    for (name, _) in &core.interrupts {
+    for irq in &core.interrupts {
         write!(
             &mut device_x,
             "PROVIDE({} = DefaultHandler);\n",
-            name.to_ascii_uppercase()
+            irq.name.to_ascii_uppercase()
         )
         .unwrap();
     }
@@ -441,7 +444,7 @@ fn load_chip(options: &Options, name: &str) -> Chip {
     let chip_path = options
         .data_dir
         .join("chips")
-        .join(&format!("{}.yaml", name));
+        .join(&format!("{}.json", name));
     let chip = fs::read(chip_path).expect(&format!("Could not load chip {}", name));
     serde_yaml::from_slice(&chip).unwrap()
 }
