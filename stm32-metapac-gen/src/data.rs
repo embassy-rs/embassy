@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use std::collections::HashMap;
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
 pub struct Chip {
@@ -7,21 +6,24 @@ pub struct Chip {
     pub family: String,
     pub line: String,
     pub cores: Vec<Core>,
-    pub flash: Memory,
-    pub ram: Memory,
+    pub memory: Vec<MemoryRegion>,
     pub packages: Vec<Package>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
-pub struct Memory {
-    pub bytes: u32,
-    pub regions: HashMap<String, MemoryRegion>,
+pub struct MemoryRegion {
+    pub name: String,
+    pub kind: MemoryRegionKind,
+    pub address: u32,
+    pub size: u32,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
-pub struct MemoryRegion {
-    pub base: u32,
-    pub bytes: Option<u32>,
+pub enum MemoryRegionKind {
+    #[serde(rename = "flash")]
+    Flash,
+    #[serde(rename = "ram")]
+    Ram,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]

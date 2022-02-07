@@ -587,35 +587,20 @@ fn bytes_find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 fn gen_memory_x(out_dir: &PathBuf, chip: &Chip) {
     let mut memory_x = String::new();
 
-    let flash_bytes = chip
-        .flash
-        .regions
-        .get("BANK_1")
-        .unwrap()
-        .bytes
-        .unwrap_or(chip.flash.bytes);
-    let flash_origin = chip.flash.regions.get("BANK_1").unwrap().base;
-
-    let ram_bytes = chip
-        .ram
-        .regions
-        .get("SRAM")
-        .unwrap()
-        .bytes
-        .unwrap_or(chip.ram.bytes);
-    let ram_origin = chip.ram.regions.get("SRAM").unwrap().base;
+    let flash = chip.memory.iter().find(|r| r.name == "BANK_1").unwrap();
+    let ram = chip.memory.iter().find(|r| r.name == "SRAM").unwrap();
 
     write!(memory_x, "MEMORY\n{{\n").unwrap();
     write!(
         memory_x,
         "    FLASH : ORIGIN = 0x{:x}, LENGTH = {}\n",
-        flash_origin, flash_bytes
+        flash.address, flash.size,
     )
     .unwrap();
     write!(
         memory_x,
         "    RAM : ORIGIN = 0x{:x}, LENGTH = {}\n",
-        ram_origin, ram_bytes
+        ram.address, ram.size,
     )
     .unwrap();
     write!(memory_x, "}}").unwrap();
