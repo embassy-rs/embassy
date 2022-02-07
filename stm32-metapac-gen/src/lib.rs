@@ -98,12 +98,11 @@ pub fn gen_chip(
     // Load DBGMCU register for chip
     let mut dbgmcu: Option<ir::IR> = core.peripherals.iter().find_map(|p| {
         if p.name == "DBGMCU" {
-            p.block.as_ref().map(|block| {
-                let bi = BlockInfo::parse(block);
+            p.registers.as_ref().map(|bi| {
                 let dbgmcu_reg_path = options
                     .data_dir
                     .join("registers")
-                    .join(&format!("{}_{}.yaml", bi.module, bi.version));
+                    .join(&format!("{}_{}.yaml", bi.kind, bi.version));
                 serde_yaml::from_reader(File::open(dbgmcu_reg_path).unwrap()).unwrap()
             })
         } else {
@@ -160,18 +159,16 @@ pub fn gen_chip(
             interrupts: HashMap::new(),
         };
 
-        if let Some(block) = &p.block {
-            let bi = BlockInfo::parse(block);
-
+        if let Some(bi) = &p.registers {
             peripheral_counts.insert(
-                bi.module.clone(),
-                peripheral_counts.get(&bi.module).map_or(1, |v| v + 1),
+                bi.kind.clone(),
+                peripheral_counts.get(&bi.kind).map_or(1, |v| v + 1),
             );
 
             for pin in &p.pins {
                 let mut row = Vec::new();
                 row.push(p.name.clone());
-                row.push(bi.module.clone());
+                row.push(bi.kind.clone());
                 row.push(bi.block.clone());
                 row.push(pin.pin.clone());
                 row.push(pin.signal.clone());
@@ -184,7 +181,7 @@ pub fn gen_chip(
             for irq in &p.interrupts {
                 let mut row = Vec::new();
                 row.push(p.name.clone());
-                row.push(bi.module.clone());
+                row.push(bi.kind.clone());
                 row.push(bi.block.clone());
                 row.push(irq.signal.clone());
                 row.push(irq.interrupt.to_ascii_uppercase());
@@ -194,7 +191,7 @@ pub fn gen_chip(
             for ch in &p.dma_channels {
                 let mut row = Vec::new();
                 row.push(p.name.clone());
-                row.push(bi.module.clone());
+                row.push(bi.kind.clone());
                 row.push(bi.block.clone());
                 row.push(ch.signal.clone());
                 row.push(if let Some(channel) = &ch.channel {
@@ -221,23 +218,23 @@ pub fn gen_chip(
             }
 
             let mut peripheral_row = Vec::new();
-            peripheral_row.push(bi.module.clone());
+            peripheral_row.push(bi.kind.clone());
             peripheral_row.push(p.name.clone());
             peripherals_table.push(peripheral_row);
 
             if let Some(old_version) =
-                peripheral_versions.insert(bi.module.clone(), bi.version.clone())
+                peripheral_versions.insert(bi.kind.clone(), bi.version.clone())
             {
                 if old_version != bi.version {
                     panic!(
                         "Peripheral {} has multiple versions: {} and {}",
-                        bi.module, old_version, bi.version
+                        bi.kind, old_version, bi.version
                     );
                 }
             }
-            ir_peri.block = Some(format!("{}::{}", bi.module, bi.block));
+            ir_peri.block = Some(format!("{}::{}", bi.kind, bi.block));
 
-            match bi.module.as_str() {
+            match bi.kind.as_str() {
                 "gpio" => {
                     let port_letter = p.name.chars().skip(4).next().unwrap();
                     assert_eq!(0, (p.address as u32 - gpio_base) % gpio_stride);
@@ -265,11 +262,11 @@ pub fn gen_chip(
 
                 let mut row = Vec::new();
                 row.push(p.name.clone());
-                row.push(bi.module.clone());
+                row.push(bi.kind.clone());
                 row.push(bi.block.clone());
                 row.push(clock);
 
-                for reg in [&rcc.registers.enable, &rcc.registers.reset] {
+                for reg in [&rcc.enable, &rcc.reset] {
                     if let Some(reg) = reg {
                         row.push(format!(
                             "({}, {}, set_{})",
@@ -292,11 +289,11 @@ pub fn gen_chip(
     for ch in &core.dma_channels {
         let mut row = Vec::new();
         let dma_peri = core.peripherals.iter().find(|p| p.name == ch.dma).unwrap();
-        let bi = BlockInfo::parse(dma_peri.block.as_ref().unwrap());
+        let bi = dma_peri.registers.as_ref().unwrap();
 
         row.push(ch.name.clone());
         row.push(ch.dma.clone());
-        row.push(bi.module.clone());
+        row.push(bi.kind.clone());
         row.push(ch.channel.to_string());
         if let Some(dmamux) = &ch.dmamux {
             let dmamux_channel = ch.dmamux_channel.unwrap();

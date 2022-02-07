@@ -51,7 +51,7 @@ pub struct Peripheral {
     pub name: String,
     pub address: u64,
     #[serde(default)]
-    pub block: Option<String>,
+    pub registers: Option<PeripheralRegisters>,
     #[serde(default)]
     pub rcc: Option<PeripheralRcc>,
     #[serde(default)]
@@ -71,11 +71,6 @@ pub struct PeripheralInterrupt {
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
 pub struct PeripheralRcc {
     pub clock: String,
-    pub registers: PeripheralRccRegisters,
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
-pub struct PeripheralRccRegisters {
     #[serde(default)]
     pub enable: Option<PeripheralRccRegister>,
     #[serde(default)]
@@ -112,29 +107,9 @@ pub struct PeripheralDmaChannel {
     pub request: Option<u32>,
 }
 
-pub struct BlockInfo {
-    /// usart_v1/USART -> usart
-    pub module: String,
-    /// usart_v1/USART -> v1
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize, Hash)]
+pub struct PeripheralRegisters {
+    pub kind: String,
     pub version: String,
-    /// usart_v1/USART -> USART
     pub block: String,
-}
-
-impl BlockInfo {
-    pub fn parse(s: &str) -> Self {
-        let mut s = s.split('/');
-        let module = s.next().unwrap();
-        let block = s.next().unwrap();
-        assert!(s.next().is_none());
-        let mut s = module.split('_');
-        let module = s.next().unwrap();
-        let version = s.next().unwrap();
-        assert!(s.next().is_none());
-        Self {
-            module: module.to_string(),
-            version: version.to_string(),
-            block: block.to_string(),
-        }
-    }
 }
