@@ -185,6 +185,14 @@ fn main() {
         println!("cargo:rustc-cfg={}x{}", &chip_name[..9], &chip_name[10..11]);
     }
 
+    // =======
+    // Features for targeting groups of chips
+
+    println!("cargo:rustc-cfg={}", &chip_name[..7]); // stm32f4
+    println!("cargo:rustc-cfg={}", &chip_name[..9]); // stm32f429
+    println!("cargo:rustc-cfg={}x", &chip_name[..8]); // stm32f42x
+    println!("cargo:rustc-cfg={}x{}", &chip_name[..7], &chip_name[8..9]); // stm32f4x9
+
     // ========
     // Handle time-driver-XXXX features.
 
