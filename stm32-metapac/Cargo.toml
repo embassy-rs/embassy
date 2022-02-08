@@ -19,9 +19,13 @@ regex = "1.5.4"
 default = ["pac"]
 
 # Build the actual PAC. Set by default.
-# If not set, only the macrotables will be generated. You may want to not set it
-# if you're using stm32-metapac from a build.rs script to use the macros.
+# If you just want the metadata, unset it with `default-features = false`. 
 pac = []
+
+# Build the chip metadata.
+# If set, a const `stm32_metapac::METADATA` will be exported, containing all the 
+# metadata for the currently selected chip.
+metadata = []
 
 rt = ["cortex-m-rt/device"]
 memory-x = []

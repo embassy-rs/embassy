@@ -16,6 +16,17 @@ use chiptool::{generate, ir, transform};
 mod data;
 use data::*;
 
+#[derive(Debug, Eq, PartialEq, Clone)]
+struct Metadata<'a> {
+    name: &'a str,
+    family: &'a str,
+    line: &'a str,
+    memory: &'a [MemoryRegion],
+    peripherals: &'a [Peripheral],
+    interrupts: &'a [Interrupt],
+    dma_channels: &'a [DmaChannel],
+}
+
 fn make_peripheral_counts(out: &mut String, data: &BTreeMap<String, u8>) {
     write!(
         out,
@@ -384,12 +395,7 @@ pub fn gen_chip(
     let mut device_x = String::new();
 
     for irq in &core.interrupts {
-        write!(
-            &mut device_x,
-            "PROVIDE({} = DefaultHandler);\n",
-            irq.name.to_ascii_uppercase()
-        )
-        .unwrap();
+        write!(&mut device_x, "PROVIDE({} = DefaultHandler);\n", irq.name).unwrap();
     }
 
     // ==============================
@@ -397,6 +403,7 @@ pub fn gen_chip(
 
     let mut data = String::new();
 
+    write!(&mut data, "#[cfg(feature=\"metadata\")] pub mod metadata;").unwrap();
     write!(&mut data, "#[cfg(feature=\"pac\")] mod pac;").unwrap();
     write!(&mut data, "#[cfg(feature=\"pac\")] pub use pac::*; ").unwrap();
 
@@ -422,6 +429,38 @@ pub fn gen_chip(
     make_dma_channel_counts(&mut data, &dma_channel_counts);
 
     let mut file = File::create(chip_dir.join("mod.rs")).unwrap();
+    file.write_all(data.as_bytes()).unwrap();
+
+    // ==============================
+    // generate metadata.rs
+
+    let metadata = Metadata {
+        name: &chip.name,
+        family: &chip.family,
+        line: &chip.line,
+        memory: &chip.memory,
+        peripherals: &core.peripherals,
+        interrupts: &core.interrupts,
+        dma_channels: &core.dma_channels,
+    };
+    let metadata = format!("{:#?}", metadata);
+    let metadata = metadata.replace("[\n", "&[\n");
+    let metadata = metadata.replace("[],\n", "&[],\n");
+
+    let mut data = String::new();
+
+    write!(
+        &mut data,
+        "
+            include!(\"../../metadata.rs\");
+            use MemoryRegionKind::*;
+            pub const METADATA: Metadata = {};    
+        ",
+        metadata
+    )
+    .unwrap();
+
+    let mut file = File::create(chip_dir.join("metadata.rs")).unwrap();
     file.write_all(data.as_bytes()).unwrap();
 
     // ==============================
@@ -462,7 +501,21 @@ pub fn gen(options: Options) {
     for chip_name in &options.chips {
         println!("Generating {}...", chip_name);
 
-        let chip = load_chip(&options, chip_name);
+        let mut chip = load_chip(&options, chip_name);
+
+        // Cleanup
+        for core in &mut chip.cores {
+            for irq in &mut core.interrupts {
+                irq.name = irq.name.to_ascii_uppercase();
+            }
+            for p in &mut core.peripherals {
+                for irq in &mut p.interrupts {
+                    irq.interrupt = irq.interrupt.to_ascii_uppercase();
+                }
+            }
+        }
+
+        // Generate
         for (core_index, core) in chip.cores.iter().enumerate() {
             let chip_core_name = match chip.cores.len() {
                 1 => chip_name.clone(),
@@ -554,6 +607,13 @@ pub fn gen(options: Options) {
     fs::write(
         options.out_dir.join("src").join("common.rs"),
         generate::COMMON_MODULE,
+    )
+    .unwrap();
+
+    // Generate src/metadata.rs
+    fs::write(
+        options.out_dir.join("src").join("metadata.rs"),
+        include_bytes!("assets/metadata.rs"),
     )
     .unwrap();
 
