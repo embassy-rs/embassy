@@ -85,6 +85,23 @@ fn main() {
     });
 
     // ========
+    // Generate interrupt declarations
+
+    let mut irqs = Vec::new();
+    for irq in METADATA.interrupts {
+        irqs.push(format_ident!("{}", irq.name));
+    }
+
+    g.extend(quote! {
+        pub mod interrupt {
+            use crate::pac::Interrupt as InterruptEnum;
+            #(
+                embassy::interrupt::declare!(#irqs);
+            )*
+        }
+    });
+
+    // ========
     // Generate DMA IRQs.
 
     let mut dma_irqs: HashSet<&str> = HashSet::new();

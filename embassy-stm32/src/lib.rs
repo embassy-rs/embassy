@@ -63,8 +63,6 @@ mod generated {
     #![allow(unused_imports)]
     #![allow(non_snake_case)]
 
-    use crate::interrupt;
-
     include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 }
 pub use embassy_macros::interrupt;
