@@ -35,7 +35,9 @@ seq-macro = "0.2.2"
 cfg-if = "1.0.0"
 
 [build-dependencies]
-stm32-metapac = { version = "0.1.0", path = "../stm32-metapac", default-features = false }
+proc-macro2 = "1.0.36"
+quote = "1.0.15"
+stm32-metapac = { version = "0.1.0", path = "../stm32-metapac", default-features = false, features = ["metadata"]}
 
 [features]
 sdmmc-rs = ["embedded-sdmmc"]
