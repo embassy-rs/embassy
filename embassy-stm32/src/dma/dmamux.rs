@@ -49,11 +49,5 @@ pac::dma_channels! {
 
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
-    crate::pac::peripheral_rcc! {
-        ($name:ident, dmamux, DMAMUX, $clock:ident, ($reg:ident, $field:ident, $set_field:ident), $rst:tt) => {
-            crate::pac::RCC.$reg().modify(|reg| {
-                reg.$set_field(true);
-            });
-        };
-    }
+    crate::generated::init_dmamux();
 }

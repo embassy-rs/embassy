@@ -126,7 +126,6 @@ pub fn gen_chip(
     let mut interrupt_table: Vec<Vec<String>> = Vec::new();
     let mut peripherals_table: Vec<Vec<String>> = Vec::new();
     let mut peripheral_pins_table: Vec<Vec<String>> = Vec::new();
-    let mut peripheral_rcc_table: Vec<Vec<String>> = Vec::new();
     let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
     let mut peripheral_dma_channels_table: Vec<Vec<String>> = Vec::new();
     let mut peripheral_counts: BTreeMap<String, u8> = BTreeMap::new();
@@ -264,34 +263,6 @@ pub fn gen_chip(
                 }
                 _ => {}
             }
-
-            if let Some(rcc) = &p.rcc {
-                let mut clock = rcc.clock.to_ascii_lowercase();
-                if p.name.starts_with("TIM") {
-                    clock = format!("{}_tim", clock)
-                }
-
-                let mut row = Vec::new();
-                row.push(p.name.clone());
-                row.push(bi.kind.clone());
-                row.push(bi.block.clone());
-                row.push(clock);
-
-                for reg in [&rcc.enable, &rcc.reset] {
-                    if let Some(reg) = reg {
-                        row.push(format!(
-                            "({}, {}, set_{})",
-                            reg.register.to_ascii_lowercase(),
-                            reg.field.to_ascii_lowercase(),
-                            reg.field.to_ascii_lowercase()
-                        ));
-                    } else {
-                        row.push("_".to_string())
-                    }
-                }
-
-                peripheral_rcc_table.push(row);
-            }
         }
 
         dev.peripherals.push(ir_peri);
@@ -422,7 +393,6 @@ pub fn gen_chip(
         "peripheral_dma_channels",
         &peripheral_dma_channels_table,
     );
-    make_table(&mut data, "peripheral_rcc", &peripheral_rcc_table);
     make_table(&mut data, "dma_channels", &dma_channels_table);
     make_table(&mut data, "dbgmcu", &dbgmcu_table);
     make_peripheral_counts(&mut data, &peripheral_counts);

@@ -146,6 +146,91 @@ fn main() {
     });
 
     // ========
+    // Generate RccPeripheral impls
+
+    for p in METADATA.peripherals {
+        if !singletons.contains(&p.name.to_string()) {
+            continue;
+        }
+
+        if let Some(rcc) = &p.rcc {
+            let en = rcc.enable.as_ref().unwrap();
+
+            let rst = match &rcc.reset {
+                Some(rst) => {
+                    let rst_reg = format_ident!("{}", rst.register.to_ascii_lowercase());
+                    let set_rst_field = format_ident!("set_{}", rst.field.to_ascii_lowercase());
+                    quote! {
+                        critical_section::with(|_| unsafe {
+                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(true));
+                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(false));
+                        });
+                    }
+                }
+                None => TokenStream::new(),
+            };
+
+            let pname = format_ident!("{}", p.name);
+            let clk = format_ident!("{}", rcc.clock.to_ascii_lowercase());
+            let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
+            let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
+
+            g.extend(quote! {
+                impl crate::rcc::sealed::RccPeripheral for peripherals::#pname {
+                    fn frequency() -> crate::time::Hertz {
+                        critical_section::with(|_| unsafe {
+                            crate::rcc::get_freqs().#clk
+                        })
+                    }
+                    fn enable() {
+                        critical_section::with(|_| unsafe {
+                            crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true))
+                        })
+                    }
+                    fn disable() {
+                        critical_section::with(|_| unsafe {
+                            crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
+                        })
+                    }
+                    fn reset() {
+                        #rst
+                    }
+                }
+
+                impl crate::rcc::RccPeripheral for peripherals::#pname {}
+            });
+        }
+    }
+
+    // ========
+    // Generate fns to enable GPIO, DMA in RCC
+
+    for kind in ["dma", "bdma", "dmamux", "gpio"] {
+        let mut gg = TokenStream::new();
+
+        for p in METADATA.peripherals {
+            if p.registers.is_some() && p.registers.as_ref().unwrap().kind == kind {
+                if let Some(rcc) = &p.rcc {
+                    let en = rcc.enable.as_ref().unwrap();
+                    let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
+                    let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
+
+                    gg.extend(quote! {
+                        crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
+                    })
+                }
+            }
+        }
+
+        let fname = format_ident!("init_{}", kind);
+        g.extend(quote! {
+            pub unsafe fn #fname(){
+                #gg
+            }
+        })
+    }
+
+    // ========
     // Write generated.rs
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
