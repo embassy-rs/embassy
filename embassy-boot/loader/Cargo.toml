@@ -3,7 +3,7 @@ authors = [
     "Ulf Lilleengen <lulf@redhat.com>",
 ]
 edition = "2018"
-name = "embassy-boot-nrf"
+name = "embassy-boot-nrf-loader"
 version = "0.1.0"
 description = "Bootloader for nRF chips"
 
@@ -14,6 +14,7 @@ defmt-rtt = { version = "0.3", optional = true }
 embassy = { path = "../../embassy", default-features = false }
 embassy-nrf = { path = "../../embassy-nrf", default-features = false }
 embassy-boot = { path = "../boot", default-features = false }
+embassy-boot-nrf = { path = "../nrf", default-features = false, features = ["softdevice"] }
 cortex-m = { version = "0.7" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.0"
@@ -31,3 +32,34 @@ softdevice = [
     "nrf-softdevice-mbr",
 ]
 debug = ["defmt-rtt"]
+
+[profile.dev]
+debug = 2
+debug-assertions = true
+incremental = false
+opt-level = 'z'
+overflow-checks = true
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 'z'
+overflow-checks = false
+
+# do not optimize proc-macro crates = faster builds from scratch
+[profile.dev.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[profile.release.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false

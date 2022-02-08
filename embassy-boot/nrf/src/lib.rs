@@ -5,10 +5,13 @@
 mod fmt;
 
 pub use embassy_boot::{Partition, State, BOOT_MAGIC};
+use embassy_nrf::gpio::*;
 use embassy_nrf::nvmc::{Nvmc, FLASH_SIZE, PAGE_SIZE};
 
 pub struct BootLoader {
     boot: embassy_boot::BootLoader<PAGE_SIZE>,
+    ledbefore: Output<'static, AnyPin>,
+    led: Output<'static, AnyPin>,
 }
 
 // IMPORTANT: Make sure this matches locations in your linker script
@@ -39,19 +42,21 @@ mod partitions {
 pub use partitions::*;
 
 impl BootLoader {
-    pub fn new() -> Self {
+    pub fn new(ledbefore: Output<'static, AnyPin>, led: Output<'static, AnyPin>) -> Self {
         Self {
             boot: embassy_boot::BootLoader::new(ACTIVE, DFU, BOOTLOADER_STATE),
+            ledbefore,
+            led,
         }
     }
 
     /// Boots the application without softdevice mechanisms
     pub fn boot<'d>(&mut self, mut flash: Nvmc<'d>) -> ! {
         info!("Booting!");
+        self.ledbefore.set_low();
         match self.boot.prepare_boot(&mut flash) {
             Ok(p) => {
                 let start = self.boot.boot_address();
-                info!("Prepared with state {:?}. Jumping to {}", p, start);
                 unsafe {
                     self.load(start);
                 }
@@ -89,7 +94,9 @@ impl BootLoader {
         let msp = *(addr as *const u32);
         let rv = *((addr + 4) as *const u32);
 
-        // info!("msp = {=u32:x}, rv = {=u32:x}", msp, rv);
+        self.led.set_low();
+
+        info!("msp = {=u32:x}, rv = {=u32:x}", msp, rv);
 
         core::arch::asm!(
             "mrs {tmp}, CONTROL",
@@ -111,101 +118,22 @@ impl BootLoader {
     }
 }
 
-pub use updater::*;
-
-#[cfg(feature = "softdevice")]
-mod updater {
+pub mod updater {
+    use super::partitions::*;
     use super::*;
-
-    use embedded_storage_async::nor_flash::AsyncNorFlash;
-    pub struct FirmwareUpdater(embassy_boot::FirmwareUpdater);
-
-    impl FirmwareUpdater {
-        pub fn new() -> Self {
-            info!("Flash size: {}", FLASH_SIZE);
-            info!("Bootloader from: {:x}", BOOTLOADER.from);
-            info!("Softdevice end: {:x}", SOFTDEVICE.to);
-            info!("Page size: {}", PAGE_SIZE);
-            info!("Partition size is {}", PARTITION_SIZE);
-            info!("Active partition starts at {:x}", ACTIVE.from);
-            info!("DFU partition starts at {:x}", DFU.from);
-            Self(embassy_boot::FirmwareUpdater::new(DFU, BOOTLOADER_STATE))
-        }
-
-        pub async fn mark_update<'m, F: AsyncNorFlash>(
-            &'m mut self,
-            flash: &'m mut F,
-        ) -> Result<(), F::Error> {
-            self.0.mark_update(flash).await
-        }
-
-        pub async fn mark_booted<'m, F: AsyncNorFlash>(
-            &'m mut self,
-            flash: &'m mut F,
-        ) -> Result<(), F::Error> {
-            self.0.mark_booted(flash).await
-        }
-
-        pub async fn write_firmware<'m, F: AsyncNorFlash>(
-            &'m mut self,
-            offset: usize,
-            data: &'m [u8],
-            flash: &'m mut F,
-        ) -> Result<(), F::Error> {
-            self.0.write_firmware(offset, data, flash).await
-        }
-
-        pub fn reset(&mut self) {
-            info!("RESET");
-            embassy_nrf::pac::SCB::sys_reset();
-        }
+    pub fn new() -> embassy_boot::FirmwareUpdater {
+        info!("Flash size: {}", FLASH_SIZE);
+        info!("Bootloader from: {:x}", BOOTLOADER.from);
+        info!("Softdevice end: {:x}", SOFTDEVICE.to);
+        info!("Page size: {}", PAGE_SIZE);
+        info!("Partition size is {}", PARTITION_SIZE);
+        info!("Active partition starts at {:x}", ACTIVE.from);
+        info!("DFU partition starts at {:x}", DFU.from);
+        embassy_boot::FirmwareUpdater::new(DFU, BOOTLOADER_STATE)
     }
 }
 
-#[cfg(not(feature = "softdevice"))]
-mod updater {
-    use core::future::Future;
-    use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
-
-    use super::*;
-
-    pub struct FirmwareUpdater(embassy_boot::FirmwareUpdater);
-
-    impl FirmwareUpdater {
-        pub fn new() -> Self {
-            Self(embassy_boot::FirmwareUpdater::new(DFU, BOOTLOADER_STATE))
-        }
-
-        pub async fn mark_update<F: ReadNorFlash + NorFlash>(
-            &mut self,
-            flash: &mut F,
-        ) -> Result<(), F::Error> {
-            self.0.mark_update(&mut FlashWrapper(flash)).await
-        }
-
-        pub async fn mark_booted<F: ReadNorFlash + NorFlash>(
-            &mut self,
-            flash: &mut F,
-        ) -> Result<(), F::Error> {
-            self.0.mark_booted(&mut FlashWrapper(flash)).await
-        }
-
-        pub async fn write_firmware<F: ReadNorFlash + NorFlash>(
-            &mut self,
-            offset: usize,
-            data: &[u8],
-            flash: &mut F,
-        ) -> Result<(), F::Error> {
-            self.0
-                .write_firmware(offset, data, &mut FlashWrapper(flash))
-                .await
-        }
-
-        pub fn reset(&mut self) {
-            embassy_nrf::pac::SCB::sys_reset();
-        }
-    }
-
+/*
     struct FlashWrapper<'a, F: NorFlash + ReadNorFlash>(&'a mut F);
     impl<'a, F: NorFlash + ReadNorFlash> embedded_storage_async::nor_flash::AsyncReadNorFlash
         for FlashWrapper<'a, F>
@@ -248,4 +176,4 @@ mod updater {
             async move { self.0.erase(from, to) }
         }
     }
-}
+*/

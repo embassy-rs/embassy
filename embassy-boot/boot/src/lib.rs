@@ -17,8 +17,8 @@ mod fmt;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use embedded_storage_async::nor_flash::AsyncNorFlash;
 
-pub const BOOT_MAGIC: u32 = 0xDAADD00D;
-pub const SWAP_MAGIC: u32 = 0xD00DDAAD;
+pub const BOOT_MAGIC: u32 = 0x12345678;
+pub const SWAP_MAGIC: u32 = 0xF00FDAAD;
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -147,6 +147,7 @@ impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
     ///
     /// +-----------+--------------+--------+--------+--------+--------+
     /// | Partition | Revert Index | Page 0 | Page 1 | Page 3 | Page 4 |
+    //*/
     /// +-----------+--------------+--------+--------+--------+--------+
     /// |    Active |            3 |      1 |      2 |      1 |      - |
     /// |       DFU |            3 |      3 |      1 |      2 |      3 |
@@ -184,12 +185,14 @@ impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
                     self.swap(flash)?;
                 } else {
                     info!("Reverting");
-                    self.revert(flash)?;
+                    //self.revert(flash)?;
 
                     // Overwrite magic and reset progress
-                    flash.write(self.state.from as u32, &[0, 0, 0, 0])?;
-                    flash.erase(self.state.from as u32, self.state.to as u32)?;
-                    flash.write(self.state.from as u32, &BOOT_MAGIC.to_le_bytes())?;
+                    /*
+                                flash.write(self.state.from as u32, &[0, 0, 0, 0])?;
+                                flash.erase(self.state.from as u32, self.state.to as u32)?;
+                                flash.write(self.state.from as u32, &BOOT_MAGIC.to_le_bytes())?;
+                    */
                 }
             }
             _ => {}
@@ -332,6 +335,7 @@ impl FirmwareUpdater {
 
     /// Mark firmware boot successfully
     pub async fn mark_booted<F: AsyncNorFlash>(&mut self, flash: &mut F) -> Result<(), F::Error> {
+        /*
         flash.write(self.state.from as u32, &[0, 0, 0, 0]).await?;
         flash
             .erase(self.state.from as u32, self.state.to as u32)
@@ -339,6 +343,7 @@ impl FirmwareUpdater {
         flash
             .write(self.state.from as u32, &BOOT_MAGIC.to_le_bytes())
             .await?;
+        */
         Ok(())
     }
 

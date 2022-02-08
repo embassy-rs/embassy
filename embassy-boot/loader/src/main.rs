@@ -7,6 +7,7 @@ use cortex_m_rt::{entry, exception};
 use defmt_rtt as _;
 
 use embassy_boot_nrf::*;
+use embassy_nrf::gpio::*;
 use embassy_nrf::nvmc::Nvmc;
 
 #[used]
@@ -22,12 +23,17 @@ pub static UICR_MBR_PARAMS_PAGE: usize = MBR_PARAMS_PAGE.from;
 
 #[entry]
 fn main() -> ! {
+    cortex_m::interrupt::disable();
+    let p = embassy_nrf::init(Default::default());
+    let mut led = Output::new(p.P0_15.degrade(), Level::High, OutputDrive::Standard);
+    led.set_low();
     for i in 0..10000000 {
         cortex_m::asm::nop();
     }
+    led.set_high();
 
-    let p = embassy_nrf::init(Default::default());
-    let mut bl = BootLoader::new();
+    let ledbefore = Output::new(p.P0_14.degrade(), Level::High, OutputDrive::Standard);
+    let mut bl = BootLoader::new(ledbefore, led);
     bl.boot(Nvmc::new(p.NVMC));
 }
 
