@@ -77,7 +77,6 @@ pub struct Config {
     pub bypass_hse: bool,
     pub sys_ck: Option<Hertz>,
     pub per_ck: Option<Hertz>,
-    rcc_hclk: Option<Hertz>,
     pub hclk: Option<Hertz>,
     pub pclk1: Option<Hertz>,
     pub pclk2: Option<Hertz>,
@@ -526,7 +525,7 @@ pub(crate) unsafe fn init(mut config: Config) {
     };
     assert!(sys_d1cpre_ck <= sys_d1cpre_ck_max);
 
-    let rcc_hclk = config.rcc_hclk.map(|v| v.0).unwrap_or(sys_d1cpre_ck / 2);
+    let rcc_hclk = config.hclk.map(|v| v.0).unwrap_or(sys_d1cpre_ck / 2);
     assert!(rcc_hclk <= rcc_hclk_max);
 
     // Estimate divisor
