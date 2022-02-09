@@ -100,6 +100,13 @@ impl BootLoader {
 
         trace!("msp = {=u32:x}, rv = {=u32:x}", msp, rv);
 
+        // These instructions perform the following operations:
+        //
+        // * Modify control register to use MSP as stack pointer (clear spsel bit)
+        // * Synchronize instruction barrier
+        // * Initialize stack pointer (0x1000)
+        // * Set link register to not return (0xFF)
+        // * Jump to softdevice reset vector
         core::arch::asm!(
             "mrs {tmp}, CONTROL",
             "bics {tmp}, {spsel}",

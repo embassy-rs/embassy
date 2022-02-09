@@ -12,6 +12,9 @@ use embassy_nrf::nvmc::Nvmc;
 #[entry]
 fn main() -> ! {
     let p = embassy_nrf::init(Default::default());
+
+    // Uncomment this if you are debugging the bootloader with debugger/RTT attached,
+    // as it prevents a hard fault when accessing flash 'too early' after boot.
     /*
         for i in 0..10000000 {
             cortex_m::asm::nop();
@@ -40,7 +43,7 @@ unsafe fn DefaultHandler(_: i16) -> ! {
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     unsafe {
-        core::arch::asm!("udf #0");
+        cortex_m::asm::udf();
         core::hint::unreachable_unchecked();
     }
 }
