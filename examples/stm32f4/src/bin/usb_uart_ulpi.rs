@@ -32,7 +32,22 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // we send back input + cr + lf
     let mut tx_buffer = [0u8; 66];
 
-    let peri = UsbOtg::new_fs(p.USB_OTG_FS, p.PA12, p.PA11);
+    // USB with external high-speed PHY
+    let peri = UsbOtg::new_ulpi(
+        p.USB_OTG_HS,
+        p.PA5,
+        p.PC2,
+        p.PC3,
+        p.PC0,
+        p.PA3,
+        p.PB0,
+        p.PB1,
+        p.PB10,
+        p.PB11,
+        p.PB12,
+        p.PB13,
+        p.PB5,
+    );
     let usb_bus = UsbBus::new(peri, unsafe { &mut EP_MEMORY });
 
     let serial = UsbSerial::new(&usb_bus, &mut rx_buffer, &mut tx_buffer);

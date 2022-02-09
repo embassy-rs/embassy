@@ -50,10 +50,8 @@ pub mod sdmmc;
 pub mod spi;
 #[cfg(usart)]
 pub mod usart;
-#[cfg(feature = "usb-otg-fs")]
-pub mod usb_otg_fs;
-#[cfg(feature = "usb-otg-hs")]
-pub mod usb_otg_hs;
+#[cfg(feature = "usb-otg")]
+pub mod usb_otg;
 
 #[cfg(feature = "subghz")]
 pub mod subghz;
