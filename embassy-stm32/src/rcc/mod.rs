@@ -1,6 +1,5 @@
 #![macro_use]
 
-use crate::peripherals;
 use crate::time::Hertz;
 use core::mem::MaybeUninit;
 
@@ -104,66 +103,3 @@ pub(crate) mod sealed {
 }
 
 pub trait RccPeripheral: sealed::RccPeripheral + 'static {}
-
-crate::pac::peripheral_rcc!(
-    ($inst:ident, gpio, GPIO, $clk:ident, $en:tt, $rst:tt) => {};
-    ($inst:ident, $module:ident, $block:ident, $clk:ident, ($en_reg:ident, $en_field:ident, $en_set_field:ident), ($rst_reg:ident, $rst_field:ident, $rst_set_field:ident)) => {
-        impl sealed::RccPeripheral for peripherals::$inst {
-            fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| {
-                    unsafe { get_freqs().$clk }
-                })
-            }
-            fn enable() {
-                critical_section::with(|_| {
-                    unsafe {
-                        crate::pac::RCC.$en_reg().modify(|w| w.$en_set_field(true));
-                    }
-                })
-            }
-            fn disable() {
-                critical_section::with(|_| {
-                    unsafe {
-                        crate::pac::RCC.$en_reg().modify(|w| w.$en_set_field(false));
-                    }
-                })
-            }
-            fn reset() {
-                critical_section::with(|_| {
-                    unsafe {
-                        crate::pac::RCC.$rst_reg().modify(|w| w.$rst_set_field(true));
-                        crate::pac::RCC.$rst_reg().modify(|w| w.$rst_set_field(false));
-                    }
-                })
-            }
-        }
-
-        impl RccPeripheral for peripherals::$inst {}
-    };
-    ($inst:ident, $module:ident, $block:ident, $clk:ident, ($en_reg:ident, $en_field:ident, $en_set_field:ident), _) => {
-        impl sealed::RccPeripheral for peripherals::$inst {
-            fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| {
-                    unsafe { get_freqs().$clk }
-                })
-            }
-            fn enable() {
-                critical_section::with(|_| {
-                    unsafe {
-                        crate::pac::RCC.$en_reg().modify(|w| w.$en_set_field(true));
-                    }
-                })
-            }
-            fn disable() {
-                critical_section::with(|_| {
-                    unsafe {
-                        crate::pac::RCC.$en_reg().modify(|w| w.$en_set_field(false));
-                    }
-                })
-            }
-            fn reset() {}
-        }
-
-        impl RccPeripheral for peripherals::$inst {}
-    };
-);

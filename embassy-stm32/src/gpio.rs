@@ -608,13 +608,7 @@ crate::pac::pins!(
 );
 
 pub(crate) unsafe fn init() {
-    crate::pac::peripheral_rcc! {
-        ($name:ident, gpio, GPIO, $clock:ident, ($reg:ident, $field:ident, $set_field:ident), $rst:tt) => {
-            crate::pac::RCC.$reg().modify(|reg| {
-                reg.$set_field(true);
-            });
-        };
-    }
+    crate::generated::init_gpio();
 }
 
 mod eh02 {

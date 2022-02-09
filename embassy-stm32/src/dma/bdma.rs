@@ -9,7 +9,6 @@ use embassy::waitqueue::AtomicWaker;
 use crate::dma::Request;
 use crate::pac;
 use crate::pac::bdma::vals;
-use crate::rcc::sealed::RccPeripheral;
 
 use super::{Word, WordSize};
 
@@ -77,11 +76,7 @@ pub(crate) unsafe fn init() {
             crate::interrupt::$irq::steal().enable();
         };
     }
-    pac::peripherals! {
-        (bdma, $peri:ident) => {
-            crate::peripherals::$peri::enable();
-        };
-    }
+    crate::generated::init_bdma();
 }
 
 pac::dma_channels! {
