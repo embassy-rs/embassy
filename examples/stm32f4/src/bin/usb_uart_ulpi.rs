@@ -33,7 +33,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut tx_buffer = [0u8; 66];
 
     // USB with external high-speed PHY
-    let peri = UsbOtg::new_ulpi(
+    let peri = UsbOtg::new_hs_ulpi(
         p.USB_OTG_HS,
         p.PA5,
         p.PC2,
