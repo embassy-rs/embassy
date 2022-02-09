@@ -20,6 +20,7 @@ pub struct UsbOtg<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> UsbOtg<'d, T> {
+    /// Initializes USB OTG peripheral with internal Full-Speed PHY
     pub fn new_fs(
         _peri: impl Unborrow<Target = T> + 'd,
         dp: impl Unborrow<Target = impl DpPin<T>> + 'd,
@@ -34,6 +35,7 @@ impl<'d, T: Instance> UsbOtg<'d, T> {
         }
     }
 
+    /// Initializes USB OTG peripheral with external High-Speed PHY
     pub fn new_hs_ulpi(
         _peri: impl Unborrow<Target = T> + 'd,
         ulpi_clk: impl Unborrow<Target = impl UlpiClkPin<T>> + 'd,
@@ -106,10 +108,11 @@ pub(crate) mod sealed {
             }
         };
 
-        ($name:ident, $($names:ident),+) => {
-            declare_pins!($name);
-            declare_pins!($($names),+);
-        }
+        ($($name:ident),*) => {
+            $(
+                declare_pins!($name);
+            )*
+        };
     }
 
     // Internal PHY pins
@@ -128,10 +131,11 @@ macro_rules! declare_pins {
         pub trait $name<T: Instance>: sealed::$name<T> {}
     };
 
-    ($name:ident, $($names:ident),+) => {
-        declare_pins!($name);
-        declare_pins!($($names),+);
-    }
+    ($($name:ident),*) => {
+        $(
+            declare_pins!($name);
+        )*
+    };
 }
 
 declare_pins!(DpPin, DmPin);
@@ -252,7 +256,7 @@ macro_rules! impl_pin {
     };
 }
 
-// ULPI pins have to bet set to VeryHigh speed
+// ULPI pins have to be set to VeryHigh speed
 macro_rules! impl_ulpi_pin {
     ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
         impl $signal<peripherals::$inst> for peripherals::$pin {}
