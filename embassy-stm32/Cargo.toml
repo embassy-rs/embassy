@@ -23,6 +23,7 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 rand_core = "0.6.3"
 sdio-host = "0.5.0"
 embedded-sdmmc = { git = "https://github.com/thalesfragoso/embedded-sdmmc-rs", branch = "async", optional = true }
+synopsys-usb-otg = { version = "0.3", features = ["cortex-m", "hs"], optional = true }
 critical-section = "0.2.5"
 bare-metal = "1.0.0"
 atomic-polyfill = "0.1.5"
@@ -43,6 +44,7 @@ net = ["embassy-net", "vcell"]
 memory-x = ["stm32-metapac/memory-x"]
 subghz = []
 exti = []
+usb-otg = ["synopsys-usb-otg"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
