@@ -1,0 +1,19 @@
+[package]
+authors = ["Ulf Lilleengen <lulf@redhat.com>"]
+edition = "2018"
+name = "embassy-boot-examples"
+version = "0.1.0"
+
+[dependencies]
+embassy = { version = "0.1.0", path = "../../embassy" }
+embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["time-driver-rtc1", "gpiote"] }
+embassy-boot-nrf = { version = "0.1.0", path = "../../embassy-boot/nrf" }
+embassy-traits = { version = "0.1.0", path = "../../embassy-traits" }
+
+defmt = { version = "0.3", optional = true }
+defmt-rtt = { version = "0.3", optional = true }
+panic-reset = { version = "0.1.1" }
+embedded-hal = { version = "0.2.6" }
+
+cortex-m = "0.7.3"
+cortex-m-rt = "0.7.0"
