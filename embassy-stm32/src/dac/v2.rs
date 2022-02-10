@@ -1,33 +1,25 @@
 use crate::dac::{DacPin, Instance};
-use crate::gpio::AnyPin;
 use crate::pac::dac;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
-/// Sadly we cannot use `RccPeripheral::enable` since devices are quite inconsistent DAC clock
-/// configuration.
-unsafe fn enable() {
-    #[cfg(rcc_h7)]
-    crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
-    #[cfg(rcc_g0)]
-    crate::pac::RCC.apbenr1().modify(|w| w.set_dac1en(true));
-    #[cfg(rcc_l4)]
-    crate::pac::RCC.apb1enr1().modify(|w| w.set_dac1en(true));
-}
-
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     UnconfiguredChannel,
     InvalidValue,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Channel {
     Ch1,
     Ch2,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Ch1Trigger {
     Tim6,
     Tim3,
@@ -52,6 +44,8 @@ impl Ch1Trigger {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Ch2Trigger {
     Tim6,
     Tim8,
@@ -78,46 +72,61 @@ impl Ch2Trigger {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Alignment {
     Left,
     Right,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Value {
     Bit8(u8),
     Bit12(u16, Alignment),
 }
 
 pub struct Dac<'d, T: Instance> {
-    ch1: Option<AnyPin>,
-    ch2: Option<AnyPin>,
+    channels: u8,
     phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance> Dac<'d, T> {
-    pub fn new(
-        _peri: impl Unborrow<Target = T> + 'd,
-        ch1: impl Unborrow<Target = impl DacPin<T, 1>>,
-        ch2: impl Unborrow<Target = impl DacPin<T, 2>>,
+    pub fn new_1ch(
+        peri: impl Unborrow<Target = T> + 'd,
+        _ch1: impl Unborrow<Target = impl DacPin<T, 1>> + 'd,
     ) -> Self {
-        unborrow!(ch1, ch2);
+        unborrow!(peri);
+        Self::new_inner(peri, 1)
+    }
 
+    pub fn new_2ch(
+        peri: impl Unborrow<Target = T> + 'd,
+        _ch1: impl Unborrow<Target = impl DacPin<T, 1>> + 'd,
+        _ch2: impl Unborrow<Target = impl DacPin<T, 2>> + 'd,
+    ) -> Self {
+        unborrow!(peri);
+        Self::new_inner(peri, 2)
+    }
+
+    fn new_inner(_peri: T, channels: u8) -> Self {
         unsafe {
-            enable();
-        }
+            // Sadly we cannot use `RccPeripheral::enable` since devices are quite inconsistent DAC clock
+            // configuration.
+            #[cfg(rcc_h7)]
+            crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
+            #[cfg(rcc_g0)]
+            crate::pac::RCC.apbenr1().modify(|w| w.set_dac1en(true));
+            #[cfg(rcc_l4)]
+            crate::pac::RCC.apb1enr1().modify(|w| w.set_dac1en(true));
 
-        let ch1 = ch1.degrade_optional();
-        if ch1.is_some() {
-            unsafe {
+            if channels >= 1 {
                 T::regs().cr().modify(|reg| {
                     reg.set_en1(true);
                 });
             }
-        }
 
-        let ch2 = ch2.degrade_optional();
-        if ch2.is_some() {
-            unsafe {
+            if channels >= 2 {
                 T::regs().cr().modify(|reg| {
                     reg.set_en2(true);
                 });
@@ -125,39 +134,35 @@ impl<'d, T: Instance> Dac<'d, T> {
         }
 
         Self {
-            ch1,
-            ch2,
+            channels,
             phantom: PhantomData,
         }
     }
 
-    fn set_channel_enable(&mut self, ch: Channel, on: bool) -> Result<(), Error> {
-        match ch {
-            Channel::Ch1 => {
-                if self.ch1.is_none() {
-                    Err(Error::UnconfiguredChannel)
-                } else {
-                    unsafe {
-                        T::regs().cr().modify(|reg| {
-                            reg.set_en1(on);
-                        });
-                    }
-                    Ok(())
-                }
-            }
-            Channel::Ch2 => {
-                if self.ch2.is_none() {
-                    Err(Error::UnconfiguredChannel)
-                } else {
-                    unsafe {
-                        T::regs().cr().modify(|reg| {
-                            reg.set_en2(on);
-                        });
-                    }
-                    Ok(())
-                }
-            }
+    /// Check the channel is configured
+    fn check_channel_exists(&self, ch: Channel) -> Result<(), Error> {
+        if ch == Channel::Ch2 && self.channels < 2 {
+            Err(Error::UnconfiguredChannel)
+        } else {
+            Ok(())
         }
+    }
+
+    fn set_channel_enable(&mut self, ch: Channel, on: bool) -> Result<(), Error> {
+        self.check_channel_exists(ch)?;
+        match ch {
+            Channel::Ch1 => unsafe {
+                T::regs().cr().modify(|reg| {
+                    reg.set_en1(on);
+                })
+            },
+            Channel::Ch2 => unsafe {
+                T::regs().cr().modify(|reg| {
+                    reg.set_en2(on);
+                });
+            },
+        }
+        Ok(())
     }
 
     pub fn enable_channel(&mut self, ch: Channel) -> Result<(), Error> {
@@ -169,9 +174,7 @@ impl<'d, T: Instance> Dac<'d, T> {
     }
 
     pub fn select_trigger_ch1(&mut self, trigger: Ch1Trigger) -> Result<(), Error> {
-        if self.ch1.is_none() {
-            return Err(Error::UnconfiguredChannel);
-        }
+        self.check_channel_exists(Channel::Ch1)?;
         unwrap!(self.disable_channel(Channel::Ch1));
         unsafe {
             T::regs().cr().modify(|reg| {
@@ -182,9 +185,7 @@ impl<'d, T: Instance> Dac<'d, T> {
     }
 
     pub fn select_trigger_ch2(&mut self, trigger: Ch2Trigger) -> Result<(), Error> {
-        if self.ch2.is_none() {
-            return Err(Error::UnconfiguredChannel);
-        }
+        self.check_channel_exists(Channel::Ch2)?;
         unwrap!(self.disable_channel(Channel::Ch2));
         unsafe {
             T::regs().cr().modify(|reg| {
@@ -195,32 +196,20 @@ impl<'d, T: Instance> Dac<'d, T> {
     }
 
     pub fn trigger(&mut self, ch: Channel) -> Result<(), Error> {
+        self.check_channel_exists(ch)?;
         match ch {
-            Channel::Ch1 => {
-                if self.ch1.is_none() {
-                    Err(Error::UnconfiguredChannel)
-                } else {
-                    unsafe {
-                        T::regs().swtrigr().write(|reg| {
-                            reg.set_swtrig1(true);
-                        });
-                    }
-                    Ok(())
-                }
-            }
-            Channel::Ch2 => {
-                if self.ch2.is_none() {
-                    Err(Error::UnconfiguredChannel)
-                } else {
-                    unsafe {
-                        T::regs().swtrigr().write(|reg| {
-                            reg.set_swtrig2(true);
-                        });
-                    }
-                    Ok(())
-                }
-            }
+            Channel::Ch1 => unsafe {
+                T::regs().swtrigr().write(|reg| {
+                    reg.set_swtrig1(true);
+                });
+            },
+            Channel::Ch2 => unsafe {
+                T::regs().swtrigr().write(|reg| {
+                    reg.set_swtrig2(true);
+                })
+            },
         }
+        Ok(())
     }
 
     pub fn trigger_all(&mut self) {
@@ -233,43 +222,31 @@ impl<'d, T: Instance> Dac<'d, T> {
     }
 
     pub fn set(&mut self, ch: Channel, value: Value) -> Result<(), Error> {
+        self.check_channel_exists(Channel::Ch2)?;
         match ch {
-            Channel::Ch1 => {
-                if self.ch1.is_none() {
-                    Err(Error::UnconfiguredChannel)
-                } else {
-                    match value {
-                        Value::Bit8(v) => unsafe {
-                            T::regs().dhr8r1().write(|reg| reg.set_dacc1dhr(v));
-                        },
-                        Value::Bit12(v, Alignment::Left) => unsafe {
-                            T::regs().dhr12l1().write(|reg| reg.set_dacc1dhr(v));
-                        },
-                        Value::Bit12(v, Alignment::Right) => unsafe {
-                            T::regs().dhr12r1().write(|reg| reg.set_dacc1dhr(v));
-                        },
-                    }
-                    Ok(())
-                }
-            }
-            Channel::Ch2 => {
-                if self.ch2.is_none() {
-                    Err(Error::UnconfiguredChannel)
-                } else {
-                    match value {
-                        Value::Bit8(v) => unsafe {
-                            T::regs().dhr8r2().write(|reg| reg.set_dacc2dhr(v));
-                        },
-                        Value::Bit12(v, Alignment::Left) => unsafe {
-                            T::regs().dhr12l2().write(|reg| reg.set_dacc2dhr(v));
-                        },
-                        Value::Bit12(v, Alignment::Right) => unsafe {
-                            T::regs().dhr12r2().write(|reg| reg.set_dacc2dhr(v));
-                        },
-                    }
-                    Ok(())
-                }
-            }
+            Channel::Ch1 => match value {
+                Value::Bit8(v) => unsafe {
+                    T::regs().dhr8r1().write(|reg| reg.set_dacc1dhr(v));
+                },
+                Value::Bit12(v, Alignment::Left) => unsafe {
+                    T::regs().dhr12l1().write(|reg| reg.set_dacc1dhr(v));
+                },
+                Value::Bit12(v, Alignment::Right) => unsafe {
+                    T::regs().dhr12r1().write(|reg| reg.set_dacc1dhr(v));
+                },
+            },
+            Channel::Ch2 => match value {
+                Value::Bit8(v) => unsafe {
+                    T::regs().dhr8r2().write(|reg| reg.set_dacc2dhr(v));
+                },
+                Value::Bit12(v, Alignment::Left) => unsafe {
+                    T::regs().dhr12l2().write(|reg| reg.set_dacc2dhr(v));
+                },
+                Value::Bit12(v, Alignment::Right) => unsafe {
+                    T::regs().dhr12r2().write(|reg| reg.set_dacc2dhr(v));
+                },
+            },
         }
+        Ok(())
     }
 }

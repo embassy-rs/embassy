@@ -189,7 +189,7 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P> {
     pub unsafe fn new(
         _peripheral: impl Unborrow<Target = T> + 'd,
         pins: impl Unborrow<Target = P> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt>,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
         config: Config,
     ) -> Self {
         unborrow!(irq, pins);

@@ -81,11 +81,11 @@ pub struct Uart<'d, T: Instance, TxDma = NoDma, RxDma = NoDma> {
 
 impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     pub fn new(
-        inner: impl Unborrow<Target = T>,
-        rx: impl Unborrow<Target = impl RxPin<T>>,
-        tx: impl Unborrow<Target = impl TxPin<T>>,
-        tx_dma: impl Unborrow<Target = TxDma>,
-        rx_dma: impl Unborrow<Target = RxDma>,
+        inner: impl Unborrow<Target = T> + 'd,
+        rx: impl Unborrow<Target = impl RxPin<T>> + 'd,
+        tx: impl Unborrow<Target = impl TxPin<T>> + 'd,
+        tx_dma: impl Unborrow<Target = TxDma> + 'd,
+        rx_dma: impl Unborrow<Target = RxDma> + 'd,
         config: Config,
     ) -> Self {
         unborrow!(inner, rx, tx, tx_dma, rx_dma);

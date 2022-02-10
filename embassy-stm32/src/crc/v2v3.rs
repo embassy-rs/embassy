@@ -1,3 +1,5 @@
+use core::marker::PhantomData;
+
 use crate::pac::crc::vals;
 use crate::pac::CRC as PAC_CRC;
 use crate::peripherals::CRC;
@@ -5,8 +7,9 @@ use crate::rcc::sealed::RccPeripheral;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
-pub struct Crc {
+pub struct Crc<'d> {
     _peripheral: CRC,
+    _phantom: PhantomData<&'d mut CRC>,
     _config: Config,
 }
 
@@ -64,9 +67,9 @@ pub enum PolySize {
     Width32,
 }
 
-impl Crc {
+impl<'d> Crc<'d> {
     /// Instantiates the CRC32 peripheral and initializes it to default values.
-    pub fn new(peripheral: impl Unborrow<Target = CRC>, config: Config) -> Self {
+    pub fn new(peripheral: impl Unborrow<Target = CRC> + 'd, config: Config) -> Self {
         // Note: enable and reset come from RccPeripheral.
         // enable CRC clock in RCC.
         CRC::enable();
@@ -75,6 +78,7 @@ impl Crc {
         unborrow!(peripheral);
         let mut instance = Self {
             _peripheral: peripheral,
+            _phantom: PhantomData,
             _config: config,
         };
         CRC::reset();

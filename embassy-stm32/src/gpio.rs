@@ -544,54 +544,6 @@ impl sealed::Pin for AnyPin {
 
 // ====================
 
-pub trait OptionalPin: sealed::OptionalPin + Sized {
-    type Pin: Pin;
-    fn pin(&self) -> Option<&Self::Pin>;
-    fn pin_mut(&mut self) -> Option<&mut Self::Pin>;
-
-    /// Convert from concrete pin type PX_XX to type erased `Option<AnyPin>`.
-    #[inline]
-    fn degrade_optional(mut self) -> Option<AnyPin> {
-        self.pin_mut()
-            .map(|pin| unsafe { core::ptr::read(pin) }.degrade())
-    }
-}
-
-impl<T: Pin> sealed::OptionalPin for T {}
-impl<T: Pin> OptionalPin for T {
-    type Pin = T;
-
-    #[inline]
-    fn pin(&self) -> Option<&T> {
-        Some(self)
-    }
-
-    #[inline]
-    fn pin_mut(&mut self) -> Option<&mut T> {
-        Some(self)
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct NoPin;
-unsafe_impl_unborrow!(NoPin);
-impl sealed::OptionalPin for NoPin {}
-impl OptionalPin for NoPin {
-    type Pin = AnyPin;
-
-    #[inline]
-    fn pin(&self) -> Option<&AnyPin> {
-        None
-    }
-
-    #[inline]
-    fn pin_mut(&mut self) -> Option<&mut AnyPin> {
-        None
-    }
-}
-
-// ====================
-
 crate::pac::pins!(
     ($pin_name:ident, $port_name:ident, $port_num:expr, $pin_num:expr, $exti_ch:ident) => {
         impl Pin for peripherals::$pin_name {

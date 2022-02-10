@@ -248,31 +248,6 @@ crate::pac::interrupts! {
     };
 }
 
-#[allow(unused)]
-macro_rules! impl_pwm_nopin {
-    ($inst:ident) => {
-        impl_no_pin!($inst, Channel1Pin);
-        impl_no_pin!($inst, Channel1ComplementaryPin);
-        impl_no_pin!($inst, Channel2Pin);
-        impl_no_pin!($inst, Channel2ComplementaryPin);
-        impl_no_pin!($inst, Channel3Pin);
-        impl_no_pin!($inst, Channel3ComplementaryPin);
-        impl_no_pin!($inst, Channel4Pin);
-        impl_no_pin!($inst, Channel4ComplementaryPin);
-        impl_no_pin!($inst, ExternalTriggerPin);
-        impl_no_pin!($inst, BreakInputPin);
-        impl_no_pin!($inst, BreakInputComparator1Pin);
-        impl_no_pin!($inst, BreakInputComparator2Pin);
-        impl_no_pin!($inst, BreakInput2Pin);
-        impl_no_pin!($inst, BreakInput2Comparator1Pin);
-        impl_no_pin!($inst, BreakInput2Comparator2Pin);
-    };
-}
-
-crate::pac::peripherals!(
-    (timer, $inst:ident) => { impl_pwm_nopin!($inst); };
-);
-
 crate::pac::peripheral_pins!(
     ($inst:ident, timer, $block:ident, $pin:ident, CH1, $af:expr) => {
         impl_pin!($inst, Channel1Pin, $pin, $af);

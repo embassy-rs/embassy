@@ -30,11 +30,11 @@ pub struct Uart<'d, T: Instance> {
 
 impl<'d, T: Instance> Uart<'d, T> {
     pub fn new(
-        inner: impl Unborrow<Target = T>,
-        tx: impl Unborrow<Target = impl TxPin<T>>,
-        rx: impl Unborrow<Target = impl RxPin<T>>,
-        cts: impl Unborrow<Target = impl CtsPin<T>>,
-        rts: impl Unborrow<Target = impl RtsPin<T>>,
+        inner: impl Unborrow<Target = T> + 'd,
+        tx: impl Unborrow<Target = impl TxPin<T>> + 'd,
+        rx: impl Unborrow<Target = impl RxPin<T>> + 'd,
+        cts: impl Unborrow<Target = impl CtsPin<T>> + 'd,
+        rts: impl Unborrow<Target = impl RtsPin<T>> + 'd,
         config: Config,
     ) -> Self {
         unborrow!(inner, tx, rx, cts, rts);
