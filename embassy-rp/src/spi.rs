@@ -62,11 +62,11 @@ fn calc_prescs(freq: u32) -> (u8, u8) {
 
 impl<'d, T: Instance> Spi<'d, T> {
     pub fn new(
-        inner: impl Unborrow<Target = T>,
-        clk: impl Unborrow<Target = impl ClkPin<T>>,
-        mosi: impl Unborrow<Target = impl MosiPin<T>>,
-        miso: impl Unborrow<Target = impl MisoPin<T>>,
-        cs: impl Unborrow<Target = impl CsPin<T>>,
+        inner: impl Unborrow<Target = T> + 'd,
+        clk: impl Unborrow<Target = impl ClkPin<T>> + 'd,
+        mosi: impl Unborrow<Target = impl MosiPin<T>> + 'd,
+        miso: impl Unborrow<Target = impl MisoPin<T>> + 'd,
+        cs: impl Unborrow<Target = impl CsPin<T>> + 'd,
         config: Config,
     ) -> Self {
         unborrow!(inner, clk, mosi, miso, cs);

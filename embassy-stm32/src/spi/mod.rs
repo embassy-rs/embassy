@@ -202,8 +202,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         sck: Option<AnyPin>,
         mosi: Option<AnyPin>,
         miso: Option<AnyPin>,
-        txdma: impl Unborrow<Target = Tx>,
-        rxdma: impl Unborrow<Target = Rx>,
+        txdma: impl Unborrow<Target = Tx> + 'd,
+        rxdma: impl Unborrow<Target = Rx> + 'd,
         freq: F,
         config: Config,
     ) -> Self

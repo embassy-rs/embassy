@@ -1,5 +1,6 @@
 #![macro_use]
 
+use core::marker::PhantomData;
 use core::task::Poll;
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
@@ -18,16 +19,20 @@ pub enum Error {
     ClockError,
 }
 
-pub struct Rng<T: Instance> {
+pub struct Rng<'d, T: Instance> {
     _inner: T,
+    _phantom: PhantomData<&'d mut T>,
 }
 
-impl<T: Instance> Rng<T> {
-    pub fn new(inner: impl Unborrow<Target = T>) -> Self {
+impl<'d, T: Instance> Rng<'d, T> {
+    pub fn new(inner: impl Unborrow<Target = T> + 'd) -> Self {
         T::enable();
         T::reset();
         unborrow!(inner);
-        let mut random = Self { _inner: inner };
+        let mut random = Self {
+            _inner: inner,
+            _phantom: PhantomData,
+        };
         random.reset();
         random
     }
@@ -88,7 +93,7 @@ impl<T: Instance> Rng<T> {
     }
 }
 
-impl<T: Instance> RngCore for Rng<T> {
+impl<'d, T: Instance> RngCore for Rng<'d, T> {
     fn next_u32(&mut self) -> u32 {
         loop {
             let bits = unsafe { T::regs().sr().read() };
@@ -119,7 +124,7 @@ impl<T: Instance> RngCore for Rng<T> {
     }
 }
 
-impl<T: Instance> CryptoRng for Rng<T> {}
+impl<'d, T: Instance> CryptoRng for Rng<'d, T> {}
 
 pub(crate) mod sealed {
     use super::*;
