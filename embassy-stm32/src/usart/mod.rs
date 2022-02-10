@@ -7,10 +7,9 @@ use embassy_hal_common::unborrow;
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType::{OutputOpenDrain, OutputPushPull};
-use crate::gpio::Pin;
 use crate::pac::usart::{regs, vals};
+use crate::peripherals;
 use crate::rcc::RccPeripheral;
-use crate::{dma, peripherals};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DataBits {
@@ -601,46 +600,23 @@ unsafe fn clear_interrupt_flag(r: crate::pac::usart::Usart, flag: InterruptFlag)
 }
 
 pub(crate) mod sealed {
-    use super::*;
-
     pub trait Instance {
         fn regs(&self) -> crate::pac::usart::Usart;
-    }
-    pub trait RxPin<T: Instance>: Pin {
-        fn af_num(&self) -> u8;
-    }
-    pub trait TxPin<T: Instance>: Pin {
-        fn af_num(&self) -> u8;
-    }
-    pub trait CtsPin<T: Instance>: Pin {
-        fn af_num(&self) -> u8;
-    }
-    pub trait RtsPin<T: Instance>: Pin {
-        fn af_num(&self) -> u8;
-    }
-    pub trait CkPin<T: Instance>: Pin {
-        fn af_num(&self) -> u8;
-    }
-
-    pub trait RxDma<T: Instance> {
-        fn request(&self) -> dma::Request;
-    }
-
-    pub trait TxDma<T: Instance> {
-        fn request(&self) -> dma::Request;
     }
 }
 
 pub trait Instance: sealed::Instance + RccPeripheral {
     type Interrupt: Interrupt;
 }
-pub trait RxPin<T: Instance>: sealed::RxPin<T> {}
-pub trait TxPin<T: Instance>: sealed::TxPin<T> {}
-pub trait CtsPin<T: Instance>: sealed::CtsPin<T> {}
-pub trait RtsPin<T: Instance>: sealed::RtsPin<T> {}
-pub trait CkPin<T: Instance>: sealed::CkPin<T> {}
-pub trait RxDma<T: Instance>: sealed::RxDma<T> + dma::Channel {}
-pub trait TxDma<T: Instance>: sealed::TxDma<T> + dma::Channel {}
+
+pin_trait!(RxPin, Instance);
+pin_trait!(TxPin, Instance);
+pin_trait!(CtsPin, Instance);
+pin_trait!(RtsPin, Instance);
+pin_trait!(CkPin, Instance);
+
+dma_trait!(TxDma, Instance);
+dma_trait!(RxDma, Instance);
 
 crate::pac::interrupts!(
     ($inst:ident, usart, $block:ident, $signal_name:ident, $irq:ident) => {
@@ -653,57 +629,44 @@ crate::pac::interrupts!(
         impl Instance for peripherals::$inst {
             type Interrupt = crate::interrupt::$irq;
         }
-
     };
 );
-
-macro_rules! impl_pin {
-    ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
-        impl sealed::$signal<peripherals::$inst> for peripherals::$pin {
-            fn af_num(&self) -> u8 {
-                $af
-            }
-        }
-
-        impl $signal<peripherals::$inst> for peripherals::$pin {}
-    };
-}
 
 #[cfg(not(rcc_f1))]
 crate::pac::peripheral_pins!(
 
     // USART
     ($inst:ident, usart, USART, $pin:ident, TX, $af:expr) => {
-        impl_pin!($inst, $pin, TxPin, $af);
+        pin_trait_impl!(TxPin, $inst, $pin, $af);
     };
     ($inst:ident, usart, USART, $pin:ident, RX, $af:expr) => {
-        impl_pin!($inst, $pin, RxPin, $af);
+        pin_trait_impl!(RxPin, $inst, $pin, $af);
     };
     ($inst:ident, usart, USART, $pin:ident, CTS, $af:expr) => {
-        impl_pin!($inst, $pin, CtsPin, $af);
+        pin_trait_impl!(CtsPin, $inst, $pin, $af);
     };
     ($inst:ident, usart, USART, $pin:ident, RTS, $af:expr) => {
-        impl_pin!($inst, $pin, RtsPin, $af);
+        pin_trait_impl!(RtsPin, $inst, $pin, $af);
     };
     ($inst:ident, usart, USART, $pin:ident, CK, $af:expr) => {
-        impl_pin!($inst, $pin, CkPin, $af);
+        pin_trait_impl!(CkPin, $inst, $pin, $af);
     };
 
     // UART
-    ($inst:ident, uart, UART, $pin:ident, TX, $af:expr) => {
-        impl_pin!($inst, $pin, TxPin, $af);
+    ($inst:ident, usart, UART, $pin:ident, TX, $af:expr) => {
+        pin_trait_impl!(TxPin, $inst, $pin, $af);
     };
-    ($inst:ident, uart, UART, $pin:ident, RX, $af:expr) => {
-        impl_pin!($inst, $pin, RxPin, $af);
+    ($inst:ident, usart, UART, $pin:ident, RX, $af:expr) => {
+        pin_trait_impl!(RxPin, $inst, $pin, $af);
     };
-    ($inst:ident, uart, UART, $pin:ident, CTS, $af:expr) => {
-        impl_pin!($inst, $pin, CtsPin, $af);
+    ($inst:ident, usart, UART, $pin:ident, CTS, $af:expr) => {
+        pin_trait_impl!(CtsPin, $inst, $pin, $af);
     };
-    ($inst:ident, uart, UART, $pin:ident, RTS, $af:expr) => {
-        impl_pin!($inst, $pin, RtsPin, $af);
+    ($inst:ident, usart, UART, $pin:ident, RTS, $af:expr) => {
+        pin_trait_impl!(RtsPin, $inst, $pin, $af);
     };
-    ($inst:ident, uart, UART, $pin:ident, CK, $af:expr) => {
-        impl_pin!($inst, $pin, CkPin, $af);
+    ($inst:ident, usart, UART, $pin:ident, CK, $af:expr) => {
+        pin_trait_impl!(CkPin, $inst, $pin, $af);
     };
 );
 
@@ -712,78 +675,50 @@ crate::pac::peripheral_pins!(
 
     // USART
     ($inst:ident, usart, USART, $pin:ident, TX) => {
-        impl_pin!($inst, $pin, TxPin, 0);
+        pin_trait_impl!(TxPin, $inst, $pin, 0);
     };
     ($inst:ident, usart, USART, $pin:ident, RX) => {
-        impl_pin!($inst, $pin, RxPin, 0);
+        pin_trait_impl!(RxPin, $inst, $pin, 0);
     };
     ($inst:ident, usart, USART, $pin:ident, CTS) => {
-        impl_pin!($inst, $pin, CtsPin, 0);
+        pin_trait_impl!(CtsPin, $inst, $pin, 0);
     };
     ($inst:ident, usart, USART, $pin:ident, RTS) => {
-        impl_pin!($inst, $pin, RtsPin, 0);
+        pin_trait_impl!(RtsPin, $inst, $pin, 0);
     };
     ($inst:ident, usart, USART, $pin:ident, CK) => {
-        impl_pin!($inst, $pin, CkPin, 0);
+        pin_trait_impl!(CkPin, $inst, $pin, 0);
     };
 
     // UART
-    ($inst:ident, uart, UART, $pin:ident, TX) => {
-        impl_pin!($inst, $pin, TxPin, 0);
+    ($inst:ident, usart, UART, $pin:ident, TX) => {
+        pin_trait_impl!(TxPin, $inst, $pin, 0);
     };
-    ($inst:ident, uart, UART, $pin:ident, RX) => {
-        impl_pin!($inst, $pin, RxPin, 0);
+    ($inst:ident, usart, UART, $pin:ident, RX) => {
+        pin_trait_impl!(RxPin, $inst, $pin, 0);
     };
-    ($inst:ident, uart, UART, $pin:ident, CTS) => {
-        impl_pin!($inst, $pin, CtsPin, 0);
+    ($inst:ident, usart, UART, $pin:ident, CTS) => {
+        pin_trait_impl!(CtsPin, $inst, $pin, 0);
     };
-    ($inst:ident, uart, UART, $pin:ident, RTS) => {
-        impl_pin!($inst, $pin, RtsPin, 0);
+    ($inst:ident, usart, UART, $pin:ident, RTS) => {
+        pin_trait_impl!(RtsPin, $inst, $pin, 0);
     };
-    ($inst:ident, uart, UART, $pin:ident, CK) => {
-        impl_pin!($inst, $pin, CkPin, 0);
+    ($inst:ident, usart, UART, $pin:ident, CK) => {
+        pin_trait_impl!(CkPin, $inst, $pin, 0);
     };
 );
 
-#[allow(unused)]
-macro_rules! impl_dma {
-    ($inst:ident, {dmamux: $dmamux:ident}, $signal:ident, $request:expr) => {
-        impl<T> sealed::$signal<peripherals::$inst> for T
-        where
-            T: crate::dma::MuxChannel<Mux = crate::dma::$dmamux>,
-        {
-            fn request(&self) -> dma::Request {
-                $request
-            }
-        }
-
-        impl<T> $signal<peripherals::$inst> for T where
-            T: crate::dma::MuxChannel<Mux = crate::dma::$dmamux>
-        {
-        }
-    };
-    ($inst:ident, {channel: $channel:ident}, $signal:ident, $request:expr) => {
-        impl sealed::$signal<peripherals::$inst> for peripherals::$channel {
-            fn request(&self) -> dma::Request {
-                $request
-            }
-        }
-
-        impl $signal<peripherals::$inst> for peripherals::$channel {}
-    };
-}
-
 crate::pac::peripheral_dma_channels! {
     ($peri:ident, usart, $kind:ident, RX, $channel:tt, $request:expr) => {
-        impl_dma!($peri, $channel, RxDma, $request);
+        dma_trait_impl!(RxDma, $peri, $channel, $request);
     };
     ($peri:ident, usart, $kind:ident, TX, $channel:tt, $request:expr) => {
-        impl_dma!($peri, $channel, TxDma, $request);
+        dma_trait_impl!(TxDma, $peri, $channel, $request);
     };
     ($peri:ident, uart, $kind:ident, RX, $channel:tt, $request:expr) => {
-        impl_dma!($peri, $channel, RxDma, $request);
+        dma_trait_impl!(RxDma, $peri, $channel, $request);
     };
     ($peri:ident, uart, $kind:ident, TX, $channel:tt, $request:expr) => {
-        impl_dma!($peri, $channel, TxDma, $request);
+        dma_trait_impl!(TxDma, $peri, $channel, $request);
     };
 }

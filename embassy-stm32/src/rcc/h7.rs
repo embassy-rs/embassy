@@ -4,8 +4,8 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use stm32_metapac::rcc::vals::{Mco1, Mco2};
 
-use crate::gpio::sealed::Pin as __GpioPin;
-use crate::gpio::Pin;
+use crate::gpio::sealed::AFType;
+use crate::gpio::Speed;
 use crate::pac::rcc::vals::Timpre;
 use crate::pac::rcc::vals::{Ckpersel, Dppre, Hpre, Hsebyp, Hsidiv, Pllsrc, Sw};
 use crate::pac::{PWR, RCC, SYSCFG};
@@ -318,21 +318,15 @@ impl McoSource for Mco2Source {
 }
 
 pub(crate) mod sealed {
-    use super::*;
-
     pub trait McoInstance {
         type Source;
         unsafe fn apply_clock_settings(source: Self::Source, prescaler: u8);
-    }
-
-    pub trait McoPin<T: McoInstance>: Pin {
-        fn configure(&mut self);
     }
 }
 
 pub trait McoInstance: sealed::McoInstance + 'static {}
 
-pub trait McoPin<T: McoInstance>: sealed::McoPin<T> + 'static {}
+pin_trait!(McoPin, McoInstance);
 
 macro_rules! impl_peri {
     ($peri:ident, $source:ident, $set_source:ident, $set_prescaler:ident) => {
@@ -354,32 +348,12 @@ macro_rules! impl_peri {
 impl_peri!(MCO1, Mco1, set_mco1, set_mco1pre);
 impl_peri!(MCO2, Mco2, set_mco2, set_mco2pre);
 
-macro_rules! impl_pin {
-    ($peri:ident, $pin:ident, $af:expr) => {
-        impl McoPin<peripherals::$peri> for peripherals::$pin {}
-
-        impl sealed::McoPin<peripherals::$peri> for peripherals::$pin {
-            fn configure(&mut self) {
-                critical_section::with(|_| unsafe {
-                    self.set_as_af($af, crate::gpio::sealed::AFType::OutputPushPull);
-                    self.block().ospeedr().modify(|w| {
-                        w.set_ospeedr(
-                            self.pin() as usize,
-                            crate::pac::gpio::vals::Ospeedr::VERYHIGHSPEED,
-                        )
-                    });
-                })
-            }
-        }
-    };
-}
-
 crate::pac::peripheral_pins!(
     ($inst:ident, rcc, RCC, $pin:ident, MCO_1, $af:expr) => {
-        impl_pin!(MCO1, $pin, $af);
+        pin_trait_impl!(McoPin, MCO1, $pin, $af);
     };
     ($inst:ident, rcc, RCC, $pin:ident, MCO_2, $af:expr) => {
-        impl_pin!(MCO2, $pin, $af);
+        pin_trait_impl!(McoPin, MCO2, $pin, $af);
     };
 );
 
@@ -396,11 +370,11 @@ impl<'d, T: McoInstance> Mco<'d, T> {
     ) -> Self {
         unborrow!(pin);
 
-        unsafe {
+        critical_section::with(|_| unsafe {
             T::apply_clock_settings(source.into_raw(), prescaler.into_raw());
-        }
-
-        pin.configure();
+            pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
+            pin.set_speed(Speed::VeryHigh);
+        });
 
         Self {
             phantom: PhantomData,

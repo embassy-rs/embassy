@@ -5,7 +5,7 @@ use embassy::interrupt::Interrupt;
 #[cfg_attr(i2c_v1, path = "v1.rs")]
 #[cfg_attr(i2c_v2, path = "v2.rs")]
 mod _version;
-use crate::{dma, peripherals};
+use crate::peripherals;
 pub use _version::*;
 
 #[derive(Debug)]
@@ -21,30 +21,9 @@ pub enum Error {
 }
 
 pub(crate) mod sealed {
-    use super::dma;
-    use crate::gpio::Pin;
-    use crate::rcc::RccPeripheral;
-
-    pub trait Instance: RccPeripheral {
+    pub trait Instance: crate::rcc::RccPeripheral {
         fn regs() -> crate::pac::i2c::I2c;
-
         fn state_number() -> usize;
-    }
-
-    pub trait SclPin<T: Instance>: Pin {
-        fn af_num(&self) -> u8;
-    }
-
-    pub trait SdaPin<T: Instance>: Pin {
-        fn af_num(&self) -> u8;
-    }
-
-    pub trait RxDma<T: Instance> {
-        fn request(&self) -> dma::Request;
-    }
-
-    pub trait TxDma<T: Instance> {
-        fn request(&self) -> dma::Request;
     }
 }
 
@@ -52,13 +31,10 @@ pub trait Instance: sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 
-pub trait SclPin<T: Instance>: sealed::SclPin<T> + 'static {}
-
-pub trait SdaPin<T: Instance>: sealed::SdaPin<T> + 'static {}
-
-pub trait RxDma<T: Instance>: sealed::RxDma<T> + dma::Channel {}
-
-pub trait TxDma<T: Instance>: sealed::TxDma<T> + dma::Channel {}
+pin_trait!(SclPin, Instance);
+pin_trait!(SdaPin, Instance);
+dma_trait!(RxDma, Instance);
+dma_trait!(TxDma, Instance);
 
 macro_rules! i2c_state {
     (I2C1) => {
@@ -93,77 +69,34 @@ crate::pac::interrupts!(
         impl Instance for peripherals::$inst {
             type Interrupt = crate::interrupt::$irq;
         }
-
     };
 );
-
-macro_rules! impl_pin {
-    ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
-        impl $signal<peripherals::$inst> for peripherals::$pin {}
-
-        impl sealed::$signal<peripherals::$inst> for peripherals::$pin {
-            fn af_num(&self) -> u8 {
-                $af
-            }
-        }
-    };
-}
 
 #[cfg(not(rcc_f1))]
 crate::pac::peripheral_pins!(
     ($inst:ident, i2c, I2C, $pin:ident, SDA, $af:expr) => {
-        impl_pin!($inst, $pin, SdaPin, $af);
+        pin_trait_impl!(SdaPin, $inst, $pin, $af);
     };
-
     ($inst:ident, i2c, I2C, $pin:ident, SCL, $af:expr) => {
-        impl_pin!($inst, $pin, SclPin, $af);
+        pin_trait_impl!(SclPin, $inst, $pin, $af);
     };
 );
 
 #[cfg(rcc_f1)]
 crate::pac::peripheral_pins!(
     ($inst:ident, i2c, I2C, $pin:ident, SDA) => {
-        impl_pin!($inst, $pin, SdaPin, 0);
+        pin_trait_impl!(SdaPin, $inst, $pin, 0);
     };
-
     ($inst:ident, i2c, I2C, $pin:ident, SCL) => {
-        impl_pin!($inst, $pin, SclPin, 0);
+        pin_trait_impl!(SdaPin, $inst, $pin, 0);
     };
 );
 
-#[allow(unused)]
-macro_rules! impl_dma {
-    ($inst:ident, {dmamux: $dmamux:ident}, $signal:ident, $request:expr) => {
-        impl<T> sealed::$signal<peripherals::$inst> for T
-        where
-            T: crate::dma::MuxChannel<Mux = crate::dma::$dmamux>,
-        {
-            fn request(&self) -> dma::Request {
-                $request
-            }
-        }
-
-        impl<T> $signal<peripherals::$inst> for T where
-            T: crate::dma::MuxChannel<Mux = crate::dma::$dmamux>
-        {
-        }
-    };
-    ($inst:ident, {channel: $channel:ident}, $signal:ident, $request:expr) => {
-        impl sealed::$signal<peripherals::$inst> for peripherals::$channel {
-            fn request(&self) -> dma::Request {
-                $request
-            }
-        }
-
-        impl $signal<peripherals::$inst> for peripherals::$channel {}
-    };
-}
-
 crate::pac::peripheral_dma_channels! {
     ($peri:ident, i2c, $kind:ident, RX, $channel:tt, $request:expr) => {
-        impl_dma!($peri, $channel, RxDma, $request);
+        dma_trait_impl!(RxDma, $peri, $channel, $request);
     };
     ($peri:ident, i2c, $kind:ident, TX, $channel:tt, $request:expr) => {
-        impl_dma!($peri, $channel, TxDma, $request);
+        dma_trait_impl!(TxDma, $peri, $channel, $request);
     };
 }

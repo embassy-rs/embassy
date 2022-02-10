@@ -6,10 +6,9 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 use self::sealed::WordSize;
-use crate::dma;
 use crate::dma::NoDma;
 use crate::gpio::sealed::{AFType, Pin as _};
-use crate::gpio::{AnyPin, Pin};
+use crate::gpio::AnyPin;
 use crate::pac::spi::{regs, vals};
 use crate::peripherals;
 use crate::rcc::RccPeripheral;
@@ -416,23 +415,23 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
     pub async fn write(&mut self, data: &[u8]) -> Result<(), Error>
     where
-        Tx: TxDmaChannel<T>,
+        Tx: TxDma<T>,
     {
         self.write_dma_u8(data).await
     }
 
     pub async fn read(&mut self, data: &mut [u8]) -> Result<(), Error>
     where
-        Tx: TxDmaChannel<T>,
-        Rx: RxDmaChannel<T>,
+        Tx: TxDma<T>,
+        Rx: RxDma<T>,
     {
         self.read_dma_u8(data).await
     }
 
     pub async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error>
     where
-        Tx: TxDmaChannel<T>,
-        Rx: RxDmaChannel<T>,
+        Tx: TxDma<T>,
+        Rx: RxDma<T>,
     {
         self.transfer_dma_u8(read, write).await
     }
@@ -682,9 +681,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx> embedded_hal_async::spi::Write<u8>
-        for Spi<'d, T, Tx, Rx>
-    {
+    impl<'d, T: Instance, Tx: TxDma<T>, Rx> embedded_hal_async::spi::Write<u8> for Spi<'d, T, Tx, Rx> {
         type WriteFuture<'a>
         where
             Self: 'a,
@@ -712,8 +709,8 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>>
-        embedded_hal_async::spi::Read<u8> for Spi<'d, T, Tx, Rx>
+    impl<'d, T: Instance, Tx: TxDma<T>, Rx: RxDma<T>> embedded_hal_async::spi::Read<u8>
+        for Spi<'d, T, Tx, Rx>
     {
         type ReadFuture<'a>
         where
@@ -742,8 +739,8 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, Tx: TxDmaChannel<T>, Rx: RxDmaChannel<T>>
-        embedded_hal_async::spi::ReadWrite<u8> for Spi<'d, T, Tx, Rx>
+    impl<'d, T: Instance, Tx: TxDma<T>, Rx: RxDma<T>> embedded_hal_async::spi::ReadWrite<u8>
+        for Spi<'d, T, Tx, Rx>
     {
         type TransferFuture<'a>
         where
@@ -798,26 +795,6 @@ pub(crate) mod sealed {
 
     pub trait Instance {
         fn regs() -> &'static crate::pac::spi::Spi;
-    }
-
-    pub trait SckPin<T: Instance>: Pin {
-        fn af_num(&self) -> u8;
-    }
-
-    pub trait MosiPin<T: Instance>: Pin {
-        fn af_num(&self) -> u8;
-    }
-
-    pub trait MisoPin<T: Instance>: Pin {
-        fn af_num(&self) -> u8;
-    }
-
-    pub trait TxDmaChannel<T: Instance> {
-        fn request(&self) -> dma::Request;
-    }
-
-    pub trait RxDmaChannel<T: Instance> {
-        fn request(&self) -> dma::Request;
     }
 
     pub trait Word: Copy + 'static {
@@ -886,11 +863,11 @@ impl Word for u8 {}
 impl Word for u16 {}
 
 pub trait Instance: sealed::Instance + RccPeripheral {}
-pub trait SckPin<T: Instance>: sealed::SckPin<T> {}
-pub trait MosiPin<T: Instance>: sealed::MosiPin<T> {}
-pub trait MisoPin<T: Instance>: sealed::MisoPin<T> {}
-pub trait TxDmaChannel<T: Instance>: sealed::TxDmaChannel<T> + dma::Channel {}
-pub trait RxDmaChannel<T: Instance>: sealed::RxDmaChannel<T> + dma::Channel {}
+pin_trait!(SckPin, Instance);
+pin_trait!(MosiPin, Instance);
+pin_trait!(MisoPin, Instance);
+dma_trait!(RxDma, Instance);
+dma_trait!(TxDma, Instance);
 
 crate::pac::peripherals!(
     (spi, $inst:ident) => {
@@ -904,80 +881,37 @@ crate::pac::peripherals!(
     };
 );
 
-macro_rules! impl_pin {
-    ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
-        impl $signal<peripherals::$inst> for peripherals::$pin {}
-
-        impl sealed::$signal<peripherals::$inst> for peripherals::$pin {
-            fn af_num(&self) -> u8 {
-                $af
-            }
-        }
-    };
-}
-
 #[cfg(not(rcc_f1))]
 crate::pac::peripheral_pins!(
     ($inst:ident, spi, SPI, $pin:ident, SCK, $af:expr) => {
-        impl_pin!($inst, $pin, SckPin, $af);
+        pin_trait_impl!(SckPin, $inst, $pin, $af);
     };
-
     ($inst:ident, spi, SPI, $pin:ident, MOSI, $af:expr) => {
-        impl_pin!($inst, $pin, MosiPin, $af);
+        pin_trait_impl!(MosiPin, $inst, $pin, $af);
     };
-
     ($inst:ident, spi, SPI, $pin:ident, MISO, $af:expr) => {
-        impl_pin!($inst, $pin, MisoPin, $af);
+        pin_trait_impl!(MisoPin, $inst, $pin, $af);
     };
 );
 
 #[cfg(rcc_f1)]
 crate::pac::peripheral_pins!(
     ($inst:ident, spi, SPI, $pin:ident, SCK) => {
-        impl_pin!($inst, $pin, SckPin, 0);
+        pin_trait_impl!(SckPin, $inst, $pin, 0);
     };
-
     ($inst:ident, spi, SPI, $pin:ident, MOSI) => {
-        impl_pin!($inst, $pin, MosiPin, 0);
+        pin_trait_impl!(MosiPin, $inst, $pin, 0);
     };
-
     ($inst:ident, spi, SPI, $pin:ident, MISO) => {
-        impl_pin!($inst, $pin, MisoPin, 0);
+        pin_trait_impl!(MisoPin, $inst, $pin, 0);
     };
 );
 
-macro_rules! impl_dma {
-    ($inst:ident, {dmamux: $dmamux:ident}, $signal:ident, $request:expr) => {
-        impl<T> sealed::$signal<peripherals::$inst> for T
-        where
-            T: crate::dma::MuxChannel<Mux = crate::dma::$dmamux>,
-        {
-            fn request(&self) -> dma::Request {
-                $request
-            }
-        }
-
-        impl<T> $signal<peripherals::$inst> for T where
-            T: crate::dma::MuxChannel<Mux = crate::dma::$dmamux>
-        {
-        }
-    };
-    ($inst:ident, {channel: $channel:ident}, $signal:ident, $request:expr) => {
-        impl sealed::$signal<peripherals::$inst> for peripherals::$channel {
-            fn request(&self) -> dma::Request {
-                $request
-            }
-        }
-
-        impl $signal<peripherals::$inst> for peripherals::$channel {}
-    };
-}
-
 crate::pac::peripheral_dma_channels! {
     ($peri:ident, spi, $kind:ident, RX, $channel:tt, $request:expr) => {
-        impl_dma!($peri, $channel, RxDmaChannel, $request);
+        dma_trait_impl!(RxDma, $peri, $channel, $request);
     };
     ($peri:ident, spi, $kind:ident, TX, $channel:tt, $request:expr) => {
-        impl_dma!($peri, $channel, TxDmaChannel, $request);
+        dma_trait_impl!(TxDma, $peri, $channel, $request);
     };
 }

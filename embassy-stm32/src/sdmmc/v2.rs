@@ -1140,7 +1140,6 @@ impl Cmd {
 
 pub(crate) mod sealed {
     use super::*;
-    use crate::gpio::Pin as GpioPin;
 
     pub trait Instance {
         type Interrupt: Interrupt;
@@ -1148,51 +1147,21 @@ pub(crate) mod sealed {
         fn inner() -> SdmmcInner;
         fn state() -> &'static AtomicWaker;
     }
-    pub trait CkPin<T: Instance>: GpioPin {
-        const AF_NUM: u8;
-    }
-    pub trait CmdPin<T: Instance>: GpioPin {
-        const AF_NUM: u8;
-    }
-    pub trait D0Pin<T: Instance>: GpioPin {
-        const AF_NUM: u8;
-    }
-    pub trait D1Pin<T: Instance>: GpioPin {
-        const AF_NUM: u8;
-    }
-    pub trait D2Pin<T: Instance>: GpioPin {
-        const AF_NUM: u8;
-    }
-    pub trait D3Pin<T: Instance>: GpioPin {
-        const AF_NUM: u8;
-    }
-    pub trait D4Pin<T: Instance>: GpioPin {
-        const AF_NUM: u8;
-    }
-    pub trait D5Pin<T: Instance>: GpioPin {
-        const AF_NUM: u8;
-    }
-    pub trait D6Pin<T: Instance>: GpioPin {
-        const AF_NUM: u8;
-    }
-    pub trait D7Pin<T: Instance>: GpioPin {
-        const AF_NUM: u8;
-    }
 
     pub trait Pins<T: Instance> {}
 }
 
 pub trait Instance: sealed::Instance + 'static {}
-pub trait CkPin<T: Instance>: sealed::CkPin<T> + 'static {}
-pub trait CmdPin<T: Instance>: sealed::CmdPin<T> + 'static {}
-pub trait D0Pin<T: Instance>: sealed::D0Pin<T> + 'static {}
-pub trait D1Pin<T: Instance>: sealed::D1Pin<T> + 'static {}
-pub trait D2Pin<T: Instance>: sealed::D2Pin<T> + 'static {}
-pub trait D3Pin<T: Instance>: sealed::D3Pin<T> + 'static {}
-pub trait D4Pin<T: Instance>: sealed::D4Pin<T> + 'static {}
-pub trait D5Pin<T: Instance>: sealed::D5Pin<T> + 'static {}
-pub trait D6Pin<T: Instance>: sealed::D6Pin<T> + 'static {}
-pub trait D7Pin<T: Instance>: sealed::D7Pin<T> + 'static {}
+pin_trait!(CkPin, Instance);
+pin_trait!(CmdPin, Instance);
+pin_trait!(D0Pin, Instance);
+pin_trait!(D1Pin, Instance);
+pin_trait!(D2Pin, Instance);
+pin_trait!(D3Pin, Instance);
+pin_trait!(D4Pin, Instance);
+pin_trait!(D5Pin, Instance);
+pin_trait!(D6Pin, Instance);
+pin_trait!(D7Pin, Instance);
 
 pub trait Pins<T: Instance>: sealed::Pins<T> + 'static {
     const BUSWIDTH: BusWidth;
@@ -1258,37 +1227,37 @@ where
             // clk
             let block = clk_pin.block();
             let n = clk_pin.pin() as usize;
-            let afr_num = CLK::AF_NUM;
+            let afr_num = clk_pin.af_num();
             configure_pin(block, n, afr_num, false);
 
             // cmd
             let block = cmd_pin.block();
             let n = cmd_pin.pin() as usize;
-            let afr_num = CMD::AF_NUM;
+            let afr_num = cmd_pin.af_num();
             configure_pin(block, n, afr_num, true);
 
             // d0
             let block = d0_pin.block();
             let n = d0_pin.pin() as usize;
-            let afr_num = D0::AF_NUM;
+            let afr_num = d0_pin.af_num();
             configure_pin(block, n, afr_num, true);
 
             // d1
             let block = d1_pin.block();
             let n = d1_pin.pin() as usize;
-            let afr_num = D1::AF_NUM;
+            let afr_num = d1_pin.af_num();
             configure_pin(block, n, afr_num, true);
 
             // d2
             let block = d2_pin.block();
             let n = d2_pin.pin() as usize;
-            let afr_num = D2::AF_NUM;
+            let afr_num = d2_pin.af_num();
             configure_pin(block, n, afr_num, true);
 
             // d3
             let block = d3_pin.block();
             let n = d3_pin.pin() as usize;
-            let afr_num = D3::AF_NUM;
+            let afr_num = d3_pin.af_num();
             configure_pin(block, n, afr_num, true);
         });
     }
@@ -1404,19 +1373,19 @@ where
             // clk
             let block = clk_pin.block();
             let n = clk_pin.pin() as usize;
-            let afr_num = CLK::AF_NUM;
+            let afr_num = clk_pin.af_num();
             configure_pin(block, n, afr_num, false);
 
             // cmd
             let block = cmd_pin.block();
             let n = cmd_pin.pin() as usize;
-            let afr_num = CMD::AF_NUM;
+            let afr_num = cmd_pin.af_num();
             configure_pin(block, n, afr_num, true);
 
             // d0
             let block = d0_pin.block();
             let n = d0_pin.pin() as usize;
-            let afr_num = D0::AF_NUM;
+            let afr_num = d0_pin.af_num();
             configure_pin(block, n, afr_num, true);
         });
     }
@@ -1491,49 +1460,39 @@ crate::pac::peripherals!(
     };
 );
 
-macro_rules! impl_pin {
-    ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
-        impl sealed::$signal<peripherals::$inst> for peripherals::$pin {
-            const AF_NUM: u8 = $af;
-        }
-
-        impl $signal<peripherals::$inst> for peripherals::$pin {}
-    };
-}
-
 crate::pac::peripheral_pins!(
     ($inst:ident, sdmmc, SDMMC, $pin:ident, CK, $af:expr) => {
-        impl_pin!($inst, $pin, CkPin, $af);
+        pin_trait_impl!(CkPin, $inst, $pin, $af);
     };
     ($inst:ident, sdmmc, SDMMC, $pin:ident, CMD, $af:expr) => {
-        impl_pin!($inst, $pin, CmdPin, $af);
+        pin_trait_impl!(CmdPin, $inst, $pin, $af);
     };
     ($inst:ident, sdmmc, SDMMC, $pin:ident, D0, $af:expr) => {
-        impl_pin!($inst, $pin, D0Pin, $af);
+        pin_trait_impl!(D0Pin, $inst, $pin, $af);
     };
     ($inst:ident, sdmmc, SDMMC, $pin:ident, D1, $af:expr) => {
-        impl_pin!($inst, $pin, D1Pin, $af);
+        pin_trait_impl!(D1Pin, $inst, $pin, $af);
     };
     ($inst:ident, sdmmc, SDMMC, $pin:ident, D2, $af:expr) => {
-        impl_pin!($inst, $pin, D2Pin, $af);
+        pin_trait_impl!(D2Pin, $inst, $pin, $af);
     };
     ($inst:ident, sdmmc, SDMMC, $pin:ident, D3, $af:expr) => {
-        impl_pin!($inst, $pin, D3Pin, $af);
+        pin_trait_impl!(D3Pin, $inst, $pin, $af);
     };
     ($inst:ident, sdmmc, SDMMC, $pin:ident, D4, $af:expr) => {
-        impl_pin!($inst, $pin, D4Pin, $af);
+        pin_trait_impl!(D4Pin, $inst, $pin, $af);
     };
     ($inst:ident, sdmmc, SDMMC, $pin:ident, D5, $af:expr) => {
-        impl_pin!($inst, $pin, D5Pin, $af);
+        pin_trait_impl!(D5Pin, $inst, $pin, $af);
     };
     ($inst:ident, sdmmc, SDMMC, $pin:ident, D6, $af:expr) => {
-        impl_pin!($inst, $pin, D6Pin, $af);
+        pin_trait_impl!(D6Pin, $inst, $pin, $af);
     };
     ($inst:ident, sdmmc, SDMMC, $pin:ident, D6, $af:expr) => {
-        impl_pin!($inst, $pin, D7Pin, $af);
+        pin_trait_impl!(D7Pin, $inst, $pin, $af);
     };
     ($inst:ident, sdmmc, SDMMC, $pin:ident, D8, $af:expr) => {
-        impl_pin!($inst, $pin, D8Pin, $af);
+        pin_trait_impl!(D8Pin, $inst, $pin, $af);
     };
 );
 

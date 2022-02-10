@@ -33,3 +33,58 @@ pub unsafe trait PHY {
     /// Poll link to see if it is up and FD with 100Mbps
     fn poll_link<S: StationManagement>(sm: &mut S) -> bool;
 }
+
+pub(crate) mod sealed {
+    pub trait Instance {
+        fn regs() -> crate::pac::eth::Eth;
+    }
+}
+
+pub trait Instance: sealed::Instance + Send + 'static {}
+
+impl sealed::Instance for crate::peripherals::ETH {
+    fn regs() -> crate::pac::eth::Eth {
+        crate::pac::ETH
+    }
+}
+impl Instance for crate::peripherals::ETH {}
+
+pin_trait!(RefClkPin, Instance);
+pin_trait!(MDIOPin, Instance);
+pin_trait!(MDCPin, Instance);
+pin_trait!(CRSPin, Instance);
+pin_trait!(RXD0Pin, Instance);
+pin_trait!(RXD1Pin, Instance);
+pin_trait!(TXD0Pin, Instance);
+pin_trait!(TXD1Pin, Instance);
+pin_trait!(TXEnPin, Instance);
+
+crate::pac::peripheral_pins!(
+    ($inst:ident, eth, ETH, $pin:ident, REF_CLK, $af:expr) => {
+        pin_trait_impl!(RefClkPin, $inst, $pin, $af);
+    };
+    ($inst:ident, eth, ETH, $pin:ident, MDIO, $af:expr) => {
+        pin_trait_impl!(MDIOPin, $inst, $pin, $af);
+    };
+    ($inst:ident, eth, ETH, $pin:ident, MDC, $af:expr) => {
+        pin_trait_impl!(MDCPin, $inst, $pin, $af);
+    };
+    ($inst:ident, eth, ETH, $pin:ident, CRS_DV, $af:expr) => {
+        pin_trait_impl!(CRSPin, $inst, $pin, $af);
+    };
+    ($inst:ident, eth, ETH, $pin:ident, RXD0, $af:expr) => {
+        pin_trait_impl!(RXD0Pin, $inst, $pin, $af);
+    };
+    ($inst:ident, eth, ETH, $pin:ident, RXD1, $af:expr) => {
+        pin_trait_impl!(RXD1Pin, $inst, $pin, $af);
+    };
+    ($inst:ident, eth, ETH, $pin:ident, TXD0, $af:expr) => {
+        pin_trait_impl!(TXD0Pin, $inst, $pin, $af);
+    };
+    ($inst:ident, eth, ETH, $pin:ident, TXD1, $af:expr) => {
+        pin_trait_impl!(TXD1Pin, $inst, $pin, $af);
+    };
+    ($inst:ident, eth, ETH, $pin:ident, TX_EN, $af:expr) => {
+        pin_trait_impl!(TXEnPin, $inst, $pin, $af);
+    };
+);

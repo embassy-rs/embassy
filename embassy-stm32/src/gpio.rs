@@ -483,7 +483,7 @@ pub(crate) mod sealed {
     pub trait OptionalPin {}
 }
 
-pub trait Pin: sealed::Pin + Sized {
+pub trait Pin: sealed::Pin + Sized + 'static {
     #[cfg(feature = "exti")]
     type ExtiChannel: crate::exti::Channel;
 
@@ -637,4 +637,9 @@ mod eh02 {
             Ok(self.toggle())
         }
     }
+}
+
+#[cfg(feature = "unstable-pac")]
+pub mod low_level {
+    pub use super::sealed::*;
 }

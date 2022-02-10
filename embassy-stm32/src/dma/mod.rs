@@ -18,9 +18,10 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 #[cfg(feature = "unstable-pac")]
-pub use transfers::*;
+pub mod low_level {
+    pub use super::transfers::*;
+}
 
-#[cfg(not(feature = "unstable-pac"))]
 pub(crate) use transfers::*;
 
 #[cfg(any(bdma_v2, dma_v2, dmamux))]

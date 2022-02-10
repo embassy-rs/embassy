@@ -1,16 +1,25 @@
-use crate::{peripherals, rcc::RccPeripheral};
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
-pub use embassy_hal_common::usb::*;
-pub use synopsys_usb_otg::UsbBus;
 use synopsys_usb_otg::{PhyType, UsbPeripheral};
 
-macro_rules! config_pins {
+use crate::gpio::sealed::AFType;
+use crate::gpio::Speed;
+use crate::{peripherals, rcc::RccPeripheral};
+
+pub use embassy_hal_common::usb::*;
+pub use synopsys_usb_otg::UsbBus;
+
+macro_rules! config_ulpi_pins {
     ($($pin:ident),*) => {
-        $(
-            $pin.configure();
-        )*
+        unborrow!($($pin),*);
+        // NOTE(unsafe) Exclusive access to the registers
+        critical_section::with(|_| unsafe {
+            $(
+                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
+                $pin.set_speed(Speed::VeryHigh);
+            )*
+        })
     };
 }
 
@@ -27,7 +36,11 @@ impl<'d, T: Instance> UsbOtg<'d, T> {
         dm: impl Unborrow<Target = impl DmPin<T>> + 'd,
     ) -> Self {
         unborrow!(dp, dm);
-        config_pins!(dp, dm);
+
+        unsafe {
+            dp.set_as_af(dp.af_num(), AFType::OutputPushPull);
+            dm.set_as_af(dm.af_num(), AFType::OutputPushPull);
+        }
 
         Self {
             phantom: PhantomData,
@@ -51,10 +64,10 @@ impl<'d, T: Instance> UsbOtg<'d, T> {
         ulpi_d6: impl Unborrow<Target = impl UlpiD6Pin<T>> + 'd,
         ulpi_d7: impl Unborrow<Target = impl UlpiD7Pin<T>> + 'd,
     ) -> Self {
-        unborrow!(ulpi_clk, ulpi_dir, ulpi_nxt, ulpi_stp);
-        unborrow!(ulpi_d0, ulpi_d1, ulpi_d2, ulpi_d3, ulpi_d4, ulpi_d5, ulpi_d6, ulpi_d7);
-        config_pins!(ulpi_clk, ulpi_dir, ulpi_nxt, ulpi_stp);
-        config_pins!(ulpi_d0, ulpi_d1, ulpi_d2, ulpi_d3, ulpi_d4, ulpi_d5, ulpi_d6, ulpi_d7);
+        config_ulpi_pins!(
+            ulpi_clk, ulpi_dir, ulpi_nxt, ulpi_stp, ulpi_d0, ulpi_d1, ulpi_d2, ulpi_d3, ulpi_d4,
+            ulpi_d5, ulpi_d6, ulpi_d7
+        );
 
         Self {
             phantom: PhantomData,
@@ -100,48 +113,27 @@ pub(crate) mod sealed {
         const FIFO_DEPTH_WORDS: usize;
         const ENDPOINT_COUNT: usize;
     }
-
-    macro_rules! declare_pins {
-        ($name:ident) => {
-            pub trait $name<T: Instance> {
-                fn configure(&mut self);
-            }
-        };
-
-        ($($name:ident),*) => {
-            $(
-                declare_pins!($name);
-            )*
-        };
-    }
-
-    // Internal PHY pins
-    declare_pins!(DpPin, DmPin);
-
-    // External PHY pins
-    declare_pins!(UlpiClkPin, UlpiDirPin, UlpiNxtPin, UlpiStpPin);
-    declare_pins!(UlpiD0Pin, UlpiD1Pin, UlpiD2Pin, UlpiD3Pin);
-    declare_pins!(UlpiD4Pin, UlpiD5Pin, UlpiD6Pin, UlpiD7Pin);
 }
 
 pub trait Instance: sealed::Instance + RccPeripheral {}
 
-macro_rules! declare_pins {
-    ($name:ident) => {
-        pub trait $name<T: Instance>: sealed::$name<T> {}
-    };
+// Internal PHY pins
+pin_trait!(DpPin, Instance);
+pin_trait!(DmPin, Instance);
 
-    ($($name:ident),*) => {
-        $(
-            declare_pins!($name);
-        )*
-    };
-}
-
-declare_pins!(DpPin, DmPin);
-declare_pins!(UlpiClkPin, UlpiDirPin, UlpiNxtPin, UlpiStpPin);
-declare_pins!(UlpiD0Pin, UlpiD1Pin, UlpiD2Pin, UlpiD3Pin);
-declare_pins!(UlpiD4Pin, UlpiD5Pin, UlpiD6Pin, UlpiD7Pin);
+// External PHY pins
+pin_trait!(UlpiClkPin, Instance);
+pin_trait!(UlpiDirPin, Instance);
+pin_trait!(UlpiNxtPin, Instance);
+pin_trait!(UlpiStpPin, Instance);
+pin_trait!(UlpiD0Pin, Instance);
+pin_trait!(UlpiD1Pin, Instance);
+pin_trait!(UlpiD2Pin, Instance);
+pin_trait!(UlpiD3Pin, Instance);
+pin_trait!(UlpiD4Pin, Instance);
+pin_trait!(UlpiD5Pin, Instance);
+pin_trait!(UlpiD6Pin, Instance);
+pin_trait!(UlpiD7Pin, Instance);
 
 crate::pac::peripherals!(
     (otgfs, $inst:ident) => {
@@ -240,93 +232,58 @@ crate::pac::interrupts!(
     };
 );
 
-macro_rules! impl_pin {
-    ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
-        impl $signal<peripherals::$inst> for peripherals::$pin {}
-
-        impl sealed::$signal<peripherals::$inst> for peripherals::$pin {
-            fn configure(&mut self) {
-                use crate::gpio::sealed::{AFType::OutputPushPull, Pin as SealedPin};
-
-                critical_section::with(|_| unsafe {
-                    self.set_as_af($af, OutputPushPull);
-                });
-            }
-        }
-    };
-}
-
-// ULPI pins have to be set to VeryHigh speed
-macro_rules! impl_ulpi_pin {
-    ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
-        impl $signal<peripherals::$inst> for peripherals::$pin {}
-
-        impl sealed::$signal<peripherals::$inst> for peripherals::$pin {
-            fn configure(&mut self) {
-                use crate::gpio::sealed::{AFType::OutputPushPull, Pin as SealedPin};
-                use crate::gpio::Speed;
-
-                critical_section::with(|_| unsafe {
-                    self.set_as_af($af, OutputPushPull);
-                    self.set_speed(Speed::VeryHigh);
-                });
-            }
-        }
-    };
-}
-
 crate::pac::peripheral_pins!(
     // FS internal phy pins
     ($inst:ident, otgfs, OTG_FS, $pin:ident, DP, $af:expr) => {
-        impl_pin!($inst, $pin, DpPin, $af);
+        pin_trait_impl!(DpPin, $inst, $pin, $af);
     };
     ($inst:ident, otgfs, OTG_FS, $pin:ident, DM, $af:expr) => {
-        impl_pin!($inst, $pin, DmPin, $af);
+        pin_trait_impl!(DmPin, $inst, $pin, $af);
     };
 
     // HS internal phy pins
     ($inst:ident, otghs, OTG_HS, $pin:ident, DP, $af:expr) => {
-        impl_pin!($inst, $pin, DpPin, $af);
+        pin_trait_impl!(DpPin, $inst, $pin, $af);
     };
     ($inst:ident, otghs, OTG_HS, $pin:ident, DM, $af:expr) => {
-        impl_pin!($inst, $pin, DmPin, $af);
+        pin_trait_impl!(DmPin, $inst, $pin, $af);
     };
 
     // HS external phy pins
     ($inst:ident, otghs, OTG_HS, $pin:ident, ULPI_CK, $af:expr) => {
-        impl_ulpi_pin!($inst, $pin, UlpiClkPin, $af);
+        pin_trait_impl!(UlpiClkPin, $inst, $pin, $af);
     };
     ($inst:ident, otghs, OTG_HS, $pin:ident, ULPI_DIR, $af:expr) => {
-        impl_ulpi_pin!($inst, $pin, UlpiDirPin, $af);
+        pin_trait_impl!(UlpiDirPin, $inst, $pin, $af);
     };
     ($inst:ident, otghs, OTG_HS, $pin:ident, ULPI_NXT, $af:expr) => {
-        impl_ulpi_pin!($inst, $pin, UlpiNxtPin, $af);
+        pin_trait_impl!(UlpiNxtPin, $inst, $pin, $af);
     };
     ($inst:ident, otghs, OTG_HS, $pin:ident, ULPI_STP, $af:expr) => {
-        impl_ulpi_pin!($inst, $pin, UlpiStpPin, $af);
+        pin_trait_impl!(UlpiStpPin, $inst, $pin, $af);
     };
     ($inst:ident, otghs, OTG_HS, $pin:ident, ULPI_D0, $af:expr) => {
-        impl_ulpi_pin!($inst, $pin, UlpiD0Pin, $af);
+        pin_trait_impl!(UlpiD0Pin, $inst, $pin, $af);
     };
     ($inst:ident, otghs, OTG_HS, $pin:ident, ULPI_D1, $af:expr) => {
-        impl_ulpi_pin!($inst, $pin, UlpiD1Pin, $af);
+        pin_trait_impl!(UlpiD1Pin, $inst, $pin, $af);
     };
     ($inst:ident, otghs, OTG_HS, $pin:ident, ULPI_D2, $af:expr) => {
-        impl_ulpi_pin!($inst, $pin, UlpiD2Pin, $af);
+        pin_trait_impl!(UlpiD2Pin, $inst, $pin, $af);
     };
     ($inst:ident, otghs, OTG_HS, $pin:ident, ULPI_D3, $af:expr) => {
-        impl_ulpi_pin!($inst, $pin, UlpiD3Pin, $af);
+        pin_trait_impl!(UlpiD3Pin, $inst, $pin, $af);
     };
     ($inst:ident, otghs, OTG_HS, $pin:ident, ULPI_D4, $af:expr) => {
-        impl_ulpi_pin!($inst, $pin, UlpiD4Pin, $af);
+        pin_trait_impl!(UlpiD4Pin, $inst, $pin, $af);
     };
     ($inst:ident, otghs, OTG_HS, $pin:ident, ULPI_D5, $af:expr) => {
-        impl_ulpi_pin!($inst, $pin, UlpiD5Pin, $af);
+        pin_trait_impl!(UlpiD5Pin, $inst, $pin, $af);
     };
     ($inst:ident, otghs, OTG_HS, $pin:ident, ULPI_D6, $af:expr) => {
-        impl_ulpi_pin!($inst, $pin, UlpiD6Pin, $af);
+        pin_trait_impl!(UlpiD6Pin, $inst, $pin, $af);
     };
     ($inst:ident, otghs, OTG_HS, $pin:ident, ULPI_D7, $af:expr) => {
-        impl_ulpi_pin!($inst, $pin, UlpiD7Pin, $af);
+        pin_trait_impl!(UlpiD7Pin, $inst, $pin, $af);
     };
 );

@@ -13,6 +13,7 @@ pub mod fmt;
 // Utilities
 pub mod interrupt;
 pub mod time;
+mod traits;
 
 // Always-present hardware
 pub mod dma;

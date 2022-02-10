@@ -4,10 +4,7 @@ use core::ops::{Deref, DerefMut};
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
-use crate::gpio::{
-    sealed::AFType::{OutputOpenDrain, OutputPushPull},
-    Pin,
-};
+use crate::gpio::sealed::AFType;
 use crate::{peripherals, rcc::RccPeripheral};
 
 pub use bxcan::*;
@@ -26,8 +23,8 @@ impl<'d, T: Instance + bxcan::Instance> Can<'d, T> {
         unborrow!(peri, rx, tx);
 
         unsafe {
-            rx.set_as_af(rx.af_num(), OutputOpenDrain);
-            tx.set_as_af(tx.af_num(), OutputPushPull);
+            rx.set_as_af(rx.af_num(), AFType::OutputOpenDrain);
+            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
         }
 
         T::enable();
@@ -66,24 +63,12 @@ impl<'d, T: Instance + bxcan::Instance> DerefMut for Can<'d, T> {
 }
 
 pub(crate) mod sealed {
-    use super::*;
-
     pub trait Instance {
         fn regs() -> &'static crate::pac::can::Can;
-    }
-
-    pub trait RxPin<T: Instance>: Pin {
-        fn af_num(&self) -> u8;
-    }
-
-    pub trait TxPin<T: Instance>: Pin {
-        fn af_num(&self) -> u8;
     }
 }
 
 pub trait Instance: sealed::Instance + RccPeripheral {}
-pub trait RxPin<T: Instance>: sealed::RxPin<T> {}
-pub trait TxPin<T: Instance>: sealed::TxPin<T> {}
 
 crate::pac::peripherals!(
     (can, $inst:ident) => {
@@ -125,29 +110,20 @@ crate::pac::peripherals!(
     };
 );
 
-macro_rules! impl_pin {
-    ($inst:ident, $pin:ident, $signal:ident, $af:expr) => {
-        impl $signal<peripherals::$inst> for peripherals::$pin {}
-
-        impl sealed::$signal<peripherals::$inst> for peripherals::$pin {
-            fn af_num(&self) -> u8 {
-                $af
-            }
-        }
-    };
-}
+pin_trait!(RxPin, Instance);
+pin_trait!(TxPin, Instance);
 
 crate::pac::peripheral_pins!(
     ($inst:ident, can, CAN, $pin:ident, TX, $af:expr) => {
-        impl_pin!($inst, $pin, TxPin, $af);
+        pin_trait_impl!(TxPin, $inst, $pin, $af);
     };
     ($inst:ident, can, CAN, $pin:ident, RX, $af:expr) => {
-        impl_pin!($inst, $pin, RxPin, $af);
+        pin_trait_impl!(RxPin, $inst, $pin, $af);
     };
     ($inst:ident, can, CAN, $pin:ident, TX) => {
-        impl_pin!($inst, $pin, TxPin, 0);
+        pin_trait_impl!(TxPin, $inst, $pin, 0);
     };
     ($inst:ident, can, CAN, $pin:ident, RX) => {
-        impl_pin!($inst, $pin, RxPin, 0);
+        pin_trait_impl!(RxPin, $inst, $pin, 0);
     };
 );
