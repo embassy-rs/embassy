@@ -4,8 +4,8 @@
 
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_stm32::dcmi::*;
-use embassy_stm32::gpio::{Level, NoPin, Output, Speed};
+use embassy_stm32::dcmi::{self, *};
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::interrupt;
 use embassy_stm32::rcc::{Mco, Mco1Source, McoClock};
@@ -78,31 +78,10 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     );
 
     let dcmi_irq = interrupt::take!(DCMI);
-    let mut dcmi = Dcmi::new(
-        p.DCMI,
-        p.DMA1_CH0,
-        VSyncDataInvalidLevel::High,
-        HSyncDataInvalidLevel::Low,
-        PixelClockPolarity::RisingEdge,
-        false,
-        dcmi_irq,
-        p.PC6,
-        p.PC7,
-        p.PE0,
-        p.PE1,
-        p.PE4,
-        p.PD3,
-        p.PE5,
-        p.PE6,
-        NoPin,
-        NoPin,
-        NoPin,
-        NoPin,
-        NoPin,
-        NoPin,
-        p.PB7,
-        p.PA4,
-        p.PA6,
+    let config = dcmi::Config::default();
+    let mut dcmi = Dcmi::new_8bit(
+        p.DCMI, p.DMA1_CH0, dcmi_irq, p.PC6, p.PC7, p.PE0, p.PE1, p.PE4, p.PD3, p.PE5, p.PE6,
+        p.PB7, p.PA4, p.PA6, config,
     );
 
     defmt::info!("attempting capture");

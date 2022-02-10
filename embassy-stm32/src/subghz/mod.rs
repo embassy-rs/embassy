@@ -215,11 +215,11 @@ impl<'d, Tx, Rx> SubGhz<'d, Tx, Rx> {
     /// clock.
     pub fn new(
         peri: impl Unborrow<Target = SUBGHZSPI> + 'd,
-        sck: impl Unborrow<Target = impl SckPin<SUBGHZSPI>>,
-        mosi: impl Unborrow<Target = impl MosiPin<SUBGHZSPI>>,
-        miso: impl Unborrow<Target = impl MisoPin<SUBGHZSPI>>,
-        txdma: impl Unborrow<Target = Tx>,
-        rxdma: impl Unborrow<Target = Rx>,
+        sck: impl Unborrow<Target = impl SckPin<SUBGHZSPI>> + 'd,
+        mosi: impl Unborrow<Target = impl MosiPin<SUBGHZSPI>> + 'd,
+        miso: impl Unborrow<Target = impl MisoPin<SUBGHZSPI>> + 'd,
+        txdma: impl Unborrow<Target = Tx> + 'd,
+        rxdma: impl Unborrow<Target = Rx> + 'd,
     ) -> Self {
         Self::pulse_radio_reset();
 

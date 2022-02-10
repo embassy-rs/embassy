@@ -10,7 +10,6 @@ use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
-use embassy_stm32::gpio::NoPin;
 use embassy_stm32::pwm::{pins::*, Channel, OutputCompareMode};
 use embassy_stm32::time::{Hertz, U32Ext};
 use embassy_stm32::timer::GeneralPurpose32bitInstance;
@@ -33,7 +32,7 @@ pub fn config() -> Config {
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
-    let mut pwm = SimplePwm32::new(p.TIM5, p.PA0, NoPin, NoPin, NoPin, 10000.hz());
+    let mut pwm = SimplePwm32::new(p.TIM5, p.PA0, p.PA1, p.PA2, p.PA3, 10000.hz());
     let max = pwm.get_max_duty();
     pwm.enable(Channel::Ch1);
 

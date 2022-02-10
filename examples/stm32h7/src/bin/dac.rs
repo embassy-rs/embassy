@@ -5,7 +5,6 @@
 #[path = "../example_common.rs"]
 mod example_common;
 
-use embassy_stm32::gpio::NoPin;
 use example_common::*;
 
 use cortex_m_rt::entry;
@@ -17,7 +16,7 @@ fn main() -> ! {
 
     let p = embassy_stm32::init(config());
 
-    let mut dac = Dac::new(p.DAC1, p.PA4, NoPin);
+    let mut dac = Dac::new_1ch(p.DAC1, p.PA4);
 
     loop {
         for v in 0..=255 {

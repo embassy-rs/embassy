@@ -12,7 +12,46 @@ pub struct SimplePwm<'d, T> {
 }
 
 impl<'d, T: CaptureCompareCapable16bitInstance> SimplePwm<'d, T> {
-    pub fn new<F: Into<Hertz>>(
+    pub fn new_1ch<F: Into<Hertz>>(
+        tim: impl Unborrow<Target = T> + 'd,
+        ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
+        freq: F,
+    ) -> Self {
+        unborrow!(ch1);
+        Self::new_inner(tim, freq, move || unsafe {
+            ch1.configure();
+        })
+    }
+
+    pub fn new_2ch<F: Into<Hertz>>(
+        tim: impl Unborrow<Target = T> + 'd,
+        ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
+        ch2: impl Unborrow<Target = impl Channel2Pin<T>> + 'd,
+        freq: F,
+    ) -> Self {
+        unborrow!(ch1, ch2);
+        Self::new_inner(tim, freq, move || unsafe {
+            ch1.configure();
+            ch2.configure();
+        })
+    }
+
+    pub fn new_3ch<F: Into<Hertz>>(
+        tim: impl Unborrow<Target = T> + 'd,
+        ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
+        ch2: impl Unborrow<Target = impl Channel2Pin<T>> + 'd,
+        ch3: impl Unborrow<Target = impl Channel3Pin<T>> + 'd,
+        freq: F,
+    ) -> Self {
+        unborrow!(ch1, ch2, ch3);
+        Self::new_inner(tim, freq, move || unsafe {
+            ch1.configure();
+            ch2.configure();
+            ch3.configure();
+        })
+    }
+
+    pub fn new_4ch<F: Into<Hertz>>(
         tim: impl Unborrow<Target = T> + 'd,
         ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
         ch2: impl Unborrow<Target = impl Channel2Pin<T>> + 'd,
@@ -20,17 +59,26 @@ impl<'d, T: CaptureCompareCapable16bitInstance> SimplePwm<'d, T> {
         ch4: impl Unborrow<Target = impl Channel4Pin<T>> + 'd,
         freq: F,
     ) -> Self {
-        unborrow!(tim, ch1, ch2, ch3, ch4);
-
-        T::enable();
-        <T as crate::rcc::sealed::RccPeripheral>::reset();
-
-        unsafe {
+        unborrow!(ch1, ch2, ch3, ch4);
+        Self::new_inner(tim, freq, move || unsafe {
             ch1.configure();
             ch2.configure();
             ch3.configure();
             ch4.configure();
-        }
+        })
+    }
+
+    fn new_inner<F: Into<Hertz>>(
+        tim: impl Unborrow<Target = T> + 'd,
+        freq: F,
+        configure_pins: impl FnOnce(),
+    ) -> Self {
+        unborrow!(tim);
+
+        T::enable();
+        <T as crate::rcc::sealed::RccPeripheral>::reset();
+
+        configure_pins();
 
         let mut this = Self {
             inner: tim,

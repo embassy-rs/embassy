@@ -6,7 +6,6 @@
 mod example_common;
 
 use embassy_stm32::dac::{Channel, Dac, Value};
-use embassy_stm32::gpio::NoPin;
 use embassy_stm32::pac;
 use example_common::*;
 
@@ -22,7 +21,7 @@ fn main() -> ! {
 
     let p = embassy_stm32::init(Default::default());
 
-    let mut dac = Dac::new(p.DAC1, p.PA4, NoPin);
+    let mut dac = Dac::new_1ch(p.DAC1, p.PA4);
 
     loop {
         for v in 0..=255 {

@@ -6,7 +6,6 @@
 mod example_common;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_stm32::gpio::NoPin;
 use embassy_stm32::pwm::{simple_pwm::SimplePwm, Channel};
 use embassy_stm32::time::U32Ext;
 use embassy_stm32::Peripherals;
@@ -16,7 +15,7 @@ use example_common::*;
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
-    let mut pwm = SimplePwm::new(p.TIM2, p.PA5, NoPin, NoPin, NoPin, 10000.hz());
+    let mut pwm = SimplePwm::new_1ch(p.TIM2, p.PA5, 10000.hz());
     let max = pwm.get_max_duty();
     pwm.enable(Channel::Ch1);
 

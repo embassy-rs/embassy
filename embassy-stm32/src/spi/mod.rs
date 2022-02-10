@@ -8,8 +8,8 @@ use embassy_hal_common::unborrow;
 use self::sealed::WordSize;
 use crate::dma;
 use crate::dma::NoDma;
-use crate::gpio::sealed::{AFType, Pin};
-use crate::gpio::{AnyPin, NoPin, OptionalPin};
+use crate::gpio::sealed::{AFType, Pin as _};
+use crate::gpio::{AnyPin, Pin};
 use crate::pac::spi::{regs, vals};
 use crate::peripherals;
 use crate::rcc::RccPeripheral;
@@ -92,10 +92,116 @@ pub struct Spi<'d, T: Instance, Tx, Rx> {
 
 impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     pub fn new<F>(
+        peri: impl Unborrow<Target = T> + 'd,
+        sck: impl Unborrow<Target = impl SckPin<T>> + 'd,
+        mosi: impl Unborrow<Target = impl MosiPin<T>> + 'd,
+        miso: impl Unborrow<Target = impl MisoPin<T>> + 'd,
+        txdma: impl Unborrow<Target = Tx> + 'd,
+        rxdma: impl Unborrow<Target = Rx> + 'd,
+        freq: F,
+        config: Config,
+    ) -> Self
+    where
+        F: Into<Hertz>,
+    {
+        unborrow!(sck, mosi, miso);
+        unsafe {
+            sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
+            #[cfg(any(spi_v2, spi_v3))]
+            sck.set_speed(crate::gpio::Speed::VeryHigh);
+            mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
+            #[cfg(any(spi_v2, spi_v3))]
+            mosi.set_speed(crate::gpio::Speed::VeryHigh);
+            miso.set_as_af(miso.af_num(), AFType::Input);
+            #[cfg(any(spi_v2, spi_v3))]
+            miso.set_speed(crate::gpio::Speed::VeryHigh);
+        }
+
+        Self::new_inner(
+            peri,
+            Some(sck.degrade()),
+            Some(mosi.degrade()),
+            Some(miso.degrade()),
+            txdma,
+            rxdma,
+            freq,
+            config,
+        )
+    }
+
+    pub fn new_rxonly<F>(
+        peri: impl Unborrow<Target = T> + 'd,
+        sck: impl Unborrow<Target = impl SckPin<T>> + 'd,
+        miso: impl Unborrow<Target = impl MisoPin<T>> + 'd,
+        txdma: impl Unborrow<Target = Tx> + 'd, // TODO remove
+        rxdma: impl Unborrow<Target = Rx> + 'd,
+        freq: F,
+        config: Config,
+    ) -> Self
+    where
+        F: Into<Hertz>,
+    {
+        unborrow!(sck, miso);
+        unsafe {
+            sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
+            #[cfg(any(spi_v2, spi_v3))]
+            sck.set_speed(crate::gpio::Speed::VeryHigh);
+            miso.set_as_af(miso.af_num(), AFType::Input);
+            #[cfg(any(spi_v2, spi_v3))]
+            miso.set_speed(crate::gpio::Speed::VeryHigh);
+        }
+
+        Self::new_inner(
+            peri,
+            Some(sck.degrade()),
+            None,
+            Some(miso.degrade()),
+            txdma,
+            rxdma,
+            freq,
+            config,
+        )
+    }
+
+    pub fn new_txonly<F>(
+        peri: impl Unborrow<Target = T> + 'd,
+        sck: impl Unborrow<Target = impl SckPin<T>> + 'd,
+        mosi: impl Unborrow<Target = impl MosiPin<T>> + 'd,
+        txdma: impl Unborrow<Target = Tx> + 'd,
+        rxdma: impl Unborrow<Target = Rx> + 'd, // TODO remove
+        freq: F,
+        config: Config,
+    ) -> Self
+    where
+        F: Into<Hertz>,
+    {
+        unborrow!(sck, mosi);
+        unsafe {
+            sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
+            #[cfg(any(spi_v2, spi_v3))]
+            sck.set_speed(crate::gpio::Speed::VeryHigh);
+            mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
+            #[cfg(any(spi_v2, spi_v3))]
+            mosi.set_speed(crate::gpio::Speed::VeryHigh);
+        }
+
+        Self::new_inner(
+            peri,
+            Some(sck.degrade()),
+            Some(mosi.degrade()),
+            None,
+            txdma,
+            rxdma,
+            freq,
+            config,
+        )
+    }
+
+    fn new_inner<F>(
         _peri: impl Unborrow<Target = T> + 'd,
-        sck: impl Unborrow<Target = impl SckPin<T>>,
-        mosi: impl Unborrow<Target = impl MosiPin<T>>,
-        miso: impl Unborrow<Target = impl MisoPin<T>>,
+        sck: Option<AnyPin>,
+        mosi: Option<AnyPin>,
+        miso: Option<AnyPin>,
         txdma: impl Unborrow<Target = Tx>,
         rxdma: impl Unborrow<Target = Rx>,
         freq: F,
@@ -104,32 +210,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     where
         F: Into<Hertz>,
     {
-        unborrow!(sck, mosi, miso, txdma, rxdma);
-
-        let sck_af = sck.af_num();
-        let mosi_af = mosi.af_num();
-        let miso_af = miso.af_num();
-        let sck = sck.degrade_optional();
-        let mosi = mosi.degrade_optional();
-        let miso = miso.degrade_optional();
-
-        unsafe {
-            sck.as_ref().map(|x| {
-                x.set_as_af(sck_af, AFType::OutputPushPull);
-                #[cfg(any(spi_v2, spi_v3))]
-                x.set_speed(crate::gpio::Speed::VeryHigh);
-            });
-            mosi.as_ref().map(|x| {
-                x.set_as_af(mosi_af, AFType::OutputPushPull);
-                #[cfg(any(spi_v2, spi_v3))]
-                x.set_speed(crate::gpio::Speed::VeryHigh);
-            });
-            miso.as_ref().map(|x| {
-                x.set_as_af(miso_af, AFType::Input);
-                #[cfg(any(spi_v2, spi_v3))]
-                x.set_speed(crate::gpio::Speed::VeryHigh);
-            });
-        }
+        unborrow!(txdma, rxdma);
 
         let pclk = T::frequency();
         let br = compute_baud_rate(pclk, freq.into());
@@ -719,15 +800,15 @@ pub(crate) mod sealed {
         fn regs() -> &'static crate::pac::spi::Spi;
     }
 
-    pub trait SckPin<T: Instance>: OptionalPin {
+    pub trait SckPin<T: Instance>: Pin {
         fn af_num(&self) -> u8;
     }
 
-    pub trait MosiPin<T: Instance>: OptionalPin {
+    pub trait MosiPin<T: Instance>: Pin {
         fn af_num(&self) -> u8;
     }
 
-    pub trait MisoPin<T: Instance>: OptionalPin {
+    pub trait MisoPin<T: Instance>: Pin {
         fn af_num(&self) -> u8;
     }
 
@@ -862,26 +943,6 @@ crate::pac::peripheral_pins!(
 
     ($inst:ident, spi, SPI, $pin:ident, MISO) => {
         impl_pin!($inst, $pin, MisoPin, 0);
-    };
-);
-
-macro_rules! impl_nopin {
-    ($inst:ident, $signal:ident) => {
-        impl $signal<peripherals::$inst> for NoPin {}
-
-        impl sealed::$signal<peripherals::$inst> for NoPin {
-            fn af_num(&self) -> u8 {
-                0
-            }
-        }
-    };
-}
-
-crate::pac::peripherals!(
-    (spi, $inst:ident) => {
-        impl_nopin!($inst, SckPin);
-        impl_nopin!($inst, MosiPin);
-        impl_nopin!($inst, MisoPin);
     };
 );
 
