@@ -8,12 +8,13 @@ mod example_common;
 use defmt::{info, unwrap};
 use defmt_rtt as _; // global logger
 use embassy::interrupt::InterruptExt;
+use embassy_nrf::usb::{ReadInterface, WriteInterface};
 use futures::pin_mut;
 use panic_probe as _; // print out panic messages
 
 use embassy::executor::Spawner;
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
-use embassy_nrf::usb::{State, Usb, UsbBus, UsbSerial};
+use embassy_nrf::usb::{ClassSet1, Index0, State, Usb, UsbBus, UsbSerial};
 use embassy_nrf::{interrupt, Peripherals};
 use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
 
@@ -41,7 +42,32 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let usb = unsafe { Usb::new(&mut state, device, serial, irq) };
     pin_mut!(usb);
 
-    let (mut reader, mut writer) = usb.as_ref().take_serial_0();
+    type NrfUsbDevice<'d> = nrf_usbd::Usbd<UsbBus<'d, embassy_nrf::peripherals::USBD>>;
+
+    type NrfReadInterface<'a, 'bus, 'c, 'd> = ReadInterface<
+        'a,
+        'bus,
+        'c,
+        Index0,
+        NrfUsbDevice<'d>,
+        ClassSet1<NrfUsbDevice<'d>, UsbSerial<'bus, 'a, NrfUsbDevice<'d>>>,
+        interrupt::USBD,
+    >;
+
+    type NrfWriteInterface<'a, 'bus, 'c, 'd> = WriteInterface<
+        'a,
+        'bus,
+        'c,
+        Index0,
+        NrfUsbDevice<'d>,
+        ClassSet1<NrfUsbDevice<'d>, UsbSerial<'bus, 'a, NrfUsbDevice<'d>>>,
+        interrupt::USBD,
+    >;
+
+    let (mut reader, mut writer): (
+        NrfReadInterface<'_, '_, '_, '_>,
+        NrfWriteInterface<'_, '_, '_, '_>,
+    ) = usb.as_ref().take_serial_0();
 
     info!("usb initialized!");
 

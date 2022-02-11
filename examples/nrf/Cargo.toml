@@ -18,6 +18,7 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.3.0"
+nrf-usbd = {version = "0.1.1"}
 
 usb-device = "0.2"
 usbd-serial = "0.1.1"
