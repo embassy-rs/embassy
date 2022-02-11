@@ -3,13 +3,15 @@ use core::cell::Cell;
 use core::convert::TryInto;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::{mem, ptr};
+use embassy::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy::blocking_mutex::Mutex;
 use embassy::interrupt::InterruptExt;
 use embassy::time::driver::{AlarmHandle, Driver};
 use embassy::time::TICKS_PER_SECOND;
 use stm32_metapac::timer::regs;
 
 use crate::interrupt;
-use crate::interrupt::{CriticalSection, Interrupt, Mutex};
+use crate::interrupt::{CriticalSection, Interrupt};
 use crate::pac::timer::{vals, TimGp16};
 use crate::peripherals;
 use crate::rcc::sealed::RccPeripheral;
@@ -95,7 +97,7 @@ struct RtcDriver {
     period: AtomicU32,
     alarm_count: AtomicU8,
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
-    alarms: Mutex<[AlarmState; ALARM_COUNT]>,
+    alarms: Mutex<CriticalSectionRawMutex, [AlarmState; ALARM_COUNT]>,
 }
 
 const ALARM_STATE_NEW: AlarmState = AlarmState::new();
@@ -103,7 +105,7 @@ const ALARM_STATE_NEW: AlarmState = AlarmState::new();
 embassy::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
-    alarms: Mutex::new([ALARM_STATE_NEW; ALARM_COUNT]),
+    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),
 });
 
 impl RtcDriver {

@@ -6,7 +6,7 @@
 mod example_common;
 
 use defmt::unwrap;
-use embassy::blocking_mutex::kind::Noop;
+use embassy::blocking_mutex::raw::NoopRawMutex;
 use embassy::channel::mpsc::{self, Channel, Sender, TryRecvError};
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
@@ -19,10 +19,10 @@ enum LedState {
     Off,
 }
 
-static CHANNEL: Forever<Channel<Noop, LedState, 1>> = Forever::new();
+static CHANNEL: Forever<Channel<NoopRawMutex, LedState, 1>> = Forever::new();
 
 #[embassy::task(pool_size = 1)]
-async fn my_task(sender: Sender<'static, Noop, LedState, 1>) {
+async fn my_task(sender: Sender<'static, NoopRawMutex, LedState, 1>) {
     loop {
         let _ = sender.send(LedState::On).await;
         Timer::after(Duration::from_secs(1)).await;

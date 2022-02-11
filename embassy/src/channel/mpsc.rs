@@ -47,7 +47,7 @@ use core::task::Waker;
 use futures::Future;
 use heapless::Deque;
 
-use crate::blocking_mutex::kind::MutexKind;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
 use crate::waitqueue::WakerRegistration;
 
@@ -56,7 +56,7 @@ use crate::waitqueue::WakerRegistration;
 /// Instances are created by the [`split`](split) function.
 pub struct Sender<'ch, M, T, const N: usize>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     channel: &'ch Channel<M, T, N>,
 }
@@ -66,7 +66,7 @@ where
 /// Instances are created by the [`split`](split) function.
 pub struct Receiver<'ch, M, T, const N: usize>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     channel: &'ch Channel<M, T, N>,
 }
@@ -99,7 +99,7 @@ pub fn split<M, T, const N: usize>(
     channel: &mut Channel<M, T, N>,
 ) -> (Sender<M, T, N>, Receiver<M, T, N>)
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     let sender = Sender { channel };
     let receiver = Receiver { channel };
@@ -112,7 +112,7 @@ where
 
 impl<'ch, M, T, const N: usize> Receiver<'ch, M, T, N>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     /// Receives the next value for this receiver.
     ///
@@ -161,7 +161,7 @@ where
 
 impl<'ch, M, T, const N: usize> Drop for Receiver<'ch, M, T, N>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     fn drop(&mut self) {
         self.channel.lock(|c| c.deregister_receiver())
@@ -170,14 +170,14 @@ where
 
 pub struct RecvFuture<'ch, M, T, const N: usize>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     channel: &'ch Channel<M, T, N>,
 }
 
 impl<'ch, M, T, const N: usize> Future for RecvFuture<'ch, M, T, N>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     type Output = Option<T>;
 
@@ -193,7 +193,7 @@ where
 
 impl<'ch, M, T, const N: usize> Sender<'ch, M, T, N>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     /// Sends a value, waiting until there is capacity.
     ///
@@ -268,7 +268,7 @@ where
 
 pub struct SendFuture<'ch, M, T, const N: usize>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     channel: &'ch Channel<M, T, N>,
     message: Option<T>,
@@ -276,7 +276,7 @@ where
 
 impl<'ch, M, T, const N: usize> Future for SendFuture<'ch, M, T, N>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     type Output = Result<(), SendError<T>>;
 
@@ -295,18 +295,18 @@ where
     }
 }
 
-impl<'ch, M, T, const N: usize> Unpin for SendFuture<'ch, M, T, N> where M: MutexKind {}
+impl<'ch, M, T, const N: usize> Unpin for SendFuture<'ch, M, T, N> where M: RawMutex {}
 
 struct CloseFuture<'ch, M, T, const N: usize>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     channel: &'ch Channel<M, T, N>,
 }
 
 impl<'ch, M, T, const N: usize> Future for CloseFuture<'ch, M, T, N>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     type Output = ();
 
@@ -321,7 +321,7 @@ where
 
 impl<'ch, M, T, const N: usize> Drop for Sender<'ch, M, T, N>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     fn drop(&mut self) {
         self.channel.lock(|c| c.deregister_sender())
@@ -330,7 +330,7 @@ where
 
 impl<'ch, M, T, const N: usize> Clone for Sender<'ch, M, T, N>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     fn clone(&self) -> Self {
         self.channel.lock(|c| c.register_sender());
@@ -546,30 +546,50 @@ impl<T, const N: usize> ChannelState<T, N> {
 /// All data sent will become available in the same order as it was sent.
 pub struct Channel<M, T, const N: usize>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
-    inner: M::Mutex<RefCell<ChannelState<T, N>>>,
+    inner: Mutex<M, RefCell<ChannelState<T, N>>>,
 }
 
 impl<M, T, const N: usize> Channel<M, T, N>
 where
-    M: MutexKind,
+    M: RawMutex,
 {
     /// Establish a new bounded channel. For example, to create one with a NoopMutex:
     ///
     /// ```
     /// use embassy::channel::mpsc;
-    /// use embassy::blocking_mutex::kind::Noop;
+    /// use embassy::blocking_mutex::raw::NoopRawMutex;
     /// use embassy::channel::mpsc::Channel;
     ///
     /// // Declare a bounded channel of 3 u32s.
-    /// let mut channel = Channel::<Noop, u32, 3>::new();
+    /// let mut channel = Channel::<NoopRawMutex, u32, 3>::new();
     /// // once we have a channel, obtain its sender and receiver
     /// let (sender, receiver) = mpsc::split(&mut channel);
     /// ```
+    #[cfg(feature = "nightly")]
+    pub const fn new() -> Self {
+        Self {
+            inner: Mutex::new(RefCell::new(ChannelState::new())),
+        }
+    }
+
+    /// Establish a new bounded channel. For example, to create one with a NoopMutex:
+    ///
+    /// ```
+    /// use embassy::channel::mpsc;
+    /// use embassy::blocking_mutex::raw::NoopRawMutex;
+    /// use embassy::channel::mpsc::Channel;
+    ///
+    /// // Declare a bounded channel of 3 u32s.
+    /// let mut channel = Channel::<NoopRawMutex, u32, 3>::new();
+    /// // once we have a channel, obtain its sender and receiver
+    /// let (sender, receiver) = mpsc::split(&mut channel);
+    /// ```
+    #[cfg(not(feature = "nightly"))]
     pub fn new() -> Self {
         Self {
-            inner: M::Mutex::new(RefCell::new(ChannelState::new())),
+            inner: Mutex::new(RefCell::new(ChannelState::new())),
         }
     }
 
@@ -586,7 +606,7 @@ mod tests {
     use futures_executor::ThreadPool;
     use futures_timer::Delay;
 
-    use crate::blocking_mutex::kind::{CriticalSection, Noop};
+    use crate::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
     use crate::util::Forever;
 
     use super::*;
@@ -655,7 +675,7 @@ mod tests {
 
     #[test]
     fn simple_send_and_receive() {
-        let mut c = Channel::<Noop, u32, 3>::new();
+        let mut c = Channel::<NoopRawMutex, u32, 3>::new();
         let (s, r) = split(&mut c);
         assert!(s.clone().try_send(1).is_ok());
         assert_eq!(r.try_recv().unwrap(), 1);
@@ -663,7 +683,7 @@ mod tests {
 
     #[test]
     fn should_close_without_sender() {
-        let mut c = Channel::<Noop, u32, 3>::new();
+        let mut c = Channel::<NoopRawMutex, u32, 3>::new();
         let (s, r) = split(&mut c);
         drop(s);
         match r.try_recv() {
@@ -674,7 +694,7 @@ mod tests {
 
     #[test]
     fn should_close_once_drained() {
-        let mut c = Channel::<Noop, u32, 3>::new();
+        let mut c = Channel::<NoopRawMutex, u32, 3>::new();
         let (s, r) = split(&mut c);
         assert!(s.try_send(1).is_ok());
         drop(s);
@@ -687,7 +707,7 @@ mod tests {
 
     #[test]
     fn should_reject_send_when_receiver_dropped() {
-        let mut c = Channel::<Noop, u32, 3>::new();
+        let mut c = Channel::<NoopRawMutex, u32, 3>::new();
         let (s, r) = split(&mut c);
         drop(r);
         match s.try_send(1) {
@@ -698,7 +718,7 @@ mod tests {
 
     #[test]
     fn should_reject_send_when_channel_closed() {
-        let mut c = Channel::<Noop, u32, 3>::new();
+        let mut c = Channel::<NoopRawMutex, u32, 3>::new();
         let (s, mut r) = split(&mut c);
         assert!(s.try_send(1).is_ok());
         r.close();
@@ -714,7 +734,7 @@ mod tests {
     async fn receiver_closes_when_sender_dropped_async() {
         let executor = ThreadPool::new().unwrap();
 
-        static CHANNEL: Forever<Channel<CriticalSection, u32, 3>> = Forever::new();
+        static CHANNEL: Forever<Channel<CriticalSectionRawMutex, u32, 3>> = Forever::new();
         let c = CHANNEL.put(Channel::new());
         let (s, mut r) = split(c);
         assert!(executor
@@ -729,7 +749,7 @@ mod tests {
     async fn receiver_receives_given_try_send_async() {
         let executor = ThreadPool::new().unwrap();
 
-        static CHANNEL: Forever<Channel<CriticalSection, u32, 3>> = Forever::new();
+        static CHANNEL: Forever<Channel<CriticalSectionRawMutex, u32, 3>> = Forever::new();
         let c = CHANNEL.put(Channel::new());
         let (s, mut r) = split(c);
         assert!(executor
@@ -742,7 +762,7 @@ mod tests {
 
     #[futures_test::test]
     async fn sender_send_completes_if_capacity() {
-        let mut c = Channel::<CriticalSection, u32, 1>::new();
+        let mut c = Channel::<CriticalSectionRawMutex, u32, 1>::new();
         let (s, mut r) = split(&mut c);
         assert!(s.send(1).await.is_ok());
         assert_eq!(r.recv().await, Some(1));
@@ -750,7 +770,7 @@ mod tests {
 
     #[futures_test::test]
     async fn sender_send_completes_if_closed() {
-        static CHANNEL: Forever<Channel<CriticalSection, u32, 1>> = Forever::new();
+        static CHANNEL: Forever<Channel<CriticalSectionRawMutex, u32, 1>> = Forever::new();
         let c = CHANNEL.put(Channel::new());
         let (s, r) = split(c);
         drop(r);
@@ -764,7 +784,7 @@ mod tests {
     async fn senders_sends_wait_until_capacity() {
         let executor = ThreadPool::new().unwrap();
 
-        static CHANNEL: Forever<Channel<CriticalSection, u32, 1>> = Forever::new();
+        static CHANNEL: Forever<Channel<CriticalSectionRawMutex, u32, 1>> = Forever::new();
         let c = CHANNEL.put(Channel::new());
         let (s0, mut r) = split(c);
         assert!(s0.try_send(1).is_ok());
@@ -784,7 +804,7 @@ mod tests {
 
     #[futures_test::test]
     async fn sender_close_completes_if_closing() {
-        static CHANNEL: Forever<Channel<CriticalSection, u32, 1>> = Forever::new();
+        static CHANNEL: Forever<Channel<CriticalSectionRawMutex, u32, 1>> = Forever::new();
         let c = CHANNEL.put(Channel::new());
         let (s, mut r) = split(c);
         r.close();
@@ -793,7 +813,7 @@ mod tests {
 
     #[futures_test::test]
     async fn sender_close_completes_if_closed() {
-        static CHANNEL: Forever<Channel<CriticalSection, u32, 1>> = Forever::new();
+        static CHANNEL: Forever<Channel<CriticalSectionRawMutex, u32, 1>> = Forever::new();
         let c = CHANNEL.put(Channel::new());
         let (s, r) = split(c);
         drop(r);

@@ -2,7 +2,8 @@ use core::cell::Cell;
 use core::mem;
 use core::task::Waker;
 
-use crate::blocking_mutex::CriticalSectionMutex as Mutex;
+use crate::blocking_mutex::raw::CriticalSectionRawMutex;
+use crate::blocking_mutex::Mutex;
 
 /// Utility struct to register and wake a waker.
 #[derive(Debug)]
@@ -50,13 +51,13 @@ impl WakerRegistration {
 
 /// Utility struct to register and wake a waker.
 pub struct AtomicWaker {
-    waker: Mutex<Cell<Option<Waker>>>,
+    waker: Mutex<CriticalSectionRawMutex, Cell<Option<Waker>>>,
 }
 
 impl AtomicWaker {
     pub const fn new() -> Self {
         Self {
-            waker: Mutex::new(Cell::new(None)),
+            waker: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
         }
     }
 

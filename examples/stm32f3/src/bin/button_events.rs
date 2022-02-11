@@ -12,7 +12,7 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
-use embassy::blocking_mutex::kind::Noop;
+use embassy::blocking_mutex::raw::NoopRawMutex;
 use embassy::channel::mpsc::{self, Channel, Receiver, Sender};
 use embassy::executor::Spawner;
 use embassy::time::{with_timeout, Duration, Timer};
@@ -77,7 +77,7 @@ enum ButtonEvent {
     Hold,
 }
 
-static BUTTON_EVENTS_QUEUE: Forever<Channel<Noop, ButtonEvent, 4>> = Forever::new();
+static BUTTON_EVENTS_QUEUE: Forever<Channel<NoopRawMutex, ButtonEvent, 4>> = Forever::new();
 
 #[embassy::main]
 async fn main(spawner: Spawner, p: Peripherals) {
@@ -103,7 +103,10 @@ async fn main(spawner: Spawner, p: Peripherals) {
 }
 
 #[embassy::task]
-async fn led_blinker(mut leds: Leds<'static>, queue: Receiver<'static, Noop, ButtonEvent, 4>) {
+async fn led_blinker(
+    mut leds: Leds<'static>,
+    queue: Receiver<'static, NoopRawMutex, ButtonEvent, 4>,
+) {
     loop {
         leds.blink().await;
         match queue.try_recv() {
@@ -121,7 +124,7 @@ async fn led_blinker(mut leds: Leds<'static>, queue: Receiver<'static, Noop, But
 #[embassy::task]
 async fn button_waiter(
     mut button: ExtiInput<'static, PA0>,
-    queue: Sender<'static, Noop, ButtonEvent, 4>,
+    queue: Sender<'static, NoopRawMutex, ButtonEvent, 4>,
 ) {
     const DOUBLE_CLICK_DELAY: u64 = 250;
     const HOLD_DELAY: u64 = 1000;
