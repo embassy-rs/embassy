@@ -8,7 +8,7 @@ use crate::dma::{slice_ptr_parts, slice_ptr_parts_mut, Transfer};
 impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     pub(super) async fn write_dma_u8(&mut self, write: *const [u8]) -> Result<(), Error>
     where
-        Tx: TxDmaChannel<T>,
+        Tx: TxDma<T>,
     {
         unsafe {
             T::regs().cr1().modify(|w| {
@@ -45,8 +45,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
     pub(super) async fn read_dma_u8(&mut self, read: *mut [u8]) -> Result<(), Error>
     where
-        Tx: TxDmaChannel<T>,
-        Rx: RxDmaChannel<T>,
+        Tx: TxDma<T>,
+        Rx: RxDma<T>,
     {
         unsafe {
             T::regs().cr1().modify(|w| {
@@ -98,8 +98,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         write: *const [u8],
     ) -> Result<(), Error>
     where
-        Tx: TxDmaChannel<T>,
-        Rx: RxDmaChannel<T>,
+        Tx: TxDma<T>,
+        Rx: RxDma<T>,
     {
         let (_, rx_len) = slice_ptr_parts(read);
         let (_, tx_len) = slice_ptr_parts(write);

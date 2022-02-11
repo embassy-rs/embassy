@@ -12,29 +12,31 @@ use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
 
 use crate::gpio::sealed::Pin as __GpioPin;
 use crate::gpio::Pin as GpioPin;
-use crate::gpio::{sealed::AFType::OutputPushPull, AnyPin};
+use crate::gpio::{sealed::AFType, AnyPin, Speed};
 use crate::pac::gpio::vals::Ospeedr;
 use crate::pac::{ETH, RCC, SYSCFG};
-use crate::peripherals;
 
 mod descriptors;
 mod rx_desc;
 mod tx_desc;
 
-use super::{StationManagement, PHY};
+use super::*;
 use descriptors::DescriptorRing;
 use stm32_metapac::eth::vals::{
     Apcs, Cr, Dm, DmaomrSr, Fes, Ftf, Ifg, MbProgress, Mw, Pbl, Rsf, St, Tsf,
 };
 
-pub struct State<'d, const TX: usize, const RX: usize>(StateStorage<Inner<'d, TX, RX>>);
-impl<'d, const TX: usize, const RX: usize> State<'d, TX, RX> {
-    pub const fn new() -> Self {
+pub struct State<'d, T: Instance, const TX: usize, const RX: usize>(
+    StateStorage<Inner<'d, T, TX, RX>>,
+);
+impl<'d, T: Instance, const TX: usize, const RX: usize> State<'d, T, TX, RX> {
+    pub fn new() -> Self {
         Self(StateStorage::new())
     }
 }
-pub struct Ethernet<'d, P: PHY, const TX: usize, const RX: usize> {
-    state: PeripheralMutex<'d, Inner<'d, TX, RX>>,
+
+pub struct Ethernet<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> {
+    state: PeripheralMutex<'d, Inner<'d, T, TX, RX>>,
     pins: [AnyPin; 9],
     _phy: P,
     clock_range: Cr,
@@ -42,21 +44,33 @@ pub struct Ethernet<'d, P: PHY, const TX: usize, const RX: usize> {
     mac_addr: [u8; 6],
 }
 
-impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
+macro_rules! config_pins {
+    ($($pin:ident),*) => {
+        // NOTE(unsafe) Exclusive access to the registers
+        critical_section::with(|_| unsafe {
+            $(
+                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
+                $pin.set_speed(Speed::VeryHigh);
+            )*
+        })
+    };
+}
+
+impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, P, TX, RX> {
     /// safety: the returned instance is not leak-safe
     pub unsafe fn new(
-        state: &'d mut State<'d, TX, RX>,
-        peri: impl Unborrow<Target = peripherals::ETH> + 'd,
+        state: &'d mut State<'d, T, TX, RX>,
+        peri: impl Unborrow<Target = T> + 'd,
         interrupt: impl Unborrow<Target = crate::interrupt::ETH> + 'd,
-        ref_clk: impl Unborrow<Target = impl RefClkPin> + 'd,
-        mdio: impl Unborrow<Target = impl MDIOPin> + 'd,
-        mdc: impl Unborrow<Target = impl MDCPin> + 'd,
-        crs: impl Unborrow<Target = impl CRSPin> + 'd,
-        rx_d0: impl Unborrow<Target = impl RXD0Pin> + 'd,
-        rx_d1: impl Unborrow<Target = impl RXD1Pin> + 'd,
-        tx_d0: impl Unborrow<Target = impl TXD0Pin> + 'd,
-        tx_d1: impl Unborrow<Target = impl TXD1Pin> + 'd,
-        tx_en: impl Unborrow<Target = impl TXEnPin> + 'd,
+        ref_clk: impl Unborrow<Target = impl RefClkPin<T>> + 'd,
+        mdio: impl Unborrow<Target = impl MDIOPin<T>> + 'd,
+        mdc: impl Unborrow<Target = impl MDCPin<T>> + 'd,
+        crs: impl Unborrow<Target = impl CRSPin<T>> + 'd,
+        rx_d0: impl Unborrow<Target = impl RXD0Pin<T>> + 'd,
+        rx_d1: impl Unborrow<Target = impl RXD1Pin<T>> + 'd,
+        tx_d0: impl Unborrow<Target = impl TXD0Pin<T>> + 'd,
+        tx_d1: impl Unborrow<Target = impl TXD1Pin<T>> + 'd,
+        tx_en: impl Unborrow<Target = impl TXEnPin<T>> + 'd,
         phy: P,
         mac_addr: [u8; 6],
         phy_addr: u8,
@@ -77,15 +91,7 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
             SYSCFG.pmc().modify(|w| w.set_mii_rmii_sel(true));
         });
 
-        ref_clk.configure();
-        mdio.configure();
-        mdc.configure();
-        crs.configure();
-        rx_d0.configure();
-        rx_d1.configure();
-        tx_d0.configure();
-        tx_d1.configure();
-        tx_en.configure();
+        config_pins!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
         // NOTE(unsafe) We are ourselves not leak-safe.
         let state = PeripheralMutex::new_unchecked(interrupt, &mut state.0, || Inner::new(peri));
@@ -204,8 +210,8 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, P, TX, RX> {
     }
 }
 
-unsafe impl<'d, P: PHY, const TX: usize, const RX: usize> StationManagement
-    for Ethernet<'d, P, TX, RX>
+unsafe impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> StationManagement
+    for Ethernet<'d, T, P, TX, RX>
 {
     fn smi_read(&mut self, reg: u8) -> u16 {
         // NOTE(unsafe) These registers aren't used in the interrupt and we have `&mut self`
@@ -242,7 +248,9 @@ unsafe impl<'d, P: PHY, const TX: usize, const RX: usize> StationManagement
     }
 }
 
-impl<'d, P: PHY, const TX: usize, const RX: usize> Device for Ethernet<'d, P, TX, RX> {
+impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Device
+    for Ethernet<'d, T, P, TX, RX>
+{
     fn is_transmit_ready(&mut self) -> bool {
         self.state.with(|s| s.desc_ring.tx.available())
     }
@@ -279,7 +287,9 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Device for Ethernet<'d, P, TX
     }
 }
 
-impl<'d, P: PHY, const TX: usize, const RX: usize> Drop for Ethernet<'d, P, TX, RX> {
+impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Drop
+    for Ethernet<'d, T, P, TX, RX>
+{
     fn drop(&mut self) {
         // NOTE(unsafe) We have `&mut self` and the interrupt doesn't use this registers
         unsafe {
@@ -312,13 +322,13 @@ impl<'d, P: PHY, const TX: usize, const RX: usize> Drop for Ethernet<'d, P, TX, 
 
 //----------------------------------------------------------------------
 
-struct Inner<'d, const TX: usize, const RX: usize> {
-    _peri: PhantomData<&'d mut peripherals::ETH>,
+struct Inner<'d, T: Instance, const TX: usize, const RX: usize> {
+    _peri: PhantomData<&'d mut T>,
     desc_ring: DescriptorRing<TX, RX>,
 }
 
-impl<'d, const TX: usize, const RX: usize> Inner<'d, TX, RX> {
-    pub fn new(_peri: impl Unborrow<Target = peripherals::ETH> + 'd) -> Self {
+impl<'d, T: Instance, const TX: usize, const RX: usize> Inner<'d, T, TX, RX> {
+    pub fn new(_peri: impl Unborrow<Target = T> + 'd) -> Self {
         Self {
             _peri: PhantomData,
             desc_ring: DescriptorRing::new(),
@@ -326,7 +336,7 @@ impl<'d, const TX: usize, const RX: usize> Inner<'d, TX, RX> {
     }
 }
 
-impl<'d, const TX: usize, const RX: usize> PeripheralState for Inner<'d, TX, RX> {
+impl<'d, T: Instance, const TX: usize, const RX: usize> PeripheralState for Inner<'d, T, TX, RX> {
     type Interrupt = crate::interrupt::ETH;
 
     fn on_interrupt(&mut self) {
@@ -351,123 +361,4 @@ impl<'d, const TX: usize, const RX: usize> PeripheralState for Inner<'d, TX, RX>
     }
 }
 
-mod sealed {
-    use super::*;
-
-    pub trait RefClkPin: GpioPin {
-        fn configure(&mut self);
-    }
-
-    pub trait MDIOPin: GpioPin {
-        fn configure(&mut self);
-    }
-
-    pub trait MDCPin: GpioPin {
-        fn configure(&mut self);
-    }
-
-    pub trait CRSPin: GpioPin {
-        fn configure(&mut self);
-    }
-
-    pub trait RXD0Pin: GpioPin {
-        fn configure(&mut self);
-    }
-
-    pub trait RXD1Pin: GpioPin {
-        fn configure(&mut self);
-    }
-
-    pub trait TXD0Pin: GpioPin {
-        fn configure(&mut self);
-    }
-
-    pub trait TXD1Pin: GpioPin {
-        fn configure(&mut self);
-    }
-
-    pub trait TXEnPin: GpioPin {
-        fn configure(&mut self);
-    }
-}
-
-pub trait RefClkPin: sealed::RefClkPin + 'static {}
-
-pub trait MDIOPin: sealed::MDIOPin + 'static {}
-
-pub trait MDCPin: sealed::MDCPin + 'static {}
-
-pub trait CRSPin: sealed::CRSPin + 'static {}
-
-pub trait RXD0Pin: sealed::RXD0Pin + 'static {}
-
-pub trait RXD1Pin: sealed::RXD1Pin + 'static {}
-
-pub trait TXD0Pin: sealed::TXD0Pin + 'static {}
-
-pub trait TXD1Pin: sealed::TXD1Pin + 'static {}
-
-pub trait TXEnPin: sealed::TXEnPin + 'static {}
-
 static WAKER: AtomicWaker = AtomicWaker::new();
-
-macro_rules! impl_pin {
-    ($pin:ident, $signal:ident, $af:expr) => {
-        impl sealed::$signal for peripherals::$pin {
-            fn configure(&mut self) {
-                // NOTE(unsafe) Exclusive access to the registers
-                critical_section::with(|_| unsafe {
-                    self.set_as_af($af, OutputPushPull);
-                    self.block()
-                        .ospeedr()
-                        .modify(|w| w.set_ospeedr(self.pin() as usize, Ospeedr::VERYHIGHSPEED));
-                })
-            }
-        }
-
-        impl $signal for peripherals::$pin {}
-    };
-}
-// impl sealed::RefClkPin for peripherals::PA1 {
-//     fn configure(&mut self) {
-//         // NOTE(unsafe) Exclusive access to the registers
-//         critical_section::with(|_| unsafe {
-//             self.set_as_af(11, OutputPushPull);
-//             self.block()
-//                 .ospeedr()
-//                 .modify(|w| w.set_ospeedr(self.pin() as usize, Ospeedr::VERYHIGHSPEED));
-//         })
-//     }
-// }
-
-// impl RefClkPin for peripherals::PA1 {}
-
-crate::pac::peripheral_pins!(
-    ($inst:ident, eth, ETH, $pin:ident, REF_CLK, $af:expr) => {
-        impl_pin!($pin, RefClkPin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, MDIO, $af:expr) => {
-        impl_pin!($pin, MDIOPin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, MDC, $af:expr) => {
-        impl_pin!($pin, MDCPin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, CRS_DV, $af:expr) => {
-        impl_pin!($pin, CRSPin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, RXD0, $af:expr) => {
-        impl_pin!($pin, RXD0Pin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, RXD1, $af:expr) => {
-        impl_pin!($pin, RXD1Pin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, TXD0, $af:expr) => {
-        impl_pin!($pin, TXD0Pin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, TXD1, $af:expr) => {
-        impl_pin!($pin, TXD1Pin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, TX_EN, $af:expr) => {
-        impl_pin!($pin, TXEnPin, $af);
-    };
-);

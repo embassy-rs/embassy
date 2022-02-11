@@ -1,25 +1,40 @@
-use crate::{
-    pwm::{pins::*, CaptureCompareCapable16bitInstance, Channel, OutputCompareMode},
-    time::Hertz,
-};
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
+
+use super::*;
+#[allow(unused_imports)]
+use crate::gpio::sealed::{AFType, Pin};
+use crate::time::Hertz;
 
 pub struct SimplePwm<'d, T> {
     phantom: PhantomData<&'d mut T>,
     inner: T,
 }
 
-impl<'d, T: CaptureCompareCapable16bitInstance> SimplePwm<'d, T> {
+macro_rules! config_pins {
+    ($($pin:ident),*) => {
+        unborrow!($($pin),*);
+        // NOTE(unsafe) Exclusive access to the registers
+        critical_section::with(|_| unsafe {
+            $(
+                $pin.set_low();
+                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
+                #[cfg(gpio_v2)]
+                $pin.set_speed(crate::gpio::Speed::VeryHigh);
+            )*
+        })
+    };
+}
+
+impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     pub fn new_1ch<F: Into<Hertz>>(
         tim: impl Unborrow<Target = T> + 'd,
         ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
         freq: F,
     ) -> Self {
-        unborrow!(ch1);
-        Self::new_inner(tim, freq, move || unsafe {
-            ch1.configure();
+        Self::new_inner(tim, freq, move || {
+            config_pins!(ch1);
         })
     }
 
@@ -29,10 +44,8 @@ impl<'d, T: CaptureCompareCapable16bitInstance> SimplePwm<'d, T> {
         ch2: impl Unborrow<Target = impl Channel2Pin<T>> + 'd,
         freq: F,
     ) -> Self {
-        unborrow!(ch1, ch2);
-        Self::new_inner(tim, freq, move || unsafe {
-            ch1.configure();
-            ch2.configure();
+        Self::new_inner(tim, freq, move || {
+            config_pins!(ch1, ch2);
         })
     }
 
@@ -43,11 +56,8 @@ impl<'d, T: CaptureCompareCapable16bitInstance> SimplePwm<'d, T> {
         ch3: impl Unborrow<Target = impl Channel3Pin<T>> + 'd,
         freq: F,
     ) -> Self {
-        unborrow!(ch1, ch2, ch3);
-        Self::new_inner(tim, freq, move || unsafe {
-            ch1.configure();
-            ch2.configure();
-            ch3.configure();
+        Self::new_inner(tim, freq, move || {
+            config_pins!(ch1, ch2, ch3);
         })
     }
 
@@ -59,12 +69,8 @@ impl<'d, T: CaptureCompareCapable16bitInstance> SimplePwm<'d, T> {
         ch4: impl Unborrow<Target = impl Channel4Pin<T>> + 'd,
         freq: F,
     ) -> Self {
-        unborrow!(ch1, ch2, ch3, ch4);
-        Self::new_inner(tim, freq, move || unsafe {
-            ch1.configure();
-            ch2.configure();
-            ch3.configure();
-            ch4.configure();
+        Self::new_inner(tim, freq, move || {
+            config_pins!(ch1, ch2, ch3, ch4);
         })
     }
 

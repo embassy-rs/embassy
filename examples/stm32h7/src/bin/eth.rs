@@ -4,6 +4,7 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
+use embassy_stm32::peripherals::ETH;
 use example_common::config;
 
 use cortex_m_rt::entry;
@@ -26,7 +27,7 @@ use peripherals::RNG;
 
 #[embassy::task]
 async fn main_task(
-    device: &'static mut Ethernet<'static, LAN8742A, 4, 4>,
+    device: &'static mut Ethernet<'static, ETH, LAN8742A, 4, 4>,
     config: &'static mut StaticConfigurator,
     spawner: Spawner,
 ) {
@@ -81,8 +82,8 @@ fn _embassy_rand(buf: &mut [u8]) {
 static mut RNG_INST: Option<Rng<RNG>> = None;
 
 static EXECUTOR: Forever<Executor> = Forever::new();
-static STATE: Forever<State<'static, 4, 4>> = Forever::new();
-static ETH: Forever<Ethernet<'static, LAN8742A, 4, 4>> = Forever::new();
+static STATE: Forever<State<'static, ETH, 4, 4>> = Forever::new();
+static ETH: Forever<Ethernet<'static, ETH, LAN8742A, 4, 4>> = Forever::new();
 static CONFIG: Forever<StaticConfigurator> = Forever::new();
 static NET_RESOURCES: Forever<StackResources<1, 2, 8>> = Forever::new();
 

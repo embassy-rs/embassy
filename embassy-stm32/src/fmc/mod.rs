@@ -1,11 +1,13 @@
-mod pins;
-
 use core::marker::PhantomData;
-
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
-use pins::*;
+use crate::gpio::sealed::AFType::OutputPushPull;
+use crate::gpio::Speed;
+use crate::pac::gpio::vals::Pupdr;
+
+mod pins;
+pub use pins::*;
 
 pub struct Fmc<'d, T: Instance> {
     peri: PhantomData<&'d mut T>,
@@ -34,16 +36,21 @@ where
         <T as crate::rcc::sealed::RccPeripheral>::frequency().0
     }
 }
+
 macro_rules! config_pins {
     ($($pin:ident),*) => {
+        unborrow!($($pin),*);
         $(
-            $pin.configure();
+            $pin.set_as_af($pin.af_num(), OutputPushPull);
+            $pin.set_speed(Speed::VeryHigh);
+            $pin.block().pupdr().modify(|w| w.set_pupdr($pin.pin() as usize, Pupdr::PULLUP));
         )*
-};
+    };
 }
 
 macro_rules! fmc_sdram_constructor {
     ($name:ident: (
+        bank: $bank:expr,
         addr: [$(($addr_pin_name:ident: $addr_signal:ident)),*],
         ba: [$(($ba_pin_name:ident: $ba_signal:ident)),*],
         d: [$(($d_pin_name:ident: $d_signal:ident)),*],
@@ -52,21 +59,15 @@ macro_rules! fmc_sdram_constructor {
     )) => {
         pub fn $name<CHIP: stm32_fmc::SdramChip>(
             _instance: impl Unborrow<Target = T> + 'd,
-            $($addr_pin_name: impl Unborrow<Target = impl $addr_signal> + 'd),*,
-            $($ba_pin_name: impl Unborrow<Target = impl $ba_signal> + 'd),*,
-            $($d_pin_name: impl Unborrow<Target = impl $d_signal> + 'd),*,
-            $($nbl_pin_name: impl Unborrow<Target = impl $nbl_signal> + 'd),*,
-            $($ctrl_pin_name: impl Unborrow<Target = impl $ctrl_signal> + 'd),*,
+            $($addr_pin_name: impl Unborrow<Target = impl $addr_signal<T>> + 'd),*,
+            $($ba_pin_name: impl Unborrow<Target = impl $ba_signal<T>> + 'd),*,
+            $($d_pin_name: impl Unborrow<Target = impl $d_signal<T>> + 'd),*,
+            $($nbl_pin_name: impl Unborrow<Target = impl $nbl_signal<T>> + 'd),*,
+            $($ctrl_pin_name: impl Unborrow<Target = impl $ctrl_signal<T>> + 'd),*,
             chip: CHIP
         ) -> stm32_fmc::Sdram<Fmc<'d, T>, CHIP> {
-            unborrow!(
-                $($addr_pin_name),*,
-                $($ba_pin_name),*,
-                $($d_pin_name),*,
-                $($nbl_pin_name),*,
-                $($ctrl_pin_name),*
-            );
 
+        critical_section::with(|_| unsafe {
             config_pins!(
                 $($addr_pin_name),*,
                 $($ba_pin_name),*,
@@ -74,17 +75,12 @@ macro_rules! fmc_sdram_constructor {
                 $($nbl_pin_name),*,
                 $($ctrl_pin_name),*
             );
+        });
 
             let fmc = Self { peri: PhantomData };
-            stm32_fmc::Sdram::new(
+            stm32_fmc::Sdram::new_unchecked(
                 fmc,
-                (
-                    $($addr_pin_name),*,
-                    $($ba_pin_name),*,
-                    $($d_pin_name),*,
-                    $($nbl_pin_name),*,
-                    $($ctrl_pin_name),*,
-                ),
+                $bank,
                 chip,
             )
         }
@@ -93,6 +89,7 @@ macro_rules! fmc_sdram_constructor {
 
 impl<'d, T: Instance> Fmc<'d, T> {
     fmc_sdram_constructor!(sdram_a12bits_d32bits_4banks_bank1: (
+        bank: stm32_fmc::SdramTargetBank::Bank1,
         addr: [
             (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin)
         ],
@@ -112,6 +109,7 @@ impl<'d, T: Instance> Fmc<'d, T> {
     ));
 
     fmc_sdram_constructor!(sdram_a12bits_d32bits_4banks_bank2: (
+        bank: stm32_fmc::SdramTargetBank::Bank2,
         addr: [
             (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin)
         ],
@@ -130,8 +128,6 @@ impl<'d, T: Instance> Fmc<'d, T> {
         ]
     ));
 }
-
-pub trait Instance: sealed::Instance + 'static {}
 
 crate::pac::peripherals!(
     (fmc, $inst:ident) => {
