@@ -48,6 +48,18 @@ The `Spawner` is the way the main application spawns other tasks. The `Periphera
 include::example$basic/src/main.rs[lines="28..-1"]
 ----
 
+`#[embassy::main]` takes an optional `config` paramter specifying a function that returns an instance of HAL's `Config` struct. For example:
+
+```rust
+fn embassy_config() -> embassy_nrf::config::Config {
+    embassy_nrf::config::Config::default()
+}
+
+#[embassy::main(config = "embassy_config()")]
+async fn main(_spawner: embassy::executor::Spawner, p: embassy_nrf::Peripherals) {
+    // ...
+}
+```
 
 What happens when the `blinker` task have been spawned and main returns? Well, the main entry point is actually just like any other task, except that you can only have one and it takes some specific type arguments. The magic lies within the `#[embassy::main]` macro. The macro does the following:
 
