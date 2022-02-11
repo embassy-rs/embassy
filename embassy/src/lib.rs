@@ -1,8 +1,13 @@
 #![cfg_attr(not(any(feature = "std", feature = "wasm")), no_std)]
-#![feature(generic_associated_types)]
-#![feature(const_fn_trait_bound)]
-#![feature(const_fn_fn_ptr_basics)]
-#![feature(type_alias_impl_trait)]
+#![cfg_attr(
+    feature = "nightly",
+    feature(
+        const_fn_trait_bound,
+        const_fn_fn_ptr_basics,
+        generic_associated_types,
+        type_alias_impl_trait
+    )
+)]
 #![allow(clippy::new_without_default)]
 
 // This mod MUST go first, so that the others see its macros.
@@ -20,7 +25,8 @@ pub mod io;
 pub mod time;
 pub mod util;
 
-pub use embassy_macros::*;
+#[cfg(feature = "nightly")]
+pub use embassy_macros::{main, task};
 
 #[doc(hidden)]
 /// Implementation details for embassy macros. DO NOT USE.

@@ -13,7 +13,7 @@ edition = "2018"
 unstable-pac = []
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../embassy", features = [ "time-tick-1mhz" ] }
+embassy = { version = "0.1.0", path = "../embassy", features = [ "time-tick-1mhz", "nightly"] }
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["rp"]}
 atomic-polyfill = "0.1.5"

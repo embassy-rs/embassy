@@ -760,7 +760,6 @@ mod eh02 {
 #[cfg(feature = "unstable-traits")]
 mod eh1 {
     use super::*;
-    use core::future::Future;
 
     impl embedded_hal_1::serial::Error for Error {
         fn kind(&self) -> embedded_hal_1::serial::ErrorKind {
@@ -787,6 +786,36 @@ mod eh1 {
             Ok(())
         }
     }
+
+    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for UarteTx<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::serial::blocking::Write for UarteTx<'d, T> {
+        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for UarteRx<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, U: Instance, T: TimerInstance> embedded_hal_1::serial::ErrorType
+        for UarteWithIdle<'d, U, T>
+    {
+        type Error = Error;
+    }
+}
+
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+mod eh1a {
+    use super::*;
+    use core::future::Future;
 
     impl<'d, T: Instance> embedded_hal_async::serial::Read for Uarte<'d, T> {
         type ReadFuture<'a>
@@ -819,22 +848,6 @@ mod eh1 {
         }
     }
 
-    // =====================
-
-    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for UarteTx<'d, T> {
-        type Error = Error;
-    }
-
-    impl<'d, T: Instance> embedded_hal_1::serial::blocking::Write for UarteTx<'d, T> {
-        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
-        }
-
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            Ok(())
-        }
-    }
-
     impl<'d, T: Instance> embedded_hal_async::serial::Write for UarteTx<'d, T> {
         type WriteFuture<'a>
         where
@@ -855,12 +868,6 @@ mod eh1 {
         }
     }
 
-    // =====================
-
-    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for UarteRx<'d, T> {
-        type Error = Error;
-    }
-
     impl<'d, T: Instance> embedded_hal_async::serial::Read for UarteRx<'d, T> {
         type ReadFuture<'a>
         where
@@ -870,14 +877,6 @@ mod eh1 {
         fn read<'a>(&'a mut self, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
             self.read(buffer)
         }
-    }
-
-    // =====================
-
-    impl<'d, U: Instance, T: TimerInstance> embedded_hal_1::serial::ErrorType
-        for UarteWithIdle<'d, U, T>
-    {
-        type Error = Error;
     }
 
     impl<'d, U: Instance, T: TimerInstance> embedded_hal_async::serial::Read

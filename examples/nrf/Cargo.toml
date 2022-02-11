@@ -4,6 +4,9 @@ edition = "2018"
 name = "embassy-nrf-examples"
 version = "0.1.0"
 
+[features]
+default = ["nightly"]
+nightly = ["embassy-nrf/nightly"]
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }

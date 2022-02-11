@@ -5,7 +5,7 @@ name = "embassy-std-examples"
 version = "0.1.0"
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["log", "std", "time"] }
+embassy = { version = "0.1.0", path = "../../embassy", features = ["log", "std", "time", "nightly"] }
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features=["std", "log", "medium-ethernet", "tcp", "dhcpv4"] }
 
 async-io = "1.6.0"

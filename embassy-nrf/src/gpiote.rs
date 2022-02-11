@@ -463,7 +463,6 @@ mod eh02 {
 #[cfg(feature = "unstable-traits")]
 mod eh1 {
     use super::*;
-    use futures::FutureExt;
 
     impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::ErrorType for InputChannel<'d, C, T> {
         type Error = Infallible;
@@ -480,6 +479,12 @@ mod eh1 {
             self.pin.is_low()
         }
     }
+}
+
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+mod eh1a {
+    use super::*;
+    use futures::FutureExt;
 
     impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Input<'d, T> {
         type WaitForHighFuture<'a>
