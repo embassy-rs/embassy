@@ -51,8 +51,7 @@ pub struct Vref;
 impl<T: Instance> AdcPin<T> for Vref {}
 impl<T: Instance> super::sealed::AdcPin<T> for Vref {
     fn channel(&self) -> u8 {
-        let val = 17;
-        val
+        17
     }
 }
 
@@ -60,8 +59,7 @@ pub struct Temperature;
 impl<T: Instance> AdcPin<T> for Temperature {}
 impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
     fn channel(&self) -> u8 {
-        let val = 16;
-        val
+        16
     }
 }
 
@@ -69,8 +67,7 @@ pub struct Vbat;
 impl<T: Instance> AdcPin<T> for Vbat {}
 impl<T: Instance> super::sealed::AdcPin<T> for Vbat {
     fn channel(&self) -> u8 {
-        let val = 18;
-        val
+        18
     }
 }
 
