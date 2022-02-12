@@ -7,7 +7,6 @@ mod example_common;
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_nrf::gpio::NoPin;
 use embassy_nrf::pwm::{
     Config, Prescaler, SequenceConfig, SequenceLoad, SequencePwm, SingleSequenceMode,
     SingleSequencer,
@@ -35,9 +34,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     config.sequence_load = SequenceLoad::Common;
     config.prescaler = Prescaler::Div1;
     config.max_duty = 20; // 1.25us (1s / 16Mhz * 20)
-    let mut pwm = unwrap!(SequencePwm::new(
-        p.PWM0, p.P1_05, NoPin, NoPin, NoPin, config,
-    ));
+    let mut pwm = unwrap!(SequencePwm::new_1ch(p.PWM0, p.P1_05, config));
 
     // Declare the bits of 24 bits in a buffer we'll be
     // mutating later.

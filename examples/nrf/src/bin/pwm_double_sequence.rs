@@ -7,7 +7,6 @@ mod example_common;
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_nrf::gpio::NoPin;
 use embassy_nrf::pwm::{
     Config, Prescaler, Sequence, SequenceConfig, SequenceMode, SequencePwm, Sequencer,
     StartSequence,
@@ -29,9 +28,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     seq_config.refresh = 624;
     // thus our sequence takes 5 * 5000ms or 25 seconds
 
-    let mut pwm = unwrap!(SequencePwm::new(
-        p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config,
-    ));
+    let mut pwm = unwrap!(SequencePwm::new_1ch(p.PWM0, p.P0_13, config));
 
     let sequence_0 = Sequence::new(&seq_words_0, seq_config.clone());
     let sequence_1 = Sequence::new(&seq_words_1, seq_config);

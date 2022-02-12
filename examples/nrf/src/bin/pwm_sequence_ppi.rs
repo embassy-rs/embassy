@@ -8,7 +8,7 @@ mod example_common;
 use core::future::pending;
 use defmt::*;
 use embassy::executor::Spawner;
-use embassy_nrf::gpio::{Input, NoPin, Pull};
+use embassy_nrf::gpio::{Input, Pull};
 use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
 use embassy_nrf::ppi::Ppi;
 use embassy_nrf::pwm::{
@@ -29,9 +29,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut seq_config = SequenceConfig::default();
     seq_config.refresh = 30;
 
-    let mut pwm = unwrap!(SequencePwm::new(
-        p.PWM0, p.P0_13, NoPin, NoPin, NoPin, config,
-    ));
+    let mut pwm = unwrap!(SequencePwm::new_1ch(p.PWM0, p.P0_13, config));
 
     // pwm.stop() deconfigures pins, and then the task_start_seq0 task cant work
     // so its going to have to start running in order load the configuration

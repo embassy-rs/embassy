@@ -6,7 +6,7 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, OptionalPin as GpioOptionalPin};
+use crate::gpio::{AnyPin, Pin as GpioPin, PselBits};
 use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::ppi::{Event, Task};
@@ -48,47 +48,104 @@ pub enum Error {
 const MAX_SEQUENCE_LEN: usize = 32767;
 
 impl<'d, T: Instance> SequencePwm<'d, T> {
-    /// Creates the interface to a `SequencePwm`.
-    ///
-    /// Must be started by calling `start`
-    ///
-    /// # Safety
-    ///
-    /// The returned API is safe unless you use `mem::forget` (or similar safe
-    /// mechanisms) on stack allocated buffers which which have been passed to
-    /// [`new()`](SequencePwm::new).
+    /// Create a new 1-channel PWM
     #[allow(unused_unsafe)]
-    pub fn new(
-        _pwm: impl Unborrow<Target = T> + 'd,
-        ch0: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        ch1: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
+    pub fn new_1ch(
+        pwm: impl Unborrow<Target = T> + 'd,
+        ch0: impl Unborrow<Target = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Result<Self, Error> {
+        unborrow!(ch0);
+        Self::new_inner(pwm, Some(ch0.degrade()), None, None, None, config)
+    }
+
+    /// Create a new 2-channel PWM
+    #[allow(unused_unsafe)]
+    pub fn new_2ch(
+        pwm: impl Unborrow<Target = T> + 'd,
+        ch0: impl Unborrow<Target = impl GpioPin> + 'd,
+        ch1: impl Unborrow<Target = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Result<Self, Error> {
+        unborrow!(ch0, ch1);
+        Self::new_inner(
+            pwm,
+            Some(ch0.degrade()),
+            Some(ch1.degrade()),
+            None,
+            None,
+            config,
+        )
+    }
+
+    /// Create a new 3-channel PWM
+    #[allow(unused_unsafe)]
+    pub fn new_3ch(
+        pwm: impl Unborrow<Target = T> + 'd,
+        ch0: impl Unborrow<Target = impl GpioPin> + 'd,
+        ch1: impl Unborrow<Target = impl GpioPin> + 'd,
+        ch2: impl Unborrow<Target = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Result<Self, Error> {
+        unborrow!(ch0, ch1, ch2);
+        Self::new_inner(
+            pwm,
+            Some(ch0.degrade()),
+            Some(ch1.degrade()),
+            Some(ch2.degrade()),
+            None,
+            config,
+        )
+    }
+
+    /// Create a new 4-channel PWM
+    #[allow(unused_unsafe)]
+    pub fn new_4ch(
+        pwm: impl Unborrow<Target = T> + 'd,
+        ch0: impl Unborrow<Target = impl GpioPin> + 'd,
+        ch1: impl Unborrow<Target = impl GpioPin> + 'd,
+        ch2: impl Unborrow<Target = impl GpioPin> + 'd,
+        ch3: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
         unborrow!(ch0, ch1, ch2, ch3);
+        Self::new_inner(
+            pwm,
+            Some(ch0.degrade()),
+            Some(ch1.degrade()),
+            Some(ch2.degrade()),
+            Some(ch3.degrade()),
+            config,
+        )
+    }
 
+    fn new_inner(
+        _pwm: impl Unborrow<Target = T> + 'd,
+        ch0: Option<AnyPin>,
+        ch1: Option<AnyPin>,
+        ch2: Option<AnyPin>,
+        ch3: Option<AnyPin>,
+        config: Config,
+    ) -> Result<Self, Error> {
         let r = T::regs();
 
-        if let Some(pin) = ch0.pin_mut() {
+        if let Some(pin) = &ch0 {
             pin.set_low();
             pin.conf().write(|w| w.dir().output());
         }
-        if let Some(pin) = ch1.pin_mut() {
+        if let Some(pin) = &ch1 {
             pin.set_low();
             pin.conf().write(|w| w.dir().output());
         }
-        if let Some(pin) = ch2.pin_mut() {
+        if let Some(pin) = &ch2 {
             pin.set_low();
             pin.conf().write(|w| w.dir().output());
         }
-        if let Some(pin) = ch3.pin_mut() {
+        if let Some(pin) = &ch3 {
             pin.set_low();
             pin.conf().write(|w| w.dir().output());
         }
 
-        // if NoPin provided writes disconnected (top bit 1) 0x80000000 else
-        // writes pin number ex 13 (0x0D) which is connected (top bit 0)
         r.psel.out[0].write(|w| unsafe { w.bits(ch0.psel_bits()) });
         r.psel.out[1].write(|w| unsafe { w.bits(ch1.psel_bits()) });
         r.psel.out[2].write(|w| unsafe { w.bits(ch2.psel_bits()) });
@@ -121,10 +178,10 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
         Ok(Self {
             phantom: PhantomData,
-            ch0: ch0.degrade_optional(),
-            ch1: ch1.degrade_optional(),
-            ch2: ch2.degrade_optional(),
-            ch3: ch3.degrade_optional(),
+            ch0,
+            ch1,
+            ch2,
+            ch3,
         })
     }
 
@@ -545,41 +602,86 @@ pub enum CounterMode {
 }
 
 impl<'d, T: Instance> SimplePwm<'d, T> {
-    /// Creates the interface to a `SimplePwm`
-    ///
-    /// Enables the peripheral, defaults the freq to 1Mhz, max_duty 1000, duty
-    /// 0, up mode, and pins low. Must be started by calling `set_duty`
-    ///
-    /// # Safety
-    ///
-    /// The returned API is safe unless you use `mem::forget` (or similar safe
-    /// mechanisms) on stack allocated buffers which which have been passed to
-    /// [`new()`](SimplePwm::new).
+    /// Create a new 1-channel PWM
     #[allow(unused_unsafe)]
-    pub fn new(
-        _pwm: impl Unborrow<Target = T> + 'd,
-        ch0: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        ch1: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        ch2: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        ch3: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
+    pub fn new_1ch(
+        pwm: impl Unborrow<Target = T> + 'd,
+        ch0: impl Unborrow<Target = impl GpioPin> + 'd,
+    ) -> Self {
+        unborrow!(ch0);
+        Self::new_inner(pwm, Some(ch0.degrade()), None, None, None)
+    }
+
+    /// Create a new 2-channel PWM
+    #[allow(unused_unsafe)]
+    pub fn new_2ch(
+        pwm: impl Unborrow<Target = T> + 'd,
+        ch0: impl Unborrow<Target = impl GpioPin> + 'd,
+        ch1: impl Unborrow<Target = impl GpioPin> + 'd,
+    ) -> Self {
+        unborrow!(ch0, ch1);
+        Self::new_inner(pwm, Some(ch0.degrade()), Some(ch1.degrade()), None, None)
+    }
+
+    /// Create a new 3-channel PWM
+    #[allow(unused_unsafe)]
+    pub fn new_3ch(
+        pwm: impl Unborrow<Target = T> + 'd,
+        ch0: impl Unborrow<Target = impl GpioPin> + 'd,
+        ch1: impl Unborrow<Target = impl GpioPin> + 'd,
+        ch2: impl Unborrow<Target = impl GpioPin> + 'd,
+    ) -> Self {
+        unborrow!(ch0, ch1, ch2);
+        Self::new_inner(
+            pwm,
+            Some(ch0.degrade()),
+            Some(ch1.degrade()),
+            Some(ch2.degrade()),
+            None,
+        )
+    }
+
+    /// Create a new 4-channel PWM
+    #[allow(unused_unsafe)]
+    pub fn new_4ch(
+        pwm: impl Unborrow<Target = T> + 'd,
+        ch0: impl Unborrow<Target = impl GpioPin> + 'd,
+        ch1: impl Unborrow<Target = impl GpioPin> + 'd,
+        ch2: impl Unborrow<Target = impl GpioPin> + 'd,
+        ch3: impl Unborrow<Target = impl GpioPin> + 'd,
     ) -> Self {
         unborrow!(ch0, ch1, ch2, ch3);
+        Self::new_inner(
+            pwm,
+            Some(ch0.degrade()),
+            Some(ch1.degrade()),
+            Some(ch2.degrade()),
+            Some(ch3.degrade()),
+        )
+    }
 
+    fn new_inner(
+        _pwm: impl Unborrow<Target = T> + 'd,
+        ch0: Option<AnyPin>,
+        ch1: Option<AnyPin>,
+        ch2: Option<AnyPin>,
+        ch3: Option<AnyPin>,
+    ) -> Self {
         let r = T::regs();
 
-        if let Some(pin) = ch0.pin_mut() {
+        if let Some(pin) = &ch0 {
             pin.set_low();
             pin.conf().write(|w| w.dir().output());
         }
-        if let Some(pin) = ch1.pin_mut() {
+        if let Some(pin) = &ch1 {
             pin.set_low();
             pin.conf().write(|w| w.dir().output());
         }
-        if let Some(pin) = ch2.pin_mut() {
+        if let Some(pin) = &ch2 {
             pin.set_low();
             pin.conf().write(|w| w.dir().output());
         }
-        if let Some(pin) = ch3.pin_mut() {
+        if let Some(pin) = &ch3 {
             pin.set_low();
             pin.conf().write(|w| w.dir().output());
         }
@@ -593,10 +695,10 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
 
         let pwm = Self {
             phantom: PhantomData,
-            ch0: ch0.degrade_optional(),
-            ch1: ch1.degrade_optional(),
-            ch2: ch2.degrade_optional(),
-            ch3: ch3.degrade_optional(),
+            ch0,
+            ch1,
+            ch2,
+            ch3,
             duty: [0; 4],
         };
 

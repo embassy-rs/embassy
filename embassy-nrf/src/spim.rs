@@ -8,9 +8,9 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
-use crate::gpio;
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{OptionalPin, Pin as GpioPin};
+use crate::gpio::{self, AnyPin};
+use crate::gpio::{Pin as GpioPin, PselBits};
 use crate::interrupt::Interrupt;
 use crate::util::{slice_ptr_parts, slice_ptr_parts_mut};
 use crate::{pac, util::slice_in_ram_or};
@@ -51,36 +51,77 @@ impl Default for Config {
 
 impl<'d, T: Instance> Spim<'d, T> {
     pub fn new(
-        _spim: impl Unborrow<Target = T> + 'd,
+        spim: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
         sck: impl Unborrow<Target = impl GpioPin> + 'd,
-        miso: impl Unborrow<Target = impl OptionalPin> + 'd,
-        mosi: impl Unborrow<Target = impl OptionalPin> + 'd,
+        miso: impl Unborrow<Target = impl GpioPin> + 'd,
+        mosi: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(irq, sck, miso, mosi);
+        unborrow!(sck, miso, mosi);
+        Self::new_inner(
+            spim,
+            irq,
+            sck.degrade(),
+            Some(miso.degrade()),
+            Some(mosi.degrade()),
+            config,
+        )
+    }
+
+    pub fn new_txonly(
+        spim: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        sck: impl Unborrow<Target = impl GpioPin> + 'd,
+        mosi: impl Unborrow<Target = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Self {
+        unborrow!(sck, mosi);
+        Self::new_inner(spim, irq, sck.degrade(), None, Some(mosi.degrade()), config)
+    }
+
+    pub fn new_rxonly(
+        spim: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        sck: impl Unborrow<Target = impl GpioPin> + 'd,
+        miso: impl Unborrow<Target = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Self {
+        unborrow!(sck, miso);
+        Self::new_inner(spim, irq, sck.degrade(), Some(miso.degrade()), None, config)
+    }
+
+    fn new_inner(
+        _spim: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        sck: AnyPin,
+        miso: Option<AnyPin>,
+        mosi: Option<AnyPin>,
+        config: Config,
+    ) -> Self {
+        unborrow!(irq);
 
         let r = T::regs();
 
         // Configure pins
         sck.conf().write(|w| w.dir().output().drive().h0h1());
-        if let Some(mosi) = mosi.pin_mut() {
+        if let Some(mosi) = &mosi {
             mosi.conf().write(|w| w.dir().output().drive().h0h1());
         }
-        if let Some(miso) = miso.pin_mut() {
+        if let Some(miso) = &miso {
             miso.conf().write(|w| w.input().connect().drive().h0h1());
         }
 
         match config.mode.polarity {
             Polarity::IdleHigh => {
                 sck.set_high();
-                if let Some(mosi) = mosi.pin_mut() {
+                if let Some(mosi) = &mosi {
                     mosi.set_high();
                 }
             }
             Polarity::IdleLow => {
                 sck.set_low();
-                if let Some(mosi) = mosi.pin_mut() {
+                if let Some(mosi) = &mosi {
                     mosi.set_low();
                 }
             }

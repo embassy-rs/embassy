@@ -24,7 +24,7 @@ use futures::future::poll_fn;
 
 use crate::chip::EASY_DMA_SIZE;
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{self, OptionalPin as GpioOptionalPin, Pin as GpioPin};
+use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
 use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
@@ -80,18 +80,50 @@ pub struct UarteRx<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Uarte<'d, T> {
-    /// Creates the interface to a UARTE instance.
-    /// Sets the baud rate, parity and assigns the pins to the UARTE peripheral.
+    /// Create a new UARTE without hardware flow control
     pub fn new(
-        _uarte: impl Unborrow<Target = T> + 'd,
+        uarte: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
         rxd: impl Unborrow<Target = impl GpioPin> + 'd,
         txd: impl Unborrow<Target = impl GpioPin> + 'd,
-        cts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        rts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(irq, rxd, txd, cts, rts);
+        unborrow!(rxd, txd);
+        Self::new_inner(uarte, irq, rxd.degrade(), txd.degrade(), None, None, config)
+    }
+
+    /// Create a new UARTE with hardware flow control (RTS/CTS)
+    pub fn new_with_rtscts(
+        uarte: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
+        txd: impl Unborrow<Target = impl GpioPin> + 'd,
+        cts: impl Unborrow<Target = impl GpioPin> + 'd,
+        rts: impl Unborrow<Target = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Self {
+        unborrow!(rxd, txd, cts, rts);
+        Self::new_inner(
+            uarte,
+            irq,
+            rxd.degrade(),
+            txd.degrade(),
+            Some(cts.degrade()),
+            Some(rts.degrade()),
+            config,
+        )
+    }
+
+    fn new_inner(
+        _uarte: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        rxd: AnyPin,
+        txd: AnyPin,
+        cts: Option<AnyPin>,
+        rts: Option<AnyPin>,
+        config: Config,
+    ) -> Self {
+        unborrow!(irq);
 
         let r = T::regs();
 
@@ -102,19 +134,19 @@ impl<'d, T: Instance> Uarte<'d, T> {
         txd.conf().write(|w| w.dir().output().drive().h0h1());
         r.psel.txd.write(|w| unsafe { w.bits(txd.psel_bits()) });
 
-        if let Some(pin) = rts.pin_mut() {
-            pin.set_high();
-            pin.conf().write(|w| w.dir().output().drive().h0h1());
+        if let Some(pin) = &cts {
+            pin.conf().write(|w| w.input().connect().drive().h0h1());
         }
         r.psel.cts.write(|w| unsafe { w.bits(cts.psel_bits()) });
 
-        if let Some(pin) = cts.pin_mut() {
-            pin.conf().write(|w| w.input().connect().drive().h0h1());
+        if let Some(pin) = &rts {
+            pin.set_high();
+            pin.conf().write(|w| w.dir().output().drive().h0h1());
         }
         r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
 
         // Configure
-        let hardware_flow_control = match (rts.pin().is_some(), cts.pin().is_some()) {
+        let hardware_flow_control = match (rts.is_some(), cts.is_some()) {
             (false, false) => false,
             (true, true) => true,
             _ => panic!("RTS and CTS pins must be either both set or none set."),
@@ -491,8 +523,7 @@ pub struct UarteWithIdle<'d, U: Instance, T: TimerInstance> {
 }
 
 impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
-    /// Creates the interface to a UARTE instance.
-    /// Sets the baud rate, parity and assigns the pins to the UARTE peripheral.
+    /// Create a new UARTE without hardware flow control
     pub fn new(
         uarte: impl Unborrow<Target = U> + 'd,
         timer: impl Unborrow<Target = T> + 'd,
@@ -501,12 +532,65 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         irq: impl Unborrow<Target = U::Interrupt> + 'd,
         rxd: impl Unborrow<Target = impl GpioPin> + 'd,
         txd: impl Unborrow<Target = impl GpioPin> + 'd,
-        cts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        rts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
+        config: Config,
+    ) -> Self {
+        unborrow!(rxd, txd);
+        Self::new_inner(
+            uarte,
+            timer,
+            ppi_ch1,
+            ppi_ch2,
+            irq,
+            rxd.degrade(),
+            txd.degrade(),
+            None,
+            None,
+            config,
+        )
+    }
+
+    /// Create a new UARTE with hardware flow control (RTS/CTS)
+    pub fn new_with_rtscts(
+        uarte: impl Unborrow<Target = U> + 'd,
+        timer: impl Unborrow<Target = T> + 'd,
+        ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
+        ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
+        irq: impl Unborrow<Target = U::Interrupt> + 'd,
+        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
+        txd: impl Unborrow<Target = impl GpioPin> + 'd,
+        cts: impl Unborrow<Target = impl GpioPin> + 'd,
+        rts: impl Unborrow<Target = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Self {
+        unborrow!(rxd, txd, cts, rts);
+        Self::new_inner(
+            uarte,
+            timer,
+            ppi_ch1,
+            ppi_ch2,
+            irq,
+            rxd.degrade(),
+            txd.degrade(),
+            Some(cts.degrade()),
+            Some(rts.degrade()),
+            config,
+        )
+    }
+
+    fn new_inner(
+        uarte: impl Unborrow<Target = U> + 'd,
+        timer: impl Unborrow<Target = T> + 'd,
+        ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
+        ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
+        irq: impl Unborrow<Target = U::Interrupt> + 'd,
+        rxd: AnyPin,
+        txd: AnyPin,
+        cts: Option<AnyPin>,
+        rts: Option<AnyPin>,
         config: Config,
     ) -> Self {
         let baudrate = config.baudrate;
-        let uarte = Uarte::new(uarte, irq, rxd, txd, cts, rts, config);
+        let uarte = Uarte::new_inner(uarte, irq, rxd, txd, cts, rts, config);
         let mut timer = Timer::new(timer);
 
         unborrow!(ppi_ch1, ppi_ch2);
