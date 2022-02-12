@@ -17,6 +17,10 @@ nightly = ["embedded-hal-async"]
 # Implement embedded-hal-async traits if `nightly` is set as well.
 unstable-traits = ["embedded-hal-1"]
 
+# Display a timestamp of the number of seconds since startup next to defmt log messages
+# To use this you must have a time driver provided.
+defmt-timestamp-uptime = ["defmt"]
+
 # Enable `embassy::time` module. 
 # NOTE: This feature is only intended to be enabled by crates providing the time driver implementation.
 # Enabling it directly without supplying a time driver will fail to link.

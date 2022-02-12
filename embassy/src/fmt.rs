@@ -195,6 +195,9 @@ macro_rules! unwrap {
     }
 }
 
+#[cfg(feature = "defmt-timestamp-uptime")]
+defmt::timestamp! {"{=u64:us}", crate::time::Instant::now().as_micros() }
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct NoneError;
 
