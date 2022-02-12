@@ -12,7 +12,6 @@ use defmt::*;
 use display_interface_spi::SPIInterfaceNoCS;
 use embassy::executor::Spawner;
 use embassy::time::Delay;
-use embassy_rp::gpio::NoPin;
 use embassy_rp::peripherals;
 use embassy_rp::spi;
 use embassy_rp::spi::Spi;
@@ -49,7 +48,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let spi = RefCell::new(SpiState {
         last_mode: SpiMode::Display,
-        spi: Spi::new(p.SPI1, clk, mosi, miso, NoPin, config),
+        spi: Spi::new(p.SPI1, clk, mosi, miso, config),
         display_cs: Output::new(display_cs, Level::Low),
     });
 
