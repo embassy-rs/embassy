@@ -28,6 +28,13 @@ impl Instant {
         Self { ticks }
     }
 
+    /// Create an Instant from a microsecond count since system boot.
+    pub const fn from_micros(micros: u64) -> Self {
+        Self {
+            ticks: micros * TICKS_PER_SECOND / 1_000_000,
+        }
+    }
+
     /// Create an Instant from a millisecond count since system boot.
     pub const fn from_millis(millis: u64) -> Self {
         Self {
@@ -55,6 +62,11 @@ impl Instant {
     /// Milliseconds since system boot.
     pub const fn as_millis(&self) -> u64 {
         self.ticks * 1000 / TICKS_PER_SECOND
+    }
+
+    /// Microseconds since system boot.
+    pub const fn as_micros(&self) -> u64 {
+        self.ticks * 1_000_000 / TICKS_PER_SECOND
     }
 
     /// Duration between this Instant and another Instant

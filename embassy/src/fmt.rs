@@ -196,8 +196,7 @@ macro_rules! unwrap {
 }
 
 #[cfg(feature = "defmt-timestamp-uptime")]
-// defmt offers a disply hint for microseconds so we convert from millis
-defmt::timestamp! {"{=u64:us}", crate::time::Instant::now().as_millis() * 1_000 }
+defmt::timestamp! {"{=u64:us}", crate::time::Instant::now().as_micros() }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct NoneError;
