@@ -287,8 +287,6 @@ pub(crate) mod sealed {
             unsafe { self.block().outclr.write(|w| w.bits(1u32 << self._pin())) }
         }
     }
-
-    pub trait OptionalPin {}
 }
 
 pub trait Pin: Unborrow<Target = Self> + sealed::Pin + Sized + 'static {
@@ -346,58 +344,16 @@ impl sealed::Pin for AnyPin {
 
 // ====================
 
-pub trait OptionalPin: Unborrow<Target = Self> + sealed::OptionalPin + Sized {
-    type Pin: Pin;
-    fn pin(&self) -> Option<&Self::Pin>;
-    fn pin_mut(&mut self) -> Option<&mut Self::Pin>;
+pub(crate) trait PselBits {
+    fn psel_bits(&self) -> u32;
+}
 
+impl PselBits for Option<AnyPin> {
     #[inline]
     fn psel_bits(&self) -> u32 {
-        self.pin().map_or(1u32 << 31, Pin::psel_bits)
-    }
-
-    /// Convert from concrete pin type PX_XX to type erased `Option<AnyPin>`.
-    #[inline]
-    fn degrade_optional(mut self) -> Option<AnyPin> {
-        self.pin_mut()
-            .map(|pin| unsafe { core::ptr::read(pin) }.degrade())
+        self.as_ref().map_or(1u32 << 31, Pin::psel_bits)
     }
 }
-
-impl<T: Pin> sealed::OptionalPin for T {}
-impl<T: Pin> OptionalPin for T {
-    type Pin = T;
-
-    #[inline]
-    fn pin(&self) -> Option<&T> {
-        Some(self)
-    }
-
-    #[inline]
-    fn pin_mut(&mut self) -> Option<&mut T> {
-        Some(self)
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct NoPin;
-unsafe_impl_unborrow!(NoPin);
-impl sealed::OptionalPin for NoPin {}
-impl OptionalPin for NoPin {
-    type Pin = AnyPin;
-
-    #[inline]
-    fn pin(&self) -> Option<&AnyPin> {
-        None
-    }
-
-    #[inline]
-    fn pin_mut(&mut self) -> Option<&mut AnyPin> {
-        None
-    }
-}
-
-// ====================
 
 pub(crate) fn deconfigure_pin(psel_bits: u32) {
     if psel_bits & 0x8000_0000 != 0 {

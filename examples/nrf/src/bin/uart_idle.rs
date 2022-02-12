@@ -7,7 +7,6 @@ mod example_common;
 use example_common::*;
 
 use embassy::executor::Spawner;
-use embassy_nrf::gpio::NoPin;
 use embassy_nrf::{interrupt, uarte, Peripherals};
 
 #[embassy::main]
@@ -18,7 +17,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let irq = interrupt::take!(UARTE0_UART0);
     let mut uart = uarte::UarteWithIdle::new(
-        p.UARTE0, p.TIMER0, p.PPI_CH0, p.PPI_CH1, irq, p.P0_08, p.P0_06, NoPin, NoPin, config,
+        p.UARTE0, p.TIMER0, p.PPI_CH0, p.PPI_CH1, irq, p.P0_08, p.P0_06, config,
     );
 
     info!("uarte initialized!");

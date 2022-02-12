@@ -27,8 +27,7 @@ use embassy_hal_common::peripheral::{PeripheralMutex, PeripheralState, StateStor
 use embassy_hal_common::ring_buffer::RingBuffer;
 use embassy_hal_common::{low_power_wait_until, unborrow};
 
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{OptionalPin as GpioOptionalPin, Pin as GpioPin};
+use crate::gpio::Pin as GpioPin;
 use crate::pac;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::Instance as TimerInstance;
@@ -89,8 +88,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         irq: impl Unborrow<Target = U::Interrupt> + 'd,
         rxd: impl Unborrow<Target = impl GpioPin> + 'd,
         txd: impl Unborrow<Target = impl GpioPin> + 'd,
-        cts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
-        rts: impl Unborrow<Target = impl GpioOptionalPin> + 'd,
+        cts: impl Unborrow<Target = impl GpioPin> + 'd,
+        rts: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
@@ -108,28 +107,19 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         txd.conf().write(|w| w.dir().output().drive().h0h1());
         r.psel.txd.write(|w| unsafe { w.bits(txd.psel_bits()) });
 
-        if let Some(pin) = rts.pin_mut() {
-            pin.set_high();
-            pin.conf().write(|w| w.dir().output().drive().h0h1());
-        }
+        cts.conf().write(|w| w.input().connect().drive().h0h1());
         r.psel.cts.write(|w| unsafe { w.bits(cts.psel_bits()) });
 
-        if let Some(pin) = cts.pin_mut() {
-            pin.conf().write(|w| w.input().connect().drive().h0h1());
-        }
+        rts.set_high();
+        rts.conf().write(|w| w.dir().output().drive().h0h1());
         r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
 
         r.baudrate.write(|w| w.baudrate().variant(config.baudrate));
         r.config.write(|w| w.parity().variant(config.parity));
 
         // Configure
-        let hardware_flow_control = match (rts.pin().is_some(), cts.pin().is_some()) {
-            (false, false) => false,
-            (true, true) => true,
-            _ => panic!("RTS and CTS pins must be either both set or none set."),
-        };
         r.config.write(|w| {
-            w.hwfc().bit(hardware_flow_control);
+            w.hwfc().bit(true);
             w.parity().variant(config.parity);
             w
         });
