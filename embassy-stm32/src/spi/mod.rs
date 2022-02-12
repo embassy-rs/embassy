@@ -664,7 +664,6 @@ mod eh02 {
 #[cfg(feature = "unstable-traits")]
 mod eh1 {
     use super::*;
-    use core::future::Future;
 
     impl<'d, T: Instance, Tx, Rx> embedded_hal_1::spi::ErrorType for Spi<'d, T, Tx, Rx> {
         type Error = Error;
@@ -680,6 +679,12 @@ mod eh1 {
             }
         }
     }
+}
+
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+mod eh1a {
+    use super::*;
+    use core::future::Future;
 
     impl<'d, T: Instance, Tx: TxDma<T>, Rx> embedded_hal_async::spi::Write<u8> for Spi<'d, T, Tx, Rx> {
         type WriteFuture<'a>
