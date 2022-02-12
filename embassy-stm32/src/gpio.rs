@@ -479,8 +479,6 @@ pub(crate) mod sealed {
                 .modify(|w| w.set_ospeedr(pin, speed.into()));
         }
     }
-
-    pub trait OptionalPin {}
 }
 
 pub trait Pin: sealed::Pin + Sized + 'static {
