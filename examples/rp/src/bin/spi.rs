@@ -7,7 +7,6 @@ mod example_common;
 
 use defmt::*;
 use embassy::executor::Spawner;
-use embassy_rp::gpio::NoPin;
 use embassy_rp::spi;
 use embassy_rp::spi::Spi;
 use embassy_rp::{gpio, Peripherals};
@@ -27,7 +26,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // create SPI
     let mut config = spi::Config::default();
     config.frequency = 2_000_000;
-    let mut spi = Spi::new(p.SPI1, clk, mosi, miso, NoPin, config);
+    let mut spi = Spi::new(p.SPI1, clk, mosi, miso, config);
 
     // Configure CS
     let mut cs = Output::new(touch_cs, Level::Low);

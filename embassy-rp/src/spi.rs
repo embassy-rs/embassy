@@ -6,7 +6,7 @@ use embedded_hal::blocking::spi as eh;
 use embedded_hal::spi as ehnb;
 
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{NoPin, OptionalPin};
+use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::{pac, peripherals};
 
 pub use ehnb::{Phase, Polarity};
@@ -66,10 +66,62 @@ impl<'d, T: Instance> Spi<'d, T> {
         clk: impl Unborrow<Target = impl ClkPin<T>> + 'd,
         mosi: impl Unborrow<Target = impl MosiPin<T>> + 'd,
         miso: impl Unborrow<Target = impl MisoPin<T>> + 'd,
-        cs: impl Unborrow<Target = impl CsPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(inner, clk, mosi, miso, cs);
+        unborrow!(clk, mosi, miso);
+        Self::new_inner(
+            inner,
+            Some(clk.degrade()),
+            Some(mosi.degrade()),
+            Some(miso.degrade()),
+            None,
+            config,
+        )
+    }
+
+    pub fn new_txonly(
+        inner: impl Unborrow<Target = T> + 'd,
+        clk: impl Unborrow<Target = impl ClkPin<T>> + 'd,
+        mosi: impl Unborrow<Target = impl MosiPin<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        unborrow!(clk, mosi);
+        Self::new_inner(
+            inner,
+            Some(clk.degrade()),
+            Some(mosi.degrade()),
+            None,
+            None,
+            config,
+        )
+    }
+
+    pub fn new_rxonly(
+        inner: impl Unborrow<Target = T> + 'd,
+        clk: impl Unborrow<Target = impl ClkPin<T>> + 'd,
+        miso: impl Unborrow<Target = impl MisoPin<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        unborrow!(clk, miso);
+        Self::new_inner(
+            inner,
+            Some(clk.degrade()),
+            None,
+            Some(miso.degrade()),
+            None,
+            config,
+        )
+    }
+
+    fn new_inner(
+        inner: impl Unborrow<Target = T> + 'd,
+        clk: Option<AnyPin>,
+        mosi: Option<AnyPin>,
+        miso: Option<AnyPin>,
+        cs: Option<AnyPin>,
+        config: Config,
+    ) -> Self {
+        unborrow!(inner);
 
         unsafe {
             let p = inner.regs();
@@ -86,16 +138,16 @@ impl<'d, T: Instance> Spi<'d, T> {
                 w.set_sse(true); // enable
             });
 
-            if let Some(pin) = clk.pin_mut() {
+            if let Some(pin) = &clk {
                 pin.io().ctrl().write(|w| w.set_funcsel(1));
             }
-            if let Some(pin) = mosi.pin_mut() {
+            if let Some(pin) = &mosi {
                 pin.io().ctrl().write(|w| w.set_funcsel(1));
             }
-            if let Some(pin) = miso.pin_mut() {
+            if let Some(pin) = &miso {
                 pin.io().ctrl().write(|w| w.set_funcsel(1));
             }
-            if let Some(pin) = cs.pin_mut() {
+            if let Some(pin) = &cs {
                 pin.io().ctrl().write(|w| w.set_funcsel(1));
             }
         }
@@ -180,10 +232,6 @@ mod sealed {
     pub trait Instance {
         fn regs(&self) -> pac::spi::Spi;
     }
-    pub trait ClkPin<T: Instance> {}
-    pub trait CsPin<T: Instance> {}
-    pub trait MosiPin<T: Instance> {}
-    pub trait MisoPin<T: Instance> {}
 }
 
 pub trait Instance: sealed::Instance {}
@@ -202,23 +250,13 @@ macro_rules! impl_instance {
 impl_instance!(SPI0, Spi0);
 impl_instance!(SPI1, Spi1);
 
-pub trait ClkPin<T: Instance>: sealed::ClkPin<T> + OptionalPin {}
-pub trait CsPin<T: Instance>: sealed::CsPin<T> + OptionalPin {}
-pub trait MosiPin<T: Instance>: sealed::MosiPin<T> + OptionalPin {}
-pub trait MisoPin<T: Instance>: sealed::MisoPin<T> + OptionalPin {}
-
-impl<T: Instance> sealed::ClkPin<T> for NoPin {}
-impl<T: Instance> ClkPin<T> for NoPin {}
-impl<T: Instance> sealed::CsPin<T> for NoPin {}
-impl<T: Instance> CsPin<T> for NoPin {}
-impl<T: Instance> sealed::MosiPin<T> for NoPin {}
-impl<T: Instance> MosiPin<T> for NoPin {}
-impl<T: Instance> sealed::MisoPin<T> for NoPin {}
-impl<T: Instance> MisoPin<T> for NoPin {}
+pub trait ClkPin<T: Instance>: GpioPin {}
+pub trait CsPin<T: Instance>: GpioPin {}
+pub trait MosiPin<T: Instance>: GpioPin {}
+pub trait MisoPin<T: Instance>: GpioPin {}
 
 macro_rules! impl_pin {
     ($pin:ident, $instance:ident, $function:ident) => {
-        impl sealed::$function<peripherals::$instance> for peripherals::$pin {}
         impl $function<peripherals::$instance> for peripherals::$pin {}
     };
 }
