@@ -1,5 +1,6 @@
 target
 target_ci
+target_ci_stable
 Cargo.lock
 third_party
 /Cargo.toml

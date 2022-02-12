@@ -374,7 +374,6 @@ mod eh02 {
 #[cfg(feature = "unstable-traits")]
 mod eh1 {
     use super::*;
-    use core::future::Future;
 
     impl embedded_hal_1::spi::Error for Error {
         fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
@@ -437,7 +436,7 @@ mod eh1 {
 
         fn transaction<'a>(
             &mut self,
-            operations: &mut [embedded_hal_async::spi::Operation<'a, u8>],
+            operations: &mut [embedded_hal_1::spi::blocking::Operation<'a, u8>],
         ) -> Result<(), Self::Error> {
             use embedded_hal_1::spi::blocking::Operation;
             for o in operations {
@@ -451,6 +450,12 @@ mod eh1 {
             Ok(())
         }
     }
+}
+
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+mod eh1a {
+    use super::*;
+    use core::future::Future;
 
     impl<'d, T: Instance> embedded_hal_async::spi::Read<u8> for Spim<'d, T> {
         type ReadFuture<'a>

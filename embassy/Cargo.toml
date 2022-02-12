@@ -10,8 +10,12 @@ default = []
 std = ["futures/std", "time", "time-tick-1mhz", "embassy-macros/std"]
 wasm = ["wasm-bindgen", "js-sys", "embassy-macros/wasm", "wasm-timer", "time", "time-tick-1mhz"]
 
+# Enable nightly-only features
+nightly = ["embedded-hal-async"]
+
 # Implement embedded-hal 1.0 alpha and embedded-hal-async traits.
-unstable-traits = ["embedded-hal-1", "embedded-hal-async"]
+# Implement embedded-hal-async traits if `nightly` is set as well.
+unstable-traits = ["embedded-hal-1"]
 
 # Enable `embassy::time` module. 
 # NOTE: This feature is only intended to be enabled by crates providing the time driver implementation.

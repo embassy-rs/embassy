@@ -6,7 +6,7 @@ edition = "2018"
 resolver = "2"
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../embassy" }
+embassy = { version = "0.1.0", path = "../embassy", features = ["nightly"]}
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["stm32"] }
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-net = { version = "0.1.0", path = "../embassy-net", default-features = false, optional = true }

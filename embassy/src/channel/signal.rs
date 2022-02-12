@@ -32,13 +32,15 @@ enum State<T> {
 unsafe impl<T: Send> Send for Signal<T> {}
 unsafe impl<T: Send> Sync for Signal<T> {}
 
-impl<T: Send> Signal<T> {
+impl<T> Signal<T> {
     pub const fn new() -> Self {
         Self {
             state: UnsafeCell::new(State::None),
         }
     }
+}
 
+impl<T: Send> Signal<T> {
     /// Mark this Signal as completed.
     pub fn signal(&self, val: T) {
         critical_section::with(|_| unsafe {

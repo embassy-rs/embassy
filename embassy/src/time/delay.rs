@@ -16,11 +16,7 @@ pub struct Delay;
 
 #[cfg(feature = "unstable-traits")]
 mod eh1 {
-    use core::future::Future;
-    use futures::FutureExt;
-
     use super::*;
-    use crate::time::Timer;
 
     impl embedded_hal_1::delay::blocking::DelayUs for Delay {
         type Error = core::convert::Infallible;
@@ -33,6 +29,14 @@ mod eh1 {
             Ok(block_for(Duration::from_millis(ms as u64)))
         }
     }
+}
+
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+mod eh1a {
+    use super::*;
+    use crate::time::Timer;
+    use core::future::Future;
+    use futures::FutureExt;
 
     impl embedded_hal_async::delay::DelayUs for Delay {
         type Error = core::convert::Infallible;

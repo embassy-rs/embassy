@@ -6,14 +6,18 @@ edition = "2018"
 
 [features]
 
+# Enable nightly-only features
+nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async"]
+
 # Reexport the PAC for the currently enabled chip at `embassy_nrf::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-nrf may major-bump (breaking) the PAC version.
 # If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
 # There are no plans to make this stable.
 unstable-pac = []
 
-# Implement embedded-hal 1.0 alpha and embedded-hal-async traits.
-unstable-traits = ["embedded-hal-1", "embedded-hal-async"]
+# Implement embedded-hal 1.0 alpha traits.
+# Implement embedded-hal-async traits if `nightly` is set as well.
+unstable-traits = ["embedded-hal-1"]
 
 nrf52805 = ["nrf52805-pac", "_ppi"]
 nrf52810 = ["nrf52810-pac", "_ppi"]

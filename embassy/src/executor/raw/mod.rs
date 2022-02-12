@@ -57,7 +57,23 @@ pub struct TaskHeader {
 }
 
 impl TaskHeader {
+    #[cfg(feature = "nightly")]
     pub(crate) const fn new() -> Self {
+        Self {
+            state: AtomicU32::new(0),
+            run_queue_item: RunQueueItem::new(),
+            executor: Cell::new(ptr::null()),
+            poll_fn: UninitCell::uninit(),
+
+            #[cfg(feature = "time")]
+            expires_at: Cell::new(Instant::from_ticks(0)),
+            #[cfg(feature = "time")]
+            timer_queue_item: timer_queue::TimerQueueItem::new(),
+        }
+    }
+
+    #[cfg(not(feature = "nightly"))]
+    pub(crate) fn new() -> Self {
         Self {
             state: AtomicU32::new(0),
             run_queue_item: RunQueueItem::new(),
@@ -113,8 +129,18 @@ pub struct TaskStorage<F: Future + 'static> {
 }
 
 impl<F: Future + 'static> TaskStorage<F> {
-    /// Create a new Task, in not-spawned state.
+    /// Create a new TaskStorage, in not-spawned state.
+    #[cfg(feature = "nightly")]
     pub const fn new() -> Self {
+        Self {
+            raw: TaskHeader::new(),
+            future: UninitCell::uninit(),
+        }
+    }
+
+    /// Create a new TaskStorage, in not-spawned state.
+    #[cfg(not(feature = "nightly"))]
+    pub fn new() -> Self {
         Self {
             raw: TaskHeader::new(),
             future: UninitCell::uninit(),

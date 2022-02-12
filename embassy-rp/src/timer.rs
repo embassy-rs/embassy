@@ -1,7 +1,8 @@
 use atomic_polyfill::{AtomicU8, Ordering};
 use core::cell::Cell;
 use critical_section::CriticalSection;
-use embassy::blocking_mutex::CriticalSectionMutex as Mutex;
+use embassy::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy::blocking_mutex::Mutex;
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::time::driver::{AlarmHandle, Driver};
 
@@ -20,12 +21,12 @@ const DUMMY_ALARM: AlarmState = AlarmState {
 };
 
 struct TimerDriver {
-    alarms: Mutex<[AlarmState; ALARM_COUNT]>,
+    alarms: Mutex<CriticalSectionRawMutex, [AlarmState; ALARM_COUNT]>,
     next_alarm: AtomicU8,
 }
 
 embassy::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver{
-    alarms:  Mutex::new([DUMMY_ALARM; ALARM_COUNT]),
+    alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), [DUMMY_ALARM; ALARM_COUNT]),
     next_alarm: AtomicU8::new(0),
 });
 
