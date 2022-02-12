@@ -912,7 +912,6 @@ impl Timings {
 mod eh1 {
     use super::super::{RxDma, TxDma};
     use super::*;
-    use core::future::Future;
 
     impl embedded_hal_1::i2c::Error for Error {
         fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
@@ -935,6 +934,13 @@ mod eh1 {
     {
         type Error = Error;
     }
+}
+
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+mod eh1a {
+    use super::super::{RxDma, TxDma};
+    use super::*;
+    use core::future::Future;
 
     impl<'d, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_async::i2c::I2c
         for I2c<'d, T, TXDMA, RXDMA>

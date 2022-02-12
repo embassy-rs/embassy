@@ -5,14 +5,18 @@ name = "embassy-stm32l0-examples"
 version = "0.1.0"
 resolver = "2"
 
+[features]
+default = ["nightly"]
+nightly = ["embassy-stm32/nightly", "embassy-lora", "lorawan-device", "lorawan-encoding"]
+
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32l072cz", "time-driver-any", "exti", "unstable-traits", "memory-x"]  }
 
-embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["sx127x", "time", "defmt"] }
+embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["sx127x", "time", "defmt"], optional = true}
 
-lorawan-device = { git = "https://github.com/ivajloip/rust-lorawan.git", rev = "0de1a2a31933f7c97887b5718c1755fa5ab93a42", default-features = false, features = ["async"] }
-lorawan-encoding = { git = "https://github.com/ivajloip/rust-lorawan.git", rev = "0de1a2a31933f7c97887b5718c1755fa5ab93a42", default-features = false, features = ["default-crypto"] }
+lorawan-device = { git = "https://github.com/ivajloip/rust-lorawan.git", rev = "0de1a2a31933f7c97887b5718c1755fa5ab93a42", default-features = false, features = ["async"], optional = true }
+lorawan-encoding = { git = "https://github.com/ivajloip/rust-lorawan.git", rev = "0de1a2a31933f7c97887b5718c1755fa5ab93a42", default-features = false, features = ["default-crypto"], optional = true }
 
 defmt = "0.3"
 defmt-rtt = "0.3"
