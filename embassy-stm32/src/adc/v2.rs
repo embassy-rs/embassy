@@ -6,9 +6,14 @@ use embedded_hal_02::blocking::delay::DelayUs;
 
 pub const VDDA_CALIB_MV: u32 = 3000;
 
+#[cfg(not(rcc_f4))]
+unsafe fn enable() {
+    todo!()
+}
+
+#[cfg(rcc_f4)]
 unsafe fn enable() {
     // TODO do not enable all adc clocks if not needed
-    #[cfg(rcc_f4)]
     crate::pac::RCC.apb2enr().modify(|w| w.set_adc1en(true));
     crate::pac::RCC.apb2enr().modify(|w| w.set_adc2en(true));
     crate::pac::RCC.apb2enr().modify(|w| w.set_adc3en(true));
