@@ -128,7 +128,6 @@ impl<'d, T: Instance> Spim<'d, T> {
         }
 
         // Select pins.
-        // Note: OptionalPin reports 'disabled' for psel_bits when no pin was selected.
         r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
         r.psel.mosi.write(|w| unsafe { w.bits(mosi.psel_bits()) });
         r.psel.miso.write(|w| unsafe { w.bits(miso.psel_bits()) });
