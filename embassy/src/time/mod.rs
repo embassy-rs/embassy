@@ -75,3 +75,14 @@ const TPS: u64 = 1_000_000;
 /// allow you to choose a tick rate with Cargo features of their own. You should not
 /// set the `time-tick-*` features for embassy yourself as an end user.
 pub const TICKS_PER_SECOND: u64 = TPS;
+
+const fn gcd(a: u64, b: u64) -> u64 {
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
+}
+
+pub(crate) const GCD_1K: u64 = gcd(TICKS_PER_SECOND, 1_000);
+pub(crate) const GCD_1M: u64 = gcd(TICKS_PER_SECOND, 1_000_000);

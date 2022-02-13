@@ -1,7 +1,7 @@
 use core::fmt;
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
-use super::TICKS_PER_SECOND;
+use super::{GCD_1K, GCD_1M, TICKS_PER_SECOND};
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -28,12 +28,12 @@ impl Duration {
 
     /// Convert the `Duration` to milliseconds, rounding down.
     pub const fn as_millis(&self) -> u64 {
-        self.ticks * 1000 / TICKS_PER_SECOND
+        self.ticks * (1000 / GCD_1K) / (TICKS_PER_SECOND / GCD_1K)
     }
 
     /// Convert the `Duration` to microseconds, rounding down.
     pub const fn as_micros(&self) -> u64 {
-        self.ticks * 1_000_000 / TICKS_PER_SECOND
+        self.ticks * (1_000_000 / GCD_1M) / (TICKS_PER_SECOND / GCD_1M)
     }
 
     /// Creates a duration from the specified number of clock ticks
@@ -51,7 +51,7 @@ impl Duration {
     /// Creates a duration from the specified number of milliseconds
     pub const fn from_millis(millis: u64) -> Duration {
         Duration {
-            ticks: millis * TICKS_PER_SECOND / 1000,
+            ticks: millis * (TICKS_PER_SECOND / GCD_1K) / (1000 / GCD_1K),
         }
     }
 
@@ -59,7 +59,7 @@ impl Duration {
     /// NOTE: Delays this small may be inaccurate.
     pub const fn from_micros(micros: u64) -> Duration {
         Duration {
-            ticks: micros * TICKS_PER_SECOND / 1_000_000,
+            ticks: micros * (TICKS_PER_SECOND / GCD_1M) / (1_000_000 / GCD_1M),
         }
     }
 
