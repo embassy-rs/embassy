@@ -1,4 +1,4 @@
-use crate::pac::rcc::vals::{Hpre, Hsebyp, Pllmul, Pllsrc, Ppre, Sw, Usbsw};
+use crate::pac::rcc::vals::{Hpre, Pllmul, Pllsrc, Ppre, Sw, Usbsw};
 use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
 
@@ -16,7 +16,7 @@ pub struct Config {
     pub bypass_hse: bool,
     pub usb_pll: bool,
 
-    #[cfg(rcc_f0)]
+    #[cfg(not(stm32f0x0))]
     pub hsi48: bool,
 
     pub sys_ck: Option<Hertz>,
@@ -28,7 +28,7 @@ pub(crate) unsafe fn init(config: Config) {
     let sysclk = config.sys_ck.map(|v| v.0).unwrap_or(HSI);
 
     let (src_clk, use_hsi48) = config.hse.map(|v| (v.0, false)).unwrap_or_else(|| {
-        #[cfg(rcc_f0)]
+        #[cfg(not(stm32f0x0))]
         if config.hsi48 {
             return (48_000_000, true);
         }
@@ -97,10 +97,7 @@ pub(crate) unsafe fn init(config: Config) {
             RCC.cr().modify(|w| {
                 w.set_csson(true);
                 w.set_hseon(true);
-
-                if config.bypass_hse {
-                    w.set_hsebyp(Hsebyp::BYPASSED);
-                }
+                w.set_hsebyp(config.bypass_hse);
             });
             while !RCC.cr().read().hserdy() {}
 
@@ -108,14 +105,12 @@ pub(crate) unsafe fn init(config: Config) {
                 RCC.cfgr().modify(|w| w.set_pllsrc(Pllsrc::HSE_DIV_PREDIV))
             }
         }
+        // use_hsi48 will always be false for stm32f0x0
+        #[cfg(not(stm32f0x0))]
         (false, true) => {
-            // use_hsi48 will always be false for rcc_f0x0
-            #[cfg(rcc_f0)]
             RCC.cr2().modify(|w| w.set_hsi48on(true));
-            #[cfg(rcc_f0)]
             while !RCC.cr2().read().hsi48rdy() {}
 
-            #[cfg(rcc_f0)]
             if pllmul_bits.is_some() {
                 RCC.cfgr()
                     .modify(|w| w.set_pllsrc(Pllsrc::HSI48_DIV_PREDIV))
@@ -155,7 +150,7 @@ pub(crate) unsafe fn init(config: Config) {
             if config.hse.is_some() {
                 w.set_sw(Sw::HSE);
             } else if use_hsi48 {
-                #[cfg(rcc_f0)]
+                #[cfg(not(stm32f0x0))]
                 w.set_sw(Sw::HSI48);
             } else {
                 w.set_sw(Sw::HSI)
@@ -169,6 +164,6 @@ pub(crate) unsafe fn init(config: Config) {
         apb2: Hertz(pclk),
         apb1_tim: Hertz(pclk * timer_mul),
         apb2_tim: Hertz(pclk * timer_mul),
-        ahb: Hertz(hclk),
+        ahb1: Hertz(hclk),
     });
 }

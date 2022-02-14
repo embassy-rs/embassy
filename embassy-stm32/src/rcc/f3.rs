@@ -1,5 +1,5 @@
 use crate::pac::flash::vals::Latency;
-use crate::pac::rcc::vals::{Hpre, Hsebyp, Pllmul, Pllsrc, Ppre, Prediv, Sw, Usbpre};
+use crate::pac::rcc::vals::{Hpre, Pllmul, Pllsrc, Ppre, Prediv, Sw, Usbpre};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -106,11 +106,7 @@ pub(crate) unsafe fn init(config: Config) {
     // Enable HSE
     if config.hse.is_some() {
         RCC.cr().write(|w| {
-            w.set_hsebyp(if config.bypass_hse {
-                Hsebyp::BYPASSED
-            } else {
-                Hsebyp::NOTBYPASSED
-            });
+            w.set_hsebyp(config.bypass_hse);
             // We turn on clock security to switch to HSI when HSE fails
             w.set_csson(true);
             w.set_hseon(true);
@@ -164,7 +160,7 @@ pub(crate) unsafe fn init(config: Config) {
         apb2: Hertz(pclk2),
         apb1_tim: Hertz(pclk1 * timer_mul1),
         apb2_tim: Hertz(pclk2 * timer_mul2),
-        ahb: Hertz(hclk),
+        ahb1: Hertz(hclk),
     });
 }
 

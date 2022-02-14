@@ -7,7 +7,7 @@ use stm32_metapac::rcc::vals::{Mco1, Mco2};
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
 use crate::pac::rcc::vals::Timpre;
-use crate::pac::rcc::vals::{Ckpersel, Dppre, Hpre, Hsebyp, Hsidiv, Pllsrc, Sw};
+use crate::pac::rcc::vals::{Ckpersel, Dppre, Hpre, Hsidiv, Pllsrc, Sw};
 use crate::pac::{PWR, RCC, SYSCFG};
 use crate::peripherals;
 use crate::rcc::{set_freqs, Clocks};
@@ -569,11 +569,7 @@ pub(crate) unsafe fn init(mut config: Config) {
             // Ensure HSE is on and stable
             RCC.cr().modify(|w| {
                 w.set_hseon(true);
-                w.set_hsebyp(if config.bypass_hse {
-                    Hsebyp::BYPASSED
-                } else {
-                    Hsebyp::NOTBYPASSED
-                });
+                w.set_hsebyp(config.bypass_hse);
             });
             while !RCC.cr().read().hserdy() {}
             Some(hse)

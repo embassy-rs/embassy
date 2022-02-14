@@ -1,6 +1,6 @@
 use super::sealed::RccPeripheral;
 use crate::pac::pwr::vals::Vos;
-use crate::pac::rcc::vals::{Hpre, Hsebyp, Ppre, Sw};
+use crate::pac::rcc::vals::{Hpre, Ppre, Sw};
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -213,7 +213,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     if config.hse.is_some() {
         RCC.cr().modify(|w| {
-            w.set_hsebyp(Hsebyp(config.bypass_hse as u8));
+            w.set_hsebyp(config.bypass_hse);
             w.set_hseon(true);
         });
         while !RCC.cr().read().hserdy() {}

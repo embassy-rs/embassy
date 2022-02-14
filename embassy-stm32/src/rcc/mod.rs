@@ -3,7 +3,7 @@
 use crate::time::Hertz;
 use core::mem::MaybeUninit;
 
-#[cfg_attr(any(rcc_f0, rcc_f0x0), path = "f0.rs")]
+#[cfg_attr(rcc_f0, path = "f0.rs")]
 #[cfg_attr(rcc_f1, path = "f1.rs")]
 #[cfg_attr(rcc_f3, path = "f3.rs")]
 #[cfg_attr(any(rcc_f4, rcc_f410), path = "f4.rs")]
@@ -24,45 +24,28 @@ pub use _version::*;
 pub struct Clocks {
     pub sys: Hertz,
 
-    #[cfg(rcc_g0)]
-    pub apb: Hertz,
-    #[cfg(rcc_g0)]
-    pub apb_tim: Hertz,
-
-    #[cfg(not(rcc_g0))]
+    // APB
     pub apb1: Hertz,
-    #[cfg(not(rcc_g0))]
     pub apb1_tim: Hertz,
-
     #[cfg(not(rcc_g0))]
     pub apb2: Hertz,
     #[cfg(not(rcc_g0))]
     pub apb2_tim: Hertz,
-
     #[cfg(any(rcc_wl5, rcc_u5))]
     pub apb3: Hertz,
+    #[cfg(any(rcc_h7))]
+    pub apb4: Hertz,
 
-    #[cfg(any(rcc_l0, rcc_l1, rcc_f0, rcc_f1, rcc_f3, rcc_f0x0, rcc_g0))]
-    pub ahb: Hertz,
-
-    #[cfg(any(
-        rcc_l4, rcc_f4, rcc_f410, rcc_f7, rcc_h7, rcc_g4, rcc_u5, rcc_wb, rcc_wl5
-    ))]
+    // AHB
     pub ahb1: Hertz,
-
     #[cfg(any(
         rcc_l4, rcc_f4, rcc_f410, rcc_f7, rcc_h7, rcc_g4, rcc_u5, rcc_wb, rcc_wl5
     ))]
     pub ahb2: Hertz,
-
     #[cfg(any(rcc_l4, rcc_f4, rcc_f410, rcc_f7, rcc_h7, rcc_u5, rcc_wb, rcc_wl5))]
     pub ahb3: Hertz,
-
     #[cfg(any(rcc_h7))]
     pub ahb4: Hertz,
-
-    #[cfg(any(rcc_h7))]
-    pub apb4: Hertz,
 
     #[cfg(any(rcc_f4, rcc_f410, rcc_f7))]
     pub pll48: Option<Hertz>,
