@@ -173,7 +173,7 @@ pub(crate) unsafe fn init(config: Config) {
         apb2: Hertz(pclk2),
         apb1_tim: Hertz(pclk1 * timer_mul1),
         apb2_tim: Hertz(pclk2 * timer_mul2),
-        ahb: Hertz(hclk),
+        ahb1: Hertz(hclk),
         adc: Hertz(adcclk),
     });
 }

@@ -176,8 +176,8 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys: sys_clk.hz(),
-        ahb: ahb_freq.hz(),
-        apb: apb_freq.hz(),
-        apb_tim: apb_tim_freq.hz(),
+        ahb1: ahb_freq.hz(),
+        apb1: apb_freq.hz(),
+        apb1_tim: apb_tim_freq.hz(),
     });
 }

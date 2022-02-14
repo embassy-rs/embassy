@@ -132,7 +132,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
     fn master_stop(&mut self) {
         unsafe {
-            T::regs().cr2().write(|w| w.set_stop(i2c::vals::Stop::STOP));
+            T::regs().cr2().write(|w| w.set_stop(true));
         }
     }
 
@@ -143,7 +143,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             // Wait for any previous address sequence to end
             // automatically. This could be up to 50% of a bus
             // cycle (ie. up to 0.5/freq)
-            while T::regs().cr2().read().start() == i2c::vals::Start::START {}
+            while T::regs().cr2().read().start() {}
         }
 
         // Set START and prepare to receive bytes into
@@ -158,10 +158,10 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         T::regs().cr2().modify(|w| {
             w.set_sadd((address << 1 | 0) as u16);
-            w.set_add10(i2c::vals::Add::BIT7);
-            w.set_rd_wrn(i2c::vals::RdWrn::READ);
+            w.set_add10(i2c::vals::Addmode::BIT7);
+            w.set_dir(i2c::vals::Dir::READ);
             w.set_nbytes(length as u8);
-            w.set_start(i2c::vals::Start::START);
+            w.set_start(true);
             w.set_autoend(stop.autoend());
             w.set_reload(reload);
         });
@@ -173,7 +173,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         // Wait for any previous address sequence to end
         // automatically. This could be up to 50% of a bus
         // cycle (ie. up to 0.5/freq)
-        while T::regs().cr2().read().start() == i2c::vals::Start::START {}
+        while T::regs().cr2().read().start() {}
 
         let reload = if reload {
             i2c::vals::Reload::NOTCOMPLETED
@@ -186,10 +186,10 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         // I2C is in slave mode.
         T::regs().cr2().modify(|w| {
             w.set_sadd((address << 1 | 0) as u16);
-            w.set_add10(i2c::vals::Add::BIT7);
-            w.set_rd_wrn(i2c::vals::RdWrn::WRITE);
+            w.set_add10(i2c::vals::Addmode::BIT7);
+            w.set_dir(i2c::vals::Dir::WRITE);
             w.set_nbytes(length as u8);
-            w.set_start(i2c::vals::Start::START);
+            w.set_start(true);
             w.set_autoend(stop.autoend());
             w.set_reload(reload);
         });
