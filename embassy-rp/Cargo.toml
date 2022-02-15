@@ -12,6 +12,13 @@ edition = "2018"
 # There are no plans to make this stable.
 unstable-pac = []
 
+# Enable nightly-only features
+nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async"]
+
+# Implement embedded-hal 1.0 alpha traits.
+# Implement embedded-hal-async traits if `nightly` is set as well.
+unstable-traits = ["embedded-hal-1"]
+
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy", features = [ "time-tick-1mhz", "nightly"] }
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
@@ -25,4 +32,7 @@ critical-section = "0.2.5"
 
 rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev="9ad7223a48a065e612bc7dc7be5bf5bd0b41cfc4", features = ["rt"] }
 #rp2040-pac2 = { path = "../../rp/rp2040-pac2", features = ["rt"] }
-embedded-hal = { version = "0.2.6", features = [ "unproven" ] }
+
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.6", git = "https://github.com/embassy-rs/embedded-hal", branch = "embassy", optional = true}
+embedded-hal-async = { version = "0.0.1", git = "https://github.com/embassy-rs/embedded-hal", branch = "embassy", optional = true}
