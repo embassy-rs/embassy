@@ -34,7 +34,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     loop {
         cs.set_low();
         let mut buf = [0x90, 0x00, 0x00, 0xd0, 0x00, 0x00];
-        spi.transfer(&mut buf);
+        spi.blocking_transfer_in_place(&mut buf).unwrap();
         cs.set_high();
 
         let x = (buf[1] as u32) << 5 | (buf[2] as u32) >> 3;

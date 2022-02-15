@@ -8,7 +8,6 @@ use crate::peripherals;
 
 use embassy::util::Unborrow;
 use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
-use embedded_hal::digital::v2 as digital;
 
 /// Represents a digital input or output level.
 #[derive(Debug, Eq, PartialEq)]
@@ -81,18 +80,6 @@ impl<'d, T: Pin> Drop for Input<'d, T> {
     }
 }
 
-impl<'d, T: Pin> digital::InputPin for Input<'d, T> {
-    type Error = Infallible;
-
-    fn is_high(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_high())
-    }
-
-    fn is_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_low())
-    }
-}
-
 pub struct Output<'d, T: Pin> {
     pin: T,
     phantom: PhantomData<&'d mut T>,
@@ -148,34 +135,6 @@ impl<'d, T: Pin> Output<'d, T> {
 impl<'d, T: Pin> Drop for Output<'d, T> {
     fn drop(&mut self) {
         // todo
-    }
-}
-
-impl<'d, T: Pin> digital::OutputPin for Output<'d, T> {
-    type Error = Infallible;
-
-    /// Set the output as high.
-    fn set_high(&mut self) -> Result<(), Self::Error> {
-        self.set_high();
-        Ok(())
-    }
-
-    /// Set the output as low.
-    fn set_low(&mut self) -> Result<(), Self::Error> {
-        self.set_low();
-        Ok(())
-    }
-}
-
-impl<'d, T: Pin> digital::StatefulOutputPin for Output<'d, T> {
-    /// Is the output pin set as high?
-    fn is_set_high(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_set_high())
-    }
-
-    /// Is the output pin set as low?
-    fn is_set_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_set_low())
     }
 }
 
@@ -296,3 +255,86 @@ impl_pin!(PIN_QSPI_SD0, Bank::Qspi, 2);
 impl_pin!(PIN_QSPI_SD1, Bank::Qspi, 3);
 impl_pin!(PIN_QSPI_SD2, Bank::Qspi, 4);
 impl_pin!(PIN_QSPI_SD3, Bank::Qspi, 5);
+
+// ====================
+
+mod eh02 {
+    use super::*;
+
+    impl<'d, T: Pin> embedded_hal_02::digital::v2::InputPin for Input<'d, T> {
+        type Error = Infallible;
+
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
+    }
+
+    impl<'d, T: Pin> embedded_hal_02::digital::v2::OutputPin for Output<'d, T> {
+        type Error = Infallible;
+
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_high())
+        }
+
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_low())
+        }
+    }
+
+    impl<'d, T: Pin> embedded_hal_02::digital::v2::StatefulOutputPin for Output<'d, T> {
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_high())
+        }
+
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_low())
+        }
+    }
+}
+
+#[cfg(feature = "unstable-traits")]
+mod eh1 {
+    use super::*;
+
+    impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Input<'d, T> {
+        type Error = Infallible;
+    }
+
+    impl<'d, T: Pin> embedded_hal_1::digital::blocking::InputPin for Input<'d, T> {
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
+    }
+
+    impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Output<'d, T> {
+        type Error = Infallible;
+    }
+
+    impl<'d, T: Pin> embedded_hal_1::digital::blocking::OutputPin for Output<'d, T> {
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_high())
+        }
+
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_low())
+        }
+    }
+
+    impl<'d, T: Pin> embedded_hal_1::digital::blocking::StatefulOutputPin for Output<'d, T> {
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_high())
+        }
+
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_low())
+        }
+    }
+}

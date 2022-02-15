@@ -131,7 +131,7 @@ impl<'a> embedded_hal::blocking::spi::Write<u8> for DisplaySpi<'a> {
             this.display_cs.set_low();
             this.last_mode = SpiMode::Display;
         }
-        this.spi.write(words);
+        this.spi.write(words).unwrap();
         Ok(())
     }
 }
@@ -147,7 +147,7 @@ impl<'a> embedded_hal::blocking::spi::Transfer<u8> for TouchSpi<'a> {
             this.display_cs.set_high();
             this.last_mode = SpiMode::Touch;
         }
-        this.spi.transfer(words);
+        this.spi.transfer(words).unwrap();
         Ok(words)
     }
 }

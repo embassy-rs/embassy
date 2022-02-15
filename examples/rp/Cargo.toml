@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
-embassy-rp = { version = "0.1.0", path = "../../embassy-rp", features = ["defmt"] }
+embassy-rp = { version = "0.1.0", path = "../../embassy-rp", features = ["defmt", "unstable-traits", "nightly", "unstable-pac"] }
 atomic-polyfill = "0.1.5"
 
 defmt = "0.3"
