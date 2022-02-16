@@ -45,7 +45,7 @@ pub struct Ethernet<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> {
 macro_rules! config_pins {
     ($($pin:ident),*) => {
         // NOTE(unsafe) Exclusive access to the registers
-        critical_section::with(|_| unsafe {
+        critical_section::with(|_| {
             $(
                 $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
                 $pin.set_speed(Speed::VeryHigh);

@@ -8,7 +8,7 @@
 use bit_field::BitField;
 use embassy::time::{Duration, Timer};
 use embedded_hal::digital::v2::OutputPin;
-use embedded_hal_async::spi::ReadWrite;
+use embedded_hal_async::spi::SpiBus;
 
 mod register;
 use self::register::PaConfig;
@@ -48,7 +48,7 @@ const VERSION_CHECK: u8 = 0x09;
 
 impl<SPI, CS, RESET, E> LoRa<SPI, CS, RESET>
 where
-    SPI: ReadWrite<u8, Error = E>,
+    SPI: SpiBus<u8, Error = E>,
     CS: OutputPin,
     RESET: OutputPin,
 {

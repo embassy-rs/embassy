@@ -917,58 +917,46 @@ mod eh1 {
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod eh1a {
-    use super::super::{RxDma, TxDma};
-    use super::*;
-    use core::future::Future;
+cfg_if::cfg_if! {
+    if #[cfg(all(feature = "unstable-traits", feature = "nightly"))] {
+        use super::{RxDma, TxDma};
+        use core::future::Future;
 
-    impl<'d, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_async::i2c::I2c
-        for I2c<'d, T, TXDMA, RXDMA>
-    {
-        type ReadFuture<'a>
-        where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
+        impl<'d, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_async::i2c::I2c
+            for I2c<'d, T, TXDMA, RXDMA>
+        {
+            type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-        fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.read(address, buffer)
-        }
+            fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+                self.read(address, buffer)
+            }
 
-        type WriteFuture<'a>
-        where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
-        fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.write(address, bytes)
-        }
+            type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+            fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
+                self.write(address, bytes)
+            }
 
-        type WriteReadFuture<'a>
-        where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
-        fn write_read<'a>(
-            &'a mut self,
-            address: u8,
-            bytes: &'a [u8],
-            buffer: &'a mut [u8],
-        ) -> Self::WriteReadFuture<'a> {
-            self.write_read(address, bytes, buffer)
-        }
+            type WriteReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+            fn write_read<'a>(
+                &'a mut self,
+                address: u8,
+                bytes: &'a [u8],
+                buffer: &'a mut [u8],
+            ) -> Self::WriteReadFuture<'a> {
+                self.write_read(address, bytes, buffer)
+            }
 
-        type TransactionFuture<'a>
-        where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
+            type TransactionFuture<'a, 'b> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a, 'b: 'a;
 
-        fn transaction<'a>(
-            &'a mut self,
-            address: u8,
-            operations: &mut [embedded_hal_async::i2c::Operation<'a>],
-        ) -> Self::TransactionFuture<'a> {
-            let _ = address;
-            let _ = operations;
-            async move { todo!() }
+            fn transaction<'a, 'b>(
+                &'a mut self,
+                address: u8,
+                operations: &'a mut [embedded_hal_async::i2c::Operation<'b>],
+            ) -> Self::TransactionFuture<'a, 'b> {
+                let _ = address;
+                let _ = operations;
+                async move { todo!() }
+            }
         }
     }
 }

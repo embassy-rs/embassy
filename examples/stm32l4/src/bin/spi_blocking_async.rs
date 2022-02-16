@@ -12,7 +12,7 @@ use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peripherals;
 use embassy_traits::adapter::BlockingAsync;
-use embedded_hal_async::spi::ReadWrite;
+use embedded_hal_async::spi::SpiBus;
 use example_common::*;
 
 #[embassy::main]

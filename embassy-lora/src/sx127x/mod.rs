@@ -20,7 +20,7 @@ pub trait RadioSwitch {
 /// Semtech Sx127x radio peripheral
 pub struct Sx127xRadio<SPI, CS, RESET, E, I, RFS>
 where
-    SPI: ReadWrite<u8, Error = E> + 'static,
+    SPI: SpiBus<u8, Error = E> + 'static,
     E: 'static,
     CS: OutputPin + 'static,
     RESET: OutputPin + 'static,
@@ -42,7 +42,7 @@ pub enum State {
 
 impl<SPI, CS, RESET, E, I, RFS> Sx127xRadio<SPI, CS, RESET, E, I, RFS>
 where
-    SPI: ReadWrite<u8, Error = E> + 'static,
+    SPI: SpiBus<u8, Error = E> + 'static,
     CS: OutputPin + 'static,
     RESET: OutputPin + 'static,
     I: Wait + 'static,
@@ -64,7 +64,7 @@ where
 
 impl<SPI, CS, RESET, E, I, RFS> Timings for Sx127xRadio<SPI, CS, RESET, E, I, RFS>
 where
-    SPI: ReadWrite<u8, Error = E> + 'static,
+    SPI: SpiBus<u8, Error = E> + 'static,
     CS: OutputPin + 'static,
     RESET: OutputPin + 'static,
     I: Wait + 'static,
@@ -80,7 +80,7 @@ where
 
 impl<SPI, CS, RESET, E, I, RFS> PhyRxTx for Sx127xRadio<SPI, CS, RESET, E, I, RFS>
 where
-    SPI: ReadWrite<u8, Error = E> + 'static,
+    SPI: SpiBus<u8, Error = E> + 'static,
     CS: OutputPin + 'static,
     E: 'static,
     RESET: OutputPin + 'static,
@@ -89,15 +89,14 @@ where
 {
     type PhyError = Sx127xError;
 
-    type TxFuture<'m>
+    type TxFuture<'m> = impl Future<Output = Result<u32, Self::PhyError>> + 'm
     where
         SPI: 'm,
         CS: 'm,
         RESET: 'm,
         E: 'm,
         I: 'm,
-        RFS: 'm,
-    = impl Future<Output = Result<u32, Self::PhyError>> + 'm;
+        RFS: 'm;
 
     fn tx<'m>(&'m mut self, config: TxConfig, buf: &'m [u8]) -> Self::TxFuture<'m> {
         trace!("TX START");
@@ -137,15 +136,14 @@ where
         }
     }
 
-    type RxFuture<'m>
+    type RxFuture<'m> = impl Future<Output = Result<(usize, RxQuality), Self::PhyError>> + 'm
     where
         SPI: 'm,
         CS: 'm,
         RESET: 'm,
         E: 'm,
         I: 'm,
-        RFS: 'm,
-    = impl Future<Output = Result<(usize, RxQuality), Self::PhyError>> + 'm;
+        RFS: 'm;
 
     fn rx<'m>(&'m mut self, config: RfConfig, buf: &'m mut [u8]) -> Self::RxFuture<'m> {
         trace!("RX START");

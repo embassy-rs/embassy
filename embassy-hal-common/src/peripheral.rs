@@ -97,7 +97,7 @@ impl<'a, S: PeripheralState> PeripheralMutex<'a, S> {
             //   Interrupts' priorities can only be changed with raw embassy `Interrupts`,
             //   which can't safely store a `PeripheralMutex` across invocations.
             // - We can't have preempted a with() call because the irq is disabled during it.
-            let state = unsafe { &mut *(p as *mut S) };
+            let state = &mut *(p as *mut S);
             state.on_interrupt();
         });
         irq.set_handler_context(state_ptr as *mut ());

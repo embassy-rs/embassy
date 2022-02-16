@@ -1,6 +1,6 @@
 [package]
 authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
-edition = "2018"
+edition = "2021"
 name = "embassy-rp-examples"
 version = "0.1.0"
 
@@ -15,9 +15,12 @@ defmt-rtt = "0.3"
 
 cortex-m = "0.7.3"
 cortex-m-rt = "0.7.0"
-embedded-hal    = "0.2.6"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await", "cfg-target-has-atomic", "unstable"] }
 display-interface-spi = "0.4.1"
 embedded-graphics = "0.7.1"
 st7789 = "0.6.1"
+
+embedded-hal = { version = "1.0.0-alpha.7", git = "https://github.com/embassy-rs/embedded-hal", branch = "embassy2" }
+display-interface = "0.4.1"
+byte-slice-cast = { version = "1.2.0", default-features = false }

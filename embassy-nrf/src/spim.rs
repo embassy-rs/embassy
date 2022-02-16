@@ -455,43 +455,25 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::blocking::Read<u8> for Spim<'d, T> {
+    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBusFlush for Spim<'d, T> {
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBusRead<u8> for Spim<'d, T> {
         fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_transfer(words, &[])
         }
-
-        fn read_transaction(&mut self, words: &mut [&mut [u8]]) -> Result<(), Self::Error> {
-            for buf in words {
-                self.blocking_read(buf)?
-            }
-            Ok(())
-        }
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::blocking::Write<u8> for Spim<'d, T> {
+    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBusWrite<u8> for Spim<'d, T> {
         fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(words)
         }
-
-        fn write_transaction(&mut self, words: &[&[u8]]) -> Result<(), Self::Error> {
-            for buf in words {
-                self.blocking_write(buf)?
-            }
-            Ok(())
-        }
-
-        fn write_iter<WI>(&mut self, words: WI) -> Result<(), Self::Error>
-        where
-            WI: IntoIterator<Item = u8>,
-        {
-            for w in words {
-                self.blocking_write(&[w])?;
-            }
-            Ok(())
-        }
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::blocking::ReadWrite<u8> for Spim<'d, T> {
+    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBus<u8> for Spim<'d, T> {
         fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
             self.blocking_transfer(read, write)
         }
@@ -499,128 +481,51 @@ mod eh1 {
         fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_transfer_in_place(words)
         }
-
-        fn transaction<'a>(
-            &mut self,
-            operations: &mut [embedded_hal_1::spi::blocking::Operation<'a, u8>],
-        ) -> Result<(), Self::Error> {
-            use embedded_hal_1::spi::blocking::Operation;
-            for o in operations {
-                match o {
-                    Operation::Read(b) => self.blocking_read(b)?,
-                    Operation::Write(b) => self.blocking_write(b)?,
-                    Operation::Transfer(r, w) => self.blocking_transfer(r, w)?,
-                    Operation::TransferInPlace(b) => self.blocking_transfer_in_place(b)?,
-                }
-            }
-            Ok(())
-        }
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod eh1a {
-    use super::*;
-    use core::future::Future;
+cfg_if::cfg_if! {
+    if #[cfg(all(feature = "unstable-traits", feature = "nightly"))] {
+        use core::future::Future;
 
-    impl<'d, T: Instance> embedded_hal_async::spi::Read<u8> for Spim<'d, T> {
-        type ReadFuture<'a>
-        where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
+        impl<'d, T: Instance> embedded_hal_async::spi::SpiBusFlush for Spim<'d, T> {
+            type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-        fn read<'a>(&'a mut self, words: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.read(words)
-        }
-
-        type ReadTransactionFuture<'a>
-        where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
-
-        fn read_transaction<'a>(
-            &'a mut self,
-            words: &'a mut [&'a mut [u8]],
-        ) -> Self::ReadTransactionFuture<'a> {
-            async move {
-                for buf in words {
-                    self.read(buf).await?
-                }
-                Ok(())
+            fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+                async move { Ok(()) }
             }
         }
-    }
 
-    impl<'d, T: Instance> embedded_hal_async::spi::Write<u8> for Spim<'d, T> {
-        type WriteFuture<'a>
-        where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
+        impl<'d, T: Instance> embedded_hal_async::spi::SpiBusRead<u8> for Spim<'d, T> {
+            type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-        fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.write(data)
-        }
-
-        type WriteTransactionFuture<'a>
-        where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
-
-        fn write_transaction<'a>(
-            &'a mut self,
-            words: &'a [&'a [u8]],
-        ) -> Self::WriteTransactionFuture<'a> {
-            async move {
-                for buf in words {
-                    self.write(buf).await?
-                }
-                Ok(())
+            fn read<'a>(&'a mut self, words: &'a mut [u8]) -> Self::ReadFuture<'a> {
+                self.read(words)
             }
         }
-    }
 
-    impl<'d, T: Instance> embedded_hal_async::spi::ReadWrite<u8> for Spim<'d, T> {
-        type TransferFuture<'a>
-        where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
+        impl<'d, T: Instance> embedded_hal_async::spi::SpiBusWrite<u8> for Spim<'d, T> {
+            type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-        fn transfer<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::TransferFuture<'a> {
-            self.transfer(rx, tx)
+            fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
+                self.write(data)
+            }
         }
 
-        type TransferInPlaceFuture<'a>
-        where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
+        impl<'d, T: Instance> embedded_hal_async::spi::SpiBus<u8> for Spim<'d, T> {
+            type TransferFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-        fn transfer_in_place<'a>(
-            &'a mut self,
-            words: &'a mut [u8],
-        ) -> Self::TransferInPlaceFuture<'a> {
-            self.transfer_in_place(words)
-        }
+            fn transfer<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::TransferFuture<'a> {
+                self.transfer(rx, tx)
+            }
 
-        type TransactionFuture<'a>
-        where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
+            type TransferInPlaceFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-        fn transaction<'a>(
-            &'a mut self,
-            operations: &'a mut [embedded_hal_async::spi::Operation<'a, u8>],
-        ) -> Self::TransactionFuture<'a> {
-            use embedded_hal_1::spi::blocking::Operation;
-            async move {
-                for o in operations {
-                    match o {
-                        Operation::Read(b) => self.read(b).await?,
-                        Operation::Write(b) => self.write(b).await?,
-                        Operation::Transfer(r, w) => self.transfer(r, w).await?,
-                        Operation::TransferInPlace(b) => self.transfer_in_place(b).await?,
-                    }
-                }
-                Ok(())
+            fn transfer_in_place<'a>(
+                &'a mut self,
+                words: &'a mut [u8],
+            ) -> Self::TransferInPlaceFuture<'a> {
+                self.transfer_in_place(words)
             }
         }
     }

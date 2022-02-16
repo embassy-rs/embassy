@@ -1,12 +1,7 @@
 #![cfg_attr(not(any(feature = "std", feature = "wasm")), no_std)]
 #![cfg_attr(
     feature = "nightly",
-    feature(
-        const_fn_trait_bound,
-        const_fn_fn_ptr_basics,
-        generic_associated_types,
-        type_alias_impl_trait
-    )
+    feature(generic_associated_types, type_alias_impl_trait)
 )]
 #![allow(clippy::new_without_default)]
 
