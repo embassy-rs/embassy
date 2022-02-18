@@ -191,7 +191,7 @@ pub fn init(config: config::Config) -> Peripherals {
 
     // init RTC time driver
     #[cfg(feature = "_time-driver")]
-    time_driver::init(config.time_interrupt_priority);
+    time_driver::driver_impl::init(config.time_interrupt_priority);
 
     peripherals
 }
