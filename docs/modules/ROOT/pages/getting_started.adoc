@@ -38,6 +38,7 @@ First you need to clone the [github repository];
 ----
 git clone https://github.com/embassy-rs/embassy.git
 cd embassy
+git submodule update --init
 ----
 
 You can run an example by opening a terminal and entering the following commands:
