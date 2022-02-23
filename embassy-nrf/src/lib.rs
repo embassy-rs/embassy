@@ -1,7 +1,7 @@
 #![no_std]
 #![cfg_attr(
     feature = "nightly",
-    feature(generic_associated_types, type_alias_impl_trait)
+    feature(generic_associated_types, type_alias_impl_trait, slice_ptr_len)
 )]
 
 #[cfg(not(any(
