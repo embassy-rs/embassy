@@ -218,7 +218,7 @@ fn calc_pll(config: &Config, Hertz(sysclk): Hertz) -> (Hertz, PllConfig) {
                     ))] {
                     let (multiplier, divisor) = get_mul_div(sysclk, HSI);
                     (
-                        Hertz((hse / divisor) * multiplier),
+                        Hertz((HSI / divisor) * multiplier),
                         Pllsrc::HSI_DIV_PREDIV,
                         into_pll_mul(multiplier),
                         Some(into_pre_div(divisor)),
