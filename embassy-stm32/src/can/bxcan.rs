@@ -112,18 +112,3 @@ crate::pac::peripherals!(
 
 pin_trait!(RxPin, Instance);
 pin_trait!(TxPin, Instance);
-
-crate::pac::peripheral_pins!(
-    ($inst:ident, can, CAN, $pin:ident, TX, $af:expr) => {
-        pin_trait_impl!(TxPin, $inst, $pin, $af);
-    };
-    ($inst:ident, can, CAN, $pin:ident, RX, $af:expr) => {
-        pin_trait_impl!(RxPin, $inst, $pin, $af);
-    };
-    ($inst:ident, can, CAN, $pin:ident, TX) => {
-        pin_trait_impl!(TxPin, $inst, $pin, 0);
-    };
-    ($inst:ident, can, CAN, $pin:ident, RX) => {
-        pin_trait_impl!(RxPin, $inst, $pin, 0);
-    };
-);

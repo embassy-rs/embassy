@@ -87,7 +87,7 @@ pub struct PeripheralRccRegister {
 pub struct PeripheralPin {
     pub pin: String,
     pub signal: String,
-    pub af: Option<String>,
+    pub af: Option<u8>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize)]

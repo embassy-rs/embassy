@@ -125,7 +125,6 @@ pub fn gen_chip(
     let mut pin_table: Vec<Vec<String>> = Vec::new();
     let mut interrupt_table: Vec<Vec<String>> = Vec::new();
     let mut peripherals_table: Vec<Vec<String>> = Vec::new();
-    let mut peripheral_pins_table: Vec<Vec<String>> = Vec::new();
     let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
     let mut peripheral_counts: BTreeMap<String, u8> = BTreeMap::new();
     let mut dma_channel_counts: BTreeMap<String, u8> = BTreeMap::new();
@@ -173,19 +172,6 @@ pub fn gen_chip(
                 bi.kind.clone(),
                 peripheral_counts.get(&bi.kind).map_or(1, |v| v + 1),
             );
-
-            for pin in &p.pins {
-                let mut row = Vec::new();
-                row.push(p.name.clone());
-                row.push(bi.kind.clone());
-                row.push(bi.block.clone());
-                row.push(pin.pin.clone());
-                row.push(pin.signal.clone());
-                if let Some(ref af) = pin.af {
-                    row.push(af.clone());
-                }
-                peripheral_pins_table.push(row);
-            }
 
             for irq in &p.interrupts {
                 let mut row = Vec::new();
@@ -357,7 +343,6 @@ pub fn gen_chip(
     make_table(&mut data, "interrupts", &interrupt_table);
     make_table(&mut data, "peripherals", &peripherals_table);
     make_table(&mut data, "peripheral_versions", &peripheral_version_table);
-    make_table(&mut data, "peripheral_pins", &peripheral_pins_table);
     make_table(&mut data, "dma_channels", &dma_channels_table);
     make_table(&mut data, "dbgmcu", &dbgmcu_table);
     make_peripheral_counts(&mut data, &peripheral_counts);

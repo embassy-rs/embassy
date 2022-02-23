@@ -76,7 +76,7 @@ pub struct PeripheralRccRegister {
 pub struct PeripheralPin {
     pub pin: &'static str,
     pub signal: &'static str,
-    pub af: Option<&'static str>,
+    pub af: Option<u8>,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]

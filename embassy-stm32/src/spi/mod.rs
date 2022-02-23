@@ -885,29 +885,3 @@ crate::pac::peripherals!(
         impl Instance for peripherals::$inst {}
     };
 );
-
-#[cfg(not(rcc_f1))]
-crate::pac::peripheral_pins!(
-    ($inst:ident, spi, SPI, $pin:ident, SCK, $af:expr) => {
-        pin_trait_impl!(SckPin, $inst, $pin, $af);
-    };
-    ($inst:ident, spi, SPI, $pin:ident, MOSI, $af:expr) => {
-        pin_trait_impl!(MosiPin, $inst, $pin, $af);
-    };
-    ($inst:ident, spi, SPI, $pin:ident, MISO, $af:expr) => {
-        pin_trait_impl!(MisoPin, $inst, $pin, $af);
-    };
-);
-
-#[cfg(rcc_f1)]
-crate::pac::peripheral_pins!(
-    ($inst:ident, spi, SPI, $pin:ident, SCK) => {
-        pin_trait_impl!(SckPin, $inst, $pin, 0);
-    };
-    ($inst:ident, spi, SPI, $pin:ident, MOSI) => {
-        pin_trait_impl!(MosiPin, $inst, $pin, 0);
-    };
-    ($inst:ident, spi, SPI, $pin:ident, MISO) => {
-        pin_trait_impl!(MisoPin, $inst, $pin, 0);
-    };
-);
