@@ -23,7 +23,7 @@ impl<'d, T: Instance + bxcan::Instance> Can<'d, T> {
         unborrow!(peri, rx, tx);
 
         unsafe {
-            rx.set_as_af(rx.af_num(), AFType::OutputOpenDrain);
+            rx.set_as_af(rx.af_num(), AFType::Input);
             tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
         }
 
