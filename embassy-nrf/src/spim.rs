@@ -28,6 +28,40 @@ pub enum Error {
     DMABufferNotInDataMemory,
 }
 
+/// Interface for the SPIM peripheral using EasyDMA to offload the transmission and reception workload.
+///
+/// ## Data locality requirements
+///
+/// On nRF chips, EasyDMA requires the buffers to reside in RAM. However, Rust
+/// slices will not always do so. Take the following example:
+///
+/// ```no_run
+/// // As we pass a slice to the function whose contents will not ever change,
+/// // the compiler writes it into the flash and thus the pointer to it will
+/// // reference static memory. Since EasyDMA requires slices to reside in RAM,
+/// // this function call will fail.
+/// let result = spim.write_from_ram(&[1, 2, 3]);
+/// assert_eq!(result, Error::DMABufferNotInDataMemory);
+///
+/// // The data is still static and located in flash. However, since we are assigning
+/// // it to a variable, the compiler will load it into memory. Passing a reference to the
+/// // variable will yield a pointer that references dynamic memory, thus making EasyDMA happy.
+/// // This function call succeeds.
+/// let data = [1, 2, 3];
+/// let result = spim.write_from_ram(&data);
+/// assert!(result.is_ok());
+/// ```
+///
+/// Each function in this struct has a `_from_ram` variant and one without this suffix.
+/// - Functions with the suffix (e.g. [`write_from_ram`](Spim::write_from_ram), [`transfer_from_ram`](Spim::transfer_from_ram)) will return an error if the passed slice does not reside in RAM.
+/// - Functions without the suffix (e.g. [`write`](Spim::write), [`transfer`](Spim::transfer)) will check whether the data is in RAM and copy it into memory prior to transmission.
+///
+/// Since copying incurs a overhead, you are given the option to choose from `_from_ram` variants which will
+/// fail and notify you, or the more convenient versions without the suffix which are potentially a little bit
+/// more inefficient.
+///
+/// Note that the [`read`](Spim::read) and [`transfer_in_place`](Spim::transfer_in_place) methods do not have the corresponding `_from_ram` variants as
+/// mutable slices always reside in RAM.
 pub struct Spim<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
@@ -223,7 +257,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         Ok(())
     }
 
-    fn blocking_inner(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+    fn blocking_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
         self.prepare(rx, tx)?;
 
         // Wait for 'end' event.
@@ -234,7 +268,18 @@ impl<'d, T: Instance> Spim<'d, T> {
         Ok(())
     }
 
-    async fn async_inner(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+    fn blocking_inner(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Error> {
+        match self.blocking_inner_from_ram(rx, tx) {
+            Ok(_) => Ok(()),
+            Err(Error::DMABufferNotInDataMemory) => {
+                let tx_copied = tx.clone();
+                self.blocking_inner_from_ram(rx, tx_copied)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn async_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
         self.prepare(rx, tx)?;
 
         // Wait for 'end' event.
@@ -253,36 +298,84 @@ impl<'d, T: Instance> Spim<'d, T> {
         Ok(())
     }
 
+    async fn async_inner(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Error> {
+        match self.async_inner_from_ram(rx, tx).await {
+            Ok(_) => Ok(()),
+            Err(Error::DMABufferNotInDataMemory) => {
+                let tx_copied = tx.clone();
+                self.async_inner_from_ram(rx, tx_copied).await
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Reads data from the SPI bus without sending anything. Blocks until the buffer has been filled.
     pub fn blocking_read(&mut self, data: &mut [u8]) -> Result<(), Error> {
         self.blocking_inner(data, &[])
     }
 
+    /// Simultaneously sends and receives data. Blocks until the transmission is completed.
+    /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
     pub fn blocking_transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
         self.blocking_inner(read, write)
     }
 
-    pub fn blocking_transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
-        self.blocking_inner(data, data)
+    /// Same as [`blocking_transfer`](Spim::blocking_transfer) but will fail instead of copying data into RAM.
+    pub fn blocking_transfer_from_ram(
+        &mut self,
+        read: &mut [u8],
+        write: &[u8],
+    ) -> Result<(), Error> {
+        self.blocking_inner(read, write)
     }
 
+    /// Simultaneously sends and receives data.
+    /// Places the received data into the same buffer and blocks until the transmission is completed.
+    pub fn blocking_transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        self.blocking_inner_from_ram(data, data)
+    }
+
+    /// Sends data, discarding any received data. Blocks  until the transmission is completed.
+    /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
     pub fn blocking_write(&mut self, data: &[u8]) -> Result<(), Error> {
         self.blocking_inner(&mut [], data)
     }
 
+    /// Same as [`blocking_write`](Spim::blocking_write) but will fail instead of copying data into RAM.
+    pub fn blocking_write_from_ram(&mut self, data: &[u8]) -> Result<(), Error> {
+        self.blocking_inner(&mut [], data)
+    }
+
+    /// Reads data from the SPI bus without sending anything.
     pub async fn read(&mut self, data: &mut [u8]) -> Result<(), Error> {
         self.async_inner(data, &[]).await
     }
 
+    /// Simultaneously sends and receives data.
+    /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
     pub async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
         self.async_inner(read, write).await
     }
 
-    pub async fn transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
-        self.async_inner(data, data).await
+    /// Same as [`transfer`](Spim::transfer) but will fail instead of copying data into RAM.
+    pub async fn transfer_from_ram(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
+        self.async_inner_from_ram(read, write).await
     }
 
+    /// Simultaneously sends and receives data. Places the received data into the same buffer.
+    pub async fn transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        self.async_inner_from_ram(data, data).await
+    }
+
+    /// Sends data, discarding any received data.
+    /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
     pub async fn write(&mut self, data: &[u8]) -> Result<(), Error> {
         self.async_inner(&mut [], data).await
+    }
+
+    /// Same as [`write`](Spim::write) but will fail instead of copying data into RAM.
+    pub async fn write_from_ram(&mut self, data: &[u8]) -> Result<(), Error> {
+        self.async_inner_from_ram(&mut [], data).await
     }
 }
 
