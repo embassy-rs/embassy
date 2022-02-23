@@ -34,6 +34,7 @@ nrf9160-ns = ["_nrf9160"]
 
 gpiote = []
 time-driver-rtc1 = ["_time-driver"]
+time-driver-timer1 = ["_time-driver"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
