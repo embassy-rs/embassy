@@ -911,12 +911,3 @@ crate::pac::peripheral_pins!(
         pin_trait_impl!(MisoPin, $inst, $pin, 0);
     };
 );
-
-crate::pac::peripheral_dma_channels! {
-    ($peri:ident, spi, $kind:ident, RX, $channel:tt, $request:expr) => {
-        dma_trait_impl!(RxDma, $peri, $channel, $request);
-    };
-    ($peri:ident, spi, $kind:ident, TX, $channel:tt, $request:expr) => {
-        dma_trait_impl!(TxDma, $peri, $channel, $request);
-    };
-}

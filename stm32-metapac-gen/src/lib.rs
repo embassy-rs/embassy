@@ -127,7 +127,6 @@ pub fn gen_chip(
     let mut peripherals_table: Vec<Vec<String>> = Vec::new();
     let mut peripheral_pins_table: Vec<Vec<String>> = Vec::new();
     let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
-    let mut peripheral_dma_channels_table: Vec<Vec<String>> = Vec::new();
     let mut peripheral_counts: BTreeMap<String, u8> = BTreeMap::new();
     let mut dma_channel_counts: BTreeMap<String, u8> = BTreeMap::new();
     let mut dbgmcu_table: Vec<Vec<String>> = Vec::new();
@@ -196,35 +195,6 @@ pub fn gen_chip(
                 row.push(irq.signal.clone());
                 row.push(irq.interrupt.to_ascii_uppercase());
                 interrupt_table.push(row)
-            }
-
-            for ch in &p.dma_channels {
-                let mut row = Vec::new();
-                row.push(p.name.clone());
-                row.push(bi.kind.clone());
-                row.push(bi.block.clone());
-                row.push(ch.signal.clone());
-                row.push(if let Some(channel) = &ch.channel {
-                    format!("{{channel: {}}}", channel)
-                } else if let Some(dmamux) = &ch.dmamux {
-                    format!("{{dmamux: {}}}", dmamux)
-                } else {
-                    unreachable!();
-                });
-
-                row.push(if let Some(request) = ch.request {
-                    request.to_string()
-                } else {
-                    "()".to_string()
-                });
-
-                if peripheral_dma_channels_table
-                    .iter()
-                    .find(|a| a[..a.len() - 1] == row[..row.len() - 1])
-                    .is_none()
-                {
-                    peripheral_dma_channels_table.push(row);
-                }
             }
 
             let mut peripheral_row = Vec::new();
@@ -388,11 +358,6 @@ pub fn gen_chip(
     make_table(&mut data, "peripherals", &peripherals_table);
     make_table(&mut data, "peripheral_versions", &peripheral_version_table);
     make_table(&mut data, "peripheral_pins", &peripheral_pins_table);
-    make_table(
-        &mut data,
-        "peripheral_dma_channels",
-        &peripheral_dma_channels_table,
-    );
     make_table(&mut data, "dma_channels", &dma_channels_table);
     make_table(&mut data, "dbgmcu", &dbgmcu_table);
     make_peripheral_counts(&mut data, &peripheral_counts);
