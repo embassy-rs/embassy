@@ -712,18 +712,3 @@ crate::pac::peripheral_pins!(
         pin_trait_impl!(CkPin, $inst, $pin, 0);
     };
 );
-
-crate::pac::peripheral_dma_channels! {
-    ($peri:ident, usart, $kind:ident, RX, $channel:tt, $request:expr) => {
-        dma_trait_impl!(RxDma, $peri, $channel, $request);
-    };
-    ($peri:ident, usart, $kind:ident, TX, $channel:tt, $request:expr) => {
-        dma_trait_impl!(TxDma, $peri, $channel, $request);
-    };
-    ($peri:ident, uart, $kind:ident, RX, $channel:tt, $request:expr) => {
-        dma_trait_impl!(RxDma, $peri, $channel, $request);
-    };
-    ($peri:ident, uart, $kind:ident, TX, $channel:tt, $request:expr) => {
-        dma_trait_impl!(TxDma, $peri, $channel, $request);
-    };
-}

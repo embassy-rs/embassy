@@ -482,15 +482,6 @@ crate::pac::interrupts! {
 
 dma_trait!(FrameDma, Instance);
 
-crate::pac::peripheral_dma_channels! {
-    ($peri:ident, dcmi, $kind:ident, PSSI, $channel:tt, $request:expr) => {
-        dma_trait_impl!(FrameDma, $peri, $channel, $request);
-    };
-    ($peri:ident, dcmi, $kind:ident, DCMI, $channel:tt, $request:expr) => {
-        dma_trait_impl!(FrameDma, $peri, $channel, $request);
-    };
-}
-
 crate::pac::peripheral_pins!(
     ($inst:ident, dcmi, DCMI, $pin:ident, D0, $af:expr) => {
         pin_trait_impl!(D0Pin, $inst, $pin, $af);

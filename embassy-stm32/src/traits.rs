@@ -31,8 +31,8 @@ macro_rules! dma_trait {
 #[allow(unused)]
 macro_rules! dma_trait_impl {
     // DMAMUX
-    ($signal:ident, $instance:ident, {dmamux: $dmamux:ident}, $request:expr) => {
-        impl<T> $signal<crate::peripherals::$instance> for T
+    (crate::$mod:ident::$trait:ident, $instance:ident, {dmamux: $dmamux:ident}, $request:expr) => {
+        impl<T> crate::$mod::$trait<crate::peripherals::$instance> for T
         where
             T: crate::dma::MuxChannel<Mux = crate::dma::$dmamux>,
         {
@@ -43,8 +43,8 @@ macro_rules! dma_trait_impl {
     };
 
     // No DMAMUX
-    ($signal:ident, $instance:ident, {channel: $channel:ident}, $request:expr) => {
-        impl $signal<crate::peripherals::$instance> for crate::peripherals::$channel {
+    (crate::$mod:ident::$trait:ident, $instance:ident, {channel: $channel:ident}, $request:expr) => {
+        impl crate::$mod::$trait<crate::peripherals::$instance> for crate::peripherals::$channel {
             fn request(&self) -> crate::dma::Request {
                 $request
             }

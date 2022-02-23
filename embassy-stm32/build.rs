@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -228,6 +228,61 @@ fn main() {
                 #gg
             }
         })
+    }
+
+    // ========
+    // Generate dma_trait_impl!
+
+    let signals: HashMap<_, _> = [
+        // (kind, signal) => trait
+        (("usart", "RX"), quote!(crate::usart::RxDma)),
+        (("usart", "TX"), quote!(crate::usart::TxDma)),
+        (("spi", "RX"), quote!(crate::spi::RxDma)),
+        (("spi", "TX"), quote!(crate::spi::TxDma)),
+        (("i2c", "RX"), quote!(crate::i2c::RxDma)),
+        (("i2c", "TX"), quote!(crate::i2c::TxDma)),
+        (("dcmi", "DCMI"), quote!(crate::dcmi::FrameDma)),
+        (("dcmi", "PSSI"), quote!(crate::dcmi::FrameDma)),
+    ]
+    .into();
+
+    for p in METADATA.peripherals {
+        if let Some(regs) = &p.registers {
+            let mut dupe = HashSet::new();
+            for ch in p.dma_channels {
+                // Some chips have multiple request numbers for the same (peri, signal, channel) combos.
+                // Ignore the dupes, picking the first one. Otherwise this causes conflicting trait impls
+                let key = (ch.signal, ch.channel);
+                if !dupe.insert(key) {
+                    continue;
+                }
+
+                if let Some(tr) = signals.get(&(regs.kind, ch.signal)) {
+                    let peri = format_ident!("{}", p.name);
+
+                    let channel = if let Some(channel) = &ch.channel {
+                        let channel = format_ident!("{}", channel);
+                        quote!({channel: #channel})
+                    } else if let Some(dmamux) = &ch.dmamux {
+                        let dmamux = format_ident!("{}", dmamux);
+                        quote!({dmamux: #dmamux})
+                    } else {
+                        unreachable!();
+                    };
+
+                    let request = if let Some(request) = ch.request {
+                        let request = request as u8;
+                        quote!(#request)
+                    } else {
+                        quote!(())
+                    };
+
+                    g.extend(quote! {
+                        dma_trait_impl!(#tr, #peri, #channel, #request);
+                    });
+                }
+            }
+        }
     }
 
     // ========
