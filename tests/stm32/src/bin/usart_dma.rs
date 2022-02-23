@@ -22,6 +22,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     // Arduino pins D0 and D1
     // They're connected together with a 1K resistor.
+    #[cfg(feature = "stm32f103c8")]
+    let (tx, rx, usart, tx_dma, rx_dma) = (p.PA9, p.PA10, p.USART1, p.DMA1_CH4, p.DMA1_CH5);
     #[cfg(feature = "stm32g491re")]
     let (tx, rx, usart, tx_dma, rx_dma) = (p.PC4, p.PC5, p.USART1, p.DMA1_CH0, p.DMA1_CH1);
     #[cfg(feature = "stm32g071rb")]

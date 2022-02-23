@@ -3,9 +3,8 @@ build-std = ["core"]
 build-std-features = ["panic_immediate_abort"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-# replace STM32F429ZITx with your chip as listed in `probe-run --list-chips`
-#runner = "teleprobe run --chip STM32G071RBTx --elf"
-runner = "./teleprobe.sh nucleo-stm32f429zi"
+runner = "teleprobe client run --target bluepill-stm32f103c8 --elf"
+#runner = "teleprobe local run --chip STM32F103C8 --elf"
 
 rustflags = [
   # Code-size optimizations.
@@ -15,4 +14,4 @@ rustflags = [
 ]
 
 [build]
-target = "thumbv7em-none-eabi"
+target = "thumbv7m-none-eabi"

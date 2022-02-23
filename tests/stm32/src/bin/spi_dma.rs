@@ -15,6 +15,8 @@ use example_common::*;
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
+    #[cfg(feature = "stm32f103c8")]
+    let (sck, mosi, miso, tx_dma, rx_dma) = (p.PA5, p.PA7, p.PA6, p.DMA1_CH3, p.DMA1_CH2);
     #[cfg(feature = "stm32f429zi")]
     let (sck, mosi, miso, tx_dma, rx_dma) = (p.PA5, p.PA7, p.PA6, p.DMA2_CH3, p.DMA2_CH2);
     #[cfg(feature = "stm32h755zi")]
