@@ -58,33 +58,3 @@ pin_trait!(RXD1Pin, Instance);
 pin_trait!(TXD0Pin, Instance);
 pin_trait!(TXD1Pin, Instance);
 pin_trait!(TXEnPin, Instance);
-
-crate::pac::peripheral_pins!(
-    ($inst:ident, eth, ETH, $pin:ident, REF_CLK, $af:expr) => {
-        pin_trait_impl!(RefClkPin, $inst, $pin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, MDIO, $af:expr) => {
-        pin_trait_impl!(MDIOPin, $inst, $pin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, MDC, $af:expr) => {
-        pin_trait_impl!(MDCPin, $inst, $pin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, CRS_DV, $af:expr) => {
-        pin_trait_impl!(CRSPin, $inst, $pin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, RXD0, $af:expr) => {
-        pin_trait_impl!(RXD0Pin, $inst, $pin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, RXD1, $af:expr) => {
-        pin_trait_impl!(RXD1Pin, $inst, $pin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, TXD0, $af:expr) => {
-        pin_trait_impl!(TXD0Pin, $inst, $pin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, TXD1, $af:expr) => {
-        pin_trait_impl!(TXD1Pin, $inst, $pin, $af);
-    };
-    ($inst:ident, eth, ETH, $pin:ident, TX_EN, $af:expr) => {
-        pin_trait_impl!(TXEnPin, $inst, $pin, $af);
-    };
-);

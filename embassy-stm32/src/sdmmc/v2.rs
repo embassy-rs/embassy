@@ -1460,42 +1460,6 @@ crate::pac::peripherals!(
     };
 );
 
-crate::pac::peripheral_pins!(
-    ($inst:ident, sdmmc, SDMMC, $pin:ident, CK, $af:expr) => {
-        pin_trait_impl!(CkPin, $inst, $pin, $af);
-    };
-    ($inst:ident, sdmmc, SDMMC, $pin:ident, CMD, $af:expr) => {
-        pin_trait_impl!(CmdPin, $inst, $pin, $af);
-    };
-    ($inst:ident, sdmmc, SDMMC, $pin:ident, D0, $af:expr) => {
-        pin_trait_impl!(D0Pin, $inst, $pin, $af);
-    };
-    ($inst:ident, sdmmc, SDMMC, $pin:ident, D1, $af:expr) => {
-        pin_trait_impl!(D1Pin, $inst, $pin, $af);
-    };
-    ($inst:ident, sdmmc, SDMMC, $pin:ident, D2, $af:expr) => {
-        pin_trait_impl!(D2Pin, $inst, $pin, $af);
-    };
-    ($inst:ident, sdmmc, SDMMC, $pin:ident, D3, $af:expr) => {
-        pin_trait_impl!(D3Pin, $inst, $pin, $af);
-    };
-    ($inst:ident, sdmmc, SDMMC, $pin:ident, D4, $af:expr) => {
-        pin_trait_impl!(D4Pin, $inst, $pin, $af);
-    };
-    ($inst:ident, sdmmc, SDMMC, $pin:ident, D5, $af:expr) => {
-        pin_trait_impl!(D5Pin, $inst, $pin, $af);
-    };
-    ($inst:ident, sdmmc, SDMMC, $pin:ident, D6, $af:expr) => {
-        pin_trait_impl!(D6Pin, $inst, $pin, $af);
-    };
-    ($inst:ident, sdmmc, SDMMC, $pin:ident, D6, $af:expr) => {
-        pin_trait_impl!(D7Pin, $inst, $pin, $af);
-    };
-    ($inst:ident, sdmmc, SDMMC, $pin:ident, D8, $af:expr) => {
-        pin_trait_impl!(D8Pin, $inst, $pin, $af);
-    };
-);
-
 #[cfg(feature = "sdmmc-rs")]
 mod sdmmc_rs {
     use super::*;

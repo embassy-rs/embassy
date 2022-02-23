@@ -350,10 +350,10 @@ impl_peri!(MCO2, Mco2, set_mco2, set_mco2pre);
 
 crate::pac::peripheral_pins!(
     ($inst:ident, rcc, RCC, $pin:ident, MCO_1, $af:expr) => {
-        pin_trait_impl!(McoPin, MCO1, $pin, $af);
+        pin_trait_impl!(crate::rcc::McoPin, MCO1, $pin, $af);
     };
     ($inst:ident, rcc, RCC, $pin:ident, MCO_2, $af:expr) => {
-        pin_trait_impl!(McoPin, MCO2, $pin, $af);
+        pin_trait_impl!(crate::rcc::McoPin, MCO2, $pin, $af);
     };
 );
 

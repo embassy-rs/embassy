@@ -9,8 +9,8 @@ macro_rules! pin_trait {
 }
 
 macro_rules! pin_trait_impl {
-    ($signal:ident, $instance:ident, $pin:ident, $af:expr) => {
-        impl $signal<crate::peripherals::$instance> for crate::peripherals::$pin {
+    (crate::$mod:ident::$trait:ident, $instance:ident, $pin:ident, $af:expr) => {
+        impl crate::$mod::$trait<crate::peripherals::$instance> for crate::peripherals::$pin {
             fn af_num(&self) -> u8 {
                 $af
             }

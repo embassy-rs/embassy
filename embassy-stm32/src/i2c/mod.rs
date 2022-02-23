@@ -71,23 +71,3 @@ crate::pac::interrupts!(
         }
     };
 );
-
-#[cfg(not(rcc_f1))]
-crate::pac::peripheral_pins!(
-    ($inst:ident, i2c, I2C, $pin:ident, SDA, $af:expr) => {
-        pin_trait_impl!(SdaPin, $inst, $pin, $af);
-    };
-    ($inst:ident, i2c, I2C, $pin:ident, SCL, $af:expr) => {
-        pin_trait_impl!(SclPin, $inst, $pin, $af);
-    };
-);
-
-#[cfg(rcc_f1)]
-crate::pac::peripheral_pins!(
-    ($inst:ident, i2c, I2C, $pin:ident, SDA) => {
-        pin_trait_impl!(SdaPin, $inst, $pin, 0);
-    };
-    ($inst:ident, i2c, I2C, $pin:ident, SCL) => {
-        pin_trait_impl!(SdaPin, $inst, $pin, 0);
-    };
-);
