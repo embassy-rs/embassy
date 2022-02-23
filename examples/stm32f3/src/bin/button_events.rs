@@ -50,11 +50,17 @@ impl<'a> Leds<'a> {
         }
     }
 
-    async fn blink(&mut self) {
+    async fn show(&mut self, queue: &mut Receiver<'static, NoopRawMutex, ButtonEvent, 4>) {
         self.leds[self.current_led].set_high();
-        Timer::after(Duration::from_millis(500)).await;
-        self.leds[self.current_led].set_low();
-        Timer::after(Duration::from_millis(200)).await;
+        if let Ok(new_message) = with_timeout(Duration::from_millis(500), queue.recv()).await {
+            self.leds[self.current_led].set_low();
+            self.process_event(new_message).await;
+        } else {
+            self.leds[self.current_led].set_low();
+            if let Ok(new_message) = with_timeout(Duration::from_millis(200), queue.recv()).await {
+                self.process_event(new_message).await;
+            }
+        }
     }
 
     async fn flash(&mut self) {
@@ -69,8 +75,21 @@ impl<'a> Leds<'a> {
             Timer::after(Duration::from_millis(200)).await;
         }
     }
+
+    async fn process_event(&mut self, event: Option<ButtonEvent>) {
+        match event {
+            Some(ButtonEvent::SingleClick) => self.move_next(),
+            Some(ButtonEvent::DoubleClick) => {
+                self.change_direction();
+                self.move_next()
+            }
+            Some(ButtonEvent::Hold) => self.flash().await,
+            _ => {}
+        }
+    }
 }
 
+#[derive(Format)]
 enum ButtonEvent {
     SingleClick,
     DoubleClick,
@@ -105,19 +124,10 @@ async fn main(spawner: Spawner, p: Peripherals) {
 #[embassy::task]
 async fn led_blinker(
     mut leds: Leds<'static>,
-    queue: Receiver<'static, NoopRawMutex, ButtonEvent, 4>,
+    mut queue: Receiver<'static, NoopRawMutex, ButtonEvent, 4>,
 ) {
     loop {
-        leds.blink().await;
-        match queue.try_recv() {
-            Ok(ButtonEvent::SingleClick) => leds.move_next(),
-            Ok(ButtonEvent::DoubleClick) => {
-                leds.change_direction();
-                leds.move_next()
-            }
-            Ok(ButtonEvent::Hold) => leds.flash().await,
-            _ => {}
-        }
+        leds.show(&mut queue).await;
     }
 }
 
