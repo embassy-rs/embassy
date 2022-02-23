@@ -182,7 +182,7 @@ pub fn gen_chip(
                 row.push(pin.pin.clone());
                 row.push(pin.signal.clone());
                 if let Some(ref af) = pin.af {
-                    row.push(af.clone());
+                    row.push(format!("{}", af));
                 }
                 peripheral_pins_table.push(row);
             }
