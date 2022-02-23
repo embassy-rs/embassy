@@ -8,6 +8,7 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
+use crate::chip::FORCE_COPY_BUFFER_SIZE;
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin};
 use crate::gpio::{Pin as GpioPin, PselBits};
@@ -273,8 +274,9 @@ impl<'d, T: Instance> Spim<'d, T> {
             Ok(_) => Ok(()),
             Err(Error::DMABufferNotInDataMemory) => {
                 trace!("Copying SPIM tx buffer into RAM for DMA");
-                let tx_copied = tx.clone();
-                self.blocking_inner_from_ram(rx, tx_copied)
+                let mut tx_buf = [0u8; FORCE_COPY_BUFFER_SIZE];
+                tx_buf[..tx.len()].copy_from_slice(tx);
+                self.blocking_inner_from_ram(rx, &tx_buf[..tx.len()])
             }
             Err(error) => Err(error),
         }
@@ -304,8 +306,9 @@ impl<'d, T: Instance> Spim<'d, T> {
             Ok(_) => Ok(()),
             Err(Error::DMABufferNotInDataMemory) => {
                 trace!("Copying SPIM tx buffer into RAM for DMA");
-                let tx_copied = tx.clone();
-                self.async_inner_from_ram(rx, tx_copied).await
+                let mut tx_buf = [0u8; FORCE_COPY_BUFFER_SIZE];
+                tx_buf[..tx.len()].copy_from_slice(tx);
+                self.async_inner_from_ram(rx, &tx_buf[..tx.len()]).await
             }
             Err(error) => Err(error),
         }
