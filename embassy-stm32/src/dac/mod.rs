@@ -10,13 +10,11 @@ pub(crate) mod sealed {
     pub trait Instance {
         fn regs() -> &'static crate::pac::dac::Dac;
     }
-
-    pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin {}
 }
 
 pub trait Instance: sealed::Instance + 'static {}
 
-pub trait DacPin<T: Instance, const C: u8>: sealed::DacPin<T, C> + 'static {}
+pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 
 crate::pac::peripherals!(
     (dac, $inst:ident) => {
@@ -30,19 +28,8 @@ crate::pac::peripherals!(
     };
 );
 
-crate::pac::peripheral_pins!(
-    ($inst:ident, dac, DAC, $pin:ident, OUT1) => {
-        impl DacPin<peripherals::$inst, 1> for peripherals::$pin {}
-
-        impl sealed::DacPin<peripherals::$inst, 1> for peripherals::$pin {
-        }
-
+macro_rules! impl_dac_pin {
+    ($inst:ident, $pin:ident, $ch:expr) => {
+        impl crate::dac::DacPin<peripherals::$inst, $ch> for crate::peripherals::$pin {}
     };
-
-    ($inst:ident, dac, DAC, $pin:ident, OUT2) => {
-        impl DacPin<peripherals::$inst, 2> for peripherals::$pin {}
-
-        impl sealed::DacPin<peripherals::$inst, 2> for peripherals::$pin {
-        }
-    };
-);
+}

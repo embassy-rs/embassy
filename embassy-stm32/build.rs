@@ -448,6 +448,28 @@ fn main() {
                         pin_trait_impl!(#tr, #peri, #pin_name, #af);
                     })
                 }
+
+                // ADC is special
+                if regs.kind == "adc" {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    let ch: u8 = pin.signal.strip_prefix("IN").unwrap().parse().unwrap();
+
+                    g.extend(quote! {
+                        impl_adc_pin!( #peri, #pin_name, #ch);
+                    })
+                }
+
+                // DAC is special
+                if regs.kind == "dac" {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    let ch: u8 = pin.signal.strip_prefix("OUT").unwrap().parse().unwrap();
+
+                    g.extend(quote! {
+                        impl_dac_pin!( #peri, #pin_name, #ch);
+                    })
+                }
             }
         }
     }
