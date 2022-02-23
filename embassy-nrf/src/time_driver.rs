@@ -14,24 +14,51 @@ fn rtc() -> &'static pac::rtc0::RegisterBlock {
     unsafe { &*pac::RTC1::ptr() }
 }
 
-// RTC timekeeping works with something we call "periods", which are time intervals
-// of 2^23 ticks. The RTC counter value is 24 bits, so one "overflow cycle" is 2 periods.
-//
-// A `period` count is maintained in parallel to the RTC hardware `counter`, like this:
-// - `period` and `counter` start at 0
-// - `period` is incremented on overflow (at counter value 0)
-// - `period` is incremented "midway" between overflows (at counter value 0x800000)
-//
-// Therefore, when `period` is even, counter is in 0..0x7fffff. When odd, counter is in 0x800000..0xFFFFFF
-// This allows for now() to return the correct value even if it races an overflow.
-//
-// To get `now()`, `period` is read first, then `counter` is read. If the counter value matches
-// the expected range for the `period` parity, we're done. If it doesn't, this means that
-// a new period start has raced us between reading `period` and `counter`, so we assume the `counter` value
-// corresponds to the next period.
-//
-// `period` is a 32bit integer, so It overflows on 2^32 * 2^23 / 32768 seconds of uptime, which is 34865 years.
-
+/// Calculate the timestamp from the period count and the tick count.
+///
+/// The RTC counter is 24 bit. Ticking at 32768hz, it overflows every ~8 minutes. This is
+/// too short. We must make it "never" overflow.
+///
+/// The obvious way would be to count overflow periods. Every time the counter overflows,
+/// increase a `periods` variable. `now()` simply does `periods << 24 + counter`. So, the logic
+/// around an overflow would look like this:
+///
+/// ```not_rust
+/// periods = 1, counter = 0xFF_FFFE --> now = 0x1FF_FFFE
+/// periods = 1, counter = 0xFF_FFFF --> now = 0x1FF_FFFF
+/// **OVERFLOW**
+/// periods = 2, counter = 0x00_0000 --> now = 0x200_0000
+/// periods = 2, counter = 0x00_0001 --> now = 0x200_0001
+/// ```
+///
+/// The problem is this is vulnerable to race conditions if `now()` runs at the exact time an
+/// overflow happens.
+///
+/// If `now()` reads `periods` first and `counter` later, and overflow happens between the reads,
+/// it would return a wrong value:
+///
+/// ```not_rust
+/// periods = 1 (OLD), counter = 0x00_0000 (NEW) --> now = 0x100_0000 -> WRONG
+/// ```
+///
+/// It fails similarly if it reads `counter` first and `periods` second.
+///
+/// To fix this, we define a "period" to be 2^23 ticks (instead of 2^24). One "overflow cycle" is 2 periods.
+///
+/// - `period` is incremented on overflow (at counter value 0)
+/// - `period` is incremented "midway" between overflows (at counter value 0x80_0000)
+///
+/// Therefore, when `period` is even, counter is in 0..0x7f_ffff. When odd, counter is in 0x80_0000..0xFF_FFFF
+/// This allows for now() to return the correct value even if it races an overflow.
+///
+/// To get `now()`, `period` is read first, then `counter` is read. If the counter value matches
+/// the expected range for the `period` parity, we're done. If it doesn't, this means that
+/// a new period start has raced us between reading `period` and `counter`, so we assume the `counter` value
+/// corresponds to the next period.
+///
+/// `period` is a 32bit integer, so It overflows on 2^32 * 2^23 / 32768 seconds of uptime, which is 34865
+/// years. For comparison, flash memory like the one containing your firmware is usually rated to retain
+/// data for only 10-20 years. 34865 years is long enough!
 fn calc_now(period: u32, counter: u32) -> u64 {
     ((period as u64) << 23) + ((counter ^ ((period & 1) << 23)) as u64)
 }

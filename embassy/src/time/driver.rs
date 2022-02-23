@@ -80,8 +80,15 @@ impl AlarmHandle {
 /// Time driver
 pub trait Driver: Send + Sync + 'static {
     /// Return the current timestamp in ticks.
-    /// This is guaranteed to be monotonic, i.e. a call to now() will always return
-    /// a greater or equal value than earler calls.
+    ///
+    /// Implementations MUST ensure that:
+    /// - This is guaranteed to be monotonic, i.e. a call to now() will always return
+    ///   a greater or equal value than earler calls. Time can't "roll backwards".
+    /// - It "never" overflows. It must not overflow in a sufficiently long time frame, say
+    ///   in 10_000 years (Human civilization is likely to already have self-destructed
+    ///   10_000 years from now.). This means if your hardware only has 16bit/32bit timers
+    ///   you MUST extend them to 64-bit, for example by counting overflows in software,
+    ///   or chaining multiple timers together.
     fn now(&self) -> u64;
 
     /// Try allocating an alarm handle. Returns None if no alarms left.
