@@ -18,7 +18,11 @@ use crate::rcc::sealed::RccPeripheral;
 use crate::timer::sealed::Basic16bitInstance as BasicInstance;
 use crate::timer::sealed::GeneralPurpose16bitInstance as Instance;
 
+#[cfg(not(any(time_driver_tim12, time_driver_tim15)))]
 const ALARM_COUNT: usize = 3;
+
+#[cfg(any(time_driver_tim12, time_driver_tim15))]
+const ALARM_COUNT: usize = 1;
 
 #[cfg(time_driver_tim2)]
 type T = peripherals::TIM2;
@@ -28,6 +32,11 @@ type T = peripherals::TIM3;
 type T = peripherals::TIM4;
 #[cfg(time_driver_tim5)]
 type T = peripherals::TIM5;
+
+#[cfg(time_driver_tim12)]
+type T = peripherals::TIM12;
+#[cfg(time_driver_tim15)]
+type T = peripherals::TIM15;
 
 foreach_interrupt! {
     (TIM2, timer, $block:ident, UP, $irq:ident) => {
@@ -53,6 +62,20 @@ foreach_interrupt! {
     };
     (TIM5, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim5)]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM12, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim12)]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM15, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim15)]
         #[interrupt]
         fn $irq() {
             DRIVER.on_interrupt()
