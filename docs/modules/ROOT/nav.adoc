@@ -5,4 +5,5 @@
 ** xref:stm32.adoc[STM32]
 * xref:getting_started.adoc[Getting started]
 ** xref:basic_application.adoc[Basic application]
+** xref:layer_by_layer.adoc[Layer by Layer]
 * xref:examples.adoc[Examples]

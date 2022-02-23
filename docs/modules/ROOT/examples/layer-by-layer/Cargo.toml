@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = [
+    "blinky-pac",
+    "blinky-hal",
+    "blinky-irq",
+    "blinky-async",
+]
+
+[patch.crates-io]
+embassy = { path = "../../../../../embassy" }
+embassy-stm32 = { path = "../../../../../embassy-stm32" }
+stm32-metapac = { path = "../../../../../stm32-metapac" }
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = "fat"
+opt-level = 's'
+overflow-checks = false
