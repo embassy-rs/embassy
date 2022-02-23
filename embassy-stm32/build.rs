@@ -251,6 +251,8 @@ fn main() {
         (("spi", "MISO"), (quote!(crate::spi::MisoPin), quote!())),
         (("i2c", "SDA"), (quote!(crate::i2c::SdaPin), quote!())),
         (("i2c", "SCL"), (quote!(crate::i2c::SclPin), quote!())),
+        (("rcc", "MCO_1"), (quote!(crate::rcc::McoPin), quote!())),
+        (("rcc", "MCO_2"), (quote!(crate::rcc::McoPin), quote!())),
         (("dcmi", "D0"), (quote!(crate::dcmi::D0Pin), quote!())),
         (("dcmi", "D1"), (quote!(crate::dcmi::D1Pin), quote!())),
         (("dcmi", "D2"), (quote!(crate::dcmi::D2Pin), quote!())),
@@ -427,9 +429,19 @@ fn main() {
             for pin in p.pins {
                 let key = (regs.kind, pin.signal);
                 if let Some((tr, cfgs)) = signals.get(&key) {
-                    let peri = format_ident!("{}", p.name);
+                    let mut peri = format_ident!("{}", p.name);
                     let pin_name = format_ident!("{}", pin.pin);
                     let af = pin.af.unwrap_or(0);
+
+                    // MCO is special
+                    if pin.signal.starts_with("MCO_") {
+                        // Supported in H7 only for now
+                        if regs.version == "h7" {
+                            peri = format_ident!("{}", pin.signal.replace("_", ""));
+                        } else {
+                            continue;
+                        }
+                    }
 
                     g.extend(quote! {
                         #cfgs
