@@ -1,0 +1,14 @@
+[package]
+name = "blinky-async"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+embassy-stm32 = { version = "0.1.0", features = ["stm32l475vg", "memory-x", "exti"], default-features = false  }
+embassy = { version = "0.1.0", default-features = false, features = ["nightly"] }
+
+defmt = "0.3.0"
+defmt-rtt = "0.3.0"
+panic-probe = { version = "0.3.0", features = ["print-defmt"] }
