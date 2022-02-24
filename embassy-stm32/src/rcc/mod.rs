@@ -33,18 +33,20 @@ pub struct Clocks {
     pub apb2_tim: Hertz,
     #[cfg(any(rcc_wl5, rcc_u5))]
     pub apb3: Hertz,
-    #[cfg(any(rcc_h7))]
+    #[cfg(any(rcc_h7, rcc_h7ab))]
     pub apb4: Hertz,
 
     // AHB
     pub ahb1: Hertz,
     #[cfg(any(
-        rcc_l4, rcc_f4, rcc_f410, rcc_f7, rcc_h7, rcc_g4, rcc_u5, rcc_wb, rcc_wl5
+        rcc_l4, rcc_f4, rcc_f410, rcc_f7, rcc_h7, rcc_h7ab, rcc_g4, rcc_u5, rcc_wb, rcc_wl5
     ))]
     pub ahb2: Hertz,
-    #[cfg(any(rcc_l4, rcc_f4, rcc_f410, rcc_f7, rcc_h7, rcc_u5, rcc_wb, rcc_wl5))]
+    #[cfg(any(
+        rcc_l4, rcc_f4, rcc_f410, rcc_f7, rcc_h7, rcc_h7ab, rcc_u5, rcc_wb, rcc_wl5
+    ))]
     pub ahb3: Hertz,
-    #[cfg(any(rcc_h7))]
+    #[cfg(any(rcc_h7, rcc_h7ab))]
     pub ahb4: Hertz,
 
     #[cfg(any(rcc_f4, rcc_f410, rcc_f7))]

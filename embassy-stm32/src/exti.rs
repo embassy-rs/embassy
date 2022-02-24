@@ -388,6 +388,6 @@ pub(crate) unsafe fn init() {
 
     #[cfg(not(any(rcc_wb, rcc_wl5, rcc_f1)))]
     <crate::peripherals::SYSCFG as crate::rcc::sealed::RccPeripheral>::enable();
-    #[cfg(rcc_f1)]
+    #[cfg(stm32f1)]
     <crate::peripherals::AFIO as crate::rcc::sealed::RccPeripheral>::enable();
 }

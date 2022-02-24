@@ -28,7 +28,7 @@ pub(crate) mod sealed {
 }
 
 pub struct DMAMUX1;
-#[cfg(rcc_h7)]
+#[cfg(stm32h7)]
 pub struct DMAMUX2;
 
 pub trait MuxChannel: sealed::MuxChannel + super::Channel {
