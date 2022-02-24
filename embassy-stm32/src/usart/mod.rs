@@ -6,7 +6,7 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 use crate::dma::NoDma;
-use crate::gpio::sealed::AFType::{OutputOpenDrain, OutputPushPull};
+use crate::gpio::sealed::AFType;
 use crate::pac::usart::{regs, vals};
 use crate::peripherals;
 use crate::rcc::RccPeripheral;
@@ -98,8 +98,8 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         let r = inner.regs();
 
         unsafe {
-            rx.set_as_af(rx.af_num(), OutputOpenDrain);
-            tx.set_as_af(tx.af_num(), OutputPushPull);
+            rx.set_as_af(rx.af_num(), AFType::Input);
+            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
             r.cr2().write(|_w| {});
             r.cr3().write(|_w| {});

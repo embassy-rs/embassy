@@ -6,6 +6,7 @@ version = "0.1.0"
 resolver = "2"
 
 [features]
+stm32f103c8 = ["embassy-stm32/stm32f103c8"]
 stm32f429zi = ["embassy-stm32/stm32f429zi"]
 stm32g071rb = ["embassy-stm32/stm32g071rb"]
 stm32g491re = ["embassy-stm32/stm32g491re"]

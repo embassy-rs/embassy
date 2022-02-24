@@ -410,7 +410,7 @@ pub(crate) mod sealed {
                 AFType::Input => {
                     r.cr(crlh).modify(|w| {
                         w.set_mode(n % 8, vals::Mode::INPUT);
-                        w.set_cnf(n % 8, vals::Cnf::PUSHPULL);
+                        w.set_cnf(n % 8, vals::Cnf::OPENDRAIN);
                     });
                 }
                 AFType::OutputPushPull => {
