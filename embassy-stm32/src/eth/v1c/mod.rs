@@ -11,9 +11,7 @@ use embassy_hal_common::unborrow;
 use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
 
 use crate::gpio::sealed::Pin as __GpioPin;
-use crate::gpio::Pin as GpioPin;
 use crate::gpio::{sealed::AFType, AnyPin, Speed};
-use crate::pac::gpio::vals::Ospeedr;
 use crate::pac::{ETH, RCC, SYSCFG};
 
 mod descriptors;
@@ -308,15 +306,12 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Drop
             dma.dmaomr().modify(|w| w.set_sr(DmaomrSr::STOPPED));
         }
 
-        for pin in self.pins.iter_mut() {
-            // NOTE(unsafe) Exclusive access to the regs
-            critical_section::with(|_| unsafe {
-                pin.set_as_analog();
-                pin.block()
-                    .ospeedr()
-                    .modify(|w| w.set_ospeedr(pin.pin() as usize, Ospeedr::LOWSPEED));
-            })
-        }
+        // NOTE(unsafe) Exclusive access to the regs
+        critical_section::with(|_| unsafe {
+            for pin in self.pins.iter_mut() {
+                pin.set_as_disconnected();
+            }
+        })
     }
 }
 

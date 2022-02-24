@@ -1,12 +1,11 @@
-use crate::i2c::{Error, Instance, SclPin, SdaPin};
-use crate::time::Hertz;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
+use crate::gpio::sealed::AFType;
+use crate::i2c::{Error, Instance, SclPin, SdaPin};
 use crate::pac::i2c;
-
-use crate::gpio::sealed::AFType::OutputOpenDrain;
+use crate::time::Hertz;
 
 pub struct I2c<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
@@ -27,8 +26,8 @@ impl<'d, T: Instance> I2c<'d, T> {
         T::enable();
 
         unsafe {
-            scl.set_as_af(scl.af_num(), OutputOpenDrain);
-            sda.set_as_af(sda.af_num(), OutputOpenDrain);
+            scl.set_as_af(scl.af_num(), AFType::OutputOpenDrain);
+            sda.set_as_af(sda.af_num(), AFType::OutputOpenDrain);
         }
 
         unsafe {
