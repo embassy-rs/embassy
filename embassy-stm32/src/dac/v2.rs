@@ -115,9 +115,11 @@ impl<'d, T: Instance> Dac<'d, T> {
             // configuration.
             #[cfg(rcc_h7)]
             crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
-            #[cfg(rcc_g0)]
+            #[cfg(rcc_h7ab)]
+            crate::pac::RCC.apb1lenr().modify(|w| w.set_dac1en(true));
+            #[cfg(stm32g0)]
             crate::pac::RCC.apbenr1().modify(|w| w.set_dac1en(true));
-            #[cfg(rcc_l4)]
+            #[cfg(stm32l4)]
             crate::pac::RCC.apb1enr1().modify(|w| w.set_dac1en(true));
 
             if channels >= 1 {

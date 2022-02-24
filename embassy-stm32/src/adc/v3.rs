@@ -9,11 +9,11 @@ pub const VDDA_CALIB_MV: u32 = 3000;
 /// Sadly we cannot use `RccPeripheral::enable` since devices are quite inconsistent ADC clock
 /// configuration.
 unsafe fn enable() {
-    #[cfg(rcc_h7)]
+    #[cfg(stm32h7)]
     crate::pac::RCC.apb2enr().modify(|w| w.set_adcen(true));
-    #[cfg(rcc_g0)]
+    #[cfg(stm32g0)]
     crate::pac::RCC.apbenr2().modify(|w| w.set_adcen(true));
-    #[cfg(rcc_l4)]
+    #[cfg(stm32l4)]
     crate::pac::RCC.ahb2enr().modify(|w| w.set_adcen(true));
 }
 
@@ -54,9 +54,9 @@ pub struct Vref;
 impl<T: Instance> AdcPin<T> for Vref {}
 impl<T: Instance> super::sealed::AdcPin<T> for Vref {
     fn channel(&self) -> u8 {
-        #[cfg(not(rcc_g0))]
+        #[cfg(not(stm32g0))]
         let val = 0;
-        #[cfg(rcc_g0)]
+        #[cfg(stm32g0)]
         let val = 13;
         val
     }
@@ -66,9 +66,9 @@ pub struct Temperature;
 impl<T: Instance> AdcPin<T> for Temperature {}
 impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
     fn channel(&self) -> u8 {
-        #[cfg(not(rcc_g0))]
+        #[cfg(not(stm32g0))]
         let val = 17;
-        #[cfg(rcc_g0)]
+        #[cfg(stm32g0)]
         let val = 12;
         val
     }
@@ -78,9 +78,9 @@ pub struct Vbat;
 impl<T: Instance> AdcPin<T> for Vbat {}
 impl<T: Instance> super::sealed::AdcPin<T> for Vbat {
     fn channel(&self) -> u8 {
-        #[cfg(not(rcc_g0))]
+        #[cfg(not(stm32g0))]
         let val = 18;
-        #[cfg(rcc_g0)]
+        #[cfg(stm32g0)]
         let val = 14;
         val
     }
@@ -281,7 +281,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// Calculates the system VDDA by sampling the internal VREF channel and comparing
     /// the result with the value stored at the factory. If the chip's VDDA is not stable, run
     /// this before each ADC conversion.
-    #[cfg(not(rcc_g0))] // TODO is this supposed to be public?
+    #[cfg(not(stm32g0))] // TODO is this supposed to be public?
     #[allow(unused)] // TODO is this supposed to be public?
     fn calibrate(&mut self, vref: &mut Vref) {
         let vref_cal = unsafe { crate::pac::VREFINTCAL.data().read().value() };
@@ -363,11 +363,11 @@ impl<'d, T: Instance> Adc<'d, T> {
             }
 
             // Configure ADC
-            #[cfg(not(rcc_g0))]
+            #[cfg(not(stm32g0))]
             T::regs()
                 .cfgr()
                 .modify(|reg| reg.set_res(self.resolution.res()));
-            #[cfg(rcc_g0)]
+            #[cfg(stm32g0)]
             T::regs()
                 .cfgr1()
                 .modify(|reg| reg.set_res(self.resolution.res()));
@@ -376,9 +376,9 @@ impl<'d, T: Instance> Adc<'d, T> {
             Self::set_channel_sample_time(pin.channel(), self.sample_time);
 
             // Select channel
-            #[cfg(not(rcc_g0))]
+            #[cfg(not(stm32g0))]
             T::regs().sqr1().write(|reg| reg.set_sq(0, pin.channel()));
-            #[cfg(rcc_g0)]
+            #[cfg(stm32g0)]
             T::regs()
                 .chselr()
                 .write(|reg| reg.set_chsel(pin.channel() as u32));
@@ -400,14 +400,14 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    #[cfg(rcc_g0)]
+    #[cfg(stm32g0)]
     unsafe fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {
         T::regs()
             .smpr()
             .modify(|reg| reg.set_smp1(sample_time.sample_time()));
     }
 
-    #[cfg(not(rcc_g0))]
+    #[cfg(not(stm32g0))]
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
         if ch <= 9 {
             T::regs()

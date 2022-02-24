@@ -49,6 +49,12 @@ macro_rules! dma_num {
     (BDMA) => {
         0
     };
+    (BDMA1) => {
+        0
+    };
+    (BDMA2) => {
+        1
+    };
 }
 
 pub(crate) unsafe fn on_irq() {
@@ -80,6 +86,9 @@ pub(crate) unsafe fn init() {
 }
 
 pac::dma_channels! {
+    ($channel_peri:ident, BDMA1, bdma, $channel_num:expr, $dmamux:tt) => {
+        // BDMA1 in H7 doesn't use DMAMUX, which breaks
+    };
     ($channel_peri:ident, $dma_peri:ident, bdma, $channel_num:expr, $dmamux:tt) => {
         impl crate::dma::sealed::Channel for crate::peripherals::$channel_peri {
 
