@@ -11,10 +11,9 @@ use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
 use crate::dma::NoDma;
+use crate::gpio::sealed::AFType;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
 use crate::pac;
-use crate::pac::gpio::vals::{Afr, Moder, Ot};
-use crate::pac::gpio::Gpio;
 use crate::pac::i2c;
 use crate::time::Hertz;
 
@@ -64,8 +63,8 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         T::enable();
 
         unsafe {
-            Self::configure_pin(scl.block(), scl.pin() as _, scl.af_num());
-            Self::configure_pin(sda.block(), sda.pin() as _, sda.af_num());
+            scl.set_as_af(scl.af_num(), AFType::OutputOpenDrain);
+            sda.set_as_af(sda.af_num(), AFType::OutputOpenDrain);
         }
 
         unsafe {
@@ -118,16 +117,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         critical_section::with(|_| {
             regs.cr1().modify(|w| w.set_tcie(false));
         });
-    }
-
-    unsafe fn configure_pin(block: Gpio, pin: usize, af_num: u8) {
-        let (afr, n_af) = if pin < 8 { (0, pin) } else { (1, pin - 8) };
-        block.moder().modify(|w| w.set_moder(pin, Moder::ALTERNATE));
-        block.afr(afr).modify(|w| w.set_afr(n_af, Afr(af_num)));
-        block.otyper().modify(|w| w.set_ot(pin, Ot::OPENDRAIN));
-        //block
-        //.ospeedr()
-        //.modify(|w| w.set_ospeedr(pin, crate::pac::gpio::vals::Ospeedr::VERYHIGHSPEED));
     }
 
     fn master_stop(&mut self) {

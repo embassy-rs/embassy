@@ -48,9 +48,9 @@ impl From<Speed> for vals::Mode {
         use Speed::*;
 
         match speed {
-            Low => vals::Mode::OUTPUT2,
-            Medium => vals::Mode::OUTPUT,
-            VeryHigh => vals::Mode::OUTPUT50,
+            Low => vals::Mode::OUTPUT2MHZ,
+            Medium => vals::Mode::OUTPUT10MHZ,
+            VeryHigh => vals::Mode::OUTPUT50MHZ,
         }
     }
 }
@@ -85,20 +85,23 @@ impl<'d, T: Pin> Input<'d, T> {
             let n = pin.pin() as usize;
             #[cfg(gpio_v1)]
             {
+                let cnf = match pull {
+                    Pull::Up => {
+                        r.bsrr().write(|w| w.set_bs(n, true));
+                        vals::CnfIn::PULL
+                    }
+                    Pull::Down => {
+                        r.bsrr().write(|w| w.set_br(n, true));
+                        vals::CnfIn::PULL
+                    }
+                    Pull::None => vals::CnfIn::FLOATING,
+                };
+
                 let crlh = if n < 8 { 0 } else { 1 };
-                match pull {
-                    Pull::Up => r.bsrr().write(|w| w.set_bs(n, true)),
-                    Pull::Down => r.bsrr().write(|w| w.set_br(n, true)),
-                    Pull::None => {}
-                }
-                if pull == Pull::None {
-                    r.cr(crlh)
-                        .modify(|w| w.set_cnf(n % 8, vals::Cnf::OPENDRAIN));
-                } else {
-                    r.cr(crlh)
-                        .modify(|w| w.set_cnf(n % 8, vals::Cnf::ALTPUSHPULL));
-                }
-                r.cr(crlh).modify(|w| w.set_mode(n % 8, vals::Mode::INPUT));
+                r.cr(crlh).modify(|w| {
+                    w.set_mode(n % 8, vals::Mode::INPUT);
+                    w.set_cnf_in(n % 8, cnf);
+                });
             }
             #[cfg(gpio_v2)]
             {
@@ -133,7 +136,7 @@ impl<'d, T: Pin> Drop for Input<'d, T> {
             {
                 let crlh = if n < 8 { 0 } else { 1 };
                 r.cr(crlh)
-                    .modify(|w| w.set_cnf(n % 8, vals::Cnf::OPENDRAIN));
+                    .modify(|w| w.set_cnf_in(n % 8, vals::CnfIn::FLOATING));
             }
             #[cfg(gpio_v2)]
             r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
@@ -170,8 +173,10 @@ impl<'d, T: Pin> Output<'d, T> {
             #[cfg(gpio_v1)]
             {
                 let crlh = if n < 8 { 0 } else { 1 };
-                r.cr(crlh).modify(|w| w.set_cnf(n % 8, vals::Cnf::PUSHPULL));
-                r.cr(crlh).modify(|w| w.set_mode(n % 8, speed.into()));
+                r.cr(crlh).modify(|w| {
+                    w.set_mode(n % 8, speed.into());
+                    w.set_cnf_out(n % 8, vals::CnfOut::PUSHPULL);
+                });
             }
             #[cfg(gpio_v2)]
             {
@@ -227,9 +232,10 @@ impl<'d, T: Pin> Drop for Output<'d, T> {
             #[cfg(gpio_v1)]
             {
                 let crlh = if n < 8 { 0 } else { 1 };
-                r.cr(crlh)
-                    .modify(|w| w.set_cnf(n % 8, vals::Cnf::OPENDRAIN));
-                r.cr(crlh).modify(|w| w.set_mode(n % 8, vals::Mode::INPUT));
+                r.cr(crlh).modify(|w| {
+                    w.set_mode(n % 8, vals::Mode::INPUT);
+                    w.set_cnf_in(n % 8, vals::CnfIn::FLOATING);
+                });
             }
             #[cfg(gpio_v2)]
             {
@@ -273,7 +279,7 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
                 }
                 r.cr(crlh).modify(|w| w.set_mode(n % 8, speed.into()));
                 r.cr(crlh)
-                    .modify(|w| w.set_cnf(n % 8, vals::Cnf::OPENDRAIN));
+                    .modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OPENDRAIN));
             }
             #[cfg(gpio_v2)]
             {
@@ -338,9 +344,10 @@ impl<'d, T: Pin> Drop for OutputOpenDrain<'d, T> {
             #[cfg(gpio_v1)]
             {
                 let crlh = if n < 8 { 0 } else { 1 };
-                r.cr(crlh)
-                    .modify(|w| w.set_cnf(n % 8, vals::Cnf::OPENDRAIN));
-                r.cr(crlh).modify(|w| w.set_mode(n % 8, vals::Mode::INPUT));
+                r.cr(crlh).modify(|w| {
+                    w.set_mode(n % 8, vals::Mode::INPUT);
+                    w.set_cnf_in(n % 8, vals::CnfIn::FLOATING);
+                });
             }
             #[cfg(gpio_v2)]
             {
@@ -410,30 +417,34 @@ pub(crate) mod sealed {
                 AFType::Input => {
                     r.cr(crlh).modify(|w| {
                         w.set_mode(n % 8, vals::Mode::INPUT);
-                        w.set_cnf(n % 8, vals::Cnf::OPENDRAIN);
+                        w.set_cnf_in(n % 8, vals::CnfIn::FLOATING);
                     });
                 }
                 AFType::OutputPushPull => {
                     r.cr(crlh).modify(|w| {
-                        w.set_mode(n % 8, vals::Mode::OUTPUT50);
-                        w.set_cnf(n % 8, vals::Cnf::ALTPUSHPULL);
+                        w.set_mode(n % 8, vals::Mode::OUTPUT50MHZ);
+                        w.set_cnf_out(n % 8, vals::CnfOut::ALTPUSHPULL);
                     });
                 }
                 AFType::OutputOpenDrain => {
                     r.cr(crlh).modify(|w| {
-                        w.set_mode(n % 8, vals::Mode::OUTPUT50);
-                        w.set_cnf(n % 8, vals::Cnf::ALTOPENDRAIN);
+                        w.set_mode(n % 8, vals::Mode::OUTPUT50MHZ);
+                        w.set_cnf_out(n % 8, vals::CnfOut::ALTOPENDRAIN);
                     });
                 }
             }
         }
+
         #[cfg(gpio_v2)]
         unsafe fn set_as_af(&self, af_num: u8, af_type: AFType) {
+            self.set_as_af_pull(af_num, af_type, Pull::None);
+        }
+
+        #[cfg(gpio_v2)]
+        unsafe fn set_as_af_pull(&self, af_num: u8, af_type: AFType, pull: Pull) {
             let pin = self._pin() as usize;
             let block = self.block();
-            block
-                .afr(pin / 8)
-                .modify(|w| w.set_afr(pin % 8, vals::Afr(af_num)));
+            block.afr(pin / 8).modify(|w| w.set_afr(pin % 8, af_num));
             match af_type {
                 AFType::Input => {}
                 AFType::OutputPushPull => {
@@ -443,9 +454,7 @@ pub(crate) mod sealed {
                     .otyper()
                     .modify(|w| w.set_ot(pin, vals::Ot::OPENDRAIN)),
             }
-            block
-                .pupdr()
-                .modify(|w| w.set_pupdr(pin, vals::Pupdr::FLOATING));
+            block.pupdr().modify(|w| w.set_pupdr(pin, pull.into()));
 
             block
                 .moder()
@@ -458,17 +467,24 @@ pub(crate) mod sealed {
             #[cfg(gpio_v1)]
             {
                 let crlh = if pin < 8 { 0 } else { 1 };
-                block
-                    .cr(crlh)
-                    .modify(|w| w.set_cnf(pin % 8, vals::Cnf::PUSHPULL));
-                block
-                    .cr(crlh)
-                    .modify(|w| w.set_mode(pin % 8, vals::Mode::INPUT));
+                block.cr(crlh).modify(|w| {
+                    w.set_mode(pin % 8, vals::Mode::INPUT);
+                    w.set_cnf_in(pin % 8, vals::CnfIn::ANALOG);
+                });
             }
             #[cfg(gpio_v2)]
             block
                 .moder()
                 .modify(|w| w.set_moder(pin, vals::Moder::ANALOG));
+        }
+
+        /// Set the pin as "disconnected", ie doing nothing and consuming the lowest
+        /// amount of power possible.
+        ///
+        /// This is currently the same as set_as_analog but is semantically different really.
+        /// Drivers should set_as_disconnected pins when dropped.
+        unsafe fn set_as_disconnected(&self) {
+            self.set_as_analog();
         }
 
         #[cfg(gpio_v2)]

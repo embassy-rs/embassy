@@ -304,13 +304,12 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Drop
             dma.dmacrx_cr().modify(|w| w.set_sr(false));
         }
 
-        for pin in self.pins.iter_mut() {
-            // NOTE(unsafe) Exclusive access to the regs
-            critical_section::with(|_| unsafe {
-                pin.set_as_analog();
-                pin.set_speed(Speed::Low);
-            })
-        }
+        // NOTE(unsafe) Exclusive access to the regs
+        critical_section::with(|_| unsafe {
+            for pin in self.pins.iter_mut() {
+                pin.set_as_disconnected();
+            }
+        })
     }
 }
 

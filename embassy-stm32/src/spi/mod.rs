@@ -458,9 +458,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 impl<'d, T: Instance, Tx, Rx> Drop for Spi<'d, T, Tx, Rx> {
     fn drop(&mut self) {
         unsafe {
-            self.sck.as_ref().map(|x| x.set_as_analog());
-            self.mosi.as_ref().map(|x| x.set_as_analog());
-            self.miso.as_ref().map(|x| x.set_as_analog());
+            self.sck.as_ref().map(|x| x.set_as_disconnected());
+            self.mosi.as_ref().map(|x| x.set_as_disconnected());
+            self.miso.as_ref().map(|x| x.set_as_disconnected());
         }
     }
 }

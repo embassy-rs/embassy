@@ -12,9 +12,9 @@ use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
+use crate::gpio::sealed::AFType;
+use crate::gpio::{Pull, Speed};
 use crate::interrupt::Interrupt;
-use crate::pac;
-use crate::pac::gpio::Gpio;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::peripherals;
 use crate::time::Hertz;
@@ -1191,23 +1191,6 @@ where
 {
 }
 
-/// # Safety
-///
-/// Access to `block` registers should be exclusive
-unsafe fn configure_pin(block: Gpio, n: usize, afr_num: u8, pup: bool) {
-    use pac::gpio::vals::{Afr, Moder, Ospeedr, Pupdr};
-
-    let (afr, n_af) = if n < 8 { (0, n) } else { (1, n - 8) };
-    block.afr(afr).modify(|w| w.set_afr(n_af, Afr(afr_num)));
-    block.moder().modify(|w| w.set_moder(n, Moder::ALTERNATE));
-    if pup {
-        block.pupdr().modify(|w| w.set_pupdr(n, Pupdr::PULLUP));
-    }
-    block
-        .ospeedr()
-        .modify(|w| w.set_ospeedr(n, Ospeedr::VERYHIGHSPEED));
-}
-
 impl<T, CLK, CMD, D0, D1, D2, D3> Pins<T> for (CLK, CMD, D0, D1, D2, D3)
 where
     T: Instance,
@@ -1224,135 +1207,32 @@ where
         let (clk_pin, cmd_pin, d0_pin, d1_pin, d2_pin, d3_pin) = self;
 
         critical_section::with(|_| unsafe {
-            // clk
-            let block = clk_pin.block();
-            let n = clk_pin.pin() as usize;
-            let afr_num = clk_pin.af_num();
-            configure_pin(block, n, afr_num, false);
+            clk_pin.set_as_af_pull(clk_pin.af_num(), AFType::OutputPushPull, Pull::None);
+            cmd_pin.set_as_af_pull(cmd_pin.af_num(), AFType::OutputPushPull, Pull::Up);
+            d0_pin.set_as_af_pull(d0_pin.af_num(), AFType::OutputPushPull, Pull::Up);
+            d1_pin.set_as_af_pull(d1_pin.af_num(), AFType::OutputPushPull, Pull::Up);
+            d2_pin.set_as_af_pull(d2_pin.af_num(), AFType::OutputPushPull, Pull::Up);
+            d3_pin.set_as_af_pull(d3_pin.af_num(), AFType::OutputPushPull, Pull::Up);
 
-            // cmd
-            let block = cmd_pin.block();
-            let n = cmd_pin.pin() as usize;
-            let afr_num = cmd_pin.af_num();
-            configure_pin(block, n, afr_num, true);
-
-            // d0
-            let block = d0_pin.block();
-            let n = d0_pin.pin() as usize;
-            let afr_num = d0_pin.af_num();
-            configure_pin(block, n, afr_num, true);
-
-            // d1
-            let block = d1_pin.block();
-            let n = d1_pin.pin() as usize;
-            let afr_num = d1_pin.af_num();
-            configure_pin(block, n, afr_num, true);
-
-            // d2
-            let block = d2_pin.block();
-            let n = d2_pin.pin() as usize;
-            let afr_num = d2_pin.af_num();
-            configure_pin(block, n, afr_num, true);
-
-            // d3
-            let block = d3_pin.block();
-            let n = d3_pin.pin() as usize;
-            let afr_num = d3_pin.af_num();
-            configure_pin(block, n, afr_num, true);
+            clk_pin.set_speed(Speed::VeryHigh);
+            cmd_pin.set_speed(Speed::VeryHigh);
+            d0_pin.set_speed(Speed::VeryHigh);
+            d1_pin.set_speed(Speed::VeryHigh);
+            d2_pin.set_speed(Speed::VeryHigh);
+            d3_pin.set_speed(Speed::VeryHigh);
         });
     }
 
     fn deconfigure(&mut self) {
-        use pac::gpio::vals::{Moder, Ospeedr, Pupdr};
-
         let (clk_pin, cmd_pin, d0_pin, d1_pin, d2_pin, d3_pin) = self;
 
         critical_section::with(|_| unsafe {
-            // clk
-            let n = clk_pin.pin().into();
-            clk_pin
-                .block()
-                .moder()
-                .modify(|w| w.set_moder(n, Moder::ANALOG));
-            clk_pin
-                .block()
-                .ospeedr()
-                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
-
-            // cmd
-            let n = cmd_pin.pin().into();
-            cmd_pin
-                .block()
-                .moder()
-                .modify(|w| w.set_moder(n, Moder::ANALOG));
-            cmd_pin
-                .block()
-                .ospeedr()
-                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
-            cmd_pin
-                .block()
-                .pupdr()
-                .modify(|w| w.set_pupdr(n, Pupdr::FLOATING));
-
-            // d0
-            let n = d0_pin.pin().into();
-            d0_pin
-                .block()
-                .moder()
-                .modify(|w| w.set_moder(n, Moder::ANALOG));
-            d0_pin
-                .block()
-                .ospeedr()
-                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
-            d0_pin
-                .block()
-                .pupdr()
-                .modify(|w| w.set_pupdr(n, Pupdr::FLOATING));
-
-            // d1
-            let n = d1_pin.pin().into();
-            d1_pin
-                .block()
-                .moder()
-                .modify(|w| w.set_moder(n, Moder::ANALOG));
-            d1_pin
-                .block()
-                .ospeedr()
-                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
-            d1_pin
-                .block()
-                .pupdr()
-                .modify(|w| w.set_pupdr(n, Pupdr::FLOATING));
-
-            // d2
-            let n = d2_pin.pin().into();
-            d2_pin
-                .block()
-                .moder()
-                .modify(|w| w.set_moder(n, Moder::ANALOG));
-            d2_pin
-                .block()
-                .ospeedr()
-                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
-            d2_pin
-                .block()
-                .pupdr()
-                .modify(|w| w.set_pupdr(n, Pupdr::FLOATING));
-
-            // d3
-            let n = d3_pin.pin().into();
-            d3_pin
-                .block()
-                .moder()
-                .modify(|w| w.set_moder(n, Moder::ANALOG));
-            d3_pin
-                .block()
-                .ospeedr()
-                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
-            d3_pin
-                .block()
-                .pupdr()
-                .modify(|w| w.set_pupdr(n, Pupdr::FLOATING));
+            clk_pin.set_as_disconnected();
+            cmd_pin.set_as_disconnected();
+            d0_pin.set_as_disconnected();
+            d1_pin.set_as_disconnected();
+            d2_pin.set_as_disconnected();
+            d3_pin.set_as_disconnected();
         });
     }
 }
@@ -1370,72 +1250,23 @@ where
         let (clk_pin, cmd_pin, d0_pin) = self;
 
         critical_section::with(|_| unsafe {
-            // clk
-            let block = clk_pin.block();
-            let n = clk_pin.pin() as usize;
-            let afr_num = clk_pin.af_num();
-            configure_pin(block, n, afr_num, false);
+            clk_pin.set_as_af_pull(clk_pin.af_num(), AFType::OutputPushPull, Pull::None);
+            cmd_pin.set_as_af_pull(cmd_pin.af_num(), AFType::OutputPushPull, Pull::Up);
+            d0_pin.set_as_af_pull(d0_pin.af_num(), AFType::OutputPushPull, Pull::Up);
 
-            // cmd
-            let block = cmd_pin.block();
-            let n = cmd_pin.pin() as usize;
-            let afr_num = cmd_pin.af_num();
-            configure_pin(block, n, afr_num, true);
-
-            // d0
-            let block = d0_pin.block();
-            let n = d0_pin.pin() as usize;
-            let afr_num = d0_pin.af_num();
-            configure_pin(block, n, afr_num, true);
+            clk_pin.set_speed(Speed::VeryHigh);
+            cmd_pin.set_speed(Speed::VeryHigh);
+            d0_pin.set_speed(Speed::VeryHigh);
         });
     }
 
     fn deconfigure(&mut self) {
-        use pac::gpio::vals::{Moder, Ospeedr, Pupdr};
-
         let (clk_pin, cmd_pin, d0_pin) = self;
 
         critical_section::with(|_| unsafe {
-            // clk
-            let n = clk_pin.pin().into();
-            clk_pin
-                .block()
-                .moder()
-                .modify(|w| w.set_moder(n, Moder::ANALOG));
-            clk_pin
-                .block()
-                .ospeedr()
-                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
-
-            // cmd
-            let n = cmd_pin.pin().into();
-            cmd_pin
-                .block()
-                .moder()
-                .modify(|w| w.set_moder(n, Moder::ANALOG));
-            cmd_pin
-                .block()
-                .ospeedr()
-                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
-            cmd_pin
-                .block()
-                .pupdr()
-                .modify(|w| w.set_pupdr(n, Pupdr::FLOATING));
-
-            // d0
-            let n = d0_pin.pin().into();
-            d0_pin
-                .block()
-                .moder()
-                .modify(|w| w.set_moder(n, Moder::ANALOG));
-            d0_pin
-                .block()
-                .ospeedr()
-                .modify(|w| w.set_ospeedr(n, Ospeedr::LOWSPEED));
-            d0_pin
-                .block()
-                .pupdr()
-                .modify(|w| w.set_pupdr(n, Pupdr::FLOATING));
+            clk_pin.set_as_disconnected();
+            cmd_pin.set_as_disconnected();
+            d0_pin.set_as_disconnected();
         });
     }
 }

@@ -2,9 +2,8 @@ use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
-use crate::gpio::sealed::AFType::OutputPushPull;
-use crate::gpio::Speed;
-use crate::pac::gpio::vals::Pupdr;
+use crate::gpio::sealed::AFType;
+use crate::gpio::{Pull, Speed};
 
 mod pins;
 pub use pins::*;
@@ -41,9 +40,8 @@ macro_rules! config_pins {
     ($($pin:ident),*) => {
         unborrow!($($pin),*);
         $(
-            $pin.set_as_af($pin.af_num(), OutputPushPull);
+            $pin.set_as_af_pull($pin.af_num(), AFType::OutputPushPull, Pull::Up);
             $pin.set_speed(Speed::VeryHigh);
-            $pin.block().pupdr().modify(|w| w.set_pupdr($pin.pin() as usize, Pupdr::PULLUP));
         )*
     };
 }
