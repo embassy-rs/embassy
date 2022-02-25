@@ -76,6 +76,7 @@ pub use generated::{peripherals, Peripherals};
 #[non_exhaustive]
 pub struct Config {
     pub rcc: rcc::Config,
+    #[cfg(dbgmcu)]
     pub enable_debug_during_sleep: bool,
 }
 
@@ -83,6 +84,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             rcc: Default::default(),
+            #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
         }
     }
@@ -93,6 +95,7 @@ pub fn init(config: Config) -> Peripherals {
     let p = Peripherals::take();
 
     unsafe {
+        #[cfg(dbgmcu)]
         if config.enable_debug_during_sleep {
             crate::pac::DBGMCU.cr().modify(|cr| {
                 crate::pac::dbgmcu! {
