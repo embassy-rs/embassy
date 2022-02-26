@@ -7,6 +7,14 @@ use crate::i2c::{Error, Instance, SclPin, SdaPin};
 use crate::pac::i2c;
 use crate::time::Hertz;
 
+pub struct State {}
+
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {}
+    }
+}
+
 pub struct I2c<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
