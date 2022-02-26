@@ -37,7 +37,7 @@ pin_trait!(SdaPin, Instance);
 dma_trait!(RxDma, Instance);
 dma_trait!(TxDma, Instance);
 
-crate::pac::interrupts!(
+foreach_interrupt!(
     ($inst:ident, i2c, $block:ident, EV, $irq:ident) => {
         impl sealed::Instance for peripherals::$inst {
             fn regs() -> crate::pac::i2c::I2c {

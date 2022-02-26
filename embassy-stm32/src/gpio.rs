@@ -558,7 +558,7 @@ impl sealed::Pin for AnyPin {
 
 // ====================
 
-crate::pac::pins!(
+foreach_pin!(
     ($pin_name:ident, $port_name:ident, $port_num:expr, $pin_num:expr, $exti_ch:ident) => {
         impl Pin for peripherals::$pin_name {
             #[cfg(feature = "exti")]

@@ -155,7 +155,7 @@ macro_rules! impl_32bit_timer {
     };
 }
 
-crate::pac::interrupts! {
+foreach_interrupt! {
     ($inst:ident, timer, TIM_BASIC, UP, $irq:ident) => {
         impl_basic_16bit_timer!($inst, $irq);
 

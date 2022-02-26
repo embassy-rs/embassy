@@ -70,7 +70,7 @@ pub(crate) mod sealed {
 
 pub trait Instance: sealed::Instance + RccPeripheral {}
 
-crate::pac::peripherals!(
+foreach_peripheral!(
     (can, $inst:ident) => {
         impl sealed::Instance for peripherals::$inst {
             fn regs() -> &'static crate::pac::can::Can {
@@ -86,7 +86,7 @@ crate::pac::peripherals!(
     };
 );
 
-crate::pac::peripherals!(
+foreach_peripheral!(
     (can, CAN) => {
         unsafe impl bxcan::FilterOwner for peripherals::CAN {
             const NUM_FILTER_BANKS: u8 = 14;

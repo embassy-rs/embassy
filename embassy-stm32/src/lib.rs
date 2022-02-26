@@ -11,6 +11,7 @@ pub(crate) use stm32_metapac as pac;
 
 // This must go FIRST so that all the other modules see its macros.
 pub mod fmt;
+include!(concat!(env!("OUT_DIR"), "/macros.rs"));
 
 // Utilities
 pub mod interrupt;
@@ -62,7 +63,7 @@ pub mod usb_otg;
 pub mod subghz;
 
 // This must go last, so that it sees all the impl_foo! macros defined earlier.
-mod generated {
+pub(crate) mod generated {
 
     #![allow(dead_code)]
     #![allow(unused_imports)]

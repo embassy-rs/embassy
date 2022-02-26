@@ -1271,7 +1271,7 @@ where
     }
 }
 
-crate::pac::peripherals!(
+foreach_peripheral!(
     (sdmmc, $inst:ident) => {
         impl sealed::Instance for peripherals::$inst {
             type Interrupt = crate::interrupt::$inst;

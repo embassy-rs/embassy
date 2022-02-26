@@ -874,7 +874,7 @@ pin_trait!(MisoPin, Instance);
 dma_trait!(RxDma, Instance);
 dma_trait!(TxDma, Instance);
 
-crate::pac::peripherals!(
+foreach_peripheral!(
     (spi, $inst:ident) => {
         impl sealed::Instance for peripherals::$inst {
             fn regs() -> &'static crate::pac::spi::Spi {

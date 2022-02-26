@@ -127,7 +127,7 @@ impl<'d, T: Instance> Fmc<'d, T> {
     ));
 }
 
-crate::pac::peripherals!(
+foreach_peripheral!(
     (fmc, $inst:ident) => {
         impl crate::fmc::sealed::Instance for crate::peripherals::$inst {
             fn regs() -> stm32_metapac::fmc::Fmc {
