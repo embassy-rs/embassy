@@ -26,9 +26,10 @@ fn main() {
 
     chips.sort();
 
-    gen(Options {
+    let opts = Options {
         out_dir,
         data_dir,
         chips,
-    })
+    };
+    Gen::new(opts).gen();
 }

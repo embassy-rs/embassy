@@ -127,7 +127,7 @@ macro_rules! impl_compare_capable_16bit {
     };
 }
 
-crate::pac::interrupts! {
+foreach_interrupt! {
     ($inst:ident, timer, TIM_GP16, UP, $irq:ident) => {
         impl crate::pwm::sealed::CaptureCompare16bitInstance for crate::peripherals::$inst {
             unsafe fn set_output_compare_mode(

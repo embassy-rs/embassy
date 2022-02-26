@@ -16,7 +16,7 @@ pub trait Instance: sealed::Instance + 'static {}
 
 pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 
-crate::pac::peripherals!(
+foreach_peripheral!(
     (dac, $inst:ident) => {
         impl crate::dac::sealed::Instance for peripherals::$inst {
             fn regs() -> &'static crate::pac::dac::Dac {

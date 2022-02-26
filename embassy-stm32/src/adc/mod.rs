@@ -36,7 +36,7 @@ pub trait Instance: sealed::Instance + crate::rcc::RccPeripheral + 'static {}
 pub trait Common: sealed::Common + 'static {}
 pub trait AdcPin<T: Instance>: sealed::AdcPin<T> {}
 
-crate::pac::peripherals!(
+foreach_peripheral!(
     (adc, $inst:ident) => {
         impl crate::adc::sealed::Instance for peripherals::$inst {
             fn regs() -> &'static crate::pac::adc::Adc {
@@ -44,7 +44,7 @@ crate::pac::peripherals!(
             }
             #[cfg(not(adc_f1))]
             fn common_regs() -> &'static crate::pac::adccommon::AdcCommon {
-                crate::pac::peripherals!{
+                foreach_peripheral!{
                     (adccommon, $common_inst:ident) => {
                         return &crate::pac::$common_inst
                     };
@@ -57,7 +57,7 @@ crate::pac::peripherals!(
 );
 
 #[cfg(not(adc_f1))]
-crate::pac::peripherals!(
+foreach_peripheral!(
     (adccommon, $inst:ident) => {
         impl sealed::Common for peripherals::$inst {
             fn regs() -> &'static crate::pac::adccommon::AdcCommon {

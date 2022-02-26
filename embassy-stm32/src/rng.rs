@@ -136,7 +136,7 @@ pub(crate) mod sealed {
 
 pub trait Instance: sealed::Instance + crate::rcc::RccPeripheral {}
 
-crate::pac::peripherals!(
+foreach_peripheral!(
     (rng, $inst:ident) => {
         impl Instance for peripherals::$inst {}
 
@@ -165,7 +165,7 @@ macro_rules! irq {
     };
 }
 
-crate::pac::interrupts!(
+foreach_interrupt!(
     (RNG) => {
         irq!(RNG);
     };

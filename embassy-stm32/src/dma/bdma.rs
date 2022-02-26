@@ -7,6 +7,7 @@ use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::waitqueue::AtomicWaker;
 
 use crate::dma::Request;
+use crate::generated::BDMA_CHANNEL_COUNT;
 use crate::pac;
 use crate::pac::bdma::vals;
 
@@ -22,62 +23,44 @@ impl From<WordSize> for vals::Size {
     }
 }
 
-const CH_COUNT: usize = pac::peripheral_count!(bdma) * 8;
-
 struct State {
-    ch_wakers: [AtomicWaker; CH_COUNT],
+    ch_wakers: [AtomicWaker; BDMA_CHANNEL_COUNT],
 }
 
 impl State {
     const fn new() -> Self {
         const AW: AtomicWaker = AtomicWaker::new();
         Self {
-            ch_wakers: [AW; CH_COUNT],
+            ch_wakers: [AW; BDMA_CHANNEL_COUNT],
         }
     }
 }
 
 static STATE: State = State::new();
 
-macro_rules! dma_num {
-    (DMA1) => {
-        0
-    };
-    (DMA2) => {
-        1
-    };
-    (BDMA) => {
-        0
-    };
-    (BDMA1) => {
-        0
-    };
-    (BDMA2) => {
-        1
-    };
-}
-
 pub(crate) unsafe fn on_irq() {
-    pac::peripherals! {
+    foreach_peripheral! {
+        (bdma, BDMA1) => {
+            // BDMA1 in H7 doesn't use DMAMUX, which breaks
+        };
         (bdma, $dma:ident) => {
-                let isr = pac::$dma.isr().read();
-                let dman = dma_num!($dma);
-
-                for chn in 0..pac::dma_channels_count!($dma) {
-                    let cr = pac::$dma.ch(chn).cr();
-                    if isr.tcif(chn) && cr.read().tcie() {
+            let isr = pac::$dma.isr().read();
+            foreach_dma_channel! {
+                ($channel_peri:ident, $dma, bdma, $channel_num:expr, $index:expr, $dmamux:tt) => {
+                    let cr = pac::$dma.ch($channel_num).cr();
+                    if isr.tcif($channel_num) && cr.read().tcie() {
                         cr.write(|_| ()); // Disable channel interrupts with the default value.
-                        let n = dma_num!($dma) * 8 + chn;
-                        STATE.ch_wakers[n].wake();
+                        STATE.ch_wakers[$index].wake();
                     }
-                }
+                };
+            }
         };
     }
 }
 
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
-    pac::interrupts! {
+    foreach_interrupt! {
         ($peri:ident, bdma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::$irq::steal().enable();
         };
@@ -85,20 +68,20 @@ pub(crate) unsafe fn init() {
     crate::generated::init_bdma();
 }
 
-pac::dma_channels! {
-    ($channel_peri:ident, BDMA1, bdma, $channel_num:expr, $dmamux:tt) => {
+foreach_dma_channel! {
+    ($channel_peri:ident, BDMA1, bdma, $channel_num:expr, $index:expr, $dmamux:tt) => {
         // BDMA1 in H7 doesn't use DMAMUX, which breaks
     };
-    ($channel_peri:ident, $dma_peri:ident, bdma, $channel_num:expr, $dmamux:tt) => {
+    ($channel_peri:ident, $dma_peri:ident, bdma, $channel_num:expr, $index:expr, $dmamux:tt) => {
         impl crate::dma::sealed::Channel for crate::peripherals::$channel_peri {
 
-            unsafe fn start_write<W: Word>(&mut self, request: Request, buf: *const[W], reg_addr: *mut W) {
+            unsafe fn start_write<W: Word>(&mut self, _request: Request, buf: *const[W], reg_addr: *mut W) {
                 let (ptr, len) = super::slice_ptr_parts(buf);
                 low_level_api::start_transfer(
                     pac::$dma_peri,
                     $channel_num,
                     #[cfg(any(bdma_v2, dmamux))]
-                    request,
+                    _request,
                     vals::Dir::FROMMEMORY,
                     reg_addr as *const u32,
                     ptr as *mut u32,
@@ -113,13 +96,13 @@ pac::dma_channels! {
             }
 
 
-            unsafe fn start_write_repeated<W: Word>(&mut self, request: Request, repeated: W, count: usize, reg_addr: *mut W) {
+            unsafe fn start_write_repeated<W: Word>(&mut self, _request: Request, repeated: W, count: usize, reg_addr: *mut W) {
                 let buf = [repeated];
                 low_level_api::start_transfer(
                     pac::$dma_peri,
                     $channel_num,
                     #[cfg(any(bdma_v2, dmamux))]
-                    request,
+                    _request,
                     vals::Dir::FROMMEMORY,
                     reg_addr as *const u32,
                     buf.as_ptr() as *mut u32,
@@ -133,13 +116,13 @@ pac::dma_channels! {
                 )
             }
 
-            unsafe fn start_read<W: Word>(&mut self, request: Request, reg_addr: *const W, buf: *mut [W]) {
+            unsafe fn start_read<W: Word>(&mut self, _request: Request, reg_addr: *const W, buf: *mut [W]) {
                 let (ptr, len) = super::slice_ptr_parts_mut(buf);
                 low_level_api::start_transfer(
                     pac::$dma_peri,
                     $channel_num,
                     #[cfg(any(bdma_v2, dmamux))]
-                    request,
+                    _request,
                     vals::Dir::FROMPERIPHERAL,
                     reg_addr as *const u32,
                     ptr as *mut u32,
@@ -165,7 +148,7 @@ pac::dma_channels! {
             }
 
             fn set_waker(&mut self, waker: &Waker) {
-                unsafe {low_level_api::set_waker(dma_num!($dma_peri) * 8 + $channel_num, waker )}
+                unsafe { low_level_api::set_waker($index, waker) }
             }
         }
 

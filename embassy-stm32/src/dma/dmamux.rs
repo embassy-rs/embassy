@@ -35,8 +35,8 @@ pub trait MuxChannel: sealed::MuxChannel + super::Channel {
     type Mux;
 }
 
-pac::dma_channels! {
-    ($channel_peri:ident, $dma_peri:ident, $version:ident, $channel_num:expr, {dmamux: $dmamux:ident, dmamux_channel: $dmamux_channel:expr}) => {
+foreach_dma_channel! {
+    ($channel_peri:ident, $dma_peri:ident, $version:ident, $channel_num:expr, $index:expr, {dmamux: $dmamux:ident, dmamux_channel: $dmamux_channel:expr}) => {
         impl sealed::MuxChannel for peripherals::$channel_peri {
             const DMAMUX_CH_NUM: u8 = $dmamux_channel;
             const DMAMUX_REGS: pac::dmamux::Dmamux = pac::$dmamux;

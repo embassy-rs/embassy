@@ -135,7 +135,7 @@ pin_trait!(UlpiD5Pin, Instance);
 pin_trait!(UlpiD6Pin, Instance);
 pin_trait!(UlpiD7Pin, Instance);
 
-crate::pac::peripherals!(
+foreach_peripheral!(
     (otgfs, $inst:ident) => {
         impl sealed::Instance for peripherals::$inst {
             const REGISTERS: *const () = crate::pac::$inst.0 as *const ();
@@ -223,7 +223,7 @@ crate::pac::peripherals!(
     };
 );
 
-crate::pac::interrupts!(
+foreach_interrupt!(
     ($inst:ident, otgfs, $block:ident, GLOBAL, $irq:ident) => {
         unsafe impl USBInterrupt for crate::interrupt::$irq {}
     };

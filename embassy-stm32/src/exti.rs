@@ -278,7 +278,7 @@ impl<'a> Future for ExtiInputFuture<'a> {
 
 macro_rules! foreach_exti_irq {
     ($action:ident) => {
-        crate::pac::interrupts!(
+        foreach_interrupt!(
             (EXTI0)  => { $action!(EXTI0); };
             (EXTI1)  => { $action!(EXTI1); };
             (EXTI2)  => { $action!(EXTI2); };

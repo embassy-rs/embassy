@@ -29,7 +29,7 @@ type T = peripherals::TIM4;
 #[cfg(time_driver_tim5)]
 type T = peripherals::TIM5;
 
-crate::pac::interrupts! {
+foreach_interrupt! {
     (TIM2, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim2)]
         #[interrupt]

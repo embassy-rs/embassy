@@ -2,6 +2,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 use stm32_metapac::metadata::METADATA;
@@ -530,9 +531,127 @@ fn main() {
     }
 
     // ========
-    // Write generated.rs
+    // Write foreach_foo! macrotables
+
+    let mut interrupts_table: Vec<Vec<String>> = Vec::new();
+    let mut peripherals_table: Vec<Vec<String>> = Vec::new();
+    let mut pins_table: Vec<Vec<String>> = Vec::new();
+    let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
+
+    let gpio_base = METADATA
+        .peripherals
+        .iter()
+        .find(|p| p.name == "GPIOA")
+        .unwrap()
+        .address as u32;
+    let gpio_stride = 0x400;
+
+    for p in METADATA.peripherals {
+        if let Some(regs) = &p.registers {
+            if regs.kind == "gpio" {
+                let port_letter = p.name.chars().skip(4).next().unwrap();
+                assert_eq!(0, (p.address as u32 - gpio_base) % gpio_stride);
+                let port_num = (p.address as u32 - gpio_base) / gpio_stride;
+
+                for pin_num in 0u32..16 {
+                    let pin_name = format!("P{}{}", port_letter, pin_num);
+                    pins_table.push(vec![
+                        pin_name,
+                        p.name.to_string(),
+                        port_num.to_string(),
+                        pin_num.to_string(),
+                        format!("EXTI{}", pin_num),
+                    ]);
+                }
+            }
+
+            for irq in p.interrupts {
+                let mut row = Vec::new();
+                row.push(p.name.to_string());
+                row.push(regs.kind.to_string());
+                row.push(regs.block.to_string());
+                row.push(irq.signal.to_string());
+                row.push(irq.interrupt.to_ascii_uppercase());
+                interrupts_table.push(row)
+            }
+
+            let mut row = Vec::new();
+            row.push(regs.kind.to_string());
+            row.push(p.name.to_string());
+            peripherals_table.push(row);
+        }
+    }
+
+    let mut dma_channel_count: usize = 0;
+    let mut bdma_channel_count: usize = 0;
+
+    for ch in METADATA.dma_channels {
+        let mut row = Vec::new();
+        let dma_peri = METADATA
+            .peripherals
+            .iter()
+            .find(|p| p.name == ch.dma)
+            .unwrap();
+        let bi = dma_peri.registers.as_ref().unwrap();
+
+        let num;
+        match bi.kind {
+            "dma" => {
+                num = dma_channel_count;
+                dma_channel_count += 1;
+            }
+            "bdma" => {
+                num = bdma_channel_count;
+                bdma_channel_count += 1;
+            }
+            _ => panic!("bad dma channel kind {}", bi.kind),
+        }
+
+        row.push(ch.name.to_string());
+        row.push(ch.dma.to_string());
+        row.push(bi.kind.to_string());
+        row.push(ch.channel.to_string());
+        row.push(num.to_string());
+        if let Some(dmamux) = &ch.dmamux {
+            let dmamux_channel = ch.dmamux_channel.unwrap();
+            row.push(format!(
+                "{{dmamux: {}, dmamux_channel: {}}}",
+                dmamux, dmamux_channel
+            ));
+        } else {
+            row.push("{}".to_string());
+        }
+
+        dma_channels_table.push(row);
+    }
+
+    g.extend(quote! {
+        pub(crate) const DMA_CHANNEL_COUNT: usize = #dma_channel_count;
+        pub(crate) const BDMA_CHANNEL_COUNT: usize = #bdma_channel_count;
+    });
+
+    for irq in METADATA.interrupts {
+        let name = irq.name.to_ascii_uppercase();
+        interrupts_table.push(vec![name.clone()]);
+        if name.contains("EXTI") {
+            interrupts_table.push(vec!["EXTI".to_string(), name.clone()]);
+        }
+    }
+
+    let mut m = String::new();
+
+    make_table(&mut m, "foreach_interrupt", &interrupts_table);
+    make_table(&mut m, "foreach_peripheral", &peripherals_table);
+    make_table(&mut m, "foreach_pin", &pins_table);
+    make_table(&mut m, "foreach_dma_channel", &dma_channels_table);
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    let out_file = out_dir.join("macros.rs").to_string_lossy().to_string();
+    fs::write(out_file, m).unwrap();
+
+    // ========
+    // Write generated.rs
+
     let out_file = out_dir.join("generated.rs").to_string_lossy().to_string();
     fs::write(out_file, g.to_string()).unwrap();
 
@@ -643,4 +762,31 @@ impl<T: Iterator> IteratorExt for T {
             },
         }
     }
+}
+
+fn make_table(out: &mut String, name: &str, data: &Vec<Vec<String>>) {
+    write!(
+        out,
+        "#[macro_export]
+macro_rules! {} {{
+    ($($pat:tt => $code:tt;)*) => {{
+        macro_rules! __{}_inner {{
+            $(($pat) => $code;)*
+            ($_:tt) => {{}}
+        }}
+",
+        name, name
+    )
+    .unwrap();
+
+    for row in data {
+        write!(out, "        __{}_inner!(({}));\n", name, row.join(",")).unwrap();
+    }
+
+    write!(
+        out,
+        "    }};
+}}"
+    )
+    .unwrap();
 }

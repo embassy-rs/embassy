@@ -601,7 +601,7 @@ pin_trait!(CkPin, Instance);
 dma_trait!(TxDma, Instance);
 dma_trait!(RxDma, Instance);
 
-crate::pac::interrupts!(
+foreach_interrupt!(
     ($inst:ident, usart, $block:ident, $signal_name:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$inst {
             fn regs(&self) -> crate::pac::usart::Usart {

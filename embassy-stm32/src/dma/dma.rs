@@ -4,13 +4,12 @@ use core::task::Waker;
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::waitqueue::AtomicWaker;
 
+use crate::generated::DMA_CHANNEL_COUNT;
 use crate::interrupt;
 use crate::pac;
 use crate::pac::dma::{regs, vals};
 
 use super::{Request, Word, WordSize};
-
-const CH_COUNT: usize = pac::peripheral_count!(DMA) * 8;
 
 impl From<WordSize> for vals::Size {
     fn from(raw: WordSize) -> Self {
@@ -23,44 +22,31 @@ impl From<WordSize> for vals::Size {
 }
 
 struct State {
-    ch_wakers: [AtomicWaker; CH_COUNT],
+    ch_wakers: [AtomicWaker; DMA_CHANNEL_COUNT],
 }
 
 impl State {
     const fn new() -> Self {
         const AW: AtomicWaker = AtomicWaker::new();
         Self {
-            ch_wakers: [AW; CH_COUNT],
+            ch_wakers: [AW; DMA_CHANNEL_COUNT],
         }
     }
 }
 
 static STATE: State = State::new();
 
-macro_rules! dma_num {
-    (DMA1) => {
-        0
-    };
-    (DMA2) => {
-        1
-    };
-}
-
 pub(crate) unsafe fn on_irq() {
-    pac::peripherals! {
+    foreach_peripheral! {
         (dma, $dma:ident) => {
-            for isrn in 0..2 {
-                let isr = pac::$dma.isr(isrn).read();
-
-                for chn in 0..4 {
-                    let cr = pac::$dma.st(isrn * 4 + chn).cr();
-
-                    if isr.tcif(chn) && cr.read().tcie() {
+            foreach_dma_channel! {
+                ($channel_peri:ident, $dma, dma, $channel_num:expr, $index:expr, $dmamux:tt) => {
+                    let cr = pac::$dma.st($channel_num).cr();
+                    if pac::$dma.isr($channel_num/4).read().tcif($channel_num%4) && cr.read().tcie() {
                         cr.write(|_| ()); // Disable channel interrupts with the default value.
-                        let n = dma_num!($dma) * 8 + isrn * 4 + chn;
-                        STATE.ch_wakers[n].wake();
+                        STATE.ch_wakers[$index].wake();
                     }
-                }
+                };
             }
         };
     }
@@ -68,7 +54,7 @@ pub(crate) unsafe fn on_irq() {
 
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
-    pac::interrupts! {
+    foreach_interrupt! {
         ($peri:ident, dma, $block:ident, $signal_name:ident, $irq:ident) => {
             interrupt::$irq::steal().enable();
         };
@@ -76,8 +62,8 @@ pub(crate) unsafe fn init() {
     crate::generated::init_dma();
 }
 
-pac::dma_channels! {
-    ($channel_peri:ident, $dma_peri:ident, dma, $channel_num:expr, $dmamux:tt) => {
+foreach_dma_channel! {
+    ($channel_peri:ident, $dma_peri:ident, dma, $channel_num:expr, $index:expr, $dmamux:tt) => {
         impl crate::dma::sealed::Channel for crate::peripherals::$channel_peri {
             unsafe fn start_write<W: Word>(&mut self, request: Request, buf: *const [W], reg_addr: *mut W) {
                 let (ptr, len) = super::slice_ptr_parts(buf);
@@ -149,7 +135,7 @@ pac::dma_channels! {
             }
 
             fn set_waker(&mut self, waker: &Waker) {
-                unsafe {low_level_api::set_waker(dma_num!($dma_peri) * 8 + $channel_num, waker )}
+                unsafe {low_level_api::set_waker($index, waker )}
             }
         }
 
