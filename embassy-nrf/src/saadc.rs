@@ -10,7 +10,7 @@ use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
 use crate::interrupt;
-use crate::ppi::Task;
+use crate::ppi::{Event, Task};
 use crate::{pac, peripherals};
 
 use pac::{saadc, SAADC};
@@ -207,6 +207,11 @@ impl<'d, const N: usize> Saadc<'d, N> {
     fn on_interrupt(_ctx: *mut ()) {
         let r = Self::regs();
 
+        if r.events_calibratedone.read().bits() != 0 {
+            r.intenclr.write(|w| w.calibratedone().clear());
+            WAKER.wake();
+        }
+
         if r.events_end.read().bits() != 0 {
             r.intenclr.write(|w| w.end().clear());
             WAKER.wake();
@@ -220,6 +225,35 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
     fn regs() -> &'static saadc::RegisterBlock {
         unsafe { &*SAADC::ptr() }
+    }
+
+    /// Perform SAADC calibration. Completes when done.
+    pub async fn calibrate(&self) {
+        let r = Self::regs();
+
+        // Reset and enable the end event
+        r.events_calibratedone.reset();
+        r.intenset.write(|w| w.calibratedone().set());
+
+        // Order is important
+        compiler_fence(Ordering::SeqCst);
+
+        r.tasks_calibrateoffset.write(|w| unsafe { w.bits(1) });
+
+        // Wait for 'calibratedone' event.
+        poll_fn(|cx| {
+            let r = Self::regs();
+
+            WAKER.register(cx.waker());
+
+            if r.events_calibratedone.read().bits() != 0 {
+                r.events_calibratedone.reset();
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
     }
 
     /// One shot sampling. The buffer must be the same size as the number of channels configured.
@@ -263,29 +297,46 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
     /// Continuous sampling with double buffers.
     ///
+    /// NOTE: It is important that the time spent within the callback supplied
+    /// does not exceed the time taken to acquire the samples into a single buffer.
+    /// You should measure the time taken by the callback and set the sample buffer
+    /// size accordingly. Exceeding this time can lead to the peripheral re-writing
+    /// the other buffer.
+    ///
     /// A task-driven approach to driving TASK_SAMPLE is expected. With a task
     /// driven approach, multiple channels can be used.
+    ///
+    /// In addition, the caller is responsible for triggering TASK_START in
+    /// relation to the previous one having ended (EVENTS_END). The the initial
+    /// TASKS_START is triggered by this method.
+    ///
+    /// A closure is provided so that any required initialization such as starting
+    /// the sampling task can occur once the peripheral has been started.
     ///
     /// A sampler closure is provided that receives the buffer of samples, noting
     /// that the size of this buffer can be less than the original buffer's size.
     /// A command is return from the closure that indicates whether the sampling
     /// should continue or stop.
-    pub async fn run_task_sampler<S, const N0: usize>(
+    pub async fn run_task_sampler<I, S, const N0: usize>(
         &mut self,
         bufs: &mut [[[i16; N]; N0]; 2],
+        init: I,
         sampler: S,
     ) where
+        I: FnMut(),
         S: FnMut(&[[i16; N]]) -> SamplerState,
     {
-        self.run_sampler(bufs, None, sampler).await;
+        self.run_sampler(bufs, None, init, sampler).await;
     }
 
-    async fn run_sampler<S, const N0: usize>(
+    async fn run_sampler<I, S, const N0: usize>(
         &mut self,
         bufs: &mut [[[i16; N]; N0]; 2],
         sample_rate_divisor: Option<u16>,
+        mut init: I,
         mut sampler: S,
     ) where
+        I: FnMut(),
         S: FnMut(&[[i16; N]]) -> SamplerState,
     {
         let r = Self::regs();
@@ -330,6 +381,8 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
         r.tasks_start.write(|w| unsafe { w.bits(1) });
 
+        let mut inited = false;
+
         let mut current_buffer = 0;
 
         // Wait for events and complete when the sampler indicates it has had enough.
@@ -347,7 +400,6 @@ impl<'d, const N: usize> Saadc<'d, N> {
                 if sampler(&bufs[current_buffer]) == SamplerState::Sampled {
                     let next_buffer = 1 - current_buffer;
                     current_buffer = next_buffer;
-                    r.tasks_start.write(|w| unsafe { w.bits(1) });
                 } else {
                     return Poll::Ready(());
                 };
@@ -356,6 +408,11 @@ impl<'d, const N: usize> Saadc<'d, N> {
             if r.events_started.read().bits() != 0 {
                 r.events_started.reset();
                 r.intenset.write(|w| w.started().set());
+
+                if !inited {
+                    init();
+                    inited = true;
+                }
 
                 let next_buffer = 1 - current_buffer;
                 r.result
@@ -368,10 +425,22 @@ impl<'d, const N: usize> Saadc<'d, N> {
         .await;
     }
 
+    /// Return the end event for use with PPI
+    pub fn event_end(&self) -> Event {
+        let r = Self::regs();
+        Event::from_reg(&r.events_end)
+    }
+
     /// Return the sample task for use with PPI
     pub fn task_sample(&self) -> Task {
         let r = Self::regs();
         Task::from_reg(&r.tasks_sample)
+    }
+
+    /// Return the start task for use with PPI
+    pub fn task_start(&self) -> Task {
+        let r = Self::regs();
+        Task::from_reg(&r.tasks_start)
     }
 }
 
@@ -386,7 +455,7 @@ impl<'d> Saadc<'d, 1> {
     /// that the size of this buffer can be less than the original buffer's size.
     /// A command is return from the closure that indicates whether the sampling
     /// should continue or stop.
-    pub async fn run_timer_sampler<S, const N0: usize>(
+    pub async fn run_timer_sampler<I, S, const N0: usize>(
         &mut self,
         bufs: &mut [[[i16; 1]; N0]; 2],
         sample_rate_divisor: u16,
@@ -394,7 +463,7 @@ impl<'d> Saadc<'d, 1> {
     ) where
         S: FnMut(&[[i16; 1]]) -> SamplerState,
     {
-        self.run_sampler(bufs, Some(sample_rate_divisor), sampler)
+        self.run_sampler(bufs, Some(sample_rate_divisor), || {}, sampler)
             .await;
     }
 }
