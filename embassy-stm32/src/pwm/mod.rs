@@ -99,7 +99,7 @@ macro_rules! impl_compare_capable_16bit {
                 mode: OutputCompareMode,
             ) {
                 use crate::timer::sealed::GeneralPurpose16bitInstance;
-                let r = self.regs_gp16();
+                let r = Self::regs_gp16();
                 let raw_channel: usize = channel.raw();
                 r.ccmr_output(raw_channel / 2)
                     .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
@@ -107,21 +107,21 @@ macro_rules! impl_compare_capable_16bit {
 
             unsafe fn enable_channel(&mut self, channel: Channel, enable: bool) {
                 use crate::timer::sealed::GeneralPurpose16bitInstance;
-                self.regs_gp16()
+                Self::regs_gp16()
                     .ccer()
                     .modify(|w| w.set_cce(channel.raw(), enable));
             }
 
             unsafe fn set_compare_value(&mut self, channel: Channel, value: u16) {
                 use crate::timer::sealed::GeneralPurpose16bitInstance;
-                self.regs_gp16()
+                Self::regs_gp16()
                     .ccr(channel.raw())
                     .modify(|w| w.set_ccr(value));
             }
 
             unsafe fn get_max_compare_value(&self) -> u16 {
                 use crate::timer::sealed::GeneralPurpose16bitInstance;
-                self.regs_gp16().arr().read().arr()
+                Self::regs_gp16().arr().read().arr()
             }
         }
     };
@@ -136,7 +136,7 @@ foreach_interrupt! {
                 mode: OutputCompareMode,
             ) {
                 use crate::timer::sealed::GeneralPurpose16bitInstance;
-                let r = self.regs_gp16();
+                let r = Self::regs_gp16();
                 let raw_channel: usize = channel.raw();
                 r.ccmr_output(raw_channel / 2)
                     .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
@@ -144,21 +144,21 @@ foreach_interrupt! {
 
             unsafe fn enable_channel(&mut self, channel: Channel, enable: bool) {
                 use crate::timer::sealed::GeneralPurpose16bitInstance;
-                self.regs_gp16()
+                Self::regs_gp16()
                     .ccer()
                     .modify(|w| w.set_cce(channel.raw(), enable));
             }
 
             unsafe fn set_compare_value(&mut self, channel: Channel, value: u16) {
                 use crate::timer::sealed::GeneralPurpose16bitInstance;
-                self.regs_gp16()
+                Self::regs_gp16()
                     .ccr(channel.raw())
                     .modify(|w| w.set_ccr(value));
             }
 
             unsafe fn get_max_compare_value(&self) -> u16 {
                 use crate::timer::sealed::GeneralPurpose16bitInstance;
-                self.regs_gp16().arr().read().arr()
+                Self::regs_gp16().arr().read().arr()
             }
         }
 
@@ -177,22 +177,22 @@ foreach_interrupt! {
             ) {
                 use crate::timer::sealed::GeneralPurpose32bitInstance;
                 let raw_channel = channel.raw();
-                self.regs_gp32().ccmr_output(raw_channel / 2).modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
+                Self::regs_gp32().ccmr_output(raw_channel / 2).modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
             }
 
             unsafe fn enable_channel(&mut self, channel: Channel, enable: bool) {
                 use crate::timer::sealed::GeneralPurpose32bitInstance;
-                self.regs_gp32().ccer().modify(|w| w.set_cce(channel.raw(), enable));
+                Self::regs_gp32().ccer().modify(|w| w.set_cce(channel.raw(), enable));
             }
 
             unsafe fn set_compare_value(&mut self, channel: Channel, value: u32) {
                 use crate::timer::sealed::GeneralPurpose32bitInstance;
-                self.regs_gp32().ccr(channel.raw()).modify(|w| w.set_ccr(value));
+                Self::regs_gp32().ccr(channel.raw()).modify(|w| w.set_ccr(value));
             }
 
             unsafe fn get_max_compare_value(&self) -> u32 {
                 use crate::timer::sealed::GeneralPurpose32bitInstance;
-                self.regs_gp32().arr().read().arr() as u32
+                Self::regs_gp32().arr().read().arr() as u32
             }
         }
         impl CaptureCompare16bitInstance for crate::peripherals::$inst {
@@ -211,7 +211,7 @@ foreach_interrupt! {
                 mode: OutputCompareMode,
             ) {
                 use crate::timer::sealed::AdvancedControlInstance;
-                let r = self.regs_advanced();
+                let r = Self::regs_advanced();
                 let raw_channel: usize = channel.raw();
                 r.ccmr_output(raw_channel / 2)
                     .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
@@ -219,21 +219,21 @@ foreach_interrupt! {
 
             unsafe fn enable_channel(&mut self, channel: Channel, enable: bool) {
                 use crate::timer::sealed::AdvancedControlInstance;
-                self.regs_advanced()
+                Self::regs_advanced()
                     .ccer()
                     .modify(|w| w.set_cce(channel.raw(), enable));
             }
 
             unsafe fn set_compare_value(&mut self, channel: Channel, value: u16) {
                 use crate::timer::sealed::AdvancedControlInstance;
-                self.regs_advanced()
+                Self::regs_advanced()
                     .ccr(channel.raw())
                     .modify(|w| w.set_ccr(value));
             }
 
             unsafe fn get_max_compare_value(&self) -> u16 {
                 use crate::timer::sealed::AdvancedControlInstance;
-                self.regs_advanced().arr().read().arr()
+                Self::regs_advanced().arr().read().arr()
             }
         }
 

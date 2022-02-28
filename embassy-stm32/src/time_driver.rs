@@ -103,7 +103,6 @@ impl AlarmState {
 }
 
 struct RtcDriver {
-    timer: T,
     /// Number of 2^15 periods elapsed since boot.
     period: AtomicU32,
     alarm_count: AtomicU8,
@@ -114,7 +113,6 @@ struct RtcDriver {
 const ALARM_STATE_NEW: AlarmState = AlarmState::new();
 
 embassy::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
-    timer: unsafe { core::mem::transmute(()) }, // steal is not const
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
     alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),
@@ -122,7 +120,7 @@ embassy::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
 
 impl RtcDriver {
     fn init(&'static self) {
-        let r = self.timer.regs_gp16();
+        let r = T::regs_gp16();
 
         <T as RccPeripheral>::enable();
         <T as RccPeripheral>::reset();
@@ -163,7 +161,7 @@ impl RtcDriver {
     }
 
     fn on_interrupt(&self) {
-        let r = self.timer.regs_gp16();
+        let r = T::regs_gp16();
 
         // NOTE(unsafe) Use critical section to access the methods
         // XXX: reduce the size of this critical section ?
@@ -194,7 +192,7 @@ impl RtcDriver {
     }
 
     fn next_period(&self) {
-        let r = self.timer.regs_gp16();
+        let r = T::regs_gp16();
 
         let period = self.period.fetch_add(1, Ordering::Relaxed) + 1;
         let t = (period as u64) << 15;
@@ -236,7 +234,7 @@ impl RtcDriver {
 
 impl Driver for RtcDriver {
     fn now(&self) -> u64 {
-        let r = self.timer.regs_gp16();
+        let r = T::regs_gp16();
 
         let period = self.period.load(Ordering::Relaxed);
         compiler_fence(Ordering::Acquire);
@@ -273,7 +271,7 @@ impl Driver for RtcDriver {
 
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) {
         critical_section::with(|cs| {
-            let r = self.timer.regs_gp16();
+            let r = T::regs_gp16();
 
             let n = alarm.id() as _;
             let alarm = self.get_alarm(cs, alarm);

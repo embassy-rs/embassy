@@ -14,7 +14,7 @@ pub(crate) mod sealed {
     pub trait Basic16bitInstance: RccPeripheral {
         type Interrupt: Interrupt;
 
-        fn regs(&self) -> crate::pac::timer::TimBasic;
+        fn regs() -> crate::pac::timer::TimBasic;
 
         fn start(&mut self);
 
@@ -30,17 +30,17 @@ pub(crate) mod sealed {
     }
 
     pub trait GeneralPurpose16bitInstance: Basic16bitInstance {
-        fn regs_gp16(&self) -> crate::pac::timer::TimGp16;
+        fn regs_gp16() -> crate::pac::timer::TimGp16;
     }
 
     pub trait GeneralPurpose32bitInstance: GeneralPurpose16bitInstance {
-        fn regs_gp32(&self) -> crate::pac::timer::TimGp32;
+        fn regs_gp32() -> crate::pac::timer::TimGp32;
 
         fn set_frequency<F: Into<Hertz>>(&mut self, frequency: F);
     }
 
     pub trait AdvancedControlInstance: Basic16bitInstance {
-        fn regs_advanced(&self) -> crate::pac::timer::TimAdv;
+        fn regs_advanced() -> crate::pac::timer::TimAdv;
     }
 }
 
@@ -58,26 +58,25 @@ macro_rules! impl_basic_16bit_timer {
         impl sealed::Basic16bitInstance for crate::peripherals::$inst {
             type Interrupt = crate::interrupt::$irq;
 
-            fn regs(&self) -> crate::pac::timer::TimBasic {
+            fn regs() -> crate::pac::timer::TimBasic {
                 crate::pac::timer::TimBasic(crate::pac::$inst.0)
             }
 
             fn start(&mut self) {
                 unsafe {
-                    self.regs().cr1().modify(|r| r.set_cen(true));
+                    Self::regs().cr1().modify(|r| r.set_cen(true));
                 }
             }
 
             fn stop(&mut self) {
-                let regs = self.regs();
                 unsafe {
-                    regs.cr1().modify(|r| r.set_cen(false));
+                    Self::regs().cr1().modify(|r| r.set_cen(false));
                 }
             }
 
             fn reset(&mut self) {
                 unsafe {
-                    self.regs().cnt().write(|r| r.set_cnt(0));
+                    Self::regs().cnt().write(|r| r.set_cnt(0));
                 }
             }
 
@@ -90,7 +89,7 @@ macro_rules! impl_basic_16bit_timer {
                 let arr: u16 =
                     unwrap!((pclk_ticks_per_timer_period / (u32::from(psc) + 1)).try_into());
 
-                let regs = self.regs();
+                let regs = Self::regs();
                 unsafe {
                     regs.psc().write(|r| r.set_psc(psc));
                     regs.arr().write(|r| r.set_arr(arr));
@@ -102,10 +101,11 @@ macro_rules! impl_basic_16bit_timer {
             }
 
             fn clear_update_interrupt(&mut self) -> bool {
+                let regs = Self::regs();
                 unsafe {
-                    let sr = self.regs().sr().read();
+                    let sr = regs.sr().read();
                     if sr.uif() {
-                        self.regs().sr().modify(|r| {
+                        regs.sr().modify(|r| {
                             r.set_uif(false);
                         });
                         true
@@ -117,7 +117,7 @@ macro_rules! impl_basic_16bit_timer {
 
             fn enable_update_interrupt(&mut self, enable: bool) {
                 unsafe {
-                    self.regs().dier().write(|r| r.set_uie(enable));
+                    Self::regs().dier().write(|r| r.set_uie(enable));
                 }
             }
         }
@@ -128,7 +128,7 @@ macro_rules! impl_basic_16bit_timer {
 macro_rules! impl_32bit_timer {
     ($inst:ident) => {
         impl sealed::GeneralPurpose32bitInstance for crate::peripherals::$inst {
-            fn regs_gp32(&self) -> crate::pac::timer::TimGp32 {
+            fn regs_gp32() -> crate::pac::timer::TimGp32 {
                 crate::pac::$inst
             }
 
@@ -141,7 +141,7 @@ macro_rules! impl_32bit_timer {
                 let arr: u32 =
                     unwrap!(((pclk_ticks_per_timer_period / (psc as u64 + 1)).try_into()));
 
-                let regs = self.regs_gp32();
+                let regs = Self::regs_gp32();
                 unsafe {
                     regs.psc().write(|r| r.set_psc(psc));
                     regs.arr().write(|r| r.set_arr(arr));
@@ -169,7 +169,7 @@ foreach_interrupt! {
         }
 
         impl sealed::GeneralPurpose16bitInstance for crate::peripherals::$inst {
-            fn regs_gp16(&self) -> crate::pac::timer::TimGp16 {
+            fn regs_gp16() -> crate::pac::timer::TimGp16 {
                 crate::pac::$inst
             }
         }
@@ -185,7 +185,7 @@ foreach_interrupt! {
         }
 
         impl sealed::GeneralPurpose16bitInstance for crate::peripherals::$inst {
-            fn regs_gp16(&self) -> crate::pac::timer::TimGp16 {
+            fn regs_gp16() -> crate::pac::timer::TimGp16 {
                 crate::pac::timer::TimGp16(crate::pac::$inst.0)
             }
         }
@@ -206,7 +206,7 @@ foreach_interrupt! {
         }
 
         impl sealed::AdvancedControlInstance for crate::peripherals::$inst {
-            fn regs_advanced(&self) -> crate::pac::timer::TimAdv {
+            fn regs_advanced() -> crate::pac::timer::TimAdv {
                 crate::pac::$inst
             }
         }
