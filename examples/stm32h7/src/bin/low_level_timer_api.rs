@@ -90,20 +90,16 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
         this.inner.start();
 
         unsafe {
-            this.inner
-                .regs_gp32()
+            T::regs_gp32()
                 .ccmr_output(0)
                 .modify(|w| w.set_ocm(0, OutputCompareMode::PwmMode1.into()));
-            this.inner
-                .regs_gp32()
+            T::regs_gp32()
                 .ccmr_output(0)
                 .modify(|w| w.set_ocm(1, OutputCompareMode::PwmMode1.into()));
-            this.inner
-                .regs_gp32()
+            T::regs_gp32()
                 .ccmr_output(1)
                 .modify(|w| w.set_ocm(0, OutputCompareMode::PwmMode1.into()));
-            this.inner
-                .regs_gp32()
+            T::regs_gp32()
                 .ccmr_output(1)
                 .modify(|w| w.set_ocm(1, OutputCompareMode::PwmMode1.into()));
         }
@@ -112,8 +108,7 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
 
     pub fn enable(&mut self, channel: Channel) {
         unsafe {
-            self.inner
-                .regs_gp32()
+            T::regs_gp32()
                 .ccer()
                 .modify(|w| w.set_cce(channel.raw(), true));
         }
@@ -121,8 +116,7 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
 
     pub fn disable(&mut self, channel: Channel) {
         unsafe {
-            self.inner
-                .regs_gp32()
+            T::regs_gp32()
                 .ccer()
                 .modify(|w| w.set_cce(channel.raw(), false));
         }
@@ -136,14 +130,13 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
     }
 
     pub fn get_max_duty(&self) -> u32 {
-        unsafe { self.inner.regs_gp32().arr().read().arr() }
+        unsafe { T::regs_gp32().arr().read().arr() }
     }
 
     pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         defmt::assert!(duty < self.get_max_duty());
         unsafe {
-            self.inner
-                .regs_gp32()
+            T::regs_gp32()
                 .ccr(channel.raw())
                 .modify(|w| w.set_ccr(duty))
         }
