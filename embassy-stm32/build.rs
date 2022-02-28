@@ -720,6 +720,8 @@ fn main() {
         Some("tim3") => println!("cargo:rustc-cfg=time_driver_tim3"),
         Some("tim4") => println!("cargo:rustc-cfg=time_driver_tim4"),
         Some("tim5") => println!("cargo:rustc-cfg=time_driver_tim5"),
+        Some("tim12") => println!("cargo:rustc-cfg=time_driver_tim12"),
+        Some("tim15") => println!("cargo:rustc-cfg=time_driver_tim15"),
         Some("any") => {
             if singletons.contains(&"TIM2".to_string()) {
                 println!("cargo:rustc-cfg=time_driver_tim2");
@@ -729,8 +731,12 @@ fn main() {
                 println!("cargo:rustc-cfg=time_driver_tim4");
             } else if singletons.contains(&"TIM5".to_string()) {
                 println!("cargo:rustc-cfg=time_driver_tim5");
+            } else if singletons.contains(&"TIM12".to_string()) {
+                println!("cargo:rustc-cfg=time_driver_tim12");
+            } else if singletons.contains(&"TIM15".to_string()) {
+                println!("cargo:rustc-cfg=time_driver_tim15");
             } else {
-                panic!("time-driver-any requested, but the chip doesn't have TIM2, TIM3, TIM4 or TIM5.")
+                panic!("time-driver-any requested, but the chip doesn't have TIM2, TIM3, TIM4, TIM5, TIM12 or TIM15.")
             }
         }
         _ => panic!("unknown time_driver {:?}", time_driver),

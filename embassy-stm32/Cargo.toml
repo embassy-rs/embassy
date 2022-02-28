@@ -56,6 +56,8 @@ time-driver-tim2 = ["_time-driver"]
 time-driver-tim3 = ["_time-driver"]
 time-driver-tim4 = ["_time-driver"]
 time-driver-tim5 = ["_time-driver"]
+time-driver-tim12 = ["_time-driver"]
+time-driver-tim15 = ["_time-driver"]
 
 # Enable nightly-only features
 nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async"]
