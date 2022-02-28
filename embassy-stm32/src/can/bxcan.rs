@@ -92,15 +92,13 @@ foreach_peripheral!(
             const NUM_FILTER_BANKS: u8 = 14;
         }
     };
-    // Only correct when CAN2 also exists… Fix on yaml level?
-    // There are only 14 filter banks when CAN2 is not available.
+    // CAN1 and CAN2 is a combination of master and slave instance.
+    // CAN1 owns the filter bank and needs to be enabled in order
+    // for CAN2 to receive messages.
     (can, CAN1) => {
         unsafe impl bxcan::FilterOwner for peripherals::CAN1 {
             const NUM_FILTER_BANKS: u8 = 28;
         }
-    };
-    (can, CAN2) => {
-        // CAN2 is always a slave instance where CAN1 is the master instance
         unsafe impl bxcan::MasterInstance for peripherals::CAN1 {}
     };
     (can, CAN3) => {
