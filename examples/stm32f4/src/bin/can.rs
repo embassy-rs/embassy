@@ -6,8 +6,9 @@
 mod example_common;
 
 use cortex_m_rt::entry;
-use embassy_stm32::can::filter::Mask32;
-use embassy_stm32::can::{Can, Frame, StandardId};
+use embassy_stm32::can::bxcan::filter::Mask32;
+use embassy_stm32::can::bxcan::{Frame, StandardId};
+use embassy_stm32::can::Can;
 use embassy_stm32::gpio::{Input, Pull};
 use example_common::*;
 
