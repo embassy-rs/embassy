@@ -287,7 +287,12 @@ impl<'d, T: Instance> Twim<'d, T> {
         })
     }
 
-    fn setup_write(&mut self, address: u8, buffer: &[u8], inten: bool) -> Result<(), Error> {
+    fn setup_write_from_ram(
+        &mut self,
+        address: u8,
+        buffer: &[u8],
+        inten: bool,
+    ) -> Result<(), Error> {
         let r = T::regs();
 
         compiler_fence(SeqCst);
@@ -342,7 +347,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
-    fn setup_write_read(
+    fn setup_write_read_from_ram(
         &mut self,
         address: u8,
         wr_buffer: &[u8],
@@ -382,12 +387,58 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
+    fn setup_write_read(
+        &mut self,
+        address: u8,
+        wr_buffer: &[u8],
+        rd_buffer: &mut [u8],
+        inten: bool,
+    ) -> Result<(), Error> {
+        match self.setup_write_read_from_ram(address, wr_buffer, rd_buffer, inten) {
+            Ok(_) => Ok(()),
+            Err(Error::DMABufferNotInDataMemory) => {
+                trace!("Copying TWIM tx buffer into RAM for DMA");
+                let mut tx_buf = [0u8; FORCE_COPY_BUFFER_SIZE];
+                tx_buf[..wr_buffer.len()].copy_from_slice(wr_buffer);
+                self.setup_write_read_from_ram(
+                    address,
+                    &tx_buf[..wr_buffer.len()],
+                    rd_buffer,
+                    inten,
+                )
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn setup_write(&mut self, address: u8, wr_buffer: &[u8], inten: bool) -> Result<(), Error> {
+        match self.setup_write_from_ram(address, wr_buffer, inten) {
+            Ok(_) => Ok(()),
+            Err(Error::DMABufferNotInDataMemory) => {
+                trace!("Copying TWIM tx buffer into RAM for DMA");
+                let mut tx_buf = [0u8; FORCE_COPY_BUFFER_SIZE];
+                tx_buf[..wr_buffer.len()].copy_from_slice(wr_buffer);
+                self.setup_write_from_ram(address, &tx_buf[..wr_buffer.len()], inten)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     /// Write to an I2C slave.
     ///
     /// The buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
     pub fn blocking_write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
         self.setup_write(address, buffer, false)?;
+        self.blocking_wait();
+        compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_tx(buffer.len())?;
+        Ok(())
+    }
+
+    pub fn blocking_write_from_ram(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
+        self.setup_write_from_ram(address, buffer, false)?;
         self.blocking_wait();
         compiler_fence(SeqCst);
         self.check_errorsrc()?;
@@ -428,45 +479,19 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
-    /// Copy data into RAM and write to an I2C slave.
-    ///
-    /// The write buffer must have a length of at most 255 bytes on the nRF52832
-    /// and at most 1024 bytes on the nRF52840.
-    pub fn blocking_copy_write(&mut self, address: u8, wr_buffer: &[u8]) -> Result<(), Error> {
-        if wr_buffer.len() > FORCE_COPY_BUFFER_SIZE {
-            return Err(Error::TxBufferTooLong);
-        }
-
-        // Copy to RAM
-        let wr_ram_buffer = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
-        wr_ram_buffer.copy_from_slice(wr_buffer);
-
-        self.blocking_write(address, wr_ram_buffer)
-    }
-
-    /// Copy data into RAM and write to an I2C slave, then read data from the slave without
-    /// triggering a stop condition between the two.
-    ///
-    /// The write buffer must have a length of at most 255 bytes on the nRF52832
-    /// and at most 1024 bytes on the nRF52840.
-    ///
-    /// The read buffer must have a length of at most 255 bytes on the nRF52832
-    /// and at most 65535 bytes on the nRF52840.
-    pub fn blocking_copy_write_read(
+    pub fn blocking_write_read_from_ram(
         &mut self,
         address: u8,
         wr_buffer: &[u8],
         rd_buffer: &mut [u8],
     ) -> Result<(), Error> {
-        if wr_buffer.len() > FORCE_COPY_BUFFER_SIZE {
-            return Err(Error::TxBufferTooLong);
-        }
-
-        // Copy to RAM
-        let wr_ram_buffer = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
-        wr_ram_buffer.copy_from_slice(wr_buffer);
-
-        self.blocking_write_read(address, wr_ram_buffer, rd_buffer)
+        self.setup_write_read_from_ram(address, wr_buffer, rd_buffer, false)?;
+        self.blocking_wait();
+        compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_tx(wr_buffer.len())?;
+        self.check_rx(rd_buffer.len())?;
+        Ok(())
     }
 
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
@@ -487,6 +512,15 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
+    pub async fn write_from_ram(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
+        self.setup_write_from_ram(address, buffer, true)?;
+        self.async_wait().await;
+        compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_tx(buffer.len())?;
+        Ok(())
+    }
+
     pub async fn write_read(
         &mut self,
         address: u8,
@@ -494,6 +528,21 @@ impl<'d, T: Instance> Twim<'d, T> {
         rd_buffer: &mut [u8],
     ) -> Result<(), Error> {
         self.setup_write_read(address, wr_buffer, rd_buffer, true)?;
+        self.async_wait().await;
+        compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_tx(wr_buffer.len())?;
+        self.check_rx(rd_buffer.len())?;
+        Ok(())
+    }
+
+    pub async fn write_read_from_ram(
+        &mut self,
+        address: u8,
+        wr_buffer: &[u8],
+        rd_buffer: &mut [u8],
+    ) -> Result<(), Error> {
+        self.setup_write_read_from_ram(address, wr_buffer, rd_buffer, true)?;
         self.async_wait().await;
         compiler_fence(SeqCst);
         self.check_errorsrc()?;
@@ -601,11 +650,7 @@ mod eh02 {
             bytes: &'w [u8],
             buffer: &'w mut [u8],
         ) -> Result<(), Error> {
-            if slice_in_ram(bytes) {
-                self.blocking_write_read(addr, bytes, buffer)
-            } else {
-                self.blocking_copy_write_read(addr, bytes, buffer)
-            }
+            self.blocking_write_read(addr, bytes, buffer)
         }
     }
 }
