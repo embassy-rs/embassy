@@ -398,14 +398,9 @@ impl<'d, T: Instance> Twim<'d, T> {
             Ok(_) => Ok(()),
             Err(Error::DMABufferNotInDataMemory) => {
                 trace!("Copying TWIM tx buffer into RAM for DMA");
-                let mut tx_buf = [0u8; FORCE_COPY_BUFFER_SIZE];
-                tx_buf[..wr_buffer.len()].copy_from_slice(wr_buffer);
-                self.setup_write_read_from_ram(
-                    address,
-                    &tx_buf[..wr_buffer.len()],
-                    rd_buffer,
-                    inten,
-                )
+                let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
+                tx_ram_buf.copy_from_slice(wr_buffer);
+                self.setup_write_read_from_ram(address, &tx_ram_buf, rd_buffer, inten)
             }
             Err(error) => Err(error),
         }
@@ -416,9 +411,9 @@ impl<'d, T: Instance> Twim<'d, T> {
             Ok(_) => Ok(()),
             Err(Error::DMABufferNotInDataMemory) => {
                 trace!("Copying TWIM tx buffer into RAM for DMA");
-                let mut tx_buf = [0u8; FORCE_COPY_BUFFER_SIZE];
-                tx_buf[..wr_buffer.len()].copy_from_slice(wr_buffer);
-                self.setup_write_from_ram(address, &tx_buf[..wr_buffer.len()], inten)
+                let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
+                tx_ram_buf.copy_from_slice(wr_buffer);
+                self.setup_write_from_ram(address, &tx_ram_buf, inten)
             }
             Err(error) => Err(error),
         }

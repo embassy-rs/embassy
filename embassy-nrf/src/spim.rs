@@ -274,9 +274,9 @@ impl<'d, T: Instance> Spim<'d, T> {
             Ok(_) => Ok(()),
             Err(Error::DMABufferNotInDataMemory) => {
                 trace!("Copying SPIM tx buffer into RAM for DMA");
-                let mut tx_buf = [0u8; FORCE_COPY_BUFFER_SIZE];
-                tx_buf[..tx.len()].copy_from_slice(tx);
-                self.blocking_inner_from_ram(rx, &tx_buf[..tx.len()])
+                let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..tx.len()];
+                tx_ram_buf.copy_from_slice(tx);
+                self.blocking_inner_from_ram(rx, tx_ram_buf)
             }
             Err(error) => Err(error),
         }
@@ -306,9 +306,9 @@ impl<'d, T: Instance> Spim<'d, T> {
             Ok(_) => Ok(()),
             Err(Error::DMABufferNotInDataMemory) => {
                 trace!("Copying SPIM tx buffer into RAM for DMA");
-                let mut tx_buf = [0u8; FORCE_COPY_BUFFER_SIZE];
-                tx_buf[..tx.len()].copy_from_slice(tx);
-                self.async_inner_from_ram(rx, &tx_buf[..tx.len()]).await
+                let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..tx.len()];
+                tx_ram_buf.copy_from_slice(tx);
+                self.async_inner_from_ram(rx, tx_ram_buf).await
             }
             Err(error) => Err(error),
         }

@@ -247,9 +247,9 @@ impl<'d, T: Instance> UarteTx<'d, T> {
             Ok(_) => Ok(()),
             Err(Error::DMABufferNotInDataMemory) => {
                 trace!("Copying UARTE tx buffer into RAM for DMA");
-                let mut tx_buf = [0u8; FORCE_COPY_BUFFER_SIZE];
-                tx_buf[..buffer.len()].copy_from_slice(buffer);
-                self.write_from_ram(&tx_buf[..buffer.len()]).await
+                let ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..buffer.len()];
+                ram_buf.copy_from_slice(buffer);
+                self.write_from_ram(&ram_buf).await
             }
             Err(error) => Err(error),
         }
@@ -314,9 +314,9 @@ impl<'d, T: Instance> UarteTx<'d, T> {
             Ok(_) => Ok(()),
             Err(Error::DMABufferNotInDataMemory) => {
                 trace!("Copying UARTE tx buffer into RAM for DMA");
-                let mut tx_buf = [0u8; FORCE_COPY_BUFFER_SIZE];
-                tx_buf[..buffer.len()].copy_from_slice(buffer);
-                self.blocking_write_from_ram(&tx_buf[..buffer.len()])
+                let ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..buffer.len()];
+                ram_buf.copy_from_slice(buffer);
+                self.blocking_write_from_ram(&ram_buf)
             }
             Err(error) => Err(error),
         }
