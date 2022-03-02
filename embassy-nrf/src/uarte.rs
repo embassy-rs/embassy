@@ -22,7 +22,7 @@ use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
-use crate::chip::EASY_DMA_SIZE;
+use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
 use crate::interrupt::Interrupt;
@@ -224,6 +224,10 @@ impl<'d, T: Instance> Uarte<'d, T> {
         self.tx.write(buffer).await
     }
 
+    pub async fn write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.tx.write_from_ram(buffer).await
+    }
+
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
     }
@@ -231,10 +235,27 @@ impl<'d, T: Instance> Uarte<'d, T> {
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.blocking_write(buffer)
     }
+
+    pub fn blocking_write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.tx.blocking_write_from_ram(buffer)
+    }
 }
 
 impl<'d, T: Instance> UarteTx<'d, T> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        match self.write_from_ram(buffer).await {
+            Ok(_) => Ok(()),
+            Err(Error::DMABufferNotInDataMemory) => {
+                trace!("Copying UARTE tx buffer into RAM for DMA");
+                let mut tx_buf = [0u8; FORCE_COPY_BUFFER_SIZE];
+                tx_buf[..buffer.len()].copy_from_slice(buffer);
+                self.write_from_ram(&tx_buf[..buffer.len()]).await
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub async fn write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
         slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
         if buffer.len() == 0 {
             return Err(Error::BufferZeroLength);
@@ -289,6 +310,19 @@ impl<'d, T: Instance> UarteTx<'d, T> {
     }
 
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        match self.blocking_write_from_ram(buffer) {
+            Ok(_) => Ok(()),
+            Err(Error::DMABufferNotInDataMemory) => {
+                trace!("Copying UARTE tx buffer into RAM for DMA");
+                let mut tx_buf = [0u8; FORCE_COPY_BUFFER_SIZE];
+                tx_buf[..buffer.len()].copy_from_slice(buffer);
+                self.blocking_write_from_ram(&tx_buf[..buffer.len()])
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn blocking_write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
         slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
         if buffer.len() == 0 {
             return Err(Error::BufferZeroLength);
