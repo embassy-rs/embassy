@@ -773,7 +773,7 @@ impl<T: Iterator> IteratorExt for T {
 fn make_table(out: &mut String, name: &str, data: &Vec<Vec<String>>) {
     write!(
         out,
-        "
+        "#[allow(unused)]
 macro_rules! {} {{
     ($($pat:tt => $code:tt;)*) => {{
         macro_rules! __{}_inner {{
