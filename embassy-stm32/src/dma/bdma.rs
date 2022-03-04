@@ -6,8 +6,8 @@ use core::task::Waker;
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::waitqueue::AtomicWaker;
 
+use crate::_generated::BDMA_CHANNEL_COUNT;
 use crate::dma::Request;
-use crate::generated::BDMA_CHANNEL_COUNT;
 use crate::pac;
 use crate::pac::bdma::vals;
 
@@ -65,7 +65,7 @@ pub(crate) unsafe fn init() {
             crate::interrupt::$irq::steal().enable();
         };
     }
-    crate::generated::init_bdma();
+    crate::_generated::init_bdma();
 }
 
 foreach_dma_channel! {

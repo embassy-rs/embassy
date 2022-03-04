@@ -4,6 +4,7 @@ pub mod pac {
     // The nRF9160 has a secure and non-secure (NS) mode.
     // To avoid cfg spam, we remove _ns or _s suffixes here.
 
+    #[doc(no_inline)]
     pub use nrf9160_pac::{
         interrupt,
         Interrupt,
@@ -42,6 +43,7 @@ pub mod pac {
     };
     
     #[cfg(feature = "nrf9160-ns")]
+    #[doc(no_inline)]
     pub use nrf9160_pac::{
         CLOCK_NS as CLOCK,
         DPPIC_NS as DPPIC,
@@ -96,6 +98,7 @@ pub mod pac {
     };
 
     #[cfg(feature = "nrf9160-s")]
+    #[doc(no_inline)]
     pub use nrf9160_pac::{
         CC_HOST_RGF_S as CC_HOST_RGF,
         CLOCK_S as CLOCK,

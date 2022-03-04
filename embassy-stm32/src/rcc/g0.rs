@@ -1,3 +1,4 @@
+use crate::pac::rcc::vals::{Hpre, Hsidiv, Ppre, Sw};
 use crate::pac::{PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -29,17 +30,17 @@ pub enum HSI16Prescaler {
     Div128,
 }
 
-impl Into<u8> for HSI16Prescaler {
-    fn into(self) -> u8 {
+impl Into<Hsidiv> for HSI16Prescaler {
+    fn into(self) -> Hsidiv {
         match self {
-            HSI16Prescaler::NotDivided => 0x00,
-            HSI16Prescaler::Div2 => 0x01,
-            HSI16Prescaler::Div4 => 0x02,
-            HSI16Prescaler::Div8 => 0x03,
-            HSI16Prescaler::Div16 => 0x04,
-            HSI16Prescaler::Div32 => 0x05,
-            HSI16Prescaler::Div64 => 0x06,
-            HSI16Prescaler::Div128 => 0x07,
+            HSI16Prescaler::NotDivided => Hsidiv::DIV1,
+            HSI16Prescaler::Div2 => Hsidiv::DIV2,
+            HSI16Prescaler::Div4 => Hsidiv::DIV4,
+            HSI16Prescaler::Div8 => Hsidiv::DIV8,
+            HSI16Prescaler::Div16 => Hsidiv::DIV16,
+            HSI16Prescaler::Div32 => Hsidiv::DIV32,
+            HSI16Prescaler::Div64 => Hsidiv::DIV64,
+            HSI16Prescaler::Div128 => Hsidiv::DIV128,
         }
     }
 }
@@ -68,30 +69,30 @@ pub enum APBPrescaler {
     Div16,
 }
 
-impl Into<u8> for APBPrescaler {
-    fn into(self) -> u8 {
+impl Into<Ppre> for APBPrescaler {
+    fn into(self) -> Ppre {
         match self {
-            APBPrescaler::NotDivided => 1,
-            APBPrescaler::Div2 => 0x04,
-            APBPrescaler::Div4 => 0x05,
-            APBPrescaler::Div8 => 0x06,
-            APBPrescaler::Div16 => 0x07,
+            APBPrescaler::NotDivided => Ppre::DIV1,
+            APBPrescaler::Div2 => Ppre::DIV2,
+            APBPrescaler::Div4 => Ppre::DIV4,
+            APBPrescaler::Div8 => Ppre::DIV8,
+            APBPrescaler::Div16 => Ppre::DIV16,
         }
     }
 }
 
-impl Into<u8> for AHBPrescaler {
-    fn into(self) -> u8 {
+impl Into<Hpre> for AHBPrescaler {
+    fn into(self) -> Hpre {
         match self {
-            AHBPrescaler::NotDivided => 1,
-            AHBPrescaler::Div2 => 0x08,
-            AHBPrescaler::Div4 => 0x09,
-            AHBPrescaler::Div8 => 0x0a,
-            AHBPrescaler::Div16 => 0x0b,
-            AHBPrescaler::Div64 => 0x0c,
-            AHBPrescaler::Div128 => 0x0d,
-            AHBPrescaler::Div256 => 0x0e,
-            AHBPrescaler::Div512 => 0x0f,
+            AHBPrescaler::NotDivided => Hpre::DIV1,
+            AHBPrescaler::Div2 => Hpre::DIV2,
+            AHBPrescaler::Div4 => Hpre::DIV4,
+            AHBPrescaler::Div8 => Hpre::DIV8,
+            AHBPrescaler::Div16 => Hpre::DIV16,
+            AHBPrescaler::Div64 => Hpre::DIV64,
+            AHBPrescaler::Div128 => Hpre::DIV128,
+            AHBPrescaler::Div256 => Hpre::DIV256,
+            AHBPrescaler::Div512 => Hpre::DIV512,
         }
     }
 }
@@ -120,27 +121,27 @@ pub(crate) unsafe fn init(config: Config) {
     let (sys_clk, sw) = match config.mux {
         ClockSrc::HSI16(div) => {
             // Enable HSI16
-            let div: u8 = div.into();
+            let div: Hsidiv = div.into();
             RCC.cr().write(|w| {
                 w.set_hsidiv(div);
                 w.set_hsion(true)
             });
             while !RCC.cr().read().hsirdy() {}
 
-            (HSI_FREQ >> div, 0x00)
+            (HSI_FREQ >> div.0, Sw::HSI)
         }
         ClockSrc::HSE(freq) => {
             // Enable HSE
             RCC.cr().write(|w| w.set_hseon(true));
             while !RCC.cr().read().hserdy() {}
 
-            (freq.0, 0x01)
+            (freq.0, Sw::HSE)
         }
         ClockSrc::LSI => {
             // Enable LSI
             RCC.csr().write(|w| w.set_lsion(true));
             while !RCC.csr().read().lsirdy() {}
-            (LSI_FREQ, 0x03)
+            (LSI_FREQ, Sw::LSI)
         }
     };
 
@@ -150,20 +151,24 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre(config.apb_pre.into());
     });
 
-    let ahb_freq: u32 = match config.ahb_pre {
-        AHBPrescaler::NotDivided => sys_clk,
-        pre => {
-            let pre: u8 = pre.into();
-            let pre = 1 << (pre as u32 - 7);
-            sys_clk / pre
-        }
+    let ahb_div = match config.ahb_pre {
+        AHBPrescaler::NotDivided => 1,
+        AHBPrescaler::Div2 => 2,
+        AHBPrescaler::Div4 => 4,
+        AHBPrescaler::Div8 => 8,
+        AHBPrescaler::Div16 => 16,
+        AHBPrescaler::Div64 => 64,
+        AHBPrescaler::Div128 => 128,
+        AHBPrescaler::Div256 => 256,
+        AHBPrescaler::Div512 => 512,
     };
+    let ahb_freq = sys_clk / ahb_div;
 
     let (apb_freq, apb_tim_freq) = match config.apb_pre {
         APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
         pre => {
-            let pre: u8 = pre.into();
-            let pre: u8 = 1 << (pre - 3);
+            let pre: Ppre = pre.into();
+            let pre: u8 = 1 << (pre.0 - 3);
             let freq = ahb_freq / pre as u32;
             (freq, freq * 2)
         }

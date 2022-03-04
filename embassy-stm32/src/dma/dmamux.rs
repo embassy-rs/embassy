@@ -49,5 +49,5 @@ foreach_dma_channel! {
 
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
-    crate::generated::init_dmamux();
+    crate::_generated::init_dmamux();
 }

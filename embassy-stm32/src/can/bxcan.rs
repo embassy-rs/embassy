@@ -7,6 +7,7 @@ use embassy_hal_common::unborrow;
 use crate::gpio::sealed::AFType;
 use crate::{peripherals, rcc::RccPeripheral};
 
+#[doc(no_inline)]
 pub use bxcan::*;
 
 pub struct Can<'d, T: Instance + bxcan::Instance> {

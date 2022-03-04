@@ -4,6 +4,14 @@ version = "0.1.0"
 authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
 
+[package.metadata.embassy_docs]
+features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "gpiote", "time-driver-rtc1"]
+flavors = [
+    { regex_feature = "nrf52.*", target = "thumbv7em-none-eabihf" },
+    { regex_feature = "nrf53.*", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "nrf91.*", target = "thumbv8m.main-none-eabihf" },
+]
+
 [features]
 
 # Enable nightly-only features

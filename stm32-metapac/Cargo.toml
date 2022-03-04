@@ -19,6 +19,27 @@ features = ["stm32h755zi-cm7", "pac", "metadata"]
 default-target = "thumbv7em-none-eabihf"
 targets = []
 
+[package.metadata.embassy_docs]
+features = ["pac", "metadata"]
+flavors = [
+    { regex_feature = "stm32f0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32f1.*", target = "thumbv7m-none-eabi" },
+    { regex_feature = "stm32f2.*", target = "thumbv7m-none-eabi" },
+    { regex_feature = "stm32f3.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32f4.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32f7.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32g0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32g4.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32h7.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32l0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32l1.*", target = "thumbv7m-none-eabi" },
+    { regex_feature = "stm32l4.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32l5.*", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "stm32u5.*", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "stm32wb.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32wl.*", target = "thumbv7em-none-eabi" },
+]
+
 [dependencies]
 cortex-m = "0.7.3"
 cortex-m-rt = { version = ">=0.6.15,<0.8", optional = true }

@@ -646,13 +646,13 @@ fn main() {
     make_table(&mut m, "foreach_dma_channel", &dma_channels_table);
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    let out_file = out_dir.join("macros.rs").to_string_lossy().to_string();
+    let out_file = out_dir.join("_macros.rs").to_string_lossy().to_string();
     fs::write(out_file, m).unwrap();
 
     // ========
     // Write generated.rs
 
-    let out_file = out_dir.join("generated.rs").to_string_lossy().to_string();
+    let out_file = out_dir.join("_generated.rs").to_string_lossy().to_string();
     fs::write(out_file, g.to_string()).unwrap();
 
     // ========
@@ -773,7 +773,7 @@ impl<T: Iterator> IteratorExt for T {
 fn make_table(out: &mut String, name: &str, data: &Vec<Vec<String>>) {
     write!(
         out,
-        "#[macro_export]
+        "#[allow(unused)]
 macro_rules! {} {{
     ($($pat:tt => $code:tt;)*) => {{
         macro_rules! __{}_inner {{

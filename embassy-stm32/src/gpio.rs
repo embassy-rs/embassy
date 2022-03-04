@@ -574,7 +574,7 @@ foreach_pin!(
 );
 
 pub(crate) unsafe fn init() {
-    crate::generated::init_gpio();
+    crate::_generated::init_gpio();
 }
 
 mod eh02 {
