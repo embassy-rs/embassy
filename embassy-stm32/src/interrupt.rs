@@ -3,4 +3,4 @@ pub use critical_section::CriticalSection;
 pub use embassy::interrupt::{take, Interrupt};
 pub use embassy_hal_common::interrupt::Priority4 as Priority;
 
-pub use crate::generated::interrupt::*;
+pub use crate::_generated::interrupt::*;

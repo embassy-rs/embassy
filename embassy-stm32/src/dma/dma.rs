@@ -4,7 +4,7 @@ use core::task::Waker;
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::waitqueue::AtomicWaker;
 
-use crate::generated::DMA_CHANNEL_COUNT;
+use crate::_generated::DMA_CHANNEL_COUNT;
 use crate::interrupt;
 use crate::pac;
 use crate::pac::dma::{regs, vals};
@@ -59,7 +59,7 @@ pub(crate) unsafe fn init() {
             interrupt::$irq::steal().enable();
         };
     }
-    crate::generated::init_dma();
+    crate::_generated::init_dma();
 }
 
 foreach_dma_channel! {
