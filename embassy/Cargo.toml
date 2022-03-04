@@ -5,6 +5,20 @@ authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
 resolver = "2"
 
+[package.metadata.embassy_docs]
+features = ["nightly", "defmt", "unstable-traits", "time", "time-tick-1mhz"]
+flavors = [
+    { name = "std",                       target = "x86_64-unknown-linux-gnu",   features = ["std"] },
+    { name = "wasm",                      target = "wasm32-unknown-unknown",     features = ["wasm"] },
+    { name = "thumbv6m-none-eabi",        target = "thumbv6m-none-eabi",         features = [] },
+    { name = "thumbv7m-none-eabi",        target = "thumbv7m-none-eabi",         features = [] },
+    { name = "thumbv7em-none-eabi",       target = "thumbv7em-none-eabi",        features = [] },
+    { name = "thumbv7em-none-eabihf",     target = "thumbv7em-none-eabihf",      features = [] },
+    { name = "thumbv8m.base-none-eabi",   target = "thumbv8m.base-none-eabi",    features = [] },
+    { name = "thumbv8m.main-none-eabi",   target = "thumbv8m.main-none-eabi",    features = [] },
+    { name = "thumbv8m.main-none-eabihf", target = "thumbv8m.main-none-eabihf",  features = [] },
+]
+
 [features]
 default = []
 std = ["futures/std", "time", "time-tick-1mhz", "embassy-macros/std"]

@@ -5,6 +5,29 @@ authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
 resolver = "2"
 
+[package.metadata.embassy_docs]
+# TODO: sdmmc
+# TODO: net
+# TODO: subghz
+features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any"]
+flavors = [
+    { regex_feature = "stm32f0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32f1.*", target = "thumbv7m-none-eabi" },
+    { regex_feature = "stm32f2.*", target = "thumbv7m-none-eabi" },
+    { regex_feature = "stm32f3.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32f42.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32f7.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32g0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32g4.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32h7.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32l0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32l1.*", target = "thumbv7m-none-eabi" },
+    { regex_feature = "stm32l4.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32u5.*", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "stm32wb.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32wl.*", target = "thumbv7em-none-eabi" },
+]
+
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy" }
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["stm32"] }
