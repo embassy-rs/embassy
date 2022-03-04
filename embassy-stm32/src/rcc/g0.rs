@@ -1,5 +1,5 @@
+use crate::pac::rcc::vals::{Hpre, Hsidiv, Ppre, Sw};
 use crate::pac::{PWR, RCC};
-use crate::pac::rcc::vals::{Hsidiv, Hpre, Ppre, Sw};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 use crate::time::U32Ext;
