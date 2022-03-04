@@ -4,6 +4,7 @@ pub mod pac {
     // The nRF5340 has a secure and non-secure (NS) mode.
     // To avoid cfg spam, we remove _ns or _s suffixes here.
 
+    #[doc(no_inline)]
     pub use nrf5340_app_pac::{
         interrupt,
         Interrupt,
@@ -57,6 +58,7 @@ pub mod pac {
     };
     
     #[cfg(feature = "nrf5340-app-ns")]
+    #[doc(no_inline)]
     pub use nrf5340_app_pac::{
         CLOCK_NS as CLOCK,
         COMP_NS as COMP,
@@ -127,6 +129,7 @@ pub mod pac {
     };
 
     #[cfg(feature = "nrf5340-app-s")]
+    #[doc(no_inline)]
     pub use nrf5340_app_pac::{
         CACHEDATA_S as CACHEDATA,
         CACHEINFO_S as CACHEINFO,
