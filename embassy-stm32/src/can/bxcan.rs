@@ -7,8 +7,7 @@ use embassy_hal_common::unborrow;
 use crate::gpio::sealed::AFType;
 use crate::{peripherals, rcc::RccPeripheral};
 
-#[doc(no_inline)]
-pub use bxcan::*;
+pub use bxcan;
 
 pub struct Can<'d, T: Instance + bxcan::Instance> {
     phantom: PhantomData<&'d mut T>,
@@ -93,16 +92,27 @@ foreach_peripheral!(
             const NUM_FILTER_BANKS: u8 = 14;
         }
     };
-    // Only correct when CAN2 also exists… Fix on yaml level?
-    // There are only 14 filter banks when CAN2 is not available.
+    // CAN1 and CAN2 is a combination of master and slave instance.
+    // CAN1 owns the filter bank and needs to be enabled in order
+    // for CAN2 to receive messages.
     (can, CAN1) => {
-        unsafe impl bxcan::FilterOwner for peripherals::CAN1 {
-            const NUM_FILTER_BANKS: u8 = 28;
+        cfg_if::cfg_if! {
+            if #[cfg(all(
+                any(stm32l4, stm32f72, stm32f73),
+                not(any(stm32l49, stm32l4a))
+            ))] {
+                // Most L4 devices and some F7 devices use the name "CAN1"
+                // even if there is no "CAN2" peripheral.
+                unsafe impl bxcan::FilterOwner for peripherals::CAN1 {
+                    const NUM_FILTER_BANKS: u8 = 14;
+                }
+            } else {
+                unsafe impl bxcan::FilterOwner for peripherals::CAN1 {
+                    const NUM_FILTER_BANKS: u8 = 28;
+                }
+                unsafe impl bxcan::MasterInstance for peripherals::CAN1 {}
+            }
         }
-    };
-    (can, CAN2) => {
-        // CAN2 is always a slave instance where CAN1 is the master instance
-        unsafe impl bxcan::MasterInstance for peripherals::CAN1 {}
     };
     (can, CAN3) => {
         unsafe impl bxcan::FilterOwner for peripherals::CAN3 {
