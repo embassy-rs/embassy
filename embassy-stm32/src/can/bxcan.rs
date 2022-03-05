@@ -98,7 +98,7 @@ foreach_peripheral!(
     (can, CAN1) => {
         cfg_if::cfg_if! {
             if #[cfg(all(
-                any(stm32l4, stm32l72, stm32l73),
+                any(stm32l4, stm32f72, stm32f73),
                 not(any(stm32l49, stm32l4a))
             ))] {
                 // Most L4 devices and some F7 devices use the name "CAN1"
