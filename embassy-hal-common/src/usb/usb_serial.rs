@@ -302,6 +302,8 @@ where
         self.read_buf.clear();
         self.write_buf.clear();
         self.write_state = WriteState::Idle;
+        self.read_waker.wake();
+        self.write_waker.wake();
     }
 
     fn endpoint_in_complete(&mut self, addr: EndpointAddress) {
