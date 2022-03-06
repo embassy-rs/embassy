@@ -167,6 +167,7 @@ impl<'bus, 'a, B: UsbBus> AsyncWrite for UsbSerial<'bus, 'a, B> {
 
         let write_buf = this.write_buf.push_buf();
         if write_buf.is_empty() {
+            trace!("buf full, registering waker");
             this.write_waker.register(cx.waker());
             return Poll::Pending;
         }
@@ -244,10 +245,18 @@ impl<'bus, 'a, B: UsbBus> UsbSerial<'bus, 'a, B> {
         };
 
         if !buf.is_empty() {
+            trace!("writing packet len {}", buf.len());
             let count = match self.inner.write_packet(buf) {
-                Ok(c) => c,
-                Err(UsbError::WouldBlock) => 0,
+                Ok(c) => {
+                    trace!("write packet: OK {}", c);
+                    c
+                }
+                Err(UsbError::WouldBlock) => {
+                    trace!("write packet: WouldBlock");
+                    0
+                }
                 Err(_) => {
+                    trace!("write packet: error");
                     self.write_error = true;
                     return;
                 }
@@ -260,11 +269,20 @@ impl<'bus, 'a, B: UsbBus> UsbSerial<'bus, 'a, B> {
             }
             self.write_buf.pop(count);
         } else if full_size_packets > 0 {
-            if let Err(e) = self.inner.write_packet(&[]) {
-                if !matches!(e, UsbError::WouldBlock) {
-                    self.write_error = true;
+            trace!("writing empty packet");
+            match self.inner.write_packet(&[]) {
+                Ok(_) => {
+                    trace!("write empty packet: OK");
                 }
-                return;
+                Err(UsbError::WouldBlock) => {
+                    trace!("write empty packet: WouldBlock");
+                    return;
+                }
+                Err(_) => {
+                    trace!("write empty packet: Error");
+                    self.write_error = true;
+                    return;
+                }
             }
             self.write_state = WriteState::Idle;
         }
@@ -284,10 +302,14 @@ where
         self.read_buf.clear();
         self.write_buf.clear();
         self.write_state = WriteState::Idle;
+        self.read_waker.wake();
+        self.write_waker.wake();
     }
 
     fn endpoint_in_complete(&mut self, addr: EndpointAddress) {
+        trace!("DONE endpoint_in_complete");
         if addr == self.inner.write_ep_address() {
+            trace!("DONE writing packet, waking");
             self.write_waker.wake();
 
             self.flush_write();
