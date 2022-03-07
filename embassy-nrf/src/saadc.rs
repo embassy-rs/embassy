@@ -10,7 +10,8 @@ use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
 use crate::interrupt;
-use crate::ppi::{Event, Task};
+use crate::ppi::{ConfigurableChannel, Event, Ppi, Task};
+use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::{pac, peripherals};
 
 use pac::{saadc, SAADC};
@@ -297,36 +298,67 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
     /// Continuous sampling with double buffers.
     ///
-    /// NOTE: It is important that the time spent within the callback supplied
-    /// does not exceed the time taken to acquire the samples into a single buffer.
-    /// You should measure the time taken by the callback and set the sample buffer
-    /// size accordingly. Exceeding this time can lead to the peripheral re-writing
-    /// the other buffer.
-    ///
-    /// A task-driven approach to driving TASK_SAMPLE is expected. With a task
-    /// driven approach, multiple channels can be used.
-    ///
-    /// In addition, the caller is responsible for triggering TASK_START in
-    /// relation to the previous one having ended (EVENTS_END). The the initial
-    /// TASKS_START is triggered by this method.
-    ///
-    /// A closure is provided so that any required initialization such as starting
-    /// the sampling task can occur once the peripheral has been started.
+    /// A TIMER and two PPI peripherals are passed in so that precise sampling
+    /// can be attained. The sampling interval is expressed by selecting a
+    /// timer clock frequency to use along with a counter threshold to be reached.
+    /// For example, 1KHz can be achieved using a frequency of 1MHz and a counter
+    /// threshold of 1000.
     ///
     /// A sampler closure is provided that receives the buffer of samples, noting
     /// that the size of this buffer can be less than the original buffer's size.
     /// A command is return from the closure that indicates whether the sampling
     /// should continue or stop.
-    pub async fn run_task_sampler<I, S, const N0: usize>(
+    ///
+    /// NOTE: The time spent within the callback supplied should not exceed the time
+    /// taken to acquire the samples into a single buffer. You should measure the
+    /// time taken by the callback and set the sample buffer size accordingly.
+    /// Exceeding this time can lead to samples becoming dropped.
+    pub async fn run_task_sampler<S, T: TimerInstance, const N0: usize>(
         &mut self,
+        timer: &mut T,
+        ppi_ch1: &mut impl ConfigurableChannel,
+        ppi_ch2: &mut impl ConfigurableChannel,
+        frequency: Frequency,
+        sample_counter: u32,
         bufs: &mut [[[i16; N]; N0]; 2],
-        init: I,
         sampler: S,
     ) where
-        I: FnMut(),
         S: FnMut(&[[i16; N]]) -> SamplerState,
     {
-        self.run_sampler(bufs, None, init, sampler).await;
+        let r = Self::regs();
+
+        // We want the task start to effectively short with the last one ending so
+        // we don't miss any samples. It'd be great for the SAADC to offer a SHORTS
+        // register instead, but it doesn't, so we must use PPI.
+        let mut start_ppi = Ppi::new_one_to_one(
+            ppi_ch1,
+            Event::from_reg(&r.events_end),
+            Task::from_reg(&r.tasks_start),
+        );
+        start_ppi.enable();
+
+        let mut timer = Timer::new(timer);
+        timer.set_frequency(frequency);
+        timer.cc(0).write(sample_counter);
+        timer.cc(0).short_compare_clear();
+
+        let mut sample_ppi = Ppi::new_one_to_one(
+            ppi_ch2,
+            timer.cc(0).event_compare(),
+            Task::from_reg(&r.tasks_sample),
+        );
+
+        timer.start();
+
+        self.run_sampler(
+            bufs,
+            None,
+            || {
+                sample_ppi.enable();
+            },
+            sampler,
+        )
+        .await;
     }
 
     async fn run_sampler<I, S, const N0: usize>(
@@ -424,31 +456,13 @@ impl<'d, const N: usize> Saadc<'d, N> {
         })
         .await;
     }
-
-    /// Return the end event for use with PPI
-    pub fn event_end(&self) -> Event {
-        let r = Self::regs();
-        Event::from_reg(&r.events_end)
-    }
-
-    /// Return the sample task for use with PPI
-    pub fn task_sample(&self) -> Task {
-        let r = Self::regs();
-        Task::from_reg(&r.tasks_sample)
-    }
-
-    /// Return the start task for use with PPI
-    pub fn task_start(&self) -> Task {
-        let r = Self::regs();
-        Task::from_reg(&r.tasks_start)
-    }
 }
 
 impl<'d> Saadc<'d, 1> {
     /// Continuous sampling on a single channel with double buffers.
     ///
     /// The internal clock is to be used with a sample rate expressed as a divisor of
-    /// 16MHz, ranging from 80..2047. For example, 1600 represnts a sample rate of 10KHz
+    /// 16MHz, ranging from 80..2047. For example, 1600 represents a sample rate of 10KHz
     /// given 16_000_000 / 10_000_000 = 1600.
     ///
     /// A sampler closure is provided that receives the buffer of samples, noting

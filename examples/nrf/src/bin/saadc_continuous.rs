@@ -6,9 +6,8 @@
 mod example_common;
 use embassy::executor::Spawner;
 use embassy::time::Duration;
-use embassy_nrf::ppi::Ppi;
 use embassy_nrf::saadc::{ChannelConfig, Config, Saadc, SamplerState};
-use embassy_nrf::timer::{Frequency, Timer};
+use embassy_nrf::timer::Frequency;
 use embassy_nrf::{interrupt, Peripherals};
 use example_common::*;
 
@@ -27,21 +26,6 @@ async fn main(_spawner: Spawner, mut p: Peripherals) {
         [channel_1_config, channel_2_config, channel_3_config],
     );
 
-    // We want the task start to effectively short with the last one ending so
-    // we don't miss any samples. The Saadc will trigger the initial TASKS_START.
-    let mut start_ppi = Ppi::new_one_to_one(p.PPI_CH0, saadc.event_end(), saadc.task_start());
-    start_ppi.enable();
-
-    let mut timer = Timer::new(p.TIMER0);
-    timer.set_frequency(Frequency::F1MHz);
-    timer.cc(0).write(1000); // We want to sample at 1KHz
-    timer.cc(0).short_compare_clear();
-
-    let mut sample_ppi =
-        Ppi::new_one_to_one(p.PPI_CH1, timer.cc(0).event_compare(), saadc.task_sample());
-
-    timer.start();
-
     // This delay demonstrates that starting the timer prior to running
     // the task sampler is benign given the calibration that follows.
     embassy::time::Timer::after(Duration::from_millis(500)).await;
@@ -54,10 +38,12 @@ async fn main(_spawner: Spawner, mut p: Peripherals) {
 
     saadc
         .run_task_sampler(
+            &mut p.TIMER0,
+            &mut p.PPI_CH0,
+            &mut p.PPI_CH1,
+            Frequency::F1MHz,
+            1000, // We want to sample at 1KHz
             &mut bufs,
-            || {
-                sample_ppi.enable();
-            },
             move |buf| {
                 // NOTE: It is important that the time spent within this callback
                 // does not exceed the time taken to acquire the 1500 samples we
