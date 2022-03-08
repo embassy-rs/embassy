@@ -64,7 +64,9 @@ pub enum Error {
     Overrun,
 }
 
-/// Interface to a TWIM instance.
+/// Interface to a TWIM instance using EasyDMA to offload the transmission and reception workload.
+///
+/// For more details about EasyDMA, consult the module documentation.
 pub struct Twim<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
@@ -432,6 +434,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
+    /// Same as [`blocking_write`](Twim::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub fn blocking_write_from_ram(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
         self.setup_write_from_ram(address, buffer, false)?;
         self.blocking_wait();
@@ -474,6 +477,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
+    /// Same as [`blocking_write_read`](Twim::blocking_write_read) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub fn blocking_write_read_from_ram(
         &mut self,
         address: u8,
@@ -507,6 +511,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
+    /// Same as [`write`](Twim::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub async fn write_from_ram(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
         self.setup_write_from_ram(address, buffer, true)?;
         self.async_wait().await;
@@ -531,6 +536,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
+    /// Same as [`write_read`](Twim::write_read) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub async fn write_read_from_ram(
         &mut self,
         address: u8,

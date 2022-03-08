@@ -1,3 +1,39 @@
+//! ## EasyDMA considerations
+//!
+//! On nRF chips, peripherals can use the so called EasyDMA feature to offload the task of interacting
+//! with peripherals. It takes care of sending/receiving data over a variety of bus protocols (TWI/I2C, UART, SPI).
+//! However, EasyDMA requires the buffers used to transmit and receive data to reside in RAM. Unfortunately, Rust
+//! slices will not always do so. The following example using the SPI peripheral shows a common situation where this might happen:
+//!
+//! ```no_run
+//! // As we pass a slice to the function whose contents will not ever change,
+//! // the compiler writes it into the flash and thus the pointer to it will
+//! // reference static memory. Since EasyDMA requires slices to reside in RAM,
+//! // this function call will fail.
+//! let result = spim.write_from_ram(&[1, 2, 3]);
+//! assert_eq!(result, Err(Error::DMABufferNotInDataMemory));
+//!
+//! // The data is still static and located in flash. However, since we are assigning
+//! // it to a variable, the compiler will load it into memory. Passing a reference to the
+//! // variable will yield a pointer that references dynamic memory, thus making EasyDMA happy.
+//! // This function call succeeds.
+//! let data = [1, 2, 3];
+//! let result = spim.write_from_ram(&data);
+//! assert!(result.is_ok());
+//! ```
+//!
+//! Each peripheral struct which uses EasyDMA ([`Spim`](spim::Spim), [`Uarte`](uarte::Uarte), [`Twim`](twim::Twim)) has two variants of their mutating functions:
+//! - Functions with the suffix (e.g. [`write_from_ram`](Spim::write_from_ram), [`transfer_from_ram`](Spim::transfer_from_ram)) will return an error if the passed slice does not reside in RAM.
+//! - Functions without the suffix (e.g. [`write`](Spim::write), [`transfer`](Spim::transfer)) will check whether the data is in RAM and copy it into memory prior to transmission.
+//!
+//! Since copying incurs a overhead, you are given the option to choose from `_from_ram` variants which will
+//! fail and notify you, or the more convenient versions without the suffix which are potentially a little bit
+//! more inefficient. Be aware that this overhead is not only in terms of instruction count but also in terms of memory usage
+//! as the methods without the suffix will be allocating a statically sized buffer (up to 512 bytes for the nRF52840).
+//!
+//! Note that the methods that read data like [`read`](spim::Spim::read) and [`transfer_in_place`](spim::Spim::transfer_in_place) do not have the corresponding `_from_ram` variants as
+//! mutable slices always reside in RAM.
+
 #![no_std]
 #![cfg_attr(
     feature = "nightly",

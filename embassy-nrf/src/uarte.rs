@@ -60,7 +60,9 @@ pub enum Error {
     // TODO: add other error variants.
 }
 
-/// Interface to the UARTE peripheral
+/// Interface to the UARTE peripheral using EasyDMA to offload the transmission and reception workload.
+///
+/// For more details about EasyDMA, consult the module documentation.
 pub struct Uarte<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     tx: UarteTx<'d, T>,
@@ -224,6 +226,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
         self.tx.write(buffer).await
     }
 
+    /// Same as [`write`](Uarte::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub async fn write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.write_from_ram(buffer).await
     }
@@ -236,6 +239,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
         self.tx.blocking_write(buffer)
     }
 
+    /// Same as [`blocking_write`](Uarte::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub fn blocking_write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.blocking_write_from_ram(buffer)
     }
