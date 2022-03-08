@@ -25,13 +25,13 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     #[cfg(feature = "stm32f103c8")]
     let (tx, rx, usart, tx_dma, rx_dma) = (p.PA9, p.PA10, p.USART1, p.DMA1_CH4, p.DMA1_CH5);
     #[cfg(feature = "stm32g491re")]
-    let (tx, rx, usart, tx_dma, rx_dma) = (p.PC4, p.PC5, p.USART1, p.DMA1_CH0, p.DMA1_CH1);
+    let (tx, rx, usart, tx_dma, rx_dma) = (p.PC4, p.PC5, p.USART1, p.DMA1_CH1, p.DMA1_CH2);
     #[cfg(feature = "stm32g071rb")]
-    let (tx, rx, usart, tx_dma, rx_dma) = (p.PC4, p.PC5, p.USART1, p.DMA1_CH0, p.DMA1_CH1);
+    let (tx, rx, usart, tx_dma, rx_dma) = (p.PC4, p.PC5, p.USART1, p.DMA1_CH1, p.DMA1_CH2);
     #[cfg(feature = "stm32f429zi")]
     let (tx, rx, usart, tx_dma, rx_dma) = (p.PG14, p.PG9, p.USART6, p.DMA2_CH6, p.DMA2_CH1);
     #[cfg(feature = "stm32wb55rg")]
-    let (tx, rx, usart, tx_dma, rx_dma) = (p.PA9, p.PA10, p.USART1, p.DMA1_CH0, p.DMA1_CH1); // TODO this is wrong
+    let (tx, rx, usart, tx_dma, rx_dma) = (p.PA9, p.PA10, p.USART1, p.DMA1_CH1, p.DMA1_CH2); // TODO this is wrong
     #[cfg(feature = "stm32h755zi")]
     let (tx, rx, usart, tx_dma, rx_dma) = (p.PB6, p.PB7, p.USART1, p.DMA1_CH0, p.DMA1_CH1);
 

@@ -22,11 +22,11 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     #[cfg(feature = "stm32h755zi")]
     let (sck, mosi, miso, tx_dma, rx_dma) = (p.PA5, p.PB5, p.PA6, p.DMA1_CH0, p.DMA1_CH1);
     #[cfg(feature = "stm32g491re")]
-    let (sck, mosi, miso, tx_dma, rx_dma) = (p.PA5, p.PA7, p.PA6, p.DMA1_CH0, p.DMA1_CH1);
+    let (sck, mosi, miso, tx_dma, rx_dma) = (p.PA5, p.PA7, p.PA6, p.DMA1_CH1, p.DMA1_CH2);
     #[cfg(feature = "stm32g071rb")]
-    let (sck, mosi, miso, tx_dma, rx_dma) = (p.PA5, p.PA7, p.PA6, p.DMA1_CH0, p.DMA1_CH1);
+    let (sck, mosi, miso, tx_dma, rx_dma) = (p.PA5, p.PA7, p.PA6, p.DMA1_CH1, p.DMA1_CH2);
     #[cfg(feature = "stm32wb55rg")]
-    let (sck, mosi, miso, tx_dma, rx_dma) = (p.PA5, p.PA7, p.PA6, p.DMA1_CH0, p.DMA1_CH1);
+    let (sck, mosi, miso, tx_dma, rx_dma) = (p.PA5, p.PA7, p.PA6, p.DMA1_CH1, p.DMA1_CH2);
 
     let mut spi = Spi::new(
         p.SPI1,
