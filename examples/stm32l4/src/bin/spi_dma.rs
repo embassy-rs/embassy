@@ -21,8 +21,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         p.PC10,
         p.PC12,
         p.PC11,
-        p.DMA1_CH0,
         p.DMA1_CH1,
+        p.DMA1_CH2,
         Hertz(1_000_000),
         Config::default(),
     );
