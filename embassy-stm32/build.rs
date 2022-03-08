@@ -110,6 +110,10 @@ fn main() {
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
             if r.kind == "dma" || r.kind == "bdma" {
+                if p.name == "BDMA1" {
+                    // BDMA1 in H7 doesn't use DMAMUX, which breaks
+                    continue;
+                }
                 for irq in p.interrupts {
                     dma_irqs
                         .entry(irq.interrupt)
