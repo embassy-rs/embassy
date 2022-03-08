@@ -105,46 +105,37 @@ fn main() {
     // ========
     // Generate DMA IRQs.
 
-    let mut dma_irqs: HashSet<&str> = HashSet::new();
-    let mut bdma_irqs: HashSet<&str> = HashSet::new();
+    let mut dma_irqs: HashMap<&str, Vec<(&str, &str)>> = HashMap::new();
 
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
-            match r.kind {
-                "dma" => {
-                    for irq in p.interrupts {
-                        dma_irqs.insert(irq.interrupt);
-                    }
+            if r.kind == "dma" || r.kind == "bdma" {
+                for irq in p.interrupts {
+                    dma_irqs
+                        .entry(irq.interrupt)
+                        .or_default()
+                        .push((p.name, irq.signal));
                 }
-                "bdma" => {
-                    for irq in p.interrupts {
-                        bdma_irqs.insert(irq.interrupt);
-                    }
-                }
-                _ => {}
             }
         }
     }
 
-    let tokens: Vec<_> = dma_irqs.iter().map(|s| format_ident!("{}", s)).collect();
-    g.extend(quote! {
-        #(
-            #[crate::interrupt]
-            unsafe fn #tokens () {
-                crate::dma::dma::on_irq();
-            }
-        )*
-    });
+    for (irq, channels) in dma_irqs {
+        let irq = format_ident!("{}", irq);
 
-    let tokens: Vec<_> = bdma_irqs.iter().map(|s| format_ident!("{}", s)).collect();
-    g.extend(quote! {
-        #(
+        let channels = channels
+            .iter()
+            .map(|(dma, ch)| format_ident!("{}_{}", dma, ch));
+
+        g.extend(quote! {
             #[crate::interrupt]
-            unsafe fn #tokens () {
-                crate::dma::bdma::on_irq();
+            unsafe fn #irq () {
+                #(
+                    <crate::peripherals::#channels as crate::dma::sealed::Channel>::on_irq();
+                )*
             }
-        )*
-    });
+        });
+    }
 
     // ========
     // Generate RccPeripheral impls

@@ -88,6 +88,11 @@ pub(crate) mod sealed {
 
         /// Sets the waker that is called when this channel stops (either completed or manually stopped)
         fn set_waker(&mut self, waker: &Waker);
+
+        /// This is called when this channel triggers an interrupt.
+        /// Note: Because some channels share an interrupt, this function might be
+        /// called for a channel that didn't trigger an interrupt.
+        fn on_irq();
     }
 }
 

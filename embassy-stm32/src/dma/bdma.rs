@@ -38,26 +38,6 @@ impl State {
 
 static STATE: State = State::new();
 
-pub(crate) unsafe fn on_irq() {
-    foreach_peripheral! {
-        (bdma, BDMA1) => {
-            // BDMA1 in H7 doesn't use DMAMUX, which breaks
-        };
-        (bdma, $dma:ident) => {
-            let isr = pac::$dma.isr().read();
-            foreach_dma_channel! {
-                ($channel_peri:ident, $dma, bdma, $channel_num:expr, $index:expr, $dmamux:tt) => {
-                    let cr = pac::$dma.ch($channel_num).cr();
-                    if isr.tcif($channel_num) && cr.read().tcie() {
-                        cr.write(|_| ()); // Disable channel interrupts with the default value.
-                        STATE.ch_wakers[$index].wake();
-                    }
-                };
-            }
-        };
-    }
-}
-
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
     foreach_interrupt! {
@@ -149,6 +129,12 @@ foreach_dma_channel! {
 
             fn set_waker(&mut self, waker: &Waker) {
                 unsafe { low_level_api::set_waker($index, waker) }
+            }
+
+            fn on_irq() {
+                unsafe {
+                    low_level_api::on_irq_inner(pac::$dma_peri, $channel_num, $index);
+                }
             }
         }
 
@@ -242,5 +228,19 @@ mod low_level_api {
             w.set_tcif(channel_number as _, true);
             w.set_teif(channel_number as _, true);
         });
+    }
+
+    /// Safety: Must be called with a matching set of parameters for a valid dma channel
+    pub unsafe fn on_irq_inner(dma: pac::bdma::Dma, channel_num: u8, index: u8) {
+        let channel_num = channel_num as usize;
+        let index = index as usize;
+
+        let isr = dma.isr().read();
+        let cr = dma.ch(channel_num).cr();
+
+        if isr.tcif(channel_num) && cr.read().tcie() {
+            cr.write(|_| ()); // Disable channel interrupts with the default value.
+            STATE.ch_wakers[index].wake();
+        }
     }
 }
