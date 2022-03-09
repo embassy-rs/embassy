@@ -36,22 +36,6 @@ impl State {
 
 static STATE: State = State::new();
 
-pub(crate) unsafe fn on_irq() {
-    foreach_peripheral! {
-        (dma, $dma:ident) => {
-            foreach_dma_channel! {
-                ($channel_peri:ident, $dma, dma, $channel_num:expr, $index:expr, $dmamux:tt) => {
-                    let cr = pac::$dma.st($channel_num).cr();
-                    if pac::$dma.isr($channel_num/4).read().tcif($channel_num%4) && cr.read().tcie() {
-                        cr.write(|_| ()); // Disable channel interrupts with the default value.
-                        STATE.ch_wakers[$index].wake();
-                    }
-                };
-            }
-        };
-    }
-}
-
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
     foreach_interrupt! {
@@ -136,6 +120,12 @@ foreach_dma_channel! {
 
             fn set_waker(&mut self, waker: &Waker) {
                 unsafe {low_level_api::set_waker($index, waker )}
+            }
+
+            fn on_irq() {
+                unsafe {
+                    low_level_api::on_irq_inner(pac::$dma_peri, $channel_num, $index);
+                }
             }
         }
 
@@ -239,5 +229,19 @@ mod low_level_api {
             w.set_tcif(isrbit, true);
             w.set_teif(isrbit, true);
         });
+    }
+
+    /// Safety: Must be called with a matching set of parameters for a valid dma channel
+    pub unsafe fn on_irq_inner(dma: pac::dma::Dma, channel_num: u8, index: u8) {
+        let channel_num = channel_num as usize;
+        let index = index as usize;
+
+        let cr = dma.st(channel_num).cr();
+        let isr = dma.isr(channel_num / 4).read();
+
+        if isr.tcif(channel_num % 4) && cr.read().tcie() {
+            cr.write(|_| ()); // Disable channel interrupts with the default value.
+            STATE.ch_wakers[index].wake();
+        }
     }
 }
