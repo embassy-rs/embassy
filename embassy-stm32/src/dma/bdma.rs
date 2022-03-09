@@ -238,6 +238,12 @@ mod low_level_api {
         let isr = dma.isr().read();
         let cr = dma.ch(channel_num).cr();
 
+        if isr.teif(channel_num) {
+            panic!(
+                "DMA: error on BDMA@{:08x} channel {}",
+                dma.0 as u32, channel_num
+            );
+        }
         if isr.tcif(channel_num) && cr.read().tcie() {
             cr.write(|_| ()); // Disable channel interrupts with the default value.
             STATE.ch_wakers[index].wake();
