@@ -9,11 +9,13 @@ mod control;
 pub mod descriptor;
 pub mod driver;
 pub mod types;
+mod util;
 
 use self::control::*;
 use self::descriptor::*;
 use self::driver::*;
 use self::types::*;
+use self::util::*;
 
 pub use self::builder::Config;
 pub use self::builder::UsbDeviceBuilder;
@@ -47,7 +49,7 @@ pub const CONFIGURATION_VALUE: u8 = 1;
 pub const DEFAULT_ALTERNATE_SETTING: u8 = 0;
 
 pub struct UsbDevice<'d, D: Driver<'d>> {
-    driver: D::Bus,
+    bus: D::Bus,
     control_in: D::EndpointIn,
     control_out: D::EndpointOut,
 
@@ -93,7 +95,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         let driver = driver.enable();
 
         Self {
-            driver,
+            bus: driver,
             config,
             control_in,
             control_out,
@@ -108,20 +110,47 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     }
 
     pub async fn run(&mut self) {
+        let mut buf = [0; 8];
+
         loop {
-            let mut buf = [0; 8];
-            let n = self.control_out.read(&mut buf).await.unwrap();
-            assert_eq!(n, 8);
-            let req = Request::parse(&buf).unwrap();
-            info!("setup request: {:x}", req);
+            let control_fut = self.control_out.read(&mut buf);
+            let bus_fut = self.bus.poll();
+            match select(bus_fut, control_fut).await {
+                Either::Left(evt) => match evt {
+                    Event::Reset => {
+                        self.bus.reset();
 
-            // Now that we have properly parsed the setup packet, ensure the end-point is no longer in
-            // a stalled state.
-            self.control_out.set_stalled(false);
+                        self.device_state = UsbDeviceState::Default;
+                        self.remote_wakeup_enabled = false;
+                        self.pending_address = 0;
 
-            match req.direction {
-                UsbDirection::In => self.handle_control_in(req).await,
-                UsbDirection::Out => self.handle_control_out(req).await,
+                        // TODO
+                        //self.control.reset();
+                        //for cls in classes {
+                        //    cls.reset();
+                        //}
+                    }
+                    Event::Resume => {}
+                    Event::Suspend => {
+                        self.bus.suspend();
+                        self.device_state = UsbDeviceState::Suspend;
+                    }
+                },
+                Either::Right(n) => {
+                    let n = n.unwrap();
+                    assert_eq!(n, 8);
+                    let req = Request::parse(&buf).unwrap();
+                    info!("control request: {:x}", req);
+
+                    // Now that we have properly parsed the setup packet, ensure the end-point is no longer in
+                    // a stalled state.
+                    self.control_out.set_stalled(false);
+
+                    match req.direction {
+                        UsbDirection::In => self.handle_control_in(req).await,
+                        UsbDirection::Out => self.handle_control_out(req).await,
+                    }
+                }
             }
         }
     }
@@ -205,7 +234,8 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 }
 
                 (Recipient::Endpoint, Request::SET_FEATURE, Request::FEATURE_ENDPOINT_HALT) => {
-                    //self.bus.set_stalled(((req.index as u8) & 0x8f).into(), true);
+                    self.bus
+                        .set_stalled(((req.index as u8) & 0x8f).into(), true);
                     self.control_out_accept(req).await;
                 }
 
@@ -266,7 +296,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 (Recipient::Endpoint, Request::GET_STATUS) => {
                     let ep_addr: EndpointAddress = ((req.index as u8) & 0x8f).into();
                     let mut status: u16 = 0x0000;
-                    if self.driver.is_stalled(ep_addr) {
+                    if self.bus.is_stalled(ep_addr) {
                         status |= 0x0001;
                     }
                     self.control_in_accept(req, &status.to_le_bytes()).await;
