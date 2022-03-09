@@ -14,7 +14,9 @@ use embassy_nrf::interrupt;
 use embassy_nrf::pac;
 use embassy_nrf::usb::{self, Driver};
 use embassy_nrf::Peripherals;
+use embassy_usb::driver::EndpointOut;
 use embassy_usb::{Config, UsbDeviceBuilder};
+use futures::future::{join, select};
 
 use crate::cdc_acm::CdcAcmClass;
 
@@ -49,5 +51,16 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut class = CdcAcmClass::new(&mut builder, 64);
 
     let mut usb = builder.build();
-    usb.run().await;
+
+    let fut1 = usb.run();
+    let fut2 = async {
+        let mut buf = [0; 64];
+        loop {
+            let n = class.read_ep.read(&mut buf).await.unwrap();
+            let data = &buf[..n];
+            info!("data: {:x}", data);
+        }
+    };
+
+    join(fut1, fut2).await;
 }

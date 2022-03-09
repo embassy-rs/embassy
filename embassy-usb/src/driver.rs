@@ -2,40 +2,6 @@ use core::future::Future;
 
 use super::types::*;
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct EndpointAllocError;
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-
-/// Operation is unsupported by the driver.
-pub struct Unsupported;
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-
-/// Errors returned by [`EndpointIn::write`]
-pub enum WriteError {
-    /// The packet is too long to fit in the
-    ///   transmission buffer. This is generally an error in the class implementation, because the
-    ///   class shouldn't provide more data than the `max_packet_size` it specified when allocating
-    ///   the endpoint.
-    BufferOverflow,
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-
-/// Errors returned by [`EndpointOut::read`]
-pub enum ReadError {
-    /// The received packet is too long to
-    /// fit in `buf`. This is generally an error in the class implementation, because the class
-    /// should use a buffer that is large enough for the `max_packet_size` it specified when
-    /// allocating the endpoint.
-    BufferOverflow,
-}
-
 /// Driver for a specific USB peripheral. Implement this to add support for a new hardware
 /// platform.
 pub trait Driver<'a> {
@@ -82,6 +48,12 @@ pub trait Driver<'a> {
 }
 
 pub trait Bus {
+    type PollFuture<'a>: Future<Output = Event> + 'a
+    where
+        Self: 'a;
+
+    fn poll<'a>(&'a mut self) -> Self::PollFuture<'a>;
+
     /// Called when the host resets the device. This will be soon called after
     /// [`poll`](crate::device::UsbDevice::poll) returns [`PollResult::Reset`]. This method should
     /// reset the state of all endpoints and peripheral flags back to a state suitable for
@@ -157,4 +129,51 @@ pub trait EndpointIn: Endpoint {
 
     /// Writes a single packet of data to the endpoint.
     fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a>;
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Event returned by [`Bus::poll`].
+pub enum Event {
+    /// The USB reset condition has been detected.
+    Reset,
+
+    /// A USB suspend request has been detected or, in the case of self-powered devices, the device
+    /// has been disconnected from the USB bus.
+    Suspend,
+
+    /// A USB resume request has been detected after being suspended or, in the case of self-powered
+    /// devices, the device has been connected to the USB bus.
+    Resume,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct EndpointAllocError;
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Operation is unsupported by the driver.
+pub struct Unsupported;
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Errors returned by [`EndpointIn::write`]
+pub enum WriteError {
+    /// The packet is too long to fit in the
+    ///   transmission buffer. This is generally an error in the class implementation, because the
+    ///   class shouldn't provide more data than the `max_packet_size` it specified when allocating
+    ///   the endpoint.
+    BufferOverflow,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Errors returned by [`EndpointOut::read`]
+pub enum ReadError {
+    /// The received packet is too long to
+    /// fit in `buf`. This is generally an error in the class implementation, because the class
+    /// should use a buffer that is large enough for the `max_packet_size` it specified when
+    /// allocating the endpoint.
+    BufferOverflow,
 }
