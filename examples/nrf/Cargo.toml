@@ -10,7 +10,8 @@ nightly = ["embassy-nrf/nightly", "embassy-nrf/unstable-traits"]
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote"] }
+embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac"] }
+embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
 
 defmt = "0.3"
 defmt-rtt = "0.3"
@@ -22,5 +23,3 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.3.0"
 
-usb-device = "0.2"
-usbd-serial = "0.1.1"
