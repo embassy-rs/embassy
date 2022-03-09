@@ -22,7 +22,7 @@ use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
-use crate::chip::EASY_DMA_SIZE;
+use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
 use crate::interrupt::Interrupt;
@@ -60,7 +60,9 @@ pub enum Error {
     // TODO: add other error variants.
 }
 
-/// Interface to the UARTE peripheral
+/// Interface to the UARTE peripheral using EasyDMA to offload the transmission and reception workload.
+///
+/// For more details about EasyDMA, consult the module documentation.
 pub struct Uarte<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     tx: UarteTx<'d, T>,
@@ -224,6 +226,11 @@ impl<'d, T: Instance> Uarte<'d, T> {
         self.tx.write(buffer).await
     }
 
+    /// Same as [`write`](Uarte::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
+    pub async fn write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.tx.write_from_ram(buffer).await
+    }
+
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
     }
@@ -231,10 +238,28 @@ impl<'d, T: Instance> Uarte<'d, T> {
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.blocking_write(buffer)
     }
+
+    /// Same as [`blocking_write`](Uarte::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
+    pub fn blocking_write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.tx.blocking_write_from_ram(buffer)
+    }
 }
 
 impl<'d, T: Instance> UarteTx<'d, T> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        match self.write_from_ram(buffer).await {
+            Ok(_) => Ok(()),
+            Err(Error::DMABufferNotInDataMemory) => {
+                trace!("Copying UARTE tx buffer into RAM for DMA");
+                let ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..buffer.len()];
+                ram_buf.copy_from_slice(buffer);
+                self.write_from_ram(&ram_buf).await
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub async fn write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
         slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
         if buffer.len() == 0 {
             return Err(Error::BufferZeroLength);
@@ -289,6 +314,19 @@ impl<'d, T: Instance> UarteTx<'d, T> {
     }
 
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        match self.blocking_write_from_ram(buffer) {
+            Ok(_) => Ok(()),
+            Err(Error::DMABufferNotInDataMemory) => {
+                trace!("Copying UARTE tx buffer into RAM for DMA");
+                let ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..buffer.len()];
+                ram_buf.copy_from_slice(buffer);
+                self.blocking_write_from_ram(&ram_buf)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn blocking_write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
         slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
         if buffer.len() == 0 {
             return Err(Error::BufferZeroLength);

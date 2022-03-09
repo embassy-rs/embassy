@@ -8,6 +8,7 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
+use crate::chip::FORCE_COPY_BUFFER_SIZE;
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin};
 use crate::gpio::{Pin as GpioPin, PselBits};
@@ -28,6 +29,9 @@ pub enum Error {
     DMABufferNotInDataMemory,
 }
 
+/// Interface for the SPIM peripheral using EasyDMA to offload the transmission and reception workload.
+///
+/// For more details about EasyDMA, consult the module documentation.
 pub struct Spim<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
@@ -223,7 +227,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         Ok(())
     }
 
-    fn blocking_inner(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+    fn blocking_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
         self.prepare(rx, tx)?;
 
         // Wait for 'end' event.
@@ -234,7 +238,20 @@ impl<'d, T: Instance> Spim<'d, T> {
         Ok(())
     }
 
-    async fn async_inner(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+    fn blocking_inner(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Error> {
+        match self.blocking_inner_from_ram(rx, tx) {
+            Ok(_) => Ok(()),
+            Err(Error::DMABufferNotInDataMemory) => {
+                trace!("Copying SPIM tx buffer into RAM for DMA");
+                let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..tx.len()];
+                tx_ram_buf.copy_from_slice(tx);
+                self.blocking_inner_from_ram(rx, tx_ram_buf)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn async_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
         self.prepare(rx, tx)?;
 
         // Wait for 'end' event.
@@ -253,36 +270,86 @@ impl<'d, T: Instance> Spim<'d, T> {
         Ok(())
     }
 
+    async fn async_inner(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Error> {
+        match self.async_inner_from_ram(rx, tx).await {
+            Ok(_) => Ok(()),
+            Err(Error::DMABufferNotInDataMemory) => {
+                trace!("Copying SPIM tx buffer into RAM for DMA");
+                let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..tx.len()];
+                tx_ram_buf.copy_from_slice(tx);
+                self.async_inner_from_ram(rx, tx_ram_buf).await
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Reads data from the SPI bus without sending anything. Blocks until the buffer has been filled.
     pub fn blocking_read(&mut self, data: &mut [u8]) -> Result<(), Error> {
         self.blocking_inner(data, &[])
     }
 
+    /// Simultaneously sends and receives data. Blocks until the transmission is completed.
+    /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
     pub fn blocking_transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
         self.blocking_inner(read, write)
     }
 
-    pub fn blocking_transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
-        self.blocking_inner(data, data)
+    /// Same as [`blocking_transfer`](Spim::blocking_transfer) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
+    pub fn blocking_transfer_from_ram(
+        &mut self,
+        read: &mut [u8],
+        write: &[u8],
+    ) -> Result<(), Error> {
+        self.blocking_inner(read, write)
     }
 
+    /// Simultaneously sends and receives data.
+    /// Places the received data into the same buffer and blocks until the transmission is completed.
+    pub fn blocking_transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        self.blocking_inner_from_ram(data, data)
+    }
+
+    /// Sends data, discarding any received data. Blocks  until the transmission is completed.
+    /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
     pub fn blocking_write(&mut self, data: &[u8]) -> Result<(), Error> {
         self.blocking_inner(&mut [], data)
     }
 
+    /// Same as [`blocking_write`](Spim::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
+    pub fn blocking_write_from_ram(&mut self, data: &[u8]) -> Result<(), Error> {
+        self.blocking_inner(&mut [], data)
+    }
+
+    /// Reads data from the SPI bus without sending anything.
     pub async fn read(&mut self, data: &mut [u8]) -> Result<(), Error> {
         self.async_inner(data, &[]).await
     }
 
+    /// Simultaneously sends and receives data.
+    /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
     pub async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
         self.async_inner(read, write).await
     }
 
-    pub async fn transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
-        self.async_inner(data, data).await
+    /// Same as [`transfer`](Spim::transfer) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
+    pub async fn transfer_from_ram(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
+        self.async_inner_from_ram(read, write).await
     }
 
+    /// Simultaneously sends and receives data. Places the received data into the same buffer.
+    pub async fn transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        self.async_inner_from_ram(data, data).await
+    }
+
+    /// Sends data, discarding any received data.
+    /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
     pub async fn write(&mut self, data: &[u8]) -> Result<(), Error> {
         self.async_inner(&mut [], data).await
+    }
+
+    /// Same as [`write`](Spim::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
+    pub async fn write_from_ram(&mut self, data: &[u8]) -> Result<(), Error> {
+        self.async_inner_from_ram(&mut [], data).await
     }
 }
 

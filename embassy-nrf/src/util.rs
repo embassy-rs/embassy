@@ -19,10 +19,11 @@ pub(crate) fn slice_in_ram<T>(slice: *const [T]) -> bool {
     ptr >= SRAM_LOWER && (ptr + len * core::mem::size_of::<T>()) < SRAM_UPPER
 }
 
-/// Return an error if slice is not in RAM.
+/// Return an error if slice is not in RAM. Skips check if slice is zero-length.
 #[cfg(not(feature = "nrf51"))]
 pub(crate) fn slice_in_ram_or<T, E>(slice: *const [T], err: E) -> Result<(), E> {
-    if slice_in_ram(slice) {
+    let (_, len) = slice_ptr_parts(slice);
+    if len == 0 || slice_in_ram(slice) {
         Ok(())
     } else {
         Err(err)
