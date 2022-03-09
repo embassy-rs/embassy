@@ -38,14 +38,15 @@ const REQ_SET_CONTROL_LINE_STATE: u8 = 0x22;
 ///   can be sent if there is no other data to send. This is because USB bulk transactions must be
 ///   terminated with a short packet, even if the bulk endpoint is used for stream-like data.
 pub struct CdcAcmClass<'d, D: Driver<'d>> {
-    comm_if: InterfaceNumber,
-    comm_ep: D::EndpointIn,
-    data_if: InterfaceNumber,
-    read_ep: D::EndpointOut,
-    write_ep: D::EndpointIn,
-    line_coding: LineCoding,
-    dtr: bool,
-    rts: bool,
+    // TODO not pub
+    pub comm_if: InterfaceNumber,
+    pub comm_ep: D::EndpointIn,
+    pub data_if: InterfaceNumber,
+    pub read_ep: D::EndpointOut,
+    pub write_ep: D::EndpointIn,
+    pub line_coding: LineCoding,
+    pub dtr: bool,
+    pub rts: bool,
 }
 
 impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
