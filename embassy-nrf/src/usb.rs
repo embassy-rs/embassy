@@ -8,7 +8,7 @@ use embassy::time::{with_timeout, Duration};
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
-use embassy_usb::driver::{self, ReadError, WriteError};
+use embassy_usb::driver::{self, Event, ReadError, WriteError};
 use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
 use futures::future::poll_fn;
 use futures::Future;
@@ -19,7 +19,10 @@ pub use embassy_usb;
 use crate::interrupt::Interrupt;
 use crate::pac;
 
-static EP0_WAKER: AtomicWaker = AtomicWaker::new();
+const NEW_AW: AtomicWaker = AtomicWaker::new();
+static BUS_WAKER: AtomicWaker = NEW_AW;
+static EP_IN_WAKERS: [AtomicWaker; 9] = [NEW_AW; 9];
+static EP_OUT_WAKERS: [AtomicWaker; 9] = [NEW_AW; 9];
 
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
@@ -47,13 +50,48 @@ impl<'d, T: Instance> Driver<'d, T> {
     fn on_interrupt(_: *mut ()) {
         let regs = T::regs();
 
+        if regs.events_usbreset.read().bits() != 0 {
+            regs.intenclr.write(|w| w.usbreset().clear());
+            BUS_WAKER.wake();
+        }
+
         if regs.events_ep0setup.read().bits() != 0 {
             regs.intenclr.write(|w| w.ep0setup().clear());
-            EP0_WAKER.wake();
+            EP_OUT_WAKERS[0].wake();
         }
+
         if regs.events_ep0datadone.read().bits() != 0 {
             regs.intenclr.write(|w| w.ep0datadone().clear());
-            EP0_WAKER.wake();
+            EP_IN_WAKERS[0].wake();
+        }
+
+        // USBEVENT and EPDATA events are weird. They're the "aggregate"
+        // of individual bits in EVENTCAUSE and EPDATASTATUS. We handle them
+        // differently than events normally.
+        //
+        // They seem to be edge-triggered, not level-triggered: when an
+        // individual bit goes 0->1, the event fires *just once*.
+        // Therefore, it's fine to clear just the event, and let main thread
+        // check the individual bits in EVENTCAUSE and EPDATASTATUS. It
+        // doesn't cause an infinite irq loop.
+        if regs.events_usbevent.read().bits() != 0 {
+            regs.events_usbevent.reset();
+            //regs.intenclr.write(|w| w.usbevent().clear());
+            BUS_WAKER.wake();
+        }
+
+        if regs.events_epdata.read().bits() != 0 {
+            regs.events_epdata.reset();
+
+            let r = regs.epdatastatus.read().bits();
+            for i in 1..=7 {
+                if r & (1 << i) != 0 {
+                    EP_IN_WAKERS[i].wake();
+                }
+                if r & (1 << (i + 16)) != 0 {
+                    EP_OUT_WAKERS[i].wake();
+                }
+            }
         }
     }
 
@@ -153,6 +191,12 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
         unsafe { NVIC::unmask(pac::Interrupt::USBD) };
 
+        regs.intenset.write(|w| {
+            w.usbreset().set_bit();
+            w.usbevent().set_bit();
+            w.epdata().set_bit();
+            w
+        });
         // Enable the USB pullup, allowing enumeration.
         regs.usbpullup.write(|w| w.connect().enabled());
         info!("enabled");
@@ -172,6 +216,49 @@ pub struct Bus<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
+    type PollFuture<'a>
+    where
+        Self: 'a,
+    = impl Future<Output = Event> + 'a;
+
+    fn poll<'a>(&'a mut self) -> Self::PollFuture<'a> {
+        poll_fn(|cx| {
+            BUS_WAKER.register(cx.waker());
+            let regs = T::regs();
+
+            if regs.events_usbreset.read().bits() != 0 {
+                regs.events_usbreset.reset();
+                regs.intenset.write(|w| w.usbreset().set());
+                return Poll::Ready(Event::Reset);
+            }
+
+            let r = regs.eventcause.read();
+
+            if r.isooutcrc().bit() {
+                regs.eventcause.write(|w| w.isooutcrc().set_bit());
+                info!("USB event: isooutcrc");
+            }
+            if r.usbwuallowed().bit() {
+                regs.eventcause.write(|w| w.usbwuallowed().set_bit());
+                info!("USB event: usbwuallowed");
+            }
+            if r.suspend().bit() {
+                regs.eventcause.write(|w| w.suspend().set_bit());
+                info!("USB event: suspend");
+            }
+            if r.resume().bit() {
+                regs.eventcause.write(|w| w.resume().set_bit());
+                info!("USB event: resume");
+            }
+            if r.ready().bit() {
+                regs.eventcause.write(|w| w.ready().set_bit());
+                info!("USB event: ready");
+            }
+
+            Poll::Pending
+        })
+    }
+
     #[inline]
     fn reset(&mut self) {
         let regs = T::regs();
@@ -260,40 +347,95 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
     fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
         async move {
             let regs = T::regs();
+            let i = self.info.addr.index();
 
-            if buf.len() == 0 {
-                regs.tasks_ep0status.write(|w| unsafe { w.bits(1) });
-                return Ok(0);
-            }
-
-            // Wait for SETUP packet
-            regs.events_ep0setup.reset();
-            regs.intenset.write(|w| w.ep0setup().set());
-            poll_fn(|cx| {
-                EP0_WAKER.register(cx.waker());
-                if regs.events_ep0setup.read().bits() != 0 {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
+            if i == 0 {
+                if buf.len() == 0 {
+                    regs.tasks_ep0status.write(|w| unsafe { w.bits(1) });
+                    return Ok(0);
                 }
-            })
-            .await;
-            info!("got SETUP");
 
-            if buf.len() < 8 {
-                return Err(ReadError::BufferOverflow);
+                // Wait for SETUP packet
+                regs.events_ep0setup.reset();
+                regs.intenset.write(|w| w.ep0setup().set());
+                poll_fn(|cx| {
+                    EP_OUT_WAKERS[0].register(cx.waker());
+                    let regs = T::regs();
+                    if regs.events_ep0setup.read().bits() != 0 {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
+                .await;
+                info!("got SETUP");
+
+                if buf.len() < 8 {
+                    return Err(ReadError::BufferOverflow);
+                }
+
+                buf[0] = regs.bmrequesttype.read().bits() as u8;
+                buf[1] = regs.brequest.read().brequest().bits();
+                buf[2] = regs.wvaluel.read().wvaluel().bits();
+                buf[3] = regs.wvalueh.read().wvalueh().bits();
+                buf[4] = regs.windexl.read().windexl().bits();
+                buf[5] = regs.windexh.read().windexh().bits();
+                buf[6] = regs.wlengthl.read().wlengthl().bits();
+                buf[7] = regs.wlengthh.read().wlengthh().bits();
+
+                Ok(8)
+            } else {
+                poll_fn(|cx| {
+                    EP_OUT_WAKERS[i].register(cx.waker());
+                    let regs = T::regs();
+                    let r = regs.epdatastatus.read().bits();
+                    if r & (1 << (i + 16)) != 0 {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
+                .await;
+
+                // Clear status
+                regs.epdatastatus
+                    .write(|w| unsafe { w.bits(1 << (i + 16)) });
+
+                // Check that the packet fits into the buffer
+                let size = regs.size.epout[i].read().bits();
+                if size as usize > buf.len() {
+                    return Err(ReadError::BufferOverflow);
+                }
+
+                let epout = [
+                    &regs.epout0,
+                    &regs.epout1,
+                    &regs.epout2,
+                    &regs.epout3,
+                    &regs.epout4,
+                    &regs.epout5,
+                    &regs.epout6,
+                    &regs.epout7,
+                ];
+                epout[i]
+                    .ptr
+                    .write(|w| unsafe { w.bits(buf.as_ptr() as u32) });
+                // MAXCNT must match SIZE
+                epout[i].maxcnt.write(|w| unsafe { w.bits(size) });
+
+                dma_start();
+                regs.events_endepout[i].reset();
+                regs.tasks_startepout[i].write(|w| w.tasks_startepout().set_bit());
+                while regs.events_endepout[i]
+                    .read()
+                    .events_endepout()
+                    .bit_is_clear()
+                {}
+                regs.events_endepout[i].reset();
+                dma_end();
+
+                Ok(size as usize)
             }
-
-            buf[0] = regs.bmrequesttype.read().bits() as u8;
-            buf[1] = regs.brequest.read().brequest().bits();
-            buf[2] = regs.wvaluel.read().wvaluel().bits();
-            buf[3] = regs.wvalueh.read().wvalueh().bits();
-            buf[4] = regs.windexl.read().windexl().bits();
-            buf[5] = regs.windexh.read().windexh().bits();
-            buf[6] = regs.wlengthl.read().wlengthl().bits();
-            buf[7] = regs.wlengthh.read().wlengthh().bits();
-
-            Ok(8)
         }
     }
 }
@@ -331,7 +473,8 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
             let res = with_timeout(
                 Duration::from_millis(10),
                 poll_fn(|cx| {
-                    EP0_WAKER.register(cx.waker());
+                    EP_IN_WAKERS[0].register(cx.waker());
+                    let regs = T::regs();
                     if regs.events_ep0datadone.read().bits() != 0 {
                         Poll::Ready(())
                     } else {
