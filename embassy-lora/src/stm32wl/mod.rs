@@ -78,7 +78,7 @@ impl<'a> SubGhzRadio<'a> {
             // This is safe because we only get interrupts when configured for, so
             // the radio will be awaiting on the signal at this point. If not, the ISR will
             // anyway only adjust the state in the IRQ signal state.
-            let state = unsafe { &mut *(p as *mut StateInner<'a>) };
+            let state = &mut *(p as *mut StateInner<'a>);
             state.on_interrupt();
         });
         irq.set_handler_context(state_ptr as *mut ());

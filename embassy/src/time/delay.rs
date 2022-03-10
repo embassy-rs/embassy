@@ -31,32 +31,26 @@ mod eh1 {
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod eh1a {
-    use super::*;
-    use crate::time::Timer;
-    use core::future::Future;
-    use futures::FutureExt;
+cfg_if::cfg_if! {
+    if #[cfg(all(feature = "unstable-traits", feature = "nightly"))] {
+        use crate::time::Timer;
+        use core::future::Future;
+        use futures::FutureExt;
 
-    impl embedded_hal_async::delay::DelayUs for Delay {
-        type Error = core::convert::Infallible;
+        impl embedded_hal_async::delay::DelayUs for Delay {
+            type Error = core::convert::Infallible;
 
-        type DelayUsFuture<'a>
-        where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
+            type DelayUsFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-        fn delay_us(&mut self, micros: u32) -> Self::DelayUsFuture<'_> {
-            Timer::after(Duration::from_micros(micros as _)).map(Ok)
-        }
+            fn delay_us(&mut self, micros: u32) -> Self::DelayUsFuture<'_> {
+                Timer::after(Duration::from_micros(micros as _)).map(Ok)
+            }
 
-        type DelayMsFuture<'a>
-        where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
+            type DelayMsFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-        fn delay_ms(&mut self, millis: u32) -> Self::DelayMsFuture<'_> {
-            Timer::after(Duration::from_millis(millis as _)).map(Ok)
+            fn delay_ms(&mut self, millis: u32) -> Self::DelayMsFuture<'_> {
+                Timer::after(Duration::from_millis(millis as _)).map(Ok)
+            }
         }
     }
 }

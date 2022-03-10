@@ -342,65 +342,31 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::blocking::Read<u8> for Spi<'d, T> {
+    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBusFlush for Spi<'d, T> {
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBusRead<u8> for Spi<'d, T> {
         fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_transfer(words, &[])
         }
-
-        fn read_transaction(&mut self, words: &mut [&mut [u8]]) -> Result<(), Self::Error> {
-            for buf in words {
-                self.blocking_read(buf)?
-            }
-            Ok(())
-        }
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::blocking::Write<u8> for Spi<'d, T> {
+    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBusWrite<u8> for Spi<'d, T> {
         fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(words)
         }
-
-        fn write_transaction(&mut self, words: &[&[u8]]) -> Result<(), Self::Error> {
-            for buf in words {
-                self.blocking_write(buf)?
-            }
-            Ok(())
-        }
-
-        fn write_iter<WI>(&mut self, words: WI) -> Result<(), Self::Error>
-        where
-            WI: IntoIterator<Item = u8>,
-        {
-            for w in words {
-                self.blocking_write(&[w])?;
-            }
-            Ok(())
-        }
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::blocking::ReadWrite<u8> for Spi<'d, T> {
+    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBus<u8> for Spi<'d, T> {
         fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
             self.blocking_transfer(read, write)
         }
 
         fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_transfer_in_place(words)
-        }
-
-        fn transaction<'a>(
-            &mut self,
-            operations: &mut [embedded_hal_1::spi::blocking::Operation<'a, u8>],
-        ) -> Result<(), Self::Error> {
-            use embedded_hal_1::spi::blocking::Operation;
-            for o in operations {
-                match o {
-                    Operation::Read(b) => self.blocking_read(b)?,
-                    Operation::Write(b) => self.blocking_write(b)?,
-                    Operation::Transfer(r, w) => self.blocking_transfer(r, w)?,
-                    Operation::TransferInPlace(b) => self.blocking_transfer_in_place(b)?,
-                }
-            }
-            Ok(())
         }
     }
 }

@@ -275,45 +275,36 @@ mod eh1 {
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod eh1a {
-    use super::*;
-    use core::future::Future;
+cfg_if::cfg_if! {
+    if #[cfg(all(feature = "unstable-traits", feature = "nightly"))] {
+        use core::future::Future;
 
-    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_async::serial::Write for Uart<'d, T, TxDma, RxDma>
-    where
-        TxDma: crate::usart::TxDma<T>,
-    {
-        type WriteFuture<'a>
+        impl<'d, T: Instance, TxDma, RxDma> embedded_hal_async::serial::Write for Uart<'d, T, TxDma, RxDma>
         where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
+            TxDma: crate::usart::TxDma<T>,
+        {
+            type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.write(buf)
+            fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+                self.write(buf)
+            }
+
+            type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+            fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+                async move { Ok(()) }
+            }
         }
 
-        type FlushFuture<'a>
+        impl<'d, T: Instance, TxDma, RxDma> embedded_hal_async::serial::Read for Uart<'d, T, TxDma, RxDma>
         where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
+            RxDma: crate::usart::RxDma<T>,
+        {
+            type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            async move { Ok(()) }
-        }
-    }
-
-    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_async::serial::Read for Uart<'d, T, TxDma, RxDma>
-    where
-        RxDma: crate::usart::RxDma<T>,
-    {
-        type ReadFuture<'a>
-        where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.read(buf)
+            fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+                self.read(buf)
+            }
         }
     }
 }

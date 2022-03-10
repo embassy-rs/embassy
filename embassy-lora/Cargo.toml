@@ -18,8 +18,8 @@ log = { version = "0.4.14", optional = true }
 
 embassy = { version = "0.1.0", path = "../embassy", default-features = false }
 embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32", default-features = false, optional = true }
-embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.6", git = "https://github.com/embassy-rs/embedded-hal", branch = "embassy", optional = true}
-embedded-hal-async = { version = "0.0.1", git = "https://github.com/embassy-rs/embedded-hal", branch = "embassy"}
+embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.7", git = "https://github.com/embassy-rs/embedded-hal", branch = "embassy2", optional = true}
+embedded-hal-async = { version = "0.0.1", git = "https://github.com/embassy-rs/embedded-hal", branch = "embassy2"}
 embassy-hal-common = { version = "0.1.0", path = "../embassy-hal-common", default-features = false }
 futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
 embedded-hal = { version = "0.2", features = ["unproven"] }
