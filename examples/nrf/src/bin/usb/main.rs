@@ -34,13 +34,18 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     while !power.usbregstatus.read().vbusdetect().is_vbus_present() {}
     info!("vbus OK");
 
+    // Create the driver, from the HAL.
     let irq = interrupt::take!(USBD);
     let driver = Driver::new(p.USBD, irq);
+
+    // Create embassy-usb Config
     let config = Config::new(0xc0de, 0xcafe);
+
+    // Create embassy-usb DeviceBuilder using the driver and config.
+    // It needs some buffers for building the descriptors.
     let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
-
     let mut builder = UsbDeviceBuilder::new(
         driver,
         config,
@@ -49,11 +54,16 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         &mut bos_descriptor,
     );
 
+    // Create classes on the builder.
     let mut class = CdcAcmClass::new(&mut builder, 64);
 
+    // Build the builder.
     let mut usb = builder.build();
 
+    // Run the USB device.
     let fut1 = usb.run();
+
+    // Do stuff with the classes
     let fut2 = async {
         let mut buf = [0; 64];
         loop {
@@ -72,5 +82,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         }
     };
 
+    // Run everything concurrently.
+    // If we had made everything `'static` above instead, we could do this using separate tasks instead.
     join3(fut1, fut2, fut3).await;
 }
