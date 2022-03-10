@@ -198,6 +198,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     }
 
     fn control_reject(&mut self, req: Request) {
+        info!("control reject");
         self.control_out.set_stalled(true);
     }
 

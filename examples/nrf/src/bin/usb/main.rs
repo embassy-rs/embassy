@@ -10,13 +10,14 @@ mod cdc_acm;
 use core::mem;
 use defmt::*;
 use embassy::executor::Spawner;
+use embassy::time::{Duration, Timer};
 use embassy_nrf::interrupt;
 use embassy_nrf::pac;
-use embassy_nrf::usb::{self, Driver};
+use embassy_nrf::usb::Driver;
 use embassy_nrf::Peripherals;
-use embassy_usb::driver::EndpointOut;
+use embassy_usb::driver::{EndpointIn, EndpointOut};
 use embassy_usb::{Config, UsbDeviceBuilder};
-use futures::future::{join, select};
+use futures::future::join3;
 
 use crate::cdc_acm::CdcAcmClass;
 
@@ -61,6 +62,15 @@ async fn main(_spawner: Spawner, p: Peripherals) {
             info!("data: {:x}", data);
         }
     };
+    let fut3 = async {
+        loop {
+            info!("writing...");
+            class.write_ep.write(b"Hello World!\r\n").await.unwrap();
+            info!("written");
 
-    join(fut1, fut2).await;
+            Timer::after(Duration::from_secs(1)).await;
+        }
+    };
+
+    join3(fut1, fut2, fut3).await;
 }
