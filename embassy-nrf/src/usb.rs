@@ -214,10 +214,7 @@ pub struct Bus<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
-    type PollFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Event> + 'a;
+    type PollFuture<'a> = impl Future<Output = Event> + 'a where Self: 'a;
 
     fn poll<'a>(&'a mut self) -> Self::PollFuture<'a> {
         poll_fn(|cx| {
@@ -348,10 +345,7 @@ impl<'d, T: Instance, Dir> driver::Endpoint for Endpoint<'d, T, Dir> {
 }
 
 impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
-    type ReadFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<usize, ReadError>> + 'a;
+    type ReadFuture<'a> = impl Future<Output = Result<usize, ReadError>> + 'a where Self: 'a;
 
     fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
         async move {
@@ -448,10 +442,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
 }
 
 impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
-    type WriteFuture<'a>
-    where
-        Self: 'a,
-    = impl Future<Output = Result<(), WriteError>> + 'a;
+    type WriteFuture<'a> = impl Future<Output = Result<(), WriteError>> + 'a where Self: 'a;
 
     fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
         async move {
