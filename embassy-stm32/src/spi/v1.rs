@@ -10,12 +10,12 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     where
         Tx: TxDma<T>,
     {
+        self.set_word_size(WordSize::EightBit);
         unsafe {
             T::regs().cr1().modify(|w| {
                 w.set_spe(false);
             });
         }
-        self.set_word_size(WordSize::EightBit);
 
         let tx_request = self.txdma.request();
         let tx_dst = T::regs().tx_ptr();
@@ -43,6 +43,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Tx: TxDma<T>,
         Rx: RxDma<T>,
     {
+        self.set_word_size(WordSize::EightBit);
         unsafe {
             T::regs().cr1().modify(|w| {
                 w.set_spe(false);
@@ -51,7 +52,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 reg.set_rxdmaen(true);
             });
         }
-        self.set_word_size(WordSize::EightBit);
 
         let (_, clock_byte_count) = slice_ptr_parts_mut(read);
 
@@ -100,6 +100,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let (_, tx_len) = slice_ptr_parts(write);
         assert_eq!(rx_len, tx_len);
 
+        self.set_word_size(WordSize::EightBit);
         unsafe {
             T::regs().cr1().modify(|w| {
                 w.set_spe(false);
@@ -108,7 +109,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 reg.set_rxdmaen(true);
             });
         }
-        self.set_word_size(WordSize::EightBit);
 
         let rx_request = self.rxdma.request();
         let rx_src = T::regs().rx_ptr();
