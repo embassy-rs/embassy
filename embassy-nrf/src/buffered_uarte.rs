@@ -79,9 +79,27 @@ pub struct BufferedUarte<'d, U: UarteInstance, T: TimerInstance> {
 impl<'d, U: UarteInstance, T: TimerInstance> Unpin for BufferedUarte<'d, U, T> {}
 
 impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
+    pub fn new_without_flow_control(
+        state: &'d mut State<'d, U, T>,
+        uarte: impl Unborrow<Target = U> + 'd,
+        timer: impl Unborrow<Target = T> + 'd,
+        ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
+        ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
+        irq: impl Unborrow<Target = U::Interrupt> + 'd,
+        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
+        txd: impl Unborrow<Target = impl GpioPin> + 'd,
+        config: Config,
+        rx_buffer: &'d mut [u8],
+        tx_buffer: &'d mut [u8],
+    ) -> Self {
+        Self::new_inner(
+            state, uarte, timer, ppi_ch1, ppi_ch2, irq, rxd, txd, config, rx_buffer, tx_buffer,
+        )
+    }
+
     pub fn new(
         state: &'d mut State<'d, U, T>,
-        _uarte: impl Unborrow<Target = U> + 'd,
+        uarte: impl Unborrow<Target = U> + 'd,
         timer: impl Unborrow<Target = T> + 'd,
         ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
         ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
@@ -94,7 +112,36 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
     ) -> Self {
-        unborrow!(ppi_ch1, ppi_ch2, irq, rxd, txd, cts, rts);
+        unborrow!(cts, rts);
+
+        let r = U::regs();
+
+        cts.conf().write(|w| w.input().connect().drive().h0h1());
+        r.psel.cts.write(|w| unsafe { w.bits(cts.psel_bits()) });
+
+        rts.set_high();
+        rts.conf().write(|w| w.dir().output().drive().h0h1());
+        r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
+
+        Self::new_inner(
+            state, uarte, timer, ppi_ch1, ppi_ch2, irq, rxd, txd, config, rx_buffer, tx_buffer,
+        )
+    }
+
+    fn new_inner(
+        state: &'d mut State<'d, U, T>,
+        _uarte: impl Unborrow<Target = U> + 'd,
+        timer: impl Unborrow<Target = T> + 'd,
+        ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
+        ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
+        irq: impl Unborrow<Target = U::Interrupt> + 'd,
+        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
+        txd: impl Unborrow<Target = impl GpioPin> + 'd,
+        config: Config,
+        rx_buffer: &'d mut [u8],
+        tx_buffer: &'d mut [u8],
+    ) -> Self {
+        unborrow!(ppi_ch1, ppi_ch2, irq, rxd, txd);
 
         let r = U::regs();
 
@@ -106,13 +153,6 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         txd.set_high();
         txd.conf().write(|w| w.dir().output().drive().h0h1());
         r.psel.txd.write(|w| unsafe { w.bits(txd.psel_bits()) });
-
-        cts.conf().write(|w| w.input().connect().drive().h0h1());
-        r.psel.cts.write(|w| unsafe { w.bits(cts.psel_bits()) });
-
-        rts.set_high();
-        rts.conf().write(|w| w.dir().output().drive().h0h1());
-        r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
 
         r.baudrate.write(|w| w.baudrate().variant(config.baudrate));
         r.config.write(|w| w.parity().variant(config.parity));
