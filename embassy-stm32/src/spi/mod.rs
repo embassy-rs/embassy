@@ -412,7 +412,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Tx: TxDma<T>,
     {
         if data.len() == 0 {
-            return Ok(())
+            return Ok(());
         }
 
         self.set_word_size(W::WORDSIZE);
@@ -454,7 +454,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Rx: RxDma<T>,
     {
         if data.len() == 0 {
-            return Ok(())
+            return Ok(());
         }
 
         self.set_word_size(W::WORDSIZE);
@@ -509,7 +509,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         assert_eq!(read.len(), write.len());
 
         if read.len() == 0 {
-            return Ok(())
+            return Ok(());
         }
 
         self.set_word_size(W::WORDSIZE);
