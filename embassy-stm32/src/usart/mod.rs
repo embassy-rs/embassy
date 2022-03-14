@@ -72,57 +72,26 @@ pub enum Error {
 }
 
 pub struct Uart<'d, T: Instance, TxDma = NoDma, RxDma = NoDma> {
-    inner: T,
+    phantom: PhantomData<&'d mut T>,
+    tx: UartTx<'d, T, TxDma>,
+    rx: UartRx<'d, T, RxDma>,
+}
+
+pub struct UartTx<'d, T: Instance, TxDma = NoDma> {
     phantom: PhantomData<&'d mut T>,
     tx_dma: TxDma,
+}
+
+pub struct UartRx<'d, T: Instance, RxDma = NoDma> {
+    phantom: PhantomData<&'d mut T>,
     rx_dma: RxDma,
 }
 
-impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
-    pub fn new(
-        inner: impl Unborrow<Target = T> + 'd,
-        rx: impl Unborrow<Target = impl RxPin<T>> + 'd,
-        tx: impl Unborrow<Target = impl TxPin<T>> + 'd,
-        tx_dma: impl Unborrow<Target = TxDma> + 'd,
-        rx_dma: impl Unborrow<Target = RxDma> + 'd,
-        config: Config,
-    ) -> Self {
-        unborrow!(inner, rx, tx, tx_dma, rx_dma);
-
-        T::enable();
-        let pclk_freq = T::frequency();
-
-        // TODO: better calculation, including error checking and OVER8 if possible.
-        let div = (pclk_freq.0 + (config.baudrate / 2)) / config.baudrate;
-
-        let r = inner.regs();
-
-        unsafe {
-            rx.set_as_af(rx.af_num(), AFType::Input);
-            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
-
-            r.cr2().write(|_w| {});
-            r.cr3().write(|_w| {});
-            r.brr().write_value(regs::Brr(div));
-            r.cr1().write(|w| {
-                w.set_ue(true);
-                w.set_te(true);
-                w.set_re(true);
-                w.set_m0(vals::M0::BIT8);
-                w.set_pce(config.parity != Parity::ParityNone);
-                w.set_ps(match config.parity {
-                    Parity::ParityOdd => vals::Ps::ODD,
-                    Parity::ParityEven => vals::Ps::EVEN,
-                    _ => vals::Ps::EVEN,
-                });
-            });
-        }
-
+impl<'d, T: Instance, TxDma> UartTx<'d, T, TxDma> {
+    fn new(tx_dma: TxDma) -> Self {
         Self {
-            inner,
-            phantom: PhantomData,
             tx_dma,
-            rx_dma,
+            phantom: PhantomData,
         }
     }
 
@@ -133,14 +102,41 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         let ch = &mut self.tx_dma;
         let request = ch.request();
         unsafe {
-            self.inner.regs().cr3().modify(|reg| {
+            T::regs().cr3().modify(|reg| {
                 reg.set_dmat(true);
             });
         }
-        let r = self.inner.regs();
-        let dst = tdr(r);
+        let dst = tdr(T::regs());
         crate::dma::write(ch, request, buffer, dst).await;
         Ok(())
+    }
+
+    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        unsafe {
+            let r = T::regs();
+            for &b in buffer {
+                while !sr(r).read().txe() {}
+                tdr(r).write_volatile(b);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn blocking_flush(&mut self) -> Result<(), Error> {
+        unsafe {
+            let r = T::regs();
+            while !sr(r).read().tc() {}
+        }
+        Ok(())
+    }
+}
+
+impl<'d, T: Instance, RxDma> UartRx<'d, T, RxDma> {
+    fn new(rx_dma: RxDma) -> Self {
+        Self {
+            rx_dma,
+            phantom: PhantomData,
+        }
     }
 
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error>
@@ -150,11 +146,11 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         let ch = &mut self.rx_dma;
         let request = ch.request();
         unsafe {
-            self.inner.regs().cr3().modify(|reg| {
+            T::regs().cr3().modify(|reg| {
                 reg.set_dmar(true);
             });
         }
-        let r = self.inner.regs();
+        let r = T::regs();
         let src = rdr(r);
         crate::dma::read(ch, request, src, buffer).await;
         Ok(())
@@ -162,7 +158,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
 
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         unsafe {
-            let r = self.inner.regs();
+            let r = T::regs();
             for b in buffer {
                 loop {
                     let sr = sr(r).read();
@@ -187,36 +183,96 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         }
         Ok(())
     }
+}
+
+impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
+    pub fn new(
+        _inner: impl Unborrow<Target = T> + 'd,
+        rx: impl Unborrow<Target = impl RxPin<T>> + 'd,
+        tx: impl Unborrow<Target = impl TxPin<T>> + 'd,
+        tx_dma: impl Unborrow<Target = TxDma> + 'd,
+        rx_dma: impl Unborrow<Target = RxDma> + 'd,
+        config: Config,
+    ) -> Self {
+        unborrow!(_inner, rx, tx, tx_dma, rx_dma);
+
+        T::enable();
+        let pclk_freq = T::frequency();
+
+        // TODO: better calculation, including error checking and OVER8 if possible.
+        let div = (pclk_freq.0 + (config.baudrate / 2)) / config.baudrate;
+
+        let r = T::regs();
+
+        unsafe {
+            rx.set_as_af(rx.af_num(), AFType::Input);
+            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+
+            r.cr2().write(|_w| {});
+            r.cr3().write(|_w| {});
+            r.brr().write_value(regs::Brr(div));
+            r.cr1().write(|w| {
+                w.set_ue(true);
+                w.set_te(true);
+                w.set_re(true);
+                w.set_m0(vals::M0::BIT8);
+                w.set_pce(config.parity != Parity::ParityNone);
+                w.set_ps(match config.parity {
+                    Parity::ParityOdd => vals::Ps::ODD,
+                    Parity::ParityEven => vals::Ps::EVEN,
+                    _ => vals::Ps::EVEN,
+                });
+            });
+        }
+
+        Self {
+            phantom: PhantomData,
+            tx: UartTx::new(tx_dma),
+            rx: UartRx::new(rx_dma),
+        }
+    }
+
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error>
+    where
+        TxDma: crate::usart::TxDma<T>,
+    {
+        self.tx.write(buffer).await
+    }
 
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        unsafe {
-            let r = self.inner.regs();
-            for &b in buffer {
-                while !sr(r).read().txe() {}
-                tdr(r).write_volatile(b);
-            }
-        }
-        Ok(())
+        self.tx.blocking_write(buffer)
     }
 
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
-        unsafe {
-            let r = self.inner.regs();
-            while !sr(r).read().tc() {}
-        }
-        Ok(())
+        self.tx.blocking_flush()
+    }
+
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error>
+    where
+        RxDma: crate::usart::RxDma<T>,
+    {
+        self.rx.read(buffer).await
+    }
+
+    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.rx.blocking_read(buffer)
+    }
+
+    /// Split the Uart into a transmitter and receiver, which is
+    /// particuarly useful when having two tasks correlating to
+    /// transmitting and receiving.
+    pub fn split(self) -> (UartTx<'d, T, TxDma>, UartRx<'d, T, RxDma>) {
+        (self.tx, self.rx)
     }
 }
 
 mod eh02 {
     use super::*;
 
-    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_02::serial::Read<u8>
-        for Uart<'d, T, TxDma, RxDma>
-    {
+    impl<'d, T: Instance, RxDma> embedded_hal_02::serial::Read<u8> for UartRx<'d, T, RxDma> {
         type Error = Error;
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-            let r = self.inner.regs();
+            let r = T::regs();
             unsafe {
                 let sr = sr(r).read();
                 if sr.pe() {
@@ -237,6 +293,25 @@ mod eh02 {
                     Err(nb::Error::WouldBlock)
                 }
             }
+        }
+    }
+
+    impl<'d, T: Instance, TxDma> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, T, TxDma> {
+        type Error = Error;
+        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+        fn bflush(&mut self) -> Result<(), Self::Error> {
+            self.blocking_flush()
+        }
+    }
+
+    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_02::serial::Read<u8>
+        for Uart<'d, T, TxDma, RxDma>
+    {
+        type Error = Error;
+        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+            embedded_hal_02::serial::Read::read(&mut self.rx)
         }
     }
 
@@ -273,11 +348,47 @@ mod eh1 {
     {
         type Error = Error;
     }
+
+    impl<'d, T: Instance, TxDma> embedded_hal_1::serial::ErrorType for UartTx<'d, T, TxDma> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance, RxDma> embedded_hal_1::serial::ErrorType for UartRx<'d, T, RxDma> {
+        type Error = Error;
+    }
 }
 
 cfg_if::cfg_if! {
     if #[cfg(all(feature = "unstable-traits", feature = "nightly"))] {
         use core::future::Future;
+
+        impl<'d, T: Instance, TxDma> embedded_hal_async::serial::Write for UartTx<'d, T, TxDma>
+        where
+            TxDma: crate::usart::TxDma<T>,
+        {
+            type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+            fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+                self.write(buf)
+            }
+
+            type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+            fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+                async move { Ok(()) }
+            }
+        }
+
+        impl<'d, T: Instance, RxDma> embedded_hal_async::serial::Read for UartRx<'d, T, RxDma>
+        where
+            RxDma: crate::usart::RxDma<T>,
+        {
+            type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+            fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+                self.read(buf)
+            }
+        }
 
         impl<'d, T: Instance, TxDma, RxDma> embedded_hal_async::serial::Write for Uart<'d, T, TxDma, RxDma>
         where
@@ -329,7 +440,6 @@ mod buffered {
     }
 
     struct StateInner<'d, T: Instance> {
-        uart: Uart<'d, T, NoDma, NoDma>,
         phantom: PhantomData<&'d mut T>,
 
         rx_waker: WakerRegistration,
@@ -351,14 +461,14 @@ mod buffered {
     impl<'d, T: Instance> BufferedUart<'d, T> {
         pub unsafe fn new(
             state: &'d mut State<'d, T>,
-            uart: Uart<'d, T, NoDma, NoDma>,
+            _uart: Uart<'d, T, NoDma, NoDma>,
             irq: impl Unborrow<Target = T::Interrupt> + 'd,
             tx_buffer: &'d mut [u8],
             rx_buffer: &'d mut [u8],
         ) -> BufferedUart<'d, T> {
             unborrow!(irq);
 
-            let r = uart.inner.regs();
+            let r = T::regs();
             r.cr1().modify(|w| {
                 w.set_rxneie(true);
                 w.set_idleie(true);
@@ -366,7 +476,6 @@ mod buffered {
 
             Self {
                 inner: PeripheralMutex::new_unchecked(irq, &mut state.0, move || StateInner {
-                    uart,
                     phantom: PhantomData,
                     tx: RingBuffer::new(tx_buffer),
                     tx_waker: WakerRegistration::new(),
@@ -383,7 +492,7 @@ mod buffered {
         Self: 'd,
     {
         fn on_rx(&mut self) {
-            let r = self.uart.inner.regs();
+            let r = T::regs();
             unsafe {
                 let sr = sr(r).read();
                 clear_interrupt_flags(r, sr);
@@ -425,7 +534,7 @@ mod buffered {
         }
 
         fn on_tx(&mut self) {
-            let r = self.uart.inner.regs();
+            let r = T::regs();
             unsafe {
                 if sr(r).read().txe() {
                     let buf = self.tx.pop_buf();
@@ -575,7 +684,7 @@ unsafe fn clear_interrupt_flags(r: crate::pac::usart::Usart, sr: regs::Ixr) {
 
 pub(crate) mod sealed {
     pub trait Instance {
-        fn regs(&self) -> crate::pac::usart::Usart;
+        fn regs() -> crate::pac::usart::Usart;
     }
 }
 
@@ -595,7 +704,7 @@ dma_trait!(RxDma, Instance);
 foreach_interrupt!(
     ($inst:ident, usart, $block:ident, $signal_name:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$inst {
-            fn regs(&self) -> crate::pac::usart::Usart {
+            fn regs() -> crate::pac::usart::Usart {
                 crate::pac::$inst
             }
         }
