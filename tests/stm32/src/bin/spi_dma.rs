@@ -47,6 +47,9 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     spi.transfer(&mut buf, &data).await.unwrap();
     assert_eq!(buf, data);
 
+    spi.transfer_in_place(&mut buf).await.unwrap();
+    assert_eq!(buf, data);
+
     info!("Test OK");
     cortex_m::asm::bkpt();
 }

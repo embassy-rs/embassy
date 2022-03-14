@@ -7,7 +7,7 @@ use embassy_hal_common::unborrow;
 use futures::future::join;
 
 use self::sealed::WordSize;
-use crate::dma::{NoDma, Transfer};
+use crate::dma::{slice_ptr_parts, NoDma, Transfer};
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::AnyPin;
 use crate::pac::spi::Spi as Regs;
@@ -501,14 +501,19 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
-    pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error>
+    async fn transfer_inner<W: Word>(
+        &mut self,
+        read: *mut [W],
+        write: *const [W],
+    ) -> Result<(), Error>
     where
         Tx: TxDma<T>,
         Rx: RxDma<T>,
     {
-        assert_eq!(read.len(), write.len());
-
-        if read.len() == 0 {
+        let (_, rx_len) = slice_ptr_parts(read);
+        let (_, tx_len) = slice_ptr_parts(write);
+        assert_eq!(rx_len, tx_len);
+        if rx_len == 0 {
             return Ok(());
         }
 
@@ -550,6 +555,22 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         finish_dma(T::REGS);
 
         Ok(())
+    }
+
+    pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error>
+    where
+        Tx: TxDma<T>,
+        Rx: RxDma<T>,
+    {
+        self.transfer_inner(read, write).await
+    }
+
+    pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error>
+    where
+        Tx: TxDma<T>,
+        Rx: RxDma<T>,
+    {
+        self.transfer_inner(data, data).await
     }
 
     pub fn blocking_write<W: Word>(&mut self, words: &[W]) -> Result<(), Error> {
@@ -935,9 +956,7 @@ cfg_if::cfg_if! {
                 &'a mut self,
                 words: &'a mut [W],
             ) -> Self::TransferInPlaceFuture<'a> {
-                // TODO: Implement async version
-                let result = self.blocking_transfer_in_place(words);
-                async move { result }
+                self.transfer_in_place(words)
             }
         }
     }
