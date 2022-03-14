@@ -418,10 +418,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
         }
 
-        // TODO: This is unnecessary in some versions because
-        // clearing SPE automatically clears the fifos
-        flush_rx_fifo(T::REGS);
-
         let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
         unsafe { self.txdma.start_write(tx_request, data, tx_dst) }
@@ -439,6 +435,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
 
         tx_f.await;
+
+        // flush here otherwise `finish_dma` hangs waiting for the rx fifo to empty
+        flush_rx_fifo(T::REGS);
 
         finish_dma(T::REGS);
 
