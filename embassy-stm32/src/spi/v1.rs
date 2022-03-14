@@ -17,6 +17,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
         }
 
+        // TODO: This is unnecessary in some versions because
+        // clearing SPE automatically clears the fifos
+        flush_rx_fifo(T::regs());
+
         let tx_request = self.txdma.request();
         let tx_dst = T::regs().tx_ptr();
         unsafe { self.txdma.start_write(tx_request, write, tx_dst) }
@@ -109,6 +113,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 reg.set_rxdmaen(true);
             });
         }
+
+        // TODO: This is unnecessary in some versions because
+        // clearing SPE automatically clears the fifos
+        flush_rx_fifo(T::regs());
 
         let rx_request = self.rxdma.request();
         let rx_src = T::regs().rx_ptr();

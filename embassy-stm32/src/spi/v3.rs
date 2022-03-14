@@ -15,12 +15,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::regs().cr1().modify(|w| {
                 w.set_spe(false);
             });
-
-            // Flush the read buffer to avoid errornous data from being read
-            while T::regs().sr().read().rxp() {
-                let _ = T::regs().rxdr().read();
-            }
         }
+
+        // TODO: This is unnecessary in some versions because
+        // clearing SPE automatically clears the fifos
+        flush_rx_fifo(T::regs());
 
         let tx_request = self.txdma.request();
         let tx_dst = T::regs().tx_ptr();
@@ -119,12 +118,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::regs().cfg1().modify(|reg| {
                 reg.set_rxdmaen(true);
             });
-
-            // Flush the read buffer to avoid errornous data from being read
-            while T::regs().sr().read().rxp() {
-                let _ = T::regs().rxdr().read();
-            }
         }
+
+        // TODO: This is unnecessary in some versions because
+        // clearing SPE automatically clears the fifos
+        flush_rx_fifo(T::regs());
 
         let rx_request = self.rxdma.request();
         let rx_src = T::regs().rx_ptr();

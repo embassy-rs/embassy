@@ -614,6 +614,19 @@ fn spin_until_idle(regs: Regs) {
     }
 }
 
+fn flush_rx_fifo(regs: Regs) {
+    unsafe {
+        #[cfg(not(spi_v3))]
+        while regs.sr().read().rxne() {
+            let _ = regs.dr().read();
+        }
+        #[cfg(spi_v3)]
+        while regs.sr().read().rxp() {
+            let _ = regs.rxdr().read();
+        }
+    }
+}
+
 fn finish_dma(regs: Regs) {
     spin_until_idle(regs);
 
