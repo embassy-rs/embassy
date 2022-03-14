@@ -7,7 +7,7 @@ use embassy_hal_common::unborrow;
 use futures::future::join;
 
 use self::sealed::WordSize;
-use crate::dma::{slice_ptr_parts, slice_ptr_parts_mut, NoDma, Transfer};
+use crate::dma::{NoDma, Transfer};
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::AnyPin;
 use crate::pac::spi::Spi as Regs;
@@ -411,6 +411,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     where
         Tx: TxDma<T>,
     {
+        if data.len() == 0 {
+            return Ok(())
+        }
+
         self.set_word_size(W::WORDSIZE);
         unsafe {
             T::REGS.cr1().modify(|w| {
@@ -449,6 +453,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Tx: TxDma<T>,
         Rx: RxDma<T>,
     {
+        if data.len() == 0 {
+            return Ok(())
+        }
+
         self.set_word_size(W::WORDSIZE);
         unsafe {
             T::REGS.cr1().modify(|w| {
@@ -457,7 +465,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             set_rxdmaen(T::REGS, true);
         }
 
-        let (_, clock_byte_count) = slice_ptr_parts_mut(data);
+        let clock_byte_count = data.len();
 
         let rx_request = self.rxdma.request();
         let rx_src = T::REGS.rx_ptr();
@@ -498,9 +506,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Tx: TxDma<T>,
         Rx: RxDma<T>,
     {
-        let (_, rx_len) = slice_ptr_parts(read);
-        let (_, tx_len) = slice_ptr_parts(write);
-        assert_eq!(rx_len, tx_len);
+        assert_eq!(read.len(), write.len());
+
+        if read.len() == 0 {
+            return Ok(())
+        }
 
         self.set_word_size(W::WORDSIZE);
         unsafe {
