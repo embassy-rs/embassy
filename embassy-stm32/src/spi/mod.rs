@@ -627,6 +627,32 @@ fn flush_rx_fifo(regs: Regs) {
     }
 }
 
+fn set_txdmaen(regs: Regs, val: bool) {
+    unsafe {
+        #[cfg(not(spi_v3))]
+        regs.cr2().modify(|reg| {
+            reg.set_txdmaen(val);
+        });
+        #[cfg(spi_v3)]
+        regs.cfg1().modify(|reg| {
+            reg.set_txdmaen(val);
+        });
+    }
+}
+
+fn set_rxdmaen(regs: Regs, val: bool) {
+    unsafe {
+        #[cfg(not(spi_v3))]
+        regs.cr2().modify(|reg| {
+            reg.set_rxdmaen(val);
+        });
+        #[cfg(spi_v3)]
+        regs.cfg1().modify(|reg| {
+            reg.set_rxdmaen(val);
+        });
+    }
+}
+
 fn finish_dma(regs: Regs) {
     spin_until_idle(regs);
 

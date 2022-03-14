@@ -27,9 +27,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let tx_f = Transfer::new(&mut self.txdma);
 
         unsafe {
-            T::regs().cr2().modify(|reg| {
-                reg.set_txdmaen(true);
-            });
+            set_txdmaen(T::regs(), true);
             T::regs().cr1().modify(|w| {
                 w.set_spe(true);
             });
@@ -52,9 +50,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::regs().cr1().modify(|w| {
                 w.set_spe(false);
             });
-            T::regs().cr2().modify(|reg| {
-                reg.set_rxdmaen(true);
-            });
+            set_rxdmaen(T::regs(), true);
         }
 
         let (_, clock_byte_count) = slice_ptr_parts_mut(read);
@@ -76,9 +72,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         );
 
         unsafe {
-            T::regs().cr2().modify(|reg| {
-                reg.set_txdmaen(true);
-            });
+            set_txdmaen(T::regs(), true);
             T::regs().cr1().modify(|w| {
                 w.set_spe(true);
             });
@@ -109,9 +103,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::regs().cr1().modify(|w| {
                 w.set_spe(false);
             });
-            T::regs().cr2().modify(|reg| {
-                reg.set_rxdmaen(true);
-            });
+            set_rxdmaen(T::regs(), true);
         }
 
         // TODO: This is unnecessary in some versions because
@@ -129,9 +121,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let tx_f = Transfer::new(&mut self.txdma);
 
         unsafe {
-            T::regs().cr2().modify(|reg| {
-                reg.set_txdmaen(true);
-            });
+            set_txdmaen(T::regs(), true);
             T::regs().cr1().modify(|w| {
                 w.set_spe(true);
             });
