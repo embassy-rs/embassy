@@ -10,14 +10,13 @@ use self::sealed::WordSize;
 use crate::dma::{slice_ptr_parts, slice_ptr_parts_mut, NoDma, Transfer};
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::AnyPin;
+use crate::pac::spi::Spi as Regs;
 use crate::pac::spi::{regs, vals};
 use crate::peripherals;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-
-type Regs = &'static crate::pac::spi::Spi;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -219,10 +218,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         #[cfg(any(spi_v1, spi_f1))]
         unsafe {
-            T::regs().cr2().modify(|w| {
+            T::REGS.cr2().modify(|w| {
                 w.set_ssoe(false);
             });
-            T::regs().cr1().modify(|w| {
+            T::REGS.cr1().modify(|w| {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
 
@@ -242,12 +241,12 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
         #[cfg(spi_v2)]
         unsafe {
-            T::regs().cr2().modify(|w| {
+            T::REGS.cr2().modify(|w| {
                 w.set_frxth(WordSize::EightBit.frxth());
                 w.set_ds(WordSize::EightBit.ds());
                 w.set_ssoe(false);
             });
-            T::regs().cr1().modify(|w| {
+            T::REGS.cr1().modify(|w| {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
 
@@ -263,8 +262,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
         #[cfg(spi_v3)]
         unsafe {
-            T::regs().ifcr().write(|w| w.0 = 0xffff_ffff);
-            T::regs().cfg2().modify(|w| {
+            T::REGS.ifcr().write(|w| w.0 = 0xffff_ffff);
+            T::REGS.cfg2().modify(|w| {
                 //w.set_ssoe(true);
                 w.set_ssoe(false);
                 w.set_cpha(cpha);
@@ -279,16 +278,16 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_afcntr(vals::Afcntr::CONTROLLED);
                 w.set_ssiop(vals::Ssiop::ACTIVEHIGH);
             });
-            T::regs().cfg1().modify(|w| {
+            T::REGS.cfg1().modify(|w| {
                 w.set_crcen(false);
                 w.set_mbr(br);
                 w.set_dsize(WordSize::EightBit.dsize());
             });
-            T::regs().cr2().modify(|w| {
+            T::REGS.cr2().modify(|w| {
                 w.set_tsize(0);
                 w.set_tser(0);
             });
-            T::regs().cr1().modify(|w| {
+            T::REGS.cr1().modify(|w| {
                 w.set_ssi(false);
                 w.set_spe(true);
             });
@@ -314,7 +313,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         #[cfg(any(spi_v1, spi_f1, spi_v2))]
         unsafe {
-            T::regs().cr1().modify(|w| {
+            T::REGS.cr1().modify(|w| {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
@@ -323,7 +322,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         #[cfg(spi_v3)]
         unsafe {
-            T::regs().cfg2().modify(|w| {
+            T::REGS.cfg2().modify(|w| {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
@@ -333,9 +332,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
     pub fn get_current_config(&self) -> Config {
         #[cfg(any(spi_v1, spi_f1, spi_v2))]
-        let cfg = unsafe { T::regs().cr1().read() };
+        let cfg = unsafe { T::REGS.cr1().read() };
         #[cfg(spi_v3)]
-        let cfg = unsafe { T::regs().cfg2().read() };
+        let cfg = unsafe { T::REGS.cfg2().read() };
         let polarity = if cfg.cpol() == vals::Cpol::IDLELOW {
             Polarity::IdleLow
         } else {
@@ -366,40 +365,40 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         #[cfg(any(spi_v1, spi_f1))]
         unsafe {
-            T::regs().cr1().modify(|reg| {
+            T::REGS.cr1().modify(|reg| {
                 reg.set_spe(false);
                 reg.set_dff(word_size.dff())
             });
-            T::regs().cr1().modify(|reg| {
+            T::REGS.cr1().modify(|reg| {
                 reg.set_spe(true);
             });
         }
         #[cfg(spi_v2)]
         unsafe {
-            T::regs().cr1().modify(|w| {
+            T::REGS.cr1().modify(|w| {
                 w.set_spe(false);
             });
-            T::regs().cr2().modify(|w| {
+            T::REGS.cr2().modify(|w| {
                 w.set_frxth(word_size.frxth());
                 w.set_ds(word_size.ds());
             });
-            T::regs().cr1().modify(|w| {
+            T::REGS.cr1().modify(|w| {
                 w.set_spe(true);
             });
         }
         #[cfg(spi_v3)]
         unsafe {
-            T::regs().cr1().modify(|w| {
+            T::REGS.cr1().modify(|w| {
                 w.set_csusp(true);
             });
-            while T::regs().sr().read().eot() {}
-            T::regs().cr1().modify(|w| {
+            while T::REGS.sr().read().eot() {}
+            T::REGS.cr1().modify(|w| {
                 w.set_spe(false);
             });
-            T::regs().cfg1().modify(|w| {
+            T::REGS.cfg1().modify(|w| {
                 w.set_dsize(word_size.dsize());
             });
-            T::regs().cr1().modify(|w| {
+            T::REGS.cr1().modify(|w| {
                 w.set_csusp(false);
                 w.set_spe(true);
             });
@@ -414,34 +413,34 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     {
         self.set_word_size(WordSize::EightBit);
         unsafe {
-            T::regs().cr1().modify(|w| {
+            T::REGS.cr1().modify(|w| {
                 w.set_spe(false);
             });
         }
 
         // TODO: This is unnecessary in some versions because
         // clearing SPE automatically clears the fifos
-        flush_rx_fifo(T::regs());
+        flush_rx_fifo(T::REGS);
 
         let tx_request = self.txdma.request();
-        let tx_dst = T::regs().tx_ptr();
+        let tx_dst = T::REGS.tx_ptr();
         unsafe { self.txdma.start_write(tx_request, data, tx_dst) }
         let tx_f = Transfer::new(&mut self.txdma);
 
         unsafe {
-            set_txdmaen(T::regs(), true);
-            T::regs().cr1().modify(|w| {
+            set_txdmaen(T::REGS, true);
+            T::REGS.cr1().modify(|w| {
                 w.set_spe(true);
             });
             #[cfg(spi_v3)]
-            T::regs().cr1().modify(|w| {
+            T::REGS.cr1().modify(|w| {
                 w.set_cstart(true);
             });
         }
 
         tx_f.await;
 
-        finish_dma(T::regs());
+        finish_dma(T::REGS);
 
         Ok(())
     }
@@ -453,21 +452,21 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     {
         self.set_word_size(WordSize::EightBit);
         unsafe {
-            T::regs().cr1().modify(|w| {
+            T::REGS.cr1().modify(|w| {
                 w.set_spe(false);
             });
-            set_rxdmaen(T::regs(), true);
+            set_rxdmaen(T::REGS, true);
         }
 
         let (_, clock_byte_count) = slice_ptr_parts_mut(data);
 
         let rx_request = self.rxdma.request();
-        let rx_src = T::regs().rx_ptr();
+        let rx_src = T::REGS.rx_ptr();
         unsafe { self.rxdma.start_read(rx_request, rx_src, data) };
         let rx_f = Transfer::new(&mut self.rxdma);
 
         let tx_request = self.txdma.request();
-        let tx_dst = T::regs().tx_ptr();
+        let tx_dst = T::REGS.tx_ptr();
         let clock_byte = 0x00u8;
         let tx_f = crate::dma::write_repeated(
             &mut self.txdma,
@@ -478,19 +477,19 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         );
 
         unsafe {
-            set_txdmaen(T::regs(), true);
-            T::regs().cr1().modify(|w| {
+            set_txdmaen(T::REGS, true);
+            T::REGS.cr1().modify(|w| {
                 w.set_spe(true);
             });
             #[cfg(spi_v3)]
-            T::regs().cr1().modify(|w| {
+            T::REGS.cr1().modify(|w| {
                 w.set_cstart(true);
             });
         }
 
         join(tx_f, rx_f).await;
 
-        finish_dma(T::regs());
+        finish_dma(T::REGS);
 
         Ok(())
     }
@@ -506,79 +505,74 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         self.set_word_size(WordSize::EightBit);
         unsafe {
-            T::regs().cr1().modify(|w| {
+            T::REGS.cr1().modify(|w| {
                 w.set_spe(false);
             });
-            set_rxdmaen(T::regs(), true);
+            set_rxdmaen(T::REGS, true);
         }
 
         // TODO: This is unnecessary in some versions because
         // clearing SPE automatically clears the fifos
-        flush_rx_fifo(T::regs());
+        flush_rx_fifo(T::REGS);
 
         let rx_request = self.rxdma.request();
-        let rx_src = T::regs().rx_ptr();
+        let rx_src = T::REGS.rx_ptr();
         unsafe { self.rxdma.start_read(rx_request, rx_src, read) };
         let rx_f = Transfer::new(&mut self.rxdma);
 
         let tx_request = self.txdma.request();
-        let tx_dst = T::regs().tx_ptr();
+        let tx_dst = T::REGS.tx_ptr();
         unsafe { self.txdma.start_write(tx_request, write, tx_dst) }
         let tx_f = Transfer::new(&mut self.txdma);
 
         unsafe {
-            set_txdmaen(T::regs(), true);
-            T::regs().cr1().modify(|w| {
+            set_txdmaen(T::REGS, true);
+            T::REGS.cr1().modify(|w| {
                 w.set_spe(true);
             });
             #[cfg(spi_v3)]
-            T::regs().cr1().modify(|w| {
+            T::REGS.cr1().modify(|w| {
                 w.set_cstart(true);
             });
         }
 
         join(tx_f, rx_f).await;
 
-        finish_dma(T::regs());
+        finish_dma(T::REGS);
 
         Ok(())
     }
 
     pub fn blocking_write<W: Word>(&mut self, words: &[W]) -> Result<(), Error> {
         self.set_word_size(W::WORDSIZE);
-        let regs = T::regs();
         for word in words.iter() {
-            let _ = transfer_word(regs, *word)?;
+            let _ = transfer_word(T::REGS, *word)?;
         }
         Ok(())
     }
 
     pub fn blocking_read<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
         self.set_word_size(W::WORDSIZE);
-        let regs = T::regs();
         for word in words.iter_mut() {
-            *word = transfer_word(regs, W::default())?;
+            *word = transfer_word(T::REGS, W::default())?;
         }
         Ok(())
     }
 
     pub fn blocking_transfer_in_place<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
         self.set_word_size(W::WORDSIZE);
-        let regs = T::regs();
         for word in words.iter_mut() {
-            *word = transfer_word(regs, *word)?;
+            *word = transfer_word(T::REGS, *word)?;
         }
         Ok(())
     }
 
     pub fn blocking_transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
         self.set_word_size(W::WORDSIZE);
-        let regs = T::regs();
-
         let len = read.len().max(write.len());
         for i in 0..len {
             let wb = write.get(i).copied().unwrap_or_default();
-            let rb = transfer_word(regs, wb)?;
+            let rb = transfer_word(T::REGS, wb)?;
             if let Some(r) = read.get_mut(i) {
                 *r = rb;
             }
@@ -623,7 +617,7 @@ trait RegsExt {
     fn rx_ptr<W>(&self) -> *mut W;
 }
 
-impl RegsExt for crate::pac::spi::Spi {
+impl RegsExt for Regs {
     fn tx_ptr<W>(&self) -> *mut W {
         #[cfg(not(spi_v3))]
         let dr = self.dr();
@@ -938,7 +932,7 @@ pub(crate) mod sealed {
     use super::*;
 
     pub trait Instance {
-        fn regs() -> &'static crate::pac::spi::Spi;
+        const REGS: Regs;
     }
 
     pub trait Word: Copy + 'static {
@@ -1016,9 +1010,7 @@ dma_trait!(TxDma, Instance);
 foreach_peripheral!(
     (spi, $inst:ident) => {
         impl sealed::Instance for peripherals::$inst {
-            fn regs() -> &'static crate::pac::spi::Spi {
-                &crate::pac::$inst
-            }
+            const REGS: Regs = crate::pac::$inst;
         }
 
         impl Instance for peripherals::$inst {}
