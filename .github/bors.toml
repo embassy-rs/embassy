@@ -1,3 +1,4 @@
 status = [
     "all",
 ]
+delete_merged_branches = true
