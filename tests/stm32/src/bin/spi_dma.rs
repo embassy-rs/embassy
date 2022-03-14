@@ -62,6 +62,12 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     spi.transfer(&mut buf, &data).await.unwrap();
     assert_eq!(buf, data);
 
+    // Check zero-length operations, these should be noops.
+    spi.transfer::<u8>(&mut [], &[]).await.unwrap();
+    spi.transfer_in_place::<u8>(&mut []).await.unwrap();
+    spi.read::<u8>(&mut []).await.unwrap();
+    spi.write::<u8>(&[]).await.unwrap();
+
     info!("Test OK");
     cortex_m::asm::bkpt();
 }

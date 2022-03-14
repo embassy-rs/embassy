@@ -55,6 +55,12 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     spi.blocking_transfer(&mut buf, &data).unwrap();
     assert_eq!(buf, data);
 
+    // Check zero-length operations, these should be noops.
+    spi.blocking_transfer::<u8>(&mut [], &[]).unwrap();
+    spi.blocking_transfer_in_place::<u8>(&mut []).unwrap();
+    spi.blocking_read::<u8>(&mut []).unwrap();
+    spi.blocking_write::<u8>(&[]).unwrap();
+
     info!("Test OK");
     cortex_m::asm::bkpt();
 }
