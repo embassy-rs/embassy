@@ -4,9 +4,10 @@ use core::marker::PhantomData;
 use core::ptr;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
+use futures::future::join;
 
 use self::sealed::WordSize;
-use crate::dma::NoDma;
+use crate::dma::{slice_ptr_parts, slice_ptr_parts_mut, NoDma, Transfer};
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::AnyPin;
 use crate::pac::spi::{regs, vals};
@@ -15,12 +16,6 @@ use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-
-#[cfg_attr(spi_v1, path = "v1.rs")]
-#[cfg_attr(spi_f1, path = "v1.rs")]
-#[cfg_attr(spi_v2, path = "v2.rs")]
-#[cfg_attr(spi_v3, path = "v3.rs")]
-mod _version;
 
 type Regs = &'static crate::pac::spi::Spi;
 
@@ -417,7 +412,38 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     where
         Tx: TxDma<T>,
     {
-        self.write_dma_u8(data).await
+        self.set_word_size(WordSize::EightBit);
+        unsafe {
+            T::regs().cr1().modify(|w| {
+                w.set_spe(false);
+            });
+        }
+
+        // TODO: This is unnecessary in some versions because
+        // clearing SPE automatically clears the fifos
+        flush_rx_fifo(T::regs());
+
+        let tx_request = self.txdma.request();
+        let tx_dst = T::regs().tx_ptr();
+        unsafe { self.txdma.start_write(tx_request, data, tx_dst) }
+        let tx_f = Transfer::new(&mut self.txdma);
+
+        unsafe {
+            set_txdmaen(T::regs(), true);
+            T::regs().cr1().modify(|w| {
+                w.set_spe(true);
+            });
+            #[cfg(spi_v3)]
+            T::regs().cr1().modify(|w| {
+                w.set_cstart(true);
+            });
+        }
+
+        tx_f.await;
+
+        finish_dma(T::regs());
+
+        Ok(())
     }
 
     pub async fn read(&mut self, data: &mut [u8]) -> Result<(), Error>
@@ -425,7 +451,48 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Tx: TxDma<T>,
         Rx: RxDma<T>,
     {
-        self.read_dma_u8(data).await
+        self.set_word_size(WordSize::EightBit);
+        unsafe {
+            T::regs().cr1().modify(|w| {
+                w.set_spe(false);
+            });
+            set_rxdmaen(T::regs(), true);
+        }
+
+        let (_, clock_byte_count) = slice_ptr_parts_mut(data);
+
+        let rx_request = self.rxdma.request();
+        let rx_src = T::regs().rx_ptr();
+        unsafe { self.rxdma.start_read(rx_request, rx_src, data) };
+        let rx_f = Transfer::new(&mut self.rxdma);
+
+        let tx_request = self.txdma.request();
+        let tx_dst = T::regs().tx_ptr();
+        let clock_byte = 0x00u8;
+        let tx_f = crate::dma::write_repeated(
+            &mut self.txdma,
+            tx_request,
+            clock_byte,
+            clock_byte_count,
+            tx_dst,
+        );
+
+        unsafe {
+            set_txdmaen(T::regs(), true);
+            T::regs().cr1().modify(|w| {
+                w.set_spe(true);
+            });
+            #[cfg(spi_v3)]
+            T::regs().cr1().modify(|w| {
+                w.set_cstart(true);
+            });
+        }
+
+        join(tx_f, rx_f).await;
+
+        finish_dma(T::regs());
+
+        Ok(())
     }
 
     pub async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error>
@@ -433,7 +500,48 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Tx: TxDma<T>,
         Rx: RxDma<T>,
     {
-        self.transfer_dma_u8(read, write).await
+        let (_, rx_len) = slice_ptr_parts(read);
+        let (_, tx_len) = slice_ptr_parts(write);
+        assert_eq!(rx_len, tx_len);
+
+        self.set_word_size(WordSize::EightBit);
+        unsafe {
+            T::regs().cr1().modify(|w| {
+                w.set_spe(false);
+            });
+            set_rxdmaen(T::regs(), true);
+        }
+
+        // TODO: This is unnecessary in some versions because
+        // clearing SPE automatically clears the fifos
+        flush_rx_fifo(T::regs());
+
+        let rx_request = self.rxdma.request();
+        let rx_src = T::regs().rx_ptr();
+        unsafe { self.rxdma.start_read(rx_request, rx_src, read) };
+        let rx_f = Transfer::new(&mut self.rxdma);
+
+        let tx_request = self.txdma.request();
+        let tx_dst = T::regs().tx_ptr();
+        unsafe { self.txdma.start_write(tx_request, write, tx_dst) }
+        let tx_f = Transfer::new(&mut self.txdma);
+
+        unsafe {
+            set_txdmaen(T::regs(), true);
+            T::regs().cr1().modify(|w| {
+                w.set_spe(true);
+            });
+            #[cfg(spi_v3)]
+            T::regs().cr1().modify(|w| {
+                w.set_cstart(true);
+            });
+        }
+
+        join(tx_f, rx_f).await;
+
+        finish_dma(T::regs());
+
+        Ok(())
     }
 
     pub fn blocking_write<W: Word>(&mut self, words: &[W]) -> Result<(), Error> {
