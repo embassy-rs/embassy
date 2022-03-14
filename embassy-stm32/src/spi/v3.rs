@@ -31,6 +31,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::regs().cr1().modify(|w| {
                 w.set_spe(true);
             });
+            #[cfg(spi_v3)]
             T::regs().cr1().modify(|w| {
                 w.set_cstart(true);
             });
@@ -79,6 +80,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::regs().cr1().modify(|w| {
                 w.set_spe(true);
             });
+            #[cfg(spi_v3)]
             T::regs().cr1().modify(|w| {
                 w.set_cstart(true);
             });
@@ -131,6 +133,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::regs().cr1().modify(|w| {
                 w.set_spe(true);
             });
+            #[cfg(spi_v3)]
             T::regs().cr1().modify(|w| {
                 w.set_cstart(true);
             });
