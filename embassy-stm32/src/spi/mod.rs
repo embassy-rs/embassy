@@ -407,11 +407,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         self.current_word_size = word_size;
     }
 
-    pub async fn write(&mut self, data: &[u8]) -> Result<(), Error>
+    pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error>
     where
         Tx: TxDma<T>,
     {
-        self.set_word_size(WordSize::EightBit);
+        self.set_word_size(W::WORDSIZE);
         unsafe {
             T::REGS.cr1().modify(|w| {
                 w.set_spe(false);
@@ -445,12 +445,12 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
-    pub async fn read(&mut self, data: &mut [u8]) -> Result<(), Error>
+    pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error>
     where
         Tx: TxDma<T>,
         Rx: RxDma<T>,
     {
-        self.set_word_size(WordSize::EightBit);
+        self.set_word_size(W::WORDSIZE);
         unsafe {
             T::REGS.cr1().modify(|w| {
                 w.set_spe(false);
@@ -494,7 +494,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
-    pub async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error>
+    pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error>
     where
         Tx: TxDma<T>,
         Rx: RxDma<T>,
@@ -503,7 +503,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let (_, tx_len) = slice_ptr_parts(write);
         assert_eq!(rx_len, tx_len);
 
-        self.set_word_size(WordSize::EightBit);
+        self.set_word_size(W::WORDSIZE);
         unsafe {
             T::REGS.cr1().modify(|w| {
                 w.set_spe(false);
@@ -840,24 +840,30 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBusRead<u8> for Spi<'d, T, NoDma, NoDma> {
-        fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
+    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::blocking::SpiBusRead<W>
+        for Spi<'d, T, NoDma, NoDma>
+    {
+        fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
             self.blocking_read(words)
         }
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBusWrite<u8> for Spi<'d, T, NoDma, NoDma> {
-        fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
+    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::blocking::SpiBusWrite<W>
+        for Spi<'d, T, NoDma, NoDma>
+    {
+        fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
             self.blocking_write(words)
         }
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBus<u8> for Spi<'d, T, NoDma, NoDma> {
-        fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
+    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::blocking::SpiBus<W>
+        for Spi<'d, T, NoDma, NoDma>
+    {
+        fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
             self.blocking_transfer(read, write)
         }
 
-        fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
+        fn transfer_in_place(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
             self.blocking_transfer_in_place(words)
         }
     }
@@ -885,32 +891,32 @@ cfg_if::cfg_if! {
             }
         }
 
-        impl<'d, T: Instance, Tx: TxDma<T>, Rx> embedded_hal_async::spi::SpiBusWrite<u8>
+        impl<'d, T: Instance, Tx: TxDma<T>, Rx, W: Word> embedded_hal_async::spi::SpiBusWrite<W>
             for Spi<'d, T, Tx, Rx>
         {
             type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-            fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
+            fn write<'a>(&'a mut self, data: &'a [W]) -> Self::WriteFuture<'a> {
                 self.write(data)
             }
         }
 
-        impl<'d, T: Instance, Tx: TxDma<T>, Rx: RxDma<T>> embedded_hal_async::spi::SpiBusRead<u8>
+        impl<'d, T: Instance, Tx: TxDma<T>, Rx: RxDma<T>, W: Word> embedded_hal_async::spi::SpiBusRead<W>
             for Spi<'d, T, Tx, Rx>
         {
             type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-            fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            fn read<'a>(&'a mut self, data: &'a mut [W]) -> Self::ReadFuture<'a> {
                 self.read(data)
             }
         }
 
-        impl<'d, T: Instance, Tx: TxDma<T>, Rx: RxDma<T>> embedded_hal_async::spi::SpiBus<u8>
+        impl<'d, T: Instance, Tx: TxDma<T>, Rx: RxDma<T>, W: Word> embedded_hal_async::spi::SpiBus<W>
             for Spi<'d, T, Tx, Rx>
         {
             type TransferFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-            fn transfer<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::TransferFuture<'a> {
+            fn transfer<'a>(&'a mut self, rx: &'a mut [W], tx: &'a [W]) -> Self::TransferFuture<'a> {
                 self.transfer(rx, tx)
             }
 
@@ -918,7 +924,7 @@ cfg_if::cfg_if! {
 
             fn transfer_in_place<'a>(
                 &'a mut self,
-                words: &'a mut [u8],
+                words: &'a mut [W],
             ) -> Self::TransferInPlaceFuture<'a> {
                 // TODO: Implement async version
                 let result = self.blocking_transfer_in_place(words);
@@ -995,7 +1001,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Word: Copy + 'static + sealed::Word + Default {}
+pub trait Word: Copy + 'static + sealed::Word + Default + crate::dma::Word {}
 
 impl Word for u8 {}
 impl Word for u16 {}
