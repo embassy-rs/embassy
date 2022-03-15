@@ -462,6 +462,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             set_rxdmaen(T::REGS, true);
         }
 
+        // SPIv3 clears rxfifo on SPE=0
+        #[cfg(not(spi_v3))]
+        flush_rx_fifo(T::REGS);
+
         let clock_byte_count = data.len();
 
         let rx_request = self.rxdma.request();
@@ -522,8 +526,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             set_rxdmaen(T::REGS, true);
         }
 
-        // TODO: This is unnecessary in some versions because
-        // clearing SPE automatically clears the fifos
+        // SPIv3 clears rxfifo on SPE=0
+        #[cfg(not(spi_v3))]
         flush_rx_fifo(T::REGS);
 
         let rx_request = self.rxdma.request();
@@ -723,6 +727,7 @@ fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
     }
 }
 
+#[cfg(not(spi_v3))]
 fn flush_rx_fifo(regs: Regs) {
     unsafe {
         #[cfg(not(spi_v3))]
