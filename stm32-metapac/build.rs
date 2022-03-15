@@ -60,4 +60,13 @@ fn main() {
     );
 
     println!("cargo:rerun-if-changed=build.rs");
+
+    // When the stm32-data chip's JSON changes, we must rebuild
+    println!(
+        "cargo:rerun-if-changed={}/chips/{}.json",
+        data_dir.display(),
+        chip_name
+    );
+
+    println!("cargo:rerun-if-changed={}/registers", data_dir.display());
 }
