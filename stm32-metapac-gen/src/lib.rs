@@ -332,7 +332,7 @@ impl Gen {
         .unwrap();
         fs::write(
             self.opts.out_dir.join("src/common.rs"),
-            include_bytes!("../../stm32-metapac/src/common.rs"),
+            chiptool::generate::COMMON_MODULE,
         )
         .unwrap();
         fs::write(

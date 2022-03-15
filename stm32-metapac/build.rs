@@ -58,6 +58,10 @@ fn main() {
         out_dir.display(),
         chip_core_name
     );
+    println!(
+        "cargo:rustc-env=STM32_METAPAC_COMMON_PATH={}/src/common.rs",
+        out_dir.display(),
+    );
 
     println!("cargo:rerun-if-changed=build.rs");
 
