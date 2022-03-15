@@ -440,9 +440,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         tx_f.await;
 
-        // flush here otherwise `finish_dma` hangs waiting for the rx fifo to empty
-        flush_rx_fifo(T::REGS);
-
         finish_dma(T::REGS);
 
         Ok(())
@@ -726,26 +723,6 @@ fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
     }
 }
 
-fn spin_until_idle(regs: Regs) {
-    #[cfg(any(spi_v1, spi_f1))]
-    unsafe {
-        while regs.sr().read().bsy() {}
-    }
-
-    #[cfg(spi_v2)]
-    unsafe {
-        while regs.sr().read().ftlvl() > 0 {}
-        while regs.sr().read().frlvl() > 0 {}
-        while regs.sr().read().bsy() {}
-    }
-
-    #[cfg(spi_v3)]
-    unsafe {
-        while !regs.sr().read().txc() {}
-        while regs.sr().read().rxplvl().0 > 0 {}
-    }
-}
-
 fn flush_rx_fifo(regs: Regs) {
     unsafe {
         #[cfg(not(spi_v3))]
@@ -786,9 +763,15 @@ fn set_rxdmaen(regs: Regs, val: bool) {
 }
 
 fn finish_dma(regs: Regs) {
-    spin_until_idle(regs);
-
     unsafe {
+        #[cfg(spi_v2)]
+        while regs.sr().read().ftlvl() > 0 {}
+
+        #[cfg(spi_v3)]
+        while !regs.sr().read().txc() {}
+        #[cfg(not(spi_v3))]
+        while regs.sr().read().bsy() {}
+
         regs.cr1().modify(|w| {
             w.set_spe(false);
         });
