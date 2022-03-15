@@ -575,6 +575,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 
     pub fn blocking_write<W: Word>(&mut self, words: &[W]) -> Result<(), Error> {
+        unsafe { T::REGS.cr1().modify(|w| w.set_spe(true)) }
+        flush_rx_fifo(T::REGS);
         self.set_word_size(W::WORDSIZE);
         for word in words.iter() {
             let _ = transfer_word(T::REGS, *word)?;
@@ -583,6 +585,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 
     pub fn blocking_read<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
+        unsafe { T::REGS.cr1().modify(|w| w.set_spe(true)) }
+        flush_rx_fifo(T::REGS);
         self.set_word_size(W::WORDSIZE);
         for word in words.iter_mut() {
             *word = transfer_word(T::REGS, W::default())?;
@@ -591,6 +595,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 
     pub fn blocking_transfer_in_place<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
+        unsafe { T::REGS.cr1().modify(|w| w.set_spe(true)) }
+        flush_rx_fifo(T::REGS);
         self.set_word_size(W::WORDSIZE);
         for word in words.iter_mut() {
             *word = transfer_word(T::REGS, *word)?;
@@ -599,6 +605,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 
     pub fn blocking_transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
+        unsafe { T::REGS.cr1().modify(|w| w.set_spe(true)) }
+        flush_rx_fifo(T::REGS);
         self.set_word_size(W::WORDSIZE);
         let len = read.len().max(write.len());
         for i in 0..len {
@@ -727,7 +735,6 @@ fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
     }
 }
 
-#[cfg(not(spi_v3))]
 fn flush_rx_fifo(regs: Regs) {
     unsafe {
         #[cfg(not(spi_v3))]

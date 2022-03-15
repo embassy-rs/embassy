@@ -68,6 +68,22 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     spi.read::<u8>(&mut []).await.unwrap();
     spi.write::<u8>(&[]).await.unwrap();
 
+    // === Check mixing blocking with async.
+    spi.blocking_transfer(&mut buf, &data).unwrap();
+    assert_eq!(buf, data);
+    spi.transfer(&mut buf, &data).await.unwrap();
+    assert_eq!(buf, data);
+    spi.blocking_write(&buf).unwrap();
+    spi.transfer(&mut buf, &data).await.unwrap();
+    assert_eq!(buf, data);
+    spi.blocking_read(&mut buf).unwrap();
+    spi.blocking_write(&buf).unwrap();
+    spi.write(&buf).await.unwrap();
+    spi.read(&mut buf).await.unwrap();
+    spi.blocking_write(&buf).unwrap();
+    spi.blocking_read(&mut buf).unwrap();
+    spi.write(&buf).await.unwrap();
+
     info!("Test OK");
     cortex_m::asm::bkpt();
 }
