@@ -37,8 +37,29 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // Arduino pins D11 and D12 (MOSI-MISO) are connected together with a 1K resistor.
     // so we should get the data we sent back.
     let mut buf = data;
+    spi.blocking_transfer(&mut buf, &data).unwrap();
+    assert_eq!(buf, data);
+
     spi.blocking_transfer_in_place(&mut buf).unwrap();
     assert_eq!(buf, data);
+
+    // Check read/write don't hang. We can't check they transfer the right data
+    // without fancier test mechanisms.
+    spi.blocking_write(&buf).unwrap();
+    spi.blocking_read(&mut buf).unwrap();
+    spi.blocking_write(&buf).unwrap();
+    spi.blocking_read(&mut buf).unwrap();
+    spi.blocking_write(&buf).unwrap();
+
+    // Check transfer doesn't break after having done a write, due to garbage in the FIFO
+    spi.blocking_transfer(&mut buf, &data).unwrap();
+    assert_eq!(buf, data);
+
+    // Check zero-length operations, these should be noops.
+    spi.blocking_transfer::<u8>(&mut [], &[]).unwrap();
+    spi.blocking_transfer_in_place::<u8>(&mut []).unwrap();
+    spi.blocking_read::<u8>(&mut []).unwrap();
+    spi.blocking_write::<u8>(&[]).unwrap();
 
     info!("Test OK");
     cortex_m::asm::bkpt();

@@ -47,6 +47,27 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     spi.transfer(&mut buf, &data).await.unwrap();
     assert_eq!(buf, data);
 
+    spi.transfer_in_place(&mut buf).await.unwrap();
+    assert_eq!(buf, data);
+
+    // Check read/write don't hang. We can't check they transfer the right data
+    // without fancier test mechanisms.
+    spi.write(&buf).await.unwrap();
+    spi.read(&mut buf).await.unwrap();
+    spi.write(&buf).await.unwrap();
+    spi.read(&mut buf).await.unwrap();
+    spi.write(&buf).await.unwrap();
+
+    // Check transfer doesn't break after having done a write, due to garbage in the FIFO
+    spi.transfer(&mut buf, &data).await.unwrap();
+    assert_eq!(buf, data);
+
+    // Check zero-length operations, these should be noops.
+    spi.transfer::<u8>(&mut [], &[]).await.unwrap();
+    spi.transfer_in_place::<u8>(&mut []).await.unwrap();
+    spi.read::<u8>(&mut []).await.unwrap();
+    spi.write::<u8>(&[]).await.unwrap();
+
     info!("Test OK");
     cortex_m::asm::bkpt();
 }

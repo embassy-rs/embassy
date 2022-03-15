@@ -7,7 +7,7 @@ use embassy_hal_common::unborrow;
 use futures::future::join;
 
 use self::sealed::WordSize;
-use crate::dma::{NoDma, Transfer};
+use crate::dma::{slice_ptr_parts, NoDma, Transfer};
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::AnyPin;
 use crate::pac::spi::Spi as Regs;
@@ -440,9 +440,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         tx_f.await;
 
-        // flush here otherwise `finish_dma` hangs waiting for the rx fifo to empty
-        flush_rx_fifo(T::REGS);
-
         finish_dma(T::REGS);
 
         Ok(())
@@ -464,6 +461,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
             set_rxdmaen(T::REGS, true);
         }
+
+        // SPIv3 clears rxfifo on SPE=0
+        #[cfg(not(spi_v3))]
+        flush_rx_fifo(T::REGS);
 
         let clock_byte_count = data.len();
 
@@ -501,14 +502,19 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
-    pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error>
+    async fn transfer_inner<W: Word>(
+        &mut self,
+        read: *mut [W],
+        write: *const [W],
+    ) -> Result<(), Error>
     where
         Tx: TxDma<T>,
         Rx: RxDma<T>,
     {
-        assert_eq!(read.len(), write.len());
-
-        if read.len() == 0 {
+        let (_, rx_len) = slice_ptr_parts(read);
+        let (_, tx_len) = slice_ptr_parts(write);
+        assert_eq!(rx_len, tx_len);
+        if rx_len == 0 {
             return Ok(());
         }
 
@@ -520,8 +526,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             set_rxdmaen(T::REGS, true);
         }
 
-        // TODO: This is unnecessary in some versions because
-        // clearing SPE automatically clears the fifos
+        // SPIv3 clears rxfifo on SPE=0
+        #[cfg(not(spi_v3))]
         flush_rx_fifo(T::REGS);
 
         let rx_request = self.rxdma.request();
@@ -550,6 +556,22 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         finish_dma(T::REGS);
 
         Ok(())
+    }
+
+    pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error>
+    where
+        Tx: TxDma<T>,
+        Rx: RxDma<T>,
+    {
+        self.transfer_inner(read, write).await
+    }
+
+    pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error>
+    where
+        Tx: TxDma<T>,
+        Rx: RxDma<T>,
+    {
+        self.transfer_inner(data, data).await
     }
 
     pub fn blocking_write<W: Word>(&mut self, words: &[W]) -> Result<(), Error> {
@@ -705,26 +727,7 @@ fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
     }
 }
 
-fn spin_until_idle(regs: Regs) {
-    #[cfg(any(spi_v1, spi_f1))]
-    unsafe {
-        while regs.sr().read().bsy() {}
-    }
-
-    #[cfg(spi_v2)]
-    unsafe {
-        while regs.sr().read().ftlvl() > 0 {}
-        while regs.sr().read().frlvl() > 0 {}
-        while regs.sr().read().bsy() {}
-    }
-
-    #[cfg(spi_v3)]
-    unsafe {
-        while !regs.sr().read().txc() {}
-        while regs.sr().read().rxplvl().0 > 0 {}
-    }
-}
-
+#[cfg(not(spi_v3))]
 fn flush_rx_fifo(regs: Regs) {
     unsafe {
         #[cfg(not(spi_v3))]
@@ -765,9 +768,15 @@ fn set_rxdmaen(regs: Regs, val: bool) {
 }
 
 fn finish_dma(regs: Regs) {
-    spin_until_idle(regs);
-
     unsafe {
+        #[cfg(spi_v2)]
+        while regs.sr().read().ftlvl() > 0 {}
+
+        #[cfg(spi_v3)]
+        while !regs.sr().read().txc() {}
+        #[cfg(not(spi_v3))]
+        while regs.sr().read().bsy() {}
+
         regs.cr1().modify(|w| {
             w.set_spe(false);
         });
@@ -935,9 +944,7 @@ cfg_if::cfg_if! {
                 &'a mut self,
                 words: &'a mut [W],
             ) -> Self::TransferInPlaceFuture<'a> {
-                // TODO: Implement async version
-                let result = self.blocking_transfer_in_place(words);
-                async move { result }
+                self.transfer_in_place(words)
             }
         }
     }
