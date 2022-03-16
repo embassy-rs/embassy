@@ -192,7 +192,7 @@ pub struct Sdmmc<'d, T: Instance, P: Pins<T>, Dma = NoDma> {
 }
 
 #[cfg(sdmmc_v1)]
-impl<'d, T: Instance, P: Pins<T>, Dma: SdioDma<T>> Sdmmc<'d, T, P, Dma> {
+impl<'d, T: Instance, P: Pins<T>, Dma: SdmmcDma<T>> Sdmmc<'d, T, P, Dma> {
     pub fn new(
         _peripheral: impl Unborrow<Target = T> + 'd,
         pins: impl Unborrow<Target = P> + 'd,
@@ -262,7 +262,7 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P, NoDma> {
     }
 }
 
-impl<'d, T: Instance, P: Pins<T>, Dma: SdioDma<T>> Sdmmc<'d, T, P, Dma> {
+impl<'d, T: Instance, P: Pins<T>, Dma: SdmmcDma<T>> Sdmmc<'d, T, P, Dma> {
     #[inline(always)]
     pub async fn init_card(&mut self, freq: impl Into<Hertz>) -> Result<(), Error> {
         let inner = T::inner();
@@ -390,7 +390,7 @@ impl SdmmcInner {
     /// Initializes card (if present) and sets the bus at the
     /// specified frequency.
     #[allow(clippy::too_many_arguments)]
-    async fn init_card<T: Instance, Dma: SdioDma<T>>(
+    async fn init_card<T: Instance, Dma: SdmmcDma<T>>(
         &self,
         freq: Hertz,
         bus_width: BusWidth,
@@ -537,7 +537,7 @@ impl SdmmcInner {
         Ok(())
     }
 
-    async fn read_block<T: Instance, Dma: SdioDma<T>>(
+    async fn read_block<T: Instance, Dma: SdmmcDma<T>>(
         &self,
         block_idx: u32,
         buffer: &mut [u32; 128],
@@ -592,7 +592,7 @@ impl SdmmcInner {
         res
     }
 
-    async fn write_block<T: Instance, Dma: SdioDma<T>>(
+    async fn write_block<T: Instance, Dma: SdmmcDma<T>>(
         &self,
         block_idx: u32,
         buffer: &[u32; 128],
@@ -716,7 +716,7 @@ impl SdmmcInner {
     /// # Safety
     ///
     /// `buffer` must be valid for the whole transfer and word aligned
-    unsafe fn prepare_datapath_read<T: Instance, Dma: SdioDma<T>>(
+    unsafe fn prepare_datapath_read<T: Instance, Dma: SdmmcDma<T>>(
         &self,
         buffer: *mut [u32],
         length_bytes: u32,
@@ -765,7 +765,7 @@ impl SdmmcInner {
     /// # Safety
     ///
     /// `buffer` must be valid for the whole transfer and word aligned
-    unsafe fn prepare_datapath_write<T: Instance, Dma: SdioDma<T>>(
+    unsafe fn prepare_datapath_write<T: Instance, Dma: SdmmcDma<T>>(
         &self,
         buffer: *const [u32],
         length_bytes: u32,
@@ -855,7 +855,7 @@ impl SdmmcInner {
     /// Attempt to set a new signalling mode. The selected
     /// signalling mode is returned. Expects the current clock
     /// frequency to be > 12.5MHz.
-    async fn switch_signalling_mode<T: Instance, Dma: SdioDma<T>>(
+    async fn switch_signalling_mode<T: Instance, Dma: SdmmcDma<T>>(
         &self,
         signalling: Signalling,
         waker_reg: &AtomicWaker,
@@ -952,7 +952,7 @@ impl SdmmcInner {
     }
 
     /// Reads the SD Status (ACMD13)
-    async fn read_sd_status<T: Instance, Dma: SdioDma<T>>(
+    async fn read_sd_status<T: Instance, Dma: SdmmcDma<T>>(
         &self,
         card: &mut Card,
         waker_reg: &AtomicWaker,
@@ -1076,7 +1076,7 @@ impl SdmmcInner {
         }
     }
 
-    async fn get_scr<T: Instance, Dma: SdioDma<T>>(
+    async fn get_scr<T: Instance, Dma: SdmmcDma<T>>(
         &self,
         card: &mut Card,
         waker_reg: &AtomicWaker,
@@ -1336,11 +1336,11 @@ pin_trait!(D7Pin, Instance);
 
 cfg_if::cfg_if! {
     if #[cfg(sdmmc_v1)] {
-        dma_trait!(SdioDma, Instance);
+        dma_trait!(SdmmcDma, Instance);
     } else if #[cfg(sdmmc_v2)] {
         // SDMMCv2 uses internal DMA
-        pub trait SdioDma<T: Instance> {}
-        impl<T: Instance> SdioDma<T> for NoDma {}
+        pub trait SdmmcDma<T: Instance> {}
+        impl<T: Instance> SdmmcDma<T> for NoDma {}
     }
 }
 
