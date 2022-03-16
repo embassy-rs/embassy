@@ -30,7 +30,8 @@ async fn main(_spawner: Spawner, p: Peripherals) -> ! {
         Default::default(),
     );
 
-    info!("Configured clock: {}", sdmmc.clock.0);
+    // Should print 400kHz for initialization
+    info!("Configured clock: {}", sdmmc.clock().0);
 
     unwrap!(sdmmc.init_card(25.mhz()).await);
 

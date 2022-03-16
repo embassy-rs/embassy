@@ -85,6 +85,7 @@ pub struct Card {
     /// SD Status
     pub status: SDStatus,
 }
+
 impl Card {
     /// Size in bytes
     pub fn size(&self) -> u64 {
@@ -184,7 +185,7 @@ pub struct Sdmmc<'d, T: Instance, P: Pins<T>, Dma = NoDma> {
     config: Config,
     dma: Dma,
     /// Current clock to card
-    pub clock: Hertz,
+    clock: Hertz,
     /// Current signalling scheme to card
     signalling: Signalling,
     /// Card
@@ -335,6 +336,11 @@ impl<'d, T: Instance, P: Pins<T>, Dma: SdmmcDma<T>> Sdmmc<'d, T, P, Dma> {
     #[inline(always)]
     pub fn card(&self) -> Result<&Card, Error> {
         self.card.as_ref().ok_or(Error::NoCard)
+    }
+
+    /// Get the current SDMMC bus clock
+    pub fn clock(&self) -> Hertz {
+        self.clock
     }
 
     #[inline(always)]
@@ -666,11 +672,6 @@ impl SdmmcInner {
         }
     }
 
-    /// Get the current SDMMC bus clock
-    //pub fn clock(&self) -> Hertz {
-    //    self.clock
-    //}
-
     /// Data transfer is in progress
     #[inline(always)]
     fn data_active(&self) -> bool {
@@ -806,6 +807,7 @@ impl SdmmcInner {
         });
     }
 
+    /// Stops the DMA datapath
     fn stop_datapath(&self) {
         let regs = self.0;
 
@@ -1203,11 +1205,10 @@ impl SdmmcInner {
                 w.set_cmdindex(12);
                 w.set_cpsmen(true);
 
-                cfg_if::cfg_if! {
-                    if #[cfg(sdmmc_v2)] {
-                        w.set_cmdstop(true);
-                        w.set_cmdtrans(false);
-                    }
+                #[cfg(sdmmc_v2)]
+                {
+                    w.set_cmdstop(true);
+                    w.set_cmdtrans(false);
                 }
             });
 
