@@ -483,7 +483,9 @@ fn main() {
         (("i2c", "TX"), quote!(crate::i2c::TxDma)),
         (("dcmi", "DCMI"), quote!(crate::dcmi::FrameDma)),
         (("dcmi", "PSSI"), quote!(crate::dcmi::FrameDma)),
-        (("sdmmc", "SDIO"), quote!(crate::sdmmc::SdmmcDma)),
+        // Same channel is used for RX/TX
+        (("sdmmc", "RX"), quote!(crate::sdmmc::SdmmcDma)),
+        (("sdmmc", "RX"), quote!(crate::sdmmc::SdmmcDma)),
     ]
     .into();
 
