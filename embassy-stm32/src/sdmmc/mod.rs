@@ -241,8 +241,6 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P, NoDma> {
         T::enable();
         T::reset();
 
-        info!("Freq: {}", T::frequency().0);
-
         let inner = T::inner();
         let clock = unsafe { inner.new_inner(T::frequency()) };
 
