@@ -6,7 +6,7 @@
 mod example_common;
 
 use embassy::executor::Spawner;
-use embassy_stm32::sdmmc::{self, Sdmmc};
+use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::time::U32Ext;
 use embassy_stm32::{interrupt, Config, Peripherals};
 use example_common::*;
@@ -26,16 +26,12 @@ async fn main(_spawner: Spawner, p: Peripherals) -> ! {
 
     let irq = interrupt::take!(SDIO);
 
-    let mut config = sdmmc::Config::default();
-    config.hclk = 48.mhz().into();
-    config.kernel_clk = 48.mhz().into();
-
     let mut sdmmc = unsafe {
         Sdmmc::new(
             p.SDIO,
             (p.PC12, p.PD2, p.PC8, p.PC9, p.PC10, p.PC11),
             irq,
-            config,
+            Default::default(),
             p.DMA2_CH3,
         )
     };

@@ -133,6 +133,7 @@ cfg_if::cfg_if! {
                 _ => Err(Error::BadClock),
             }?;
 
+            // SDIO_CK frequency = SDIOCLK / [CLKDIV + 2]
             let clk_f = Hertz(ker_ck.0 / (clk_div as u32 + 2));
             Ok((clk_div, clk_f))
         }
@@ -159,18 +160,10 @@ cfg_if::cfg_if! {
 
 /// SDMMC configuration
 ///
-/// You should probably change the default clock values to match your configuration
-///
 /// Default values:
-/// hclk = 400_000_000 Hz
-/// kernel_clk: 100_000_000 Hz
 /// data_transfer_timeout: 5_000_000
 #[non_exhaustive]
 pub struct Config {
-    /// AHB clock
-    pub hclk: Hertz,
-    /// SDMMC kernel clock
-    pub kernel_clk: Hertz,
     /// The timeout to be set for data transfers, in card bus clock periods
     pub data_transfer_timeout: u32,
 }
@@ -178,8 +171,6 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            hclk: Hertz(400_000_000),
-            kernel_clk: Hertz(100_000_000),
             data_transfer_timeout: 5_000_000,
         }
     }
@@ -219,7 +210,7 @@ impl<'d, T: Instance, P: Pins<T>, Dma: SdioDma<T>> Sdmmc<'d, T, P, Dma> {
         T::reset();
 
         let inner = T::inner();
-        let clock = inner.new_inner(config.kernel_clk);
+        let clock = inner.new_inner(T::frequency());
 
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
@@ -248,8 +239,7 @@ impl<'d, T: Instance, P: Pins<T>, Dma: SdioDma<T>> Sdmmc<'d, T, P, Dma> {
                 P::BUSWIDTH,
                 &mut self.card,
                 &mut self.signalling,
-                self.config.hclk,
-                self.config.kernel_clk,
+                T::frequency(),
                 &mut self.clock,
                 T::state(),
                 self.config.data_transfer_timeout,
@@ -371,7 +361,6 @@ impl SdmmcInner {
         bus_width: BusWidth,
         old_card: &mut Option<Card>,
         signalling: &mut Signalling,
-        hclk: Hertz,
         ker_ck: Hertz,
         clock: &mut Hertz,
         waker_reg: &AtomicWaker,
@@ -474,10 +463,10 @@ impl SdmmcInner {
             // Set Clock
             if freq.0 <= 25_000_000 {
                 // Final clock frequency
-                self.clkcr_set_clkdiv(freq.0, width, hclk, ker_ck, clock)?;
+                self.clkcr_set_clkdiv(freq.0, width, ker_ck, clock)?;
             } else {
                 // Switch to max clock for SDR12
-                self.clkcr_set_clkdiv(25_000_000, width, hclk, ker_ck, clock)?;
+                self.clkcr_set_clkdiv(25_000_000, width, ker_ck, clock)?;
             }
 
             // Read status
@@ -497,7 +486,7 @@ impl SdmmcInner {
 
                 if *signalling == Signalling::SDR25 {
                     // Set final clock frequency
-                    self.clkcr_set_clkdiv(freq.0, width, hclk, ker_ck, clock)?;
+                    self.clkcr_set_clkdiv(freq.0, width, ker_ck, clock)?;
 
                     if self.read_status(&card)?.state() != CurrentState::Transfer {
                         return Err(Error::SignalingSwitchFailed);
@@ -804,7 +793,6 @@ impl SdmmcInner {
         &self,
         freq: u32,
         width: BusWidth,
-        hclk: Hertz,
         ker_ck: Hertz,
         clock: &mut Hertz,
     ) -> Result<(), Error> {
@@ -814,7 +802,7 @@ impl SdmmcInner {
         // Enforce AHB and SDMMC_CK clock relation. See RM0433 Rev 7
         // Section 55.5.8
         let sdmmc_bus_bandwidth = new_clock.0 * (width as u32);
-        assert!(hclk.0 > 3 * sdmmc_bus_bandwidth / 32);
+        assert!(ker_ck.0 > 3 * sdmmc_bus_bandwidth / 32);
         *clock = new_clock;
 
         // NOTE(unsafe) We have exclusive access to the regblock
