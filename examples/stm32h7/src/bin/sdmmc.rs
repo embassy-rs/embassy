@@ -13,7 +13,7 @@ use example_common::*;
 
 fn config() -> Config {
     let mut config = Config::default();
-    config.rcc.sys_ck = Some(48.mhz().into());
+    config.rcc.sys_ck = Some(200.mhz().into());
     config
 }
 
@@ -21,14 +21,13 @@ fn config() -> Config {
 async fn main(_spawner: Spawner, p: Peripherals) -> ! {
     info!("Hello World!");
 
-    let irq = interrupt::take!(SDIO);
+    let irq = interrupt::take!(SDMMC1);
 
     let mut sdmmc = Sdmmc::new(
-        p.SDIO,
+        p.SDMMC1,
         (p.PC12, p.PD2, p.PC8, p.PC9, p.PC10, p.PC11),
         irq,
         Default::default(),
-        p.DMA2_CH3,
     );
 
     info!("Configured clock: {}", sdmmc.clock.0);

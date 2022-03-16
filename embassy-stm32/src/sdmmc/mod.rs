@@ -12,7 +12,7 @@ use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
-use crate::dma::{NoDma, TransferOptions};
+use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
 use crate::gpio::{Pull, Speed};
 use crate::interrupt::Interrupt;
@@ -191,26 +191,23 @@ pub struct Sdmmc<'d, T: Instance, P: Pins<T>, Dma = NoDma> {
     card: Option<Card>,
 }
 
+#[cfg(sdmmc_v1)]
 impl<'d, T: Instance, P: Pins<T>, Dma: SdioDma<T>> Sdmmc<'d, T, P, Dma> {
-    /// # Safety
-    ///
-    /// Futures that borrow this type can't be leaked
-    #[inline(always)]
-    pub unsafe fn new(
+    pub fn new(
         _peripheral: impl Unborrow<Target = T> + 'd,
         pins: impl Unborrow<Target = P> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
         config: Config,
-        dma: Dma,
+        dma: impl Unborrow<Target = Dma> + 'd,
     ) -> Self {
-        unborrow!(irq, pins);
+        unborrow!(irq, pins, dma);
         pins.configure();
 
         T::enable();
         T::reset();
 
         let inner = T::inner();
-        let clock = inner.new_inner(T::frequency());
+        let clock = unsafe { inner.new_inner(T::frequency()) };
 
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
@@ -227,7 +224,45 @@ impl<'d, T: Instance, P: Pins<T>, Dma: SdioDma<T>> Sdmmc<'d, T, P, Dma> {
             card: None,
         }
     }
+}
 
+#[cfg(sdmmc_v2)]
+impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P, NoDma> {
+    pub fn new(
+        _peripheral: impl Unborrow<Target = T> + 'd,
+        pins: impl Unborrow<Target = P> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        config: Config,
+    ) -> Self {
+        unborrow!(irq, pins);
+        pins.configure();
+
+        T::enable();
+        T::reset();
+
+        info!("Freq: {}", T::frequency().0);
+
+        let inner = T::inner();
+        let clock = unsafe { inner.new_inner(T::frequency()) };
+
+        irq.set_handler(Self::on_interrupt);
+        irq.unpend();
+        irq.enable();
+
+        Self {
+            sdmmc: PhantomData,
+            pins,
+            irq,
+            config,
+            dma: NoDma,
+            clock,
+            signalling: Default::default(),
+            card: None,
+        }
+    }
+}
+
+impl<'d, T: Instance, P: Pins<T>, Dma: SdioDma<T>> Sdmmc<'d, T, P, Dma> {
     #[inline(always)]
     pub async fn init_card(&mut self, freq: impl Into<Hertz>) -> Result<(), Error> {
         let inner = T::inner();
@@ -687,7 +722,7 @@ impl SdmmcInner {
         length_bytes: u32,
         block_size: u8,
         data_transfer_timeout: u32,
-        dma: &mut Dma,
+        #[allow(unused_variables)] dma: &mut Dma,
     ) {
         assert!(block_size <= 14, "Block size up to 2^14 bytes");
         let regs = self.0;
@@ -705,13 +740,13 @@ impl SdmmcInner {
         cfg_if::cfg_if! {
             if #[cfg(sdmmc_v1)] {
                 let request = dma.request();
-                dma.start_read(request, regs.fifor().ptr() as *const u32, buffer, TransferOptions {
+                dma.start_read(request, regs.fifor().ptr() as *const u32, buffer, crate::dma::TransferOptions {
                     pburst: crate::dma::Burst::Incr4,
                     flow_ctrl: crate::dma::FlowControl::Peripheral,
                     ..Default::default()
                 });
             } else if #[cfg(sdmmc_v2)] {
-                regs.idmabase0r().write(|w| w.set_idmabase0(buffer_addr));
+                regs.idmabase0r().write(|w| w.set_idmabase0(buffer as *mut u32 as u32));
                 regs.idmactrlr().modify(|w| w.set_idmaen(true));
             }
         }
@@ -736,7 +771,7 @@ impl SdmmcInner {
         length_bytes: u32,
         block_size: u8,
         data_transfer_timeout: u32,
-        dma: &mut Dma,
+        #[allow(unused_variables)] dma: &mut Dma,
     ) {
         assert!(block_size <= 14, "Block size up to 2^14 bytes");
         let regs = self.0;
@@ -754,13 +789,13 @@ impl SdmmcInner {
         cfg_if::cfg_if! {
             if #[cfg(sdmmc_v1)] {
                 let request = dma.request();
-                dma.start_write(request, buffer, regs.fifor().ptr() as *mut u32, TransferOptions {
+                dma.start_write(request, buffer, regs.fifor().ptr() as *mut u32, crate::dma::TransferOptions {
                     pburst: crate::dma::Burst::Incr4,
                     flow_ctrl: crate::dma::FlowControl::Peripheral,
                     ..Default::default()
                 });
             } else if #[cfg(sdmmc_v2)] {
-                regs.idmabase0r().write(|w| w.set_idmabase0(buffer_addr));
+                regs.idmabase0r().write(|w| w.set_idmabase0(buffer as *const u32 as u32));
                 regs.idmactrlr().modify(|w| w.set_idmaen(true));
             }
         }
@@ -1104,7 +1139,7 @@ impl SdmmcInner {
             while self.cmd_active() {}
 
             // Command arg
-            regs.argr().write(|w| w.set_cmdargr(cmd.arg));
+            regs.argr().write(|w| w.set_cmdarg(cmd.arg));
 
             // Command index and start CP State Machine
             regs.cmdr().write(|w| {
@@ -1113,14 +1148,13 @@ impl SdmmcInner {
                 w.set_cmdindex(cmd.cmd);
                 w.set_cpsmen(true);
 
-                cfg_if::cfg_if! {
-                    if #[cfg(sdmmc_v2)] {
-                        // Special mode in CP State Machine
-                        // CMD12: Stop Transmission
-                        let cpsm_stop_transmission = cmd.cmd == 12;
-                        w.set_cmdstop(cpsm_stop_transmission);
-                        w.set_cmdtrans(data);
-                    }
+                #[cfg(sdmmc_v2)]
+                {
+                    // Special mode in CP State Machine
+                    // CMD12: Stop Transmission
+                    let cpsm_stop_transmission = cmd.cmd == 12;
+                    w.set_cmdstop(cpsm_stop_transmission);
+                    w.set_cmdtrans(data);
                 }
             });
 
@@ -1160,7 +1194,7 @@ impl SdmmcInner {
             while self.cmd_active() {}
 
             // Command arg
-            regs.argr().write(|w| w.set_cmdargr(0));
+            regs.argr().write(|w| w.set_cmdarg(0));
 
             // Command index and start CP State Machine
             regs.cmdr().write(|w| {
@@ -1300,7 +1334,15 @@ pin_trait!(D5Pin, Instance);
 pin_trait!(D6Pin, Instance);
 pin_trait!(D7Pin, Instance);
 
-dma_trait!(SdioDma, Instance);
+cfg_if::cfg_if! {
+    if #[cfg(sdmmc_v1)] {
+        dma_trait!(SdioDma, Instance);
+    } else if #[cfg(sdmmc_v2)] {
+        // SDMMCv2 uses internal DMA
+        pub trait SdioDma<T: Instance> {}
+        impl<T: Instance> SdioDma<T> for NoDma {}
+    }
+}
 
 pub trait Pins<T: Instance>: sealed::Pins<T> + 'static {
     const BUSWIDTH: BusWidth;
