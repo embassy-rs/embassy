@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner, p: Peripherals) -> ! {
         (p.PC12, p.PD2, p.PC8, p.PC9, p.PC10, p.PC11),
         irq,
         Default::default(),
-        p.DMA2_CH3
+        p.DMA2_CH3,
     );
 
     // Should print 400kHz for initialization
