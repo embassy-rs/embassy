@@ -11,7 +11,7 @@ use crate::dma::Request;
 use crate::pac;
 use crate::pac::bdma::vals;
 
-use super::{Word, WordSize};
+use super::{TransferOptions, Word, WordSize};
 
 impl From<WordSize> for vals::Size {
     fn from(raw: WordSize) -> Self {
@@ -55,7 +55,7 @@ foreach_dma_channel! {
     ($channel_peri:ident, $dma_peri:ident, bdma, $channel_num:expr, $index:expr, $dmamux:tt) => {
         impl crate::dma::sealed::Channel for crate::peripherals::$channel_peri {
 
-            unsafe fn start_write<W: Word>(&mut self, _request: Request, buf: *const[W], reg_addr: *mut W) {
+            unsafe fn start_write<W: Word>(&mut self, _request: Request, buf: *const[W], reg_addr: *mut W, options: TransferOptions) {
                 let (ptr, len) = super::slice_ptr_parts(buf);
                 low_level_api::start_transfer(
                     pac::$dma_peri,
@@ -68,6 +68,7 @@ foreach_dma_channel! {
                     len,
                     true,
                     vals::Size::from(W::bits()),
+                    options,
                     #[cfg(dmamux)]
                     <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_REGS,
                     #[cfg(dmamux)]
@@ -76,7 +77,7 @@ foreach_dma_channel! {
             }
 
 
-            unsafe fn start_write_repeated<W: Word>(&mut self, _request: Request, repeated: W, count: usize, reg_addr: *mut W) {
+            unsafe fn start_write_repeated<W: Word>(&mut self, _request: Request, repeated: W, count: usize, reg_addr: *mut W, options: TransferOptions) {
                 let buf = [repeated];
                 low_level_api::start_transfer(
                     pac::$dma_peri,
@@ -89,6 +90,7 @@ foreach_dma_channel! {
                     count,
                     false,
                     vals::Size::from(W::bits()),
+                    options,
                     #[cfg(dmamux)]
                     <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_REGS,
                     #[cfg(dmamux)]
@@ -96,7 +98,7 @@ foreach_dma_channel! {
                 )
             }
 
-            unsafe fn start_read<W: Word>(&mut self, _request: Request, reg_addr: *const W, buf: *mut [W]) {
+            unsafe fn start_read<W: Word>(&mut self, _request: Request, reg_addr: *const W, buf: *mut [W], options: TransferOptions) {
                 let (ptr, len) = super::slice_ptr_parts_mut(buf);
                 low_level_api::start_transfer(
                     pac::$dma_peri,
@@ -109,6 +111,7 @@ foreach_dma_channel! {
                     len,
                     true,
                     vals::Size::from(W::bits()),
+                    options,
                     #[cfg(dmamux)]
                     <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_REGS,
                     #[cfg(dmamux)]
@@ -155,9 +158,23 @@ mod low_level_api {
         mem_len: usize,
         incr_mem: bool,
         data_size: vals::Size,
+        options: TransferOptions,
         #[cfg(dmamux)] dmamux_regs: pac::dmamux::Dmamux,
         #[cfg(dmamux)] dmamux_ch_num: u8,
     ) {
+        assert!(
+            options.mburst == crate::dma::Burst::Single,
+            "Burst mode not supported"
+        );
+        assert!(
+            options.pburst == crate::dma::Burst::Single,
+            "Burst mode not supported"
+        );
+        assert!(
+            options.flow_ctrl == crate::dma::FlowControl::Dma,
+            "Peripheral flow control not supported"
+        );
+
         let ch = dma.ch(channel_number as _);
 
         reset_status(dma, channel_number);

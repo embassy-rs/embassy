@@ -129,6 +129,7 @@ impl Word for u32 {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Burst {
     /// Single transfer
     Single,
@@ -140,6 +141,7 @@ pub enum Burst {
     Incr16,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum FlowControl {
     /// Flow control by DMA
     Dma,
