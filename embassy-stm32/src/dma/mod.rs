@@ -46,6 +46,7 @@ pub(crate) mod sealed {
             request: Request,
             buf: *const [W],
             reg_addr: *mut W,
+            options: TransferOptions,
         );
 
         /// Starts this channel for writing a word repeatedly.
@@ -58,6 +59,7 @@ pub(crate) mod sealed {
             repeated: W,
             count: usize,
             reg_addr: *mut W,
+            options: TransferOptions,
         );
 
         /// Starts this channel for reading a stream of words.
@@ -71,6 +73,7 @@ pub(crate) mod sealed {
             request: Request,
             reg_addr: *const W,
             buf: *mut [W],
+            options: TransferOptions,
         );
 
         /// Requests the channel to stop.
@@ -126,6 +129,43 @@ impl Word for u32 {
     }
 }
 
+pub enum Burst {
+    /// Single transfer
+    Single,
+    /// Incremental burst of 4 beats
+    Incr4,
+    /// Incremental burst of 8 beats
+    Incr8,
+    /// Incremental burst of 16 beats
+    Incr16,
+}
+
+pub enum FlowControl {
+    /// Flow control by DMA
+    Dma,
+    /// Flow control by peripheral
+    Peripheral,
+}
+
+pub struct TransferOptions {
+    /// Peripheral burst transfer configuration
+    pub pburst: Burst,
+    /// Memory burst transfer configuration
+    pub mburst: Burst,
+    /// Flow control configuration
+    pub flow_ctrl: FlowControl,
+}
+
+impl Default for TransferOptions {
+    fn default() -> Self {
+        Self {
+            pburst: Burst::Single,
+            mburst: Burst::Single,
+            flow_ctrl: FlowControl::Dma,
+        }
+    }
+}
+
 mod transfers {
     use super::*;
 
@@ -139,7 +179,7 @@ mod transfers {
         assert!(buf.len() > 0 && buf.len() <= 0xFFFF);
         unborrow!(channel);
 
-        unsafe { channel.start_read::<W>(request, reg_addr, buf) };
+        unsafe { channel.start_read::<W>(request, reg_addr, buf, Default::default()) };
 
         Transfer::new(channel)
     }
@@ -154,7 +194,7 @@ mod transfers {
         assert!(buf.len() > 0 && buf.len() <= 0xFFFF);
         unborrow!(channel);
 
-        unsafe { channel.start_write::<W>(request, buf, reg_addr) };
+        unsafe { channel.start_write::<W>(request, buf, reg_addr, Default::default()) };
 
         Transfer::new(channel)
     }
@@ -169,7 +209,15 @@ mod transfers {
     ) -> impl Future<Output = ()> + 'a {
         unborrow!(channel);
 
-        unsafe { channel.start_write_repeated::<W>(request, repeated, count, reg_addr) };
+        unsafe {
+            channel.start_write_repeated::<W>(
+                request,
+                repeated,
+                count,
+                reg_addr,
+                Default::default(),
+            )
+        };
 
         Transfer::new(channel)
     }
