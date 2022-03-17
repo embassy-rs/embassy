@@ -47,11 +47,11 @@ impl<'d, T: Pin> Input<'d, T> {
         Self { pin }
     }
 
-    fn is_high(&self) -> bool {
+    pub fn is_high(&self) -> bool {
         self.pin.is_high()
     }
 
-    fn is_low(&self) -> bool {
+    pub fn is_low(&self) -> bool {
         self.pin.is_low()
     }
 }
