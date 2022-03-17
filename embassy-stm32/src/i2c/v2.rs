@@ -53,6 +53,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         unborrow!(irq, scl, sda, tx_dma, rx_dma);
 
         T::enable();
+        T::reset();
 
         unsafe {
             scl.set_as_af(scl.af_num(), AFType::OutputOpenDrain);

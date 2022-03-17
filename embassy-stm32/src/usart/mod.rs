@@ -200,6 +200,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         unborrow!(_inner, rx, tx, tx_dma, rx_dma);
 
         T::enable();
+        T::reset();
         let pclk_freq = T::frequency();
 
         // TODO: better calculation, including error checking and OVER8 if possible.
