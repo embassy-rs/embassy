@@ -451,11 +451,11 @@ mod eh02 {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
-            self.pin.is_high()
+            Ok(self.pin.is_high())
         }
 
         fn is_low(&self) -> Result<bool, Self::Error> {
-            self.pin.is_low()
+            Ok(self.pin.is_low())
         }
     }
 }
@@ -472,11 +472,11 @@ mod eh1 {
         for InputChannel<'d, C, T>
     {
         fn is_high(&self) -> Result<bool, Self::Error> {
-            self.pin.is_high()
+            Ok(self.pin.is_high())
         }
 
         fn is_low(&self) -> Result<bool, Self::Error> {
-            self.pin.is_low()
+            Ok(self.pin.is_low())
         }
     }
 }
