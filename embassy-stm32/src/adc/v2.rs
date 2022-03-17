@@ -7,16 +7,18 @@ use embedded_hal_02::blocking::delay::DelayUs;
 pub const VDDA_CALIB_MV: u32 = 3000;
 
 #[cfg(not(rcc_f4))]
-unsafe fn enable() {
+fn enable() {
     todo!()
 }
 
 #[cfg(rcc_f4)]
-unsafe fn enable() {
-    // TODO do not enable all adc clocks if not needed
-    crate::pac::RCC.apb2enr().modify(|w| w.set_adc1en(true));
-    crate::pac::RCC.apb2enr().modify(|w| w.set_adc2en(true));
-    crate::pac::RCC.apb2enr().modify(|w| w.set_adc3en(true));
+fn enable() {
+    critical_section::with(|_| unsafe {
+        // TODO do not enable all adc clocks if not needed
+        crate::pac::RCC.apb2enr().modify(|w| w.set_adc1en(true));
+        crate::pac::RCC.apb2enr().modify(|w| w.set_adc2en(true));
+        crate::pac::RCC.apb2enr().modify(|w| w.set_adc3en(true));
+    });
 }
 
 pub enum Resolution {
@@ -125,8 +127,8 @@ where
 {
     pub fn new(_peri: impl Unborrow<Target = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
         unborrow!(_peri);
+        enable();
         unsafe {
-            enable();
             // disable before config is set
             T::regs().cr2().modify(|reg| {
                 reg.set_adon(crate::pac::adc::vals::Adon::DISABLED);
