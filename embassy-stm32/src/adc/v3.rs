@@ -14,7 +14,7 @@ fn enable() {
         crate::pac::RCC.apb2enr().modify(|w| w.set_adcen(true));
         #[cfg(stm32g0)]
         crate::pac::RCC.apbenr2().modify(|w| w.set_adcen(true));
-        #[cfg(stm32l4)]
+        #[cfg(any(stm32l4, stm32wb))]
         crate::pac::RCC.ahb2enr().modify(|w| w.set_adcen(true));
     });
 }

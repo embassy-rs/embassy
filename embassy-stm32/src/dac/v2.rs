@@ -92,7 +92,7 @@ pub struct Dac<'d, T: Instance> {
 }
 
 macro_rules! enable {
-    ($enable_reg:ident, $enable_field: ident, $reset_reg:ident, $reset_field:ident) => {
+    ($enable_reg:ident, $enable_field:ident, $reset_reg:ident, $reset_field:ident) => {
         crate::pac::RCC
             .$enable_reg()
             .modify(|w| w.$enable_field(true));
