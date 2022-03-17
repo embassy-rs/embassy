@@ -106,6 +106,8 @@ impl<'d, T: Instance, TxDma> UartTx<'d, T, TxDma> {
                 reg.set_dmat(true);
             });
         }
+        // If we don't assign future to a variable, the data register pointer
+        // is held across an await and makes the future non-Send.
         let transfer = crate::dma::write(ch, request, buffer, tdr(T::regs()));
         transfer.await;
         Ok(())
@@ -150,6 +152,8 @@ impl<'d, T: Instance, RxDma> UartRx<'d, T, RxDma> {
                 reg.set_dmar(true);
             });
         }
+        // If we don't assign future to a variable, the data register pointer
+        // is held across an await and makes the future non-Send.
         let transfer = crate::dma::read(ch, request, rdr(T::regs()), buffer);
         transfer.await;
         Ok(())
