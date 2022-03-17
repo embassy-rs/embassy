@@ -32,6 +32,7 @@ impl<'d, T: Instance> I2c<'d, T> {
         unborrow!(scl, sda);
 
         T::enable();
+        T::reset();
 
         unsafe {
             scl.set_as_af(scl.af_num(), AFType::OutputOpenDrain);

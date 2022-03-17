@@ -8,13 +8,15 @@ pub const VDDA_CALIB_MV: u32 = 3000;
 
 /// Sadly we cannot use `RccPeripheral::enable` since devices are quite inconsistent ADC clock
 /// configuration.
-unsafe fn enable() {
-    #[cfg(stm32h7)]
-    crate::pac::RCC.apb2enr().modify(|w| w.set_adcen(true));
-    #[cfg(stm32g0)]
-    crate::pac::RCC.apbenr2().modify(|w| w.set_adcen(true));
-    #[cfg(stm32l4)]
-    crate::pac::RCC.ahb2enr().modify(|w| w.set_adcen(true));
+fn enable() {
+    critical_section::with(|_| unsafe {
+        #[cfg(stm32h7)]
+        crate::pac::RCC.apb2enr().modify(|w| w.set_adcen(true));
+        #[cfg(stm32g0)]
+        crate::pac::RCC.apbenr2().modify(|w| w.set_adcen(true));
+        #[cfg(any(stm32l4, stm32wb))]
+        crate::pac::RCC.ahb2enr().modify(|w| w.set_adcen(true));
+    });
 }
 
 pub enum Resolution {
@@ -206,8 +208,8 @@ pub struct Adc<'d, T: Instance> {
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(_peri: impl Unborrow<Target = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
         unborrow!(_peri);
+        enable();
         unsafe {
-            enable();
             T::regs().cr().modify(|reg| {
                 #[cfg(not(adc_g0))]
                 reg.set_deeppwd(false);

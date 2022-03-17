@@ -91,6 +91,20 @@ pub struct Dac<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
 
+macro_rules! enable {
+    ($enable_reg:ident, $enable_field:ident, $reset_reg:ident, $reset_field:ident) => {
+        crate::pac::RCC
+            .$enable_reg()
+            .modify(|w| w.$enable_field(true));
+        crate::pac::RCC
+            .$reset_reg()
+            .modify(|w| w.$reset_field(true));
+        crate::pac::RCC
+            .$reset_reg()
+            .modify(|w| w.$reset_field(false));
+    };
+}
+
 impl<'d, T: Instance> Dac<'d, T> {
     pub fn new_1ch(
         peri: impl Unborrow<Target = T> + 'd,
@@ -113,14 +127,16 @@ impl<'d, T: Instance> Dac<'d, T> {
         unsafe {
             // Sadly we cannot use `RccPeripheral::enable` since devices are quite inconsistent DAC clock
             // configuration.
-            #[cfg(rcc_h7)]
-            crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
-            #[cfg(rcc_h7ab)]
-            crate::pac::RCC.apb1lenr().modify(|w| w.set_dac1en(true));
-            #[cfg(stm32g0)]
-            crate::pac::RCC.apbenr1().modify(|w| w.set_dac1en(true));
-            #[cfg(stm32l4)]
-            crate::pac::RCC.apb1enr1().modify(|w| w.set_dac1en(true));
+            critical_section::with(|_| {
+                #[cfg(rcc_h7)]
+                enable!(apb1lenr, set_dac12en, apb1lrstr, set_dac12rst);
+                #[cfg(rcc_h7ab)]
+                enable!(apb1lenr, set_dac1en, apb1lrstr, set_dac1rst);
+                #[cfg(stm32g0)]
+                enable!(apbenr1, set_dac1en, apbrstr1, set_dac1rst);
+                #[cfg(stm32l4)]
+                enable!(apb1enr1, set_dac1en, apb1rstr1, set_dac1rst);
+            });
 
             if channels >= 1 {
                 T::regs().cr().modify(|reg| {
