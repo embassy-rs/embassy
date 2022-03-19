@@ -80,7 +80,11 @@ impl<'d, T: Pin> Input<'d, T> {
     #[inline]
     pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
         unborrow!(pin);
+        Self::new_inner(pin, pull)
+    }
 
+    #[inline]
+    fn new_inner(pin: T, pull: Pull) -> Self {
         critical_section::with(|_| unsafe {
             let r = pin.block();
             let n = pin.pin() as usize;
@@ -166,7 +170,11 @@ impl<'d, T: Pin> Output<'d, T> {
     #[inline]
     pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level, speed: Speed) -> Self {
         unborrow!(pin);
+        Self::new_inner(pin, initial_output, speed)
+    }
 
+    #[inline]
+    fn new_inner(pin: T, initial_output: Level, speed: Speed) -> Self {
         match initial_output {
             Level::High => pin.set_high(),
             Level::Low => pin.set_low(),
@@ -272,7 +280,11 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
         pull: Pull,
     ) -> Self {
         unborrow!(pin);
+        Self::new_inner(pin, initial_output, speed, pull)
+    }
 
+    #[inline]
+    fn new_inner(pin: T, initial_output: Level, speed: Speed, pull: Pull) -> Self {
         match initial_output {
             Level::High => pin.set_high(),
             Level::Low => pin.set_low(),
@@ -375,6 +387,138 @@ impl<'d, T: Pin> Drop for OutputOpenDrain<'d, T> {
                 r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
             }
         });
+    }
+}
+
+pub enum Dynamic<'d, T: Pin> {
+    Input(Input<'d, T>),
+    Output(Output<'d, T>),
+    OutputOpenDrain(OutputOpenDrain<'d, T>),
+}
+
+impl<'d, T: Pin> Dynamic<'d, T> {
+    #[inline]
+    pub fn new(pin: impl Unborrow<Target = T> + 'd) -> Self {
+        Self::Input(Input::new(pin, Pull::None))
+    }
+
+    #[inline]
+    fn pin(&mut self) -> T {
+        let pin = match self {
+            Dynamic::Input(inner) => &inner.pin,
+            Dynamic::Output(inner) => &inner.pin,
+            Dynamic::OutputOpenDrain(inner) => &inner.pin,
+        };
+
+        // Same trick as Unborrow on &'a mut T to do a copy without Copy.
+        unsafe { core::ptr::read(pin) }
+    }
+
+    #[inline]
+    pub fn make_input(&mut self, pull: Pull) {
+        let new_self = Self::Input(Input::new_inner(self.pin(), pull));
+        // Avoid drop() on the old state because that would reset the pin that we just re-initialized
+        core::mem::forget(core::mem::replace(self, new_self))
+    }
+
+    #[inline]
+    pub fn make_output(&mut self, initial_output: Level, speed: Speed) {
+        let new_self = Self::Output(Output::new_inner(self.pin(), initial_output, speed));
+        core::mem::forget(core::mem::replace(self, new_self))
+    }
+
+    #[inline]
+    pub fn make_output_open_drain(&mut self, initial_output: Level, speed: Speed, pull: Pull) {
+        let new_self = Self::OutputOpenDrain(OutputOpenDrain::new_inner(
+            self.pin(),
+            initial_output,
+            speed,
+            pull,
+        ));
+        core::mem::forget(core::mem::replace(self, new_self))
+    }
+
+    #[inline]
+    pub fn is_input(&self) -> bool {
+        matches!(self, Self::Input(_))
+    }
+
+    #[inline]
+    pub fn is_output(&self) -> bool {
+        matches!(self, Self::Output(_))
+    }
+
+    #[inline]
+    pub fn is_output_open_drain(&self) -> bool {
+        matches!(self, Self::OutputOpenDrain(_))
+    }
+
+    #[inline]
+    pub fn is_high(&self) -> bool {
+        match self {
+            Self::Input(inner) => inner.is_high(),
+            Self::Output(_) => unimplemented!(),
+            Self::OutputOpenDrain(inner) => inner.is_high(),
+        }
+    }
+
+    #[inline]
+    pub fn is_low(&self) -> bool {
+        match self {
+            Self::Input(inner) => inner.is_low(),
+            Self::Output(_) => unimplemented!(),
+            Self::OutputOpenDrain(inner) => inner.is_low(),
+        }
+    }
+
+    /// Set the output as high.
+    #[inline]
+    pub fn set_high(&mut self) {
+        match self {
+            Self::Input(_) => unimplemented!(),
+            Self::Output(inner) => inner.set_high(),
+            Self::OutputOpenDrain(inner) => inner.set_high(),
+        }
+    }
+
+    /// Set the output as low.
+    #[inline]
+    pub fn set_low(&mut self) {
+        match self {
+            Self::Input(_) => unimplemented!(),
+            Self::Output(inner) => inner.set_low(),
+            Self::OutputOpenDrain(inner) => inner.set_low(),
+        }
+    }
+
+    /// Is the output pin set as high?
+    #[inline]
+    pub fn is_set_high(&self) -> bool {
+        match self {
+            Self::Input(_) => unimplemented!(),
+            Self::Output(inner) => inner.is_set_high(),
+            Self::OutputOpenDrain(inner) => inner.is_set_high(),
+        }
+    }
+
+    /// Is the output pin set as low?
+    #[inline]
+    pub fn is_set_low(&self) -> bool {
+        match self {
+            Self::Input(_) => unimplemented!(),
+            Self::Output(inner) => inner.is_set_low(),
+            Self::OutputOpenDrain(inner) => inner.is_set_low(),
+        }
+    }
+
+    /// Toggle pin output
+    #[inline]
+    pub fn toggle(&mut self) {
+        match self {
+            Self::Input(_) => unimplemented!(),
+            Self::Output(inner) => inner.toggle(),
+            Self::OutputOpenDrain(inner) => inner.toggle(),
+        }
     }
 }
 
