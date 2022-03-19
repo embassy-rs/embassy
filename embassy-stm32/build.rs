@@ -145,7 +145,10 @@ fn main() {
     // Generate RccPeripheral impls
 
     for p in METADATA.peripherals {
-        if !singletons.contains(&p.name.to_string()) {
+        // generating RccPeripheral impl for H7 ADC3 would result in bad frequency
+        if !singletons.contains(&p.name.to_string())
+            || (p.name == "ADC3" && METADATA.line.starts_with("STM32H7"))
+        {
             continue;
         }
 
@@ -459,11 +462,23 @@ fn main() {
                 if regs.kind == "adc" {
                     let peri = format_ident!("{}", p.name);
                     let pin_name = format_ident!("{}", pin.pin);
-                    let ch: u8 = pin.signal.strip_prefix("IN").unwrap().parse().unwrap();
 
-                    g.extend(quote! {
-                        impl_adc_pin!( #peri, #pin_name, #ch);
-                    })
+                    // H7 has differential voltage measurements
+                    let ch: Option<u8> = if pin.signal.starts_with("INP") {
+                        Some(pin.signal.strip_prefix("INP").unwrap().parse().unwrap())
+                    } else if pin.signal.starts_with("INN") {
+                        // TODO handle in the future when embassy supports differential measurements
+                        None
+                    } else if pin.signal.starts_with("IN") {
+                        Some(pin.signal.strip_prefix("IN").unwrap().parse().unwrap())
+                    } else {
+                        None
+                    };
+                    if let Some(ch) = ch {
+                        g.extend(quote! {
+                            impl_adc_pin!( #peri, #pin_name, #ch);
+                        })
+                    }
                 }
 
                 // DAC is special
