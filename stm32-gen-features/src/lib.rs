@@ -5,6 +5,7 @@ use std::{iter::FilterMap, path::Path, slice::Iter};
 const SUPPORTED_FAMILIES: &[&str] = &[
     "stm32f0",
     "stm32f1",
+    "stm32f2",
     "stm32f3",
     "stm32f4",
     "stm32f7",
