@@ -424,7 +424,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
-        unsafe { self.txdma.start_write(tx_request, data, tx_dst) }
+        unsafe {
+            self.txdma
+                .start_write(tx_request, data, tx_dst, Default::default())
+        }
         let tx_f = Transfer::new(&mut self.txdma);
 
         unsafe {
@@ -470,7 +473,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let rx_request = self.rxdma.request();
         let rx_src = T::REGS.rx_ptr();
-        unsafe { self.rxdma.start_read(rx_request, rx_src, data) };
+        unsafe {
+            self.rxdma
+                .start_read(rx_request, rx_src, data, Default::default())
+        };
         let rx_f = Transfer::new(&mut self.rxdma);
 
         let tx_request = self.txdma.request();
@@ -532,12 +538,18 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let rx_request = self.rxdma.request();
         let rx_src = T::REGS.rx_ptr();
-        unsafe { self.rxdma.start_read(rx_request, rx_src, read) };
+        unsafe {
+            self.rxdma
+                .start_read(rx_request, rx_src, read, Default::default())
+        };
         let rx_f = Transfer::new(&mut self.rxdma);
 
         let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
-        unsafe { self.txdma.start_write(tx_request, write, tx_dst) }
+        unsafe {
+            self.txdma
+                .start_write(tx_request, write, tx_dst, Default::default())
+        }
         let tx_f = Transfer::new(&mut self.txdma);
 
         unsafe {

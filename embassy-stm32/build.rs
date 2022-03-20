@@ -407,17 +407,17 @@ fn main() {
         (("timer", "BKIN2"), (quote!(crate::pwm::BreakInput2Pin), quote!())),
         (("timer", "BKIN2_COMP1"), (quote!(crate::pwm::BreakInput2Comparator1Pin), quote!())),
         (("timer", "BKIN2_COMP2"), (quote!(crate::pwm::BreakInput2Comparator2Pin), quote!())),
-        (("sdmmc", "CK"), (quote!(crate::sdmmc::CkPin), quote!(#[cfg(feature="sdmmc-rs")]))),
-        (("sdmmc", "CMD"), (quote!(crate::sdmmc::CmdPin), quote!(#[cfg(feature="sdmmc-rs")]))),
-        (("sdmmc", "D0"), (quote!(crate::sdmmc::D0Pin), quote!(#[cfg(feature="sdmmc-rs")]))),
-        (("sdmmc", "D1"), (quote!(crate::sdmmc::D1Pin), quote!(#[cfg(feature="sdmmc-rs")]))),
-        (("sdmmc", "D2"), (quote!(crate::sdmmc::D2Pin), quote!(#[cfg(feature="sdmmc-rs")]))),
-        (("sdmmc", "D3"), (quote!(crate::sdmmc::D3Pin), quote!(#[cfg(feature="sdmmc-rs")]))),
-        (("sdmmc", "D4"), (quote!(crate::sdmmc::D4Pin), quote!(#[cfg(feature="sdmmc-rs")]))),
-        (("sdmmc", "D5"), (quote!(crate::sdmmc::D5Pin), quote!(#[cfg(feature="sdmmc-rs")]))),
-        (("sdmmc", "D6"), (quote!(crate::sdmmc::D6Pin), quote!(#[cfg(feature="sdmmc-rs")]))),
-        (("sdmmc", "D6"), (quote!(crate::sdmmc::D7Pin), quote!(#[cfg(feature="sdmmc-rs")]))),
-        (("sdmmc", "D8"), (quote!(crate::sdmmc::D8Pin), quote!(#[cfg(feature="sdmmc-rs")]))),
+        (("sdmmc", "CK"), (quote!(crate::sdmmc::CkPin), quote!())),
+        (("sdmmc", "CMD"), (quote!(crate::sdmmc::CmdPin), quote!())),
+        (("sdmmc", "D0"), (quote!(crate::sdmmc::D0Pin), quote!())),
+        (("sdmmc", "D1"), (quote!(crate::sdmmc::D1Pin), quote!())),
+        (("sdmmc", "D2"), (quote!(crate::sdmmc::D2Pin), quote!())),
+        (("sdmmc", "D3"), (quote!(crate::sdmmc::D3Pin), quote!())),
+        (("sdmmc", "D4"), (quote!(crate::sdmmc::D4Pin), quote!())),
+        (("sdmmc", "D5"), (quote!(crate::sdmmc::D5Pin), quote!())),
+        (("sdmmc", "D6"), (quote!(crate::sdmmc::D6Pin), quote!())),
+        (("sdmmc", "D6"), (quote!(crate::sdmmc::D7Pin), quote!())),
+        (("sdmmc", "D8"), (quote!(crate::sdmmc::D8Pin), quote!())),
     ].into();
 
     for p in METADATA.peripherals {
@@ -483,6 +483,8 @@ fn main() {
         (("i2c", "TX"), quote!(crate::i2c::TxDma)),
         (("dcmi", "DCMI"), quote!(crate::dcmi::FrameDma)),
         (("dcmi", "PSSI"), quote!(crate::dcmi::FrameDma)),
+        // SDMMCv1 uses the same channel for both directions, so just implement for RX
+        (("sdmmc", "RX"), quote!(crate::sdmmc::SdmmcDma)),
     ]
     .into();
 
