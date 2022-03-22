@@ -32,7 +32,6 @@ embassy_hal_common::peripherals! {
     TWISPI0,
     TWISPI1,
     SPI2,
-    SPI3,
 
     // SAADC
     SAADC,
