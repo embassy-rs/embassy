@@ -315,11 +315,16 @@ impl FirmwareUpdater {
 
     /// Instruct bootloader that DFU should commence at next boot.
     pub async fn mark_update<F: AsyncNorFlash>(&mut self, flash: &mut F) -> Result<(), F::Error> {
-        flash.write(self.state.from as u32, &[0, 0, 0, 0]).await?;
+        #[repr(align(4))]
+        struct Aligned([u8; 4]);
+
+        flash
+            .write(self.state.from as u32, &Aligned([0; 4]).0)
+            .await?;
         flash
             .erase(self.state.from as u32, self.state.to as u32)
             .await?;
-        info!(
+        trace!(
             "Setting swap magic at {} to 0x{:x}, LE: 0x{:x}",
             self.state.from,
             &SWAP_MAGIC,
@@ -333,7 +338,12 @@ impl FirmwareUpdater {
 
     /// Mark firmware boot successfully
     pub async fn mark_booted<F: AsyncNorFlash>(&mut self, flash: &mut F) -> Result<(), F::Error> {
-        flash.write(self.state.from as u32, &[0, 0, 0, 0]).await?;
+        #[repr(align(4))]
+        struct Aligned([u8; 4]);
+
+        flash
+            .write(self.state.from as u32, &Aligned([0; 4]).0)
+            .await?;
         flash
             .erase(self.state.from as u32, self.state.to as u32)
             .await?;
@@ -350,7 +360,7 @@ impl FirmwareUpdater {
         data: &[u8],
         flash: &mut F,
     ) -> Result<(), F::Error> {
-        info!(
+        trace!(
             "Writing firmware at offset 0x{:x} len {}",
             self.dfu.from + offset,
             data.len()
