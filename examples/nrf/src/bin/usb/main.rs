@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
 #[path = "../../example_common.rs"]
@@ -58,7 +59,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut class = CdcAcmClass::new(&mut builder, 64);
 
     // Build the builder.
-    let mut usb = builder.build();
+    let mut usb = builder.build(class.control);
 
     // Run the USB device.
     let fut1 = usb.run();

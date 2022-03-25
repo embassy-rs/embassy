@@ -2,12 +2,6 @@ use core::mem;
 
 use super::types::*;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ParseError {
-    InvalidLength,
-}
-
 /// Control request type.
 #[repr(u8)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -104,15 +98,12 @@ impl Request {
     /// Standard USB feature Device Remote Wakeup for Set/Clear Feature
     pub const FEATURE_DEVICE_REMOTE_WAKEUP: u16 = 1;
 
-    pub(crate) fn parse(buf: &[u8]) -> Result<Request, ParseError> {
-        if buf.len() != 8 {
-            return Err(ParseError::InvalidLength);
-        }
-
+    /// Parses a USB control request from a byte array.
+    pub fn parse(buf: &[u8; 8]) -> Request {
         let rt = buf[0];
         let recipient = rt & 0b11111;
 
-        Ok(Request {
+        Request {
             direction: rt.into(),
             request_type: unsafe { mem::transmute((rt >> 5) & 0b11) },
             recipient: if recipient <= 3 {
@@ -124,7 +115,7 @@ impl Request {
             value: (buf[2] as u16) | ((buf[3] as u16) << 8),
             index: (buf[4] as u16) | ((buf[5] as u16) << 8),
             length: (buf[6] as u16) | ((buf[7] as u16) << 8),
-        })
+        }
     }
 
     /// Gets the descriptor type and index from the value field of a GET_DESCRIPTOR request.
