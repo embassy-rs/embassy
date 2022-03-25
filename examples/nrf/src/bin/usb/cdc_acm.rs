@@ -1,5 +1,8 @@
-use core::convert::TryInto;
+use core::future::Future;
 use core::mem;
+use defmt::info;
+use embassy_usb::class::{ControlInRequestStatus, RequestStatus, UsbClass};
+use embassy_usb::control::{self, Request};
 use embassy_usb::driver::{Endpoint, EndpointIn, EndpointOut, ReadError, WriteError};
 use embassy_usb::{driver::Driver, types::*, UsbDeviceBuilder};
 
@@ -39,14 +42,105 @@ const REQ_SET_CONTROL_LINE_STATE: u8 = 0x22;
 ///   terminated with a short packet, even if the bulk endpoint is used for stream-like data.
 pub struct CdcAcmClass<'d, D: Driver<'d>> {
     // TODO not pub
-    pub comm_if: InterfaceNumber,
     pub comm_ep: D::EndpointIn,
     pub data_if: InterfaceNumber,
     pub read_ep: D::EndpointOut,
     pub write_ep: D::EndpointIn,
+    pub control: CdcAcmControl,
+}
+
+pub struct CdcAcmControl {
+    pub comm_if: InterfaceNumber,
     pub line_coding: LineCoding,
     pub dtr: bool,
     pub rts: bool,
+}
+
+impl<'d, D: Driver<'d>> UsbClass<'d, D> for CdcAcmControl {
+    type ControlOutFuture<'a> = impl Future<Output = RequestStatus> + 'a where Self: 'a, 'd: 'a, D: 'a;
+    type ControlInFuture<'a> = impl Future<Output = ControlInRequestStatus> + 'a where Self: 'a, 'd: 'a, D: 'a;
+
+    fn reset(&mut self) {
+        self.line_coding = LineCoding::default();
+        self.dtr = false;
+        self.rts = false;
+    }
+
+    fn control_out<'a>(
+        &'a mut self,
+        req: control::Request,
+        data: &'a [u8],
+    ) -> Self::ControlOutFuture<'a>
+    where
+        'd: 'a,
+        D: 'a,
+    {
+        async move {
+            if !(req.request_type == control::RequestType::Class
+                && req.recipient == control::Recipient::Interface
+                && req.index == u8::from(self.comm_if) as u16)
+            {
+                return RequestStatus::Unhandled;
+            }
+
+            match req.request {
+                REQ_SEND_ENCAPSULATED_COMMAND => {
+                    // We don't actually support encapsulated commands but pretend we do for standards
+                    // compatibility.
+                    RequestStatus::Accepted
+                }
+                REQ_SET_LINE_CODING if data.len() >= 7 => {
+                    self.line_coding.data_rate = u32::from_le_bytes(data[0..4].try_into().unwrap());
+                    self.line_coding.stop_bits = data[4].into();
+                    self.line_coding.parity_type = data[5].into();
+                    self.line_coding.data_bits = data[6];
+                    info!("Set line coding to: {:?}", self.line_coding);
+
+                    RequestStatus::Accepted
+                }
+                REQ_SET_CONTROL_LINE_STATE => {
+                    self.dtr = (req.value & 0x0001) != 0;
+                    self.rts = (req.value & 0x0002) != 0;
+                    info!("Set dtr {}, rts {}", self.dtr, self.rts);
+
+                    RequestStatus::Accepted
+                }
+                _ => RequestStatus::Rejected,
+            }
+        }
+    }
+
+    fn control_in<'a>(
+        &'a mut self,
+        req: Request,
+        control: embassy_usb::class::ControlIn<'a, 'd, D>,
+    ) -> Self::ControlInFuture<'a>
+    where
+        'd: 'a,
+    {
+        async move {
+            if !(req.request_type == control::RequestType::Class
+                && req.recipient == control::Recipient::Interface
+                && req.index == u8::from(self.comm_if) as u16)
+            {
+                return control.ignore();
+            }
+
+            match req.request {
+                // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
+                REQ_GET_LINE_CODING if req.length == 7 => {
+                    info!("Sending line coding");
+                    let mut data = [0; 7];
+                    data[0..4].copy_from_slice(&self.line_coding.data_rate.to_le_bytes());
+                    data[4] = self.line_coding.stop_bits as u8;
+                    data[5] = self.line_coding.parity_type as u8;
+                    data[6] = self.line_coding.data_bits;
+                    control.accept(&data).await
+                }
+                _ => control.reject(),
+            }
+        }
+    }
 }
 
 impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
@@ -133,19 +227,21 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         builder.config_descriptor.endpoint(read_ep.info()).unwrap();
 
         CdcAcmClass {
-            comm_if,
             comm_ep,
             data_if,
             read_ep,
             write_ep,
-            line_coding: LineCoding {
-                stop_bits: StopBits::One,
-                data_bits: 8,
-                parity_type: ParityType::None,
-                data_rate: 8_000,
+            control: CdcAcmControl {
+                comm_if,
+                dtr: false,
+                rts: false,
+                line_coding: LineCoding {
+                    stop_bits: StopBits::One,
+                    data_bits: 8,
+                    parity_type: ParityType::None,
+                    data_rate: 8_000,
+                },
             },
-            dtr: false,
-            rts: false,
         }
     }
 
@@ -158,17 +254,17 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Gets the current line coding. The line coding contains information that's mainly relevant
     /// for USB to UART serial port emulators, and can be ignored if not relevant.
     pub fn line_coding(&self) -> &LineCoding {
-        &self.line_coding
+        &self.control.line_coding
     }
 
     /// Gets the DTR (data terminal ready) state
     pub fn dtr(&self) -> bool {
-        self.dtr
+        self.control.dtr
     }
 
     /// Gets the RTS (request to send) state
     pub fn rts(&self) -> bool {
-        self.rts
+        self.control.rts
     }
 
     /// Writes a single packet into the IN endpoint.
@@ -270,7 +366,7 @@ impl<B: UsbBus> UsbClass<B> for CdcAcmClass<'_, B> {
  */
 
 /// Number of stop bits for LineCoding
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, defmt::Format)]
 pub enum StopBits {
     /// 1 stop bit
     One = 0,
@@ -293,7 +389,7 @@ impl From<u8> for StopBits {
 }
 
 /// Parity for LineCoding
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, defmt::Format)]
 pub enum ParityType {
     None = 0,
     Odd = 1,
@@ -316,6 +412,7 @@ impl From<u8> for ParityType {
 ///
 /// This is provided by the host for specifying the standard UART parameters such as baud rate. Can
 /// be ignored if you don't plan to interface with a physical UART.
+#[derive(defmt::Format)]
 pub struct LineCoding {
     stop_bits: StopBits,
     data_bits: u8,

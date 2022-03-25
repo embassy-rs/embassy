@@ -1,3 +1,4 @@
+use super::class::UsbClass;
 use super::descriptor::{BosWriter, DescriptorWriter};
 use super::driver::{Driver, EndpointAllocError};
 use super::types::*;
@@ -174,7 +175,10 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
     }
 
     /// Creates the [`UsbDevice`] instance with the configuration in this builder.
-    pub fn build(mut self) -> UsbDevice<'d, D> {
+    ///
+    /// If a device has mutliple [`UsbClass`]es, they can be provided as a tuple list:
+    /// `(class1, (class2, (class3, ()))`.
+    pub fn build<C: UsbClass<'d, D>>(mut self, classes: C) -> UsbDevice<'d, D, C> {
         self.config_descriptor.end_configuration();
         self.bos_descriptor.end_bos();
 
@@ -184,6 +188,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
             self.device_descriptor.into_buf(),
             self.config_descriptor.into_buf(),
             self.bos_descriptor.writer.into_buf(),
+            classes,
         )
     }
 
@@ -268,9 +273,10 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
     /// Panics if endpoint allocation fails, because running out of endpoints or memory is not
     /// feasibly recoverable.
     #[inline]
-    pub fn alloc_control_endpoint_out(&mut self, max_packet_size: u16) -> D::EndpointOut {
-        self.alloc_endpoint_out(None, EndpointType::Control, max_packet_size, 0)
-            .expect("alloc_ep failed")
+    pub fn alloc_control_pipe(&mut self, max_packet_size: u16) -> D::ControlPipe {
+        self.bus
+            .alloc_control_pipe(max_packet_size)
+            .expect("alloc_control_pipe failed")
     }
 
     /// Allocates a bulk in endpoint.
