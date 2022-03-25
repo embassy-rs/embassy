@@ -1,5 +1,7 @@
 use core::future::Future;
 
+use crate::control::Request;
+
 use super::types::*;
 
 /// Driver for a specific USB peripheral. Implement this to add support for a new hardware
@@ -7,6 +9,7 @@ use super::types::*;
 pub trait Driver<'a> {
     type EndpointOut: EndpointOut + 'a;
     type EndpointIn: EndpointIn + 'a;
+    type ControlPipe: ControlPipe + 'a;
     type Bus: Bus + 'a;
 
     /// Allocates an endpoint and specified endpoint parameters. This method is called by the device
@@ -35,6 +38,11 @@ pub trait Driver<'a> {
         max_packet_size: u16,
         interval: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError>;
+
+    fn alloc_control_pipe(
+        &mut self,
+        max_packet_size: u16,
+    ) -> Result<Self::ControlPipe, EndpointAllocError>;
 
     /// Enables and initializes the USB peripheral. Soon after enabling the device will be reset, so
     /// there is no need to perform a USB reset in this method.
@@ -120,6 +128,40 @@ pub trait EndpointOut: Endpoint {
     ///
     /// This should also clear any NAK flags and prepare the endpoint to receive the next packet.
     fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a>;
+}
+
+pub trait ControlPipe {
+    type SetupFuture<'a>: Future<Output = Request> + 'a
+    where
+        Self: 'a;
+    type DataOutFuture<'a>: Future<Output = Result<usize, ReadError>> + 'a
+    where
+        Self: 'a;
+    type AcceptInFuture<'a>: Future<Output = ()> + 'a
+    where
+        Self: 'a;
+
+    /// Reads a single setup packet from the endpoint.
+    fn setup<'a>(&'a mut self) -> Self::SetupFuture<'a>;
+
+    /// Reads the data packet of a control write sequence.
+    ///
+    /// Must be called after `setup()` for requests with `direction` of `Out`
+    /// and `length` greater than zero.
+    ///
+    /// `buf.len()` must be greater than or equal to the request's `length`.
+    fn data_out<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::DataOutFuture<'a>;
+
+    /// Accepts a control request.
+    fn accept(&mut self);
+
+    /// Accepts a control read request with `data`.
+    ///
+    /// `data.len()` must be less than or equal to the request's `length`.
+    fn accept_in<'a>(&'a mut self, data: &'a [u8]) -> Self::AcceptInFuture<'a>;
+
+    /// Rejects a control request.
+    fn reject(&mut self);
 }
 
 pub trait EndpointIn: Endpoint {
