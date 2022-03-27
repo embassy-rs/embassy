@@ -13,6 +13,8 @@ pub mod driver;
 pub mod types;
 mod util;
 
+use class::ControlInRequestStatus;
+
 use self::class::{RequestStatus, UsbClass};
 use self::control::*;
 use self::descriptor::*;
@@ -51,7 +53,7 @@ pub const CONFIGURATION_VALUE: u8 = 1;
 /// The default value for bAlternateSetting for all interfaces.
 pub const DEFAULT_ALTERNATE_SETTING: u8 = 0;
 
-pub struct UsbDevice<'d, D: Driver<'d>, C: UsbClass<'d, D>> {
+pub struct UsbDevice<'d, D: Driver<'d>> {
     bus: D::Bus,
     control: D::ControlPipe,
 
@@ -65,17 +67,17 @@ pub struct UsbDevice<'d, D: Driver<'d>, C: UsbClass<'d, D>> {
     self_powered: bool,
     pending_address: u8,
 
-    classes: C,
+    classes: &'d mut [&'d mut dyn UsbClass],
 }
 
-impl<'d, D: Driver<'d>, C: UsbClass<'d, D>> UsbDevice<'d, D, C> {
+impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     pub(crate) fn build(
         mut driver: D,
         config: Config<'d>,
         device_descriptor: &'d [u8],
         config_descriptor: &'d [u8],
         bos_descriptor: &'d [u8],
-        classes: C,
+        classes: &'d mut [&'d mut dyn UsbClass],
     ) -> Self {
         let control = driver
             .alloc_control_pipe(config.max_packet_size_0 as u16)
@@ -113,7 +115,9 @@ impl<'d, D: Driver<'d>, C: UsbClass<'d, D>> UsbDevice<'d, D, C> {
                         self.remote_wakeup_enabled = false;
                         self.pending_address = 0;
 
-                        self.classes.reset();
+                        for c in self.classes.iter_mut() {
+                            c.reset();
+                        }
                     }
                     Event::Resume => {}
                     Event::Suspend => {
@@ -155,10 +159,12 @@ impl<'d, D: Driver<'d>, C: UsbClass<'d, D>> UsbDevice<'d, D, C> {
                 &[]
             };
 
-            match self.classes.control_out(req, data).await {
-                RequestStatus::Accepted => return self.control.accept(),
-                RequestStatus::Rejected => return self.control.reject(),
-                RequestStatus::Unhandled => (),
+            for c in self.classes.iter_mut() {
+                match c.control_out(req, data) {
+                    RequestStatus::Accepted => return self.control.accept(),
+                    RequestStatus::Rejected => return self.control.reject(),
+                    RequestStatus::Unhandled => (),
+                }
             }
         }
 
@@ -233,14 +239,22 @@ impl<'d, D: Driver<'d>, C: UsbClass<'d, D>> UsbDevice<'d, D, C> {
     }
 
     async fn handle_control_in(&mut self, req: Request) {
-        match self
-            .classes
-            .control_in(req, class::ControlIn::new(&mut self.control))
-            .await
-            .status()
-        {
-            RequestStatus::Accepted | RequestStatus::Rejected => return,
-            RequestStatus::Unhandled => (),
+        let mut buf = [0; 128];
+        for c in self.classes.iter_mut() {
+            match c.control_in(req, class::ControlIn::new(&mut buf)) {
+                ControlInRequestStatus {
+                    status: RequestStatus::Accepted,
+                    data,
+                } => return self.control.accept_in(data).await,
+                ControlInRequestStatus {
+                    status: RequestStatus::Rejected,
+                    ..
+                } => return self.control.reject(),
+                ControlInRequestStatus {
+                    status: RequestStatus::Unhandled,
+                    ..
+                } => (),
+            }
         }
 
         match req.request_type {
