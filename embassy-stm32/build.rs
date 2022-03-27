@@ -166,6 +166,15 @@ fn main() {
                 None => TokenStream::new(),
             };
 
+            let after_enable = if chip_name.starts_with("stm32f2") {
+                // Errata: ES0005 - 2.1.11 Delay after an RCC peripheral clock enabling
+                quote! {
+                    cortex_m::asm::dsb();
+                }
+            } else {
+                TokenStream::new()
+            };
+
             let pname = format_ident!("{}", p.name);
             let clk = format_ident!("{}", rcc.clock.to_ascii_lowercase());
             let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
@@ -180,7 +189,8 @@ fn main() {
                     }
                     fn enable() {
                         critical_section::with(|_| unsafe {
-                            crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true))
+                            crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
+                            #after_enable
                         })
                     }
                     fn disable() {
