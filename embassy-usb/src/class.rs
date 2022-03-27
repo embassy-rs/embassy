@@ -1,7 +1,4 @@
-use core::future::Future;
-
 use crate::control::Request;
-use crate::driver::{ControlPipe, Driver};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -21,19 +18,7 @@ impl Default for RequestStatus {
 ///
 /// All methods are optional callbacks that will be called by
 /// [`UsbDevice::run()`](crate::UsbDevice::run)
-pub trait UsbClass<'d, D: Driver<'d>> {
-    type ControlOutFuture<'a>: Future<Output = RequestStatus> + 'a
-    where
-        Self: 'a,
-        'd: 'a,
-        D: 'a;
-
-    type ControlInFuture<'a>: Future<Output = ControlInRequestStatus> + 'a
-    where
-        Self: 'a,
-        'd: 'a,
-        D: 'a;
-
+pub trait UsbClass {
     /// Called after a USB reset after the bus reset sequence is complete.
     fn reset(&mut self) {}
 
@@ -50,10 +35,7 @@ pub trait UsbClass<'d, D: Driver<'d>> {
     ///
     /// * `req` - The request from the SETUP packet.
     /// * `data` - The data from the request.
-    fn control_out<'a>(&'a mut self, req: Request, data: &'a [u8]) -> Self::ControlOutFuture<'a>
-    where
-        'd: 'a,
-        D: 'a;
+    fn control_out(&mut self, req: Request, data: &[u8]) -> RequestStatus;
 
     /// Called when a control request is received with direction DeviceToHost.
     ///
@@ -71,120 +53,63 @@ pub trait UsbClass<'d, D: Driver<'d>> {
     /// * `req` - The request from the SETUP packet.
     /// * `control` - The control pipe.
     fn control_in<'a>(
-        &'a mut self,
+        &mut self,
         req: Request,
-        control: ControlIn<'a, 'd, D>,
-    ) -> Self::ControlInFuture<'a>
-    where
-        'd: 'a;
-}
-
-impl<'d, D: Driver<'d>> UsbClass<'d, D> for () {
-    type ControlOutFuture<'a> = impl Future<Output = RequestStatus> + 'a where Self: 'a, 'd: 'a, D: 'a;
-    type ControlInFuture<'a> = impl Future<Output = ControlInRequestStatus> + 'a where Self: 'a, 'd: 'a, D: 'a;
-
-    fn control_out<'a>(&'a mut self, _req: Request, _data: &'a [u8]) -> Self::ControlOutFuture<'a>
-    where
-        'd: 'a,
-        D: 'a,
-    {
-        async move { RequestStatus::default() }
-    }
-
-    fn control_in<'a>(
-        &'a mut self,
-        _req: Request,
-        control: ControlIn<'a, 'd, D>,
-    ) -> Self::ControlInFuture<'a>
-    where
-        'd: 'a,
-        D: 'a,
-    {
-        async move { control.ignore() }
-    }
-}
-
-impl<'d, D: Driver<'d>, Head, Tail> UsbClass<'d, D> for (Head, Tail)
-where
-    Head: UsbClass<'d, D>,
-    Tail: UsbClass<'d, D>,
-{
-    type ControlOutFuture<'a> = impl Future<Output = RequestStatus> + 'a where Self: 'a, 'd: 'a, D: 'a;
-    type ControlInFuture<'a> = impl Future<Output = ControlInRequestStatus> + 'a where Self: 'a, 'd: 'a, D: 'a;
-
-    fn control_out<'a>(&'a mut self, req: Request, data: &'a [u8]) -> Self::ControlOutFuture<'a>
-    where
-        'd: 'a,
-        D: 'a,
-    {
-        async move {
-            match self.0.control_out(req, data).await {
-                RequestStatus::Unhandled => self.1.control_out(req, data).await,
-                status => status,
-            }
-        }
-    }
-
-    fn control_in<'a>(
-        &'a mut self,
-        req: Request,
-        control: ControlIn<'a, 'd, D>,
-    ) -> Self::ControlInFuture<'a>
-    where
-        'd: 'a,
-    {
-        async move {
-            match self
-                .0
-                .control_in(req, ControlIn::new(control.control))
-                .await
-            {
-                ControlInRequestStatus(RequestStatus::Unhandled) => {
-                    self.1.control_in(req, control).await
-                }
-                status => status,
-            }
-        }
-    }
+        control: ControlIn<'a>,
+    ) -> ControlInRequestStatus<'a>;
 }
 
 /// Handle for a control IN transfer. When implementing a class, use the methods of this object to
 /// response to the transfer with either data or an error (STALL condition). To ignore the request
 /// and pass it on to the next class, call [`Self::ignore()`].
-pub struct ControlIn<'a, 'd: 'a, D: Driver<'d>> {
-    control: &'a mut D::ControlPipe,
+pub struct ControlIn<'a> {
+    buf: &'a mut [u8],
 }
 
 #[derive(Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ControlInRequestStatus(pub(crate) RequestStatus);
+pub struct ControlInRequestStatus<'a> {
+    pub(crate) status: RequestStatus,
+    pub(crate) data: &'a [u8],
+}
 
-impl ControlInRequestStatus {
-    pub fn status(self) -> RequestStatus {
-        self.0
+impl<'a> ControlInRequestStatus<'a> {
+    pub fn status(&self) -> RequestStatus {
+        self.status
     }
 }
 
-impl<'a, 'd: 'a, D: Driver<'d>> ControlIn<'a, 'd, D> {
-    pub(crate) fn new(control: &'a mut D::ControlPipe) -> Self {
-        ControlIn { control }
+impl<'a> ControlIn<'a> {
+    pub(crate) fn new(buf: &'a mut [u8]) -> Self {
+        ControlIn { buf }
     }
 
     /// Ignores the request and leaves it unhandled.
-    pub fn ignore(self) -> ControlInRequestStatus {
-        ControlInRequestStatus(RequestStatus::Unhandled)
+    pub fn ignore(self) -> ControlInRequestStatus<'a> {
+        ControlInRequestStatus {
+            status: RequestStatus::Unhandled,
+            data: &[],
+        }
     }
 
     /// Accepts the transfer with the supplied buffer.
-    pub async fn accept(self, data: &[u8]) -> ControlInRequestStatus {
-        self.control.accept_in(data).await;
+    pub fn accept(self, data: &[u8]) -> ControlInRequestStatus<'a> {
+        assert!(data.len() < self.buf.len());
 
-        ControlInRequestStatus(RequestStatus::Accepted)
+        let buf = &mut self.buf[0..data.len()];
+        buf.copy_from_slice(data);
+
+        ControlInRequestStatus {
+            status: RequestStatus::Accepted,
+            data: buf,
+        }
     }
 
     /// Rejects the transfer by stalling the pipe.
-    pub fn reject(self) -> ControlInRequestStatus {
-        self.control.reject();
-        ControlInRequestStatus(RequestStatus::Rejected)
+    pub fn reject(self) -> ControlInRequestStatus<'a> {
+        ControlInRequestStatus {
+            status: RequestStatus::Unhandled,
+            data: &[],
+        }
     }
 }

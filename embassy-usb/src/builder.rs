@@ -175,10 +175,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
     }
 
     /// Creates the [`UsbDevice`] instance with the configuration in this builder.
-    ///
-    /// If a device has mutliple [`UsbClass`]es, they can be provided as a tuple list:
-    /// `(class1, (class2, (class3, ()))`.
-    pub fn build<C: UsbClass<'d, D>>(mut self, classes: C) -> UsbDevice<'d, D, C> {
+    pub fn build(mut self, classes: &'d mut [&'d mut dyn UsbClass]) -> UsbDevice<'d, D> {
         self.config_descriptor.end_configuration();
         self.bos_descriptor.end_bos();
 

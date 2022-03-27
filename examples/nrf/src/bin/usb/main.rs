@@ -16,6 +16,7 @@ use embassy_nrf::interrupt;
 use embassy_nrf::pac;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::Peripherals;
+use embassy_usb::class::UsbClass;
 use embassy_usb::driver::{EndpointIn, EndpointOut};
 use embassy_usb::{Config, UsbDeviceBuilder};
 use futures::future::join3;
@@ -59,7 +60,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut class = CdcAcmClass::new(&mut builder, 64);
 
     // Build the builder.
-    let mut usb = builder.build(class.control);
+    let mut classes: [&mut dyn UsbClass; 1] = [&mut class.control];
+    let mut usb = builder.build(&mut classes);
 
     // Run the USB device.
     let fut1 = usb.run();

@@ -1,4 +1,3 @@
-use core::future::Future;
 use core::mem;
 use defmt::info;
 use embassy_usb::class::{ControlInRequestStatus, RequestStatus, UsbClass};
@@ -56,89 +55,71 @@ pub struct CdcAcmControl {
     pub rts: bool,
 }
 
-impl<'d, D: Driver<'d>> UsbClass<'d, D> for CdcAcmControl {
-    type ControlOutFuture<'a> = impl Future<Output = RequestStatus> + 'a where Self: 'a, 'd: 'a, D: 'a;
-    type ControlInFuture<'a> = impl Future<Output = ControlInRequestStatus> + 'a where Self: 'a, 'd: 'a, D: 'a;
-
+impl UsbClass for CdcAcmControl {
     fn reset(&mut self) {
         self.line_coding = LineCoding::default();
         self.dtr = false;
         self.rts = false;
     }
 
-    fn control_out<'a>(
-        &'a mut self,
-        req: control::Request,
-        data: &'a [u8],
-    ) -> Self::ControlOutFuture<'a>
-    where
-        'd: 'a,
-        D: 'a,
-    {
-        async move {
-            if !(req.request_type == control::RequestType::Class
-                && req.recipient == control::Recipient::Interface
-                && req.index == u8::from(self.comm_if) as u16)
-            {
-                return RequestStatus::Unhandled;
+    fn control_out(&mut self, req: control::Request, data: &[u8]) -> RequestStatus {
+        if !(req.request_type == control::RequestType::Class
+            && req.recipient == control::Recipient::Interface
+            && req.index == u8::from(self.comm_if) as u16)
+        {
+            return RequestStatus::Unhandled;
+        }
+
+        match req.request {
+            REQ_SEND_ENCAPSULATED_COMMAND => {
+                // We don't actually support encapsulated commands but pretend we do for standards
+                // compatibility.
+                RequestStatus::Accepted
             }
+            REQ_SET_LINE_CODING if data.len() >= 7 => {
+                self.line_coding.data_rate = u32::from_le_bytes(data[0..4].try_into().unwrap());
+                self.line_coding.stop_bits = data[4].into();
+                self.line_coding.parity_type = data[5].into();
+                self.line_coding.data_bits = data[6];
+                info!("Set line coding to: {:?}", self.line_coding);
 
-            match req.request {
-                REQ_SEND_ENCAPSULATED_COMMAND => {
-                    // We don't actually support encapsulated commands but pretend we do for standards
-                    // compatibility.
-                    RequestStatus::Accepted
-                }
-                REQ_SET_LINE_CODING if data.len() >= 7 => {
-                    self.line_coding.data_rate = u32::from_le_bytes(data[0..4].try_into().unwrap());
-                    self.line_coding.stop_bits = data[4].into();
-                    self.line_coding.parity_type = data[5].into();
-                    self.line_coding.data_bits = data[6];
-                    info!("Set line coding to: {:?}", self.line_coding);
-
-                    RequestStatus::Accepted
-                }
-                REQ_SET_CONTROL_LINE_STATE => {
-                    self.dtr = (req.value & 0x0001) != 0;
-                    self.rts = (req.value & 0x0002) != 0;
-                    info!("Set dtr {}, rts {}", self.dtr, self.rts);
-
-                    RequestStatus::Accepted
-                }
-                _ => RequestStatus::Rejected,
+                RequestStatus::Accepted
             }
+            REQ_SET_CONTROL_LINE_STATE => {
+                self.dtr = (req.value & 0x0001) != 0;
+                self.rts = (req.value & 0x0002) != 0;
+                info!("Set dtr {}, rts {}", self.dtr, self.rts);
+
+                RequestStatus::Accepted
+            }
+            _ => RequestStatus::Rejected,
         }
     }
 
     fn control_in<'a>(
-        &'a mut self,
+        &mut self,
         req: Request,
-        control: embassy_usb::class::ControlIn<'a, 'd, D>,
-    ) -> Self::ControlInFuture<'a>
-    where
-        'd: 'a,
-    {
-        async move {
-            if !(req.request_type == control::RequestType::Class
-                && req.recipient == control::Recipient::Interface
-                && req.index == u8::from(self.comm_if) as u16)
-            {
-                return control.ignore();
-            }
+        control: embassy_usb::class::ControlIn<'a>,
+    ) -> ControlInRequestStatus<'a> {
+        if !(req.request_type == control::RequestType::Class
+            && req.recipient == control::Recipient::Interface
+            && req.index == u8::from(self.comm_if) as u16)
+        {
+            return control.ignore();
+        }
 
-            match req.request {
-                // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
-                REQ_GET_LINE_CODING if req.length == 7 => {
-                    info!("Sending line coding");
-                    let mut data = [0; 7];
-                    data[0..4].copy_from_slice(&self.line_coding.data_rate.to_le_bytes());
-                    data[4] = self.line_coding.stop_bits as u8;
-                    data[5] = self.line_coding.parity_type as u8;
-                    data[6] = self.line_coding.data_bits;
-                    control.accept(&data).await
-                }
-                _ => control.reject(),
+        match req.request {
+            // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
+            REQ_GET_LINE_CODING if req.length == 7 => {
+                info!("Sending line coding");
+                let mut data = [0; 7];
+                data[0..4].copy_from_slice(&self.line_coding.data_rate.to_le_bytes());
+                data[4] = self.line_coding.stop_bits as u8;
+                data[5] = self.line_coding.parity_type as u8;
+                data[6] = self.line_coding.data_bits;
+                control.accept(&data)
             }
+            _ => control.reject(),
         }
     }
 }
