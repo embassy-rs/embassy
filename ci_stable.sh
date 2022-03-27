@@ -58,5 +58,7 @@ cargo batch  \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32l072cz,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32l151cb-a,defmt,exti,time-driver-any \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32l151cb-a,defmt,exti,time-driver-any,unstable-traits \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f217zg,defmt,exti,time-driver-any \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f217zg,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path examples/nrf/Cargo.toml --target thumbv7em-none-eabi --no-default-features --out-dir out/examples/nrf --bin raw_spawn \
     --- build --release --manifest-path examples/stm32l0/Cargo.toml --target thumbv6m-none-eabi --no-default-features --out-dir out/examples/stm32l0 --bin raw_spawn \

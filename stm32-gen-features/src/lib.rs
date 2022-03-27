@@ -5,6 +5,7 @@ use std::{iter::FilterMap, path::Path, slice::Iter};
 const SUPPORTED_FAMILIES: &[&str] = &[
     "stm32f0",
     "stm32f1",
+    "stm32f2",
     "stm32f3",
     "stm32f4",
     "stm32f7",
@@ -52,7 +53,7 @@ impl FilterSupported for &[(String, Vec<String>)] {
 ///
 /// This function is slow because all the yaml files are parsed.
 pub fn chip_names_and_cores() -> Vec<(String, Vec<String>)> {
-    glob::glob("../stm32-data/data/chips/*.yaml")
+    glob::glob("../stm32-data/data/chips/*.json")
         .unwrap()
         .filter_map(|entry| entry.map_err(|e| eprintln!("{:?}", e)).ok())
         .filter_map(|entry| {
