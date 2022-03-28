@@ -3,8 +3,9 @@ use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::info;
 use embassy::blocking_mutex::CriticalSectionMutex;
-use embassy_usb::class::{ControlHandler, ControlInRequestStatus, RequestStatus};
-use embassy_usb::control::{self, Request};
+use embassy_usb::control::{
+    self, ControlHandler, ControlIn, ControlInRequestStatus, Request, RequestStatus,
+};
 use embassy_usb::driver::{Endpoint, EndpointIn, EndpointOut, ReadError, WriteError};
 use embassy_usb::{driver::Driver, types::*, UsbDeviceBuilder};
 
@@ -124,7 +125,7 @@ impl ControlHandler for Control {
     fn control_in<'a>(
         &mut self,
         req: Request,
-        control: embassy_usb::class::ControlIn<'a>,
+        control: ControlIn<'a>,
     ) -> ControlInRequestStatus<'a> {
         match req.request {
             // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.

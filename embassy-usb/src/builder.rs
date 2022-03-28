@@ -1,6 +1,6 @@
 use heapless::Vec;
 
-use super::class::ControlHandler;
+use super::control::ControlHandler;
 use super::descriptor::{BosWriter, DescriptorWriter};
 use super::driver::{Driver, EndpointAllocError};
 use super::types::*;
