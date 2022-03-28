@@ -126,7 +126,7 @@ impl Request {
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum RequestStatus {
+pub enum OutResponse {
     Accepted,
     Rejected,
 }
@@ -152,8 +152,8 @@ pub trait ControlHandler {
     ///
     /// * `req` - The request from the SETUP packet.
     /// * `data` - The data from the request.
-    fn control_out(&mut self, req: Request, data: &[u8]) -> RequestStatus {
-        RequestStatus::Rejected
+    fn control_out(&mut self, req: Request, data: &[u8]) -> OutResponse {
+        OutResponse::Rejected
     }
 
     /// Called when a control request is received with direction DeviceToHost.
@@ -171,11 +171,7 @@ pub trait ControlHandler {
     ///
     /// * `req` - The request from the SETUP packet.
     /// * `control` - The control pipe.
-    fn control_in<'a>(
-        &mut self,
-        req: Request,
-        control: ControlIn<'a>,
-    ) -> ControlInRequestStatus<'a> {
+    fn control_in<'a>(&mut self, req: Request, control: ControlIn<'a>) -> InResponse<'a> {
         control.reject()
     }
 }
@@ -189,14 +185,14 @@ pub struct ControlIn<'a> {
 
 #[derive(Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ControlInRequestStatus<'a> {
-    pub(crate) status: RequestStatus,
+pub struct InResponse<'a> {
+    pub(crate) response: OutResponse,
     pub(crate) data: &'a [u8],
 }
 
-impl<'a> ControlInRequestStatus<'a> {
-    pub fn status(&self) -> RequestStatus {
-        self.status
+impl<'a> InResponse<'a> {
+    pub fn status(&self) -> OutResponse {
+        self.response
     }
 }
 
@@ -206,22 +202,22 @@ impl<'a> ControlIn<'a> {
     }
 
     /// Accepts the transfer with the supplied buffer.
-    pub fn accept(self, data: &[u8]) -> ControlInRequestStatus<'a> {
+    pub fn accept(self, data: &[u8]) -> InResponse<'a> {
         assert!(data.len() < self.buf.len());
 
         let buf = &mut self.buf[0..data.len()];
         buf.copy_from_slice(data);
 
-        ControlInRequestStatus {
-            status: RequestStatus::Accepted,
+        InResponse {
+            response: OutResponse::Accepted,
             data: buf,
         }
     }
 
     /// Rejects the transfer by stalling the pipe.
-    pub fn reject(self) -> ControlInRequestStatus<'a> {
-        ControlInRequestStatus {
-            status: RequestStatus::Rejected,
+    pub fn reject(self) -> InResponse<'a> {
+        InResponse {
+            response: OutResponse::Rejected,
             data: &[],
         }
     }
