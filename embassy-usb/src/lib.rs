@@ -278,7 +278,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 _ => self.control.reject(),
             },
             (RequestType::Class, Recipient::Interface) => {
-                let mut buf = [0; 128];
                 let handler = self
                     .interfaces
                     .iter_mut()
@@ -286,10 +285,10 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     .map(|(_, h)| h);
                 match handler {
                     Some(handler) => {
-                        let resp = handler.control_in(req, ControlIn::new(&mut buf));
-                        match resp.response {
-                            OutResponse::Accepted => self.control.accept_in(resp.data).await,
-                            OutResponse::Rejected => self.control.reject(),
+                        let mut buf = [0; 128];
+                        match handler.control_in(req, &mut buf) {
+                            InResponse::Accepted(len) => self.control.accept_in(&buf[..len]).await,
+                            InResponse::Rejected => self.control.reject(),
                         }
                     }
                     None => self.control.reject(),
