@@ -138,7 +138,7 @@ pub enum InResponse {
     Rejected,
 }
 
-/// A trait for implementing USB classes.
+/// Handler for control requests.
 ///
 /// All methods are optional callbacks that will be called by
 /// [`UsbDevice::run()`](crate::UsbDevice::run)
@@ -147,13 +147,6 @@ pub trait ControlHandler {
     fn reset(&mut self) {}
 
     /// Called when a control request is received with direction HostToDevice.
-    ///
-    /// All requests are passed to classes in turn, which can choose to accept, ignore or report an
-    /// error. Classes can even choose to override standard requests, but doing that is rarely
-    /// necessary.
-    ///
-    /// When implementing your own class, you should ignore any requests that are not meant for your
-    /// class so that any other classes in the composite device can process them.
     ///
     /// # Arguments
     ///
@@ -165,19 +158,13 @@ pub trait ControlHandler {
 
     /// Called when a control request is received with direction DeviceToHost.
     ///
-    /// All requests are passed to classes in turn, which can choose to accept, ignore or report an
-    /// error. Classes can even choose to override standard requests, but doing that is rarely
-    /// necessary.
-    ///
-    /// See [`ControlIn`] for how to respond to the transfer.
-    ///
-    /// When implementing your own class, you should ignore any requests that are not meant for your
-    /// class so that any other classes in the composite device can process them.
+    /// You should write the response to `resp`, then return `InResponse::Accepted(len)`
+    /// with the length of the response.
     ///
     /// # Arguments
     ///
     /// * `req` - The request from the SETUP packet.
-    /// * `control` - The control pipe.
+    /// * `resp` - The buffer for you to write the response.
     fn control_in(&mut self, req: Request, resp: &mut [u8]) -> InResponse {
         InResponse::Rejected
     }
