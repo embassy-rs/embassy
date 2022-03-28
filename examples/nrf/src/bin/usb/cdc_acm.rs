@@ -3,7 +3,7 @@ use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::info;
 use embassy::blocking_mutex::CriticalSectionMutex;
-use embassy_usb::class::{ControlInRequestStatus, RequestStatus, UsbClass};
+use embassy_usb::class::{ControlHandler, ControlInRequestStatus, RequestStatus};
 use embassy_usb::control::{self, Request};
 use embassy_usb::driver::{Endpoint, EndpointIn, EndpointOut, ReadError, WriteError};
 use embassy_usb::{driver::Driver, types::*, UsbDeviceBuilder};
@@ -64,7 +64,6 @@ pub struct CdcAcmClass<'d, D: Driver<'d>> {
 }
 
 struct Control {
-    comm_if: InterfaceNumber,
     shared: UnsafeCell<ControlShared>,
 }
 
@@ -80,7 +79,7 @@ impl Control {
         unsafe { &*(self.shared.get() as *const _) }
     }
 }
-impl UsbClass for Control {
+impl ControlHandler for Control {
     fn reset(&mut self) {
         let shared = self.shared();
         shared.line_coding.lock(|x| x.set(LineCoding::default()));
@@ -89,13 +88,6 @@ impl UsbClass for Control {
     }
 
     fn control_out(&mut self, req: control::Request, data: &[u8]) -> RequestStatus {
-        if !(req.request_type == control::RequestType::Class
-            && req.recipient == control::Recipient::Interface
-            && req.index == u8::from(self.comm_if) as u16)
-        {
-            return RequestStatus::Unhandled;
-        }
-
         match req.request {
             REQ_SEND_ENCAPSULATED_COMMAND => {
                 // We don't actually support encapsulated commands but pretend we do for standards
@@ -134,13 +126,6 @@ impl UsbClass for Control {
         req: Request,
         control: embassy_usb::class::ControlIn<'a>,
     ) -> ControlInRequestStatus<'a> {
-        if !(req.request_type == control::RequestType::Class
-            && req.recipient == control::Recipient::Interface
-            && req.index == u8::from(self.comm_if) as u16)
-        {
-            return control.ignore();
-        }
-
         match req.request {
             // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
             REQ_GET_LINE_CODING if req.length == 7 => {
@@ -166,7 +151,22 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         state: &'d mut State,
         max_packet_size: u16,
     ) -> Self {
-        let comm_if = builder.alloc_interface();
+        let control = state.control.write(Control {
+            shared: UnsafeCell::new(ControlShared {
+                dtr: AtomicBool::new(false),
+                rts: AtomicBool::new(false),
+                line_coding: CriticalSectionMutex::new(Cell::new(LineCoding {
+                    stop_bits: StopBits::One,
+                    data_bits: 8,
+                    parity_type: ParityType::None,
+                    data_rate: 8_000,
+                })),
+            }),
+        });
+
+        let control_shared = unsafe { &*(control.shared.get() as *const _) };
+
+        let comm_if = builder.alloc_interface_with_handler(control);
         let comm_ep = builder.alloc_interrupt_endpoint_in(8, 255);
         let data_if = builder.alloc_interface();
         let read_ep = builder.alloc_bulk_endpoint_out(max_packet_size);
@@ -244,23 +244,6 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
 
         builder.config_descriptor.endpoint(write_ep.info()).unwrap();
         builder.config_descriptor.endpoint(read_ep.info()).unwrap();
-
-        let control = state.control.write(Control {
-            comm_if,
-            shared: UnsafeCell::new(ControlShared {
-                dtr: AtomicBool::new(false),
-                rts: AtomicBool::new(false),
-                line_coding: CriticalSectionMutex::new(Cell::new(LineCoding {
-                    stop_bits: StopBits::One,
-                    data_bits: 8,
-                    parity_type: ParityType::None,
-                    data_rate: 8_000,
-                })),
-            }),
-        });
-
-        let control_shared = unsafe { &*(control.shared.get() as *const _) };
-        builder.add_class(control);
 
         CdcAcmClass {
             comm_ep,

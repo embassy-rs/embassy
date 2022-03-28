@@ -3,22 +3,15 @@ use crate::control::Request;
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RequestStatus {
-    Unhandled,
     Accepted,
     Rejected,
-}
-
-impl Default for RequestStatus {
-    fn default() -> Self {
-        RequestStatus::Unhandled
-    }
 }
 
 /// A trait for implementing USB classes.
 ///
 /// All methods are optional callbacks that will be called by
 /// [`UsbDevice::run()`](crate::UsbDevice::run)
-pub trait UsbClass {
+pub trait ControlHandler {
     /// Called after a USB reset after the bus reset sequence is complete.
     fn reset(&mut self) {}
 
@@ -35,7 +28,9 @@ pub trait UsbClass {
     ///
     /// * `req` - The request from the SETUP packet.
     /// * `data` - The data from the request.
-    fn control_out(&mut self, req: Request, data: &[u8]) -> RequestStatus;
+    fn control_out(&mut self, req: Request, data: &[u8]) -> RequestStatus {
+        RequestStatus::Rejected
+    }
 
     /// Called when a control request is received with direction DeviceToHost.
     ///
@@ -56,7 +51,9 @@ pub trait UsbClass {
         &mut self,
         req: Request,
         control: ControlIn<'a>,
-    ) -> ControlInRequestStatus<'a>;
+    ) -> ControlInRequestStatus<'a> {
+        control.reject()
+    }
 }
 
 /// Handle for a control IN transfer. When implementing a class, use the methods of this object to
@@ -84,14 +81,6 @@ impl<'a> ControlIn<'a> {
         ControlIn { buf }
     }
 
-    /// Ignores the request and leaves it unhandled.
-    pub fn ignore(self) -> ControlInRequestStatus<'a> {
-        ControlInRequestStatus {
-            status: RequestStatus::Unhandled,
-            data: &[],
-        }
-    }
-
     /// Accepts the transfer with the supplied buffer.
     pub fn accept(self, data: &[u8]) -> ControlInRequestStatus<'a> {
         assert!(data.len() < self.buf.len());
@@ -108,7 +97,7 @@ impl<'a> ControlIn<'a> {
     /// Rejects the transfer by stalling the pipe.
     pub fn reject(self) -> ControlInRequestStatus<'a> {
         ControlInRequestStatus {
-            status: RequestStatus::Unhandled,
+            status: RequestStatus::Rejected,
             data: &[],
         }
     }
