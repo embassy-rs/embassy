@@ -14,6 +14,7 @@ pub mod types;
 mod util;
 
 use class::ControlInRequestStatus;
+use heapless::Vec;
 
 use self::class::{RequestStatus, UsbClass};
 use self::control::*;
@@ -53,6 +54,8 @@ pub const CONFIGURATION_VALUE: u8 = 1;
 /// The default value for bAlternateSetting for all interfaces.
 pub const DEFAULT_ALTERNATE_SETTING: u8 = 0;
 
+pub const MAX_CLASS_COUNT: usize = 4;
+
 pub struct UsbDevice<'d, D: Driver<'d>> {
     bus: D::Bus,
     control: D::ControlPipe,
@@ -67,7 +70,7 @@ pub struct UsbDevice<'d, D: Driver<'d>> {
     self_powered: bool,
     pending_address: u8,
 
-    classes: &'d mut [&'d mut dyn UsbClass],
+    classes: Vec<&'d mut dyn UsbClass, MAX_CLASS_COUNT>,
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
@@ -77,7 +80,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         device_descriptor: &'d [u8],
         config_descriptor: &'d [u8],
         bos_descriptor: &'d [u8],
-        classes: &'d mut [&'d mut dyn UsbClass],
+        classes: Vec<&'d mut dyn UsbClass, MAX_CLASS_COUNT>,
     ) -> Self {
         let control = driver
             .alloc_control_pipe(config.max_packet_size_0 as u16)
