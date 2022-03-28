@@ -10,3 +10,4 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 cortex-m = "0.7.3"
 num-traits = { version = "0.2.14", default-features = false }
+heapless = "0.7.10"
