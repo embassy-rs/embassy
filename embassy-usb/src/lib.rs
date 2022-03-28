@@ -219,8 +219,8 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     .map(|(_, h)| h);
                 match handler {
                     Some(handler) => match handler.control_out(req, data) {
-                        RequestStatus::Accepted => return self.control.accept(),
-                        RequestStatus::Rejected => return self.control.reject(),
+                        OutResponse::Accepted => return self.control.accept(),
+                        OutResponse::Rejected => return self.control.reject(),
                     },
                     None => self.control.reject(),
                 }
@@ -287,9 +287,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 match handler {
                     Some(handler) => {
                         let resp = handler.control_in(req, ControlIn::new(&mut buf));
-                        match resp.status {
-                            RequestStatus::Accepted => self.control.accept_in(resp.data).await,
-                            RequestStatus::Rejected => self.control.reject(),
+                        match resp.response {
+                            OutResponse::Accepted => self.control.accept_in(resp.data).await,
+                            OutResponse::Rejected => self.control.reject(),
                         }
                     }
                     None => self.control.reject(),
