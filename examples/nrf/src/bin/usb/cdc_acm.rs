@@ -3,9 +3,7 @@ use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::info;
 use embassy::blocking_mutex::CriticalSectionMutex;
-use embassy_usb::control::{
-    self, ControlHandler, ControlIn, ControlInRequestStatus, Request, RequestStatus,
-};
+use embassy_usb::control::{self, ControlHandler, ControlIn, InResponse, OutResponse, Request};
 use embassy_usb::driver::{Endpoint, EndpointIn, EndpointOut, ReadError, WriteError};
 use embassy_usb::{driver::Driver, types::*, UsbDeviceBuilder};
 
@@ -88,12 +86,12 @@ impl ControlHandler for Control {
         shared.rts.store(false, Ordering::Relaxed);
     }
 
-    fn control_out(&mut self, req: control::Request, data: &[u8]) -> RequestStatus {
+    fn control_out(&mut self, req: control::Request, data: &[u8]) -> OutResponse {
         match req.request {
             REQ_SEND_ENCAPSULATED_COMMAND => {
                 // We don't actually support encapsulated commands but pretend we do for standards
                 // compatibility.
-                RequestStatus::Accepted
+                OutResponse::Accepted
             }
             REQ_SET_LINE_CODING if data.len() >= 7 => {
                 let coding = LineCoding {
@@ -105,7 +103,7 @@ impl ControlHandler for Control {
                 self.shared().line_coding.lock(|x| x.set(coding));
                 info!("Set line coding to: {:?}", coding);
 
-                RequestStatus::Accepted
+                OutResponse::Accepted
             }
             REQ_SET_CONTROL_LINE_STATE => {
                 let dtr = (req.value & 0x0001) != 0;
@@ -116,17 +114,13 @@ impl ControlHandler for Control {
                 shared.rts.store(rts, Ordering::Relaxed);
                 info!("Set dtr {}, rts {}", dtr, rts);
 
-                RequestStatus::Accepted
+                OutResponse::Accepted
             }
-            _ => RequestStatus::Rejected,
+            _ => OutResponse::Rejected,
         }
     }
 
-    fn control_in<'a>(
-        &mut self,
-        req: Request,
-        control: ControlIn<'a>,
-    ) -> ControlInRequestStatus<'a> {
+    fn control_in<'a>(&mut self, req: Request, control: ControlIn<'a>) -> InResponse<'a> {
         match req.request {
             // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
             REQ_GET_LINE_CODING if req.length == 7 => {
