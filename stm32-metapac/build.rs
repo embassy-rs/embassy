@@ -69,7 +69,7 @@ fn main() {
     println!(
         "cargo:rerun-if-changed={}/chips/{}.json",
         data_dir.display(),
-        chip_name
+        chip_name.to_uppercase()
     );
 
     println!("cargo:rerun-if-changed={}/registers", data_dir.display());
