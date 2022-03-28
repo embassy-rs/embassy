@@ -6,7 +6,6 @@
 pub(crate) mod fmt;
 
 mod builder;
-pub mod class;
 pub mod control;
 pub mod descriptor;
 pub mod driver;
@@ -15,7 +14,6 @@ mod util;
 
 use heapless::Vec;
 
-use self::class::{ControlHandler, RequestStatus};
 use self::control::*;
 use self::descriptor::*;
 use self::driver::*;
@@ -288,7 +286,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     .map(|(_, h)| h);
                 match handler {
                     Some(handler) => {
-                        let resp = handler.control_in(req, class::ControlIn::new(&mut buf));
+                        let resp = handler.control_in(req, ControlIn::new(&mut buf));
                         match resp.status {
                             RequestStatus::Accepted => self.control.accept_in(resp.data).await,
                             RequestStatus::Rejected => self.control.reject(),
