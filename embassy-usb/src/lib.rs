@@ -175,66 +175,53 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         const CONFIGURATION_VALUE_U16: u16 = CONFIGURATION_VALUE as u16;
         const DEFAULT_ALTERNATE_SETTING_U16: u16 = DEFAULT_ALTERNATE_SETTING as u16;
 
-        match req.request_type {
-            RequestType::Standard => match (req.recipient, req.request, req.value) {
-                (
-                    Recipient::Device,
-                    Request::CLEAR_FEATURE,
-                    Request::FEATURE_DEVICE_REMOTE_WAKEUP,
-                ) => {
+        match (req.request_type, req.recipient) {
+            (RequestType::Standard, Recipient::Device) => match (req.request, req.value) {
+                (Request::CLEAR_FEATURE, Request::FEATURE_DEVICE_REMOTE_WAKEUP) => {
                     self.remote_wakeup_enabled = false;
                     self.control.accept();
                 }
-
-                (Recipient::Endpoint, Request::CLEAR_FEATURE, Request::FEATURE_ENDPOINT_HALT) => {
-                    //self.bus.set_stalled(((req.index as u8) & 0x8f).into(), false);
-                    self.control.accept();
-                }
-
-                (
-                    Recipient::Device,
-                    Request::SET_FEATURE,
-                    Request::FEATURE_DEVICE_REMOTE_WAKEUP,
-                ) => {
+                (Request::SET_FEATURE, Request::FEATURE_DEVICE_REMOTE_WAKEUP) => {
                     self.remote_wakeup_enabled = true;
                     self.control.accept();
                 }
-
-                (Recipient::Endpoint, Request::SET_FEATURE, Request::FEATURE_ENDPOINT_HALT) => {
-                    self.bus
-                        .set_stalled(((req.index as u8) & 0x8f).into(), true);
-                    self.control.accept();
-                }
-
-                (Recipient::Device, Request::SET_ADDRESS, 1..=127) => {
+                (Request::SET_ADDRESS, 1..=127) => {
                     self.pending_address = req.value as u8;
-
-                    // on NRF the hardware auto-handles SET_ADDRESS.
                     self.control.accept();
                 }
-
-                (Recipient::Device, Request::SET_CONFIGURATION, CONFIGURATION_VALUE_U16) => {
+                (Request::SET_CONFIGURATION, CONFIGURATION_VALUE_U16) => {
                     self.device_state = UsbDeviceState::Configured;
                     self.control.accept();
                 }
-
-                (Recipient::Device, Request::SET_CONFIGURATION, CONFIGURATION_NONE_U16) => {
-                    match self.device_state {
-                        UsbDeviceState::Default => {
-                            self.control.accept();
-                        }
-                        _ => {
-                            self.device_state = UsbDeviceState::Addressed;
-                            self.control.accept();
-                        }
+                (Request::SET_CONFIGURATION, CONFIGURATION_NONE_U16) => match self.device_state {
+                    UsbDeviceState::Default => {
+                        self.control.accept();
                     }
-                }
-
-                (Recipient::Interface, Request::SET_INTERFACE, DEFAULT_ALTERNATE_SETTING_U16) => {
+                    _ => {
+                        self.device_state = UsbDeviceState::Addressed;
+                        self.control.accept();
+                    }
+                },
+                _ => self.control.reject(),
+            },
+            (RequestType::Standard, Recipient::Interface) => match (req.request, req.value) {
+                (Request::SET_INTERFACE, DEFAULT_ALTERNATE_SETTING_U16) => {
                     // TODO: do something when alternate settings are implemented
                     self.control.accept();
                 }
-
+                _ => self.control.reject(),
+            },
+            (RequestType::Standard, Recipient::Endpoint) => match (req.request, req.value) {
+                (Request::SET_FEATURE, Request::FEATURE_ENDPOINT_HALT) => {
+                    let ep_addr = ((req.index as u8) & 0x8f).into();
+                    self.bus.set_stalled(ep_addr, true);
+                    self.control.accept();
+                }
+                (Request::CLEAR_FEATURE, Request::FEATURE_ENDPOINT_HALT) => {
+                    let ep_addr = ((req.index as u8) & 0x8f).into();
+                    self.bus.set_stalled(ep_addr, false);
+                    self.control.accept();
+                }
                 _ => self.control.reject(),
             },
             _ => self.control.reject(),
@@ -260,9 +247,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             }
         }
 
-        match req.request_type {
-            RequestType::Standard => match (req.recipient, req.request) {
-                (Recipient::Device, Request::GET_STATUS) => {
+        match (req.request_type, req.recipient) {
+            (RequestType::Standard, Recipient::Device) => match req.request {
+                Request::GET_STATUS => {
                     let mut status: u16 = 0x0000;
                     if self.self_powered {
                         status |= 0x0001;
@@ -272,36 +259,37 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     }
                     self.control.accept_in(&status.to_le_bytes()).await;
                 }
-
-                (Recipient::Interface, Request::GET_STATUS) => {
-                    let status: u16 = 0x0000;
-                    self.control.accept_in(&status.to_le_bytes()).await;
-                }
-
-                (Recipient::Endpoint, Request::GET_STATUS) => {
-                    let ep_addr: EndpointAddress = ((req.index as u8) & 0x8f).into();
-                    let mut status: u16 = 0x0000;
-                    if self.bus.is_stalled(ep_addr) {
-                        status |= 0x0001;
-                    }
-                    self.control.accept_in(&status.to_le_bytes()).await;
-                }
-
-                (Recipient::Device, Request::GET_DESCRIPTOR) => {
+                Request::GET_DESCRIPTOR => {
                     self.handle_get_descriptor(req).await;
                 }
-
-                (Recipient::Device, Request::GET_CONFIGURATION) => {
+                Request::GET_CONFIGURATION => {
                     let status = match self.device_state {
                         UsbDeviceState::Configured => CONFIGURATION_VALUE,
                         _ => CONFIGURATION_NONE,
                     };
                     self.control.accept_in(&status.to_le_bytes()).await;
                 }
-
-                (Recipient::Interface, Request::GET_INTERFACE) => {
+                _ => self.control.reject(),
+            },
+            (RequestType::Standard, Recipient::Interface) => match req.request {
+                Request::GET_STATUS => {
+                    let status: u16 = 0x0000;
+                    self.control.accept_in(&status.to_le_bytes()).await;
+                }
+                Request::GET_INTERFACE => {
                     // TODO: change when alternate settings are implemented
                     let status = DEFAULT_ALTERNATE_SETTING;
+                    self.control.accept_in(&status.to_le_bytes()).await;
+                }
+                _ => self.control.reject(),
+            },
+            (RequestType::Standard, Recipient::Endpoint) => match req.request {
+                Request::GET_STATUS => {
+                    let ep_addr: EndpointAddress = ((req.index as u8) & 0x8f).into();
+                    let mut status: u16 = 0x0000;
+                    if self.bus.is_stalled(ep_addr) {
+                        status |= 0x0001;
+                    }
                     self.control.accept_in(&status.to_le_bytes()).await;
                 }
                 _ => self.control.reject(),
