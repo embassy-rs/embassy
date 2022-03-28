@@ -1,8 +1,11 @@
+use heapless::Vec;
+
 use super::class::UsbClass;
 use super::descriptor::{BosWriter, DescriptorWriter};
 use super::driver::{Driver, EndpointAllocError};
 use super::types::*;
 use super::UsbDevice;
+use super::MAX_CLASS_COUNT;
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -116,6 +119,7 @@ impl<'a> Config<'a> {
 /// Used to build new [`UsbDevice`]s.
 pub struct UsbDeviceBuilder<'d, D: Driver<'d>> {
     config: Config<'d>,
+    classes: Vec<&'d mut dyn UsbClass, MAX_CLASS_COUNT>,
 
     bus: D,
     next_interface_number: u8,
@@ -165,6 +169,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
         UsbDeviceBuilder {
             bus,
             config,
+            classes: Vec::new(),
             next_interface_number: 0,
             next_string_index: 4,
 
@@ -175,7 +180,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
     }
 
     /// Creates the [`UsbDevice`] instance with the configuration in this builder.
-    pub fn build(mut self, classes: &'d mut [&'d mut dyn UsbClass]) -> UsbDevice<'d, D> {
+    pub fn build(mut self) -> UsbDevice<'d, D> {
         self.config_descriptor.end_configuration();
         self.bos_descriptor.end_bos();
 
@@ -185,8 +190,14 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
             self.device_descriptor.into_buf(),
             self.config_descriptor.into_buf(),
             self.bos_descriptor.writer.into_buf(),
-            classes,
+            self.classes,
         )
+    }
+
+    pub fn add_class(&mut self, class: &'d mut dyn UsbClass) {
+        if self.classes.push(class).is_err() {
+            panic!("max class count reached")
+        }
     }
 
     /// Allocates a new interface number.
