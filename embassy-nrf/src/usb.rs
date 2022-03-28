@@ -363,7 +363,7 @@ unsafe fn read_dma<T: Instance>(i: usize, buf: &mut [u8]) -> Result<usize, ReadE
     let regs = T::regs();
 
     // Check that the packet fits into the buffer
-    let size = regs.size.epout[0].read().bits() as usize;
+    let size = regs.size.epout[i].read().bits() as usize;
     if size > buf.len() {
         return Err(ReadError::BufferOverflow);
     }
