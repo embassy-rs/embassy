@@ -3,7 +3,7 @@ use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::info;
 use embassy::blocking_mutex::CriticalSectionMutex;
-use embassy_usb::control::{self, ControlHandler, ControlIn, InResponse, OutResponse, Request};
+use embassy_usb::control::{self, ControlHandler, InResponse, OutResponse, Request};
 use embassy_usb::driver::{Endpoint, EndpointIn, EndpointOut, ReadError, WriteError};
 use embassy_usb::{driver::Driver, types::*, UsbDeviceBuilder};
 
@@ -120,20 +120,19 @@ impl ControlHandler for Control {
         }
     }
 
-    fn control_in<'a>(&mut self, req: Request, control: ControlIn<'a>) -> InResponse<'a> {
+    fn control_in(&mut self, req: Request, resp: &mut [u8]) -> InResponse {
         match req.request {
             // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
             REQ_GET_LINE_CODING if req.length == 7 => {
                 info!("Sending line coding");
                 let coding = self.shared().line_coding.lock(|x| x.get());
-                let mut data = [0; 7];
-                data[0..4].copy_from_slice(&coding.data_rate.to_le_bytes());
-                data[4] = coding.stop_bits as u8;
-                data[5] = coding.parity_type as u8;
-                data[6] = coding.data_bits;
-                control.accept(&data)
+                resp[0..4].copy_from_slice(&coding.data_rate.to_le_bytes());
+                resp[4] = coding.stop_bits as u8;
+                resp[5] = coding.parity_type as u8;
+                resp[6] = coding.data_bits;
+                InResponse::Accepted(7)
             }
-            _ => control.reject(),
+            _ => InResponse::Rejected,
         }
     }
 }

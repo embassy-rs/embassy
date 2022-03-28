@@ -131,6 +131,13 @@ pub enum OutResponse {
     Rejected,
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum InResponse {
+    Accepted(usize),
+    Rejected,
+}
+
 /// A trait for implementing USB classes.
 ///
 /// All methods are optional callbacks that will be called by
@@ -171,54 +178,7 @@ pub trait ControlHandler {
     ///
     /// * `req` - The request from the SETUP packet.
     /// * `control` - The control pipe.
-    fn control_in<'a>(&mut self, req: Request, control: ControlIn<'a>) -> InResponse<'a> {
-        control.reject()
-    }
-}
-
-/// Handle for a control IN transfer. When implementing a class, use the methods of this object to
-/// response to the transfer with either data or an error (STALL condition). To ignore the request
-/// and pass it on to the next class, call [`Self::ignore()`].
-pub struct ControlIn<'a> {
-    buf: &'a mut [u8],
-}
-
-#[derive(Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct InResponse<'a> {
-    pub(crate) response: OutResponse,
-    pub(crate) data: &'a [u8],
-}
-
-impl<'a> InResponse<'a> {
-    pub fn status(&self) -> OutResponse {
-        self.response
-    }
-}
-
-impl<'a> ControlIn<'a> {
-    pub(crate) fn new(buf: &'a mut [u8]) -> Self {
-        ControlIn { buf }
-    }
-
-    /// Accepts the transfer with the supplied buffer.
-    pub fn accept(self, data: &[u8]) -> InResponse<'a> {
-        assert!(data.len() < self.buf.len());
-
-        let buf = &mut self.buf[0..data.len()];
-        buf.copy_from_slice(data);
-
-        InResponse {
-            response: OutResponse::Accepted,
-            data: buf,
-        }
-    }
-
-    /// Rejects the transfer by stalling the pipe.
-    pub fn reject(self) -> InResponse<'a> {
-        InResponse {
-            response: OutResponse::Rejected,
-            data: &[],
-        }
+    fn control_in(&mut self, req: Request, resp: &mut [u8]) -> InResponse {
+        InResponse::Rejected
     }
 }
