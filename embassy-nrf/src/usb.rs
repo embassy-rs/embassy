@@ -20,6 +20,7 @@ pub use embassy_usb;
 
 use crate::interrupt::Interrupt;
 use crate::pac;
+use crate::util::slice_in_ram;
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static BUS_WAKER: AtomicWaker = NEW_AW;
@@ -408,10 +409,15 @@ unsafe fn write_dma<T: Instance>(i: usize, buf: &[u8]) -> Result<(), WriteError>
         return Err(WriteError::BufferOverflow);
     }
 
-    // EasyDMA can't read FLASH, so we copy through RAM
     let mut ram_buf: MaybeUninit<[u8; 64]> = MaybeUninit::uninit();
-    let ptr = ram_buf.as_mut_ptr() as *mut u8;
-    core::ptr::copy_nonoverlapping(buf.as_ptr(), ptr, buf.len());
+    let ptr = if !slice_in_ram(buf) {
+        // EasyDMA can't read FLASH, so we copy through RAM
+        let ptr = ram_buf.as_mut_ptr() as *mut u8;
+        core::ptr::copy_nonoverlapping(buf.as_ptr(), ptr, buf.len());
+        ptr
+    } else {
+        buf.as_ptr()
+    };
 
     let epin = [
         &regs.epin0,
