@@ -1,11 +1,11 @@
 use heapless::Vec;
 
-use super::class::UsbClass;
+use super::class::ControlHandler;
 use super::descriptor::{BosWriter, DescriptorWriter};
 use super::driver::{Driver, EndpointAllocError};
 use super::types::*;
 use super::UsbDevice;
-use super::MAX_CLASS_COUNT;
+use super::MAX_INTERFACE_COUNT;
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -119,7 +119,7 @@ impl<'a> Config<'a> {
 /// Used to build new [`UsbDevice`]s.
 pub struct UsbDeviceBuilder<'d, D: Driver<'d>> {
     config: Config<'d>,
-    classes: Vec<&'d mut dyn UsbClass, MAX_CLASS_COUNT>,
+    interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
 
     bus: D,
     next_interface_number: u8,
@@ -169,7 +169,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
         UsbDeviceBuilder {
             bus,
             config,
-            classes: Vec::new(),
+            interfaces: Vec::new(),
             next_interface_number: 0,
             next_string_index: 4,
 
@@ -190,20 +190,30 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
             self.device_descriptor.into_buf(),
             self.config_descriptor.into_buf(),
             self.bos_descriptor.writer.into_buf(),
-            self.classes,
+            self.interfaces,
         )
-    }
-
-    pub fn add_class(&mut self, class: &'d mut dyn UsbClass) {
-        if self.classes.push(class).is_err() {
-            panic!("max class count reached")
-        }
     }
 
     /// Allocates a new interface number.
     pub fn alloc_interface(&mut self) -> InterfaceNumber {
         let number = self.next_interface_number;
         self.next_interface_number += 1;
+
+        InterfaceNumber::new(number)
+    }
+
+    /// Allocates a new interface number, with a handler that will be called
+    /// for all the control requests directed to it.
+    pub fn alloc_interface_with_handler(
+        &mut self,
+        handler: &'d mut dyn ControlHandler,
+    ) -> InterfaceNumber {
+        let number = self.next_interface_number;
+        self.next_interface_number += 1;
+
+        if self.interfaces.push((number, handler)).is_err() {
+            panic!("max class count reached")
+        }
 
         InterfaceNumber::new(number)
     }
