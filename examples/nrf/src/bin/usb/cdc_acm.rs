@@ -1,4 +1,4 @@
-use core::cell::{Cell, UnsafeCell};
+use core::cell::Cell;
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::info;
@@ -27,14 +27,16 @@ const REQ_SET_LINE_CODING: u8 = 0x20;
 const REQ_GET_LINE_CODING: u8 = 0x21;
 const REQ_SET_CONTROL_LINE_STATE: u8 = 0x22;
 
-pub struct State {
-    control: MaybeUninit<Control>,
+pub struct State<'a> {
+    control: MaybeUninit<Control<'a>>,
+    shared: ControlShared,
 }
 
-impl State {
+impl<'a> State<'a> {
     pub fn new() -> Self {
         Self {
             control: MaybeUninit::uninit(),
+            shared: Default::default(),
         }
     }
 }
@@ -62,8 +64,8 @@ pub struct CdcAcmClass<'d, D: Driver<'d>> {
     control: &'d ControlShared,
 }
 
-struct Control {
-    shared: UnsafeCell<ControlShared>,
+struct Control<'a> {
+    shared: &'a ControlShared,
 }
 
 /// Shared data between Control and CdcAcmClass
@@ -73,12 +75,28 @@ struct ControlShared {
     rts: AtomicBool,
 }
 
-impl Control {
-    fn shared(&mut self) -> &ControlShared {
-        unsafe { &*(self.shared.get() as *const _) }
+impl Default for ControlShared {
+    fn default() -> Self {
+        ControlShared {
+            dtr: AtomicBool::new(false),
+            rts: AtomicBool::new(false),
+            line_coding: CriticalSectionMutex::new(Cell::new(LineCoding {
+                stop_bits: StopBits::One,
+                data_bits: 8,
+                parity_type: ParityType::None,
+                data_rate: 8_000,
+            })),
+        }
     }
 }
-impl ControlHandler for Control {
+
+impl<'a> Control<'a> {
+    fn shared(&mut self) -> &'a ControlShared {
+        self.shared
+    }
+}
+
+impl<'a> ControlHandler for Control<'a> {
     fn reset(&mut self) {
         let shared = self.shared();
         shared.line_coding.lock(|x| x.set(LineCoding::default()));
@@ -142,23 +160,14 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// full-speed devices, max_packet_size has to be one of 8, 16, 32 or 64.
     pub fn new(
         builder: &mut UsbDeviceBuilder<'d, D>,
-        state: &'d mut State,
+        state: &'d mut State<'d>,
         max_packet_size: u16,
     ) -> Self {
         let control = state.control.write(Control {
-            shared: UnsafeCell::new(ControlShared {
-                dtr: AtomicBool::new(false),
-                rts: AtomicBool::new(false),
-                line_coding: CriticalSectionMutex::new(Cell::new(LineCoding {
-                    stop_bits: StopBits::One,
-                    data_bits: 8,
-                    parity_type: ParityType::None,
-                    data_rate: 8_000,
-                })),
-            }),
+            shared: &state.shared,
         });
 
-        let control_shared = unsafe { &*(control.shared.get() as *const _) };
+        let control_shared = &state.shared;
 
         let comm_if = builder.alloc_interface_with_handler(control);
         let comm_ep = builder.alloc_interrupt_endpoint_in(8, 255);
