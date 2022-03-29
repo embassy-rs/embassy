@@ -18,7 +18,7 @@ flavors = [
 [features]
 
 # Enable nightly-only features
-nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async"]
+nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-usb"]
 
 # Reexport the PAC for the currently enabled chip at `embassy_nrf::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-nrf may major-bump (breaking) the PAC version.
@@ -64,7 +64,7 @@ _gpio-p1 = []
 embassy = { version = "0.1.0", path = "../embassy" }
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["nrf"]}
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
-embassy-usb = {version = "0.1.0", path = "../embassy-usb" }
+embassy-usb = {version = "0.1.0", path = "../embassy-usb", optional=true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.7", git = "https://github.com/embassy-rs/embedded-hal", branch = "embassy2", optional = true}

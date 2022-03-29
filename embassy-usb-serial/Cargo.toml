@@ -1,11 +1,11 @@
 [package]
-name = "embassy-usb"
+name = "embassy-usb-serial"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy" }
+embassy-usb = { version = "0.1.0", path = "../embassy-usb" }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
-heapless = "0.7.10"

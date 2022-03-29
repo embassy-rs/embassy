@@ -136,6 +136,7 @@ impl<'a> DescriptorWriter<'a> {
         )
     }
 
+    #[allow(unused)]
     pub(crate) fn end_class(&mut self) {
         self.num_endpoints_mark = None;
     }
