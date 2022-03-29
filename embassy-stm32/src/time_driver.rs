@@ -172,8 +172,11 @@ impl RtcDriver {
             // Mid-way point
             r.ccr(0).write(|w| w.set_ccr(0x8000));
 
-            // Enable CC0, disable others
-            r.dier().write(|w| w.set_ccie(0, true));
+            // Enable overflow and half-overflow interrupts
+            r.dier().write(|w| {
+                w.set_uie(true);
+                w.set_ccie(0, true);
+            });
 
             let irq: <T as BasicInstance>::Interrupt = core::mem::transmute(());
             irq.unpend();
@@ -197,6 +200,7 @@ impl RtcDriver {
             // miss interrupts.
             r.sr().write_value(regs::SrGp(!sr.0));
 
+            // Overflow
             if sr.uif() {
                 self.next_period();
             }
