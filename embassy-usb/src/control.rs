@@ -164,7 +164,7 @@ pub trait ControlHandler {
     /// # Arguments
     ///
     /// * `req` - The request from the SETUP packet.
-    fn control_in(&mut self, req: Request) -> InResponse<'_> {
+    fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
         InResponse::Rejected
     }
 }
