@@ -47,6 +47,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
+    let mut control_buf = [0; 7];
 
     let mut state = State::new();
 
@@ -56,6 +57,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
+        &mut control_buf,
     );
 
     // Create classes on the builder.
