@@ -213,7 +213,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         });
         // Enable the USB pullup, allowing enumeration.
         regs.usbpullup.write(|w| w.connect().enabled());
-        info!("enabled");
+        trace!("enabled");
 
         Bus {
             phantom: PhantomData,
@@ -247,23 +247,23 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
             if r.isooutcrc().bit() {
                 regs.eventcause.write(|w| w.isooutcrc().set_bit());
-                info!("USB event: isooutcrc");
+                trace!("USB event: isooutcrc");
             }
             if r.usbwuallowed().bit() {
                 regs.eventcause.write(|w| w.usbwuallowed().set_bit());
-                info!("USB event: usbwuallowed");
+                trace!("USB event: usbwuallowed");
             }
             if r.suspend().bit() {
                 regs.eventcause.write(|w| w.suspend().set_bit());
-                info!("USB event: suspend");
+                trace!("USB event: suspend");
             }
             if r.resume().bit() {
                 regs.eventcause.write(|w| w.resume().set_bit());
-                info!("USB event: resume");
+                trace!("USB event: resume");
             }
             if r.ready().bit() {
                 regs.eventcause.write(|w| w.ready().set_bit());
-                info!("USB event: ready");
+                trace!("USB event: ready");
             }
 
             Poll::Pending
@@ -636,6 +636,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     }
 
     fn accept(&mut self) {
+        debug!("control accept");
         let regs = T::regs();
         regs.tasks_ep0status
             .write(|w| w.tasks_ep0status().bit(true));
@@ -645,9 +646,9 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     fn accept_in<'a>(&'a mut self, buf: &'a [u8]) -> Self::AcceptInFuture<'a> {
         async move {
             #[cfg(feature = "defmt")]
-            info!("control accept {:x}", buf);
+            debug!("control in accept {:x}", buf);
             #[cfg(not(feature = "defmt"))]
-            info!("control accept {:x?}", buf);
+            debug!("control in accept {:x?}", buf);
             let req = self.request.unwrap();
             assert!(req.direction == UsbDirection::In);
 
@@ -666,6 +667,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     }
 
     fn reject(&mut self) {
+        debug!("control reject");
         let regs = T::regs();
         regs.tasks_ep0stall.write(|w| w.tasks_ep0stall().bit(true));
         self.request = None;
