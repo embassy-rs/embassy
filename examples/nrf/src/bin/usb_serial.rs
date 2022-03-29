@@ -3,11 +3,6 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../../example_common.rs"]
-mod example_common;
-
-mod cdc_acm;
-
 use core::mem;
 use defmt::*;
 use embassy::executor::Spawner;
@@ -18,9 +13,11 @@ use embassy_nrf::usb::Driver;
 use embassy_nrf::Peripherals;
 use embassy_usb::driver::{EndpointIn, EndpointOut};
 use embassy_usb::{Config, UsbDeviceBuilder};
+use embassy_usb_serial::{CdcAcmClass, State};
 use futures::future::join3;
 
-use crate::cdc_acm::{CdcAcmClass, State};
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

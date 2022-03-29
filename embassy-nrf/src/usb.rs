@@ -4,6 +4,7 @@ use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 use core::task::Poll;
+use cortex_m::peripheral::NVIC;
 use embassy::interrupt::InterruptExt;
 use embassy::time::{with_timeout, Duration};
 use embassy::util::Unborrow;
@@ -14,7 +15,6 @@ use embassy_usb::driver::{self, Event, ReadError, WriteError};
 use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
 use futures::future::poll_fn;
 use futures::Future;
-use pac::NVIC;
 
 pub use embassy_usb;
 
@@ -617,7 +617,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     fn data_out<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::DataOutFuture<'a> {
         async move {
             let req = self.request.unwrap();
-            assert_eq!(req.direction, UsbDirection::Out);
+            assert!(req.direction == UsbDirection::Out);
             assert!(req.length > 0);
 
             let req_length = usize::from(req.length);
@@ -644,9 +644,12 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
     fn accept_in<'a>(&'a mut self, buf: &'a [u8]) -> Self::AcceptInFuture<'a> {
         async move {
-            info!("control accept {=[u8]:x}", buf);
+            #[cfg(feature = "defmt")]
+            info!("control accept {:x}", buf);
+            #[cfg(not(feature = "defmt"))]
+            info!("control accept {:x?}", buf);
             let req = self.request.unwrap();
-            assert_eq!(req.direction, UsbDirection::In);
+            assert!(req.direction == UsbDirection::In);
 
             let req_len = usize::from(req.length);
             let len = buf.len().min(req_len);

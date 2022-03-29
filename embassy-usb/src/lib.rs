@@ -302,7 +302,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
 
     async fn handle_get_descriptor(&mut self, req: Request) {
         let (dtype, index) = req.descriptor_type_index();
-        let config = self.config.clone();
 
         match dtype {
             descriptor_type::BOS => self.control.accept_in(self.bos_descriptor).await,
@@ -321,13 +320,10 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                         2 => self.config.product,
                         3 => self.config.serial_number,
                         _ => {
-                            let index = StringIndex::new(index);
-                            let lang_id = req.index;
+                            let _index = StringIndex::new(index);
+                            let _lang_id = req.index;
+                            // TODO
                             None
-                            //classes
-                            //    .iter()
-                            //    .filter_map(|cls| cls.get_string(index, lang_id))
-                            //    .nth(0)
                         }
                     };
 
