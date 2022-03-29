@@ -3,10 +3,8 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../../example_common.rs"]
+#[path = "../example_common.rs"]
 mod example_common;
-
-mod cdc_acm;
 
 use core::mem;
 use defmt::*;
@@ -20,7 +18,7 @@ use embassy_usb::driver::{EndpointIn, EndpointOut};
 use embassy_usb::{Config, UsbDeviceBuilder};
 use futures::future::join3;
 
-use crate::cdc_acm::{CdcAcmClass, State};
+use embassy_usb_serial::{CdcAcmClass, State};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
