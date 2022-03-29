@@ -133,8 +133,8 @@ pub enum OutResponse {
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum InResponse {
-    Accepted(usize),
+pub enum InResponse<'a> {
+    Accepted(&'a [u8]),
     Rejected,
 }
 
@@ -164,8 +164,7 @@ pub trait ControlHandler {
     /// # Arguments
     ///
     /// * `req` - The request from the SETUP packet.
-    /// * `resp` - The buffer for you to write the response.
-    fn control_in(&mut self, req: Request, resp: &mut [u8]) -> InResponse {
+    fn control_in(&mut self, req: Request) -> InResponse<'_> {
         InResponse::Rejected
     }
 }
