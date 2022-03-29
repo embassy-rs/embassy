@@ -91,6 +91,7 @@ pub mod uarte;
     feature = "nrf52833",
     feature = "nrf52840"
 ))]
+#[cfg(feature = "nightly")]
 pub mod usb;
 #[cfg(not(feature = "_nrf5340"))]
 pub mod wdt;
