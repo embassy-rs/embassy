@@ -1,0 +1,18 @@
+[package]
+name = "embassy-usb-hid"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["usbd-hid"]
+usbd-hid = ["dep:usbd-hid", "ssmarshal"]
+
+[dependencies]
+embassy = { version = "0.1.0", path = "../embassy" }
+embassy-usb = { version = "0.1.0", path = "../embassy-usb" }
+
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }
+usbd-hid = { version = "0.5.2", optional = true }
+ssmarshal = { version = "1.0", default-features = false, optional = true }
+futures-util = { version = "0.3.21", default-features = false }
