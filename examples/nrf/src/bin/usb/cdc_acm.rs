@@ -66,6 +66,7 @@ pub struct CdcAcmClass<'d, D: Driver<'d>> {
 
 struct Control<'a> {
     shared: &'a ControlShared,
+    buf: [u8; 7],
 }
 
 /// Shared data between Control and CdcAcmClass
@@ -138,17 +139,17 @@ impl<'a> ControlHandler for Control<'a> {
         }
     }
 
-    fn control_in(&mut self, req: Request, resp: &mut [u8]) -> InResponse {
+    fn control_in(&mut self, req: Request) -> InResponse<'_> {
         match req.request {
             // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
             REQ_GET_LINE_CODING if req.length == 7 => {
                 info!("Sending line coding");
                 let coding = self.shared().line_coding.lock(|x| x.get());
-                resp[0..4].copy_from_slice(&coding.data_rate.to_le_bytes());
-                resp[4] = coding.stop_bits as u8;
-                resp[5] = coding.parity_type as u8;
-                resp[6] = coding.data_bits;
-                InResponse::Accepted(7)
+                self.buf[0..4].copy_from_slice(&coding.data_rate.to_le_bytes());
+                self.buf[4] = coding.stop_bits as u8;
+                self.buf[5] = coding.parity_type as u8;
+                self.buf[6] = coding.data_bits;
+                InResponse::Accepted(&self.buf)
             }
             _ => InResponse::Rejected,
         }
@@ -165,6 +166,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     ) -> Self {
         let control = state.control.write(Control {
             shared: &state.shared,
+            buf: [0; 7],
         });
 
         let control_shared = &state.shared;
