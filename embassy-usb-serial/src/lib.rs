@@ -1,7 +1,13 @@
+#![no_std]
+#![feature(generic_associated_types)]
+#![feature(type_alias_impl_trait)]
+
+// This mod MUST go first, so that the others see its macros.
+pub(crate) mod fmt;
+
 use core::cell::Cell;
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
-use defmt::info;
 use embassy::blocking_mutex::CriticalSectionMutex;
 use embassy_usb::control::{self, ControlHandler, InResponse, OutResponse, Request};
 use embassy_usb::driver::{Endpoint, EndpointIn, EndpointOut, ReadError, WriteError};
@@ -290,11 +296,6 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Reads a single packet from the OUT endpoint.
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, ReadError> {
         self.read_ep.read(data).await
-    }
-
-    /// Gets the address of the IN endpoint.
-    pub(crate) fn write_ep_address(&self) -> EndpointAddress {
-        self.write_ep.info().addr
     }
 }
 

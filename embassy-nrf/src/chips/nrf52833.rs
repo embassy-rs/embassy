@@ -157,6 +157,7 @@ embassy_hal_common::peripherals! {
     TEMP,
 }
 
+#[cfg(feature = "nightly")]
 impl_usb!(USBD, USBD, USBD);
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
