@@ -125,7 +125,7 @@ impl<'d> ControlHandler for Control<'d> {
                     data_bits: data[6],
                 };
                 self.shared().line_coding.lock(|x| x.set(coding));
-                info!("Set line coding to: {:?}", coding);
+                debug!("Set line coding to: {:?}", coding);
 
                 OutResponse::Accepted
             }
@@ -136,7 +136,7 @@ impl<'d> ControlHandler for Control<'d> {
                 let shared = self.shared();
                 shared.dtr.store(dtr, Ordering::Relaxed);
                 shared.rts.store(rts, Ordering::Relaxed);
-                info!("Set dtr {}, rts {}", dtr, rts);
+                debug!("Set dtr {}, rts {}", dtr, rts);
 
                 OutResponse::Accepted
             }
@@ -148,7 +148,7 @@ impl<'d> ControlHandler for Control<'d> {
         match req.request {
             // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
             REQ_GET_LINE_CODING if req.length == 7 => {
-                info!("Sending line coding");
+                debug!("Sending line coding");
                 let coding = self.shared().line_coding.lock(|x| x.get());
                 assert!(buf.len() >= 7);
                 buf[0..4].copy_from_slice(&coding.data_rate.to_le_bytes());

@@ -129,7 +129,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     }
                 },
                 Either::Right(req) => {
-                    info!("control request: {:x}", req);
+                    debug!("control request: {:x}", req);
 
                     match req.direction {
                         UsbDirection::In => self.handle_control_in(req).await,
