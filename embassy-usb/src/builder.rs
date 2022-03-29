@@ -120,6 +120,7 @@ impl<'a> Config<'a> {
 pub struct UsbDeviceBuilder<'d, D: Driver<'d>> {
     config: Config<'d>,
     interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
+    control_buf: &'d mut [u8],
 
     bus: D,
     next_interface_number: u8,
@@ -133,12 +134,17 @@ pub struct UsbDeviceBuilder<'d, D: Driver<'d>> {
 
 impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
     /// Creates a builder for constructing a new [`UsbDevice`].
+    ///
+    /// `control_buf` is a buffer used for USB control request data. It should be sized
+    /// large enough for the length of the largest control request (in or out)
+    /// anticipated by any class added to the device.
     pub fn new(
         bus: D,
         config: Config<'d>,
         device_descriptor_buf: &'d mut [u8],
         config_descriptor_buf: &'d mut [u8],
         bos_descriptor_buf: &'d mut [u8],
+        control_buf: &'d mut [u8],
     ) -> Self {
         // Magic values specified in USB-IF ECN on IADs.
         if config.composite_with_iads
@@ -170,6 +176,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
             bus,
             config,
             interfaces: Vec::new(),
+            control_buf,
             next_interface_number: 0,
             next_string_index: 4,
 
@@ -191,6 +198,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
             self.config_descriptor.into_buf(),
             self.bos_descriptor.writer.into_buf(),
             self.interfaces,
+            self.control_buf,
         )
     }
 
@@ -200,6 +208,12 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
         self.next_interface_number += 1;
 
         InterfaceNumber::new(number)
+    }
+
+    /// Returns the size of the control request data buffer. Can be used by
+    /// classes to validate the buffer is large enough for their needs.
+    pub fn control_buf_len(&self) -> usize {
+        self.control_buf.len()
     }
 
     /// Allocates a new interface number, with a handler that will be called

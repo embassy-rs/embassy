@@ -61,6 +61,7 @@ pub struct UsbDevice<'d, D: Driver<'d>> {
     device_descriptor: &'d [u8],
     config_descriptor: &'d [u8],
     bos_descriptor: &'d [u8],
+    control_buf: &'d mut [u8],
 
     device_state: UsbDeviceState,
     remote_wakeup_enabled: bool,
@@ -78,6 +79,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         config_descriptor: &'d [u8],
         bos_descriptor: &'d [u8],
         interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
+        control_buf: &'d mut [u8],
     ) -> Self {
         let control = driver
             .alloc_control_pipe(config.max_packet_size_0 as u16)
@@ -94,6 +96,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             device_descriptor,
             config_descriptor,
             bos_descriptor,
+            control_buf,
             device_state: UsbDeviceState::Default,
             remote_wakeup_enabled: false,
             self_powered: false,
@@ -204,10 +207,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 _ => self.control.reject(),
             },
             (RequestType::Class, Recipient::Interface) => {
-                let mut buf = [0; 128];
                 let data = if req.length > 0 {
-                    let size = self.control.data_out(&mut buf).await.unwrap();
-                    &buf[0..size]
+                    let size = self.control.data_out(self.control_buf).await.unwrap();
+                    &self.control_buf[0..size]
                 } else {
                     &[]
                 };
@@ -284,7 +286,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     .find(|(i, _)| req.index == *i as _)
                     .map(|(_, h)| h);
                 match handler {
-                    Some(handler) => match handler.control_in(req) {
+                    Some(handler) => match handler.control_in(req, self.control_buf) {
                         InResponse::Accepted(data) => self.control.accept_in(data).await,
                         InResponse::Rejected => self.control.reject(),
                     },
