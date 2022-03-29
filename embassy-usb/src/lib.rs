@@ -155,7 +155,14 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     async fn handle_control_out(&mut self, req: Request) {
         const CONFIGURATION_NONE_U16: u16 = CONFIGURATION_NONE as u16;
         const CONFIGURATION_VALUE_U16: u16 = CONFIGURATION_VALUE as u16;
-        const DEFAULT_ALTERNATE_SETTING_U16: u16 = DEFAULT_ALTERNATE_SETTING as u16;
+
+        // If the request has a data state, we must read it.
+        let data = if req.length > 0 {
+            let size = self.control.data_out(self.control_buf).await.unwrap();
+            &self.control_buf[0..size]
+        } else {
+            &[]
+        };
 
         match (req.request_type, req.recipient) {
             (RequestType::Standard, Recipient::Device) => match (req.request, req.value) {
@@ -186,13 +193,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 },
                 _ => self.control.reject(),
             },
-            (RequestType::Standard, Recipient::Interface) => match (req.request, req.value) {
-                (Request::SET_INTERFACE, DEFAULT_ALTERNATE_SETTING_U16) => {
-                    // TODO: do something when alternate settings are implemented
-                    self.control.accept();
-                }
-                _ => self.control.reject(),
-            },
             (RequestType::Standard, Recipient::Endpoint) => match (req.request, req.value) {
                 (Request::SET_FEATURE, Request::FEATURE_ENDPOINT_HALT) => {
                     let ep_addr = ((req.index as u8) & 0x8f).into();
@@ -206,24 +206,26 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 }
                 _ => self.control.reject(),
             },
-            (RequestType::Class, Recipient::Interface) => {
-                let data = if req.length > 0 {
-                    let size = self.control.data_out(self.control_buf).await.unwrap();
-                    &self.control_buf[0..size]
-                } else {
-                    &[]
-                };
-
+            (_, Recipient::Interface) => {
                 let handler = self
                     .interfaces
                     .iter_mut()
                     .find(|(i, _)| req.index == *i as _)
                     .map(|(_, h)| h);
+
                 match handler {
-                    Some(handler) => match handler.control_out(req, data) {
-                        OutResponse::Accepted => return self.control.accept(),
-                        OutResponse::Rejected => return self.control.reject(),
-                    },
+                    Some(handler) => {
+                        let response = match (req.request_type, req.request) {
+                            (RequestType::Standard, Request::SET_INTERFACE) => {
+                                handler.set_interface(req.value)
+                            }
+                            _ => handler.control_out(req, data),
+                        };
+                        match response {
+                            OutResponse::Accepted => self.control.accept(),
+                            OutResponse::Rejected => self.control.reject(),
+                        }
+                    }
                     None => self.control.reject(),
                 }
             }
@@ -256,18 +258,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 }
                 _ => self.control.reject(),
             },
-            (RequestType::Standard, Recipient::Interface) => match req.request {
-                Request::GET_STATUS => {
-                    let status: u16 = 0x0000;
-                    self.control.accept_in(&status.to_le_bytes()).await;
-                }
-                Request::GET_INTERFACE => {
-                    // TODO: change when alternate settings are implemented
-                    let status = DEFAULT_ALTERNATE_SETTING;
-                    self.control.accept_in(&status.to_le_bytes()).await;
-                }
-                _ => self.control.reject(),
-            },
             (RequestType::Standard, Recipient::Endpoint) => match req.request {
                 Request::GET_STATUS => {
                     let ep_addr: EndpointAddress = ((req.index as u8) & 0x8f).into();
@@ -279,17 +269,30 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 }
                 _ => self.control.reject(),
             },
-            (RequestType::Class, Recipient::Interface) => {
+            (_, Recipient::Interface) => {
                 let handler = self
                     .interfaces
                     .iter_mut()
                     .find(|(i, _)| req.index == *i as _)
                     .map(|(_, h)| h);
+
                 match handler {
-                    Some(handler) => match handler.control_in(req, self.control_buf) {
-                        InResponse::Accepted(data) => self.control.accept_in(data).await,
-                        InResponse::Rejected => self.control.reject(),
-                    },
+                    Some(handler) => {
+                        let response = match (req.request_type, req.request) {
+                            (RequestType::Standard, Request::GET_STATUS) => {
+                                handler.get_status(self.control_buf)
+                            }
+                            (RequestType::Standard, Request::GET_INTERFACE) => {
+                                handler.get_interface(self.control_buf)
+                            }
+                            _ => handler.control_in(req, self.control_buf),
+                        };
+
+                        match response {
+                            InResponse::Accepted(data) => self.control.accept_in(data).await,
+                            InResponse::Rejected => self.control.reject(),
+                        }
+                    }
                     None => self.control.reject(),
                 }
             }
