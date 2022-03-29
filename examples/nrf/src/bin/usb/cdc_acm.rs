@@ -96,7 +96,7 @@ impl<'a> Control<'a> {
     }
 }
 
-impl<'a> ControlHandler for Control<'a> {
+impl<'d> ControlHandler for Control<'d> {
     fn reset(&mut self) {
         let shared = self.shared();
         shared.line_coding.lock(|x| x.set(LineCoding::default()));
@@ -138,17 +138,18 @@ impl<'a> ControlHandler for Control<'a> {
         }
     }
 
-    fn control_in(&mut self, req: Request, resp: &mut [u8]) -> InResponse {
+    fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
         match req.request {
             // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
             REQ_GET_LINE_CODING if req.length == 7 => {
                 info!("Sending line coding");
                 let coding = self.shared().line_coding.lock(|x| x.get());
-                resp[0..4].copy_from_slice(&coding.data_rate.to_le_bytes());
-                resp[4] = coding.stop_bits as u8;
-                resp[5] = coding.parity_type as u8;
-                resp[6] = coding.data_bits;
-                InResponse::Accepted(7)
+                assert!(buf.len() >= 7);
+                buf[0..4].copy_from_slice(&coding.data_rate.to_le_bytes());
+                buf[4] = coding.stop_bits as u8;
+                buf[5] = coding.parity_type as u8;
+                buf[6] = coding.data_bits;
+                InResponse::Accepted(&buf[0..7])
             }
             _ => InResponse::Rejected,
         }
@@ -168,6 +169,8 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         });
 
         let control_shared = &state.shared;
+
+        assert!(builder.control_buf_len() >= 7);
 
         let comm_if = builder.alloc_interface_with_handler(control);
         let comm_ep = builder.alloc_interrupt_endpoint_in(8, 255);
