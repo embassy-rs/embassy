@@ -1,5 +1,7 @@
 use core::mem;
 
+use crate::DEFAULT_ALTERNATE_SETTING;
+
 use super::types::*;
 
 /// Control request type.
@@ -153,6 +155,7 @@ pub trait ControlHandler {
     /// * `req` - The request from the SETUP packet.
     /// * `data` - The data from the request.
     fn control_out(&mut self, req: Request, data: &[u8]) -> OutResponse {
+        let _ = (req, data);
         OutResponse::Rejected
     }
 
@@ -165,6 +168,26 @@ pub trait ControlHandler {
     ///
     /// * `req` - The request from the SETUP packet.
     fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
+        let _ = (req, buf);
         InResponse::Rejected
+    }
+
+    fn set_interface(&mut self, alternate_setting: u16) -> OutResponse {
+        if alternate_setting == u16::from(DEFAULT_ALTERNATE_SETTING) {
+            OutResponse::Accepted
+        } else {
+            OutResponse::Rejected
+        }
+    }
+
+    fn get_interface<'a>(&'a mut self, buf: &'a mut [u8]) -> InResponse<'a> {
+        buf[0] = DEFAULT_ALTERNATE_SETTING;
+        InResponse::Accepted(&buf[0..1])
+    }
+
+    fn get_status<'a>(&'a mut self, buf: &'a mut [u8]) -> InResponse {
+        let status: u16 = 0;
+        buf[0..2].copy_from_slice(&status.to_le_bytes());
+        InResponse::Accepted(&buf[0..2])
     }
 }
