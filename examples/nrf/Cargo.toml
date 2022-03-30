@@ -6,13 +6,13 @@ version = "0.1.0"
 
 [features]
 default = ["nightly"]
-nightly = ["embassy-nrf/nightly", "embassy-nrf/unstable-traits"]
+nightly = ["embassy-nrf/nightly", "embassy-nrf/unstable-traits", "embassy-usb", "embassy-usb-serial"]
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac"] }
-embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
-embassy-usb-serial = { version = "0.1.0", path = "../../embassy-usb-serial", features = ["defmt"] }
+embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"], optional = true }
+embassy-usb-serial = { version = "0.1.0", path = "../../embassy-usb-serial", features = ["defmt"], optional = true }
 
 defmt = "0.3"
 defmt-rtt = "0.3"
