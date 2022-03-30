@@ -6,15 +6,13 @@
 use core::mem;
 use defmt::*;
 use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
 use embassy_nrf::interrupt;
 use embassy_nrf::pac;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::Peripherals;
-use embassy_usb::driver::{EndpointIn, EndpointOut};
 use embassy_usb::{Config, UsbDeviceBuilder};
 use embassy_usb_serial::{CdcAcmClass, State};
-use futures::future::join3;
+use futures::future::join;
 
 use defmt_rtt as _; // global logger
 use panic_probe as _;
@@ -64,28 +62,20 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut usb = builder.build();
 
     // Run the USB device.
-    let fut1 = usb.run();
+    let usb_fut = usb.run();
 
-    // Do stuff with the classes
-    let fut2 = async {
+    // Do stuff with the class!
+    let echo_fut = async {
         let mut buf = [0; 64];
         loop {
-            let n = class.read_ep.read(&mut buf).await.unwrap();
+            let n = class.read_packet(&mut buf).await.unwrap();
             let data = &buf[..n];
             info!("data: {:x}", data);
-        }
-    };
-    let fut3 = async {
-        loop {
-            info!("writing...");
-            class.write_ep.write(b"Hello World!\r\n").await.unwrap();
-            info!("written");
-
-            Timer::after(Duration::from_secs(1)).await;
+            class.write_packet(data).await.unwrap();
         }
     };
 
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
-    join3(fut1, fut2, fut3).await;
+    join(usb_fut, echo_fut).await;
 }
