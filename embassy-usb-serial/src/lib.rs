@@ -53,20 +53,17 @@ impl<'a> State<'a> {
 /// writing USB packets with no intermediate buffers, but it will not act like a stream-like serial
 /// port. The following constraints must be followed if you use this class directly:
 ///
-/// - `read_packet` must be called with a buffer large enough to hold max_packet_size bytes, and the
-///   method will return a `WouldBlock` error if there is no packet to be read.
-/// - `write_packet` must not be called with a buffer larger than max_packet_size bytes, and the
-///   method will return a `WouldBlock` error if the previous packet has not been sent yet.
+/// - `read_packet` must be called with a buffer large enough to hold max_packet_size bytes.
+/// - `write_packet` must not be called with a buffer larger than max_packet_size bytes.
 /// - If you write a packet that is exactly max_packet_size bytes long, it won't be processed by the
 ///   host operating system until a subsequent shorter packet is sent. A zero-length packet (ZLP)
 ///   can be sent if there is no other data to send. This is because USB bulk transactions must be
 ///   terminated with a short packet, even if the bulk endpoint is used for stream-like data.
 pub struct CdcAcmClass<'d, D: Driver<'d>> {
-    // TODO not pub
-    pub comm_ep: D::EndpointIn,
-    pub data_if: InterfaceNumber,
-    pub read_ep: D::EndpointOut,
-    pub write_ep: D::EndpointIn,
+    _comm_ep: D::EndpointIn,
+    _data_if: InterfaceNumber,
+    read_ep: D::EndpointOut,
+    write_ep: D::EndpointIn,
     control: &'d ControlShared,
 }
 
@@ -237,8 +234,8 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         builder.config_descriptor.endpoint(read_ep.info());
 
         CdcAcmClass {
-            comm_ep,
-            data_if,
+            _comm_ep: comm_ep,
+            _data_if: data_if,
             read_ep,
             write_ep,
             control: control_shared,
