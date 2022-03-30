@@ -1,13 +1,6 @@
 use super::builder::Config;
 use super::{types::*, CONFIGURATION_VALUE, DEFAULT_ALTERNATE_SETTING};
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Error {
-    BufferFull,
-    InvalidState,
-}
-
 /// Standard descriptor types
 #[allow(missing_docs)]
 pub mod descriptor_type {
@@ -69,11 +62,11 @@ impl<'a> DescriptorWriter<'a> {
     }
 
     /// Writes an arbitrary (usually class-specific) descriptor.
-    pub fn write(&mut self, descriptor_type: u8, descriptor: &[u8]) -> Result<(), Error> {
+    pub fn write(&mut self, descriptor_type: u8, descriptor: &[u8]) {
         let length = descriptor.len();
 
         if (self.position + 2 + length) > self.buf.len() || (length + 2) > 255 {
-            return Err(Error::BufferFull);
+            panic!("Descriptor buffer full");
         }
 
         self.buf[self.position] = (length + 2) as u8;
@@ -84,11 +77,9 @@ impl<'a> DescriptorWriter<'a> {
         self.buf[start..start + length].copy_from_slice(descriptor);
 
         self.position = start + length;
-
-        Ok(())
     }
 
-    pub(crate) fn device(&mut self, config: &Config) -> Result<(), Error> {
+    pub(crate) fn device(&mut self, config: &Config) {
         self.write(
             descriptor_type::DEVICE,
             &[
@@ -112,7 +103,7 @@ impl<'a> DescriptorWriter<'a> {
         )
     }
 
-    pub(crate) fn configuration(&mut self, config: &Config) -> Result<(), Error> {
+    pub(crate) fn configuration(&mut self, config: &Config) {
         self.num_interfaces_mark = Some(self.position + 4);
 
         self.write_iads = config.composite_with_iads;
@@ -168,9 +159,9 @@ impl<'a> DescriptorWriter<'a> {
         function_class: u8,
         function_sub_class: u8,
         function_protocol: u8,
-    ) -> Result<(), Error> {
+    ) {
         if !self.write_iads {
-            return Ok(());
+            return;
         }
 
         self.write(
@@ -183,9 +174,7 @@ impl<'a> DescriptorWriter<'a> {
                 function_protocol,
                 0,
             ],
-        )?;
-
-        Ok(())
+        );
     }
 
     /// Writes a interface descriptor.
@@ -204,7 +193,7 @@ impl<'a> DescriptorWriter<'a> {
         interface_class: u8,
         interface_sub_class: u8,
         interface_protocol: u8,
-    ) -> Result<(), Error> {
+    ) {
         self.interface_alt(
             number,
             DEFAULT_ALTERNATE_SETTING,
@@ -237,11 +226,13 @@ impl<'a> DescriptorWriter<'a> {
         interface_sub_class: u8,
         interface_protocol: u8,
         interface_string: Option<StringIndex>,
-    ) -> Result<(), Error> {
+    ) {
         if alternate_setting == DEFAULT_ALTERNATE_SETTING {
             match self.num_interfaces_mark {
                 Some(mark) => self.buf[mark] += 1,
-                None => return Err(Error::InvalidState),
+                None => {
+                    panic!("you can only call `interface/interface_alt` after `configuration`.")
+                }
             };
         }
 
@@ -260,9 +251,7 @@ impl<'a> DescriptorWriter<'a> {
                 interface_protocol,  // bInterfaceProtocol
                 str_index,           // iInterface
             ],
-        )?;
-
-        Ok(())
+        );
     }
 
     /// Writes an endpoint descriptor.
@@ -271,10 +260,10 @@ impl<'a> DescriptorWriter<'a> {
     ///
     /// * `endpoint` - Endpoint previously allocated with
     ///   [`UsbDeviceBuilder`](crate::bus::UsbDeviceBuilder).
-    pub fn endpoint(&mut self, endpoint: &EndpointInfo) -> Result<(), Error> {
+    pub fn endpoint(&mut self, endpoint: &EndpointInfo) {
         match self.num_endpoints_mark {
             Some(mark) => self.buf[mark] += 1,
-            None => return Err(Error::InvalidState),
+            None => panic!("you can only call `endpoint` after `interface/interface_alt`."),
         };
 
         self.write(
@@ -286,17 +275,15 @@ impl<'a> DescriptorWriter<'a> {
                 (endpoint.max_packet_size >> 8) as u8, // wMaxPacketSize
                 endpoint.interval,                     // bInterval
             ],
-        )?;
-
-        Ok(())
+        );
     }
 
     /// Writes a string descriptor.
-    pub(crate) fn string(&mut self, string: &str) -> Result<(), Error> {
+    pub(crate) fn string(&mut self, string: &str) {
         let mut pos = self.position;
 
         if pos + 2 > self.buf.len() {
-            return Err(Error::BufferFull);
+            panic!("Descriptor buffer full");
         }
 
         self.buf[pos] = 0; // length placeholder
@@ -306,7 +293,7 @@ impl<'a> DescriptorWriter<'a> {
 
         for c in string.encode_utf16() {
             if pos >= self.buf.len() {
-                return Err(Error::BufferFull);
+                panic!("Descriptor buffer full");
             }
 
             self.buf[pos..pos + 2].copy_from_slice(&c.to_le_bytes());
@@ -316,8 +303,6 @@ impl<'a> DescriptorWriter<'a> {
         self.buf[self.position] = (pos - self.position) as u8;
 
         self.position = pos;
-
-        Ok(())
     }
 }
 
@@ -335,7 +320,7 @@ impl<'a> BosWriter<'a> {
         }
     }
 
-    pub(crate) fn bos(&mut self) -> Result<(), Error> {
+    pub(crate) fn bos(&mut self) {
         self.num_caps_mark = Some(self.writer.position + 4);
         self.writer.write(
             descriptor_type::BOS,
@@ -343,11 +328,9 @@ impl<'a> BosWriter<'a> {
                 0x00, 0x00, // wTotalLength
                 0x00, // bNumDeviceCaps
             ],
-        )?;
+        );
 
-        self.capability(capability_type::USB_2_0_EXTENSION, &[0; 4])?;
-
-        Ok(())
+        self.capability(capability_type::USB_2_0_EXTENSION, &[0; 4]);
     }
 
     /// Writes capability descriptor to a BOS
@@ -356,17 +339,17 @@ impl<'a> BosWriter<'a> {
     ///
     /// * `capability_type` - Type of a capability
     /// * `data` - Binary data of the descriptor
-    pub fn capability(&mut self, capability_type: u8, data: &[u8]) -> Result<(), Error> {
+    pub fn capability(&mut self, capability_type: u8, data: &[u8]) {
         match self.num_caps_mark {
             Some(mark) => self.writer.buf[mark] += 1,
-            None => return Err(Error::InvalidState),
+            None => panic!("called `capability` not between `bos` and `end_bos`."),
         }
 
         let mut start = self.writer.position;
         let blen = data.len();
 
         if (start + blen + 3) > self.writer.buf.len() || (blen + 3) > 255 {
-            return Err(Error::BufferFull);
+            panic!("Descriptor buffer full");
         }
 
         self.writer.buf[start] = (blen + 3) as u8;
@@ -376,8 +359,6 @@ impl<'a> BosWriter<'a> {
         start += 3;
         self.writer.buf[start..start + blen].copy_from_slice(data);
         self.writer.position = start + blen;
-
-        Ok(())
     }
 
     pub(crate) fn end_bos(&mut self) {

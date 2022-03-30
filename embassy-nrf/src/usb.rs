@@ -403,11 +403,9 @@ unsafe fn read_dma<T: Instance>(i: usize, buf: &mut [u8]) -> Result<usize, ReadE
     Ok(size)
 }
 
-unsafe fn write_dma<T: Instance>(i: usize, buf: &[u8]) -> Result<(), WriteError> {
+unsafe fn write_dma<T: Instance>(i: usize, buf: &[u8]) {
     let regs = T::regs();
-    if buf.len() > 64 {
-        return Err(WriteError::BufferOverflow);
-    }
+    assert!(buf.len() <= 64);
 
     let mut ram_buf: MaybeUninit<[u8; 64]> = MaybeUninit::uninit();
     let ptr = if !slice_in_ram(buf) {
@@ -441,8 +439,6 @@ unsafe fn write_dma<T: Instance>(i: usize, buf: &[u8]) -> Result<(), WriteError>
     regs.tasks_startepin[i].write(|w| w.bits(1));
     while regs.events_endepin[i].read().bits() == 0 {}
     dma_end();
-
-    Ok(())
 }
 
 impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
@@ -497,6 +493,8 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
             READY_ENDPOINTS.fetch_and(!(1 << i), Ordering::AcqRel);
 
             unsafe { write_dma::<T>(i, buf) }
+
+            Ok(())
         }
     }
 }
@@ -535,9 +533,7 @@ impl<'d, T: Instance> ControlPipe<'d, T> {
     async fn write(&mut self, buf: &[u8], last_chunk: bool) {
         let regs = T::regs();
         regs.events_ep0datadone.reset();
-        unsafe {
-            write_dma::<T>(0, buf).unwrap();
-        }
+        unsafe { write_dma::<T>(0, buf) }
 
         regs.shorts
             .modify(|_, w| w.ep0datadone_ep0status().bit(last_chunk));
@@ -616,7 +612,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
     fn data_out<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::DataOutFuture<'a> {
         async move {
-            let req = self.request.unwrap();
+            let req = unwrap!(self.request);
             assert!(req.direction == UsbDirection::Out);
             assert!(req.length > 0);
 
@@ -649,7 +645,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             debug!("control in accept {:x}", buf);
             #[cfg(not(feature = "defmt"))]
             debug!("control in accept {:x?}", buf);
-            let req = self.request.unwrap();
+            let req = unwrap!(self.request);
             assert!(req.direction == UsbDirection::In);
 
             let req_len = usize::from(req.length);
