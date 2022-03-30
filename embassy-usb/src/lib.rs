@@ -55,7 +55,7 @@ pub const MAX_INTERFACE_COUNT: usize = 4;
 
 pub struct UsbDevice<'d, D: Driver<'d>> {
     bus: D::Bus,
-    control: D::ControlPipe,
+    control: ControlPipe<D::ControlPipe>,
 
     config: Config<'d>,
     device_descriptor: &'d [u8],
@@ -92,7 +92,10 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         Self {
             bus: driver,
             config,
-            control,
+            control: ControlPipe {
+                control,
+                request: None,
+            },
             device_descriptor,
             config_descriptor,
             bos_descriptor,
@@ -140,32 +143,19 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         }
     }
 
-    async fn control_in_accept_writer(
-        &mut self,
-        req: Request,
-        f: impl FnOnce(&mut DescriptorWriter),
-    ) {
-        let mut buf = [0; 256];
-        let mut w = DescriptorWriter::new(&mut buf);
-        f(&mut w);
-        let pos = w.position().min(usize::from(req.length));
-        self.control.accept_in(&buf[..pos]).await;
-    }
-
     async fn handle_control_out(&mut self, req: Request) {
         const CONFIGURATION_NONE_U16: u16 = CONFIGURATION_NONE as u16;
         const CONFIGURATION_VALUE_U16: u16 = CONFIGURATION_VALUE as u16;
 
         // If the request has a data state, we must read it.
         let data = if req.length > 0 {
-            let size = match self.control.data_out(self.control_buf).await {
-                Ok(size) => size,
+            match self.control.data_out(self.control_buf).await {
+                Ok(data) => data,
                 Err(_) => {
                     warn!("usb: failed to read CONTROL OUT data stage.");
                     return;
                 }
-            };
-            &self.control_buf[0..size]
+            }
         } else {
             &[]
         };
@@ -315,10 +305,11 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             descriptor_type::CONFIGURATION => self.control.accept_in(self.config_descriptor).await,
             descriptor_type::STRING => {
                 if index == 0 {
-                    self.control_in_accept_writer(req, |w| {
-                        w.write(descriptor_type::STRING, &lang_id::ENGLISH_US.to_le_bytes())
-                    })
-                    .await
+                    self.control
+                        .accept_in_writer(req, |w| {
+                            w.write(descriptor_type::STRING, &lang_id::ENGLISH_US.to_le_bytes());
+                        })
+                        .await
                 } else {
                     let s = match index {
                         1 => self.config.manufacturer,
@@ -333,7 +324,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     };
 
                     if let Some(s) = s {
-                        self.control_in_accept_writer(req, |w| w.string(s)).await;
+                        self.control.accept_in_writer(req, |w| w.string(s)).await;
                     } else {
                         self.control.reject()
                     }
@@ -341,5 +332,83 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             }
             _ => self.control.reject(),
         }
+    }
+}
+
+struct ControlPipe<C: driver::ControlPipe> {
+    control: C,
+    request: Option<Request>,
+}
+
+impl<C: driver::ControlPipe> ControlPipe<C> {
+    async fn setup(&mut self) -> Request {
+        assert!(self.request.is_none());
+        let req = self.control.setup().await;
+        self.request = Some(req);
+        req
+    }
+
+    async fn data_out<'a>(&mut self, buf: &'a mut [u8]) -> Result<&'a [u8], ReadError> {
+        let req = self.request.unwrap();
+        assert_eq!(req.direction, UsbDirection::Out);
+        assert!(req.length > 0);
+        let req_length = usize::from(req.length);
+
+        let max_packet_size = self.control.max_packet_size();
+        let mut total = 0;
+
+        for chunk in buf.chunks_mut(max_packet_size) {
+            let size = self.control.data_out(chunk).await?;
+            total += size;
+            if size < max_packet_size || total == req_length {
+                break;
+            }
+        }
+
+        Ok(&buf[0..total])
+    }
+
+    async fn accept_in(&mut self, buf: &[u8]) -> () {
+        #[cfg(feature = "defmt")]
+        debug!("control in accept {:x}", buf);
+        #[cfg(not(feature = "defmt"))]
+        debug!("control in accept {:x?}", buf);
+        let req = unwrap!(self.request);
+        assert!(req.direction == UsbDirection::In);
+
+        let req_len = usize::from(req.length);
+        let len = buf.len().min(req_len);
+        let max_packet_size = self.control.max_packet_size();
+        let need_zlp = len != req_len && (len % usize::from(max_packet_size)) == 0;
+
+        let mut chunks = buf[0..len]
+            .chunks(max_packet_size)
+            .chain(need_zlp.then(|| -> &[u8] { &[] }));
+
+        while let Some(chunk) = chunks.next() {
+            self.control.data_in(chunk, chunks.size_hint().0 == 0).await;
+        }
+
+        self.request = None;
+    }
+
+    async fn accept_in_writer(&mut self, req: Request, f: impl FnOnce(&mut DescriptorWriter)) {
+        let mut buf = [0; 256];
+        let mut w = DescriptorWriter::new(&mut buf);
+        f(&mut w);
+        let pos = w.position().min(usize::from(req.length));
+        self.accept_in(&buf[..pos]).await;
+    }
+
+    fn accept(&mut self) {
+        assert!(self.request.is_some());
+        self.control.accept();
+        self.request = None;
+    }
+
+    fn reject(&mut self) {
+        assert!(self.request.is_some());
+        self.control.reject();
+        self.request = None;
     }
 }
