@@ -1,5 +1,7 @@
 use core::mem;
 
+use crate::descriptor::DescriptorWriter;
+use crate::driver::{self, ReadError};
 use crate::DEFAULT_ALTERNATE_SETTING;
 
 use super::types::*;
@@ -189,5 +191,124 @@ pub trait ControlHandler {
         let status: u16 = 0;
         buf[0..2].copy_from_slice(&status.to_le_bytes());
         InResponse::Accepted(&buf[0..2])
+    }
+}
+
+/// Typestate representing a ControlPipe in the DATA IN stage
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) struct DataInStage {
+    length: usize,
+}
+
+/// Typestate representing a ControlPipe in the DATA OUT stage
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) struct DataOutStage {
+    length: usize,
+}
+
+/// Typestate representing a ControlPipe in the STATUS stage
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) struct StatusStage {}
+
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) enum Setup {
+    DataIn(Request, DataInStage),
+    DataOut(Request, DataOutStage),
+}
+
+pub(crate) struct ControlPipe<C: driver::ControlPipe> {
+    control: C,
+}
+
+impl<C: driver::ControlPipe> ControlPipe<C> {
+    pub(crate) fn new(control: C) -> Self {
+        ControlPipe { control }
+    }
+
+    pub(crate) async fn setup(&mut self) -> Setup {
+        let req = self.control.setup().await;
+        match (req.direction, req.length) {
+            (UsbDirection::Out, n) => Setup::DataOut(
+                req,
+                DataOutStage {
+                    length: usize::from(n),
+                },
+            ),
+            (UsbDirection::In, n) => Setup::DataIn(
+                req,
+                DataInStage {
+                    length: usize::from(n),
+                },
+            ),
+        }
+    }
+
+    pub(crate) async fn data_out<'a>(
+        &mut self,
+        buf: &'a mut [u8],
+        stage: DataOutStage,
+    ) -> Result<(&'a [u8], StatusStage), ReadError> {
+        if stage.length == 0 {
+            Ok((&[], StatusStage {}))
+        } else {
+            let req_length = stage.length;
+            let max_packet_size = self.control.max_packet_size();
+            let mut total = 0;
+
+            for chunk in buf.chunks_mut(max_packet_size) {
+                let size = self.control.data_out(chunk).await?;
+                total += size;
+                if size < max_packet_size || total == req_length {
+                    break;
+                }
+            }
+
+            Ok((&buf[0..total], StatusStage {}))
+        }
+    }
+
+    pub(crate) async fn accept_in(&mut self, buf: &[u8], stage: DataInStage) {
+        #[cfg(feature = "defmt")]
+        debug!("control in accept {:x}", buf);
+        #[cfg(not(feature = "defmt"))]
+        debug!("control in accept {:x?}", buf);
+
+        let req_len = stage.length;
+        let len = buf.len().min(req_len);
+        let max_packet_size = self.control.max_packet_size();
+        let need_zlp = len != req_len && (len % usize::from(max_packet_size)) == 0;
+
+        let mut chunks = buf[0..len]
+            .chunks(max_packet_size)
+            .chain(need_zlp.then(|| -> &[u8] { &[] }));
+
+        while let Some(chunk) = chunks.next() {
+            self.control.data_in(chunk, chunks.size_hint().0 == 0).await;
+        }
+    }
+
+    pub(crate) async fn accept_in_writer(
+        &mut self,
+        req: Request,
+        stage: DataInStage,
+        f: impl FnOnce(&mut DescriptorWriter),
+    ) {
+        let mut buf = [0; 256];
+        let mut w = DescriptorWriter::new(&mut buf);
+        f(&mut w);
+        let pos = w.position().min(usize::from(req.length));
+        self.accept_in(&buf[..pos], stage).await
+    }
+
+    pub(crate) fn accept(&mut self, _: StatusStage) {
+        self.control.accept();
+    }
+
+    pub(crate) fn reject(&mut self) {
+        self.control.reject();
     }
 }
