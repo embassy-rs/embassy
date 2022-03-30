@@ -158,7 +158,13 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
 
         // If the request has a data state, we must read it.
         let data = if req.length > 0 {
-            let size = self.control.data_out(self.control_buf).await.unwrap();
+            let size = match self.control.data_out(self.control_buf).await {
+                Ok(size) => size,
+                Err(_) => {
+                    warn!("usb: failed to read CONTROL OUT data stage.");
+                    return;
+                }
+            };
             &self.control_buf[0..size]
         } else {
             &[]
@@ -311,7 +317,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 if index == 0 {
                     self.control_in_accept_writer(req, |w| {
                         w.write(descriptor_type::STRING, &lang_id::ENGLISH_US.to_le_bytes())
-                            .unwrap();
                     })
                     .await
                 } else {
@@ -328,8 +333,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     };
 
                     if let Some(s) = s {
-                        self.control_in_accept_writer(req, |w| w.string(s).unwrap())
-                            .await;
+                        self.control_in_accept_writer(req, |w| w.string(s)).await;
                     } else {
                         self.control.reject()
                     }

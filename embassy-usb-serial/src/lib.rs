@@ -184,78 +184,57 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         let read_ep = builder.alloc_bulk_endpoint_out(max_packet_size);
         let write_ep = builder.alloc_bulk_endpoint_in(max_packet_size);
 
-        builder
-            .config_descriptor
-            .iad(
-                comm_if,
-                2,
-                USB_CLASS_CDC,
-                CDC_SUBCLASS_ACM,
-                CDC_PROTOCOL_NONE,
-            )
-            .unwrap();
+        builder.config_descriptor.iad(
+            comm_if,
+            2,
+            USB_CLASS_CDC,
+            CDC_SUBCLASS_ACM,
+            CDC_PROTOCOL_NONE,
+        );
+        builder.config_descriptor.interface(
+            comm_if,
+            USB_CLASS_CDC,
+            CDC_SUBCLASS_ACM,
+            CDC_PROTOCOL_NONE,
+        );
+        builder.config_descriptor.write(
+            CS_INTERFACE,
+            &[
+                CDC_TYPE_HEADER, // bDescriptorSubtype
+                0x10,
+                0x01, // bcdCDC (1.10)
+            ],
+        );
+        builder.config_descriptor.write(
+            CS_INTERFACE,
+            &[
+                CDC_TYPE_ACM, // bDescriptorSubtype
+                0x00,         // bmCapabilities
+            ],
+        );
+        builder.config_descriptor.write(
+            CS_INTERFACE,
+            &[
+                CDC_TYPE_UNION, // bDescriptorSubtype
+                comm_if.into(), // bControlInterface
+                data_if.into(), // bSubordinateInterface
+            ],
+        );
+        builder.config_descriptor.write(
+            CS_INTERFACE,
+            &[
+                CDC_TYPE_CALL_MANAGEMENT, // bDescriptorSubtype
+                0x00,                     // bmCapabilities
+                data_if.into(),           // bDataInterface
+            ],
+        );
+        builder.config_descriptor.endpoint(comm_ep.info());
 
         builder
             .config_descriptor
-            .interface(comm_if, USB_CLASS_CDC, CDC_SUBCLASS_ACM, CDC_PROTOCOL_NONE)
-            .unwrap();
-
-        builder
-            .config_descriptor
-            .write(
-                CS_INTERFACE,
-                &[
-                    CDC_TYPE_HEADER, // bDescriptorSubtype
-                    0x10,
-                    0x01, // bcdCDC (1.10)
-                ],
-            )
-            .unwrap();
-
-        builder
-            .config_descriptor
-            .write(
-                CS_INTERFACE,
-                &[
-                    CDC_TYPE_ACM, // bDescriptorSubtype
-                    0x00,         // bmCapabilities
-                ],
-            )
-            .unwrap();
-
-        builder
-            .config_descriptor
-            .write(
-                CS_INTERFACE,
-                &[
-                    CDC_TYPE_UNION, // bDescriptorSubtype
-                    comm_if.into(), // bControlInterface
-                    data_if.into(), // bSubordinateInterface
-                ],
-            )
-            .unwrap();
-
-        builder
-            .config_descriptor
-            .write(
-                CS_INTERFACE,
-                &[
-                    CDC_TYPE_CALL_MANAGEMENT, // bDescriptorSubtype
-                    0x00,                     // bmCapabilities
-                    data_if.into(),           // bDataInterface
-                ],
-            )
-            .unwrap();
-
-        builder.config_descriptor.endpoint(comm_ep.info()).unwrap();
-
-        builder
-            .config_descriptor
-            .interface(data_if, USB_CLASS_CDC_DATA, 0x00, 0x00)
-            .unwrap();
-
-        builder.config_descriptor.endpoint(write_ep.info()).unwrap();
-        builder.config_descriptor.endpoint(read_ep.info()).unwrap();
+            .interface(data_if, USB_CLASS_CDC_DATA, 0x00, 0x00);
+        builder.config_descriptor.endpoint(write_ep.info());
+        builder.config_descriptor.endpoint(read_ep.info());
 
         CdcAcmClass {
             comm_ep,
