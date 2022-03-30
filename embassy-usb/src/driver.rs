@@ -137,30 +137,35 @@ pub trait ControlPipe {
     type DataOutFuture<'a>: Future<Output = Result<usize, ReadError>> + 'a
     where
         Self: 'a;
-    type AcceptInFuture<'a>: Future<Output = ()> + 'a
+    type DataInFuture<'a>: Future<Output = ()> + 'a
     where
         Self: 'a;
+
+    /// Maximum packet size for the control pipe
+    fn max_packet_size(&self) -> usize;
 
     /// Reads a single setup packet from the endpoint.
     fn setup<'a>(&'a mut self) -> Self::SetupFuture<'a>;
 
-    /// Reads the data packet of a control write sequence.
+    /// Reads a DATA OUT packet into `buf` in response to a control write request.
     ///
     /// Must be called after `setup()` for requests with `direction` of `Out`
     /// and `length` greater than zero.
-    ///
-    /// `buf.len()` must be greater than or equal to the request's `length`.
     fn data_out<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::DataOutFuture<'a>;
 
+    /// Sends a DATA IN packet with `data` in response to a control read request.
+    ///
+    /// If `last_packet` is true, the STATUS packet will be ACKed following the transfer of `data`.
+    fn data_in<'a>(&'a mut self, data: &'a [u8], last_packet: bool) -> Self::DataInFuture<'a>;
+
     /// Accepts a control request.
+    ///
+    /// Causes the STATUS packet for the current request to be ACKed.
     fn accept(&mut self);
 
-    /// Accepts a control read request with `data`.
-    ///
-    /// `data.len()` must be less than or equal to the request's `length`.
-    fn accept_in<'a>(&'a mut self, data: &'a [u8]) -> Self::AcceptInFuture<'a>;
-
     /// Rejects a control request.
+    ///
+    /// Sets a STALL condition on the pipe to indicate an error.
     fn reject(&mut self);
 }
 
