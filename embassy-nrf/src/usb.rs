@@ -186,7 +186,6 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         Ok(ControlPipe {
             _phantom: PhantomData,
             max_packet_size,
-            request: None,
         })
     }
 
@@ -502,72 +501,19 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
 pub struct ControlPipe<'d, T: Instance> {
     _phantom: PhantomData<&'d mut T>,
     max_packet_size: u16,
-    request: Option<Request>,
-}
-
-impl<'d, T: Instance> ControlPipe<'d, T> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ReadError> {
-        let regs = T::regs();
-
-        // Wait until ready
-        regs.intenset.write(|w| w.ep0datadone().set());
-        poll_fn(|cx| {
-            EP_OUT_WAKERS[0].register(cx.waker());
-            let regs = T::regs();
-            if regs
-                .events_ep0datadone
-                .read()
-                .events_ep0datadone()
-                .bit_is_set()
-            {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-
-        unsafe { read_dma::<T>(0, buf) }
-    }
-
-    async fn write(&mut self, buf: &[u8], last_chunk: bool) {
-        let regs = T::regs();
-        regs.events_ep0datadone.reset();
-        unsafe { write_dma::<T>(0, buf) }
-
-        regs.shorts
-            .modify(|_, w| w.ep0datadone_ep0status().bit(last_chunk));
-
-        regs.intenset.write(|w| w.ep0datadone().set());
-        let res = with_timeout(
-            Duration::from_millis(10),
-            poll_fn(|cx| {
-                EP_IN_WAKERS[0].register(cx.waker());
-                let regs = T::regs();
-                if regs.events_ep0datadone.read().bits() != 0 {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            }),
-        )
-        .await;
-
-        if res.is_err() {
-            error!("ControlPipe::write timed out.");
-        }
-    }
 }
 
 impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     type SetupFuture<'a> = impl Future<Output = Request> + 'a where Self: 'a;
     type DataOutFuture<'a> = impl Future<Output = Result<usize, ReadError>> + 'a where Self: 'a;
-    type AcceptInFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
+    type DataInFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
+
+    fn max_packet_size(&self) -> usize {
+        usize::from(self.max_packet_size)
+    }
 
     fn setup<'a>(&'a mut self) -> Self::SetupFuture<'a> {
         async move {
-            assert!(self.request.is_none());
-
             let regs = T::regs();
 
             // Wait for SETUP packet
@@ -605,29 +551,65 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
                     .write(|w| w.tasks_ep0rcvout().set_bit());
             }
 
-            self.request = Some(req);
             req
         }
     }
 
     fn data_out<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::DataOutFuture<'a> {
         async move {
-            let req = unwrap!(self.request);
-            assert!(req.direction == UsbDirection::Out);
-            assert!(req.length > 0);
+            let regs = T::regs();
 
-            let req_length = usize::from(req.length);
-            let max_packet_size = usize::from(self.max_packet_size);
-            let mut total = 0;
-            for chunk in buf.chunks_mut(max_packet_size) {
-                let size = self.read(chunk).await?;
-                total += size;
-                if size < max_packet_size || total == req_length {
-                    break;
+            // Wait until ready
+            regs.intenset.write(|w| w.ep0datadone().set());
+            poll_fn(|cx| {
+                EP_OUT_WAKERS[0].register(cx.waker());
+                let regs = T::regs();
+                if regs
+                    .events_ep0datadone
+                    .read()
+                    .events_ep0datadone()
+                    .bit_is_set()
+                {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
                 }
+            })
+            .await;
+
+            unsafe { read_dma::<T>(0, buf) }
+        }
+    }
+
+    fn data_in<'a>(&'a mut self, buf: &'a [u8], last_packet: bool) -> Self::DataInFuture<'a> {
+        async move {
+            let regs = T::regs();
+            regs.events_ep0datadone.reset();
+            unsafe {
+                write_dma::<T>(0, buf);
             }
 
-            Ok(total)
+            regs.shorts
+                .modify(|_, w| w.ep0datadone_ep0status().bit(last_packet));
+
+            regs.intenset.write(|w| w.ep0datadone().set());
+            let res = with_timeout(
+                Duration::from_millis(10),
+                poll_fn(|cx| {
+                    EP_IN_WAKERS[0].register(cx.waker());
+                    let regs = T::regs();
+                    if regs.events_ep0datadone.read().bits() != 0 {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                }),
+            )
+            .await;
+
+            if res.is_err() {
+                error!("ControlPipe::data_in timed out.");
+            }
         }
     }
 
@@ -636,37 +618,12 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         let regs = T::regs();
         regs.tasks_ep0status
             .write(|w| w.tasks_ep0status().bit(true));
-        self.request = None;
-    }
-
-    fn accept_in<'a>(&'a mut self, buf: &'a [u8]) -> Self::AcceptInFuture<'a> {
-        async move {
-            #[cfg(feature = "defmt")]
-            debug!("control in accept {:x}", buf);
-            #[cfg(not(feature = "defmt"))]
-            debug!("control in accept {:x?}", buf);
-            let req = unwrap!(self.request);
-            assert!(req.direction == UsbDirection::In);
-
-            let req_len = usize::from(req.length);
-            let len = buf.len().min(req_len);
-            let need_zlp = len != req_len && (len % usize::from(self.max_packet_size)) == 0;
-            let mut chunks = buf[0..len]
-                .chunks(usize::from(self.max_packet_size))
-                .chain(need_zlp.then(|| -> &[u8] { &[] }));
-            while let Some(chunk) = chunks.next() {
-                self.write(chunk, chunks.size_hint().0 == 0).await;
-            }
-
-            self.request = None;
-        }
     }
 
     fn reject(&mut self) {
         debug!("control reject");
         let regs = T::regs();
         regs.tasks_ep0stall.write(|w| w.tasks_ep0stall().bit(true));
-        self.request = None;
     }
 }
 
