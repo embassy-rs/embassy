@@ -168,9 +168,9 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
         let mut config_descriptor = DescriptorWriter::new(config_descriptor_buf);
         let mut bos_descriptor = BosWriter::new(DescriptorWriter::new(bos_descriptor_buf));
 
-        device_descriptor.device(&config).unwrap();
-        config_descriptor.configuration(&config).unwrap();
-        bos_descriptor.bos().unwrap();
+        device_descriptor.device(&config);
+        config_descriptor.configuration(&config);
+        bos_descriptor.bos();
 
         UsbDeviceBuilder {
             bus,
