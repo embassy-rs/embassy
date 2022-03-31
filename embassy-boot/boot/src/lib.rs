@@ -318,21 +318,27 @@ impl FirmwareUpdater {
         #[repr(align(4))]
         struct Aligned([u8; 4]);
 
-        flash
-            .write(self.state.from as u32, &Aligned([0; 4]).0)
-            .await?;
-        flash
-            .erase(self.state.from as u32, self.state.to as u32)
-            .await?;
-        trace!(
-            "Setting swap magic at {} to 0x{:x}, LE: 0x{:x}",
-            self.state.from,
-            &SWAP_MAGIC,
-            &SWAP_MAGIC.to_le_bytes()
-        );
-        flash
-            .write(self.state.from as u32, &SWAP_MAGIC.to_le_bytes())
-            .await?;
+        let mut magic = Aligned([0; 4]);
+        flash.read(self.state.from as u32, &mut magic.0).await?;
+        let magic = u32::from_le_bytes(magic.0);
+
+        if magic != SWAP_MAGIC {
+            flash
+                .write(self.state.from as u32, &Aligned([0; 4]).0)
+                .await?;
+            flash
+                .erase(self.state.from as u32, self.state.to as u32)
+                .await?;
+            trace!(
+                "Setting swap magic at {} to 0x{:x}, LE: 0x{:x}",
+                self.state.from,
+                &SWAP_MAGIC,
+                &SWAP_MAGIC.to_le_bytes()
+            );
+            flash
+                .write(self.state.from as u32, &SWAP_MAGIC.to_le_bytes())
+                .await?;
+        }
         Ok(())
     }
 
@@ -341,15 +347,21 @@ impl FirmwareUpdater {
         #[repr(align(4))]
         struct Aligned([u8; 4]);
 
-        flash
-            .write(self.state.from as u32, &Aligned([0; 4]).0)
-            .await?;
-        flash
-            .erase(self.state.from as u32, self.state.to as u32)
-            .await?;
-        flash
-            .write(self.state.from as u32, &BOOT_MAGIC.to_le_bytes())
-            .await?;
+        let mut magic = Aligned([0; 4]);
+        flash.read(self.state.from as u32, &mut magic.0).await?;
+        let magic = u32::from_le_bytes(magic.0);
+
+        if magic != BOOT_MAGIC {
+            flash
+                .write(self.state.from as u32, &Aligned([0; 4]).0)
+                .await?;
+            flash
+                .erase(self.state.from as u32, self.state.to as u32)
+                .await?;
+            flash
+                .write(self.state.from as u32, &BOOT_MAGIC.to_le_bytes())
+                .await?;
+        }
         Ok(())
     }
 
