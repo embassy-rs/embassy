@@ -14,6 +14,7 @@ use embassy_nrf::interrupt;
 use embassy_nrf::pac;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::Peripherals;
+use embassy_usb::control::OutResponse;
 use embassy_usb::{Config, UsbDeviceBuilder};
 use embassy_usb_hid::{HidClass, ReportId, RequestHandler, State};
 use futures::future::join;
@@ -51,7 +52,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut control_buf = [0; 16];
     let request_handler = MyRequestHandler {};
 
-    let mut state = State::<5, 0, 0>::new();
+    let mut state = State::<5, 0>::new();
 
     let mut builder = UsbDeviceBuilder::new(
         driver,
@@ -63,8 +64,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     );
 
     // Create classes on the builder.
-    // let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
-    let mut hid = HidClass::new(
+    let mut hid = HidClass::new_ep_in(
         &mut builder,
         &mut state,
         MouseReport::desc(),
@@ -118,6 +118,11 @@ impl RequestHandler for MyRequestHandler {
     fn get_report(&self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
         info!("Get report for {:?}", id);
         None
+    }
+
+    fn set_report(&self, id: ReportId, data: &[u8]) -> OutResponse {
+        info!("Set report for {:?}: {=[u8]}", id, data);
+        OutResponse::Accepted
     }
 
     fn set_idle(&self, id: Option<ReportId>, dur: Duration) {
