@@ -60,39 +60,26 @@ impl ReportId {
     }
 }
 
-pub struct State<'a, const IN_N: usize, const OUT_N: usize, const FEATURE_N: usize> {
-    control: MaybeUninit<Control<'a, OUT_N, FEATURE_N>>,
+pub struct State<'a, const IN_N: usize, const OUT_N: usize> {
+    control: MaybeUninit<Control<'a, OUT_N>>,
     out_signal: Signal<(usize, [u8; OUT_N])>,
-    feature_signal: Signal<(usize, [u8; FEATURE_N])>,
 }
 
-impl<'a, const IN_N: usize, const OUT_N: usize, const FEATURE_N: usize>
-    State<'a, IN_N, OUT_N, FEATURE_N>
-{
+impl<'a, const IN_N: usize, const OUT_N: usize> State<'a, IN_N, OUT_N> {
     pub fn new() -> Self {
         State {
             control: MaybeUninit::uninit(),
             out_signal: Signal::new(),
-            feature_signal: Signal::new(),
         }
     }
 }
 
-pub struct HidClass<
-    'd,
-    D: Driver<'d>,
-    const IN_N: usize,
-    const OUT_N: usize,
-    const FEATURE_N: usize,
-> {
+pub struct HidClass<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize> {
     input: ReportWriter<'d, D, IN_N>,
     output: ReportReader<'d, D, OUT_N>,
-    feature: ReportReader<'d, D, FEATURE_N>,
 }
 
-impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize, const FEATURE_N: usize>
-    HidClass<'d, D, IN_N, OUT_N, FEATURE_N>
-{
+impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize> HidClass<'d, D, IN_N, OUT_N> {
     /// Creates a new HidClass.
     ///
     /// poll_ms configures how frequently the host should poll for reading/writing
@@ -105,7 +92,7 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize, const FEATURE_N: 
     /// endpoint.
     pub fn new(
         builder: &mut UsbDeviceBuilder<'d, D>,
-        state: &'d mut State<'d, IN_N, OUT_N, FEATURE_N>,
+        state: &'d mut State<'d, IN_N, OUT_N>,
         report_descriptor: &'static [u8],
         request_handler: Option<&'d dyn RequestHandler>,
         poll_ms: u8,
@@ -126,7 +113,7 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize, const FEATURE_N: 
     /// See new() for more details.
     pub fn new_ep_in(
         builder: &mut UsbDeviceBuilder<'d, D>,
-        state: &'d mut State<'d, IN_N, OUT_N, FEATURE_N>,
+        state: &'d mut State<'d, IN_N, OUT_N>,
         report_descriptor: &'static [u8],
         request_handler: Option<&'d dyn RequestHandler>,
         poll_ms: u8,
@@ -147,7 +134,7 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize, const FEATURE_N: 
     /// See new() for more details.
     pub fn new_ep_out(
         builder: &mut UsbDeviceBuilder<'d, D>,
-        state: &'d mut State<'d, IN_N, OUT_N, FEATURE_N>,
+        state: &'d mut State<'d, IN_N, OUT_N>,
         report_descriptor: &'static [u8],
         request_handler: Option<&'d dyn RequestHandler>,
         poll_ms: u8,
@@ -166,7 +153,7 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize, const FEATURE_N: 
 
     fn new_inner(
         builder: &mut UsbDeviceBuilder<'d, D>,
-        state: &'d mut State<'d, IN_N, OUT_N, FEATURE_N>,
+        state: &'d mut State<'d, IN_N, OUT_N>,
         report_descriptor: &'static [u8],
         request_handler: Option<&'d dyn RequestHandler>,
         ep_out: Option<D::EndpointOut>,
@@ -175,7 +162,6 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize, const FEATURE_N: 
         let control = state.control.write(Control::new(
             report_descriptor,
             &state.out_signal,
-            &state.feature_signal,
             request_handler,
         ));
 
@@ -186,10 +172,6 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize, const FEATURE_N: 
             output: ReportReader {
                 ep_out,
                 receiver: &state.out_signal,
-            },
-            feature: ReportReader {
-                ep_out: None,
-                receiver: &state.feature_signal,
             },
         }
     }
@@ -207,20 +189,9 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize, const FEATURE_N: 
         &mut self.output
     }
 
-    /// Gets the [`ReportReader`] for feature reports.
-    pub fn feature(&mut self) -> &mut ReportReader<'d, D, FEATURE_N> {
-        &mut self.feature
-    }
-
-    /// Splits this `HidClass` into seperate readers/writers for each report type.
-    pub fn split(
-        self,
-    ) -> (
-        ReportWriter<'d, D, IN_N>,
-        ReportReader<'d, D, OUT_N>,
-        ReportReader<'d, D, FEATURE_N>,
-    ) {
-        (self.input, self.output, self.feature)
+    /// Splits this `HidClass` into seperate readers/writers for input and output reports.
+    pub fn split(self) -> (ReportWriter<'d, D, IN_N>, ReportReader<'d, D, OUT_N>) {
+        (self.input, self.output)
     }
 }
 
@@ -314,7 +285,7 @@ impl<'d, D: Driver<'d>, const N: usize> ReportReader<'d, D, N> {
 }
 
 pub trait RequestHandler {
-    /// Read the value of report `id` into `buf` returning the size.
+    /// Reads the value of report `id` into `buf` returning the size.
     ///
     /// Returns `None` if `id` is invalid or no data is available.
     fn get_report(&self, id: ReportId, buf: &mut [u8]) -> Option<usize> {
@@ -322,12 +293,13 @@ pub trait RequestHandler {
         None
     }
 
-    /// Set the idle rate for `id` to `dur`.
+    /// Sets the value of report `id` to `data`.
     ///
-    /// If `id` is `None`, set the idle rate of all input reports to `dur`. If
-    /// an indefinite duration is requested, `dur` will be set to `Duration::MAX`.
-    fn set_idle(&self, id: Option<ReportId>, dur: Duration) {
-        let _ = (id, dur);
+    /// This is only called for feature or input reports. Output reports
+    /// are routed through [`HidClass::output()`].
+    fn set_report(&self, id: ReportId, data: &[u8]) -> OutResponse {
+        let _ = (id, data);
+        OutResponse::Rejected
     }
 
     /// Get the idle rate for `id`.
@@ -339,27 +311,32 @@ pub trait RequestHandler {
         let _ = id;
         None
     }
+
+    /// Set the idle rate for `id` to `dur`.
+    ///
+    /// If `id` is `None`, set the idle rate of all input reports to `dur`. If
+    /// an indefinite duration is requested, `dur` will be set to `Duration::MAX`.
+    fn set_idle(&self, id: Option<ReportId>, dur: Duration) {
+        let _ = (id, dur);
+    }
 }
 
-pub struct Control<'d, const OUT_N: usize, const FEATURE_N: usize> {
+pub struct Control<'d, const OUT_N: usize> {
     report_descriptor: &'static [u8],
     out_signal: &'d Signal<(usize, [u8; OUT_N])>,
-    feature_signal: &'d Signal<(usize, [u8; FEATURE_N])>,
     request_handler: Option<&'d dyn RequestHandler>,
     hid_descriptor: [u8; 9],
 }
 
-impl<'a, const OUT_N: usize, const FEATURE_N: usize> Control<'a, OUT_N, FEATURE_N> {
+impl<'a, const OUT_N: usize> Control<'a, OUT_N> {
     fn new(
         report_descriptor: &'static [u8],
         out_signal: &'a Signal<(usize, [u8; OUT_N])>,
-        feature_signal: &'a Signal<(usize, [u8; FEATURE_N])>,
         request_handler: Option<&'a dyn RequestHandler>,
     ) -> Self {
         Control {
             report_descriptor,
             out_signal,
-            feature_signal,
             request_handler,
             hid_descriptor: [
                 // Length of buf inclusive of size prefix
@@ -426,9 +403,7 @@ impl<'a, const OUT_N: usize, const FEATURE_N: usize> Control<'a, OUT_N, FEATURE_
     }
 }
 
-impl<'d, const OUT_N: usize, const FEATURE_N: usize> ControlHandler
-    for Control<'d, OUT_N, FEATURE_N>
-{
+impl<'d, const OUT_N: usize> ControlHandler for Control<'d, OUT_N> {
     fn reset(&mut self) {}
 
     fn control_out(&mut self, req: embassy_usb::control::Request, data: &[u8]) -> OutResponse {
@@ -450,7 +425,6 @@ impl<'d, const OUT_N: usize, const FEATURE_N: usize> ControlHandler
                     OutResponse::Accepted
                 }
                 HID_REQ_SET_REPORT => match ReportId::try_from(req.value) {
-                    Ok(ReportId::In(_)) => OutResponse::Rejected,
                     Ok(ReportId::Out(_id)) => {
                         let mut buf = [0; OUT_N];
                         buf[0..data.len()].copy_from_slice(data);
@@ -460,14 +434,12 @@ impl<'d, const OUT_N: usize, const FEATURE_N: usize> ControlHandler
                         self.out_signal.signal((data.len(), buf));
                         OutResponse::Accepted
                     }
-                    Ok(ReportId::Feature(_id)) => {
-                        let mut buf = [0; FEATURE_N];
-                        buf[0..data.len()].copy_from_slice(data);
-                        if self.feature_signal.signaled() {
-                            warn!("Feature report dropped before being read!");
+                    Ok(id @ ReportId::Feature(_)) | Ok(id @ ReportId::In(_)) => {
+                        if let Some(handler) = self.request_handler.as_ref() {
+                            handler.set_report(id, data)
+                        } else {
+                            OutResponse::Rejected
                         }
-                        self.feature_signal.signal((data.len(), buf));
-                        OutResponse::Accepted
                     }
                     Err(_) => OutResponse::Rejected,
                 },
