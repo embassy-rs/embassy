@@ -454,12 +454,18 @@ impl<'d, const OUT_N: usize, const FEATURE_N: usize> ControlHandler
                     Ok(ReportId::Out(_id)) => {
                         let mut buf = [0; OUT_N];
                         buf[0..data.len()].copy_from_slice(data);
+                        if self.out_signal.signaled() {
+                            warn!("Output report dropped before being read!");
+                        }
                         self.out_signal.signal((data.len(), buf));
                         OutResponse::Accepted
                     }
                     Ok(ReportId::Feature(_id)) => {
                         let mut buf = [0; FEATURE_N];
                         buf[0..data.len()].copy_from_slice(data);
+                        if self.feature_signal.signaled() {
+                            warn!("Feature report dropped before being read!");
+                        }
                         self.feature_signal.signal((data.len(), buf));
                         OutResponse::Accepted
                     }
