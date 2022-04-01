@@ -443,8 +443,23 @@ unsafe fn write_dma<T: Instance>(i: usize, buf: &[u8]) {
 
 impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
     type ReadFuture<'a> = impl Future<Output = Result<usize, ReadError>> + 'a where Self: 'a;
+    type DataReadyFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
 
     fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        async move {
+            let i = self.info.addr.index();
+            assert!(i != 0);
+
+            self.wait_data_ready().await;
+
+            // Mark as not ready
+            READY_ENDPOINTS.fetch_and(!(1 << (i + 16)), Ordering::AcqRel);
+
+            unsafe { read_dma::<T>(i, buf) }
+        }
+    }
+
+    fn wait_data_ready<'a>(&'a mut self) -> Self::DataReadyFuture<'a> {
         async move {
             let i = self.info.addr.index();
             assert!(i != 0);
@@ -460,11 +475,6 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
                 }
             })
             .await;
-
-            // Mark as not ready
-            READY_ENDPOINTS.fetch_and(!(1 << (i + 16)), Ordering::AcqRel);
-
-            unsafe { read_dma::<T>(i, buf) }
         }
     }
 }
