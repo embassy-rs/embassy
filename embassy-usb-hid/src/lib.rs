@@ -74,12 +74,55 @@ impl<'a, const IN_N: usize, const OUT_N: usize> State<'a, IN_N, OUT_N> {
     }
 }
 
-pub struct HidClass<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize> {
+pub struct HidClass<'d, D: Driver<'d>, T, const IN_N: usize> {
     input: ReportWriter<'d, D, IN_N>,
-    output: ReportReader<'d, D, OUT_N>,
+    output: T,
 }
 
-impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize> HidClass<'d, D, IN_N, OUT_N> {
+impl<'d, D: Driver<'d>, const IN_N: usize> HidClass<'d, D, (), IN_N> {
+    /// Creates a new HidClass.
+    ///
+    /// poll_ms configures how frequently the host should poll for reading/writing
+    /// HID reports. A lower value means better throughput & latency, at the expense
+    /// of CPU on the device & bandwidth on the bus. A value of 10 is reasonable for
+    /// high performance uses, and a value of 255 is good for best-effort usecases.
+    ///
+    /// This allocates an IN endpoint only.
+    pub fn new(
+        builder: &mut UsbDeviceBuilder<'d, D>,
+        state: &'d mut State<'d, IN_N, 0>,
+        report_descriptor: &'static [u8],
+        request_handler: Option<&'d dyn RequestHandler>,
+        poll_ms: u8,
+        max_packet_size: u16,
+    ) -> Self {
+        let ep_in = builder.alloc_interrupt_endpoint_in(max_packet_size, poll_ms);
+        let control = state
+            .control
+            .write(Control::new(report_descriptor, None, request_handler));
+
+        control.build(builder, None, &ep_in);
+
+        Self {
+            input: ReportWriter { ep_in },
+            output: (),
+        }
+    }
+}
+
+impl<'d, D: Driver<'d>, T, const IN_N: usize> HidClass<'d, D, T, IN_N> {
+    /// Gets the [`ReportWriter`] for input reports.
+    ///
+    /// **Note:** If the `HidClass` was created with [`new_ep_out()`](Self::new_ep_out)
+    /// this writer will be useless as no endpoint is availabe to send reports.
+    pub fn input(&mut self) -> &mut ReportWriter<'d, D, IN_N> {
+        &mut self.input
+    }
+}
+
+impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize>
+    HidClass<'d, D, ReportReader<'d, D, OUT_N>, IN_N>
+{
     /// Creates a new HidClass.
     ///
     /// poll_ms configures how frequently the host should poll for reading/writing
@@ -88,59 +131,20 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize> HidClass<'d, D, I
     /// high performance uses, and a value of 255 is good for best-effort usecases.
     ///
     /// This allocates two endpoints (IN and OUT).
-    /// See new_ep_in (IN endpoint only) and new_ep_out (OUT endpoint only) to only create a single
-    /// endpoint.
-    pub fn new(
+    pub fn with_output_ep(
         builder: &mut UsbDeviceBuilder<'d, D>,
         state: &'d mut State<'d, IN_N, OUT_N>,
         report_descriptor: &'static [u8],
         request_handler: Option<&'d dyn RequestHandler>,
         poll_ms: u8,
+        max_packet_size: u16,
     ) -> Self {
-        let ep_out = Some(builder.alloc_interrupt_endpoint_out(64, poll_ms));
-        let ep_in = builder.alloc_interrupt_endpoint_in(64, poll_ms);
-        Self::new_inner(
-            builder,
-            state,
-            report_descriptor,
-            request_handler,
-            ep_out,
-            ep_in,
-        )
-    }
+        let ep_out = Some(builder.alloc_interrupt_endpoint_out(max_packet_size, poll_ms));
+        let ep_in = builder.alloc_interrupt_endpoint_in(max_packet_size, poll_ms);
 
-    /// Creates a new HidClass with the provided UsbBus & HID report descriptor.
-    /// See new() for more details.
-    pub fn new_ep_in(
-        builder: &mut UsbDeviceBuilder<'d, D>,
-        state: &'d mut State<'d, IN_N, OUT_N>,
-        report_descriptor: &'static [u8],
-        request_handler: Option<&'d dyn RequestHandler>,
-        poll_ms: u8,
-    ) -> Self {
-        let ep_out = None;
-        let ep_in = builder.alloc_interrupt_endpoint_in(64, poll_ms);
-        Self::new_inner(
-            builder,
-            state,
-            report_descriptor,
-            request_handler,
-            ep_out,
-            ep_in,
-        )
-    }
-
-    fn new_inner(
-        builder: &mut UsbDeviceBuilder<'d, D>,
-        state: &'d mut State<'d, IN_N, OUT_N>,
-        report_descriptor: &'static [u8],
-        request_handler: Option<&'d dyn RequestHandler>,
-        ep_out: Option<D::EndpointOut>,
-        ep_in: D::EndpointIn,
-    ) -> Self {
         let control = state.control.write(Control::new(
             report_descriptor,
-            &state.out_signal,
+            Some(&state.out_signal),
             request_handler,
         ));
 
@@ -153,14 +157,6 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize> HidClass<'d, D, I
                 receiver: &state.out_signal,
             },
         }
-    }
-
-    /// Gets the [`ReportWriter`] for input reports.
-    ///
-    /// **Note:** If the `HidClass` was created with [`new_ep_out()`](Self::new_ep_out)
-    /// this writer will be useless as no endpoint is availabe to send reports.
-    pub fn input(&mut self) -> &mut ReportWriter<'d, D, IN_N> {
-        &mut self.input
     }
 
     /// Gets the [`ReportReader`] for output reports.
@@ -269,8 +265,9 @@ pub trait RequestHandler {
 
     /// Sets the value of report `id` to `data`.
     ///
-    /// This is only called for feature or input reports. Output reports
-    /// are routed through [`HidClass::output()`].
+    /// If an output endpoint has been allocated, output reports
+    /// are routed through [`HidClass::output()`]. Otherwise they
+    /// are sent here, along with input and feature reports.
     fn set_report(&self, id: ReportId, data: &[u8]) -> OutResponse {
         let _ = (id, data);
         OutResponse::Rejected
@@ -295,9 +292,9 @@ pub trait RequestHandler {
     }
 }
 
-pub struct Control<'d, const OUT_N: usize> {
+struct Control<'d, const OUT_N: usize> {
     report_descriptor: &'static [u8],
-    out_signal: &'d Signal<(usize, [u8; OUT_N])>,
+    out_signal: Option<&'d Signal<(usize, [u8; OUT_N])>>,
     request_handler: Option<&'d dyn RequestHandler>,
     hid_descriptor: [u8; 9],
 }
@@ -305,7 +302,7 @@ pub struct Control<'d, const OUT_N: usize> {
 impl<'a, const OUT_N: usize> Control<'a, OUT_N> {
     fn new(
         report_descriptor: &'static [u8],
-        out_signal: &'a Signal<(usize, [u8; OUT_N])>,
+        out_signal: Option<&'a Signal<(usize, [u8; OUT_N])>>,
         request_handler: Option<&'a dyn RequestHandler>,
     ) -> Self {
         Control {
@@ -396,24 +393,22 @@ impl<'d, const OUT_N: usize> ControlHandler for Control<'d, OUT_N> {
                     }
                     OutResponse::Accepted
                 }
-                HID_REQ_SET_REPORT => match ReportId::try_from(req.value) {
-                    Ok(ReportId::Out(_id)) => {
+                HID_REQ_SET_REPORT => match (
+                    ReportId::try_from(req.value),
+                    self.out_signal,
+                    self.request_handler.as_ref(),
+                ) {
+                    (Ok(ReportId::Out(_)), Some(signal), _) => {
                         let mut buf = [0; OUT_N];
                         buf[0..data.len()].copy_from_slice(data);
-                        if self.out_signal.signaled() {
+                        if signal.signaled() {
                             warn!("Output report dropped before being read!");
                         }
-                        self.out_signal.signal((data.len(), buf));
+                        signal.signal((data.len(), buf));
                         OutResponse::Accepted
                     }
-                    Ok(id @ ReportId::Feature(_)) | Ok(id @ ReportId::In(_)) => {
-                        if let Some(handler) = self.request_handler.as_ref() {
-                            handler.set_report(id, data)
-                        } else {
-                            OutResponse::Rejected
-                        }
-                    }
-                    Err(_) => OutResponse::Rejected,
+                    (Ok(id), _, Some(handler)) => handler.set_report(id, data),
+                    _ => OutResponse::Rejected,
                 },
                 HID_REQ_SET_PROTOCOL => {
                     if req.value == 1 {
