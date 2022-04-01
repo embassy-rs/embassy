@@ -64,12 +64,13 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     );
 
     // Create classes on the builder.
-    let mut hid = HidClass::new_ep_in(
+    let mut hid = HidClass::new(
         &mut builder,
         &mut state,
         MouseReport::desc(),
         Some(&request_handler),
         60,
+        8,
     );
 
     // Build the builder.
