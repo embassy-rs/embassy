@@ -9,7 +9,7 @@ pub(crate) mod fmt;
 
 use core::mem::MaybeUninit;
 
-use embassy::channel::signal::Signal;
+use async_lease::AsyncLease;
 use embassy::time::Duration;
 use embassy_usb::driver::{EndpointOut, ReadError};
 use embassy_usb::{
@@ -23,6 +23,8 @@ use futures_util::pin_mut;
 use ssmarshal::serialize;
 #[cfg(feature = "usbd-hid")]
 use usbd_hid::descriptor::AsInputReport;
+
+mod async_lease;
 
 const USB_CLASS_HID: u8 = 0x03;
 const USB_SUBCLASS_NONE: u8 = 0x00;
@@ -61,15 +63,15 @@ impl ReportId {
 }
 
 pub struct State<'a, const IN_N: usize, const OUT_N: usize> {
-    control: MaybeUninit<Control<'a, OUT_N>>,
-    out_signal: Signal<(usize, [u8; OUT_N])>,
+    control: MaybeUninit<Control<'a>>,
+    lease: AsyncLease,
 }
 
 impl<'a, const IN_N: usize, const OUT_N: usize> State<'a, IN_N, OUT_N> {
     pub fn new() -> Self {
         State {
             control: MaybeUninit::uninit(),
-            out_signal: Signal::new(),
+            lease: AsyncLease::new(),
         }
     }
 }
@@ -139,22 +141,22 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize>
         poll_ms: u8,
         max_packet_size: u16,
     ) -> Self {
-        let ep_out = Some(builder.alloc_interrupt_endpoint_out(max_packet_size, poll_ms));
+        let ep_out = builder.alloc_interrupt_endpoint_out(max_packet_size, poll_ms);
         let ep_in = builder.alloc_interrupt_endpoint_in(max_packet_size, poll_ms);
 
         let control = state.control.write(Control::new(
             report_descriptor,
-            Some(&state.out_signal),
+            Some(&state.lease),
             request_handler,
         ));
 
-        control.build(builder, ep_out.as_ref(), &ep_in);
+        control.build(builder, Some(&ep_out), &ep_in);
 
         Self {
             input: ReportWriter { ep_in },
             output: ReportReader {
                 ep_out,
-                receiver: &state.out_signal,
+                lease: &state.lease,
             },
         }
     }
@@ -175,8 +177,8 @@ pub struct ReportWriter<'d, D: Driver<'d>, const N: usize> {
 }
 
 pub struct ReportReader<'d, D: Driver<'d>, const N: usize> {
-    ep_out: Option<D::EndpointOut>,
-    receiver: &'d Signal<(usize, [u8; N])>,
+    ep_out: D::EndpointOut,
+    lease: &'d AsyncLease,
 }
 
 impl<'d, D: Driver<'d>, const N: usize> ReportWriter<'d, D, N> {
@@ -216,41 +218,29 @@ impl<'d, D: Driver<'d>, const N: usize> ReportWriter<'d, D, N> {
 impl<'d, D: Driver<'d>, const N: usize> ReportReader<'d, D, N> {
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ReadError> {
         assert!(buf.len() >= N);
-        if let Some(ep) = &mut self.ep_out {
-            let max_packet_size = usize::from(ep.info().max_packet_size);
 
-            let mut chunks = buf.chunks_mut(max_packet_size);
-
-            // Wait until we've received a chunk from the endpoint or a report from a SET_REPORT control request
-            let (mut total, data) = {
-                let chunk = unwrap!(chunks.next());
-                let fut1 = ep.read(chunk);
-                pin_mut!(fut1);
-                match select(fut1, self.receiver.wait()).await {
-                    Either::Left((Ok(size), _)) => (size, None),
-                    Either::Left((Err(err), _)) => return Err(err),
-                    Either::Right(((size, data), _)) => (size, Some(data)),
-                }
-            };
-
-            if let Some(data) = data {
-                buf[0..total].copy_from_slice(&data[0..total]);
-                Ok(total)
-            } else {
-                for chunk in chunks {
-                    let size = ep.read(chunk).await?;
-                    total += size;
-                    if size < max_packet_size || total == N {
-                        break;
-                    }
-                }
-                Ok(total)
+        // Wait until a packet is ready to read from the endpoint or a SET_REPORT control request is received
+        {
+            let data_ready = self.ep_out.wait_data_ready();
+            pin_mut!(data_ready);
+            match select(data_ready, self.lease.lend(buf)).await {
+                Either::Left(_) => (),
+                Either::Right((len, _)) => return Ok(len),
             }
-        } else {
-            let (total, data) = self.receiver.wait().await;
-            buf[0..total].copy_from_slice(&data[0..total]);
-            Ok(total)
         }
+
+        // Read packets from the endpoint
+        let max_packet_size = usize::from(self.ep_out.info().max_packet_size);
+        let mut total = 0;
+        for chunk in buf.chunks_mut(max_packet_size) {
+            let size = self.ep_out.read(chunk).await?;
+            total += size;
+            if size < max_packet_size || total == N {
+                break;
+            }
+        }
+
+        Ok(total)
     }
 }
 
@@ -292,22 +282,22 @@ pub trait RequestHandler {
     }
 }
 
-struct Control<'d, const OUT_N: usize> {
+struct Control<'d> {
     report_descriptor: &'static [u8],
-    out_signal: Option<&'d Signal<(usize, [u8; OUT_N])>>,
+    out_lease: Option<&'d AsyncLease>,
     request_handler: Option<&'d dyn RequestHandler>,
     hid_descriptor: [u8; 9],
 }
 
-impl<'a, const OUT_N: usize> Control<'a, OUT_N> {
+impl<'a> Control<'a> {
     fn new(
         report_descriptor: &'static [u8],
-        out_signal: Option<&'a Signal<(usize, [u8; OUT_N])>>,
+        out_lease: Option<&'a AsyncLease>,
         request_handler: Option<&'a dyn RequestHandler>,
     ) -> Self {
         Control {
             report_descriptor,
-            out_signal,
+            out_lease,
             request_handler,
             hid_descriptor: [
                 // Length of buf inclusive of size prefix
@@ -372,7 +362,7 @@ impl<'a, const OUT_N: usize> Control<'a, OUT_N> {
     }
 }
 
-impl<'d, const OUT_N: usize> ControlHandler for Control<'d, OUT_N> {
+impl<'d> ControlHandler for Control<'d> {
     fn reset(&mut self) {}
 
     fn control_out(&mut self, req: embassy_usb::control::Request, data: &[u8]) -> OutResponse {
@@ -395,17 +385,21 @@ impl<'d, const OUT_N: usize> ControlHandler for Control<'d, OUT_N> {
                 }
                 HID_REQ_SET_REPORT => match (
                     ReportId::try_from(req.value),
-                    self.out_signal,
+                    self.out_lease,
                     self.request_handler.as_ref(),
                 ) {
-                    (Ok(ReportId::Out(_)), Some(signal), _) => {
-                        let mut buf = [0; OUT_N];
-                        buf[0..data.len()].copy_from_slice(data);
-                        if signal.signaled() {
-                            warn!("Output report dropped before being read!");
+                    (Ok(ReportId::Out(_)), Some(lease), _) => {
+                        match lease.try_borrow_mut(|buf| {
+                            let len = buf.len().min(data.len());
+                            buf[0..len].copy_from_slice(&data[0..len]);
+                            len
+                        }) {
+                            Ok(()) => OutResponse::Accepted,
+                            Err(_) => {
+                                warn!("SET_REPORT received for output report with no reader listening.");
+                                OutResponse::Rejected
+                            }
                         }
-                        signal.signal((data.len(), buf));
-                        OutResponse::Accepted
                     }
                     (Ok(id), _, Some(handler)) => handler.set_report(id, data),
                     _ => OutResponse::Rejected,
