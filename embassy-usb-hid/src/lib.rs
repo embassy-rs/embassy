@@ -98,7 +98,7 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize> HidClass<'d, D, I
         poll_ms: u8,
     ) -> Self {
         let ep_out = Some(builder.alloc_interrupt_endpoint_out(64, poll_ms));
-        let ep_in = Some(builder.alloc_interrupt_endpoint_in(64, poll_ms));
+        let ep_in = builder.alloc_interrupt_endpoint_in(64, poll_ms);
         Self::new_inner(
             builder,
             state,
@@ -119,28 +119,7 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize> HidClass<'d, D, I
         poll_ms: u8,
     ) -> Self {
         let ep_out = None;
-        let ep_in = Some(builder.alloc_interrupt_endpoint_in(64, poll_ms));
-        Self::new_inner(
-            builder,
-            state,
-            report_descriptor,
-            request_handler,
-            ep_out,
-            ep_in,
-        )
-    }
-
-    /// Creates a new HidClass with the provided UsbBus & HID report descriptor.
-    /// See new() for more details.
-    pub fn new_ep_out(
-        builder: &mut UsbDeviceBuilder<'d, D>,
-        state: &'d mut State<'d, IN_N, OUT_N>,
-        report_descriptor: &'static [u8],
-        request_handler: Option<&'d dyn RequestHandler>,
-        poll_ms: u8,
-    ) -> Self {
-        let ep_out = Some(builder.alloc_interrupt_endpoint_out(64, poll_ms));
-        let ep_in = None;
+        let ep_in = builder.alloc_interrupt_endpoint_in(64, poll_ms);
         Self::new_inner(
             builder,
             state,
@@ -157,7 +136,7 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize> HidClass<'d, D, I
         report_descriptor: &'static [u8],
         request_handler: Option<&'d dyn RequestHandler>,
         ep_out: Option<D::EndpointOut>,
-        ep_in: Option<D::EndpointIn>,
+        ep_in: D::EndpointIn,
     ) -> Self {
         let control = state.control.write(Control::new(
             report_descriptor,
@@ -165,7 +144,7 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize> HidClass<'d, D, I
             request_handler,
         ));
 
-        control.build(builder, ep_out.as_ref(), ep_in.as_ref());
+        control.build(builder, ep_out.as_ref(), &ep_in);
 
         Self {
             input: ReportWriter { ep_in },
@@ -196,7 +175,7 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize> HidClass<'d, D, I
 }
 
 pub struct ReportWriter<'d, D: Driver<'d>, const N: usize> {
-    ep_in: Option<D::EndpointIn>,
+    ep_in: D::EndpointIn,
 }
 
 pub struct ReportReader<'d, D: Driver<'d>, const N: usize> {
@@ -224,19 +203,14 @@ impl<'d, D: Driver<'d>, const N: usize> ReportWriter<'d, D, N> {
     pub async fn write(&mut self, report: &[u8]) -> Result<(), WriteError> {
         assert!(report.len() <= N);
 
-        let ep = self
-            .ep_in
-            .as_mut()
-            .expect("An IN endpoint must be allocated to write input reports.");
-
-        let max_packet_size = usize::from(ep.info().max_packet_size);
+        let max_packet_size = usize::from(self.ep_in.info().max_packet_size);
         let zlp_needed = report.len() < N && (report.len() % max_packet_size == 0);
         for chunk in report.chunks(max_packet_size) {
-            ep.write(chunk).await?;
+            self.ep_in.write(chunk).await?;
         }
 
         if zlp_needed {
-            ep.write(&[]).await?;
+            self.ep_in.write(&[]).await?;
         }
 
         Ok(())
@@ -363,7 +337,7 @@ impl<'a, const OUT_N: usize> Control<'a, OUT_N> {
         &'d mut self,
         builder: &mut UsbDeviceBuilder<'d, D>,
         ep_out: Option<&D::EndpointOut>,
-        ep_in: Option<&D::EndpointIn>,
+        ep_in: &D::EndpointIn,
     ) {
         let len = self.report_descriptor.len();
         let if_num = builder.alloc_interface_with_handler(self);
@@ -394,10 +368,8 @@ impl<'a, const OUT_N: usize> Control<'a, OUT_N> {
             ],
         );
 
+        builder.config_descriptor.endpoint(ep_in.info());
         if let Some(ep) = ep_out {
-            builder.config_descriptor.endpoint(ep.info());
-        }
-        if let Some(ep) = ep_in {
             builder.config_descriptor.endpoint(ep.info());
         }
     }
