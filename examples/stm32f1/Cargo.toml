@@ -6,7 +6,7 @@ version = "0.1.0"
 resolver = "2"
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
+embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "stm32f103c8", "unstable-pac", "memory-x", "time-driver-any"]  }
 
 defmt = "0.3"

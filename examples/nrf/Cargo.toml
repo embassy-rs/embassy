@@ -9,7 +9,7 @@ default = ["nightly"]
 nightly = ["embassy-nrf/nightly", "embassy-nrf/unstable-traits"]
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
+embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote"] }
 
 defmt = "0.3"

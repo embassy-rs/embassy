@@ -2,17 +2,17 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-use example_common::*;
-
 use core::future::pending;
+use defmt::info;
 use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::gpiote::{self, InputChannel, InputChannelPolarity};
 use embassy_nrf::ppi::Ppi;
 use embassy_nrf::Peripherals;
 use gpiote::{OutputChannel, OutputChannelPolarity};
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

@@ -2,8 +2,8 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
+use defmt::*;
+use defmt_rtt as _; // global logger
 use embassy::blocking_mutex::raw::NoopRawMutex;
 use embassy::channel::mpsc::{self, Channel, Sender};
 use embassy::executor::Spawner;
@@ -14,7 +14,7 @@ use embassy_stm32::{
     usart::{Config, Uart, UartRx},
     Peripherals,
 };
-use example_common::*;
+use panic_probe as _;
 
 #[embassy::task]
 async fn writer(mut usart: Uart<'static, UART7, NoDma, NoDma>) {

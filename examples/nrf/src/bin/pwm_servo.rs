@@ -2,13 +2,14 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::pwm::{Prescaler, SimplePwm};
 use embassy_nrf::Peripherals;
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

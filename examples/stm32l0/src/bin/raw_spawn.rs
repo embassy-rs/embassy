@@ -1,9 +1,9 @@
 #![no_std]
 #![no_main]
 
-#[path = "../example_common.rs"]
-mod example_common;
-use example_common::*;
+use defmt::*;
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 use core::mem;
 use cortex_m_rt::entry;

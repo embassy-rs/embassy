@@ -2,9 +2,10 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
+use defmt::*;
 use embassy::executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::i2c::I2c;
@@ -13,7 +14,6 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::Peripherals;
 use embassy_traits::adapter::BlockingAsync;
 use embedded_hal_async::i2c::I2c as I2cTrait;
-use example_common::{info, unwrap};
 
 const ADDRESS: u8 = 0x5F;
 const WHOAMI: u8 = 0x0F;

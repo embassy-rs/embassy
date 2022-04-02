@@ -2,12 +2,12 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
+use defmt::*;
 use embassy_stm32::dac::{Channel, Dac, Value};
 use embassy_stm32::pac;
-use example_common::*;
 
 #[cortex_m_rt::entry]
 fn main() -> ! {

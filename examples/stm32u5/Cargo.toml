@@ -6,8 +6,8 @@ version = "0.1.0"
 resolver = "2"
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "unstable-pac", "stm32u585ai", "memory-x" ]  }
+embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "unstable-pac", "stm32u585ai", "time-driver-any", "memory-x" ]  }
 
 defmt = "0.3"
 defmt-rtt = "0.3"

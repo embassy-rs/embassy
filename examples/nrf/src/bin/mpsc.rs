@@ -2,9 +2,6 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-
 use defmt::unwrap;
 use embassy::blocking_mutex::raw::NoopRawMutex;
 use embassy::channel::mpsc::{self, Channel, Sender, TryRecvError};
@@ -13,6 +10,9 @@ use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::Peripherals;
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 enum LedState {
     On,

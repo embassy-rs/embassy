@@ -2,14 +2,8 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-use embassy_stm32::peripherals::ETH;
-use example_common::config;
-
 use cortex_m_rt::entry;
-use defmt::{info, unwrap};
-use defmt_rtt as _; // global logger
+use defmt::*;
 use embassy::executor::{Executor, Spawner};
 use embassy::io::AsyncWriteExt;
 use embassy::time::{Duration, Timer};
@@ -19,12 +13,16 @@ use embassy_net::{
 };
 use embassy_stm32::eth::lan8742a::LAN8742A;
 use embassy_stm32::eth::{Ethernet, State};
+use embassy_stm32::interrupt;
+use embassy_stm32::peripherals::ETH;
+use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rng::Rng;
-use embassy_stm32::{interrupt, peripherals};
+use embassy_stm32::time::U32Ext;
+use embassy_stm32::Config;
 use heapless::Vec;
-use panic_probe as _;
 
-use peripherals::RNG;
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 #[embassy::task]
 async fn main_task(
@@ -87,6 +85,12 @@ static STATE: Forever<State<'static, ETH, 4, 4>> = Forever::new();
 static ETH: Forever<Ethernet<'static, ETH, LAN8742A, 4, 4>> = Forever::new();
 static CONFIG: Forever<StaticConfigurator> = Forever::new();
 static NET_RESOURCES: Forever<StackResources<1, 2, 8>> = Forever::new();
+
+fn config() -> Config {
+    let mut config = Config::default();
+    config.rcc.sys_ck = Some(200.mhz().into());
+    config
+}
 
 #[entry]
 fn main() -> ! {

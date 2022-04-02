@@ -2,10 +2,7 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-use example_common::*;
-
+use defmt::*;
 use embassy::blocking_mutex::raw::NoopRawMutex;
 use embassy::channel::mpsc::{self, Channel, Sender};
 use embassy::executor::Spawner;
@@ -13,6 +10,9 @@ use embassy::util::Forever;
 use embassy_nrf::peripherals::UARTE0;
 use embassy_nrf::uarte::UarteRx;
 use embassy_nrf::{interrupt, uarte, Peripherals};
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 static CHANNEL: Forever<Channel<NoopRawMutex, [u8; 8], 1>> = Forever::new();
 

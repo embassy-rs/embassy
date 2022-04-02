@@ -2,15 +2,15 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy_rp::spi;
 use embassy_rp::spi::Spi;
 use embassy_rp::{gpio, Peripherals};
 use gpio::{Level, Output};
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
