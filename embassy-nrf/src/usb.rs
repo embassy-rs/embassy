@@ -615,14 +615,12 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     }
 
     fn accept(&mut self) {
-        debug!("control accept");
         let regs = T::regs();
         regs.tasks_ep0status
             .write(|w| w.tasks_ep0status().bit(true));
     }
 
     fn reject(&mut self) {
-        debug!("control reject");
         let regs = T::regs();
         regs.tasks_ep0stall.write(|w| w.tasks_ep0stall().bit(true));
     }

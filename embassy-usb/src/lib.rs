@@ -128,14 +128,10 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                         self.device_state = UsbDeviceState::Suspend;
                     }
                 },
-                Either::Right(req) => {
-                    debug!("control request: {:x}", req);
-
-                    match req {
-                        Setup::DataIn(req, stage) => self.handle_control_in(req, stage).await,
-                        Setup::DataOut(req, stage) => self.handle_control_out(req, stage).await,
-                    }
-                }
+                Either::Right(req) => match req {
+                    Setup::DataIn(req, stage) => self.handle_control_in(req, stage).await,
+                    Setup::DataOut(req, stage) => self.handle_control_out(req, stage).await,
+                },
             }
         }
     }
