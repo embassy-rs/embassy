@@ -162,18 +162,21 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     self.remote_wakeup_enabled = true;
                     self.control.accept(stage)
                 }
-                (Request::SET_ADDRESS, 1..=127) => {
-                    self.pending_address = req.value as u8;
+                (Request::SET_ADDRESS, addr @ 1..=127) => {
+                    self.pending_address = addr as u8;
+                    self.bus.set_device_address(self.pending_address);
                     self.control.accept(stage)
                 }
                 (Request::SET_CONFIGURATION, CONFIGURATION_VALUE_U16) => {
                     self.device_state = UsbDeviceState::Configured;
+                    self.bus.set_configured(true);
                     self.control.accept(stage)
                 }
                 (Request::SET_CONFIGURATION, CONFIGURATION_NONE_U16) => match self.device_state {
                     UsbDeviceState::Default => self.control.accept(stage),
                     _ => {
                         self.device_state = UsbDeviceState::Addressed;
+                        self.bus.set_configured(false);
                         self.control.accept(stage)
                     }
                 },

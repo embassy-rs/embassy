@@ -72,6 +72,9 @@ pub trait Bus {
     /// Sets the device USB address to `addr`.
     fn set_device_address(&mut self, addr: u8);
 
+    /// Sets the device configured state.
+    fn set_configured(&mut self, configured: bool);
+
     /// Sets or clears the STALL condition for an endpoint. If the endpoint is an OUT endpoint, it
     /// should be prepared to receive data again. Only used during control transfers.
     fn set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool);
@@ -105,6 +108,10 @@ pub trait Bus {
 }
 
 pub trait Endpoint {
+    type WaitEnabledFuture<'a>: Future<Output = ()> + 'a
+    where
+        Self: 'a;
+
     /// Get the endpoint address
     fn info(&self) -> &EndpointInfo;
 
@@ -114,6 +121,9 @@ pub trait Endpoint {
 
     /// Gets whether the STALL condition is set for an endpoint.
     fn is_stalled(&self) -> bool;
+
+    /// Waits for the endpoint to be enabled.
+    fn wait_enabled(&mut self) -> Self::WaitEnabledFuture<'_>;
 
     // TODO enable/disable?
 }
@@ -212,6 +222,7 @@ pub enum WriteError {
     ///   class shouldn't provide more data than the `max_packet_size` it specified when allocating
     ///   the endpoint.
     BufferOverflow,
+    Disabled,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -223,4 +234,5 @@ pub enum ReadError {
     /// should use a buffer that is large enough for the `max_packet_size` it specified when
     /// allocating the endpoint.
     BufferOverflow,
+    Disabled,
 }

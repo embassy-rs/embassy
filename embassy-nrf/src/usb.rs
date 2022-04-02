@@ -17,6 +17,7 @@ use futures::future::poll_fn;
 use futures::Future;
 
 pub use embassy_usb;
+use pac::usbd::RegisterBlock;
 
 use crate::interrupt::Interrupt;
 use crate::pac;
@@ -92,11 +93,11 @@ impl<'d, T: Instance> Driver<'d, T> {
             regs.epdatastatus.write(|w| unsafe { w.bits(r) });
             READY_ENDPOINTS.fetch_or(r, Ordering::AcqRel);
             for i in 1..=7 {
-                if r & (1 << i) != 0 {
-                    EP_IN_WAKERS[i - 1].wake();
+                if r & In::mask(i) != 0 {
+                    In::waker(i).wake();
                 }
-                if r & (1 << (i + 16)) != 0 {
-                    EP_OUT_WAKERS[i - 1].wake();
+                if r & Out::mask(i) != 0 {
+                    Out::waker(i).wake();
                 }
             }
         }
@@ -272,32 +273,48 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     #[inline]
     fn reset(&mut self) {
+        self.set_configured(false);
+    }
+
+    #[inline]
+    fn set_configured(&mut self, configured: bool) {
         let regs = T::regs();
 
-        // TODO: Initialize ISO buffers
-
-        // XXX this is not spec compliant; the endpoints should only be enabled after the device
-        // has been put in the Configured state. However, usb-device provides no hook to do that
         unsafe {
-            regs.epinen.write(|w| w.bits(self.alloc_in.used.into()));
-            regs.epouten.write(|w| w.bits(self.alloc_out.used.into()));
-        }
+            if configured {
+                // TODO: Initialize ISO buffers
 
-        for i in 1..8 {
-            let out_enabled = self.alloc_out.used & (1 << i) != 0;
+                regs.epinen.write(|w| w.bits(self.alloc_in.used.into()));
+                regs.epouten.write(|w| w.bits(self.alloc_out.used.into()));
 
-            // when first enabled, bulk/interrupt OUT endpoints will *not* receive data (the
-            // peripheral will NAK all incoming packets) until we write a zero to the SIZE
-            // register (see figure 203 of the 52840 manual). To avoid that we write a 0 to the
-            // SIZE register
-            if out_enabled {
-                regs.size.epout[i].reset();
+                for i in 1..8 {
+                    let out_enabled = self.alloc_out.used & (1 << i) != 0;
+
+                    // when first enabled, bulk/interrupt OUT endpoints will *not* receive data (the
+                    // peripheral will NAK all incoming packets) until we write a zero to the SIZE
+                    // register (see figure 203 of the 52840 manual). To avoid that we write a 0 to the
+                    // SIZE register
+                    if out_enabled {
+                        regs.size.epout[i].reset();
+                    }
+                }
+
+                // IN endpoints (low bits) default to ready.
+                // OUT endpoints (high bits) default to NOT ready, they become ready when data comes in.
+                READY_ENDPOINTS.store(0x0000FFFF, Ordering::Release);
+            } else {
+                // Disable all endpoints except EP0
+                regs.epinen.write(|w| w.bits(0x01));
+                regs.epouten.write(|w| w.bits(0x01));
+
+                READY_ENDPOINTS.store(In::mask(0), Ordering::Release);
             }
         }
 
-        // IN endpoints (low bits) default to ready.
-        // OUT endpoints (high bits) default to NOT ready, they become ready when data comes in.
-        READY_ENDPOINTS.store(0x0000FFFF, Ordering::Release);
+        for i in 1..=7 {
+            In::waker(i).wake();
+            Out::waker(i).wake();
+        }
     }
 
     #[inline]
@@ -332,6 +349,46 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 pub enum Out {}
 pub enum In {}
 
+trait EndpointDir {
+    fn waker(i: usize) -> &'static AtomicWaker;
+    fn mask(i: usize) -> u32;
+    fn is_enabled(regs: &RegisterBlock, i: usize) -> bool;
+}
+
+impl EndpointDir for In {
+    #[inline]
+    fn waker(i: usize) -> &'static AtomicWaker {
+        &EP_IN_WAKERS[i - 1]
+    }
+
+    #[inline]
+    fn mask(i: usize) -> u32 {
+        1 << i
+    }
+
+    #[inline]
+    fn is_enabled(regs: &RegisterBlock, i: usize) -> bool {
+        (regs.epinen.read().bits() & (1 << i)) != 0
+    }
+}
+
+impl EndpointDir for Out {
+    #[inline]
+    fn waker(i: usize) -> &'static AtomicWaker {
+        &EP_OUT_WAKERS[i - 1]
+    }
+
+    #[inline]
+    fn mask(i: usize) -> u32 {
+        1 << (i + 16)
+    }
+
+    #[inline]
+    fn is_enabled(regs: &RegisterBlock, i: usize) -> bool {
+        (regs.epouten.read().bits() & (1 << i)) != 0
+    }
+}
+
 pub struct Endpoint<'d, T: Instance, Dir> {
     _phantom: PhantomData<(&'d mut T, Dir)>,
     info: EndpointInfo,
@@ -346,7 +403,7 @@ impl<'d, T: Instance, Dir> Endpoint<'d, T, Dir> {
     }
 }
 
-impl<'d, T: Instance, Dir> driver::Endpoint for Endpoint<'d, T, Dir> {
+impl<'d, T: Instance, Dir: EndpointDir> driver::Endpoint for Endpoint<'d, T, Dir> {
     fn info(&self) -> &EndpointInfo {
         &self.info
     }
@@ -357,6 +414,49 @@ impl<'d, T: Instance, Dir> driver::Endpoint for Endpoint<'d, T, Dir> {
 
     fn is_stalled(&self) -> bool {
         Driver::<T>::is_stalled(self.info.addr)
+    }
+
+    type WaitEnabledFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
+
+    fn wait_enabled(&mut self) -> Self::WaitEnabledFuture<'_> {
+        let i = self.info.addr.index();
+        assert!(i != 0);
+
+        poll_fn(move |cx| {
+            Dir::waker(i).register(cx.waker());
+            if Dir::is_enabled(T::regs(), i) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+    }
+}
+
+impl<'d, T: Instance, Dir> Endpoint<'d, T, Dir> {
+    async fn wait_data_ready(&mut self) -> Result<(), ()>
+    where
+        Dir: EndpointDir,
+    {
+        let i = self.info.addr.index();
+        assert!(i != 0);
+        poll_fn(|cx| {
+            Dir::waker(i).register(cx.waker());
+            let r = READY_ENDPOINTS.load(Ordering::Acquire);
+            if !Dir::is_enabled(T::regs(), i) {
+                Poll::Ready(Err(()))
+            } else if r & Dir::mask(i) != 0 {
+                Poll::Ready(Ok(()))
+            } else {
+                Poll::Pending
+            }
+        })
+        .await?;
+
+        // Mark as not ready
+        READY_ENDPOINTS.fetch_and(!Dir::mask(i), Ordering::AcqRel);
+
+        Ok(())
     }
 }
 
@@ -449,20 +549,9 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
             let i = self.info.addr.index();
             assert!(i != 0);
 
-            // Wait until ready
-            poll_fn(|cx| {
-                EP_OUT_WAKERS[i - 1].register(cx.waker());
-                let r = READY_ENDPOINTS.load(Ordering::Acquire);
-                if r & (1 << (i + 16)) != 0 {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            // Mark as not ready
-            READY_ENDPOINTS.fetch_and(!(1 << (i + 16)), Ordering::AcqRel);
+            self.wait_data_ready()
+                .await
+                .map_err(|_| ReadError::Disabled)?;
 
             unsafe { read_dma::<T>(i, buf) }
         }
@@ -477,20 +566,9 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
             let i = self.info.addr.index();
             assert!(i != 0);
 
-            // Wait until ready.
-            poll_fn(|cx| {
-                EP_IN_WAKERS[i - 1].register(cx.waker());
-                let r = READY_ENDPOINTS.load(Ordering::Acquire);
-                if r & (1 << i) != 0 {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            // Mark as not ready
-            READY_ENDPOINTS.fetch_and(!(1 << i), Ordering::AcqRel);
+            self.wait_data_ready()
+                .await
+                .map_err(|_| WriteError::Disabled)?;
 
             unsafe { write_dma::<T>(i, buf) }
 
