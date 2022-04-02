@@ -55,6 +55,9 @@ impl Default for MSIRange {
 }
 
 pub type PLL48Div = PLLClkDiv;
+pub type PLLSAI1RDiv = PLLClkDiv;
+pub type PLLSAI1QDiv = PLLClkDiv;
+pub type PLLSAI1PDiv = PLLClkDiv;
 
 /// PLL divider
 #[derive(Clone, Copy)]
@@ -265,6 +268,13 @@ pub struct Config {
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
+    pub pllsai1: Option<(
+        PLLMul,
+        PLLSrcDiv,
+        Option<PLLSAI1RDiv>,
+        Option<PLLSAI1QDiv>,
+        Option<PLLSAI1PDiv>,
+    )>,
 }
 
 impl Default for Config {
@@ -275,6 +285,7 @@ impl Default for Config {
             ahb_pre: AHBPrescaler::NotDivided,
             apb1_pre: APBPrescaler::NotDivided,
             apb2_pre: APBPrescaler::NotDivided,
+            pllsai1: None,
         }
     }
 }
@@ -315,7 +326,7 @@ pub(crate) unsafe fn init(config: Config) {
             (freq.0, Sw::HSE)
         }
         ClockSrc::PLL(src, div, prediv, mul, pll48div) => {
-            let freq = match src {
+            let src_freq = match src {
                 PLLSource::HSE(freq) => {
                     // Enable HSE
                     RCC.cr().write(|w| w.set_hseon(true));
@@ -334,8 +345,11 @@ pub(crate) unsafe fn init(config: Config) {
             RCC.cr().modify(|w| w.set_pllon(false));
             while RCC.cr().read().pllrdy() {}
 
-            let freq = (freq / prediv.to_div() * mul.to_mul()) / div.to_div();
+            let freq = (src_freq / prediv.to_div() * mul.to_mul()) / div.to_div();
 
+            #[cfg(any(stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx))]
+            assert!(freq <= 120_000_000);
+            #[cfg(not(any(stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx)))]
             assert!(freq <= 80_000_000);
 
             RCC.pllcfgr().write(move |w| {
@@ -354,6 +368,33 @@ pub(crate) unsafe fn init(config: Config) {
                 RCC.ccipr().modify(|w| {
                     w.set_clk48sel(0b10);
                 });
+            }
+
+            if let Some((mul, prediv, r_div, q_div, p_div)) = config.pllsai1 {
+                RCC.pllsai1cfgr().write(move |w| {
+                    w.set_pllsai1n(mul.into());
+                    w.set_pllsai1m(prediv.into());
+                    if let Some(r_div) = r_div {
+                        w.set_pllsai1r(r_div.into());
+                        w.set_pllsai1ren(true);
+                    }
+                    if let Some(q_div) = q_div {
+                        w.set_pllsai1q(q_div.into());
+                        w.set_pllsai1qen(true);
+                        let freq = (src_freq / prediv.to_div() * mul.to_mul()) / q_div.to_div();
+                        if freq == 48_000_000 {
+                            RCC.ccipr().modify(|w| {
+                                w.set_clk48sel(0b1);
+                            });
+                        }
+                    }
+                    if let Some(p_div) = p_div {
+                        w.set_pllsai1pdiv(p_div.into());
+                        w.set_pllsai1pen(true);
+                    }
+                });
+
+                RCC.cr().modify(|w| w.set_pllsai1on(true));
             }
 
             // Enable PLL
