@@ -24,8 +24,9 @@ use crate::util::slice_in_ram;
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static BUS_WAKER: AtomicWaker = NEW_AW;
-static EP_IN_WAKERS: [AtomicWaker; 9] = [NEW_AW; 9];
-static EP_OUT_WAKERS: [AtomicWaker; 9] = [NEW_AW; 9];
+static EP0_WAKER: AtomicWaker = NEW_AW;
+static EP_IN_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
+static EP_OUT_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
 static READY_ENDPOINTS: AtomicU32 = AtomicU32::new(0);
 
 pub struct Driver<'d, T: Instance> {
@@ -61,12 +62,12 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         if regs.events_ep0setup.read().bits() != 0 {
             regs.intenclr.write(|w| w.ep0setup().clear());
-            EP_OUT_WAKERS[0].wake();
+            EP0_WAKER.wake();
         }
 
         if regs.events_ep0datadone.read().bits() != 0 {
             regs.intenclr.write(|w| w.ep0datadone().clear());
-            EP_IN_WAKERS[0].wake();
+            EP0_WAKER.wake();
         }
 
         // USBEVENT and EPDATA events are weird. They're the "aggregate"
@@ -92,10 +93,10 @@ impl<'d, T: Instance> Driver<'d, T> {
             READY_ENDPOINTS.fetch_or(r, Ordering::AcqRel);
             for i in 1..=7 {
                 if r & (1 << i) != 0 {
-                    EP_IN_WAKERS[i].wake();
+                    EP_IN_WAKERS[i - 1].wake();
                 }
                 if r & (1 << (i + 16)) != 0 {
-                    EP_OUT_WAKERS[i].wake();
+                    EP_OUT_WAKERS[i - 1].wake();
                 }
             }
         }
@@ -450,7 +451,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
 
             // Wait until ready
             poll_fn(|cx| {
-                EP_OUT_WAKERS[i].register(cx.waker());
+                EP_OUT_WAKERS[i - 1].register(cx.waker());
                 let r = READY_ENDPOINTS.load(Ordering::Acquire);
                 if r & (1 << (i + 16)) != 0 {
                     Poll::Ready(())
@@ -478,7 +479,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
 
             // Wait until ready.
             poll_fn(|cx| {
-                EP_IN_WAKERS[i].register(cx.waker());
+                EP_IN_WAKERS[i - 1].register(cx.waker());
                 let r = READY_ENDPOINTS.load(Ordering::Acquire);
                 if r & (1 << i) != 0 {
                     Poll::Ready(())
@@ -519,7 +520,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             // Wait for SETUP packet
             regs.intenset.write(|w| w.ep0setup().set());
             poll_fn(|cx| {
-                EP_OUT_WAKERS[0].register(cx.waker());
+                EP0_WAKER.register(cx.waker());
                 let regs = T::regs();
                 if regs.events_ep0setup.read().bits() != 0 {
                     Poll::Ready(())
@@ -562,7 +563,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             // Wait until ready
             regs.intenset.write(|w| w.ep0datadone().set());
             poll_fn(|cx| {
-                EP_OUT_WAKERS[0].register(cx.waker());
+                EP0_WAKER.register(cx.waker());
                 let regs = T::regs();
                 if regs
                     .events_ep0datadone
@@ -596,7 +597,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             let res = with_timeout(
                 Duration::from_millis(10),
                 poll_fn(|cx| {
-                    EP_IN_WAKERS[0].register(cx.waker());
+                    EP0_WAKER.register(cx.waker());
                     let regs = T::regs();
                     if regs.events_ep0datadone.read().bits() != 0 {
                         Poll::Ready(())
