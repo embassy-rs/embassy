@@ -8,16 +8,15 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-
 use core::mem;
-
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::twim::{self, Twim};
 use embassy_nrf::{interrupt, Peripherals};
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 const ADDRESS: u8 = 0x50;
 

@@ -2,13 +2,23 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
+use defmt::*;
+use defmt_rtt as _; // global logger
 use embassy::executor::Spawner;
 use embassy::time::{Delay, Duration, Timer};
 use embassy_stm32::fmc::Fmc;
+use embassy_stm32::time::U32Ext;
+use embassy_stm32::Config;
 use embassy_stm32::Peripherals;
-use example_common::*;
+use panic_probe as _;
+
+pub fn config() -> Config {
+    let mut config = Config::default();
+    config.rcc.sys_ck = Some(400.mhz().into());
+    config.rcc.hclk = Some(200.mhz().into());
+    config.rcc.pll1.q_ck = Some(100.mhz().into());
+    config
+}
 
 #[embassy::main(config = "config()")]
 async fn main(_spawner: Spawner, p: Peripherals) {

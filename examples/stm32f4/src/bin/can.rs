@@ -2,15 +2,15 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 use cortex_m_rt::entry;
+use defmt::*;
 use embassy_stm32::can::bxcan::filter::Mask32;
 use embassy_stm32::can::bxcan::{Frame, StandardId};
 use embassy_stm32::can::Can;
 use embassy_stm32::gpio::{Input, Pull};
-use example_common::*;
 
 #[entry]
 fn main() -> ! {

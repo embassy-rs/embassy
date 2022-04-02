@@ -2,21 +2,29 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 use core::fmt::Write;
+use core::str::from_utf8;
+use cortex_m_rt::entry;
+use defmt::*;
 use embassy::executor::Executor;
 use embassy::util::Forever;
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::spi;
-use example_common::*;
-
-use core::str::from_utf8;
-use cortex_m_rt::entry;
 use embassy_stm32::peripherals::SPI3;
+use embassy_stm32::spi;
 use embassy_stm32::time::U32Ext;
+use embassy_stm32::Config;
 use heapless::String;
+
+pub fn config() -> Config {
+    let mut config = Config::default();
+    config.rcc.sys_ck = Some(400.mhz().into());
+    config.rcc.hclk = Some(200.mhz().into());
+    config.rcc.pll1.q_ck = Some(100.mhz().into());
+    config
+}
 
 #[embassy::task]
 async fn main_task(mut spi: spi::Spi<'static, SPI3, NoDma, NoDma>) {

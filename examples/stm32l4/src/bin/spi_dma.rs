@@ -2,15 +2,15 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
+use defmt::*;
 use embassy::executor::Spawner;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Peripherals;
-use example_common::*;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

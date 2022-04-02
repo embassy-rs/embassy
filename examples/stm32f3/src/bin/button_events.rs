@@ -10,8 +10,7 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
+use defmt::*;
 use embassy::blocking_mutex::raw::NoopRawMutex;
 use embassy::channel::mpsc::{self, Channel, Receiver, Sender};
 use embassy::executor::Spawner;
@@ -21,7 +20,9 @@ use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{AnyPin, Input, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::peripherals::PA0;
 use embassy_stm32::Peripherals;
-use example_common::*;
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 struct Leds<'a> {
     leds: [Output<'a, AnyPin>; 8],

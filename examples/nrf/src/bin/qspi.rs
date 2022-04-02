@@ -2,14 +2,13 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-
-use defmt::assert_eq;
+use defmt::{assert_eq, info, unwrap};
 use embassy::executor::Spawner;
 use embassy_nrf::Peripherals;
 use embassy_nrf::{interrupt, qspi};
-use example_common::*;
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 const PAGE_SIZE: usize = 4096;
 

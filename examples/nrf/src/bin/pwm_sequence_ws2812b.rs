@@ -2,8 +2,6 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
@@ -12,6 +10,9 @@ use embassy_nrf::pwm::{
     SingleSequencer,
 };
 use embassy_nrf::Peripherals;
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 // WS2812B LED light demonstration. Drives just one light.
 // The following reference on WS2812B may be of use:

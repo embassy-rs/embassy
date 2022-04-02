@@ -57,16 +57,16 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-use example_common::*;
-
 use cortex_m_rt::entry;
+use defmt::{info, unwrap};
 use embassy::executor::{Executor, InterruptExecutor};
 use embassy::interrupt::InterruptExt;
 use embassy::time::{Duration, Instant, Timer};
 use embassy::util::Forever;
 use embassy_nrf::interrupt;
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 #[embassy::task]
 async fn run_high() {

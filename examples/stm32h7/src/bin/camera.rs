@@ -10,22 +10,11 @@ use embassy_stm32::i2c::I2c;
 use embassy_stm32::interrupt;
 use embassy_stm32::rcc::{Mco, Mco1Source, McoClock};
 use embassy_stm32::time::U32Ext;
+use embassy_stm32::Config;
 use embassy_stm32::Peripherals;
 
 use defmt_rtt as _; // global logger
 use panic_probe as _;
-
-use core::sync::atomic::{AtomicUsize, Ordering};
-use embassy_stm32::Config;
-
-defmt::timestamp! {"{=u64}", {
-        static COUNT: AtomicUsize = AtomicUsize::new(0);
-        // NOTE(no-CAS) `timestamps` runs with interrupts disabled
-        let n = COUNT.load(Ordering::Relaxed);
-        COUNT.store(n + 1, Ordering::Relaxed);
-        n as u64
-    }
-}
 
 #[allow(unused)]
 pub fn config() -> Config {

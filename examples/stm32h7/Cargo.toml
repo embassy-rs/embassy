@@ -8,7 +8,7 @@ resolver = "2"
 [features]
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
+embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "stm32h743bi", "net", "time-driver-any", "exti", "unstable-pac", "unstable-traits"] }
 embassy-net = { path = "../../embassy-net", default-features = false, features = ["defmt", "tcp", "medium-ethernet", "pool-16"] }
 embassy-hal-common = { path = "../../embassy-hal-common", default-features = false, features = ["defmt"] }

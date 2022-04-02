@@ -2,20 +2,17 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-
 use defmt::{info, unwrap};
-use defmt_rtt as _; // global logger
-use embassy::interrupt::InterruptExt;
-use futures::pin_mut;
-use panic_probe as _; // print out panic messages
-
 use embassy::executor::Spawner;
+use embassy::interrupt::InterruptExt;
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy_nrf::usb::{State, Usb, UsbBus, UsbSerial};
 use embassy_nrf::{interrupt, Peripherals};
+use futures::pin_mut;
 use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
+
+use defmt_rtt as _; // global logger
+use panic_probe as _; // print out panic messages
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

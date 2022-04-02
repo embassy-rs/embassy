@@ -2,13 +2,13 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-
+use defmt::{info, unwrap};
 use embassy::executor::Spawner;
 use embassy_nrf::gpio::{AnyPin, Input, Pin as _, Pull};
 use embassy_nrf::Peripherals;
-use example_common::*;
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 #[embassy::task(pool_size = 4)]
 async fn button_task(n: usize, mut pin: Input<'static, AnyPin>) {

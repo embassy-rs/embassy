@@ -2,14 +2,14 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
+use defmt::*;
 use embassy::executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::time::U32Ext;
 use embassy_stm32::{interrupt, Config, Peripherals};
-use example_common::*;
 
 fn config() -> Config {
     let mut config = Config::default();

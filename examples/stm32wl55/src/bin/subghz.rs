@@ -5,9 +5,10 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
+use defmt::*;
 use embassy::channel::signal::Signal;
 use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy_stm32::dma::NoDma;
@@ -16,7 +17,6 @@ use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::subghz::*;
 use embassy_stm32::Peripherals;
-use example_common::unwrap;
 
 const PING_DATA: &str = "PING";
 const DATA_LEN: u8 = PING_DATA.len() as u8;

@@ -57,9 +57,9 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-use example_common::*;
+use defmt::*;
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 use cortex_m_rt::entry;
 use embassy::executor::{Executor, InterruptExecutor};

@@ -10,7 +10,7 @@ default = ["nightly"]
 nightly = ["embassy-stm32/nightly", "embassy-lora", "lorawan-device", "lorawan-encoding"]
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
+embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32l072cz", "time-driver-any", "exti", "unstable-traits", "memory-x"]  }
 
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["sx127x", "time", "defmt"], optional = true}

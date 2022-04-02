@@ -13,6 +13,6 @@ cortex-m-rt = "0.7.0"
 defmt = "0.3"
 defmt-rtt = "0.3"
 panic-probe = "0.3"
-embassy = { path = "../../embassy", features = ["defmt"] }
-embassy-stm32 = { path = "../../embassy-stm32", features = ["nightly", "defmt", "memory-x", "stm32f030f4", "time-driver-any"] }
+embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "memory-x", "stm32f030f4", "time-driver-any"] }
 

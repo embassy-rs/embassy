@@ -2,15 +2,15 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-
+use defmt::*;
 use embassy::executor::Spawner;
 use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy_nrf::buffered_uarte::State;
 use embassy_nrf::{buffered_uarte::BufferedUarte, interrupt, uarte, Peripherals};
-use example_common::*;
 use futures::pin_mut;
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

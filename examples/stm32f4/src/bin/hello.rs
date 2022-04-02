@@ -9,8 +9,8 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::Config;
 use embassy_stm32::Peripherals;
 
-#[path = "../example_common.rs"]
-mod example_common;
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 fn config() -> Config {
     let mut config = Config::default();

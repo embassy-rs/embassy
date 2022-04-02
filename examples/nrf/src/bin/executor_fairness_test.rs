@@ -2,14 +2,14 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-use example_common::*;
-
 use core::task::Poll;
+use defmt::{info, unwrap};
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Instant, Timer};
 use embassy_nrf::Peripherals;
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 #[embassy::task]
 async fn run1() {

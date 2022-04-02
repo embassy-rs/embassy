@@ -2,11 +2,7 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-
 use core::cell::RefCell;
-
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::Delay;
@@ -26,6 +22,9 @@ use st7789::{Orientation, ST7789};
 use crate::my_display_interface::SPIDeviceInterface;
 use crate::shared_spi::SpiDeviceWithCs;
 use crate::touch::Touch;
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 //const DISPLAY_FREQ: u32 = 64_000_000;
 const TOUCH_FREQ: u32 = 200_000;

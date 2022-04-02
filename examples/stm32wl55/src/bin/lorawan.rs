@@ -5,8 +5,8 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 use embassy_lora::{stm32wl::*, LoraTimer};
 use embassy_stm32::{
