@@ -112,6 +112,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             match select(bus_fut, control_fut).await {
                 Either::Left(evt) => match evt {
                     Event::Reset => {
+                        trace!("usb: reset");
                         self.bus.reset();
 
                         self.device_state = UsbDeviceState::Default;
@@ -122,8 +123,11 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                             h.reset();
                         }
                     }
-                    Event::Resume => {}
+                    Event::Resume => {
+                        trace!("usb: resume");
+                    }
                     Event::Suspend => {
+                        trace!("usb: suspend");
                         self.bus.suspend();
                         self.device_state = UsbDeviceState::Suspend;
                     }
