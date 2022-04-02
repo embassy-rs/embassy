@@ -273,6 +273,11 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, ReadError> {
         self.read_ep.read(data).await
     }
+
+    /// Waits for the USB host to enable this interface
+    pub async fn wait_connection(&mut self) {
+        self.read_ep.wait_enabled().await
+    }
 }
 
 /// Number of stop bits for LineCoding
