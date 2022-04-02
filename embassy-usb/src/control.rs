@@ -231,6 +231,8 @@ impl<C: driver::ControlPipe> ControlPipe<C> {
 
     pub(crate) async fn setup(&mut self) -> Setup {
         let req = self.control.setup().await;
+        trace!("control request: {:02x}", req);
+
         match (req.direction, req.length) {
             (UsbDirection::Out, n) => Setup::DataOut(
                 req,
@@ -267,15 +269,21 @@ impl<C: driver::ControlPipe> ControlPipe<C> {
                 }
             }
 
-            Ok((&buf[0..total], StatusStage {}))
+            let res = &buf[0..total];
+            #[cfg(feature = "defmt")]
+            trace!("  control out data: {:02x}", buf);
+            #[cfg(not(feature = "defmt"))]
+            trace!("  control out data: {:02x?}", buf);
+
+            Ok((res, StatusStage {}))
         }
     }
 
     pub(crate) async fn accept_in(&mut self, buf: &[u8], stage: DataInStage) {
         #[cfg(feature = "defmt")]
-        debug!("control in accept {:x}", buf);
+        trace!("  control in accept {:02x}", buf);
         #[cfg(not(feature = "defmt"))]
-        debug!("control in accept {:x?}", buf);
+        trace!("  control in accept {:02x?}", buf);
 
         let req_len = stage.length;
         let len = buf.len().min(req_len);
@@ -305,10 +313,12 @@ impl<C: driver::ControlPipe> ControlPipe<C> {
     }
 
     pub(crate) fn accept(&mut self, _: StatusStage) {
+        trace!("  control accept");
         self.control.accept();
     }
 
     pub(crate) fn reject(&mut self) {
+        trace!("  control reject");
         self.control.reject();
     }
 }
