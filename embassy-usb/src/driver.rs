@@ -122,20 +122,12 @@ pub trait EndpointOut: Endpoint {
     type ReadFuture<'a>: Future<Output = Result<usize, ReadError>> + 'a
     where
         Self: 'a;
-    type DataReadyFuture<'a>: Future<Output = ()> + 'a
-    where
-        Self: 'a;
 
     /// Reads a single packet of data from the endpoint, and returns the actual length of
     /// the packet.
     ///
     /// This should also clear any NAK flags and prepare the endpoint to receive the next packet.
     fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a>;
-
-    /// Waits until a packet of data is ready to be read from the endpoint.
-    ///
-    /// A call to[`read()`](Self::read()) after this future completes should not block.
-    fn wait_data_ready<'a>(&'a mut self) -> Self::DataReadyFuture<'a>;
 }
 
 pub trait ControlPipe {

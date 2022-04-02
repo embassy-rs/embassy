@@ -52,7 +52,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut control_buf = [0; 16];
     let request_handler = MyRequestHandler {};
 
-    let mut state = State::<5, 0>::new();
+    let mut control = State::<5, 0>::new();
 
     let mut builder = UsbDeviceBuilder::new(
         driver,
@@ -66,7 +66,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // Create classes on the builder.
     let mut hid = HidClass::new(
         &mut builder,
-        &mut state,
+        &mut control,
         MouseReport::desc(),
         Some(&request_handler),
         60,
