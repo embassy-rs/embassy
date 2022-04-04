@@ -1,9 +1,11 @@
 //! Misc utilities
 
 mod forever;
+mod select_all;
 mod yield_now;
 
 pub use forever::*;
+pub use select_all::*;
 pub use yield_now::*;
 
 /// Unsafely unborrow an owned singleton out of a `&mut`.
