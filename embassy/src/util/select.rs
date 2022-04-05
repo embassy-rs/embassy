@@ -25,13 +25,6 @@ pub fn select_all<Fut: Future, const N: usize>(arr: [Fut; N]) -> SelectAll<Fut, 
     SelectAll { inner: arr }
 }
 
-impl<Fut, const N: usize> SelectAll<Fut, N> {
-    /// Consumes this combinator, returning the underlying futures.
-    pub fn into_inner(self) -> [Fut; N] {
-        self.inner
-    }
-}
-
 impl<Fut: Future, const N: usize> Future for SelectAll<Fut, N> {
     type Output = (Fut::Output, usize);
 
