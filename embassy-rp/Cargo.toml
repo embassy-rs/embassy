@@ -4,6 +4,14 @@ version = "0.1.0"
 authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
 
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-rp-v$VERSION/embassy-rp/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/master/embassy-rp/src/"
+features = ["nightly", "defmt", "unstable-pac", "unstable-traits"]
+flavors = [
+    { name = "rp2040", target = "thumbv6m-none-eabi" },
+]
+
 [features]
 
 # Reexport the PAC for the currently enabled chip at `embassy_rp::pac`.

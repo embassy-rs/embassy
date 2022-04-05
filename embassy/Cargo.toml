@@ -6,6 +6,8 @@ edition = "2018"
 resolver = "2"
 
 [package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-v$VERSION/embassy/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/master/embassy/src/"
 features = ["nightly", "defmt", "unstable-traits", "time", "time-tick-1mhz"]
 flavors = [
     { name = "std",                       target = "x86_64-unknown-linux-gnu",   features = ["std"] },

@@ -6,6 +6,9 @@ edition = "2018"
 resolver = "2"
 
 [package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-v$VERSION/embassy-stm32/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/master/embassy-stm32/src/"
+
 # TODO: sdmmc
 # TODO: net
 # TODO: subghz

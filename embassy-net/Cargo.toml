@@ -4,6 +4,15 @@ version = "0.1.0"
 authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
 
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/master/embassy-net/src/"
+features = [ "tcp", "dhcpv4", "medium-ethernet", "medium-ip", "embassy/time", "embassy/time-tick-1mhz"]
+flavors = [
+    { name = "default", target = "thumbv7em-none-eabihf" },
+]
+
 [features]
 default = ["pool-4"]
 std = []
