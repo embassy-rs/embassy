@@ -4,10 +4,9 @@
 
 use defmt::*;
 use defmt_rtt as _; // global logger
-use embassy::blocking_mutex::raw::NoopRawMutex;
-use embassy::channel::mpsc::{self, Channel, Sender};
+use embassy::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy::channel::channel::Channel;
 use embassy::executor::Spawner;
-use embassy::util::Forever;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::{
     peripherals::{DMA1_CH1, UART7},
@@ -28,7 +27,7 @@ async fn writer(mut usart: Uart<'static, UART7, NoDma, NoDma>) {
     }
 }
 
-static CHANNEL: Forever<Channel<NoopRawMutex, [u8; 8], 1>> = Forever::new();
+static CHANNEL: Channel<ThreadModeRawMutex, [u8; 8], 1> = Channel::new();
 
 #[embassy::main]
 async fn main(spawner: Spawner, p: Peripherals) -> ! {
@@ -40,28 +39,21 @@ async fn main(spawner: Spawner, p: Peripherals) -> ! {
 
     let (mut tx, rx) = usart.split();
 
-    let c = CHANNEL.put(Channel::new());
-    let (s, mut r) = mpsc::split(c);
-
-    unwrap!(spawner.spawn(reader(rx, s)));
+    unwrap!(spawner.spawn(reader(rx)));
 
     loop {
-        if let Some(buf) = r.recv().await {
-            info!("writing...");
-            unwrap!(tx.write(&buf).await);
-        }
+        let buf = CHANNEL.recv().await;
+        info!("writing...");
+        unwrap!(tx.write(&buf).await);
     }
 }
 
 #[embassy::task]
-async fn reader(
-    mut rx: UartRx<'static, UART7, DMA1_CH1>,
-    s: Sender<'static, NoopRawMutex, [u8; 8], 1>,
-) {
+async fn reader(mut rx: UartRx<'static, UART7, DMA1_CH1>) {
     let mut buf = [0; 8];
     loop {
         info!("reading...");
         unwrap!(rx.read(&mut buf).await);
-        unwrap!(s.send(buf).await);
+        CHANNEL.send(buf).await;
     }
 }

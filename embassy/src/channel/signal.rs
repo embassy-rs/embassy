@@ -5,7 +5,7 @@ use core::task::{Context, Poll, Waker};
 
 /// Synchronization primitive. Allows creating awaitable signals that may be passed between tasks.
 /// For a simple use-case where the receiver is only ever interested in the latest value of
-/// something, Signals work well. For more advanced use cases, please consider [crate::channel::mpsc].
+/// something, Signals work well. For more advanced use cases, you might want to use [`Channel`](crate::channel::channel::Channel) instead..
 ///
 /// Signals are generally declared as being a static const and then borrowed as required.
 ///

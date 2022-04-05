@@ -1,4 +1,4 @@
 //! Async channels
 
-pub mod mpsc;
+pub mod channel;
 pub mod signal;
