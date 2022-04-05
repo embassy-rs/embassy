@@ -9,8 +9,6 @@ pub struct SelectAll<Fut, const N: usize> {
     inner: [Fut; N],
 }
 
-impl<Fut: Unpin, const N: usize> Unpin for SelectAll<Fut, N> {}
-
 /// Creates a new future which will select over a list of futures.
 ///
 /// The returned future will wait for any future within `iter` to be ready. Upon
