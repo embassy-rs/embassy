@@ -1,10 +1,6 @@
-#![allow(dead_code)]
-
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-
-use futures::future::FutureExt;
 
 /// Future for the [`select_all`] function.
 #[derive(Debug)]
@@ -24,9 +20,9 @@ impl<Fut: Unpin, const N: usize> Unpin for SelectAll<Fut, N> {}
 /// # Panics
 ///
 /// This function will panic if the array specified contains no items.
-pub fn select_all<Fut: Future + Unpin, const N: usize>(arr: [Fut; N]) -> Option<SelectAll<Fut, N>> {
+pub fn select_all<Fut: Future, const N: usize>(arr: [Fut; N]) -> SelectAll<Fut, N> {
     assert!(N > 0);
-    Some(SelectAll { inner: arr })
+    SelectAll { inner: arr }
 }
 
 impl<Fut, const N: usize> SelectAll<Fut, N> {
@@ -36,18 +32,24 @@ impl<Fut, const N: usize> SelectAll<Fut, N> {
     }
 }
 
-impl<Fut: Future + Unpin, const N: usize> Future for SelectAll<Fut, N> {
+impl<Fut: Future, const N: usize> Future for SelectAll<Fut, N> {
     type Output = (Fut::Output, usize);
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let item = self
-            .inner
-            .iter_mut()
-            .enumerate()
-            .find_map(|(i, f)| match f.poll_unpin(cx) {
-                Poll::Pending => None,
-                Poll::Ready(e) => Some((i, e)),
-            });
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // Safety: Since `self` is pinned, `inner` cannot move. Since `inner` cannot move,
+        // its elements also cannot move. Therefore it is safe to access `inner` and pin
+        // references to the contained futures.
+        let item = unsafe {
+            self.get_unchecked_mut()
+                .inner
+                .iter_mut()
+                .enumerate()
+                .find_map(|(i, f)| match Pin::new_unchecked(f).poll(cx) {
+                    Poll::Pending => None,
+                    Poll::Ready(e) => Some((i, e)),
+                })
+        };
+
         match item {
             Some((idx, res)) => Poll::Ready((res, idx)),
             None => Poll::Pending,
