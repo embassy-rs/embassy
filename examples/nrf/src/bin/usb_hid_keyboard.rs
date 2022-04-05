@@ -54,7 +54,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut control_buf = [0; 16];
     let request_handler = MyRequestHandler {};
 
-    let mut state = State::<64, 64>::new();
+    let mut state = State::<8, 1>::new();
 
     let mut builder = UsbDeviceBuilder::new(
         driver,
@@ -117,7 +117,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     };
 
     let out_fut = async {
-        hid_out.run(&MyRequestHandler {}).await;
+        hid_out.run(false, &request_handler).await;
     };
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
