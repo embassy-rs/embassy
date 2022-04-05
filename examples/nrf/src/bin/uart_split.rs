@@ -3,10 +3,9 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy::blocking_mutex::raw::NoopRawMutex;
-use embassy::channel::mpsc::{self, Channel, Sender};
+use embassy::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy::channel::channel::Channel;
 use embassy::executor::Spawner;
-use embassy::util::Forever;
 use embassy_nrf::peripherals::UARTE0;
 use embassy_nrf::uarte::UarteRx;
 use embassy_nrf::{interrupt, uarte, Peripherals};
@@ -14,7 +13,7 @@ use embassy_nrf::{interrupt, uarte, Peripherals};
 use defmt_rtt as _; // global logger
 use panic_probe as _;
 
-static CHANNEL: Forever<Channel<NoopRawMutex, [u8; 8], 1>> = Forever::new();
+static CHANNEL: Channel<ThreadModeRawMutex, [u8; 8], 1> = Channel::new();
 
 #[embassy::main]
 async fn main(spawner: Spawner, p: Peripherals) {
@@ -26,14 +25,11 @@ async fn main(spawner: Spawner, p: Peripherals) {
     let uart = uarte::Uarte::new(p.UARTE0, irq, p.P0_08, p.P0_06, config);
     let (mut tx, rx) = uart.split();
 
-    let c = CHANNEL.put(Channel::new());
-    let (s, mut r) = mpsc::split(c);
-
     info!("uarte initialized!");
 
     // Spawn a task responsible purely for reading
 
-    unwrap!(spawner.spawn(reader(rx, s)));
+    unwrap!(spawner.spawn(reader(rx)));
 
     // Message must be in SRAM
     {
@@ -48,19 +44,18 @@ async fn main(spawner: Spawner, p: Peripherals) {
     // back out the buffer we receive from the read
     // task.
     loop {
-        if let Some(buf) = r.recv().await {
-            info!("writing...");
-            unwrap!(tx.write(&buf).await);
-        }
+        let buf = CHANNEL.recv().await;
+        info!("writing...");
+        unwrap!(tx.write(&buf).await);
     }
 }
 
 #[embassy::task]
-async fn reader(mut rx: UarteRx<'static, UARTE0>, s: Sender<'static, NoopRawMutex, [u8; 8], 1>) {
+async fn reader(mut rx: UarteRx<'static, UARTE0>) {
     let mut buf = [0; 8];
     loop {
         info!("reading...");
         unwrap!(rx.read(&mut buf).await);
-        unwrap!(s.send(buf).await);
+        CHANNEL.send(buf).await;
     }
 }
