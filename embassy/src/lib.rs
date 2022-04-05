@@ -10,15 +10,15 @@ pub(crate) mod fmt;
 
 pub mod blocking_mutex;
 pub mod channel;
-pub mod waitqueue;
-
 pub mod executor;
 #[cfg(cortex_m)]
 pub mod interrupt;
 pub mod io;
+pub mod mutex;
 #[cfg(feature = "time")]
 pub mod time;
 pub mod util;
+pub mod waitqueue;
 
 #[cfg(feature = "nightly")]
 pub use embassy_macros::{main, task};
