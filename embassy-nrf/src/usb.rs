@@ -6,7 +6,6 @@ use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 use core::task::Poll;
 use cortex_m::peripheral::NVIC;
 use embassy::interrupt::InterruptExt;
-use embassy::time::{with_timeout, Duration};
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
@@ -59,6 +58,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         if regs.events_usbreset.read().bits() != 0 {
             regs.intenclr.write(|w| w.usbreset().clear());
             BUS_WAKER.wake();
+            EP0_WAKER.wake();
         }
 
         if regs.events_ep0setup.read().bits() != 0 {
@@ -585,7 +585,7 @@ pub struct ControlPipe<'d, T: Instance> {
 impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     type SetupFuture<'a> = impl Future<Output = Request> + 'a where Self: 'a;
     type DataOutFuture<'a> = impl Future<Output = Result<usize, ReadError>> + 'a where Self: 'a;
-    type DataInFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
+    type DataInFuture<'a> = impl Future<Output = Result<(), WriteError>> + 'a where Self: 'a;
 
     fn max_packet_size(&self) -> usize {
         usize::from(self.max_packet_size)
@@ -596,7 +596,10 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             let regs = T::regs();
 
             // Wait for SETUP packet
-            regs.intenset.write(|w| w.ep0setup().set());
+            regs.intenset.write(|w| {
+                w.ep0setup().set();
+                w.ep0datadone().set()
+            });
             poll_fn(|cx| {
                 EP0_WAKER.register(cx.waker());
                 let regs = T::regs();
@@ -639,22 +642,27 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             let regs = T::regs();
 
             // Wait until ready
-            regs.intenset.write(|w| w.ep0datadone().set());
+            regs.intenset.write(|w| {
+                w.usbreset().set();
+                w.ep0setup().set();
+                w.ep0datadone().set()
+            });
             poll_fn(|cx| {
                 EP0_WAKER.register(cx.waker());
                 let regs = T::regs();
-                if regs
-                    .events_ep0datadone
-                    .read()
-                    .events_ep0datadone()
-                    .bit_is_set()
-                {
-                    Poll::Ready(())
+                if regs.events_usbreset.read().bits() != 0 {
+                    trace!("aborted control data_out: usb reset");
+                    Poll::Ready(Err(ReadError::Disabled))
+                } else if regs.events_ep0setup.read().bits() != 0 {
+                    trace!("aborted control data_out: received another SETUP");
+                    Poll::Ready(Err(ReadError::Disabled))
+                } else if regs.events_ep0datadone.read().bits() != 0 {
+                    Poll::Ready(Ok(()))
                 } else {
                     Poll::Pending
                 }
             })
-            .await;
+            .await?;
 
             unsafe { read_dma::<T>(0, buf) }
         }
@@ -671,24 +679,29 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             regs.shorts
                 .modify(|_, w| w.ep0datadone_ep0status().bit(last_packet));
 
-            regs.intenset.write(|w| w.ep0datadone().set());
-            let res = with_timeout(
-                Duration::from_millis(10),
-                poll_fn(|cx| {
-                    EP0_WAKER.register(cx.waker());
-                    let regs = T::regs();
-                    if regs.events_ep0datadone.read().bits() != 0 {
-                        Poll::Ready(())
-                    } else {
-                        Poll::Pending
-                    }
-                }),
-            )
-            .await;
+            regs.intenset.write(|w| {
+                w.usbreset().set();
+                w.ep0setup().set();
+                w.ep0datadone().set()
+            });
 
-            if res.is_err() {
-                error!("ControlPipe::data_in timed out.");
-            }
+            poll_fn(|cx| {
+                cx.waker().wake_by_ref();
+                EP0_WAKER.register(cx.waker());
+                let regs = T::regs();
+                if regs.events_usbreset.read().bits() != 0 {
+                    trace!("aborted control data_in: usb reset");
+                    Poll::Ready(Err(WriteError::Disabled))
+                } else if regs.events_ep0setup.read().bits() != 0 {
+                    trace!("aborted control data_in: received another SETUP");
+                    Poll::Ready(Err(WriteError::Disabled))
+                } else if regs.events_ep0datadone.read().bits() != 0 {
+                    Poll::Ready(Ok(()))
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await
         }
     }
 
