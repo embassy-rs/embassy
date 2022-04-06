@@ -222,7 +222,20 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         }
     }
 
-    async fn handle_control_in(&mut self, req: Request, stage: DataInStage) {
+    async fn handle_control_in(&mut self, req: Request, mut stage: DataInStage) {
+        // If we don't have an address yet, respond with max 1 packet.
+        // The host doesn't know our EP0 max packet size yet, and might assume
+        // a full-length packet is a short packet, thinking we're done sending data.
+        // See https://github.com/hathach/tinyusb/issues/184
+        const DEVICE_DESCRIPTOR_LEN: u8 = 18;
+        if self.pending_address == 0
+            && self.config.max_packet_size_0 < DEVICE_DESCRIPTOR_LEN
+            && (self.config.max_packet_size_0 as usize) < stage.length
+        {
+            trace!("received control req while not addressed: capping response to 1 packet.");
+            stage.length = self.config.max_packet_size_0 as _;
+        }
+
         match (req.request_type, req.recipient) {
             (RequestType::Standard, Recipient::Device) => match req.request {
                 Request::GET_STATUS => {
