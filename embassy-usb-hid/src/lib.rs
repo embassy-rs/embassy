@@ -252,6 +252,7 @@ impl<'d, D: Driver<'d>, const N: usize> ReportReader<'d, D, N> {
     /// `read()`. If the dropped future used the same `buf`, then `buf` will
     /// contain the full report.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ReadError> {
+        assert!(N != 0);
         assert!(buf.len() >= N);
 
         // Read packets from the endpoint
