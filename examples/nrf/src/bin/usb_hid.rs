@@ -3,9 +3,6 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-#[path = "../example_common.rs"]
-mod example_common;
-
 use core::mem;
 use defmt::*;
 use embassy::executor::Spawner;
@@ -19,6 +16,9 @@ use embassy_usb::{Config, UsbDeviceBuilder};
 use embassy_usb_hid::{HidClass, ReportId, RequestHandler, State};
 use futures::future::join;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
+
+use defmt_rtt as _; // global logger
+use panic_probe as _;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
@@ -81,30 +81,22 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     // Do stuff with the class!
     let hid_fut = async {
+        let mut y: i8 = 5;
         loop {
             Timer::after(Duration::from_millis(500)).await;
-            hid.input()
-                .serialize(&MouseReport {
-                    buttons: 0,
-                    x: 0,
-                    y: 4,
-                    wheel: 0,
-                    pan: 0,
-                })
-                .await
-                .unwrap();
 
-            Timer::after(Duration::from_millis(500)).await;
-            hid.input()
-                .serialize(&MouseReport {
-                    buttons: 0,
-                    x: 0,
-                    y: -4,
-                    wheel: 0,
-                    pan: 0,
-                })
-                .await
-                .unwrap();
+            y = -y;
+            let report = MouseReport {
+                buttons: 0,
+                x: 0,
+                y,
+                wheel: 0,
+                pan: 0,
+            };
+            match hid.input().serialize(&report).await {
+                Ok(()) => {}
+                Err(e) => warn!("Failed to send report: {:?}", e),
+            }
         }
     };
 

@@ -169,8 +169,11 @@ pub struct ReportReader<'d, D: Driver<'d>, const N: usize> {
     offset: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ReadError {
     BufferOverflow,
+    Disabled,
     Sync(Range<usize>),
 }
 
@@ -179,6 +182,7 @@ impl From<embassy_usb::driver::ReadError> for ReadError {
         use embassy_usb::driver::ReadError::*;
         match val {
             BufferOverflow => ReadError::BufferOverflow,
+            Disabled => ReadError::Disabled,
         }
     }
 }
@@ -227,6 +231,7 @@ impl<'d, D: Driver<'d>, const N: usize> ReportReader<'d, D, N> {
             match self.read(&mut buf).await {
                 Ok(len) => { handler.set_report(ReportId::Out(0), &buf[0..len]); }
                 Err(ReadError::BufferOverflow) => warn!("Host sent output report larger than the configured maximum output report length ({})", N),
+                Err(ReadError::Disabled) => self.ep_out.wait_enabled().await,
                 Err(ReadError::Sync(_)) => unreachable!(),
             }
         }
