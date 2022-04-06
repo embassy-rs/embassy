@@ -1,7 +1,7 @@
 use core::mem;
 
 use crate::descriptor::DescriptorWriter;
-use crate::driver::{self, ReadError};
+use crate::driver::{self, EndpointError};
 use crate::DEFAULT_ALTERNATE_SETTING;
 
 use super::types::*;
@@ -253,7 +253,7 @@ impl<C: driver::ControlPipe> ControlPipe<C> {
         &mut self,
         buf: &'a mut [u8],
         stage: DataOutStage,
-    ) -> Result<(&'a [u8], StatusStage), ReadError> {
+    ) -> Result<(&'a [u8], StatusStage), EndpointError> {
         if stage.length == 0 {
             Ok((&[], StatusStage {}))
         } else {

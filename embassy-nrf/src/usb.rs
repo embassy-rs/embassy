@@ -10,7 +10,7 @@ use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
 use embassy_usb::control::Request;
-use embassy_usb::driver::{self, Event, ReadError, WriteError};
+use embassy_usb::driver::{self, EndpointError, Event};
 use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
 use futures::future::poll_fn;
 use futures::Future;
@@ -472,13 +472,13 @@ impl<'d, T: Instance, Dir> Endpoint<'d, T, Dir> {
     }
 }
 
-unsafe fn read_dma<T: Instance>(i: usize, buf: &mut [u8]) -> Result<usize, ReadError> {
+unsafe fn read_dma<T: Instance>(i: usize, buf: &mut [u8]) -> Result<usize, EndpointError> {
     let regs = T::regs();
 
     // Check that the packet fits into the buffer
     let size = regs.size.epout[i].read().bits() as usize;
     if size > buf.len() {
-        return Err(ReadError::BufferOverflow);
+        return Err(EndpointError::BufferOverflow);
     }
 
     if i == 0 {
@@ -554,7 +554,7 @@ unsafe fn write_dma<T: Instance>(i: usize, buf: &[u8]) {
 }
 
 impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
-    type ReadFuture<'a> = impl Future<Output = Result<usize, ReadError>> + 'a where Self: 'a;
+    type ReadFuture<'a> = impl Future<Output = Result<usize, EndpointError>> + 'a where Self: 'a;
 
     fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
         async move {
@@ -563,7 +563,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
 
             self.wait_data_ready()
                 .await
-                .map_err(|_| ReadError::Disabled)?;
+                .map_err(|_| EndpointError::Disabled)?;
 
             unsafe { read_dma::<T>(i, buf) }
         }
@@ -571,7 +571,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
 }
 
 impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
-    type WriteFuture<'a> = impl Future<Output = Result<(), WriteError>> + 'a where Self: 'a;
+    type WriteFuture<'a> = impl Future<Output = Result<(), EndpointError>> + 'a where Self: 'a;
 
     fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
         async move {
@@ -580,7 +580,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
 
             self.wait_data_ready()
                 .await
-                .map_err(|_| WriteError::Disabled)?;
+                .map_err(|_| EndpointError::Disabled)?;
 
             unsafe { write_dma::<T>(i, buf) }
 
@@ -596,8 +596,8 @@ pub struct ControlPipe<'d, T: Instance> {
 
 impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     type SetupFuture<'a> = impl Future<Output = Request> + 'a where Self: 'a;
-    type DataOutFuture<'a> = impl Future<Output = Result<usize, ReadError>> + 'a where Self: 'a;
-    type DataInFuture<'a> = impl Future<Output = Result<(), WriteError>> + 'a where Self: 'a;
+    type DataOutFuture<'a> = impl Future<Output = Result<usize, EndpointError>> + 'a where Self: 'a;
+    type DataInFuture<'a> = impl Future<Output = Result<(), EndpointError>> + 'a where Self: 'a;
 
     fn max_packet_size(&self) -> usize {
         usize::from(self.max_packet_size)
@@ -666,10 +666,10 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
                     Poll::Ready(Ok(()))
                 } else if regs.events_usbreset.read().bits() != 0 {
                     trace!("aborted control data_out: usb reset");
-                    Poll::Ready(Err(ReadError::Disabled))
+                    Poll::Ready(Err(EndpointError::Disabled))
                 } else if regs.events_ep0setup.read().bits() != 0 {
                     trace!("aborted control data_out: received another SETUP");
-                    Poll::Ready(Err(ReadError::Disabled))
+                    Poll::Ready(Err(EndpointError::Disabled))
                 } else {
                     Poll::Pending
                 }
@@ -705,10 +705,10 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
                     Poll::Ready(Ok(()))
                 } else if regs.events_usbreset.read().bits() != 0 {
                     trace!("aborted control data_in: usb reset");
-                    Poll::Ready(Err(WriteError::Disabled))
+                    Poll::Ready(Err(EndpointError::Disabled))
                 } else if regs.events_ep0setup.read().bits() != 0 {
                     trace!("aborted control data_in: received another SETUP");
-                    Poll::Ready(Err(WriteError::Disabled))
+                    Poll::Ready(Err(EndpointError::Disabled))
                 } else {
                     Poll::Pending
                 }

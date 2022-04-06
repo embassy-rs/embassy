@@ -15,7 +15,7 @@ use embassy::time::Duration;
 use embassy_usb::driver::EndpointOut;
 use embassy_usb::{
     control::{ControlHandler, InResponse, OutResponse, Request, RequestType},
-    driver::{Driver, Endpoint, EndpointIn, WriteError},
+    driver::{Driver, Endpoint, EndpointError, EndpointIn},
     UsbDeviceBuilder,
 };
 
@@ -187,9 +187,9 @@ pub enum ReadError {
     Sync(Range<usize>),
 }
 
-impl From<embassy_usb::driver::ReadError> for ReadError {
-    fn from(val: embassy_usb::driver::ReadError) -> Self {
-        use embassy_usb::driver::ReadError::*;
+impl From<embassy_usb::driver::EndpointError> for ReadError {
+    fn from(val: embassy_usb::driver::EndpointError) -> Self {
+        use embassy_usb::driver::EndpointError::*;
         match val {
             BufferOverflow => ReadError::BufferOverflow,
             Disabled => ReadError::Disabled,
@@ -207,11 +207,11 @@ impl<'d, D: Driver<'d>, const N: usize> ReportWriter<'d, D, N> {
     ///
     /// Panics if no endpoint is available.
     #[cfg(feature = "usbd-hid")]
-    pub async fn serialize<IR: AsInputReport>(&mut self, r: &IR) -> Result<(), WriteError> {
+    pub async fn serialize<IR: AsInputReport>(&mut self, r: &IR) -> Result<(), EndpointError> {
         let mut buf: [u8; N] = [0; N];
         let size = match serialize(&mut buf, r) {
             Ok(size) => size,
-            Err(_) => return Err(WriteError::BufferOverflow),
+            Err(_) => return Err(EndpointError::BufferOverflow),
         };
         self.write(&buf[0..size]).await
     }
@@ -219,7 +219,7 @@ impl<'d, D: Driver<'d>, const N: usize> ReportWriter<'d, D, N> {
     /// Writes `report` to its interrupt endpoint.
     ///
     /// Panics if no endpoint is available.
-    pub async fn write(&mut self, report: &[u8]) -> Result<(), WriteError> {
+    pub async fn write(&mut self, report: &[u8]) -> Result<(), EndpointError> {
         assert!(report.len() <= N);
 
         let max_packet_size = usize::from(self.ep_in.info().max_packet_size);

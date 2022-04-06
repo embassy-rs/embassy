@@ -130,7 +130,7 @@ pub trait Endpoint {
 }
 
 pub trait EndpointOut: Endpoint {
-    type ReadFuture<'a>: Future<Output = Result<usize, ReadError>> + 'a
+    type ReadFuture<'a>: Future<Output = Result<usize, EndpointError>> + 'a
     where
         Self: 'a;
 
@@ -145,10 +145,10 @@ pub trait ControlPipe {
     type SetupFuture<'a>: Future<Output = Request> + 'a
     where
         Self: 'a;
-    type DataOutFuture<'a>: Future<Output = Result<usize, ReadError>> + 'a
+    type DataOutFuture<'a>: Future<Output = Result<usize, EndpointError>> + 'a
     where
         Self: 'a;
-    type DataInFuture<'a>: Future<Output = Result<(), WriteError>> + 'a
+    type DataInFuture<'a>: Future<Output = Result<(), EndpointError>> + 'a
     where
         Self: 'a;
 
@@ -181,7 +181,7 @@ pub trait ControlPipe {
 }
 
 pub trait EndpointIn: Endpoint {
-    type WriteFuture<'a>: Future<Output = Result<(), WriteError>> + 'a
+    type WriteFuture<'a>: Future<Output = Result<(), EndpointError>> + 'a
     where
         Self: 'a;
 
@@ -216,24 +216,12 @@ pub struct Unsupported;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Errors returned by [`EndpointIn::write`]
-pub enum WriteError {
-    /// The packet is too long to fit in the
-    ///   transmission buffer. This is generally an error in the class implementation, because the
-    ///   class shouldn't provide more data than the `max_packet_size` it specified when allocating
-    ///   the endpoint.
+/// Errors returned by [`EndpointIn::write`] and [`EndpointOut::read`]
+pub enum EndpointError {
+    /// Either the packet to be written is too long to fit in the transmission
+    /// buffer or the received packet is too long to fit in `buf`.
     BufferOverflow,
-    Disabled,
-}
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Errors returned by [`EndpointOut::read`]
-pub enum ReadError {
-    /// The received packet is too long to
-    /// fit in `buf`. This is generally an error in the class implementation, because the class
-    /// should use a buffer that is large enough for the `max_packet_size` it specified when
-    /// allocating the endpoint.
-    BufferOverflow,
+    /// The endpoint is disabled.
     Disabled,
 }
