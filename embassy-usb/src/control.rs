@@ -198,7 +198,7 @@ pub trait ControlHandler {
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) struct DataInStage {
-    length: usize,
+    pub(crate) length: usize,
 }
 
 /// Typestate representing a ControlPipe in the DATA OUT stage
