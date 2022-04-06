@@ -295,7 +295,13 @@ impl<C: driver::ControlPipe> ControlPipe<C> {
             .chain(need_zlp.then(|| -> &[u8] { &[] }));
 
         while let Some(chunk) = chunks.next() {
-            self.control.data_in(chunk, chunks.size_hint().0 == 0).await;
+            match self.control.data_in(chunk, chunks.size_hint().0 == 0).await {
+                Ok(()) => {}
+                Err(e) => {
+                    warn!("control accept_in failed: {:?}", e);
+                    return;
+                }
+            }
         }
     }
 

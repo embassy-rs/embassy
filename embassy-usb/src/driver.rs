@@ -147,7 +147,7 @@ pub trait ControlPipe {
     type DataOutFuture<'a>: Future<Output = Result<usize, ReadError>> + 'a
     where
         Self: 'a;
-    type DataInFuture<'a>: Future<Output = ()> + 'a
+    type DataInFuture<'a>: Future<Output = Result<(), WriteError>> + 'a
     where
         Self: 'a;
 
