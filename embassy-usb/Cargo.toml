@@ -1,0 +1,19 @@
+[package]
+name = "embassy-usb"
+version = "0.1.0"
+edition = "2021"
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-v$VERSION/embassy-usb/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/master/embassy-usb/src/"
+features = ["defmt"]
+flavors = [
+    { name = "default", target = "thumbv7em-none-eabihf" },
+]
+
+[dependencies]
+embassy = { version = "0.1.0", path = "../embassy" }
+
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }
+heapless = "0.7.10"
