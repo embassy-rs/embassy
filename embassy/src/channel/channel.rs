@@ -28,12 +28,23 @@ use crate::blocking_mutex::Mutex;
 use crate::waitqueue::WakerRegistration;
 
 /// Send-only access to a [`Channel`].
-#[derive(Copy, Clone)]
+#[derive(Copy)]
 pub struct Sender<'ch, M, T, const N: usize>
 where
     M: RawMutex,
 {
     channel: &'ch Channel<M, T, N>,
+}
+
+impl<'ch, M, T, const N: usize> Clone for Sender<'ch, M, T, N>
+where
+    M: RawMutex,
+{
+    fn clone(&self) -> Self {
+        Sender {
+            channel: self.channel,
+        }
+    }
 }
 
 impl<'ch, M, T, const N: usize> Sender<'ch, M, T, N>
@@ -56,12 +67,23 @@ where
 }
 
 /// Receive-only access to a [`Channel`].
-#[derive(Copy, Clone)]
+#[derive(Copy)]
 pub struct Receiver<'ch, M, T, const N: usize>
 where
     M: RawMutex,
 {
     channel: &'ch Channel<M, T, N>,
+}
+
+impl<'ch, M, T, const N: usize> Clone for Receiver<'ch, M, T, N>
+where
+    M: RawMutex,
+{
+    fn clone(&self) -> Self {
+        Receiver {
+            channel: self.channel,
+        }
+    }
 }
 
 impl<'ch, M, T, const N: usize> Receiver<'ch, M, T, N>
@@ -377,6 +399,16 @@ mod tests {
         let c = Channel::<NoopRawMutex, u32, 3>::new();
         assert!(c.try_send(1).is_ok());
         assert_eq!(c.try_recv().unwrap(), 1);
+    }
+
+    #[test]
+    fn cloning() {
+        let c = Channel::<NoopRawMutex, u32, 3>::new();
+        let r1 = c.receiver();
+        let s1 = c.sender();
+
+        let _ = r1.clone();
+        let _ = s1.clone();
     }
 
     #[futures_test::test]
