@@ -37,7 +37,7 @@ jobs:
           key: rust3-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
       - name: build
         run: |
-          curl -L -o /usr/local/bin/cargo-batch https://github.com/embassy-rs/cargo-batch/releases/download/batch-0.2.0/cargo-batch
+          curl -L -o /usr/local/bin/cargo-batch https://github.com/embassy-rs/cargo-batch/releases/download/batch-0.3.0/cargo-batch
           chmod +x /usr/local/bin/cargo-batch
           ./ci.sh
           rm -rf target_ci/*{,/release}/{build,deps,.fingerprint}/{lib,}{embassy,stm32}*
@@ -59,7 +59,7 @@ jobs:
           key: rust-stable-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
       - name: build
         run: |
-          curl -L -o /usr/local/bin/cargo-batch https://github.com/embassy-rs/cargo-batch/releases/download/batch-0.1.0/cargo-batch
+          curl -L -o /usr/local/bin/cargo-batch https://github.com/embassy-rs/cargo-batch/releases/download/batch-0.3.0/cargo-batch
           chmod +x /usr/local/bin/cargo-batch
           ./ci_stable.sh
           rm -rf target_ci_stable/*{,/release}/{build,deps,.fingerprint}/{lib,}{embassy,stm32}*
