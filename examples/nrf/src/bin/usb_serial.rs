@@ -60,7 +60,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
 
     // Build the builder.
-    let mut usb = builder.build();
+    let mut usb = builder.build().await;
 
     // Run the USB device.
     let usb_fut = usb.run();

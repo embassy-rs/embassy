@@ -122,7 +122,7 @@ pub struct UsbDeviceBuilder<'d, D: Driver<'d>> {
     interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
     control_buf: &'d mut [u8],
 
-    bus: D,
+    driver: D,
     next_interface_number: u8,
     next_string_index: u8,
 
@@ -139,7 +139,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
     /// large enough for the length of the largest control request (in or out)
     /// anticipated by any class added to the device.
     pub fn new(
-        bus: D,
+        driver: D,
         config: Config<'d>,
         device_descriptor_buf: &'d mut [u8],
         config_descriptor_buf: &'d mut [u8],
@@ -173,7 +173,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
         bos_descriptor.bos();
 
         UsbDeviceBuilder {
-            bus,
+            driver,
             config,
             interfaces: Vec::new(),
             control_buf,
@@ -187,12 +187,12 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
     }
 
     /// Creates the [`UsbDevice`] instance with the configuration in this builder.
-    pub fn build(mut self) -> UsbDevice<'d, D> {
+    pub async fn build(mut self) -> UsbDevice<'d, D> {
         self.config_descriptor.end_configuration();
         self.bos_descriptor.end_bos();
 
         UsbDevice::build(
-            self.bus,
+            self.driver,
             self.config,
             self.device_descriptor.into_buf(),
             self.config_descriptor.into_buf(),
@@ -200,6 +200,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
             self.interfaces,
             self.control_buf,
         )
+        .await
     }
 
     /// Allocates a new interface number.
@@ -251,7 +252,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
         max_packet_size: u16,
         interval: u8,
     ) -> Result<D::EndpointIn, EndpointAllocError> {
-        self.bus
+        self.driver
             .alloc_endpoint_in(ep_addr, ep_type, max_packet_size, interval)
     }
 
@@ -266,7 +267,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
         max_packet_size: u16,
         interval: u8,
     ) -> Result<D::EndpointOut, EndpointAllocError> {
-        self.bus
+        self.driver
             .alloc_endpoint_out(ep_addr, ep_type, max_packet_size, interval)
     }
 
@@ -306,7 +307,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
     /// feasibly recoverable.
     #[inline]
     pub fn alloc_control_pipe(&mut self, max_packet_size: u16) -> D::ControlPipe {
-        self.bus
+        self.driver
             .alloc_control_pipe(max_packet_size)
             .expect("alloc_control_pipe failed")
     }
