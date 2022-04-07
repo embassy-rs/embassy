@@ -74,7 +74,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     );
 
     // Build the builder.
-    let mut usb = builder.build();
+    let mut usb = builder.build().await;
 
     // Run the USB device.
     let usb_fut = usb.run();

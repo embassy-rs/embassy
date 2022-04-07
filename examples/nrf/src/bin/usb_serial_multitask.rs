@@ -85,7 +85,7 @@ async fn main(spawner: Spawner, p: Peripherals) {
     let class = CdcAcmClass::new(&mut builder, &mut res.serial_state, 64);
 
     // Build the builder.
-    let usb = builder.build();
+    let usb = builder.build().await;
 
     unwrap!(spawner.spawn(usb_task(usb)));
     unwrap!(spawner.spawn(echo_task(class)));

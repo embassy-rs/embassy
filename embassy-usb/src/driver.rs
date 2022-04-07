@@ -11,6 +11,7 @@ pub trait Driver<'a> {
     type EndpointIn: EndpointIn + 'a;
     type ControlPipe: ControlPipe + 'a;
     type Bus: Bus + 'a;
+    type EnableFuture: Future<Output = Self::Bus> + 'a;
 
     /// Allocates an endpoint and specified endpoint parameters. This method is called by the device
     /// and class implementations to allocate endpoints, and can only be called before
@@ -46,7 +47,7 @@ pub trait Driver<'a> {
 
     /// Enables and initializes the USB peripheral. Soon after enabling the device will be reset, so
     /// there is no need to perform a USB reset in this method.
-    fn enable(self) -> Self::Bus;
+    fn enable(self) -> Self::EnableFuture;
 
     /// Indicates that `set_device_address` must be called before accepting the corresponding
     /// control transfer, not after.

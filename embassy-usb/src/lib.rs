@@ -72,7 +72,7 @@ pub struct UsbDevice<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
-    pub(crate) fn build(
+    pub(crate) async fn build(
         mut driver: D,
         config: Config<'d>,
         device_descriptor: &'d [u8],
@@ -80,17 +80,17 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         bos_descriptor: &'d [u8],
         interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
         control_buf: &'d mut [u8],
-    ) -> Self {
+    ) -> UsbDevice<'d, D> {
         let control = driver
             .alloc_control_pipe(config.max_packet_size_0 as u16)
             .expect("failed to alloc control endpoint");
 
         // Enable the USB bus.
         // This prevent further allocation by consuming the driver.
-        let driver = driver.enable();
+        let bus = driver.enable().await;
 
         Self {
-            bus: driver,
+            bus,
             config,
             control: ControlPipe::new(control),
             device_descriptor,

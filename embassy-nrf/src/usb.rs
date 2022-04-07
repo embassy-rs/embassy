@@ -140,6 +140,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     type EndpointIn = Endpoint<'d, T, In>;
     type ControlPipe = ControlPipe<'d, T>;
     type Bus = Bus<'d, T>;
+    type EnableFuture = impl Future<Output = Self::Bus> + 'd;
 
     fn alloc_endpoint_in(
         &mut self,
@@ -191,35 +192,46 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         })
     }
 
-    fn enable(self) -> Self::Bus {
-        let regs = T::regs();
+    fn enable(self) -> Self::EnableFuture {
+        async move {
+            let regs = T::regs();
 
-        errata::pre_enable();
+            errata::pre_enable();
 
-        regs.enable.write(|w| w.enable().enabled());
+            regs.enable.write(|w| w.enable().enabled());
 
-        // Wait until the peripheral is ready.
-        while !regs.eventcause.read().ready().is_ready() {}
-        regs.eventcause.write(|w| w.ready().set_bit()); // Write 1 to clear.
+            // Wait until the peripheral is ready.
+            regs.intenset.write(|w| w.usbevent().set_bit());
+            poll_fn(|cx| {
+                BUS_WAKER.register(cx.waker());
+                if regs.eventcause.read().ready().is_ready() {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await;
+            regs.eventcause.write(|w| w.ready().set_bit()); // Write 1 to clear.
 
-        errata::post_enable();
+            errata::post_enable();
 
-        unsafe { NVIC::unmask(pac::Interrupt::USBD) };
+            unsafe { NVIC::unmask(pac::Interrupt::USBD) };
 
-        regs.intenset.write(|w| {
-            w.usbreset().set_bit();
-            w.usbevent().set_bit();
-            w.epdata().set_bit();
-            w
-        });
-        // Enable the USB pullup, allowing enumeration.
-        regs.usbpullup.write(|w| w.connect().enabled());
-        trace!("enabled");
+            regs.intenset.write(|w| {
+                w.usbreset().set_bit();
+                w.usbevent().set_bit();
+                w.epdata().set_bit();
+                w
+            });
+            // Enable the USB pullup, allowing enumeration.
+            regs.usbpullup.write(|w| w.connect().enabled());
+            trace!("enabled");
 
-        Bus {
-            phantom: PhantomData,
-            alloc_in: self.alloc_in,
-            alloc_out: self.alloc_out,
+            Bus {
+                phantom: PhantomData,
+                alloc_in: self.alloc_in,
+                alloc_out: self.alloc_out,
+            }
         }
     }
 }
@@ -650,14 +662,14 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             poll_fn(|cx| {
                 EP0_WAKER.register(cx.waker());
                 let regs = T::regs();
-                if regs.events_usbreset.read().bits() != 0 {
+                if regs.events_ep0datadone.read().bits() != 0 {
+                    Poll::Ready(Ok(()))
+                } else if regs.events_usbreset.read().bits() != 0 {
                     trace!("aborted control data_out: usb reset");
                     Poll::Ready(Err(ReadError::Disabled))
                 } else if regs.events_ep0setup.read().bits() != 0 {
                     trace!("aborted control data_out: received another SETUP");
                     Poll::Ready(Err(ReadError::Disabled))
-                } else if regs.events_ep0datadone.read().bits() != 0 {
-                    Poll::Ready(Ok(()))
                 } else {
                     Poll::Pending
                 }
@@ -689,14 +701,14 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
                 cx.waker().wake_by_ref();
                 EP0_WAKER.register(cx.waker());
                 let regs = T::regs();
-                if regs.events_usbreset.read().bits() != 0 {
+                if regs.events_ep0datadone.read().bits() != 0 {
+                    Poll::Ready(Ok(()))
+                } else if regs.events_usbreset.read().bits() != 0 {
                     trace!("aborted control data_in: usb reset");
                     Poll::Ready(Err(WriteError::Disabled))
                 } else if regs.events_ep0setup.read().bits() != 0 {
                     trace!("aborted control data_in: received another SETUP");
                     Poll::Ready(Err(WriteError::Disabled))
-                } else if regs.events_ep0datadone.read().bits() != 0 {
-                    Poll::Ready(Ok(()))
                 } else {
                     Poll::Pending
                 }
