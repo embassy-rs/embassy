@@ -662,14 +662,14 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             poll_fn(|cx| {
                 EP0_WAKER.register(cx.waker());
                 let regs = T::regs();
-                if regs.events_usbreset.read().bits() != 0 {
+                if regs.events_ep0datadone.read().bits() != 0 {
+                    Poll::Ready(Ok(()))
+                } else if regs.events_usbreset.read().bits() != 0 {
                     trace!("aborted control data_out: usb reset");
                     Poll::Ready(Err(ReadError::Disabled))
                 } else if regs.events_ep0setup.read().bits() != 0 {
                     trace!("aborted control data_out: received another SETUP");
                     Poll::Ready(Err(ReadError::Disabled))
-                } else if regs.events_ep0datadone.read().bits() != 0 {
-                    Poll::Ready(Ok(()))
                 } else {
                     Poll::Pending
                 }
@@ -701,14 +701,14 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
                 cx.waker().wake_by_ref();
                 EP0_WAKER.register(cx.waker());
                 let regs = T::regs();
-                if regs.events_usbreset.read().bits() != 0 {
+                if regs.events_ep0datadone.read().bits() != 0 {
+                    Poll::Ready(Ok(()))
+                } else if regs.events_usbreset.read().bits() != 0 {
                     trace!("aborted control data_in: usb reset");
                     Poll::Ready(Err(WriteError::Disabled))
                 } else if regs.events_ep0setup.read().bits() != 0 {
                     trace!("aborted control data_in: received another SETUP");
                     Poll::Ready(Err(WriteError::Disabled))
-                } else if regs.events_ep0datadone.read().bits() != 0 {
-                    Poll::Ready(Ok(()))
                 } else {
                     Poll::Pending
                 }
