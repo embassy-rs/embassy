@@ -54,14 +54,8 @@ async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
         .unwrap();
 
     let region = region::EU868::default().into();
-    let mut radio_buffer = [0; 256];
-    let mut device: Device<'_, _, Crypto, _, _> = Device::new(
-        region,
-        radio,
-        LoraTimer,
-        Rng::new(p.RNG),
-        &mut radio_buffer[..],
-    );
+    let mut device: Device<_, Crypto, _, _> =
+        Device::new(region, radio, LoraTimer, Rng::new(p.RNG));
 
     defmt::info!("Joining LoRaWAN network");
 
