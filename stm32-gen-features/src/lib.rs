@@ -14,6 +14,7 @@ const SUPPORTED_FAMILIES: &[&str] = &[
     "stm32l0",
     "stm32l1",
     "stm32l4",
+    "stm32l5",
     "stm32h7",
     "stm32u5",
     "stm32wb55",
