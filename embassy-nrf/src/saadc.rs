@@ -102,6 +102,29 @@ impl sealed::Input for VddInput {
 }
 impl Input for VddInput {}
 
+/// A dummy `Input` pin implementation for SAADC peripheral sampling from the
+/// VDDH / 5 voltage.
+#[cfg(any(feature = "_nrf5340-app", feature = "nrf52833", feature = "nrf52840"))]
+pub struct VddhDiv5Input;
+
+#[cfg(any(feature = "_nrf5340-app", feature = "nrf52833", feature = "nrf52840"))]
+unsafe impl Unborrow for VddhDiv5Input {
+    type Target = VddhDiv5Input;
+    unsafe fn unborrow(self) -> Self::Target {
+        self
+    }
+}
+
+#[cfg(any(feature = "_nrf5340-app", feature = "nrf52833", feature = "nrf52840"))]
+impl sealed::Input for VddhDiv5Input {
+    fn channel(&self) -> InputChannel {
+        InputChannel::VDDHDIV5
+    }
+}
+
+#[cfg(any(feature = "_nrf5340-app", feature = "nrf52833", feature = "nrf52840"))]
+impl Input for VddhDiv5Input {}
+
 impl<'d> ChannelConfig<'d> {
     /// Default configuration for single ended channel sampling.
     pub fn single_ended(input: impl Unborrow<Target = impl Input> + 'd) -> Self {
