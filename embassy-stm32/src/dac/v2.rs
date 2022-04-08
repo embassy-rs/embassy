@@ -134,7 +134,7 @@ impl<'d, T: Instance> Dac<'d, T> {
                 enable!(apb1lenr, set_dac1en, apb1lrstr, set_dac1rst);
                 #[cfg(stm32g0)]
                 enable!(apbenr1, set_dac1en, apbrstr1, set_dac1rst);
-                #[cfg(stm32l4)]
+                #[cfg(any(stm32l4, stm32l5))]
                 enable!(apb1enr1, set_dac1en, apb1rstr1, set_dac1rst);
             });
 
