@@ -26,6 +26,7 @@ flavors = [
     { regex_feature = "stm32l0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32l1.*", target = "thumbv7m-none-eabi" },
     { regex_feature = "stm32l4.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32l5.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32u5.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32wb.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32wl.*", target = "thumbv7em-none-eabi" },
@@ -1343,4 +1344,18 @@ stm32wl55jc-cm4 = [ "stm32-metapac/stm32wl55jc-cm4" ]
 stm32wl55jc-cm0p = [ "stm32-metapac/stm32wl55jc-cm0p" ]
 stm32wl55uc-cm4 = [ "stm32-metapac/stm32wl55uc-cm4" ]
 stm32wl55uc-cm0p = [ "stm32-metapac/stm32wl55uc-cm0p" ]
+stm32wle4c8 = [ "stm32-metapac/stm32wle4c8" ]
+stm32wle4cb = [ "stm32-metapac/stm32wle4cb" ]
+stm32wle4cc = [ "stm32-metapac/stm32wle4cc" ]
+stm32wle4j8 = [ "stm32-metapac/stm32wle4j8" ]
+stm32wle4jb = [ "stm32-metapac/stm32wle4jb" ]
+stm32wle4jc = [ "stm32-metapac/stm32wle4jc" ]
+stm32wle5c8 = [ "stm32-metapac/stm32wle5c8" ]
+stm32wle5cb = [ "stm32-metapac/stm32wle5cb" ]
+stm32wle5cc = [ "stm32-metapac/stm32wle5cc" ]
+stm32wle5j8 = [ "stm32-metapac/stm32wle5j8" ]
+stm32wle5jb = [ "stm32-metapac/stm32wle5jb" ]
+stm32wle5jc = [ "stm32-metapac/stm32wle5jc" ]
+stm32wle5u8 = [ "stm32-metapac/stm32wle5u8" ]
+stm32wle5ub = [ "stm32-metapac/stm32wle5ub" ]
 # END GENERATED FEATURES
