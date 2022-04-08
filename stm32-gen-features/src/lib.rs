@@ -3,22 +3,8 @@
 use std::{iter::FilterMap, path::Path, slice::Iter};
 
 const SUPPORTED_FAMILIES: &[&str] = &[
-    "stm32f0",
-    "stm32f1",
-    "stm32f2",
-    "stm32f3",
-    "stm32f4",
-    "stm32f7",
-    "stm32g0",
-    "stm32g4",
-    "stm32l0",
-    "stm32l1",
-    "stm32l4",
-    "stm32l5",
-    "stm32h7",
-    "stm32u5",
-    "stm32wb55",
-    "stm32wl55",
+    "stm32f0", "stm32f1", "stm32f2", "stm32f3", "stm32f4", "stm32f7", "stm32g0", "stm32g4",
+    "stm32l0", "stm32l1", "stm32l4", "stm32l5", "stm32h7", "stm32u5", "stm32wb", "stm32wl5",
 ];
 
 const SEPARATOR_START: &str = "# BEGIN GENERATED FEATURES\n";
