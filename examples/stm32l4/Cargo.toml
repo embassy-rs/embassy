@@ -10,7 +10,7 @@ resolver = "2"
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits" }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "unstable-pac", "stm32l4s5vi", "time-driver-any", "exti", "unstable-traits"]  }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "unstable-pac", "stm32l4s5vi", "time-driver-any", "exti", "unstable-traits", "usb-otg"]  }
 
 defmt = "0.3"
 defmt-rtt = "0.3"
@@ -24,4 +24,6 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 heapless = { version = "0.7.5", default-features = false }
 
 micromath = "2.0.0"
+usb-device = "0.2"
+usbd-serial = "0.1.1"
 
