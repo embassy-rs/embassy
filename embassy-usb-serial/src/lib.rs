@@ -10,7 +10,7 @@ use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy::blocking_mutex::CriticalSectionMutex;
 use embassy_usb::control::{self, ControlHandler, InResponse, OutResponse, Request};
-use embassy_usb::driver::{Endpoint, EndpointIn, EndpointOut, ReadError, WriteError};
+use embassy_usb::driver::{Endpoint, EndpointError, EndpointIn, EndpointOut};
 use embassy_usb::{driver::Driver, types::*, UsbDeviceBuilder};
 
 /// This should be used as `device_class` when building the `UsbDevice`.
@@ -265,12 +265,12 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     }
 
     /// Writes a single packet into the IN endpoint.
-    pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), WriteError> {
+    pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
         self.write_ep.write(data).await
     }
 
     /// Reads a single packet from the OUT endpoint.
-    pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, ReadError> {
+    pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
         self.read_ep.read(data).await
     }
 

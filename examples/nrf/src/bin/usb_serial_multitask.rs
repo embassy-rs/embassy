@@ -11,7 +11,7 @@ use embassy_nrf::pac;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::Peripherals;
 use embassy_nrf::{interrupt, peripherals};
-use embassy_usb::driver::{ReadError, WriteError};
+use embassy_usb::driver::EndpointError;
 use embassy_usb::{Config, UsbDevice, UsbDeviceBuilder};
 use embassy_usb_serial::{CdcAcmClass, State};
 
@@ -93,20 +93,11 @@ async fn main(spawner: Spawner, p: Peripherals) {
 
 struct Disconnected {}
 
-impl From<ReadError> for Disconnected {
-    fn from(val: ReadError) -> Self {
+impl From<EndpointError> for Disconnected {
+    fn from(val: EndpointError) -> Self {
         match val {
-            ReadError::BufferOverflow => panic!("Buffer overflow"),
-            ReadError::Disabled => Disconnected {},
-        }
-    }
-}
-
-impl From<WriteError> for Disconnected {
-    fn from(val: WriteError) -> Self {
-        match val {
-            WriteError::BufferOverflow => panic!("Buffer overflow"),
-            WriteError::Disabled => Disconnected {},
+            EndpointError::BufferOverflow => panic!("Buffer overflow"),
+            EndpointError::Disabled => Disconnected {},
         }
     }
 }
