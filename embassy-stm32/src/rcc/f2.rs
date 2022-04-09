@@ -9,10 +9,16 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI: Hertz = Hertz(16_000_000);
 
+#[derive(Clone, Copy)]
+pub struct HSEConfig {
+    pub frequency: Hertz,
+    pub source: HSESrc,
+}
+
 /// System clock mux source
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
-    HSE(Hertz, HSESrc),
+    HSE,
     HSI,
 }
 
@@ -206,6 +212,7 @@ impl VoltageRange {
 
 /// Clocks configuration
 pub struct Config {
+    pub hse: Option<HSEConfig>,
     pub mux: ClockSrc,
     pub voltage: VoltageRange,
     pub ahb_pre: AHBPrescaler,
@@ -217,6 +224,7 @@ impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
+            hse: None,
             voltage: VoltageRange::Min1V8,
             mux: ClockSrc::HSI,
             ahb_pre: AHBPrescaler::NotDivided,
@@ -238,18 +246,26 @@ unsafe fn enable_hse(source: HSESrc) {
     while !RCC.cr().read().hserdy() {}
 }
 
+#[inline]
+unsafe fn enable_hsi() {
+    RCC.cr().write(|w| w.set_hsion(true));
+    while !RCC.cr().read().hsirdy() {}
+}
+
 pub(crate) unsafe fn init(config: Config) {
+    if let Some(hse_config) = config.hse {
+        enable_hse(hse_config.source);
+    }
     let (sys_clk, sw) = match config.mux {
         ClockSrc::HSI => {
-            // Enable HSI
-            RCC.cr().write(|w| w.set_hsion(true));
-            while !RCC.cr().read().hsirdy() {}
-
+            enable_hsi();
             (HSI, Sw::HSI)
         }
-        ClockSrc::HSE(freq, source) => {
-            enable_hse(source);
-            (freq, Sw::HSE)
+        ClockSrc::HSE => {
+            let hse_config = config
+                .hse
+                .expect("HSE must be configured to be used as system clock");
+            (hse_config.frequency, Sw::HSE)
         }
     };
     // RM0033 Figure 9. Clock tree suggests max SYSCLK/HCLK is 168 MHz, but datasheet specifies PLL
