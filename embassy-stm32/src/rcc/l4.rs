@@ -275,6 +275,7 @@ pub struct Config {
         Option<PLLSAI1QDiv>,
         Option<PLLSAI1PDiv>,
     )>,
+    pub hsi48: bool,
 }
 
 impl Default for Config {
@@ -286,6 +287,7 @@ impl Default for Config {
             apb1_pre: APBPrescaler::NotDivided,
             apb2_pre: APBPrescaler::NotDivided,
             pllsai1: None,
+            hsi48: false,
         }
     }
 }
@@ -405,6 +407,14 @@ pub(crate) unsafe fn init(config: Config) {
             (freq, Sw::PLL)
         }
     };
+
+    if config.hsi48 {
+        RCC.crrcr().modify(|w| w.set_hsi48on(true));
+        while !RCC.crrcr().read().hsi48rdy() {}
+
+        // Enable as clock source for USB, RNG and SDMMC
+        RCC.ccipr().modify(|w| w.set_clk48sel(0));
+    }
 
     // Set flash wait states
     FLASH.acr().modify(|w| {
