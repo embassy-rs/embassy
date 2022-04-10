@@ -864,11 +864,13 @@ macro_rules! impl_usb {
 mod errata {
 
     /// Writes `val` to `addr`. Used to apply Errata workarounds.
+    #[cfg(any(feature = "nrf52840", feature = "nrf52833", feature = "nrf52820"))]
     unsafe fn poke(addr: u32, val: u32) {
         (addr as *mut u32).write_volatile(val);
     }
 
     /// Reads 32 bits from `addr`.
+    #[cfg(feature = "nrf52840")]
     unsafe fn peek(addr: u32) -> u32 {
         (addr as *mut u32).read_volatile()
     }
