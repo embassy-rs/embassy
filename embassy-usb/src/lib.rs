@@ -12,6 +12,9 @@ pub mod driver;
 pub mod types;
 mod util;
 
+use driver::Unsupported;
+use embassy::blocking_mutex::raw::{NoopRawMutex, RawMutex};
+use embassy::channel::Channel;
 use heapless::Vec;
 
 use self::control::*;
@@ -28,8 +31,12 @@ pub use self::builder::UsbDeviceBuilder;
 /// In general class traffic is only possible in the `Configured` state.
 #[repr(u8)]
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum UsbDeviceState {
-    /// The USB device has just been created or reset.
+    /// The USB device is disabled.
+    Disabled,
+
+    /// The USB device has just been enabled or reset.
     Default,
 
     /// The USB device has received an address from the host.
@@ -37,9 +44,6 @@ pub enum UsbDeviceState {
 
     /// The USB device has been configured and is fully functional.
     Configured,
-
-    /// The USB device has been suspended by the host or it has been unplugged from the USB bus.
-    Suspend,
 }
 
 /// The bConfiguration value for the not configured state.
@@ -53,8 +57,39 @@ pub const DEFAULT_ALTERNATE_SETTING: u8 = 0;
 
 pub const MAX_INTERFACE_COUNT: usize = 4;
 
-pub struct UsbDevice<'d, D: Driver<'d>> {
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum DeviceCommand {
+    Enable,
+    Disable,
+    RemoteWakeup,
+}
+
+/// A handler trait for changes in the device state of the [UsbDevice].
+pub trait DeviceStateHandler {
+    /// Called when the host resets the device.
+    fn reset(&self) {}
+
+    /// Called when the host has set the address of the device to `addr`.
+    fn addressed(&self, _addr: u8) {}
+
+    /// Called when the host has enabled or disabled the configuration of the device.
+    fn configured(&self, _configured: bool) {}
+
+    /// Called when the bus has entered or exited the suspend state.
+    fn suspended(&self, _suspended: bool) {}
+
+    /// Called when remote wakeup feature is enabled or disabled.
+    fn remote_wakeup_enabled(&self, _enabled: bool) {}
+
+    /// Called when the USB device has been disabled.
+    fn disabled(&self) {}
+}
+
+pub struct UsbDevice<'d, D: Driver<'d>, M: RawMutex = NoopRawMutex> {
     bus: D::Bus,
+    handler: Option<&'d dyn DeviceStateHandler>,
+    commands: Option<&'d Channel<M, DeviceCommand, 1>>,
     control: ControlPipe<D::ControlPipe>,
 
     config: Config<'d>,
@@ -64,6 +99,7 @@ pub struct UsbDevice<'d, D: Driver<'d>> {
     control_buf: &'d mut [u8],
 
     device_state: UsbDeviceState,
+    suspended: bool,
     remote_wakeup_enabled: bool,
     self_powered: bool,
     pending_address: u8,
@@ -71,33 +107,38 @@ pub struct UsbDevice<'d, D: Driver<'d>> {
     interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
 }
 
-impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
-    pub(crate) async fn build(
+impl<'d, D: Driver<'d>, M: RawMutex> UsbDevice<'d, D, M> {
+    pub(crate) fn build(
         mut driver: D,
         config: Config<'d>,
+        handler: Option<&'d dyn DeviceStateHandler>,
+        commands: Option<&'d Channel<M, DeviceCommand, 1>>,
         device_descriptor: &'d [u8],
         config_descriptor: &'d [u8],
         bos_descriptor: &'d [u8],
         interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
         control_buf: &'d mut [u8],
-    ) -> UsbDevice<'d, D> {
+    ) -> UsbDevice<'d, D, M> {
         let control = driver
             .alloc_control_pipe(config.max_packet_size_0 as u16)
             .expect("failed to alloc control endpoint");
 
         // Enable the USB bus.
         // This prevent further allocation by consuming the driver.
-        let bus = driver.enable().await;
+        let bus = driver.into_bus();
 
         Self {
             bus,
             config,
+            handler,
+            commands,
             control: ControlPipe::new(control),
             device_descriptor,
             config_descriptor,
             bos_descriptor,
             control_buf,
             device_state: UsbDeviceState::Default,
+            suspended: false,
             remote_wakeup_enabled: false,
             self_powered: false,
             pending_address: 0,
@@ -105,39 +146,92 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         }
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self) -> ! {
+        if self.config.start_enabled {
+            self.bus.enable().await;
+        } else {
+            self.wait_for_enable().await
+        }
+
         loop {
             let control_fut = self.control.setup();
             let bus_fut = self.bus.poll();
-            match select(bus_fut, control_fut).await {
-                Either::Left(evt) => match evt {
+            let commands_fut = recv_or_wait(self.commands);
+
+            match select3(bus_fut, control_fut, commands_fut).await {
+                Either3::First(evt) => match evt {
                     Event::Reset => {
                         trace!("usb: reset");
-                        self.bus.reset();
-
                         self.device_state = UsbDeviceState::Default;
+                        self.suspended = false;
                         self.remote_wakeup_enabled = false;
                         self.pending_address = 0;
 
                         for (_, h) in self.interfaces.iter_mut() {
                             h.reset();
                         }
+
+                        if let Some(h) = &mut self.handler {
+                            h.reset();
+                        }
                     }
                     Event::Resume => {
                         trace!("usb: resume");
+                        self.suspended = false;
+                        if let Some(h) = &mut self.handler {
+                            h.suspended(false);
+                        }
                     }
                     Event::Suspend => {
                         trace!("usb: suspend");
-                        self.bus.suspend();
-                        self.device_state = UsbDeviceState::Suspend;
+                        self.suspended = true;
+                        if let Some(h) = &mut self.handler {
+                            h.suspended(true);
+                        }
                     }
                 },
-                Either::Right(req) => match req {
+                Either3::Second(req) => match req {
                     Setup::DataIn(req, stage) => self.handle_control_in(req, stage).await,
                     Setup::DataOut(req, stage) => self.handle_control_out(req, stage).await,
                 },
+                Either3::Third(cmd) => match cmd {
+                    DeviceCommand::Enable => warn!("usb: Enable command received while enabled."),
+                    DeviceCommand::Disable => {
+                        trace!("usb: disable");
+                        self.bus.disable();
+                        self.device_state = UsbDeviceState::Disabled;
+                        if let Some(h) = &mut self.handler {
+                            h.disabled();
+                        }
+                        self.wait_for_enable().await;
+                    }
+                    DeviceCommand::RemoteWakeup => {
+                        if self.remote_wakeup_enabled {
+                            match self.bus.remote_wakeup().await {
+                                Ok(()) => (),
+                                Err(Unsupported) => warn!("Remote wakeup is unsupported!"),
+                            }
+                        } else {
+                            warn!("Remote wakeup not enabled.");
+                        }
+                    }
+                },
             }
         }
+    }
+
+    async fn wait_for_enable(&mut self) {
+        loop {
+            // When disabled just wait until we're told to re-enable
+            match recv_or_wait(self.commands).await {
+                DeviceCommand::Enable => break,
+                cmd => warn!("usb: {:?} received while disabled", cmd),
+            }
+        }
+
+        trace!("usb: enable");
+        self.bus.enable().await;
+        self.device_state = UsbDeviceState::Default;
     }
 
     async fn handle_control_out(&mut self, req: Request, stage: DataOutStage) {
@@ -156,20 +250,33 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             (RequestType::Standard, Recipient::Device) => match (req.request, req.value) {
                 (Request::CLEAR_FEATURE, Request::FEATURE_DEVICE_REMOTE_WAKEUP) => {
                     self.remote_wakeup_enabled = false;
+                    if let Some(h) = &mut self.handler {
+                        h.remote_wakeup_enabled(false);
+                    }
                     self.control.accept(stage)
                 }
                 (Request::SET_FEATURE, Request::FEATURE_DEVICE_REMOTE_WAKEUP) => {
                     self.remote_wakeup_enabled = true;
+                    if let Some(h) = &mut self.handler {
+                        h.remote_wakeup_enabled(true);
+                    }
                     self.control.accept(stage)
                 }
                 (Request::SET_ADDRESS, addr @ 1..=127) => {
                     self.pending_address = addr as u8;
                     self.bus.set_device_address(self.pending_address);
+                    self.device_state = UsbDeviceState::Addressed;
+                    if let Some(h) = &mut self.handler {
+                        h.addressed(self.pending_address);
+                    }
                     self.control.accept(stage)
                 }
                 (Request::SET_CONFIGURATION, CONFIGURATION_VALUE_U16) => {
                     self.device_state = UsbDeviceState::Configured;
                     self.bus.set_configured(true);
+                    if let Some(h) = &mut self.handler {
+                        h.configured(true);
+                    }
                     self.control.accept(stage)
                 }
                 (Request::SET_CONFIGURATION, CONFIGURATION_NONE_U16) => match self.device_state {
@@ -177,6 +284,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     _ => {
                         self.device_state = UsbDeviceState::Addressed;
                         self.bus.set_configured(false);
+                        if let Some(h) = &mut self.handler {
+                            h.configured(false);
+                        }
                         self.control.accept(stage)
                     }
                 },

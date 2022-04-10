@@ -8,6 +8,7 @@ pub(crate) mod fmt;
 use core::cell::Cell;
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
+use embassy::blocking_mutex::raw::RawMutex;
 use embassy::blocking_mutex::CriticalSectionMutex;
 use embassy_usb::control::{self, ControlHandler, InResponse, OutResponse, Request};
 use embassy_usb::driver::{Endpoint, EndpointError, EndpointIn, EndpointOut};
@@ -162,8 +163,8 @@ impl<'d> ControlHandler for Control<'d> {
 impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Creates a new CdcAcmClass with the provided UsbBus and max_packet_size in bytes. For
     /// full-speed devices, max_packet_size has to be one of 8, 16, 32 or 64.
-    pub fn new(
-        builder: &mut UsbDeviceBuilder<'d, D>,
+    pub fn new<M: RawMutex>(
+        builder: &mut UsbDeviceBuilder<'d, D, M>,
         state: &'d mut State<'d>,
         max_packet_size: u16,
     ) -> Self {

@@ -11,7 +11,6 @@ pub trait Driver<'a> {
     type EndpointIn: EndpointIn + 'a;
     type ControlPipe: ControlPipe + 'a;
     type Bus: Bus + 'a;
-    type EnableFuture: Future<Output = Self::Bus> + 'a;
 
     /// Allocates an endpoint and specified endpoint parameters. This method is called by the device
     /// and class implementations to allocate endpoints, and can only be called before
@@ -47,7 +46,7 @@ pub trait Driver<'a> {
 
     /// Enables and initializes the USB peripheral. Soon after enabling the device will be reset, so
     /// there is no need to perform a USB reset in this method.
-    fn enable(self) -> Self::EnableFuture;
+    fn into_bus(self) -> Self::Bus;
 
     /// Indicates that `set_device_address` must be called before accepting the corresponding
     /// control transfer, not after.
@@ -57,18 +56,24 @@ pub trait Driver<'a> {
 }
 
 pub trait Bus {
+    type EnableFuture<'a>: Future<Output = ()> + 'a
+    where
+        Self: 'a;
     type PollFuture<'a>: Future<Output = Event> + 'a
     where
         Self: 'a;
+    type RemoteWakeupFuture<'a>: Future<Output = Result<(), Unsupported>> + 'a
+    where
+        Self: 'a;
+
+    /// Enables the USB peripheral. Soon after enabling the device will be reset, so
+    /// there is no need to perform a USB reset in this method.
+    fn enable(&mut self) -> Self::EnableFuture<'_>;
+
+    /// Disables and powers down the USB peripheral.
+    fn disable(&mut self);
 
     fn poll<'a>(&'a mut self) -> Self::PollFuture<'a>;
-
-    /// Called when the host resets the device. This will be soon called after
-    /// [`poll`](crate::device::UsbDevice::poll) returns [`PollResult::Reset`]. This method should
-    /// reset the state of all endpoints and peripheral flags back to a state suitable for
-    /// enumeration, as well as ensure that all endpoints previously allocated with alloc_ep are
-    /// initialized as specified.
-    fn reset(&mut self);
 
     /// Sets the device USB address to `addr`.
     fn set_device_address(&mut self, addr: u8);
@@ -83,17 +88,6 @@ pub trait Bus {
     /// Gets whether the STALL condition is set for an endpoint. Only used during control transfers.
     fn is_stalled(&mut self, ep_addr: EndpointAddress) -> bool;
 
-    /// Causes the USB peripheral to enter USB suspend mode, lowering power consumption and
-    /// preparing to detect a USB wakeup event. This will be called after
-    /// [`poll`](crate::device::UsbDevice::poll) returns [`PollResult::Suspend`]. The device will
-    /// continue be polled, and it shall return a value other than `Suspend` from `poll` when it no
-    /// longer detects the suspend condition.
-    fn suspend(&mut self);
-
-    /// Resumes from suspend mode. This may only be called after the peripheral has been previously
-    /// suspended.
-    fn resume(&mut self);
-
     /// Simulates a disconnect from the USB bus, causing the host to reset and re-enumerate the
     /// device.
     ///
@@ -106,6 +100,16 @@ pub trait Bus {
     fn force_reset(&mut self) -> Result<(), Unsupported> {
         Err(Unsupported)
     }
+
+    /// Initiates a remote wakeup of the host by the device.
+    ///
+    /// The default implementation just returns `Unsupported`.
+    ///
+    /// # Errors
+    ///
+    /// * [`Unsupported`](crate::UsbError::Unsupported) - This UsbBus implementation doesn't support
+    ///   remote wakeup or it has not been enabled at creation time.
+    fn remote_wakeup(&mut self) -> Self::RemoteWakeupFuture<'_>;
 }
 
 pub trait Endpoint {

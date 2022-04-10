@@ -11,6 +11,7 @@ use core::mem::MaybeUninit;
 use core::ops::Range;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use embassy::blocking_mutex::raw::RawMutex;
 use embassy::time::Duration;
 use embassy_usb::driver::EndpointOut;
 use embassy_usb::{
@@ -88,8 +89,8 @@ impl<'d, D: Driver<'d>, const IN_N: usize> HidClass<'d, D, (), IN_N> {
     /// high performance uses, and a value of 255 is good for best-effort usecases.
     ///
     /// This allocates an IN endpoint only.
-    pub fn new<const OUT_N: usize>(
-        builder: &mut UsbDeviceBuilder<'d, D>,
+    pub fn new<M: RawMutex, const OUT_N: usize>(
+        builder: &mut UsbDeviceBuilder<'d, D, M>,
         state: &'d mut State<'d, IN_N, OUT_N>,
         report_descriptor: &'static [u8],
         request_handler: Option<&'d dyn RequestHandler>,
@@ -132,8 +133,8 @@ impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize>
     /// high performance uses, and a value of 255 is good for best-effort usecases.
     ///
     /// This allocates two endpoints (IN and OUT).
-    pub fn with_output_ep(
-        builder: &mut UsbDeviceBuilder<'d, D>,
+    pub fn with_output_ep<M: RawMutex>(
+        builder: &mut UsbDeviceBuilder<'d, D, M>,
         state: &'d mut State<'d, IN_N, OUT_N>,
         report_descriptor: &'static [u8],
         request_handler: Option<&'d dyn RequestHandler>,
@@ -392,9 +393,9 @@ impl<'a> Control<'a> {
         }
     }
 
-    fn build<'d, D: Driver<'d>>(
+    fn build<'d, D: Driver<'d>, M: RawMutex>(
         &'d mut self,
-        builder: &mut UsbDeviceBuilder<'d, D>,
+        builder: &mut UsbDeviceBuilder<'d, D, M>,
         ep_out: Option<&D::EndpointOut>,
         ep_in: &D::EndpointIn,
     ) {

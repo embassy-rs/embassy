@@ -10,7 +10,7 @@ use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
 use embassy_usb::control::Request;
-use embassy_usb::driver::{self, EndpointError, Event};
+use embassy_usb::driver::{self, EndpointError, Event, Unsupported};
 use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
 use futures::future::poll_fn;
 use futures::Future;
@@ -140,7 +140,6 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     type EndpointIn = Endpoint<'d, T, In>;
     type ControlPipe = ControlPipe<'d, T>;
     type Bus = Bus<'d, T>;
-    type EnableFuture = impl Future<Output = Self::Bus> + 'd;
 
     fn alloc_endpoint_in(
         &mut self,
@@ -192,7 +191,27 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         })
     }
 
-    fn enable(self) -> Self::EnableFuture {
+    fn into_bus(self) -> Self::Bus {
+        Bus {
+            phantom: PhantomData,
+            alloc_in: self.alloc_in,
+            alloc_out: self.alloc_out,
+        }
+    }
+}
+
+pub struct Bus<'d, T: Instance> {
+    phantom: PhantomData<&'d mut T>,
+    alloc_in: Allocator,
+    alloc_out: Allocator,
+}
+
+impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
+    type EnableFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
+    type PollFuture<'a> = impl Future<Output = Event> + 'a where Self: 'a;
+    type RemoteWakeupFuture<'a> = impl Future<Output = Result<(), Unsupported>> + 'a where Self: 'a;
+
+    fn enable(&mut self) -> Self::EnableFuture<'_> {
         async move {
             let regs = T::regs();
 
@@ -226,33 +245,23 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
             // Enable the USB pullup, allowing enumeration.
             regs.usbpullup.write(|w| w.connect().enabled());
             trace!("enabled");
-
-            Bus {
-                phantom: PhantomData,
-                alloc_in: self.alloc_in,
-                alloc_out: self.alloc_out,
-            }
         }
     }
-}
 
-pub struct Bus<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
-    alloc_in: Allocator,
-    alloc_out: Allocator,
-}
-
-impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
-    type PollFuture<'a> = impl Future<Output = Event> + 'a where Self: 'a;
+    fn disable(&mut self) {
+        let regs = T::regs();
+        regs.enable.write(|x| x.enable().disabled());
+    }
 
     fn poll<'a>(&'a mut self) -> Self::PollFuture<'a> {
-        poll_fn(|cx| {
+        poll_fn(move |cx| {
             BUS_WAKER.register(cx.waker());
             let regs = T::regs();
 
             if regs.events_usbreset.read().bits() != 0 {
                 regs.events_usbreset.reset();
                 regs.intenset.write(|w| w.usbreset().set());
+                self.set_configured(false);
                 return Poll::Ready(Event::Reset);
             }
 
@@ -268,11 +277,12 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             }
             if r.suspend().bit() {
                 regs.eventcause.write(|w| w.suspend().set_bit());
-                trace!("USB event: suspend");
+                regs.lowpower.write(|w| w.lowpower().low_power());
+                return Poll::Ready(Event::Suspend);
             }
             if r.resume().bit() {
                 regs.eventcause.write(|w| w.resume().set_bit());
-                trace!("USB event: resume");
+                return Poll::Ready(Event::Resume);
             }
             if r.ready().bit() {
                 regs.eventcause.write(|w| w.ready().set_bit());
@@ -281,11 +291,6 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
             Poll::Pending
         })
-    }
-
-    #[inline]
-    fn reset(&mut self) {
-        self.set_configured(false);
     }
 
     #[inline]
@@ -343,18 +348,43 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     #[inline]
-    fn suspend(&mut self) {
-        let regs = T::regs();
-        regs.lowpower.write(|w| w.lowpower().low_power());
-    }
+    fn remote_wakeup(&mut self) -> Self::RemoteWakeupFuture<'_> {
+        async move {
+            let regs = T::regs();
 
-    #[inline]
-    fn resume(&mut self) {
-        let regs = T::regs();
+            if regs.lowpower.read().lowpower().is_low_power() {
+                errata::pre_wakeup();
 
-        errata::pre_wakeup();
+                regs.lowpower.write(|w| w.lowpower().force_normal());
 
-        regs.lowpower.write(|w| w.lowpower().force_normal());
+                poll_fn(|cx| {
+                    BUS_WAKER.register(cx.waker());
+                    let regs = T::regs();
+                    let r = regs.eventcause.read();
+
+                    if regs.events_usbreset.read().bits() != 0 {
+                        Poll::Ready(())
+                    } else if r.resume().bit() {
+                        Poll::Ready(())
+                    } else if r.usbwuallowed().bit() {
+                        regs.eventcause.write(|w| w.usbwuallowed().set_bit());
+
+                        regs.dpdmvalue.write(|w| w.state().resume());
+                        regs.tasks_dpdmdrive
+                            .write(|w| w.tasks_dpdmdrive().set_bit());
+
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
+                .await;
+
+                errata::post_wakeup();
+            }
+
+            Ok(())
+        }
     }
 }
 
@@ -845,6 +875,7 @@ mod errata {
 
     pub fn pre_enable() {
         // Works around Erratum 187 on chip revisions 1 and 2.
+        #[cfg(any(feature = "nrf52840", feature = "nrf52833", feature = "nrf52820"))]
         unsafe {
             poke(0x4006EC00, 0x00009375);
             poke(0x4006ED14, 0x00000003);
@@ -858,6 +889,7 @@ mod errata {
         post_wakeup();
 
         // Works around Erratum 187 on chip revisions 1 and 2.
+        #[cfg(any(feature = "nrf52840", feature = "nrf52833", feature = "nrf52820"))]
         unsafe {
             poke(0x4006EC00, 0x00009375);
             poke(0x4006ED14, 0x00000000);
@@ -868,6 +900,7 @@ mod errata {
     pub fn pre_wakeup() {
         // Works around Erratum 171 on chip revisions 1 and 2.
 
+        #[cfg(feature = "nrf52840")]
         unsafe {
             if peek(0x4006EC00) == 0x00000000 {
                 poke(0x4006EC00, 0x00009375);
@@ -881,6 +914,7 @@ mod errata {
     pub fn post_wakeup() {
         // Works around Erratum 171 on chip revisions 1 and 2.
 
+        #[cfg(feature = "nrf52840")]
         unsafe {
             if peek(0x4006EC00) == 0x00000000 {
                 poke(0x4006EC00, 0x00009375);
