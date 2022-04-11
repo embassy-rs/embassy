@@ -68,17 +68,11 @@ where
 
 /// Send-only access to a [`Channel`] without knowing channel size.
 #[derive(Copy)]
-pub struct DynamicSender<'ch, M, T>
-where
-    M: RawMutex,
-{
-    channel: &'ch dyn DynamicChannel<M, T>,
+pub struct DynamicSender<'ch, T> {
+    channel: &'ch dyn DynamicChannel<T>,
 }
 
-impl<'ch, M, T> Clone for DynamicSender<'ch, M, T>
-where
-    M: RawMutex,
-{
+impl<'ch, T> Clone for DynamicSender<'ch, T> {
     fn clone(&self) -> Self {
         DynamicSender {
             channel: self.channel,
@@ -86,7 +80,7 @@ where
     }
 }
 
-impl<'ch, M, T, const N: usize> From<Sender<'ch, M, T, N>> for DynamicSender<'ch, M, T>
+impl<'ch, M, T, const N: usize> From<Sender<'ch, M, T, N>> for DynamicSender<'ch, T>
 where
     M: RawMutex,
 {
@@ -95,14 +89,11 @@ where
     }
 }
 
-impl<'ch, M, T> DynamicSender<'ch, M, T>
-where
-    M: RawMutex,
-{
+impl<'ch, T> DynamicSender<'ch, T> {
     /// Sends a value.
     ///
     /// See [`Channel::send()`]
-    pub fn send(&self, message: T) -> DynamicSendFuture<'ch, M, T> {
+    pub fn send(&self, message: T) -> DynamicSendFuture<'ch, T> {
         DynamicSendFuture {
             channel: self.channel,
             message: Some(message),
@@ -158,17 +149,11 @@ where
 
 /// Receive-only access to a [`Channel`] without knowing channel size.
 #[derive(Copy)]
-pub struct DynamicReceiver<'ch, M, T>
-where
-    M: RawMutex,
-{
-    channel: &'ch dyn DynamicChannel<M, T>,
+pub struct DynamicReceiver<'ch, T> {
+    channel: &'ch dyn DynamicChannel<T>,
 }
 
-impl<'ch, M, T> Clone for DynamicReceiver<'ch, M, T>
-where
-    M: RawMutex,
-{
+impl<'ch, T> Clone for DynamicReceiver<'ch, T> {
     fn clone(&self) -> Self {
         DynamicReceiver {
             channel: self.channel,
@@ -176,14 +161,11 @@ where
     }
 }
 
-impl<'ch, M, T> DynamicReceiver<'ch, M, T>
-where
-    M: RawMutex,
-{
+impl<'ch, T> DynamicReceiver<'ch, T> {
     /// Receive the next value.
     ///
     /// See [`Channel::recv()`].
-    pub fn recv(&self) -> DynamicRecvFuture<'_, M, T> {
+    pub fn recv(&self) -> DynamicRecvFuture<'_, T> {
         DynamicRecvFuture {
             channel: self.channel,
         }
@@ -197,7 +179,7 @@ where
     }
 }
 
-impl<'ch, M, T, const N: usize> From<Receiver<'ch, M, T, N>> for DynamicReceiver<'ch, M, T>
+impl<'ch, M, T, const N: usize> From<Receiver<'ch, M, T, N>> for DynamicReceiver<'ch, T>
 where
     M: RawMutex,
 {
@@ -227,17 +209,11 @@ where
     }
 }
 
-pub struct DynamicRecvFuture<'ch, M, T>
-where
-    M: RawMutex,
-{
-    channel: &'ch dyn DynamicChannel<M, T>,
+pub struct DynamicRecvFuture<'ch, T> {
+    channel: &'ch dyn DynamicChannel<T>,
 }
 
-impl<'ch, M, T> Future for DynamicRecvFuture<'ch, M, T>
-where
-    M: RawMutex,
-{
+impl<'ch, T> Future for DynamicRecvFuture<'ch, T> {
     type Output = T;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
@@ -278,18 +254,12 @@ where
 
 impl<'ch, M, T, const N: usize> Unpin for SendFuture<'ch, M, T, N> where M: RawMutex {}
 
-pub struct DynamicSendFuture<'ch, M, T>
-where
-    M: RawMutex,
-{
-    channel: &'ch dyn DynamicChannel<M, T>,
+pub struct DynamicSendFuture<'ch, T> {
+    channel: &'ch dyn DynamicChannel<T>,
     message: Option<T>,
 }
 
-impl<'ch, M, T> Future for DynamicSendFuture<'ch, M, T>
-where
-    M: RawMutex,
-{
+impl<'ch, T> Future for DynamicSendFuture<'ch, T> {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -306,12 +276,9 @@ where
     }
 }
 
-impl<'ch, M, T> Unpin for DynamicSendFuture<'ch, M, T> where M: RawMutex {}
+impl<'ch, T> Unpin for DynamicSendFuture<'ch, T> {}
 
-trait DynamicChannel<M, T>
-where
-    M: RawMutex,
-{
+trait DynamicChannel<T> {
     fn try_send_with_context(
         &self,
         message: T,
@@ -517,7 +484,7 @@ where
 
 /// Implements the DynamicChannel to allow creating types that are unaware of the queue size with the
 /// tradeoff cost of dynamic dispatch.
-impl<M, T, const N: usize> DynamicChannel<M, T> for Channel<M, T, N>
+impl<M, T, const N: usize> DynamicChannel<T> for Channel<M, T, N>
 where
     M: RawMutex,
 {
@@ -609,8 +576,8 @@ mod tests {
     #[test]
     fn dynamic_dispatch() {
         let c = Channel::<NoopRawMutex, u32, 3>::new();
-        let s: DynamicSender<'_, NoopRawMutex, u32> = c.sender().into();
-        let r: DynamicReceiver<'_, NoopRawMutex, u32> = c.receiver().into();
+        let s: DynamicSender<'_, u32> = c.sender().into();
+        let r: DynamicReceiver<'_, u32> = c.receiver().into();
 
         assert!(s.try_send(1).is_ok());
         assert_eq!(r.try_recv().unwrap(), 1);
