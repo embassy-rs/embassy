@@ -121,19 +121,19 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
             if SUSPENDED.load(Ordering::Acquire) {
                 info!("Triggering remote wakeup");
-                USB_COMMANDS.send(DeviceCommand::RemoteWakeup);
+                USB_COMMANDS.send(DeviceCommand::RemoteWakeup).await;
+            } else {
+                let report = KeyboardReport {
+                    keycodes: [4, 0, 0, 0, 0, 0],
+                    leds: 0,
+                    modifier: 0,
+                    reserved: 0,
+                };
+                match hid_in.serialize(&report).await {
+                    Ok(()) => {}
+                    Err(e) => warn!("Failed to send report: {:?}", e),
+                };
             }
-
-            let report = KeyboardReport {
-                keycodes: [4, 0, 0, 0, 0, 0],
-                leds: 0,
-                modifier: 0,
-                reserved: 0,
-            };
-            match hid_in.serialize(&report).await {
-                Ok(()) => {}
-                Err(e) => warn!("Failed to send report: {:?}", e),
-            };
 
             button.wait_for_high().await;
             info!("RELEASED");

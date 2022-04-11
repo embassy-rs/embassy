@@ -171,21 +171,21 @@ impl<'d, D: Driver<'d>, M: RawMutex> UsbDevice<'d, D, M> {
                             h.reset();
                         }
 
-                        if let Some(h) = &mut self.handler {
+                        if let Some(h) = &self.handler {
                             h.reset();
                         }
                     }
                     Event::Resume => {
                         trace!("usb: resume");
                         self.suspended = false;
-                        if let Some(h) = &mut self.handler {
+                        if let Some(h) = &self.handler {
                             h.suspended(false);
                         }
                     }
                     Event::Suspend => {
                         trace!("usb: suspend");
                         self.suspended = true;
-                        if let Some(h) = &mut self.handler {
+                        if let Some(h) = &self.handler {
                             h.suspended(true);
                         }
                     }
@@ -200,19 +200,25 @@ impl<'d, D: Driver<'d>, M: RawMutex> UsbDevice<'d, D, M> {
                         trace!("usb: disable");
                         self.bus.disable();
                         self.device_state = UsbDeviceState::Disabled;
-                        if let Some(h) = &mut self.handler {
+                        if let Some(h) = &self.handler {
                             h.disabled();
                         }
                         self.wait_for_enable().await;
                     }
                     DeviceCommand::RemoteWakeup => {
-                        if self.remote_wakeup_enabled {
+                        trace!("usb: remote wakeup");
+                        if self.suspended && self.remote_wakeup_enabled {
                             match self.bus.remote_wakeup().await {
-                                Ok(()) => (),
+                                Ok(()) => {
+                                    self.suspended = false;
+                                    if let Some(h) = &self.handler {
+                                        h.suspended(false);
+                                    }
+                                }
                                 Err(Unsupported) => warn!("Remote wakeup is unsupported!"),
                             }
                         } else {
-                            warn!("Remote wakeup not enabled.");
+                            warn!("Remote wakeup requested when not enabled or not suspended.");
                         }
                     }
                 },
@@ -250,14 +256,14 @@ impl<'d, D: Driver<'d>, M: RawMutex> UsbDevice<'d, D, M> {
             (RequestType::Standard, Recipient::Device) => match (req.request, req.value) {
                 (Request::CLEAR_FEATURE, Request::FEATURE_DEVICE_REMOTE_WAKEUP) => {
                     self.remote_wakeup_enabled = false;
-                    if let Some(h) = &mut self.handler {
+                    if let Some(h) = &self.handler {
                         h.remote_wakeup_enabled(false);
                     }
                     self.control.accept(stage)
                 }
                 (Request::SET_FEATURE, Request::FEATURE_DEVICE_REMOTE_WAKEUP) => {
                     self.remote_wakeup_enabled = true;
-                    if let Some(h) = &mut self.handler {
+                    if let Some(h) = &self.handler {
                         h.remote_wakeup_enabled(true);
                     }
                     self.control.accept(stage)
@@ -266,7 +272,7 @@ impl<'d, D: Driver<'d>, M: RawMutex> UsbDevice<'d, D, M> {
                     self.pending_address = addr as u8;
                     self.bus.set_device_address(self.pending_address);
                     self.device_state = UsbDeviceState::Addressed;
-                    if let Some(h) = &mut self.handler {
+                    if let Some(h) = &self.handler {
                         h.addressed(self.pending_address);
                     }
                     self.control.accept(stage)
@@ -274,7 +280,7 @@ impl<'d, D: Driver<'d>, M: RawMutex> UsbDevice<'d, D, M> {
                 (Request::SET_CONFIGURATION, CONFIGURATION_VALUE_U16) => {
                     self.device_state = UsbDeviceState::Configured;
                     self.bus.set_configured(true);
-                    if let Some(h) = &mut self.handler {
+                    if let Some(h) = &self.handler {
                         h.configured(true);
                     }
                     self.control.accept(stage)
@@ -284,7 +290,7 @@ impl<'d, D: Driver<'d>, M: RawMutex> UsbDevice<'d, D, M> {
                     _ => {
                         self.device_state = UsbDeviceState::Addressed;
                         self.bus.set_configured(false);
-                        if let Some(h) = &mut self.handler {
+                        if let Some(h) = &self.handler {
                             h.configured(false);
                         }
                         self.control.accept(stage)
