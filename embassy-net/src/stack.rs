@@ -230,12 +230,13 @@ pub fn is_config_up() -> bool {
     STACK.borrow().borrow().as_ref().unwrap().config_up
 }
 
-pub async fn run() {
+pub async fn run() -> ! {
     futures::future::poll_fn(|cx| {
         Stack::with(|stack| stack.poll(cx));
         Poll::<()>::Pending
     })
-    .await
+    .await;
+    unreachable!()
 }
 
 fn instant_to_smoltcp(instant: Instant) -> SmolInstant {
