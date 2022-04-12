@@ -379,7 +379,23 @@ where
 
     /// This method starts the capture and finishes when both the dma transfer and DCMI finish the frame transfer.
     /// The implication is that the input buffer size must be exactly the size of the captured frame.
+    ///
+    /// Note that when `buffer.len() > 0xffff` the capture future requires some real-time guarantees to be upheld
+    /// (must be polled fast enough so the buffers get switched before data is overwritten).
+    /// It is therefore recommended that it is run on higher priority executor.
     pub async fn capture(&mut self, buffer: &mut [u32]) -> Result<(), Error> {
+        if buffer.len() <= 0xffff {
+            return self.capture_small(buffer).await;
+        } else {
+            #[cfg(feature = "unsafe-double-buffered-dma")]
+            return self.capture_giant(buffer).await;
+
+            #[cfg(not(feature = "unsafe-double-buffered-dma"))]
+            panic!("For DCMI transfers with length > 0xffff, the `unsafe-double-buffered-dma` must be enabled.");
+        }
+    }
+
+    async fn capture_small(&mut self, buffer: &mut [u32]) -> Result<(), Error> {
         let channel = &mut self.dma;
         let request = channel.request();
 
@@ -423,6 +439,122 @@ where
         });
 
         let (_, result) = futures::future::join(dma_read, result).await;
+
+        unsafe { Self::toggle(false) };
+
+        result
+    }
+
+    #[cfg(feature = "unsafe-double-buffered-dma")]
+    async fn capture_giant(&mut self, buffer: &mut [u32]) -> Result<(), Error> {
+        use crate::dma::TransferOptions;
+
+        let data_len = buffer.len();
+        let chunk_estimate = data_len / 0xffff;
+
+        let mut chunks = chunk_estimate + 1;
+        while data_len % chunks != 0 {
+            chunks += 1;
+        }
+
+        let chunk_size = data_len / chunks;
+
+        let mut remaining_chunks = chunks - 2;
+
+        let mut m0ar = buffer.as_mut_ptr();
+        let mut m1ar = unsafe { buffer.as_mut_ptr().add(chunk_size) };
+
+        let channel = &mut self.dma;
+        let request = channel.request();
+
+        let r = self.inner.regs();
+        let src = r.dr().ptr() as *mut u32;
+
+        unsafe {
+            channel.start_double_buffered_read(
+                request,
+                src,
+                m0ar,
+                m1ar,
+                chunk_size,
+                TransferOptions::default(),
+            );
+        }
+
+        let mut last_chunk_set_for_transfer = false;
+        let mut buffer0_last_accessible = false;
+        let dma_result = poll_fn(|cx| {
+            channel.set_waker(cx.waker());
+
+            let buffer0_currently_accessible = unsafe { channel.is_buffer0_accessible() };
+
+            // check if the accessible buffer changed since last poll
+            if buffer0_last_accessible == buffer0_currently_accessible {
+                return Poll::Pending;
+            }
+            buffer0_last_accessible = !buffer0_last_accessible;
+
+            if remaining_chunks != 0 {
+                if remaining_chunks % 2 == 0 && buffer0_currently_accessible {
+                    m0ar = unsafe { m0ar.add(2 * chunk_size) };
+                    unsafe { channel.set_buffer0(m0ar) }
+                    remaining_chunks -= 1;
+                } else if !buffer0_currently_accessible {
+                    m1ar = unsafe { m1ar.add(2 * chunk_size) };
+                    unsafe { channel.set_buffer1(m1ar) };
+                    remaining_chunks -= 1;
+                }
+            } else {
+                if buffer0_currently_accessible {
+                    unsafe { channel.set_buffer0(buffer.as_mut_ptr()) }
+                } else {
+                    unsafe { channel.set_buffer1(buffer.as_mut_ptr()) }
+                }
+                if last_chunk_set_for_transfer {
+                    channel.request_stop();
+                    return Poll::Ready(());
+                }
+                last_chunk_set_for_transfer = true;
+            }
+            Poll::Pending
+        });
+
+        Self::clear_interrupt_flags();
+        Self::enable_irqs();
+
+        let result = poll_fn(|cx| {
+            STATE.waker.register(cx.waker());
+
+            let ris = unsafe { crate::pac::DCMI.ris().read() };
+            if ris.err_ris() {
+                unsafe {
+                    crate::pac::DCMI.icr().write(|r| {
+                        r.set_err_isc(true);
+                    })
+                };
+                Poll::Ready(Err(Error::PeripheralError))
+            } else if ris.ovr_ris() {
+                unsafe {
+                    crate::pac::DCMI.icr().write(|r| {
+                        r.set_ovr_isc(true);
+                    })
+                };
+                Poll::Ready(Err(Error::Overrun))
+            } else if ris.frame_ris() {
+                unsafe {
+                    crate::pac::DCMI.icr().write(|r| {
+                        r.set_frame_isc(true);
+                    })
+                };
+                Poll::Ready(Ok(()))
+            } else {
+                Poll::Pending
+            }
+        });
+
+        unsafe { Self::toggle(true) };
+
+        let (_, result) = futures::future::join(dma_result, result).await;
 
         unsafe { Self::toggle(false) };
 
