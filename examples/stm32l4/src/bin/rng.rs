@@ -12,12 +12,13 @@ use panic_probe as _;
 
 fn config() -> Config {
     let mut config = Config::default();
+    // 72Mhz clock (16 / 1 * 18 / 4)
     config.rcc.mux = ClockSrc::PLL(
         PLLSource::HSI16,
-        PLLClkDiv::Div2,
+        PLLClkDiv::Div4,
         PLLSrcDiv::Div1,
-        PLLMul::Mul8,
-        Some(PLLClkDiv::Div2),
+        PLLMul::Mul18,
+        Some(PLLClkDiv::Div6), // 48Mhz (16 / 1 * 18 / 6)
     );
     config
 }
