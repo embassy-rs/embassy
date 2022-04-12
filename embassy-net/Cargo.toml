@@ -14,8 +14,10 @@ flavors = [
 ]
 
 [features]
-default = ["pool-4"]
+default = []
 std = []
+
+defmt = ["dep:defmt", "smoltcp/defmt"]
 
 tcp = ["smoltcp/socket-tcp"]
 dhcpv4 = ["medium-ethernet", "smoltcp/socket-dhcpv4"]
