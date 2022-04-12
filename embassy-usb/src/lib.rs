@@ -198,7 +198,7 @@ impl<'d, D: Driver<'d>, M: RawMutex> UsbDevice<'d, D, M> {
                     DeviceCommand::Enable => warn!("usb: Enable command received while enabled."),
                     DeviceCommand::Disable => {
                         trace!("usb: disable");
-                        self.bus.disable();
+                        self.bus.disable().await;
                         self.device_state = UsbDeviceState::Disabled;
                         if let Some(h) = &self.handler {
                             h.disabled();

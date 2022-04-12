@@ -59,6 +59,9 @@ pub trait Bus {
     type EnableFuture<'a>: Future<Output = ()> + 'a
     where
         Self: 'a;
+    type DisableFuture<'a>: Future<Output = ()> + 'a
+    where
+        Self: 'a;
     type PollFuture<'a>: Future<Output = Event> + 'a
     where
         Self: 'a;
@@ -71,7 +74,7 @@ pub trait Bus {
     fn enable(&mut self) -> Self::EnableFuture<'_>;
 
     /// Disables and powers down the USB peripheral.
-    fn disable(&mut self);
+    fn disable(&mut self) -> Self::DisableFuture<'_>;
 
     fn poll<'a>(&'a mut self) -> Self::PollFuture<'a>;
 
@@ -102,8 +105,6 @@ pub trait Bus {
     }
 
     /// Initiates a remote wakeup of the host by the device.
-    ///
-    /// The default implementation just returns `Unsupported`.
     ///
     /// # Errors
     ///

@@ -208,6 +208,7 @@ pub struct Bus<'d, T: Instance> {
 
 impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     type EnableFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
+    type DisableFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
     type PollFuture<'a> = impl Future<Output = Event> + 'a where Self: 'a;
     type RemoteWakeupFuture<'a> = impl Future<Output = Result<(), Unsupported>> + 'a where Self: 'a;
 
@@ -248,9 +249,11 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         }
     }
 
-    fn disable(&mut self) {
-        let regs = T::regs();
-        regs.enable.write(|x| x.enable().disabled());
+    fn disable(&mut self) -> Self::DisableFuture<'_> {
+        async move {
+            let regs = T::regs();
+            regs.enable.write(|x| x.enable().disabled());
+        }
     }
 
     fn poll<'a>(&'a mut self) -> Self::PollFuture<'a> {
