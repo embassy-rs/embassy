@@ -96,6 +96,7 @@ pub enum APBPrescaler {
 pub enum PLLSource {
     HSI16,
     HSE(Hertz),
+    MSI(MSIRange),
 }
 
 seq_macro::seq!(N in 8..=86 {
@@ -192,6 +193,7 @@ impl From<PLLSource> for Pllsrc {
         match val {
             PLLSource::HSI16 => Pllsrc::HSI16,
             PLLSource::HSE(_) => Pllsrc::HSE,
+            PLLSource::MSI(_) => Pllsrc::MSI,
         }
     }
 }
@@ -275,6 +277,7 @@ pub struct Config {
         Option<PLLSAI1QDiv>,
         Option<PLLSAI1PDiv>,
     )>,
+    #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
     pub hsi48: bool,
 }
 
@@ -287,6 +290,7 @@ impl Default for Config {
             apb1_pre: APBPrescaler::NotDivided,
             apb2_pre: APBPrescaler::NotDivided,
             pllsai1: None,
+            #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
             hsi48: false,
         }
     }
@@ -341,6 +345,18 @@ pub(crate) unsafe fn init(config: Config) {
                     while !RCC.cr().read().hsirdy() {}
                     HSI16_FREQ
                 }
+                PLLSource::MSI(range) => {
+                    // Enable MSI
+                    RCC.cr().write(|w| {
+                        let bits: Msirange = range.into();
+                        w.set_msirange(bits);
+                        w.set_msipllen(false); // should be turned on if LSE is started
+                        w.set_msirgsel(true);
+                        w.set_msion(true);
+                    });
+                    while !RCC.cr().read().msirdy() {}
+                    range.into()
+                }
             };
 
             // Disable PLL
@@ -366,7 +382,9 @@ pub(crate) unsafe fn init(config: Config) {
             });
 
             // Enable as clock source for USB, RNG if PLL48 divisor is provided
-            if pll48div.is_some() {
+            if let Some(pll48div) = pll48div {
+                let freq = (src_freq / prediv.to_div() * mul.to_mul()) / pll48div.to_div();
+                assert!(freq == 48_000_000);
                 RCC.ccipr().modify(|w| {
                     w.set_clk48sel(0b10);
                 });
@@ -408,6 +426,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
+    #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
     if config.hsi48 {
         RCC.crrcr().modify(|w| w.set_hsi48on(true));
         while !RCC.crrcr().read().hsi48rdy() {}
