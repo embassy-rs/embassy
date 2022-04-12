@@ -240,7 +240,7 @@ impl<'d, T: Instance> Dac<'d, T> {
     }
 
     pub fn set(&mut self, ch: Channel, value: Value) -> Result<(), Error> {
-        self.check_channel_exists(Channel::Ch2)?;
+        self.check_channel_exists(ch)?;
         match ch {
             Channel::Ch1 => match value {
                 Value::Bit8(v) => unsafe {
