@@ -7,7 +7,7 @@ use stm32_metapac::rcc::vals::{Mco1, Mco2};
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
 use crate::pac::rcc::vals::Timpre;
-use crate::pac::rcc::vals::{Ckpersel, Dppre, Hpre, Hsidiv, Pllsrc, Sw};
+use crate::pac::rcc::vals::{Adcsel, Ckpersel, Dppre, Hpre, Hsidiv, Pllsrc, Sw};
 use crate::pac::{PWR, RCC, SYSCFG};
 use crate::peripherals;
 use crate::rcc::{set_freqs, Clocks};
@@ -34,6 +34,29 @@ pub enum VoltageScale {
     Scale2,
     /// VOS 3 range VCORE 0.95V - 1.05V
     Scale3,
+}
+
+#[derive(Clone, Copy)]
+pub enum AdcClockSource {
+    Pll2PCk,
+    Pll3RCk,
+    PerCk,
+}
+
+impl AdcClockSource {
+    pub fn adcsel(&self) -> Adcsel {
+        match self {
+            AdcClockSource::Pll2PCk => Adcsel::PLL2_P,
+            AdcClockSource::Pll3RCk => Adcsel::PLL3_R,
+            AdcClockSource::PerCk => Adcsel::PER,
+        }
+    }
+}
+
+impl Default for AdcClockSource {
+    fn default() -> Self {
+        Self::Pll2PCk
+    }
 }
 
 /// Core clock frequencies
@@ -65,6 +88,7 @@ pub struct CoreClocks {
     pub pll3_r_ck: Option<Hertz>,
     pub timx_ker_ck: Option<Hertz>,
     pub timy_ker_ck: Option<Hertz>,
+    pub adc_ker_ck: Option<Hertz>,
     pub sys_ck: Hertz,
     pub c_ck: Hertz,
 }
@@ -85,6 +109,7 @@ pub struct Config {
     pub pll1: PllConfig,
     pub pll2: PllConfig,
     pub pll3: PllConfig,
+    pub adc_clock_source: AdcClockSource,
 }
 
 /// Setup traceclk
@@ -614,6 +639,16 @@ pub(crate) unsafe fn init(mut config: Config) {
     // Peripheral Clock (per_ck)
     RCC.d1ccipr().modify(|w| w.set_ckpersel(ckpersel));
 
+    // ADC clock MUX
+    RCC.d3ccipr()
+        .modify(|w| w.set_adcsel(config.adc_clock_source.adcsel()));
+
+    let adc_ker_ck = match config.adc_clock_source {
+        AdcClockSource::Pll2PCk => pll2_p_ck.map(Hertz),
+        AdcClockSource::Pll3RCk => pll3_r_ck.map(Hertz),
+        AdcClockSource::PerCk => Some(per_ck),
+    };
+
     // Set timer clocks prescaler setting
     RCC.cfgr().modify(|w| w.set_timpre(timpre));
 
@@ -668,6 +703,7 @@ pub(crate) unsafe fn init(mut config: Config) {
         pll3_r_ck: pll3_r_ck.map(Hertz),
         timx_ker_ck: rcc_timerx_ker_ck.map(Hertz),
         timy_ker_ck: rcc_timery_ker_ck.map(Hertz),
+        adc_ker_ck,
         sys_ck,
         c_ck: Hertz(sys_d1cpre_ck),
     };
@@ -683,6 +719,7 @@ pub(crate) unsafe fn init(mut config: Config) {
         apb4: core_clocks.pclk4,
         apb1_tim: core_clocks.timx_ker_ck.unwrap_or(core_clocks.pclk1),
         apb2_tim: core_clocks.timy_ker_ck.unwrap_or(core_clocks.pclk2),
+        adc: core_clocks.adc_ker_ck,
     });
 }
 
