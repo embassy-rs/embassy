@@ -15,6 +15,7 @@ mod util;
 use driver::Unsupported;
 use embassy::blocking_mutex::raw::{NoopRawMutex, RawMutex};
 use embassy::channel::Channel;
+use embassy::util::{select3, Either3};
 use heapless::Vec;
 
 use self::control::*;
