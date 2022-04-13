@@ -6,12 +6,11 @@
 use core::mem;
 use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::*;
-use embassy::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy::channel::Channel;
+use embassy::channel::Signal;
 use embassy::executor::Spawner;
 use embassy::interrupt::InterruptExt;
 use embassy::time::Duration;
-use embassy::util::select;
+use embassy::util::{select, select3, Either, Either3};
 use embassy_nrf::gpio::{Input, Pin, Pull};
 use embassy_nrf::interrupt;
 use embassy_nrf::pac;
@@ -26,14 +25,7 @@ use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 use defmt_rtt as _; // global logger
 use panic_probe as _;
 
-#[derive(defmt::Format)]
-enum Command {
-    Enable,
-    Disable,
-    RemoteWakeup,
-}
-
-static USB_COMMANDS: Channel<CriticalSectionRawMutex, Command, 1> = Channel::new();
+static ENABLE_USB: Signal<bool> = Signal::new();
 static SUSPENDED: AtomicBool = AtomicBool::new(false);
 
 fn on_power_interrupt(_: *mut ()) {
@@ -42,17 +34,13 @@ fn on_power_interrupt(_: *mut ()) {
     if regs.events_usbdetected.read().bits() != 0 {
         regs.events_usbdetected.reset();
         info!("Vbus detected, enabling USB...");
-        if USB_COMMANDS.try_send(Command::Enable).is_err() {
-            warn!("Failed to send enable command to USB channel");
-        }
+        ENABLE_USB.signal(true);
     }
 
     if regs.events_usbremoved.read().bits() != 0 {
         regs.events_usbremoved.reset();
         info!("Vbus removed, disabling USB...");
-        if USB_COMMANDS.try_send(Command::Disable).is_err() {
-            warn!("Failed to send disable command to USB channel");
-        };
+        ENABLE_USB.signal(false);
     }
 }
 
@@ -112,20 +100,35 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // Build the builder.
     let mut usb = builder.build();
 
+    let remote_wakeup = Signal::new();
+
     // Run the USB device.
     let usb_fut = async {
         enable_command().await;
         loop {
-            match select(usb.run(), USB_COMMANDS.recv()).await {
-                embassy::util::Either::First(_) => defmt::unreachable!(),
-                embassy::util::Either::Second(cmd) => match cmd {
-                    Command::Enable => warn!("Enable when already enabled!"),
-                    Command::Disable => {
+            match select(usb.run_until_suspend(), ENABLE_USB.wait()).await {
+                Either::First(_) => {}
+                Either::Second(enable) => {
+                    if enable {
+                        warn!("Enable when already enabled!");
+                    } else {
                         usb.disable().await;
                         enable_command().await;
                     }
-                    Command::RemoteWakeup => unwrap!(usb.remote_wakeup().await),
-                },
+                }
+            }
+
+            match select3(usb.wait_resume(), ENABLE_USB.wait(), remote_wakeup.wait()).await {
+                Either3::First(_) => (),
+                Either3::Second(enable) => {
+                    if enable {
+                        warn!("Enable when already enabled!");
+                    } else {
+                        usb.disable().await;
+                        enable_command().await;
+                    }
+                }
+                Either3::Third(_) => unwrap!(usb.remote_wakeup().await),
             }
         }
     };
@@ -142,7 +145,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
             if SUSPENDED.load(Ordering::Acquire) {
                 info!("Triggering remote wakeup");
-                USB_COMMANDS.send(Command::RemoteWakeup).await;
+                remote_wakeup.signal(());
             } else {
                 let report = KeyboardReport {
                     keycodes: [4, 0, 0, 0, 0, 0],
@@ -191,9 +194,10 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
 async fn enable_command() {
     loop {
-        match USB_COMMANDS.recv().await {
-            Command::Enable => break,
-            cmd => warn!("Received command {:?} when disabled!", cmd),
+        if ENABLE_USB.wait().await {
+            break;
+        } else {
+            warn!("Received disable signal when already disabled!");
         }
     }
 }

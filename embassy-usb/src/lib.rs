@@ -100,7 +100,6 @@ pub struct UsbDevice<'d, D: Driver<'d>> {
 
     device_state: UsbDeviceState,
     suspended: bool,
-    in_control_handler: bool,
     remote_wakeup_enabled: bool,
     self_powered: bool,
     pending_address: u8,
@@ -138,7 +137,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             control_buf,
             device_state: UsbDeviceState::Disabled,
             suspended: false,
-            in_control_handler: false,
             remote_wakeup_enabled: false,
             self_powered: false,
             pending_address: 0,
@@ -146,7 +144,26 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         }
     }
 
+    /// Runs the `UsbDevice` forever.
+    ///
+    /// This future may leave the bus in an invalid state if it is dropped.
+    /// After dropping the future, [`UsbDevice::disable()`] should be called
+    /// before calling any other `UsbDevice` methods to fully reset the
+    /// peripheral.
     pub async fn run(&mut self) -> ! {
+        loop {
+            self.run_until_suspend().await;
+            self.wait_resume().await;
+        }
+    }
+
+    /// Runs the `UsbDevice` until the bus is suspended.
+    ///
+    /// This future may leave the bus in an invalid state if it is dropped.
+    /// After dropping the future, [`UsbDevice::disable()`] should be called
+    /// before calling any other `UsbDevice` methods to fully reset the
+    /// peripheral.
+    pub async fn run_until_suspend(&mut self) -> () {
         if self.device_state == UsbDeviceState::Disabled {
             self.bus.enable().await;
             self.device_state = UsbDeviceState::Default;
@@ -154,66 +171,33 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             if let Some(h) = &self.handler {
                 h.enabled(true);
             }
-        } else if self.in_control_handler {
-            warn!("usb: control request interrupted");
-            self.control.reject();
-            self.in_control_handler = false;
         }
 
         loop {
             let control_fut = self.control.setup();
             let bus_fut = self.bus.poll();
             match select(bus_fut, control_fut).await {
-                Either::First(evt) => match evt {
-                    Event::Reset => {
-                        trace!("usb: reset");
-                        self.device_state = UsbDeviceState::Default;
-                        self.suspended = false;
-                        self.remote_wakeup_enabled = false;
-                        self.pending_address = 0;
-
-                        for (_, h) in self.interfaces.iter_mut() {
-                            h.reset();
-                        }
-
-                        if let Some(h) = &self.handler {
-                            h.reset();
-                        }
+                Either::First(evt) => {
+                    self.handle_bus_event(evt);
+                    if self.suspended {
+                        return;
                     }
-                    Event::Resume => {
-                        trace!("usb: resume");
-                        self.suspended = false;
-                        if let Some(h) = &self.handler {
-                            h.suspended(false);
-                        }
-                    }
-                    Event::Suspend => {
-                        trace!("usb: suspend");
-                        self.suspended = true;
-                        if let Some(h) = &self.handler {
-                            h.suspended(true);
-                        }
-                    }
-                },
-                Either::Second(req) => {
-                    self.in_control_handler = true;
-                    match req {
-                        Setup::DataIn(req, stage) => self.handle_control_in(req, stage).await,
-                        Setup::DataOut(req, stage) => self.handle_control_out(req, stage).await,
-                    }
-                    self.in_control_handler = false;
                 }
+                Either::Second(req) => match req {
+                    Setup::DataIn(req, stage) => self.handle_control_in(req, stage).await,
+                    Setup::DataOut(req, stage) => self.handle_control_out(req, stage).await,
+                },
             }
         }
     }
 
+    /// Disables the USB peripheral.
     pub async fn disable(&mut self) {
         if self.device_state != UsbDeviceState::Disabled {
             self.bus.disable().await;
             self.device_state = UsbDeviceState::Disabled;
             self.suspended = false;
             self.remote_wakeup_enabled = false;
-            self.in_control_handler = false;
 
             if let Some(h) = &self.handler {
                 h.enabled(false);
@@ -221,11 +205,26 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         }
     }
 
+    /// Waits for a resume condition on the USB bus.
+    ///
+    /// This future is cancel-safe.
+    pub async fn wait_resume(&mut self) {
+        while self.suspended {
+            let evt = self.bus.poll().await;
+            self.handle_bus_event(evt);
+        }
+    }
+
+    /// Initiates a device remote wakeup on the USB bus.
+    ///
+    /// If the bus is not suspended or remote wakeup is not enabled, an error
+    /// will be returned.
+    ///
+    /// This future may leave the bus in an inconsistent state if dropped.
+    /// After dropping the future, [`UsbDevice::disable()`] should be called
+    /// before calling any other `UsbDevice` methods to fully reset the peripheral.
     pub async fn remote_wakeup(&mut self) -> Result<(), RemoteWakeupError> {
-        if self.device_state == UsbDeviceState::Configured
-            && self.suspended
-            && self.remote_wakeup_enabled
-        {
+        if self.suspended && self.remote_wakeup_enabled {
             self.bus.remote_wakeup().await?;
             self.suspended = false;
 
@@ -236,6 +235,40 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             Ok(())
         } else {
             Err(RemoteWakeupError::InvalidState)
+        }
+    }
+
+    fn handle_bus_event(&mut self, evt: Event) {
+        match evt {
+            Event::Reset => {
+                trace!("usb: reset");
+                self.device_state = UsbDeviceState::Default;
+                self.suspended = false;
+                self.remote_wakeup_enabled = false;
+                self.pending_address = 0;
+
+                for (_, h) in self.interfaces.iter_mut() {
+                    h.reset();
+                }
+
+                if let Some(h) = &self.handler {
+                    h.reset();
+                }
+            }
+            Event::Resume => {
+                trace!("usb: resume");
+                self.suspended = false;
+                if let Some(h) = &self.handler {
+                    h.suspended(false);
+                }
+            }
+            Event::Suspend => {
+                trace!("usb: suspend");
+                self.suspended = true;
+                if let Some(h) = &self.handler {
+                    h.suspended(true);
+                }
+            }
         }
     }
 
