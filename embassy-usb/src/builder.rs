@@ -1,8 +1,4 @@
-use embassy::blocking_mutex::raw::{NoopRawMutex, RawMutex};
-use embassy::channel::Channel;
 use heapless::Vec;
-
-use crate::DeviceCommand;
 
 use super::control::ControlHandler;
 use super::descriptor::{BosWriter, DescriptorWriter};
@@ -98,11 +94,6 @@ pub struct Config<'a> {
     /// Default: 100mA
     /// Max: 500mA
     pub max_power: u16,
-
-    /// Whether the USB bus should be enabled when built.
-    ///
-    /// Default: true
-    pub start_enabled: bool,
 }
 
 impl<'a> Config<'a> {
@@ -122,18 +113,16 @@ impl<'a> Config<'a> {
             supports_remote_wakeup: false,
             composite_with_iads: false,
             max_power: 100,
-            start_enabled: true,
         }
     }
 }
 
 /// Used to build new [`UsbDevice`]s.
-pub struct UsbDeviceBuilder<'d, D: Driver<'d>, M: RawMutex> {
+pub struct UsbDeviceBuilder<'d, D: Driver<'d>> {
     config: Config<'d>,
     handler: Option<&'d dyn DeviceStateHandler>,
     interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
     control_buf: &'d mut [u8],
-    commands: Option<&'d Channel<M, DeviceCommand, 1>>,
 
     driver: D,
     next_interface_number: u8,
@@ -145,7 +134,7 @@ pub struct UsbDeviceBuilder<'d, D: Driver<'d>, M: RawMutex> {
     pub bos_descriptor: BosWriter<'d>,
 }
 
-impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D, NoopRawMutex> {
+impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
     /// Creates a builder for constructing a new [`UsbDevice`].
     ///
     /// `control_buf` is a buffer used for USB control request data. It should be sized
@@ -159,57 +148,6 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D, NoopRawMutex> {
         bos_descriptor_buf: &'d mut [u8],
         control_buf: &'d mut [u8],
         handler: Option<&'d dyn DeviceStateHandler>,
-    ) -> Self {
-        Self::new_inner(
-            driver,
-            config,
-            device_descriptor_buf,
-            config_descriptor_buf,
-            bos_descriptor_buf,
-            control_buf,
-            handler,
-            None,
-        )
-    }
-}
-
-impl<'d, D: Driver<'d>, M: RawMutex> UsbDeviceBuilder<'d, D, M> {
-    /// Creates a builder for constructing a new [`UsbDevice`].
-    ///
-    /// `control_buf` is a buffer used for USB control request data. It should be sized
-    /// large enough for the length of the largest control request (in or out)
-    /// anticipated by any class added to the device.
-    pub fn new_with_channel(
-        driver: D,
-        config: Config<'d>,
-        device_descriptor_buf: &'d mut [u8],
-        config_descriptor_buf: &'d mut [u8],
-        bos_descriptor_buf: &'d mut [u8],
-        control_buf: &'d mut [u8],
-        handler: Option<&'d dyn DeviceStateHandler>,
-        channel: &'d Channel<M, DeviceCommand, 1>,
-    ) -> Self {
-        Self::new_inner(
-            driver,
-            config,
-            device_descriptor_buf,
-            config_descriptor_buf,
-            bos_descriptor_buf,
-            control_buf,
-            handler,
-            Some(channel),
-        )
-    }
-
-    fn new_inner(
-        driver: D,
-        config: Config<'d>,
-        device_descriptor_buf: &'d mut [u8],
-        config_descriptor_buf: &'d mut [u8],
-        bos_descriptor_buf: &'d mut [u8],
-        control_buf: &'d mut [u8],
-        handler: Option<&'d dyn DeviceStateHandler>,
-        channel: Option<&'d Channel<M, DeviceCommand, 1>>,
     ) -> Self {
         // Magic values specified in USB-IF ECN on IADs.
         if config.composite_with_iads
@@ -243,8 +181,6 @@ impl<'d, D: Driver<'d>, M: RawMutex> UsbDeviceBuilder<'d, D, M> {
             config,
             interfaces: Vec::new(),
             control_buf,
-            commands: channel,
-
             next_interface_number: 0,
             next_string_index: 4,
 
@@ -255,7 +191,7 @@ impl<'d, D: Driver<'d>, M: RawMutex> UsbDeviceBuilder<'d, D, M> {
     }
 
     /// Creates the [`UsbDevice`] instance with the configuration in this builder.
-    pub fn build(mut self) -> UsbDevice<'d, D, M> {
+    pub fn build(mut self) -> UsbDevice<'d, D> {
         self.config_descriptor.end_configuration();
         self.bos_descriptor.end_bos();
 
@@ -263,7 +199,6 @@ impl<'d, D: Driver<'d>, M: RawMutex> UsbDeviceBuilder<'d, D, M> {
             self.driver,
             self.config,
             self.handler,
-            self.commands,
             self.device_descriptor.into_buf(),
             self.config_descriptor.into_buf(),
             self.bos_descriptor.writer.into_buf(),

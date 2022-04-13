@@ -11,13 +11,14 @@ use embassy::channel::Channel;
 use embassy::executor::Spawner;
 use embassy::interrupt::InterruptExt;
 use embassy::time::Duration;
+use embassy::util::select;
 use embassy_nrf::gpio::{Input, Pin, Pull};
 use embassy_nrf::interrupt;
 use embassy_nrf::pac;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::Peripherals;
 use embassy_usb::control::OutResponse;
-use embassy_usb::{Config, DeviceCommand, DeviceStateHandler, UsbDeviceBuilder};
+use embassy_usb::{Config, DeviceStateHandler, UsbDeviceBuilder};
 use embassy_usb_hid::{HidClass, ReportId, RequestHandler, State};
 use futures::future::join;
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
@@ -25,7 +26,14 @@ use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 use defmt_rtt as _; // global logger
 use panic_probe as _;
 
-static USB_COMMANDS: Channel<CriticalSectionRawMutex, DeviceCommand, 1> = Channel::new();
+#[derive(defmt::Format)]
+enum Command {
+    Enable,
+    Disable,
+    RemoteWakeup,
+}
+
+static USB_COMMANDS: Channel<CriticalSectionRawMutex, Command, 1> = Channel::new();
 static SUSPENDED: AtomicBool = AtomicBool::new(false);
 
 fn on_power_interrupt(_: *mut ()) {
@@ -34,7 +42,7 @@ fn on_power_interrupt(_: *mut ()) {
     if regs.events_usbdetected.read().bits() != 0 {
         regs.events_usbdetected.reset();
         info!("Vbus detected, enabling USB...");
-        if USB_COMMANDS.try_send(DeviceCommand::Enable).is_err() {
+        if USB_COMMANDS.try_send(Command::Enable).is_err() {
             warn!("Failed to send enable command to USB channel");
         }
     }
@@ -42,7 +50,7 @@ fn on_power_interrupt(_: *mut ()) {
     if regs.events_usbremoved.read().bits() != 0 {
         regs.events_usbremoved.reset();
         info!("Vbus removed, disabling USB...");
-        if USB_COMMANDS.try_send(DeviceCommand::Disable).is_err() {
+        if USB_COMMANDS.try_send(Command::Disable).is_err() {
             warn!("Failed to send disable command to USB channel");
         };
     }
@@ -69,7 +77,6 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     config.max_power = 100;
     config.max_packet_size_0 = 64;
     config.supports_remote_wakeup = true;
-    config.start_enabled = false;
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
@@ -82,7 +89,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let mut state = State::<8, 1>::new();
 
-    let mut builder = UsbDeviceBuilder::new_with_channel(
+    let mut builder = UsbDeviceBuilder::new(
         driver,
         config,
         &mut device_descriptor,
@@ -90,7 +97,6 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         &mut bos_descriptor,
         &mut control_buf,
         Some(&device_state_handler),
-        &USB_COMMANDS,
     );
 
     // Create classes on the builder.
@@ -107,7 +113,22 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut usb = builder.build();
 
     // Run the USB device.
-    let usb_fut = usb.run();
+    let usb_fut = async {
+        enable_command().await;
+        loop {
+            match select(usb.run(), USB_COMMANDS.recv()).await {
+                embassy::util::Either::First(_) => defmt::unreachable!(),
+                embassy::util::Either::Second(cmd) => match cmd {
+                    Command::Enable => warn!("Enable when already enabled!"),
+                    Command::Disable => {
+                        usb.disable().await;
+                        enable_command().await;
+                    }
+                    Command::RemoteWakeup => unwrap!(usb.remote_wakeup().await),
+                },
+            }
+        }
+    };
 
     let mut button = Input::new(p.P0_11.degrade(), Pull::Up);
 
@@ -121,7 +142,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
             if SUSPENDED.load(Ordering::Acquire) {
                 info!("Triggering remote wakeup");
-                USB_COMMANDS.send(DeviceCommand::RemoteWakeup).await;
+                USB_COMMANDS.send(Command::RemoteWakeup).await;
             } else {
                 let report = KeyboardReport {
                     keycodes: [4, 0, 0, 0, 0, 0],
@@ -168,6 +189,15 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     join(usb_fut, join(in_fut, out_fut)).await;
 }
 
+async fn enable_command() {
+    loop {
+        match USB_COMMANDS.recv().await {
+            Command::Enable => break,
+            cmd => warn!("Received command {:?} when disabled!", cmd),
+        }
+    }
+}
+
 struct MyRequestHandler {}
 
 impl RequestHandler for MyRequestHandler {
@@ -204,6 +234,16 @@ impl MyDeviceStateHandler {
 }
 
 impl DeviceStateHandler for MyDeviceStateHandler {
+    fn enabled(&self, enabled: bool) {
+        self.configured.store(false, Ordering::Relaxed);
+        SUSPENDED.store(false, Ordering::Release);
+        if enabled {
+            info!("Device enabled");
+        } else {
+            info!("Device disabled");
+        }
+    }
+
     fn reset(&self) {
         self.configured.store(false, Ordering::Relaxed);
         info!("Bus reset, the Vbus current limit is 100mA");
@@ -239,10 +279,5 @@ impl DeviceStateHandler for MyDeviceStateHandler {
                 info!("Device resumed, the Vbus current limit is 100mA");
             }
         }
-    }
-
-    fn disabled(&self) {
-        self.configured.store(false, Ordering::Relaxed);
-        info!("Device disabled");
     }
 }
