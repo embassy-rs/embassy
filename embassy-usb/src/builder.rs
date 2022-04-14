@@ -4,6 +4,7 @@ use super::control::ControlHandler;
 use super::descriptor::{BosWriter, DescriptorWriter};
 use super::driver::{Driver, EndpointAllocError};
 use super::types::*;
+use super::DeviceStateHandler;
 use super::UsbDevice;
 use super::MAX_INTERFACE_COUNT;
 
@@ -119,6 +120,7 @@ impl<'a> Config<'a> {
 /// Used to build new [`UsbDevice`]s.
 pub struct UsbDeviceBuilder<'d, D: Driver<'d>> {
     config: Config<'d>,
+    handler: Option<&'d dyn DeviceStateHandler>,
     interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
     control_buf: &'d mut [u8],
 
@@ -145,6 +147,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
         config_descriptor_buf: &'d mut [u8],
         bos_descriptor_buf: &'d mut [u8],
         control_buf: &'d mut [u8],
+        handler: Option<&'d dyn DeviceStateHandler>,
     ) -> Self {
         // Magic values specified in USB-IF ECN on IADs.
         if config.composite_with_iads
@@ -174,6 +177,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
 
         UsbDeviceBuilder {
             driver,
+            handler,
             config,
             interfaces: Vec::new(),
             control_buf,
@@ -187,20 +191,20 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
     }
 
     /// Creates the [`UsbDevice`] instance with the configuration in this builder.
-    pub async fn build(mut self) -> UsbDevice<'d, D> {
+    pub fn build(mut self) -> UsbDevice<'d, D> {
         self.config_descriptor.end_configuration();
         self.bos_descriptor.end_bos();
 
         UsbDevice::build(
             self.driver,
             self.config,
+            self.handler,
             self.device_descriptor.into_buf(),
             self.config_descriptor.into_buf(),
             self.bos_descriptor.writer.into_buf(),
             self.interfaces,
             self.control_buf,
         )
-        .await
     }
 
     /// Allocates a new interface number.

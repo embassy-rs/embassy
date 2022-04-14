@@ -10,15 +10,14 @@ pub mod control;
 pub mod descriptor;
 pub mod driver;
 pub mod types;
-mod util;
 
+use embassy::util::{select, Either};
 use heapless::Vec;
 
 use self::control::*;
 use self::descriptor::*;
 use self::driver::{Bus, Driver, Event};
 use self::types::*;
-use self::util::*;
 
 pub use self::builder::Config;
 pub use self::builder::UsbDeviceBuilder;
@@ -28,8 +27,12 @@ pub use self::builder::UsbDeviceBuilder;
 /// In general class traffic is only possible in the `Configured` state.
 #[repr(u8)]
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum UsbDeviceState {
-    /// The USB device has just been created or reset.
+    /// The USB device is disabled.
+    Disabled,
+
+    /// The USB device has just been enabled or reset.
     Default,
 
     /// The USB device has received an address from the host.
@@ -37,9 +40,19 @@ pub enum UsbDeviceState {
 
     /// The USB device has been configured and is fully functional.
     Configured,
+}
 
-    /// The USB device has been suspended by the host or it has been unplugged from the USB bus.
-    Suspend,
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum RemoteWakeupError {
+    InvalidState,
+    Unsupported,
+}
+
+impl From<driver::Unsupported> for RemoteWakeupError {
+    fn from(_: driver::Unsupported) -> Self {
+        RemoteWakeupError::Unsupported
+    }
 }
 
 /// The bConfiguration value for the not configured state.
@@ -53,8 +66,30 @@ pub const DEFAULT_ALTERNATE_SETTING: u8 = 0;
 
 pub const MAX_INTERFACE_COUNT: usize = 4;
 
+/// A handler trait for changes in the device state of the [UsbDevice].
+pub trait DeviceStateHandler {
+    /// Called when the USB device has been enabled or disabled.
+    fn enabled(&self, _enabled: bool) {}
+
+    /// Called when the host resets the device.
+    fn reset(&self) {}
+
+    /// Called when the host has set the address of the device to `addr`.
+    fn addressed(&self, _addr: u8) {}
+
+    /// Called when the host has enabled or disabled the configuration of the device.
+    fn configured(&self, _configured: bool) {}
+
+    /// Called when the bus has entered or exited the suspend state.
+    fn suspended(&self, _suspended: bool) {}
+
+    /// Called when remote wakeup feature is enabled or disabled.
+    fn remote_wakeup_enabled(&self, _enabled: bool) {}
+}
+
 pub struct UsbDevice<'d, D: Driver<'d>> {
     bus: D::Bus,
+    handler: Option<&'d dyn DeviceStateHandler>,
     control: ControlPipe<D::ControlPipe>,
 
     config: Config<'d>,
@@ -64,6 +99,7 @@ pub struct UsbDevice<'d, D: Driver<'d>> {
     control_buf: &'d mut [u8],
 
     device_state: UsbDeviceState,
+    suspended: bool,
     remote_wakeup_enabled: bool,
     self_powered: bool,
     pending_address: u8,
@@ -72,9 +108,10 @@ pub struct UsbDevice<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
-    pub(crate) async fn build(
+    pub(crate) fn build(
         mut driver: D,
         config: Config<'d>,
+        handler: Option<&'d dyn DeviceStateHandler>,
         device_descriptor: &'d [u8],
         config_descriptor: &'d [u8],
         bos_descriptor: &'d [u8],
@@ -87,17 +124,19 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
 
         // Enable the USB bus.
         // This prevent further allocation by consuming the driver.
-        let bus = driver.enable().await;
+        let bus = driver.into_bus();
 
         Self {
             bus,
             config,
+            handler,
             control: ControlPipe::new(control),
             device_descriptor,
             config_descriptor,
             bos_descriptor,
             control_buf,
-            device_state: UsbDeviceState::Default,
+            device_state: UsbDeviceState::Disabled,
+            suspended: false,
             remote_wakeup_enabled: false,
             self_powered: false,
             pending_address: 0,
@@ -105,37 +144,130 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         }
     }
 
-    pub async fn run(&mut self) {
+    /// Runs the `UsbDevice` forever.
+    ///
+    /// This future may leave the bus in an invalid state if it is dropped.
+    /// After dropping the future, [`UsbDevice::disable()`] should be called
+    /// before calling any other `UsbDevice` methods to fully reset the
+    /// peripheral.
+    pub async fn run(&mut self) -> ! {
+        loop {
+            self.run_until_suspend().await;
+            self.wait_resume().await;
+        }
+    }
+
+    /// Runs the `UsbDevice` until the bus is suspended.
+    ///
+    /// This future may leave the bus in an invalid state if it is dropped.
+    /// After dropping the future, [`UsbDevice::disable()`] should be called
+    /// before calling any other `UsbDevice` methods to fully reset the
+    /// peripheral.
+    pub async fn run_until_suspend(&mut self) -> () {
+        if self.device_state == UsbDeviceState::Disabled {
+            self.bus.enable().await;
+            self.device_state = UsbDeviceState::Default;
+
+            if let Some(h) = &self.handler {
+                h.enabled(true);
+            }
+        }
+
         loop {
             let control_fut = self.control.setup();
             let bus_fut = self.bus.poll();
             match select(bus_fut, control_fut).await {
-                Either::Left(evt) => match evt {
-                    Event::Reset => {
-                        trace!("usb: reset");
-                        self.bus.reset();
-
-                        self.device_state = UsbDeviceState::Default;
-                        self.remote_wakeup_enabled = false;
-                        self.pending_address = 0;
-
-                        for (_, h) in self.interfaces.iter_mut() {
-                            h.reset();
-                        }
+                Either::First(evt) => {
+                    self.handle_bus_event(evt);
+                    if self.suspended {
+                        return;
                     }
-                    Event::Resume => {
-                        trace!("usb: resume");
-                    }
-                    Event::Suspend => {
-                        trace!("usb: suspend");
-                        self.bus.suspend();
-                        self.device_state = UsbDeviceState::Suspend;
-                    }
-                },
-                Either::Right(req) => match req {
+                }
+                Either::Second(req) => match req {
                     Setup::DataIn(req, stage) => self.handle_control_in(req, stage).await,
                     Setup::DataOut(req, stage) => self.handle_control_out(req, stage).await,
                 },
+            }
+        }
+    }
+
+    /// Disables the USB peripheral.
+    pub async fn disable(&mut self) {
+        if self.device_state != UsbDeviceState::Disabled {
+            self.bus.disable().await;
+            self.device_state = UsbDeviceState::Disabled;
+            self.suspended = false;
+            self.remote_wakeup_enabled = false;
+
+            if let Some(h) = &self.handler {
+                h.enabled(false);
+            }
+        }
+    }
+
+    /// Waits for a resume condition on the USB bus.
+    ///
+    /// This future is cancel-safe.
+    pub async fn wait_resume(&mut self) {
+        while self.suspended {
+            let evt = self.bus.poll().await;
+            self.handle_bus_event(evt);
+        }
+    }
+
+    /// Initiates a device remote wakeup on the USB bus.
+    ///
+    /// If the bus is not suspended or remote wakeup is not enabled, an error
+    /// will be returned.
+    ///
+    /// This future may leave the bus in an inconsistent state if dropped.
+    /// After dropping the future, [`UsbDevice::disable()`] should be called
+    /// before calling any other `UsbDevice` methods to fully reset the peripheral.
+    pub async fn remote_wakeup(&mut self) -> Result<(), RemoteWakeupError> {
+        if self.suspended && self.remote_wakeup_enabled {
+            self.bus.remote_wakeup().await?;
+            self.suspended = false;
+
+            if let Some(h) = &self.handler {
+                h.suspended(false);
+            }
+
+            Ok(())
+        } else {
+            Err(RemoteWakeupError::InvalidState)
+        }
+    }
+
+    fn handle_bus_event(&mut self, evt: Event) {
+        match evt {
+            Event::Reset => {
+                trace!("usb: reset");
+                self.device_state = UsbDeviceState::Default;
+                self.suspended = false;
+                self.remote_wakeup_enabled = false;
+                self.pending_address = 0;
+
+                for (_, h) in self.interfaces.iter_mut() {
+                    h.reset();
+                }
+
+                if let Some(h) = &self.handler {
+                    h.reset();
+                }
+            }
+            Event::Resume => {
+                trace!("usb: resume");
+                self.suspended = false;
+                if let Some(h) = &self.handler {
+                    h.suspended(false);
+                }
+            }
+            Event::Suspend => {
+                trace!("usb: suspend");
+                self.suspended = true;
+                if let Some(h) = &self.handler {
+                    h.suspended(true);
+                }
             }
         }
     }
@@ -156,20 +288,33 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             (RequestType::Standard, Recipient::Device) => match (req.request, req.value) {
                 (Request::CLEAR_FEATURE, Request::FEATURE_DEVICE_REMOTE_WAKEUP) => {
                     self.remote_wakeup_enabled = false;
+                    if let Some(h) = &self.handler {
+                        h.remote_wakeup_enabled(false);
+                    }
                     self.control.accept(stage)
                 }
                 (Request::SET_FEATURE, Request::FEATURE_DEVICE_REMOTE_WAKEUP) => {
                     self.remote_wakeup_enabled = true;
+                    if let Some(h) = &self.handler {
+                        h.remote_wakeup_enabled(true);
+                    }
                     self.control.accept(stage)
                 }
                 (Request::SET_ADDRESS, addr @ 1..=127) => {
                     self.pending_address = addr as u8;
                     self.bus.set_device_address(self.pending_address);
+                    self.device_state = UsbDeviceState::Addressed;
+                    if let Some(h) = &self.handler {
+                        h.addressed(self.pending_address);
+                    }
                     self.control.accept(stage)
                 }
                 (Request::SET_CONFIGURATION, CONFIGURATION_VALUE_U16) => {
                     self.device_state = UsbDeviceState::Configured;
                     self.bus.set_configured(true);
+                    if let Some(h) = &self.handler {
+                        h.configured(true);
+                    }
                     self.control.accept(stage)
                 }
                 (Request::SET_CONFIGURATION, CONFIGURATION_NONE_U16) => match self.device_state {
@@ -177,6 +322,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     _ => {
                         self.device_state = UsbDeviceState::Addressed;
                         self.bus.set_configured(false);
+                        if let Some(h) = &self.handler {
+                            h.configured(false);
+                        }
                         self.control.accept(stage)
                     }
                 },
