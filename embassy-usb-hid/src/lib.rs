@@ -110,23 +110,13 @@ fn build<'d, D: Driver<'d>>(
     ));
 
     let len = config.report_descriptor.len();
-    let if_num = builder.alloc_interface_with_handler(control);
-    let ep_in = builder.alloc_interrupt_endpoint_in(config.max_packet_size, config.poll_ms);
-    let ep_out = if with_out_endpoint {
-        Some(builder.alloc_interrupt_endpoint_out(config.max_packet_size, config.poll_ms))
-    } else {
-        None
-    };
 
-    builder.config_descriptor.interface(
-        if_num,
-        USB_CLASS_HID,
-        USB_SUBCLASS_NONE,
-        USB_PROTOCOL_NONE,
-    );
+    let mut func = builder.function(USB_CLASS_HID, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE);
+    let mut iface = func.interface(Some(control));
+    let mut alt = iface.alt_setting(USB_CLASS_HID, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE);
 
     // HID descriptor
-    builder.config_descriptor.write(
+    alt.descriptor(
         HID_DESC_DESCTYPE_HID,
         &[
             // HID Class spec version
@@ -144,10 +134,12 @@ fn build<'d, D: Driver<'d>>(
         ],
     );
 
-    builder.config_descriptor.endpoint(ep_in.info());
-    if let Some(ep_out) = &ep_out {
-        builder.config_descriptor.endpoint(ep_out.info());
-    }
+    let ep_in = alt.endpoint_interrupt_in(config.max_packet_size, config.poll_ms);
+    let ep_out = if with_out_endpoint {
+        Some(alt.endpoint_interrupt_out(config.max_packet_size, config.poll_ms))
+    } else {
+        None
+    };
 
     (ep_out, ep_in, &state.out_report_offset)
 }
