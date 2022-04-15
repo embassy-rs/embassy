@@ -271,9 +271,9 @@ impl<C: driver::ControlPipe> ControlPipe<C> {
 
             let res = &buf[0..total];
             #[cfg(feature = "defmt")]
-            trace!("  control out data: {:02x}", buf);
+            trace!("  control out data: {:02x}", res);
             #[cfg(not(feature = "defmt"))]
-            trace!("  control out data: {:02x?}", buf);
+            trace!("  control out data: {:02x?}", res);
 
             Ok((res, StatusStage {}))
         }
