@@ -33,12 +33,11 @@ pub mod capability_type {
 }
 
 /// A writer for USB descriptors.
-pub struct DescriptorWriter<'a> {
-    buf: &'a mut [u8],
+pub(crate) struct DescriptorWriter<'a> {
+    pub buf: &'a mut [u8],
     position: usize,
     num_interfaces_mark: Option<usize>,
     num_endpoints_mark: Option<usize>,
-    write_iads: bool,
 }
 
 impl<'a> DescriptorWriter<'a> {
@@ -48,7 +47,6 @@ impl<'a> DescriptorWriter<'a> {
             position: 0,
             num_interfaces_mark: None,
             num_endpoints_mark: None,
-            write_iads: false,
         }
     }
 
@@ -106,8 +104,6 @@ impl<'a> DescriptorWriter<'a> {
     pub(crate) fn configuration(&mut self, config: &Config) {
         self.num_interfaces_mark = Some(self.position + 4);
 
-        self.write_iads = config.composite_with_iads;
-
         self.write(
             descriptor_type::CONFIGURATION,
             &[
@@ -160,10 +156,6 @@ impl<'a> DescriptorWriter<'a> {
         function_sub_class: u8,
         function_protocol: u8,
     ) {
-        if !self.write_iads {
-            return;
-        }
-
         self.write(
             descriptor_type::IAD,
             &[
@@ -175,33 +167,6 @@ impl<'a> DescriptorWriter<'a> {
                 0,
             ],
         );
-    }
-
-    /// Writes a interface descriptor.
-    ///
-    /// # Arguments
-    ///
-    /// * `number` - Interface number previously allocated with
-    ///   [`UsbDeviceBuilder::interface`](crate::bus::UsbDeviceBuilder::interface).
-    /// * `interface_class` - Class code assigned by USB.org. Use `0xff` for vendor-specific devices
-    ///   that do not conform to any class.
-    /// * `interface_sub_class` - Sub-class code. Depends on class.
-    /// * `interface_protocol` - Protocol code. Depends on class and sub-class.
-    pub fn interface(
-        &mut self,
-        number: InterfaceNumber,
-        interface_class: u8,
-        interface_sub_class: u8,
-        interface_protocol: u8,
-    ) {
-        self.interface_alt(
-            number,
-            DEFAULT_ALTERNATE_SETTING,
-            interface_class,
-            interface_sub_class,
-            interface_protocol,
-            None,
-        )
     }
 
     /// Writes a interface descriptor with a specific alternate setting and

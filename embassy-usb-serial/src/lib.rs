@@ -11,7 +11,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use embassy::blocking_mutex::CriticalSectionMutex;
 use embassy_usb::control::{self, ControlHandler, InResponse, OutResponse, Request};
 use embassy_usb::driver::{Endpoint, EndpointError, EndpointIn, EndpointOut};
-use embassy_usb::{driver::Driver, types::*, UsbDeviceBuilder};
+use embassy_usb::{driver::Driver, types::*, Builder};
 
 /// This should be used as `device_class` when building the `UsbDevice`.
 pub const USB_CLASS_CDC: u8 = 0x02;
@@ -163,7 +163,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Creates a new CdcAcmClass with the provided UsbBus and max_packet_size in bytes. For
     /// full-speed devices, max_packet_size has to be one of 8, 16, 32 or 64.
     pub fn new(
-        builder: &mut UsbDeviceBuilder<'d, D>,
+        builder: &mut Builder<'d, D>,
         state: &'d mut State<'d>,
         max_packet_size: u16,
     ) -> Self {
@@ -175,26 +175,15 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
 
         assert!(builder.control_buf_len() >= 7);
 
-        let comm_if = builder.alloc_interface_with_handler(control);
-        let comm_ep = builder.alloc_interrupt_endpoint_in(8, 255);
-        let data_if = builder.alloc_interface();
-        let read_ep = builder.alloc_bulk_endpoint_out(max_packet_size);
-        let write_ep = builder.alloc_bulk_endpoint_in(max_packet_size);
+        let mut func = builder.function(USB_CLASS_CDC, CDC_SUBCLASS_ACM, CDC_PROTOCOL_NONE);
 
-        builder.config_descriptor.iad(
-            comm_if,
-            2,
-            USB_CLASS_CDC,
-            CDC_SUBCLASS_ACM,
-            CDC_PROTOCOL_NONE,
-        );
-        builder.config_descriptor.interface(
-            comm_if,
-            USB_CLASS_CDC,
-            CDC_SUBCLASS_ACM,
-            CDC_PROTOCOL_NONE,
-        );
-        builder.config_descriptor.write(
+        // Control interface
+        let mut iface = func.interface(Some(control));
+        let comm_if = iface.interface_number();
+        let data_if = u8::from(comm_if) + 1;
+        let mut alt = iface.alt_setting(USB_CLASS_CDC, CDC_SUBCLASS_ACM, CDC_PROTOCOL_NONE);
+
+        alt.descriptor(
             CS_INTERFACE,
             &[
                 CDC_TYPE_HEADER, // bDescriptorSubtype
@@ -202,14 +191,14 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
                 0x01, // bcdCDC (1.10)
             ],
         );
-        builder.config_descriptor.write(
+        alt.descriptor(
             CS_INTERFACE,
             &[
                 CDC_TYPE_ACM, // bDescriptorSubtype
                 0x00,         // bmCapabilities
             ],
         );
-        builder.config_descriptor.write(
+        alt.descriptor(
             CS_INTERFACE,
             &[
                 CDC_TYPE_UNION, // bDescriptorSubtype
@@ -217,7 +206,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
                 data_if.into(), // bSubordinateInterface
             ],
         );
-        builder.config_descriptor.write(
+        alt.descriptor(
             CS_INTERFACE,
             &[
                 CDC_TYPE_CALL_MANAGEMENT, // bDescriptorSubtype
@@ -225,13 +214,15 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
                 data_if.into(),           // bDataInterface
             ],
         );
-        builder.config_descriptor.endpoint(comm_ep.info());
 
-        builder
-            .config_descriptor
-            .interface(data_if, USB_CLASS_CDC_DATA, 0x00, 0x00);
-        builder.config_descriptor.endpoint(write_ep.info());
-        builder.config_descriptor.endpoint(read_ep.info());
+        let comm_ep = alt.endpoint_interrupt_in(8, 255);
+
+        // Data interface
+        let mut iface = func.interface(None);
+        let data_if = iface.interface_number();
+        let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NONE);
+        let read_ep = alt.endpoint_bulk_out(max_packet_size);
+        let write_ep = alt.endpoint_bulk_in(max_packet_size);
 
         CdcAcmClass {
             _comm_ep: comm_ep,

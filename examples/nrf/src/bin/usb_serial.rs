@@ -11,7 +11,7 @@ use embassy_nrf::pac;
 use embassy_nrf::usb::{Driver, Instance};
 use embassy_nrf::Peripherals;
 use embassy_usb::driver::EndpointError;
-use embassy_usb::{Config, UsbDeviceBuilder};
+use embassy_usb::{Builder, Config};
 use embassy_usb_serial::{CdcAcmClass, State};
 use futures::future::join;
 
@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let mut state = State::new();
 
-    let mut builder = UsbDeviceBuilder::new(
+    let mut builder = Builder::new(
         driver,
         config,
         &mut device_descriptor,

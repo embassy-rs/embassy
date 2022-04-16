@@ -2,7 +2,7 @@ use heapless::Vec;
 
 use super::control::ControlHandler;
 use super::descriptor::{BosWriter, DescriptorWriter};
-use super::driver::{Driver, EndpointAllocError};
+use super::driver::{Driver, Endpoint};
 use super::types::*;
 use super::DeviceStateHandler;
 use super::UsbDevice;
@@ -117,8 +117,8 @@ impl<'a> Config<'a> {
     }
 }
 
-/// Used to build new [`UsbDevice`]s.
-pub struct UsbDeviceBuilder<'d, D: Driver<'d>> {
+/// [`UsbDevice`] builder.
+pub struct Builder<'d, D: Driver<'d>> {
     config: Config<'d>,
     handler: Option<&'d dyn DeviceStateHandler>,
     interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
@@ -128,13 +128,12 @@ pub struct UsbDeviceBuilder<'d, D: Driver<'d>> {
     next_interface_number: u8,
     next_string_index: u8,
 
-    // TODO make not pub?
-    pub device_descriptor: DescriptorWriter<'d>,
-    pub config_descriptor: DescriptorWriter<'d>,
-    pub bos_descriptor: BosWriter<'d>,
+    device_descriptor: DescriptorWriter<'d>,
+    config_descriptor: DescriptorWriter<'d>,
+    bos_descriptor: BosWriter<'d>,
 }
 
-impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
+impl<'d, D: Driver<'d>> Builder<'d, D> {
     /// Creates a builder for constructing a new [`UsbDevice`].
     ///
     /// `control_buf` is a buffer used for USB control request data. It should be sized
@@ -175,7 +174,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
         config_descriptor.configuration(&config);
         bos_descriptor.bos();
 
-        UsbDeviceBuilder {
+        Builder {
             driver,
             handler,
             config,
@@ -207,34 +206,10 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
         )
     }
 
-    /// Allocates a new interface number.
-    pub fn alloc_interface(&mut self) -> InterfaceNumber {
-        let number = self.next_interface_number;
-        self.next_interface_number += 1;
-
-        InterfaceNumber::new(number)
-    }
-
     /// Returns the size of the control request data buffer. Can be used by
     /// classes to validate the buffer is large enough for their needs.
     pub fn control_buf_len(&self) -> usize {
         self.control_buf.len()
-    }
-
-    /// Allocates a new interface number, with a handler that will be called
-    /// for all the control requests directed to it.
-    pub fn alloc_interface_with_handler(
-        &mut self,
-        handler: &'d mut dyn ControlHandler,
-    ) -> InterfaceNumber {
-        let number = self.next_interface_number;
-        self.next_interface_number += 1;
-
-        if self.interfaces.push((number, handler)).is_err() {
-            panic!("max class count reached")
-        }
-
-        InterfaceNumber::new(number)
     }
 
     /// Allocates a new string index.
@@ -245,146 +220,212 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
         StringIndex::new(index)
     }
 
-    /// Allocates an in endpoint.
+    /// Add an USB function.
     ///
-    /// This directly delegates to [`Driver::alloc_endpoint_in`], so see that method for details. In most
-    /// cases classes should call the endpoint type specific methods instead.
-    pub fn alloc_endpoint_in(
+    /// If [`Config::composite_with_iads`] is set, this will add an IAD descriptor
+    /// with the given class/subclass/protocol, associating all the child interfaces.
+    ///
+    /// If it's not set, no IAD descriptor is added.
+    pub fn function(
+        &mut self,
+        class: u8,
+        subclass: u8,
+        protocol: u8,
+    ) -> FunctionBuilder<'_, 'd, D> {
+        let iface_count_index = if self.config.composite_with_iads {
+            self.config_descriptor.iad(
+                InterfaceNumber::new(self.next_interface_number),
+                0,
+                class,
+                subclass,
+                protocol,
+            );
+
+            Some(self.config_descriptor.position() - 5)
+        } else {
+            None
+        };
+
+        FunctionBuilder {
+            builder: self,
+            iface_count_index,
+        }
+    }
+}
+
+/// Function builder.
+///
+/// A function is a logical grouping of interfaces that perform a given USB function.
+/// If [`Config::composite_with_iads`] is set, each function will have an IAD descriptor.
+/// If not, functions will not be visible as descriptors.
+pub struct FunctionBuilder<'a, 'd, D: Driver<'d>> {
+    builder: &'a mut Builder<'d, D>,
+    iface_count_index: Option<usize>,
+}
+
+impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
+    /// Add an interface to the function.
+    ///
+    /// Interface numbers are guaranteed to be allocated consecutively, starting from 0.
+    pub fn interface(
+        &mut self,
+        handler: Option<&'d mut dyn ControlHandler>,
+    ) -> InterfaceBuilder<'_, 'd, D> {
+        if let Some(i) = self.iface_count_index {
+            self.builder.config_descriptor.buf[i] += 1;
+        }
+
+        let number = self.builder.next_interface_number;
+        self.builder.next_interface_number += 1;
+
+        if let Some(handler) = handler {
+            if self.builder.interfaces.push((number, handler)).is_err() {
+                panic!("max interface count reached")
+            }
+        }
+
+        InterfaceBuilder {
+            builder: self.builder,
+            interface_number: InterfaceNumber::new(number),
+            next_alt_setting_number: 0,
+        }
+    }
+}
+
+/// Interface builder.
+pub struct InterfaceBuilder<'a, 'd, D: Driver<'d>> {
+    builder: &'a mut Builder<'d, D>,
+    interface_number: InterfaceNumber,
+    next_alt_setting_number: u8,
+}
+
+impl<'a, 'd, D: Driver<'d>> InterfaceBuilder<'a, 'd, D> {
+    /// Get the interface number.
+    pub fn interface_number(&self) -> InterfaceNumber {
+        self.interface_number
+    }
+
+    /// Add an alternate setting to the interface and write its descriptor.
+    ///
+    /// Alternate setting numbers are guaranteed to be allocated consecutively, starting from 0.
+    ///
+    /// The first alternate setting, with number 0, is the default one.
+    pub fn alt_setting(
+        &mut self,
+        class: u8,
+        subclass: u8,
+        protocol: u8,
+    ) -> InterfaceAltBuilder<'_, 'd, D> {
+        let number = self.next_alt_setting_number;
+        self.next_alt_setting_number += 1;
+
+        self.builder.config_descriptor.interface_alt(
+            self.interface_number,
+            number,
+            class,
+            subclass,
+            protocol,
+            None,
+        );
+
+        InterfaceAltBuilder {
+            builder: self.builder,
+            interface_number: self.interface_number,
+            alt_setting_number: number,
+        }
+    }
+}
+
+/// Interface alternate setting builder.
+pub struct InterfaceAltBuilder<'a, 'd, D: Driver<'d>> {
+    builder: &'a mut Builder<'d, D>,
+    interface_number: InterfaceNumber,
+    alt_setting_number: u8,
+}
+
+impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
+    /// Get the interface number.
+    pub fn interface_number(&self) -> InterfaceNumber {
+        self.interface_number
+    }
+
+    /// Get the alternate setting number.
+    pub fn alt_setting_number(&self) -> u8 {
+        self.alt_setting_number
+    }
+
+    /// Add a custom descriptor to this alternate setting.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    pub fn descriptor(&mut self, descriptor_type: u8, descriptor: &[u8]) {
+        self.builder
+            .config_descriptor
+            .write(descriptor_type, descriptor)
+    }
+
+    fn endpoint_in(
         &mut self,
         ep_addr: Option<EndpointAddress>,
         ep_type: EndpointType,
-        max_packet_size: u16,
-        interval: u8,
-    ) -> Result<D::EndpointIn, EndpointAllocError> {
-        self.driver
-            .alloc_endpoint_in(ep_addr, ep_type, max_packet_size, interval)
-    }
-
-    /// Allocates an out endpoint.
-    ///
-    /// This directly delegates to [`Driver::alloc_endpoint_out`], so see that method for details. In most
-    /// cases classes should call the endpoint type specific methods instead.
-    pub fn alloc_endpoint_out(
-        &mut self,
-        ep_addr: Option<EndpointAddress>,
-        ep_type: EndpointType,
-        max_packet_size: u16,
-        interval: u8,
-    ) -> Result<D::EndpointOut, EndpointAllocError> {
-        self.driver
-            .alloc_endpoint_out(ep_addr, ep_type, max_packet_size, interval)
-    }
-
-    /// Allocates a control in endpoint.
-    ///
-    /// This crate implements the control state machine only for endpoint 0. If classes want to
-    /// support control requests in other endpoints, the state machine must be implemented manually.
-    /// This should rarely be needed by classes.
-    ///
-    /// # Arguments
-    ///
-    /// * `max_packet_size` - Maximum packet size in bytes. Must be one of 8, 16, 32 or 64.
-    ///
-    /// # Panics
-    ///
-    /// Panics if endpoint allocation fails, because running out of endpoints or memory is not
-    /// feasibly recoverable.
-    #[inline]
-    pub fn alloc_control_endpoint_in(&mut self, max_packet_size: u16) -> D::EndpointIn {
-        self.alloc_endpoint_in(None, EndpointType::Control, max_packet_size, 0)
-            .expect("alloc_ep failed")
-    }
-
-    /// Allocates a control out endpoint.
-    ///
-    /// This crate implements the control state machine only for endpoint 0. If classes want to
-    /// support control requests in other endpoints, the state machine must be implemented manually.
-    /// This should rarely be needed by classes.
-    ///
-    /// # Arguments
-    ///
-    /// * `max_packet_size` - Maximum packet size in bytes. Must be one of 8, 16, 32 or 64.
-    ///
-    /// # Panics
-    ///
-    /// Panics if endpoint allocation fails, because running out of endpoints or memory is not
-    /// feasibly recoverable.
-    #[inline]
-    pub fn alloc_control_pipe(&mut self, max_packet_size: u16) -> D::ControlPipe {
-        self.driver
-            .alloc_control_pipe(max_packet_size)
-            .expect("alloc_control_pipe failed")
-    }
-
-    /// Allocates a bulk in endpoint.
-    ///
-    /// # Arguments
-    ///
-    /// * `max_packet_size` - Maximum packet size in bytes. Must be one of 8, 16, 32 or 64.
-    ///
-    /// # Panics
-    ///
-    /// Panics if endpoint allocation fails, because running out of endpoints or memory is not
-    /// feasibly recoverable.
-    #[inline]
-    pub fn alloc_bulk_endpoint_in(&mut self, max_packet_size: u16) -> D::EndpointIn {
-        self.alloc_endpoint_in(None, EndpointType::Bulk, max_packet_size, 0)
-            .expect("alloc_ep failed")
-    }
-
-    /// Allocates a bulk out endpoint.
-    ///
-    /// # Arguments
-    ///
-    /// * `max_packet_size` - Maximum packet size in bytes. Must be one of 8, 16, 32 or 64.
-    ///
-    /// # Panics
-    ///
-    /// Panics if endpoint allocation fails, because running out of endpoints or memory is not
-    /// feasibly recoverable.
-    #[inline]
-    pub fn alloc_bulk_endpoint_out(&mut self, max_packet_size: u16) -> D::EndpointOut {
-        self.alloc_endpoint_out(None, EndpointType::Bulk, max_packet_size, 0)
-            .expect("alloc_ep failed")
-    }
-
-    /// Allocates a bulk in endpoint.
-    ///
-    /// # Arguments
-    ///
-    /// * `max_packet_size` - Maximum packet size in bytes. Cannot exceed 64 bytes.
-    ///
-    /// # Panics
-    ///
-    /// Panics if endpoint allocation fails, because running out of endpoints or memory is not
-    /// feasibly recoverable.
-    #[inline]
-    pub fn alloc_interrupt_endpoint_in(
-        &mut self,
         max_packet_size: u16,
         interval: u8,
     ) -> D::EndpointIn {
-        self.alloc_endpoint_in(None, EndpointType::Interrupt, max_packet_size, interval)
-            .expect("alloc_ep failed")
+        let ep = self
+            .builder
+            .driver
+            .alloc_endpoint_in(ep_addr, ep_type, max_packet_size, interval)
+            .expect("alloc_endpoint_in failed");
+
+        self.builder.config_descriptor.endpoint(ep.info());
+
+        ep
     }
 
-    /// Allocates a bulk in endpoint.
-    ///
-    /// # Arguments
-    ///
-    /// * `max_packet_size` - Maximum packet size in bytes. Cannot exceed 64 bytes.
-    ///
-    /// # Panics
-    ///
-    /// Panics if endpoint allocation fails, because running out of endpoints or memory is not
-    /// feasibly recoverable.
-    #[inline]
-    pub fn alloc_interrupt_endpoint_out(
+    fn endpoint_out(
         &mut self,
+        ep_addr: Option<EndpointAddress>,
+        ep_type: EndpointType,
         max_packet_size: u16,
         interval: u8,
     ) -> D::EndpointOut {
-        self.alloc_endpoint_out(None, EndpointType::Interrupt, max_packet_size, interval)
-            .expect("alloc_ep failed")
+        let ep = self
+            .builder
+            .driver
+            .alloc_endpoint_out(ep_addr, ep_type, max_packet_size, interval)
+            .expect("alloc_endpoint_out failed");
+
+        self.builder.config_descriptor.endpoint(ep.info());
+
+        ep
+    }
+
+    /// Allocate a BULK IN endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    pub fn endpoint_bulk_in(&mut self, max_packet_size: u16) -> D::EndpointIn {
+        self.endpoint_in(None, EndpointType::Bulk, max_packet_size, 0)
+    }
+
+    /// Allocate a BULK OUT endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    pub fn endpoint_bulk_out(&mut self, max_packet_size: u16) -> D::EndpointOut {
+        self.endpoint_out(None, EndpointType::Bulk, max_packet_size, 0)
+    }
+
+    /// Allocate a INTERRUPT IN endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    pub fn endpoint_interrupt_in(&mut self, max_packet_size: u16, interval: u8) -> D::EndpointIn {
+        self.endpoint_in(None, EndpointType::Interrupt, max_packet_size, interval)
+    }
+
+    /// Allocate a INTERRUPT OUT endpoint and write its descriptor.
+    pub fn endpoint_interrupt_out(&mut self, max_packet_size: u16, interval: u8) -> D::EndpointOut {
+        self.endpoint_out(None, EndpointType::Interrupt, max_packet_size, interval)
     }
 }

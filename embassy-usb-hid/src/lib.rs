@@ -16,7 +16,7 @@ use embassy_usb::driver::EndpointOut;
 use embassy_usb::{
     control::{ControlHandler, InResponse, OutResponse, Request, RequestType},
     driver::{Driver, Endpoint, EndpointError, EndpointIn},
-    UsbDeviceBuilder,
+    Builder,
 };
 
 #[cfg(feature = "usbd-hid")]
@@ -98,7 +98,7 @@ pub struct HidReaderWriter<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N
 }
 
 fn build<'d, D: Driver<'d>>(
-    builder: &mut UsbDeviceBuilder<'d, D>,
+    builder: &mut Builder<'d, D>,
     state: &'d mut State<'d>,
     config: Config<'d>,
     with_out_endpoint: bool,
@@ -110,23 +110,13 @@ fn build<'d, D: Driver<'d>>(
     ));
 
     let len = config.report_descriptor.len();
-    let if_num = builder.alloc_interface_with_handler(control);
-    let ep_in = builder.alloc_interrupt_endpoint_in(config.max_packet_size, config.poll_ms);
-    let ep_out = if with_out_endpoint {
-        Some(builder.alloc_interrupt_endpoint_out(config.max_packet_size, config.poll_ms))
-    } else {
-        None
-    };
 
-    builder.config_descriptor.interface(
-        if_num,
-        USB_CLASS_HID,
-        USB_SUBCLASS_NONE,
-        USB_PROTOCOL_NONE,
-    );
+    let mut func = builder.function(USB_CLASS_HID, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE);
+    let mut iface = func.interface(Some(control));
+    let mut alt = iface.alt_setting(USB_CLASS_HID, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE);
 
     // HID descriptor
-    builder.config_descriptor.write(
+    alt.descriptor(
         HID_DESC_DESCTYPE_HID,
         &[
             // HID Class spec version
@@ -144,10 +134,12 @@ fn build<'d, D: Driver<'d>>(
         ],
     );
 
-    builder.config_descriptor.endpoint(ep_in.info());
-    if let Some(ep_out) = &ep_out {
-        builder.config_descriptor.endpoint(ep_out.info());
-    }
+    let ep_in = alt.endpoint_interrupt_in(config.max_packet_size, config.poll_ms);
+    let ep_out = if with_out_endpoint {
+        Some(alt.endpoint_interrupt_out(config.max_packet_size, config.poll_ms))
+    } else {
+        None
+    };
 
     (ep_out, ep_in, &state.out_report_offset)
 }
@@ -160,11 +152,7 @@ impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize>
     /// This will allocate one IN and one OUT endpoints. If you only need writing (sending)
     /// HID reports, consider using [`HidWriter::new`] instead, which allocates an IN endpoint only.
     ///
-    pub fn new(
-        builder: &mut UsbDeviceBuilder<'d, D>,
-        state: &'d mut State<'d>,
-        config: Config<'d>,
-    ) -> Self {
+    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
         let (ep_out, ep_in, offset) = build(builder, state, config, true);
 
         Self {
@@ -246,11 +234,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
     /// HID reports. A lower value means better throughput & latency, at the expense
     /// of CPU on the device & bandwidth on the bus. A value of 10 is reasonable for
     /// high performance uses, and a value of 255 is good for best-effort usecases.
-    pub fn new(
-        builder: &mut UsbDeviceBuilder<'d, D>,
-        state: &'d mut State<'d>,
-        config: Config<'d>,
-    ) -> Self {
+    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
         let (ep_out, ep_in, _offset) = build(builder, state, config, false);
 
         assert!(ep_out.is_none());

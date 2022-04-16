@@ -12,7 +12,7 @@ use embassy_nrf::usb::Driver;
 use embassy_nrf::Peripherals;
 use embassy_nrf::{interrupt, peripherals};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::{Config, UsbDevice, UsbDeviceBuilder};
+use embassy_usb::{Builder, Config, UsbDevice};
 use embassy_usb_serial::{CdcAcmClass, State};
 
 use defmt_rtt as _; // global logger
@@ -72,7 +72,7 @@ async fn main(spawner: Spawner, p: Peripherals) {
     });
 
     // Create embassy-usb DeviceBuilder using the driver and config.
-    let mut builder = UsbDeviceBuilder::new(
+    let mut builder = Builder::new(
         driver,
         config,
         &mut res.device_descriptor,

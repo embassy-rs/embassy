@@ -19,8 +19,8 @@ use self::descriptor::*;
 use self::driver::{Bus, Driver, Event};
 use self::types::*;
 
+pub use self::builder::Builder;
 pub use self::builder::Config;
-pub use self::builder::UsbDeviceBuilder;
 
 /// The global state of the USB device.
 ///
