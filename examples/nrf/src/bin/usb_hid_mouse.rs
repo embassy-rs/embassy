@@ -13,7 +13,7 @@ use embassy_nrf::usb::Driver;
 use embassy_nrf::Peripherals;
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Config, UsbDeviceBuilder};
-use embassy_usb_hid::{HidClass, ReportId, RequestHandler, State};
+use embassy_usb_hid::{HidWriter, ReportId, RequestHandler, State};
 use futures::future::join;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 
@@ -52,7 +52,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut control_buf = [0; 16];
     let request_handler = MyRequestHandler {};
 
-    let mut control = State::<5, 0>::new();
+    let mut state = State::new();
 
     let mut builder = UsbDeviceBuilder::new(
         driver,
@@ -65,14 +65,14 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     );
 
     // Create classes on the builder.
-    let mut hid = HidClass::new(
-        &mut builder,
-        &mut control,
-        MouseReport::desc(),
-        Some(&request_handler),
-        60,
-        8,
-    );
+    let config = embassy_usb_hid::Config {
+        report_descriptor: MouseReport::desc(),
+        request_handler: Some(&request_handler),
+        poll_ms: 60,
+        max_packet_size: 8,
+    };
+
+    let mut writer = HidWriter::<_, 5>::new(&mut builder, &mut state, config);
 
     // Build the builder.
     let mut usb = builder.build();
@@ -94,7 +94,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
                 wheel: 0,
                 pan: 0,
             };
-            match hid.input().serialize(&report).await {
+            match writer.write_serialize(&report).await {
                 Ok(()) => {}
                 Err(e) => warn!("Failed to send report: {:?}", e),
             }

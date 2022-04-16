@@ -18,7 +18,7 @@ use embassy_nrf::usb::Driver;
 use embassy_nrf::Peripherals;
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Config, DeviceStateHandler, UsbDeviceBuilder};
-use embassy_usb_hid::{HidClass, ReportId, RequestHandler, State};
+use embassy_usb_hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use futures::future::join;
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 
@@ -75,7 +75,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let request_handler = MyRequestHandler {};
     let device_state_handler = MyDeviceStateHandler::new();
 
-    let mut state = State::<8, 1>::new();
+    let mut state = State::new();
 
     let mut builder = UsbDeviceBuilder::new(
         driver,
@@ -88,14 +88,13 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     );
 
     // Create classes on the builder.
-    let hid = HidClass::with_output_ep(
-        &mut builder,
-        &mut state,
-        KeyboardReport::desc(),
-        Some(&request_handler),
-        60,
-        64,
-    );
+    let config = embassy_usb_hid::Config {
+        report_descriptor: KeyboardReport::desc(),
+        request_handler: Some(&request_handler),
+        poll_ms: 60,
+        max_packet_size: 64,
+    };
+    let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, &mut state, config);
 
     // Build the builder.
     let mut usb = builder.build();
@@ -135,7 +134,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let mut button = Input::new(p.P0_11.degrade(), Pull::Up);
 
-    let (mut hid_in, hid_out) = hid.split();
+    let (reader, mut writer) = hid.split();
 
     // Do stuff with the class!
     let in_fut = async {
@@ -153,7 +152,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
                     modifier: 0,
                     reserved: 0,
                 };
-                match hid_in.serialize(&report).await {
+                match writer.write_serialize(&report).await {
                     Ok(()) => {}
                     Err(e) => warn!("Failed to send report: {:?}", e),
                 };
@@ -167,7 +166,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
                 modifier: 0,
                 reserved: 0,
             };
-            match hid_in.serialize(&report).await {
+            match writer.write_serialize(&report).await {
                 Ok(()) => {}
                 Err(e) => warn!("Failed to send report: {:?}", e),
             };
@@ -175,7 +174,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     };
 
     let out_fut = async {
-        hid_out.run(false, &request_handler).await;
+        reader.run(false, &request_handler).await;
     };
 
     let power_irq = interrupt::take!(POWER_CLOCK);

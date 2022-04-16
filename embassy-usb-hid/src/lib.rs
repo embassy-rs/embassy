@@ -41,6 +41,24 @@ const HID_REQ_SET_REPORT: u8 = 0x09;
 const HID_REQ_GET_PROTOCOL: u8 = 0x03;
 const HID_REQ_SET_PROTOCOL: u8 = 0x0b;
 
+pub struct Config<'d> {
+    /// HID report descriptor.
+    pub report_descriptor: &'d [u8],
+
+    /// Handler for control requests.
+    pub request_handler: Option<&'d dyn RequestHandler>,
+
+    /// Configures how frequently the host should poll for reading/writing HID reports.
+    ///
+    /// A lower value means better throughput & latency, at the expense
+    /// of CPU on the device & bandwidth on the bus. A value of 10 is reasonable for
+    /// high performance uses, and a value of 255 is good for best-effort usecases.
+    pub poll_ms: u8,
+
+    /// Max packet size for both the IN and OUT endpoints.
+    pub max_packet_size: u16,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ReportId {
@@ -60,12 +78,12 @@ impl ReportId {
     }
 }
 
-pub struct State<'a, const IN_N: usize, const OUT_N: usize> {
-    control: MaybeUninit<Control<'a>>,
+pub struct State<'d> {
+    control: MaybeUninit<Control<'d>>,
     out_report_offset: AtomicUsize,
 }
 
-impl<'a, const IN_N: usize, const OUT_N: usize> State<'a, IN_N, OUT_N> {
+impl<'d> State<'d> {
     pub fn new() -> Self {
         State {
             control: MaybeUninit::uninit(),
@@ -74,107 +92,128 @@ impl<'a, const IN_N: usize, const OUT_N: usize> State<'a, IN_N, OUT_N> {
     }
 }
 
-pub struct HidClass<'d, D: Driver<'d>, T, const IN_N: usize> {
-    input: ReportWriter<'d, D, IN_N>,
-    output: T,
+pub struct HidReaderWriter<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> {
+    reader: HidReader<'d, D, READ_N>,
+    writer: HidWriter<'d, D, WRITE_N>,
 }
 
-impl<'d, D: Driver<'d>, const IN_N: usize> HidClass<'d, D, (), IN_N> {
-    /// Creates a new HidClass.
-    ///
-    /// poll_ms configures how frequently the host should poll for reading/writing
-    /// HID reports. A lower value means better throughput & latency, at the expense
-    /// of CPU on the device & bandwidth on the bus. A value of 10 is reasonable for
-    /// high performance uses, and a value of 255 is good for best-effort usecases.
-    ///
-    /// This allocates an IN endpoint only.
-    pub fn new<const OUT_N: usize>(
-        builder: &mut UsbDeviceBuilder<'d, D>,
-        state: &'d mut State<'d, IN_N, OUT_N>,
-        report_descriptor: &'static [u8],
-        request_handler: Option<&'d dyn RequestHandler>,
-        poll_ms: u8,
-        max_packet_size: u16,
-    ) -> Self {
-        let ep_in = builder.alloc_interrupt_endpoint_in(max_packet_size, poll_ms);
-        let control = state.control.write(Control::new(
-            report_descriptor,
-            request_handler,
-            &state.out_report_offset,
-        ));
-        control.build(builder, None, &ep_in);
+fn build<'d, D: Driver<'d>>(
+    builder: &mut UsbDeviceBuilder<'d, D>,
+    state: &'d mut State<'d>,
+    config: Config<'d>,
+    with_out_endpoint: bool,
+) -> (Option<D::EndpointOut>, D::EndpointIn, &'d AtomicUsize) {
+    let control = state.control.write(Control::new(
+        config.report_descriptor,
+        config.request_handler,
+        &state.out_report_offset,
+    ));
 
-        Self {
-            input: ReportWriter { ep_in },
-            output: (),
-        }
+    let len = config.report_descriptor.len();
+    let if_num = builder.alloc_interface_with_handler(control);
+    let ep_in = builder.alloc_interrupt_endpoint_in(config.max_packet_size, config.poll_ms);
+    let ep_out = if with_out_endpoint {
+        Some(builder.alloc_interrupt_endpoint_out(config.max_packet_size, config.poll_ms))
+    } else {
+        None
+    };
+
+    builder.config_descriptor.interface(
+        if_num,
+        USB_CLASS_HID,
+        USB_SUBCLASS_NONE,
+        USB_PROTOCOL_NONE,
+    );
+
+    // HID descriptor
+    builder.config_descriptor.write(
+        HID_DESC_DESCTYPE_HID,
+        &[
+            // HID Class spec version
+            HID_DESC_SPEC_1_10[0],
+            HID_DESC_SPEC_1_10[1],
+            // Country code not supported
+            HID_DESC_COUNTRY_UNSPEC,
+            // Number of following descriptors
+            1,
+            // We have a HID report descriptor the host should read
+            HID_DESC_DESCTYPE_HID_REPORT,
+            // HID report descriptor size,
+            (len & 0xFF) as u8,
+            (len >> 8 & 0xFF) as u8,
+        ],
+    );
+
+    builder.config_descriptor.endpoint(ep_in.info());
+    if let Some(ep_out) = &ep_out {
+        builder.config_descriptor.endpoint(ep_out.info());
     }
+
+    (ep_out, ep_in, &state.out_report_offset)
 }
 
-impl<'d, D: Driver<'d>, T, const IN_N: usize> HidClass<'d, D, T, IN_N> {
-    /// Gets the [`ReportWriter`] for input reports.
-    ///
-    /// **Note:** If the `HidClass` was created with [`new_ep_out()`](Self::new_ep_out)
-    /// this writer will be useless as no endpoint is availabe to send reports.
-    pub fn input(&mut self) -> &mut ReportWriter<'d, D, IN_N> {
-        &mut self.input
-    }
-}
-
-impl<'d, D: Driver<'d>, const IN_N: usize, const OUT_N: usize>
-    HidClass<'d, D, ReportReader<'d, D, OUT_N>, IN_N>
+impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize>
+    HidReaderWriter<'d, D, READ_N, WRITE_N>
 {
-    /// Creates a new HidClass.
+    /// Creates a new HidReaderWriter.
     ///
-    /// poll_ms configures how frequently the host should poll for reading/writing
-    /// HID reports. A lower value means better throughput & latency, at the expense
-    /// of CPU on the device & bandwidth on the bus. A value of 10 is reasonable for
-    /// high performance uses, and a value of 255 is good for best-effort usecases.
+    /// This will allocate one IN and one OUT endpoints. If you only need writing (sending)
+    /// HID reports, consider using [`HidWriter::new`] instead, which allocates an IN endpoint only.
     ///
-    /// This allocates two endpoints (IN and OUT).
-    pub fn with_output_ep(
+    pub fn new(
         builder: &mut UsbDeviceBuilder<'d, D>,
-        state: &'d mut State<'d, IN_N, OUT_N>,
-        report_descriptor: &'static [u8],
-        request_handler: Option<&'d dyn RequestHandler>,
-        poll_ms: u8,
-        max_packet_size: u16,
+        state: &'d mut State<'d>,
+        config: Config<'d>,
     ) -> Self {
-        let ep_out = builder.alloc_interrupt_endpoint_out(max_packet_size, poll_ms);
-        let ep_in = builder.alloc_interrupt_endpoint_in(max_packet_size, poll_ms);
-
-        let control = state.control.write(Control::new(
-            report_descriptor,
-            request_handler,
-            &state.out_report_offset,
-        ));
-        control.build(builder, Some(&ep_out), &ep_in);
+        let (ep_out, ep_in, offset) = build(builder, state, config, true);
 
         Self {
-            input: ReportWriter { ep_in },
-            output: ReportReader {
-                ep_out,
-                offset: &state.out_report_offset,
+            reader: HidReader {
+                ep_out: ep_out.unwrap(),
+                offset,
             },
+            writer: HidWriter { ep_in },
         }
     }
 
-    /// Gets the [`ReportReader`] for output reports.
-    pub fn output(&mut self) -> &mut ReportReader<'d, D, OUT_N> {
-        &mut self.output
+    /// Splits into seperate readers/writers for input and output reports.
+    pub fn split(self) -> (HidReader<'d, D, READ_N>, HidWriter<'d, D, WRITE_N>) {
+        (self.reader, self.writer)
     }
 
-    /// Splits this `HidClass` into seperate readers/writers for input and output reports.
-    pub fn split(self) -> (ReportWriter<'d, D, IN_N>, ReportReader<'d, D, OUT_N>) {
-        (self.input, self.output)
+    /// Waits for both IN and OUT endpoints to be enabled.
+    pub async fn ready(&mut self) -> () {
+        self.reader.ready().await;
+        self.writer.ready().await;
+    }
+
+    /// Writes an input report by serializing the given report structure.
+    #[cfg(feature = "usbd-hid")]
+    pub async fn write_serialize<IR: AsInputReport>(
+        &mut self,
+        r: &IR,
+    ) -> Result<(), EndpointError> {
+        self.writer.write_serialize(r).await
+    }
+
+    /// Writes `report` to its interrupt endpoint.
+    pub async fn write(&mut self, report: &[u8]) -> Result<(), EndpointError> {
+        self.writer.write(report).await
+    }
+
+    /// Reads an output report from the Interrupt Out pipe.
+    ///
+    /// See [`HidReader::read`].
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ReadError> {
+        self.reader.read(buf).await
     }
 }
 
-pub struct ReportWriter<'d, D: Driver<'d>, const N: usize> {
+pub struct HidWriter<'d, D: Driver<'d>, const N: usize> {
     ep_in: D::EndpointIn,
 }
 
-pub struct ReportReader<'d, D: Driver<'d>, const N: usize> {
+pub struct HidReader<'d, D: Driver<'d>, const N: usize> {
     ep_out: D::EndpointOut,
     offset: &'d AtomicUsize,
 }
@@ -197,17 +236,39 @@ impl From<embassy_usb::driver::EndpointError> for ReadError {
     }
 }
 
-impl<'d, D: Driver<'d>, const N: usize> ReportWriter<'d, D, N> {
+impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
+    /// Creates a new HidWriter.
+    ///
+    /// This will allocate one IN endpoint only, so the host won't be able to send
+    /// reports to us. If you need that, consider using [`HidReaderWriter::new`] instead.
+    ///
+    /// poll_ms configures how frequently the host should poll for reading/writing
+    /// HID reports. A lower value means better throughput & latency, at the expense
+    /// of CPU on the device & bandwidth on the bus. A value of 10 is reasonable for
+    /// high performance uses, and a value of 255 is good for best-effort usecases.
+    pub fn new(
+        builder: &mut UsbDeviceBuilder<'d, D>,
+        state: &'d mut State<'d>,
+        config: Config<'d>,
+    ) -> Self {
+        let (ep_out, ep_in, _offset) = build(builder, state, config, false);
+
+        assert!(ep_out.is_none());
+
+        Self { ep_in }
+    }
+
     /// Waits for the interrupt in endpoint to be enabled.
     pub async fn ready(&mut self) -> () {
         self.ep_in.wait_enabled().await
     }
 
-    /// Tries to write an input report by serializing the given report structure.
-    ///
-    /// Panics if no endpoint is available.
+    /// Writes an input report by serializing the given report structure.
     #[cfg(feature = "usbd-hid")]
-    pub async fn serialize<IR: AsInputReport>(&mut self, r: &IR) -> Result<(), EndpointError> {
+    pub async fn write_serialize<IR: AsInputReport>(
+        &mut self,
+        r: &IR,
+    ) -> Result<(), EndpointError> {
         let mut buf: [u8; N] = [0; N];
         let size = match serialize(&mut buf, r) {
             Ok(size) => size,
@@ -217,8 +278,6 @@ impl<'d, D: Driver<'d>, const N: usize> ReportWriter<'d, D, N> {
     }
 
     /// Writes `report` to its interrupt endpoint.
-    ///
-    /// Panics if no endpoint is available.
     pub async fn write(&mut self, report: &[u8]) -> Result<(), EndpointError> {
         assert!(report.len() <= N);
 
@@ -236,16 +295,13 @@ impl<'d, D: Driver<'d>, const N: usize> ReportWriter<'d, D, N> {
     }
 }
 
-impl<'d, D: Driver<'d>, const N: usize> ReportReader<'d, D, N> {
+impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
     /// Waits for the interrupt out endpoint to be enabled.
     pub async fn ready(&mut self) -> () {
         self.ep_out.wait_enabled().await
     }
 
-    /// Starts a task to deliver output reports from the Interrupt Out pipe to
-    /// `handler`.
-    ///
-    /// Terminates when the interface becomes disabled.
+    /// Delivers output reports from the Interrupt Out pipe to `handler`.
     ///
     /// If `use_report_ids` is true, the first byte of the report will be used as
     /// the `ReportId` value. Otherwise the `ReportId` value will be 0.
@@ -355,17 +411,17 @@ pub trait RequestHandler {
 }
 
 struct Control<'d> {
-    report_descriptor: &'static [u8],
+    report_descriptor: &'d [u8],
     request_handler: Option<&'d dyn RequestHandler>,
     out_report_offset: &'d AtomicUsize,
     hid_descriptor: [u8; 9],
 }
 
-impl<'a> Control<'a> {
+impl<'d> Control<'d> {
     fn new(
-        report_descriptor: &'static [u8],
-        request_handler: Option<&'a dyn RequestHandler>,
-        out_report_offset: &'a AtomicUsize,
+        report_descriptor: &'d [u8],
+        request_handler: Option<&'d dyn RequestHandler>,
+        out_report_offset: &'d AtomicUsize,
     ) -> Self {
         Control {
             report_descriptor,
@@ -389,47 +445,6 @@ impl<'a> Control<'a> {
                 (report_descriptor.len() & 0xFF) as u8,
                 (report_descriptor.len() >> 8 & 0xFF) as u8,
             ],
-        }
-    }
-
-    fn build<'d, D: Driver<'d>>(
-        &'d mut self,
-        builder: &mut UsbDeviceBuilder<'d, D>,
-        ep_out: Option<&D::EndpointOut>,
-        ep_in: &D::EndpointIn,
-    ) {
-        let len = self.report_descriptor.len();
-        let if_num = builder.alloc_interface_with_handler(self);
-
-        builder.config_descriptor.interface(
-            if_num,
-            USB_CLASS_HID,
-            USB_SUBCLASS_NONE,
-            USB_PROTOCOL_NONE,
-        );
-
-        // HID descriptor
-        builder.config_descriptor.write(
-            HID_DESC_DESCTYPE_HID,
-            &[
-                // HID Class spec version
-                HID_DESC_SPEC_1_10[0],
-                HID_DESC_SPEC_1_10[1],
-                // Country code not supported
-                HID_DESC_COUNTRY_UNSPEC,
-                // Number of following descriptors
-                1,
-                // We have a HID report descriptor the host should read
-                HID_DESC_DESCTYPE_HID_REPORT,
-                // HID report descriptor size,
-                (len & 0xFF) as u8,
-                (len >> 8 & 0xFF) as u8,
-            ],
-        );
-
-        builder.config_descriptor.endpoint(ep_in.info());
-        if let Some(ep) = ep_out {
-            builder.config_descriptor.endpoint(ep.info());
         }
     }
 }
