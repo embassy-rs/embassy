@@ -1,5 +1,7 @@
 use heapless::Vec;
 
+use crate::Interface;
+
 use super::control::ControlHandler;
 use super::descriptor::{BosWriter, DescriptorWriter};
 use super::driver::{Driver, Endpoint};
@@ -121,11 +123,10 @@ impl<'a> Config<'a> {
 pub struct Builder<'d, D: Driver<'d>> {
     config: Config<'d>,
     handler: Option<&'d dyn DeviceStateHandler>,
-    interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
+    interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
     control_buf: &'d mut [u8],
 
     driver: D,
-    next_interface_number: u8,
     next_string_index: u8,
 
     device_descriptor: DescriptorWriter<'d>,
@@ -180,7 +181,6 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             config,
             interfaces: Vec::new(),
             control_buf,
-            next_interface_number: 0,
             next_string_index: 4,
 
             device_descriptor,
@@ -234,7 +234,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     ) -> FunctionBuilder<'_, 'd, D> {
         let iface_count_index = if self.config.composite_with_iads {
             self.config_descriptor.iad(
-                InterfaceNumber::new(self.next_interface_number),
+                InterfaceNumber::new(self.interfaces.len() as _),
                 0,
                 class,
                 subclass,
@@ -275,13 +275,15 @@ impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
             self.builder.config_descriptor.buf[i] += 1;
         }
 
-        let number = self.builder.next_interface_number;
-        self.builder.next_interface_number += 1;
+        let number = self.builder.interfaces.len() as _;
+        let iface = Interface {
+            handler,
+            current_alt_setting: 0,
+            num_alt_settings: 0,
+        };
 
-        if let Some(handler) = handler {
-            if self.builder.interfaces.push((number, handler)).is_err() {
-                panic!("max interface count reached")
-            }
+        if self.builder.interfaces.push(iface).is_err() {
+            panic!("max interface count reached")
         }
 
         InterfaceBuilder {
@@ -318,6 +320,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceBuilder<'a, 'd, D> {
     ) -> InterfaceAltBuilder<'_, 'd, D> {
         let number = self.next_alt_setting_number;
         self.next_alt_setting_number += 1;
+        self.builder.interfaces[self.interface_number.0 as usize].num_alt_settings += 1;
 
         self.builder.config_descriptor.interface_alt(
             self.interface_number,

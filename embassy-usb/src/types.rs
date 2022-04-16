@@ -106,7 +106,7 @@ pub struct EndpointInfo {
 /// A handle for a USB interface that contains its number.
 #[derive(Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct InterfaceNumber(u8);
+pub struct InterfaceNumber(pub(crate) u8);
 
 impl InterfaceNumber {
     pub(crate) fn new(index: u8) -> InterfaceNumber {

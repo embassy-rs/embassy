@@ -1,5 +1,5 @@
 use super::builder::Config;
-use super::{types::*, CONFIGURATION_VALUE, DEFAULT_ALTERNATE_SETTING};
+use super::{types::*, CONFIGURATION_VALUE};
 
 /// Standard descriptor types
 #[allow(missing_docs)]
@@ -192,7 +192,7 @@ impl<'a> DescriptorWriter<'a> {
         interface_protocol: u8,
         interface_string: Option<StringIndex>,
     ) {
-        if alternate_setting == DEFAULT_ALTERNATE_SETTING {
+        if alternate_setting == 0 {
             match self.num_interfaces_mark {
                 Some(mark) => self.buf[mark] += 1,
                 None => {

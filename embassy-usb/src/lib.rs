@@ -8,11 +8,14 @@ pub(crate) mod fmt;
 mod builder;
 pub mod control;
 pub mod descriptor;
+mod descriptor_reader;
 pub mod driver;
 pub mod types;
 
 use embassy::util::{select, Either};
 use heapless::Vec;
+
+use crate::descriptor_reader::foreach_endpoint;
 
 use self::control::*;
 use self::descriptor::*;
@@ -61,9 +64,6 @@ pub const CONFIGURATION_NONE: u8 = 0;
 /// The bConfiguration value for the single configuration supported by this device.
 pub const CONFIGURATION_VALUE: u8 = 1;
 
-/// The default value for bAlternateSetting for all interfaces.
-pub const DEFAULT_ALTERNATE_SETTING: u8 = 0;
-
 pub const MAX_INTERFACE_COUNT: usize = 4;
 
 /// A handler trait for changes in the device state of the [UsbDevice].
@@ -87,6 +87,12 @@ pub trait DeviceStateHandler {
     fn remote_wakeup_enabled(&self, _enabled: bool) {}
 }
 
+struct Interface<'d> {
+    handler: Option<&'d mut dyn ControlHandler>,
+    current_alt_setting: u8,
+    num_alt_settings: u8,
+}
+
 pub struct UsbDevice<'d, D: Driver<'d>> {
     bus: D::Bus,
     handler: Option<&'d dyn DeviceStateHandler>,
@@ -104,7 +110,7 @@ pub struct UsbDevice<'d, D: Driver<'d>> {
     self_powered: bool,
     pending_address: u8,
 
-    interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
+    interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
@@ -115,7 +121,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         device_descriptor: &'d [u8],
         config_descriptor: &'d [u8],
         bos_descriptor: &'d [u8],
-        interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
+        interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
         control_buf: &'d mut [u8],
     ) -> UsbDevice<'d, D> {
         let control = driver
@@ -247,8 +253,12 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 self.remote_wakeup_enabled = false;
                 self.pending_address = 0;
 
-                for (_, h) in self.interfaces.iter_mut() {
-                    h.reset();
+                for iface in self.interfaces.iter_mut() {
+                    iface.current_alt_setting = 0;
+                    if let Some(h) = &mut iface.handler {
+                        h.reset();
+                        h.set_alternate_setting(0);
+                    }
                 }
 
                 if let Some(h) = &self.handler {
@@ -302,7 +312,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 }
                 (Request::SET_ADDRESS, addr @ 1..=127) => {
                     self.pending_address = addr as u8;
-                    self.bus.set_device_address(self.pending_address);
+                    self.bus.set_address(self.pending_address);
                     self.device_state = UsbDeviceState::Addressed;
                     if let Some(h) = &self.handler {
                         h.addressed(self.pending_address);
@@ -310,59 +320,110 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     self.control.accept(stage)
                 }
                 (Request::SET_CONFIGURATION, CONFIGURATION_VALUE_U16) => {
+                    debug!("SET_CONFIGURATION: configured");
                     self.device_state = UsbDeviceState::Configured;
-                    self.bus.set_configured(true);
+
+                    // Enable all endpoints of selected alt settings.
+                    foreach_endpoint(self.config_descriptor, |ep| {
+                        let iface = &self.interfaces[ep.interface as usize];
+                        self.bus.endpoint_set_enabled(
+                            ep.ep_address,
+                            iface.current_alt_setting == ep.interface_alt,
+                        );
+                    })
+                    .unwrap();
+
+                    // Notify handler.
                     if let Some(h) = &self.handler {
                         h.configured(true);
                     }
+
                     self.control.accept(stage)
                 }
                 (Request::SET_CONFIGURATION, CONFIGURATION_NONE_U16) => match self.device_state {
                     UsbDeviceState::Default => self.control.accept(stage),
                     _ => {
+                        debug!("SET_CONFIGURATION: unconfigured");
                         self.device_state = UsbDeviceState::Addressed;
-                        self.bus.set_configured(false);
+
+                        // Disable all endpoints.
+                        foreach_endpoint(self.config_descriptor, |ep| {
+                            self.bus.endpoint_set_enabled(ep.ep_address, false);
+                        })
+                        .unwrap();
+
+                        // Notify handler.
                         if let Some(h) = &self.handler {
                             h.configured(false);
                         }
+
                         self.control.accept(stage)
                     }
                 },
                 _ => self.control.reject(),
             },
+            (RequestType::Standard, Recipient::Interface) => {
+                let iface = match self.interfaces.get_mut(req.index as usize) {
+                    Some(iface) => iface,
+                    None => return self.control.reject(),
+                };
+
+                match req.request {
+                    Request::SET_INTERFACE => {
+                        let new_altsetting = req.value as u8;
+
+                        if new_altsetting >= iface.num_alt_settings {
+                            warn!("SET_INTERFACE: trying to select alt setting out of range.");
+                            return self.control.reject();
+                        }
+
+                        iface.current_alt_setting = new_altsetting;
+
+                        // Enable/disable EPs of this interface as needed.
+                        foreach_endpoint(self.config_descriptor, |ep| {
+                            if ep.interface == req.index as u8 {
+                                self.bus.endpoint_set_enabled(
+                                    ep.ep_address,
+                                    iface.current_alt_setting == ep.interface_alt,
+                                );
+                            }
+                        })
+                        .unwrap();
+
+                        // TODO check it is valid (not out of range)
+                        // TODO actually enable/disable endpoints.
+
+                        if let Some(handler) = &mut iface.handler {
+                            handler.set_alternate_setting(new_altsetting);
+                        }
+                        self.control.accept(stage)
+                    }
+                    _ => self.control.reject(),
+                }
+            }
             (RequestType::Standard, Recipient::Endpoint) => match (req.request, req.value) {
                 (Request::SET_FEATURE, Request::FEATURE_ENDPOINT_HALT) => {
                     let ep_addr = ((req.index as u8) & 0x8f).into();
-                    self.bus.set_stalled(ep_addr, true);
+                    self.bus.endpoint_set_stalled(ep_addr, true);
                     self.control.accept(stage)
                 }
                 (Request::CLEAR_FEATURE, Request::FEATURE_ENDPOINT_HALT) => {
                     let ep_addr = ((req.index as u8) & 0x8f).into();
-                    self.bus.set_stalled(ep_addr, false);
+                    self.bus.endpoint_set_stalled(ep_addr, false);
                     self.control.accept(stage)
                 }
                 _ => self.control.reject(),
             },
-            (_, Recipient::Interface) => {
-                let handler = self
-                    .interfaces
-                    .iter_mut()
-                    .find(|(i, _)| req.index == *i as _)
-                    .map(|(_, h)| h);
-
-                match handler {
-                    Some(handler) => {
-                        let response = match (req.request_type, req.request) {
-                            (RequestType::Standard, Request::SET_INTERFACE) => {
-                                handler.set_interface(req.value)
-                            }
-                            _ => handler.control_out(req, data),
-                        };
-                        match response {
-                            OutResponse::Accepted => self.control.accept(stage),
-                            OutResponse::Rejected => self.control.reject(),
-                        }
-                    }
+            (RequestType::Class, Recipient::Interface) => {
+                let iface = match self.interfaces.get_mut(req.index as usize) {
+                    Some(iface) => iface,
+                    None => return self.control.reject(),
+                };
+                match &mut iface.handler {
+                    Some(handler) => match handler.control_out(req, data) {
+                        OutResponse::Accepted => self.control.accept(stage),
+                        OutResponse::Rejected => self.control.reject(),
+                    },
                     None => self.control.reject(),
                 }
             }
@@ -406,41 +467,54 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 }
                 _ => self.control.reject(),
             },
+            (RequestType::Standard, Recipient::Interface) => {
+                let iface = match self.interfaces.get_mut(req.index as usize) {
+                    Some(iface) => iface,
+                    None => return self.control.reject(),
+                };
+
+                match req.request {
+                    Request::GET_STATUS => {
+                        let status: u16 = 0;
+                        self.control.accept_in(&status.to_le_bytes(), stage).await
+                    }
+                    Request::GET_INTERFACE => {
+                        self.control
+                            .accept_in(&[iface.current_alt_setting], stage)
+                            .await;
+                    }
+                    Request::GET_DESCRIPTOR => match &mut iface.handler {
+                        Some(handler) => match handler.get_descriptor(req, self.control_buf) {
+                            InResponse::Accepted(data) => self.control.accept_in(data, stage).await,
+                            InResponse::Rejected => self.control.reject(),
+                        },
+                        None => self.control.reject(),
+                    },
+                    _ => self.control.reject(),
+                }
+            }
             (RequestType::Standard, Recipient::Endpoint) => match req.request {
                 Request::GET_STATUS => {
                     let ep_addr: EndpointAddress = ((req.index as u8) & 0x8f).into();
                     let mut status: u16 = 0x0000;
-                    if self.bus.is_stalled(ep_addr) {
+                    if self.bus.endpoint_is_stalled(ep_addr) {
                         status |= 0x0001;
                     }
                     self.control.accept_in(&status.to_le_bytes(), stage).await
                 }
                 _ => self.control.reject(),
             },
-            (_, Recipient::Interface) => {
-                let handler = self
-                    .interfaces
-                    .iter_mut()
-                    .find(|(i, _)| req.index == *i as _)
-                    .map(|(_, h)| h);
+            (RequestType::Class, Recipient::Interface) => {
+                let iface = match self.interfaces.get_mut(req.index as usize) {
+                    Some(iface) => iface,
+                    None => return self.control.reject(),
+                };
 
-                match handler {
-                    Some(handler) => {
-                        let response = match (req.request_type, req.request) {
-                            (RequestType::Standard, Request::GET_STATUS) => {
-                                handler.get_status(self.control_buf)
-                            }
-                            (RequestType::Standard, Request::GET_INTERFACE) => {
-                                handler.get_interface(self.control_buf)
-                            }
-                            _ => handler.control_in(req, self.control_buf),
-                        };
-
-                        match response {
-                            InResponse::Accepted(data) => self.control.accept_in(data, stage).await,
-                            InResponse::Rejected => self.control.reject(),
-                        }
-                    }
+                match &mut iface.handler {
+                    Some(handler) => match handler.control_in(req, self.control_buf) {
+                        InResponse::Accepted(data) => self.control.accept_in(data, stage).await,
+                        InResponse::Rejected => self.control.reject(),
+                    },
                     None => self.control.reject(),
                 }
             }

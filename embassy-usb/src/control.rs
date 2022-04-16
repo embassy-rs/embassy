@@ -2,7 +2,6 @@ use core::mem;
 
 use crate::descriptor::DescriptorWriter;
 use crate::driver::{self, EndpointError};
-use crate::DEFAULT_ALTERNATE_SETTING;
 
 use super::types::*;
 
@@ -150,6 +149,10 @@ pub trait ControlHandler {
     /// Called after a USB reset after the bus reset sequence is complete.
     fn reset(&mut self) {}
 
+    fn set_alternate_setting(&mut self, alternate_setting: u8) {
+        let _ = alternate_setting;
+    }
+
     /// Called when a control request is received with direction HostToDevice.
     ///
     /// # Arguments
@@ -163,8 +166,8 @@ pub trait ControlHandler {
 
     /// Called when a control request is received with direction DeviceToHost.
     ///
-    /// You should write the response to `resp`, then return `InResponse::Accepted(len)`
-    /// with the length of the response.
+    /// You should write the response somewhere (usually to `buf`, but you may use another buffer
+    /// owned by yourself, or a static buffer), then return `InResponse::Accepted(data)`.
     ///
     /// # Arguments
     ///
@@ -174,23 +177,17 @@ pub trait ControlHandler {
         InResponse::Rejected
     }
 
-    fn set_interface(&mut self, alternate_setting: u16) -> OutResponse {
-        if alternate_setting == u16::from(DEFAULT_ALTERNATE_SETTING) {
-            OutResponse::Accepted
-        } else {
-            OutResponse::Rejected
-        }
-    }
-
-    fn get_interface<'a>(&'a mut self, buf: &'a mut [u8]) -> InResponse<'a> {
-        buf[0] = DEFAULT_ALTERNATE_SETTING;
-        InResponse::Accepted(&buf[0..1])
-    }
-
-    fn get_status<'a>(&'a mut self, buf: &'a mut [u8]) -> InResponse {
-        let status: u16 = 0;
-        buf[0..2].copy_from_slice(&status.to_le_bytes());
-        InResponse::Accepted(&buf[0..2])
+    /// Called when a GET DESCRIPTOR control request is received on the interface.
+    ///
+    /// You should write the response somewhere (usually to `buf`, but you may use another buffer
+    /// owned by yourself, or a static buffer), then return `InResponse::Accepted(data)`.
+    ///
+    /// # Arguments
+    ///
+    /// * `req` - The request from the SETUP packet.
+    fn get_descriptor<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
+        let _ = (req, buf);
+        InResponse::Rejected
     }
 }
 
