@@ -52,7 +52,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut control_buf = [0; 16];
     let request_handler = MyRequestHandler {};
 
-    let mut control = State::new();
+    let mut state = State::new();
 
     let mut builder = UsbDeviceBuilder::new(
         driver,
@@ -65,14 +65,14 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     );
 
     // Create classes on the builder.
-    let mut writer = HidWriter::<_, 5>::new(
-        &mut builder,
-        &mut control,
-        MouseReport::desc(),
-        Some(&request_handler),
-        60,
-        8,
-    );
+    let config = embassy_usb_hid::Config {
+        report_descriptor: MouseReport::desc(),
+        request_handler: Some(&request_handler),
+        poll_ms: 60,
+        max_packet_size: 8,
+    };
+
+    let mut writer = HidWriter::<_, 5>::new(&mut builder, &mut state, config);
 
     // Build the builder.
     let mut usb = builder.build();

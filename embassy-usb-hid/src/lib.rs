@@ -41,6 +41,24 @@ const HID_REQ_SET_REPORT: u8 = 0x09;
 const HID_REQ_GET_PROTOCOL: u8 = 0x03;
 const HID_REQ_SET_PROTOCOL: u8 = 0x0b;
 
+pub struct Config<'d> {
+    /// HID report descriptor.
+    pub report_descriptor: &'d [u8],
+
+    /// Handler for control requests.
+    pub request_handler: Option<&'d dyn RequestHandler>,
+
+    /// Configures how frequently the host should poll for reading/writing HID reports.
+    ///
+    /// A lower value means better throughput & latency, at the expense
+    /// of CPU on the device & bandwidth on the bus. A value of 10 is reasonable for
+    /// high performance uses, and a value of 255 is good for best-effort usecases.
+    pub poll_ms: u8,
+
+    /// Max packet size for both the IN and OUT endpoints.
+    pub max_packet_size: u16,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ReportId {
@@ -82,23 +100,20 @@ pub struct HidReaderWriter<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N
 fn build<'d, D: Driver<'d>>(
     builder: &mut UsbDeviceBuilder<'d, D>,
     state: &'d mut State<'d>,
-    report_descriptor: &'static [u8],
-    request_handler: Option<&'d dyn RequestHandler>,
-    poll_ms: u8,
-    max_packet_size: u16,
+    config: Config<'d>,
     with_out_endpoint: bool,
 ) -> (Option<D::EndpointOut>, D::EndpointIn, &'d AtomicUsize) {
     let control = state.control.write(Control::new(
-        report_descriptor,
-        request_handler,
+        config.report_descriptor,
+        config.request_handler,
         &state.out_report_offset,
     ));
 
-    let len = report_descriptor.len();
+    let len = config.report_descriptor.len();
     let if_num = builder.alloc_interface_with_handler(control);
-    let ep_in = builder.alloc_interrupt_endpoint_in(max_packet_size, poll_ms);
+    let ep_in = builder.alloc_interrupt_endpoint_in(config.max_packet_size, config.poll_ms);
     let ep_out = if with_out_endpoint {
-        Some(builder.alloc_interrupt_endpoint_out(max_packet_size, poll_ms))
+        Some(builder.alloc_interrupt_endpoint_out(config.max_packet_size, config.poll_ms))
     } else {
         None
     };
@@ -145,27 +160,12 @@ impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize>
     /// This will allocate one IN and one OUT endpoints. If you only need writing (sending)
     /// HID reports, consider using [`HidWriter::new`] instead, which allocates an IN endpoint only.
     ///
-    /// poll_ms configures how frequently the host should poll for reading/writing
-    /// HID reports. A lower value means better throughput & latency, at the expense
-    /// of CPU on the device & bandwidth on the bus. A value of 10 is reasonable for
-    /// high performance uses, and a value of 255 is good for best-effort usecases.
     pub fn new(
         builder: &mut UsbDeviceBuilder<'d, D>,
         state: &'d mut State<'d>,
-        report_descriptor: &'static [u8],
-        request_handler: Option<&'d dyn RequestHandler>,
-        poll_ms: u8,
-        max_packet_size: u16,
+        config: Config<'d>,
     ) -> Self {
-        let (ep_out, ep_in, offset) = build(
-            builder,
-            state,
-            report_descriptor,
-            request_handler,
-            poll_ms,
-            max_packet_size,
-            true,
-        );
+        let (ep_out, ep_in, offset) = build(builder, state, config, true);
 
         Self {
             reader: HidReader {
@@ -249,20 +249,9 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
     pub fn new(
         builder: &mut UsbDeviceBuilder<'d, D>,
         state: &'d mut State<'d>,
-        report_descriptor: &'static [u8],
-        request_handler: Option<&'d dyn RequestHandler>,
-        poll_ms: u8,
-        max_packet_size: u16,
+        config: Config<'d>,
     ) -> Self {
-        let (ep_out, ep_in, _offset) = build(
-            builder,
-            state,
-            report_descriptor,
-            request_handler,
-            poll_ms,
-            max_packet_size,
-            false,
-        );
+        let (ep_out, ep_in, _offset) = build(builder, state, config, false);
 
         assert!(ep_out.is_none());
 
@@ -422,17 +411,17 @@ pub trait RequestHandler {
 }
 
 struct Control<'d> {
-    report_descriptor: &'static [u8],
+    report_descriptor: &'d [u8],
     request_handler: Option<&'d dyn RequestHandler>,
     out_report_offset: &'d AtomicUsize,
     hid_descriptor: [u8; 9],
 }
 
-impl<'a> Control<'a> {
+impl<'d> Control<'d> {
     fn new(
-        report_descriptor: &'static [u8],
-        request_handler: Option<&'a dyn RequestHandler>,
-        out_report_offset: &'a AtomicUsize,
+        report_descriptor: &'d [u8],
+        request_handler: Option<&'d dyn RequestHandler>,
+        out_report_offset: &'d AtomicUsize,
     ) -> Self {
         Control {
             report_descriptor,
