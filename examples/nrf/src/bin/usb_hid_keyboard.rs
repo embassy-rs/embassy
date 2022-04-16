@@ -17,7 +17,7 @@ use embassy_nrf::pac;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::Peripherals;
 use embassy_usb::control::OutResponse;
-use embassy_usb::{Config, DeviceStateHandler, UsbDeviceBuilder};
+use embassy_usb::{Builder, Config, DeviceStateHandler};
 use embassy_usb_hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use futures::future::join;
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
@@ -77,7 +77,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let mut state = State::new();
 
-    let mut builder = UsbDeviceBuilder::new(
+    let mut builder = Builder::new(
         driver,
         config,
         &mut device_descriptor,

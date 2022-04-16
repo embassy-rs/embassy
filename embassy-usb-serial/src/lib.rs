@@ -11,7 +11,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use embassy::blocking_mutex::CriticalSectionMutex;
 use embassy_usb::control::{self, ControlHandler, InResponse, OutResponse, Request};
 use embassy_usb::driver::{Endpoint, EndpointError, EndpointIn, EndpointOut};
-use embassy_usb::{driver::Driver, types::*, UsbDeviceBuilder};
+use embassy_usb::{driver::Driver, types::*, Builder};
 
 /// This should be used as `device_class` when building the `UsbDevice`.
 pub const USB_CLASS_CDC: u8 = 0x02;
@@ -163,7 +163,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Creates a new CdcAcmClass with the provided UsbBus and max_packet_size in bytes. For
     /// full-speed devices, max_packet_size has to be one of 8, 16, 32 or 64.
     pub fn new(
-        builder: &mut UsbDeviceBuilder<'d, D>,
+        builder: &mut Builder<'d, D>,
         state: &'d mut State<'d>,
         max_packet_size: u16,
     ) -> Self {

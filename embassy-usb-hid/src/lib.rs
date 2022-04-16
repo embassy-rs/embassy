@@ -16,7 +16,7 @@ use embassy_usb::driver::EndpointOut;
 use embassy_usb::{
     control::{ControlHandler, InResponse, OutResponse, Request, RequestType},
     driver::{Driver, Endpoint, EndpointError, EndpointIn},
-    UsbDeviceBuilder,
+    Builder,
 };
 
 #[cfg(feature = "usbd-hid")]
@@ -98,7 +98,7 @@ pub struct HidReaderWriter<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N
 }
 
 fn build<'d, D: Driver<'d>>(
-    builder: &mut UsbDeviceBuilder<'d, D>,
+    builder: &mut Builder<'d, D>,
     state: &'d mut State<'d>,
     config: Config<'d>,
     with_out_endpoint: bool,
@@ -160,11 +160,7 @@ impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize>
     /// This will allocate one IN and one OUT endpoints. If you only need writing (sending)
     /// HID reports, consider using [`HidWriter::new`] instead, which allocates an IN endpoint only.
     ///
-    pub fn new(
-        builder: &mut UsbDeviceBuilder<'d, D>,
-        state: &'d mut State<'d>,
-        config: Config<'d>,
-    ) -> Self {
+    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
         let (ep_out, ep_in, offset) = build(builder, state, config, true);
 
         Self {
@@ -246,11 +242,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
     /// HID reports. A lower value means better throughput & latency, at the expense
     /// of CPU on the device & bandwidth on the bus. A value of 10 is reasonable for
     /// high performance uses, and a value of 255 is good for best-effort usecases.
-    pub fn new(
-        builder: &mut UsbDeviceBuilder<'d, D>,
-        state: &'d mut State<'d>,
-        config: Config<'d>,
-    ) -> Self {
+    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
         let (ep_out, ep_in, _offset) = build(builder, state, config, false);
 
         assert!(ep_out.is_none());

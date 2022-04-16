@@ -118,7 +118,7 @@ impl<'a> Config<'a> {
 }
 
 /// Used to build new [`UsbDevice`]s.
-pub struct UsbDeviceBuilder<'d, D: Driver<'d>> {
+pub struct Builder<'d, D: Driver<'d>> {
     config: Config<'d>,
     handler: Option<&'d dyn DeviceStateHandler>,
     interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
@@ -134,7 +134,7 @@ pub struct UsbDeviceBuilder<'d, D: Driver<'d>> {
     pub bos_descriptor: BosWriter<'d>,
 }
 
-impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
+impl<'d, D: Driver<'d>> Builder<'d, D> {
     /// Creates a builder for constructing a new [`UsbDevice`].
     ///
     /// `control_buf` is a buffer used for USB control request data. It should be sized
@@ -175,7 +175,7 @@ impl<'d, D: Driver<'d>> UsbDeviceBuilder<'d, D> {
         config_descriptor.configuration(&config);
         bos_descriptor.bos();
 
-        UsbDeviceBuilder {
+        Builder {
             driver,
             handler,
             config,
