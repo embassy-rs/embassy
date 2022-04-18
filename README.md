@@ -21,7 +21,7 @@ No more messing with hardware timers. <a href="https://docs.embassy.dev/embassy/
 - **Real-time ready** - 
 Tasks on the same async executor run cooperatively, but you can create multiple executors with different priorities, so that higher priority tasks preempt lower priority ones. See the <a href="https://github.com/embassy-rs/embassy/blob/master/examples/nrf/src/bin/multiprio.rs">example</a>.
 
-- **Low-power ready* - 
+- **Low-power ready** - 
 Easily build devices with years of battery life. The async executor automatically puts the core to sleep when there's no work to do. Tasks are woken by interrupts, there is no busy-loop polling while waiting.
  
 - **Networking** - 
