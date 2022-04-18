@@ -11,33 +11,32 @@ Rust's <a href="https://rust-lang.github.io/async-book/">async/await</a> allows 
 
 ## Batteries included
 
-- **Hardware Abstraction Layers**
-HALs implement safe, idiomatic Rust APIs to use the hardware capabilities, so raw register manipulation is not needed. The Embassy project maintains HALs for select hardware, but you can still use HALs from other projects with Embassy.
+- **Hardware Abstraction Layers** - HALs implement safe, idiomatic Rust APIs to use the hardware capabilities, so raw register manipulation is not needed. The Embassy project maintains HALs for select hardware, but you can still use HALs from other projects with Embassy.
   - <a href="https://docs.embassy.dev/embassy-stm32/">embassy-stm32</a>, for all STM32 microcontroller families.
   - <a href="https://docs.embassy.dev/embassy-nrf/">embassy-nrf</a>, for the Nordic Semiconductor nRF52, nRF53, nRF91 series.
 
-- **Time that Just Works**
+- **Time that Just Works** - 
 No more messing with hardware timers. <a href="https://docs.embassy.dev/embassy/git/thumbv7em-none-eabihf/time/index.html">embassy::time</a> provides Instant, Duration and Timer types that are globally available and never overflow.
 
-- **Real-time ready**
+- **Real-time ready** - 
 Tasks on the same async executor run cooperatively, but you can create multiple executors with different priorities, so that higher priority tasks preempt lower priority ones. See the <a href="https://github.com/embassy-rs/embassy/blob/master/examples/nrf/src/bin/multiprio.rs">example</a>.
 
-- **Low-power ready*
+- **Low-power ready* - 
 Easily build devices with years of battery life. The async executor automatically puts the core to sleep when there's no work to do. Tasks are woken by interrupts, there is no busy-loop polling while waiting.
  
-- **Networking**
+- **Networking** - 
 The <a href="https://docs.embassy.dev/embassy-net/">embassy-net</a> network stack implements extensive networking functionality, including Ethernet, IP, TCP, UDP, ICMP and DHCP. Async drastically simplifies managing timeouts and serving multiple connections concurrently.
 
-- **Bluetooth**
+- **Bluetooth** - 
 The <a href="https://github.com/embassy-rs/nrf-softdevice">nrf-softdevice</a> crate provides Bluetooth Low Energy 4.x and 5.x support for nRF52 microcontrollers.
 
-- **LoRa**
+- **LoRa** - 
 <a href="https://docs.embassy.dev/embassy-lora/">embassy-lora</a> supports LoRa networking on STM32WL wireless microcontrollers and Semtech SX127x transceivers.
 
-- **USB**
+- **USB** - 
 <a href="https://docs.embassy.dev/embassy-usb/">embassy-usb</a> implements a device-side USB stack. Implementations for common classes such as USB serial (CDC ACM) and USB HID are available, and a rich builder API allows building your own.
 
-- **Bootloader and DFU**
+- **Bootloader and DFU** - 
 <a href="https://github.com/embassy-rs/embassy/tree/master/embassy-boot">embassy-boot</a> is a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
 
 
