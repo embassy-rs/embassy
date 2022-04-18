@@ -81,7 +81,6 @@ async fn main(spawner: Spawner, p: Peripherals) {
     }
 }
 ```
- `Clock` and `Alarm`, for use with `embassy::executor`.
 
 ## Examples
 
