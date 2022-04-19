@@ -4,7 +4,9 @@
 
 mod fmt;
 
-pub use embassy_boot::{FirmwareUpdater, Partition, State, BOOT_MAGIC};
+pub use embassy_boot::{
+    FirmwareUpdater, FlashProvider, Partition, SingleFlashProvider, State, BOOT_MAGIC,
+};
 use embassy_nrf::{
     nvmc::{Nvmc, PAGE_SIZE},
     peripherals::WDT,
@@ -62,7 +64,7 @@ impl BootLoader {
     }
 
     /// Boots the application without softdevice mechanisms
-    pub fn prepare<F: NorFlash + ReadNorFlash>(&mut self, flash: &mut F) -> usize {
+    pub fn prepare<F: FlashProvider>(&mut self, flash: &mut F) -> usize {
         match self.boot.prepare_boot(flash) {
             Ok(_) => self.boot.boot_address(),
             Err(_) => panic!("boot prepare error!"),

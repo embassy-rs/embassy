@@ -1,5 +1,4 @@
 [unstable]
-namespaced-features = true
 build-std = ["core"]
 build-std-features = ["panic_immediate_abort"]
 
