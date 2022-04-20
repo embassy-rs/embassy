@@ -5,8 +5,8 @@ name = "embassy-boot-examples"
 version = "0.1.0"
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy" }
-embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["time-driver-rtc1", "gpiote"] }
+embassy = { version = "0.1.0", path = "../../embassy", features = ["nightly"] }
+embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["time-driver-rtc1", "gpiote", "nightly"] }
 embassy-boot-nrf = { version = "0.1.0", path = "../../embassy-boot/nrf" }
 embassy-traits = { version = "0.1.0", path = "../../embassy-traits" }
 

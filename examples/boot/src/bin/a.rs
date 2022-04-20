@@ -12,7 +12,6 @@ use embassy_nrf::{
     Peripherals,
 };
 use embassy_traits::adapter::BlockingAsync;
-use embedded_hal::digital::v2::InputPin;
 use panic_reset as _;
 
 static APP_B: &[u8] = include_bytes!("../../b.bin");
@@ -29,14 +28,14 @@ async fn main(_s: embassy::executor::Spawner, p: Peripherals) {
 
     loop {
         button.wait_for_any_edge().await;
-        if button.is_low().unwrap() {
+        if button.is_low() {
             let mut updater = updater::new();
             let mut offset = 0;
             for chunk in APP_B.chunks(4096) {
                 let mut buf: [u8; 4096] = [0; 4096];
                 buf[..chunk.len()].copy_from_slice(chunk);
                 updater
-                    .write_firmware(offset, &buf, &mut nvmc)
+                    .write_firmware(offset, &buf, &mut nvmc, 4096)
                     .await
                     .unwrap();
                 offset += chunk.len();
