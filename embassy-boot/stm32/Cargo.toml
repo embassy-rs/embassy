@@ -3,35 +3,35 @@ authors = [
     "Ulf Lilleengen <lulf@redhat.com>",
 ]
 edition = "2018"
-name = "embassy-boot-nrf"
+name = "embassy-boot-stm32"
 version = "0.1.0"
-description = "Bootloader for nRF chips"
+description = "Bootloader for STM32 chips"
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.3", optional = true }
 
 embassy = { path = "../../embassy", default-features = false }
-embassy-nrf = { path = "../../embassy-nrf", default-features = false, features = ["nightly"] }
-embassy-boot = { path = "../boot", default-features = false, features = ["write-4"] }
+embassy-stm32 = { path = "../../embassy-stm32", default-features = false, features = ["nightly"] }
+embassy-boot = { path = "../boot", default-features = false }
 cortex-m = { version = "0.7" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.3.0"
 cfg-if = "1.0.0"
 
-nrf-softdevice-mbr = { version = "0.1.0", git = "https://github.com/embassy-rs/nrf-softdevice.git", branch = "master", optional = true }
-
 [features]
 defmt = [
     "dep:defmt",
     "embassy-boot/defmt",
-    "embassy-nrf/defmt",
-]
-softdevice = [
-    "nrf-softdevice-mbr",
+    "embassy-stm32/defmt",
 ]
 debug = ["defmt-rtt"]
+flash-2k = ["embassy-boot/write-8"]
+flash-128 = ["embassy-boot/write-4"]
+flash-256 = ["embassy-boot/write-4"]
+invert-erase = ["embassy-boot/invert-erase"]
+thumbv6 = []
 
 [profile.dev]
 debug = 2

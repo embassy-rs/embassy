@@ -4,7 +4,7 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-use embassy_boot_nrf::updater;
+use embassy_boot_nrf::FirmwareUpdater;
 use embassy_nrf::{
     gpio::{Input, Pull},
     gpio::{Level, Output, OutputDrive},
@@ -26,10 +26,10 @@ async fn main(_s: embassy::executor::Spawner, p: Peripherals) {
     let nvmc = Nvmc::new(p.NVMC);
     let mut nvmc = BlockingAsync::new(nvmc);
 
+    let mut updater = FirmwareUpdater::default();
     loop {
         button.wait_for_any_edge().await;
         if button.is_low() {
-            let mut updater = updater::new();
             let mut offset = 0;
             for chunk in APP_B.chunks(4096) {
                 let mut buf: [u8; 4096] = [0; 4096];

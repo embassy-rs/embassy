@@ -1,0 +1,32 @@
+= Bootloader
+
+`embassy-boot` a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
+
+The bootloader can be used either as a library or be flashed directly if you are happy with the default configuration and capabilities.
+
+By design, the bootloader does not provide any network capabilities. Networking capabilities for fetching new firmware can be provided by the user application, using the bootloader as a library for updating the firmware, or by using the bootloader as a library and adding this capability yourself.
+
+The bootloader supports both internal and external flash by relying on the `embedded-storage` traits.
+
+
+== Hardware support
+
+The bootloader supports
+
+* nRF52 with and without softdevice
+* STM32 L4, WB, WL, L1 and L0
+
+In general, the bootloader works on any platform that implements the `embedded-storage` traits for its internal flash, but may require custom initialization code to work.
+
+== Design
+
+The bootloader divides the storage into 4 main partitions, configured by a linker script:
+
+* BOOTLOADER - Where the bootloader is placed. The bootloader itself consumes about 8kB of flash.
+* ACTIVE - Where the main application is placed. The bootloader will attempt to load the application at the start of this partition. This partition is only written to by the bootloader.
+* DFU - Where the application-to-be-swapped is placed. This partition is written to by the application.
+* BOOTLOADER STATE - Where the bootloader stores the current state describing if the active and dfu partitions need to be swapped. When the new firmware has been written to the DFU partition, a flag is set to instruct the bootloader that the partitions should be swapped.
+
+The partitions for ACTIVE (+BOOTLOADER), DFU and BOOTLOADER_STATE may be placed in separate flash, but they have to support compatible page sizes.
+
+The bootloader has a platform-agnostic part, which implements the power fail safe swapping algorithm given the boundaries set by the partitions. The platform-specific part is a minimal shim that provides additional functionality such as watchdogs or supporting the nRF52 softdevice.
