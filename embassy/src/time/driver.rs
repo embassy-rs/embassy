@@ -103,7 +103,7 @@ pub trait Driver: Send + Sync + 'static {
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ());
 
     /// Sets an alarm at the given timestamp. When the current timestamp reaches the alarm
-    /// timestamp, the provided callback funcion will be called.
+    /// timestamp, the provided callback function will be called.
     ///
     /// If `timestamp` is already in the past, the alarm callback must be immediately fired.
     /// In this case, it is allowed (but not mandatory) to call the alarm callback synchronously from `set_alarm`.
