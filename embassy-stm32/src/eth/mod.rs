@@ -1,5 +1,6 @@
 #![macro_use]
 
+#[cfg_attr(eth_v1a, path = "v1a/mod.rs")]
 #[cfg_attr(eth_v1c, path = "v1c/mod.rs")]
 #[cfg_attr(eth_v2, path = "v2/mod.rs")]
 #[cfg_attr(eth_v1, path = "v1.rs")]
