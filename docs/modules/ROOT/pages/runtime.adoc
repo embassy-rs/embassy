@@ -14,7 +14,7 @@ The Embassy runtime is an async/await executor designed for embedded usage along
 
 == Executor
 
-The executor function is described below. The executor keeps a queue of tasks that it should poll. When a task is created, it is polled (1). The task will attempt to make progress until it reaches a point where it would be blocked. This may happen whenever a task is .await'ing an async function. When that happens, the task yields execution by (2) returning `Poll::Pending`. Once a task yields, the executor enqueues the task at the end of the run queue, and proceeds to (3) poll the next task in the queue. If a task returns `Poll::Ready` it essentially means that the task is finished and will not be enqueued again.
+The executor function is described below. The executor keeps a queue of tasks that it should poll. When a task is created, it is polled (1). The task will attempt to make progress until it reaches a point where it would be blocked. This may happen whenever a task is .await'ing an async function. When that happens, the task yields execution by (2) returning `Poll::Pending`. Once a task yields, the executor enqueues the task at the end of the run queue, and proceeds to (3) poll the next task in the queue. When a task is finished or canceled, it will not be enqueued again.
 
 IMPORTANT: The executor relies on tasks not blocking indefinitely, as this prevents the executor to regain control and schedule another task.
 
