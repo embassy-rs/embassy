@@ -363,7 +363,7 @@ mod eh1 {
 }
 
 cfg_if::cfg_if! {
-    if #[cfg(all(feature = "unstable-traits", feature = "nightly"))] {
+    if #[cfg(all(feature = "unstable-traits", feature = "nightly", feature = "_todo_embedded_hal_serial"))] {
         use core::future::Future;
 
         impl<'d, T: Instance, TxDma> embedded_hal_async::serial::Write for UartTx<'d, T, TxDma>
