@@ -267,17 +267,14 @@ impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
     /// Add an interface to the function.
     ///
     /// Interface numbers are guaranteed to be allocated consecutively, starting from 0.
-    pub fn interface(
-        &mut self,
-        handler: Option<&'d mut dyn ControlHandler>,
-    ) -> InterfaceBuilder<'_, 'd, D> {
+    pub fn interface(&mut self) -> InterfaceBuilder<'_, 'd, D> {
         if let Some(i) = self.iface_count_index {
             self.builder.config_descriptor.buf[i] += 1;
         }
 
         let number = self.builder.interfaces.len() as _;
         let iface = Interface {
-            handler,
+            handler: None,
             current_alt_setting: 0,
             num_alt_settings: 0,
         };
@@ -305,6 +302,10 @@ impl<'a, 'd, D: Driver<'d>> InterfaceBuilder<'a, 'd, D> {
     /// Get the interface number.
     pub fn interface_number(&self) -> InterfaceNumber {
         self.interface_number
+    }
+
+    pub fn handler(&mut self, handler: &'d mut dyn ControlHandler) {
+        self.builder.interfaces[self.interface_number.0 as usize].handler = Some(handler);
     }
 
     /// Add an alternate setting to the interface and write its descriptor.
