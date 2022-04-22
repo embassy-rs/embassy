@@ -110,9 +110,9 @@ mod shared_spi {
     use core::cell::RefCell;
     use core::fmt::Debug;
 
-    use embedded_hal::digital::blocking::OutputPin;
-    use embedded_hal::spi;
-    use embedded_hal::spi::blocking::SpiDevice;
+    use embedded_hal_1::digital::blocking::OutputPin;
+    use embedded_hal_1::spi;
+    use embedded_hal_1::spi::blocking::SpiDevice;
 
     #[derive(Copy, Clone, Eq, PartialEq, Debug)]
     pub enum SpiDeviceWithCsError<BUS, CS> {
@@ -184,7 +184,7 @@ mod shared_spi {
 
 /// Driver for the XPT2046 resistive touchscreen sensor
 mod touch {
-    use embedded_hal::spi::blocking::{SpiBus, SpiBusRead, SpiBusWrite, SpiDevice};
+    use embedded_hal_1::spi::blocking::{SpiBus, SpiBusRead, SpiBusWrite, SpiDevice};
 
     struct Calibration {
         x1: i32,
@@ -248,8 +248,8 @@ mod touch {
 
 mod my_display_interface {
     use display_interface::{DataFormat, DisplayError, WriteOnlyDataCommand};
-    use embedded_hal::digital::blocking::OutputPin;
-    use embedded_hal::spi::blocking::{SpiBusWrite, SpiDevice};
+    use embedded_hal_1::digital::blocking::OutputPin;
+    use embedded_hal_1::spi::blocking::{SpiBusWrite, SpiDevice};
 
     /// SPI display interface.
     ///

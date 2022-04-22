@@ -935,7 +935,7 @@ mod eh1 {
 }
 
 cfg_if::cfg_if! {
-    if #[cfg(all(feature = "unstable-traits", feature = "nightly"))] {
+    if #[cfg(all(feature = "unstable-traits", feature = "nightly", feature = "_todo_embedded_hal_serial"))] {
         use core::future::Future;
 
         impl<'d, T: Instance> embedded_hal_async::serial::Read for Uarte<'d, T> {

@@ -161,6 +161,7 @@ where
     type Error = E;
 }
 
+#[cfg(feature = "_todo_embedded_hal_serial")]
 impl<T, E> embedded_hal_async::serial::Read for BlockingAsync<T>
 where
     T: serial::Read<u8, Error = E>,
@@ -185,6 +186,7 @@ where
     }
 }
 
+#[cfg(feature = "_todo_embedded_hal_serial")]
 impl<T, E> embedded_hal_async::serial::Write for BlockingAsync<T>
 where
     T: blocking::serial::Write<u8, Error = E> + serial::Read<u8, Error = E>,

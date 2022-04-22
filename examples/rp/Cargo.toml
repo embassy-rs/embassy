@@ -20,7 +20,8 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 display-interface-spi = "0.4.1"
 embedded-graphics = "0.7.1"
 st7789 = "0.6.1"
-
-embedded-hal = { version = "1.0.0-alpha.7", git = "https://github.com/embassy-rs/embedded-hal", branch = "embassy2" }
 display-interface = "0.4.1"
 byte-slice-cast = { version = "1.2.0", default-features = false }
+
+embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
+embedded-hal-async = { version = "0.1.0-alpha.0" }
