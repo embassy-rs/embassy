@@ -194,16 +194,12 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     fn into_bus(self) -> Self::Bus {
         Bus {
             phantom: PhantomData,
-            alloc_in: self.alloc_in,
-            alloc_out: self.alloc_out,
         }
     }
 }
 
 pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
-    alloc_in: Allocator,
-    alloc_out: Allocator,
 }
 
 impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
@@ -264,7 +260,16 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             if regs.events_usbreset.read().bits() != 0 {
                 regs.events_usbreset.reset();
                 regs.intenset.write(|w| w.usbreset().set());
-                self.set_configured(false);
+
+                // Disable all endpoints except EP0
+                regs.epinen.write(|w| unsafe { w.bits(0x01) });
+                regs.epouten.write(|w| unsafe { w.bits(0x01) });
+                READY_ENDPOINTS.store(In::mask(0), Ordering::Release);
+                for i in 1..=7 {
+                    In::waker(i).wake();
+                    Out::waker(i).wake();
+                }
+
                 return Poll::Ready(Event::Reset);
             }
 
@@ -297,57 +302,76 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     #[inline]
-    fn set_configured(&mut self, configured: bool) {
+    fn set_address(&mut self, _addr: u8) {
+        // Nothing to do, the peripheral handles this.
+    }
+
+    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+        Driver::<T>::set_stalled(ep_addr, stalled)
+    }
+
+    fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
+        Driver::<T>::is_stalled(ep_addr)
+    }
+
+    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         let regs = T::regs();
 
-        unsafe {
-            if configured {
-                // TODO: Initialize ISO buffers
+        let i = ep_addr.index();
+        let mask = 1 << i;
 
-                regs.epinen.write(|w| w.bits(self.alloc_in.used.into()));
-                regs.epouten.write(|w| w.bits(self.alloc_out.used.into()));
+        debug!("endpoint_set_enabled {:?} {}", ep_addr, enabled);
 
-                for i in 1..8 {
-                    let out_enabled = self.alloc_out.used & (1 << i) != 0;
+        match ep_addr.direction() {
+            UsbDirection::In => {
+                let mut was_enabled = false;
+                regs.epinen.modify(|r, w| {
+                    let mut bits = r.bits();
+                    was_enabled = (bits & mask) != 0;
+                    if enabled {
+                        bits |= mask
+                    } else {
+                        bits &= !mask
+                    }
+                    unsafe { w.bits(bits) }
+                });
 
+                let ready_mask = In::mask(i);
+                if enabled {
+                    if !was_enabled {
+                        READY_ENDPOINTS.fetch_or(ready_mask, Ordering::AcqRel);
+                    }
+                } else {
+                    READY_ENDPOINTS.fetch_and(!ready_mask, Ordering::AcqRel);
+                }
+
+                In::waker(i).wake();
+            }
+            UsbDirection::Out => {
+                regs.epouten.modify(|r, w| {
+                    let mut bits = r.bits();
+                    if enabled {
+                        bits |= mask
+                    } else {
+                        bits &= !mask
+                    }
+                    unsafe { w.bits(bits) }
+                });
+
+                let ready_mask = Out::mask(i);
+                if enabled {
                     // when first enabled, bulk/interrupt OUT endpoints will *not* receive data (the
                     // peripheral will NAK all incoming packets) until we write a zero to the SIZE
                     // register (see figure 203 of the 52840 manual). To avoid that we write a 0 to the
                     // SIZE register
-                    if out_enabled {
-                        regs.size.epout[i].reset();
-                    }
+                    regs.size.epout[i].reset();
+                } else {
+                    READY_ENDPOINTS.fetch_and(!ready_mask, Ordering::AcqRel);
                 }
 
-                // IN endpoints (low bits) default to ready.
-                // OUT endpoints (high bits) default to NOT ready, they become ready when data comes in.
-                READY_ENDPOINTS.store(0x0000FFFF, Ordering::Release);
-            } else {
-                // Disable all endpoints except EP0
-                regs.epinen.write(|w| w.bits(0x01));
-                regs.epouten.write(|w| w.bits(0x01));
-
-                READY_ENDPOINTS.store(In::mask(0), Ordering::Release);
+                Out::waker(i).wake();
             }
         }
-
-        for i in 1..=7 {
-            In::waker(i).wake();
-            Out::waker(i).wake();
-        }
-    }
-
-    #[inline]
-    fn set_device_address(&mut self, _addr: u8) {
-        // Nothing to do, the peripheral handles this.
-    }
-
-    fn set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        Driver::<T>::set_stalled(ep_addr, stalled)
-    }
-
-    fn is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
-        Driver::<T>::is_stalled(ep_addr)
     }
 
     #[inline]

@@ -79,17 +79,17 @@ pub trait Bus {
     fn poll<'a>(&'a mut self) -> Self::PollFuture<'a>;
 
     /// Sets the device USB address to `addr`.
-    fn set_device_address(&mut self, addr: u8);
+    fn set_address(&mut self, addr: u8);
 
-    /// Sets the device configured state.
-    fn set_configured(&mut self, configured: bool);
+    /// Enables or disables an endpoint.
+    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool);
 
     /// Sets or clears the STALL condition for an endpoint. If the endpoint is an OUT endpoint, it
     /// should be prepared to receive data again. Only used during control transfers.
-    fn set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool);
+    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool);
 
     /// Gets whether the STALL condition is set for an endpoint. Only used during control transfers.
-    fn is_stalled(&mut self, ep_addr: EndpointAddress) -> bool;
+    fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool;
 
     /// Simulates a disconnect from the USB bus, causing the host to reset and re-enumerate the
     /// device.

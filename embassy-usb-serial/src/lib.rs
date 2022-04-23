@@ -178,7 +178,8 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         let mut func = builder.function(USB_CLASS_CDC, CDC_SUBCLASS_ACM, CDC_PROTOCOL_NONE);
 
         // Control interface
-        let mut iface = func.interface(Some(control));
+        let mut iface = func.interface();
+        iface.handler(control);
         let comm_if = iface.interface_number();
         let data_if = u8::from(comm_if) + 1;
         let mut alt = iface.alt_setting(USB_CLASS_CDC, CDC_SUBCLASS_ACM, CDC_PROTOCOL_NONE);
@@ -218,7 +219,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         let comm_ep = alt.endpoint_interrupt_in(8, 255);
 
         // Data interface
-        let mut iface = func.interface(None);
+        let mut iface = func.interface();
         let data_if = iface.interface_number();
         let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NONE);
         let read_ep = alt.endpoint_bulk_out(max_packet_size);

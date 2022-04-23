@@ -112,7 +112,8 @@ fn build<'d, D: Driver<'d>>(
     let len = config.report_descriptor.len();
 
     let mut func = builder.function(USB_CLASS_HID, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE);
-    let mut iface = func.interface(Some(control));
+    let mut iface = func.interface();
+    iface.handler(control);
     let mut alt = iface.alt_setting(USB_CLASS_HID, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE);
 
     // HID descriptor
@@ -438,6 +439,14 @@ impl<'d> ControlHandler for Control<'d> {
         self.out_report_offset.store(0, Ordering::Release);
     }
 
+    fn get_descriptor<'a>(&'a mut self, req: Request, _buf: &'a mut [u8]) -> InResponse<'a> {
+        match (req.value >> 8) as u8 {
+            HID_DESC_DESCTYPE_HID_REPORT => InResponse::Accepted(self.report_descriptor),
+            HID_DESC_DESCTYPE_HID => InResponse::Accepted(&self.hid_descriptor),
+            _ => InResponse::Rejected,
+        }
+    }
+
     fn control_out(&mut self, req: embassy_usb::control::Request, data: &[u8]) -> OutResponse {
         trace!("HID control_out {:?} {=[u8]:x}", req, data);
         if let RequestType::Class = req.request_type {
@@ -477,13 +486,8 @@ impl<'d> ControlHandler for Control<'d> {
 
     fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
         trace!("HID control_in {:?}", req);
-        match (req.request_type, req.request) {
-            (RequestType::Standard, Request::GET_DESCRIPTOR) => match (req.value >> 8) as u8 {
-                HID_DESC_DESCTYPE_HID_REPORT => InResponse::Accepted(self.report_descriptor),
-                HID_DESC_DESCTYPE_HID => InResponse::Accepted(&self.hid_descriptor),
-                _ => InResponse::Rejected,
-            },
-            (RequestType::Class, HID_REQ_GET_REPORT) => {
+        match req.request {
+            HID_REQ_GET_REPORT => {
                 let size = match ReportId::try_from(req.value) {
                     Ok(id) => self.request_handler.and_then(|x| x.get_report(id, buf)),
                     Err(_) => None,
@@ -495,7 +499,7 @@ impl<'d> ControlHandler for Control<'d> {
                     InResponse::Rejected
                 }
             }
-            (RequestType::Class, HID_REQ_GET_IDLE) => {
+            HID_REQ_GET_IDLE => {
                 if let Some(handler) = self.request_handler {
                     let id = req.value as u8;
                     let id = (id != 0).then(|| ReportId::In(id));
@@ -510,7 +514,7 @@ impl<'d> ControlHandler for Control<'d> {
                     InResponse::Rejected
                 }
             }
-            (RequestType::Class, HID_REQ_GET_PROTOCOL) => {
+            HID_REQ_GET_PROTOCOL => {
                 // UNSUPPORTED: Boot Protocol
                 buf[0] = 1;
                 InResponse::Accepted(&buf[0..1])

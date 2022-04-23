@@ -1,5 +1,7 @@
 use heapless::Vec;
 
+use crate::{Interface, STRING_INDEX_CUSTOM_START};
+
 use super::control::ControlHandler;
 use super::descriptor::{BosWriter, DescriptorWriter};
 use super::driver::{Driver, Endpoint};
@@ -121,11 +123,10 @@ impl<'a> Config<'a> {
 pub struct Builder<'d, D: Driver<'d>> {
     config: Config<'d>,
     handler: Option<&'d dyn DeviceStateHandler>,
-    interfaces: Vec<(u8, &'d mut dyn ControlHandler), MAX_INTERFACE_COUNT>,
+    interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
     control_buf: &'d mut [u8],
 
     driver: D,
-    next_interface_number: u8,
     next_string_index: u8,
 
     device_descriptor: DescriptorWriter<'d>,
@@ -180,8 +181,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             config,
             interfaces: Vec::new(),
             control_buf,
-            next_interface_number: 0,
-            next_string_index: 4,
+            next_string_index: STRING_INDEX_CUSTOM_START,
 
             device_descriptor,
             config_descriptor,
@@ -212,14 +212,6 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         self.control_buf.len()
     }
 
-    /// Allocates a new string index.
-    pub fn alloc_string(&mut self) -> StringIndex {
-        let index = self.next_string_index;
-        self.next_string_index += 1;
-
-        StringIndex::new(index)
-    }
-
     /// Add an USB function.
     ///
     /// If [`Config::composite_with_iads`] is set, this will add an IAD descriptor
@@ -234,7 +226,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     ) -> FunctionBuilder<'_, 'd, D> {
         let iface_count_index = if self.config.composite_with_iads {
             self.config_descriptor.iad(
-                InterfaceNumber::new(self.next_interface_number),
+                InterfaceNumber::new(self.interfaces.len() as _),
                 0,
                 class,
                 subclass,
@@ -267,21 +259,21 @@ impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
     /// Add an interface to the function.
     ///
     /// Interface numbers are guaranteed to be allocated consecutively, starting from 0.
-    pub fn interface(
-        &mut self,
-        handler: Option<&'d mut dyn ControlHandler>,
-    ) -> InterfaceBuilder<'_, 'd, D> {
+    pub fn interface(&mut self) -> InterfaceBuilder<'_, 'd, D> {
         if let Some(i) = self.iface_count_index {
             self.builder.config_descriptor.buf[i] += 1;
         }
 
-        let number = self.builder.next_interface_number;
-        self.builder.next_interface_number += 1;
+        let number = self.builder.interfaces.len() as _;
+        let iface = Interface {
+            handler: None,
+            current_alt_setting: 0,
+            num_alt_settings: 0,
+            num_strings: 0,
+        };
 
-        if let Some(handler) = handler {
-            if self.builder.interfaces.push((number, handler)).is_err() {
-                panic!("max interface count reached")
-            }
+        if self.builder.interfaces.push(iface).is_err() {
+            panic!("max interface count reached")
         }
 
         InterfaceBuilder {
@@ -305,6 +297,19 @@ impl<'a, 'd, D: Driver<'d>> InterfaceBuilder<'a, 'd, D> {
         self.interface_number
     }
 
+    pub fn handler(&mut self, handler: &'d mut dyn ControlHandler) {
+        self.builder.interfaces[self.interface_number.0 as usize].handler = Some(handler);
+    }
+
+    /// Allocates a new string index.
+    pub fn string(&mut self) -> StringIndex {
+        let index = self.builder.next_string_index;
+        self.builder.next_string_index += 1;
+        self.builder.interfaces[self.interface_number.0 as usize].num_strings += 1;
+
+        StringIndex::new(index)
+    }
+
     /// Add an alternate setting to the interface and write its descriptor.
     ///
     /// Alternate setting numbers are guaranteed to be allocated consecutively, starting from 0.
@@ -318,6 +323,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceBuilder<'a, 'd, D> {
     ) -> InterfaceAltBuilder<'_, 'd, D> {
         let number = self.next_alt_setting_number;
         self.next_alt_setting_number += 1;
+        self.builder.interfaces[self.interface_number.0 as usize].num_alt_settings += 1;
 
         self.builder.config_descriptor.interface_alt(
             self.interface_number,
