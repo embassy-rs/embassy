@@ -1,6 +1,6 @@
 use heapless::Vec;
 
-use crate::Interface;
+use crate::{Interface, STRING_INDEX_CUSTOM_START};
 
 use super::control::ControlHandler;
 use super::descriptor::{BosWriter, DescriptorWriter};
@@ -181,7 +181,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             config,
             interfaces: Vec::new(),
             control_buf,
-            next_string_index: 4,
+            next_string_index: STRING_INDEX_CUSTOM_START,
 
             device_descriptor,
             config_descriptor,
@@ -210,14 +210,6 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     /// classes to validate the buffer is large enough for their needs.
     pub fn control_buf_len(&self) -> usize {
         self.control_buf.len()
-    }
-
-    /// Allocates a new string index.
-    pub fn alloc_string(&mut self) -> StringIndex {
-        let index = self.next_string_index;
-        self.next_string_index += 1;
-
-        StringIndex::new(index)
     }
 
     /// Add an USB function.
@@ -277,6 +269,7 @@ impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
             handler: None,
             current_alt_setting: 0,
             num_alt_settings: 0,
+            num_strings: 0,
         };
 
         if self.builder.interfaces.push(iface).is_err() {
@@ -306,6 +299,15 @@ impl<'a, 'd, D: Driver<'d>> InterfaceBuilder<'a, 'd, D> {
 
     pub fn handler(&mut self, handler: &'d mut dyn ControlHandler) {
         self.builder.interfaces[self.interface_number.0 as usize].handler = Some(handler);
+    }
+
+    /// Allocates a new string index.
+    pub fn string(&mut self) -> StringIndex {
+        let index = self.builder.next_string_index;
+        self.builder.next_string_index += 1;
+        self.builder.interfaces[self.interface_number.0 as usize].num_strings += 1;
+
+        StringIndex::new(index)
     }
 
     /// Add an alternate setting to the interface and write its descriptor.

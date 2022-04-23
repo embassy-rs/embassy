@@ -66,6 +66,11 @@ pub const CONFIGURATION_VALUE: u8 = 1;
 
 pub const MAX_INTERFACE_COUNT: usize = 4;
 
+const STRING_INDEX_MANUFACTURER: u8 = 1;
+const STRING_INDEX_PRODUCT: u8 = 2;
+const STRING_INDEX_SERIAL_NUMBER: u8 = 3;
+const STRING_INDEX_CUSTOM_START: u8 = 4;
+
 /// A handler trait for changes in the device state of the [UsbDevice].
 pub trait DeviceStateHandler {
     /// Called when the USB device has been enabled or disabled.
@@ -91,6 +96,7 @@ struct Interface<'d> {
     handler: Option<&'d mut dyn ControlHandler>,
     current_alt_setting: u8,
     num_alt_settings: u8,
+    num_strings: u8,
 }
 
 pub struct UsbDevice<'d, D: Driver<'d>> {
@@ -540,14 +546,34 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                         .await
                 } else {
                     let s = match index {
-                        1 => self.config.manufacturer,
-                        2 => self.config.product,
-                        3 => self.config.serial_number,
+                        STRING_INDEX_MANUFACTURER => self.config.manufacturer,
+                        STRING_INDEX_PRODUCT => self.config.product,
+                        STRING_INDEX_SERIAL_NUMBER => self.config.serial_number,
                         _ => {
-                            let _index = StringIndex::new(index);
-                            let _lang_id = req.index;
-                            // TODO
-                            None
+                            // Find out which iface owns this string index.
+                            let mut index_left = index - STRING_INDEX_CUSTOM_START;
+                            let mut the_iface = None;
+                            for iface in &mut self.interfaces {
+                                if index_left < iface.num_strings {
+                                    the_iface = Some(iface);
+                                    break;
+                                }
+                                index_left -= iface.num_strings;
+                            }
+
+                            if let Some(iface) = the_iface {
+                                if let Some(handler) = &mut iface.handler {
+                                    let index = StringIndex::new(index);
+                                    let lang_id = req.index;
+                                    handler.get_string(index, lang_id, self.control_buf)
+                                } else {
+                                    warn!("String requested to an interface with no handler.");
+                                    None
+                                }
+                            } else {
+                                warn!("String requested but didn't match to an interface.");
+                                None
+                            }
                         }
                     };
 

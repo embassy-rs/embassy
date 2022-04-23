@@ -189,6 +189,20 @@ pub trait ControlHandler {
         let _ = (req, buf);
         InResponse::Rejected
     }
+
+    /// Called when a GET_DESCRIPTOR STRING control request is received.
+    ///
+    /// Write the response string somewhere (usually to `buf`, but you may use another buffer
+    /// owned by yourself, or a static buffer), then return it.
+    fn get_string<'a>(
+        &'a mut self,
+        index: StringIndex,
+        lang_id: u16,
+        buf: &'a mut [u8],
+    ) -> Option<&'a str> {
+        let _ = (index, lang_id, buf);
+        None
+    }
 }
 
 /// Typestate representing a ControlPipe in the DATA IN stage
