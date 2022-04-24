@@ -53,7 +53,12 @@ async fn main(spawner: Spawner, p: Peripherals) {
     let driver = Driver::new(p.USBD, irq);
 
     // Create embassy-usb Config
-    let config = Config::new(0xc0de, 0xcafe);
+    let mut config = Config::new(0xc0de, 0xcafe);
+    config.manufacturer = Some("Embassy");
+    config.product = Some("USB-serial example");
+    config.serial_number = Some("12345678");
+    config.max_power = 100;
+    config.max_packet_size_0 = 64;
 
     struct Resources {
         device_descriptor: [u8; 256],
