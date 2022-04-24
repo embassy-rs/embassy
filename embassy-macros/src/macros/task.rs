@@ -61,10 +61,14 @@ pub fn run(args: syn::AttributeArgs, mut f: syn::ItemFn) -> Result<TokenStream, 
 
     ctxt.check()?;
 
-    let name = f.sig.ident.clone();
+    let task_ident = f.sig.ident.clone();
+    let task_inner_ident = format_ident!("__{}_task", task_ident);
+    let future_ident = format_ident!("__{}_Future", task_ident);
+    let pool_ident = format_ident!("__{}_POOL", task_ident);
+    let new_ts_ident = format_ident!("__{}_NEW_TASKSTORAGE", task_ident);
 
     let visibility = &f.vis;
-    f.sig.ident = format_ident!("task");
+    f.sig.ident = task_inner_ident.clone();
     let impl_ty = if args.send {
         quote!(impl ::core::future::Future + Send + 'static)
     } else {
@@ -73,16 +77,26 @@ pub fn run(args: syn::AttributeArgs, mut f: syn::ItemFn) -> Result<TokenStream, 
 
     let attrs = &f.attrs;
 
+    let spawn_token = quote!(#embassy_path::executor::SpawnToken);
+    let task_storage = quote!(#embassy_path::executor::raw::TaskStorage);
+
     let result = quote! {
+
+        #[allow(non_camel_case_types)]
+        type #future_ident = #impl_ty;
+
         #(#attrs)*
-        #visibility fn #name(#fargs) -> #embassy_path::executor::SpawnToken<#impl_ty> {
-            use #embassy_path::executor::raw::TaskStorage;
+        #visibility fn #task_ident(#fargs) -> #spawn_token<#future_ident> {
             #f
-            type F = #impl_ty;
+
+            #[allow(non_upper_case_globals)]
             #[allow(clippy::declare_interior_mutable_const)]
-            const NEW_TASK: TaskStorage<F> = TaskStorage::new();
-            static POOL: [TaskStorage<F>; #pool_size] = [NEW_TASK; #pool_size];
-            unsafe { TaskStorage::spawn_pool(&POOL, move || task(#arg_names)) }
+            const #new_ts_ident: #task_storage<#future_ident> = #task_storage::new();
+
+            #[allow(non_upper_case_globals)]
+            static #pool_ident: [#task_storage<#future_ident>; #pool_size] = [#new_ts_ident; #pool_size];
+
+            unsafe { #task_storage::spawn_pool(&#pool_ident, move || #task_inner_ident(#arg_names)) }
         }
     };
 
