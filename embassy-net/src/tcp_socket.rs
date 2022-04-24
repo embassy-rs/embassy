@@ -58,7 +58,7 @@ impl<'a> TcpSocket<'a> {
         .await
     }
 
-    pub async fn listen<T>(&mut self, local_endpoint: T) -> Result<()>
+    pub async fn accept<T>(&mut self, local_endpoint: T) -> Result<()>
     where
         T: Into<IpEndpoint>,
     {
@@ -66,9 +66,7 @@ impl<'a> TcpSocket<'a> {
 
         futures::future::poll_fn(|cx| {
             self.with(|s, _| match s.state() {
-                TcpState::Closed | TcpState::TimeWait => Poll::Ready(Err(Error::Unaddressable)),
-                TcpState::Listen => Poll::Ready(Ok(())),
-                TcpState::SynSent | TcpState::SynReceived => {
+                TcpState::Listen | TcpState::SynSent | TcpState::SynReceived => {
                     s.register_send_waker(cx.waker());
                     Poll::Pending
                 }

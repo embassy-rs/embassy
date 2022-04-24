@@ -39,10 +39,11 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);
-    config.manufacturer = Some("Tactile Engineering");
-    config.product = Some("Testy");
+    config.manufacturer = Some("Embassy");
+    config.product = Some("HID mouse example");
     config.serial_number = Some("12345678");
     config.max_power = 100;
+    config.max_packet_size_0 = 64;
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
