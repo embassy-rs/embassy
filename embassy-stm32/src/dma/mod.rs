@@ -76,6 +76,25 @@ pub(crate) mod sealed {
             options: TransferOptions,
         );
 
+        /// DMA double-buffered mode is unsafe as UB can happen when the hardware writes to a buffer currently owned by the software
+        /// more information can be found here: https://github.com/embassy-rs/embassy/issues/702
+        /// This feature is now used solely for the purposes of implementing giant DMA transfers required for DCMI
+        unsafe fn start_double_buffered_read<W: super::Word>(
+            &mut self,
+            request: Request,
+            reg_addr: *const W,
+            buffer0: *mut W,
+            buffer1: *mut W,
+            buffer_len: usize,
+            options: TransferOptions,
+        );
+
+        unsafe fn set_buffer0<W: super::Word>(&mut self, buffer: *mut W);
+
+        unsafe fn set_buffer1<W: super::Word>(&mut self, buffer: *mut W);
+
+        unsafe fn is_buffer0_accessible(&mut self) -> bool;
+
         /// Requests the channel to stop.
         /// NOTE: The channel does not immediately stop, you have to wait
         /// for `is_running() = false`.

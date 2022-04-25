@@ -76,7 +76,6 @@ foreach_dma_channel! {
                 );
             }
 
-
             unsafe fn start_write_repeated<W: Word>(&mut self, _request: Request, repeated: W, count: usize, reg_addr: *mut W, options: TransferOptions) {
                 let buf = [repeated];
                 low_level_api::start_transfer(
@@ -117,6 +116,30 @@ foreach_dma_channel! {
                     #[cfg(dmamux)]
                     <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_CH_NUM,
                 );
+            }
+
+            unsafe fn start_double_buffered_read<W: super::Word>(
+                &mut self,
+                _request: Request,
+                _reg_addr: *const W,
+                _buffer0: *mut W,
+                _buffer1: *mut W,
+                _buffer_len: usize,
+                _options: TransferOptions,
+            ) {
+                panic!("Unsafe double buffered mode is unavailable on BDMA");
+            }
+
+            unsafe fn set_buffer0<W: super::Word>(&mut self, _buffer: *mut W)  {
+                panic!("Unsafe double buffered mode is unavailable on BDMA");
+            }
+
+            unsafe fn set_buffer1<W: super::Word>(&mut self, _buffer: *mut W) {
+                panic!("Unsafe double buffered mode is unavailable on BDMA");
+            }
+
+            unsafe fn is_buffer0_accessible(&mut self) -> bool {
+                panic!("Unsafe double buffered mode is unavailable on BDMA");
             }
 
             fn request_stop(&mut self){
@@ -232,7 +255,7 @@ mod low_level_api {
         // get a handle on the channel itself
         let ch = dma.ch(ch as _);
         // read the remaining transfer count. If this is zero, the transfer completed fully.
-        ch.ndtr().read().ndt()
+        ch.ndtr().read().ndt() as u16
     }
 
     /// Sets the waker for the specified DMA channel

@@ -41,15 +41,27 @@ impl From<FlowControl> for vals::Pfctrl {
     }
 }
 
+struct ChannelState {
+    waker: AtomicWaker,
+}
+
+impl ChannelState {
+    const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
+        }
+    }
+}
+
 struct State {
-    ch_wakers: [AtomicWaker; DMA_CHANNEL_COUNT],
+    channels: [ChannelState; DMA_CHANNEL_COUNT],
 }
 
 impl State {
     const fn new() -> Self {
-        const AW: AtomicWaker = AtomicWaker::new();
+        const CH: ChannelState = ChannelState::new();
         Self {
-            ch_wakers: [AW; DMA_CHANNEL_COUNT],
+            channels: [CH; DMA_CHANNEL_COUNT],
         }
     }
 }
@@ -129,6 +141,46 @@ foreach_dma_channel! {
                 );
             }
 
+            unsafe fn start_double_buffered_read<W: Word>(
+                &mut self,
+                request: Request,
+                reg_addr: *const W,
+                buffer0: *mut W,
+                buffer1: *mut W,
+                buffer_len: usize,
+                options: TransferOptions,
+            ) {
+                low_level_api::start_dbm_transfer(
+                    pac::$dma_peri,
+                    $channel_num,
+                    request,
+                    vals::Dir::PERIPHERALTOMEMORY,
+                    reg_addr as *const u32,
+                    buffer0 as *mut u32,
+                    buffer1 as *mut u32,
+                    buffer_len,
+                    true,
+                    vals::Size::from(W::bits()),
+                    options,
+                    #[cfg(dmamux)]
+                    <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_REGS,
+                    #[cfg(dmamux)]
+                    <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_CH_NUM,
+                );
+            }
+
+            unsafe fn set_buffer0<W: Word>(&mut self, buffer: *mut W) {
+                low_level_api::set_dbm_buffer0(pac::$dma_peri, $channel_num, buffer as *mut u32);
+            }
+
+            unsafe fn set_buffer1<W: Word>(&mut self, buffer: *mut W) {
+                low_level_api::set_dbm_buffer1(pac::$dma_peri, $channel_num, buffer as *mut u32);
+            }
+
+            unsafe fn is_buffer0_accessible(&mut self) -> bool {
+                low_level_api::is_buffer0_accessible(pac::$dma_peri, $channel_num)
+            }
+
             fn request_stop(&mut self) {
                 unsafe {low_level_api::request_stop(pac::$dma_peri, $channel_num);}
             }
@@ -151,7 +203,6 @@ foreach_dma_channel! {
                 }
             }
         }
-
         impl crate::dma::Channel for crate::peripherals::$channel_peri { }
     };
 }
@@ -212,6 +263,94 @@ mod low_level_api {
         });
     }
 
+    pub unsafe fn start_dbm_transfer(
+        dma: pac::dma::Dma,
+        channel_number: u8,
+        request: Request,
+        dir: vals::Dir,
+        peri_addr: *const u32,
+        mem0_addr: *mut u32,
+        mem1_addr: *mut u32,
+        mem_len: usize,
+        incr_mem: bool,
+        data_size: vals::Size,
+        options: TransferOptions,
+        #[cfg(dmamux)] dmamux_regs: pac::dmamux::Dmamux,
+        #[cfg(dmamux)] dmamux_ch_num: u8,
+    ) {
+        #[cfg(dmamux)]
+        super::super::dmamux::configure_dmamux(dmamux_regs, dmamux_ch_num, request);
+
+        trace!(
+            "Starting DBM transfer with 0: 0x{:x}, 1: 0x{:x}, len: 0x{:x}",
+            mem0_addr as u32,
+            mem1_addr as u32,
+            mem_len
+        );
+
+        // "Preceding reads and writes cannot be moved past subsequent writes."
+        fence(Ordering::SeqCst);
+
+        reset_status(dma, channel_number);
+
+        let ch = dma.st(channel_number as _);
+        ch.par().write_value(peri_addr as u32);
+        ch.m0ar().write_value(mem0_addr as u32);
+        // configures the second buffer for DBM
+        ch.m1ar().write_value(mem1_addr as u32);
+        ch.ndtr().write_value(regs::Ndtr(mem_len as _));
+        ch.cr().write(|w| {
+            w.set_dir(dir);
+            w.set_msize(data_size);
+            w.set_psize(data_size);
+            w.set_pl(vals::Pl::VERYHIGH);
+            if incr_mem {
+                w.set_minc(vals::Inc::INCREMENTED);
+            } else {
+                w.set_minc(vals::Inc::FIXED);
+            }
+            w.set_pinc(vals::Inc::FIXED);
+            w.set_teie(true);
+            w.set_tcie(true);
+
+            #[cfg(dma_v1)]
+            w.set_trbuff(true);
+
+            #[cfg(dma_v2)]
+            w.set_chsel(request);
+
+            // enable double buffered mode
+            w.set_dbm(vals::Dbm::ENABLED);
+
+            w.set_pburst(options.pburst.into());
+            w.set_mburst(options.mburst.into());
+            w.set_pfctrl(options.flow_ctrl.into());
+
+            w.set_en(true);
+        });
+    }
+
+    pub unsafe fn set_dbm_buffer0(dma: pac::dma::Dma, channel_number: u8, mem_addr: *mut u32) {
+        // get a handle on the channel itself
+        let ch = dma.st(channel_number as _);
+        // change M0AR to the new address
+        ch.m0ar().write_value(mem_addr as _);
+    }
+
+    pub unsafe fn set_dbm_buffer1(dma: pac::dma::Dma, channel_number: u8, mem_addr: *mut u32) {
+        // get a handle on the channel itself
+        let ch = dma.st(channel_number as _);
+        // change M1AR to the new address
+        ch.m1ar().write_value(mem_addr as _);
+    }
+
+    pub unsafe fn is_buffer0_accessible(dma: pac::dma::Dma, channel_number: u8) -> bool {
+        // get a handle on the channel itself
+        let ch = dma.st(channel_number as _);
+        // check the current target register value
+        ch.cr().read().ct() == vals::Ct::MEMORY1
+    }
+
     /// Stops the DMA channel.
     pub unsafe fn request_stop(dma: pac::dma::Dma, channel_number: u8) {
         // get a handle on the channel itself
@@ -246,7 +385,7 @@ mod low_level_api {
 
     /// Sets the waker for the specified DMA channel
     pub unsafe fn set_waker(state_number: usize, waker: &Waker) {
-        STATE.ch_wakers[state_number].register(waker);
+        STATE.channels[state_number].waker.register(waker);
     }
 
     pub unsafe fn reset_status(dma: pac::dma::Dma, channel_number: u8) {
@@ -260,9 +399,9 @@ mod low_level_api {
     }
 
     /// Safety: Must be called with a matching set of parameters for a valid dma channel
-    pub unsafe fn on_irq_inner(dma: pac::dma::Dma, channel_num: u8, index: u8) {
+    pub unsafe fn on_irq_inner(dma: pac::dma::Dma, channel_num: u8, state_index: u8) {
         let channel_num = channel_num as usize;
-        let index = index as usize;
+        let state_index = state_index as usize;
 
         let cr = dma.st(channel_num).cr();
         let isr = dma.isr(channel_num / 4).read();
@@ -273,9 +412,16 @@ mod low_level_api {
                 dma.0 as u32, channel_num
             );
         }
+
         if isr.tcif(channel_num % 4) && cr.read().tcie() {
-            cr.write(|_| ()); // Disable channel interrupts with the default value.
-            STATE.ch_wakers[index].wake();
+            if cr.read().dbm() == vals::Dbm::DISABLED {
+                cr.write(|_| ()); // Disable channel with the default value.
+            } else {
+                // for double buffered mode, clear TCIF flag but do not stop the transfer
+                dma.ifcr(channel_num / 4)
+                    .write(|w| w.set_tcif(channel_num % 4, true));
+            }
+            STATE.channels[state_index].waker.wake();
         }
     }
 }
