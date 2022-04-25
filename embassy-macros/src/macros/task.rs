@@ -10,12 +10,10 @@ struct Args {
     #[darling(default)]
     pool_size: Option<usize>,
     #[darling(default)]
-    send: bool,
-    #[darling(default)]
     embassy_prefix: ModulePrefix,
 }
 
-pub fn run(args: syn::AttributeArgs, mut f: syn::ItemFn) -> Result<TokenStream, TokenStream> {
+pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, TokenStream> {
     let args = Args::from_list(&args).map_err(|e| e.write_errors())?;
 
     let embassy_prefix = args.embassy_prefix.append("embassy");
@@ -35,24 +33,27 @@ pub fn run(args: syn::AttributeArgs, mut f: syn::ItemFn) -> Result<TokenStream, 
         ctxt.error_spanned_by(&f.sig, "pool_size must be 1 or greater");
     }
 
-    let mut arg_names: syn::punctuated::Punctuated<syn::Ident, syn::Token![,]> =
-        syn::punctuated::Punctuated::new();
+    let mut arg_types = Vec::new();
+    let mut arg_names = Vec::new();
+    let mut arg_indexes = Vec::new();
     let mut fargs = f.sig.inputs.clone();
 
-    for arg in fargs.iter_mut() {
+    for (i, arg) in fargs.iter_mut().enumerate() {
         match arg {
             syn::FnArg::Receiver(_) => {
                 ctxt.error_spanned_by(arg, "task functions must not have receiver arguments");
             }
             syn::FnArg::Typed(t) => match t.pat.as_mut() {
-                syn::Pat::Ident(i) => {
-                    arg_names.push(i.ident.clone());
-                    i.mutability = None;
+                syn::Pat::Ident(id) => {
+                    arg_names.push(id.ident.clone());
+                    arg_types.push(t.ty.clone());
+                    arg_indexes.push(syn::Index::from(i));
+                    id.mutability = None;
                 }
                 _ => {
                     ctxt.error_spanned_by(
                         arg,
-                        "pattern matching in task arguments is not yet supporteds",
+                        "pattern matching in task arguments is not yet supported",
                     );
                 }
             },
@@ -63,40 +64,38 @@ pub fn run(args: syn::AttributeArgs, mut f: syn::ItemFn) -> Result<TokenStream, 
 
     let task_ident = f.sig.ident.clone();
     let task_inner_ident = format_ident!("__{}_task", task_ident);
-    let future_ident = format_ident!("__{}_Future", task_ident);
-    let pool_ident = format_ident!("__{}_POOL", task_ident);
-    let new_ts_ident = format_ident!("__{}_NEW_TASKSTORAGE", task_ident);
+    let mod_ident = format_ident!("__{}_mod", task_ident);
+    let args_ident = format_ident!("__{}_args", task_ident);
 
-    let visibility = &f.vis;
-    f.sig.ident = task_inner_ident.clone();
-    let impl_ty = if args.send {
-        quote!(impl ::core::future::Future + Send + 'static)
-    } else {
-        quote!(impl ::core::future::Future + 'static)
-    };
-
-    let attrs = &f.attrs;
-
-    let spawn_token = quote!(#embassy_path::executor::SpawnToken);
-    let task_storage = quote!(#embassy_path::executor::raw::TaskStorage);
+    let mut task_inner = f;
+    let visibility = task_inner.vis.clone();
+    task_inner.vis = syn::Visibility::Inherited;
+    task_inner.sig.ident = task_inner_ident.clone();
 
     let result = quote! {
+        #task_inner
 
         #[allow(non_camel_case_types)]
-        type #future_ident = #impl_ty;
+        type #args_ident = (#(#arg_types,)*);
 
-        #(#attrs)*
-        #visibility fn #task_ident(#fargs) -> #spawn_token<#future_ident> {
-            #f
+        mod #mod_ident {
+            use #embassy_path::executor::SpawnToken;
+            use #embassy_path::executor::raw::TaskStorage;
 
-            #[allow(non_upper_case_globals)]
+            type Fut = impl ::core::future::Future + 'static;
+
             #[allow(clippy::declare_interior_mutable_const)]
-            const #new_ts_ident: #task_storage<#future_ident> = #task_storage::new();
+            const NEW_TS: TaskStorage<Fut> = TaskStorage::new();
 
-            #[allow(non_upper_case_globals)]
-            static #pool_ident: [#task_storage<#future_ident>; #pool_size] = [#new_ts_ident; #pool_size];
+            static POOL: [TaskStorage<Fut>; #pool_size] = [NEW_TS; #pool_size];
 
-            unsafe { #task_storage::spawn_pool(&#pool_ident, move || #task_inner_ident(#arg_names)) }
+            pub(super) fn task(args: super::#args_ident) -> SpawnToken<Fut> {
+                unsafe { TaskStorage::spawn_pool(&POOL, move || super::#task_inner_ident(#(args.#arg_indexes),*)) }
+            }
+        }
+
+        #visibility fn #task_ident(#fargs) -> #embassy_path::executor::SpawnToken<impl ::core::future::Future + 'static> {
+            #mod_ident::task((#(#arg_names,)*))
         }
     };
 

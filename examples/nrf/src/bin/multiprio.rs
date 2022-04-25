@@ -124,17 +124,15 @@ fn main() -> ! {
     let irq = interrupt::take!(SWI1_EGU1);
     irq.set_priority(interrupt::Priority::P6);
     let executor = EXECUTOR_HIGH.put(InterruptExecutor::new(irq));
-    executor.start(|spawner| {
-        unwrap!(spawner.spawn(run_high()));
-    });
+    let spawner = executor.start();
+    unwrap!(spawner.spawn(run_high()));
 
     // Medium-priority executor: SWI0_EGU0, priority level 7
     let irq = interrupt::take!(SWI0_EGU0);
     irq.set_priority(interrupt::Priority::P7);
     let executor = EXECUTOR_MED.put(InterruptExecutor::new(irq));
-    executor.start(|spawner| {
-        unwrap!(spawner.spawn(run_med()));
-    });
+    let spawner = executor.start();
+    unwrap!(spawner.spawn(run_med()));
 
     // Low priority executor: runs in thread mode, using WFE/SEV
     let executor = EXECUTOR_LOW.put(Executor::new());

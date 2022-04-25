@@ -105,7 +105,6 @@ impl Spawner {
     pub fn make_send(&self) -> SendSpawner {
         SendSpawner {
             executor: self.executor,
-            not_send: PhantomData,
         }
     }
 }
@@ -120,7 +119,6 @@ impl Spawner {
 #[derive(Copy, Clone)]
 pub struct SendSpawner {
     executor: &'static raw::Executor,
-    not_send: PhantomData<*mut ()>,
 }
 
 unsafe impl Send for SendSpawner {}

@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 use core::ptr;
 
-use super::{raw, Spawner};
+use super::{raw, SendSpawner, Spawner};
 use crate::interrupt::{Interrupt, InterruptExt};
 
 /// Thread mode executor, using WFE/SEV.
@@ -107,13 +107,13 @@ impl<I: Interrupt> InterruptExecutor<I> {
 
     /// Start the executor.
     ///
-    /// The `init` closure is called from interrupt mode, with a [`Spawner`] that spawns tasks on
-    /// this executor. Use it to spawn the initial task(s). After `init` returns,
-    /// the interrupt is configured so that the executor starts running the tasks.
-    /// Once the executor is started, `start` returns.
+    /// This initializes the executor, configures and enables the interrupt, and returns.
+    /// The executor keeps running in the background through the interrupt.
     ///
-    /// To spawn more tasks later, you may keep copies of the [`Spawner`] (it is `Copy`),
-    /// for example by passing it as an argument to the initial tasks.
+    /// This returns a [`SendSpawner`] you can use to spawn tasks on it. A [`SendSpawner`]
+    /// is returned instead of a [`Spawner`] because the executor effectively runs in a
+    /// different "thread" (the interrupt), so spawning tasks on it is effectively
+    /// sending them.
     ///
     /// This function requires `&'static mut self`. This means you have to store the
     /// Executor instance in a place where it'll live forever and grants you mutable
@@ -122,10 +122,8 @@ impl<I: Interrupt> InterruptExecutor<I> {
     /// - a [Forever](crate::util::Forever) (safe)
     /// - a `static mut` (unsafe)
     /// - a local variable in a function you know never returns (like `fn main() -> !`), upgrading its lifetime with `transmute`. (unsafe)
-    pub fn start(&'static mut self, init: impl FnOnce(Spawner) + Send) {
+    pub fn start(&'static mut self) -> SendSpawner {
         self.irq.disable();
-
-        init(self.inner.spawner());
 
         self.irq.set_handler(|ctx| unsafe {
             let executor = &*(ctx as *const raw::Executor);
@@ -133,5 +131,7 @@ impl<I: Interrupt> InterruptExecutor<I> {
         });
         self.irq.set_handler_context(&self.inner as *const _ as _);
         self.irq.enable();
+
+        self.inner.spawner().make_send()
     }
 }
