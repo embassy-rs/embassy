@@ -12,7 +12,7 @@ use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
 
 use crate::gpio::sealed::Pin as __GpioPin;
 use crate::gpio::{sealed::AFType, AnyPin, Speed};
-use crate::pac::{ETH, RCC, SYSCFG};
+use crate::pac::{AFIO, ETH, RCC};
 
 mod descriptors;
 mod rx_desc;
@@ -47,8 +47,9 @@ macro_rules! config_pins {
         // NOTE(unsafe) Exclusive access to the registers
         critical_section::with(|_| {
             $(
+                // TODO double check to ensure speed set *isn't required. This call *seems* to set
+                // GPIO to max speed.
                 $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                $pin.set_speed(Speed::VeryHigh);
             )*
         })
     };
@@ -78,15 +79,17 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, 
         // Enable the necessary Clocks
         // NOTE(unsafe) We have exclusive access to the registers
         critical_section::with(|_| {
-            RCC.apb2enr().modify(|w| w.set_syscfgen(true));
-            RCC.ahb1enr().modify(|w| {
-                w.set_ethen(true);
-                w.set_ethtxen(true);
-                w.set_ethrxen(true);
+            RCC.apb2enr().modify(|w| w.set_afioen(true));
+            RCC.ahbenr().modify(|w| {
+                w.set_ethmacen(true);
+                w.set_ethmactxen(true);
+                w.set_ethmacrxen(true);
             });
 
-            // RMII (Reduced Media Independent Interface)
-            SYSCFG.pmc().modify(|w| w.set_mii_rmii_sel(true));
+            // Select RMII (Reduced Media Independent Interface)
+            AFIO.mapr().modify(|w| w.set_mii_rmii_sel(true));
+
+            // TODO set MCO to eth clk
         });
 
         config_pins!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
