@@ -33,12 +33,10 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
         ctxt.error_spanned_by(&f.sig, "pool_size must be 1 or greater");
     }
 
-    let mut arg_types = Vec::new();
     let mut arg_names = Vec::new();
-    let mut arg_indexes = Vec::new();
     let mut fargs = f.sig.inputs.clone();
 
-    for (i, arg) in fargs.iter_mut().enumerate() {
+    for arg in fargs.iter_mut() {
         match arg {
             syn::FnArg::Receiver(_) => {
                 ctxt.error_spanned_by(arg, "task functions must not have receiver arguments");
@@ -46,8 +44,6 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
             syn::FnArg::Typed(t) => match t.pat.as_mut() {
                 syn::Pat::Ident(id) => {
                     arg_names.push(id.ident.clone());
-                    arg_types.push(t.ty.clone());
-                    arg_indexes.push(syn::Index::from(i));
                     id.mutability = None;
                 }
                 _ => {
@@ -64,8 +60,6 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
 
     let task_ident = f.sig.ident.clone();
     let task_inner_ident = format_ident!("__{}_task", task_ident);
-    let mod_ident = format_ident!("__{}_mod", task_ident);
-    let args_ident = format_ident!("__{}_args", task_ident);
 
     let mut task_inner = f;
     let visibility = task_inner.vis.clone();
@@ -73,29 +67,32 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
     task_inner.sig.ident = task_inner_ident.clone();
 
     let result = quote! {
+        // This is the user's task function, renamed.
+        // We put it outside the #task_ident fn below, because otherwise
+        // the items defined there (such as POOL) would be in scope
+        // in the user's code.
         #task_inner
 
-        #[allow(non_camel_case_types)]
-        type #args_ident = (#(#arg_types,)*);
-
-        mod #mod_ident {
+        #visibility fn #task_ident(#fargs) -> #embassy_path::executor::SpawnToken<impl ::core::future::Future + 'static> {
+            use ::core::future::Future;
             use #embassy_path::executor::SpawnToken;
             use #embassy_path::executor::raw::TaskStorage;
 
-            type Fut = impl ::core::future::Future + 'static;
+            type Fut = impl Future + 'static;
 
             #[allow(clippy::declare_interior_mutable_const)]
             const NEW_TS: TaskStorage<Fut> = TaskStorage::new();
 
             static POOL: [TaskStorage<Fut>; #pool_size] = [NEW_TS; #pool_size];
 
-            pub(super) fn task(args: super::#args_ident) -> SpawnToken<Fut> {
-                unsafe { TaskStorage::spawn_pool(&POOL, move || super::#task_inner_ident(#(args.#arg_indexes),*)) }
+            // Opaque type laundering, to obscure its origin!
+            // Workaround for "opaque type's hidden type cannot be another opaque type from the same scope"
+            // https://github.com/rust-lang/rust/issues/96406
+            fn launder_tait(token: SpawnToken<impl Future+'static>) -> SpawnToken<impl Future+'static> {
+                token
             }
-        }
 
-        #visibility fn #task_ident(#fargs) -> #embassy_path::executor::SpawnToken<impl ::core::future::Future + 'static> {
-            #mod_ident::task((#(#arg_names,)*))
+            launder_tait(unsafe { TaskStorage::spawn_pool(&POOL, move || #task_inner_ident(#(#arg_names,)*)) })
         }
     };
 
