@@ -12,7 +12,11 @@ use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
 
 use crate::gpio::sealed::Pin as __GpioPin;
 use crate::gpio::{sealed::AFType, AnyPin, Speed};
-use crate::pac::{AFIO, ETH, RCC};
+#[cfg(eth_v1a)]
+use crate::pac::AFIO;
+#[cfg(any(eth_v1b, eth_v1c))]
+use crate::pac::SYSCFG;
+use crate::pac::{ETH, RCC};
 
 mod descriptors;
 mod rx_desc;
@@ -42,6 +46,7 @@ pub struct Ethernet<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> {
     mac_addr: [u8; 6],
 }
 
+#[cfg(eth_v1a)]
 macro_rules! config_in_pins {
     ($($pin:ident),*) => {
         // NOTE(unsafe) Exclusive access to the registers
@@ -54,6 +59,7 @@ macro_rules! config_in_pins {
     }
 }
 
+#[cfg(eth_v1a)]
 macro_rules! config_af_pins {
     ($($pin:ident),*) => {
         // NOTE(unsafe) Exclusive access to the registers
@@ -61,6 +67,19 @@ macro_rules! config_af_pins {
             $(
                 // We are lucky here, this configures to max speed (50MHz)
                 $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
+            )*
+        })
+    };
+}
+
+#[cfg(any(eth_v1b, eth_v1c))]
+macro_rules! config_pins {
+    ($($pin:ident),*) => {
+        // NOTE(unsafe) Exclusive access to the registers
+        critical_section::with(|_| {
+            $(
+                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
+                $pin.set_speed(Speed::VeryHigh);
             )*
         })
     };
@@ -89,6 +108,7 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, 
 
         // Enable the necessary Clocks
         // NOTE(unsafe) We have exclusive access to the registers
+        #[cfg(eth_v1a)]
         critical_section::with(|_| {
             RCC.apb2enr().modify(|w| w.set_afioen(true));
 
@@ -103,8 +123,27 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, 
             });
         });
 
-        config_in_pins!(ref_clk, rx_d0, rx_d1);
-        config_af_pins!(mdio, mdc, tx_d0, tx_d1, tx_en);
+        #[cfg(any(eth_v1b, eth_v1c))]
+        critical_section::with(|_| {
+            RCC.apb2enr().modify(|w| w.set_syscfgen(true));
+            RCC.ahb1enr().modify(|w| {
+                w.set_ethen(true);
+                w.set_ethtxen(true);
+                w.set_ethrxen(true);
+            });
+
+            // RMII (Reduced Media Independent Interface)
+            SYSCFG.pmc().modify(|w| w.set_mii_rmii_sel(true));
+        });
+
+        #[cfg(eth_v1a)]
+        {
+            config_in_pins!(ref_clk, rx_d0, rx_d1);
+            config_af_pins!(mdio, mdc, tx_d0, tx_d1, tx_en);
+        }
+
+        #[cfg(any(eth_v1b, eth_v1c))]
+        config_pins!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
         // NOTE(unsafe) We are ourselves not leak-safe.
         let state = PeripheralMutex::new_unchecked(interrupt, &mut state.0, || Inner::new(peri));
