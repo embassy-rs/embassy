@@ -7,7 +7,7 @@ resolver = "2"
 
 [features]
 default = ["nightly"]
-nightly = ["embassy-stm32/nightly", "embassy-lora", "lorawan-device", "lorawan-encoding"]
+nightly = ["embassy-stm32/nightly", "embassy-lora", "lorawan-device", "lorawan"]
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime"] }
@@ -15,8 +15,8 @@ embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["
 
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["sx127x", "time", "defmt"], optional = true}
 
-lorawan-device = { git = "https://github.com/ivajloip/rust-lorawan.git", rev = "607d7ee4917e26998b5f130304becde969b6b434", default-features = false, features = ["async"], optional = true }
-lorawan-encoding = { git = "https://github.com/ivajloip/rust-lorawan.git", rev = "607d7ee4917e26998b5f130304becde969b6b434", default-features = false, features = ["default-crypto"], optional = true }
+lorawan-device = { version = "0.7.1", default-features = false, features = ["async"], optional = true }
+lorawan = { version = "0.7.1", default-features = false, features = ["default-crypto"], optional = true }
 
 defmt = "0.3"
 defmt-rtt = "0.3"
