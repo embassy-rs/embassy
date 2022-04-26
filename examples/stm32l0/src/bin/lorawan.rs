@@ -18,8 +18,8 @@ use embassy_stm32::{
     time::U32Ext,
     Peripherals,
 };
+use lorawan::default_crypto::DefaultFactory as Crypto;
 use lorawan_device::async_device::{region, Device, JoinMode};
-use lorawan_encoding::default_crypto::DefaultFactory as Crypto;
 
 fn config() -> embassy_stm32::Config {
     let mut config = embassy_stm32::Config::default();
