@@ -4,6 +4,8 @@ pub(crate) mod bdma;
 pub(crate) mod dma;
 #[cfg(dmamux)]
 mod dmamux;
+#[cfg(gpdma)]
+mod gpdma;
 
 #[cfg(dmamux)]
 pub use dmamux::*;
@@ -24,9 +26,9 @@ pub mod low_level {
 
 pub(crate) use transfers::*;
 
-#[cfg(any(bdma_v2, dma_v2, dmamux))]
+#[cfg(any(bdma_v2, dma_v2, dmamux, gpdma))]
 pub type Request = u8;
-#[cfg(not(any(bdma_v2, dma_v2, dmamux)))]
+#[cfg(not(any(bdma_v2, dma_v2, dmamux, gpdma)))]
 pub type Request = ();
 
 pub(crate) mod sealed {
@@ -118,11 +120,24 @@ pub(crate) mod sealed {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum WordSize {
     OneByte,
     TwoBytes,
     FourBytes,
 }
+
+impl WordSize {
+    pub fn bytes(&self) -> usize {
+        match self {
+            Self::OneByte => 1,
+            Self::TwoBytes => 2,
+            Self::FourBytes => 4,
+        }
+    }
+}
+
 pub trait Word: sealed::Word {
     fn bits() -> WordSize;
 }
@@ -148,7 +163,8 @@ impl Word for u32 {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Burst {
     /// Single transfer
     Single,
@@ -160,7 +176,8 @@ pub enum Burst {
     Incr16,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlowControl {
     /// Flow control by DMA
     Dma,
@@ -168,6 +185,8 @@ pub enum FlowControl {
     Peripheral,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TransferOptions {
     /// Peripheral burst transfer configuration
     pub pburst: Burst,
@@ -299,6 +318,8 @@ pub(crate) unsafe fn init() {
     dma::init();
     #[cfg(dmamux)]
     dmamux::init();
+    #[cfg(gpdma)]
+    gpdma::init();
 }
 
 // TODO: replace transmutes with core::ptr::metadata once it's stable

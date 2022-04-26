@@ -42,7 +42,19 @@ macro_rules! dma_trait_impl {
         }
     };
 
-    // No DMAMUX
+    // DMAMUX
+    (crate::$mod:ident::$trait:ident, $instance:ident, {dma: $dma:ident}, $request:expr) => {
+        impl<T> crate::$mod::$trait<crate::peripherals::$instance> for T
+        where
+            T: crate::dma::Channel,
+        {
+            fn request(&self) -> crate::dma::Request {
+                $request
+            }
+        }
+    };
+
+    // DMA/GPDMA, without DMAMUX
     (crate::$mod:ident::$trait:ident, $instance:ident, {channel: $channel:ident}, $request:expr) => {
         impl crate::$mod::$trait<crate::peripherals::$instance> for crate::peripherals::$channel {
             fn request(&self) -> crate::dma::Request {

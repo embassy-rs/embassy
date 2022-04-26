@@ -34,6 +34,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let (tx, rx, usart, tx_dma, rx_dma) = (p.PA9, p.PA10, p.USART1, p.DMA1_CH1, p.DMA1_CH2); // TODO this is wrong
     #[cfg(feature = "stm32h755zi")]
     let (tx, rx, usart, tx_dma, rx_dma) = (p.PB6, p.PB7, p.USART1, p.DMA1_CH0, p.DMA1_CH1);
+    #[cfg(feature = "stm32u585ai")]
+    let (tx, rx, usart, tx_dma, rx_dma) = (p.PD8, p.PD9, p.USART3, p.GPDMA1_CH0, p.GPDMA1_CH1);
 
     let config = Config::default();
     let mut usart = Uart::new(usart, rx, tx, tx_dma, rx_dma, config);
