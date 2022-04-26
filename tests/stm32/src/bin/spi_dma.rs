@@ -27,6 +27,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let (sck, mosi, miso, tx_dma, rx_dma) = (p.PA5, p.PA7, p.PA6, p.DMA1_CH1, p.DMA1_CH2);
     #[cfg(feature = "stm32wb55rg")]
     let (sck, mosi, miso, tx_dma, rx_dma) = (p.PA5, p.PA7, p.PA6, p.DMA1_CH1, p.DMA1_CH2);
+    #[cfg(feature = "stm32u585ai")]
+    let (sck, mosi, miso, tx_dma, rx_dma) = (p.PE13, p.PE15, p.PE14, p.GPDMA1_CH0, p.GPDMA1_CH1);
 
     let mut spi = Spi::new(
         p.SPI1,

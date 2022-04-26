@@ -16,10 +16,20 @@ use example_common::*;
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
-    #[cfg(not(feature = "stm32h755zi"))]
+    #[cfg(feature = "stm32f103c8")]
+    let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
+    #[cfg(feature = "stm32f429zi")]
     let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
     #[cfg(feature = "stm32h755zi")]
     let (sck, mosi, miso) = (p.PA5, p.PB5, p.PA6);
+    #[cfg(feature = "stm32g491re")]
+    let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
+    #[cfg(feature = "stm32g071rb")]
+    let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
+    #[cfg(feature = "stm32wb55rg")]
+    let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
+    #[cfg(feature = "stm32u585ai")]
+    let (sck, mosi, miso) = (p.PE13, p.PE15, p.PE14);
 
     let mut spi = Spi::new(
         p.SPI1,

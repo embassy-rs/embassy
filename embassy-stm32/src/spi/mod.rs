@@ -100,13 +100,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         unborrow!(sck, mosi, miso);
         unsafe {
             sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
-            #[cfg(any(spi_v2, spi_v3))]
+            #[cfg(any(spi_v2, spi_v3, spi_v4))]
             sck.set_speed(crate::gpio::Speed::VeryHigh);
             mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
-            #[cfg(any(spi_v2, spi_v3))]
+            #[cfg(any(spi_v2, spi_v3, spi_v4))]
             mosi.set_speed(crate::gpio::Speed::VeryHigh);
             miso.set_as_af(miso.af_num(), AFType::Input);
-            #[cfg(any(spi_v2, spi_v3))]
+            #[cfg(any(spi_v2, spi_v3, spi_v4))]
             miso.set_speed(crate::gpio::Speed::VeryHigh);
         }
 
@@ -137,10 +137,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         unborrow!(sck, miso);
         unsafe {
             sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
-            #[cfg(any(spi_v2, spi_v3))]
+            #[cfg(any(spi_v2, spi_v3, spi_v4))]
             sck.set_speed(crate::gpio::Speed::VeryHigh);
             miso.set_as_af(miso.af_num(), AFType::Input);
-            #[cfg(any(spi_v2, spi_v3))]
+            #[cfg(any(spi_v2, spi_v3, spi_v4))]
             miso.set_speed(crate::gpio::Speed::VeryHigh);
         }
 
@@ -171,10 +171,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         unborrow!(sck, mosi);
         unsafe {
             sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
-            #[cfg(any(spi_v2, spi_v3))]
+            #[cfg(any(spi_v2, spi_v3, spi_v4))]
             sck.set_speed(crate::gpio::Speed::VeryHigh);
             mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
-            #[cfg(any(spi_v2, spi_v3))]
+            #[cfg(any(spi_v2, spi_v3, spi_v4))]
             mosi.set_speed(crate::gpio::Speed::VeryHigh);
         }
 
@@ -260,7 +260,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_spe(true);
             });
         }
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         unsafe {
             T::REGS.ifcr().write(|w| w.0 = 0xffff_ffff);
             T::REGS.cfg2().modify(|w| {
@@ -285,7 +285,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
             T::REGS.cr2().modify(|w| {
                 w.set_tsize(0);
-                w.set_tser(0);
             });
             T::REGS.cr1().modify(|w| {
                 w.set_ssi(false);
@@ -320,7 +319,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
         }
 
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         unsafe {
             T::REGS.cfg2().modify(|w| {
                 w.set_cpha(cpha);
@@ -333,7 +332,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     pub fn get_current_config(&self) -> Config {
         #[cfg(any(spi_v1, spi_f1, spi_v2))]
         let cfg = unsafe { T::REGS.cr1().read() };
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         let cfg = unsafe { T::REGS.cfg2().read() };
         let polarity = if cfg.cpol() == vals::Cpol::IDLELOW {
             Polarity::IdleLow
@@ -386,7 +385,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_spe(true);
             });
         }
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         unsafe {
             T::REGS.cr1().modify(|w| {
                 w.set_csusp(true);
@@ -435,7 +434,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::REGS.cr1().modify(|w| {
                 w.set_spe(true);
             });
-            #[cfg(spi_v3)]
+            #[cfg(any(spi_v3, spi_v4))]
             T::REGS.cr1().modify(|w| {
                 w.set_cstart(true);
             });
@@ -466,7 +465,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
 
         // SPIv3 clears rxfifo on SPE=0
-        #[cfg(not(spi_v3))]
+        #[cfg(not(any(spi_v3, spi_v4)))]
         flush_rx_fifo(T::REGS);
 
         let clock_byte_count = data.len();
@@ -495,7 +494,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::REGS.cr1().modify(|w| {
                 w.set_spe(true);
             });
-            #[cfg(spi_v3)]
+            #[cfg(any(spi_v3, spi_v4))]
             T::REGS.cr1().modify(|w| {
                 w.set_cstart(true);
             });
@@ -533,7 +532,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
 
         // SPIv3 clears rxfifo on SPE=0
-        #[cfg(not(spi_v3))]
+        #[cfg(not(any(spi_v3, spi_v4)))]
         flush_rx_fifo(T::REGS);
 
         let rx_request = self.rxdma.request();
@@ -557,7 +556,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::REGS.cr1().modify(|w| {
                 w.set_spe(true);
             });
-            #[cfg(spi_v3)]
+            #[cfg(any(spi_v3, spi_v4))]
             T::REGS.cr1().modify(|w| {
                 w.set_cstart(true);
             });
@@ -642,9 +641,9 @@ impl<'d, T: Instance, Tx, Rx> Drop for Spi<'d, T, Tx, Rx> {
     }
 }
 
-#[cfg(not(spi_v3))]
+#[cfg(not(any(spi_v3, spi_v4)))]
 use vals::Br;
-#[cfg(spi_v3)]
+#[cfg(any(spi_v3, spi_v4))]
 use vals::Mbr as Br;
 
 fn compute_baud_rate(clocks: Hertz, freq: Hertz) -> Br {
@@ -670,17 +669,17 @@ trait RegsExt {
 
 impl RegsExt for Regs {
     fn tx_ptr<W>(&self) -> *mut W {
-        #[cfg(not(spi_v3))]
+        #[cfg(not(any(spi_v3, spi_v4)))]
         let dr = self.dr();
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         let dr = self.txdr();
         dr.ptr() as *mut W
     }
 
     fn rx_ptr<W>(&self) -> *mut W {
-        #[cfg(not(spi_v3))]
+        #[cfg(not(any(spi_v3, spi_v4)))]
         let dr = self.dr();
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         let dr = self.rxdr();
         dr.ptr() as *mut W
     }
@@ -690,22 +689,22 @@ fn check_error_flags(sr: regs::Sr) -> Result<(), Error> {
     if sr.ovr() {
         return Err(Error::Overrun);
     }
-    #[cfg(not(any(spi_f1, spi_v3)))]
+    #[cfg(not(any(spi_f1, spi_v3, spi_v4)))]
     if sr.fre() {
         return Err(Error::Framing);
     }
-    #[cfg(spi_v3)]
+    #[cfg(any(spi_v3, spi_v4))]
     if sr.tifre() {
         return Err(Error::Framing);
     }
     if sr.modf() {
         return Err(Error::ModeFault);
     }
-    #[cfg(not(spi_v3))]
+    #[cfg(not(any(spi_v3, spi_v4)))]
     if sr.crcerr() {
         return Err(Error::Crc);
     }
-    #[cfg(spi_v3)]
+    #[cfg(any(spi_v3, spi_v4))]
     if sr.crce() {
         return Err(Error::Crc);
     }
@@ -719,11 +718,11 @@ fn spin_until_tx_ready(regs: Regs) -> Result<(), Error> {
 
         check_error_flags(sr)?;
 
-        #[cfg(not(spi_v3))]
+        #[cfg(not(any(spi_v3, spi_v4)))]
         if sr.txe() {
             return Ok(());
         }
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         if sr.txp() {
             return Ok(());
         }
@@ -736,11 +735,11 @@ fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
 
         check_error_flags(sr)?;
 
-        #[cfg(not(spi_v3))]
+        #[cfg(not(any(spi_v3, spi_v4)))]
         if sr.rxne() {
             return Ok(());
         }
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         if sr.rxp() {
             return Ok(());
         }
@@ -749,11 +748,11 @@ fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
 
 fn flush_rx_fifo(regs: Regs) {
     unsafe {
-        #[cfg(not(spi_v3))]
+        #[cfg(not(any(spi_v3, spi_v4)))]
         while regs.sr().read().rxne() {
             let _ = regs.dr().read();
         }
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         while regs.sr().read().rxp() {
             let _ = regs.rxdr().read();
         }
@@ -762,11 +761,11 @@ fn flush_rx_fifo(regs: Regs) {
 
 fn set_txdmaen(regs: Regs, val: bool) {
     unsafe {
-        #[cfg(not(spi_v3))]
+        #[cfg(not(any(spi_v3, spi_v4)))]
         regs.cr2().modify(|reg| {
             reg.set_txdmaen(val);
         });
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         regs.cfg1().modify(|reg| {
             reg.set_txdmaen(val);
         });
@@ -775,11 +774,11 @@ fn set_txdmaen(regs: Regs, val: bool) {
 
 fn set_rxdmaen(regs: Regs, val: bool) {
     unsafe {
-        #[cfg(not(spi_v3))]
+        #[cfg(not(any(spi_v3, spi_v4)))]
         regs.cr2().modify(|reg| {
             reg.set_rxdmaen(val);
         });
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         regs.cfg1().modify(|reg| {
             reg.set_rxdmaen(val);
         });
@@ -791,21 +790,21 @@ fn finish_dma(regs: Regs) {
         #[cfg(spi_v2)]
         while regs.sr().read().ftlvl() > 0 {}
 
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         while !regs.sr().read().txc() {}
-        #[cfg(not(spi_v3))]
+        #[cfg(not(any(spi_v3, spi_v4)))]
         while regs.sr().read().bsy() {}
 
         regs.cr1().modify(|w| {
             w.set_spe(false);
         });
 
-        #[cfg(not(spi_v3))]
+        #[cfg(not(any(spi_v3, spi_v4)))]
         regs.cr2().modify(|reg| {
             reg.set_txdmaen(false);
             reg.set_rxdmaen(false);
         });
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         regs.cfg1().modify(|reg| {
             reg.set_txdmaen(false);
             reg.set_rxdmaen(false);
@@ -819,7 +818,7 @@ fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     unsafe {
         ptr::write_volatile(regs.tx_ptr(), tx_word);
 
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         regs.cr1().modify(|reg| reg.set_cstart(true));
     }
 
@@ -1018,7 +1017,7 @@ pub(crate) mod sealed {
             }
         }
 
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         pub fn dsize(&self) -> u8 {
             match self {
                 WordSize::EightBit => 0b0111,
@@ -1026,7 +1025,7 @@ pub(crate) mod sealed {
             }
         }
 
-        #[cfg(spi_v3)]
+        #[cfg(any(spi_v3, spi_v4))]
         pub fn _frxth(&self) -> vals::Fthlv {
             match self {
                 WordSize::EightBit => vals::Fthlv::ONEFRAME,

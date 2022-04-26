@@ -104,6 +104,7 @@ pub struct PeripheralDmaChannel {
     pub signal: String,
     pub channel: Option<String>,
     pub dmamux: Option<String>,
+    pub dma: Option<String>,
     pub request: Option<u32>,
 }
 
