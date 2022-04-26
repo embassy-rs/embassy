@@ -11,7 +11,7 @@ use embassy::util::Forever;
 use embassy_net::{
     Config as NetConfig, Ipv4Address, Ipv4Cidr, StackResources, StaticConfigurator, TcpSocket,
 };
-use embassy_stm32::eth::lan8742a::LAN8742A;
+use embassy_stm32::eth::generic_smi::GenericSMI;
 use embassy_stm32::eth::{Ethernet, State};
 use embassy_stm32::interrupt;
 use embassy_stm32::peripherals::ETH;
@@ -26,7 +26,7 @@ use panic_probe as _;
 
 #[embassy::task]
 async fn main_task(
-    device: &'static mut Ethernet<'static, ETH, LAN8742A, 4, 4>,
+    device: &'static mut Ethernet<'static, ETH, GenericSMI, 4, 4>,
     config: &'static mut StaticConfigurator,
     spawner: Spawner,
 ) {
@@ -82,7 +82,7 @@ static mut RNG_INST: Option<Rng<RNG>> = None;
 
 static EXECUTOR: Forever<Executor> = Forever::new();
 static STATE: Forever<State<'static, ETH, 4, 4>> = Forever::new();
-static ETH: Forever<Ethernet<'static, ETH, LAN8742A, 4, 4>> = Forever::new();
+static ETH: Forever<Ethernet<'static, ETH, GenericSMI, 4, 4>> = Forever::new();
 static CONFIG: Forever<StaticConfigurator> = Forever::new();
 static NET_RESOURCES: Forever<StackResources<1, 2, 8>> = Forever::new();
 
@@ -112,7 +112,7 @@ fn main() -> ! {
     let eth = unsafe {
         ETH.put(Ethernet::new(
             state, p.ETH, eth_int, p.PA1, p.PA2, p.PC1, p.PA7, p.PC4, p.PC5, p.PG13, p.PB13,
-            p.PG11, LAN8742A, mac_addr, 0,
+            p.PG11, GenericSMI, mac_addr, 0,
         ))
     };
 

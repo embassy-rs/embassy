@@ -5,7 +5,7 @@
 #[cfg_attr(eth_v2, path = "v2/mod.rs")]
 #[cfg_attr(eth_v1, path = "v1.rs")]
 mod _version;
-pub mod lan8742a;
+pub mod generic_smi;
 
 pub use _version::*;
 
