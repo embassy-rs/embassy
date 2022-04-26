@@ -10,59 +10,12 @@ use embedded_storage::nor_flash::{
     ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
 };
 
-const FLASH_BASE: usize = 0x8000000;
-
-#[cfg(flash_l4)]
-mod config {
-    use super::*;
-    pub(crate) const FLASH_SIZE: usize = 0x100000;
-    pub(crate) const FLASH_START: usize = FLASH_BASE;
-    pub(crate) const FLASH_END: usize = FLASH_START + FLASH_SIZE;
-    pub(crate) const PAGE_SIZE: usize = 2048;
-    pub(crate) const WORD_SIZE: usize = 8;
-}
-
-#[cfg(flash_wb)]
-mod config {
-    use super::*;
-    pub(crate) const FLASH_SIZE: usize = 0x100000;
-    pub(crate) const FLASH_START: usize = FLASH_BASE;
-    pub(crate) const FLASH_END: usize = FLASH_START + FLASH_SIZE;
-    pub(crate) const PAGE_SIZE: usize = 4096;
-    pub(crate) const WORD_SIZE: usize = 8;
-}
-
-#[cfg(flash_wl)]
-mod config {
-    use super::*;
-    pub(crate) const FLASH_SIZE: usize = 0x40000;
-    pub(crate) const FLASH_START: usize = FLASH_BASE;
-    pub(crate) const FLASH_END: usize = FLASH_START + FLASH_SIZE;
-    pub(crate) const PAGE_SIZE: usize = 2048;
-    pub(crate) const WORD_SIZE: usize = 8;
-}
-
-#[cfg(flash_l0)]
-mod config {
-    use super::*;
-    pub(crate) const FLASH_SIZE: usize = 0x30000;
-    pub(crate) const FLASH_START: usize = FLASH_BASE;
-    pub(crate) const FLASH_END: usize = FLASH_START + FLASH_SIZE;
-    pub(crate) const PAGE_SIZE: usize = 128;
-    pub(crate) const WORD_SIZE: usize = 4;
-}
-
-#[cfg(flash_l1)]
-mod config {
-    use super::*;
-    pub(crate) const FLASH_SIZE: usize = 0x80000;
-    pub(crate) const FLASH_START: usize = FLASH_BASE;
-    pub(crate) const FLASH_END: usize = FLASH_START + FLASH_SIZE;
-    pub(crate) const PAGE_SIZE: usize = 256;
-    pub(crate) const WORD_SIZE: usize = 4;
-}
-
-use config::*;
+pub use crate::pac::ERASE_SIZE;
+pub use crate::pac::ERASE_VALUE;
+pub use crate::pac::FLASH_BASE;
+pub use crate::pac::FLASH_SIZE;
+pub use crate::pac::WRITE_SIZE;
+const FLASH_END: usize = FLASH_BASE + FLASH_SIZE;
 
 pub struct Flash<'d> {
     _inner: FLASH,
@@ -114,6 +67,7 @@ impl<'d> Flash<'d> {
     }
 
     pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+        let offset = FLASH_BASE as u32 + offset;
         if offset as usize >= FLASH_END || offset as usize + bytes.len() > FLASH_END {
             return Err(Error::Size);
         }
@@ -124,23 +78,25 @@ impl<'d> Flash<'d> {
     }
 
     pub fn blocking_write(&mut self, offset: u32, buf: &[u8]) -> Result<(), Error> {
+        let offset = FLASH_BASE as u32 + offset;
         if offset as usize + buf.len() > FLASH_END {
             return Err(Error::Size);
         }
-        if offset as usize % WORD_SIZE != 0 || buf.len() as usize % WORD_SIZE != 0 {
+        if offset as usize % WRITE_SIZE != 0 || buf.len() as usize % WRITE_SIZE != 0 {
             return Err(Error::Unaligned);
         }
+        trace!("Writing {} bytes at 0x{:x}", buf.len(), offset);
 
         self.clear_all_err();
 
         #[cfg(any(flash_wl, flash_wb, flash_l4))]
         unsafe {
-            pac::FLASH.cr().write(|w| w.set_pg(true));
+            pac::FLASH.cr().write(|w| w.set_pg(true))
         }
 
         let mut ret: Result<(), Error> = Ok(());
         let mut offset = offset;
-        for chunk in buf.chunks(WORD_SIZE) {
+        for chunk in buf.chunks(WRITE_SIZE) {
             for val in chunk.chunks(4) {
                 unsafe {
                     write_volatile(
@@ -159,23 +115,25 @@ impl<'d> Flash<'d> {
 
         #[cfg(any(flash_wl, flash_wb, flash_l4))]
         unsafe {
-            pac::FLASH.cr().write(|w| w.set_pg(false));
+            pac::FLASH.cr().write(|w| w.set_pg(false))
         }
 
         ret
     }
 
     pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+        let from = FLASH_BASE as u32 + from;
+        let to = FLASH_BASE as u32 + to;
         if to < from || to as usize > FLASH_END {
             return Err(Error::Size);
         }
-        if from as usize % PAGE_SIZE != 0 || to as usize % PAGE_SIZE != 0 {
+        if from as usize % ERASE_SIZE != 0 || to as usize % ERASE_SIZE != 0 {
             return Err(Error::Unaligned);
         }
 
         self.clear_all_err();
 
-        for page in (from..to).step_by(PAGE_SIZE) {
+        for page in (from..to).step_by(ERASE_SIZE) {
             #[cfg(any(flash_l0, flash_l1))]
             unsafe {
                 pac::FLASH.pecr().modify(|w| {
@@ -188,7 +146,7 @@ impl<'d> Flash<'d> {
 
             #[cfg(any(flash_wl, flash_wb, flash_l4))]
             unsafe {
-                let idx = page / PAGE_SIZE as u32;
+                let idx = page / ERASE_SIZE as u32;
 
                 pac::FLASH.cr().modify(|w| {
                     w.set_per(true);
@@ -333,7 +291,7 @@ impl NorFlashError for Error {
 }
 
 impl<'d> ReadNorFlash for Flash<'d> {
-    const READ_SIZE: usize = WORD_SIZE;
+    const READ_SIZE: usize = WRITE_SIZE;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
         self.blocking_read(offset, bytes)
@@ -345,8 +303,8 @@ impl<'d> ReadNorFlash for Flash<'d> {
 }
 
 impl<'d> NorFlash for Flash<'d> {
-    const WRITE_SIZE: usize = WORD_SIZE;
-    const ERASE_SIZE: usize = PAGE_SIZE;
+    const WRITE_SIZE: usize = WRITE_SIZE;
+    const ERASE_SIZE: usize = ERASE_SIZE;
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
         self.blocking_erase(from, to)

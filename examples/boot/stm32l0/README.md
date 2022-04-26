@@ -15,7 +15,7 @@ application.
 
 ```
 # Flash bootloader
-cargo flash --manifest-path ../../../embassy-boot/stm32/Cargo.toml --release --features embassy-stm32/stm32l072cz,flash-128,invert-erase,thumbv6 --chip STM32L072CZTx
+cargo flash --manifest-path ../../../embassy-boot/stm32/Cargo.toml --release --features embassy-stm32/stm32l072cz,thumbv6 --chip STM32L072CZTx
 # Build 'b'
 cargo build --release --bin b
 # Generate binary for 'b'

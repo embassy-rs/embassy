@@ -27,10 +27,6 @@ defmt = [
     "embassy-stm32/defmt",
 ]
 debug = ["defmt-rtt"]
-flash-2k = ["embassy-boot/write-8"]
-flash-128 = ["embassy-boot/write-4"]
-flash-256 = ["embassy-boot/write-4"]
-invert-erase = ["embassy-boot/invert-erase"]
 thumbv6 = []
 
 [profile.dev]

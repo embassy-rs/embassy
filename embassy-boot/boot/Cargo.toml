@@ -21,8 +21,3 @@ log = "0.4"
 env_logger = "0.9"
 rand = "0.8"
 futures = { version = "0.3", features = ["executor"] }
-
-[features]
-write-4 = []
-write-8 = []
-invert-erase = []

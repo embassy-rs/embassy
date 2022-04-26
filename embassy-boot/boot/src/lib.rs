@@ -1,5 +1,7 @@
 #![feature(type_alias_impl_trait)]
 #![feature(generic_associated_types)]
+#![feature(generic_const_exprs)]
+#![allow(incomplete_features)]
 #![no_std]
 ///! embassy-boot is a bootloader and firmware updater for embedded devices with flash
 ///! storage implemented using embedded-storage
@@ -17,23 +19,8 @@ mod fmt;
 use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 use embedded_storage_async::nor_flash::AsyncNorFlash;
 
-#[cfg(not(any(feature = "write-4", feature = "write-8",)))]
-compile_error!("No write size/alignment specified. Must specify exactly one of the following features: write-4, write-8");
-
 const BOOT_MAGIC: u8 = 0xD0;
 const SWAP_MAGIC: u8 = 0xF0;
-
-#[cfg(feature = "write-4")]
-const WRITE_SIZE: usize = 4;
-
-#[cfg(feature = "write-8")]
-const WRITE_SIZE: usize = 8;
-
-#[cfg(feature = "invert-erase")]
-const ERASE_VALUE: u8 = 0x00;
-
-#[cfg(not(feature = "invert-erase"))]
-const ERASE_VALUE: u8 = 0xFF;
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -96,7 +83,7 @@ pub trait FlashProvider {
 
 /// BootLoader works with any flash implementing embedded_storage and can also work with
 /// different page sizes and flash write sizes.
-pub struct BootLoader<const PAGE_SIZE: usize> {
+pub struct BootLoader<const PAGE_SIZE: usize, const WRITE_SIZE: usize, const ERASE_VALUE: u8> {
     // Page with current state of bootloader. The state partition has the following format:
     // | Range          | Description                                                                      |
     // | 0 - WRITE_SIZE | Magic indicating bootloader state. BOOT_MAGIC means boot, SWAP_MAGIC means swap. |
@@ -108,7 +95,9 @@ pub struct BootLoader<const PAGE_SIZE: usize> {
     dfu: Partition,
 }
 
-impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
+impl<const PAGE_SIZE: usize, const WRITE_SIZE: usize, const ERASE_VALUE: u8>
+    BootLoader<PAGE_SIZE, WRITE_SIZE, ERASE_VALUE>
+{
     pub fn new(active: Partition, dfu: Partition, state: Partition) -> Self {
         assert_eq!(active.len() % PAGE_SIZE, 0);
         assert_eq!(dfu.len() % PAGE_SIZE, 0);
@@ -352,8 +341,6 @@ impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
             self.copy_page_once_to_active(page * 2 + 1, dfu_page, active_page, p)?;
         }
 
-        info!("DONE COPYING");
-
         Ok(())
     }
 
@@ -379,7 +366,6 @@ impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
         let flash = p.flash();
         flash.read(self.state.from as u32, &mut magic)?;
 
-        info!("Read magic: {:x}", magic);
         if magic == [SWAP_MAGIC; WRITE_SIZE] {
             Ok(State::Swap)
         } else {
@@ -451,13 +437,9 @@ pub struct FirmwareUpdater {
     dfu: Partition,
 }
 
-#[cfg(feature = "write-4")]
-#[repr(align(4))]
-pub struct Aligned([u8; 4]);
-
-#[cfg(feature = "write-8")]
-#[repr(align(8))]
-pub struct Aligned([u8; 8]);
+// NOTE: Aligned to the largest write size supported by flash
+#[repr(align(32))]
+pub struct Aligned<const N: usize>([u8; N]);
 
 impl Default for FirmwareUpdater {
     fn default() -> Self {
@@ -480,6 +462,9 @@ impl Default for FirmwareUpdater {
                 &__bootloader_state_end as *const u32 as usize,
             )
         };
+
+        trace!("DFU: 0x{:x} - 0x{:x}", dfu.from, dfu.to);
+        trace!("STATE: 0x{:x} - 0x{:x}", state.from, state.to);
         FirmwareUpdater::new(dfu, state)
     }
 }
@@ -496,14 +481,20 @@ impl FirmwareUpdater {
 
     /// Instruct bootloader that DFU should commence at next boot.
     /// Must be provided with an aligned buffer to use for reading and writing magic;
-    pub async fn mark_update<F: AsyncNorFlash>(&mut self, flash: &mut F) -> Result<(), F::Error> {
-        let mut aligned = Aligned([0; WRITE_SIZE]);
+    pub async fn mark_update<F: AsyncNorFlash>(&mut self, flash: &mut F) -> Result<(), F::Error>
+    where
+        [(); F::WRITE_SIZE]:,
+    {
+        let mut aligned = Aligned([0; { F::WRITE_SIZE }]);
         self.set_magic(&mut aligned.0, SWAP_MAGIC, flash).await
     }
 
     /// Mark firmware boot successfully
-    pub async fn mark_booted<F: AsyncNorFlash>(&mut self, flash: &mut F) -> Result<(), F::Error> {
-        let mut aligned = Aligned([0; WRITE_SIZE]);
+    pub async fn mark_booted<F: AsyncNorFlash>(&mut self, flash: &mut F) -> Result<(), F::Error>
+    where
+        [(); F::WRITE_SIZE]:,
+    {
+        let mut aligned = Aligned([0; { F::WRITE_SIZE }]);
         self.set_magic(&mut aligned.0, BOOT_MAGIC, flash).await
     }
 
@@ -626,7 +617,7 @@ mod tests {
         flash.0[0..4].copy_from_slice(&[BOOT_MAGIC; 4]);
         let mut flash = SingleFlashProvider::new(&mut flash);
 
-        let mut bootloader = BootLoader::<4096>::new(ACTIVE, DFU, STATE);
+        let mut bootloader = BootLoader::<4096, 4, 0xFF>::new(ACTIVE, DFU, STATE);
 
         assert_eq!(State::Boot, bootloader.prepare_boot(&mut flash).unwrap());
     }
@@ -643,7 +634,7 @@ mod tests {
             flash.0[i] = original[i - ACTIVE.from];
         }
 
-        let mut bootloader = BootLoader::<4096>::new(ACTIVE, DFU, STATE);
+        let mut bootloader = BootLoader::<4096, 4, 0xFF>::new(ACTIVE, DFU, STATE);
         let mut updater = FirmwareUpdater::new(DFU, STATE);
         let mut offset = 0;
         for chunk in update.chunks(4096) {

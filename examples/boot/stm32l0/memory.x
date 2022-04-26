@@ -8,8 +8,8 @@ MEMORY
   RAM                         (rwx) : ORIGIN = 0x20000008, LENGTH = 16K
 }
 
-__bootloader_state_start = ORIGIN(BOOTLOADER_STATE);
-__bootloader_state_end = ORIGIN(BOOTLOADER_STATE) + LENGTH(BOOTLOADER_STATE);
+__bootloader_state_start = ORIGIN(BOOTLOADER_STATE) - ORIGIN(BOOTLOADER);
+__bootloader_state_end = ORIGIN(BOOTLOADER_STATE) + LENGTH(BOOTLOADER_STATE) - ORIGIN(BOOTLOADER);
 
-__bootloader_dfu_start = ORIGIN(DFU);
-__bootloader_dfu_end = ORIGIN(DFU) + LENGTH(DFU);
+__bootloader_dfu_start = ORIGIN(DFU) - ORIGIN(BOOTLOADER);
+__bootloader_dfu_end = ORIGIN(DFU) + LENGTH(DFU) - ORIGIN(BOOTLOADER);

@@ -17,16 +17,18 @@ static APP_B: &[u8] = include_bytes!("../../b.bin");
 
 #[embassy::main]
 async fn main(_s: embassy::executor::Spawner, p: Peripherals) {
-    let flash = Flash::new(p.FLASH);
+    let flash = Flash::unlock(p.FLASH);
     let mut flash = BlockingAsync::new(flash);
 
     let button = Input::new(p.PA0, Pull::Up);
     let mut button = ExtiInput::new(button, p.EXTI0);
 
     let mut led = Output::new(p.PB9, Level::Low, Speed::Low);
+    led.set_high();
 
     let mut updater = FirmwareUpdater::default();
     button.wait_for_falling_edge().await;
+    //defmt::info!("Starting update");
     let mut offset = 0;
     for chunk in APP_B.chunks(2048) {
         let mut buf: [u8; 2048] = [0; 2048];
@@ -39,7 +41,7 @@ async fn main(_s: embassy::executor::Spawner, p: Peripherals) {
         offset += chunk.len();
     }
     updater.mark_update(&mut flash).await.unwrap();
-    //   defmt::info!("Marked as updated");
-    led.set_high();
+    //defmt::info!("Marked as updated");
+    led.set_low();
     cortex_m::peripheral::SCB::sys_reset();
 }

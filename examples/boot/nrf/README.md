@@ -17,15 +17,15 @@ application.
 
 ```
 # Flash bootloader
-cargo flash --manifest-path ../../embassy-boot/nrf/Cargo.toml --release --features embassy-nrf/nrf52840 --chip nRF52840_xxAA
+cargo flash --manifest-path ../../../embassy-boot/nrf/Cargo.toml --features embassy-nrf/nrf52840 --release --chip nRF52840_xxAA
 # Build 'b'
-cargo build --release --features embassy-nrf/nrf52840 --bin b
+cargo build --release --bin b
 # Generate binary for 'b'
-cargo objcopy --release --features embassy-nrf/nrf52840 --bin b -- -O binary b.bin
+cargo objcopy --release --bin b -- -O binary b.bin
 ```
 
 # Flash `a` (which includes b.bin)
 
 ```
-cargo flash --release --features embassy-nrf/nrf52840 --bin a --chip nRF52840_xxAA
+cargo flash --release --bin a --chip nRF52840_xxAA
 ```

@@ -15,7 +15,7 @@ use panic_probe as _;
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello Flash!");
 
-    const ADDR: u32 = 0x8036000;
+    const ADDR: u32 = 0x36000;
 
     let mut f = Flash::unlock(p.FLASH);
 

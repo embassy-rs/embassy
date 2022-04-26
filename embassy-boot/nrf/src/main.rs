@@ -46,8 +46,5 @@ unsafe fn DefaultHandler(_: i16) -> ! {
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
-    unsafe {
-        cortex_m::asm::udf();
-        core::hint::unreachable_unchecked();
-    }
+    cortex_m::asm::udf();
 }

@@ -15,7 +15,7 @@ application.
 
 ```
 # Flash bootloader
-cargo flash --manifest-path ../../../embassy-boot/stm32/Cargo.toml --release --features embassy-stm32/stm32wl55jc-cm4,flash-2k --chip STM32WLE5JCIx
+cargo flash --manifest-path ../../../embassy-boot/stm32/Cargo.toml --release --features embassy-stm32/stm32wl55jc-cm4 --chip STM32WLE5JCIx
 # Build 'b'
 cargo build --release --bin b
 # Generate binary for 'b'

@@ -9,9 +9,6 @@ use defmt_rtt as _;
 use embassy_boot_stm32::*;
 use embassy_stm32::flash::Flash;
 
-#[cfg(not(any(feature = "flash-2k", feature = "flash-256", feature = "flash-128")))]
-compile_error!("No flash size specified. Must specify exactly one of the following features: flash-2k, flash-256, flash-128");
-
 #[entry]
 fn main() -> ! {
     let p = embassy_stm32::init(Default::default());
@@ -24,15 +21,7 @@ fn main() -> ! {
         }
     */
 
-    #[cfg(feature = "flash-2k")]
-    let mut bl: BootLoader<2048> = BootLoader::default();
-
-    #[cfg(feature = "flash-256")]
-    let mut bl: BootLoader<256> = BootLoader::default();
-
-    #[cfg(feature = "flash-128")]
-    let mut bl: BootLoader<128> = BootLoader::default();
-
+    let mut bl = BootLoader::default();
     let mut flash = Flash::unlock(p.FLASH);
     let start = bl.prepare(&mut SingleFlashProvider::new(&mut flash));
     core::mem::drop(flash);
@@ -55,8 +44,5 @@ unsafe fn DefaultHandler(_: i16) -> ! {
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
-    unsafe {
-        cortex_m::asm::udf();
-        core::hint::unreachable_unchecked();
-    }
+    cortex_m::asm::udf();
 }

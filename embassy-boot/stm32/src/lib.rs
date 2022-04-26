@@ -5,12 +5,13 @@
 mod fmt;
 
 pub use embassy_boot::{FirmwareUpdater, FlashProvider, Partition, SingleFlashProvider, State};
+use embassy_stm32::flash::{ERASE_SIZE, ERASE_VALUE, WRITE_SIZE};
 
-pub struct BootLoader<const PAGE_SIZE: usize> {
-    boot: embassy_boot::BootLoader<PAGE_SIZE>,
+pub struct BootLoader {
+    boot: embassy_boot::BootLoader<ERASE_SIZE, WRITE_SIZE, ERASE_VALUE>,
 }
 
-impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
+impl BootLoader {
     /// Create a new bootloader instance using parameters from linker script
     pub fn default() -> Self {
         extern "C" {
@@ -65,6 +66,7 @@ impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
 
     pub unsafe fn load(&mut self, start: usize) -> ! {
         trace!("Loading app at 0x{:x}", start);
+        #[allow(unused_mut)]
         let mut p = cortex_m::Peripherals::steal();
         #[cfg(not(feature = "thumbv6"))]
         p.SCB.invalidate_icache();

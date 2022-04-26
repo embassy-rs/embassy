@@ -13,7 +13,7 @@ use embassy_nrf::{
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 pub struct BootLoader {
-    boot: embassy_boot::BootLoader<PAGE_SIZE>,
+    boot: embassy_boot::BootLoader<PAGE_SIZE, 4, 0xFF>,
 }
 
 impl BootLoader {
