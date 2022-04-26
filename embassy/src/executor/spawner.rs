@@ -1,6 +1,8 @@
 use core::marker::PhantomData;
 use core::mem;
 use core::ptr::NonNull;
+use core::task::Poll;
+use futures::future::poll_fn;
 
 use super::raw;
 
@@ -75,6 +77,23 @@ impl Spawner {
         }
     }
 
+    /// Get a Spawner for the current executor.
+    ///
+    /// This function is `async` just to get access to the current async
+    /// context. It returns instantly, it does not block/yield.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the current executor is not an Embassy executor.
+    pub async fn for_current_executor() -> Self {
+        poll_fn(|cx| unsafe {
+            let task = raw::task_from_waker(cx.waker());
+            let executor = (&*task.as_ptr()).executor.get();
+            Poll::Ready(Self::new(&*executor))
+        })
+        .await
+    }
+
     /// Spawn a task into an executor.
     ///
     /// You obtain the `token` by calling a task function (i.e. one marked with `#[embassy::task]`).
@@ -91,10 +110,15 @@ impl Spawner {
         }
     }
 
-    /// Used by the `embassy_macros::main!` macro to throw an error when spawn
-    /// fails. This is here to allow conditional use of `defmt::unwrap!`
-    /// without introducing a `defmt` feature in the `embassy_macros` package,
-    /// which would require use of `-Z namespaced-features`.
+    // Used by the `embassy_macros::main!` macro to throw an error when spawn
+    // fails. This is here to allow conditional use of `defmt::unwrap!`
+    // without introducing a `defmt` feature in the `embassy_macros` package,
+    // which would require use of `-Z namespaced-features`.
+    /// Spawn a task into an executor, panicking on failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the spawning fails.
     pub fn must_spawn<F>(&self, token: SpawnToken<F>) {
         unwrap!(self.spawn(token));
     }
@@ -125,6 +149,27 @@ unsafe impl Send for SendSpawner {}
 unsafe impl Sync for SendSpawner {}
 
 impl SendSpawner {
+    pub(crate) fn new(executor: &'static raw::Executor) -> Self {
+        Self { executor }
+    }
+
+    /// Get a Spawner for the current executor.
+    ///
+    /// This function is `async` just to get access to the current async
+    /// context. It returns instantly, it does not block/yield.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the current executor is not an Embassy executor.
+    pub async fn for_current_executor() -> Self {
+        poll_fn(|cx| unsafe {
+            let task = raw::task_from_waker(cx.waker());
+            let executor = (&*task.as_ptr()).executor.get();
+            Poll::Ready(Self::new(&*executor))
+        })
+        .await
+    }
+
     /// Spawn a task into an executor.
     ///
     /// You obtain the `token` by calling a task function (i.e. one marked with `#[embassy::task]`).
@@ -139,5 +184,14 @@ impl SendSpawner {
             }
             None => Err(SpawnError::Busy),
         }
+    }
+
+    /// Spawn a task into an executor, panicking on failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the spawning fails.
+    pub fn must_spawn<F: Send>(&self, token: SpawnToken<F>) {
+        unwrap!(self.spawn(token));
     }
 }

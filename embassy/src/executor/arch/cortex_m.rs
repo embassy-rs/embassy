@@ -115,6 +115,9 @@ impl<I: Interrupt> InterruptExecutor<I> {
     /// different "thread" (the interrupt), so spawning tasks on it is effectively
     /// sending them.
     ///
+    /// To obtain a [`Spawner`] for this executor, use [`Spawner::for_current_executor`] from
+    /// a task running in it.
+    ///
     /// This function requires `&'static mut self`. This means you have to store the
     /// Executor instance in a place where it'll live forever and grants you mutable
     /// access. There's a few ways to do this:
