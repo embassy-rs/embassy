@@ -387,11 +387,7 @@ where
         if buffer.len() <= 0xffff {
             return self.capture_small(buffer).await;
         } else {
-            #[cfg(feature = "unsafe-double-buffered-dma")]
             return self.capture_giant(buffer).await;
-
-            #[cfg(not(feature = "unsafe-double-buffered-dma"))]
-            panic!("For DCMI transfers with length > 0xffff, the `unsafe-double-buffered-dma` must be enabled.");
         }
     }
 
@@ -445,7 +441,6 @@ where
         result
     }
 
-    #[cfg(feature = "unsafe-double-buffered-dma")]
     async fn capture_giant(&mut self, buffer: &mut [u32]) -> Result<(), Error> {
         use crate::dma::TransferOptions;
 
