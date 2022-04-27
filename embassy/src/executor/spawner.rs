@@ -12,17 +12,21 @@ use super::raw;
 /// value is a `SpawnToken` that represents an instance of the task, ready to spawn. You must
 /// then spawn it into an executor, typically with [`Spawner::spawn()`].
 ///
+/// The generic parameter `S` determines whether the task can be spawned in executors
+/// in other threads or not. If `S: Send`, it can, which allows spawning it into a [`SendSpawner`].
+/// If not, it can't, so it can only be spawned into the current thread's executor, with [`Spawner`].
+///
 /// # Panics
 ///
 /// Dropping a SpawnToken instance panics. You may not "abort" spawning a task in this way.
 /// Once you've invoked a task function and obtained a SpawnToken, you *must* spawn it.
 #[must_use = "Calling a task function does nothing on its own. You must spawn the returned SpawnToken, typically with Spawner::spawn()"]
-pub struct SpawnToken<F> {
+pub struct SpawnToken<S> {
     raw_task: Option<NonNull<raw::TaskHeader>>,
-    phantom: PhantomData<*mut F>,
+    phantom: PhantomData<*mut S>,
 }
 
-impl<F> SpawnToken<F> {
+impl<S> SpawnToken<S> {
     pub(crate) unsafe fn new(raw_task: NonNull<raw::TaskHeader>) -> Self {
         Self {
             raw_task: Some(raw_task),
@@ -38,7 +42,7 @@ impl<F> SpawnToken<F> {
     }
 }
 
-impl<F> Drop for SpawnToken<F> {
+impl<S> Drop for SpawnToken<S> {
     fn drop(&mut self) {
         // TODO deallocate the task instead.
         panic!("SpawnToken instances may not be dropped. You must pass them to Spawner::spawn()")
@@ -97,7 +101,7 @@ impl Spawner {
     /// Spawn a task into an executor.
     ///
     /// You obtain the `token` by calling a task function (i.e. one marked with `#[embassy::task]`).
-    pub fn spawn<F>(&self, token: SpawnToken<F>) -> Result<(), SpawnError> {
+    pub fn spawn<S>(&self, token: SpawnToken<S>) -> Result<(), SpawnError> {
         let task = token.raw_task;
         mem::forget(token);
 
@@ -119,7 +123,7 @@ impl Spawner {
     /// # Panics
     ///
     /// Panics if the spawning fails.
-    pub fn must_spawn<F>(&self, token: SpawnToken<F>) {
+    pub fn must_spawn<S>(&self, token: SpawnToken<S>) {
         unwrap!(self.spawn(token));
     }
 
@@ -173,7 +177,7 @@ impl SendSpawner {
     /// Spawn a task into an executor.
     ///
     /// You obtain the `token` by calling a task function (i.e. one marked with `#[embassy::task]`).
-    pub fn spawn<F: Send>(&self, token: SpawnToken<F>) -> Result<(), SpawnError> {
+    pub fn spawn<S: Send>(&self, token: SpawnToken<S>) -> Result<(), SpawnError> {
         let header = token.raw_task;
         mem::forget(token);
 
@@ -191,7 +195,7 @@ impl SendSpawner {
     /// # Panics
     ///
     /// Panics if the spawning fails.
-    pub fn must_spawn<F: Send>(&self, token: SpawnToken<F>) {
+    pub fn must_spawn<S: Send>(&self, token: SpawnToken<S>) {
         unwrap!(self.spawn(token));
     }
 }
