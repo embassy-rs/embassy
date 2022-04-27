@@ -1,0 +1,6 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# replace your chip as listed in `probe-run --list-chips`
+runner = "probe-run --chip STM32WLE5JCIx"
+
+[build]
+target = "thumbv7em-none-eabihf"

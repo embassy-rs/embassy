@@ -6,12 +6,12 @@ use cortex_m_rt::{entry, exception};
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
 
-use embassy_boot_nrf::*;
-use embassy_nrf::nvmc::Nvmc;
+use embassy_boot_stm32::*;
+use embassy_stm32::flash::Flash;
 
 #[entry]
 fn main() -> ! {
-    let p = embassy_nrf::init(Default::default());
+    let p = embassy_stm32::init(Default::default());
 
     // Uncomment this if you are debugging the bootloader with debugger/RTT attached,
     // as it prevents a hard fault when accessing flash 'too early' after boot.
@@ -22,11 +22,9 @@ fn main() -> ! {
     */
 
     let mut bl = BootLoader::default();
-    let start = bl.prepare(&mut SingleFlashProvider::new(&mut WatchdogFlash::start(
-        Nvmc::new(p.NVMC),
-        p.WDT,
-        5,
-    )));
+    let mut flash = Flash::unlock(p.FLASH);
+    let start = bl.prepare(&mut SingleFlashProvider::new(&mut flash));
+    core::mem::drop(flash);
     unsafe { bl.load(start) }
 }
 

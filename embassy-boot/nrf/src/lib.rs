@@ -4,9 +4,7 @@
 
 mod fmt;
 
-pub use embassy_boot::{
-    FirmwareUpdater, FlashProvider, Partition, SingleFlashProvider, State, BOOT_MAGIC,
-};
+pub use embassy_boot::{FirmwareUpdater, FlashProvider, Partition, SingleFlashProvider};
 use embassy_nrf::{
     nvmc::{Nvmc, PAGE_SIZE},
     peripherals::WDT,
@@ -15,7 +13,7 @@ use embassy_nrf::{
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 pub struct BootLoader {
-    boot: embassy_boot::BootLoader<PAGE_SIZE>,
+    boot: embassy_boot::BootLoader<PAGE_SIZE, 4, 0xFF>,
 }
 
 impl BootLoader {
@@ -182,31 +180,5 @@ impl<'d> ReadNorFlash for WatchdogFlash<'d> {
     }
     fn capacity(&self) -> usize {
         self.flash.capacity()
-    }
-}
-
-pub mod updater {
-    use super::*;
-    pub fn new() -> embassy_boot::FirmwareUpdater {
-        extern "C" {
-            static __bootloader_state_start: u32;
-            static __bootloader_state_end: u32;
-            static __bootloader_dfu_start: u32;
-            static __bootloader_dfu_end: u32;
-        }
-
-        let dfu = unsafe {
-            Partition::new(
-                &__bootloader_dfu_start as *const u32 as usize,
-                &__bootloader_dfu_end as *const u32 as usize,
-            )
-        };
-        let state = unsafe {
-            Partition::new(
-                &__bootloader_state_start as *const u32 as usize,
-                &__bootloader_state_end as *const u32 as usize,
-            )
-        };
-        embassy_boot::FirmwareUpdater::new(dfu, state)
     }
 }

@@ -3,6 +3,7 @@
 * xref:hal.adoc[Hardware Abstraction Layer]
 ** xref:nrf.adoc[nRF]
 ** xref:stm32.adoc[STM32]
+* xref:bootloader.adoc[Bootloader]
 * xref:getting_started.adoc[Getting started]
 ** xref:basic_application.adoc[Basic application]
 ** xref:layer_by_layer.adoc[Layer by Layer]

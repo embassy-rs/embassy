@@ -21,6 +21,8 @@ lorawan = { version = "0.7.1", default-features = false, features = ["default-cr
 defmt = "0.3"
 defmt-rtt = "0.3"
 
+embedded-storage = "0.3.0"
+
 cortex-m = "0.7.3"
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
