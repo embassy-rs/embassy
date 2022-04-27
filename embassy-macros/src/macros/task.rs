@@ -76,14 +76,11 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
         #visibility fn #task_ident(#fargs) -> #embassy_path::executor::SpawnToken<impl ::core::future::Future + 'static> {
             use ::core::future::Future;
             use #embassy_path::executor::SpawnToken;
-            use #embassy_path::executor::raw::TaskStorage;
+            use #embassy_path::executor::raw::TaskPool;
 
             type Fut = impl Future + 'static;
 
-            #[allow(clippy::declare_interior_mutable_const)]
-            const NEW_TS: TaskStorage<Fut> = TaskStorage::new();
-
-            static POOL: [TaskStorage<Fut>; #pool_size] = [NEW_TS; #pool_size];
+            static POOL: TaskPool<Fut, #pool_size> = TaskPool::new();
 
             // Opaque type laundering, to obscure its origin!
             // Workaround for "opaque type's hidden type cannot be another opaque type from the same scope"
@@ -92,7 +89,7 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
                 token
             }
 
-            launder_tait(unsafe { TaskStorage::spawn_pool(&POOL, move || #task_inner_ident(#(#arg_names,)*)) })
+            launder_tait(POOL.spawn(move || #task_inner_ident(#(#arg_names,)*)))
         }
     };
 

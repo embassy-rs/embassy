@@ -121,7 +121,7 @@ impl TaskHeader {
 /// the memory for the task is allocated: on the stack, or on the heap with e.g. `Box::leak`, etc.
 
 // repr(C) is needed to guarantee that the Task is located at offset 0
-// This makes it safe to cast between Task and Task pointers.
+// This makes it safe to cast between TaskHeader and TaskStorage pointers.
 #[repr(C)]
 pub struct TaskStorage<F: Future + 'static> {
     raw: TaskHeader,
@@ -129,6 +129,9 @@ pub struct TaskStorage<F: Future + 'static> {
 }
 
 impl<F: Future + 'static> TaskStorage<F> {
+    #[cfg(feature = "nightly")]
+    const NEW: Self = Self::new();
+
     /// Create a new TaskStorage, in not-spawned state.
     #[cfg(feature = "nightly")]
     pub const fn new() -> Self {
@@ -145,22 +148,6 @@ impl<F: Future + 'static> TaskStorage<F> {
             raw: TaskHeader::new(),
             future: UninitCell::uninit(),
         }
-    }
-
-    /// Try to spawn a task in a pool.
-    ///
-    /// See [`Self::spawn()`] for details.
-    ///
-    /// This will loop over the pool and spawn the task in the first storage that
-    /// is currently free. If none is free,
-    pub fn spawn_pool(pool: &'static [Self], future: impl FnOnce() -> F) -> SpawnToken<F> {
-        for task in pool {
-            if task.spawn_allocate() {
-                return unsafe { task.spawn_initialize(future) };
-            }
-        }
-
-        SpawnToken::new_failed()
     }
 
     /// Try to spawn the task.
@@ -221,6 +208,41 @@ impl<F: Future + 'static> TaskStorage<F> {
 }
 
 unsafe impl<F: Future + 'static> Sync for TaskStorage<F> {}
+
+/// Raw storage that can hold up to N tasks of the same type.
+///
+/// This is essentially a `[TaskStorage<F>; N]`.
+#[cfg(feature = "nightly")]
+pub struct TaskPool<F: Future + 'static, const N: usize> {
+    pool: [TaskStorage<F>; N],
+}
+
+#[cfg(feature = "nightly")]
+impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
+    /// Create a new TaskPool, with all tasks in non-spawned state.
+    pub const fn new() -> Self {
+        Self {
+            pool: [TaskStorage::NEW; N],
+        }
+    }
+
+    /// Try to spawn a task in the pool.
+    ///
+    /// See [`TaskStorage::spawn()`] for details.
+    ///
+    /// This will loop over the pool and spawn the task in the first storage that
+    /// is currently free. If none is free, a "poisoned" SpawnToken is returned,
+    /// which will cause [`Executor::spawn()`] to return the error.
+    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<F> {
+        for task in &self.pool {
+            if task.spawn_allocate() {
+                return unsafe { task.spawn_initialize(future) };
+            }
+        }
+
+        SpawnToken::new_failed()
+    }
+}
 
 /// Raw executor.
 ///
