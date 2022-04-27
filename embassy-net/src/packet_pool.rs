@@ -17,6 +17,12 @@ pub const PACKET_POOL_SIZE: usize = 16;
 #[cfg(feature = "pool-32")]
 pub const PACKET_POOL_SIZE: usize = 32;
 
+#[cfg(feature = "pool-64")]
+pub const PACKET_POOL_SIZE: usize = 64;
+
+#[cfg(feature = "pool-128")]
+pub const PACKET_POOL_SIZE: usize = 128;
+
 pool!(pub PacketPool: [Packet; PACKET_POOL_SIZE]);
 pub type PacketBox = Box<PacketPool>;
 

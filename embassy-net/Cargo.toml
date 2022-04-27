@@ -28,6 +28,8 @@ pool-4 = []
 pool-8 = []
 pool-16 = []
 pool-32 = []
+pool-64 = []
+pool-128 = []
 
 [dependencies]
 
