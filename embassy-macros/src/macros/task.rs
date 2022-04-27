@@ -76,7 +76,7 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
         #visibility fn #task_ident(#fargs) -> #embassy_path::executor::SpawnToken<impl Sized> {
             type Fut = impl ::core::future::Future + 'static;
             static POOL: #embassy_path::executor::raw::TaskPool<Fut, #pool_size> = #embassy_path::executor::raw::TaskPool::new();
-            POOL.spawn(move || #task_inner_ident(#(#arg_names,)*))
+            unsafe { POOL._spawn_async_fn(move || #task_inner_ident(#(#arg_names,)*)) }
         }
     };
 

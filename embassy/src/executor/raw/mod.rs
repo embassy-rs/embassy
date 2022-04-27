@@ -165,9 +165,9 @@ impl<F: Future + 'static> TaskStorage<F> {
     /// on a different executor.
     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
         if self.spawn_allocate() {
-            unsafe { self.spawn_initialize(future) }
+            unsafe { SpawnToken::<F>::new(self.spawn_initialize(future)) }
         } else {
-            SpawnToken::new_failed()
+            SpawnToken::<F>::new_failed()
         }
     }
 
@@ -179,37 +179,11 @@ impl<F: Future + 'static> TaskStorage<F> {
             .is_ok()
     }
 
-    unsafe fn spawn_initialize<FutFn>(&'static self, future: FutFn) -> SpawnToken<impl Sized>
-    where
-        FutFn: FnOnce() -> F,
-    {
+    unsafe fn spawn_initialize(&'static self, future: impl FnOnce() -> F) -> NonNull<TaskHeader> {
         // Initialize the task
         self.raw.poll_fn.write(Self::poll);
         self.future.write(future());
-
-        // When send-spawning a task, we construct the future in this thread, and effectively
-        // "send" it to the executor thread by enqueuing it in its queue. Therefore, in theory,
-        // send-spawning should require the future `F` to be `Send`.
-        //
-        // The problem is this is more restrictive than needed. Once the future is executing,
-        // it is never sent to another thread. It is only sent when spawning. It should be
-        // enough for the task's arguments to be Send. (and in practice it's super easy to
-        // accidentally make your futures !Send, for example by holding an `Rc` or a `&RefCell` across an `.await`.)
-        //
-        // We can do it by sending the task args and constructing the future in the executor thread
-        // on first poll. However, this cannot be done in-place, so it'll waste stack space for a copy
-        // of the args.
-        //
-        // Luckily, an `async fn` future contains just the args when freshly constructed. So, if the
-        // args are Send, it's OK to send a !Send future, as long as we do it before first polling it.
-        //
-        // (Note: this is how the generators are implemented today, it's not officially guaranteed yet,
-        // but it's possible it'll be guaranteed in the future. See zulip thread:
-        // https://rust-lang.zulipchat.com/#narrow/stream/187312-wg-async/topic/.22only.20before.20poll.22.20Send.20futures )
-        //
-        // The `FutFn` captures all the args, so if it's Send, the task can be send-spawned.
-        // This is why we return `SpawnToken<FutFn>` below.
-        SpawnToken::<FutFn>::new(NonNull::new_unchecked(&self.raw as *const TaskHeader as _))
+        NonNull::new_unchecked(&self.raw as *const TaskHeader as *mut TaskHeader)
     }
 
     unsafe fn poll(p: NonNull<TaskHeader>) {
@@ -261,11 +235,59 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
         for task in &self.pool {
             if task.spawn_allocate() {
-                return unsafe { task.spawn_initialize(future) };
+                return unsafe { SpawnToken::<F>::new(task.spawn_initialize(future)) };
             }
         }
 
-        SpawnToken::new_failed()
+        SpawnToken::<F>::new_failed()
+    }
+
+    /// Like spawn(), but allows the task to be send-spawned if the args are Send even if
+    /// the future is !Send.
+    ///
+    /// Not covered by semver guarantees. DO NOT call this directly. Intended to be used
+    /// by the Embassy macros ONLY.
+    ///
+    /// SAFETY: `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
+    /// is an `async fn`, NOT a hand-written `Future`.
+    #[doc(hidden)]
+    pub unsafe fn _spawn_async_fn<FutFn>(&'static self, future: FutFn) -> SpawnToken<impl Sized>
+    where
+        FutFn: FnOnce() -> F,
+    {
+        // When send-spawning a task, we construct the future in this thread, and effectively
+        // "send" it to the executor thread by enqueuing it in its queue. Therefore, in theory,
+        // send-spawning should require the future `F` to be `Send`.
+        //
+        // The problem is this is more restrictive than needed. Once the future is executing,
+        // it is never sent to another thread. It is only sent when spawning. It should be
+        // enough for the task's arguments to be Send. (and in practice it's super easy to
+        // accidentally make your futures !Send, for example by holding an `Rc` or a `&RefCell` across an `.await`.)
+        //
+        // We can do it by sending the task args and constructing the future in the executor thread
+        // on first poll. However, this cannot be done in-place, so it'll waste stack space for a copy
+        // of the args.
+        //
+        // Luckily, an `async fn` future contains just the args when freshly constructed. So, if the
+        // args are Send, it's OK to send a !Send future, as long as we do it before first polling it.
+        //
+        // (Note: this is how the generators are implemented today, it's not officially guaranteed yet,
+        // but it's possible it'll be guaranteed in the future. See zulip thread:
+        // https://rust-lang.zulipchat.com/#narrow/stream/187312-wg-async/topic/.22only.20before.20poll.22.20Send.20futures )
+        //
+        // The `FutFn` captures all the args, so if it's Send, the task can be send-spawned.
+        // This is why we return `SpawnToken<FutFn>` below.
+        //
+        // This ONLY holds for `async fn` futures. The other `spawn` methods can be called directly
+        // by the user, with arbitrary hand-implemented futures. This is why these return `SpawnToken<F>`.
+
+        for task in &self.pool {
+            if task.spawn_allocate() {
+                return SpawnToken::<FutFn>::new(task.spawn_initialize(future));
+            }
+        }
+
+        SpawnToken::<FutFn>::new_failed()
     }
 }
 
