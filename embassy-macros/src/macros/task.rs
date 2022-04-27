@@ -73,23 +73,10 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
         // in the user's code.
         #task_inner
 
-        #visibility fn #task_ident(#fargs) -> #embassy_path::executor::SpawnToken<impl ::core::future::Future + 'static> {
-            use ::core::future::Future;
-            use #embassy_path::executor::SpawnToken;
-            use #embassy_path::executor::raw::TaskPool;
-
-            type Fut = impl Future + 'static;
-
-            static POOL: TaskPool<Fut, #pool_size> = TaskPool::new();
-
-            // Opaque type laundering, to obscure its origin!
-            // Workaround for "opaque type's hidden type cannot be another opaque type from the same scope"
-            // https://github.com/rust-lang/rust/issues/96406
-            fn launder_tait(token: SpawnToken<impl Future+'static>) -> SpawnToken<impl Future+'static> {
-                token
-            }
-
-            launder_tait(POOL.spawn(move || #task_inner_ident(#(#arg_names,)*)))
+        #visibility fn #task_ident(#fargs) -> #embassy_path::executor::SpawnToken<impl Sized> {
+            type Fut = impl ::core::future::Future + 'static;
+            static POOL: #embassy_path::executor::raw::TaskPool<Fut, #pool_size> = #embassy_path::executor::raw::TaskPool::new();
+            POOL.spawn(move || #task_inner_ident(#(#arg_names,)*))
         }
     };
 

@@ -110,8 +110,8 @@ impl TaskHeader {
 /// Raw storage in which a task can be spawned.
 ///
 /// This struct holds the necessary memory to spawn one task whose future is `F`.
-/// At a given time, the `Task` may be in spawned or not-spawned state. You may spawn it
-/// with [`Task::spawn()`], which will fail if it is already spawned.
+/// At a given time, the `TaskStorage` may be in spawned or not-spawned state. You
+/// may spawn it with [`TaskStorage::spawn()`], which will fail if it is already spawned.
 ///
 /// A `TaskStorage` must live forever, it may not be deallocated even after the task has finished
 /// running. Hence the relevant methods require `&'static self`. It may be reused, however.
@@ -159,11 +159,11 @@ impl<F: Future + 'static> TaskStorage<F> {
     ///
     /// This function will fail if the task is already spawned and has not finished running.
     /// In this case, the error is delayed: a "poisoned" SpawnToken is returned, which will
-    /// cause [`Executor::spawn()`] to return the error.
+    /// cause [`Spawner::spawn()`] to return the error.
     ///
     /// Once the task has finished running, you may spawn it again. It is allowed to spawn it
     /// on a different executor.
-    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<F> {
+    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
         if self.spawn_allocate() {
             unsafe { self.spawn_initialize(future) }
         } else {
@@ -179,12 +179,37 @@ impl<F: Future + 'static> TaskStorage<F> {
             .is_ok()
     }
 
-    unsafe fn spawn_initialize(&'static self, future: impl FnOnce() -> F) -> SpawnToken<F> {
+    unsafe fn spawn_initialize<FutFn>(&'static self, future: FutFn) -> SpawnToken<impl Sized>
+    where
+        FutFn: FnOnce() -> F,
+    {
         // Initialize the task
         self.raw.poll_fn.write(Self::poll);
         self.future.write(future());
 
-        SpawnToken::new(NonNull::new_unchecked(&self.raw as *const TaskHeader as _))
+        // When send-spawning a task, we construct the future in this thread, and effectively
+        // "send" it to the executor thread by enqueuing it in its queue. Therefore, in theory,
+        // send-spawning should require the future `F` to be `Send`.
+        //
+        // The problem is this is more restrictive than needed. Once the future is executing,
+        // it is never sent to another thread. It is only sent when spawning. It should be
+        // enough for the task's arguments to be Send. (and in practice it's super easy to
+        // accidentally make your futures !Send, for example by holding an `Rc` or a `&RefCell` across an `.await`.)
+        //
+        // We can do it by sending the task args and constructing the future in the executor thread
+        // on first poll. However, this cannot be done in-place, so it'll waste stack space for a copy
+        // of the args.
+        //
+        // Luckily, an `async fn` future contains just the args when freshly constructed. So, if the
+        // args are Send, it's OK to send a !Send future, as long as we do it before first polling it.
+        //
+        // (Note: this is how the generators are implemented today, it's not officially guaranteed yet,
+        // but it's possible it'll be guaranteed in the future. See zulip thread:
+        // https://rust-lang.zulipchat.com/#narrow/stream/187312-wg-async/topic/.22only.20before.20poll.22.20Send.20futures )
+        //
+        // The `FutFn` captures all the args, so if it's Send, the task can be send-spawned.
+        // This is why we return `SpawnToken<FutFn>` below.
+        SpawnToken::<FutFn>::new(NonNull::new_unchecked(&self.raw as *const TaskHeader as _))
     }
 
     unsafe fn poll(p: NonNull<TaskHeader>) {
@@ -232,8 +257,8 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     ///
     /// This will loop over the pool and spawn the task in the first storage that
     /// is currently free. If none is free, a "poisoned" SpawnToken is returned,
-    /// which will cause [`Executor::spawn()`] to return the error.
-    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<F> {
+    /// which will cause [`Spawner::spawn()`] to return the error.
+    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
         for task in &self.pool {
             if task.spawn_allocate() {
                 return unsafe { task.spawn_initialize(future) };
