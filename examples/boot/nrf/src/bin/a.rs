@@ -40,7 +40,7 @@ async fn main(_s: embassy::executor::Spawner, p: Peripherals) {
                     .unwrap();
                 offset += chunk.len();
             }
-            updater.mark_update(&mut nvmc).await.unwrap();
+            updater.update(&mut nvmc).await.unwrap();
             led.set_high();
             cortex_m::peripheral::SCB::sys_reset();
         }
