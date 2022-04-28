@@ -16,6 +16,9 @@ application.
 
 
 ```
+# Use bare metal linker script
+cp memory-bl.x ../../../embassy-boot/nrf/memory.x
+
 # Flash bootloader
 cargo flash --manifest-path ../../../embassy-boot/nrf/Cargo.toml --features embassy-nrf/nrf52840 --release --chip nRF52840_xxAA
 # Build 'b'

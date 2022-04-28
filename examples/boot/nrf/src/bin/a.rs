@@ -28,6 +28,7 @@ async fn main(_s: embassy::executor::Spawner, p: Peripherals) {
 
     let mut updater = FirmwareUpdater::default();
     loop {
+        led.set_low();
         button.wait_for_any_edge().await;
         if button.is_low() {
             let mut offset = 0;
