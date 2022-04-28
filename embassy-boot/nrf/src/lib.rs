@@ -1,10 +1,14 @@
 #![no_std]
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
+#![feature(generic_const_exprs)]
 
 mod fmt;
 
-pub use embassy_boot::{FirmwareUpdater, FlashProvider, Partition, SingleFlashProvider};
+pub use embassy_boot::{
+    FirmwareUpdater, FlashConfig, FlashProvider, Partition, SingleFlashProvider,
+};
 use embassy_nrf::{
     nvmc::{Nvmc, PAGE_SIZE},
     peripherals::WDT,
@@ -13,7 +17,7 @@ use embassy_nrf::{
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 pub struct BootLoader {
-    boot: embassy_boot::BootLoader<PAGE_SIZE, 4, 0xFF>,
+    boot: embassy_boot::BootLoader<PAGE_SIZE>,
 }
 
 impl BootLoader {
@@ -62,7 +66,11 @@ impl BootLoader {
     }
 
     /// Boots the application without softdevice mechanisms
-    pub fn prepare<F: FlashProvider>(&mut self, flash: &mut F) -> usize {
+    pub fn prepare<F: FlashProvider>(&mut self, flash: &mut F) -> usize
+    where
+        [(); <<F as FlashProvider>::STATE as FlashConfig>::FLASH::WRITE_SIZE]:,
+        [(); <<F as FlashProvider>::ACTIVE as FlashConfig>::FLASH::ERASE_SIZE]:,
+    {
         match self.boot.prepare_boot(flash) {
             Ok(_) => self.boot.boot_address(),
             Err(_) => panic!("boot prepare error!"),

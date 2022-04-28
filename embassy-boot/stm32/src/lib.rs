@@ -1,17 +1,21 @@
 #![no_std]
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
+#![feature(generic_const_exprs)]
 
 mod fmt;
 
-pub use embassy_boot::{FirmwareUpdater, FlashProvider, Partition, SingleFlashProvider, State};
-use embassy_stm32::flash::{ERASE_SIZE, ERASE_VALUE, WRITE_SIZE};
+pub use embassy_boot::{
+    FirmwareUpdater, FlashConfig, FlashProvider, Partition, SingleFlashProvider, State,
+};
+use embedded_storage::nor_flash::NorFlash;
 
-pub struct BootLoader {
-    boot: embassy_boot::BootLoader<ERASE_SIZE, WRITE_SIZE, ERASE_VALUE>,
+pub struct BootLoader<const PAGE_SIZE: usize> {
+    boot: embassy_boot::BootLoader<PAGE_SIZE>,
 }
 
-impl BootLoader {
+impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
     /// Create a new bootloader instance using parameters from linker script
     pub fn default() -> Self {
         extern "C" {
@@ -57,7 +61,11 @@ impl BootLoader {
     }
 
     /// Boots the application
-    pub fn prepare<F: FlashProvider>(&mut self, flash: &mut F) -> usize {
+    pub fn prepare<F: FlashProvider>(&mut self, flash: &mut F) -> usize
+    where
+        [(); <<F as FlashProvider>::STATE as FlashConfig>::FLASH::WRITE_SIZE]:,
+        [(); <<F as FlashProvider>::ACTIVE as FlashConfig>::FLASH::ERASE_SIZE]:,
+    {
         match self.boot.prepare_boot(flash) {
             Ok(_) => self.boot.boot_address(),
             Err(_) => panic!("boot prepare error!"),

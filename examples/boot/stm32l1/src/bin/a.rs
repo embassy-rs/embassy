@@ -41,7 +41,7 @@ async fn main(_s: embassy::executor::Spawner, p: Peripherals) {
         offset += chunk.len();
     }
 
-    updater.mark_update(&mut flash).await.unwrap();
+    updater.update(&mut flash).await.unwrap();
     led.set_low();
     Timer::after(Duration::from_secs(1)).await;
     cortex_m::peripheral::SCB::sys_reset();
