@@ -554,10 +554,8 @@ pub(in crate) fn drop_tx_rx(r: &pac::uarte0::RegisterBlock, s: &sealed::State) {
 /// Interface to an UARTE peripheral that uses an additional timer and two PPI channels,
 /// allowing it to implement the ReadUntilIdle trait.
 pub struct UarteWithIdle<'d, U: Instance, T: TimerInstance> {
-    uarte: Uarte<'d, U>,
-    timer: Timer<'d, T>,
-    ppi_ch1: Ppi<'d, AnyConfigurableChannel, 1, 2>,
-    _ppi_ch2: Ppi<'d, AnyConfigurableChannel, 1, 1>,
+    tx: UarteTx<'d, U>,
+    rx: UarteRxWithIdle<'d, U, T>,
 }
 
 impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
@@ -628,7 +626,8 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         config: Config,
     ) -> Self {
         let baudrate = config.baudrate;
-        let uarte = Uarte::new_inner(uarte, irq, rxd, txd, cts, rts, config);
+        let (tx, rx) = Uarte::new_inner(uarte, irq, rxd, txd, cts, rts, config).split();
+
         let mut timer = Timer::new(timer);
 
         unborrow!(ppi_ch1, ppi_ch2);
@@ -664,29 +663,64 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         ppi_ch2.enable();
 
         Self {
-            uarte,
-            timer,
-            ppi_ch1: ppi_ch1,
-            _ppi_ch2: ppi_ch2,
+            tx,
+            rx: UarteRxWithIdle {
+                rx,
+                timer,
+                ppi_ch1: ppi_ch1,
+                _ppi_ch2: ppi_ch2,
+            },
         }
     }
 
+    /// Split the Uarte into a transmitter and receiver, which is
+    /// particuarly useful when having two tasks correlating to
+    /// transmitting and receiving.
+    pub fn split(self) -> (UarteTx<'d, U>, UarteRxWithIdle<'d, U, T>) {
+        (self.tx, self.rx)
+    }
+
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        self.ppi_ch1.disable();
-        self.uarte.read(buffer).await
+        self.rx.read(buffer).await
     }
 
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        self.uarte.write(buffer).await
+        self.tx.write(buffer).await
+    }
+
+    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.rx.blocking_read(buffer)
+    }
+
+    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.tx.blocking_write(buffer)
+    }
+
+    pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.rx.read_until_idle(buffer).await
+    }
+
+    pub fn blocking_read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.rx.blocking_read_until_idle(buffer)
+    }
+}
+
+pub struct UarteRxWithIdle<'d, U: Instance, T: TimerInstance> {
+    rx: UarteRx<'d, U>,
+    timer: Timer<'d, T>,
+    ppi_ch1: Ppi<'d, AnyConfigurableChannel, 1, 2>,
+    _ppi_ch2: Ppi<'d, AnyConfigurableChannel, 1, 1>,
+}
+
+impl<'d, U: Instance, T: TimerInstance> UarteRxWithIdle<'d, U, T> {
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.ppi_ch1.disable();
+        self.rx.read(buffer).await
     }
 
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.ppi_ch1.disable();
-        self.uarte.blocking_read(buffer)
-    }
-
-    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        self.uarte.blocking_write(buffer)
+        self.rx.blocking_read(buffer)
     }
 
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
@@ -706,8 +740,6 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         self.ppi_ch1.enable();
 
         let drop = OnDrop::new(|| {
-            trace!("read drop: stopping");
-
             self.timer.stop();
 
             r.intenclr.write(|w| w.endrx().clear());
@@ -715,8 +747,6 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
             r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
 
             while r.events_endrx.read().bits() == 0 {}
-
-            trace!("read drop: stopped");
         });
 
         r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
@@ -785,7 +815,6 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         Ok(n)
     }
 }
-
 pub(crate) mod sealed {
     use core::sync::atomic::AtomicU8;
 
