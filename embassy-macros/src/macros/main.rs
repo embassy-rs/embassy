@@ -42,7 +42,7 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
         ctxt.error_spanned_by(&f.sig, "main function must have 2 arguments");
     }
     if HAL.is_none() && fargs.len() != 1 {
-        ctxt.error_spanned_by(&f.sig, "main function must have 2 arguments");
+        ctxt.error_spanned_by(&f.sig, "main function must have 1 argument");
     }
 
     ctxt.check()?;
