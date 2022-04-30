@@ -53,7 +53,7 @@ pub struct Clocks {
     #[cfg(any(rcc_h7, rcc_h7ab))]
     pub ahb4: Hertz,
 
-    #[cfg(any(rcc_f4, rcc_f410, rcc_f7))]
+    #[cfg(any(rcc_f2, rcc_f4, rcc_f410, rcc_f7))]
     pub pll48: Option<Hertz>,
 
     #[cfg(rcc_f1)]
