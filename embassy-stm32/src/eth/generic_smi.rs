@@ -1,4 +1,4 @@
-//! SMSC LAN8742A Ethernet PHY
+//! Generic SMI Ethernet PHY
 
 use super::{StationManagement, PHY};
 
@@ -13,7 +13,6 @@ mod phy_consts {
     pub const PHY_REG_ANEXP: u8 = 0x06;
     pub const PHY_REG_ANNPTX: u8 = 0x07;
     pub const PHY_REG_ANNPRX: u8 = 0x08;
-    pub const PHY_REG_SSR: u8 = 0x1F; // Special Status Register
     pub const PHY_REG_CTL: u8 = 0x0D; // Ethernet PHY Register Control
     pub const PHY_REG_ADDAR: u8 = 0x0E; // Ethernet PHY Address or Data
 
@@ -33,20 +32,13 @@ mod phy_consts {
     pub const PHY_REG_BSR_UP: u16 = 1 << 2;
     pub const PHY_REG_BSR_FAULT: u16 = 1 << 4;
     pub const PHY_REG_BSR_ANDONE: u16 = 1 << 5;
-
-    pub const PHY_REG_SSR_ANDONE: u16 = 1 << 12;
-    pub const PHY_REG_SSR_SPEED: u16 = 0b111 << 2;
-    pub const PHY_REG_SSR_10BASE_HD: u16 = 0b001 << 2;
-    pub const PHY_REG_SSR_10BASE_FD: u16 = 0b101 << 2;
-    pub const PHY_REG_SSR_100BASE_HD: u16 = 0b010 << 2;
-    pub const PHY_REG_SSR_100BASE_FD: u16 = 0b110 << 2;
 }
 use self::phy_consts::*;
 
-/// SMSC LAN8742A Ethernet PHY
-pub struct LAN8742A;
+/// Generic SMI Ethernet PHY
+pub struct GenericSMI;
 
-unsafe impl PHY for LAN8742A {
+unsafe impl PHY for GenericSMI {
     /// Reset PHY and wait for it to come out of reset.
     fn phy_reset<S: StationManagement>(sm: &mut S) {
         sm.smi_write(PHY_REG_BCR, PHY_REG_BCR_RESET);
@@ -67,7 +59,6 @@ unsafe impl PHY for LAN8742A {
 
     fn poll_link<S: StationManagement>(sm: &mut S) -> bool {
         let bsr = sm.smi_read(PHY_REG_BSR);
-        let ssr = sm.smi_read(PHY_REG_SSR);
 
         // No link without autonegotiate
         if bsr & PHY_REG_BSR_ANDONE == 0 {
@@ -77,22 +68,14 @@ unsafe impl PHY for LAN8742A {
         if bsr & PHY_REG_BSR_UP == 0 {
             return false;
         }
-        // No link if autonegotiate incomplete
-        if ssr & PHY_REG_SSR_ANDONE == 0 {
-            return false;
-        }
-        // No link if other side isn't 100Mbps full duplex
-        if ssr & PHY_REG_SSR_SPEED != PHY_REG_SSR_100BASE_FD {
-            return false;
-        }
 
         // Got link
         true
     }
 }
 
-/// Public functions for the LAN8742A
-impl LAN8742A {
+/// Public functions for the PHY
+impl GenericSMI {
     // Writes a value to an extended PHY register in MMD address space
     fn smi_write_ext<S: StationManagement>(sm: &mut S, reg_addr: u16, reg_data: u16) {
         sm.smi_write(PHY_REG_CTL, 0x0003); // set address
