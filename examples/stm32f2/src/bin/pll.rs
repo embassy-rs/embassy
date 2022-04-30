@@ -30,13 +30,13 @@ fn config() -> Config {
     config.rcc.pll_mux = PLLSrc::HSE;
     config.rcc.pll = PLLConfig {
         // 8 MHz clock source / 8 = 1 MHz PLL input
-        pre_div: PLLPreDiv::try_from(8).unwrap(),
+        pre_div: unwrap!(PLLPreDiv::try_from(8)),
         // 1 MHz PLL input * 240 = 240 MHz PLL VCO
-        mul: PLLMul::try_from(240).unwrap(),
+        mul: unwrap!(PLLMul::try_from(240)),
         // 240 MHz PLL VCO / 2 = 120 MHz main PLL output
         main_div: PLLMainDiv::Div2,
         // 240 MHz PLL VCO / 5 = 48 MHz PLL48 output
-        pll48_div: PLL48Div::try_from(5).unwrap(),
+        pll48_div: unwrap!(PLL48Div::try_from(5)),
     };
     // System clock comes from PLL (= the 120 MHz main PLL output)
     config.rcc.mux = ClockSrc::PLL;

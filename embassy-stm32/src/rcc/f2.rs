@@ -424,10 +424,10 @@ pub(crate) unsafe fn init(config: Config) {
 
     let pll_src_freq = match config.pll_mux {
         PLLSrc::HSE => {
-            config
+            let hse_config = config
                 .hse
-                .expect("HSE must be configured to be used as PLL input")
-                .frequency
+                .unwrap_or_else(|| panic!("HSE must be configured to be used as PLL input"));
+            hse_config.frequency
         }
         PLLSrc::HSI => HSI,
     };
@@ -458,7 +458,7 @@ pub(crate) unsafe fn init(config: Config) {
         ClockSrc::HSE => {
             let hse_config = config
                 .hse
-                .expect("HSE must be configured to be used as system clock");
+                .unwrap_or_else(|| panic!("HSE must be configured to be used as PLL input"));
             (hse_config.frequency, Sw::HSE)
         }
         ClockSrc::PLL => {
@@ -475,7 +475,7 @@ pub(crate) unsafe fn init(config: Config) {
     // Reference: STM32F215xx/217xx datasheet Table 13. General operating conditions
     assert!(ahb_freq <= Hertz(120_000_000));
 
-    let flash_ws = config.voltage.wait_states(ahb_freq).expect("Invalid HCLK");
+    let flash_ws = unwrap!(config.voltage.wait_states(ahb_freq));
     FLASH.acr().modify(|w| w.set_latency(flash_ws));
 
     RCC.cfgr().modify(|w| {
