@@ -24,7 +24,7 @@ pub(crate) unsafe fn from_task(p: NonNull<TaskHeader>) -> Waker {
 
 /// Get a task pointer from a waker.
 ///
-/// This can used as an optimization in wait queues to store task pointers
+/// This can be used as an optimization in wait queues to store task pointers
 /// (1 word) instead of full Wakers (2 words). This saves a bit of RAM and helps
 /// avoid dynamic dispatch.
 ///
