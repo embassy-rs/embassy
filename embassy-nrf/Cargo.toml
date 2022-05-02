@@ -17,6 +17,8 @@ flavors = [
 
 [features]
 
+time = ["embassy/time"]
+
 defmt = ["dep:defmt", "embassy/defmt", "embassy-usb?/defmt"]
 
 # Enable nightly-only features
@@ -56,7 +58,7 @@ _nrf5340-net = ["_nrf5340", "nrf5340-net-pac"]
 _nrf5340 = ["_gpio-p1", "_dppi"]
 _nrf9160 = ["nrf9160-pac", "_dppi"]
 
-_time-driver = ["embassy/time-tick-32768hz"]
+_time-driver = ["embassy/time-tick-32768hz", "time"]
 
 _ppi = []
 _dppi = []

@@ -7,6 +7,8 @@ use crate::executor::raw;
 use crate::time::{Duration, Instant};
 
 /// Error returned by [`with_timeout`] on timeout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TimeoutError;
 
 /// Runs a given future with a timeout.

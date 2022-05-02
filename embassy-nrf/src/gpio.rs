@@ -7,10 +7,10 @@ use core::marker::PhantomData;
 use cfg_if::cfg_if;
 use embassy::util::Unborrow;
 use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
-use gpio::pin_cnf::DRIVE_A;
 
 use crate::pac;
 use crate::pac::p0 as gpio;
+use crate::pac::p0::pin_cnf::{DRIVE_A, PULL_A};
 
 use self::sealed::Pin as _;
 
@@ -129,9 +129,30 @@ impl<'d, T: Pin> Output<'d, T> {
     }
 }
 
+fn convert_drive(drive: OutputDrive) -> DRIVE_A {
+    match drive {
+        OutputDrive::Standard => DRIVE_A::S0S1,
+        OutputDrive::HighDrive0Standard1 => DRIVE_A::H0S1,
+        OutputDrive::Standard0HighDrive1 => DRIVE_A::S0H1,
+        OutputDrive::HighDrive => DRIVE_A::H0H1,
+        OutputDrive::Disconnect0Standard1 => DRIVE_A::D0S1,
+        OutputDrive::Disconnect0HighDrive1 => DRIVE_A::D0H1,
+        OutputDrive::Standard0Disconnect1 => DRIVE_A::S0D1,
+        OutputDrive::HighDrive0Disconnect1 => DRIVE_A::H0D1,
+    }
+}
+
+fn convert_pull(pull: Pull) -> PULL_A {
+    match pull {
+        Pull::None => PULL_A::DISABLED,
+        Pull::Up => PULL_A::PULLUP,
+        Pull::Down => PULL_A::PULLDOWN,
+    }
+}
+
 /// GPIO flexible pin.
 ///
-/// This pin can either be a disconnected, input, or output pin. The level register bit will remain
+/// This pin can either be a disconnected, input, or output pin, or both. The level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d, T: Pin> {
@@ -158,17 +179,7 @@ impl<'d, T: Pin> Flex<'d, T> {
         self.pin.conf().write(|w| {
             w.dir().input();
             w.input().connect();
-            match pull {
-                Pull::None => {
-                    w.pull().disabled();
-                }
-                Pull::Up => {
-                    w.pull().pullup();
-                }
-                Pull::Down => {
-                    w.pull().pulldown();
-                }
-            }
+            w.pull().variant(convert_pull(pull));
             w.drive().s0s1();
             w.sense().disabled();
             w
@@ -180,22 +191,31 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// The pin level will be whatever was set before (or low by default). If you want it to begin
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     pub fn set_as_output(&mut self, drive: OutputDrive) {
-        let drive = match drive {
-            OutputDrive::Standard => DRIVE_A::S0S1,
-            OutputDrive::HighDrive0Standard1 => DRIVE_A::H0S1,
-            OutputDrive::Standard0HighDrive1 => DRIVE_A::S0H1,
-            OutputDrive::HighDrive => DRIVE_A::H0H1,
-            OutputDrive::Disconnect0Standard1 => DRIVE_A::D0S1,
-            OutputDrive::Disconnect0HighDrive1 => DRIVE_A::D0H1,
-            OutputDrive::Standard0Disconnect1 => DRIVE_A::S0D1,
-            OutputDrive::HighDrive0Disconnect1 => DRIVE_A::H0D1,
-        };
-
         self.pin.conf().write(|w| {
             w.dir().output();
             w.input().disconnect();
             w.pull().disabled();
-            w.drive().variant(drive);
+            w.drive().variant(convert_drive(drive));
+            w.sense().disabled();
+            w
+        });
+    }
+
+    /// Put the pin into input + output mode.
+    ///
+    /// This is commonly used for "open drain" mode. If you set `drive = Standard0Disconnect1`,
+    /// the hardware will drive the line low if you set it to low, and will leave it floating if you set
+    /// it to high, in which case you can read the input to figure out whether another device
+    /// is driving the line low.
+    ///
+    /// The pin level will be whatever was set before (or low by default). If you want it to begin
+    /// at a specific level, call `set_high`/`set_low` on the pin first.
+    pub fn set_as_input_output(&mut self, pull: Pull, drive: OutputDrive) {
+        self.pin.conf().write(|w| {
+            w.dir().output();
+            w.input().connect();
+            w.pull().variant(convert_pull(pull));
+            w.drive().variant(convert_drive(drive));
             w.sense().disabled();
             w
         });
