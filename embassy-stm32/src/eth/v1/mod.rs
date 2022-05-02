@@ -334,7 +334,7 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Device
         }
     }
 
-    fn ethernet_address(&mut self) -> [u8; 6] {
+    fn ethernet_address(&self) -> [u8; 6] {
         self.mac_addr
     }
 }

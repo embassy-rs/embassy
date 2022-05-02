@@ -15,7 +15,9 @@ pub use config::{Config, Configurator, Event as ConfigEvent, StaticConfigurator}
 
 pub use device::{Device, LinkState};
 pub use packet_pool::{Packet, PacketBox, PacketBoxExt, PacketBuf, MTU};
-pub use stack::{init, is_config_up, is_init, is_link_up, run, StackResources};
+pub use stack::{
+    config, ethernet_address, init, is_config_up, is_init, is_link_up, run, StackResources,
+};
 
 #[cfg(feature = "tcp")]
 mod tcp_socket;

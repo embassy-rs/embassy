@@ -21,7 +21,7 @@ use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress};
 use crate::config::Configurator;
 use crate::config::Event;
 use crate::device::{Device, DeviceAdapter, LinkState};
-use crate::Interface;
+use crate::{Config, Interface};
 
 const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
@@ -56,7 +56,7 @@ static STACK: ThreadModeMutex<RefCell<Option<Stack>>> = ThreadModeMutex::new(Ref
 pub(crate) struct Stack {
     pub iface: Interface,
     link_up: bool,
-    config_up: bool,
+    config: Option<Config>,
     next_local_port: u16,
     configurator: &'static mut dyn Configurator,
     waker: WakerRegistration,
@@ -113,7 +113,7 @@ impl Stack {
                     debug!("   DNS server {}:    {}", i, s);
                 }
 
-                self.config_up = true;
+                self.config = Some(config)
             }
             Event::Deconfigured => {
                 debug!("Lost IP configuration");
@@ -122,7 +122,7 @@ impl Stack {
                 if medium == Medium::Ethernet {
                     self.iface.routes_mut().remove_default_ipv4_route();
                 }
-                self.config_up = false;
+                self.config = None
             }
         }
     }
@@ -209,13 +209,25 @@ pub fn init<const ADDR: usize, const SOCK: usize, const NEIGH: usize>(
     let stack = Stack {
         iface,
         link_up: false,
-        config_up: false,
+        config: None,
         configurator,
         next_local_port: local_port,
         waker: WakerRegistration::new(),
     };
 
     *STACK.borrow().borrow_mut() = Some(stack);
+}
+
+pub fn ethernet_address() -> [u8; 6] {
+    STACK
+        .borrow()
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .iface
+        .device()
+        .device
+        .ethernet_address()
 }
 
 pub fn is_init() -> bool {
@@ -227,7 +239,11 @@ pub fn is_link_up() -> bool {
 }
 
 pub fn is_config_up() -> bool {
-    STACK.borrow().borrow().as_ref().unwrap().config_up
+    STACK.borrow().borrow().as_ref().unwrap().config.is_some()
+}
+
+pub fn config() -> Option<Config> {
+    STACK.borrow().borrow().as_ref().unwrap().config.clone()
 }
 
 pub async fn run() -> ! {

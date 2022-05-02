@@ -21,7 +21,7 @@ pub trait Device {
     fn register_waker(&mut self, waker: &Waker);
     fn capabilities(&mut self) -> DeviceCapabilities;
     fn link_state(&mut self) -> LinkState;
-    fn ethernet_address(&mut self) -> [u8; 6];
+    fn ethernet_address(&self) -> [u8; 6];
 }
 
 pub struct DeviceAdapter {

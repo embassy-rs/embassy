@@ -265,7 +265,7 @@ impl embassy_net::Device for Device {
         RX_CHANNEL.try_recv().ok()
     }
 
-    fn ethernet_address(&mut self) -> [u8; 6] {
+    fn ethernet_address(&self) -> [u8; 6] {
         self.mac_addr
     }
 }
