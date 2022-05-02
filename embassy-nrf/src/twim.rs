@@ -11,6 +11,8 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering::SeqCst};
 use core::task::Poll;
 use embassy::interrupt::{Interrupt, InterruptExt};
+#[cfg(feature = "time")]
+use embassy::time::{Duration, Instant};
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
@@ -66,6 +68,7 @@ pub enum Error {
     AddressNack,
     DataNack,
     Overrun,
+    Timeout,
 }
 
 /// Interface to a TWIM instance using EasyDMA to offload the transmission and reception workload.
@@ -276,6 +279,29 @@ impl<'d, T: Instance> Twim<'d, T> {
                 r.tasks_stop.write(|w| unsafe { w.bits(1) });
             }
         }
+    }
+
+    /// Wait for stop or error
+    #[cfg(feature = "time")]
+    fn blocking_wait_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
+        let r = T::regs();
+        let deadline = Instant::now() + timeout;
+        loop {
+            if r.events_stopped.read().bits() != 0 {
+                r.events_stopped.reset();
+                break;
+            }
+            if r.events_error.read().bits() != 0 {
+                r.events_error.reset();
+                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+            }
+            if Instant::now() > deadline {
+                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                return Err(Error::Timeout);
+            }
+        }
+
+        Ok(())
     }
 
     /// Wait for stop or error
@@ -505,6 +531,103 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
+    // ===========================================
+
+    /// Write to an I2C slave with timeout.
+    ///
+    /// See [`blocking_write`].
+    #[cfg(feature = "time")]
+    pub fn blocking_write_timeout(
+        &mut self,
+        address: u8,
+        buffer: &[u8],
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        self.setup_write(address, buffer, false)?;
+        self.blocking_wait_timeout(timeout)?;
+        compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_tx(buffer.len())?;
+        Ok(())
+    }
+
+    /// Same as [`blocking_write`](Twim::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
+    #[cfg(feature = "time")]
+    pub fn blocking_write_from_ram_timeout(
+        &mut self,
+        address: u8,
+        buffer: &[u8],
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        self.setup_write_from_ram(address, buffer, false)?;
+        self.blocking_wait_timeout(timeout)?;
+        compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_tx(buffer.len())?;
+        Ok(())
+    }
+
+    /// Read from an I2C slave.
+    ///
+    /// The buffer must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
+    #[cfg(feature = "time")]
+    pub fn blocking_read_timeout(
+        &mut self,
+        address: u8,
+        buffer: &mut [u8],
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        self.setup_read(address, buffer, false)?;
+        self.blocking_wait_timeout(timeout)?;
+        compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_rx(buffer.len())?;
+        Ok(())
+    }
+
+    /// Write data to an I2C slave, then read data from the slave without
+    /// triggering a stop condition between the two.
+    ///
+    /// The buffers must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
+    #[cfg(feature = "time")]
+    pub fn blocking_write_read_timeout(
+        &mut self,
+        address: u8,
+        wr_buffer: &[u8],
+        rd_buffer: &mut [u8],
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        self.setup_write_read(address, wr_buffer, rd_buffer, false)?;
+        self.blocking_wait_timeout(timeout)?;
+        compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_tx(wr_buffer.len())?;
+        self.check_rx(rd_buffer.len())?;
+        Ok(())
+    }
+
+    /// Same as [`blocking_write_read`](Twim::blocking_write_read) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
+    #[cfg(feature = "time")]
+    pub fn blocking_write_read_from_ram_timeout(
+        &mut self,
+        address: u8,
+        wr_buffer: &[u8],
+        rd_buffer: &mut [u8],
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        self.setup_write_read_from_ram(address, wr_buffer, rd_buffer, false)?;
+        self.blocking_wait_timeout(timeout)?;
+        compiler_fence(SeqCst);
+        self.check_errorsrc()?;
+        self.check_tx(wr_buffer.len())?;
+        self.check_rx(rd_buffer.len())?;
+        Ok(())
+    }
+
+    // ===========================================
+
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
         self.setup_read(address, buffer, true)?;
         self.async_wait().await;
@@ -689,6 +812,7 @@ mod eh1 {
                     embedded_hal_1::i2c::NoAcknowledgeSource::Data,
                 ),
                 Self::Overrun => embedded_hal_1::i2c::ErrorKind::Overrun,
+                Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
             }
         }
     }
