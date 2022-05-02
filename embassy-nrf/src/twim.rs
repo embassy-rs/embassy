@@ -34,7 +34,9 @@ pub enum Frequency {
 #[non_exhaustive]
 pub struct Config {
     pub frequency: Frequency,
+    pub sda_high_drive: bool,
     pub sda_pullup: bool,
+    pub scl_high_drive: bool,
     pub scl_pullup: bool,
 }
 
@@ -42,7 +44,9 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             frequency: Frequency::K100,
+            scl_high_drive: false,
             sda_pullup: false,
+            sda_high_drive: false,
             scl_pullup: false,
         }
     }
@@ -87,7 +91,11 @@ impl<'d, T: Instance> Twim<'d, T> {
         sda.conf().write(|w| {
             w.dir().input();
             w.input().connect();
-            w.drive().s0d1();
+            if config.sda_high_drive {
+                w.drive().h0d1();
+            } else {
+                w.drive().s0d1();
+            }
             if config.sda_pullup {
                 w.pull().pullup();
             }
@@ -96,7 +104,11 @@ impl<'d, T: Instance> Twim<'d, T> {
         scl.conf().write(|w| {
             w.dir().input();
             w.input().connect();
-            w.drive().s0d1();
+            if config.scl_high_drive {
+                w.drive().h0d1();
+            } else {
+                w.drive().s0d1();
+            }
             if config.scl_pullup {
                 w.pull().pullup();
             }
