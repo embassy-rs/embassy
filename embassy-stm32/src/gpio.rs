@@ -3,7 +3,6 @@ use core::convert::Infallible;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
-use embedded_hal_02::digital::v2::{InputPin, OutputPin, StatefulOutputPin, ToggleableOutputPin};
 
 use crate::pac;
 use crate::pac::gpio::{self, vals};
@@ -605,6 +604,9 @@ pub(crate) unsafe fn init() {
 
 mod eh02 {
     use super::*;
+    use embedded_hal_02::digital::v2::{
+        InputPin, OutputPin, StatefulOutputPin, ToggleableOutputPin,
+    };
 
     impl<'d, T: Pin> InputPin for Input<'d, T> {
         type Error = Infallible;
@@ -684,6 +686,103 @@ mod eh02 {
 
     impl<'d, T: Pin> ToggleableOutputPin for OutputOpenDrain<'d, T> {
         type Error = Infallible;
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            Ok(self.toggle())
+        }
+    }
+}
+
+#[cfg(feature = "unstable-traits")]
+mod eh1 {
+    use super::*;
+    use embedded_hal_1::digital::blocking::{
+        InputPin, OutputPin, StatefulOutputPin, ToggleableOutputPin,
+    };
+    use embedded_hal_1::digital::ErrorType;
+
+    impl<'d, T: Pin> ErrorType for Input<'d, T> {
+        type Error = Infallible;
+    }
+
+    impl<'d, T: Pin> InputPin for Input<'d, T> {
+        #[inline]
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        #[inline]
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
+    }
+
+    impl<'d, T: Pin> ErrorType for Output<'d, T> {
+        type Error = Infallible;
+    }
+
+    impl<'d, T: Pin> OutputPin for Output<'d, T> {
+        #[inline]
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_high())
+        }
+
+        #[inline]
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_low())
+        }
+    }
+
+    impl<'d, T: Pin> StatefulOutputPin for Output<'d, T> {
+        #[inline]
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_high())
+        }
+
+        /// Is the output pin set as low?
+        #[inline]
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_low())
+        }
+    }
+
+    impl<'d, T: Pin> ToggleableOutputPin for Output<'d, T> {
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            Ok(self.toggle())
+        }
+    }
+
+    impl<'d, T: Pin> ErrorType for OutputOpenDrain<'d, T> {
+        type Error = Infallible;
+    }
+
+    impl<'d, T: Pin> OutputPin for OutputOpenDrain<'d, T> {
+        #[inline]
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_high())
+        }
+
+        #[inline]
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_low())
+        }
+    }
+
+    impl<'d, T: Pin> StatefulOutputPin for OutputOpenDrain<'d, T> {
+        #[inline]
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_high())
+        }
+
+        /// Is the output pin set as low?
+        #[inline]
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_low())
+        }
+    }
+
+    impl<'d, T: Pin> ToggleableOutputPin for OutputOpenDrain<'d, T> {
         #[inline]
         fn toggle(&mut self) -> Result<(), Self::Error> {
             Ok(self.toggle())
