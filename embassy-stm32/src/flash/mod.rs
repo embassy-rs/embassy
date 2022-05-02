@@ -33,13 +33,13 @@ impl<'d> Flash<'d> {
 
     pub fn unlock(p: impl Unborrow<Target = FLASH>) -> Self {
         let flash = Self::new(p);
-        #[cfg(any(flash_wl, flash_wb, flash_l4))]
+        #[cfg(any(flash_wl, flash_wb, flash_l4, flash_f3))]
         unsafe {
             pac::FLASH.keyr().write(|w| w.set_keyr(0x4567_0123));
             pac::FLASH.keyr().write(|w| w.set_keyr(0xCDEF_89AB));
         }
 
-        #[cfg(any(flash_l0))]
+        #[cfg(any(flash_l0, flash_l1))]
         unsafe {
             pac::FLASH.pekeyr().write(|w| w.set_pekeyr(0x89ABCDEF));
             pac::FLASH.pekeyr().write(|w| w.set_pekeyr(0x02030405));
@@ -51,7 +51,7 @@ impl<'d> Flash<'d> {
     }
 
     pub fn lock(&mut self) {
-        #[cfg(any(flash_wl, flash_wb, flash_l4))]
+        #[cfg(any(flash_wl, flash_wb, flash_l4, flash_f3))]
         unsafe {
             pac::FLASH.cr().modify(|w| w.set_lock(true));
         }
@@ -89,31 +89,56 @@ impl<'d> Flash<'d> {
 
         self.clear_all_err();
 
-        #[cfg(any(flash_wl, flash_wb, flash_l4))]
+        #[cfg(any(flash_wl, flash_wb, flash_l4, flash_f3))]
         unsafe {
             pac::FLASH.cr().write(|w| w.set_pg(true))
         }
 
-        let mut ret: Result<(), Error> = Ok(());
-        let mut offset = offset;
-        for chunk in buf.chunks(WRITE_SIZE) {
-            for val in chunk.chunks(4) {
+        #[cfg(not(flash_f3))]
+        let ret = {
+            let mut ret: Result<(), Error> = Ok(());
+            let mut offset = offset;
+            for chunk in buf.chunks(WRITE_SIZE) {
+                for val in chunk.chunks(4) {
+                    unsafe {
+                        write_volatile(
+                            offset as *mut u32,
+                            u32::from_le_bytes(val[0..4].try_into().unwrap()),
+                        );
+                    }
+                    offset += val.len() as u32;
+                }
+
+                ret = self.blocking_wait_ready();
+                if ret.is_err() {
+                    break;
+                }
+            }
+            ret
+        };
+
+        #[cfg(flash_f3)]
+        let ret = {
+            let mut ret: Result<(), Error> = Ok(());
+            let mut offset = offset;
+            for chunk in buf.chunks(2) {
                 unsafe {
                     write_volatile(
-                        offset as *mut u32,
-                        u32::from_le_bytes(val[0..4].try_into().unwrap()),
+                        offset as *mut u16,
+                        u16::from_le_bytes(chunk[0..2].try_into().unwrap()),
                     );
                 }
-                offset += val.len() as u32;
-            }
+                offset += chunk.len() as u32;
 
-            ret = self.blocking_wait_ready();
-            if ret.is_err() {
-                break;
+                ret = self.blocking_wait_ready();
+                if ret.is_err() {
+                    break;
+                }
             }
-        }
+            ret
+        };
 
-        #[cfg(any(flash_wl, flash_wb, flash_l4))]
+        #[cfg(any(flash_wl, flash_wb, flash_l4, flash_f3))]
         unsafe {
             pac::FLASH.cr().write(|w| w.set_pg(false))
         }
@@ -144,23 +169,41 @@ impl<'d> Flash<'d> {
                 write_volatile(page as *mut u32, 0xFFFFFFFF);
             }
 
-            #[cfg(any(flash_wl, flash_wb, flash_l4))]
+            #[cfg(any(flash_wl, flash_wb, flash_l4, flash_f3))]
             unsafe {
+                #[cfg(not(flash_f3))]
                 let idx = page / ERASE_SIZE as u32;
 
                 pac::FLASH.cr().modify(|w| {
                     w.set_per(true);
+                    #[cfg(not(flash_f3))]
                     w.set_pnb(idx as u8);
                     #[cfg(any(flash_wl, flash_wb))]
                     w.set_strt(true);
                     #[cfg(any(flash_l4))]
                     w.set_start(true);
                 });
+
+                #[cfg(flash_f3)]
+                pac::FLASH.ar().write(|w| w.set_far(page));
+
+                #[cfg(flash_f3)]
+                pac::FLASH.cr().modify(|w| {
+                    w.set_strt(true);
+                });
             }
 
             let ret: Result<(), Error> = self.blocking_wait_ready();
 
-            #[cfg(any(flash_wl, flash_wb, flash_l4))]
+            unsafe {
+                if pac::FLASH.sr().read().eop() {
+                    pac::FLASH.sr().modify(|w| w.set_eop(true));
+                } else {
+                    panic!("wtf")
+                }
+            }
+
+            #[cfg(any(flash_wl, flash_wb, flash_l4, flash_f3))]
             unsafe {
                 pac::FLASH.cr().modify(|w| w.set_per(false));
             }
@@ -196,10 +239,12 @@ impl<'d> Flash<'d> {
                     return Err(Error::Protected);
                 }
 
+                #[cfg(not(flash_f3))]
                 if sr.pgaerr() {
                     return Err(Error::Unaligned);
                 }
 
+                #[cfg(not(flash_f3))]
                 if sr.sizerr() {
                     return Err(Error::Size);
                 }
@@ -213,6 +258,11 @@ impl<'d> Flash<'d> {
                 if sr.pgserr() {
                     return Err(Error::Seq);
                 }
+
+                #[cfg(flash_f3)]
+                if sr.pgerr() {
+                    return Err(Error::Seq);
+                }
                 return Ok(());
             }
         }
@@ -223,36 +273,42 @@ impl<'d> Flash<'d> {
             pac::FLASH.sr().modify(|w| {
                 #[cfg(any(flash_wl, flash_wb, flash_l4, flash_l0))]
                 if w.rderr() {
-                    w.set_rderr(false);
+                    w.set_rderr(true);
                 }
                 #[cfg(any(flash_wl, flash_wb, flash_l4))]
                 if w.fasterr() {
-                    w.set_fasterr(false);
+                    w.set_fasterr(true);
                 }
                 #[cfg(any(flash_wl, flash_wb, flash_l4))]
                 if w.miserr() {
-                    w.set_miserr(false);
+                    w.set_miserr(true);
                 }
                 #[cfg(any(flash_wl, flash_wb, flash_l4))]
                 if w.pgserr() {
-                    w.set_pgserr(false);
+                    w.set_pgserr(true);
                 }
+                #[cfg(flash_f3)]
+                if w.pgerr() {
+                    w.set_pgerr(true);
+                }
+                #[cfg(not(flash_f3))]
                 if w.sizerr() {
-                    w.set_sizerr(false);
+                    w.set_sizerr(true);
                 }
+                #[cfg(not(flash_f3))]
                 if w.pgaerr() {
-                    w.set_pgaerr(false);
+                    w.set_pgaerr(true);
                 }
                 if w.wrperr() {
-                    w.set_wrperr(false);
+                    w.set_wrperr(true);
                 }
                 #[cfg(any(flash_wl, flash_wb, flash_l4))]
                 if w.progerr() {
-                    w.set_progerr(false);
+                    w.set_progerr(true);
                 }
                 #[cfg(any(flash_wl, flash_wb, flash_l4))]
                 if w.operr() {
-                    w.set_operr(false);
+                    w.set_operr(true);
                 }
             });
         }
