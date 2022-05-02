@@ -339,7 +339,7 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
         }
 
         let frequency = Hertz(T::frequency().0 / prescaler.divisor());
-        defmt::info!("ADC frequency set to {} Hz", frequency.0);
+        info!("ADC frequency set to {} Hz", frequency.0);
 
         if frequency > 50.mhz().into() {
             panic!("Maximal allowed frequency for the ADC is 50 MHz and it varies with different packages, refer to ST docs for more information.");
