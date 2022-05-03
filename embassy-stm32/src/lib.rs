@@ -50,7 +50,7 @@ pub mod i2c;
 
 #[cfg(crc)]
 pub mod crc;
-#[cfg(any(flash_l0, flash_l1, flash_wl, flash_wb, flash_l4, flash_f3))]
+#[cfg(any(flash_l0, flash_l1, flash_wl, flash_wb, flash_l4, flash_f3, flash_f7))]
 pub mod flash;
 pub mod pwm;
 #[cfg(rng)]

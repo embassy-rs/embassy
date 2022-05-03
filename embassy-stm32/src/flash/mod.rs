@@ -16,6 +16,7 @@ const FLASH_END: usize = FLASH_BASE + FLASH_SIZE;
 
 #[cfg_attr(any(flash_wl, flash_wb, flash_l0, flash_l1, flash_l4), path = "l.rs")]
 #[cfg_attr(flash_f3, path = "f3.rs")]
+#[cfg_attr(flash_f7, path = "f7.rs")]
 mod family;
 
 pub struct Flash<'d> {
@@ -75,7 +76,7 @@ impl<'d> Flash<'d> {
         if to < from || to as usize > FLASH_END {
             return Err(Error::Size);
         }
-        if from as usize % ERASE_SIZE != 0 || to as usize % ERASE_SIZE != 0 {
+        if ((to - from) as usize % ERASE_SIZE) != 0 {
             return Err(Error::Unaligned);
         }
 
@@ -104,6 +105,7 @@ pub enum Error {
     Seq,
     Protected,
     Unaligned,
+    Parallelism,
 }
 
 impl<'d> ErrorType for Flash<'d> {

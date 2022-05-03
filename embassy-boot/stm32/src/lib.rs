@@ -67,7 +67,7 @@ impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
         [(); <<F as FlashProvider>::ACTIVE as FlashConfig>::FLASH::ERASE_SIZE]:,
     {
         match self.boot.prepare_boot(flash) {
-            Ok(_) => self.boot.boot_address(),
+            Ok(_) => embassy_stm32::flash::FLASH_BASE + self.boot.boot_address(),
             Err(_) => panic!("boot prepare error!"),
         }
     }
