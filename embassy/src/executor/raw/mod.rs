@@ -164,14 +164,14 @@ impl<F: Future + 'static> TaskStorage<F> {
     /// Once the task has finished running, you may spawn it again. It is allowed to spawn it
     /// on a different executor.
     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
-        if self.spawn_allocate() {
+        if self.spawn_mark_used() {
             unsafe { SpawnToken::<F>::new(self.spawn_initialize(future)) }
         } else {
             SpawnToken::<F>::new_failed()
         }
     }
 
-    fn spawn_allocate(&'static self) -> bool {
+    fn spawn_mark_used(&'static self) -> bool {
         let state = STATE_SPAWNED | STATE_RUN_QUEUED;
         self.raw
             .state
@@ -234,7 +234,7 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     /// which will cause [`Spawner::spawn()`] to return the error.
     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
         for task in &self.pool {
-            if task.spawn_allocate() {
+            if task.spawn_mark_used() {
                 return unsafe { SpawnToken::<F>::new(task.spawn_initialize(future)) };
             }
         }
@@ -282,7 +282,7 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
         // by the user, with arbitrary hand-implemented futures. This is why these return `SpawnToken<F>`.
 
         for task in &self.pool {
-            if task.spawn_allocate() {
+            if task.spawn_mark_used() {
                 return SpawnToken::<FutFn>::new(task.spawn_initialize(future));
             }
         }
