@@ -165,7 +165,7 @@ impl<F: Future + 'static> TaskStorage<F> {
     /// on a different executor.
     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
         if self.spawn_mark_used() {
-            return unsafe { SpawnToken::<F>::new(self.spawn_initialize(future)) }
+            return unsafe { SpawnToken::<F>::new(self.spawn_initialize(future)) };
         }
 
         SpawnToken::<F>::new_failed()
