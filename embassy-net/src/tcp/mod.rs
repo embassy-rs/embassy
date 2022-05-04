@@ -1,17 +1,46 @@
 use core::marker::PhantomData;
 use core::mem;
-use core::pin::Pin;
-use core::task::{Context, Poll};
-use embassy::io;
-use embassy::io::{AsyncBufRead, AsyncWrite};
+use core::task::Poll;
 use smoltcp::iface::{Context as SmolContext, SocketHandle};
 use smoltcp::socket::TcpSocket as SyncTcpSocket;
 use smoltcp::socket::{TcpSocketBuffer, TcpState};
 use smoltcp::time::Duration;
 use smoltcp::wire::IpEndpoint;
 
+#[cfg(feature = "nightly")]
+mod io_impl;
+
 use super::stack::Stack;
-use crate::{Error, Result};
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    ConnectionReset,
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ConnectError {
+    /// The socket is already connected or listening.
+    InvalidState,
+    /// The remote host rejected the connection with a RST packet.
+    ConnectionReset,
+    /// Connect timed out.
+    TimedOut,
+    /// No route to host.
+    NoRoute,
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum AcceptError {
+    /// The socket is already connected or listening.
+    InvalidState,
+    /// Invalid listen port
+    InvalidPort,
+    /// The remote host rejected the connection with a RST packet.
+    ConnectionReset,
+}
 
 pub struct TcpSocket<'a> {
     handle: SocketHandle,
@@ -37,17 +66,25 @@ impl<'a> TcpSocket<'a> {
         }
     }
 
-    pub async fn connect<T>(&mut self, remote_endpoint: T) -> Result<()>
+    pub async fn connect<T>(&mut self, remote_endpoint: T) -> Result<(), ConnectError>
     where
         T: Into<IpEndpoint>,
     {
         let local_port = Stack::with(|stack| stack.get_local_port());
-        self.with(|s, cx| s.connect(cx, remote_endpoint, local_port))?;
+        match self.with(|s, cx| s.connect(cx, remote_endpoint, local_port)) {
+            Ok(()) => {}
+            Err(smoltcp::Error::Illegal) => return Err(ConnectError::InvalidState),
+            Err(smoltcp::Error::Unaddressable) => return Err(ConnectError::NoRoute),
+            // smoltcp returns no errors other than the above.
+            Err(_) => unreachable!(),
+        }
 
         futures::future::poll_fn(|cx| {
             self.with(|s, _| match s.state() {
-                TcpState::Closed | TcpState::TimeWait => Poll::Ready(Err(Error::Unaddressable)),
-                TcpState::Listen => Poll::Ready(Err(Error::Illegal)),
+                TcpState::Closed | TcpState::TimeWait => {
+                    Poll::Ready(Err(ConnectError::ConnectionReset))
+                }
+                TcpState::Listen => unreachable!(),
                 TcpState::SynSent | TcpState::SynReceived => {
                     s.register_send_waker(cx.waker());
                     Poll::Pending
@@ -58,11 +95,17 @@ impl<'a> TcpSocket<'a> {
         .await
     }
 
-    pub async fn accept<T>(&mut self, local_endpoint: T) -> Result<()>
+    pub async fn accept<T>(&mut self, local_endpoint: T) -> Result<(), AcceptError>
     where
         T: Into<IpEndpoint>,
     {
-        self.with(|s, _| s.listen(local_endpoint))?;
+        match self.with(|s, _| s.listen(local_endpoint)) {
+            Ok(()) => {}
+            Err(smoltcp::Error::Illegal) => return Err(AcceptError::InvalidState),
+            Err(smoltcp::Error::Unaddressable) => return Err(AcceptError::InvalidPort),
+            // smoltcp returns no errors other than the above.
+            Err(_) => unreachable!(),
+        }
 
         futures::future::poll_fn(|cx| {
             self.with(|s, _| match s.state() {
@@ -130,11 +173,6 @@ impl<'a> TcpSocket<'a> {
     }
 }
 
-fn to_ioerr(_err: Error) -> io::Error {
-    // todo
-    io::Error::Other
-}
-
 impl<'a> Drop for TcpSocket<'a> {
     fn drop(&mut self) {
         Stack::with(|stack| {
@@ -143,63 +181,12 @@ impl<'a> Drop for TcpSocket<'a> {
     }
 }
 
-impl<'a> AsyncBufRead for TcpSocket<'a> {
-    fn poll_fill_buf<'z>(
-        self: Pin<&'z mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<&'z [u8]>> {
-        self.with(|s, _| match s.peek(1 << 30) {
-            // No data ready
-            Ok(buf) if buf.is_empty() => {
-                s.register_recv_waker(cx.waker());
-                Poll::Pending
-            }
-            // Data ready!
-            Ok(buf) => {
-                // Safety:
-                // - User can't touch the inner TcpSocket directly at all.
-                // - The socket itself won't touch these bytes until consume() is called, which
-                //   requires the user to release this borrow.
-                let buf: &'z [u8] = unsafe { core::mem::transmute(&*buf) };
-                Poll::Ready(Ok(buf))
-            }
-            // EOF
-            Err(Error::Finished) => Poll::Ready(Ok(&[][..])),
-            // Error
-            Err(e) => Poll::Ready(Err(to_ioerr(e))),
-        })
-    }
-
-    fn consume(self: Pin<&mut Self>, amt: usize) {
-        if amt == 0 {
-            // smoltcp's recv returns Finished if we're at EOF,
-            // even if we're "reading" 0 bytes.
-            return;
-        }
-        self.with(|s, _| s.recv(|_| (amt, ()))).unwrap()
+impl embedded_io::Error for Error {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        embedded_io::ErrorKind::Other
     }
 }
 
-impl<'a> AsyncWrite for TcpSocket<'a> {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        self.with(|s, _| match s.send_slice(buf) {
-            // Not ready to send (no space in the tx buffer)
-            Ok(0) => {
-                s.register_send_waker(cx.waker());
-                Poll::Pending
-            }
-            // Some data sent
-            Ok(n) => Poll::Ready(Ok(n)),
-            // Error
-            Err(e) => Poll::Ready(Err(to_ioerr(e))),
-        })
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(())) // TODO: Is there a better implementation for this?
-    }
+impl<'d> embedded_io::Io for TcpSocket<'d> {
+    type Error = Error;
 }

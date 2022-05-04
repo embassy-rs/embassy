@@ -1,10 +1,12 @@
 #![macro_use]
 
+#[cfg(feature = "net")]
 #[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), path = "v1/mod.rs")]
 #[cfg_attr(eth_v2, path = "v2/mod.rs")]
 mod _version;
 pub mod generic_smi;
 
+#[cfg(feature = "net")]
 pub use _version::*;
 
 /// Station Management Interface (SMI) on an ethernet PHY

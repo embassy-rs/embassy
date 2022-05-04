@@ -13,7 +13,6 @@ pub mod channel;
 pub mod executor;
 #[cfg(cortex_m)]
 pub mod interrupt;
-pub mod io;
 pub mod mutex;
 #[cfg(feature = "time")]
 pub mod time;

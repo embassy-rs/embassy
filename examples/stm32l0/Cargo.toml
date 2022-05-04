@@ -7,12 +7,11 @@ resolver = "2"
 
 [features]
 default = ["nightly"]
-nightly = ["embassy-stm32/nightly", "embassy-lora", "lorawan-device", "lorawan"]
+nightly = ["embassy-stm32/nightly", "embassy-lora", "lorawan-device", "lorawan", "embedded-io/async"]
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32l072cz", "time-driver-any", "exti", "unstable-traits", "memory-x"]  }
-
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["sx127x", "time", "defmt"], optional = true}
 
 lorawan-device = { version = "0.7.1", default-features = false, features = ["async"], optional = true }
@@ -22,6 +21,7 @@ defmt = "0.3"
 defmt-rtt = "0.3"
 
 embedded-storage = "0.3.0"
+embedded-io = "0.2.0"
 
 cortex-m = "0.7.3"
 cortex-m-rt = "0.7.0"

@@ -39,7 +39,7 @@ pub mod can;
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
-#[cfg(all(eth, feature = "net"))]
+#[cfg(eth)]
 pub mod eth;
 #[cfg(feature = "exti")]
 pub mod exti;

@@ -2,12 +2,13 @@
 
 use clap::Parser;
 use embassy::executor::{Executor, Spawner};
-use embassy::io::AsyncWriteExt;
 use embassy::util::Forever;
+use embassy_net::tcp::TcpSocket;
 use embassy_net::{
     Config, Configurator, DhcpConfigurator, Ipv4Address, Ipv4Cidr, StackResources,
-    StaticConfigurator, TcpSocket,
+    StaticConfigurator,
 };
+use embedded_io::asynch::Write;
 use heapless::Vec;
 use log::*;
 
