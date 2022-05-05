@@ -635,12 +635,12 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         let r = U::regs();
 
         // BAUDRATE register values are `baudrate * 2^32 / 16000000`
-        // source: https://devzone.nordicsemi.com/f/nordic-q-a/391/uart-baudrate-register-values
+        // source: https://devzone.nordicsemi.com/f/nordic-q-a/39130801920/uart-baudrate-register-values
         //
-        // We want to stop RX if line is idle for 2 bytes worth of time
-        // That is 20 bits (each byte is 1 start bit + 8 data bits + 1 stop bit)
-        // This gives us the amount of 16M ticks for 20 bits.
-        let timeout = 0x8000_0000 / (baudrate as u32 / 40);
+        // We want to stop RX if line is idle for 8 bytes worth of time
+        // That is 160 bits (each byte is 1 start bit + 8 data bits + 1 stop bit)
+        // This gives us the amount of 16M ticks for 160 bits.
+        let timeout = (0xFFFF_FFFF / baudrate as u32) * 160;
 
         timer.set_frequency(Frequency::F16MHz);
         timer.cc(0).write(timeout);
