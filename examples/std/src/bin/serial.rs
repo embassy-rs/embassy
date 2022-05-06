@@ -5,8 +5,8 @@ mod serial_port;
 
 use async_io::Async;
 use embassy::executor::Executor;
-use embassy::io::AsyncBufReadExt;
 use embassy::util::Forever;
+use embedded_io::asynch::Read;
 use log::*;
 use nix::sys::termios;
 
@@ -24,12 +24,12 @@ async fn run() {
     // Essentially, async_io::Async converts from AsRawFd+Read+Write to futures's AsyncRead+AsyncWrite
     let port = Async::new(port).unwrap();
 
-    // This implements futures's AsyncBufRead based on futures's AsyncRead
-    let port = futures::io::BufReader::new(port);
-
-    // We can then use FromStdIo to convert from futures's AsyncBufRead+AsyncWrite
-    // to embassy's AsyncBufRead+AsyncWrite
-    let mut port = embassy::io::FromStdIo::new(port);
+    // We can then use FromStdIo to convert from futures's AsyncRead+AsyncWrite
+    // to embedded_io's async Read+Write.
+    //
+    // This is not really needed, you could write the code below using futures::io directly.
+    // It's useful if you want to have portable code across embedded and std.
+    let mut port = embedded_io::adapters::FromFutures::new(port);
 
     info!("Serial opened!");
 

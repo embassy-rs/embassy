@@ -10,9 +10,9 @@ use defmt::*;
 use embassy::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy::channel::Channel;
 use embassy::executor::Spawner;
-use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy::util::Forever;
-use embassy_net::{PacketBox, PacketBoxExt, PacketBuf, TcpSocket};
+use embassy_net::tcp::TcpSocket;
+use embassy_net::{PacketBox, PacketBoxExt, PacketBuf};
 use embassy_nrf::pac;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::Peripherals;
@@ -20,7 +20,9 @@ use embassy_nrf::{interrupt, peripherals};
 use embassy_usb::{Builder, Config, UsbDevice};
 use embassy_usb_ncm::{CdcNcmClass, Receiver, Sender, State};
 
-use defmt_rtt as _; // global logger
+use defmt_rtt as _;
+use embedded_io::asynch::{Read, Write};
+// global logger
 use panic_probe as _;
 
 type MyDriver = Driver<'static, peripherals::USBD>;

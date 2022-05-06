@@ -6,7 +6,7 @@ version = "0.1.0"
 
 [features]
 default = ["nightly"]
-nightly = ["embassy-nrf/nightly", "embassy-nrf/unstable-traits", "embassy-usb", "embassy-usb-serial", "embassy-usb-hid", "embassy-usb-ncm"]
+nightly = ["embassy-nrf/nightly", "embassy-nrf/unstable-traits", "embassy-usb", "embassy-usb-serial", "embassy-usb-hid", "embassy-usb-ncm", "embedded-io/async", "embassy-net/nightly"]
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime"] }
@@ -16,6 +16,7 @@ embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defm
 embassy-usb-serial = { version = "0.1.0", path = "../../embassy-usb-serial", features = ["defmt"], optional = true }
 embassy-usb-hid = { version = "0.1.0", path = "../../embassy-usb-hid", features = ["defmt"], optional = true }
 embassy-usb-ncm = { version = "0.1.0", path = "../../embassy-usb-ncm", features = ["defmt"], optional = true }
+embedded-io = "0.2.0"
 
 defmt = "0.3"
 defmt-rtt = "0.3"

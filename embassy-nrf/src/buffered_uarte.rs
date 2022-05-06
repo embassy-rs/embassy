@@ -14,18 +14,17 @@
 //! Please also see [crate::uarte] to understand when [BufferedUarte] should be used.
 
 use core::cmp::min;
+use core::future::Future;
 use core::marker::PhantomData;
-use core::mem;
-use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
-use core::task::{Context, Poll};
+use core::task::Poll;
 use embassy::interrupt::InterruptExt;
-use embassy::io::{AsyncBufRead, AsyncWrite};
 use embassy::util::Unborrow;
 use embassy::waitqueue::WakerRegistration;
 use embassy_hal_common::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::ring_buffer::RingBuffer;
 use embassy_hal_common::{low_power_wait_until, unborrow};
+use futures::future::poll_fn;
 
 use crate::gpio::Pin as GpioPin;
 use crate::pac;
@@ -197,82 +196,99 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     }
 }
 
-impl<'d, U: UarteInstance, T: TimerInstance> AsyncBufRead for BufferedUarte<'d, U, T> {
-    fn poll_fill_buf(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<embassy::io::Result<&[u8]>> {
-        self.inner.with(|state| {
-            compiler_fence(Ordering::SeqCst);
-            trace!("poll_read");
+impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::Io for BufferedUarte<'d, U, T> {
+    type Error = core::convert::Infallible;
+}
 
-            // We have data ready in buffer? Return it.
-            let buf = state.rx.pop_buf();
-            if !buf.is_empty() {
-                trace!("  got {:?} {:?}", buf.as_ptr() as u32, buf.len());
-                let buf: &[u8] = buf;
-                let buf: &[u8] = unsafe { mem::transmute(buf) };
-                return Poll::Ready(Ok(buf));
+impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Read for BufferedUarte<'d, U, T> {
+    type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+    where
+        Self: 'a;
+
+    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        poll_fn(move |cx| {
+            let mut do_pend = false;
+            let res = self.inner.with(|state| {
+                compiler_fence(Ordering::SeqCst);
+                trace!("poll_read");
+
+                // We have data ready in buffer? Return it.
+                let data = state.rx.pop_buf();
+                if !data.is_empty() {
+                    trace!("  got {:?} {:?}", data.as_ptr() as u32, data.len());
+                    let len = data.len().min(data.len());
+                    buf[..len].copy_from_slice(&data[..len]);
+                    state.rx.pop(len);
+                    do_pend = true;
+                    return Poll::Ready(Ok(len));
+                }
+
+                trace!("  empty");
+                state.rx_waker.register(cx.waker());
+                Poll::Pending
+            });
+            if do_pend {
+                self.inner.pend();
             }
 
-            trace!("  empty");
-            state.rx_waker.register(cx.waker());
-            Poll::<embassy::io::Result<&[u8]>>::Pending
+            res
         })
-    }
-
-    fn consume(mut self: Pin<&mut Self>, amt: usize) {
-        self.inner.with(|state| {
-            trace!("consume {:?}", amt);
-            state.rx.pop(amt);
-        });
-        self.inner.pend();
     }
 }
 
-impl<'d, U: UarteInstance, T: TimerInstance> AsyncWrite for BufferedUarte<'d, U, T> {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<embassy::io::Result<usize>> {
-        let poll = self.inner.with(|state| {
-            trace!("poll_write: {:?}", buf.len());
+impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Write
+    for BufferedUarte<'d, U, T>
+{
+    type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+    where
+        Self: 'a;
 
-            let tx_buf = state.tx.push_buf();
-            if tx_buf.is_empty() {
-                trace!("poll_write: pending");
-                state.tx_waker.register(cx.waker());
-                return Poll::Pending;
-            }
+    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+        poll_fn(move |cx| {
+            let res = self.inner.with(|state| {
+                trace!("poll_write: {:?}", buf.len());
 
-            let n = min(tx_buf.len(), buf.len());
-            tx_buf[..n].copy_from_slice(&buf[..n]);
-            state.tx.push(n);
+                let tx_buf = state.tx.push_buf();
+                if tx_buf.is_empty() {
+                    trace!("poll_write: pending");
+                    state.tx_waker.register(cx.waker());
+                    return Poll::Pending;
+                }
 
-            trace!("poll_write: queued {:?}", n);
+                let n = min(tx_buf.len(), buf.len());
+                tx_buf[..n].copy_from_slice(&buf[..n]);
+                state.tx.push(n);
 
-            compiler_fence(Ordering::SeqCst);
+                trace!("poll_write: queued {:?}", n);
 
-            Poll::Ready(Ok(n))
-        });
+                compiler_fence(Ordering::SeqCst);
 
-        self.inner.pend();
+                Poll::Ready(Ok(n))
+            });
 
-        poll
+            self.inner.pend();
+
+            res
+        })
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<embassy::io::Result<()>> {
-        self.inner.with(|state| {
-            trace!("poll_flush");
+    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+    where
+        Self: 'a;
 
-            if !state.tx.is_empty() {
-                trace!("poll_flush: pending");
-                state.tx_waker.register(cx.waker());
-                return Poll::Pending;
-            }
+    fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+        poll_fn(move |cx| {
+            self.inner.with(|state| {
+                trace!("poll_flush");
 
-            Poll::Ready(Ok(()))
+                if !state.tx.is_empty() {
+                    trace!("poll_flush: pending");
+                    state.tx_waker.register(cx.waker());
+                    return Poll::Pending;
+                }
+
+                Poll::Ready(Ok(()))
+            })
         })
     }
 }
