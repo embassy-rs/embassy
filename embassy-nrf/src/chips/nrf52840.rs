@@ -27,6 +27,9 @@ embassy_hal_common::peripherals! {
     // QSPI
     QSPI,
 
+    // QDEC
+    QDEC,
+
     // UARTE
     UARTE0,
     UARTE1,

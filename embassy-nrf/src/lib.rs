@@ -73,6 +73,8 @@ pub mod nvmc;
 pub mod ppi;
 #[cfg(not(any(feature = "nrf52805", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod pwm;
+#[cfg(not(any(feature = "nrf51", feature = "_nrf9160", feature = "_nrf5340")))]
+pub mod qdec;
 #[cfg(feature = "nrf52840")]
 pub mod qspi;
 #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]

@@ -155,6 +155,9 @@ embassy_hal_common::peripherals! {
 
     // TEMP
     TEMP,
+
+    // QDEC
+    QDEC,
 }
 
 #[cfg(feature = "nightly")]
