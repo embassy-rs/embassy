@@ -27,6 +27,7 @@ rand_core = "0.6.3"
 critical-section = "0.2.5"
 micromath = "2.0.0"
 stm32-fmc = "0.2.4"
+embedded-storage = "0.3.0"
 
 [dependencies.smoltcp]
 version = "0.8.0"
