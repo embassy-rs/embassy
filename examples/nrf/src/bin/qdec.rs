@@ -17,13 +17,12 @@ use panic_probe as _;
 async fn main(_spawner: Spawner, p: Peripherals) {
     let irq = interrupt::take!(QDEC);
     let config = qdec::Config::default();
-    let mut rotary = Qdec::new(p.QDEC, irq, p.P1_13, p.P0_12, config);
-    // let mut rotary = Qdec::new(p.QDEC, irq, p.P0_31, p.P0_30, config);
+    let mut rotary_enc = Qdec::new(p.QDEC, irq, p.P0_31, p.P0_30, config);
 
     info!("Turn rotary encoder!");
     let mut value = 0;
     loop {
-        value += rotary.read().await;
+        value += rotary_enc.read().await;
         info!("Value: {}", value);
     }
 }
