@@ -2,28 +2,26 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::Peripherals;
+use panic_reset as _;
 
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+#[cfg(feature = "defmt-rtt")]
+use defmt_rtt::*;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
-    info!("Hello World!");
-
-    let mut led = Output::new(p.PA5, Level::High, Speed::Low);
+    Timer::after(Duration::from_millis(300)).await;
+    let mut led = Output::new(p.PB7, Level::High, Speed::Low);
+    led.set_high();
 
     loop {
-        info!("high");
         led.set_high();
-        Timer::after(Duration::from_millis(1000)).await;
+        Timer::after(Duration::from_millis(500)).await;
 
-        info!("low");
         led.set_low();
-        Timer::after(Duration::from_millis(1000)).await;
+        Timer::after(Duration::from_millis(500)).await;
     }
 }
