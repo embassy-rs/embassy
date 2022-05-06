@@ -14,7 +14,7 @@ The bootloader supports both internal and external flash by relying on the `embe
 The bootloader supports
 
 * nRF52 with and without softdevice
-* STM32 L4, WB, WL, L1 and L0
+* STM32 L4, WB, WL, L1, L0, F3, F7 and H7
 
 In general, the bootloader works on any platform that implements the `embedded-storage` traits for its internal flash, but may require custom initialization code to work.
 
