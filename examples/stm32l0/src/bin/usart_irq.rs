@@ -2,13 +2,14 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt_rtt as _; // global logger
+use defmt_rtt as _;
+use embedded_io::asynch::{Read, Write};
+// global logger
 use panic_probe as _;
 
 use defmt::*;
 
 use embassy::executor::Spawner;
-use embassy::io::{AsyncBufReadExt, AsyncWriteExt};
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::interrupt;
 use embassy_stm32::usart::{BufferedUart, Config, State, Uart};
@@ -16,19 +17,21 @@ use embassy_stm32::Peripherals;
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
+    info!("Hi!");
+
     static mut TX_BUFFER: [u8; 8] = [0; 8];
     static mut RX_BUFFER: [u8; 256] = [0; 256];
 
     let mut config = Config::default();
     config.baudrate = 9600;
 
-    let usart = Uart::new(p.USART1, p.PA10, p.PA9, NoDma, NoDma, config);
+    let usart = Uart::new(p.USART2, p.PA3, p.PA2, NoDma, NoDma, config);
     let mut state = State::new();
     let mut usart = unsafe {
         BufferedUart::new(
             &mut state,
             usart,
-            interrupt::take!(USART1),
+            interrupt::take!(USART2),
             &mut TX_BUFFER,
             &mut RX_BUFFER,
         )

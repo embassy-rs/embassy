@@ -15,7 +15,7 @@ use panic_probe as _;
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
-    let mut led = Output::new(p.PE12, Level::High, Speed::Low);
+    let mut led = Output::new(p.PA5, Level::High, Speed::Low);
 
     loop {
         info!("high");

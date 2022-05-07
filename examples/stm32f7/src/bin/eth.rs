@@ -5,12 +5,10 @@
 use cortex_m_rt::entry;
 use defmt::*;
 use embassy::executor::{Executor, Spawner};
-use embassy::io::AsyncWriteExt;
 use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
-use embassy_net::{
-    Config as NetConfig, Ipv4Address, Ipv4Cidr, StackResources, StaticConfigurator, TcpSocket,
-};
+use embassy_net::tcp::TcpSocket;
+use embassy_net::{Config as NetConfig, Ipv4Address, Ipv4Cidr, StackResources, StaticConfigurator};
 use embassy_stm32::eth::generic_smi::GenericSMI;
 use embassy_stm32::eth::{Ethernet, State};
 use embassy_stm32::interrupt;
@@ -19,6 +17,7 @@ use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::U32Ext;
 use embassy_stm32::Config;
+use embedded_io::asynch::Write;
 use heapless::Vec;
 
 use defmt_rtt as _; // global logger

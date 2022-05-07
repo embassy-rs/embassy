@@ -1,5 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::new_without_default)]
+#![cfg_attr(
+    feature = "nightly",
+    feature(generic_associated_types, type_alias_impl_trait)
+)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
@@ -20,9 +24,7 @@ pub use stack::{
 };
 
 #[cfg(feature = "tcp")]
-mod tcp_socket;
-#[cfg(feature = "tcp")]
-pub use tcp_socket::TcpSocket;
+pub mod tcp;
 
 // smoltcp reexports
 pub use smoltcp::phy::{DeviceCapabilities, Medium};
@@ -32,4 +34,3 @@ pub use smoltcp::time::Instant as SmolInstant;
 pub use smoltcp::wire::{EthernetAddress, HardwareAddress};
 pub use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
 pub type Interface = smoltcp::iface::Interface<'static, device::DeviceAdapter>;
-pub use smoltcp::{Error, Result};

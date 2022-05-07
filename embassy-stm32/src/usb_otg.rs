@@ -1,14 +1,10 @@
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
-use synopsys_usb_otg::{PhyType, UsbPeripheral};
 
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
 use crate::{peripherals, rcc::RccPeripheral};
-
-pub use embassy_hal_common::usb::*;
-pub use synopsys_usb_otg::UsbBus;
 
 macro_rules! config_ulpi_pins {
     ($($pin:ident),*) => {
@@ -23,9 +19,24 @@ macro_rules! config_ulpi_pins {
     };
 }
 
+/// USB PHY type
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum PhyType {
+    /// Internal Full-Speed PHY
+    ///
+    /// Available on most High-Speed peripherals.
+    InternalFullSpeed,
+    /// Internal High-Speed PHY
+    ///
+    /// Available on a few STM32 chips.
+    InternalHighSpeed,
+    /// External ULPI High-Speed PHY
+    ExternalHighSpeed,
+}
+
 pub struct UsbOtg<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
-    phy_type: PhyType,
+    _phy_type: PhyType,
 }
 
 impl<'d, T: Instance> UsbOtg<'d, T> {
@@ -44,7 +55,7 @@ impl<'d, T: Instance> UsbOtg<'d, T> {
 
         Self {
             phantom: PhantomData,
-            phy_type: PhyType::InternalFullSpeed,
+            _phy_type: PhyType::InternalFullSpeed,
         }
     }
 
@@ -71,7 +82,7 @@ impl<'d, T: Instance> UsbOtg<'d, T> {
 
         Self {
             phantom: PhantomData,
-            phy_type: PhyType::ExternalHighSpeed,
+            _phy_type: PhyType::ExternalHighSpeed,
         }
     }
 }
@@ -80,29 +91,6 @@ impl<'d, T: Instance> Drop for UsbOtg<'d, T> {
     fn drop(&mut self) {
         T::reset();
         T::disable();
-    }
-}
-
-unsafe impl<'d, T: Instance> Send for UsbOtg<'d, T> {}
-unsafe impl<'d, T: Instance> Sync for UsbOtg<'d, T> {}
-
-unsafe impl<'d, T: Instance> UsbPeripheral for UsbOtg<'d, T> {
-    const REGISTERS: *const () = T::REGISTERS;
-    const HIGH_SPEED: bool = T::HIGH_SPEED;
-    const FIFO_DEPTH_WORDS: usize = T::FIFO_DEPTH_WORDS;
-    const ENDPOINT_COUNT: usize = T::ENDPOINT_COUNT;
-
-    fn enable() {
-        <T as crate::rcc::sealed::RccPeripheral>::enable();
-        <T as crate::rcc::sealed::RccPeripheral>::reset();
-    }
-
-    fn phy_type(&self) -> PhyType {
-        self.phy_type
-    }
-
-    fn ahb_frequency_hz(&self) -> u32 {
-        <T as crate::rcc::sealed::RccPeripheral>::frequency().0
     }
 }
 
@@ -177,7 +165,7 @@ foreach_peripheral!(
                     const FIFO_DEPTH_WORDS: usize = 512;
                     const ENDPOINT_COUNT: usize = 8;
                 } else {
-                    compile_error!("USB_OTG_FS peripheral is not supported by this chip. Disable \"usb-otg-fs\" feature or select a different chip.");
+                    compile_error!("USB_OTG_FS peripheral is not supported by this chip.");
                 }
             }
         }
@@ -214,20 +202,11 @@ foreach_peripheral!(
                     const FIFO_DEPTH_WORDS: usize = 1024;
                     const ENDPOINT_COUNT: usize = 9;
                 } else {
-                    compile_error!("USB_OTG_HS peripheral is not supported by this chip. Disable \"usb-otg-hs\" feature or select a different chip.");
+                    compile_error!("USB_OTG_HS peripheral is not supported by this chip.");
                 }
             }
         }
 
         impl Instance for peripherals::$inst {}
-    };
-);
-
-foreach_interrupt!(
-    ($inst:ident, otgfs, $block:ident, GLOBAL, $irq:ident) => {
-        unsafe impl USBInterrupt for crate::interrupt::$irq {}
-    };
-    ($inst:ident, otghs, $block:ident, GLOBAL, $irq:ident) => {
-        unsafe impl USBInterrupt for crate::interrupt::$irq {}
     };
 );
