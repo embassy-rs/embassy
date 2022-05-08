@@ -511,7 +511,6 @@ pub(crate) mod sealed {
             self.set_as_analog();
         }
 
-        #[cfg(any(gpio_v1, gpio_v2))]
         #[inline]
         unsafe fn set_speed(&self, speed: Speed) {
             let pin = self._pin() as usize;
