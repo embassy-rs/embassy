@@ -3,7 +3,6 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 use crate::gpio::sealed::AFType;
-use crate::gpio::Speed;
 use crate::{peripherals, rcc::RccPeripheral};
 
 macro_rules! config_ulpi_pins {
@@ -13,7 +12,8 @@ macro_rules! config_ulpi_pins {
         critical_section::with(|_| unsafe {
             $(
                 $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                $pin.set_speed(Speed::VeryHigh);
+                #[cfg(gpio_v2)]
+                $pin.set_speed(crate::gpio::Speed::VeryHigh);
             )*
         })
     };
