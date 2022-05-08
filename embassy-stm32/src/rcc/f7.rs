@@ -170,7 +170,7 @@ pub(crate) unsafe fn init(config: Config) {
     // Calculate real AHB clock
     let hclk = sysclk / hpre_div;
 
-    assert!(hclk < max::HCLK_MAX);
+    assert!(hclk <= max::HCLK_MAX);
 
     let pclk1 = config
         .pclk1
