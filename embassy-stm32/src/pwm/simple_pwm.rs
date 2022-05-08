@@ -3,8 +3,7 @@ use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 use super::*;
-#[allow(unused_imports)]
-use crate::gpio::sealed::{AFType, Pin};
+use crate::gpio::sealed::AFType;
 use crate::time::Hertz;
 
 pub struct SimplePwm<'d, T> {
@@ -20,7 +19,6 @@ macro_rules! config_pins {
             $(
                 $pin.set_low();
                 $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                #[cfg(gpio_v2)]
                 $pin.set_speed(crate::gpio::Speed::VeryHigh);
             )*
         })

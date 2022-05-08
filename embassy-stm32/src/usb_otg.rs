@@ -12,7 +12,6 @@ macro_rules! config_ulpi_pins {
         critical_section::with(|_| unsafe {
             $(
                 $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                #[cfg(gpio_v2)]
                 $pin.set_speed(crate::gpio::Speed::VeryHigh);
             )*
         })
