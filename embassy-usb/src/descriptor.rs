@@ -244,6 +244,7 @@ impl<'a> DescriptorWriter<'a> {
     }
 
     /// Writes a string descriptor.
+    #[allow(unused)]
     pub(crate) fn string(&mut self, string: &str) {
         let mut pos = self.position;
 

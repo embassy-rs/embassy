@@ -133,6 +133,7 @@ impl Default for ControlShared {
 struct CommControl<'a> {
     mac_addr_string: StringIndex,
     shared: &'a ControlShared,
+    mac_addr_str: [u8; 12],
 }
 
 impl<'d> ControlHandler for CommControl<'d> {
@@ -178,24 +179,20 @@ impl<'d> ControlHandler for CommControl<'d> {
         }
     }
 
-    fn get_string<'a>(
-        &'a mut self,
-        index: StringIndex,
-        _lang_id: u16,
-        buf: &'a mut [u8],
-    ) -> Option<&'a str> {
+    fn get_string(&mut self, index: StringIndex, _lang_id: u16) -> Option<&str> {
         if index == self.mac_addr_string {
             let mac_addr = self.shared.mac_addr.get();
+            let s = &mut self.mac_addr_str;
             for i in 0..12 {
                 let n = (mac_addr[i / 2] >> ((1 - i % 2) * 4)) & 0xF;
-                buf[i] = match n {
+                s[i] = match n {
                     0x0..=0x9 => b'0' + n,
                     0xA..=0xF => b'A' + n - 0xA,
                     _ => unreachable!(),
                 }
             }
 
-            Some(unsafe { core::str::from_utf8_unchecked(&buf[..12]) })
+            Some(unsafe { core::str::from_utf8_unchecked(s) })
         } else {
             warn!("unknown string index requested");
             None
@@ -244,6 +241,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
         iface.handler(state.comm_control.write(CommControl {
             mac_addr_string,
             shared: &control_shared,
+            mac_addr_str: [0; 12],
         }));
         let comm_if = iface.interface_number();
         let mut alt = iface.alt_setting(USB_CLASS_CDC, CDC_SUBCLASS_NCM, CDC_PROTOCOL_NONE);

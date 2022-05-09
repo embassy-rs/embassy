@@ -1,9 +1,7 @@
 use core::mem;
 
-use crate::descriptor::DescriptorWriter;
-use crate::driver::{self, EndpointError};
-
 use super::types::*;
+use crate::driver::{self, EndpointError};
 
 /// Control request type.
 #[repr(u8)]
@@ -191,16 +189,8 @@ pub trait ControlHandler {
     }
 
     /// Called when a GET_DESCRIPTOR STRING control request is received.
-    ///
-    /// Write the response string somewhere (usually to `buf`, but you may use another buffer
-    /// owned by yourself, or a static buffer), then return it.
-    fn get_string<'a>(
-        &'a mut self,
-        index: StringIndex,
-        lang_id: u16,
-        buf: &'a mut [u8],
-    ) -> Option<&'a str> {
-        let _ = (index, lang_id, buf);
+    fn get_string(&mut self, index: StringIndex, lang_id: u16) -> Option<&str> {
+        let _ = (index, lang_id);
         None
     }
 }
@@ -314,19 +304,6 @@ impl<C: driver::ControlPipe> ControlPipe<C> {
                 }
             }
         }
-    }
-
-    pub(crate) async fn accept_in_writer(
-        &mut self,
-        req: Request,
-        stage: DataInStage,
-        f: impl FnOnce(&mut DescriptorWriter),
-    ) {
-        let mut buf = [0; 256];
-        let mut w = DescriptorWriter::new(&mut buf);
-        f(&mut w);
-        let pos = w.position().min(usize::from(req.length));
-        self.accept_in(&buf[..pos], stage).await
     }
 
     pub(crate) fn accept(&mut self, _: StatusStage) {
