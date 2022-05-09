@@ -143,38 +143,32 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
     fn alloc_endpoint_in(
         &mut self,
-        ep_addr: Option<EndpointAddress>,
         ep_type: EndpointType,
-        max_packet_size: u16,
+        packet_size: u16,
         interval: u8,
     ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        let index = self
-            .alloc_in
-            .allocate(ep_addr, ep_type, max_packet_size, interval)?;
+        let index = self.alloc_in.allocate(ep_type, packet_size, interval)?;
         let ep_addr = EndpointAddress::from_parts(index, UsbDirection::In);
         Ok(Endpoint::new(EndpointInfo {
             addr: ep_addr,
             ep_type,
-            max_packet_size,
+            max_packet_size: packet_size,
             interval,
         }))
     }
 
     fn alloc_endpoint_out(
         &mut self,
-        ep_addr: Option<EndpointAddress>,
         ep_type: EndpointType,
-        max_packet_size: u16,
+        packet_size: u16,
         interval: u8,
     ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        let index = self
-            .alloc_out
-            .allocate(ep_addr, ep_type, max_packet_size, interval)?;
+        let index = self.alloc_out.allocate(ep_type, packet_size, interval)?;
         let ep_addr = EndpointAddress::from_parts(index, UsbDirection::Out);
         Ok(Endpoint::new(EndpointInfo {
             addr: ep_addr,
             ep_type,
-            max_packet_size,
+            max_packet_size: packet_size,
             interval,
         }))
     }
@@ -183,8 +177,10 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         &mut self,
         max_packet_size: u16,
     ) -> Result<Self::ControlPipe, driver::EndpointAllocError> {
-        self.alloc_endpoint_out(Some(0x00.into()), EndpointType::Control, max_packet_size, 0)?;
-        self.alloc_endpoint_in(Some(0x80.into()), EndpointType::Control, max_packet_size, 0)?;
+        self.alloc_in.used |= 0x01;
+        self.alloc_in.lens[0] = max_packet_size as u8;
+        self.alloc_out.used |= 0x01;
+        self.alloc_out.lens[0] = max_packet_size as u8;
         Ok(ControlPipe {
             _phantom: PhantomData,
             max_packet_size,
@@ -681,8 +677,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             .await;
 
             // Reset shorts
-            regs.shorts
-                .modify(|_, w| w.ep0datadone_ep0status().clear_bit());
+            regs.shorts.write(|w| w);
             regs.events_ep0setup.reset();
 
             let mut buf = [0; 8];
@@ -746,7 +741,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             }
 
             regs.shorts
-                .modify(|_, w| w.ep0datadone_ep0status().bit(last_packet));
+                .write(|w| w.ep0datadone_ep0status().bit(last_packet));
 
             regs.intenset.write(|w| {
                 w.usbreset().set();
@@ -810,7 +805,6 @@ impl Allocator {
 
     fn allocate(
         &mut self,
-        ep_addr: Option<EndpointAddress>,
         ep_type: EndpointType,
         max_packet_size: u16,
         _interval: u8,
@@ -828,27 +822,16 @@ impl Allocator {
 
         // Endpoint directions are allocated individually.
 
-        let alloc_index = if let Some(ep_addr) = ep_addr {
-            match (ep_addr.index(), ep_type) {
-                (0, EndpointType::Control) => {}
-                (8, EndpointType::Isochronous) => {}
-                (n, EndpointType::Bulk) | (n, EndpointType::Interrupt) if n >= 1 && n <= 7 => {}
-                _ => return Err(driver::EndpointAllocError),
-            }
-
-            ep_addr.index()
-        } else {
-            match ep_type {
-                EndpointType::Isochronous => 8,
-                EndpointType::Control => 0,
-                EndpointType::Interrupt | EndpointType::Bulk => {
-                    // Find rightmost zero bit in 1..=7
-                    let ones = (self.used >> 1).trailing_ones() as usize;
-                    if ones >= 7 {
-                        return Err(driver::EndpointAllocError);
-                    }
-                    ones + 1
+        let alloc_index = match ep_type {
+            EndpointType::Isochronous => 8,
+            EndpointType::Control => return Err(driver::EndpointAllocError),
+            EndpointType::Interrupt | EndpointType::Bulk => {
+                // Find rightmost zero bit in 1..=7
+                let ones = (self.used >> 1).trailing_ones() as usize;
+                if ones >= 7 {
+                    return Err(driver::EndpointAllocError);
                 }
+                ones + 1
             }
         };
 

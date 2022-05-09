@@ -64,7 +64,7 @@ async fn main(spawner: Spawner, p: Peripherals) {
         device_descriptor: [u8; 256],
         config_descriptor: [u8; 256],
         bos_descriptor: [u8; 256],
-        control_buf: [u8; 7],
+        control_buf: [u8; 64],
         serial_state: State<'static>,
     }
     static RESOURCES: Forever<Resources> = Forever::new();
@@ -72,7 +72,7 @@ async fn main(spawner: Spawner, p: Peripherals) {
         device_descriptor: [0; 256],
         config_descriptor: [0; 256],
         bos_descriptor: [0; 256],
-        control_buf: [0; 7],
+        control_buf: [0; 64],
         serial_state: State::new(),
     });
 

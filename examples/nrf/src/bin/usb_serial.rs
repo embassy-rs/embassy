@@ -48,7 +48,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
-    let mut control_buf = [0; 7];
+    let mut control_buf = [0; 64];
 
     let mut state = State::new();
 

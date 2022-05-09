@@ -25,7 +25,6 @@ pub trait Driver<'a> {
     /// * `interval` - Polling interval parameter for interrupt endpoints.
     fn alloc_endpoint_out(
         &mut self,
-        ep_addr: Option<EndpointAddress>,
         ep_type: EndpointType,
         max_packet_size: u16,
         interval: u8,
@@ -33,7 +32,6 @@ pub trait Driver<'a> {
 
     fn alloc_endpoint_in(
         &mut self,
-        ep_addr: Option<EndpointAddress>,
         ep_type: EndpointType,
         max_packet_size: u16,
         interval: u8,
