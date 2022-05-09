@@ -16,6 +16,7 @@ use embassy::util::{select, Either};
 use heapless::Vec;
 
 use crate::descriptor_reader::foreach_endpoint;
+use crate::driver::ControlPipe;
 
 use self::control::*;
 use self::descriptor::*;
@@ -101,7 +102,7 @@ struct Interface<'d> {
 
 pub struct UsbDevice<'d, D: Driver<'d>> {
     control_buf: &'d mut [u8],
-    control: ControlPipe<D::ControlPipe>,
+    control: D::ControlPipe,
     inner: Inner<'d, D>,
 }
 
@@ -144,7 +145,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
 
         Self {
             control_buf,
-            control: ControlPipe::new(control),
+            control,
             inner: Inner {
                 bus,
                 config,
@@ -192,52 +193,12 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             }
         }
 
-        loop {
+        while !self.inner.suspended {
             let control_fut = self.control.setup();
             let bus_fut = self.inner.bus.poll();
             match select(bus_fut, control_fut).await {
-                Either::First(evt) => {
-                    self.inner.handle_bus_event(evt);
-                    if self.inner.suspended {
-                        return;
-                    }
-                }
-                Either::Second(req) => match req {
-                    Setup::DataIn(req, mut stage) => {
-                        // If we don't have an address yet, respond with max 1 packet.
-                        // The host doesn't know our EP0 max packet size yet, and might assume
-                        // a full-length packet is a short packet, thinking we're done sending data.
-                        // See https://github.com/hathach/tinyusb/issues/184
-                        const DEVICE_DESCRIPTOR_LEN: u8 = 18;
-                        if self.inner.pending_address == 0
-                            && self.inner.config.max_packet_size_0 < DEVICE_DESCRIPTOR_LEN
-                            && (self.inner.config.max_packet_size_0 as usize) < stage.length
-                        {
-                            trace!("received control req while not addressed: capping response to 1 packet.");
-                            stage.length = self.inner.config.max_packet_size_0 as _;
-                        }
-
-                        match self.inner.handle_control_in(req, &mut self.control_buf) {
-                            InResponse::Accepted(data) => self.control.accept_in(data, stage).await,
-                            InResponse::Rejected => self.control.reject(),
-                        }
-                    }
-                    Setup::DataOut(req, stage) => {
-                        let (data, stage) =
-                            match self.control.data_out(self.control_buf, stage).await {
-                                Ok(data) => data,
-                                Err(_) => {
-                                    warn!("usb: failed to read CONTROL OUT data stage.");
-                                    return;
-                                }
-                            };
-
-                        match self.inner.handle_control_out(req, data) {
-                            OutResponse::Accepted => self.control.accept(stage),
-                            OutResponse::Rejected => self.control.reject(),
-                        }
-                    }
-                },
+                Either::First(evt) => self.inner.handle_bus_event(evt),
+                Either::Second(req) => self.handle_control(req).await,
             }
         }
     }
@@ -286,6 +247,86 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             Ok(())
         } else {
             Err(RemoteWakeupError::InvalidState)
+        }
+    }
+
+    async fn handle_control(&mut self, req: Request) {
+        trace!("control request: {:02x}", req);
+
+        match req.direction {
+            UsbDirection::In => self.handle_control_in(req).await,
+            UsbDirection::Out => self.handle_control_out(req).await,
+        }
+    }
+
+    async fn handle_control_in(&mut self, req: Request) {
+        let mut resp_length = req.length as usize;
+        let max_packet_size = self.control.max_packet_size();
+
+        // If we don't have an address yet, respond with max 1 packet.
+        // The host doesn't know our EP0 max packet size yet, and might assume
+        // a full-length packet is a short packet, thinking we're done sending data.
+        // See https://github.com/hathach/tinyusb/issues/184
+        const DEVICE_DESCRIPTOR_LEN: usize = 18;
+        if self.inner.pending_address == 0
+            && max_packet_size < DEVICE_DESCRIPTOR_LEN
+            && (max_packet_size as usize) < resp_length
+        {
+            trace!("received control req while not addressed: capping response to 1 packet.");
+            resp_length = max_packet_size;
+        }
+
+        match self.inner.handle_control_in(req, &mut self.control_buf) {
+            InResponse::Accepted(data) => {
+                let len = data.len().min(resp_length);
+                let need_zlp = len != resp_length && (len % usize::from(max_packet_size)) == 0;
+
+                let mut chunks = data[0..len]
+                    .chunks(max_packet_size)
+                    .chain(need_zlp.then(|| -> &[u8] { &[] }));
+
+                while let Some(chunk) = chunks.next() {
+                    match self.control.data_in(chunk, chunks.size_hint().0 == 0).await {
+                        Ok(()) => {}
+                        Err(e) => {
+                            warn!("control accept_in failed: {:?}", e);
+                            return;
+                        }
+                    }
+                }
+            }
+            InResponse::Rejected => self.control.reject(),
+        }
+    }
+
+    async fn handle_control_out(&mut self, req: Request) {
+        let req_length = req.length as usize;
+        let max_packet_size = self.control.max_packet_size();
+        let mut total = 0;
+
+        for chunk in self.control_buf[..req_length].chunks_mut(max_packet_size) {
+            let size = match self.control.data_out(chunk).await {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("usb: failed to read CONTROL OUT data stage: {:?}", e);
+                    return;
+                }
+            };
+            total += size;
+            if size < max_packet_size || total == req_length {
+                break;
+            }
+        }
+
+        let data = &self.control_buf[0..total];
+        #[cfg(feature = "defmt")]
+        trace!("  control out data: {:02x}", data);
+        #[cfg(not(feature = "defmt"))]
+        trace!("  control out data: {:02x?}", data);
+
+        match self.inner.handle_control_out(req, data) {
+            OutResponse::Accepted => self.control.accept(),
+            OutResponse::Rejected => self.control.reject(),
         }
     }
 }
