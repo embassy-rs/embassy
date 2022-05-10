@@ -147,7 +147,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         packet_size: u16,
         interval: u8,
     ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        let index = self.alloc_in.allocate(ep_type, packet_size, interval)?;
+        let index = self.alloc_in.allocate(ep_type)?;
         let ep_addr = EndpointAddress::from_parts(index, UsbDirection::In);
         Ok(Endpoint::new(EndpointInfo {
             addr: ep_addr,
@@ -163,7 +163,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         packet_size: u16,
         interval: u8,
     ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        let index = self.alloc_out.allocate(ep_type, packet_size, interval)?;
+        let index = self.alloc_out.allocate(ep_type)?;
         let ep_addr = EndpointAddress::from_parts(index, UsbDirection::Out);
         Ok(Endpoint::new(EndpointInfo {
             addr: ep_addr,
@@ -173,24 +173,16 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         }))
     }
 
-    fn alloc_control_pipe(
-        &mut self,
-        max_packet_size: u16,
-    ) -> Result<Self::ControlPipe, driver::EndpointAllocError> {
-        self.alloc_in.used |= 0x01;
-        self.alloc_in.lens[0] = max_packet_size as u8;
-        self.alloc_out.used |= 0x01;
-        self.alloc_out.lens[0] = max_packet_size as u8;
-        Ok(ControlPipe {
-            _phantom: PhantomData,
-            max_packet_size,
-        })
-    }
-
-    fn into_bus(self) -> Self::Bus {
-        Bus {
-            phantom: PhantomData,
-        }
+    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
+        (
+            Bus {
+                phantom: PhantomData,
+            },
+            ControlPipe {
+                _phantom: PhantomData,
+                max_packet_size: control_max_packet_size,
+            },
+        )
     }
 }
 
@@ -791,24 +783,14 @@ fn dma_end() {
 
 struct Allocator {
     used: u16,
-    // Buffers can be up to 64 Bytes since this is a Full-Speed implementation.
-    lens: [u8; 9],
 }
 
 impl Allocator {
     fn new() -> Self {
-        Self {
-            used: 0,
-            lens: [0; 9],
-        }
+        Self { used: 0 }
     }
 
-    fn allocate(
-        &mut self,
-        ep_type: EndpointType,
-        max_packet_size: u16,
-        _interval: u8,
-    ) -> Result<usize, driver::EndpointAllocError> {
+    fn allocate(&mut self, ep_type: EndpointType) -> Result<usize, driver::EndpointAllocError> {
         // Endpoint addresses are fixed in hardware:
         // - 0x80 / 0x00 - Control        EP0
         // - 0x81 / 0x01 - Bulk/Interrupt EP1
@@ -840,7 +822,6 @@ impl Allocator {
         }
 
         self.used |= 1 << alloc_index;
-        self.lens[alloc_index] = max_packet_size as u8;
 
         Ok(alloc_index)
     }

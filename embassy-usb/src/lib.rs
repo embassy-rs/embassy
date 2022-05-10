@@ -126,7 +126,7 @@ struct Inner<'d, D: Driver<'d>> {
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     pub(crate) fn build(
-        mut driver: D,
+        driver: D,
         config: Config<'d>,
         handler: Option<&'d dyn DeviceStateHandler>,
         device_descriptor: &'d [u8],
@@ -135,13 +135,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
         control_buf: &'d mut [u8],
     ) -> UsbDevice<'d, D> {
-        let control = driver
-            .alloc_control_pipe(config.max_packet_size_0 as u16)
-            .expect("failed to alloc control endpoint");
-
-        // Enable the USB bus.
+        // Start the USB bus.
         // This prevent further allocation by consuming the driver.
-        let bus = driver.into_bus();
+        let (bus, control) = driver.start(config.max_packet_size_0 as u16);
 
         Self {
             control_buf,
