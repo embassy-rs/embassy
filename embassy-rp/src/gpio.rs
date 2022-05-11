@@ -128,7 +128,8 @@ impl<'d, T: Pin> Output<'d, T> {
     /// Is the output pin set as low?
     pub fn is_set_low(&self) -> bool {
         // Reading from SIO: GPIO_OUT gives the last value written.
-        unsafe { self.pin.sio_out().value().read() == 0 }
+        let val = 1 << self.pin.pin();
+        unsafe { (self.pin.sio_out().value().read() & val) == 0 }
     }
 }
 
