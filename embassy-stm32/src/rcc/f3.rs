@@ -111,8 +111,9 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     // Enable HSE
+    // RM0316: "Bits 31:26 Reserved, must be kept at reset value."
     if config.hse.is_some() {
-        RCC.cr().write(|w| {
+        RCC.cr().modify(|w| {
             w.set_hsebyp(config.bypass_hse);
             // We turn on clock security to switch to HSI when HSE fails
             w.set_csson(true);
@@ -122,27 +123,30 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     // Enable PLL
+    // RM0316: "Reserved, must be kept at reset value."
     if let Some(ref pll_config) = pll_config {
-        RCC.cfgr().write(|w| {
+        RCC.cfgr().modify(|w| {
             w.set_pllmul(pll_config.pll_mul);
             w.set_pllsrc(pll_config.pll_src);
         });
         if let Some(pll_div) = pll_config.pll_div {
-            RCC.cfgr2().write(|w| w.set_prediv(pll_div));
+            RCC.cfgr2().modify(|w| w.set_prediv(pll_div));
         }
         RCC.cr().modify(|w| w.set_pllon(true));
         while !RCC.cr().read().pllrdy() {}
     }
 
+    // CFGR has been written before (PLL) don't overwrite these settings
     if config.pll48 {
         let usb_pre = get_usb_pre(&config, sysclk, pclk1, &pll_config);
-        RCC.cfgr().write(|w| {
+        RCC.cfgr().modify(|w| {
             w.set_usbpre(usb_pre);
         });
     }
 
     // Set prescalers
-    RCC.cfgr().write(|w| {
+    // CFGR has been written before (PLL, PLL48) don't overwrite these settings
+    RCC.cfgr().modify(|w| {
         w.set_ppre2(ppre2_bits);
         w.set_ppre1(ppre1_bits);
         w.set_hpre(hpre_bits);
@@ -153,7 +157,8 @@ pub(crate) unsafe fn init(config: Config) {
     //  1 to 16 AHB cycles after write"
     cortex_m::asm::delay(16);
 
-    RCC.cfgr().write(|w| {
+    // CFGR has been written before (PLL, PLL48, clock divider) don't overwrite these settings
+    RCC.cfgr().modify(|w| {
         w.set_sw(match (pll_config, config.hse) {
             (Some(_), _) => Sw::PLL,
             (None, Some(_)) => Sw::HSE,
