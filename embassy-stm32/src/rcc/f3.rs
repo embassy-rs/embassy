@@ -93,7 +93,10 @@ pub(crate) unsafe fn init(config: Config) {
     assert!(pclk2 <= 72_000_000);
 
     // Set latency based on HCLK frquency
-    FLASH.acr().write(|w| {
+    // RM0316: "The prefetch buffer must be kept on when using a prescaler
+    // different from 1 on the AHB clock.", "Half-cycle access cannot be
+    // used when there is a prescaler different from 1 on the AHB clock"
+    FLASH.acr().modify(|w| {
         w.set_latency(if hclk <= 24_000_000 {
             Latency::WS0
         } else if hclk <= 48_000_000 {
@@ -101,6 +104,10 @@ pub(crate) unsafe fn init(config: Config) {
         } else {
             Latency::WS2
         });
+        if hpre_div != 1 {
+            w.set_hlfcya(false);
+            w.set_prftbe(true);
+        }
     });
 
     // Enable HSE
