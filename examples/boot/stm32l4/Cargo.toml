@@ -8,7 +8,7 @@ version = "0.1.0"
 embassy = { version = "0.1.0", path = "../../../embassy", features = ["nightly"] }
 embassy-stm32 = { version = "0.1.0", path = "../../../embassy-stm32", features = ["unstable-traits", "nightly", "stm32l475vg", "time-driver-any", "exti"]  }
 embassy-boot-stm32 = { version = "0.1.0", path = "../../../embassy-boot/stm32" }
-embassy-traits = { version = "0.1.0", path = "../../../embassy-traits" }
+embassy-embedded-hal = { version = "0.1.0", path = "../../../embassy-embedded-hal" }
 
 defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.3", optional = true }
