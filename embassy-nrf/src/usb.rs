@@ -9,7 +9,6 @@ use embassy::interrupt::InterruptExt;
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
-use embassy_usb::control::Request;
 use embassy_usb::driver::{self, EndpointError, Event, Unsupported};
 use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
 use futures::future::poll_fn;
@@ -682,20 +681,16 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             buf[6] = regs.wlengthl.read().wlengthl().bits();
             buf[7] = regs.wlengthh.read().wlengthh().bits();
 
-            let req = Request::parse(&buf);
-
-            if req.direction == UsbDirection::Out {
-                regs.tasks_ep0rcvout
-                    .write(|w| w.tasks_ep0rcvout().set_bit());
-            }
-
-            req
+            buf
         }
     }
 
     fn data_out<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::DataOutFuture<'a> {
         async move {
             let regs = T::regs();
+
+            regs.tasks_ep0rcvout
+                .write(|w| w.tasks_ep0rcvout().set_bit());
 
             // Wait until ready
             regs.intenset.write(|w| {
