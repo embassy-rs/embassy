@@ -3,3 +3,4 @@
 #![feature(type_alias_impl_trait)]
 
 pub mod adapter;
+pub mod shared_bus;
