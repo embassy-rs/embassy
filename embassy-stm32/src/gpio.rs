@@ -511,10 +511,19 @@ pub(crate) mod sealed {
             self.set_as_analog();
         }
 
-        #[cfg(gpio_v2)]
         #[inline]
         unsafe fn set_speed(&self, speed: Speed) {
             let pin = self._pin() as usize;
+
+            #[cfg(gpio_v1)]
+            {
+                let crlh = if pin < 8 { 0 } else { 1 };
+                self.block().cr(crlh).modify(|w| {
+                    w.set_mode(pin % 8, speed.into());
+                });
+            }
+
+            #[cfg(gpio_v2)]
             self.block()
                 .ospeedr()
                 .modify(|w| w.set_ospeedr(pin, speed.into()));
