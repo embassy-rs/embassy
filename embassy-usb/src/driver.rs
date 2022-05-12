@@ -14,7 +14,7 @@ pub trait Driver<'a> {
 
     /// Allocates an endpoint and specified endpoint parameters. This method is called by the device
     /// and class implementations to allocate endpoints, and can only be called before
-    /// [`enable`](UsbBus::enable) is called.
+    /// [`start`](UsbBus::start) is called.
     ///
     /// # Arguments
     ///
@@ -25,7 +25,6 @@ pub trait Driver<'a> {
     /// * `interval` - Polling interval parameter for interrupt endpoints.
     fn alloc_endpoint_out(
         &mut self,
-        ep_addr: Option<EndpointAddress>,
         ep_type: EndpointType,
         max_packet_size: u16,
         interval: u8,
@@ -33,20 +32,20 @@ pub trait Driver<'a> {
 
     fn alloc_endpoint_in(
         &mut self,
-        ep_addr: Option<EndpointAddress>,
         ep_type: EndpointType,
         max_packet_size: u16,
         interval: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError>;
 
-    fn alloc_control_pipe(
-        &mut self,
-        max_packet_size: u16,
-    ) -> Result<Self::ControlPipe, EndpointAllocError>;
-
-    /// Enables and initializes the USB peripheral. Soon after enabling the device will be reset, so
-    /// there is no need to perform a USB reset in this method.
-    fn into_bus(self) -> Self::Bus;
+    /// Start operation of the USB device.
+    ///
+    /// This returns the `Bus` and `ControlPipe` instances that are used to operate
+    /// the USB device. Additionally, this makes all the previously allocated endpoints
+    /// start operating.
+    ///
+    /// This consumes the `Driver` instance, so it's no longer possible to allocate more
+    /// endpoints.
+    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe);
 
     /// Indicates that `set_device_address` must be called before accepting the corresponding
     /// control transfer, not after.

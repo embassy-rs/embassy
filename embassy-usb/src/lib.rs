@@ -16,6 +16,7 @@ use embassy::util::{select, Either};
 use heapless::Vec;
 
 use crate::descriptor_reader::foreach_endpoint;
+use crate::driver::ControlPipe;
 
 use self::control::*;
 use self::descriptor::*;
@@ -100,15 +101,19 @@ struct Interface<'d> {
 }
 
 pub struct UsbDevice<'d, D: Driver<'d>> {
+    control_buf: &'d mut [u8],
+    control: D::ControlPipe,
+    inner: Inner<'d, D>,
+}
+
+struct Inner<'d, D: Driver<'d>> {
     bus: D::Bus,
     handler: Option<&'d dyn DeviceStateHandler>,
-    control: ControlPipe<D::ControlPipe>,
 
     config: Config<'d>,
     device_descriptor: &'d [u8],
     config_descriptor: &'d [u8],
     bos_descriptor: &'d [u8],
-    control_buf: &'d mut [u8],
 
     device_state: UsbDeviceState,
     suspended: bool,
@@ -121,7 +126,7 @@ pub struct UsbDevice<'d, D: Driver<'d>> {
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     pub(crate) fn build(
-        mut driver: D,
+        driver: D,
         config: Config<'d>,
         handler: Option<&'d dyn DeviceStateHandler>,
         device_descriptor: &'d [u8],
@@ -130,29 +135,28 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
         control_buf: &'d mut [u8],
     ) -> UsbDevice<'d, D> {
-        let control = driver
-            .alloc_control_pipe(config.max_packet_size_0 as u16)
-            .expect("failed to alloc control endpoint");
-
-        // Enable the USB bus.
+        // Start the USB bus.
         // This prevent further allocation by consuming the driver.
-        let bus = driver.into_bus();
+        let (bus, control) = driver.start(config.max_packet_size_0 as u16);
 
         Self {
-            bus,
-            config,
-            handler,
-            control: ControlPipe::new(control),
-            device_descriptor,
-            config_descriptor,
-            bos_descriptor,
             control_buf,
-            device_state: UsbDeviceState::Disabled,
-            suspended: false,
-            remote_wakeup_enabled: false,
-            self_powered: false,
-            pending_address: 0,
-            interfaces,
+            control,
+            inner: Inner {
+                bus,
+                config,
+                handler,
+                device_descriptor,
+                config_descriptor,
+                bos_descriptor,
+
+                device_state: UsbDeviceState::Disabled,
+                suspended: false,
+                remote_wakeup_enabled: false,
+                self_powered: false,
+                pending_address: 0,
+                interfaces,
+            },
         }
     }
 
@@ -176,42 +180,34 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     /// before calling any other `UsbDevice` methods to fully reset the
     /// peripheral.
     pub async fn run_until_suspend(&mut self) -> () {
-        if self.device_state == UsbDeviceState::Disabled {
-            self.bus.enable().await;
-            self.device_state = UsbDeviceState::Default;
+        if self.inner.device_state == UsbDeviceState::Disabled {
+            self.inner.bus.enable().await;
+            self.inner.device_state = UsbDeviceState::Default;
 
-            if let Some(h) = &self.handler {
+            if let Some(h) = &self.inner.handler {
                 h.enabled(true);
             }
         }
 
-        loop {
+        while !self.inner.suspended {
             let control_fut = self.control.setup();
-            let bus_fut = self.bus.poll();
+            let bus_fut = self.inner.bus.poll();
             match select(bus_fut, control_fut).await {
-                Either::First(evt) => {
-                    self.handle_bus_event(evt);
-                    if self.suspended {
-                        return;
-                    }
-                }
-                Either::Second(req) => match req {
-                    Setup::DataIn(req, stage) => self.handle_control_in(req, stage).await,
-                    Setup::DataOut(req, stage) => self.handle_control_out(req, stage).await,
-                },
+                Either::First(evt) => self.inner.handle_bus_event(evt),
+                Either::Second(req) => self.handle_control(req).await,
             }
         }
     }
 
     /// Disables the USB peripheral.
     pub async fn disable(&mut self) {
-        if self.device_state != UsbDeviceState::Disabled {
-            self.bus.disable().await;
-            self.device_state = UsbDeviceState::Disabled;
-            self.suspended = false;
-            self.remote_wakeup_enabled = false;
+        if self.inner.device_state != UsbDeviceState::Disabled {
+            self.inner.bus.disable().await;
+            self.inner.device_state = UsbDeviceState::Disabled;
+            self.inner.suspended = false;
+            self.inner.remote_wakeup_enabled = false;
 
-            if let Some(h) = &self.handler {
+            if let Some(h) = &self.inner.handler {
                 h.enabled(false);
             }
         }
@@ -221,9 +217,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     ///
     /// This future is cancel-safe.
     pub async fn wait_resume(&mut self) {
-        while self.suspended {
-            let evt = self.bus.poll().await;
-            self.handle_bus_event(evt);
+        while self.inner.suspended {
+            let evt = self.inner.bus.poll().await;
+            self.inner.handle_bus_event(evt);
         }
     }
 
@@ -236,11 +232,11 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     /// After dropping the future, [`UsbDevice::disable()`] should be called
     /// before calling any other `UsbDevice` methods to fully reset the peripheral.
     pub async fn remote_wakeup(&mut self) -> Result<(), RemoteWakeupError> {
-        if self.suspended && self.remote_wakeup_enabled {
-            self.bus.remote_wakeup().await?;
-            self.suspended = false;
+        if self.inner.suspended && self.inner.remote_wakeup_enabled {
+            self.inner.bus.remote_wakeup().await?;
+            self.inner.suspended = false;
 
-            if let Some(h) = &self.handler {
+            if let Some(h) = &self.inner.handler {
                 h.suspended(false);
             }
 
@@ -250,6 +246,88 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         }
     }
 
+    async fn handle_control(&mut self, req: Request) {
+        trace!("control request: {:02x}", req);
+
+        match req.direction {
+            UsbDirection::In => self.handle_control_in(req).await,
+            UsbDirection::Out => self.handle_control_out(req).await,
+        }
+    }
+
+    async fn handle_control_in(&mut self, req: Request) {
+        let mut resp_length = req.length as usize;
+        let max_packet_size = self.control.max_packet_size();
+
+        // If we don't have an address yet, respond with max 1 packet.
+        // The host doesn't know our EP0 max packet size yet, and might assume
+        // a full-length packet is a short packet, thinking we're done sending data.
+        // See https://github.com/hathach/tinyusb/issues/184
+        const DEVICE_DESCRIPTOR_LEN: usize = 18;
+        if self.inner.pending_address == 0
+            && max_packet_size < DEVICE_DESCRIPTOR_LEN
+            && (max_packet_size as usize) < resp_length
+        {
+            trace!("received control req while not addressed: capping response to 1 packet.");
+            resp_length = max_packet_size;
+        }
+
+        match self.inner.handle_control_in(req, &mut self.control_buf) {
+            InResponse::Accepted(data) => {
+                let len = data.len().min(resp_length);
+                let need_zlp = len != resp_length && (len % usize::from(max_packet_size)) == 0;
+
+                let mut chunks = data[0..len]
+                    .chunks(max_packet_size)
+                    .chain(need_zlp.then(|| -> &[u8] { &[] }));
+
+                while let Some(chunk) = chunks.next() {
+                    match self.control.data_in(chunk, chunks.size_hint().0 == 0).await {
+                        Ok(()) => {}
+                        Err(e) => {
+                            warn!("control accept_in failed: {:?}", e);
+                            return;
+                        }
+                    }
+                }
+            }
+            InResponse::Rejected => self.control.reject(),
+        }
+    }
+
+    async fn handle_control_out(&mut self, req: Request) {
+        let req_length = req.length as usize;
+        let max_packet_size = self.control.max_packet_size();
+        let mut total = 0;
+
+        for chunk in self.control_buf[..req_length].chunks_mut(max_packet_size) {
+            let size = match self.control.data_out(chunk).await {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("usb: failed to read CONTROL OUT data stage: {:?}", e);
+                    return;
+                }
+            };
+            total += size;
+            if size < max_packet_size || total == req_length {
+                break;
+            }
+        }
+
+        let data = &self.control_buf[0..total];
+        #[cfg(feature = "defmt")]
+        trace!("  control out data: {:02x}", data);
+        #[cfg(not(feature = "defmt"))]
+        trace!("  control out data: {:02x?}", data);
+
+        match self.inner.handle_control_out(req, data) {
+            OutResponse::Accepted => self.control.accept(),
+            OutResponse::Rejected => self.control.reject(),
+        }
+    }
+}
+
+impl<'d, D: Driver<'d>> Inner<'d, D> {
     fn handle_bus_event(&mut self, evt: Event) {
         match evt {
             Event::Reset => {
@@ -288,17 +366,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         }
     }
 
-    async fn handle_control_out(&mut self, req: Request, stage: DataOutStage) {
+    fn handle_control_out(&mut self, req: Request, data: &[u8]) -> OutResponse {
         const CONFIGURATION_NONE_U16: u16 = CONFIGURATION_NONE as u16;
         const CONFIGURATION_VALUE_U16: u16 = CONFIGURATION_VALUE as u16;
-
-        let (data, stage) = match self.control.data_out(self.control_buf, stage).await {
-            Ok(data) => data,
-            Err(_) => {
-                warn!("usb: failed to read CONTROL OUT data stage.");
-                return;
-            }
-        };
 
         match (req.request_type, req.recipient) {
             (RequestType::Standard, Recipient::Device) => match (req.request, req.value) {
@@ -307,14 +377,14 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     if let Some(h) = &self.handler {
                         h.remote_wakeup_enabled(false);
                     }
-                    self.control.accept(stage)
+                    OutResponse::Accepted
                 }
                 (Request::SET_FEATURE, Request::FEATURE_DEVICE_REMOTE_WAKEUP) => {
                     self.remote_wakeup_enabled = true;
                     if let Some(h) = &self.handler {
                         h.remote_wakeup_enabled(true);
                     }
-                    self.control.accept(stage)
+                    OutResponse::Accepted
                 }
                 (Request::SET_ADDRESS, addr @ 1..=127) => {
                     self.pending_address = addr as u8;
@@ -323,7 +393,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     if let Some(h) = &self.handler {
                         h.addressed(self.pending_address);
                     }
-                    self.control.accept(stage)
+                    OutResponse::Accepted
                 }
                 (Request::SET_CONFIGURATION, CONFIGURATION_VALUE_U16) => {
                     debug!("SET_CONFIGURATION: configured");
@@ -344,10 +414,10 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                         h.configured(true);
                     }
 
-                    self.control.accept(stage)
+                    OutResponse::Accepted
                 }
                 (Request::SET_CONFIGURATION, CONFIGURATION_NONE_U16) => match self.device_state {
-                    UsbDeviceState::Default => self.control.accept(stage),
+                    UsbDeviceState::Default => OutResponse::Accepted,
                     _ => {
                         debug!("SET_CONFIGURATION: unconfigured");
                         self.device_state = UsbDeviceState::Addressed;
@@ -363,15 +433,15 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                             h.configured(false);
                         }
 
-                        self.control.accept(stage)
+                        OutResponse::Accepted
                     }
                 },
-                _ => self.control.reject(),
+                _ => OutResponse::Rejected,
             },
             (RequestType::Standard, Recipient::Interface) => {
                 let iface = match self.interfaces.get_mut(req.index as usize) {
                     Some(iface) => iface,
-                    None => return self.control.reject(),
+                    None => return OutResponse::Rejected,
                 };
 
                 match req.request {
@@ -380,7 +450,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
 
                         if new_altsetting >= iface.num_alt_settings {
                             warn!("SET_INTERFACE: trying to select alt setting out of range.");
-                            return self.control.reject();
+                            return OutResponse::Rejected;
                         }
 
                         iface.current_alt_setting = new_altsetting;
@@ -402,55 +472,39 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                         if let Some(handler) = &mut iface.handler {
                             handler.set_alternate_setting(new_altsetting);
                         }
-                        self.control.accept(stage)
+                        OutResponse::Accepted
                     }
-                    _ => self.control.reject(),
+                    _ => OutResponse::Rejected,
                 }
             }
             (RequestType::Standard, Recipient::Endpoint) => match (req.request, req.value) {
                 (Request::SET_FEATURE, Request::FEATURE_ENDPOINT_HALT) => {
                     let ep_addr = ((req.index as u8) & 0x8f).into();
                     self.bus.endpoint_set_stalled(ep_addr, true);
-                    self.control.accept(stage)
+                    OutResponse::Accepted
                 }
                 (Request::CLEAR_FEATURE, Request::FEATURE_ENDPOINT_HALT) => {
                     let ep_addr = ((req.index as u8) & 0x8f).into();
                     self.bus.endpoint_set_stalled(ep_addr, false);
-                    self.control.accept(stage)
+                    OutResponse::Accepted
                 }
-                _ => self.control.reject(),
+                _ => OutResponse::Rejected,
             },
             (RequestType::Class, Recipient::Interface) => {
                 let iface = match self.interfaces.get_mut(req.index as usize) {
                     Some(iface) => iface,
-                    None => return self.control.reject(),
+                    None => return OutResponse::Rejected,
                 };
                 match &mut iface.handler {
-                    Some(handler) => match handler.control_out(req, data) {
-                        OutResponse::Accepted => self.control.accept(stage),
-                        OutResponse::Rejected => self.control.reject(),
-                    },
-                    None => self.control.reject(),
+                    Some(handler) => handler.control_out(req, data),
+                    None => OutResponse::Rejected,
                 }
             }
-            _ => self.control.reject(),
+            _ => OutResponse::Rejected,
         }
     }
 
-    async fn handle_control_in(&mut self, req: Request, mut stage: DataInStage) {
-        // If we don't have an address yet, respond with max 1 packet.
-        // The host doesn't know our EP0 max packet size yet, and might assume
-        // a full-length packet is a short packet, thinking we're done sending data.
-        // See https://github.com/hathach/tinyusb/issues/184
-        const DEVICE_DESCRIPTOR_LEN: u8 = 18;
-        if self.pending_address == 0
-            && self.config.max_packet_size_0 < DEVICE_DESCRIPTOR_LEN
-            && (self.config.max_packet_size_0 as usize) < stage.length
-        {
-            trace!("received control req while not addressed: capping response to 1 packet.");
-            stage.length = self.config.max_packet_size_0 as _;
-        }
-
+    fn handle_control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
         match (req.request_type, req.recipient) {
             (RequestType::Standard, Recipient::Device) => match req.request {
                 Request::GET_STATUS => {
@@ -461,42 +515,41 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     if self.remote_wakeup_enabled {
                         status |= 0x0002;
                     }
-                    self.control.accept_in(&status.to_le_bytes(), stage).await
+                    buf[..2].copy_from_slice(&status.to_le_bytes());
+                    InResponse::Accepted(&buf[..2])
                 }
-                Request::GET_DESCRIPTOR => self.handle_get_descriptor(req, stage).await,
+                Request::GET_DESCRIPTOR => self.handle_get_descriptor(req, buf),
                 Request::GET_CONFIGURATION => {
                     let status = match self.device_state {
                         UsbDeviceState::Configured => CONFIGURATION_VALUE,
                         _ => CONFIGURATION_NONE,
                     };
-                    self.control.accept_in(&status.to_le_bytes(), stage).await
+                    buf[0] = status;
+                    InResponse::Accepted(&buf[..1])
                 }
-                _ => self.control.reject(),
+                _ => InResponse::Rejected,
             },
             (RequestType::Standard, Recipient::Interface) => {
                 let iface = match self.interfaces.get_mut(req.index as usize) {
                     Some(iface) => iface,
-                    None => return self.control.reject(),
+                    None => return InResponse::Rejected,
                 };
 
                 match req.request {
                     Request::GET_STATUS => {
                         let status: u16 = 0;
-                        self.control.accept_in(&status.to_le_bytes(), stage).await
+                        buf[..2].copy_from_slice(&status.to_le_bytes());
+                        InResponse::Accepted(&buf[..2])
                     }
                     Request::GET_INTERFACE => {
-                        self.control
-                            .accept_in(&[iface.current_alt_setting], stage)
-                            .await;
+                        buf[0] = iface.current_alt_setting;
+                        InResponse::Accepted(&buf[..1])
                     }
                     Request::GET_DESCRIPTOR => match &mut iface.handler {
-                        Some(handler) => match handler.get_descriptor(req, self.control_buf) {
-                            InResponse::Accepted(data) => self.control.accept_in(data, stage).await,
-                            InResponse::Rejected => self.control.reject(),
-                        },
-                        None => self.control.reject(),
+                        Some(handler) => handler.get_descriptor(req, buf),
+                        None => InResponse::Rejected,
                     },
-                    _ => self.control.reject(),
+                    _ => InResponse::Rejected,
                 }
             }
             (RequestType::Standard, Recipient::Endpoint) => match req.request {
@@ -506,44 +559,40 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     if self.bus.endpoint_is_stalled(ep_addr) {
                         status |= 0x0001;
                     }
-                    self.control.accept_in(&status.to_le_bytes(), stage).await
+                    buf[..2].copy_from_slice(&status.to_le_bytes());
+                    InResponse::Accepted(&buf[..2])
                 }
-                _ => self.control.reject(),
+                _ => InResponse::Rejected,
             },
             (RequestType::Class, Recipient::Interface) => {
                 let iface = match self.interfaces.get_mut(req.index as usize) {
                     Some(iface) => iface,
-                    None => return self.control.reject(),
+                    None => return InResponse::Rejected,
                 };
 
                 match &mut iface.handler {
-                    Some(handler) => match handler.control_in(req, self.control_buf) {
-                        InResponse::Accepted(data) => self.control.accept_in(data, stage).await,
-                        InResponse::Rejected => self.control.reject(),
-                    },
-                    None => self.control.reject(),
+                    Some(handler) => handler.control_in(req, buf),
+                    None => InResponse::Rejected,
                 }
             }
-            _ => self.control.reject(),
+            _ => InResponse::Rejected,
         }
     }
 
-    async fn handle_get_descriptor(&mut self, req: Request, stage: DataInStage) {
+    fn handle_get_descriptor<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
         let (dtype, index) = req.descriptor_type_index();
 
         match dtype {
-            descriptor_type::BOS => self.control.accept_in(self.bos_descriptor, stage).await,
-            descriptor_type::DEVICE => self.control.accept_in(self.device_descriptor, stage).await,
-            descriptor_type::CONFIGURATION => {
-                self.control.accept_in(self.config_descriptor, stage).await
-            }
+            descriptor_type::BOS => InResponse::Accepted(self.bos_descriptor),
+            descriptor_type::DEVICE => InResponse::Accepted(self.device_descriptor),
+            descriptor_type::CONFIGURATION => InResponse::Accepted(self.config_descriptor),
             descriptor_type::STRING => {
                 if index == 0 {
-                    self.control
-                        .accept_in_writer(req, stage, |w| {
-                            w.write(descriptor_type::STRING, &lang_id::ENGLISH_US.to_le_bytes());
-                        })
-                        .await
+                    buf[0] = 4; // len
+                    buf[1] = descriptor_type::STRING;
+                    buf[2] = lang_id::ENGLISH_US as u8;
+                    buf[3] = (lang_id::ENGLISH_US >> 8) as u8;
+                    InResponse::Accepted(&buf[..4])
                 } else {
                     let s = match index {
                         STRING_INDEX_MANUFACTURER => self.config.manufacturer,
@@ -565,7 +614,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                                 if let Some(handler) = &mut iface.handler {
                                     let index = StringIndex::new(index);
                                     let lang_id = req.index;
-                                    handler.get_string(index, lang_id, self.control_buf)
+                                    handler.get_string(index, lang_id)
                                 } else {
                                     warn!("String requested to an interface with no handler.");
                                     None
@@ -578,15 +627,29 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     };
 
                     if let Some(s) = s {
-                        self.control
-                            .accept_in_writer(req, stage, |w| w.string(s))
-                            .await
+                        if buf.len() < 2 {
+                            panic!("control buffer too small");
+                        }
+
+                        buf[1] = descriptor_type::STRING;
+                        let mut pos = 2;
+                        for c in s.encode_utf16() {
+                            if pos >= buf.len() {
+                                panic!("control buffer too small");
+                            }
+
+                            buf[pos..pos + 2].copy_from_slice(&c.to_le_bytes());
+                            pos += 2;
+                        }
+
+                        buf[0] = pos as u8;
+                        InResponse::Accepted(&buf[..pos])
                     } else {
-                        self.control.reject()
+                        InResponse::Rejected
                     }
                 }
             }
-            _ => self.control.reject(),
+            _ => InResponse::Rejected,
         }
     }
 }

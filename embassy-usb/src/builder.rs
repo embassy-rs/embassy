@@ -372,7 +372,6 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
 
     fn endpoint_in(
         &mut self,
-        ep_addr: Option<EndpointAddress>,
         ep_type: EndpointType,
         max_packet_size: u16,
         interval: u8,
@@ -380,7 +379,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         let ep = self
             .builder
             .driver
-            .alloc_endpoint_in(ep_addr, ep_type, max_packet_size, interval)
+            .alloc_endpoint_in(ep_type, max_packet_size, interval)
             .expect("alloc_endpoint_in failed");
 
         self.builder.config_descriptor.endpoint(ep.info());
@@ -390,7 +389,6 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
 
     fn endpoint_out(
         &mut self,
-        ep_addr: Option<EndpointAddress>,
         ep_type: EndpointType,
         max_packet_size: u16,
         interval: u8,
@@ -398,7 +396,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         let ep = self
             .builder
             .driver
-            .alloc_endpoint_out(ep_addr, ep_type, max_packet_size, interval)
+            .alloc_endpoint_out(ep_type, max_packet_size, interval)
             .expect("alloc_endpoint_out failed");
 
         self.builder.config_descriptor.endpoint(ep.info());
@@ -411,7 +409,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
     pub fn endpoint_bulk_in(&mut self, max_packet_size: u16) -> D::EndpointIn {
-        self.endpoint_in(None, EndpointType::Bulk, max_packet_size, 0)
+        self.endpoint_in(EndpointType::Bulk, max_packet_size, 0)
     }
 
     /// Allocate a BULK OUT endpoint and write its descriptor.
@@ -419,7 +417,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
     pub fn endpoint_bulk_out(&mut self, max_packet_size: u16) -> D::EndpointOut {
-        self.endpoint_out(None, EndpointType::Bulk, max_packet_size, 0)
+        self.endpoint_out(EndpointType::Bulk, max_packet_size, 0)
     }
 
     /// Allocate a INTERRUPT IN endpoint and write its descriptor.
@@ -427,11 +425,11 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
     pub fn endpoint_interrupt_in(&mut self, max_packet_size: u16, interval: u8) -> D::EndpointIn {
-        self.endpoint_in(None, EndpointType::Interrupt, max_packet_size, interval)
+        self.endpoint_in(EndpointType::Interrupt, max_packet_size, interval)
     }
 
     /// Allocate a INTERRUPT OUT endpoint and write its descriptor.
     pub fn endpoint_interrupt_out(&mut self, max_packet_size: u16, interval: u8) -> D::EndpointOut {
-        self.endpoint_out(None, EndpointType::Interrupt, max_packet_size, interval)
+        self.endpoint_out(EndpointType::Interrupt, max_packet_size, interval)
     }
 }
