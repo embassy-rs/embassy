@@ -135,6 +135,9 @@ embassy_hal_common::peripherals! {
 
     // TEMP
     TEMP,
+
+    // QDEC
+    QDEC,
 }
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
