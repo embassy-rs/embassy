@@ -525,10 +525,6 @@ unsafe fn read_dma<T: Instance>(i: usize, buf: &mut [u8]) -> Result<usize, Endpo
         return Err(EndpointError::BufferOverflow);
     }
 
-    if i == 0 {
-        regs.events_ep0datadone.reset();
-    }
-
     let epout = [
         &regs.epout0,
         &regs.epout1,
@@ -639,7 +635,7 @@ pub struct ControlPipe<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
-    type SetupFuture<'a> = impl Future<Output = Request> + 'a where Self: 'a;
+    type SetupFuture<'a> = impl Future<Output = [u8;8]> + 'a where Self: 'a;
     type DataOutFuture<'a> = impl Future<Output = Result<usize, EndpointError>> + 'a where Self: 'a;
     type DataInFuture<'a> = impl Future<Output = Result<(), EndpointError>> + 'a where Self: 'a;
 
@@ -651,11 +647,11 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         async move {
             let regs = T::regs();
 
+            // Reset shorts
+            regs.shorts.write(|w| w);
+
             // Wait for SETUP packet
-            regs.intenset.write(|w| {
-                w.ep0setup().set();
-                w.ep0datadone().set()
-            });
+            regs.intenset.write(|w| w.ep0setup().set());
             poll_fn(|cx| {
                 EP0_WAKER.register(cx.waker());
                 let regs = T::regs();
@@ -667,8 +663,6 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             })
             .await;
 
-            // Reset shorts
-            regs.shorts.write(|w| w);
             regs.events_ep0setup.reset();
 
             let mut buf = [0; 8];
@@ -689,6 +683,9 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         async move {
             let regs = T::regs();
 
+            regs.events_ep0datadone.reset();
+
+            // This starts a RX on EP0. events_ep0datadone notifies when done.
             regs.tasks_ep0rcvout
                 .write(|w| w.tasks_ep0rcvout().set_bit());
 
@@ -723,12 +720,12 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         async move {
             let regs = T::regs();
             regs.events_ep0datadone.reset();
-            unsafe {
-                write_dma::<T>(0, buf);
-            }
 
             regs.shorts
                 .write(|w| w.ep0datadone_ep0status().bit(last_packet));
+
+            // This starts a TX on EP0. events_ep0datadone notifies when done.
+            unsafe { write_dma::<T>(0, buf) }
 
             regs.intenset.write(|w| {
                 w.usbreset().set();
