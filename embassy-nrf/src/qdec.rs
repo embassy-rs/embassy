@@ -11,7 +11,7 @@ use core::task::Poll;
 use embassy::interrupt::InterruptExt;
 use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
-use embassy_hal_common::{drop::OnDrop, unborrow};
+use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
 /// Quadrature decoder
@@ -128,6 +128,9 @@ impl<'d> Qdec<'d> {
         // Enable peripheral
         r.enable.write(|w| w.enable().set_bit());
 
+        // Start sampling
+        unsafe { r.tasks_start.write(|w| w.bits(1)) };
+
         irq.disable();
         irq.set_handler(|_| {
             let r = Self::regs();
@@ -155,16 +158,8 @@ impl<'d> Qdec<'d> {
     /// let delta = q.read().await;
     /// ```
     pub async fn read(&mut self) -> i16 {
-        // In case the future is dropped, stop the task and reset events.
-        let on_drop = OnDrop::new(|| {
-            let t = Self::regs();
-            t.tasks_stop.write(|w| unsafe { w.bits(1) });
-            t.events_reportrdy.reset();
-        });
-
         let t = Self::regs();
         t.intenset.write(|w| w.reportrdy().set());
-        unsafe { t.tasks_start.write(|w| w.bits(1)) };
         unsafe { t.tasks_readclracc.write(|w| w.bits(1)) };
 
         let value = poll_fn(|cx| {
@@ -178,7 +173,6 @@ impl<'d> Qdec<'d> {
             }
         })
         .await;
-        on_drop.defuse();
         value
     }
 
