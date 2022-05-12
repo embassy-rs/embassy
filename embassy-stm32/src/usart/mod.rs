@@ -219,7 +219,11 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
                 w.set_ue(true);
                 w.set_te(true);
                 w.set_re(true);
-                w.set_m0(vals::M0::BIT8);
+                w.set_m0(if config.parity != Parity::ParityNone {
+                    vals::M0::BIT9
+                } else {
+                    vals::M0::BIT8
+                });
                 w.set_pce(config.parity != Parity::ParityNone);
                 w.set_ps(match config.parity {
                     Parity::ParityOdd => vals::Ps::ODD,
