@@ -1,7 +1,5 @@
 use core::future::Future;
 
-use crate::control::Request;
-
 use super::types::*;
 
 /// Driver for a specific USB peripheral. Implement this to add support for a new hardware
@@ -146,7 +144,7 @@ pub trait EndpointOut: Endpoint {
 }
 
 pub trait ControlPipe {
-    type SetupFuture<'a>: Future<Output = Request> + 'a
+    type SetupFuture<'a>: Future<Output = [u8; 8]> + 'a
     where
         Self: 'a;
     type DataOutFuture<'a>: Future<Output = Result<usize, EndpointError>> + 'a

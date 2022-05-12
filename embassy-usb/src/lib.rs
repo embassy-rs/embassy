@@ -246,7 +246,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         }
     }
 
-    async fn handle_control(&mut self, req: Request) {
+    async fn handle_control(&mut self, req: [u8; 8]) {
+        let req = Request::parse(&req);
+
         trace!("control request: {:02x}", req);
 
         match req.direction {
