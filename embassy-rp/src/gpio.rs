@@ -86,7 +86,6 @@ pub struct Output<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Output<'d, T> {
-    // TODO opendrain
     pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level) -> Self {
         unborrow!(pin);
 
@@ -152,6 +151,89 @@ impl<'d, T: Pin> Drop for Output<'d, T> {
                 w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::NULL.0);
             });
         };
+    }
+}
+
+/// GPIO output open-drain.
+pub struct OutputOpenDrain<'d, T: Pin> {
+    pin: T,
+    phantom: PhantomData<&'d mut T>,
+}
+
+impl<'d, T: Pin> OutputOpenDrain<'d, T> {
+    #[inline]
+    pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level) -> Self {
+        unborrow!(pin);
+
+        unsafe {
+            let val = 1 << pin.pin();
+            pin.io().ctrl().write(|w| {
+                w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::SIO_0.0);
+            });
+            pin.sio_out().value_clr().write_value(val);
+
+            match initial_output {
+                Level::High => {
+                    // For Open Drain High, disable the output pin.
+                    pin.sio_oe().value_clr().write_value(val);
+                }
+                Level::Low => {
+                    // For Open Drain Low, enable the output pin.
+                    pin.sio_oe().value_set().write_value(val);
+                }
+            }
+        }
+
+        Self {
+            pin,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Set the output as high.
+    #[inline]
+    pub fn set_high(&mut self) {
+        // For Open Drain High, disable the output pin.
+        unsafe {
+            self.pin
+                .sio_oe()
+                .value_clr()
+                .write_value(1 << self.pin.pin());
+        }
+    }
+
+    /// Set the output as low.
+    #[inline]
+    pub fn set_low(&mut self) {
+        // For Open Drain Low, enable the output pin.
+        unsafe {
+            self.pin
+                .sio_oe()
+                .value_set()
+                .write_value(1 << self.pin.pin());
+        }
+    }
+
+    /// Is the output level high?
+    #[inline]
+    pub fn is_set_high(&self) -> bool {
+        let val = 1 << self.pin.pin();
+        unsafe { (self.pin.sio_oe().value().read() & val) == 0 }
+    }
+
+    /// Is the output level low?
+    #[inline]
+    pub fn is_set_low(&self) -> bool {
+        !self.is_set_high()
+    }
+
+    /// Toggle pin output
+    #[inline]
+    pub fn toggle(&mut self) {
+        let val = 1 << self.pin.pin();
+        unsafe {
+            self.pin.sio_out().value_xor().write_value(val);
+        }
     }
 }
 
