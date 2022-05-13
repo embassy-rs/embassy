@@ -6,7 +6,7 @@
 //! use embassy_embedded_hal::shared_bus::spi::SpiBusDevice;
 //! use embassy::mutex::Mutex;
 //! use embassy::blocking_mutex::raw::ThreadModeRawMutex;
-//! 
+//!
 //! static SPI_BUS: Forever<Mutex<ThreadModeRawMutex, spim::Spim<SPI3>>> = Forever::new();
 //! let mut config = spim::Config::default();
 //! config.frequency = spim::Frequency::M32;

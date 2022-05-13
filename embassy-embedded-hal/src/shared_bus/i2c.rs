@@ -1,26 +1,26 @@
 //! Asynchronous shared I2C bus
-//! 
+//!
 //! # Example (nrf52)
 //!
 //! ```rust
 //! use embassy_embedded_hal::shared_bus::i2c::I2cBusDevice;
 //! use embassy::mutex::Mutex;
 //! use embassy::blocking_mutex::raw::ThreadModeRawMutex;
-//! 
+//!
 //! static I2C_BUS: Forever<Mutex::<ThreadModeRawMutex, Twim<TWISPI0>>> = Forever::new();
 //! let config = twim::Config::default();
 //! let irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
 //! let i2c = Twim::new(p.TWISPI0, irq, p.P0_03, p.P0_04, config);
 //! let i2c_bus = Mutex::<ThreadModeRawMutex, _>::new(i2c);
 //! let i2c_bus = I2C_BUS.put(i2c_bus);
-//! 
+//!
 //! // Device 1, using embedded-hal-async compatible driver for QMC5883L compass
 //! let i2c_dev1 = I2cBusDevice::new(i2c_bus);
 //! let compass = QMC5883L::new(i2c_dev1).await.unwrap();
-//! 
+//!
 //! // Device 2, using embedded-hal-async compatible driver for Mpu6050 accelerometer
 //! let i2c_dev2 = I2cBusDevice::new(i2c_bus);
-//! let mpu = Mpu6050::new(i2c_dev2); 
+//! let mpu = Mpu6050::new(i2c_dev2);
 //! ```
 use core::{fmt::Debug, future::Future};
 use embassy::blocking_mutex::raw::RawMutex;
@@ -63,14 +63,16 @@ where
 impl<M, BUS> i2c::I2c for I2cBusDevice<'_, M, BUS>
 where
     M: RawMutex + 'static,
-    BUS: i2c::I2c + 'static, 
+    BUS: i2c::I2c + 'static,
 {
     type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
     fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
         async move {
             let mut bus = self.bus.lock().await;
-            bus.read(address, buffer).await.map_err(I2cBusDeviceError::I2c)?;
+            bus.read(address, buffer)
+                .await
+                .map_err(I2cBusDeviceError::I2c)?;
             Ok(())
         }
     }
@@ -80,7 +82,9 @@ where
     fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
         async move {
             let mut bus = self.bus.lock().await;
-            bus.write(address, bytes).await.map_err(I2cBusDeviceError::I2c)?;
+            bus.write(address, bytes)
+                .await
+                .map_err(I2cBusDeviceError::I2c)?;
             Ok(())
         }
     }
@@ -95,7 +99,9 @@ where
     ) -> Self::WriteReadFuture<'a> {
         async move {
             let mut bus = self.bus.lock().await;
-            bus.write_read(address, wr_buffer, rd_buffer).await.map_err(I2cBusDeviceError::I2c)?;
+            bus.write_read(address, wr_buffer, rd_buffer)
+                .await
+                .map_err(I2cBusDeviceError::I2c)?;
             Ok(())
         }
     }
