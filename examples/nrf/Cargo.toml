@@ -16,7 +16,7 @@ embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defm
 embassy-usb-serial = { version = "0.1.0", path = "../../embassy-usb-serial", features = ["defmt"], optional = true }
 embassy-usb-hid = { version = "0.1.0", path = "../../embassy-usb-hid", features = ["defmt"], optional = true }
 embassy-usb-ncm = { version = "0.1.0", path = "../../embassy-usb-ncm", features = ["defmt"], optional = true }
-embedded-io = "0.2.0"
+embedded-io = "0.3.0"
 
 defmt = "0.3"
 defmt-rtt = "0.3"
