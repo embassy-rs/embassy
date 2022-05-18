@@ -3,7 +3,6 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-use core::cell::Cell;
 use core::intrinsics::copy_nonoverlapping;
 use core::mem::{size_of, MaybeUninit};
 use embassy_usb::control::{self, ControlHandler, InResponse, OutResponse, Request};
@@ -119,14 +118,12 @@ impl<'a> State<'a> {
 
 /// Shared data between Control and CdcAcmClass
 struct ControlShared {
-    mac_addr: Cell<[u8; 6]>,
+    mac_addr: [u8; 6],
 }
 
 impl Default for ControlShared {
     fn default() -> Self {
-        ControlShared {
-            mac_addr: Cell::new([0; 6]),
-        }
+        ControlShared { mac_addr: [0; 6] }
     }
 }
 
@@ -181,7 +178,7 @@ impl<'d> ControlHandler for CommControl<'d> {
 
     fn get_string(&mut self, index: StringIndex, _lang_id: u16) -> Option<&str> {
         if index == self.mac_addr_string {
-            let mac_addr = self.shared.mac_addr.get();
+            let mac_addr = self.shared.mac_addr;
             let s = &mut self.mac_addr_str;
             for i in 0..12 {
                 let n = (mac_addr[i / 2] >> ((1 - i % 2) * 4)) & 0xF;
@@ -230,8 +227,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
         mac_address: [u8; 6],
         max_packet_size: u16,
     ) -> Self {
-        let control_shared = &state.shared;
-        control_shared.mac_addr.set(mac_address);
+        state.shared.mac_addr = mac_address;
 
         let mut func = builder.function(USB_CLASS_CDC, CDC_SUBCLASS_NCM, CDC_PROTOCOL_NONE);
 
@@ -240,7 +236,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
         let mac_addr_string = iface.string();
         iface.handler(state.comm_control.write(CommControl {
             mac_addr_string,
-            shared: &control_shared,
+            shared: &state.shared,
             mac_addr_str: [0; 12],
         }));
         let comm_if = iface.interface_number();
@@ -305,7 +301,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
             data_if,
             read_ep,
             write_ep,
-            _control: control_shared,
+            _control: &state.shared,
         }
     }
 
