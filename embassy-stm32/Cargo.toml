@@ -63,7 +63,7 @@ nb = "1.0.0"
 stm32-fmc = "0.2.4"
 seq-macro = "0.2.2"
 cfg-if = "1.0.0"
-embedded-io = { version = "0.2.0", features = ["async"], optional = true }
+embedded-io = { version = "0.3.0", features = ["async"], optional = true }
 
 [build-dependencies]
 proc-macro2 = "1.0.36"
