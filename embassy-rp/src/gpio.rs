@@ -404,6 +404,38 @@ mod eh02 {
             Ok(self.toggle())
         }
     }
+
+    impl<'d, T: Pin> embedded_hal_02::digital::v2::OutputPin for OutputOpenDrain<'d, T> {
+        type Error = Infallible;
+
+        #[inline]
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_high())
+        }
+
+        #[inline]
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_low())
+        }
+    }
+
+    impl<'d, T: Pin> embedded_hal_02::digital::v2::StatefulOutputPin for OutputOpenDrain<'d, T> {
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_high())
+        }
+
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_low())
+        }
+    }
+
+    impl<'d, T: Pin> embedded_hal_02::digital::v2::ToggleableOutputPin for OutputOpenDrain<'d, T> {
+        type Error = Infallible;
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            Ok(self.toggle())
+        }
+    }
 }
 
 #[cfg(feature = "unstable-traits")]
