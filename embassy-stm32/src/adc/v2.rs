@@ -1,4 +1,5 @@
 use crate::adc::{AdcPin, Instance};
+use crate::time::Hertz;
 use core::marker::PhantomData;
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
@@ -6,12 +7,12 @@ use embedded_hal_02::blocking::delay::DelayUs;
 
 pub const VDDA_CALIB_MV: u32 = 3000;
 
-#[cfg(not(rcc_f4))]
+#[cfg(not(any(rcc_f4, rcc_f7)))]
 fn enable() {
     todo!()
 }
 
-#[cfg(rcc_f4)]
+#[cfg(any(rcc_f4, rcc_f7))]
 fn enable() {
     critical_section::with(|_| unsafe {
         // TODO do not enable all adc clocks if not needed
@@ -114,6 +115,39 @@ impl Default for SampleTime {
     }
 }
 
+enum Prescaler {
+    Div2,
+    Div4,
+    Div6,
+    Div8,
+}
+
+impl Prescaler {
+    fn from_pclk2(freq: Hertz) -> Self {
+        // Datasheet for both F4 and F7 specifies min frequency 0.6 MHz, typ freq. 30 MHz and max 36 MHz.
+        const MAX_FREQUENCY: Hertz = Hertz(36_000_000);
+        let raw_div = freq.0 / MAX_FREQUENCY.0;
+        match raw_div {
+            0..=1 => Self::Div2,
+            2..=3 => Self::Div4,
+            4..=5 => Self::Div6,
+            6..=7 => Self::Div8,
+            _ => panic!(
+                "Selected PCLK2 frequency is too high for ADC with largest possible prescaler."
+            ),
+        }
+    }
+
+    fn adcpre(&self) -> crate::pac::adccommon::vals::Adcpre {
+        match self {
+            Prescaler::Div2 => crate::pac::adccommon::vals::Adcpre::DIV2,
+            Prescaler::Div4 => crate::pac::adccommon::vals::Adcpre::DIV4,
+            Prescaler::Div6 => crate::pac::adccommon::vals::Adcpre::DIV6,
+            Prescaler::Div8 => crate::pac::adccommon::vals::Adcpre::DIV8,
+        }
+    }
+}
+
 pub struct Adc<'d, T: Instance> {
     sample_time: SampleTime,
     calibrated_vdda: u32,
@@ -128,6 +162,14 @@ where
     pub fn new(_peri: impl Unborrow<Target = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
         unborrow!(_peri);
         enable();
+
+        let presc = unsafe { Prescaler::from_pclk2(crate::rcc::get_freqs().apb2) };
+        unsafe {
+            T::common_regs()
+                .ccr()
+                .modify(|w| w.set_adcpre(presc.adcpre()));
+        }
+
         unsafe {
             // disable before config is set
             T::regs().cr2().modify(|reg| {
