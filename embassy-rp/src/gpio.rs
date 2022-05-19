@@ -135,10 +135,9 @@ impl<'d, T: Pin> Output<'d, T> {
     /// Toggle pin output
     #[inline]
     pub fn toggle(&mut self) {
-        if self.is_set_low() {
-            self.set_high()
-        } else {
-            self.set_low()
+        let val = 1 << self.pin.pin();
+        unsafe {
+            self.pin.sio_out().value_xor().write_value(val);
         }
     }
 }
