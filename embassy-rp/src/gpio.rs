@@ -190,12 +190,15 @@ pub(crate) mod sealed {
             };
             block.gpio(self.pin() as _)
         }
+
         fn sio_out(&self) -> pac::sio::Gpio {
             SIO.gpio_out(self.bank() as _)
         }
+
         fn sio_oe(&self) -> pac::sio::Gpio {
             SIO.gpio_oe(self.bank() as _)
         }
+
         fn sio_in(&self) -> Reg<u32, RW> {
             SIO.gpio_in(self.bank() as _)
         }
