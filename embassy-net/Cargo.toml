@@ -31,15 +31,13 @@ pool-32 = []
 pool-64 = []
 pool-128 = []
 
-nightly = ["embedded-io/async"]
-
 [dependencies]
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
 embassy             = { version = "0.1.0", path = "../embassy" }
-embedded-io = "0.3.0"
+embedded-io         = { version = "0.3.0", features = [ "async" ] }
 
 managed             = { version = "0.8.0", default-features = false, features = [ "map" ] }
 heapless            = { version = "0.7.5", default-features = false }
