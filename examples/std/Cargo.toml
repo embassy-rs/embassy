@@ -6,7 +6,7 @@ version = "0.1.0"
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["log", "std", "time", "nightly"] }
-embassy-net = { version = "0.1.0", path = "../../embassy-net", features=["nightly", "std", "log", "medium-ethernet", "tcp", "dhcpv4", "pool-16"] }
+embassy-net = { version = "0.1.0", path = "../../embassy-net", features=[ "std", "log", "medium-ethernet", "tcp", "dhcpv4", "pool-16"] }
 embedded-io = { version = "0.3.0", features = ["async", "std", "futures"] }
 
 async-io = "1.6.0"

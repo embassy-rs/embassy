@@ -1,9 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::new_without_default)]
-#![cfg_attr(
-    feature = "nightly",
-    feature(generic_associated_types, type_alias_impl_trait)
-)]
+#![feature(generic_associated_types, type_alias_impl_trait)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
