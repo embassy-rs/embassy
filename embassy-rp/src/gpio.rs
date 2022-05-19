@@ -131,6 +131,16 @@ impl<'d, T: Pin> Output<'d, T> {
         let val = 1 << self.pin.pin();
         unsafe { (self.pin.sio_out().value().read() & val) == 0 }
     }
+
+    /// Toggle pin output
+    #[inline]
+    pub fn toggle(&mut self) {
+        if self.is_set_low() {
+            self.set_high()
+        } else {
+            self.set_low()
+        }
+    }
 }
 
 impl<'d, T: Pin> Drop for Output<'d, T> {
@@ -293,6 +303,14 @@ mod eh02 {
 
         fn is_set_low(&self) -> Result<bool, Self::Error> {
             Ok(self.is_set_low())
+        }
+    }
+
+    impl<'d, T: Pin> embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'d, T> {
+        type Error = Infallible;
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            Ok(self.toggle())
         }
     }
 }
