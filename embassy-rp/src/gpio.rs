@@ -144,7 +144,14 @@ impl<'d, T: Pin> Output<'d, T> {
 
 impl<'d, T: Pin> Drop for Output<'d, T> {
     fn drop(&mut self) {
-        // todo
+        let val = 1 << self.pin.pin();
+        unsafe {
+            self.pin.sio_out().value_clr().write_value(val);
+            self.pin.sio_oe().value_clr().write_value(val);
+            self.pin.io().ctrl().write(|w| {
+                w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::NULL.0);
+            });
+        };
     }
 }
 
