@@ -12,24 +12,50 @@ pub enum LinkState {
     Up,
 }
 
+// 'static required due to the "fake GAT" in smoltcp::phy::Device.
+// https://github.com/smoltcp-rs/smoltcp/pull/572
 pub trait Device {
     fn is_transmit_ready(&mut self) -> bool;
     fn transmit(&mut self, pkt: PacketBuf);
     fn receive(&mut self) -> Option<PacketBuf>;
 
     fn register_waker(&mut self, waker: &Waker);
-    fn capabilities(&mut self) -> DeviceCapabilities;
+    fn capabilities(&self) -> DeviceCapabilities;
     fn link_state(&mut self) -> LinkState;
     fn ethernet_address(&self) -> [u8; 6];
 }
 
-pub struct DeviceAdapter {
-    pub device: &'static mut dyn Device,
+impl<T: ?Sized + Device> Device for &'static mut T {
+    fn is_transmit_ready(&mut self) -> bool {
+        T::is_transmit_ready(self)
+    }
+    fn transmit(&mut self, pkt: PacketBuf) {
+        T::transmit(self, pkt)
+    }
+    fn receive(&mut self) -> Option<PacketBuf> {
+        T::receive(self)
+    }
+    fn register_waker(&mut self, waker: &Waker) {
+        T::register_waker(self, waker)
+    }
+    fn capabilities(&self) -> DeviceCapabilities {
+        T::capabilities(self)
+    }
+    fn link_state(&mut self) -> LinkState {
+        T::link_state(self)
+    }
+    fn ethernet_address(&self) -> [u8; 6] {
+        T::ethernet_address(self)
+    }
+}
+
+pub struct DeviceAdapter<D: Device> {
+    pub device: D,
     caps: DeviceCapabilities,
 }
 
-impl DeviceAdapter {
-    pub(crate) fn new(device: &'static mut dyn Device) -> Self {
+impl<D: Device> DeviceAdapter<D> {
+    pub(crate) fn new(device: D) -> Self {
         Self {
             caps: device.capabilities(),
             device,
@@ -37,16 +63,16 @@ impl DeviceAdapter {
     }
 }
 
-impl<'a> SmolDevice<'a> for DeviceAdapter {
+impl<'a, D: Device + 'static> SmolDevice<'a> for DeviceAdapter<D> {
     type RxToken = RxToken;
-    type TxToken = TxToken<'a>;
+    type TxToken = TxToken<'a, D>;
 
     fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
         let tx_pkt = PacketBox::new(Packet::new())?;
         let rx_pkt = self.device.receive()?;
         let rx_token = RxToken { pkt: rx_pkt };
         let tx_token = TxToken {
-            device: self.device,
+            device: &mut self.device,
             pkt: tx_pkt,
         };
 
@@ -61,7 +87,7 @@ impl<'a> SmolDevice<'a> for DeviceAdapter {
 
         let tx_pkt = PacketBox::new(Packet::new())?;
         Some(TxToken {
-            device: self.device,
+            device: &mut self.device,
             pkt: tx_pkt,
         })
     }
@@ -85,12 +111,12 @@ impl smoltcp::phy::RxToken for RxToken {
     }
 }
 
-pub struct TxToken<'a> {
-    device: &'a mut dyn Device,
+pub struct TxToken<'a, D: Device> {
+    device: &'a mut D,
     pkt: PacketBox,
 }
 
-impl<'a> smoltcp::phy::TxToken for TxToken<'a> {
+impl<'a, D: Device> smoltcp::phy::TxToken for TxToken<'a, D> {
     fn consume<R, F>(self, _timestamp: SmolInstant, len: usize, f: F) -> smoltcp::Result<R>
     where
         F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,

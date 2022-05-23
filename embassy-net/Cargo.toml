@@ -20,6 +20,7 @@ std = []
 defmt = ["dep:defmt", "smoltcp/defmt"]
 
 tcp = ["smoltcp/socket-tcp"]
+dns = ["smoltcp/socket-dns"]
 dhcpv4 = ["medium-ethernet", "smoltcp/socket-dhcpv4"]
 medium-ethernet = ["smoltcp/medium-ethernet"]
 medium-ip = ["smoltcp/medium-ip"]
@@ -49,6 +50,8 @@ atomic-pool = "0.2.1"
 
 [dependencies.smoltcp]
 version = "0.8.0"
+git = "https://github.com/smoltcp-rs/smoltcp"
+rev = "ed0cf16750a42f30e31fcaf5347915592924b1e3"
 default-features = false
 features = [
   "proto-ipv4",

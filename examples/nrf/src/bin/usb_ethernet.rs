@@ -12,8 +12,9 @@ use embassy::channel::Channel;
 use embassy::executor::Spawner;
 use embassy::util::Forever;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{PacketBox, PacketBoxExt, PacketBuf};
+use embassy_net::{PacketBox, PacketBoxExt, PacketBuf, Stack, StackResources};
 use embassy_nrf::pac;
+use embassy_nrf::rng::Rng;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::Peripherals;
 use embassy_nrf::{interrupt, peripherals};
@@ -26,6 +27,14 @@ use embedded_io::asynch::{Read, Write};
 use panic_probe as _;
 
 type MyDriver = Driver<'static, peripherals::USBD>;
+
+macro_rules! forever {
+    ($val:expr) => {{
+        type T = impl Sized;
+        static FOREVER: Forever<T> = Forever::new();
+        FOREVER.put_with(move || $val)
+    }};
+}
 
 #[embassy::task]
 async fn usb_task(mut device: UsbDevice<'static, MyDriver>) -> ! {
@@ -72,8 +81,8 @@ async fn usb_ncm_tx_task(mut class: Sender<'static, MyDriver>) {
 }
 
 #[embassy::task]
-async fn net_task() -> ! {
-    embassy_net::run().await
+async fn net_task(stack: &'static Stack<Device>) -> ! {
+    stack.run().await
 }
 
 #[embassy::main]
@@ -114,8 +123,7 @@ async fn main(spawner: Spawner, p: Peripherals) {
         control_buf: [u8; 128],
         serial_state: State<'static>,
     }
-    static RESOURCES: Forever<Resources> = Forever::new();
-    let res = RESOURCES.put(Resources {
+    let res: &mut Resources = forever!(Resources {
         device_descriptor: [0; 256],
         config_descriptor: [0; 256],
         bos_descriptor: [0; 256],
@@ -158,28 +166,31 @@ async fn main(spawner: Spawner, p: Peripherals) {
     unwrap!(spawner.spawn(usb_ncm_rx_task(rx)));
     unwrap!(spawner.spawn(usb_ncm_tx_task(tx)));
 
-    // Init embassy-net
-    struct NetResources {
-        resources: embassy_net::StackResources<1, 2, 8>,
-        configurator: embassy_net::DhcpConfigurator,
-        //configurator: StaticConfigurator,
-        device: Device,
-    }
-    static NET_RESOURCES: Forever<NetResources> = Forever::new();
-    let res = NET_RESOURCES.put(NetResources {
-        resources: embassy_net::StackResources::new(),
-        configurator: embassy_net::DhcpConfigurator::new(),
-        //configurator: embassy_net::StaticConfigurator::new(embassy_net::Config {
-        //    address: Ipv4Cidr::new(Ipv4Address::new(10, 42, 0, 1), 24),
-        //    dns_servers: Default::default(),
-        //    gateway: None,
-        //}),
-        device: Device {
-            mac_addr: our_mac_addr,
-        },
-    });
-    embassy_net::init(&mut res.device, &mut res.configurator, &mut res.resources);
-    unwrap!(spawner.spawn(net_task()));
+    let config = embassy_net::ConfigStrategy::Dhcp;
+    //let config = embassy_net::ConfigStrategy::Static(embassy_net::Config {
+    //    address: Ipv4Cidr::new(Ipv4Address::new(10, 42, 0, 61), 24),
+    //    dns_servers: Vec::new(),
+    //    gateway: Some(Ipv4Address::new(10, 42, 0, 1)),
+    //});
+
+    // Generate random seed
+    let mut rng = Rng::new(p.RNG, interrupt::take!(RNG));
+    let mut seed = [0; 8];
+    rng.blocking_fill_bytes(&mut seed);
+    let seed = u64::from_le_bytes(seed);
+
+    // Init network stack
+    let device = Device {
+        mac_addr: our_mac_addr,
+    };
+    let stack = &*forever!(Stack::new(
+        device,
+        config,
+        forever!(StackResources::<1, 2, 8>::new()),
+        seed
+    ));
+
+    unwrap!(spawner.spawn(net_task(stack)));
 
     // And now we can use it!
 
@@ -188,7 +199,7 @@ async fn main(spawner: Spawner, p: Peripherals) {
     let mut buf = [0; 4096];
 
     loop {
-        let mut socket = TcpSocket::new(&mut rx_buffer, &mut tx_buffer);
+        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
         socket.set_timeout(Some(embassy_net::SmolDuration::from_secs(10)));
 
         info!("Listening on TCP:1234...");
@@ -246,7 +257,7 @@ impl embassy_net::Device for Device {
         }
     }
 
-    fn capabilities(&mut self) -> embassy_net::DeviceCapabilities {
+    fn capabilities(&self) -> embassy_net::DeviceCapabilities {
         let mut caps = embassy_net::DeviceCapabilities::default();
         caps.max_transmission_unit = 1514; // 1500 IP + 14 ethernet header
         caps.medium = embassy_net::Medium::Ethernet;
@@ -270,10 +281,4 @@ impl embassy_net::Device for Device {
     fn ethernet_address(&self) -> [u8; 6] {
         self.mac_addr
     }
-}
-
-#[no_mangle]
-fn _embassy_rand(buf: &mut [u8]) {
-    // TODO
-    buf.fill(0x42)
 }

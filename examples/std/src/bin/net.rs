@@ -4,23 +4,24 @@ use clap::Parser;
 use embassy::executor::{Executor, Spawner};
 use embassy::util::Forever;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{
-    Config, Configurator, DhcpConfigurator, Ipv4Address, Ipv4Cidr, StackResources,
-    StaticConfigurator,
-};
+use embassy_net::{ConfigStrategy, Ipv4Address, Ipv4Cidr, Stack, StackResources};
 use embedded_io::asynch::Write;
 use heapless::Vec;
 use log::*;
+use rand_core::{OsRng, RngCore};
 
 #[path = "../tuntap.rs"]
 mod tuntap;
 
 use crate::tuntap::TunTapDevice;
 
-static DEVICE: Forever<TunTapDevice> = Forever::new();
-static CONFIG_STATIC: Forever<StaticConfigurator> = Forever::new();
-static CONFIG_DYNAMIC: Forever<DhcpConfigurator> = Forever::new();
-static NET_RESOURCES: Forever<StackResources<1, 2, 8>> = Forever::new();
+macro_rules! forever {
+    ($val:expr) => {{
+        type T = impl Sized;
+        static FOREVER: Forever<T> = Forever::new();
+        FOREVER.put_with(move || $val)
+    }};
+}
 
 #[derive(Parser)]
 #[clap(version = "1.0")]
@@ -34,8 +35,8 @@ struct Opts {
 }
 
 #[embassy::task]
-async fn net_task() {
-    embassy_net::run().await
+async fn net_task(stack: &'static Stack<TunTapDevice>) -> ! {
+    stack.run().await
 }
 
 #[embassy::task]
@@ -46,28 +47,36 @@ async fn main_task(spawner: Spawner) {
     let device = TunTapDevice::new(&opts.tap).unwrap();
 
     // Choose between dhcp or static ip
-    let config: &'static mut dyn Configurator = if opts.static_ip {
-        CONFIG_STATIC.put(StaticConfigurator::new(Config {
+    let config = if opts.static_ip {
+        ConfigStrategy::Static(embassy_net::Config {
             address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 2), 24),
             dns_servers: Vec::new(),
             gateway: Some(Ipv4Address::new(192, 168, 69, 1)),
-        }))
+        })
     } else {
-        CONFIG_DYNAMIC.put(DhcpConfigurator::new())
+        ConfigStrategy::Dhcp
     };
 
-    let net_resources = StackResources::new();
+    // Generate random seed
+    let mut seed = [0; 8];
+    OsRng.fill_bytes(&mut seed);
+    let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    embassy_net::init(DEVICE.put(device), config, NET_RESOURCES.put(net_resources));
+    let stack = &*forever!(Stack::new(
+        device,
+        config,
+        forever!(StackResources::<1, 2, 8>::new()),
+        seed
+    ));
 
     // Launch network task
-    spawner.spawn(net_task()).unwrap();
+    spawner.spawn(net_task(stack)).unwrap();
 
     // Then we can use it!
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
-    let mut socket = TcpSocket::new(&mut rx_buffer, &mut tx_buffer);
+    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
 
     socket.set_timeout(Some(embassy_net::SmolDuration::from_secs(10)));
 
@@ -86,12 +95,6 @@ async fn main_task(spawner: Spawner) {
             return;
         }
     }
-}
-
-#[no_mangle]
-fn _embassy_rand(buf: &mut [u8]) {
-    use rand_core::{OsRng, RngCore};
-    OsRng.fill_bytes(buf);
 }
 
 static EXECUTOR: Forever<Executor> = Forever::new();

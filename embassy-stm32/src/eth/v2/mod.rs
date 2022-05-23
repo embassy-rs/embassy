@@ -253,7 +253,7 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Device
         WAKER.register(waker);
     }
 
-    fn capabilities(&mut self) -> DeviceCapabilities {
+    fn capabilities(&self) -> DeviceCapabilities {
         let mut caps = DeviceCapabilities::default();
         caps.max_transmission_unit = MTU;
         caps.max_burst_size = Some(TX.min(RX));
