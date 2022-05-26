@@ -268,9 +268,9 @@ impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::BufRead
 
     fn consume(&mut self, amt: usize) {
         let signal = self.inner.with(|state| {
-            let empty = state.rx.is_empty();
+            let full = state.rx.is_full();
             state.rx.pop(amt);
-            !empty
+            full
         });
         if signal {
             self.inner.pend();
