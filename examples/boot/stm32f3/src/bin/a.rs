@@ -3,11 +3,11 @@
 #![feature(type_alias_impl_trait)]
 
 use embassy_boot_stm32::FirmwareUpdater;
+use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::flash::Flash;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::Peripherals;
-use embassy_traits::adapter::BlockingAsync;
 use panic_reset as _;
 
 #[cfg(feature = "defmt-rtt")]

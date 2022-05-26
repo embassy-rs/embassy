@@ -1,5 +1,5 @@
 [package]
-name = "embassy-traits"
+name = "embassy-embedded-hal"
 version = "0.1.0"
 authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
@@ -8,9 +8,10 @@ edition = "2018"
 std = []
 
 [dependencies]
+embassy = { version = "0.1.0", path = "../embassy" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
-embedded-hal-async = { version = "0.1.0-alpha.0" }
+embedded-hal-async = { version = "0.1.0-alpha.1" }
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.3.0"
 nb = "1.0.0"

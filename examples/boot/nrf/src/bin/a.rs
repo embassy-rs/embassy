@@ -5,13 +5,13 @@
 #![feature(type_alias_impl_trait)]
 
 use embassy_boot_nrf::FirmwareUpdater;
+use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_nrf::{
     gpio::{Input, Pull},
     gpio::{Level, Output, OutputDrive},
     nvmc::Nvmc,
     Peripherals,
 };
-use embassy_traits::adapter::BlockingAsync;
 use panic_reset as _;
 
 static APP_B: &[u8] = include_bytes!("../../b.bin");
