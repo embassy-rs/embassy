@@ -11,7 +11,7 @@ use embassy_nrf::{
     nvmc::Nvmc,
     Peripherals,
 };
-use embassy_traits::adapter::BlockingAsync;
+use embassy_embedded_hal::adapter::BlockingAsync;
 use panic_reset as _;
 
 static APP_B: &[u8] = include_bytes!("../../b.bin");
