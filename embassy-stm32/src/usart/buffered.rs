@@ -191,6 +191,43 @@ impl<'d, T: Instance> embedded_io::asynch::Read for BufferedUart<'d, T> {
     }
 }
 
+impl<'d, T: Instance> embedded_io::asynch::BufRead for BufferedUart<'d, T> {
+    type FillBufFuture<'a> = impl Future<Output = Result<&'a [u8], Self::Error>>
+    where
+        Self: 'a;
+
+    fn fill_buf<'a>(&'a mut self) -> Self::FillBufFuture<'a> {
+        poll_fn(move |cx| {
+            self.inner.with(|state| {
+                compiler_fence(Ordering::SeqCst);
+
+                // We have data ready in buffer? Return it.
+                let buf = state.rx.pop_buf();
+                if !buf.is_empty() {
+                    let buf: &[u8] = buf;
+                    // Safety: buffer lives as long as uart
+                    let buf: &[u8] = unsafe { core::mem::transmute(buf) };
+                    return Poll::Ready(Ok(buf));
+                }
+
+                state.rx_waker.register(cx.waker());
+                Poll::<Result<&[u8], Self::Error>>::Pending
+            })
+        })
+    }
+
+    fn consume(&mut self, amt: usize) {
+        let signal = self.inner.with(|state| {
+            let full = state.rx.is_full();
+            state.rx.pop(amt);
+            full
+        });
+        if signal {
+            self.inner.pend();
+        }
+    }
+}
+
 impl<'d, T: Instance> embedded_io::asynch::Write for BufferedUart<'d, T> {
     type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
     where
