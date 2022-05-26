@@ -26,13 +26,11 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         unsafe { BufferedUart::new(&mut state, usart, irq, &mut tx_buf, &mut rx_buf) };
 
     loop {
-        let n = {
-            let buf = buf_usart.fill_buf().await.unwrap();
-            info!("Received: {}", buf);
-            buf.len()
-        };
+        let buf = buf_usart.fill_buf().await.unwrap();
+        info!("Received: {}", buf);
 
         // Read bytes have to be explicitly consumed, otherwise fill_buf() will return them again
+        let n = buf.len();
         buf_usart.consume(n);
     }
 }
