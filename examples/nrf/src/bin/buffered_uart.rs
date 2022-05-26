@@ -6,7 +6,7 @@ use defmt::*;
 use embassy::executor::Spawner;
 use embassy_nrf::buffered_uarte::State;
 use embassy_nrf::{buffered_uarte::BufferedUarte, interrupt, uarte, Peripherals};
-use embedded_io::asynch::{Read, Write};
+use embedded_io::asynch::{BufRead, Write};
 use futures::pin_mut;
 
 use defmt_rtt as _; // global logger
@@ -46,23 +46,13 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     unwrap!(u.write_all(b"Hello!\r\n").await);
     info!("wrote hello in uart!");
 
-    // Simple demo, reading 8-char chunks and echoing them back reversed.
     loop {
         info!("reading...");
-        let mut buf = [0u8; 8];
-        unwrap!(u.read_exact(&mut buf).await);
+        let buf = unwrap!(u.fill_buf().await);
         info!("read done, got {}", buf);
 
-        // Reverse buf
-        for i in 0..4 {
-            buf.swap(i, 7 - i);
-        }
-
-        info!("writing...");
-        unwrap!(u.write_all(&buf).await);
-        info!("write done");
-
-        // Wait until the bytes are actually finished being transmitted
-        unwrap!(u.flush().await);
+        // Read bytes have to be explicitly consumed, otherwise fill_buf() will return them again
+        let n = buf.len();
+        u.consume(n);
     }
 }
