@@ -63,7 +63,7 @@ nb = "1.0.0"
 stm32-fmc = "0.2.4"
 seq-macro = "0.2.2"
 cfg-if = "1.0.0"
-embedded-io = { version = "0.2.0", features = ["async"], optional = true }
+embedded-io = { version = "0.3.0", features = ["async"], optional = true }
 
 [build-dependencies]
 proc-macro2 = "1.0.36"
@@ -90,7 +90,7 @@ time-driver-tim12 = ["_time-driver"]
 time-driver-tim15 = ["_time-driver"]
 
 # Enable nightly-only features
-nightly = ["embassy/nightly", "embassy-net?/nightly", "embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io"]
+nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io"]
 
 # Reexport stm32-metapac at `embassy_stm32::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.

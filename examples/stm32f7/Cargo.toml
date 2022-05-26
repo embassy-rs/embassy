@@ -9,7 +9,7 @@ resolver = "2"
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "net", "stm32f767zi", "unstable-pac", "time-driver-any", "exti"]  }
 embassy-net = { path = "../../embassy-net", features = ["defmt", "tcp", "medium-ethernet", "pool-16"] }
-embedded-io = { version = "0.2.0", features = ["async"] }
+embedded-io = { version = "0.3.0", features = ["async"] }
 
 defmt = "0.3"
 defmt-rtt = "0.3"

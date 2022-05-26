@@ -216,7 +216,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Read for Buffe
                 let data = state.rx.pop_buf();
                 if !data.is_empty() {
                     trace!("  got {:?} {:?}", data.as_ptr() as u32, data.len());
-                    let len = data.len().min(data.len());
+                    let len = data.len().min(buf.len());
                     buf[..len].copy_from_slice(&data[..len]);
                     state.rx.pop(len);
                     do_pend = true;
