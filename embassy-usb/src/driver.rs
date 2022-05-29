@@ -118,17 +118,8 @@ pub trait Endpoint {
     /// Get the endpoint address
     fn info(&self) -> &EndpointInfo;
 
-    /// Sets or clears the STALL condition for an endpoint. If the endpoint is an OUT endpoint, it
-    /// should be prepared to receive data again.
-    fn set_stalled(&self, stalled: bool);
-
-    /// Gets whether the STALL condition is set for an endpoint.
-    fn is_stalled(&self) -> bool;
-
     /// Waits for the endpoint to be enabled.
     fn wait_enabled(&mut self) -> Self::WaitEnabledFuture<'_>;
-
-    // TODO enable/disable?
 }
 
 pub trait EndpointOut: Endpoint {

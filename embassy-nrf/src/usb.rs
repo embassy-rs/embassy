@@ -101,37 +101,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             }
         }
     }
-
-    fn set_stalled(ep_addr: EndpointAddress, stalled: bool) {
-        let regs = T::regs();
-
-        unsafe {
-            if ep_addr.index() == 0 {
-                regs.tasks_ep0stall
-                    .write(|w| w.tasks_ep0stall().bit(stalled));
-            } else {
-                regs.epstall.write(|w| {
-                    w.ep().bits(ep_addr.index() as u8 & 0b111);
-                    w.io().bit(ep_addr.is_in());
-                    w.stall().bit(stalled)
-                });
-            }
-        }
-
-        //if stalled {
-        //    self.busy_in_endpoints &= !(1 << ep_addr.index());
-        //}
-    }
-
-    fn is_stalled(ep_addr: EndpointAddress) -> bool {
-        let regs = T::regs();
-
-        let i = ep_addr.index();
-        match ep_addr.direction() {
-            UsbDirection::Out => regs.halted.epout[i].read().getstatus().is_halted(),
-            UsbDirection::In => regs.halted.epin[i].read().getstatus().is_halted(),
-        }
-    }
 }
 
 impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
@@ -294,11 +263,28 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        Driver::<T>::set_stalled(ep_addr, stalled)
+        let regs = T::regs();
+        unsafe {
+            if ep_addr.index() == 0 {
+                regs.tasks_ep0stall
+                    .write(|w| w.tasks_ep0stall().bit(stalled));
+            } else {
+                regs.epstall.write(|w| {
+                    w.ep().bits(ep_addr.index() as u8 & 0b111);
+                    w.io().bit(ep_addr.is_in());
+                    w.stall().bit(stalled)
+                });
+            }
+        }
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
-        Driver::<T>::is_stalled(ep_addr)
+        let regs = T::regs();
+        let i = ep_addr.index();
+        match ep_addr.direction() {
+            UsbDirection::Out => regs.halted.epout[i].read().getstatus().is_halted(),
+            UsbDirection::In => regs.halted.epin[i].read().getstatus().is_halted(),
+        }
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
@@ -462,14 +448,6 @@ impl<'d, T: Instance, Dir> Endpoint<'d, T, Dir> {
 impl<'d, T: Instance, Dir: EndpointDir> driver::Endpoint for Endpoint<'d, T, Dir> {
     fn info(&self) -> &EndpointInfo {
         &self.info
-    }
-
-    fn set_stalled(&self, stalled: bool) {
-        Driver::<T>::set_stalled(self.info.addr, stalled)
-    }
-
-    fn is_stalled(&self) -> bool {
-        Driver::<T>::is_stalled(self.info.addr)
     }
 
     type WaitEnabledFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
