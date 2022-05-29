@@ -155,12 +155,18 @@ pub trait ControlPipe {
     ///
     /// Must be called after `setup()` for requests with `direction` of `Out`
     /// and `length` greater than zero.
-    fn data_out<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::DataOutFuture<'a>;
+    fn data_out<'a>(
+        &'a mut self,
+        buf: &'a mut [u8],
+        first: bool,
+        last: bool,
+    ) -> Self::DataOutFuture<'a>;
 
     /// Sends a DATA IN packet with `data` in response to a control read request.
     ///
     /// If `last_packet` is true, the STATUS packet will be ACKed following the transfer of `data`.
-    fn data_in<'a>(&'a mut self, data: &'a [u8], last_packet: bool) -> Self::DataInFuture<'a>;
+    fn data_in<'a>(&'a mut self, data: &'a [u8], first: bool, last: bool)
+        -> Self::DataInFuture<'a>;
 
     /// Accepts a control request.
     ///

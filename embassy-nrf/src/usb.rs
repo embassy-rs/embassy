@@ -657,7 +657,12 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         }
     }
 
-    fn data_out<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::DataOutFuture<'a> {
+    fn data_out<'a>(
+        &'a mut self,
+        buf: &'a mut [u8],
+        _first: bool,
+        _last: bool,
+    ) -> Self::DataOutFuture<'a> {
         async move {
             let regs = T::regs();
 
@@ -694,13 +699,17 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         }
     }
 
-    fn data_in<'a>(&'a mut self, buf: &'a [u8], last_packet: bool) -> Self::DataInFuture<'a> {
+    fn data_in<'a>(
+        &'a mut self,
+        buf: &'a [u8],
+        _first: bool,
+        last: bool,
+    ) -> Self::DataInFuture<'a> {
         async move {
             let regs = T::regs();
             regs.events_ep0datadone.reset();
 
-            regs.shorts
-                .write(|w| w.ep0datadone_ep0status().bit(last_packet));
+            regs.shorts.write(|w| w.ep0datadone_ep0status().bit(last));
 
             // This starts a TX on EP0. events_ep0datadone notifies when done.
             unsafe { write_dma::<T>(0, buf) }
