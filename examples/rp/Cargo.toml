@@ -24,4 +24,4 @@ display-interface = "0.4.1"
 byte-slice-cast = { version = "1.2.0", default-features = false }
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
-embedded-hal-async = { version = "0.1.0-alpha.0" }
+embedded-hal-async = { version = "0.1.0-alpha.1" }
