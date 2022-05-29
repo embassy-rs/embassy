@@ -1,25 +1,30 @@
 [package]
 authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2018"
-name = "embassy-stm32f3-examples"
+name = "embassy-stm32l5-examples"
 version = "0.1.0"
 resolver = "2"
 
+[features]
+
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime", "time-tick-32768hz"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "stm32f303ze", "unstable-pac", "memory-x", "time-driver-any", "exti"]  }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "unstable-pac", "stm32l552ze", "time-driver-any", "exti", "unstable-traits", "memory-x"]  }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
 embassy-usb-serial = { version = "0.1.0", path = "../../embassy-usb-serial", features = ["defmt"] }
 embassy-usb-hid = { version = "0.1.0", path = "../../embassy-usb-hid", features = ["defmt"] }
+embassy-usb-ncm = { version = "0.1.0", path = "../../embassy-usb-ncm", features = ["defmt"] }
+embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "pool-16"] }
+usbd-hid = "0.5.2"
 
 defmt = "0.3"
 defmt-rtt = "0.3"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
 
 cortex-m = "0.7.3"
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
-panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.7.5", default-features = false }
-nb = "1.0.0"
-embedded-storage = "0.3.0"
+rand_core = { version = "0.6.3", default-features = false }
+embedded-io = { version = "0.3.0", features = ["async"] }

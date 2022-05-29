@@ -37,6 +37,7 @@ embassy = { version = "0.1.0", path = "../embassy" }
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["stm32"] }
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-net = { version = "0.1.0", path = "../embassy-net", optional = true }
+embassy-usb = {version = "0.1.0", path = "../embassy-usb", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8", optional = true}
@@ -71,7 +72,7 @@ quote = "1.0.15"
 stm32-metapac = { version = "0.1.0", path = "../stm32-metapac", default-features = false, features = ["metadata"]}
 
 [features]
-defmt = ["dep:defmt", "embassy/defmt", "embedded-io?/defmt" ]
+defmt = ["dep:defmt", "embassy/defmt", "embedded-io?/defmt", "embassy-usb?/defmt"]
 sdmmc-rs = ["embedded-sdmmc"]
 net = ["embassy-net" ]
 memory-x = ["stm32-metapac/memory-x"]
@@ -90,7 +91,7 @@ time-driver-tim12 = ["_time-driver"]
 time-driver-tim15 = ["_time-driver"]
 
 # Enable nightly-only features
-nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io"]
+nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io", "dep:embassy-usb"]
 
 # Reexport stm32-metapac at `embassy_stm32::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.

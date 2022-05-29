@@ -279,6 +279,8 @@ fn main() {
         (("dcmi", "HSYNC"), quote!(crate::dcmi::HSyncPin)),
         (("dcmi", "VSYNC"), quote!(crate::dcmi::VSyncPin)),
         (("dcmi", "PIXCLK"), quote!(crate::dcmi::PixClkPin)),
+        (("usb", "DP"), quote!(crate::usb::DpPin)),
+        (("usb", "DM"), quote!(crate::usb::DmPin)),
         (("otgfs", "DP"), quote!(crate::usb_otg::DpPin)),
         (("otgfs", "DM"), quote!(crate::usb_otg::DmPin)),
         (("otghs", "DP"), quote!(crate::usb_otg::DpPin)),
