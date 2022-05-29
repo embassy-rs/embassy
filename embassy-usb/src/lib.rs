@@ -119,7 +119,14 @@ struct Inner<'d, D: Driver<'d>> {
     suspended: bool,
     remote_wakeup_enabled: bool,
     self_powered: bool,
-    pending_address: u8,
+
+    /// Our device address, or 0 if none.
+    address: u8,
+    /// When receiving a set addr control request, we have to apply it AFTER we've
+    /// finished handling the control request, as the status stage still has to be
+    /// handled with addr 0.
+    /// If true, do a set_addr after finishing the current control req.
+    set_address_pending: bool,
 
     interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
 }
@@ -154,7 +161,8 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 suspended: false,
                 remote_wakeup_enabled: false,
                 self_powered: false,
-                pending_address: 0,
+                address: 0,
+                set_address_pending: false,
                 interfaces,
             },
         }
@@ -255,6 +263,11 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             UsbDirection::In => self.handle_control_in(req).await,
             UsbDirection::Out => self.handle_control_out(req).await,
         }
+
+        if self.inner.set_address_pending {
+            self.inner.bus.set_address(self.inner.address);
+            self.inner.set_address_pending = false;
+        }
     }
 
     async fn handle_control_in(&mut self, req: Request) {
@@ -266,7 +279,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         // a full-length packet is a short packet, thinking we're done sending data.
         // See https://github.com/hathach/tinyusb/issues/184
         const DEVICE_DESCRIPTOR_LEN: usize = 18;
-        if self.inner.pending_address == 0
+        if self.inner.address == 0
             && max_packet_size < DEVICE_DESCRIPTOR_LEN
             && (max_packet_size as usize) < resp_length
         {
@@ -337,7 +350,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 self.device_state = UsbDeviceState::Default;
                 self.suspended = false;
                 self.remote_wakeup_enabled = false;
-                self.pending_address = 0;
+                self.address = 0;
 
                 for iface in self.interfaces.iter_mut() {
                     iface.current_alt_setting = 0;
@@ -389,11 +402,11 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     OutResponse::Accepted
                 }
                 (Request::SET_ADDRESS, addr @ 1..=127) => {
-                    self.pending_address = addr as u8;
-                    self.bus.set_address(self.pending_address);
+                    self.address = addr as u8;
+                    self.set_address_pending = true;
                     self.device_state = UsbDeviceState::Addressed;
                     if let Some(h) = &self.handler {
-                        h.addressed(self.pending_address);
+                        h.addressed(self.address);
                     }
                     OutResponse::Accepted
                 }
