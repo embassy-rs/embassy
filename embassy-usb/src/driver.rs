@@ -144,6 +144,12 @@ pub trait ControlPipe {
     type DataInFuture<'a>: Future<Output = Result<(), EndpointError>> + 'a
     where
         Self: 'a;
+    type AcceptFuture<'a>: Future<Output = ()> + 'a
+    where
+        Self: 'a;
+    type RejectFuture<'a>: Future<Output = ()> + 'a
+    where
+        Self: 'a;
 
     /// Maximum packet size for the control pipe
     fn max_packet_size(&self) -> usize;
@@ -171,12 +177,12 @@ pub trait ControlPipe {
     /// Accepts a control request.
     ///
     /// Causes the STATUS packet for the current request to be ACKed.
-    fn accept(&mut self);
+    fn accept<'a>(&'a mut self) -> Self::AcceptFuture<'a>;
 
     /// Rejects a control request.
     ///
     /// Sets a STALL condition on the pipe to indicate an error.
-    fn reject(&mut self);
+    fn reject<'a>(&'a mut self) -> Self::RejectFuture<'a>;
 }
 
 pub trait EndpointIn: Endpoint {

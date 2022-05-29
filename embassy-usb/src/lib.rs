@@ -306,7 +306,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     }
                 }
             }
-            InResponse::Rejected => self.control.reject(),
+            InResponse::Rejected => self.control.reject().await,
         }
     }
 
@@ -337,8 +337,8 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         trace!("  control out data: {:02x?}", data);
 
         match self.inner.handle_control_out(req, data) {
-            OutResponse::Accepted => self.control.accept(),
-            OutResponse::Rejected => self.control.reject(),
+            OutResponse::Accepted => self.control.accept().await,
+            OutResponse::Rejected => self.control.reject().await,
         }
     }
 }

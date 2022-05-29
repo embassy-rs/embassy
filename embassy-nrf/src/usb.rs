@@ -616,6 +616,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     type SetupFuture<'a> = impl Future<Output = [u8;8]> + 'a where Self: 'a;
     type DataOutFuture<'a> = impl Future<Output = Result<usize, EndpointError>> + 'a where Self: 'a;
     type DataInFuture<'a> = impl Future<Output = Result<(), EndpointError>> + 'a where Self: 'a;
+    type AcceptFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
+    type RejectFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
 
     fn max_packet_size(&self) -> usize {
         usize::from(self.max_packet_size)
@@ -740,15 +742,19 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         }
     }
 
-    fn accept(&mut self) {
-        let regs = T::regs();
-        regs.tasks_ep0status
-            .write(|w| w.tasks_ep0status().bit(true));
+    fn accept<'a>(&'a mut self) -> Self::AcceptFuture<'a> {
+        async move {
+            let regs = T::regs();
+            regs.tasks_ep0status
+                .write(|w| w.tasks_ep0status().bit(true));
+        }
     }
 
-    fn reject(&mut self) {
-        let regs = T::regs();
-        regs.tasks_ep0stall.write(|w| w.tasks_ep0stall().bit(true));
+    fn reject<'a>(&'a mut self) -> Self::RejectFuture<'a> {
+        async move {
+            let regs = T::regs();
+            regs.tasks_ep0stall.write(|w| w.tasks_ep0stall().bit(true));
+        }
     }
 }
 
