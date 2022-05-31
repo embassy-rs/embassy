@@ -76,7 +76,7 @@ impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
         trace!("Loading app at 0x{:x}", start);
         #[allow(unused_mut)]
         let mut p = cortex_m::Peripherals::steal();
-        #[cfg(not(feature = "thumbv6"))]
+        #[cfg(not(armv6m))]
         p.SCB.invalidate_icache();
         p.SCB.vtor.write(start as u32);
 

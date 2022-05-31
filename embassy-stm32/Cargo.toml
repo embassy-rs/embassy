@@ -80,7 +80,7 @@ exti = []
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
-_time-driver = ["embassy/time-tick-32768hz"]
+_time-driver = ["embassy/time"]
 time-driver-any = ["_time-driver"]
 time-driver-tim2 = ["_time-driver"]
 time-driver-tim3 = ["_time-driver"]
