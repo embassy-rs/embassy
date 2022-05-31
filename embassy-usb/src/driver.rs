@@ -118,17 +118,8 @@ pub trait Endpoint {
     /// Get the endpoint address
     fn info(&self) -> &EndpointInfo;
 
-    /// Sets or clears the STALL condition for an endpoint. If the endpoint is an OUT endpoint, it
-    /// should be prepared to receive data again.
-    fn set_stalled(&self, stalled: bool);
-
-    /// Gets whether the STALL condition is set for an endpoint.
-    fn is_stalled(&self) -> bool;
-
     /// Waits for the endpoint to be enabled.
     fn wait_enabled(&mut self) -> Self::WaitEnabledFuture<'_>;
-
-    // TODO enable/disable?
 }
 
 pub trait EndpointOut: Endpoint {
@@ -153,6 +144,12 @@ pub trait ControlPipe {
     type DataInFuture<'a>: Future<Output = Result<(), EndpointError>> + 'a
     where
         Self: 'a;
+    type AcceptFuture<'a>: Future<Output = ()> + 'a
+    where
+        Self: 'a;
+    type RejectFuture<'a>: Future<Output = ()> + 'a
+    where
+        Self: 'a;
 
     /// Maximum packet size for the control pipe
     fn max_packet_size(&self) -> usize;
@@ -164,22 +161,28 @@ pub trait ControlPipe {
     ///
     /// Must be called after `setup()` for requests with `direction` of `Out`
     /// and `length` greater than zero.
-    fn data_out<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::DataOutFuture<'a>;
+    fn data_out<'a>(
+        &'a mut self,
+        buf: &'a mut [u8],
+        first: bool,
+        last: bool,
+    ) -> Self::DataOutFuture<'a>;
 
     /// Sends a DATA IN packet with `data` in response to a control read request.
     ///
     /// If `last_packet` is true, the STATUS packet will be ACKed following the transfer of `data`.
-    fn data_in<'a>(&'a mut self, data: &'a [u8], last_packet: bool) -> Self::DataInFuture<'a>;
+    fn data_in<'a>(&'a mut self, data: &'a [u8], first: bool, last: bool)
+        -> Self::DataInFuture<'a>;
 
     /// Accepts a control request.
     ///
     /// Causes the STATUS packet for the current request to be ACKed.
-    fn accept(&mut self);
+    fn accept<'a>(&'a mut self) -> Self::AcceptFuture<'a>;
 
     /// Rejects a control request.
     ///
     /// Sets a STALL condition on the pipe to indicate an error.
-    fn reject(&mut self);
+    fn reject<'a>(&'a mut self) -> Self::RejectFuture<'a>;
 }
 
 pub trait EndpointIn: Endpoint {

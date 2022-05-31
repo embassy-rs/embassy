@@ -104,7 +104,7 @@ impl<'a> Config<'a> {
             device_class: 0x00,
             device_sub_class: 0x00,
             device_protocol: 0x00,
-            max_packet_size_0: 8,
+            max_packet_size_0: 64,
             vendor_id: vid,
             product_id: pid,
             device_release: 0x0010,

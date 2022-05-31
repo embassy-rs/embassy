@@ -119,7 +119,14 @@ struct Inner<'d, D: Driver<'d>> {
     suspended: bool,
     remote_wakeup_enabled: bool,
     self_powered: bool,
-    pending_address: u8,
+
+    /// Our device address, or 0 if none.
+    address: u8,
+    /// When receiving a set addr control request, we have to apply it AFTER we've
+    /// finished handling the control request, as the status stage still has to be
+    /// handled with addr 0.
+    /// If true, do a set_addr after finishing the current control req.
+    set_address_pending: bool,
 
     interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
 }
@@ -154,7 +161,8 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 suspended: false,
                 remote_wakeup_enabled: false,
                 self_powered: false,
-                pending_address: 0,
+                address: 0,
+                set_address_pending: false,
                 interfaces,
             },
         }
@@ -255,6 +263,11 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             UsbDirection::In => self.handle_control_in(req).await,
             UsbDirection::Out => self.handle_control_out(req).await,
         }
+
+        if self.inner.set_address_pending {
+            self.inner.bus.set_address(self.inner.address);
+            self.inner.set_address_pending = false;
+        }
     }
 
     async fn handle_control_in(&mut self, req: Request) {
@@ -266,7 +279,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         // a full-length packet is a short packet, thinking we're done sending data.
         // See https://github.com/hathach/tinyusb/issues/184
         const DEVICE_DESCRIPTOR_LEN: usize = 18;
-        if self.inner.pending_address == 0
+        if self.inner.address == 0
             && max_packet_size < DEVICE_DESCRIPTOR_LEN
             && (max_packet_size as usize) < resp_length
         {
@@ -279,12 +292,12 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 let len = data.len().min(resp_length);
                 let need_zlp = len != resp_length && (len % usize::from(max_packet_size)) == 0;
 
-                let mut chunks = data[0..len]
+                let chunks = data[0..len]
                     .chunks(max_packet_size)
                     .chain(need_zlp.then(|| -> &[u8] { &[] }));
 
-                while let Some(chunk) = chunks.next() {
-                    match self.control.data_in(chunk, chunks.size_hint().0 == 0).await {
+                for (first, last, chunk) in first_last(chunks) {
+                    match self.control.data_in(chunk, first, last).await {
                         Ok(()) => {}
                         Err(e) => {
                             warn!("control accept_in failed: {:?}", e);
@@ -293,7 +306,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     }
                 }
             }
-            InResponse::Rejected => self.control.reject(),
+            InResponse::Rejected => self.control.reject().await,
         }
     }
 
@@ -302,8 +315,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         let max_packet_size = self.control.max_packet_size();
         let mut total = 0;
 
-        for chunk in self.control_buf[..req_length].chunks_mut(max_packet_size) {
-            let size = match self.control.data_out(chunk).await {
+        let chunks = self.control_buf[..req_length].chunks_mut(max_packet_size);
+        for (first, last, chunk) in first_last(chunks) {
+            let size = match self.control.data_out(chunk, first, last).await {
                 Ok(x) => x,
                 Err(e) => {
                     warn!("usb: failed to read CONTROL OUT data stage: {:?}", e);
@@ -323,8 +337,8 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         trace!("  control out data: {:02x?}", data);
 
         match self.inner.handle_control_out(req, data) {
-            OutResponse::Accepted => self.control.accept(),
-            OutResponse::Rejected => self.control.reject(),
+            OutResponse::Accepted => self.control.accept().await,
+            OutResponse::Rejected => self.control.reject().await,
         }
     }
 }
@@ -337,7 +351,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 self.device_state = UsbDeviceState::Default;
                 self.suspended = false;
                 self.remote_wakeup_enabled = false;
-                self.pending_address = 0;
+                self.address = 0;
 
                 for iface in self.interfaces.iter_mut() {
                     iface.current_alt_setting = 0;
@@ -389,11 +403,11 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     OutResponse::Accepted
                 }
                 (Request::SET_ADDRESS, addr @ 1..=127) => {
-                    self.pending_address = addr as u8;
-                    self.bus.set_address(self.pending_address);
+                    self.address = addr as u8;
+                    self.set_address_pending = true;
                     self.device_state = UsbDeviceState::Addressed;
                     if let Some(h) = &self.handler {
-                        h.addressed(self.pending_address);
+                        h.addressed(self.address);
                     }
                     OutResponse::Accepted
                 }
@@ -654,4 +668,16 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
             _ => InResponse::Rejected,
         }
     }
+}
+
+fn first_last<T: Iterator>(iter: T) -> impl Iterator<Item = (bool, bool, T::Item)> {
+    let mut iter = iter.peekable();
+    let mut first = true;
+    core::iter::from_fn(move || {
+        let val = iter.next()?;
+        let is_first = first;
+        first = false;
+        let is_last = iter.peek().is_none();
+        Some((is_first, is_last, val))
+    })
 }

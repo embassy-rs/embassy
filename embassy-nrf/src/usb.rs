@@ -101,37 +101,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             }
         }
     }
-
-    fn set_stalled(ep_addr: EndpointAddress, stalled: bool) {
-        let regs = T::regs();
-
-        unsafe {
-            if ep_addr.index() == 0 {
-                regs.tasks_ep0stall
-                    .write(|w| w.tasks_ep0stall().bit(stalled));
-            } else {
-                regs.epstall.write(|w| {
-                    w.ep().bits(ep_addr.index() as u8 & 0b111);
-                    w.io().bit(ep_addr.is_in());
-                    w.stall().bit(stalled)
-                });
-            }
-        }
-
-        //if stalled {
-        //    self.busy_in_endpoints &= !(1 << ep_addr.index());
-        //}
-    }
-
-    fn is_stalled(ep_addr: EndpointAddress) -> bool {
-        let regs = T::regs();
-
-        let i = ep_addr.index();
-        match ep_addr.direction() {
-            UsbDirection::Out => regs.halted.epout[i].read().getstatus().is_halted(),
-            UsbDirection::In => regs.halted.epin[i].read().getstatus().is_halted(),
-        }
-    }
 }
 
 impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
@@ -294,11 +263,28 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        Driver::<T>::set_stalled(ep_addr, stalled)
+        let regs = T::regs();
+        unsafe {
+            if ep_addr.index() == 0 {
+                regs.tasks_ep0stall
+                    .write(|w| w.tasks_ep0stall().bit(stalled));
+            } else {
+                regs.epstall.write(|w| {
+                    w.ep().bits(ep_addr.index() as u8 & 0b111);
+                    w.io().bit(ep_addr.is_in());
+                    w.stall().bit(stalled)
+                });
+            }
+        }
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
-        Driver::<T>::is_stalled(ep_addr)
+        let regs = T::regs();
+        let i = ep_addr.index();
+        match ep_addr.direction() {
+            UsbDirection::Out => regs.halted.epout[i].read().getstatus().is_halted(),
+            UsbDirection::In => regs.halted.epin[i].read().getstatus().is_halted(),
+        }
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
@@ -462,14 +448,6 @@ impl<'d, T: Instance, Dir> Endpoint<'d, T, Dir> {
 impl<'d, T: Instance, Dir: EndpointDir> driver::Endpoint for Endpoint<'d, T, Dir> {
     fn info(&self) -> &EndpointInfo {
         &self.info
-    }
-
-    fn set_stalled(&self, stalled: bool) {
-        Driver::<T>::set_stalled(self.info.addr, stalled)
-    }
-
-    fn is_stalled(&self) -> bool {
-        Driver::<T>::is_stalled(self.info.addr)
     }
 
     type WaitEnabledFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
@@ -638,6 +616,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     type SetupFuture<'a> = impl Future<Output = [u8;8]> + 'a where Self: 'a;
     type DataOutFuture<'a> = impl Future<Output = Result<usize, EndpointError>> + 'a where Self: 'a;
     type DataInFuture<'a> = impl Future<Output = Result<(), EndpointError>> + 'a where Self: 'a;
+    type AcceptFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
+    type RejectFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
 
     fn max_packet_size(&self) -> usize {
         usize::from(self.max_packet_size)
@@ -679,7 +659,12 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         }
     }
 
-    fn data_out<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::DataOutFuture<'a> {
+    fn data_out<'a>(
+        &'a mut self,
+        buf: &'a mut [u8],
+        _first: bool,
+        _last: bool,
+    ) -> Self::DataOutFuture<'a> {
         async move {
             let regs = T::regs();
 
@@ -716,13 +701,17 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         }
     }
 
-    fn data_in<'a>(&'a mut self, buf: &'a [u8], last_packet: bool) -> Self::DataInFuture<'a> {
+    fn data_in<'a>(
+        &'a mut self,
+        buf: &'a [u8],
+        _first: bool,
+        last: bool,
+    ) -> Self::DataInFuture<'a> {
         async move {
             let regs = T::regs();
             regs.events_ep0datadone.reset();
 
-            regs.shorts
-                .write(|w| w.ep0datadone_ep0status().bit(last_packet));
+            regs.shorts.write(|w| w.ep0datadone_ep0status().bit(last));
 
             // This starts a TX on EP0. events_ep0datadone notifies when done.
             unsafe { write_dma::<T>(0, buf) }
@@ -753,15 +742,19 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         }
     }
 
-    fn accept(&mut self) {
-        let regs = T::regs();
-        regs.tasks_ep0status
-            .write(|w| w.tasks_ep0status().bit(true));
+    fn accept<'a>(&'a mut self) -> Self::AcceptFuture<'a> {
+        async move {
+            let regs = T::regs();
+            regs.tasks_ep0status
+                .write(|w| w.tasks_ep0status().bit(true));
+        }
     }
 
-    fn reject(&mut self) {
-        let regs = T::regs();
-        regs.tasks_ep0stall.write(|w| w.tasks_ep0stall().bit(true));
+    fn reject<'a>(&'a mut self) -> Self::RejectFuture<'a> {
+        async move {
+            let regs = T::regs();
+            regs.tasks_ep0stall.write(|w| w.tasks_ep0stall().bit(true));
+        }
     }
 }
 
