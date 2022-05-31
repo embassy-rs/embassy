@@ -27,7 +27,6 @@ defmt = [
     "embassy-stm32/defmt",
 ]
 debug = ["defmt-rtt"]
-thumbv6 = []
 
 [profile.dev]
 debug = 2
