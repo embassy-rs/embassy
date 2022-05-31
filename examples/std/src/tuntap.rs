@@ -209,7 +209,7 @@ impl Device for TunTapDevice {
         }
     }
 
-    fn capabilities(&mut self) -> DeviceCapabilities {
+    fn capabilities(&self) -> DeviceCapabilities {
         let mut caps = DeviceCapabilities::default();
         caps.max_transmission_unit = self.device.get_ref().mtu;
         caps

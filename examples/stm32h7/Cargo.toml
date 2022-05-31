@@ -8,7 +8,7 @@ resolver = "2"
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime", "unstable-traits"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "stm32h743bi", "net", "time-driver-any", "exti", "unstable-pac", "unstable-traits"] }
-embassy-net = { path = "../../embassy-net", features = ["defmt", "tcp", "medium-ethernet", "pool-16"] }
+embassy-net = { path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "pool-16"] }
 embedded-io = { version = "0.3.0", features = ["async"] }
 
 defmt = "0.3"
@@ -27,11 +27,6 @@ critical-section = "0.2.5"
 micromath = "2.0.0"
 stm32-fmc = "0.2.4"
 embedded-storage = "0.3.0"
-
-[dependencies.smoltcp]
-version = "0.8.0"
-default-features = false
-features = ["defmt"]
 
 # cargo build/run
 [profile.dev]
