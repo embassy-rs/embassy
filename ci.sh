@@ -60,7 +60,7 @@ cargo batch  \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32wle5ub,defmt,exti,time-driver-any,embassy/time-tick-32768hz,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features nightly,stm32f107vc,defmt,exti,time-driver-any,embassy/time-tick-32768hz,unstable-traits \
     --- build --release --manifest-path embassy-boot/nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840 \
-    --- build --release --manifest-path embassy-boot/stm32/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32wl55jc-cm4 \
+    --- build --release --manifest-path embassy-boot/stm32/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32wl55jc-cm4,embassy/time-tick-32768hz \
     --- build --release --manifest-path docs/modules/ROOT/examples/basic/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/modules/ROOT/examples/layer-by-layer/blinky-pac/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/modules/ROOT/examples/layer-by-layer/blinky-hal/Cargo.toml --target thumbv7em-none-eabi \
@@ -85,6 +85,9 @@ cargo batch  \
     --- build --release --manifest-path examples/stm32wb/Cargo.toml --target thumbv7em-none-eabihf --out-dir out/examples/stm32wb \
     --- build --release --manifest-path examples/stm32wl/Cargo.toml --target thumbv7em-none-eabihf --out-dir out/examples/stm32wl \
     --- build --release --manifest-path examples/boot/nrf/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/boot/nrf --bin b \
+    --- build --release --manifest-path examples/boot/stm32f3/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/boot/stm32f3 --bin b \
+    --- build --release --manifest-path examples/boot/stm32f7/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/boot/stm32f7 --bin b \
+    --- build --release --manifest-path examples/boot/stm32h7/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/boot/stm32h7 --bin b \
     --- build --release --manifest-path examples/boot/stm32l0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/boot/stm32l0 --bin b \
     --- build --release --manifest-path examples/boot/stm32l1/Cargo.toml --target thumbv7m-none-eabi --out-dir out/examples/boot/stm32l1 --bin b \
     --- build --release --manifest-path examples/boot/stm32l4/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/boot/stm32l4 --bin b \
