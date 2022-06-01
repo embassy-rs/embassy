@@ -259,6 +259,12 @@ impl<'d> TcpIo<'d> {
     }
 }
 
+impl embedded_io::Error for ConnectError {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        embedded_io::ErrorKind::Other
+    }
+}
+
 impl embedded_io::Error for Error {
     fn kind(&self) -> embedded_io::ErrorKind {
         embedded_io::ErrorKind::Other
