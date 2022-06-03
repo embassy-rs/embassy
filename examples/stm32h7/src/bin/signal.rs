@@ -28,7 +28,7 @@ mod sender {
         loop {
             Timer::after(Duration::from_secs(1)).await;
 
-            info!("signalling");
+            info!("signalling, counter: {}", counter);
             SIGNAL.signal(counter);
 
             // receiving task gets a copy of the counter, before it is incremented
@@ -49,7 +49,12 @@ mod receiver {
     use embassy::blocking_mutex::raw::CriticalSectionRawMutex;
     use embassy::channel::Signal;
     use embassy::blocking_mutex::Mutex;
+    use embassy::time::{Duration, Timer};
 
+    // RefCell because Mutux::lock() give a immutable reference to the closure.
+    // Option because a default value needs to be provided for a static value.
+    // 'static lifetime for the reference because the signal needs to live forever.
+    // Mutex because otherwise you get a 'cannot be shared between threads safely' due to the static lifetime requirement.
     static SIGNAL: Mutex<CriticalSectionRawMutex, RefCell<Option<&'static Signal<u32>>>> = Mutex::new(RefCell::new(None));
 
     #[embassy::task]
@@ -63,6 +68,9 @@ mod receiver {
             let received_counter = signal.wait().await;
 
             info!("signalled, counter: {}", received_counter);
+
+            // Simulate long complicated process
+            Timer::after(Duration::from_secs(5)).await;
         }
     }
 
