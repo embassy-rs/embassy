@@ -12,6 +12,7 @@ use embassy::channel::Signal;
 // global logger
 use panic_probe as _;
 
+
 static SIGNAL: Signal<u32> = Signal::new();
 
 #[embassy::task]
@@ -29,13 +30,23 @@ async fn my_sending_task() {
     }
 }
 
-#[embassy::main]
-async fn main(spawner: Spawner, _p: Peripherals) {
-    unwrap!(spawner.spawn(my_sending_task()));
+#[embassy::task]
+async fn my_receiving_task() {
 
     loop {
         let received_counter = SIGNAL.wait().await;
 
         info!("signalled, counter: {}", received_counter);
+    }
+}
+
+#[embassy::main]
+async fn main(spawner: Spawner, _p: Peripherals) {
+    unwrap!(spawner.spawn(my_receiving_task()));
+    unwrap!(spawner.spawn(my_sending_task()));
+
+    loop {
+        Timer::after(Duration::from_secs(1)).await;
+        info!(".");
     }
 }
