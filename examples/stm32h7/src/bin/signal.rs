@@ -8,42 +8,76 @@ use embassy::time::{Duration, Timer};
 use embassy_stm32::Peripherals;
 
 use defmt_rtt as _;
-use embassy::channel::Signal;
 // global logger
 use panic_probe as _;
 
 
-static SIGNAL: Signal<u32> = Signal::new();
+mod sender {
+    use core::borrow::Borrow;
+    use defmt::*;
+    use embassy::channel::Signal;
+    use embassy::time::{Duration, Timer};
 
-#[embassy::task]
-async fn my_sending_task() {
+    static SIGNAL: Signal<u32> = Signal::new();
 
-    let mut counter: u32 = 0;
+    #[embassy::task]
+    pub async fn my_sending_task() {
 
-    loop {
+        let mut counter: u32 = 0;
 
-        Timer::after(Duration::from_secs(1)).await;
+        loop {
+            Timer::after(Duration::from_secs(1)).await;
 
-        SIGNAL.signal(counter);
+            info!("signalling");
+            SIGNAL.signal(counter);
 
-        counter = counter.wrapping_add(1);
+            // receiving task gets a copy of the counter, before it is incremented
+
+            counter = counter.wrapping_add(1);
+        }
+    }
+
+    pub fn init_sending_task() {
+        info!("registering sender");
+        super::receiver::register_sender(SIGNAL.borrow());
     }
 }
 
-#[embassy::task]
-async fn my_receiving_task() {
+mod receiver {
+    use core::cell::RefCell;
+    use defmt::*;
+    use embassy::blocking_mutex::raw::CriticalSectionRawMutex;
+    use embassy::channel::Signal;
+    use embassy::blocking_mutex::Mutex;
 
-    loop {
-        let received_counter = SIGNAL.wait().await;
+    static SIGNAL: Mutex<CriticalSectionRawMutex, RefCell<Option<&'static Signal<u32>>>> = Mutex::new(RefCell::new(None));
 
-        info!("signalled, counter: {}", received_counter);
+    #[embassy::task]
+    pub async fn my_receiving_task() {
+
+        info!("getting sender");
+        let signal = SIGNAL.lock(|s| s.take().unwrap() );
+
+        loop {
+            info!("waiting for signal");
+            let received_counter = signal.wait().await;
+
+            info!("signalled, counter: {}", received_counter);
+        }
+    }
+
+    pub fn register_sender(signal: &'static Signal<u32>) {
+        SIGNAL.lock(|s| s.replace(Some(signal)));
     }
 }
 
 #[embassy::main]
 async fn main(spawner: Spawner, _p: Peripherals) {
-    unwrap!(spawner.spawn(my_receiving_task()));
-    unwrap!(spawner.spawn(my_sending_task()));
+
+    sender::init_sending_task();
+
+    unwrap!(spawner.spawn(receiver::my_receiving_task()));
+    unwrap!(spawner.spawn(sender::my_sending_task()));
 
     loop {
         Timer::after(Duration::from_secs(1)).await;
