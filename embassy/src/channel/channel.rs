@@ -3,6 +3,9 @@
 //! It can be used concurrently by multiple producers (senders) and multiple
 //! consumers (receivers), i.e. it is an  "MPMC channel".
 //!
+//! Receivers are competing for messages. So a message that is received by
+//! one receiver is not received by any other.
+//!
 //! This queue takes a Mutex type so that various
 //! targets can be attained. For example, a ThreadModeMutex can be used
 //! for single-core Cortex-M targets where messages are only passed
