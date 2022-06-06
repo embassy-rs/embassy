@@ -133,7 +133,7 @@ impl<'d> Crc<'d> {
     /// Feeds a byte into the CRC peripheral. Returns the computed checksum.
     pub fn feed_byte(&mut self, byte: u8) -> u32 {
         unsafe {
-            PAC_CRC.dr8().write_value(byte as u32);
+            PAC_CRC.dr8().write_value(byte);
             PAC_CRC.dr().read()
         }
     }
@@ -142,7 +142,7 @@ impl<'d> Crc<'d> {
     pub fn feed_bytes(&mut self, bytes: &[u8]) -> u32 {
         for byte in bytes {
             unsafe {
-                PAC_CRC.dr8().write_value(*byte as u32);
+                PAC_CRC.dr8().write_value(*byte);
             }
         }
         unsafe { PAC_CRC.dr().read() }
@@ -150,7 +150,7 @@ impl<'d> Crc<'d> {
     /// Feeds a halfword into the CRC peripheral. Returns the computed checksum.
     pub fn feed_halfword(&mut self, halfword: u16) -> u32 {
         unsafe {
-            PAC_CRC.dr16().write_value(halfword as u32);
+            PAC_CRC.dr16().write_value(halfword);
             PAC_CRC.dr().read()
         }
     }
@@ -158,7 +158,7 @@ impl<'d> Crc<'d> {
     pub fn feed_halfwords(&mut self, halfwords: &[u16]) -> u32 {
         for halfword in halfwords {
             unsafe {
-                PAC_CRC.dr16().write_value(*halfword as u32);
+                PAC_CRC.dr16().write_value(*halfword);
             }
         }
         unsafe { PAC_CRC.dr().read() }
