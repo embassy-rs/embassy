@@ -424,9 +424,14 @@ pub(crate) mod sealed {
             }
         }
 
+        #[inline]
+        unsafe fn set_as_af(&self, af_num: u8, af_type: AFType) {
+            self.set_as_af_pull(af_num, af_type, Pull::None);
+        }
+
         #[cfg(gpio_v1)]
         #[inline]
-        unsafe fn set_as_af(&self, _af_num: u8, af_type: AFType) {
+        unsafe fn set_as_af_pull(&self, _af_num: u8, af_type: AFType, pull: Pull) {
             // F1 uses the AFIO register for remapping.
             // For now, this is not implemented, so af_num is ignored
             // _af_num should be zero here, since it is not set by stm32-data
@@ -435,9 +440,21 @@ pub(crate) mod sealed {
             let crlh = if n < 8 { 0 } else { 1 };
             match af_type {
                 AFType::Input => {
+                    let cnf = match pull {
+                        Pull::Up => {
+                            r.bsrr().write(|w| w.set_bs(n, true));
+                            vals::CnfIn::PULL
+                        }
+                        Pull::Down => {
+                            r.bsrr().write(|w| w.set_br(n, true));
+                            vals::CnfIn::PULL
+                        }
+                        Pull::None => vals::CnfIn::FLOATING,
+                    };
+
                     r.cr(crlh).modify(|w| {
                         w.set_mode(n % 8, vals::Mode::INPUT);
-                        w.set_cnf_in(n % 8, vals::CnfIn::FLOATING);
+                        w.set_cnf_in(n % 8, cnf);
                     });
                 }
                 AFType::OutputPushPull => {
@@ -453,12 +470,6 @@ pub(crate) mod sealed {
                     });
                 }
             }
-        }
-
-        #[cfg(gpio_v2)]
-        #[inline]
-        unsafe fn set_as_af(&self, af_num: u8, af_type: AFType) {
-            self.set_as_af_pull(af_num, af_type, Pull::None);
         }
 
         #[cfg(gpio_v2)]
