@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 regex = "1.5.4"
-chiptool = { git = "https://github.com/embassy-rs/chiptool", rev = "d5c0f6174ec7f03b5004042b788fb9fddcc7c34f" }
+chiptool = { git = "https://github.com/embassy-rs/chiptool", rev = "28ffa8a19d84914089547f52900ffb5877a5dc23" }
 serde = { version = "1.0.130", features = [ "derive" ] }
 serde_yaml = "0.8.21"
 proc-macro2 = "1.0.29"
