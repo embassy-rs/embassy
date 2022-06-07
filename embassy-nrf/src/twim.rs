@@ -60,8 +60,6 @@ impl Default for Config {
 pub enum Error {
     TxBufferTooLong,
     RxBufferTooLong,
-    TxBufferZeroLength,
-    RxBufferZeroLength,
     Transmit,
     Receive,
     DMABufferNotInDataMemory,
@@ -159,9 +157,6 @@ impl<'d, T: Instance> Twim<'d, T> {
     unsafe fn set_tx_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
         slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
 
-        if buffer.len() == 0 {
-            return Err(Error::TxBufferZeroLength);
-        }
         if buffer.len() > EASY_DMA_SIZE {
             return Err(Error::TxBufferTooLong);
         }
@@ -193,9 +188,6 @@ impl<'d, T: Instance> Twim<'d, T> {
         // NOTE: RAM slice check is not necessary, as a mutable
         // slice can only be built from data located in RAM.
 
-        if buffer.len() == 0 {
-            return Err(Error::RxBufferZeroLength);
-        }
         if buffer.len() > EASY_DMA_SIZE {
             return Err(Error::RxBufferTooLong);
         }
@@ -357,6 +349,10 @@ impl<'d, T: Instance> Twim<'d, T> {
         // Start write operation.
         r.shorts.write(|w| w.lasttx_stop().enabled());
         r.tasks_starttx.write(|w| unsafe { w.bits(1) });
+        if buffer.len() == 0 {
+            // With a zero-length buffer, LASTTX doesn't fire (because there's no last byte!), so do the STOP ourselves.
+            r.tasks_stop.write(|w| unsafe { w.bits(1) });
+        }
         Ok(())
     }
 
@@ -384,6 +380,10 @@ impl<'d, T: Instance> Twim<'d, T> {
         // Start read operation.
         r.shorts.write(|w| w.lastrx_stop().enabled());
         r.tasks_startrx.write(|w| unsafe { w.bits(1) });
+        if buffer.len() == 0 {
+            // With a zero-length buffer, LASTRX doesn't fire (because there's no last byte!), so do the STOP ourselves.
+            r.tasks_stop.write(|w| unsafe { w.bits(1) });
+        }
         Ok(())
     }
 
@@ -424,6 +424,12 @@ impl<'d, T: Instance> Twim<'d, T> {
             w
         });
         r.tasks_starttx.write(|w| unsafe { w.bits(1) });
+        if wr_buffer.len() == 0 && rd_buffer.len() == 0 {
+            // With a zero-length buffer, LASTRX/LASTTX doesn't fire (because there's no last byte!), so do the STOP ourselves.
+            // TODO handle when only one of the buffers is zero length
+            r.tasks_stop.write(|w| unsafe { w.bits(1) });
+        }
+
         Ok(())
     }
 
@@ -800,8 +806,6 @@ mod eh1 {
             match *self {
                 Self::TxBufferTooLong => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::RxBufferTooLong => embedded_hal_1::i2c::ErrorKind::Other,
-                Self::TxBufferZeroLength => embedded_hal_1::i2c::ErrorKind::Other,
-                Self::RxBufferZeroLength => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::Transmit => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::Receive => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::DMABufferNotInDataMemory => embedded_hal_1::i2c::ErrorKind::Other,
