@@ -18,6 +18,11 @@ cfg_if::cfg_if! {
         mod arch;
         pub use arch::*;
     }
+    else if #[cfg(target_arch="riscv32")] {
+        #[path="arch/riscv32.rs"]
+        mod arch;
+        pub use arch::*;
+    }
     else if #[cfg(feature="wasm")] {
         #[path="arch/wasm.rs"]
         mod arch;
