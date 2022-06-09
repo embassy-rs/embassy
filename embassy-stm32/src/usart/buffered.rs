@@ -35,7 +35,7 @@ pub struct BufferedUart<'d, T: Instance> {
 impl<'d, T: Instance> Unpin for BufferedUart<'d, T> {}
 
 impl<'d, T: Instance> BufferedUart<'d, T> {
-    pub unsafe fn new(
+    pub fn new(
         state: &'d mut State<'d, T>,
         _uart: Uart<'d, T, NoDma, NoDma>,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
@@ -45,13 +45,15 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
         unborrow!(irq);
 
         let r = T::regs();
-        r.cr1().modify(|w| {
-            w.set_rxneie(true);
-            w.set_idleie(true);
-        });
+        unsafe {
+            r.cr1().modify(|w| {
+                w.set_rxneie(true);
+                w.set_idleie(true);
+            });
+        }
 
         Self {
-            inner: PeripheralMutex::new_unchecked(irq, &mut state.0, move || StateInner {
+            inner: PeripheralMutex::new(irq, &mut state.0, move || StateInner {
                 phantom: PhantomData,
                 tx: RingBuffer::new(tx_buffer),
                 tx_waker: WakerRegistration::new(),

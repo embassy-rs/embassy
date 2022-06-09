@@ -22,8 +22,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let irq = interrupt::take!(USART3);
     let mut tx_buf = [0u8; 32];
     let mut rx_buf = [0u8; 32];
-    let mut buf_usart =
-        unsafe { BufferedUart::new(&mut state, usart, irq, &mut tx_buf, &mut rx_buf) };
+    let mut buf_usart = BufferedUart::new(&mut state, usart, irq, &mut tx_buf, &mut rx_buf);
 
     loop {
         let buf = buf_usart.fill_buf().await.unwrap();
