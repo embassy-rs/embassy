@@ -11,6 +11,12 @@ resolver = "2"
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime", "time-tick-32768hz"] }
 embassy-embedded-hal = { version = "0.1.0", path = "../../embassy-embedded-hal" }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "unstable-pac", "stm32l4s5vi", "time-driver-any", "exti", "unstable-traits"]  }
+embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
+embassy-usb-serial = { version = "0.1.0", path = "../../embassy-usb-serial", features = ["defmt"] }
+embassy-usb-hid = { version = "0.1.0", path = "../../embassy-usb-hid", features = ["defmt"] }
+embassy-usb-ncm = { version = "0.1.0", path = "../../embassy-usb-ncm", features = ["defmt"] }
+embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "pool-16"] }
+usbd-hid = "0.5.2"
 
 defmt = "0.3"
 defmt-rtt = "0.3"

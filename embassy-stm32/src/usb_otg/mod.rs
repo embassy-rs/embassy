@@ -1,109 +1,23 @@
-use core::marker::PhantomData;
-use embassy::util::Unborrow;
-use embassy_hal_common::unborrow;
-
-use crate::gpio::sealed::AFType;
 use crate::{peripherals, rcc::RccPeripheral};
 
-macro_rules! config_ulpi_pins {
-    ($($pin:ident),*) => {
-        unborrow!($($pin),*);
-        // NOTE(unsafe) Exclusive access to the registers
-        critical_section::with(|_| unsafe {
-            $(
-                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                #[cfg(gpio_v2)]
-                $pin.set_speed(crate::gpio::Speed::VeryHigh);
-            )*
-        })
-    };
-}
-
-/// USB PHY type
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum PhyType {
-    /// Internal Full-Speed PHY
-    ///
-    /// Available on most High-Speed peripherals.
-    InternalFullSpeed,
-    /// Internal High-Speed PHY
-    ///
-    /// Available on a few STM32 chips.
-    InternalHighSpeed,
-    /// External ULPI High-Speed PHY
-    ExternalHighSpeed,
-}
-
-pub struct UsbOtg<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
-    _phy_type: PhyType,
-}
-
-impl<'d, T: Instance> UsbOtg<'d, T> {
-    /// Initializes USB OTG peripheral with internal Full-Speed PHY
-    pub fn new_fs(
-        _peri: impl Unborrow<Target = T> + 'd,
-        dp: impl Unborrow<Target = impl DpPin<T>> + 'd,
-        dm: impl Unborrow<Target = impl DmPin<T>> + 'd,
-    ) -> Self {
-        unborrow!(dp, dm);
-
-        unsafe {
-            dp.set_as_af(dp.af_num(), AFType::OutputPushPull);
-            dm.set_as_af(dm.af_num(), AFType::OutputPushPull);
-        }
-
-        Self {
-            phantom: PhantomData,
-            _phy_type: PhyType::InternalFullSpeed,
-        }
-    }
-
-    /// Initializes USB OTG peripheral with external High-Speed PHY
-    pub fn new_hs_ulpi(
-        _peri: impl Unborrow<Target = T> + 'd,
-        ulpi_clk: impl Unborrow<Target = impl UlpiClkPin<T>> + 'd,
-        ulpi_dir: impl Unborrow<Target = impl UlpiDirPin<T>> + 'd,
-        ulpi_nxt: impl Unborrow<Target = impl UlpiNxtPin<T>> + 'd,
-        ulpi_stp: impl Unborrow<Target = impl UlpiStpPin<T>> + 'd,
-        ulpi_d0: impl Unborrow<Target = impl UlpiD0Pin<T>> + 'd,
-        ulpi_d1: impl Unborrow<Target = impl UlpiD1Pin<T>> + 'd,
-        ulpi_d2: impl Unborrow<Target = impl UlpiD2Pin<T>> + 'd,
-        ulpi_d3: impl Unborrow<Target = impl UlpiD3Pin<T>> + 'd,
-        ulpi_d4: impl Unborrow<Target = impl UlpiD4Pin<T>> + 'd,
-        ulpi_d5: impl Unborrow<Target = impl UlpiD5Pin<T>> + 'd,
-        ulpi_d6: impl Unborrow<Target = impl UlpiD6Pin<T>> + 'd,
-        ulpi_d7: impl Unborrow<Target = impl UlpiD7Pin<T>> + 'd,
-    ) -> Self {
-        config_ulpi_pins!(
-            ulpi_clk, ulpi_dir, ulpi_nxt, ulpi_stp, ulpi_d0, ulpi_d1, ulpi_d2, ulpi_d3, ulpi_d4,
-            ulpi_d5, ulpi_d6, ulpi_d7
-        );
-
-        Self {
-            phantom: PhantomData,
-            _phy_type: PhyType::ExternalHighSpeed,
-        }
-    }
-}
-
-impl<'d, T: Instance> Drop for UsbOtg<'d, T> {
-    fn drop(&mut self) {
-        T::reset();
-        T::disable();
-    }
-}
+#[cfg(feature = "nightly")]
+mod usb;
+use embassy::interrupt::Interrupt;
+#[cfg(feature = "nightly")]
+pub use usb::*;
 
 pub(crate) mod sealed {
     pub trait Instance {
-        const REGISTERS: *const ();
+        fn regs() -> crate::pac::otgfs::OtgFs;
         const HIGH_SPEED: bool;
         const FIFO_DEPTH_WORDS: usize;
         const ENDPOINT_COUNT: usize;
     }
 }
 
-pub trait Instance: sealed::Instance + RccPeripheral {}
+pub trait Instance: sealed::Instance + RccPeripheral {
+    type Interrupt: Interrupt;
+}
 
 // Internal PHY pins
 pin_trait!(DpPin, Instance);
@@ -123,10 +37,12 @@ pin_trait!(UlpiD5Pin, Instance);
 pin_trait!(UlpiD6Pin, Instance);
 pin_trait!(UlpiD7Pin, Instance);
 
-foreach_peripheral!(
-    (otgfs, $inst:ident) => {
+foreach_interrupt!(
+    ($inst:ident, otgfs, $block:ident, GLOBAL, $irq:ident) => {
         impl sealed::Instance for peripherals::$inst {
-            const REGISTERS: *const () = crate::pac::$inst.0 as *const ();
+            fn regs() -> crate::pac::otgfs::OtgFs {
+                crate::pac::$inst
+            }
             const HIGH_SPEED: bool = false;
 
             cfg_if::cfg_if! {
@@ -170,7 +86,9 @@ foreach_peripheral!(
             }
         }
 
-        impl Instance for peripherals::$inst {}
+        impl Instance for peripherals::$inst {
+            type Interrupt = crate::interrupt::$irq;
+        }
     };
 
     (otghs, $inst:ident) => {
