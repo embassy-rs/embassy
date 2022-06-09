@@ -52,30 +52,8 @@ pub(crate) fn can_be_preempted(irq: &impl Interrupt) -> bool {
 impl<'a, S: PeripheralState> PeripheralMutex<'a, S> {
     /// Create a new `PeripheralMutex` wrapping `irq`, with `init` initializing the initial state.
     ///
-    /// self requires `S` to live for `'static`, because if the `PeripheralMutex` is leaked, the
-    /// interrupt won't be disabled, which may try accessing the state at any time. To use non-`'static`
-    /// state, see [`Self::new_unchecked`].
-    ///
     /// Registers `on_interrupt` as the `irq`'s handler, and enables it.
     pub fn new(
-        irq: S::Interrupt,
-        storage: &'a mut StateStorage<S>,
-        init: impl FnOnce() -> S,
-    ) -> Self
-    where
-        'a: 'static,
-    {
-        // safety: safe because state is `'static`.
-        unsafe { Self::new_unchecked(irq, storage, init) }
-    }
-
-    /// Create a `PeripheralMutex` without requiring the state is `'static`.
-    ///
-    /// See also [`Self::new`].
-    ///
-    /// # Safety
-    /// The created instance must not be leaked (its `drop` must run).
-    pub unsafe fn new_unchecked(
         irq: S::Interrupt,
         storage: &'a mut StateStorage<S>,
         init: impl FnOnce() -> S,
@@ -88,10 +66,10 @@ impl<'a, S: PeripheralState> PeripheralMutex<'a, S> {
 
         // Safety: The pointer is valid and not used by anyone else
         // because we have the `&mut StateStorage`.
-        state_ptr.write(init());
+        unsafe { state_ptr.write(init()) };
 
         irq.disable();
-        irq.set_handler(|p| {
+        irq.set_handler(|p| unsafe {
             // Safety: it's OK to get a &mut to the state, since
             // - We checked that the thread owning the `PeripheralMutex` can't preempt us in `new`.
             //   Interrupts' priorities can only be changed with raw embassy `Interrupts`,

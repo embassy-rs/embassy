@@ -164,22 +164,20 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch2.enable();
 
         Self {
-            inner: unsafe {
-                PeripheralMutex::new_unchecked(irq, &mut state.0, move || StateInner {
-                    phantom: PhantomData,
-                    timer,
-                    _ppi_ch1: ppi_ch1,
-                    _ppi_ch2: ppi_ch2,
+            inner: PeripheralMutex::new(irq, &mut state.0, move || StateInner {
+                phantom: PhantomData,
+                timer,
+                _ppi_ch1: ppi_ch1,
+                _ppi_ch2: ppi_ch2,
 
-                    rx: RingBuffer::new(rx_buffer),
-                    rx_state: RxState::Idle,
-                    rx_waker: WakerRegistration::new(),
+                rx: RingBuffer::new(rx_buffer),
+                rx_state: RxState::Idle,
+                rx_waker: WakerRegistration::new(),
 
-                    tx: RingBuffer::new(tx_buffer),
-                    tx_state: TxState::Idle,
-                    tx_waker: WakerRegistration::new(),
-                })
-            },
+                tx: RingBuffer::new(tx_buffer),
+                tx_state: TxState::Idle,
+                tx_waker: WakerRegistration::new(),
+            }),
         }
     }
 
