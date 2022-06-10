@@ -23,6 +23,11 @@ cfg_if::cfg_if! {
         mod arch;
         pub use arch::*;
     }
+    else if #[cfg(all(target_arch="xtensa", feature = "nightly"))] {
+        #[path="arch/xtensa.rs"]
+        mod arch;
+        pub use arch::*;
+    }
     else if #[cfg(feature="wasm")] {
         #[path="arch/wasm.rs"]
         mod arch;
