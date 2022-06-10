@@ -55,6 +55,9 @@ pub mod usb;
 #[cfg(any(otgfs, otghs))]
 pub mod usb_otg;
 
+#[cfg(iwdg)]
+pub mod wdg;
+
 #[cfg(feature = "subghz")]
 pub mod subghz;
 
