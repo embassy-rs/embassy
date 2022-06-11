@@ -1,7 +1,7 @@
 use crate::adc::{AdcPin, Instance};
 use crate::time::Hertz;
+use crate::Unborrow;
 use core::marker::PhantomData;
-use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use embedded_hal_02::blocking::delay::DelayUs;
 

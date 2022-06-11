@@ -13,15 +13,15 @@
 //!
 //! Please also see [crate::uarte] to understand when [BufferedUarte] should be used.
 
+use crate::interrupt::InterruptExt;
+use crate::Unborrow;
 use core::cmp::min;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
-use embassy::interrupt::InterruptExt;
-use embassy::util::Unborrow;
 use embassy::waitqueue::WakerRegistration;
-use embassy_hal_common::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
+use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::ring_buffer::RingBuffer;
 use embassy_hal_common::{low_power_wait_until, unborrow};
 use futures::future::poll_fn;

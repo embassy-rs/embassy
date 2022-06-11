@@ -5,11 +5,11 @@
 pub(crate) mod fmt;
 
 pub mod drop;
-pub mod interrupt;
 mod macros;
-pub mod peripheral;
 pub mod ratio;
 pub mod ring_buffer;
+mod unborrow;
+pub use unborrow::Unborrow;
 
 /// Low power blocking wait loop using WFE/SEV.
 pub fn low_power_wait_until(mut condition: impl FnMut() -> bool) {

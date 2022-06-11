@@ -1,3 +1,4 @@
+use crate::interrupt::InterruptExt;
 use atomic_polyfill::{AtomicU32, AtomicU8};
 use core::cell::Cell;
 use core::convert::TryInto;
@@ -5,7 +6,6 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::{mem, ptr};
 use embassy::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy::blocking_mutex::Mutex;
-use embassy::interrupt::InterruptExt;
 use embassy::time::driver::{AlarmHandle, Driver};
 use embassy::time::TICKS_PER_SECOND;
 use stm32_metapac::timer::regs;

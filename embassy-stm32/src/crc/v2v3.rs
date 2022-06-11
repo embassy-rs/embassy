@@ -4,7 +4,7 @@ use crate::pac::crc::vals;
 use crate::pac::CRC as PAC_CRC;
 use crate::peripherals::CRC;
 use crate::rcc::sealed::RccPeripheral;
-use embassy::util::Unborrow;
+use crate::Unborrow;
 use embassy_hal_common::unborrow;
 
 pub struct Crc<'d> {

@@ -1,7 +1,7 @@
 #![macro_use]
+use crate::Unborrow;
 use core::convert::Infallible;
 use core::marker::PhantomData;
-use embassy::util::Unborrow;
 use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 
 use crate::pac;

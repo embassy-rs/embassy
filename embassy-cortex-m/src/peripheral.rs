@@ -1,9 +1,9 @@
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
-
 use cortex_m::peripheral::scb::VectActive;
 use cortex_m::peripheral::{NVIC, SCB};
-use embassy::interrupt::{Interrupt, InterruptExt};
+
+use crate::interrupt::{Interrupt, InterruptExt, Priority};
 
 /// A type which can be used as state with `PeripheralMutex`.
 ///
@@ -116,7 +116,7 @@ impl<'a, S: PeripheralState> PeripheralMutex<'a, S> {
     }
 
     /// Gets the priority of the wrapped interrupt.
-    pub fn priority(&self) -> <S::Interrupt as Interrupt>::Priority {
+    pub fn priority(&self) -> Priority {
         self.irq.get_priority()
     }
 }

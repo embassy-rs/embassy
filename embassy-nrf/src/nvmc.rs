@@ -3,10 +3,10 @@
 use crate::pac;
 use crate::peripherals::NVMC;
 
+use crate::Unborrow;
 use core::marker::PhantomData;
 use core::ptr;
 use core::slice;
-use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 use embedded_storage::nor_flash::{
     ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,

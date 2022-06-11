@@ -1,6 +1,6 @@
 use crate::peripherals::FLASH;
+use crate::Unborrow;
 use core::marker::PhantomData;
-use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 use embedded_storage::nor_flash::{

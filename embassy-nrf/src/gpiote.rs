@@ -1,8 +1,8 @@
+use crate::interrupt::{Interrupt, InterruptExt};
 use core::convert::Infallible;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::task::{Context, Poll};
-use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unsafe_impl_unborrow;
 use futures::future::poll_fn;

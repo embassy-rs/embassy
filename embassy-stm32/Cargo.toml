@@ -34,6 +34,7 @@ flavors = [
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy" }
+embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-4"]}
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["stm32"] }
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-net = { version = "0.1.0", path = "../embassy-net", optional = true }

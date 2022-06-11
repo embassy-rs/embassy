@@ -6,14 +6,14 @@
 //!
 //! - nRF52832: Section 33
 //! - nRF52840: Section 6.31
+use crate::interrupt::{Interrupt, InterruptExt};
+use crate::Unborrow;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering::SeqCst};
 use core::task::Poll;
-use embassy::interrupt::{Interrupt, InterruptExt};
 #[cfg(feature = "time")]
 use embassy::time::{Duration, Instant};
-use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;

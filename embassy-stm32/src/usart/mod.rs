@@ -1,8 +1,8 @@
 #![macro_use]
 
+use crate::interrupt::Interrupt;
+use crate::Unborrow;
 use core::marker::PhantomData;
-use embassy::interrupt::Interrupt;
-use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 use crate::dma::NoDma;

@@ -1,8 +1,8 @@
 #![macro_use]
 
+use crate::Unborrow;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
-use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 use crate::gpio::sealed::Pin as _;

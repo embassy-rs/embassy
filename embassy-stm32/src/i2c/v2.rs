@@ -2,9 +2,9 @@ use core::cmp;
 use core::marker::PhantomData;
 use core::task::Poll;
 
+use crate::interrupt::InterruptExt;
+use crate::Unborrow;
 use atomic_polyfill::{AtomicUsize, Ordering};
-use embassy::interrupt::InterruptExt;
-use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;

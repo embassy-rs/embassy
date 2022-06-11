@@ -1,3 +1,5 @@
+use stm32_metapac::PWR;
+
 use crate::pac::rcc::vals::{Hpre, Msirange, Pllsrc, Ppre, Sw};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
@@ -295,6 +297,8 @@ impl Default for Config {
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    PWR.cr1()
+        .modify(|w| w.set_vos(stm32_metapac::pwr::vals::Vos::RANGE0));
     let (sys_clk, sw) = match config.mux {
         ClockSrc::MSI(range) => {
             // Enable MSI

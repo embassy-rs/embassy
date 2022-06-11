@@ -1,7 +1,7 @@
 use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
-use embassy::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::{Interrupt, InterruptExt};
 use embassy::waitqueue::AtomicWaker;
 
 use crate::_generated::DMA_CHANNEL_COUNT;

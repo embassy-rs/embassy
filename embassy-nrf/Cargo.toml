@@ -66,6 +66,7 @@ _gpio-p1 = []
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../embassy" }
+embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-3"]}
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["nrf"]}
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-usb = {version = "0.1.0", path = "../embassy-usb", optional=true }

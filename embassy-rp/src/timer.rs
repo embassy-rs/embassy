@@ -1,9 +1,9 @@
+use crate::interrupt::{Interrupt, InterruptExt};
 use atomic_polyfill::{AtomicU8, Ordering};
 use core::cell::Cell;
 use critical_section::CriticalSection;
 use embassy::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy::blocking_mutex::Mutex;
-use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::time::driver::{AlarmHandle, Driver};
 
 use crate::{interrupt, pac};

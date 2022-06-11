@@ -1,10 +1,10 @@
 #![macro_use]
 
+use crate::interrupt::{Interrupt, InterruptExt};
+use crate::Unborrow;
 use core::marker::PhantomData;
 use core::ptr;
 use core::task::Poll;
-use embassy::interrupt::{Interrupt, InterruptExt};
-use embassy::util::Unborrow;
 use embassy_hal_common::drop::DropBomb;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;

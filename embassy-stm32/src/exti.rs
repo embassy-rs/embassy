@@ -1,8 +1,8 @@
+use crate::Unborrow;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unsafe_impl_unborrow;
 
@@ -366,8 +366,8 @@ macro_rules! enable_irq {
 
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
-    use embassy::interrupt::Interrupt;
-    use embassy::interrupt::InterruptExt;
+    use crate::interrupt::Interrupt;
+    use crate::interrupt::InterruptExt;
 
     foreach_exti_irq!(enable_irq);
 

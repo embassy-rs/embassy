@@ -329,7 +329,7 @@ impl_ppi_channel!(PPI_CH31, 31 => configurable);
 
 pub mod irqs {
     use crate::pac::Interrupt as InterruptEnum;
-    use embassy_macros::interrupt_declare as declare;
+    use embassy_macros::cortex_m_interrupt_declare as declare;
 
     declare!(CLOCK_POWER);
     declare!(RADIO);

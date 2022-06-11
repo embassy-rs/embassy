@@ -16,7 +16,7 @@ macro_rules! peripherals {
                 }
 
                 $(#[$cfg])?
-                unsafe impl embassy::util::Unborrow for $name {
+                unsafe impl $crate::Unborrow for $name {
                     type Target = $name;
                     #[inline]
                     unsafe fn unborrow(self) -> $name {
@@ -80,7 +80,7 @@ macro_rules! unborrow {
 #[macro_export]
 macro_rules! unsafe_impl_unborrow {
     ($type:ident) => {
-        unsafe impl ::embassy::util::Unborrow for $type {
+        unsafe impl $crate::Unborrow for $type {
             type Target = $type;
             #[inline]
             unsafe fn unborrow(self) -> Self::Target {

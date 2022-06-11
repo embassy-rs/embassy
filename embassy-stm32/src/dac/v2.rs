@@ -1,7 +1,7 @@
 use crate::dac::{DacPin, Instance};
 use crate::pac::dac;
+use crate::Unborrow;
 use core::marker::PhantomData;
-use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

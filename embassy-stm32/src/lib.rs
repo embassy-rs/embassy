@@ -4,14 +4,6 @@
     feature(generic_associated_types, type_alias_impl_trait)
 )]
 
-#[cfg(feature = "unstable-pac")]
-pub use stm32_metapac as pac;
-#[cfg(not(feature = "unstable-pac"))]
-pub(crate) use stm32_metapac as pac;
-
-pub use embassy::util::Unborrow;
-pub use embassy_hal_common::unborrow;
-
 // This must go FIRST so that all the other modules see its macros.
 pub mod fmt;
 include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
@@ -79,8 +71,17 @@ pub(crate) mod _generated {
 
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
+
+// Reexports
 pub use _generated::{peripherals, Peripherals};
-pub use embassy_macros::interrupt;
+pub use embassy_cortex_m::executor;
+pub use embassy_hal_common::{unborrow, Unborrow};
+pub use embassy_macros::cortex_m_interrupt as interrupt;
+
+#[cfg(feature = "unstable-pac")]
+pub use stm32_metapac as pac;
+#[cfg(not(feature = "unstable-pac"))]
+pub(crate) use stm32_metapac as pac;
 
 #[non_exhaustive]
 pub struct Config {

@@ -1,49 +1,198 @@
+use atomic_polyfill::{compiler_fence, AtomicPtr, Ordering};
 use core::mem;
+use core::ptr;
+use cortex_m::peripheral::NVIC;
+use embassy_hal_common::Unborrow;
 
-macro_rules! prio {
-    ($name:ident, $mask:expr, ($($k:ident = $v:expr,)*)) => {
-        #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-        #[repr(u8)]
-        pub enum $name {
-            $($k = $v),*
-        }
+pub use embassy_macros::cortex_m_interrupt_take as take;
 
-        impl From<u8> for $name {
-            fn from(priority: u8) -> Self {
-                unsafe { mem::transmute(priority & $mask) }
-            }
-        }
-
-        impl From<$name> for u8 {
-            fn from(p: $name) -> Self {
-                p as u8
-            }
-        }
-    };
+/// Implementation detail, do not use outside embassy crates.
+#[doc(hidden)]
+pub struct Handler {
+    pub func: AtomicPtr<()>,
+    pub ctx: AtomicPtr<()>,
 }
 
-#[rustfmt::skip]
-prio!(Priority0, 0x00, (
-    P0 = 0x0,
-));
+impl Handler {
+    pub const fn new() -> Self {
+        Self {
+            func: AtomicPtr::new(ptr::null_mut()),
+            ctx: AtomicPtr::new(ptr::null_mut()),
+        }
+    }
+}
 
-#[rustfmt::skip]
-prio!(Priority1, 0x80, (
+#[derive(Clone, Copy)]
+pub(crate) struct NrWrap(pub(crate) u16);
+unsafe impl cortex_m::interrupt::InterruptNumber for NrWrap {
+    fn number(self) -> u16 {
+        self.0
+    }
+}
+
+pub unsafe trait Interrupt: Unborrow<Target = Self> {
+    fn number(&self) -> u16;
+    unsafe fn steal() -> Self;
+
+    /// Implementation detail, do not use outside embassy crates.
+    #[doc(hidden)]
+    unsafe fn __handler(&self) -> &'static Handler;
+}
+
+pub trait InterruptExt: Interrupt {
+    fn set_handler(&self, func: unsafe fn(*mut ()));
+    fn remove_handler(&self);
+    fn set_handler_context(&self, ctx: *mut ());
+    fn enable(&self);
+    fn disable(&self);
+    #[cfg(not(armv6m))]
+    fn is_active(&self) -> bool;
+    fn is_enabled(&self) -> bool;
+    fn is_pending(&self) -> bool;
+    fn pend(&self);
+    fn unpend(&self);
+    fn get_priority(&self) -> Priority;
+    fn set_priority(&self, prio: Priority);
+}
+
+impl<T: Interrupt + ?Sized> InterruptExt for T {
+    fn set_handler(&self, func: unsafe fn(*mut ())) {
+        compiler_fence(Ordering::SeqCst);
+        let handler = unsafe { self.__handler() };
+        handler.func.store(func as *mut (), Ordering::Relaxed);
+        compiler_fence(Ordering::SeqCst);
+    }
+
+    fn remove_handler(&self) {
+        compiler_fence(Ordering::SeqCst);
+        let handler = unsafe { self.__handler() };
+        handler.func.store(ptr::null_mut(), Ordering::Relaxed);
+        compiler_fence(Ordering::SeqCst);
+    }
+
+    fn set_handler_context(&self, ctx: *mut ()) {
+        let handler = unsafe { self.__handler() };
+        handler.ctx.store(ctx, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn enable(&self) {
+        compiler_fence(Ordering::SeqCst);
+        unsafe {
+            NVIC::unmask(NrWrap(self.number()));
+        }
+    }
+
+    #[inline]
+    fn disable(&self) {
+        NVIC::mask(NrWrap(self.number()));
+        compiler_fence(Ordering::SeqCst);
+    }
+
+    #[inline]
+    #[cfg(not(armv6m))]
+    fn is_active(&self) -> bool {
+        NVIC::is_active(NrWrap(self.number()))
+    }
+
+    #[inline]
+    fn is_enabled(&self) -> bool {
+        NVIC::is_enabled(NrWrap(self.number()))
+    }
+
+    #[inline]
+    fn is_pending(&self) -> bool {
+        NVIC::is_pending(NrWrap(self.number()))
+    }
+
+    #[inline]
+    fn pend(&self) {
+        NVIC::pend(NrWrap(self.number()))
+    }
+
+    #[inline]
+    fn unpend(&self) {
+        NVIC::unpend(NrWrap(self.number()))
+    }
+
+    #[inline]
+    fn get_priority(&self) -> Priority {
+        Priority::from(NVIC::get_priority(NrWrap(self.number())))
+    }
+
+    #[inline]
+    fn set_priority(&self, prio: Priority) {
+        unsafe {
+            let mut nvic: cortex_m::peripheral::NVIC = mem::transmute(());
+            nvic.set_priority(NrWrap(self.number()), prio.into())
+        }
+    }
+}
+
+impl From<u8> for Priority {
+    fn from(priority: u8) -> Self {
+        unsafe { mem::transmute(priority & PRIO_MASK) }
+    }
+}
+
+impl From<Priority> for u8 {
+    fn from(p: Priority) -> Self {
+        p as u8
+    }
+}
+
+#[cfg(feature = "prio-bits-0")]
+const PRIO_MASK: u8 = 0x00;
+#[cfg(feature = "prio-bits-1")]
+const PRIO_MASK: u8 = 0x80;
+#[cfg(feature = "prio-bits-2")]
+const PRIO_MASK: u8 = 0xc0;
+#[cfg(feature = "prio-bits-3")]
+const PRIO_MASK: u8 = 0xe0;
+#[cfg(feature = "prio-bits-4")]
+const PRIO_MASK: u8 = 0xf0;
+#[cfg(feature = "prio-bits-5")]
+const PRIO_MASK: u8 = 0xf8;
+#[cfg(feature = "prio-bits-6")]
+const PRIO_MASK: u8 = 0xfc;
+#[cfg(feature = "prio-bits-7")]
+const PRIO_MASK: u8 = 0xfe;
+#[cfg(feature = "prio-bits-8")]
+const PRIO_MASK: u8 = 0xff;
+
+#[cfg(feature = "prio-bits-0")]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum Priority {
+    P0 = 0x0,
+}
+
+#[cfg(feature = "prio-bits-1")]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum Priority {
     P0 = 0x0,
     P1 = 0x80,
-));
+}
 
-#[rustfmt::skip]
-prio!(Priority2, 0xc0, (
+#[cfg(feature = "prio-bits-2")]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum Priority {
     P0 = 0x0,
     P1 = 0x40,
     P2 = 0x80,
     P3 = 0xc0,
-));
+}
 
-#[rustfmt::skip]
-prio!(Priority3, 0xe0, (
+#[cfg(feature = "prio-bits-3")]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum Priority {
     P0 = 0x0,
     P1 = 0x20,
     P2 = 0x40,
@@ -52,10 +201,13 @@ prio!(Priority3, 0xe0, (
     P5 = 0xa0,
     P6 = 0xc0,
     P7 = 0xe0,
-));
+}
 
-#[rustfmt::skip]
-prio!(Priority4, 0xf0, (
+#[cfg(feature = "prio-bits-4")]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum Priority {
     P0 = 0x0,
     P1 = 0x10,
     P2 = 0x20,
@@ -72,10 +224,13 @@ prio!(Priority4, 0xf0, (
     P13 = 0xd0,
     P14 = 0xe0,
     P15 = 0xf0,
-));
+}
 
-#[rustfmt::skip]
-prio!(Priority5, 0xf8, (
+#[cfg(feature = "prio-bits-5")]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum Priority {
     P0 = 0x0,
     P1 = 0x8,
     P2 = 0x10,
@@ -108,10 +263,13 @@ prio!(Priority5, 0xf8, (
     P29 = 0xe8,
     P30 = 0xf0,
     P31 = 0xf8,
-));
+}
 
-#[rustfmt::skip]
-prio!(Priority6, 0xfc, (
+#[cfg(feature = "prio-bits-6")]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum Priority {
     P0 = 0x0,
     P1 = 0x4,
     P2 = 0x8,
@@ -176,10 +334,13 @@ prio!(Priority6, 0xfc, (
     P61 = 0xf4,
     P62 = 0xf8,
     P63 = 0xfc,
-));
+}
 
-#[rustfmt::skip]
-prio!(Priority7, 0xfe, (
+#[cfg(feature = "prio-bits-7")]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum Priority {
     P0 = 0x0,
     P1 = 0x2,
     P2 = 0x4,
@@ -308,10 +469,13 @@ prio!(Priority7, 0xfe, (
     P125 = 0xfa,
     P126 = 0xfc,
     P127 = 0xfe,
-));
+}
 
-#[rustfmt::skip]
-prio!(Priority8, 0xff, (
+#[cfg(feature = "prio-bits-8")]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum Priority {
     P0 = 0x0,
     P1 = 0x1,
     P2 = 0x2,
@@ -568,4 +732,4 @@ prio!(Priority8, 0xff, (
     P253 = 0xfd,
     P254 = 0xfe,
     P255 = 0xff,
-));
+}

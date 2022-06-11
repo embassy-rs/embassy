@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy::util::Unborrow;
+use crate::Unborrow;
 use embassy_hal_common::unborrow;
 use stm32_metapac::rcc::vals::{Mco1, Mco2};
 

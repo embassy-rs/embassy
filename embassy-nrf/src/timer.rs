@@ -3,9 +3,9 @@
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy::interrupt::Interrupt;
-use embassy::interrupt::InterruptExt;
-use embassy::util::Unborrow;
+use crate::interrupt::Interrupt;
+use crate::interrupt::InterruptExt;
+use crate::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
