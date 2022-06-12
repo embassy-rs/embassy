@@ -4,7 +4,7 @@
 
 use defmt::unwrap;
 use embassy::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy::channel::channel::Channel;
+use embassy::channel::mpmc::Channel;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};

@@ -8,7 +8,7 @@ use defmt_rtt as _;
 
 use panic_probe as _;
 
-use embassy::channel::Signal;
+use embassy::channel::signal::Signal;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 

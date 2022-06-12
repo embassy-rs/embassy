@@ -12,7 +12,7 @@
 
 use defmt::*;
 use embassy::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy::channel::channel::Channel;
+use embassy::channel::mpmc::Channel;
 use embassy::executor::Spawner;
 use embassy::time::{with_timeout, Duration, Timer};
 use embassy_stm32::exti::ExtiInput;

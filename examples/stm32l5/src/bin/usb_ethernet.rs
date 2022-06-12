@@ -8,7 +8,7 @@ use core::task::Waker;
 use defmt::*;
 use defmt_rtt as _; // global logger
 use embassy::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy::channel::Channel;
+use embassy::channel::mpmc::Channel;
 use embassy::executor::Spawner;
 use embassy::util::Forever;
 use embassy_net::tcp::TcpSocket;

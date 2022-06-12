@@ -388,7 +388,7 @@ where
     /// Establish a new bounded channel. For example, to create one with a NoopMutex:
     ///
     /// ```
-    /// use embassy::channel::channel::Channel;
+    /// use embassy::channel::mpmc::Channel;
     /// use embassy::blocking_mutex::raw::NoopRawMutex;
     ///
     /// // Declare a bounded channel of 3 u32s.
@@ -404,7 +404,7 @@ where
     /// Establish a new bounded channel. For example, to create one with a NoopMutex:
     ///
     /// ```
-    /// use embassy::channel::channel::Channel;
+    /// use embassy::channel::mpmc::Channel;
     /// use embassy::blocking_mutex::raw::NoopRawMutex;
     ///
     /// // Declare a bounded channel of 3 u32s.
