@@ -15,16 +15,13 @@ pub mod types;
 use embassy::util::{select, Either};
 use heapless::Vec;
 
-use crate::descriptor_reader::foreach_endpoint;
-use crate::driver::ControlPipe;
-
+pub use self::builder::{Builder, Config};
 use self::control::*;
 use self::descriptor::*;
 use self::driver::{Bus, Driver, Event};
 use self::types::*;
-
-pub use self::builder::Builder;
-pub use self::builder::Config;
+use crate::descriptor_reader::foreach_endpoint;
+use crate::driver::ControlPipe;
 
 /// The global state of the USB device.
 ///
@@ -418,10 +415,8 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     // Enable all endpoints of selected alt settings.
                     foreach_endpoint(self.config_descriptor, |ep| {
                         let iface = &self.interfaces[ep.interface as usize];
-                        self.bus.endpoint_set_enabled(
-                            ep.ep_address,
-                            iface.current_alt_setting == ep.interface_alt,
-                        );
+                        self.bus
+                            .endpoint_set_enabled(ep.ep_address, iface.current_alt_setting == ep.interface_alt);
                     })
                     .unwrap();
 
@@ -474,10 +469,8 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         // Enable/disable EPs of this interface as needed.
                         foreach_endpoint(self.config_descriptor, |ep| {
                             if ep.interface == req.index as u8 {
-                                self.bus.endpoint_set_enabled(
-                                    ep.ep_address,
-                                    iface.current_alt_setting == ep.interface_alt,
-                                );
+                                self.bus
+                                    .endpoint_set_enabled(ep.ep_address, iface.current_alt_setting == ep.interface_alt);
                             }
                         })
                         .unwrap();

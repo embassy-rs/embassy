@@ -101,11 +101,9 @@ impl<const N: usize> TDesRing<N> {
         unsafe {
             let dma = ETH.ethernet_dma();
 
-            dma.dmactx_dlar()
-                .write(|w| w.0 = &self.td as *const _ as u32);
+            dma.dmactx_dlar().write(|w| w.0 = &self.td as *const _ as u32);
             dma.dmactx_rlr().write(|w| w.set_tdrl((N as u16) - 1));
-            dma.dmactx_dtpr()
-                .write(|w| w.0 = &self.td[0] as *const _ as u32);
+            dma.dmactx_dtpr().write(|w| w.0 = &self.td[0] as *const _ as u32);
         }
     }
 
@@ -127,8 +125,7 @@ impl<const N: usize> TDesRing<N> {
 
         // Read format
         td.tdes0.set(address);
-        td.tdes2
-            .set(pkt_len as u32 & EMAC_TDES2_B1L | EMAC_TDES2_IOC);
+        td.tdes2.set(pkt_len as u32 & EMAC_TDES2_B1L | EMAC_TDES2_IOC);
 
         // FD: Contains first buffer of packet
         // LD: Contains last buffer of packet
@@ -225,8 +222,7 @@ impl RDes {
     #[inline(always)]
     pub fn set_ready(&mut self, buf_addr: u32) {
         self.rdes0.set(buf_addr);
-        self.rdes3
-            .set(EMAC_RDES3_BUF1V | EMAC_RDES3_IOC | EMAC_DES3_OWN);
+        self.rdes3.set(EMAC_RDES3_BUF1V | EMAC_RDES3_IOC | EMAC_DES3_OWN);
     }
 }
 

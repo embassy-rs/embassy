@@ -1,5 +1,4 @@
 use crate::interrupt::Interrupt;
-
 use crate::rcc::RccPeripheral;
 
 #[cfg(feature = "nightly")]

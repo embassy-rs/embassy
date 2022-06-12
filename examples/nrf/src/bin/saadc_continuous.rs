@@ -8,9 +8,7 @@ use embassy::time::Duration;
 use embassy_nrf::saadc::{ChannelConfig, Config, Saadc, SamplerState};
 use embassy_nrf::timer::Frequency;
 use embassy_nrf::{interrupt, Peripherals};
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 // Demonstrates both continuous sampling and scanning multiple channels driven by a PPI linked timer
 

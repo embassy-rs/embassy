@@ -3,13 +3,12 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::{info, unwrap};
-use defmt_rtt as _; // global logger
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_stm32::flash::Flash;
 use embassy_stm32::Peripherals;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
@@ -39,8 +38,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     unwrap!(f.write(
         ADDR,
         &[
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-            25, 26, 27, 28, 29, 30, 31, 32
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+            30, 31, 32
         ]
     ));
 
@@ -51,8 +50,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     assert_eq!(
         &buf[..],
         &[
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-            25, 26, 27, 28, 29, 30, 31, 32
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+            30, 31, 32
         ]
     );
 }

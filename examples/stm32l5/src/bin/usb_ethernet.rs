@@ -5,29 +5,24 @@
 
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Waker;
+
 use defmt::*;
-use defmt_rtt as _; // global logger
 use embassy::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy::channel::mpmc::Channel;
 use embassy::executor::Spawner;
 use embassy::util::Forever;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{PacketBox, PacketBoxExt, PacketBuf, Stack, StackResources};
-use embassy_stm32::interrupt;
 use embassy_stm32::rcc::*;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{Config, Peripherals};
+use embassy_stm32::{interrupt, Config, Peripherals};
 use embassy_usb::{Builder, UsbDevice};
 use embassy_usb_ncm::{CdcNcmClass, Receiver, Sender, State};
-use panic_probe as _;
-
-use defmt_rtt as _;
 use embedded_io::asynch::{Read, Write};
-// global logger
-use panic_probe as _;
 use rand_core::RngCore;
+use {defmt_rtt as _, panic_probe as _};
 
 type MyDriver = Driver<'static, embassy_stm32::peripherals::USB>;
 
@@ -92,13 +87,7 @@ fn config() -> Config {
     let mut config = Config::default();
     config.rcc.mux = ClockSrc::HSE(Hertz(16_000_000));
 
-    config.rcc.mux = ClockSrc::PLL(
-        PLLSource::HSI16,
-        PLLClkDiv::Div2,
-        PLLSrcDiv::Div1,
-        PLLMul::Mul10,
-        None,
-    );
+    config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PLLClkDiv::Div2, PLLSrcDiv::Div1, PLLMul::Mul10, None);
     config.rcc.hsi48 = true;
 
     config
@@ -186,9 +175,7 @@ async fn main(spawner: Spawner, p: Peripherals) {
     let seed = rng.next_u64();
 
     // Init network stack
-    let device = Device {
-        mac_addr: our_mac_addr,
-    };
+    let device = Device { mac_addr: our_mac_addr };
     let stack = &*forever!(Stack::new(
         device,
         config,

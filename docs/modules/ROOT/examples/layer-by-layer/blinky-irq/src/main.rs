@@ -1,18 +1,15 @@
 #![no_std]
 #![no_main]
 
-use defmt_rtt as _;
-use panic_probe as _;
-
 use core::cell::RefCell;
+
 use cortex_m::interrupt::Mutex;
 use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
-use embassy_stm32::{
-    gpio::{Input, Level, Output, Pin, Pull, Speed},
-    interrupt, pac,
-    peripherals::{PB14, PC13},
-};
+use embassy_stm32::gpio::{Input, Level, Output, Pin, Pull, Speed};
+use embassy_stm32::peripherals::{PB14, PC13};
+use embassy_stm32::{interrupt, pac};
+use {defmt_rtt as _, panic_probe as _};
 
 static BUTTON: Mutex<RefCell<Option<Input<'static, PC13>>>> = Mutex::new(RefCell::new(None));
 static LED: Mutex<RefCell<Option<Output<'static, PB14>>>> = Mutex::new(RefCell::new(None));

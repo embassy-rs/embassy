@@ -2,14 +2,12 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt_rtt as _; // global logger
-use panic_probe as _;
-
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::Peripherals;
+use {defmt_rtt as _, panic_probe as _};
 
 fn config() -> embassy_stm32::Config {
     let mut config = embassy_stm32::Config::default();

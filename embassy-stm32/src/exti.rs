@@ -1,17 +1,15 @@
-use crate::Unborrow;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
+
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unsafe_impl_unborrow;
 
 use crate::gpio::{AnyPin, Input, Pin as GpioPin};
-use crate::interrupt;
-use crate::pac;
 use crate::pac::exti::regs::Lines;
 use crate::pac::EXTI;
-use crate::peripherals;
+use crate::{interrupt, pac, peripherals, Unborrow};
 
 const EXTI_COUNT: usize = 16;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
@@ -130,8 +128,9 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
 }
 
 mod eh02 {
-    use super::*;
     use core::convert::Infallible;
+
+    use super::*;
 
     impl<'d, T: GpioPin> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d, T> {
         type Error = Infallible;
@@ -148,8 +147,9 @@ mod eh02 {
 
 #[cfg(feature = "unstable-traits")]
 mod eh1 {
-    use super::*;
     use core::convert::Infallible;
+
+    use super::*;
 
     impl<'d, T: GpioPin> embedded_hal_1::digital::ErrorType for ExtiInput<'d, T> {
         type Error = Infallible;
@@ -212,9 +212,7 @@ impl<'a> ExtiInputFuture<'a> {
     fn new(pin: u8, port: u8, rising: bool, falling: bool) -> Self {
         critical_section::with(|_| unsafe {
             let pin = pin as usize;
-            exticr_regs()
-                .exticr(pin / 4)
-                .modify(|w| w.set_exti(pin % 4, port));
+            exticr_regs().exticr(pin / 4).modify(|w| w.set_exti(pin % 4, port));
             EXTI.rtsr(0).modify(|w| w.set_line(pin, rising));
             EXTI.ftsr(0).modify(|w| w.set_line(pin, falling));
 
@@ -366,8 +364,7 @@ macro_rules! enable_irq {
 
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
-    use crate::interrupt::Interrupt;
-    use crate::interrupt::InterruptExt;
+    use crate::interrupt::{Interrupt, InterruptExt};
 
     foreach_exti_irq!(enable_irq);
 

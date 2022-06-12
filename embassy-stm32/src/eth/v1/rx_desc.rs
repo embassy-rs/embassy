@@ -59,8 +59,7 @@ impl RDes {
         //
         // Contains first buffer of packet AND contains last buf of
         // packet AND no errors
-        (self.rdes0.get() & (RXDESC_0_ES | RXDESC_0_FS | RXDESC_0_LS))
-            == (RXDESC_0_FS | RXDESC_0_LS)
+        (self.rdes0.get() & (RXDESC_0_ES | RXDESC_0_FS | RXDESC_0_LS)) == (RXDESC_0_FS | RXDESC_0_LS)
     }
 
     /// Return true if this RDes is not currently owned by the DMA
@@ -72,8 +71,7 @@ impl RDes {
     /// Configures the reception buffer address and length and passed descriptor ownership to the DMA
     #[inline(always)]
     pub fn set_ready(&mut self, buf_addr: u32, buf_len: usize) {
-        self.rdes1
-            .set(self.rdes1.get() | (buf_len as u32) & RXDESC_1_RBS_MASK);
+        self.rdes1.set(self.rdes1.get() | (buf_len as u32) & RXDESC_1_RBS_MASK);
         self.rdes2.set(buf_addr);
 
         // "Preceding reads and writes cannot be moved past subsequent writes."
@@ -220,11 +218,7 @@ impl<const N: usize> RDesRing<N> {
         // We already have fences in `set_owned`, which is called in `setup`
 
         // Start receive
-        unsafe {
-            ETH.ethernet_dma()
-                .dmaomr()
-                .modify(|w| w.set_sr(DmaomrSr::STARTED))
-        };
+        unsafe { ETH.ethernet_dma().dmaomr().modify(|w| w.set_sr(DmaomrSr::STARTED)) };
 
         self.demand_poll();
     }

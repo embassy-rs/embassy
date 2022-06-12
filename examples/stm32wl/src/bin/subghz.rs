@@ -5,18 +5,15 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-use defmt_rtt as _; // global logger
-use panic_probe as _;
-
 use defmt::*;
 use embassy::channel::signal::Signal;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
-use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{Interrupt, InterruptExt};
 use embassy_stm32::subghz::*;
-use embassy_stm32::Peripherals;
+use embassy_stm32::{interrupt, Peripherals};
+use {defmt_rtt as _, panic_probe as _};
 
 const PING_DATA: &str = "PING";
 const DATA_LEN: u8 = PING_DATA.len() as u8;
@@ -46,20 +43,13 @@ const LORA_MOD_PARAMS: LoRaModParams = LoRaModParams::new()
 
 // configuration for +10 dBm output power
 // see table 35 "PA optimal setting and operating modes"
-const PA_CONFIG: PaConfig = PaConfig::new()
-    .set_pa_duty_cycle(0x1)
-    .set_hp_max(0x0)
-    .set_pa(PaSel::Lp);
+const PA_CONFIG: PaConfig = PaConfig::new().set_pa_duty_cycle(0x1).set_hp_max(0x0).set_pa(PaSel::Lp);
 
 const TCXO_MODE: TcxoMode = TcxoMode::new()
     .set_txco_trim(TcxoTrim::Volts1pt7)
-    .set_timeout(Timeout::from_duration_sat(
-        core::time::Duration::from_millis(10),
-    ));
+    .set_timeout(Timeout::from_duration_sat(core::time::Duration::from_millis(10)));
 
-const TX_PARAMS: TxParams = TxParams::new()
-    .set_power(0x0D)
-    .set_ramp_time(RampTime::Micros40);
+const TX_PARAMS: TxParams = TxParams::new().set_power(0x0D).set_ramp_time(RampTime::Micros40);
 
 fn config() -> embassy_stm32::Config {
     let mut config = embassy_stm32::Config::default();

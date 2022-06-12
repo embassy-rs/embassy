@@ -1,6 +1,6 @@
 use core::task::Waker;
-use smoltcp::phy::Device as SmolDevice;
-use smoltcp::phy::DeviceCapabilities;
+
+use smoltcp::phy::{Device as SmolDevice, DeviceCapabilities};
 use smoltcp::time::Instant as SmolInstant;
 
 use crate::packet_pool::PacketBoxExt;

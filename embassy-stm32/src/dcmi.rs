@@ -1,13 +1,14 @@
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use crate::interrupt::{Interrupt, InterruptExt};
-use crate::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
-use crate::gpio::{sealed::AFType, Speed};
+use crate::gpio::sealed::AFType;
+use crate::gpio::Speed;
+use crate::interrupt::{Interrupt, InterruptExt};
+use crate::Unborrow;
 
 /// The level on the VSync pin when the data is not valid on the parallel interface.
 #[derive(Clone, Copy, PartialEq)]
@@ -466,14 +467,7 @@ where
         let src = r.dr().ptr() as *mut u32;
 
         unsafe {
-            channel.start_double_buffered_read(
-                request,
-                src,
-                m0ar,
-                m1ar,
-                chunk_size,
-                TransferOptions::default(),
-            );
+            channel.start_double_buffered_read(request, src, m0ar, m1ar, chunk_size, TransferOptions::default());
         }
 
         let mut last_chunk_set_for_transfer = false;

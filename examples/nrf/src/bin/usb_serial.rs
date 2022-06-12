@@ -4,19 +4,16 @@
 #![feature(type_alias_impl_trait)]
 
 use core::mem;
+
 use defmt::{info, panic};
 use embassy::executor::Spawner;
-use embassy_nrf::interrupt;
-use embassy_nrf::pac;
 use embassy_nrf::usb::{Driver, Instance};
-use embassy_nrf::Peripherals;
+use embassy_nrf::{interrupt, pac, Peripherals};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 use embassy_usb_serial::{CdcAcmClass, State};
 use futures::future::join;
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
@@ -104,9 +101,7 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-async fn echo<'d, T: Instance + 'd>(
-    class: &mut CdcAcmClass<'d, Driver<'d, T>>,
-) -> Result<(), Disconnected> {
+async fn echo<'d, T: Instance + 'd>(class: &mut CdcAcmClass<'d, Driver<'d, T>>) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
         let n = class.read_packet(&mut buf).await?;

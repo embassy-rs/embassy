@@ -1,15 +1,15 @@
-use chiptool::generate::CommonModule;
-use chiptool::{generate, ir, transform};
-use proc_macro2::TokenStream;
-use regex::Regex;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Write as _};
 use std::fs;
 use std::fs::File;
 use std::io::Write;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
+
+use chiptool::generate::CommonModule;
+use chiptool::{generate, ir, transform};
+use proc_macro2::TokenStream;
+use regex::Regex;
 
 mod data;
 use data::*;
@@ -56,12 +56,7 @@ impl Gen {
 
         let mut peripheral_versions: BTreeMap<String, String> = BTreeMap::new();
 
-        let gpio_base = core
-            .peripherals
-            .iter()
-            .find(|p| p.name == "GPIOA")
-            .unwrap()
-            .address as u32;
+        let gpio_base = core.peripherals.iter().find(|p| p.name == "GPIOA").unwrap().address as u32;
         let gpio_stride = 0x400;
 
         for p in &core.peripherals {
@@ -75,9 +70,7 @@ impl Gen {
             };
 
             if let Some(bi) = &p.registers {
-                if let Some(old_version) =
-                    peripheral_versions.insert(bi.kind.clone(), bi.version.clone())
-                {
+                if let Some(old_version) = peripheral_versions.insert(bi.kind.clone(), bi.version.clone()) {
                     if old_version != bi.version {
                         panic!(
                             "Peripheral {} has multiple versions: {} and {}",
@@ -113,8 +106,7 @@ impl Gen {
         );
 
         for (module, version) in &peripheral_versions {
-            self.all_peripheral_versions
-                .insert((module.clone(), version.clone()));
+            self.all_peripheral_versions.insert((module.clone(), version.clone()));
             write!(
                 &mut extra,
                 "#[path=\"../../peripherals/{}_{}.rs\"] pub mod {};\n",
@@ -122,45 +114,15 @@ impl Gen {
             )
             .unwrap();
         }
-        write!(
-            &mut extra,
-            "pub const CORE_INDEX: usize = {};\n",
-            core_index
-        )
-        .unwrap();
+        write!(&mut extra, "pub const CORE_INDEX: usize = {};\n", core_index).unwrap();
 
         let flash = chip.memory.iter().find(|r| r.name == "BANK_1").unwrap();
-        write!(
-            &mut extra,
-            "pub const FLASH_BASE: usize = {};\n",
-            flash.address,
-        )
-        .unwrap();
-        write!(
-            &mut extra,
-            "pub const FLASH_SIZE: usize = {};\n",
-            flash.size,
-        )
-        .unwrap();
+        write!(&mut extra, "pub const FLASH_BASE: usize = {};\n", flash.address,).unwrap();
+        write!(&mut extra, "pub const FLASH_SIZE: usize = {};\n", flash.size,).unwrap();
         if let Some(settings) = &flash.settings {
-            write!(
-                &mut extra,
-                "pub const ERASE_SIZE: usize = {};\n",
-                settings.erase_size,
-            )
-            .unwrap();
-            write!(
-                &mut extra,
-                "pub const WRITE_SIZE: usize = {};\n",
-                settings.write_size,
-            )
-            .unwrap();
-            write!(
-                &mut extra,
-                "pub const ERASE_VALUE: u8 = {};\n",
-                settings.erase_value,
-            )
-            .unwrap();
+            write!(&mut extra, "pub const ERASE_SIZE: usize = {};\n", settings.erase_size,).unwrap();
+            write!(&mut extra, "pub const WRITE_SIZE: usize = {};\n", settings.write_size,).unwrap();
+            write!(&mut extra, "pub const ERASE_VALUE: u8 = {};\n", settings.erase_value,).unwrap();
         }
 
         // Cleanups!
@@ -260,11 +222,7 @@ impl Gen {
     }
 
     fn load_chip(&mut self, name: &str) -> Chip {
-        let chip_path = self
-            .opts
-            .data_dir
-            .join("chips")
-            .join(&format!("{}.json", name));
+        let chip_path = self.opts.data_dir.join("chips").join(&format!("{}.json", name));
         let chip = fs::read(chip_path).expect(&format!("Could not load chip {}", name));
         serde_yaml::from_slice(&chip).unwrap()
     }
@@ -313,9 +271,7 @@ impl Gen {
 
             let mut ir: ir::IR = serde_yaml::from_reader(File::open(regs_path).unwrap()).unwrap();
 
-            transform::expand_extends::ExpandExtends {}
-                .run(&mut ir)
-                .unwrap();
+            transform::expand_extends::ExpandExtends {}.run(&mut ir).unwrap();
 
             transform::map_names(&mut ir, |k, s| match k {
                 transform::NameKind::Block => *s = format!("{}", s),
@@ -378,9 +334,7 @@ impl Gen {
 }
 
 fn bytes_find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
+    haystack.windows(needle.len()).position(|window| window == needle)
 }
 
 fn stringify<T: Debug>(metadata: T) -> String {

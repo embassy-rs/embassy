@@ -1,9 +1,10 @@
-use crate::Unborrow;
 use core::marker::PhantomData;
+
 use embassy_hal_common::unborrow;
 
 use crate::gpio::sealed::AFType;
 use crate::gpio::{Pull, Speed};
+use crate::Unborrow;
 
 mod pins;
 pub use pins::*;

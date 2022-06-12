@@ -7,9 +7,7 @@ use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::saadc::{ChannelConfig, Config, Saadc};
 use embassy_nrf::{interrupt, Peripherals};
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, mut p: Peripherals) {

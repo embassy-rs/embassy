@@ -6,31 +6,22 @@
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_stm32::interrupt;
 use embassy_stm32::rcc::*;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{Config, Peripherals};
+use embassy_stm32::{interrupt, Config, Peripherals};
 use embassy_usb::control::OutResponse;
 use embassy_usb::Builder;
 use embassy_usb_hid::{HidWriter, ReportId, RequestHandler, State};
 use futures::future::join;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 fn config() -> Config {
     let mut config = Config::default();
     config.rcc.mux = ClockSrc::HSE(Hertz(16_000_000));
 
-    config.rcc.mux = ClockSrc::PLL(
-        PLLSource::HSI16,
-        PLLClkDiv::Div2,
-        PLLSrcDiv::Div1,
-        PLLMul::Mul10,
-        None,
-    );
+    config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PLLClkDiv::Div2, PLLSrcDiv::Div1, PLLMul::Mul10, None);
     config.rcc.hsi48 = true;
 
     config

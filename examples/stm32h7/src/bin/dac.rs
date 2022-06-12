@@ -2,14 +2,12 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt_rtt as _; // global logger
-use panic_probe as _;
-
 use cortex_m_rt::entry;
 use defmt::*;
 use embassy_stm32::dac::{Channel, Dac, Value};
 use embassy_stm32::time::U32Ext;
 use embassy_stm32::Config;
+use {defmt_rtt as _, panic_probe as _};
 
 pub fn config() -> Config {
     let mut config = Config::default();

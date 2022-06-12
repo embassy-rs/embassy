@@ -1,11 +1,12 @@
-use crate::interrupt::{Interrupt, InterruptExt};
-use atomic_polyfill::{AtomicU8, Ordering};
 use core::cell::Cell;
+
+use atomic_polyfill::{AtomicU8, Ordering};
 use critical_section::CriticalSection;
 use embassy::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy::blocking_mutex::Mutex;
 use embassy::time::driver::{AlarmHandle, Driver};
 
+use crate::interrupt::{Interrupt, InterruptExt};
 use crate::{interrupt, pac};
 
 struct AlarmState {
@@ -45,15 +46,13 @@ impl Driver for TimerDriver {
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        let id = self
-            .next_alarm
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-                if x < ALARM_COUNT as u8 {
-                    Some(x + 1)
-                } else {
-                    None
-                }
-            });
+        let id = self.next_alarm.fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
+            if x < ALARM_COUNT as u8 {
+                Some(x + 1)
+            } else {
+                None
+            }
+        });
 
         match id {
             Ok(id) => Some(AlarmHandle::new(id)),

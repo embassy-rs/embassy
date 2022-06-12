@@ -1,15 +1,13 @@
 use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
-use crate::interrupt::{Interrupt, InterruptExt};
 use embassy::waitqueue::AtomicWaker;
 
-use crate::_generated::GPDMA_CHANNEL_COUNT;
-use crate::interrupt;
-use crate::pac;
-use crate::pac::gpdma::{vals, Gpdma};
-
 use super::{Request, TransferOptions, Word, WordSize};
+use crate::_generated::GPDMA_CHANNEL_COUNT;
+use crate::interrupt::{Interrupt, InterruptExt};
+use crate::pac::gpdma::{vals, Gpdma};
+use crate::{interrupt, pac};
 
 impl From<WordSize> for vals::ChTr1Dw {
     fn from(raw: WordSize) -> Self {

@@ -3,13 +3,13 @@
 #![feature(type_alias_impl_trait)]
 
 use core::cell::RefCell;
+
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::Delay;
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::spi;
 use embassy_rp::spi::Spi;
-use embassy_rp::Peripherals;
+use embassy_rp::{spi, Peripherals};
 use embedded_graphics::image::{Image, ImageRawLE};
 use embedded_graphics::mono_font::ascii::FONT_10X20;
 use embedded_graphics::mono_font::MonoTextStyle;
@@ -18,13 +18,11 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyleBuilder, Rectangle};
 use embedded_graphics::text::Text;
 use st7789::{Orientation, ST7789};
+use {defmt_rtt as _, panic_probe as _};
 
 use crate::my_display_interface::SPIDeviceInterface;
 use crate::shared_spi::SpiDeviceWithCs;
 use crate::touch::Touch;
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
 
 //const DISPLAY_FREQ: u32 = 64_000_000;
 const TOUCH_FREQ: u32 = 200_000;
@@ -94,9 +92,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     loop {
         if let Some((x, y)) = touch.read() {
-            let style = PrimitiveStyleBuilder::new()
-                .fill_color(Rgb565::BLUE)
-                .build();
+            let style = PrimitiveStyleBuilder::new().fill_color(Rgb565::BLUE).build();
 
             Rectangle::new(Point::new(x - 1, y - 1), Size::new(3, 3))
                 .into_styled(style)

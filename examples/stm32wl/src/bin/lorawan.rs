@@ -5,20 +5,16 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-use defmt_rtt as _; // global logger
-use panic_probe as _;
-
-use embassy_lora::{stm32wl::*, LoraTimer};
-use embassy_stm32::{
-    dma::NoDma,
-    gpio::{Level, Output, Pin, Speed},
-    interrupt, pac,
-    rng::Rng,
-    subghz::*,
-    Peripherals,
-};
+use embassy_lora::stm32wl::*;
+use embassy_lora::LoraTimer;
+use embassy_stm32::dma::NoDma;
+use embassy_stm32::gpio::{Level, Output, Pin, Speed};
+use embassy_stm32::rng::Rng;
+use embassy_stm32::subghz::*;
+use embassy_stm32::{interrupt, pac, Peripherals};
 use lorawan::default_crypto::DefaultFactory as Crypto;
 use lorawan_device::async_device::{region, Device, JoinMode};
+use {defmt_rtt as _, panic_probe as _};
 
 fn config() -> embassy_stm32::Config {
     let mut config = embassy_stm32::Config::default();
@@ -43,8 +39,7 @@ async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
     let radio = unsafe { SubGhzRadio::new(&mut RADIO_STATE, radio, rfs, irq) };
 
     let region = region::EU868::default().into();
-    let mut device: Device<_, Crypto, _, _> =
-        Device::new(region, radio, LoraTimer, Rng::new(p.RNG));
+    let mut device: Device<_, Crypto, _, _> = Device::new(region, radio, LoraTimer, Rng::new(p.RNG));
 
     defmt::info!("Joining LoRaWAN network");
 

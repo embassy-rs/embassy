@@ -4,13 +4,10 @@
 
 use defmt::*;
 use embassy::executor::Spawner;
-use embassy_rp::spi;
 use embassy_rp::spi::Spi;
-use embassy_rp::{gpio, Peripherals};
+use embassy_rp::{gpio, spi, Peripherals};
 use gpio::{Level, Output};
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

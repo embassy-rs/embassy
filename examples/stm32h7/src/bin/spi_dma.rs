@@ -2,20 +2,18 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt_rtt as _; // global logger
-use panic_probe as _;
-
 use core::fmt::Write;
 use core::str::from_utf8;
+
 use cortex_m_rt::entry;
 use defmt::*;
 use embassy::executor::Executor;
 use embassy::util::Forever;
 use embassy_stm32::peripherals::{DMA1_CH3, DMA1_CH4, SPI3};
-use embassy_stm32::spi;
 use embassy_stm32::time::U32Ext;
-use embassy_stm32::Config;
+use embassy_stm32::{spi, Config};
 use heapless::String;
+use {defmt_rtt as _, panic_probe as _};
 
 pub fn config() -> Config {
     let mut config = Config::default();

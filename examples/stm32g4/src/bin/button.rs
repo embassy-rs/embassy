@@ -4,9 +4,8 @@
 
 use cortex_m_rt::entry;
 use defmt::*;
-use defmt_rtt as _; // global logger
 use embassy_stm32::gpio::{Input, Pull};
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[entry]
 fn main() -> ! {

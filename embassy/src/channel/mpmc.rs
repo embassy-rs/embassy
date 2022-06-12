@@ -20,8 +20,7 @@
 
 use core::cell::RefCell;
 use core::pin::Pin;
-use core::task::Context;
-use core::task::Poll;
+use core::task::{Context, Poll};
 
 use futures::Future;
 use heapless::Deque;
@@ -44,9 +43,7 @@ where
     M: RawMutex,
 {
     fn clone(&self) -> Self {
-        Sender {
-            channel: self.channel,
-        }
+        Sender { channel: self.channel }
     }
 }
 
@@ -77,9 +74,7 @@ pub struct DynamicSender<'ch, T> {
 
 impl<'ch, T> Clone for DynamicSender<'ch, T> {
     fn clone(&self) -> Self {
-        DynamicSender {
-            channel: self.channel,
-        }
+        DynamicSender { channel: self.channel }
     }
 }
 
@@ -125,9 +120,7 @@ where
     M: RawMutex,
 {
     fn clone(&self) -> Self {
-        Receiver {
-            channel: self.channel,
-        }
+        Receiver { channel: self.channel }
     }
 }
 
@@ -158,9 +151,7 @@ pub struct DynamicReceiver<'ch, T> {
 
 impl<'ch, T> Clone for DynamicReceiver<'ch, T> {
     fn clone(&self) -> Self {
-        DynamicReceiver {
-            channel: self.channel,
-        }
+        DynamicReceiver { channel: self.channel }
     }
 }
 
@@ -169,9 +160,7 @@ impl<'ch, T> DynamicReceiver<'ch, T> {
     ///
     /// See [`Channel::recv()`].
     pub fn recv(&self) -> DynamicRecvFuture<'_, T> {
-        DynamicRecvFuture {
-            channel: self.channel,
-        }
+        DynamicRecvFuture { channel: self.channel }
     }
 
     /// Attempt to immediately receive the next value.
@@ -282,11 +271,7 @@ impl<'ch, T> Future for DynamicSendFuture<'ch, T> {
 impl<'ch, T> Unpin for DynamicSendFuture<'ch, T> {}
 
 trait DynamicChannel<T> {
-    fn try_send_with_context(
-        &self,
-        message: T,
-        cx: Option<&mut Context<'_>>,
-    ) -> Result<(), TrySendError<T>>;
+    fn try_send_with_context(&self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>>;
 
     fn try_recv_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryRecvError>;
 }
@@ -346,11 +331,7 @@ impl<T, const N: usize> ChannelState<T, N> {
         self.try_send_with_context(message, None)
     }
 
-    fn try_send_with_context(
-        &mut self,
-        message: T,
-        cx: Option<&mut Context<'_>>,
-    ) -> Result<(), TrySendError<T>> {
+    fn try_send_with_context(&mut self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>> {
         match self.queue.push_back(message) {
             Ok(()) => {
                 self.receiver_waker.wake();
@@ -425,11 +406,7 @@ where
         self.lock(|c| c.try_recv_with_context(cx))
     }
 
-    fn try_send_with_context(
-        &self,
-        m: T,
-        cx: Option<&mut Context<'_>>,
-    ) -> Result<(), TrySendError<T>> {
+    fn try_send_with_context(&self, m: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>> {
         self.lock(|c| c.try_send_with_context(m, cx))
     }
 
@@ -491,11 +468,7 @@ impl<M, T, const N: usize> DynamicChannel<T> for Channel<M, T, N>
 where
     M: RawMutex,
 {
-    fn try_send_with_context(
-        &self,
-        m: T,
-        cx: Option<&mut Context<'_>>,
-    ) -> Result<(), TrySendError<T>> {
+    fn try_send_with_context(&self, m: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>> {
         Channel::try_send_with_context(self, m, cx)
     }
 
@@ -512,10 +485,9 @@ mod tests {
     use futures_executor::ThreadPool;
     use futures_timer::Delay;
 
+    use super::*;
     use crate::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
     use crate::util::Forever;
-
-    use super::*;
 
     fn capacity<T, const N: usize>(c: &ChannelState<T, N>) -> usize {
         c.queue.capacity() - c.queue.len()

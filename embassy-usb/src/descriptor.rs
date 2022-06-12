@@ -1,5 +1,6 @@
 use super::builder::Config;
-use super::{types::*, CONFIGURATION_VALUE};
+use super::types::*;
+use super::CONFIGURATION_VALUE;
 
 /// Standard descriptor types
 #[allow(missing_docs)]
@@ -113,11 +114,7 @@ impl<'a> DescriptorWriter<'a> {
                 CONFIGURATION_VALUE, // bConfigurationValue
                 0,                   // iConfiguration
                 0x80 | if config.self_powered { 0x40 } else { 0x00 }
-                    | if config.supports_remote_wakeup {
-                        0x20
-                    } else {
-                        0x00
-                    }, // bmAttributes
+                    | if config.supports_remote_wakeup { 0x20 } else { 0x00 }, // bmAttributes
                 (config.max_power / 2) as u8, // bMaxPower
             ],
         )

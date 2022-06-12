@@ -5,9 +5,11 @@ pub(crate) mod fmt;
 
 use core::intrinsics::copy_nonoverlapping;
 use core::mem::{size_of, MaybeUninit};
+
 use embassy_usb::control::{self, ControlHandler, InResponse, OutResponse, Request};
-use embassy_usb::driver::{Endpoint, EndpointError, EndpointIn, EndpointOut};
-use embassy_usb::{driver::Driver, types::*, Builder};
+use embassy_usb::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
+use embassy_usb::types::*;
+use embassy_usb::Builder;
 
 /// This should be used as `device_class` when building the `UsbDevice`.
 pub const USB_CLASS_CDC: u8 = 0x02;
@@ -358,9 +360,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
             // First packet is not full, just send it.
             // No need to send ZLP because it's short for sure.
             buf[OUT_HEADER_LEN..][..data.len()].copy_from_slice(data);
-            self.write_ep
-                .write(&buf[..OUT_HEADER_LEN + data.len()])
-                .await?;
+            self.write_ep.write(&buf[..OUT_HEADER_LEN + data.len()]).await?;
         } else {
             let (d1, d2) = data.split_at(MAX_PACKET_SIZE - OUT_HEADER_LEN);
 

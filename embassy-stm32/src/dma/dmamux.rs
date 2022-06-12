@@ -1,13 +1,8 @@
 #![macro_use]
 
-use crate::pac;
-use crate::peripherals;
+use crate::{pac, peripherals};
 
-pub(crate) unsafe fn configure_dmamux(
-    dmamux_regs: pac::dmamux::Dmamux,
-    dmamux_ch_num: u8,
-    request: u8,
-) {
+pub(crate) unsafe fn configure_dmamux(dmamux_regs: pac::dmamux::Dmamux, dmamux_ch_num: u8, request: u8) {
     let ch_mux_regs = dmamux_regs.ccr(dmamux_ch_num as _);
     ch_mux_regs.write(|reg| {
         reg.set_nbreq(0);

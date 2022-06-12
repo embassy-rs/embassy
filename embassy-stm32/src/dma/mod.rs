@@ -7,17 +7,17 @@ mod dmamux;
 #[cfg(gpdma)]
 mod gpdma;
 
-#[cfg(dmamux)]
-pub use dmamux::*;
-
-use crate::Unborrow;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
-use core::task::Waker;
-use core::task::{Context, Poll};
+use core::task::{Context, Poll, Waker};
+
+#[cfg(dmamux)]
+pub use dmamux::*;
 use embassy_hal_common::unborrow;
+
+use crate::Unborrow;
 
 #[cfg(feature = "unstable-pac")]
 pub mod low_level {
@@ -249,15 +249,7 @@ mod transfers {
     ) -> impl Future<Output = ()> + 'a {
         unborrow!(channel);
 
-        unsafe {
-            channel.start_write_repeated::<W>(
-                request,
-                repeated,
-                count,
-                reg_addr,
-                Default::default(),
-            )
-        };
+        unsafe { channel.start_write_repeated::<W>(request, repeated, count, reg_addr, Default::default()) };
 
         Transfer::new(channel)
     }

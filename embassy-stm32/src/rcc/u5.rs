@@ -1,7 +1,8 @@
+use stm32_metapac::rcc::vals::{Hpre, Msirange, Msirgsel, Pllm, Pllsrc, Ppre, Sw};
+
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::{Hertz, U32Ext};
-use stm32_metapac::rcc::vals::{Hpre, Msirange, Msirgsel, Pllm, Pllsrc, Ppre, Sw};
 
 /// HSI16 speed
 pub const HSI16_FREQ: u32 = 16_000_000;

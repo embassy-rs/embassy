@@ -1,15 +1,13 @@
 use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
-use crate::interrupt::{Interrupt, InterruptExt};
 use embassy::waitqueue::AtomicWaker;
 
-use crate::_generated::DMA_CHANNEL_COUNT;
-use crate::interrupt;
-use crate::pac;
-use crate::pac::dma::{regs, vals};
-
 use super::{Burst, FlowControl, Request, TransferOptions, Word, WordSize};
+use crate::_generated::DMA_CHANNEL_COUNT;
+use crate::interrupt::{Interrupt, InterruptExt};
+use crate::pac::dma::{regs, vals};
+use crate::{interrupt, pac};
 
 impl From<WordSize> for vals::Size {
     fn from(raw: WordSize) -> Self {
@@ -407,10 +405,7 @@ mod low_level_api {
         let isr = dma.isr(channel_num / 4).read();
 
         if isr.teif(channel_num % 4) {
-            panic!(
-                "DMA: error on DMA@{:08x} channel {}",
-                dma.0 as u32, channel_num
-            );
+            panic!("DMA: error on DMA@{:08x} channel {}", dma.0 as u32, channel_num);
         }
 
         if isr.tcif(channel_num % 4) && cr.read().tcie() {
@@ -418,8 +413,7 @@ mod low_level_api {
                 cr.write(|_| ()); // Disable channel with the default value.
             } else {
                 // for double buffered mode, clear TCIF flag but do not stop the transfer
-                dma.ifcr(channel_num / 4)
-                    .write(|w| w.set_tcif(channel_num % 4, true));
+                dma.ifcr(channel_num / 4).write(|w| w.set_tcif(channel_num % 4, true));
             }
             STATE.channels[state_index].waker.wake();
         }

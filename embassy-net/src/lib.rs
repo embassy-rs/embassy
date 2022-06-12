@@ -18,11 +18,9 @@ pub mod tcp;
 
 // smoltcp reexports
 pub use smoltcp::phy::{DeviceCapabilities, Medium};
-pub use smoltcp::time::Duration as SmolDuration;
-pub use smoltcp::time::Instant as SmolInstant;
+pub use smoltcp::time::{Duration as SmolDuration, Instant as SmolInstant};
 #[cfg(feature = "medium-ethernet")]
 pub use smoltcp::wire::{EthernetAddress, HardwareAddress};
 pub use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
-
 #[cfg(feature = "proto-ipv6")]
 pub use smoltcp::wire::{Ipv6Address, Ipv6Cidr};

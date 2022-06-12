@@ -2,8 +2,9 @@
 
 pub mod raw;
 
-use self::raw::RawMutex;
 use core::cell::UnsafeCell;
+
+use self::raw::RawMutex;
 
 /// Any object implementing this trait guarantees exclusive access to the data contained
 /// within the mutex for the duration of the lock.

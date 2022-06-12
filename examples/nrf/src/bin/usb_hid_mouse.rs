@@ -4,21 +4,18 @@
 #![feature(type_alias_impl_trait)]
 
 use core::mem;
+
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_nrf::interrupt;
-use embassy_nrf::pac;
 use embassy_nrf::usb::Driver;
-use embassy_nrf::Peripherals;
+use embassy_nrf::{interrupt, pac, Peripherals};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config};
 use embassy_usb_hid::{HidWriter, ReportId, RequestHandler, State};
 use futures::future::join;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

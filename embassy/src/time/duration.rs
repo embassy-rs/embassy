@@ -65,30 +65,22 @@ impl Duration {
 
     /// Adds one Duration to another, returning a new Duration or None in the event of an overflow.
     pub fn checked_add(self, rhs: Duration) -> Option<Duration> {
-        self.ticks
-            .checked_add(rhs.ticks)
-            .map(|ticks| Duration { ticks })
+        self.ticks.checked_add(rhs.ticks).map(|ticks| Duration { ticks })
     }
 
     /// Subtracts one Duration to another, returning a new Duration or None in the event of an overflow.
     pub fn checked_sub(self, rhs: Duration) -> Option<Duration> {
-        self.ticks
-            .checked_sub(rhs.ticks)
-            .map(|ticks| Duration { ticks })
+        self.ticks.checked_sub(rhs.ticks).map(|ticks| Duration { ticks })
     }
 
     /// Multiplies one Duration by a scalar u32, returning a new Duration or None in the event of an overflow.
     pub fn checked_mul(self, rhs: u32) -> Option<Duration> {
-        self.ticks
-            .checked_mul(rhs as _)
-            .map(|ticks| Duration { ticks })
+        self.ticks.checked_mul(rhs as _).map(|ticks| Duration { ticks })
     }
 
     /// Divides one Duration a scalar u32, returning a new Duration or None in the event of an overflow.
     pub fn checked_div(self, rhs: u32) -> Option<Duration> {
-        self.ticks
-            .checked_div(rhs as _)
-            .map(|ticks| Duration { ticks })
+        self.ticks.checked_div(rhs as _).map(|ticks| Duration { ticks })
     }
 }
 
@@ -96,8 +88,7 @@ impl Add for Duration {
     type Output = Duration;
 
     fn add(self, rhs: Duration) -> Duration {
-        self.checked_add(rhs)
-            .expect("overflow when adding durations")
+        self.checked_add(rhs).expect("overflow when adding durations")
     }
 }
 
@@ -111,8 +102,7 @@ impl Sub for Duration {
     type Output = Duration;
 
     fn sub(self, rhs: Duration) -> Duration {
-        self.checked_sub(rhs)
-            .expect("overflow when subtracting durations")
+        self.checked_sub(rhs).expect("overflow when subtracting durations")
     }
 }
 

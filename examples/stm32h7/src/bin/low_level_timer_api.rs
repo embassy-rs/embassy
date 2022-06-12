@@ -3,8 +3,6 @@
 #![feature(type_alias_impl_trait)]
 
 use core::marker::PhantomData;
-use defmt_rtt as _; // global logger
-use panic_probe as _;
 
 use defmt::*;
 use embassy::executor::Spawner;
@@ -13,9 +11,8 @@ use embassy_stm32::gpio::low_level::AFType;
 use embassy_stm32::gpio::Speed;
 use embassy_stm32::pwm::*;
 use embassy_stm32::time::{Hertz, U32Ext};
-use embassy_stm32::unborrow;
-use embassy_stm32::Unborrow;
-use embassy_stm32::{Config, Peripherals};
+use embassy_stm32::{unborrow, Config, Peripherals, Unborrow};
+use {defmt_rtt as _, panic_probe as _};
 
 pub fn config() -> Config {
     let mut config = Config::default();
@@ -108,25 +105,18 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
 
     pub fn enable(&mut self, channel: Channel) {
         unsafe {
-            T::regs_gp32()
-                .ccer()
-                .modify(|w| w.set_cce(channel.raw(), true));
+            T::regs_gp32().ccer().modify(|w| w.set_cce(channel.raw(), true));
         }
     }
 
     pub fn disable(&mut self, channel: Channel) {
         unsafe {
-            T::regs_gp32()
-                .ccer()
-                .modify(|w| w.set_cce(channel.raw(), false));
+            T::regs_gp32().ccer().modify(|w| w.set_cce(channel.raw(), false));
         }
     }
 
     pub fn set_freq<F: Into<Hertz>>(&mut self, freq: F) {
-        <T as embassy_stm32::timer::low_level::GeneralPurpose32bitInstance>::set_frequency(
-            &mut self.inner,
-            freq,
-        );
+        <T as embassy_stm32::timer::low_level::GeneralPurpose32bitInstance>::set_frequency(&mut self.inner, freq);
     }
 
     pub fn get_max_duty(&self) -> u32 {
@@ -135,10 +125,6 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
 
     pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         defmt::assert!(duty < self.get_max_duty());
-        unsafe {
-            T::regs_gp32()
-                .ccr(channel.raw())
-                .modify(|w| w.set_ccr(duty))
-        }
+        unsafe { T::regs_gp32().ccr(channel.raw()).modify(|w| w.set_ccr(duty)) }
     }
 }

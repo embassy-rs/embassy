@@ -1,18 +1,17 @@
 //! Quadrature decoder interface
 
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, Pin as GpioPin};
-use crate::interrupt;
-use crate::pac;
-use crate::peripherals::QDEC;
-
-use crate::interrupt::InterruptExt;
-use crate::Unborrow;
 use core::marker::PhantomData;
 use core::task::Poll;
+
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
+
+use crate::gpio::sealed::Pin as _;
+use crate::gpio::{AnyPin, Pin as GpioPin};
+use crate::interrupt::InterruptExt;
+use crate::peripherals::QDEC;
+use crate::{interrupt, pac, Unborrow};
 
 /// Quadrature decoder
 pub struct Qdec<'d> {
@@ -63,14 +62,7 @@ impl<'d> Qdec<'d> {
         config: Config,
     ) -> Self {
         unborrow!(a, b, led);
-        Self::new_inner(
-            qdec,
-            irq,
-            a.degrade(),
-            b.degrade(),
-            Some(led.degrade()),
-            config,
-        )
+        Self::new_inner(qdec, irq, a.degrade(), b.degrade(), Some(led.degrade()), config)
     }
 
     fn new_inner(
@@ -139,9 +131,7 @@ impl<'d> Qdec<'d> {
         });
         irq.enable();
 
-        Self {
-            phantom: PhantomData,
-        }
+        Self { phantom: PhantomData }
     }
 
     /// Perform an asynchronous read of the decoder.

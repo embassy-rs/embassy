@@ -3,16 +3,15 @@
 #![feature(type_alias_impl_trait)]
 
 use core::fmt::Write;
+
+use cortex_m_rt::entry;
 use defmt::*;
-use defmt_rtt as _; // global logger
 use embassy::executor::Executor;
 use embassy::util::Forever;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
-use panic_probe as _;
-
-use cortex_m_rt::entry;
 use heapless::String;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::task]
 async fn main_task() {

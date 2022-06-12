@@ -1,6 +1,7 @@
-use atomic_polyfill::{AtomicPtr, Ordering};
 use core::ptr;
 use core::ptr::NonNull;
+
+use atomic_polyfill::{AtomicPtr, Ordering};
 use critical_section::CriticalSection;
 
 use super::TaskHeader;
@@ -63,10 +64,7 @@ impl RunQueue {
         while let Some(task) = NonNull::new(ptr) {
             // If the task re-enqueues itself, the `next` pointer will get overwritten.
             // Therefore, first read the next pointer, and only then process the task.
-            let next = unsafe { task.as_ref() }
-                .run_queue_item
-                .next
-                .load(Ordering::Relaxed);
+            let next = unsafe { task.as_ref() }.run_queue_item.next.load(Ordering::Relaxed);
 
             on_task(task);
 

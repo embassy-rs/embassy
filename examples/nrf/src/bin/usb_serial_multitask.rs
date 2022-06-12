@@ -4,19 +4,16 @@
 #![feature(type_alias_impl_trait)]
 
 use core::mem;
+
 use defmt::{info, panic, unwrap};
 use embassy::executor::Spawner;
 use embassy::util::Forever;
-use embassy_nrf::pac;
 use embassy_nrf::usb::Driver;
-use embassy_nrf::Peripherals;
-use embassy_nrf::{interrupt, peripherals};
+use embassy_nrf::{interrupt, pac, peripherals, Peripherals};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config, UsbDevice};
 use embassy_usb_serial::{CdcAcmClass, State};
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 type MyDriver = Driver<'static, peripherals::USBD>;
 

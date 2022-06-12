@@ -1,16 +1,16 @@
 #![macro_use]
 
-use crate::Unborrow;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
+
 use embassy_hal_common::unborrow;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Pin as GpioPin, PselBits};
 use crate::interrupt::Interrupt;
-use crate::pac;
 use crate::ppi::{Event, Task};
 use crate::util::slice_in_ram_or;
+use crate::{pac, Unborrow};
 
 /// SimplePwm is the traditional pwm interface you're probably used to, allowing
 /// to simply set a duty cycle across up to four channels.
@@ -68,14 +68,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         config: Config,
     ) -> Result<Self, Error> {
         unborrow!(ch0, ch1);
-        Self::new_inner(
-            pwm,
-            Some(ch0.degrade()),
-            Some(ch1.degrade()),
-            None,
-            None,
-            config,
-        )
+        Self::new_inner(pwm, Some(ch0.degrade()), Some(ch1.degrade()), None, None, config)
     }
 
     /// Create a new 3-channel PWM
@@ -171,10 +164,8 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             CounterMode::UpAndDown => w.updown().up_and_down(),
             CounterMode::Up => w.updown().up(),
         });
-        r.prescaler
-            .write(|w| w.prescaler().bits(config.prescaler as u8));
-        r.countertop
-            .write(|w| unsafe { w.countertop().bits(config.max_duty) });
+        r.prescaler.write(|w| w.prescaler().bits(config.prescaler as u8));
+        r.countertop.write(|w| unsafe { w.countertop().bits(config.max_duty) });
 
         Ok(Self {
             phantom: PhantomData,
@@ -391,9 +382,7 @@ impl<'d, 's, T: Instance> SingleSequencer<'d, 's, T> {
     pub fn start(&self, times: SingleSequenceMode) -> Result<(), Error> {
         let (start_seq, times) = match times {
             SingleSequenceMode::Times(n) if n == 1 => (StartSequence::One, SequenceMode::Loop(1)),
-            SingleSequenceMode::Times(n) if n & 1 == 1 => {
-                (StartSequence::One, SequenceMode::Loop((n / 2) + 1))
-            }
+            SingleSequenceMode::Times(n) if n & 1 == 1 => (StartSequence::One, SequenceMode::Loop((n / 2) + 1)),
             SingleSequenceMode::Times(n) => (StartSequence::Zero, SequenceMode::Loop(n / 2)),
             SingleSequenceMode::Infinite => (StartSequence::Zero, SequenceMode::Infinite),
         };
@@ -424,11 +413,7 @@ pub struct Sequencer<'d, 's, T: Instance> {
 impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
     /// Create a new double sequence. In the absence of sequence 1, sequence 0
     /// will be used twice in the one loop.
-    pub fn new(
-        pwm: &'s mut SequencePwm<'d, T>,
-        sequence0: Sequence<'s>,
-        sequence1: Option<Sequence<'s>>,
-    ) -> Self {
+    pub fn new(pwm: &'s mut SequencePwm<'d, T>, sequence0: Sequence<'s>, sequence1: Option<Sequence<'s>>) -> Self {
         Sequencer {
             _pwm: pwm,
             sequence0,
@@ -457,42 +442,26 @@ impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
 
         let r = T::regs();
 
-        r.seq0
-            .refresh
-            .write(|w| unsafe { w.bits(sequence0.config.refresh) });
-        r.seq0
-            .enddelay
-            .write(|w| unsafe { w.bits(sequence0.config.end_delay) });
-        r.seq0
-            .ptr
-            .write(|w| unsafe { w.bits(sequence0.words.as_ptr() as u32) });
-        r.seq0
-            .cnt
-            .write(|w| unsafe { w.bits(sequence0.words.len() as u32) });
+        r.seq0.refresh.write(|w| unsafe { w.bits(sequence0.config.refresh) });
+        r.seq0.enddelay.write(|w| unsafe { w.bits(sequence0.config.end_delay) });
+        r.seq0.ptr.write(|w| unsafe { w.bits(sequence0.words.as_ptr() as u32) });
+        r.seq0.cnt.write(|w| unsafe { w.bits(sequence0.words.len() as u32) });
 
-        r.seq1
-            .refresh
-            .write(|w| unsafe { w.bits(alt_sequence.config.refresh) });
+        r.seq1.refresh.write(|w| unsafe { w.bits(alt_sequence.config.refresh) });
         r.seq1
             .enddelay
             .write(|w| unsafe { w.bits(alt_sequence.config.end_delay) });
         r.seq1
             .ptr
             .write(|w| unsafe { w.bits(alt_sequence.words.as_ptr() as u32) });
-        r.seq1
-            .cnt
-            .write(|w| unsafe { w.bits(alt_sequence.words.len() as u32) });
+        r.seq1.cnt.write(|w| unsafe { w.bits(alt_sequence.words.len() as u32) });
 
         r.enable.write(|w| w.enable().enabled());
 
         // defensive before seqstart
         compiler_fence(Ordering::SeqCst);
 
-        let seqstart_index = if start_seq == StartSequence::One {
-            1
-        } else {
-            0
-        };
+        let seqstart_index = if start_seq == StartSequence::One { 1 } else { 0 };
 
         match times {
             // just the one time, no loop count
@@ -604,10 +573,7 @@ pub enum CounterMode {
 impl<'d, T: Instance> SimplePwm<'d, T> {
     /// Create a new 1-channel PWM
     #[allow(unused_unsafe)]
-    pub fn new_1ch(
-        pwm: impl Unborrow<Target = T> + 'd,
-        ch0: impl Unborrow<Target = impl GpioPin> + 'd,
-    ) -> Self {
+    pub fn new_1ch(pwm: impl Unborrow<Target = T> + 'd, ch0: impl Unborrow<Target = impl GpioPin> + 'd) -> Self {
         unborrow!(ch0);
         Self::new_inner(pwm, Some(ch0.degrade()), None, None, None)
     }
@@ -632,13 +598,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         ch2: impl Unborrow<Target = impl GpioPin> + 'd,
     ) -> Self {
         unborrow!(ch0, ch1, ch2);
-        Self::new_inner(
-            pwm,
-            Some(ch0.degrade()),
-            Some(ch1.degrade()),
-            Some(ch2.degrade()),
-            None,
-        )
+        Self::new_inner(pwm, Some(ch0.degrade()), Some(ch1.degrade()), Some(ch2.degrade()), None)
     }
 
     /// Create a new 4-channel PWM
@@ -709,9 +669,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         // Enable
         r.enable.write(|w| w.enable().enabled());
 
-        r.seq0
-            .ptr
-            .write(|w| unsafe { w.bits((&pwm.duty).as_ptr() as u32) });
+        r.seq0.ptr.write(|w| unsafe { w.bits((&pwm.duty).as_ptr() as u32) });
 
         r.seq0.cnt.write(|w| unsafe { w.bits(4) });
         r.seq0.refresh.write(|w| unsafe { w.bits(0) });
@@ -750,9 +708,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         self.duty[channel] = duty & 0x7FFF;
 
         // reload ptr in case self was moved
-        r.seq0
-            .ptr
-            .write(|w| unsafe { w.bits((&self.duty).as_ptr() as u32) });
+        r.seq0.ptr.write(|w| unsafe { w.bits((&self.duty).as_ptr() as u32) });
 
         // defensive before seqstart
         compiler_fence(Ordering::SeqCst);

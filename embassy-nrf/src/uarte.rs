@@ -13,27 +13,24 @@
 //! memory may be used given that buffers are passed in directly to its read and write
 //! methods.
 
-use crate::interrupt::InterruptExt;
-use crate::Unborrow;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
+
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
+// Re-export SVD variants to allow user to directly set values.
+pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
-use crate::interrupt::Interrupt;
-use crate::pac;
+use crate::interrupt::{Interrupt, InterruptExt};
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
-use crate::timer::Instance as TimerInstance;
-use crate::timer::{Frequency, Timer};
+use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::util::slice_in_ram_or;
-
-// Re-export SVD variants to allow user to directly set values.
-pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
+use crate::{pac, Unborrow};
 
 #[non_exhaustive]
 pub struct Config {
@@ -182,12 +179,8 @@ impl<'d, T: Instance> Uarte<'d, T> {
 
         Self {
             phantom: PhantomData,
-            tx: UarteTx {
-                phantom: PhantomData,
-            },
-            rx: UarteRx {
-                phantom: PhantomData,
-            },
+            tx: UarteTx { phantom: PhantomData },
+            rx: UarteRx { phantom: PhantomData },
         }
     }
 
@@ -893,9 +886,7 @@ mod eh02 {
         }
     }
 
-    impl<'d, U: Instance, T: TimerInstance> embedded_hal_02::blocking::serial::Write<u8>
-        for UarteWithIdle<'d, U, T>
-    {
+    impl<'d, U: Instance, T: TimerInstance> embedded_hal_02::blocking::serial::Write<u8> for UarteWithIdle<'d, U, T> {
         type Error = Error;
 
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
@@ -956,9 +947,7 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, U: Instance, T: TimerInstance> embedded_hal_1::serial::ErrorType
-        for UarteWithIdle<'d, U, T>
-    {
+    impl<'d, U: Instance, T: TimerInstance> embedded_hal_1::serial::ErrorType for UarteWithIdle<'d, U, T> {
         type Error = Error;
     }
 }

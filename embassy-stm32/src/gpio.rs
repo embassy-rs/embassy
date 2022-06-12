@@ -1,12 +1,11 @@
 #![macro_use]
-use crate::Unborrow;
 use core::convert::Infallible;
 use core::marker::PhantomData;
+
 use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 
-use crate::pac;
 use crate::pac::gpio::{self, vals};
-use crate::peripherals;
+use crate::{pac, peripherals, Unborrow};
 
 /// Pull setting for an input.
 #[derive(Debug, Eq, PartialEq)]
@@ -138,8 +137,7 @@ impl<'d, T: Pin> Drop for Input<'d, T> {
             #[cfg(gpio_v1)]
             {
                 let crlh = if n < 8 { 0 } else { 1 };
-                r.cr(crlh)
-                    .modify(|w| w.set_cnf_in(n % 8, vals::CnfIn::FLOATING));
+                r.cr(crlh).modify(|w| w.set_cnf_in(n % 8, vals::CnfIn::FLOATING));
             }
             #[cfg(gpio_v2)]
             r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
@@ -264,12 +262,7 @@ pub struct OutputOpenDrain<'d, T: Pin> {
 
 impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     #[inline]
-    pub fn new(
-        pin: impl Unborrow<Target = T> + 'd,
-        initial_output: Level,
-        speed: Speed,
-        pull: Pull,
-    ) -> Self {
+    pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level, speed: Speed, pull: Pull) -> Self {
         unborrow!(pin);
 
         match initial_output {
@@ -289,8 +282,7 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
                     Pull::None => {}
                 }
                 r.cr(crlh).modify(|w| w.set_mode(n % 8, speed.into()));
-                r.cr(crlh)
-                    .modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OPENDRAIN));
+                r.cr(crlh).modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OPENDRAIN));
             }
             #[cfg(gpio_v2)]
             {
@@ -480,18 +472,12 @@ pub(crate) mod sealed {
             block.afr(pin / 8).modify(|w| w.set_afr(pin % 8, af_num));
             match af_type {
                 AFType::Input => {}
-                AFType::OutputPushPull => {
-                    block.otyper().modify(|w| w.set_ot(pin, vals::Ot::PUSHPULL))
-                }
-                AFType::OutputOpenDrain => block
-                    .otyper()
-                    .modify(|w| w.set_ot(pin, vals::Ot::OPENDRAIN)),
+                AFType::OutputPushPull => block.otyper().modify(|w| w.set_ot(pin, vals::Ot::PUSHPULL)),
+                AFType::OutputOpenDrain => block.otyper().modify(|w| w.set_ot(pin, vals::Ot::OPENDRAIN)),
             }
             block.pupdr().modify(|w| w.set_pupdr(pin, pull.into()));
 
-            block
-                .moder()
-                .modify(|w| w.set_moder(pin, vals::Moder::ALTERNATE));
+            block.moder().modify(|w| w.set_moder(pin, vals::Moder::ALTERNATE));
         }
 
         #[inline]
@@ -507,9 +493,7 @@ pub(crate) mod sealed {
                 });
             }
             #[cfg(gpio_v2)]
-            block
-                .moder()
-                .modify(|w| w.set_moder(pin, vals::Moder::ANALOG));
+            block.moder().modify(|w| w.set_moder(pin, vals::Moder::ANALOG));
         }
 
         /// Set the pin as "disconnected", ie doing nothing and consuming the lowest
@@ -535,9 +519,7 @@ pub(crate) mod sealed {
             }
 
             #[cfg(gpio_v2)]
-            self.block()
-                .ospeedr()
-                .modify(|w| w.set_ospeedr(pin, speed.into()));
+            self.block().ospeedr().modify(|w| w.set_ospeedr(pin, speed.into()));
         }
     }
 }
@@ -623,10 +605,9 @@ pub(crate) unsafe fn init() {
 }
 
 mod eh02 {
+    use embedded_hal_02::digital::v2::{InputPin, OutputPin, StatefulOutputPin, ToggleableOutputPin};
+
     use super::*;
-    use embedded_hal_02::digital::v2::{
-        InputPin, OutputPin, StatefulOutputPin, ToggleableOutputPin,
-    };
 
     impl<'d, T: Pin> InputPin for Input<'d, T> {
         type Error = Infallible;
@@ -715,11 +696,10 @@ mod eh02 {
 
 #[cfg(feature = "unstable-traits")]
 mod eh1 {
-    use super::*;
-    use embedded_hal_1::digital::blocking::{
-        InputPin, OutputPin, StatefulOutputPin, ToggleableOutputPin,
-    };
+    use embedded_hal_1::digital::blocking::{InputPin, OutputPin, StatefulOutputPin, ToggleableOutputPin};
     use embedded_hal_1::digital::ErrorType;
+
+    use super::*;
 
     impl<'d, T: Pin> ErrorType for Input<'d, T> {
         type Error = Infallible;

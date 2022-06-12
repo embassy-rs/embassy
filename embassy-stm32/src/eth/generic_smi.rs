@@ -51,10 +51,7 @@ unsafe impl PHY for GenericSMI {
         Self::smi_write_ext(sm, PHY_REG_WUCSR, 0);
 
         // Enable auto-negotiation
-        sm.smi_write(
-            PHY_REG_BCR,
-            PHY_REG_BCR_AN | PHY_REG_BCR_ANRST | PHY_REG_BCR_100M,
-        );
+        sm.smi_write(PHY_REG_BCR, PHY_REG_BCR_AN | PHY_REG_BCR_ANRST | PHY_REG_BCR_100M);
     }
 
     fn poll_link<S: StationManagement>(sm: &mut S) -> bool {

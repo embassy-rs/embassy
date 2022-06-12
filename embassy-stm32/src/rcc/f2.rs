@@ -436,9 +436,7 @@ pub(crate) unsafe fn init(config: Config) {
     let pll_clocks = config.pll.clocks(pll_src_freq);
     assert!(Hertz(950_000) <= pll_clocks.in_freq && pll_clocks.in_freq <= Hertz(2_100_000));
     assert!(Hertz(192_000_000) <= pll_clocks.vco_freq && pll_clocks.vco_freq <= Hertz(432_000_000));
-    assert!(
-        Hertz(24_000_000) <= pll_clocks.main_freq && pll_clocks.main_freq <= Hertz(120_000_000)
-    );
+    assert!(Hertz(24_000_000) <= pll_clocks.main_freq && pll_clocks.main_freq <= Hertz(120_000_000));
     // USB actually requires == 48 MHz, but other PLL48 peripherals are fine with <= 48MHz
     assert!(pll_clocks.pll48_freq <= Hertz(48_000_000));
 

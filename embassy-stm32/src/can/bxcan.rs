@@ -1,13 +1,12 @@
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 
-use crate::Unborrow;
+pub use bxcan;
 use embassy_hal_common::unborrow;
 
 use crate::gpio::sealed::AFType;
-use crate::{peripherals, rcc::RccPeripheral};
-
-pub use bxcan;
+use crate::rcc::RccPeripheral;
+use crate::{peripherals, Unborrow};
 
 pub struct Can<'d, T: Instance + bxcan::Instance> {
     phantom: PhantomData<&'d mut T>,

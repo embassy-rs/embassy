@@ -1,8 +1,10 @@
+use core::marker::PhantomData;
+
+use embassy_hal_common::unborrow;
+
 use crate::dac::{DacPin, Instance};
 use crate::pac::dac;
 use crate::Unborrow;
-use core::marker::PhantomData;
-use embassy_hal_common::unborrow;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -93,23 +95,14 @@ pub struct Dac<'d, T: Instance> {
 
 macro_rules! enable {
     ($enable_reg:ident, $enable_field:ident, $reset_reg:ident, $reset_field:ident) => {
-        crate::pac::RCC
-            .$enable_reg()
-            .modify(|w| w.$enable_field(true));
-        crate::pac::RCC
-            .$reset_reg()
-            .modify(|w| w.$reset_field(true));
-        crate::pac::RCC
-            .$reset_reg()
-            .modify(|w| w.$reset_field(false));
+        crate::pac::RCC.$enable_reg().modify(|w| w.$enable_field(true));
+        crate::pac::RCC.$reset_reg().modify(|w| w.$reset_field(true));
+        crate::pac::RCC.$reset_reg().modify(|w| w.$reset_field(false));
     };
 }
 
 impl<'d, T: Instance> Dac<'d, T> {
-    pub fn new_1ch(
-        peri: impl Unborrow<Target = T> + 'd,
-        _ch1: impl Unborrow<Target = impl DacPin<T, 1>> + 'd,
-    ) -> Self {
+    pub fn new_1ch(peri: impl Unborrow<Target = T> + 'd, _ch1: impl Unborrow<Target = impl DacPin<T, 1>> + 'd) -> Self {
         unborrow!(peri);
         Self::new_inner(peri, 1)
     }

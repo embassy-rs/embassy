@@ -1,10 +1,12 @@
+use core::marker::PhantomData;
+
+use embassy_hal_common::unborrow;
+use embedded_hal_02::blocking::delay::DelayUs;
+
 use crate::adc::{AdcPin, Instance};
 use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::Unborrow;
-use core::marker::PhantomData;
-use embassy_hal_common::unborrow;
-use embedded_hal_02::blocking::delay::DelayUs;
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;

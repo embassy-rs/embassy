@@ -5,9 +5,9 @@
 
 // Re-exports
 pub use embassy_cortex_m::interrupt::*;
+use embassy_macros::cortex_m_interrupt_declare as declare;
 
 use crate::pac::Interrupt as InterruptEnum;
-use embassy_macros::cortex_m_interrupt_declare as declare;
 declare!(TIMER_IRQ_0);
 declare!(TIMER_IRQ_1);
 declare!(TIMER_IRQ_2);

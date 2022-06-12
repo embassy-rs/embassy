@@ -47,10 +47,7 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
                     id.mutability = None;
                 }
                 _ => {
-                    ctxt.error_spanned_by(
-                        arg,
-                        "pattern matching in task arguments is not yet supported",
-                    );
+                    ctxt.error_spanned_by(arg, "pattern matching in task arguments is not yet supported");
                 }
             },
         }

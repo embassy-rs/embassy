@@ -5,11 +5,8 @@
 use defmt::{info, unwrap};
 use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
-use embassy_nrf::Peripherals;
-use embassy_nrf::{interrupt, spim};
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use embassy_nrf::{interrupt, spim, Peripherals};
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

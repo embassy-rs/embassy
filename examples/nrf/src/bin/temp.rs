@@ -5,10 +5,9 @@
 use defmt::info;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_nrf::{interrupt, temp::Temp, Peripherals};
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use embassy_nrf::temp::Temp;
+use embassy_nrf::{interrupt, Peripherals};
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

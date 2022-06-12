@@ -15,11 +15,12 @@
 //! many tasks and events, but any single task or event can only be coupled with one channel.
 //!
 
-use crate::peripherals;
-use crate::Unborrow;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
+
 use embassy_hal_common::unsafe_impl_unborrow;
+
+use crate::{peripherals, Unborrow};
 
 #[cfg(feature = "_dppi")]
 mod dppi;

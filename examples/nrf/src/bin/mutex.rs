@@ -8,9 +8,7 @@ use embassy::executor::Spawner;
 use embassy::mutex::Mutex;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::Peripherals;
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 static MUTEX: Mutex<ThreadModeRawMutex, u32> = Mutex::new(0);
 

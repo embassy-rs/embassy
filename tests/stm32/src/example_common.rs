@@ -1,14 +1,12 @@
 #![macro_use]
 
-use defmt_rtt as _;
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+pub use defmt::*;
 #[allow(unused)]
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Config;
-use panic_probe as _;
-
-pub use defmt::*;
-
-use core::sync::atomic::{AtomicUsize, Ordering};
+use {defmt_rtt as _, panic_probe as _};
 
 defmt::timestamp! {"{=u64}", {
         static COUNT: AtomicUsize = AtomicUsize::new(0);

@@ -6,12 +6,9 @@
 
 use embassy_boot_nrf::FirmwareUpdater;
 use embassy_embedded_hal::adapter::BlockingAsync;
-use embassy_nrf::{
-    gpio::{Input, Pull},
-    gpio::{Level, Output, OutputDrive},
-    nvmc::Nvmc,
-    Peripherals,
-};
+use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::nvmc::Nvmc;
+use embassy_nrf::Peripherals;
 use panic_reset as _;
 
 static APP_B: &[u8] = include_bytes!("../../b.bin");
@@ -35,10 +32,7 @@ async fn main(_s: embassy::executor::Spawner, p: Peripherals) {
             for chunk in APP_B.chunks(4096) {
                 let mut buf: [u8; 4096] = [0; 4096];
                 buf[..chunk.len()].copy_from_slice(chunk);
-                updater
-                    .write_firmware(offset, &buf, &mut nvmc, 4096)
-                    .await
-                    .unwrap();
+                updater.write_firmware(offset, &buf, &mut nvmc, 4096).await.unwrap();
                 offset += chunk.len();
             }
             updater.update(&mut nvmc).await.unwrap();

@@ -1,9 +1,10 @@
-use crate::Unborrow;
 use core::marker::PhantomData;
+
 use embassy_hal_common::unborrow;
 
 use crate::gpio::sealed::AFType;
-use crate::{peripherals, rcc::RccPeripheral};
+use crate::rcc::RccPeripheral;
+use crate::{peripherals, Unborrow};
 
 macro_rules! config_ulpi_pins {
     ($($pin:ident),*) => {
@@ -76,8 +77,8 @@ impl<'d, T: Instance> UsbOtg<'d, T> {
         ulpi_d7: impl Unborrow<Target = impl UlpiD7Pin<T>> + 'd,
     ) -> Self {
         config_ulpi_pins!(
-            ulpi_clk, ulpi_dir, ulpi_nxt, ulpi_stp, ulpi_d0, ulpi_d1, ulpi_d2, ulpi_d3, ulpi_d4,
-            ulpi_d5, ulpi_d6, ulpi_d7
+            ulpi_clk, ulpi_dir, ulpi_nxt, ulpi_stp, ulpi_d0, ulpi_d1, ulpi_d2, ulpi_d3, ulpi_d4, ulpi_d5, ulpi_d6,
+            ulpi_d7
         );
 
         Self {

@@ -1,11 +1,11 @@
 use core::marker::PhantomData;
+
 use js_sys::Promise;
 use wasm_bindgen::prelude::*;
 
-use super::{
-    raw::{self, util::UninitCell},
-    Spawner,
-};
+use super::raw::util::UninitCell;
+use super::raw::{self};
+use super::Spawner;
 
 /// WASM executor, wasm_bindgen to schedule tasks on the JS event loop.
 pub struct Executor {

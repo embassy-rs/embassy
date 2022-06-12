@@ -1,17 +1,15 @@
 #![no_std]
 #![no_main]
 
-use defmt::*;
-use defmt_rtt as _; // global logger
-use panic_probe as _;
-
 use core::mem;
-use cortex_m_rt::entry;
 
+use cortex_m_rt::entry;
+use defmt::*;
 use embassy::executor::raw::TaskStorage;
 use embassy::executor::Executor;
 use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
+use {defmt_rtt as _, panic_probe as _};
 
 async fn run1() {
     loop {

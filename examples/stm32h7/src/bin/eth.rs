@@ -13,13 +13,10 @@ use embassy_stm32::eth::{Ethernet, State};
 use embassy_stm32::peripherals::ETH;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::U32Ext;
-use embassy_stm32::Config;
-use embassy_stm32::{interrupt, Peripherals};
+use embassy_stm32::{interrupt, Config, Peripherals};
 use embedded_io::asynch::Write;
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
 use rand_core::RngCore;
+use {defmt_rtt as _, panic_probe as _};
 
 macro_rules! forever {
     ($val:expr) => {{

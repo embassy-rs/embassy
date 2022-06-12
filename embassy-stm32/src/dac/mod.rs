@@ -3,8 +3,9 @@
 #[cfg_attr(dac_v1, path = "v1.rs")]
 #[cfg_attr(dac_v2, path = "v2.rs")]
 mod _version;
-use crate::peripherals;
 pub use _version::*;
+
+use crate::peripherals;
 
 pub(crate) mod sealed {
     pub trait Instance {

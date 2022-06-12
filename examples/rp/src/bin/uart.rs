@@ -4,9 +4,7 @@
 
 use embassy::executor::Spawner;
 use embassy_rp::{uart, Peripherals};
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

@@ -6,20 +6,16 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-use defmt_rtt as _; // global logger
-use panic_probe as _;
-
-use embassy_lora::{sx127x::*, LoraTimer};
-use embassy_stm32::{
-    exti::ExtiInput,
-    gpio::{Input, Level, Output, Pull, Speed},
-    rng::Rng,
-    spi,
-    time::U32Ext,
-    Peripherals,
-};
+use embassy_lora::sx127x::*;
+use embassy_lora::LoraTimer;
+use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::rng::Rng;
+use embassy_stm32::time::U32Ext;
+use embassy_stm32::{spi, Peripherals};
 use lorawan::default_crypto::DefaultFactory as Crypto;
 use lorawan_device::async_device::{region, Device, JoinMode};
+use {defmt_rtt as _, panic_probe as _};
 
 fn config() -> embassy_stm32::Config {
     let mut config = embassy_stm32::Config::default();
@@ -49,13 +45,10 @@ async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
     let ready = Input::new(p.PB4, Pull::Up);
     let ready_pin = ExtiInput::new(ready, p.EXTI4);
 
-    let radio = Sx127xRadio::new(spi, cs, reset, ready_pin, DummySwitch)
-        .await
-        .unwrap();
+    let radio = Sx127xRadio::new(spi, cs, reset, ready_pin, DummySwitch).await.unwrap();
 
     let region = region::EU868::default().into();
-    let mut device: Device<_, Crypto, _, _> =
-        Device::new(region, radio, LoraTimer, Rng::new(p.RNG));
+    let mut device: Device<_, Crypto, _, _> = Device::new(region, radio, LoraTimer, Rng::new(p.RNG));
 
     defmt::info!("Joining LoRaWAN network");
 

@@ -1,10 +1,9 @@
 #![allow(dead_code)]
 #![deny(unused_must_use)]
 
-use std::format;
-use std::{env, fs, path::PathBuf};
+use std::path::{Path, PathBuf};
+use std::{env, format, fs};
 
-use std::path::Path;
 use walkdir::WalkDir;
 use xshell::{cmd, Cmd};
 use yaml_rust::YamlLoader;
@@ -67,10 +66,7 @@ impl Realm {
 fn task_check(realm: Realm) -> Result<(), anyhow::Error> {
     let _e = xshell::pushenv("CI", "true");
 
-    let matrix_yaml = root_dir()
-        .join(".github")
-        .join("workflows")
-        .join("rust.yml");
+    let matrix_yaml = root_dir().join(".github").join("workflows").join("rust.yml");
 
     let matrix = YamlLoader::load_from_str(&*fs::read_to_string(matrix_yaml).unwrap()).unwrap();
 

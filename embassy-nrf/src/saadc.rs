@@ -1,29 +1,23 @@
 #![macro_use]
 
-use crate::interrupt::InterruptExt;
-use crate::Unborrow;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
+
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
-
-use crate::interrupt;
-use crate::ppi::{ConfigurableChannel, Event, Ppi, Task};
-use crate::timer::{Frequency, Instance as TimerInstance, Timer};
-use crate::{pac, peripherals};
-
 use pac::{saadc, SAADC};
-
+use saadc::ch::config::{GAIN_A, REFSEL_A, RESP_A, TACQ_A};
 // We treat the positive and negative channels with the same enum values to keep our type tidy and given they are the same
 pub(crate) use saadc::ch::pselp::PSELP_A as InputChannel;
+use saadc::oversample::OVERSAMPLE_A;
+use saadc::resolution::VAL_A;
 
-use saadc::{
-    ch::config::{GAIN_A, REFSEL_A, RESP_A, TACQ_A},
-    oversample::OVERSAMPLE_A,
-    resolution::VAL_A,
-};
+use crate::interrupt::InterruptExt;
+use crate::ppi::{ConfigurableChannel, Event, Ppi, Task};
+use crate::timer::{Frequency, Instance as TimerInstance, Timer};
+use crate::{interrupt, pac, peripherals, Unborrow};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -178,23 +172,17 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
         let r = unsafe { &*SAADC::ptr() };
 
-        let Config {
-            resolution,
-            oversample,
-        } = config;
+        let Config { resolution, oversample } = config;
 
         // Configure channels
         r.enable.write(|w| w.enable().enabled());
         r.resolution.write(|w| w.val().variant(resolution.into()));
-        r.oversample
-            .write(|w| w.oversample().variant(oversample.into()));
+        r.oversample.write(|w| w.oversample().variant(oversample.into()));
 
         for (i, cc) in channel_configs.iter().enumerate() {
             r.ch[i].pselp.write(|w| w.pselp().variant(cc.p_channel));
             if let Some(n_channel) = cc.n_channel {
-                r.ch[i]
-                    .pseln
-                    .write(|w| unsafe { w.pseln().bits(n_channel as u8) });
+                r.ch[i].pseln.write(|w| unsafe { w.pseln().bits(n_channel as u8) });
             }
             r.ch[i].config.write(|w| {
                 w.refsel().variant(cc.reference.into());
@@ -223,9 +211,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
         irq.unpend();
         irq.enable();
 
-        Self {
-            phantom: PhantomData,
-        }
+        Self { phantom: PhantomData }
     }
 
     fn on_interrupt(_ctx: *mut ()) {
@@ -285,12 +271,8 @@ impl<'d, const N: usize> Saadc<'d, N> {
         let r = Self::regs();
 
         // Set up the DMA
-        r.result
-            .ptr
-            .write(|w| unsafe { w.ptr().bits(buf.as_mut_ptr() as u32) });
-        r.result
-            .maxcnt
-            .write(|w| unsafe { w.maxcnt().bits(N as _) });
+        r.result.ptr.write(|w| unsafe { w.ptr().bits(buf.as_mut_ptr() as u32) });
+        r.result.maxcnt.write(|w| unsafe { w.maxcnt().bits(N as _) });
 
         // Reset and enable the end event
         r.events_end.reset();
@@ -353,11 +335,8 @@ impl<'d, const N: usize> Saadc<'d, N> {
         // We want the task start to effectively short with the last one ending so
         // we don't miss any samples. It'd be great for the SAADC to offer a SHORTS
         // register instead, but it doesn't, so we must use PPI.
-        let mut start_ppi = Ppi::new_one_to_one(
-            ppi_ch1,
-            Event::from_reg(&r.events_end),
-            Task::from_reg(&r.tasks_start),
-        );
+        let mut start_ppi =
+            Ppi::new_one_to_one(ppi_ch1, Event::from_reg(&r.events_end), Task::from_reg(&r.tasks_start));
         start_ppi.enable();
 
         let mut timer = Timer::new(timer);
@@ -365,11 +344,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
         timer.cc(0).write(sample_counter);
         timer.cc(0).short_compare_clear();
 
-        let mut sample_ppi = Ppi::new_one_to_one(
-            ppi_ch2,
-            timer.cc(0).event_compare(),
-            Task::from_reg(&r.tasks_sample),
-        );
+        let mut sample_ppi = Ppi::new_one_to_one(ppi_ch2, timer.cc(0).event_compare(), Task::from_reg(&r.tasks_sample));
 
         timer.start();
 
@@ -417,9 +392,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
         r.result
             .ptr
             .write(|w| unsafe { w.ptr().bits(bufs[0].as_mut_ptr() as u32) });
-        r.result
-            .maxcnt
-            .write(|w| unsafe { w.maxcnt().bits((N0 * N) as _) });
+        r.result.maxcnt.write(|w| unsafe { w.maxcnt().bits((N0 * N) as _) });
 
         // Reset and enable the events
         r.events_end.reset();
@@ -500,8 +473,7 @@ impl<'d> Saadc<'d, 1> {
     ) where
         S: FnMut(&[[i16; 1]]) -> SamplerState,
     {
-        self.run_sampler(bufs, Some(sample_rate_divisor), || {}, sampler)
-            .await;
+        self.run_sampler(bufs, Some(sample_rate_divisor), || {}, sampler).await;
     }
 }
 

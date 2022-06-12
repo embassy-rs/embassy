@@ -1,11 +1,12 @@
-use crate::Unborrow;
 use core::marker::PhantomData;
+
 use embassy_hal_common::unborrow;
 
 use super::*;
 #[allow(unused_imports)]
 use crate::gpio::sealed::{AFType, Pin};
 use crate::time::Hertz;
+use crate::Unborrow;
 
 pub struct SimplePwm<'d, T> {
     phantom: PhantomData<&'d mut T>,
@@ -74,11 +75,7 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         })
     }
 
-    fn new_inner<F: Into<Hertz>>(
-        tim: impl Unborrow<Target = T> + 'd,
-        freq: F,
-        configure_pins: impl FnOnce(),
-    ) -> Self {
+    fn new_inner<F: Into<Hertz>>(tim: impl Unborrow<Target = T> + 'd, freq: F, configure_pins: impl FnOnce()) -> Self {
         unborrow!(tim);
 
         T::enable();

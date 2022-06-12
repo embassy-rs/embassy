@@ -4,18 +4,15 @@
 #![feature(array_from_fn)]
 
 use core::future::pending;
+
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy_nrf::gpio::{Input, Pull};
 use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
 use embassy_nrf::ppi::Ppi;
-use embassy_nrf::pwm::{
-    Config, Prescaler, SequenceConfig, SequencePwm, SingleSequenceMode, SingleSequencer,
-};
+use embassy_nrf::pwm::{Config, Prescaler, SequenceConfig, SequencePwm, SingleSequenceMode, SingleSequencer};
 use embassy_nrf::Peripherals;
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

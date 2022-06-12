@@ -3,13 +3,13 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use defmt_rtt as _; // global logger
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_stm32::pwm::{simple_pwm::SimplePwm, Channel};
+use embassy_stm32::pwm::simple_pwm::SimplePwm;
+use embassy_stm32::pwm::Channel;
 use embassy_stm32::time::U32Ext;
 use embassy_stm32::Peripherals;
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

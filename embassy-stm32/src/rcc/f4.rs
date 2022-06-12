@@ -20,18 +20,12 @@ pub struct Config {
     pub pll48: bool,
 }
 
-unsafe fn setup_pll(
-    pllsrcclk: u32,
-    use_hse: bool,
-    pllsysclk: Option<u32>,
-    pll48clk: bool,
-) -> PllResults {
+unsafe fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, pll48clk: bool) -> PllResults {
     use crate::pac::rcc::vals::{Pllp, Pllsrc};
 
     let sysclk = pllsysclk.unwrap_or(pllsrcclk);
     if pllsysclk.is_none() && !pll48clk {
-        RCC.pllcfgr()
-            .modify(|w| w.set_pllsrc(Pllsrc(use_hse as u8)));
+        RCC.pllcfgr().modify(|w| w.set_pllsrc(Pllsrc(use_hse as u8)));
 
         return PllResults {
             use_pll: false,
@@ -47,11 +41,7 @@ unsafe fn setup_pll(
     // Sysclk output divisor must be one of 2, 4, 6 or 8
     let sysclk_div = core::cmp::min(8, (432_000_000 / sysclk) & !1);
 
-    let target_freq = if pll48clk {
-        48_000_000
-    } else {
-        sysclk * sysclk_div
-    };
+    let target_freq = if pll48clk { 48_000_000 } else { sysclk * sysclk_div };
 
     // Find the lowest pllm value that minimize the difference between
     // target frequency and the real vco_out frequency.
@@ -135,11 +125,7 @@ pub(crate) unsafe fn init(config: Config) {
         assert!((max::PLL_48_CLK as i32 - freq as i32).abs() <= max::PLL_48_TOLERANCE as i32);
     }
 
-    let sysclk = if sysclk_on_pll {
-        unwrap!(plls.pllsysclk)
-    } else {
-        sysclk
-    };
+    let sysclk = if sysclk_on_pll { unwrap!(plls.pllsysclk) } else { sysclk };
 
     // AHB prescaler
     let hclk = config.hclk.map(|h| h.0).unwrap_or(sysclk);
@@ -269,9 +255,7 @@ mod max {
     pub(crate) const SYSCLK_MAX: u32 = 168_000_000;
     #[cfg(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423,))]
     pub(crate) const SYSCLK_MAX: u32 = 100_000_000;
-    #[cfg(any(
-        stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479,
-    ))]
+    #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479,))]
     pub(crate) const SYSCLK_MAX: u32 = 180_000_000;
 
     pub(crate) const HCLK_OVERDRIVE_FREQUENCY: u32 = 168_000_000;

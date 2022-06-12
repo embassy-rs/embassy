@@ -4,13 +4,11 @@
 
 use defmt::*;
 use embassy::executor::Spawner;
-use embassy_nrf::buffered_uarte::State;
-use embassy_nrf::{buffered_uarte::BufferedUarte, interrupt, uarte, Peripherals};
+use embassy_nrf::buffered_uarte::{BufferedUarte, State};
+use embassy_nrf::{interrupt, uarte, Peripherals};
 use embedded_io::asynch::{BufRead, Write};
 use futures::pin_mut;
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

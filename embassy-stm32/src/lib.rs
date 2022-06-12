@@ -1,8 +1,5 @@
 #![no_std]
-#![cfg_attr(
-    feature = "nightly",
-    feature(generic_associated_types, type_alias_impl_trait)
-)]
+#![cfg_attr(feature = "nightly", feature(generic_associated_types, type_alias_impl_trait))]
 
 // This must go FIRST so that all the other modules see its macros.
 pub mod fmt;
@@ -42,9 +39,7 @@ pub mod i2c;
 
 #[cfg(crc)]
 pub mod crc;
-#[cfg(any(
-    flash_l0, flash_l1, flash_wl, flash_wb, flash_l4, flash_f3, flash_f7, flash_h7
-))]
+#[cfg(any(flash_l0, flash_l1, flash_wl, flash_wb, flash_l4, flash_f3, flash_f7, flash_h7))]
 pub mod flash;
 pub mod pwm;
 #[cfg(rng)]
@@ -77,7 +72,6 @@ pub use _generated::{peripherals, Peripherals};
 pub use embassy_cortex_m::executor;
 pub use embassy_hal_common::{unborrow, Unborrow};
 pub use embassy_macros::cortex_m_interrupt as interrupt;
-
 #[cfg(feature = "unstable-pac")]
 pub use stm32_metapac as pac;
 #[cfg(not(feature = "unstable-pac"))]
@@ -114,8 +108,8 @@ pub fn init(config: Config) -> Peripherals {
                     cr.set_dbg_standby(true);
                 }
                 #[cfg(any(
-                    dbgmcu_f1, dbgmcu_f2, dbgmcu_f3, dbgmcu_f4, dbgmcu_f7, dbgmcu_g4, dbgmcu_f7,
-                    dbgmcu_l0, dbgmcu_l1, dbgmcu_l4, dbgmcu_wb, dbgmcu_wl
+                    dbgmcu_f1, dbgmcu_f2, dbgmcu_f3, dbgmcu_f4, dbgmcu_f7, dbgmcu_g4, dbgmcu_f7, dbgmcu_l0, dbgmcu_l1,
+                    dbgmcu_l4, dbgmcu_wb, dbgmcu_wl
                 ))]
                 {
                     cr.set_dbg_sleep(true);

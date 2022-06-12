@@ -7,9 +7,7 @@ pub struct OnDrop<F: FnOnce()> {
 
 impl<F: FnOnce()> OnDrop<F> {
     pub fn new(f: F) -> Self {
-        Self {
-            f: MaybeUninit::new(f),
-        }
+        Self { f: MaybeUninit::new(f) }
     }
 
     pub fn defuse(self) {

@@ -1,11 +1,12 @@
-use crate::Unborrow;
 use core::marker::PhantomData;
+
 use embassy_hal_common::unborrow;
 
 use crate::gpio::sealed::AFType;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
 use crate::pac::i2c;
 use crate::time::Hertz;
+use crate::Unborrow;
 
 pub struct State {}
 
@@ -68,9 +69,7 @@ impl<'d, T: Instance> I2c<'d, T> {
             });
         }
 
-        Self {
-            phantom: PhantomData,
-        }
+        Self { phantom: PhantomData }
     }
 
     unsafe fn check_and_clear_error_flags(&self) -> Result<i2c::regs::Sr1, Error> {
@@ -249,12 +248,7 @@ impl<'d, T: Instance> I2c<'d, T> {
         Ok(())
     }
 
-    pub fn blocking_write_read(
-        &mut self,
-        addr: u8,
-        bytes: &[u8],
-        buffer: &mut [u8],
-    ) -> Result<(), Error> {
+    pub fn blocking_write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
         unsafe { self.write_bytes(addr, bytes)? };
         self.blocking_read(addr, buffer)?;
 

@@ -13,24 +13,24 @@ mod timer_queue;
 pub(crate) mod util;
 mod waker;
 
-use atomic_polyfill::{AtomicU32, Ordering};
 use core::cell::Cell;
 use core::future::Future;
 use core::pin::Pin;
 use core::ptr::NonNull;
 use core::task::{Context, Poll};
 use core::{mem, ptr};
+
+use atomic_polyfill::{AtomicU32, Ordering};
 use critical_section::CriticalSection;
 
 use self::run_queue::{RunQueue, RunQueueItem};
 use self::util::UninitCell;
+pub use self::waker::task_from_waker;
 use super::SpawnToken;
 #[cfg(feature = "time")]
 use crate::time::driver::{self, AlarmHandle};
 #[cfg(feature = "time")]
 use crate::time::Instant;
-
-pub use self::waker::task_from_waker;
 
 /// Task is spawned (has a future)
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
@@ -97,8 +97,7 @@ impl TaskHeader {
             }
 
             // Mark it as scheduled
-            self.state
-                .store(state | STATE_RUN_QUEUED, Ordering::Relaxed);
+            self.state.store(state | STATE_RUN_QUEUED, Ordering::Relaxed);
 
             // We have just marked the task as scheduled, so enqueue it.
             let executor = &*self.executor.get();

@@ -1,8 +1,7 @@
 use crate::pac::rcc::vals::{Hpre, Msirange, Pllsrc, Ppre, Sw};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
-use crate::time::Hertz;
-use crate::time::U32Ext;
+use crate::time::{Hertz, U32Ext};
 
 /// HSI16 speed
 pub const HSI16_FREQ: u32 = 16_000_000;

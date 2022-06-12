@@ -3,10 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use defmt_rtt as _; // global logger
-use panic_probe as _;
-
-use embassy_stm32 as _;
+use {defmt_rtt as _, embassy_stm32 as _, panic_probe as _};
 
 #[cortex_m_rt::entry]
 fn main() -> ! {

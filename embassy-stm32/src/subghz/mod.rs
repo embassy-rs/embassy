@@ -43,19 +43,20 @@ mod value_error;
 pub use bit_sync::BitSync;
 pub use cad_params::{CadParams, ExitMode, NbCadSymbol};
 pub use calibrate::{Calibrate, CalibrateImage};
+use embassy_hal_common::ratio::Ratio;
 pub use fallback_mode::FallbackMode;
 pub use hse_trim::HseTrim;
 pub use irq::{CfgIrq, Irq, IrqLine};
 pub use lora_sync_word::LoRaSyncWord;
-pub use mod_params::BpskModParams;
-pub use mod_params::{CodingRate, LoRaBandwidth, LoRaModParams, SpreadingFactor};
-pub use mod_params::{FskBandwidth, FskBitrate, FskFdev, FskModParams, FskPulseShape};
+pub use mod_params::{
+    BpskModParams, CodingRate, FskBandwidth, FskBitrate, FskFdev, FskModParams, FskPulseShape, LoRaBandwidth,
+    LoRaModParams, SpreadingFactor,
+};
 pub use ocp::Ocp;
 pub use op_error::OpError;
 pub use pa_config::{PaConfig, PaSel};
 pub use packet_params::{
-    AddrComp, BpskPacketParams, CrcType, GenericPacketParams, HeaderType, LoRaPacketParams,
-    PreambleDetection,
+    AddrComp, BpskPacketParams, CrcType, GenericPacketParams, HeaderType, LoRaPacketParams, PreambleDetection,
 };
 pub use packet_status::{FskPacketStatus, LoRaPacketStatus};
 pub use packet_type::PacketType;
@@ -75,17 +76,12 @@ pub use timeout::Timeout;
 pub use tx_params::{RampTime, TxParams};
 pub use value_error::ValueError;
 
-use embassy_hal_common::ratio::Ratio;
-
-use crate::Unborrow;
-use crate::{
-    dma::NoDma,
-    pac,
-    peripherals::SUBGHZSPI,
-    rcc::sealed::RccPeripheral,
-    spi::{BitOrder, Config as SpiConfig, MisoPin, MosiPin, SckPin, Spi, MODE_0},
-    time::Hertz,
-};
+use crate::dma::NoDma;
+use crate::peripherals::SUBGHZSPI;
+use crate::rcc::sealed::RccPeripheral;
+use crate::spi::{BitOrder, Config as SpiConfig, MisoPin, MosiPin, SckPin, Spi, MODE_0};
+use crate::time::Hertz;
+use crate::{pac, Unborrow};
 
 /// Passthrough for SPI errors (for now)
 pub type Error = crate::spi::Error;
@@ -105,8 +101,7 @@ impl Nss {
     fn clear() {
         let pwr = pac::PWR;
         unsafe {
-            pwr.subghzspicr()
-                .modify(|w| w.set_nss(pac::pwr::vals::Nss::LOW));
+            pwr.subghzspicr().modify(|w| w.set_nss(pac::pwr::vals::Nss::LOW));
         }
     }
 
@@ -115,8 +110,7 @@ impl Nss {
     fn set() {
         let pwr = pac::PWR;
         unsafe {
-            pwr.subghzspicr()
-                .modify(|w| w.set_nss(pac::pwr::vals::Nss::HIGH));
+            pwr.subghzspicr().modify(|w| w.set_nss(pac::pwr::vals::Nss::HIGH));
         }
     }
 }
@@ -286,8 +280,7 @@ impl<'d> SubGhz<'d, NoDma, NoDma> {
         self.poll_not_busy();
         {
             let _nss: Nss = Nss::new();
-            self.spi
-                .blocking_write(&[OpCode::WriteBuffer as u8, offset])?;
+            self.spi.blocking_write(&[OpCode::WriteBuffer as u8, offset])?;
             self.spi.blocking_write(data)?;
         }
         self.poll_not_busy();
@@ -305,8 +298,7 @@ impl<'d> SubGhz<'d, NoDma, NoDma> {
         self.poll_not_busy();
         {
             let _nss: Nss = Nss::new();
-            self.spi
-                .blocking_write(&[OpCode::ReadBuffer as u8, offset])?;
+            self.spi.blocking_write(&[OpCode::ReadBuffer as u8, offset])?;
             self.spi.blocking_transfer_in_place(&mut status_buf)?;
             self.spi.blocking_transfer_in_place(buf)?;
         }
@@ -678,10 +670,7 @@ impl<'d> SubGhz<'d, NoDma, NoDma> {
     /// # Ok::<(), embassy_stm32::subghz::Error>(())
     /// ```
     pub fn set_rx_timeout_stop(&mut self, rx_timeout_stop: RxTimeoutStop) -> Result<(), Error> {
-        self.write(&[
-            OpCode::SetStopRxTimerOnPreamble.into(),
-            rx_timeout_stop.into(),
-        ])
+        self.write(&[OpCode::SetStopRxTimerOnPreamble.into(), rx_timeout_stop.into()])
     }
 
     /// Put the radio in non-continuous RX mode.
@@ -730,11 +719,7 @@ impl<'d> SubGhz<'d, NoDma, NoDma> {
     /// [`RxDone`]: crate::subghz::Irq::RxDone
     /// [`set_rf_frequency`]: crate::subghz::SubGhz::set_rf_frequency
     /// [`set_standby`]: crate::subghz::SubGhz::set_standby
-    pub fn set_rx_duty_cycle(
-        &mut self,
-        rx_period: Timeout,
-        sleep_period: Timeout,
-    ) -> Result<(), Error> {
+    pub fn set_rx_duty_cycle(&mut self, rx_period: Timeout, sleep_period: Timeout) -> Result<(), Error> {
         let rx_period_bits: u32 = rx_period.into_bits();
         let sleep_period_bits: u32 = sleep_period.into_bits();
         self.write(&[
@@ -1288,9 +1273,7 @@ impl<'d> SubGhz<'d, NoDma, NoDma> {
     /// # Ok::<(), embassy_stm32::subghz::Error>(())
     /// ```
     pub fn lora_packet_status(&mut self) -> Result<LoRaPacketStatus, Error> {
-        Ok(LoRaPacketStatus::from(
-            self.read_n(OpCode::GetPacketStatus)?,
-        ))
+        Ok(LoRaPacketStatus::from(self.read_n(OpCode::GetPacketStatus)?))
     }
 
     /// Get the instantaneous signal strength during packet reception.

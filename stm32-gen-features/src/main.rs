@@ -1,6 +1,5 @@
 use gen_features::{
-    chip_names_and_cores, embassy_stm32_needed_data, generate_cargo_toml_file,
-    stm32_metapac_needed_data,
+    chip_names_and_cores, embassy_stm32_needed_data, generate_cargo_toml_file, stm32_metapac_needed_data,
 };
 
 fn main() {

@@ -1,14 +1,14 @@
-use crate::interrupt::{Interrupt, InterruptExt};
 use core::cell::Cell;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
+
 use critical_section::CriticalSection;
 use embassy::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy::blocking_mutex::CriticalSectionMutex as Mutex;
 use embassy::time::driver::{AlarmHandle, Driver};
 
-use crate::interrupt;
-use crate::pac;
+use crate::interrupt::{Interrupt, InterruptExt};
+use crate::{interrupt, pac};
 
 fn rtc() -> &'static pac::rtc0::RegisterBlock {
     unsafe { &*pac::RTC1::ptr() }
@@ -220,15 +220,13 @@ impl Driver for RtcDriver {
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        let id = self
-            .alarm_count
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-                if x < ALARM_COUNT as u8 {
-                    Some(x + 1)
-                } else {
-                    None
-                }
-            });
+        let id = self.alarm_count.fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
+            if x < ALARM_COUNT as u8 {
+                Some(x + 1)
+            } else {
+                None
+            }
+        });
 
         match id {
             Ok(id) => Some(AlarmHandle::new(id)),

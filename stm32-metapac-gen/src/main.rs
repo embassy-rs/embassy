@@ -1,5 +1,6 @@
 use std::env::args;
 use std::path::PathBuf;
+
 use stm32_metapac_gen::*;
 
 fn main() {

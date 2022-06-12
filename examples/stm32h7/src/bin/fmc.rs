@@ -3,14 +3,12 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use defmt_rtt as _; // global logger
 use embassy::executor::Spawner;
 use embassy::time::{Delay, Duration, Timer};
 use embassy_stm32::fmc::Fmc;
 use embassy_stm32::time::U32Ext;
-use embassy_stm32::Config;
-use embassy_stm32::Peripherals;
-use panic_probe as _;
+use embassy_stm32::{Config, Peripherals};
+use {defmt_rtt as _, panic_probe as _};
 
 pub fn config() -> Config {
     let mut config = Config::default();
@@ -62,16 +60,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         const REGION_WRITE_BACK: u32 = 0x01;
         const REGION_ENABLE: u32 = 0x01;
 
-        crate::assert_eq!(
-            size & (size - 1),
-            0,
-            "SDRAM memory region size must be a power of 2"
-        );
-        crate::assert_eq!(
-            size & 0x1F,
-            0,
-            "SDRAM memory region size must be 32 bytes or more"
-        );
+        crate::assert_eq!(size & (size - 1), 0, "SDRAM memory region size must be a power of 2");
+        crate::assert_eq!(size & 0x1F, 0, "SDRAM memory region size must be 32 bytes or more");
         fn log2minus1(sz: u32) -> u32 {
             for i in 5..=31 {
                 if sz == (1 << i) {
@@ -104,8 +94,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
         // Enable
         unsafe {
-            mpu.ctrl
-                .modify(|r| r | MPU_DEFAULT_MMAP_FOR_PRIVILEGED | MPU_ENABLE);
+            mpu.ctrl.modify(|r| r | MPU_DEFAULT_MMAP_FOR_PRIVILEGED | MPU_ENABLE);
 
             scb.shcsr.modify(|r| r | MEMFAULTENA);
 

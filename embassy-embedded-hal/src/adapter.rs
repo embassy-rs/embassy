@@ -1,6 +1,6 @@
 use core::future::Future;
-use embedded_hal_02::blocking;
-use embedded_hal_02::serial;
+
+use embedded_hal_02::{blocking, serial};
 
 /// BlockingAsync is a wrapper that implements async traits using blocking peripherals. This allows
 /// driver writers to depend on the async traits while still supporting embedded-hal peripheral implementations.
@@ -25,9 +25,7 @@ impl<T> BlockingAsync<T> {
 impl<T, E> embedded_hal_1::i2c::ErrorType for BlockingAsync<T>
 where
     E: embedded_hal_1::i2c::Error + 'static,
-    T: blocking::i2c::WriteRead<Error = E>
-        + blocking::i2c::Read<Error = E>
-        + blocking::i2c::Write<Error = E>,
+    T: blocking::i2c::WriteRead<Error = E> + blocking::i2c::Read<Error = E> + blocking::i2c::Write<Error = E>,
 {
     type Error = E;
 }
@@ -35,9 +33,7 @@ where
 impl<T, E> embedded_hal_async::i2c::I2c for BlockingAsync<T>
 where
     E: embedded_hal_1::i2c::Error + 'static,
-    T: blocking::i2c::WriteRead<Error = E>
-        + blocking::i2c::Read<Error = E>
-        + blocking::i2c::Write<Error = E>,
+    T: blocking::i2c::WriteRead<Error = E> + blocking::i2c::Read<Error = E> + blocking::i2c::Write<Error = E>,
 {
     type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
     type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
@@ -51,12 +47,7 @@ where
         async move { self.wrapped.write(address, bytes) }
     }
 
-    fn write_read<'a>(
-        &'a mut self,
-        address: u8,
-        bytes: &'a [u8],
-        buffer: &'a mut [u8],
-    ) -> Self::WriteReadFuture<'a> {
+    fn write_read<'a>(&'a mut self, address: u8, bytes: &'a [u8], buffer: &'a mut [u8]) -> Self::WriteReadFuture<'a> {
         async move { self.wrapped.write_read(address, bytes, buffer) }
     }
 

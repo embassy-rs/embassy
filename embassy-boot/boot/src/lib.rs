@@ -202,8 +202,7 @@ impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
         // Ensure we have enough progress pages to store copy progress
         assert!(
             self.active.len() / PAGE_SIZE
-                <= (self.state.len()
-                    - <<P as FlashProvider>::STATE as FlashConfig>::FLASH::WRITE_SIZE)
+                <= (self.state.len() - <<P as FlashProvider>::STATE as FlashConfig>::FLASH::WRITE_SIZE)
                     / <<P as FlashProvider>::STATE as FlashConfig>::FLASH::WRITE_SIZE
         );
 
@@ -226,15 +225,12 @@ impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
                     // Overwrite magic and reset progress
                     let fstate = p.state().flash();
                     let aligned = Aligned(
-                        [!P::STATE::ERASE_VALUE;
-                            <<P as FlashProvider>::STATE as FlashConfig>::FLASH::WRITE_SIZE],
+                        [!P::STATE::ERASE_VALUE; <<P as FlashProvider>::STATE as FlashConfig>::FLASH::WRITE_SIZE],
                     );
                     fstate.write(self.state.from as u32, &aligned.0)?;
                     fstate.erase(self.state.from as u32, self.state.to as u32)?;
-                    let aligned = Aligned(
-                        [BOOT_MAGIC;
-                            <<P as FlashProvider>::STATE as FlashConfig>::FLASH::WRITE_SIZE],
-                    );
+                    let aligned =
+                        Aligned([BOOT_MAGIC; <<P as FlashProvider>::STATE as FlashConfig>::FLASH::WRITE_SIZE]);
                     fstate.write(self.state.from as u32, &aligned.0)?;
                 }
             }
@@ -262,10 +258,7 @@ impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
         let flash = p.flash();
         let mut aligned = Aligned([!P::ERASE_VALUE; P::FLASH::WRITE_SIZE]);
         for i in 0..max_index {
-            flash.read(
-                (self.state.from + write_size + i * write_size) as u32,
-                &mut aligned.0,
-            )?;
+            flash.read((self.state.from + write_size + i * write_size) as u32, &mut aligned.0)?;
             if aligned.0 == [P::ERASE_VALUE; P::FLASH::WRITE_SIZE] {
                 return Ok(i);
             }
@@ -311,9 +304,7 @@ impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
                 offset += chunk.len();
             }
 
-            p.active()
-                .flash()
-                .erase(to_page as u32, (to_page + PAGE_SIZE) as u32)?;
+            p.active().flash().erase(to_page as u32, (to_page + PAGE_SIZE) as u32)?;
 
             let mut offset = to_page;
             for chunk in buf.chunks(P::ACTIVE::BLOCK_SIZE) {
@@ -343,9 +334,7 @@ impl<const PAGE_SIZE: usize> BootLoader<PAGE_SIZE> {
                 offset += chunk.len();
             }
 
-            p.dfu()
-                .flash()
-                .erase(to_page as u32, (to_page + PAGE_SIZE) as u32)?;
+            p.dfu().flash().erase(to_page as u32, (to_page + PAGE_SIZE) as u32)?;
 
             let mut offset = to_page;
             for chunk in buf.chunks(P::DFU::BLOCK_SIZE) {
@@ -609,9 +598,7 @@ impl FirmwareUpdater {
                 aligned[i] = 0;
             }
             flash.write(self.state.from as u32, aligned).await?;
-            flash
-                .erase(self.state.from as u32, self.state.to as u32)
-                .await?;
+            flash.erase(self.state.from as u32, self.state.to as u32).await?;
 
             for i in 0..aligned.len() {
                 aligned[i] = magic;
@@ -677,12 +664,14 @@ impl FirmwareUpdater {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use core::convert::Infallible;
     use core::future::Future;
+
     use embedded_storage::nor_flash::ErrorType;
     use embedded_storage_async::nor_flash::AsyncReadNorFlash;
     use futures::executor::block_on;
+
+    use super::*;
 
     /*
     #[test]
@@ -810,11 +799,7 @@ mod tests {
         assert_eq!(
             State::Swap,
             bootloader
-                .prepare_boot(&mut MultiFlashProvider::new(
-                    &mut active,
-                    &mut state,
-                    &mut dfu,
-                ))
+                .prepare_boot(&mut MultiFlashProvider::new(&mut active, &mut state, &mut dfu,))
                 .unwrap()
         );
 
@@ -858,11 +843,7 @@ mod tests {
         assert_eq!(
             State::Swap,
             bootloader
-                .prepare_boot(&mut MultiFlashProvider::new(
-                    &mut active,
-                    &mut state,
-                    &mut dfu,
-                ))
+                .prepare_boot(&mut MultiFlashProvider::new(&mut active, &mut state, &mut dfu,))
                 .unwrap()
         );
 
@@ -876,9 +857,7 @@ mod tests {
         }
     }
 
-    struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize>(
-        [u8; SIZE],
-    );
+    struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize>([u8; SIZE]);
 
     impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> NorFlash
         for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
@@ -889,12 +868,7 @@ mod tests {
             let from = from as usize;
             let to = to as usize;
             assert!(from % ERASE_SIZE == 0);
-            assert!(
-                to % ERASE_SIZE == 0,
-                "To: {}, erase size: {}",
-                to,
-                ERASE_SIZE
-            );
+            assert!(to % ERASE_SIZE == 0, "To: {}, erase size: {}", to, ERASE_SIZE);
             for i in from..to {
                 self.0[i] = 0xFF;
             }

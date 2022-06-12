@@ -35,10 +35,7 @@
 //! mutable slices always reside in RAM.
 
 #![no_std]
-#![cfg_attr(
-    feature = "nightly",
-    feature(generic_associated_types, type_alias_impl_trait)
-)]
+#![cfg_attr(feature = "nightly", feature(generic_associated_types, type_alias_impl_trait))]
 
 #[cfg(not(any(
     feature = "nrf51",
@@ -115,9 +112,10 @@ mod chip;
 pub use chip::EASY_DMA_SIZE;
 
 pub mod interrupt {
-    pub use crate::chip::irqs::*;
     pub use cortex_m::interrupt::{CriticalSection, Mutex};
     pub use embassy_cortex_m::interrupt::*;
+
+    pub use crate::chip::irqs::*;
 }
 
 // Reexports
@@ -126,7 +124,6 @@ pub mod interrupt {
 pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
-
 pub use chip::{peripherals, Peripherals};
 pub use embassy_cortex_m::executor;
 pub use embassy_hal_common::{unborrow, Unborrow};

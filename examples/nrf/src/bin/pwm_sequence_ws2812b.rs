@@ -6,13 +6,10 @@ use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::pwm::{
-    Config, Prescaler, SequenceConfig, SequenceLoad, SequencePwm, SingleSequenceMode,
-    SingleSequencer,
+    Config, Prescaler, SequenceConfig, SequenceLoad, SequencePwm, SingleSequenceMode, SingleSequencer,
 };
 use embassy_nrf::Peripherals;
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 // WS2812B LED light demonstration. Drives just one light.
 // The following reference on WS2812B may be of use:

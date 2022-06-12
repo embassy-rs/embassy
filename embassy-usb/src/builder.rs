@@ -1,14 +1,11 @@
 use heapless::Vec;
 
-use crate::{Interface, STRING_INDEX_CUSTOM_START};
-
 use super::control::ControlHandler;
 use super::descriptor::{BosWriter, DescriptorWriter};
 use super::driver::{Driver, Endpoint};
 use super::types::*;
-use super::DeviceStateHandler;
-use super::UsbDevice;
-use super::MAX_INTERFACE_COUNT;
+use super::{DeviceStateHandler, UsbDevice, MAX_INTERFACE_COUNT};
+use crate::{Interface, STRING_INDEX_CUSTOM_START};
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -151,9 +148,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     ) -> Self {
         // Magic values specified in USB-IF ECN on IADs.
         if config.composite_with_iads
-            && (config.device_class != 0xEF
-                || config.device_sub_class != 0x02
-                || config.device_protocol != 0x01)
+            && (config.device_class != 0xEF || config.device_sub_class != 0x02 || config.device_protocol != 0x01)
         {
             panic!("if composite_with_iads is set, you must set device_class = 0xEF, device_sub_class = 0x02, device_protocol = 0x01");
         }
@@ -218,12 +213,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     /// with the given class/subclass/protocol, associating all the child interfaces.
     ///
     /// If it's not set, no IAD descriptor is added.
-    pub fn function(
-        &mut self,
-        class: u8,
-        subclass: u8,
-        protocol: u8,
-    ) -> FunctionBuilder<'_, 'd, D> {
+    pub fn function(&mut self, class: u8, subclass: u8, protocol: u8) -> FunctionBuilder<'_, 'd, D> {
         let iface_count_index = if self.config.composite_with_iads {
             self.config_descriptor.iad(
                 InterfaceNumber::new(self.interfaces.len() as _),
@@ -315,24 +305,14 @@ impl<'a, 'd, D: Driver<'d>> InterfaceBuilder<'a, 'd, D> {
     /// Alternate setting numbers are guaranteed to be allocated consecutively, starting from 0.
     ///
     /// The first alternate setting, with number 0, is the default one.
-    pub fn alt_setting(
-        &mut self,
-        class: u8,
-        subclass: u8,
-        protocol: u8,
-    ) -> InterfaceAltBuilder<'_, 'd, D> {
+    pub fn alt_setting(&mut self, class: u8, subclass: u8, protocol: u8) -> InterfaceAltBuilder<'_, 'd, D> {
         let number = self.next_alt_setting_number;
         self.next_alt_setting_number += 1;
         self.builder.interfaces[self.interface_number.0 as usize].num_alt_settings += 1;
 
-        self.builder.config_descriptor.interface_alt(
-            self.interface_number,
-            number,
-            class,
-            subclass,
-            protocol,
-            None,
-        );
+        self.builder
+            .config_descriptor
+            .interface_alt(self.interface_number, number, class, subclass, protocol, None);
 
         InterfaceAltBuilder {
             builder: self.builder,
@@ -365,17 +345,10 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
     pub fn descriptor(&mut self, descriptor_type: u8, descriptor: &[u8]) {
-        self.builder
-            .config_descriptor
-            .write(descriptor_type, descriptor)
+        self.builder.config_descriptor.write(descriptor_type, descriptor)
     }
 
-    fn endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        max_packet_size: u16,
-        interval: u8,
-    ) -> D::EndpointIn {
+    fn endpoint_in(&mut self, ep_type: EndpointType, max_packet_size: u16, interval: u8) -> D::EndpointIn {
         let ep = self
             .builder
             .driver
@@ -387,12 +360,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         ep
     }
 
-    fn endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        max_packet_size: u16,
-        interval: u8,
-    ) -> D::EndpointOut {
+    fn endpoint_out(&mut self, ep_type: EndpointType, max_packet_size: u16, interval: u8) -> D::EndpointOut {
         let ep = self
             .builder
             .driver

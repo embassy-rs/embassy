@@ -3,8 +3,7 @@ use crate::pac::RCC;
 #[cfg(crs)]
 use crate::pac::{CRS, SYSCFG};
 use crate::rcc::{set_freqs, Clocks};
-use crate::time::Hertz;
-use crate::time::U32Ext;
+use crate::time::{Hertz, U32Ext};
 
 /// HSI16 speed
 pub const HSI16_FREQ: u32 = 16_000_000;

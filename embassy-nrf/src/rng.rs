@@ -1,19 +1,16 @@
 use core::marker::PhantomData;
 use core::ptr;
-use core::sync::atomic::AtomicPtr;
-use core::sync::atomic::Ordering;
+use core::sync::atomic::{AtomicPtr, Ordering};
 use core::task::Poll;
 
-use crate::interrupt::InterruptExt;
-use crate::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
-use crate::interrupt;
-use crate::pac;
+use crate::interrupt::InterruptExt;
 use crate::peripherals::RNG;
+use crate::{interrupt, pac, Unborrow};
 
 impl RNG {
     fn regs() -> &'static pac::rng::RegisterBlock {
@@ -48,10 +45,7 @@ impl<'d> Rng<'d> {
     /// e.g. using `mem::forget`.
     ///
     /// The synchronous API is safe.
-    pub fn new(
-        _rng: impl Unborrow<Target = RNG> + 'd,
-        irq: impl Unborrow<Target = interrupt::RNG> + 'd,
-    ) -> Self {
+    pub fn new(_rng: impl Unborrow<Target = RNG> + 'd, irq: impl Unborrow<Target = interrupt::RNG> + 'd) -> Self {
         unborrow!(irq);
 
         let this = Self {

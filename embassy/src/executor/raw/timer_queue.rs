@@ -1,8 +1,9 @@
-use atomic_polyfill::Ordering;
 use core::cell::Cell;
 use core::cmp::min;
 use core::ptr;
 use core::ptr::NonNull;
+
+use atomic_polyfill::Ordering;
 
 use super::{TaskHeader, STATE_TIMER_QUEUED};
 use crate::time::Instant;
@@ -54,11 +55,7 @@ impl TimerQueue {
         res
     }
 
-    pub(crate) unsafe fn dequeue_expired(
-        &self,
-        now: Instant,
-        on_task: impl Fn(NonNull<TaskHeader>),
-    ) {
+    pub(crate) unsafe fn dequeue_expired(&self, now: Instant, on_task: impl Fn(NonNull<TaskHeader>)) {
         self.retain(|p| {
             let task = p.as_ref();
             if task.expires_at.get() <= now {

@@ -18,9 +18,7 @@ impl Instant {
 
     /// Returns an Instant representing the current time.
     pub fn now() -> Instant {
-        Instant {
-            ticks: driver::now(),
-        }
+        Instant { ticks: driver::now() }
     }
 
     /// Create an Instant from a tick count since system boot.
@@ -107,16 +105,12 @@ impl Instant {
 
     /// Adds one Duration to self, returning a new `Instant` or None in the event of an overflow.
     pub fn checked_add(&self, duration: Duration) -> Option<Instant> {
-        self.ticks
-            .checked_add(duration.ticks)
-            .map(|ticks| Instant { ticks })
+        self.ticks.checked_add(duration.ticks).map(|ticks| Instant { ticks })
     }
 
     /// Subtracts one Duration to self, returning a new `Instant` or None in the event of an overflow.
     pub fn checked_sub(&self, duration: Duration) -> Option<Instant> {
-        self.ticks
-            .checked_sub(duration.ticks)
-            .map(|ticks| Instant { ticks })
+        self.ticks.checked_sub(duration.ticks).map(|ticks| Instant { ticks })
     }
 }
 

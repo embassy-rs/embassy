@@ -4,15 +4,13 @@ use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
 
-use crate::Unborrow;
 use cfg_if::cfg_if;
 use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 
-use crate::pac;
+use self::sealed::Pin as _;
 use crate::pac::p0 as gpio;
 use crate::pac::p0::pin_cnf::{DRIVE_A, PULL_A};
-
-use self::sealed::Pin as _;
+use crate::{pac, Unborrow};
 
 /// A GPIO port with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]
@@ -93,11 +91,7 @@ pub struct Output<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Output<'d, T> {
-    pub fn new(
-        pin: impl Unborrow<Target = T> + 'd,
-        initial_output: Level,
-        drive: OutputDrive,
-    ) -> Self {
+    pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level, drive: OutputDrive) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),

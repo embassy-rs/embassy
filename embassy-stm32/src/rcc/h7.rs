@@ -1,19 +1,16 @@
 use core::marker::PhantomData;
 
-use crate::Unborrow;
 use embassy_hal_common::unborrow;
+pub use pll::PllConfig;
 use stm32_metapac::rcc::vals::{Mco1, Mco2};
 
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
-use crate::pac::rcc::vals::Timpre;
-use crate::pac::rcc::vals::{Adcsel, Ckpersel, Dppre, Hpre, Hsidiv, Pllsrc, Sw};
+use crate::pac::rcc::vals::{Adcsel, Ckpersel, Dppre, Hpre, Hsidiv, Pllsrc, Sw, Timpre};
 use crate::pac::{PWR, RCC, SYSCFG};
-use crate::peripherals;
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
-
-pub use pll::PllConfig;
+use crate::{peripherals, Unborrow};
 
 const HSI: Hertz = Hertz(64_000_000);
 const CSI: Hertz = Hertz(4_000_000);
@@ -181,8 +178,10 @@ fn sys_ck_setup(config: &mut Config, srcclk: Hertz) -> (Hertz, bool) {
         // Therefore we must use pll1_p_ck
         let pll1_p_ck = match config.pll1.p_ck {
             Some(p_ck) => {
-                assert!(p_ck == sys_ck,
-                            "Error: Cannot set pll1_p_ck independently as it must be used to generate sys_ck");
+                assert!(
+                    p_ck == sys_ck,
+                    "Error: Cannot set pll1_p_ck independently as it must be used to generate sys_ck"
+                );
                 Some(p_ck)
             }
             None => Some(sys_ck),
@@ -392,9 +391,7 @@ impl<'d, T: McoInstance> Mco<'d, T> {
             pin.set_speed(Speed::VeryHigh);
         });
 
-        Self {
-            phantom: PhantomData,
-        }
+        Self { phantom: PhantomData }
     }
 }
 
@@ -538,33 +535,19 @@ pub(crate) unsafe fn init(mut config: Config) {
                              // Timer prescaler selection
     let timpre = Timpre::DEFAULTX2;
 
-    let requested_pclk1 = config
-        .pclk1
-        .map(|v| v.0)
-        .unwrap_or_else(|| pclk_max.min(rcc_hclk / 2));
+    let requested_pclk1 = config.pclk1.map(|v| v.0).unwrap_or_else(|| pclk_max.min(rcc_hclk / 2));
     let (rcc_pclk1, ppre1_bits, ppre1, rcc_timerx_ker_ck) =
         ppre_calculate(requested_pclk1, rcc_hclk, pclk_max, Some(timpre));
 
-    let requested_pclk2 = config
-        .pclk2
-        .map(|v| v.0)
-        .unwrap_or_else(|| pclk_max.min(rcc_hclk / 2));
+    let requested_pclk2 = config.pclk2.map(|v| v.0).unwrap_or_else(|| pclk_max.min(rcc_hclk / 2));
     let (rcc_pclk2, ppre2_bits, ppre2, rcc_timery_ker_ck) =
         ppre_calculate(requested_pclk2, rcc_hclk, pclk_max, Some(timpre));
 
-    let requested_pclk3 = config
-        .pclk3
-        .map(|v| v.0)
-        .unwrap_or_else(|| pclk_max.min(rcc_hclk / 2));
-    let (rcc_pclk3, ppre3_bits, ppre3, _) =
-        ppre_calculate(requested_pclk3, rcc_hclk, pclk_max, None);
+    let requested_pclk3 = config.pclk3.map(|v| v.0).unwrap_or_else(|| pclk_max.min(rcc_hclk / 2));
+    let (rcc_pclk3, ppre3_bits, ppre3, _) = ppre_calculate(requested_pclk3, rcc_hclk, pclk_max, None);
 
-    let requested_pclk4 = config
-        .pclk4
-        .map(|v| v.0)
-        .unwrap_or_else(|| pclk_max.min(rcc_hclk / 2));
-    let (rcc_pclk4, ppre4_bits, ppre4, _) =
-        ppre_calculate(requested_pclk4, rcc_hclk, pclk_max, None);
+    let requested_pclk4 = config.pclk4.map(|v| v.0).unwrap_or_else(|| pclk_max.min(rcc_hclk / 2));
+    let (rcc_pclk4, ppre4_bits, ppre4, _) = ppre_calculate(requested_pclk4, rcc_hclk, pclk_max, None);
 
     flash_setup(rcc_aclk, pwr_vos);
 
@@ -593,11 +576,7 @@ pub(crate) unsafe fn init(mut config: Config) {
         None => None,
     };
 
-    let pllsrc = if config.hse.is_some() {
-        Pllsrc::HSE
-    } else {
-        Pllsrc::HSI
-    };
+    let pllsrc = if config.hse.is_some() { Pllsrc::HSE } else { Pllsrc::HSI };
     RCC.pllckselr().modify(|w| w.set_pllsrc(pllsrc));
 
     let enable_pll = |pll| {
@@ -640,8 +619,7 @@ pub(crate) unsafe fn init(mut config: Config) {
     RCC.d1ccipr().modify(|w| w.set_ckpersel(ckpersel));
 
     // ADC clock MUX
-    RCC.d3ccipr()
-        .modify(|w| w.set_adcsel(config.adc_clock_source.adcsel()));
+    RCC.d3ccipr().modify(|w| w.set_adcsel(config.adc_clock_source.adcsel()));
 
     let adc_ker_ck = match config.adc_clock_source {
         AdcClockSource::Pll2PCk => pll2_p_ck.map(Hertz),
@@ -823,15 +801,13 @@ mod pll {
                 let pll_x_n = vco_ck_target / ref_x_ck;
                 assert!(pll_x_n >= 4);
                 assert!(pll_x_n <= 512);
-                RCC.plldivr(plln)
-                    .modify(|w| w.set_divn1((pll_x_n - 1) as u16));
+                RCC.plldivr(plln).modify(|w| w.set_divn1((pll_x_n - 1) as u16));
 
                 // No FRACN
                 RCC.pllcfgr().modify(|w| w.set_pllfracen(plln, false));
                 let vco_ck = ref_x_ck * pll_x_n;
 
-                RCC.plldivr(plln)
-                    .modify(|w| w.set_divp1(Divp((pll_x_p - 1) as u8)));
+                RCC.plldivr(plln).modify(|w| w.set_divp1(Divp((pll_x_p - 1) as u8)));
                 RCC.pllcfgr().modify(|w| w.set_divpen(plln, true));
 
                 // Calulate additional output dividers

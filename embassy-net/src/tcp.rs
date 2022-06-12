@@ -2,17 +2,16 @@ use core::cell::UnsafeCell;
 use core::future::Future;
 use core::mem;
 use core::task::Poll;
+
 use futures::future::poll_fn;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::tcp;
 use smoltcp::time::Duration;
-use smoltcp::wire::IpEndpoint;
-use smoltcp::wire::IpListenEndpoint;
-
-use crate::stack::SocketStack;
-use crate::Device;
+use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 
 use super::stack::Stack;
+use crate::stack::SocketStack;
+use crate::Device;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -57,11 +56,7 @@ pub struct TcpWriter<'a> {
 }
 
 impl<'a> TcpSocket<'a> {
-    pub fn new<D: Device>(
-        stack: &'a Stack<D>,
-        rx_buffer: &'a mut [u8],
-        tx_buffer: &'a mut [u8],
-    ) -> Self {
+    pub fn new<D: Device>(stack: &'a Stack<D>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Self {
         // safety: not accessed reentrantly.
         let s = unsafe { &mut *stack.socket.get() };
         let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
@@ -91,10 +86,7 @@ impl<'a> TcpSocket<'a> {
         let local_port = unsafe { &mut *self.io.stack.get() }.get_local_port();
 
         // safety: not accessed reentrantly.
-        match unsafe {
-            self.io
-                .with_mut(|s, i| s.connect(i, remote_endpoint, local_port))
-        } {
+        match unsafe { self.io.with_mut(|s, i| s.connect(i, remote_endpoint, local_port)) } {
             Ok(()) => {}
             Err(tcp::ConnectError::InvalidState) => return Err(ConnectError::InvalidState),
             Err(tcp::ConnectError::Unaddressable) => return Err(ConnectError::NoRoute),
@@ -102,9 +94,7 @@ impl<'a> TcpSocket<'a> {
 
         futures::future::poll_fn(|cx| unsafe {
             self.io.with_mut(|s, _| match s.state() {
-                tcp::State::Closed | tcp::State::TimeWait => {
-                    Poll::Ready(Err(ConnectError::ConnectionReset))
-                }
+                tcp::State::Closed | tcp::State::TimeWait => Poll::Ready(Err(ConnectError::ConnectionReset)),
                 tcp::State::Listen => unreachable!(),
                 tcp::State::SynSent | tcp::State::SynReceived => {
                     s.register_send_waker(cx.waker());
