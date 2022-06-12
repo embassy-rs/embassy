@@ -2,9 +2,9 @@
 use core::future::Future;
 use core::mem::MaybeUninit;
 use embassy::channel::signal::Signal;
-use embassy::interrupt::InterruptExt;
-use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
+use embassy_stm32::interrupt::InterruptExt;
+use embassy_stm32::Unborrow;
 use embassy_stm32::{
     dma::NoDma,
     gpio::{AnyPin, Output},

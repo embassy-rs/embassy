@@ -77,6 +77,7 @@ pub use value_error::ValueError;
 
 use embassy_hal_common::ratio::Ratio;
 
+use crate::Unborrow;
 use crate::{
     dma::NoDma,
     pac,
@@ -85,7 +86,6 @@ use crate::{
     spi::{BitOrder, Config as SpiConfig, MisoPin, MosiPin, SckPin, Spi, MODE_0},
     time::Hertz,
 };
-use embassy::util::Unborrow;
 
 /// Passthrough for SPI errors (for now)
 pub type Error = crate::spi::Error;

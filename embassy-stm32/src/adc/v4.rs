@@ -1,9 +1,9 @@
 use core::marker::PhantomData;
 
 use crate::time::{Hertz, U32Ext};
+use crate::Unborrow;
 use atomic_polyfill::AtomicU8;
 use atomic_polyfill::Ordering;
-use embassy::util::Unborrow;
 use embedded_hal_02::blocking::delay::DelayUs;
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;

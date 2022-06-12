@@ -10,11 +10,11 @@ use panic_probe as _;
 
 use defmt::*;
 use embassy::channel::signal::Signal;
-use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
+use embassy_stm32::interrupt::{Interrupt, InterruptExt};
 use embassy_stm32::subghz::*;
 use embassy_stm32::Peripherals;
 

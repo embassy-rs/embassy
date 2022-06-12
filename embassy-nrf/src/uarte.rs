@@ -13,11 +13,11 @@
 //! memory may be used given that buffers are passed in directly to its read and write
 //! methods.
 
+use crate::interrupt::InterruptExt;
+use crate::Unborrow;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
-use embassy::interrupt::InterruptExt;
-use embassy::util::Unborrow;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;

@@ -4,8 +4,8 @@ use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
 
+use crate::Unborrow;
 use cfg_if::cfg_if;
-use embassy::util::Unborrow;
 use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 
 use crate::pac;

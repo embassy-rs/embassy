@@ -2,28 +2,29 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-#[cfg(feature = "unstable-pac")]
-pub use rp2040_pac2 as pac;
-#[cfg(not(feature = "unstable-pac"))]
-pub(crate) use rp2040_pac2 as pac;
-
-pub use embassy::util::Unborrow;
-pub use embassy_hal_common::unborrow;
-
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-pub mod interrupt;
-pub use embassy_macros::interrupt;
-
 pub mod dma;
 pub mod gpio;
+pub mod interrupt;
 pub mod spi;
 pub mod timer;
 pub mod uart;
 
 mod clocks;
 mod reset;
+
+// Reexports
+
+#[cfg(feature = "unstable-pac")]
+pub use rp2040_pac2 as pac;
+#[cfg(not(feature = "unstable-pac"))]
+pub(crate) use rp2040_pac2 as pac;
+
+pub use embassy_cortex_m::executor;
+pub use embassy_hal_common::{unborrow, Unborrow};
+pub use embassy_macros::cortex_m_interrupt as interrupt;
 
 embassy_hal_common::peripherals! {
     PIN_0,

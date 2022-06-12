@@ -1,8 +1,8 @@
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy::interrupt::{Interrupt, InterruptExt};
-use embassy::util::Unborrow;
+use crate::interrupt::{Interrupt, InterruptExt};
+use crate::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;

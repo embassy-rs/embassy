@@ -1,8 +1,8 @@
 #![macro_use]
 
+use crate::Unborrow;
 use core::marker::PhantomData;
 use core::task::Poll;
-use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;

@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy::util::Unborrow;
+use crate::Unborrow;
 use embassy_hal_common::unborrow;
 
 use crate::pac;

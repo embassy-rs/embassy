@@ -1,4 +1,4 @@
-use embassy::interrupt::Interrupt;
+use crate::interrupt::Interrupt;
 
 use crate::rcc::{sealed::RccPeripheral as __RccPeri, RccPeripheral};
 use crate::time::Hertz;

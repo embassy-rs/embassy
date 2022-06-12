@@ -10,13 +10,13 @@ mod gpdma;
 #[cfg(dmamux)]
 pub use dmamux::*;
 
+use crate::Unborrow;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::task::Waker;
 use core::task::{Context, Poll};
-use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
 
 #[cfg(feature = "unstable-pac")]

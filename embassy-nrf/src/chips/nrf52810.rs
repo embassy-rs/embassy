@@ -219,7 +219,7 @@ impl_saadc_input!(P0_31, ANALOGINPUT7);
 
 pub mod irqs {
     use crate::pac::Interrupt as InterruptEnum;
-    use embassy_macros::interrupt_declare as declare;
+    use embassy_macros::cortex_m_interrupt_declare as declare;
 
     declare!(POWER_CLOCK);
     declare!(RADIO);

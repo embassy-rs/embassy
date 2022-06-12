@@ -59,11 +59,11 @@
 
 use cortex_m_rt::entry;
 use defmt::{info, unwrap};
-use embassy::executor::{Executor, InterruptExecutor};
-use embassy::interrupt::InterruptExt;
 use embassy::time::{Duration, Instant, Timer};
 use embassy::util::Forever;
+use embassy_nrf::executor::{Executor, InterruptExecutor};
 use embassy_nrf::interrupt;
+use embassy_nrf::interrupt::InterruptExt;
 
 use defmt_rtt as _; // global logger
 use panic_probe as _;

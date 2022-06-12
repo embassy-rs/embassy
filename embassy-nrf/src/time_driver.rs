@@ -1,10 +1,10 @@
+use crate::interrupt::{Interrupt, InterruptExt};
 use core::cell::Cell;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
 use critical_section::CriticalSection;
 use embassy::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy::blocking_mutex::CriticalSectionMutex as Mutex;
-use embassy::interrupt::{Interrupt, InterruptExt};
 use embassy::time::driver::{AlarmHandle, Driver};
 
 use crate::interrupt;

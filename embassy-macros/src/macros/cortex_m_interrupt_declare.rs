@@ -9,8 +9,7 @@ pub fn run(name: syn::Ident) -> Result<TokenStream, TokenStream> {
     let result = quote! {
         #[allow(non_camel_case_types)]
         pub struct #name_interrupt(());
-        unsafe impl ::embassy::interrupt::Interrupt for #name_interrupt {
-            type Priority = crate::interrupt::Priority;
+        unsafe impl ::embassy_cortex_m::interrupt::Interrupt for #name_interrupt {
             fn number(&self) -> u16 {
                 use cortex_m::interrupt::InterruptNumber;
                 let irq = InterruptEnum::#name;
@@ -19,14 +18,14 @@ pub fn run(name: syn::Ident) -> Result<TokenStream, TokenStream> {
             unsafe fn steal() -> Self {
                 Self(())
             }
-            unsafe fn __handler(&self) -> &'static ::embassy::interrupt::Handler {
+            unsafe fn __handler(&self) -> &'static ::embassy_cortex_m::interrupt::Handler {
                 #[export_name = #name_handler]
-                static HANDLER: ::embassy::interrupt::Handler = ::embassy::interrupt::Handler::new();
+                static HANDLER: ::embassy_cortex_m::interrupt::Handler = ::embassy_cortex_m::interrupt::Handler::new();
                 &HANDLER
             }
         }
 
-        unsafe impl ::embassy::util::Unborrow for #name_interrupt {
+        unsafe impl ::embassy_hal_common::Unborrow for #name_interrupt {
             type Target = #name_interrupt;
             unsafe fn unborrow(self) -> #name_interrupt {
                 self

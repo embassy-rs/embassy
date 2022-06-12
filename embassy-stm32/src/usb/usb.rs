@@ -1,12 +1,12 @@
 #![macro_use]
 
+use crate::interrupt::InterruptExt;
+use crate::Unborrow;
 use atomic_polyfill::{AtomicBool, AtomicU8};
 use core::marker::PhantomData;
 use core::sync::atomic::Ordering;
 use core::task::Poll;
-use embassy::interrupt::InterruptExt;
 use embassy::time::{block_for, Duration};
-use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
 use embassy_usb::driver::{self, EndpointAllocError, EndpointError, Event, Unsupported};

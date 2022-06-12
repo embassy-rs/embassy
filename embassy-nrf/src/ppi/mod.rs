@@ -16,9 +16,9 @@
 //!
 
 use crate::peripherals;
+use crate::Unborrow;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
-use embassy::util::Unborrow;
 use embassy_hal_common::unsafe_impl_unborrow;
 
 #[cfg(feature = "_dppi")]

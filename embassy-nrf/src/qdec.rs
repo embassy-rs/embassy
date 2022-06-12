@@ -6,10 +6,10 @@ use crate::interrupt;
 use crate::pac;
 use crate::peripherals::QDEC;
 
+use crate::interrupt::InterruptExt;
+use crate::Unborrow;
 use core::marker::PhantomData;
 use core::task::Poll;
-use embassy::interrupt::InterruptExt;
-use embassy::util::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;

@@ -6,7 +6,7 @@ use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
 use crate::peripherals;
 
-use embassy::util::Unborrow;
+use crate::Unborrow;
 use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 
 /// Represents a digital input or output level.

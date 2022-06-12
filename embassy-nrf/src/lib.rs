@@ -114,23 +114,23 @@ mod chip;
 
 pub use chip::EASY_DMA_SIZE;
 
+pub mod interrupt {
+    pub use crate::chip::irqs::*;
+    pub use cortex_m::interrupt::{CriticalSection, Mutex};
+    pub use embassy_cortex_m::interrupt::*;
+}
+
+// Reexports
+
 #[cfg(feature = "unstable-pac")]
 pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
 
-pub use embassy::util::Unborrow;
-pub use embassy_hal_common::unborrow;
-
 pub use chip::{peripherals, Peripherals};
-
-pub mod interrupt {
-    pub use crate::chip::irqs::*;
-    pub use cortex_m::interrupt::{CriticalSection, Mutex};
-    pub use embassy::interrupt::{declare, take, Interrupt};
-    pub use embassy_hal_common::interrupt::Priority3 as Priority;
-}
-pub use embassy_macros::interrupt;
+pub use embassy_cortex_m::executor;
+pub use embassy_hal_common::{unborrow, Unborrow};
+pub use embassy_macros::cortex_m_interrupt as interrupt;
 
 pub mod config {
     pub enum HfclkSource {
