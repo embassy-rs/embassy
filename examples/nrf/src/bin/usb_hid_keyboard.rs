@@ -6,7 +6,7 @@
 use core::mem;
 use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::*;
-use embassy::channel::Signal;
+use embassy::channel::signal::Signal;
 use embassy::executor::Spawner;
 use embassy::interrupt::InterruptExt;
 use embassy::time::Duration;

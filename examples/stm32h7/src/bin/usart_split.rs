@@ -5,7 +5,7 @@
 use defmt::*;
 use defmt_rtt as _; // global logger
 use embassy::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy::channel::channel::Channel;
+use embassy::channel::mpmc::Channel;
 use embassy::executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::{

@@ -4,7 +4,7 @@
 
 use defmt::unwrap;
 use embassy::blocking_mutex::raw::NoopRawMutex;
-use embassy::channel::channel::{Channel, Receiver, Sender};
+use embassy::channel::mpmc::{Channel, Receiver, Sender};
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy::util::Forever;

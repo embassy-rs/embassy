@@ -4,7 +4,7 @@
 
 use defmt::*;
 use embassy::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy::channel::channel::Channel;
+use embassy::channel::mpmc::Channel;
 use embassy::executor::Spawner;
 use embassy_nrf::peripherals::UARTE0;
 use embassy_nrf::uarte::UarteRx;
