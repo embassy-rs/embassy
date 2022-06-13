@@ -2,14 +2,12 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt_rtt as _; // global logger
-use panic_probe as _;
-
 use defmt::*;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
+use {defmt_rtt as _, panic_probe as _};
 
 #[cortex_m_rt::entry]
 fn main() -> ! {

@@ -1,5 +1,6 @@
 use std::env;
 use std::path::PathBuf;
+
 use stm32_metapac_gen::*;
 
 fn parse_chip_core(chip_and_core: &str) -> (String, Option<String>) {

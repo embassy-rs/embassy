@@ -1,10 +1,9 @@
 use core::marker::PhantomData;
 
-use crate::Unborrow;
 use embassy_hal_common::unborrow;
 
 use super::{Channel, ConfigurableChannel, Event, Ppi, StaticChannel, Task};
-use crate::pac;
+use crate::{pac, Unborrow};
 
 impl Task {
     fn reg_val(&self) -> u32 {
@@ -55,12 +54,7 @@ impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
 
 #[cfg(not(feature = "nrf51"))] // Not for nrf51 because of the fork task
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
-    pub fn new_one_to_two(
-        ch: impl Unborrow<Target = C> + 'd,
-        event: Event,
-        task1: Task,
-        task2: Task,
-    ) -> Self {
+    pub fn new_one_to_two(ch: impl Unborrow<Target = C> + 'd, event: Event, task1: Task, task2: Task) -> Self {
         unborrow!(ch);
 
         let r = regs();
@@ -76,9 +70,7 @@ impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
     }
 }
 
-impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize>
-    Ppi<'d, C, EVENT_COUNT, TASK_COUNT>
-{
+impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'d, C, EVENT_COUNT, TASK_COUNT> {
     /// Enables the channel.
     pub fn enable(&mut self) {
         let n = self.ch.number();
@@ -92,9 +84,7 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize>
     }
 }
 
-impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Drop
-    for Ppi<'d, C, EVENT_COUNT, TASK_COUNT>
-{
+impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Drop for Ppi<'d, C, EVENT_COUNT, TASK_COUNT> {
     fn drop(&mut self) {
         self.disable();
 

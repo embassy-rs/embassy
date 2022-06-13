@@ -1,6 +1,6 @@
-use as_slice::{AsMutSlice, AsSlice};
 use core::ops::{Deref, DerefMut, Range};
 
+use as_slice::{AsMutSlice, AsSlice};
 use atomic_pool::{pool, Box};
 
 pub const MTU: usize = 1516;
@@ -41,10 +41,7 @@ pub trait PacketBoxExt {
 
 impl PacketBoxExt for PacketBox {
     fn slice(self, range: Range<usize>) -> PacketBuf {
-        PacketBuf {
-            packet: self,
-            range,
-        }
+        PacketBuf { packet: self, range }
     }
 }
 

@@ -6,9 +6,7 @@ use defmt::{info, unwrap};
 use embassy::executor::Spawner;
 use embassy_nrf::gpio::{AnyPin, Input, Pin as _, Pull};
 use embassy_nrf::Peripherals;
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::task(pool_size = 4)]
 async fn button_task(n: usize, mut pin: Input<'static, AnyPin>) {

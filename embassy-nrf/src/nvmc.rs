@@ -1,16 +1,15 @@
 //! Nvmcerature sensor interface.
 
-use crate::pac;
-use crate::peripherals::NVMC;
-
-use crate::Unborrow;
 use core::marker::PhantomData;
-use core::ptr;
-use core::slice;
+use core::{ptr, slice};
+
 use embassy_hal_common::unborrow;
 use embedded_storage::nor_flash::{
     ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
 };
+
+use crate::peripherals::NVMC;
+use crate::{pac, Unborrow};
 
 pub const PAGE_SIZE: usize = 4096;
 pub const FLASH_SIZE: usize = crate::chip::FLASH_SIZE;

@@ -5,11 +5,8 @@
 #![feature(type_alias_impl_trait)]
 
 use embassy::time::{Duration, Timer};
-use embassy_nrf::{
-    gpio::{Level, Output, OutputDrive},
-    Peripherals,
-};
-
+use embassy_nrf::gpio::{Level, Output, OutputDrive};
+use embassy_nrf::Peripherals;
 use panic_reset as _;
 
 #[embassy::main]

@@ -1,7 +1,6 @@
 use crate::pac::{PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
-use crate::time::Hertz;
-use crate::time::U32Ext;
+use crate::time::{Hertz, U32Ext};
 
 /// HSI speed
 pub const HSI_FREQ: u32 = 16_000_000;

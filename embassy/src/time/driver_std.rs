@@ -1,11 +1,10 @@
-use atomic_polyfill::{AtomicU8, Ordering};
 use std::cell::UnsafeCell;
-use std::mem;
 use std::mem::MaybeUninit;
 use std::sync::{Condvar, Mutex, Once};
-use std::time::Duration as StdDuration;
-use std::time::Instant as StdInstant;
-use std::{ptr, thread};
+use std::time::{Duration as StdDuration, Instant as StdInstant};
+use std::{mem, ptr, thread};
+
+use atomic_polyfill::{AtomicU8, Ordering};
 
 use crate::time::driver::{AlarmHandle, Driver};
 
@@ -106,15 +105,13 @@ impl Driver for TimeDriver {
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        let id = self
-            .alarm_count
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-                if x < ALARM_COUNT as u8 {
-                    Some(x + 1)
-                } else {
-                    None
-                }
-            });
+        let id = self.alarm_count.fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
+            if x < ALARM_COUNT as u8 {
+                Some(x + 1)
+            } else {
+                None
+            }
+        });
 
         match id {
             Ok(id) => Some(AlarmHandle::new(id)),

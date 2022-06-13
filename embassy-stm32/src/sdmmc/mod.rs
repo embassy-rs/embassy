@@ -4,8 +4,6 @@ use core::default::Default;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use crate::interrupt::InterruptExt;
-use crate::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
@@ -15,11 +13,11 @@ use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID,
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
 use crate::gpio::{Pull, Speed};
-use crate::interrupt::Interrupt;
+use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac::sdmmc::Sdmmc as RegBlock;
-use crate::peripherals;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
+use crate::{peripherals, Unborrow};
 
 /// The signalling scheme used on the SDMMC bus
 #[non_exhaustive]
@@ -283,11 +281,7 @@ impl<'d, T: Instance, P: Pins<T>, Dma: SdmmcDma<T>> Sdmmc<'d, T, P, Dma> {
     }
 
     #[inline(always)]
-    pub async fn read_block(
-        &mut self,
-        block_idx: u32,
-        buffer: &mut DataBlock,
-    ) -> Result<(), Error> {
+    pub async fn read_block(&mut self, block_idx: u32, buffer: &mut DataBlock) -> Result<(), Error> {
         let card_capacity = self.card()?.card_type;
         let inner = T::inner();
         let state = T::state();
@@ -475,8 +469,7 @@ impl SdmmcInner {
 
             self.select_card(Some(&card))?;
 
-            self.get_scr(&mut card, waker_reg, data_transfer_timeout, dma)
-                .await?;
+            self.get_scr(&mut card, waker_reg, data_transfer_timeout, dma).await?;
 
             // Set bus width
             let (width, acmd_arg) = match bus_width {
@@ -515,12 +508,7 @@ impl SdmmcInner {
             if freq.0 > 25_000_000 {
                 // Switch to SDR25
                 *signalling = self
-                    .switch_signalling_mode(
-                        Signalling::SDR25,
-                        waker_reg,
-                        data_transfer_timeout,
-                        dma,
-                    )
+                    .switch_signalling_mode(Signalling::SDR25, waker_reg, data_transfer_timeout, dma)
                     .await?;
 
                 if *signalling == Signalling::SDR25 {
@@ -562,13 +550,7 @@ impl SdmmcInner {
         let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
 
         unsafe {
-            self.prepare_datapath_read(
-                buffer as *mut [u32; 128],
-                512,
-                9,
-                data_transfer_timeout,
-                dma,
-            );
+            self.prepare_datapath_read(buffer as *mut [u32; 128], 512, 9, data_transfer_timeout, dma);
             self.data_interrupts(true);
         }
         self.cmd(Cmd::read_single_block(address), true)?;
@@ -617,13 +599,7 @@ impl SdmmcInner {
         let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
 
         unsafe {
-            self.prepare_datapath_write(
-                buffer as *const [u32; 128],
-                512,
-                9,
-                data_transfer_timeout,
-                dma,
-            );
+            self.prepare_datapath_write(buffer as *const [u32; 128], 512, 9, data_transfer_timeout, dma);
             self.data_interrupts(true);
         }
         self.cmd(Cmd::write_single_block(address), true)?;
@@ -654,10 +630,7 @@ impl SdmmcInner {
 
                 // Try to read card status (ACMD13)
                 while timeout > 0 {
-                    match self
-                        .read_sd_status(card, waker_reg, data_transfer_timeout, dma)
-                        .await
-                    {
+                    match self.read_sd_status(card, waker_reg, data_transfer_timeout, dma).await {
                         Ok(_) => return Ok(()),
                         Err(Error::Timeout) => (), // Try again
                         Err(e) => return Err(e),
@@ -732,8 +705,7 @@ impl SdmmcInner {
 
         // NOTE(unsafe) We have exclusive access to the regisers
 
-        regs.dtimer()
-            .write(|w| w.set_datatime(data_transfer_timeout));
+        regs.dtimer().write(|w| w.set_datatime(data_transfer_timeout));
         regs.dlenr().write(|w| w.set_datalength(length_bytes));
 
         cfg_if::cfg_if! {
@@ -781,8 +753,7 @@ impl SdmmcInner {
 
         // NOTE(unsafe) We have exclusive access to the regisers
 
-        regs.dtimer()
-            .write(|w| w.set_datatime(data_transfer_timeout));
+        regs.dtimer().write(|w| w.set_datatime(data_transfer_timeout));
         regs.dlenr().write(|w| w.set_datalength(length_bytes));
 
         cfg_if::cfg_if! {
@@ -824,13 +795,7 @@ impl SdmmcInner {
     }
 
     /// Sets the CLKDIV field in CLKCR. Updates clock field in self
-    fn clkcr_set_clkdiv(
-        &self,
-        freq: u32,
-        width: BusWidth,
-        ker_ck: Hertz,
-        clock: &mut Hertz,
-    ) -> Result<(), Error> {
+    fn clkcr_set_clkdiv(&self, freq: u32, width: BusWidth, ker_ck: Hertz, clock: &mut Hertz) -> Result<(), Error> {
         let regs = self.0;
 
         let (clkdiv, new_clock) = clk_div(ker_ck, freq)?;
@@ -882,13 +847,7 @@ impl SdmmcInner {
         let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
 
         unsafe {
-            self.prepare_datapath_read(
-                &mut status as *mut [u32; 16],
-                64,
-                6,
-                data_transfer_timeout,
-                dma,
-            );
+            self.prepare_datapath_read(&mut status as *mut [u32; 16], 64, 6, data_transfer_timeout, dma);
             self.data_interrupts(true);
         }
         self.cmd(Cmd::cmd6(set_function), true)?; // CMD6
@@ -970,13 +929,7 @@ impl SdmmcInner {
         let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
 
         unsafe {
-            self.prepare_datapath_read(
-                &mut status as *mut [u32; 16],
-                64,
-                6,
-                data_transfer_timeout,
-                dma,
-            );
+            self.prepare_datapath_read(&mut status as *mut [u32; 16], 64, 6, data_transfer_timeout, dma);
             self.data_interrupts(true);
         }
         self.cmd(Cmd::card_status(0), true)?;
@@ -1473,9 +1426,11 @@ foreach_peripheral!(
 
 #[cfg(feature = "sdmmc-rs")]
 mod sdmmc_rs {
-    use super::*;
     use core::future::Future;
+
     use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
+
+    use super::*;
 
     impl<'d, T: Instance, P: Pins<T>> BlockDevice for Sdmmc<'d, T, P> {
         type Error = Error;
@@ -1506,13 +1461,7 @@ mod sdmmc_rs {
                     // NOTE(unsafe) Block uses align(4)
                     let buf = unsafe { &mut *(block as *mut [u8; 512] as *mut [u32; 128]) };
                     inner
-                        .read_block(
-                            address,
-                            buf,
-                            card_capacity,
-                            state,
-                            self.config.data_transfer_timeout,
-                        )
+                        .read_block(address, buf, card_capacity, state, self.config.data_transfer_timeout)
                         .await?;
                     address += 1;
                 }
@@ -1520,11 +1469,7 @@ mod sdmmc_rs {
             }
         }
 
-        fn write<'a>(
-            &'a mut self,
-            blocks: &'a [Block],
-            start_block_idx: BlockIdx,
-        ) -> Self::WriteFuture<'a> {
+        fn write<'a>(&'a mut self, blocks: &'a [Block], start_block_idx: BlockIdx) -> Self::WriteFuture<'a> {
             async move {
                 let card = self.card.as_mut().ok_or(Error::NoCard)?;
                 let inner = T::inner();

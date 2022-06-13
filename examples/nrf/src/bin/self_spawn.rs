@@ -6,9 +6,7 @@ use defmt::{info, unwrap};
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::Peripherals;
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::task(pool_size = 2)]
 async fn my_task(spawner: Spawner, n: u32) {

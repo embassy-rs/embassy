@@ -1,17 +1,17 @@
-use crate::interrupt::{Interrupt, InterruptExt};
 use core::convert::Infallible;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::task::{Context, Poll};
+
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unsafe_impl_unborrow;
 use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin};
-use crate::pac;
+use crate::interrupt::{Interrupt, InterruptExt};
 use crate::ppi::{Event, Task};
-use crate::{interrupt, peripherals};
+use crate::{interrupt, pac, peripherals};
 
 pub const CHANNEL_COUNT: usize = 8;
 
@@ -468,9 +468,7 @@ mod eh1 {
         type Error = Infallible;
     }
 
-    impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::blocking::InputPin
-        for InputChannel<'d, C, T>
-    {
+    impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::blocking::InputPin for InputChannel<'d, C, T> {
         fn is_high(&self) -> Result<bool, Self::Error> {
             Ok(self.pin.is_high())
         }

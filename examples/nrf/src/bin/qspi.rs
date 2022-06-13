@@ -4,11 +4,8 @@
 
 use defmt::{assert_eq, info, unwrap};
 use embassy::executor::Spawner;
-use embassy_nrf::Peripherals;
-use embassy_nrf::{interrupt, qspi};
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use embassy_nrf::{interrupt, qspi, Peripherals};
+use {defmt_rtt as _, panic_probe as _};
 
 const PAGE_SIZE: usize = 4096;
 

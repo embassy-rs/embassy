@@ -1,13 +1,11 @@
 use core::convert::Infallible;
 use core::marker::PhantomData;
 
-use crate::pac;
+use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
+
 use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
-use crate::peripherals;
-
-use crate::Unborrow;
-use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
+use crate::{pac, peripherals, Unborrow};
 
 /// Represents a digital input or output level.
 #[derive(Debug, Eq, PartialEq)]
@@ -195,10 +193,7 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     pub fn set_high(&mut self) {
         // For Open Drain High, disable the output pin.
         unsafe {
-            self.pin
-                .sio_oe()
-                .value_clr()
-                .write_value(1 << self.pin.pin());
+            self.pin.sio_oe().value_clr().write_value(1 << self.pin.pin());
         }
     }
 
@@ -207,10 +202,7 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     pub fn set_low(&mut self) {
         // For Open Drain Low, enable the output pin.
         unsafe {
-            self.pin
-                .sio_oe()
-                .value_set()
-                .write_value(1 << self.pin.pin());
+            self.pin.sio_oe().value_set().write_value(1 << self.pin.pin());
         }
     }
 

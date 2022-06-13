@@ -2,16 +2,14 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
+use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Delay, Duration, Timer};
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::rcc::AdcClockSource;
 use embassy_stm32::time::U32Ext;
 use embassy_stm32::{Config, Peripherals};
-
-use defmt::*;
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 pub fn config() -> Config {
     let mut config = Config::default();

@@ -1,17 +1,17 @@
 //! Temperature sensor interface.
 
-use crate::interrupt;
-use crate::pac;
-use crate::peripherals::TEMP;
-
-use crate::interrupt::InterruptExt;
-use crate::Unborrow;
 use core::marker::PhantomData;
 use core::task::Poll;
+
 use embassy::waitqueue::AtomicWaker;
-use embassy_hal_common::{drop::OnDrop, unborrow};
+use embassy_hal_common::drop::OnDrop;
+use embassy_hal_common::unborrow;
 use fixed::types::I30F2;
 use futures::future::poll_fn;
+
+use crate::interrupt::InterruptExt;
+use crate::peripherals::TEMP;
+use crate::{interrupt, pac, Unborrow};
 
 /// Integrated temperature sensor.
 pub struct Temp<'d> {
@@ -22,10 +22,7 @@ pub struct Temp<'d> {
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 impl<'d> Temp<'d> {
-    pub fn new(
-        _t: impl Unborrow<Target = TEMP> + 'd,
-        irq: impl Unborrow<Target = interrupt::TEMP> + 'd,
-    ) -> Self {
+    pub fn new(_t: impl Unborrow<Target = TEMP> + 'd, irq: impl Unborrow<Target = interrupt::TEMP> + 'd) -> Self {
         unborrow!(_t, irq);
 
         // Enable interrupt that signals temperature values

@@ -2,18 +2,13 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt_rtt as _;
-use embedded_io::asynch::{Read, Write};
-// global logger
-use panic_probe as _;
-
 use defmt::*;
-
 use embassy::executor::Spawner;
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::interrupt;
 use embassy_stm32::usart::{BufferedUart, Config, State, Uart};
-use embassy_stm32::Peripherals;
+use embassy_stm32::{interrupt, Peripherals};
+use embedded_io::asynch::{Read, Write};
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

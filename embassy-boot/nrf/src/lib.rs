@@ -6,14 +6,10 @@
 
 mod fmt;
 
-pub use embassy_boot::{
-    FirmwareUpdater, FlashConfig, FlashProvider, Partition, SingleFlashProvider,
-};
-use embassy_nrf::{
-    nvmc::{Nvmc, PAGE_SIZE},
-    peripherals::WDT,
-    wdt,
-};
+pub use embassy_boot::{FirmwareUpdater, FlashConfig, FlashProvider, Partition, SingleFlashProvider};
+use embassy_nrf::nvmc::{Nvmc, PAGE_SIZE};
+use embassy_nrf::peripherals::WDT;
+use embassy_nrf::wdt;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 pub struct BootLoader {
@@ -95,9 +91,7 @@ impl BootLoader {
         let mut cmd = mbr::sd_mbr_command_t {
             command: mbr::NRF_MBR_COMMANDS_SD_MBR_COMMAND_IRQ_FORWARD_ADDRESS_SET,
             params: mbr::sd_mbr_command_t__bindgen_ty_1 {
-                irq_forward_address_set: mbr::sd_mbr_command_irq_forward_address_set_t {
-                    address: addr,
-                },
+                irq_forward_address_set: mbr::sd_mbr_command_irq_forward_address_set_t { address: addr },
             },
         };
         let ret = mbr::sd_mbr_command(&mut cmd);

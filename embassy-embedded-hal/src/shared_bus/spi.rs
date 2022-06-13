@@ -25,10 +25,11 @@
 //! let spi_dev2 = SpiBusDevice::new(spi_bus, cs_pin2);
 //! let display2 = ST7735::new(spi_dev2, dc2, rst2, Default::default(), 160, 128);
 //! ```
-use core::{fmt::Debug, future::Future};
+use core::fmt::Debug;
+use core::future::Future;
+
 use embassy::blocking_mutex::raw::RawMutex;
 use embassy::mutex::Mutex;
-
 use embedded_hal_1::digital::blocking::OutputPin;
 use embedded_hal_1::spi::ErrorType;
 use embedded_hal_async::spi;

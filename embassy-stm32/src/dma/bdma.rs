@@ -3,15 +3,14 @@
 use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
-use crate::interrupt::{Interrupt, InterruptExt};
 use embassy::waitqueue::AtomicWaker;
 
+use super::{TransferOptions, Word, WordSize};
 use crate::_generated::BDMA_CHANNEL_COUNT;
 use crate::dma::Request;
+use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac;
 use crate::pac::bdma::vals;
-
-use super::{TransferOptions, Word, WordSize};
 
 impl From<WordSize> for vals::Size {
     fn from(raw: WordSize) -> Self {
@@ -185,14 +184,8 @@ mod low_level_api {
         #[cfg(dmamux)] dmamux_regs: pac::dmamux::Dmamux,
         #[cfg(dmamux)] dmamux_ch_num: u8,
     ) {
-        assert!(
-            options.mburst == crate::dma::Burst::Single,
-            "Burst mode not supported"
-        );
-        assert!(
-            options.pburst == crate::dma::Burst::Single,
-            "Burst mode not supported"
-        );
+        assert!(options.mburst == crate::dma::Burst::Single, "Burst mode not supported");
+        assert!(options.pburst == crate::dma::Burst::Single, "Burst mode not supported");
         assert!(
             options.flow_ctrl == crate::dma::FlowControl::Dma,
             "Peripheral flow control not supported"
@@ -206,10 +199,7 @@ mod low_level_api {
         super::super::dmamux::configure_dmamux(dmamux_regs, dmamux_ch_num, request);
 
         #[cfg(bdma_v2)]
-        critical_section::with(|_| {
-            dma.cselr()
-                .modify(|w| w.set_cs(channel_number as _, request))
-        });
+        critical_section::with(|_| dma.cselr().modify(|w| w.set_cs(channel_number as _, request)));
 
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
@@ -279,10 +269,7 @@ mod low_level_api {
         let cr = dma.ch(channel_num).cr();
 
         if isr.teif(channel_num) {
-            panic!(
-                "DMA: error on BDMA@{:08x} channel {}",
-                dma.0 as u32, channel_num
-            );
+            panic!("DMA: error on BDMA@{:08x} channel {}", dma.0 as u32, channel_num);
         }
         if isr.tcif(channel_num) && cr.read().tcie() {
             cr.write(|_| ()); // Disable channel interrupts with the default value.

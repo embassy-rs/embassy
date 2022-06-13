@@ -1,10 +1,8 @@
 #![feature(type_alias_impl_trait)]
 #![allow(incomplete_features)]
 
-use embassy::{
-    executor::Spawner,
-    time::{Duration, Timer},
-};
+use embassy::executor::Spawner;
+use embassy::time::{Duration, Timer};
 
 #[embassy::task]
 async fn ticker() {
@@ -13,13 +11,9 @@ async fn ticker() {
     let mut counter = 0;
     loop {
         let document = window.document().expect("should have a document on window");
-        let list = document
-            .get_element_by_id("log")
-            .expect("should have a log element");
+        let list = document.get_element_by_id("log").expect("should have a log element");
 
-        let li = document
-            .create_element("li")
-            .expect("error creating list item element");
+        let li = document.create_element("li").expect("error creating list item element");
         li.set_text_content(Some(&format!("tick {}", counter)));
 
         list.append_child(&li).expect("error appending list item");

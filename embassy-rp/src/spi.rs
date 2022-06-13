@@ -1,13 +1,11 @@
 use core::marker::PhantomData;
 
-use crate::Unborrow;
 use embassy_hal_common::unborrow;
+pub use embedded_hal_02::spi::{Phase, Polarity};
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Pin as GpioPin};
-use crate::{pac, peripherals};
-
-pub use embedded_hal_02::spi::{Phase, Polarity};
+use crate::{pac, peripherals, Unborrow};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -56,11 +54,7 @@ fn calc_prescs(freq: u32) -> (u8, u8) {
     }
 
     let presc = div_roundup(ratio, 256);
-    let postdiv = if presc == 1 {
-        ratio
-    } else {
-        div_roundup(ratio, presc)
-    };
+    let postdiv = if presc == 1 { ratio } else { div_roundup(ratio, presc) };
 
     ((presc * 2) as u8, (postdiv - 1) as u8)
 }
@@ -91,14 +85,7 @@ impl<'d, T: Instance> Spi<'d, T> {
         config: Config,
     ) -> Self {
         unborrow!(clk, mosi);
-        Self::new_inner(
-            inner,
-            Some(clk.degrade()),
-            Some(mosi.degrade()),
-            None,
-            None,
-            config,
-        )
+        Self::new_inner(inner, Some(clk.degrade()), Some(mosi.degrade()), None, None, config)
     }
 
     pub fn new_rxonly(
@@ -108,14 +95,7 @@ impl<'d, T: Instance> Spi<'d, T> {
         config: Config,
     ) -> Self {
         unborrow!(clk, miso);
-        Self::new_inner(
-            inner,
-            Some(clk.degrade()),
-            None,
-            Some(miso.degrade()),
-            None,
-            config,
-        )
+        Self::new_inner(inner, Some(clk.degrade()), None, Some(miso.degrade()), None, config)
     }
 
     fn new_inner(

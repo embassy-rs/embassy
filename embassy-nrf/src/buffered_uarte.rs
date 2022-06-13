@@ -13,28 +13,26 @@
 //!
 //! Please also see [crate::uarte] to understand when [BufferedUarte] should be used.
 
-use crate::interrupt::InterruptExt;
-use crate::Unborrow;
 use core::cmp::min;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
+
 use embassy::waitqueue::WakerRegistration;
 use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::ring_buffer::RingBuffer;
 use embassy_hal_common::{low_power_wait_until, unborrow};
 use futures::future::poll_fn;
-
-use crate::gpio::Pin as GpioPin;
-use crate::pac;
-use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
-use crate::timer::Instance as TimerInstance;
-use crate::timer::{Frequency, Timer};
-use crate::uarte::{apply_workaround_for_enable_anomaly, Config, Instance as UarteInstance};
-
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
+
+use crate::gpio::Pin as GpioPin;
+use crate::interrupt::InterruptExt;
+use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
+use crate::timer::{Frequency, Instance as TimerInstance, Timer};
+use crate::uarte::{apply_workaround_for_enable_anomaly, Config, Instance as UarteInstance};
+use crate::{pac, Unborrow};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum RxState {
@@ -234,9 +232,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Read for Buffe
     }
 }
 
-impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::BufRead
-    for BufferedUarte<'d, U, T>
-{
+impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::BufRead for BufferedUarte<'d, U, T> {
     type FillBufFuture<'a> = impl Future<Output = Result<&'a [u8], Self::Error>>
     where
         Self: 'a;
@@ -276,9 +272,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::BufRead
     }
 }
 
-impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Write
-    for BufferedUarte<'d, U, T>
-{
+impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Write for BufferedUarte<'d, U, T> {
     type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
     where
         Self: 'a;

@@ -25,17 +25,13 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
 pub fn cortex_m_interrupt(args: TokenStream, item: TokenStream) -> TokenStream {
     let args = syn::parse_macro_input!(args as syn::AttributeArgs);
     let f = syn::parse_macro_input!(item as syn::ItemFn);
-    cortex_m_interrupt::run(args, f)
-        .unwrap_or_else(|x| x)
-        .into()
+    cortex_m_interrupt::run(args, f).unwrap_or_else(|x| x).into()
 }
 
 #[proc_macro]
 pub fn cortex_m_interrupt_declare(item: TokenStream) -> TokenStream {
     let name = syn::parse_macro_input!(item as syn::Ident);
-    cortex_m_interrupt_declare::run(name)
-        .unwrap_or_else(|x| x)
-        .into()
+    cortex_m_interrupt_declare::run(name).unwrap_or_else(|x| x).into()
 }
 
 /// # interrupt_take procedural macro
@@ -46,7 +42,5 @@ pub fn cortex_m_interrupt_declare(item: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn cortex_m_interrupt_take(item: TokenStream) -> TokenStream {
     let name = syn::parse_macro_input!(item as syn::Ident);
-    cortex_m_interrupt_take::run(name)
-        .unwrap_or_else(|x| x)
-        .into()
+    cortex_m_interrupt_take::run(name).unwrap_or_else(|x| x).into()
 }

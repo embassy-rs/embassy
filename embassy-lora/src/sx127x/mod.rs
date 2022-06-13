@@ -1,11 +1,10 @@
 use core::future::Future;
+
 use embedded_hal::digital::v2::OutputPin;
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::*;
-use lorawan_device::async_device::{
-    radio::{Bandwidth, PhyRxTx, RfConfig, RxQuality, SpreadingFactor, TxConfig},
-    Timings,
-};
+use lorawan_device::async_device::radio::{Bandwidth, PhyRxTx, RfConfig, RxQuality, SpreadingFactor, TxConfig};
+use lorawan_device::async_device::Timings;
 
 mod sx127x_lora;
 use sx127x_lora::{Error as RadioError, LoRa, RadioMode, IRQ};

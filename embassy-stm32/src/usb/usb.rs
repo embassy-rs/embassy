@@ -1,11 +1,10 @@
 #![macro_use]
 
-use crate::interrupt::InterruptExt;
-use crate::Unborrow;
-use atomic_polyfill::{AtomicBool, AtomicU8};
 use core::marker::PhantomData;
 use core::sync::atomic::Ordering;
 use core::task::Poll;
+
+use atomic_polyfill::{AtomicBool, AtomicU8};
 use embassy::time::{block_for, Duration};
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
@@ -16,12 +15,12 @@ use futures::Future;
 use pac::common::{Reg, RW};
 use pac::usb::vals::{EpType, Stat};
 
+use super::{DmPin, DpPin, Instance};
 use crate::gpio::sealed::AFType;
-use crate::pac;
+use crate::interrupt::InterruptExt;
 use crate::pac::usb::regs;
 use crate::rcc::sealed::RccPeripheral;
-
-use super::{DmPin, DpPin, Instance};
+use crate::{pac, Unborrow};
 
 const EP_COUNT: usize = 8;
 
@@ -105,11 +104,7 @@ impl<T: Instance> EndpointBuffer<T> {
             if i * 2 + 1 < buf.len() {
                 val |= (buf[i * 2 + 1] as u16) << 8;
             }
-            unsafe {
-                T::regs()
-                    .ep_mem(self.addr as usize / 2 + i)
-                    .write_value(val)
-            };
+            unsafe { T::regs().ep_mem(self.addr as usize / 2 + i).write_value(val) };
         }
     }
 }
@@ -146,9 +141,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         unsafe {
             crate::peripherals::PWR::enable();
 
-            pac::PWR
-                .cr2()
-                .modify(|w| w.set_usv(pac::pwr::vals::Usv::VALID));
+            pac::PWR.cr2().modify(|w| w.set_usv(pac::pwr::vals::Usv::VALID));
         }
 
         unsafe {
@@ -857,12 +850,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         }
     }
 
-    fn data_out<'a>(
-        &'a mut self,
-        buf: &'a mut [u8],
-        first: bool,
-        last: bool,
-    ) -> Self::DataOutFuture<'a> {
+    fn data_out<'a>(&'a mut self, buf: &'a mut [u8], first: bool, last: bool) -> Self::DataOutFuture<'a> {
         async move {
             let regs = T::regs();
 

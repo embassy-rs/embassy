@@ -1,9 +1,9 @@
+use std::iter;
+
 use darling::FromMeta;
 use proc_macro2::TokenStream;
 use quote::quote;
-use std::iter;
-use syn::ReturnType;
-use syn::{Type, Visibility};
+use syn::{ReturnType, Type, Visibility};
 
 use crate::util::ctxt::Ctxt;
 

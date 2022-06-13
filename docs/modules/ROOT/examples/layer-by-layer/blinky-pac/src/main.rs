@@ -1,12 +1,8 @@
 #![no_std]
 #![no_main]
 
-use defmt_rtt as _;
-use panic_probe as _;
-
-use stm32_metapac as pac;
-
 use pac::gpio::vals;
+use {defmt_rtt as _, panic_probe as _, stm32_metapac as pac};
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
@@ -30,30 +26,18 @@ fn main() -> ! {
     let gpioc = pac::GPIOC;
     const BUTTON_PIN: usize = 13;
     unsafe {
-        gpioc
-            .pupdr()
-            .modify(|w| w.set_pupdr(BUTTON_PIN, vals::Pupdr::PULLUP));
-        gpioc
-            .otyper()
-            .modify(|w| w.set_ot(BUTTON_PIN, vals::Ot::PUSHPULL));
-        gpioc
-            .moder()
-            .modify(|w| w.set_moder(BUTTON_PIN, vals::Moder::INPUT));
+        gpioc.pupdr().modify(|w| w.set_pupdr(BUTTON_PIN, vals::Pupdr::PULLUP));
+        gpioc.otyper().modify(|w| w.set_ot(BUTTON_PIN, vals::Ot::PUSHPULL));
+        gpioc.moder().modify(|w| w.set_moder(BUTTON_PIN, vals::Moder::INPUT));
     }
 
     // Setup LED
     let gpiob = pac::GPIOB;
     const LED_PIN: usize = 14;
     unsafe {
-        gpiob
-            .pupdr()
-            .modify(|w| w.set_pupdr(LED_PIN, vals::Pupdr::FLOATING));
-        gpiob
-            .otyper()
-            .modify(|w| w.set_ot(LED_PIN, vals::Ot::PUSHPULL));
-        gpiob
-            .moder()
-            .modify(|w| w.set_moder(LED_PIN, vals::Moder::OUTPUT));
+        gpiob.pupdr().modify(|w| w.set_pupdr(LED_PIN, vals::Pupdr::FLOATING));
+        gpiob.otyper().modify(|w| w.set_ot(LED_PIN, vals::Ot::PUSHPULL));
+        gpiob.moder().modify(|w| w.set_moder(LED_PIN, vals::Moder::OUTPUT));
     }
 
     // Main loop

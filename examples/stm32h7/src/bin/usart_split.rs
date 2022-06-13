@@ -3,17 +3,14 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use defmt_rtt as _; // global logger
 use embassy::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy::channel::mpmc::Channel;
 use embassy::executor::Spawner;
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::{
-    peripherals::{DMA1_CH1, UART7},
-    usart::{Config, Uart, UartRx},
-    Peripherals,
-};
-use panic_probe as _;
+use embassy_stm32::peripherals::{DMA1_CH1, UART7};
+use embassy_stm32::usart::{Config, Uart, UartRx};
+use embassy_stm32::Peripherals;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::task]
 async fn writer(mut usart: Uart<'static, UART7, NoDma, NoDma>) {

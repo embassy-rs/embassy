@@ -1,15 +1,15 @@
 #![macro_use]
 
-use crate::interrupt::Interrupt;
-use crate::Unborrow;
 use core::marker::PhantomData;
+
 use embassy_hal_common::unborrow;
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
+use crate::interrupt::Interrupt;
 use crate::pac::usart::{regs, vals};
-use crate::peripherals;
 use crate::rcc::RccPeripheral;
+use crate::{peripherals, Unborrow};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DataBits {
@@ -314,18 +314,14 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_02::serial::Read<u8>
-        for Uart<'d, T, TxDma, RxDma>
-    {
+    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_02::serial::Read<u8> for Uart<'d, T, TxDma, RxDma> {
         type Error = Error;
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             embedded_hal_02::serial::Read::read(&mut self.rx)
         }
     }
 
-    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_02::blocking::serial::Write<u8>
-        for Uart<'d, T, TxDma, RxDma>
-    {
+    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, T, TxDma, RxDma> {
         type Error = Error;
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
@@ -351,9 +347,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_1::serial::ErrorType
-        for Uart<'d, T, TxDma, RxDma>
-    {
+    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_1::serial::ErrorType for Uart<'d, T, TxDma, RxDma> {
         type Error = Error;
     }
 

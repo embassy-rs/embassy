@@ -1,22 +1,20 @@
 #![macro_use]
 
-use crate::interrupt::{Interrupt, InterruptExt};
-use crate::Unborrow;
 use core::marker::PhantomData;
 use core::ptr;
 use core::task::Poll;
+
 use embassy_hal_common::drop::DropBomb;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, Pin as GpioPin};
-use crate::pac;
-
-pub use crate::pac::qspi::ifconfig0::ADDRMODE_A as AddressMode;
-pub use crate::pac::qspi::ifconfig0::PPSIZE_A as WritePageSize;
-pub use crate::pac::qspi::ifconfig0::READOC_A as ReadOpcode;
-pub use crate::pac::qspi::ifconfig0::WRITEOC_A as WriteOpcode;
+use crate::interrupt::{Interrupt, InterruptExt};
+pub use crate::pac::qspi::ifconfig0::{
+    ADDRMODE_A as AddressMode, PPSIZE_A as WritePageSize, READOC_A as ReadOpcode, WRITEOC_A as WriteOpcode,
+};
+use crate::{pac, Unborrow};
 
 // TODO
 // - config:
@@ -168,12 +166,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         }
     }
 
-    pub async fn custom_instruction(
-        &mut self,
-        opcode: u8,
-        req: &[u8],
-        resp: &mut [u8],
-    ) -> Result<(), Error> {
+    pub async fn custom_instruction(&mut self, opcode: u8, req: &[u8], resp: &mut [u8]) -> Result<(), Error> {
         let bomb = DropBomb::new();
 
         let len = core::cmp::max(req.len(), resp.len()) as u8;
@@ -188,12 +181,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         Ok(())
     }
 
-    pub fn blocking_custom_instruction(
-        &mut self,
-        opcode: u8,
-        req: &[u8],
-        resp: &mut [u8],
-    ) -> Result<(), Error> {
+    pub fn blocking_custom_instruction(&mut self, opcode: u8, req: &[u8], resp: &mut [u8]) -> Result<(), Error> {
         let len = core::cmp::max(req.len(), resp.len()) as u8;
         self.custom_instruction_start(opcode, req, len)?;
 
@@ -292,15 +280,9 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
 
         let r = T::regs();
 
-        r.read
-            .src
-            .write(|w| unsafe { w.src().bits(address as u32) });
-        r.read
-            .dst
-            .write(|w| unsafe { w.dst().bits(data.as_ptr() as u32) });
-        r.read
-            .cnt
-            .write(|w| unsafe { w.cnt().bits(data.len() as u32) });
+        r.read.src.write(|w| unsafe { w.src().bits(address as u32) });
+        r.read.dst.write(|w| unsafe { w.dst().bits(data.as_ptr() as u32) });
+        r.read.cnt.write(|w| unsafe { w.cnt().bits(data.len() as u32) });
 
         r.events_ready.reset();
         r.intenset.write(|w| w.ready().set());
@@ -322,15 +304,9 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         }
 
         let r = T::regs();
-        r.write
-            .src
-            .write(|w| unsafe { w.src().bits(data.as_ptr() as u32) });
-        r.write
-            .dst
-            .write(|w| unsafe { w.dst().bits(address as u32) });
-        r.write
-            .cnt
-            .write(|w| unsafe { w.cnt().bits(data.len() as u32) });
+        r.write.src.write(|w| unsafe { w.src().bits(data.as_ptr() as u32) });
+        r.write.dst.write(|w| unsafe { w.dst().bits(address as u32) });
+        r.write.cnt.write(|w| unsafe { w.cnt().bits(data.len() as u32) });
 
         r.events_ready.reset();
         r.intenset.write(|w| w.ready().set());
@@ -346,9 +322,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         }
 
         let r = T::regs();
-        r.erase
-            .ptr
-            .write(|w| unsafe { w.ptr().bits(address as u32) });
+        r.erase.ptr.write(|w| unsafe { w.ptr().bits(address as u32) });
         r.erase.len.write(|w| w.len()._4kb());
 
         r.events_ready.reset();
@@ -458,9 +432,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Drop for Qspi<'d, T, FLASH_SIZE> 
     }
 }
 
-use embedded_storage::nor_flash::{
-    ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
-};
+use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> ErrorType for Qspi<'d, T, FLASH_SIZE> {
     type Error = Error;

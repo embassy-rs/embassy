@@ -1,6 +1,6 @@
-use crate::pac;
-
 pub use pac::resets::regs::Peripherals;
+
+use crate::pac;
 
 pub const ALL_PERIPHERALS: Peripherals = Peripherals(0x01ffffff);
 
@@ -10,8 +10,6 @@ pub unsafe fn reset(peris: Peripherals) {
 
 pub unsafe fn unreset_wait(peris: Peripherals) {
     // TODO use the "atomic clear" register version
-    pac::RESETS
-        .reset()
-        .modify(|v| *v = Peripherals(v.0 & !peris.0));
+    pac::RESETS.reset().modify(|v| *v = Peripherals(v.0 & !peris.0));
     while ((!pac::RESETS.reset_done().read().0) & peris.0) != 0 {}
 }

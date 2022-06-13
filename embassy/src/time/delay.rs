@@ -56,8 +56,9 @@ cfg_if::cfg_if! {
 }
 
 mod eh02 {
-    use super::*;
     use embedded_hal_02::blocking::delay::{DelayMs, DelayUs};
+
+    use super::*;
 
     impl DelayMs<u8> for Delay {
         fn delay_ms(&mut self, ms: u8) {

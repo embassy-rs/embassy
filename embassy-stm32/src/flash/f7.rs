@@ -26,10 +26,7 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
         let mut offset = offset;
         for chunk in buf.chunks(super::WRITE_SIZE) {
             for val in chunk.chunks(4) {
-                write_volatile(
-                    offset as *mut u32,
-                    u32::from_le_bytes(val[0..4].try_into().unwrap()),
-                );
+                write_volatile(offset as *mut u32, u32::from_le_bytes(val[0..4].try_into().unwrap()));
                 offset += val.len() as u32;
 
                 // prevents parallelism errors

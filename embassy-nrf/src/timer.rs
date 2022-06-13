@@ -3,16 +3,14 @@
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use crate::interrupt::Interrupt;
-use crate::interrupt::InterruptExt;
-use crate::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
-use crate::pac;
+use crate::interrupt::{Interrupt, InterruptExt};
 use crate::ppi::{Event, Task};
+use crate::{pac, Unborrow};
 
 pub(crate) mod sealed {
 
@@ -131,9 +129,7 @@ impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
     fn new_irqless(_timer: impl Unborrow<Target = T> + 'd) -> Self {
         let regs = T::regs();
 
-        let mut this = Self {
-            phantom: PhantomData,
-        };
+        let mut this = Self { phantom: PhantomData };
 
         // Stop the timer before doing anything else,
         // since changing BITMODE while running can cause 'unpredictable behaviour' according to the specification.
@@ -233,11 +229,7 @@ impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
     /// Panics if `n` >= the number of CC registers this timer has (4 for a normal timer, 6 for an extended timer).
     pub fn cc(&mut self, n: usize) -> Cc<T, I> {
         if n >= T::CCS {
-            panic!(
-                "Cannot get CC register {} of timer with {} CC registers.",
-                n,
-                T::CCS
-            );
+            panic!("Cannot get CC register {} of timer with {} CC registers.", n, T::CCS);
         }
         Cc {
             n,

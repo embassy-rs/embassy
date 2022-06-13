@@ -10,9 +10,7 @@ use defmt::*;
 use embassy::executor::Spawner;
 use embassy_nrf::twim::{self, Twim};
 use embassy_nrf::{interrupt, Peripherals};
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 const ADDRESS: u8 = 0x50;
 

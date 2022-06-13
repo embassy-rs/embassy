@@ -2,8 +2,6 @@ use core::cmp;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use crate::interrupt::InterruptExt;
-use crate::Unborrow;
 use atomic_polyfill::{AtomicUsize, Ordering};
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
@@ -13,8 +11,10 @@ use futures::future::poll_fn;
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
+use crate::interrupt::InterruptExt;
 use crate::pac::i2c;
 use crate::time::Hertz;
+use crate::Unborrow;
 
 pub struct State {
     waker: AtomicWaker,
@@ -277,12 +277,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         }
     }
 
-    fn read_internal(
-        &mut self,
-        address: u8,
-        buffer: &mut [u8],
-        restart: bool,
-    ) -> Result<(), Error> {
+    fn read_internal(&mut self, address: u8, buffer: &mut [u8], restart: bool) -> Result<(), Error> {
         let completed_chunks = buffer.len() / 255;
         let total_chunks = if completed_chunks * 255 == buffer.len() {
             completed_chunks
@@ -335,12 +330,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         // ST SAD+W
         // NOTE(unsafe) We have &mut self
         unsafe {
-            Self::master_write(
-                address,
-                bytes.len().min(255),
-                Stop::Software,
-                last_chunk_idx != 0,
-            );
+            Self::master_write(address, bytes.len().min(255), Stop::Software, last_chunk_idx != 0);
         }
 
         for (number, chunk) in bytes.chunks(255).enumerate() {
@@ -467,12 +457,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
 
-    async fn read_dma_internal(
-        &mut self,
-        address: u8,
-        buffer: &mut [u8],
-        restart: bool,
-    ) -> Result<(), Error>
+    async fn read_dma_internal(&mut self, address: u8, buffer: &mut [u8], restart: bool) -> Result<(), Error>
     where
         RXDMA: crate::i2c::RxDma<T>,
     {
@@ -513,13 +498,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         // NOTE(unsafe) self.rx_dma does not fiddle with the i2c registers
         unsafe {
-            Self::master_read(
-                address,
-                total_len.min(255),
-                Stop::Software,
-                total_chunks != 1,
-                restart,
-            );
+            Self::master_read(address, total_len.min(255), Stop::Software, total_chunks != 1, restart);
         }
 
         poll_fn(|cx| {
@@ -597,12 +576,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         }
     }
 
-    pub async fn write_read(
-        &mut self,
-        address: u8,
-        bytes: &[u8],
-        buffer: &mut [u8],
-    ) -> Result<(), Error>
+    pub async fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error>
     where
         TXDMA: super::TxDma<T>,
         RXDMA: super::RxDma<T>,
@@ -634,12 +608,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         self.write_internal(address, bytes, true)
     }
 
-    pub fn blocking_write_read(
-        &mut self,
-        address: u8,
-        bytes: &[u8],
-        buffer: &mut [u8],
-    ) -> Result<(), Error> {
+    pub fn blocking_write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
         self.write_internal(address, bytes, false)?;
         self.read_internal(address, buffer, true)
         // Automatic Stop
@@ -675,10 +644,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             if idx != 0 {
                 // NOTE(unsafe) We have &mut self
                 unsafe {
-                    Self::master_continue(
-                        slice_len.min(255),
-                        (idx != last_slice_index) || (slice_len > 255),
-                    );
+                    Self::master_continue(slice_len.min(255), (idx != last_slice_index) || (slice_len > 255));
                 }
             }
 
@@ -686,10 +652,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 if number != 0 {
                     // NOTE(unsafe) We have &mut self
                     unsafe {
-                        Self::master_continue(
-                            chunk.len(),
-                            (number != last_chunk_idx) || (idx != last_slice_index),
-                        );
+                        Self::master_continue(chunk.len(), (number != last_chunk_idx) || (idx != last_slice_index));
                     }
                 }
 
@@ -737,12 +700,7 @@ mod eh02 {
     impl<'d, T: Instance> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, T> {
         type Error = Error;
 
-        fn write_read(
-            &mut self,
-            address: u8,
-            bytes: &[u8],
-            buffer: &mut [u8],
-        ) -> Result<(), Self::Error> {
+        fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_write_read(address, bytes, buffer)
         }
     }
@@ -794,10 +752,7 @@ impl Timings {
 
         // For the standard-mode configuration method, we must have a ratio of 4
         // or higher
-        assert!(
-            ratio >= 4,
-            "The I2C PCLK must be at least 4 times the bus frequency!"
-        );
+        assert!(ratio >= 4, "The I2C PCLK must be at least 4 times the bus frequency!");
 
         let (presc_reg, scll, sclh, sdadel, scldel) = if freq > 100_000 {
             // Fast-mode (Fm) or Fast-mode Plus (Fm+)
@@ -831,13 +786,7 @@ impl Timings {
                 (sdadel, scldel)
             };
 
-            (
-                presc_reg,
-                scll as u8,
-                sclh as u8,
-                sdadel as u8,
-                scldel as u8,
-            )
+            (presc_reg, scll as u8, sclh as u8, sdadel as u8, scldel as u8)
         } else {
             // Standard-mode (Sm)
             // here we pick SCLL = SCLH
@@ -855,21 +804,12 @@ impl Timings {
             let scll = sclh;
 
             // Speed check
-            assert!(
-                sclh < 256,
-                "The I2C PCLK is too fast for this bus frequency!"
-            );
+            assert!(sclh < 256, "The I2C PCLK is too fast for this bus frequency!");
 
             let sdadel = i2cclk / 2_000_000 / presc;
             let scldel = i2cclk / 500_000 / presc - 1;
 
-            (
-                presc_reg,
-                scll as u8,
-                sclh as u8,
-                sdadel as u8,
-                scldel as u8,
-            )
+            (presc_reg, scll as u8, sclh as u8, sdadel as u8, scldel as u8)
         };
 
         // Sanity check
@@ -900,9 +840,9 @@ mod eh1 {
             match *self {
                 Self::Bus => embedded_hal_1::i2c::ErrorKind::Bus,
                 Self::Arbitration => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
-                Self::Nack => embedded_hal_1::i2c::ErrorKind::NoAcknowledge(
-                    embedded_hal_1::i2c::NoAcknowledgeSource::Unknown,
-                ),
+                Self::Nack => {
+                    embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Unknown)
+                }
                 Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::Crc => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::Overrun => embedded_hal_1::i2c::ErrorKind::Overrun,
@@ -911,9 +851,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_1::i2c::ErrorType
-        for I2c<'d, T, TXDMA, RXDMA>
-    {
+    impl<'d, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_1::i2c::ErrorType for I2c<'d, T, TXDMA, RXDMA> {
         type Error = Error;
     }
 }

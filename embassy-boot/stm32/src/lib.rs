@@ -6,9 +6,7 @@
 
 mod fmt;
 
-pub use embassy_boot::{
-    FirmwareUpdater, FlashConfig, FlashProvider, Partition, SingleFlashProvider, State,
-};
+pub use embassy_boot::{FirmwareUpdater, FlashConfig, FlashProvider, Partition, SingleFlashProvider, State};
 use embedded_storage::nor_flash::NorFlash;
 
 pub struct BootLoader<const PAGE_SIZE: usize> {

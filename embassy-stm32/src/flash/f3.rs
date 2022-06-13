@@ -20,10 +20,7 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
         let mut ret: Result<(), Error> = Ok(());
         let mut offset = offset;
         for chunk in buf.chunks(2) {
-            write_volatile(
-                offset as *mut u16,
-                u16::from_le_bytes(chunk[0..2].try_into().unwrap()),
-            );
+            write_volatile(offset as *mut u16, u16::from_le_bytes(chunk[0..2].try_into().unwrap()));
             offset += chunk.len() as u32;
 
             ret = blocking_wait_ready();

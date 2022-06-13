@@ -1,7 +1,7 @@
 use core::cell::UnsafeCell;
 use core::future::Future;
-use core::task::Context;
-use core::task::Poll;
+use core::task::{Context, Poll};
+
 use embassy::time::{Instant, Timer};
 use embassy::waitqueue::WakerRegistration;
 use futures::future::poll_fn;
@@ -9,19 +9,17 @@ use futures::pin_mut;
 use heapless::Vec;
 #[cfg(feature = "dhcpv4")]
 use smoltcp::iface::SocketHandle;
-use smoltcp::iface::{Interface, InterfaceBuilder};
-use smoltcp::iface::{SocketSet, SocketStorage};
-#[cfg(feature = "dhcpv4")]
-use smoltcp::socket::dhcpv4;
-use smoltcp::time::Instant as SmolInstant;
-use smoltcp::wire::{IpCidr, Ipv4Address, Ipv4Cidr};
-
+use smoltcp::iface::{Interface, InterfaceBuilder, SocketSet, SocketStorage};
 #[cfg(feature = "medium-ethernet")]
 use smoltcp::iface::{Neighbor, NeighborCache, Route, Routes};
 #[cfg(feature = "medium-ethernet")]
 use smoltcp::phy::{Device as _, Medium};
+#[cfg(feature = "dhcpv4")]
+use smoltcp::socket::dhcpv4;
+use smoltcp::time::Instant as SmolInstant;
 #[cfg(feature = "medium-ethernet")]
 use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress};
+use smoltcp::wire::{IpCidr, Ipv4Address, Ipv4Cidr};
 
 use crate::device::{Device, DeviceAdapter, LinkState};
 
@@ -38,9 +36,7 @@ pub struct StackResources<const ADDR: usize, const SOCK: usize, const NEIGHBOR: 
     neighbor_cache: [Option<(IpAddress, Neighbor)>; NEIGHBOR],
 }
 
-impl<const ADDR: usize, const SOCK: usize, const NEIGHBOR: usize>
-    StackResources<ADDR, SOCK, NEIGHBOR>
-{
+impl<const ADDR: usize, const SOCK: usize, const NEIGHBOR: usize> StackResources<ADDR, SOCK, NEIGHBOR> {
     pub fn new() -> Self {
         Self {
             addresses: [IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 32); ADDR],
@@ -122,8 +118,7 @@ impl<D: Device + 'static> Stack<D> {
 
         let sockets = SocketSet::new(&mut resources.sockets[..]);
 
-        let next_local_port =
-            (random_seed % (LOCAL_PORT_MAX - LOCAL_PORT_MIN) as u64) as u16 + LOCAL_PORT_MIN;
+        let next_local_port = (random_seed % (LOCAL_PORT_MAX - LOCAL_PORT_MIN) as u64) as u16 + LOCAL_PORT_MIN;
 
         let mut inner = Inner {
             device,
@@ -194,11 +189,7 @@ impl SocketStack {
     #[allow(clippy::absurd_extreme_comparisons)]
     pub fn get_local_port(&mut self) -> u16 {
         let res = self.next_local_port;
-        self.next_local_port = if res >= LOCAL_PORT_MAX {
-            LOCAL_PORT_MIN
-        } else {
-            res + 1
-        };
+        self.next_local_port = if res >= LOCAL_PORT_MAX { LOCAL_PORT_MIN } else { res + 1 };
         res
     }
 }
@@ -217,10 +208,7 @@ impl<D: Device + 'static> Inner<D> {
         if medium == Medium::Ethernet {
             if let Some(gateway) = config.gateway {
                 debug!("   Default gateway: {}", gateway);
-                s.iface
-                    .routes_mut()
-                    .add_default_ipv4_route(gateway)
-                    .unwrap();
+                s.iface.routes_mut().add_default_ipv4_route(gateway).unwrap();
             } else {
                 debug!("   Default gateway: None");
                 s.iface.routes_mut().remove_default_ipv4_route();
@@ -259,10 +247,7 @@ impl<D: Device + 'static> Inner<D> {
         s.waker.register(cx.waker());
 
         let timestamp = instant_to_smoltcp(Instant::now());
-        if s.iface
-            .poll(timestamp, &mut self.device, &mut s.sockets)
-            .is_err()
-        {
+        if s.iface.poll(timestamp, &mut self.device, &mut s.sockets).is_err() {
             // If poll() returns error, it may not be done yet, so poll again later.
             cx.waker().wake_by_ref();
             return;

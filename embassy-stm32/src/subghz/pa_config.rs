@@ -13,58 +13,37 @@ impl PaConfig {
     /// Optimal settings for +15dBm output power with the low-power PA.
     ///
     /// This must be used with [`TxParams::LP_15`](super::TxParams::LP_15).
-    pub const LP_15: PaConfig = PaConfig::new()
-        .set_pa_duty_cycle(0x6)
-        .set_hp_max(0x0)
-        .set_pa(PaSel::Lp);
+    pub const LP_15: PaConfig = PaConfig::new().set_pa_duty_cycle(0x6).set_hp_max(0x0).set_pa(PaSel::Lp);
 
     /// Optimal settings for +14dBm output power with the low-power PA.
     ///
     /// This must be used with [`TxParams::LP_14`](super::TxParams::LP_14).
-    pub const LP_14: PaConfig = PaConfig::new()
-        .set_pa_duty_cycle(0x4)
-        .set_hp_max(0x0)
-        .set_pa(PaSel::Lp);
+    pub const LP_14: PaConfig = PaConfig::new().set_pa_duty_cycle(0x4).set_hp_max(0x0).set_pa(PaSel::Lp);
 
     /// Optimal settings for +10dBm output power with the low-power PA.
     ///
     /// This must be used with [`TxParams::LP_10`](super::TxParams::LP_10).
-    pub const LP_10: PaConfig = PaConfig::new()
-        .set_pa_duty_cycle(0x1)
-        .set_hp_max(0x0)
-        .set_pa(PaSel::Lp);
+    pub const LP_10: PaConfig = PaConfig::new().set_pa_duty_cycle(0x1).set_hp_max(0x0).set_pa(PaSel::Lp);
 
     /// Optimal settings for +22dBm output power with the high-power PA.
     ///
     /// This must be used with [`TxParams::HP`](super::TxParams::HP).
-    pub const HP_22: PaConfig = PaConfig::new()
-        .set_pa_duty_cycle(0x4)
-        .set_hp_max(0x7)
-        .set_pa(PaSel::Hp);
+    pub const HP_22: PaConfig = PaConfig::new().set_pa_duty_cycle(0x4).set_hp_max(0x7).set_pa(PaSel::Hp);
 
     /// Optimal settings for +20dBm output power with the high-power PA.
     ///
     /// This must be used with [`TxParams::HP`](super::TxParams::HP).
-    pub const HP_20: PaConfig = PaConfig::new()
-        .set_pa_duty_cycle(0x3)
-        .set_hp_max(0x5)
-        .set_pa(PaSel::Hp);
+    pub const HP_20: PaConfig = PaConfig::new().set_pa_duty_cycle(0x3).set_hp_max(0x5).set_pa(PaSel::Hp);
 
     /// Optimal settings for +17dBm output power with the high-power PA.
     ///
     /// This must be used with [`TxParams::HP`](super::TxParams::HP).
-    pub const HP_17: PaConfig = PaConfig::new()
-        .set_pa_duty_cycle(0x2)
-        .set_hp_max(0x3)
-        .set_pa(PaSel::Hp);
+    pub const HP_17: PaConfig = PaConfig::new().set_pa_duty_cycle(0x2).set_hp_max(0x3).set_pa(PaSel::Hp);
 
     /// Optimal settings for +14dBm output power with the high-power PA.
     ///
     /// This must be used with [`TxParams::HP`](super::TxParams::HP).
-    pub const HP_14: PaConfig = PaConfig::new()
-        .set_pa_duty_cycle(0x2)
-        .set_hp_max(0x2)
-        .set_pa(PaSel::Hp);
+    pub const HP_14: PaConfig = PaConfig::new().set_pa_duty_cycle(0x2).set_hp_max(0x2).set_pa(PaSel::Hp);
 
     /// Create a new `PaConfig` struct.
     ///

@@ -2,15 +2,11 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt_rtt as _;
-use panic_probe as _;
-
 use embassy::executor::Spawner;
-use embassy_stm32::{
-    exti::ExtiInput,
-    gpio::{Input, Level, Output, Pull, Speed},
-    Peripherals,
-};
+use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::Peripherals;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_s: Spawner, p: Peripherals) {

@@ -1,9 +1,8 @@
+use core::{mem, ptr};
+
 use atomic_polyfill::{compiler_fence, AtomicPtr, Ordering};
-use core::mem;
-use core::ptr;
 use cortex_m::peripheral::NVIC;
 use embassy_hal_common::Unborrow;
-
 pub use embassy_macros::cortex_m_interrupt_take as take;
 
 /// Implementation detail, do not use outside embassy crates.

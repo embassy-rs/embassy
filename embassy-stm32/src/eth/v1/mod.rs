@@ -4,33 +4,30 @@ use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
-use crate::Unborrow;
 use embassy::waitqueue::AtomicWaker;
 use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::unborrow;
 use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
 
-use crate::gpio::sealed::Pin as __GpioPin;
-use crate::gpio::{sealed::AFType, AnyPin, Speed};
+use crate::gpio::sealed::{AFType, Pin as __GpioPin};
+use crate::gpio::{AnyPin, Speed};
 #[cfg(eth_v1a)]
 use crate::pac::AFIO;
 #[cfg(any(eth_v1b, eth_v1c))]
 use crate::pac::SYSCFG;
 use crate::pac::{ETH, RCC};
+use crate::Unborrow;
 
 mod descriptors;
 mod rx_desc;
 mod tx_desc;
 
-use super::*;
 use descriptors::DescriptorRing;
-use stm32_metapac::eth::vals::{
-    Apcs, Cr, Dm, DmaomrSr, Fes, Ftf, Ifg, MbProgress, Mw, Pbl, Rsf, St, Tsf,
-};
+use stm32_metapac::eth::vals::{Apcs, Cr, Dm, DmaomrSr, Fes, Ftf, Ifg, MbProgress, Mw, Pbl, Rsf, St, Tsf};
 
-pub struct State<'d, T: Instance, const TX: usize, const RX: usize>(
-    StateStorage<Inner<'d, T, TX, RX>>,
-);
+use super::*;
+
+pub struct State<'d, T: Instance, const TX: usize, const RX: usize>(StateStorage<Inner<'d, T, TX, RX>>);
 impl<'d, T: Instance, const TX: usize, const RX: usize> State<'d, T, TX, RX> {
     pub fn new() -> Self {
         Self(StateStorage::new())
@@ -300,9 +297,7 @@ unsafe impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> StationMa
     }
 }
 
-impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Device
-    for Ethernet<'d, T, P, TX, RX>
-{
+impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Device for Ethernet<'d, T, P, TX, RX> {
     fn is_transmit_ready(&mut self) -> bool {
         self.state.with(|s| s.desc_ring.tx.available())
     }
@@ -339,9 +334,7 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Device
     }
 }
 
-impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Drop
-    for Ethernet<'d, T, P, TX, RX>
-{
+impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Drop for Ethernet<'d, T, P, TX, RX> {
     fn drop(&mut self) {
         // NOTE(unsafe) We have `&mut self` and the interrupt doesn't use this registers
         unsafe {

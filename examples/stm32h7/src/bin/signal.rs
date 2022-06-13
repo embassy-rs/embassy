@@ -2,17 +2,12 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-// global logger
 use defmt::{info, unwrap};
-use defmt_rtt as _;
-
-use panic_probe as _;
-
 use embassy::channel::signal::Signal;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-
 use embassy_stm32::Peripherals;
+use {defmt_rtt as _, panic_probe as _};
 
 static SIGNAL: Signal<u32> = Signal::new();
 

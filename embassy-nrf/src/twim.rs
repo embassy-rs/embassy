@@ -6,12 +6,12 @@
 //!
 //! - nRF52832: Section 33
 //! - nRF52840: Section 6.31
-use crate::interrupt::{Interrupt, InterruptExt};
-use crate::Unborrow;
 use core::future::Future;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering::SeqCst};
+use core::sync::atomic::compiler_fence;
+use core::sync::atomic::Ordering::SeqCst;
 use core::task::Poll;
+
 #[cfg(feature = "time")]
 use embassy::time::{Duration, Instant};
 use embassy::waitqueue::AtomicWaker;
@@ -19,10 +19,10 @@ use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
-use crate::gpio;
 use crate::gpio::Pin as GpioPin;
-use crate::pac;
+use crate::interrupt::{Interrupt, InterruptExt};
 use crate::util::{slice_in_ram, slice_in_ram_or};
+use crate::{gpio, pac, Unborrow};
 
 pub enum Frequency {
     #[doc = "26738688: 100 kbps"]
@@ -134,9 +134,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         irq.unpend();
         irq.enable();
 
-        Self {
-            phantom: PhantomData,
-        }
+        Self { phantom: PhantomData }
     }
 
     fn on_interrupt(_: *mut ()) {
@@ -319,12 +317,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         })
     }
 
-    fn setup_write_from_ram(
-        &mut self,
-        address: u8,
-        buffer: &[u8],
-        inten: bool,
-    ) -> Result<(), Error> {
+    fn setup_write_from_ram(&mut self, address: u8, buffer: &[u8], inten: bool) -> Result<(), Error> {
         let r = T::regs();
 
         compiler_fence(SeqCst);
@@ -506,12 +499,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     ///
     /// The buffers must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
-    pub fn blocking_write_read(
-        &mut self,
-        address: u8,
-        wr_buffer: &[u8],
-        rd_buffer: &mut [u8],
-    ) -> Result<(), Error> {
+    pub fn blocking_write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Error> {
         self.setup_write_read(address, wr_buffer, rd_buffer, false)?;
         self.blocking_wait();
         compiler_fence(SeqCst);
@@ -543,12 +531,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     ///
     /// See [`blocking_write`].
     #[cfg(feature = "time")]
-    pub fn blocking_write_timeout(
-        &mut self,
-        address: u8,
-        buffer: &[u8],
-        timeout: Duration,
-    ) -> Result<(), Error> {
+    pub fn blocking_write_timeout(&mut self, address: u8, buffer: &[u8], timeout: Duration) -> Result<(), Error> {
         self.setup_write(address, buffer, false)?;
         self.blocking_wait_timeout(timeout)?;
         compiler_fence(SeqCst);
@@ -578,12 +561,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// The buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
     #[cfg(feature = "time")]
-    pub fn blocking_read_timeout(
-        &mut self,
-        address: u8,
-        buffer: &mut [u8],
-        timeout: Duration,
-    ) -> Result<(), Error> {
+    pub fn blocking_read_timeout(&mut self, address: u8, buffer: &mut [u8], timeout: Duration) -> Result<(), Error> {
         self.setup_read(address, buffer, false)?;
         self.blocking_wait_timeout(timeout)?;
         compiler_fence(SeqCst);
@@ -662,12 +640,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
-    pub async fn write_read(
-        &mut self,
-        address: u8,
-        wr_buffer: &[u8],
-        rd_buffer: &mut [u8],
-    ) -> Result<(), Error> {
+    pub async fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Error> {
         self.setup_write_read(address, wr_buffer, rd_buffer, true)?;
         self.async_wait().await;
         compiler_fence(SeqCst);
@@ -786,12 +759,7 @@ mod eh02 {
     impl<'a, T: Instance> embedded_hal_02::blocking::i2c::WriteRead for Twim<'a, T> {
         type Error = Error;
 
-        fn write_read<'w>(
-            &mut self,
-            addr: u8,
-            bytes: &'w [u8],
-            buffer: &'w mut [u8],
-        ) -> Result<(), Error> {
+        fn write_read<'w>(&mut self, addr: u8, bytes: &'w [u8], buffer: &'w mut [u8]) -> Result<(), Error> {
             self.blocking_write_read(addr, bytes, buffer)
         }
     }
@@ -809,12 +777,12 @@ mod eh1 {
                 Self::Transmit => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::Receive => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::DMABufferNotInDataMemory => embedded_hal_1::i2c::ErrorKind::Other,
-                Self::AddressNack => embedded_hal_1::i2c::ErrorKind::NoAcknowledge(
-                    embedded_hal_1::i2c::NoAcknowledgeSource::Address,
-                ),
-                Self::DataNack => embedded_hal_1::i2c::ErrorKind::NoAcknowledge(
-                    embedded_hal_1::i2c::NoAcknowledgeSource::Data,
-                ),
+                Self::AddressNack => {
+                    embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Address)
+                }
+                Self::DataNack => {
+                    embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Data)
+                }
                 Self::Overrun => embedded_hal_1::i2c::ErrorKind::Overrun,
                 Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
             }
@@ -841,24 +809,14 @@ mod eh1 {
             todo!();
         }
 
-        fn write_iter_read<B>(
-            &mut self,
-            _address: u8,
-            _bytes: B,
-            _buffer: &mut [u8],
-        ) -> Result<(), Self::Error>
+        fn write_iter_read<B>(&mut self, _address: u8, _bytes: B, _buffer: &mut [u8]) -> Result<(), Self::Error>
         where
             B: IntoIterator<Item = u8>,
         {
             todo!();
         }
 
-        fn write_read(
-            &mut self,
-            address: u8,
-            wr_buffer: &[u8],
-            rd_buffer: &mut [u8],
-        ) -> Result<(), Self::Error> {
+        fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_write_read(address, wr_buffer, rd_buffer)
         }
 
@@ -870,11 +828,7 @@ mod eh1 {
             todo!();
         }
 
-        fn transaction_iter<'a, O>(
-            &mut self,
-            _address: u8,
-            _operations: O,
-        ) -> Result<(), Self::Error>
+        fn transaction_iter<'a, O>(&mut self, _address: u8, _operations: O) -> Result<(), Self::Error>
         where
             O: IntoIterator<Item = embedded_hal_1::i2c::blocking::Operation<'a>>,
         {

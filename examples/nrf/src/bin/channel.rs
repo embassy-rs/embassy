@@ -9,9 +9,7 @@ use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::Peripherals;
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 enum LedState {
     On,

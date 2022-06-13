@@ -1,22 +1,20 @@
 #![macro_use]
 
-use crate::Unborrow;
 use core::marker::PhantomData;
 use core::ptr;
+
 use embassy_hal_common::unborrow;
+pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::join;
 
 use self::sealed::WordSize;
 use crate::dma::{slice_ptr_parts, NoDma, Transfer};
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::AnyPin;
-use crate::pac::spi::Spi as Regs;
-use crate::pac::spi::{regs, vals};
-use crate::peripherals;
+use crate::pac::spi::{regs, vals, Spi as Regs};
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
-
-pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
+use crate::{peripherals, Unborrow};
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -423,10 +421,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
-        unsafe {
-            self.txdma
-                .start_write(tx_request, data, tx_dst, Default::default())
-        }
+        unsafe { self.txdma.start_write(tx_request, data, tx_dst, Default::default()) }
         let tx_f = Transfer::new(&mut self.txdma);
 
         unsafe {
@@ -472,22 +467,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let rx_request = self.rxdma.request();
         let rx_src = T::REGS.rx_ptr();
-        unsafe {
-            self.rxdma
-                .start_read(rx_request, rx_src, data, Default::default())
-        };
+        unsafe { self.rxdma.start_read(rx_request, rx_src, data, Default::default()) };
         let rx_f = Transfer::new(&mut self.rxdma);
 
         let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
         let clock_byte = 0x00u8;
-        let tx_f = crate::dma::write_repeated(
-            &mut self.txdma,
-            tx_request,
-            clock_byte,
-            clock_byte_count,
-            tx_dst,
-        );
+        let tx_f = crate::dma::write_repeated(&mut self.txdma, tx_request, clock_byte, clock_byte_count, tx_dst);
 
         unsafe {
             set_txdmaen(T::REGS, true);
@@ -507,11 +493,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
-    async fn transfer_inner<W: Word>(
-        &mut self,
-        read: *mut [W],
-        write: *const [W],
-    ) -> Result<(), Error>
+    async fn transfer_inner<W: Word>(&mut self, read: *mut [W], write: *const [W]) -> Result<(), Error>
     where
         Tx: TxDma<T>,
         Rx: RxDma<T>,
@@ -537,18 +519,12 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let rx_request = self.rxdma.request();
         let rx_src = T::REGS.rx_ptr();
-        unsafe {
-            self.rxdma
-                .start_read(rx_request, rx_src, read, Default::default())
-        };
+        unsafe { self.rxdma.start_read(rx_request, rx_src, read, Default::default()) };
         let rx_f = Transfer::new(&mut self.rxdma);
 
         let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
-        unsafe {
-            self.txdma
-                .start_write(tx_request, write, tx_dst, Default::default())
-        }
+        unsafe { self.txdma.start_write(tx_request, write, tx_dst, Default::default()) }
         let tx_f = Transfer::new(&mut self.txdma);
 
         unsafe {
@@ -835,9 +811,7 @@ mod eh02 {
     // some marker traits. For details, see https://github.com/rust-embedded/embedded-hal/pull/289
     macro_rules! impl_blocking {
         ($w:ident) => {
-            impl<'d, T: Instance> embedded_hal_02::blocking::spi::Write<$w>
-                for Spi<'d, T, NoDma, NoDma>
-            {
+            impl<'d, T: Instance> embedded_hal_02::blocking::spi::Write<$w> for Spi<'d, T, NoDma, NoDma> {
                 type Error = Error;
 
                 fn write(&mut self, words: &[$w]) -> Result<(), Self::Error> {
@@ -845,9 +819,7 @@ mod eh02 {
                 }
             }
 
-            impl<'d, T: Instance> embedded_hal_02::blocking::spi::Transfer<$w>
-                for Spi<'d, T, NoDma, NoDma>
-            {
+            impl<'d, T: Instance> embedded_hal_02::blocking::spi::Transfer<$w> for Spi<'d, T, NoDma, NoDma> {
                 type Error = Error;
 
                 fn transfer<'w>(&mut self, words: &'w mut [$w]) -> Result<&'w [$w], Self::Error> {
@@ -876,25 +848,19 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::blocking::SpiBusRead<W>
-        for Spi<'d, T, NoDma, NoDma>
-    {
+    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::blocking::SpiBusRead<W> for Spi<'d, T, NoDma, NoDma> {
         fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
             self.blocking_read(words)
         }
     }
 
-    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::blocking::SpiBusWrite<W>
-        for Spi<'d, T, NoDma, NoDma>
-    {
+    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::blocking::SpiBusWrite<W> for Spi<'d, T, NoDma, NoDma> {
         fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
             self.blocking_write(words)
         }
     }
 
-    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::blocking::SpiBus<W>
-        for Spi<'d, T, NoDma, NoDma>
-    {
+    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::blocking::SpiBus<W> for Spi<'d, T, NoDma, NoDma> {
         fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
             self.blocking_transfer(read, write)
         }

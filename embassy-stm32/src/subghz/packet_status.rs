@@ -1,6 +1,4 @@
-use super::Ratio;
-
-use super::Status;
+use super::{Ratio, Status};
 
 /// (G)FSK packet status.
 ///

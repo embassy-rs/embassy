@@ -145,8 +145,7 @@ impl Timeout {
         // `core::Duration` were not `const fn`, which leads to the hacks
         // you see here.
         let nanos: u128 = duration.as_nanos();
-        const UPPER_LIMIT: u128 =
-            Timeout::MAX.as_nanos() as u128 + (Timeout::RESOLUTION_NANOS as u128) / 2;
+        const UPPER_LIMIT: u128 = Timeout::MAX.as_nanos() as u128 + (Timeout::RESOLUTION_NANOS as u128) / 2;
         const LOWER_LIMIT: u128 = (((Timeout::RESOLUTION_NANOS as u128) + 1) / 2) as u128;
 
         if nanos > UPPER_LIMIT {
@@ -420,15 +419,13 @@ impl From<Timeout> for embassy::time::Duration {
 
 #[cfg(test)]
 mod tests {
-    use super::{Timeout, ValueError};
     use core::time::Duration;
+
+    use super::{Timeout, ValueError};
 
     #[test]
     fn saturate() {
-        assert_eq!(
-            Timeout::from_duration_sat(Duration::from_secs(u64::MAX)),
-            Timeout::MAX
-        );
+        assert_eq!(Timeout::from_duration_sat(Duration::from_secs(u64::MAX)), Timeout::MAX);
     }
 
     #[test]
@@ -455,10 +452,7 @@ mod tests {
     #[test]
     fn upper_limit() {
         let high: Duration = Timeout::MAX.as_duration() + Timeout::RESOLUTION / 2;
-        assert_eq!(
-            Timeout::from_duration(high),
-            Ok(Timeout::from_raw(0xFFFFFF))
-        );
+        assert_eq!(Timeout::from_duration(high), Ok(Timeout::from_raw(0xFFFFFF)));
 
         let too_high: Duration = high + Duration::from_nanos(1);
         assert_eq!(

@@ -3,12 +3,11 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use defmt_rtt as _; // global logger
 use embassy::executor::Spawner;
 use embassy_stm32::rcc::{ClockSrc, PLLClkDiv, PLLMul, PLLSource, PLLSrcDiv};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{Config, Peripherals};
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 fn config() -> Config {
     let mut config = Config::default();

@@ -14,9 +14,7 @@ unsafe impl Sync for CriticalSectionRawMutex {}
 
 impl CriticalSectionRawMutex {
     pub const fn new() -> Self {
-        Self {
-            _phantom: PhantomData,
-        }
+        Self { _phantom: PhantomData }
     }
 }
 
@@ -38,9 +36,7 @@ unsafe impl Send for NoopRawMutex {}
 
 impl NoopRawMutex {
     pub const fn new() -> Self {
-        Self {
-            _phantom: PhantomData,
-        }
+        Self { _phantom: PhantomData }
     }
 }
 
@@ -66,19 +62,14 @@ mod thread_mode {
 
     impl ThreadModeRawMutex {
         pub const fn new() -> Self {
-            Self {
-                _phantom: PhantomData,
-            }
+            Self { _phantom: PhantomData }
         }
     }
 
     impl RawMutex for ThreadModeRawMutex {
         const INIT: Self = Self::new();
         fn lock<R>(&self, f: impl FnOnce() -> R) -> R {
-            assert!(
-                in_thread_mode(),
-                "ThreadModeMutex can only be locked from thread mode."
-            );
+            assert!(in_thread_mode(), "ThreadModeMutex can only be locked from thread mode.");
 
             f()
         }
@@ -104,8 +95,7 @@ mod thread_mode {
         return Some("main") == std::thread::current().name();
 
         #[cfg(not(feature = "std"))]
-        return cortex_m::peripheral::SCB::vect_active()
-            == cortex_m::peripheral::scb::VectActive::ThreadMode;
+        return cortex_m::peripheral::SCB::vect_active() == cortex_m::peripheral::scb::VectActive::ThreadMode;
     }
 }
 #[cfg(any(cortex_m, feature = "std"))]

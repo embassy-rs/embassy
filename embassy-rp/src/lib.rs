@@ -17,14 +17,13 @@ mod reset;
 
 // Reexports
 
+pub use embassy_cortex_m::executor;
+pub use embassy_hal_common::{unborrow, Unborrow};
+pub use embassy_macros::cortex_m_interrupt as interrupt;
 #[cfg(feature = "unstable-pac")]
 pub use rp2040_pac2 as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use rp2040_pac2 as pac;
-
-pub use embassy_cortex_m::executor;
-pub use embassy_hal_common::{unborrow, Unborrow};
-pub use embassy_macros::cortex_m_interrupt as interrupt;
 
 embassy_hal_common::peripherals! {
     PIN_0,

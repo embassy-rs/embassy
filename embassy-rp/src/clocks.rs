@@ -47,11 +47,9 @@ pub unsafe fn init() {
     start_xosc();
 
     // Before we touch PLLs, switch sys and ref cleanly away from their aux sources.
-    c.clk_sys_ctrl()
-        .modify(|w| w.set_src(ClkSysCtrlSrc::CLK_REF));
+    c.clk_sys_ctrl().modify(|w| w.set_src(ClkSysCtrlSrc::CLK_REF));
     while c.clk_sys_selected().read() != 1 {}
-    c.clk_ref_ctrl()
-        .modify(|w| w.set_src(ClkRefCtrlSrc::ROSC_CLKSRC_PH));
+    c.clk_ref_ctrl().modify(|w| w.set_src(ClkRefCtrlSrc::ROSC_CLKSRC_PH));
     while c.clk_ref_selected().read() != 1 {}
 
     // Configure PLLs
@@ -135,9 +133,7 @@ unsafe fn start_xosc() {
         .write(|w| w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ));
 
     let startup_delay = (((XOSC_MHZ * 1_000_000) / 1000) + 128) / 256;
-    pac::XOSC
-        .startup()
-        .write(|w| w.set_delay(startup_delay as u16));
+    pac::XOSC.startup().write(|w| w.set_delay(startup_delay as u16));
     pac::XOSC.ctrl().write(|w| {
         w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ);
         w.set_enable(pac::xosc::vals::Enable::ENABLE);
@@ -145,13 +141,7 @@ unsafe fn start_xosc() {
     while !pac::XOSC.status().read().stable() {}
 }
 
-unsafe fn configure_pll(
-    p: pac::pll::Pll,
-    refdiv: u32,
-    vco_freq: u32,
-    post_div1: u8,
-    post_div2: u8,
-) {
+unsafe fn configure_pll(p: pac::pll::Pll, refdiv: u32, vco_freq: u32, post_div1: u8, post_div2: u8) {
     let ref_freq = XOSC_MHZ * 1_000_000 / refdiv;
 
     let fbdiv = vco_freq / ref_freq;

@@ -1,22 +1,20 @@
-use crate::interrupt::InterruptExt;
-use atomic_polyfill::{AtomicU32, AtomicU8};
 use core::cell::Cell;
 use core::convert::TryInto;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::{mem, ptr};
+
+use atomic_polyfill::{AtomicU32, AtomicU8};
 use embassy::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy::blocking_mutex::Mutex;
 use embassy::time::driver::{AlarmHandle, Driver};
 use embassy::time::TICKS_PER_SECOND;
 use stm32_metapac::timer::regs;
 
-use crate::interrupt;
-use crate::interrupt::CriticalSection;
+use crate::interrupt::{CriticalSection, InterruptExt};
 use crate::pac::timer::vals;
-use crate::peripherals;
 use crate::rcc::sealed::RccPeripheral;
-use crate::timer::sealed::Basic16bitInstance as BasicInstance;
-use crate::timer::sealed::GeneralPurpose16bitInstance as Instance;
+use crate::timer::sealed::{Basic16bitInstance as BasicInstance, GeneralPurpose16bitInstance as Instance};
+use crate::{interrupt, peripherals};
 
 #[cfg(not(any(time_driver_tim12, time_driver_tim15)))]
 const ALARM_COUNT: usize = 3;
@@ -271,15 +269,13 @@ impl Driver for RtcDriver {
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        let id = self
-            .alarm_count
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-                if x < ALARM_COUNT as u8 {
-                    Some(x + 1)
-                } else {
-                    None
-                }
-            });
+        let id = self.alarm_count.fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
+            if x < ALARM_COUNT as u8 {
+                Some(x + 1)
+            } else {
+                None
+            }
+        });
 
         match id {
             Ok(id) => Some(AlarmHandle::new(id)),

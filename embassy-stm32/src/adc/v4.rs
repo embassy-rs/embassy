@@ -1,16 +1,13 @@
 use core::marker::PhantomData;
 
-use crate::time::{Hertz, U32Ext};
-use crate::Unborrow;
-use atomic_polyfill::AtomicU8;
-use atomic_polyfill::Ordering;
+use atomic_polyfill::{AtomicU8, Ordering};
 use embedded_hal_02::blocking::delay::DelayUs;
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
-use crate::pac;
-
 use super::{AdcPin, Instance};
+use crate::time::{Hertz, U32Ext};
+use crate::{pac, Unborrow};
 
 pub enum Resolution {
     SixteenBit,
@@ -333,9 +330,7 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
         let prescaler = Prescaler::from_ker_ck(T::frequency());
 
         unsafe {
-            T::common_regs()
-                .ccr()
-                .modify(|w| w.set_presc(prescaler.presc()));
+            T::common_regs().ccr().modify(|w| w.set_presc(prescaler.presc()));
         }
 
         let frequency = Hertz(T::frequency().0 / prescaler.divisor());
@@ -509,9 +504,7 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
 
     unsafe fn read_channel(&mut self, channel: u8) -> u16 {
         // Configure ADC
-        T::regs()
-            .cfgr()
-            .modify(|reg| reg.set_res(self.resolution.res()));
+        T::regs().cfgr().modify(|reg| reg.set_res(self.resolution.res()));
 
         // Configure channel
         Self::set_channel_sample_time(channel, self.sample_time);

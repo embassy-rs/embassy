@@ -1,7 +1,9 @@
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use futures::{future::select, future::Either, pin_mut, Stream};
+
+use futures::future::{select, Either};
+use futures::{pin_mut, Stream};
 
 use crate::executor::raw;
 use crate::time::{Duration, Instant};
@@ -128,10 +130,7 @@ impl Ticker {
     /// Creates a new ticker that ticks at the specified duration interval.
     pub fn every(duration: Duration) -> Self {
         let expires_at = Instant::now() + duration;
-        Self {
-            expires_at,
-            duration,
-        }
+        Self { expires_at, duration }
     }
 }
 

@@ -3,15 +3,14 @@
 #![feature(type_alias_impl_trait)]
 
 use core::fmt::Write;
+
 use defmt::*;
-use defmt_rtt as _; // global logger
 use embassy::executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_stm32::Peripherals;
-use panic_probe as _;
-
 use heapless::String;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

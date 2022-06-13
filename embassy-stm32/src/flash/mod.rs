@@ -1,17 +1,11 @@
+use core::marker::PhantomData;
+
+use embassy_hal_common::unborrow;
+use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
+
+pub use crate::pac::{ERASE_SIZE, ERASE_VALUE, FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
 use crate::peripherals::FLASH;
 use crate::Unborrow;
-use core::marker::PhantomData;
-use embassy_hal_common::unborrow;
-
-use embedded_storage::nor_flash::{
-    ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
-};
-
-pub use crate::pac::ERASE_SIZE;
-pub use crate::pac::ERASE_VALUE;
-pub use crate::pac::FLASH_BASE;
-pub use crate::pac::FLASH_SIZE;
-pub use crate::pac::WRITE_SIZE;
 const FLASH_END: usize = FLASH_BASE + FLASH_SIZE;
 
 #[cfg_attr(any(flash_wl, flash_wb, flash_l0, flash_l1, flash_l4), path = "l.rs")]

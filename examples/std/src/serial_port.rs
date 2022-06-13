@@ -1,18 +1,16 @@
+use std::io;
+use std::os::unix::io::{AsRawFd, RawFd};
+
 use nix::errno::Errno;
 use nix::fcntl::OFlag;
 use nix::sys::termios;
-use std::io;
-use std::os::unix::io::{AsRawFd, RawFd};
 
 pub struct SerialPort {
     fd: RawFd,
 }
 
 impl SerialPort {
-    pub fn new<P: ?Sized + nix::NixPath>(
-        path: &P,
-        baudrate: termios::BaudRate,
-    ) -> io::Result<Self> {
+    pub fn new<P: ?Sized + nix::NixPath>(path: &P, baudrate: termios::BaudRate) -> io::Result<Self> {
         let fd = nix::fcntl::open(
             path,
             OFlag::O_RDWR | OFlag::O_NOCTTY | OFlag::O_NONBLOCK,

@@ -12,13 +12,9 @@ use core::ops::Range;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use embassy::time::Duration;
-use embassy_usb::driver::EndpointOut;
-use embassy_usb::{
-    control::{ControlHandler, InResponse, OutResponse, Request, RequestType},
-    driver::{Driver, Endpoint, EndpointError, EndpointIn},
-    Builder,
-};
-
+use embassy_usb::control::{ControlHandler, InResponse, OutResponse, Request, RequestType};
+use embassy_usb::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
+use embassy_usb::Builder;
 #[cfg(feature = "usbd-hid")]
 use ssmarshal::serialize;
 #[cfg(feature = "usbd-hid")]
@@ -145,9 +141,7 @@ fn build<'d, D: Driver<'d>>(
     (ep_out, ep_in, &state.out_report_offset)
 }
 
-impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize>
-    HidReaderWriter<'d, D, READ_N, WRITE_N>
-{
+impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> HidReaderWriter<'d, D, READ_N, WRITE_N> {
     /// Creates a new HidReaderWriter.
     ///
     /// This will allocate one IN and one OUT endpoints. If you only need writing (sending)
@@ -178,10 +172,7 @@ impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize>
 
     /// Writes an input report by serializing the given report structure.
     #[cfg(feature = "usbd-hid")]
-    pub async fn write_serialize<IR: AsInputReport>(
-        &mut self,
-        r: &IR,
-    ) -> Result<(), EndpointError> {
+    pub async fn write_serialize<IR: AsInputReport>(&mut self, r: &IR) -> Result<(), EndpointError> {
         self.writer.write_serialize(r).await
     }
 
@@ -250,10 +241,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
 
     /// Writes an input report by serializing the given report structure.
     #[cfg(feature = "usbd-hid")]
-    pub async fn write_serialize<IR: AsInputReport>(
-        &mut self,
-        r: &IR,
-    ) -> Result<(), EndpointError> {
+    pub async fn write_serialize<IR: AsInputReport>(&mut self, r: &IR) -> Result<(), EndpointError> {
         let mut buf: [u8; N] = [0; N];
         let size = match serialize(&mut buf, r) {
             Ok(size) => size,
@@ -298,8 +286,12 @@ impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
             match self.read(&mut buf).await {
                 Ok(len) => {
                     let id = if use_report_ids { buf[0] } else { 0 };
-                    handler.set_report(ReportId::Out(id), &buf[..len]); }
-                Err(ReadError::BufferOverflow) => warn!("Host sent output report larger than the configured maximum output report length ({})", N),
+                    handler.set_report(ReportId::Out(id), &buf[..len]);
+                }
+                Err(ReadError::BufferOverflow) => warn!(
+                    "Host sent output report larger than the configured maximum output report length ({})",
+                    N
+                ),
                 Err(ReadError::Disabled) => self.ep_out.wait_enabled().await,
                 Err(ReadError::Sync(_)) => unreachable!(),
             }

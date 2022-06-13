@@ -3,13 +3,12 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use defmt_rtt as _; // global logger
 use embassy::executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{BufferedUart, Config, State, Uart};
 use embassy_stm32::{interrupt, Peripherals};
 use embedded_io::asynch::BufRead;
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {

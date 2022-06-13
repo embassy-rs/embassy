@@ -28,8 +28,7 @@ pub(crate) unsafe fn unlock() {
 }
 
 pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error> {
-    let bank = if !is_dual_bank() || (offset - super::FLASH_BASE as u32) < SECOND_BANK_OFFSET as u32
-    {
+    let bank = if !is_dual_bank() || (offset - super::FLASH_BASE as u32) < SECOND_BANK_OFFSET as u32 {
         pac::FLASH.bank(0)
     } else {
         pac::FLASH.bank(1)
@@ -46,10 +45,7 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
         'outer: for chunk in buf.chunks(super::WRITE_SIZE) {
             for val in chunk.chunks(4) {
                 trace!("Writing at {:x}", offset);
-                write_volatile(
-                    offset as *mut u32,
-                    u32::from_le_bytes(val[0..4].try_into().unwrap()),
-                );
+                write_volatile(offset as *mut u32, u32::from_le_bytes(val[0..4].try_into().unwrap()));
                 offset += val.len() as u32;
 
                 ret = blocking_wait_ready(bank);

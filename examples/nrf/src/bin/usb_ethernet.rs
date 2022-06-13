@@ -6,6 +6,7 @@
 use core::mem;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Waker;
+
 use defmt::*;
 use embassy::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy::channel::mpmc::Channel;
@@ -13,18 +14,13 @@ use embassy::executor::Spawner;
 use embassy::util::Forever;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{PacketBox, PacketBoxExt, PacketBuf, Stack, StackResources};
-use embassy_nrf::pac;
 use embassy_nrf::rng::Rng;
 use embassy_nrf::usb::Driver;
-use embassy_nrf::Peripherals;
-use embassy_nrf::{interrupt, peripherals};
+use embassy_nrf::{interrupt, pac, peripherals, Peripherals};
 use embassy_usb::{Builder, Config, UsbDevice};
 use embassy_usb_ncm::{CdcNcmClass, Receiver, Sender, State};
-
-use defmt_rtt as _;
 use embedded_io::asynch::{Read, Write};
-// global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 type MyDriver = Driver<'static, peripherals::USBD>;
 
@@ -180,9 +176,7 @@ async fn main(spawner: Spawner, p: Peripherals) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    let device = Device {
-        mac_addr: our_mac_addr,
-    };
+    let device = Device { mac_addr: our_mac_addr };
     let stack = &*forever!(Stack::new(
         device,
         config,

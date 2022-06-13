@@ -100,8 +100,7 @@ impl TDes {
     // set up as a part fo the ring buffer - configures the tdes
     pub fn setup(&mut self, next: Option<&Self>) {
         // Defer this initialization to this function, so we can have `RingEntry` on bss.
-        self.tdes0
-            .set(TXDESC_0_TCH | TXDESC_0_IOC | TXDESC_0_FS | TXDESC_0_LS);
+        self.tdes0.set(TXDESC_0_TCH | TXDESC_0_IOC | TXDESC_0_FS | TXDESC_0_LS);
         match next {
             Some(next) => self.set_buffer2(next as *const TDes as *const u8),
             None => {
@@ -169,11 +168,7 @@ impl<const N: usize> TDesRing<N> {
         // volatiles
 
         // Start transmission
-        unsafe {
-            ETH.ethernet_dma()
-                .dmaomr()
-                .modify(|w| w.set_st(St::STARTED))
-        };
+        unsafe { ETH.ethernet_dma().dmaomr().modify(|w| w.set_st(St::STARTED)) };
     }
 
     /// Return true if a TDes is available for use

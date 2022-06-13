@@ -64,9 +64,7 @@ pub(crate) mod sealed {
         unsafe fn get_max_compare_value(&self) -> u16;
     }
 
-    pub trait CaptureCompare32bitInstance:
-        crate::timer::sealed::GeneralPurpose32bitInstance
-    {
+    pub trait CaptureCompare32bitInstance: crate::timer::sealed::GeneralPurpose32bitInstance {
         unsafe fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode);
 
         unsafe fn enable_channel(&mut self, channel: Channel, enable: bool);
@@ -82,10 +80,7 @@ pub trait CaptureCompare16bitInstance:
 {
 }
 pub trait CaptureCompare32bitInstance:
-    sealed::CaptureCompare32bitInstance
-    + CaptureCompare16bitInstance
-    + crate::timer::GeneralPurpose32bitInstance
-    + 'static
+    sealed::CaptureCompare32bitInstance + CaptureCompare16bitInstance + crate::timer::GeneralPurpose32bitInstance + 'static
 {
 }
 
@@ -93,11 +88,7 @@ pub trait CaptureCompare32bitInstance:
 macro_rules! impl_compare_capable_16bit {
     ($inst:ident) => {
         impl crate::pwm::sealed::CaptureCompare16bitInstance for crate::peripherals::$inst {
-            unsafe fn set_output_compare_mode(
-                &mut self,
-                channel: crate::pwm::Channel,
-                mode: OutputCompareMode,
-            ) {
+            unsafe fn set_output_compare_mode(&mut self, channel: crate::pwm::Channel, mode: OutputCompareMode) {
                 use crate::timer::sealed::GeneralPurpose16bitInstance;
                 let r = Self::regs_gp16();
                 let raw_channel: usize = channel.raw();
@@ -114,9 +105,7 @@ macro_rules! impl_compare_capable_16bit {
 
             unsafe fn set_compare_value(&mut self, channel: Channel, value: u16) {
                 use crate::timer::sealed::GeneralPurpose16bitInstance;
-                Self::regs_gp16()
-                    .ccr(channel.raw())
-                    .modify(|w| w.set_ccr(value));
+                Self::regs_gp16().ccr(channel.raw()).modify(|w| w.set_ccr(value));
             }
 
             unsafe fn get_max_compare_value(&self) -> u16 {

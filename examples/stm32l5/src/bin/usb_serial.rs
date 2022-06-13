@@ -2,32 +2,23 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt::panic;
-use defmt::*;
-use defmt_rtt as _; // global logger
+use defmt::{panic, *};
 use embassy::executor::Spawner;
-use embassy_stm32::interrupt;
 use embassy_stm32::rcc::*;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{Config, Peripherals};
+use embassy_stm32::{interrupt, Config, Peripherals};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
 use embassy_usb_serial::{CdcAcmClass, State};
 use futures::future::join;
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 fn config() -> Config {
     let mut config = Config::default();
     config.rcc.mux = ClockSrc::HSE(Hertz(16_000_000));
 
-    config.rcc.mux = ClockSrc::PLL(
-        PLLSource::HSI16,
-        PLLClkDiv::Div2,
-        PLLSrcDiv::Div1,
-        PLLMul::Mul10,
-        None,
-    );
+    config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PLLClkDiv::Div2, PLLSrcDiv::Div1, PLLMul::Mul10, None);
     config.rcc.hsi48 = true;
 
     config
@@ -99,9 +90,7 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-async fn echo<'d, T: Instance + 'd>(
-    class: &mut CdcAcmClass<'d, Driver<'d, T>>,
-) -> Result<(), Disconnected> {
+async fn echo<'d, T: Instance + 'd>(class: &mut CdcAcmClass<'d, Driver<'d, T>>) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
         let n = class.read_packet(&mut buf).await?;

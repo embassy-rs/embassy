@@ -1,10 +1,9 @@
 use core::marker::PhantomData;
 
-use crate::Unborrow;
 use embassy_hal_common::unborrow;
 use gpio::Pin;
 
-use crate::{gpio, pac, peripherals};
+use crate::{gpio, pac, peripherals, Unborrow};
 
 #[non_exhaustive]
 pub struct Config {
@@ -57,10 +56,8 @@ impl<'d, T: Instance> Uart<'d, T> {
             }
 
             // Load PL011's baud divisor registers
-            p.uartibrd()
-                .write_value(pac::uart::regs::Uartibrd(baud_ibrd));
-            p.uartfbrd()
-                .write_value(pac::uart::regs::Uartfbrd(baud_fbrd));
+            p.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
+            p.uartfbrd().write_value(pac::uart::regs::Uartfbrd(baud_fbrd));
 
             p.uartlcr_h().write(|w| {
                 w.set_wlen(config.data_bits - 5);

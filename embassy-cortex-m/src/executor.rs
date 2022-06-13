@@ -1,9 +1,9 @@
 use core::marker::PhantomData;
 
-use crate::interrupt::{Interrupt, InterruptExt};
+pub use embassy::executor::Executor;
 use embassy::executor::{raw, SendSpawner};
 
-pub use embassy::executor::Executor;
+use crate::interrupt::{Interrupt, InterruptExt};
 
 fn pend_by_number(n: u16) {
     #[derive(Clone, Copy)]

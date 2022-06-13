@@ -1,9 +1,11 @@
+use core::marker::PhantomData;
+
+use embassy_hal_common::unborrow;
+use embedded_hal_02::blocking::delay::DelayUs;
+
 use crate::adc::{AdcPin, Instance};
 use crate::time::Hertz;
 use crate::Unborrow;
-use core::marker::PhantomData;
-use embassy_hal_common::unborrow;
-use embedded_hal_02::blocking::delay::DelayUs;
 
 pub const VDDA_CALIB_MV: u32 = 3000;
 
@@ -132,9 +134,7 @@ impl Prescaler {
             2..=3 => Self::Div4,
             4..=5 => Self::Div6,
             6..=7 => Self::Div8,
-            _ => panic!(
-                "Selected PCLK2 frequency is too high for ADC with largest possible prescaler."
-            ),
+            _ => panic!("Selected PCLK2 frequency is too high for ADC with largest possible prescaler."),
         }
     }
 
@@ -165,9 +165,7 @@ where
 
         let presc = unsafe { Prescaler::from_pclk2(crate::rcc::get_freqs().apb2) };
         unsafe {
-            T::common_regs()
-                .ccr()
-                .modify(|w| w.set_adcpre(presc.adcpre()));
+            T::common_regs().ccr().modify(|w| w.set_adcpre(presc.adcpre()));
         }
 
         unsafe {
@@ -241,9 +239,7 @@ where
             pin.set_as_analog();
 
             // Configure ADC
-            T::regs()
-                .cr1()
-                .modify(|reg| reg.set_res(self.resolution.res()));
+            T::regs().cr1().modify(|reg| reg.set_res(self.resolution.res()));
 
             // Select channel
             T::regs().sqr3().write(|reg| reg.set_sq(0, pin.channel()));

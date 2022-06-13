@@ -1,4 +1,5 @@
 use core::ops::{Add, Div, Mul};
+
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul};
 
 /// Represents the ratio between two numbers.

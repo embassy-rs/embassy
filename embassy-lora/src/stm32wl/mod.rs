@@ -1,25 +1,20 @@
 //! A radio driver integration for the radio found on STM32WL family devices.
 use core::future::Future;
 use core::mem::MaybeUninit;
+
 use embassy::channel::signal::Signal;
 use embassy_hal_common::unborrow;
-use embassy_stm32::interrupt::InterruptExt;
+use embassy_stm32::dma::NoDma;
+use embassy_stm32::gpio::{AnyPin, Output};
+use embassy_stm32::interrupt::{InterruptExt, SUBGHZ_RADIO};
+use embassy_stm32::subghz::{
+    CalibrateImage, CfgIrq, CodingRate, HeaderType, Irq, LoRaBandwidth, LoRaModParams, LoRaPacketParams, LoRaSyncWord,
+    Ocp, PaConfig, PaSel, PacketType, RampTime, RegMode, RfFreq, SpreadingFactor as SF, StandbyClk, Status, SubGhz,
+    TcxoMode, TcxoTrim, Timeout, TxParams,
+};
 use embassy_stm32::Unborrow;
-use embassy_stm32::{
-    dma::NoDma,
-    gpio::{AnyPin, Output},
-    interrupt::SUBGHZ_RADIO,
-    subghz::{
-        CalibrateImage, CfgIrq, CodingRate, HeaderType, Irq, LoRaBandwidth, LoRaModParams,
-        LoRaPacketParams, LoRaSyncWord, Ocp, PaConfig, PaSel, PacketType, RampTime, RegMode,
-        RfFreq, SpreadingFactor as SF, StandbyClk, Status, SubGhz, TcxoMode, TcxoTrim, Timeout,
-        TxParams,
-    },
-};
-use lorawan_device::async_device::{
-    radio::{Bandwidth, PhyRxTx, RfConfig, RxQuality, SpreadingFactor, TxConfig},
-    Timings,
-};
+use lorawan_device::async_device::radio::{Bandwidth, PhyRxTx, RfConfig, RxQuality, SpreadingFactor, TxConfig};
+use lorawan_device::async_device::Timings;
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -98,9 +93,7 @@ impl<'a> StateInner<'a> {
         self.radio.set_standby(StandbyClk::Rc)?;
         let tcxo_mode = TcxoMode::new()
             .set_txco_trim(TcxoTrim::Volts1pt7)
-            .set_timeout(Timeout::from_duration_sat(
-                core::time::Duration::from_millis(40),
-            ));
+            .set_timeout(Timeout::from_duration_sat(core::time::Duration::from_millis(40)));
 
         self.radio.set_tcxo_mode(&tcxo_mode)?;
         self.radio.set_regulator_mode(RegMode::Ldo)?;
@@ -109,21 +102,14 @@ impl<'a> StateInner<'a> {
 
         self.radio.set_buffer_base_address(0, 0)?;
 
-        self.radio.set_pa_config(
-            &PaConfig::new()
-                .set_pa_duty_cycle(0x1)
-                .set_hp_max(0x0)
-                .set_pa(PaSel::Lp),
-        )?;
+        self.radio
+            .set_pa_config(&PaConfig::new().set_pa_duty_cycle(0x1).set_hp_max(0x0).set_pa(PaSel::Lp))?;
 
         self.radio.set_pa_ocp(Ocp::Max140m)?;
 
         //        let tx_params = TxParams::LP_14.set_ramp_time(RampTime::Micros40);
-        self.radio.set_tx_params(
-            &TxParams::new()
-                .set_ramp_time(RampTime::Micros40)
-                .set_power(0x0A),
-        )?;
+        self.radio
+            .set_tx_params(&TxParams::new().set_ramp_time(RampTime::Micros40).set_power(0x0A))?;
 
         self.radio.set_packet_type(PacketType::LoRa)?;
         self.radio.set_lora_sync_word(LoRaSyncWord::Public)?;
@@ -193,19 +179,14 @@ impl<'a> StateInner<'a> {
 
     /// Perform a radio receive operation with the radio config and receive buffer. The receive buffer must
     /// be able to hold a single LoRaWAN packet.
-    async fn do_rx(
-        &mut self,
-        config: RfConfig,
-        buf: &mut [u8],
-    ) -> Result<(usize, RxQuality), RadioError> {
+    async fn do_rx(&mut self, config: RfConfig, buf: &mut [u8]) -> Result<(usize, RxQuality), RadioError> {
         assert!(buf.len() >= 255);
         trace!("RX START");
         // trace!("Starting RX: {}", config);
         self.switch.set_rx();
         self.configure()?;
 
-        self.radio
-            .set_rf_frequency(&RfFreq::from_frequency(config.frequency))?;
+        self.radio.set_rf_frequency(&RfFreq::from_frequency(config.frequency))?;
 
         let mod_params = LoRaModParams::new()
             .set_sf(convert_spreading_factor(config.spreading_factor))
@@ -315,16 +296,8 @@ pub struct RadioSwitch<'a> {
 }
 
 impl<'a> RadioSwitch<'a> {
-    pub fn new(
-        ctrl1: Output<'a, AnyPin>,
-        ctrl2: Output<'a, AnyPin>,
-        ctrl3: Output<'a, AnyPin>,
-    ) -> Self {
-        Self {
-            ctrl1,
-            ctrl2,
-            ctrl3,
-        }
+    pub fn new(ctrl1: Output<'a, AnyPin>, ctrl2: Output<'a, AnyPin>, ctrl3: Output<'a, AnyPin>) -> Self {
+        Self { ctrl1, ctrl2, ctrl3 }
     }
 
     pub(crate) fn set_rx(&mut self) {

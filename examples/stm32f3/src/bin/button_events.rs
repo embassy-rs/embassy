@@ -19,9 +19,7 @@ use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{AnyPin, Input, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::peripherals::PA0;
 use embassy_stm32::Peripherals;
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 struct Leds<'a> {
     leds: [Output<'a, AnyPin>; 8],
@@ -57,8 +55,7 @@ impl<'a> Leds<'a> {
             self.process_event(new_message).await;
         } else {
             self.leds[self.current_led].set_low();
-            if let Ok(new_message) = with_timeout(Duration::from_millis(200), CHANNEL.recv()).await
-            {
+            if let Ok(new_message) = with_timeout(Duration::from_millis(200), CHANNEL.recv()).await {
                 self.process_event(new_message).await;
             }
         }
@@ -137,22 +134,16 @@ async fn button_waiter(mut button: ExtiInput<'static, PA0>) {
 
     button.wait_for_rising_edge().await;
     loop {
-        if with_timeout(
-            Duration::from_millis(HOLD_DELAY),
-            button.wait_for_falling_edge(),
-        )
-        .await
-        .is_err()
+        if with_timeout(Duration::from_millis(HOLD_DELAY), button.wait_for_falling_edge())
+            .await
+            .is_err()
         {
             info!("Hold");
             CHANNEL.send(ButtonEvent::Hold).await;
             button.wait_for_falling_edge().await;
-        } else if with_timeout(
-            Duration::from_millis(DOUBLE_CLICK_DELAY),
-            button.wait_for_rising_edge(),
-        )
-        .await
-        .is_err()
+        } else if with_timeout(Duration::from_millis(DOUBLE_CLICK_DELAY), button.wait_for_rising_edge())
+            .await
+            .is_err()
         {
             info!("Single click");
             CHANNEL.send(ButtonEvent::SingleClick).await;

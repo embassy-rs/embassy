@@ -1,5 +1,6 @@
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
+
 use cortex_m::peripheral::scb::VectActive;
 use cortex_m::peripheral::{NVIC, SCB};
 
@@ -53,13 +54,11 @@ impl<'a, S: PeripheralState> PeripheralMutex<'a, S> {
     /// Create a new `PeripheralMutex` wrapping `irq`, with `init` initializing the initial state.
     ///
     /// Registers `on_interrupt` as the `irq`'s handler, and enables it.
-    pub fn new(
-        irq: S::Interrupt,
-        storage: &'a mut StateStorage<S>,
-        init: impl FnOnce() -> S,
-    ) -> Self {
+    pub fn new(irq: S::Interrupt, storage: &'a mut StateStorage<S>, init: impl FnOnce() -> S) -> Self {
         if can_be_preempted(&irq) {
-            panic!("`PeripheralMutex` cannot be created in an interrupt with higher priority than the interrupt it wraps");
+            panic!(
+                "`PeripheralMutex` cannot be created in an interrupt with higher priority than the interrupt it wraps"
+            );
         }
 
         let state_ptr = storage.0.as_mut_ptr();

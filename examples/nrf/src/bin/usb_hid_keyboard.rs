@@ -5,25 +5,22 @@
 
 use core::mem;
 use core::sync::atomic::{AtomicBool, Ordering};
+
 use defmt::*;
 use embassy::channel::signal::Signal;
 use embassy::executor::Spawner;
 use embassy::time::Duration;
 use embassy::util::{select, select3, Either, Either3};
 use embassy_nrf::gpio::{Input, Pin, Pull};
-use embassy_nrf::interrupt;
 use embassy_nrf::interrupt::InterruptExt;
-use embassy_nrf::pac;
 use embassy_nrf::usb::Driver;
-use embassy_nrf::Peripherals;
+use embassy_nrf::{interrupt, pac, Peripherals};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, DeviceStateHandler};
 use embassy_usb_hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use futures::future::join;
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 static ENABLE_USB: Signal<bool> = Signal::new();
 static SUSPENDED: AtomicBool = AtomicBool::new(false);
@@ -182,9 +179,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     power_irq.unpend();
     power_irq.enable();
 
-    power
-        .intenset
-        .write(|w| w.usbdetected().set().usbremoved().set());
+    power.intenset.write(|w| w.usbdetected().set().usbremoved().set());
 
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
@@ -260,9 +255,7 @@ impl DeviceStateHandler for MyDeviceStateHandler {
     fn configured(&self, configured: bool) {
         self.configured.store(configured, Ordering::Relaxed);
         if configured {
-            info!(
-                "Device configured, it may now draw up to the configured current limit from Vbus."
-            )
+            info!("Device configured, it may now draw up to the configured current limit from Vbus.")
         } else {
             info!("Device is no longer configured, the Vbus current limit is 100mA.");
         }
@@ -275,9 +268,7 @@ impl DeviceStateHandler for MyDeviceStateHandler {
         } else {
             SUSPENDED.store(false, Ordering::Release);
             if self.configured.load(Ordering::Relaxed) {
-                info!(
-                    "Device resumed, it may now draw up to the configured current limit from Vbus"
-                );
+                info!("Device resumed, it may now draw up to the configured current limit from Vbus");
             } else {
                 info!("Device resumed, the Vbus current limit is 100mA");
             }

@@ -1,25 +1,23 @@
 #![macro_use]
 
-use crate::interrupt::InterruptExt;
-use crate::Unborrow;
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 use core::task::Poll;
+
 use cortex_m::peripheral::NVIC;
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::unborrow;
+pub use embassy_usb;
 use embassy_usb::driver::{self, EndpointError, Event, Unsupported};
 use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
 use futures::future::poll_fn;
 use futures::Future;
-
-pub use embassy_usb;
 use pac::usbd::RegisterBlock;
 
-use crate::interrupt::Interrupt;
-use crate::pac;
+use crate::interrupt::{Interrupt, InterruptExt};
 use crate::util::slice_in_ram;
+use crate::{pac, Unborrow};
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static BUS_WAKER: AtomicWaker = NEW_AW;
@@ -35,10 +33,7 @@ pub struct Driver<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Driver<'d, T> {
-    pub fn new(
-        _usb: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-    ) -> Self {
+    pub fn new(_usb: impl Unborrow<Target = T> + 'd, irq: impl Unborrow<Target = T::Interrupt> + 'd) -> Self {
         unborrow!(irq);
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
@@ -143,9 +138,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
         (
-            Bus {
-                phantom: PhantomData,
-            },
+            Bus { phantom: PhantomData },
             ControlPipe {
                 _phantom: PhantomData,
                 max_packet_size: control_max_packet_size,
@@ -266,8 +259,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         let regs = T::regs();
         unsafe {
             if ep_addr.index() == 0 {
-                regs.tasks_ep0stall
-                    .write(|w| w.tasks_ep0stall().bit(stalled));
+                regs.tasks_ep0stall.write(|w| w.tasks_ep0stall().bit(stalled));
             } else {
                 regs.epstall.write(|w| {
                     w.ep().bits(ep_addr.index() as u8 & 0b111);
@@ -370,8 +362,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                         regs.eventcause.write(|w| w.usbwuallowed().set_bit());
 
                         regs.dpdmvalue.write(|w| w.state().resume());
-                        regs.tasks_dpdmdrive
-                            .write(|w| w.tasks_dpdmdrive().set_bit());
+                        regs.tasks_dpdmdrive.write(|w| w.tasks_dpdmdrive().set_bit());
 
                         Poll::Ready(())
                     } else {
@@ -520,11 +511,7 @@ unsafe fn read_dma<T: Instance>(i: usize, buf: &mut [u8]) -> Result<usize, Endpo
     dma_start();
     regs.events_endepout[i].reset();
     regs.tasks_startepout[i].write(|w| w.tasks_startepout().set_bit());
-    while regs.events_endepout[i]
-        .read()
-        .events_endepout()
-        .bit_is_clear()
-    {}
+    while regs.events_endepout[i].read().events_endepout().bit_is_clear() {}
     regs.events_endepout[i].reset();
     dma_end();
 
@@ -579,9 +566,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
             let i = self.info.addr.index();
             assert!(i != 0);
 
-            self.wait_data_ready()
-                .await
-                .map_err(|_| EndpointError::Disabled)?;
+            self.wait_data_ready().await.map_err(|_| EndpointError::Disabled)?;
 
             unsafe { read_dma::<T>(i, buf) }
         }
@@ -596,9 +581,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
             let i = self.info.addr.index();
             assert!(i != 0);
 
-            self.wait_data_ready()
-                .await
-                .map_err(|_| EndpointError::Disabled)?;
+            self.wait_data_ready().await.map_err(|_| EndpointError::Disabled)?;
 
             unsafe { write_dma::<T>(i, buf) }
 
@@ -659,20 +642,14 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         }
     }
 
-    fn data_out<'a>(
-        &'a mut self,
-        buf: &'a mut [u8],
-        _first: bool,
-        _last: bool,
-    ) -> Self::DataOutFuture<'a> {
+    fn data_out<'a>(&'a mut self, buf: &'a mut [u8], _first: bool, _last: bool) -> Self::DataOutFuture<'a> {
         async move {
             let regs = T::regs();
 
             regs.events_ep0datadone.reset();
 
             // This starts a RX on EP0. events_ep0datadone notifies when done.
-            regs.tasks_ep0rcvout
-                .write(|w| w.tasks_ep0rcvout().set_bit());
+            regs.tasks_ep0rcvout.write(|w| w.tasks_ep0rcvout().set_bit());
 
             // Wait until ready
             regs.intenset.write(|w| {
@@ -701,12 +678,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         }
     }
 
-    fn data_in<'a>(
-        &'a mut self,
-        buf: &'a [u8],
-        _first: bool,
-        last: bool,
-    ) -> Self::DataInFuture<'a> {
+    fn data_in<'a>(&'a mut self, buf: &'a [u8], _first: bool, last: bool) -> Self::DataInFuture<'a> {
         async move {
             let regs = T::regs();
             regs.events_ep0datadone.reset();
@@ -745,8 +717,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     fn accept<'a>(&'a mut self) -> Self::AcceptFuture<'a> {
         async move {
             let regs = T::regs();
-            regs.tasks_ep0status
-                .write(|w| w.tasks_ep0status().bit(true));
+            regs.tasks_ep0status.write(|w| w.tasks_ep0status().bit(true));
         }
     }
 

@@ -1,23 +1,20 @@
 #![macro_use]
 
-use crate::interrupt::InterruptExt;
-use crate::Unborrow;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
+
 use embassy_hal_common::unborrow;
+pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::poll_fn;
+pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
 
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{self, AnyPin};
-use crate::gpio::{Pin as GpioPin, PselBits};
-use crate::interrupt::Interrupt;
-use crate::util::{slice_ptr_parts, slice_ptr_parts_mut};
-use crate::{pac, util::slice_in_ram_or};
-
-pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
+use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
+use crate::interrupt::{Interrupt, InterruptExt};
+use crate::util::{slice_in_ram_or, slice_ptr_parts, slice_ptr_parts_mut};
+use crate::{pac, Unborrow};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -183,9 +180,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         irq.unpend();
         irq.enable();
 
-        Self {
-            phantom: PhantomData,
-        }
+        Self { phantom: PhantomData }
     }
 
     fn on_interrupt(_: *mut ()) {
@@ -295,11 +290,7 @@ impl<'d, T: Instance> Spim<'d, T> {
     }
 
     /// Same as [`blocking_transfer`](Spim::blocking_transfer) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub fn blocking_transfer_from_ram(
-        &mut self,
-        read: &mut [u8],
-        write: &[u8],
-    ) -> Result<(), Error> {
+    pub fn blocking_transfer_from_ram(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
         self.blocking_inner(read, write)
     }
 

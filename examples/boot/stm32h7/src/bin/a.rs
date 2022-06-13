@@ -2,6 +2,8 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
+#[cfg(feature = "defmt-rtt")]
+use defmt_rtt::*;
 use embassy_boot_stm32::FirmwareUpdater;
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_stm32::exti::ExtiInput;
@@ -9,9 +11,6 @@ use embassy_stm32::flash::Flash;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::Peripherals;
 use panic_reset as _;
-
-#[cfg(feature = "defmt-rtt")]
-use defmt_rtt::*;
 
 static APP_B: &[u8] = include_bytes!("../../b.bin");
 
@@ -32,10 +31,7 @@ async fn main(_s: embassy::executor::Spawner, p: Peripherals) {
     let mut buf: [u8; 128 * 1024] = [0; 128 * 1024];
     for chunk in APP_B.chunks(128 * 1024) {
         buf[..chunk.len()].copy_from_slice(chunk);
-        updater
-            .write_firmware(offset, &buf, &mut flash, 2048)
-            .await
-            .unwrap();
+        updater.write_firmware(offset, &buf, &mut flash, 2048).await.unwrap();
         offset += chunk.len();
     }
     updater.update(&mut flash).await.unwrap();

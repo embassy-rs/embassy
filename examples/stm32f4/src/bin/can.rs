@@ -2,15 +2,13 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt_rtt as _; // global logger
-use panic_probe as _;
-
 use cortex_m_rt::entry;
 use defmt::*;
 use embassy_stm32::can::bxcan::filter::Mask32;
 use embassy_stm32::can::bxcan::{Frame, StandardId};
 use embassy_stm32::can::Can;
 use embassy_stm32::gpio::{Input, Pull};
+use {defmt_rtt as _, panic_probe as _};
 
 #[entry]
 fn main() -> ! {

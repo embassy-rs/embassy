@@ -1,10 +1,10 @@
+use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
+use std::path::PathBuf;
+use std::{env, fs};
+
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use std::collections::{HashMap, HashSet};
-use std::env;
-use std::fmt::Write as _;
-use std::fs;
-use std::path::PathBuf;
 use stm32_metapac::metadata::METADATA;
 
 fn main() {
@@ -116,10 +116,7 @@ fn main() {
                     continue;
                 }
                 for irq in p.interrupts {
-                    dma_irqs
-                        .entry(irq.interrupt)
-                        .or_default()
-                        .push((p.name, irq.signal));
+                    dma_irqs.entry(irq.interrupt).or_default().push((p.name, irq.signal));
                 }
             }
         }
@@ -128,9 +125,7 @@ fn main() {
     for (irq, channels) in dma_irqs {
         let irq = format_ident!("{}", irq);
 
-        let channels = channels
-            .iter()
-            .map(|(dma, ch)| format_ident!("{}_{}", dma, ch));
+        let channels = channels.iter().map(|(dma, ch)| format_ident!("{}_{}", dma, ch));
 
         g.extend(quote! {
             #[crate::interrupt]
@@ -147,9 +142,7 @@ fn main() {
 
     for p in METADATA.peripherals {
         // generating RccPeripheral impl for H7 ADC3 would result in bad frequency
-        if !singletons.contains(&p.name.to_string())
-            || (p.name == "ADC3" && METADATA.line.starts_with("STM32H7"))
-        {
+        if !singletons.contains(&p.name.to_string()) || (p.name == "ADC3" && METADATA.line.starts_with("STM32H7")) {
             continue;
         }
 
@@ -568,12 +561,7 @@ fn main() {
     let mut pins_table: Vec<Vec<String>> = Vec::new();
     let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
 
-    let gpio_base = METADATA
-        .peripherals
-        .iter()
-        .find(|p| p.name == "GPIOA")
-        .unwrap()
-        .address as u32;
+    let gpio_base = METADATA.peripherals.iter().find(|p| p.name == "GPIOA").unwrap().address as u32;
     let gpio_stride = 0x400;
 
     for p in METADATA.peripherals {
@@ -618,11 +606,7 @@ fn main() {
 
     for ch in METADATA.dma_channels {
         let mut row = Vec::new();
-        let dma_peri = METADATA
-            .peripherals
-            .iter()
-            .find(|p| p.name == ch.dma)
-            .unwrap();
+        let dma_peri = METADATA.peripherals.iter().find(|p| p.name == ch.dma).unwrap();
         let bi = dma_peri.registers.as_ref().unwrap();
 
         let num;
@@ -649,10 +633,7 @@ fn main() {
         row.push(num.to_string());
         if let Some(dmamux) = &ch.dmamux {
             let dmamux_channel = ch.dmamux_channel.unwrap();
-            row.push(format!(
-                "{{dmamux: {}, dmamux_channel: {}}}",
-                dmamux, dmamux_channel
-            ));
+            row.push(format!("{{dmamux: {}, dmamux_channel: {}}}", dmamux, dmamux_channel));
         } else {
             row.push("{}".to_string());
         }
@@ -709,11 +690,7 @@ fn main() {
     };
 
     if let Some(core) = core_name {
-        println!(
-            "cargo:rustc-cfg={}_{}",
-            &chip_name[..chip_name.len() - 2],
-            core
-        );
+        println!("cargo:rustc-cfg={}_{}", &chip_name[..chip_name.len() - 2], core);
     } else {
         println!("cargo:rustc-cfg={}", &chip_name[..chip_name.len() - 2]);
     }

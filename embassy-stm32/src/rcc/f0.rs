@@ -1,8 +1,7 @@
+use super::{set_freqs, Clocks};
 use crate::pac::rcc::vals::{Hpre, Pllmul, Pllsrc, Ppre, Sw, Usbsw};
 use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
-
-use super::{set_freqs, Clocks};
 
 const HSI: u32 = 8_000_000;
 
@@ -112,8 +111,7 @@ pub(crate) unsafe fn init(config: Config) {
             while !RCC.cr2().read().hsi48rdy() {}
 
             if pllmul_bits.is_some() {
-                RCC.cfgr()
-                    .modify(|w| w.set_pllsrc(Pllsrc::HSI48_DIV_PREDIV))
+                RCC.cfgr().modify(|w| w.set_pllsrc(Pllsrc::HSI48_DIV_PREDIV))
             }
         }
         _ => {

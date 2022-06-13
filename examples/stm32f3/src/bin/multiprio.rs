@@ -57,16 +57,14 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt::*;
-use defmt_rtt as _; // global logger
-use panic_probe as _;
-
 use cortex_m_rt::entry;
+use defmt::*;
 use embassy::time::{Duration, Instant, Timer};
 use embassy::util::Forever;
 use embassy_stm32::executor::{Executor, InterruptExecutor};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::InterruptExt;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::task]
 async fn run_high() {

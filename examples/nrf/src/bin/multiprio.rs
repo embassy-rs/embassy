@@ -64,9 +64,7 @@ use embassy::util::Forever;
 use embassy_nrf::executor::{Executor, InterruptExecutor};
 use embassy_nrf::interrupt;
 use embassy_nrf::interrupt::InterruptExt;
-
-use defmt_rtt as _; // global logger
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::task]
 async fn run_high() {

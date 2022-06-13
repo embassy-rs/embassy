@@ -1,8 +1,10 @@
-use crate::adc::{AdcPin, Instance};
-use crate::Unborrow;
 use core::marker::PhantomData;
+
 use embassy_hal_common::unborrow;
 use embedded_hal_02::blocking::delay::DelayUs;
+
+use crate::adc::{AdcPin, Instance};
+use crate::Unborrow;
 
 pub const VDDA_CALIB_MV: u32 = 3000;
 
@@ -369,13 +371,9 @@ impl<'d, T: Instance> Adc<'d, T> {
 
             // Configure ADC
             #[cfg(not(stm32g0))]
-            T::regs()
-                .cfgr()
-                .modify(|reg| reg.set_res(self.resolution.res()));
+            T::regs().cfgr().modify(|reg| reg.set_res(self.resolution.res()));
             #[cfg(stm32g0)]
-            T::regs()
-                .cfgr1()
-                .modify(|reg| reg.set_res(self.resolution.res()));
+            T::regs().cfgr1().modify(|reg| reg.set_res(self.resolution.res()));
 
             // Configure channel
             Self::set_channel_sample_time(pin.channel(), self.sample_time);
@@ -384,9 +382,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             #[cfg(not(stm32g0))]
             T::regs().sqr1().write(|reg| reg.set_sq(0, pin.channel()));
             #[cfg(stm32g0)]
-            T::regs()
-                .chselr()
-                .write(|reg| reg.set_chsel(pin.channel() as u32));
+            T::regs().chselr().write(|reg| reg.set_chsel(pin.channel() as u32));
 
             // Some models are affected by an erratum:
             // If we perform conversions slower than 1 kHz, the first read ADC value can be
@@ -407,9 +403,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     #[cfg(stm32g0)]
     unsafe fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {
-        T::regs()
-            .smpr()
-            .modify(|reg| reg.set_smp1(sample_time.sample_time()));
+        T::regs().smpr().modify(|reg| reg.set_smp1(sample_time.sample_time()));
     }
 
     #[cfg(not(stm32g0))]

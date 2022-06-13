@@ -81,14 +81,11 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
 
     #[cfg(all(not(feature = "std"), not(feature = "wasm")))]
     let main = {
-        let config = args
-            .config
-            .map(|s| s.parse::<syn::Expr>().unwrap())
-            .unwrap_or_else(|| {
-                syn::Expr::Verbatim(quote! {
-                    Default::default()
-                })
-            });
+        let config = args.config.map(|s| s.parse::<syn::Expr>().unwrap()).unwrap_or_else(|| {
+            syn::Expr::Verbatim(quote! {
+                Default::default()
+            })
+        });
 
         let (hal_setup, peris_arg) = match HAL {
             Some(hal) => {

@@ -1,10 +1,11 @@
 use core::marker::PhantomData;
 
+use embassy_hal_common::unborrow;
+
 use crate::pac::CRC as PAC_CRC;
 use crate::peripherals::CRC;
 use crate::rcc::sealed::RccPeripheral;
 use crate::Unborrow;
-use embassy_hal_common::unborrow;
 
 pub struct Crc<'d> {
     _peripheral: CRC,
