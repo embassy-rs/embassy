@@ -31,7 +31,7 @@ impl OpError {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::OpError;
+    /// use stm32wlxx_hal::subghz::OpError;
     ///
     /// assert_eq!(OpError::PaRampError.mask(), 0b1_0000_0000);
     /// assert_eq!(OpError::PllLockError.mask(), 0b0_0100_0000);

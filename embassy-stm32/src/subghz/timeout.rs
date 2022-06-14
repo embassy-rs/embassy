@@ -1,6 +1,6 @@
 use core::time::Duration;
 
-use crate::subghz::value_error::ValueError;
+use super::ValueError;
 
 const fn abs_diff(a: u64, b: u64) -> u64 {
     if a > b {
@@ -20,9 +20,9 @@ const fn abs_diff(a: u64, b: u64) -> u64 {
 /// Each timeout has 3 bytes, with a resolution of 15.625µs per bit, giving a
 /// range of 0s to 262.143984375s.
 ///
-/// [`set_rx`]: crate::subghz::SubGhz::set_rx
-/// [`set_tx`]: crate::subghz::SubGhz::set_tx
-/// [`TcxoMode`]: crate::subghz::TcxoMode
+/// [`set_rx`]: super::SubGhz::set_rx
+/// [`set_tx`]: super::SubGhz::set_tx
+/// [`TcxoMode`]: super::TcxoMode
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Timeout {
@@ -39,7 +39,7 @@ impl Timeout {
     ///
     /// ```
     /// use core::time::Duration;
-    /// use stm32wl_hal::subghz::Timeout;
+    /// use stm32wlxx_hal::subghz::Timeout;
     ///
     /// const TIMEOUT: Timeout = Timeout::DISABLED;
     /// assert_eq!(TIMEOUT.as_duration(), Duration::from_secs(0));
@@ -52,7 +52,7 @@ impl Timeout {
     ///
     /// ```
     /// use core::time::Duration;
-    /// use stm32wl_hal::subghz::Timeout;
+    /// use stm32wlxx_hal::subghz::Timeout;
     ///
     /// const TIMEOUT: Timeout = Timeout::MIN;
     /// assert_eq!(TIMEOUT.into_bits(), 1);
@@ -65,7 +65,7 @@ impl Timeout {
     ///
     /// ```
     /// use core::time::Duration;
-    /// use stm32wl_hal::subghz::Timeout;
+    /// use stm32wlxx_hal::subghz::Timeout;
     ///
     /// const TIMEOUT: Timeout = Timeout::MAX;
     /// assert_eq!(TIMEOUT.as_duration(), Duration::from_nanos(262_143_984_375));
@@ -80,7 +80,7 @@ impl Timeout {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::Timeout;
+    /// use stm32wlxx_hal::subghz::Timeout;
     ///
     /// assert_eq!(
     ///     Timeout::RESOLUTION.as_nanos(),
@@ -97,7 +97,7 @@ impl Timeout {
     /// Use [`from_millis_sat`](Self::from_millis_sat) for runtime timeout
     /// construction.
     /// This is not _that_ useful right now, it is simply future proofing for a
-    /// time when `Result::unwrap` is avaliable for `const fn`.
+    /// time when `Result::unwrap` is available for `const fn`.
     ///
     /// # Example
     ///
@@ -105,7 +105,7 @@ impl Timeout {
     ///
     /// ```
     /// use core::time::Duration;
-    /// use stm32wl_hal::subghz::{Timeout, ValueError};
+    /// use stm32wlxx_hal::subghz::{Timeout, ValueError};
     ///
     /// const MIN: Duration = Timeout::RESOLUTION;
     /// assert_eq!(Timeout::from_duration(MIN).unwrap(), Timeout::MIN);
@@ -115,7 +115,7 @@ impl Timeout {
     ///
     /// ```
     /// use core::time::Duration;
-    /// use stm32wl_hal::subghz::{Timeout, ValueError};
+    /// use stm32wlxx_hal::subghz::{Timeout, ValueError};
     ///
     /// const LOWER_LIMIT_NANOS: u128 = 7813;
     /// const TOO_LOW_NANOS: u128 = LOWER_LIMIT_NANOS - 1;
@@ -130,7 +130,7 @@ impl Timeout {
     ///
     /// ```
     /// use core::time::Duration;
-    /// use stm32wl_hal::subghz::{Timeout, ValueError};
+    /// use stm32wlxx_hal::subghz::{Timeout, ValueError};
     ///
     /// const UPPER_LIMIT_NANOS: u128 = Timeout::MAX.as_nanos() as u128 + 7812;
     /// const TOO_HIGH_NANOS: u128 = UPPER_LIMIT_NANOS + 1;
@@ -145,7 +145,8 @@ impl Timeout {
         // `core::Duration` were not `const fn`, which leads to the hacks
         // you see here.
         let nanos: u128 = duration.as_nanos();
-        const UPPER_LIMIT: u128 = Timeout::MAX.as_nanos() as u128 + (Timeout::RESOLUTION_NANOS as u128) / 2;
+        const UPPER_LIMIT: u128 =
+            Timeout::MAX.as_nanos() as u128 + (Timeout::RESOLUTION_NANOS as u128) / 2;
         const LOWER_LIMIT: u128 = (((Timeout::RESOLUTION_NANOS as u128) + 1) / 2) as u128;
 
         if nanos > UPPER_LIMIT {
@@ -186,7 +187,7 @@ impl Timeout {
     ///
     /// ```
     /// use core::time::Duration;
-    /// use stm32wl_hal::subghz::Timeout;
+    /// use stm32wlxx_hal::subghz::Timeout;
     ///
     /// const DURATION_MAX_NS: u64 = 262_143_984_376;
     ///
@@ -245,7 +246,7 @@ impl Timeout {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::Timeout;
+    /// use stm32wlxx_hal::subghz::Timeout;
     ///
     /// assert_eq!(Timeout::from_millis_sat(0), Timeout::MIN);
     /// assert_eq!(Timeout::from_millis_sat(262_144), Timeout::MAX);
@@ -270,7 +271,7 @@ impl Timeout {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::Timeout;
+    /// use stm32wlxx_hal::subghz::Timeout;
     ///
     /// assert_eq!(Timeout::from_raw(u32::MAX), Timeout::MAX);
     /// assert_eq!(Timeout::from_raw(0x00_FF_FF_FF), Timeout::MAX);
@@ -288,7 +289,7 @@ impl Timeout {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::Timeout;
+    /// use stm32wlxx_hal::subghz::Timeout;
     ///
     /// assert_eq!(Timeout::MAX.as_nanos(), 262_143_984_375);
     /// assert_eq!(Timeout::DISABLED.as_nanos(), 0);
@@ -304,7 +305,7 @@ impl Timeout {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::Timeout;
+    /// use stm32wlxx_hal::subghz::Timeout;
     ///
     /// assert_eq!(Timeout::MAX.as_micros(), 262_143_984);
     /// assert_eq!(Timeout::DISABLED.as_micros(), 0);
@@ -320,7 +321,7 @@ impl Timeout {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::Timeout;
+    /// use stm32wlxx_hal::subghz::Timeout;
     ///
     /// assert_eq!(Timeout::MAX.as_millis(), 262_143);
     /// assert_eq!(Timeout::DISABLED.as_millis(), 0);
@@ -336,7 +337,7 @@ impl Timeout {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::Timeout;
+    /// use stm32wlxx_hal::subghz::Timeout;
     ///
     /// assert_eq!(Timeout::MAX.as_secs(), 262);
     /// assert_eq!(Timeout::DISABLED.as_secs(), 0);
@@ -353,7 +354,7 @@ impl Timeout {
     ///
     /// ```
     /// use core::time::Duration;
-    /// use stm32wl_hal::subghz::Timeout;
+    /// use stm32wlxx_hal::subghz::Timeout;
     ///
     /// assert_eq!(
     ///     Timeout::MAX.as_duration(),
@@ -371,7 +372,7 @@ impl Timeout {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::Timeout;
+    /// use stm32wlxx_hal::subghz::Timeout;
     ///
     /// assert_eq!(Timeout::from_raw(u32::MAX).into_bits(), 0x00FF_FFFF);
     /// assert_eq!(Timeout::from_raw(1).into_bits(), 1);
@@ -385,7 +386,7 @@ impl Timeout {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::Timeout;
+    /// use stm32wlxx_hal::subghz::Timeout;
     ///
     /// assert_eq!(Timeout::from_raw(u32::MAX).as_bytes(), [0xFF, 0xFF, 0xFF]);
     /// assert_eq!(Timeout::from_raw(1).as_bytes(), [0, 0, 1]);
@@ -396,6 +397,34 @@ impl Timeout {
             ((self.bits >> 8) & 0xFF) as u8,
             (self.bits & 0xFF) as u8,
         ]
+    }
+
+    /// Saturating timeout addition.  Computes `self + rhs`, saturating at the
+    /// numeric bounds instead of overflowing.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use stm32wlxx_hal::subghz::Timeout;
+    ///
+    /// assert_eq!(
+    ///     Timeout::from_raw(0xFF_FF_F0).saturating_add(Timeout::from_raw(0xFF)),
+    ///     Timeout::from_raw(0xFF_FF_FF)
+    /// );
+    /// assert_eq!(
+    ///     Timeout::from_raw(100).saturating_add(Timeout::from_raw(23)),
+    ///     Timeout::from_raw(123)
+    /// );
+    /// ```
+    #[must_use = "saturating_add returns a new Timeout"]
+    pub const fn saturating_add(self, rhs: Self) -> Self {
+        // TODO: use core::cmp::min when it is const
+        let bits: u32 = self.bits.saturating_add(rhs.bits);
+        if bits > Self::MAX.bits {
+            Self::MAX
+        } else {
+            Self { bits }
+        }
     }
 }
 

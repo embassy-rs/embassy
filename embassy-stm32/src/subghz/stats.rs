@@ -26,7 +26,7 @@ impl FskStats {
 ///
 /// [`fsk_stats`]: super::SubGhz::fsk_stats
 /// [`lora_stats`]: super::SubGhz::lora_stats
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Eq, PartialEq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Stats<ModType> {
     status: Status,
@@ -52,7 +52,7 @@ impl<ModType> Stats<ModType> {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{CmdStatus, FskStats, Stats, StatusMode};
+    /// use stm32wlxx_hal::subghz::{CmdStatus, FskStats, Stats, StatusMode};
     ///
     /// let example_data_from_radio: [u8; 7] = [0x54, 0, 0, 0, 0, 0, 0];
     /// let stats: Stats<FskStats> = Stats::from_raw_fsk(example_data_from_radio);
@@ -68,7 +68,7 @@ impl<ModType> Stats<ModType> {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{FskStats, Stats};
+    /// use stm32wlxx_hal::subghz::{FskStats, Stats};
     ///
     /// let example_data_from_radio: [u8; 7] = [0x54, 0, 3, 0, 0, 0, 0];
     /// let stats: Stats<FskStats> = Stats::from_raw_fsk(example_data_from_radio);
@@ -83,7 +83,7 @@ impl<ModType> Stats<ModType> {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{LoRaStats, Stats};
+    /// use stm32wlxx_hal::subghz::{LoRaStats, Stats};
     ///
     /// let example_data_from_radio: [u8; 7] = [0x54, 0, 0, 0, 1, 0, 0];
     /// let stats: Stats<LoRaStats> = Stats::from_raw_lora(example_data_from_radio);
@@ -100,7 +100,7 @@ impl Stats<FskStats> {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{FskStats, Stats};
+    /// use stm32wlxx_hal::subghz::{FskStats, Stats};
     ///
     /// let example_data_from_radio: [u8; 7] = [0x54, 0, 0, 0, 0, 0, 0];
     /// let stats: Stats<FskStats> = Stats::from_raw_fsk(example_data_from_radio);
@@ -114,7 +114,7 @@ impl Stats<FskStats> {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{FskStats, Stats};
+    /// use stm32wlxx_hal::subghz::{FskStats, Stats};
     ///
     /// let example_data_from_radio: [u8; 7] = [0x54, 0, 0, 0, 0, 0, 1];
     /// let stats: Stats<FskStats> = Stats::from_raw_fsk(example_data_from_radio);
@@ -131,7 +131,7 @@ impl Stats<LoRaStats> {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{LoRaStats, Stats};
+    /// use stm32wlxx_hal::subghz::{LoRaStats, Stats};
     ///
     /// let example_data_from_radio: [u8; 7] = [0x54, 0, 0, 0, 0, 0, 0];
     /// let stats: Stats<LoRaStats> = Stats::from_raw_lora(example_data_from_radio);
@@ -145,7 +145,7 @@ impl Stats<LoRaStats> {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{LoRaStats, Stats};
+    /// use stm32wlxx_hal::subghz::{LoRaStats, Stats};
     ///
     /// let example_data_from_radio: [u8; 7] = [0x54, 0, 0, 0, 0, 0, 1];
     /// let stats: Stats<LoRaStats> = Stats::from_raw_lora(example_data_from_radio);
@@ -156,7 +156,7 @@ impl Stats<LoRaStats> {
     }
 }
 
-impl core::fmt::Display for Stats<FskStats> {
+impl core::fmt::Debug for Stats<FskStats> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Stats")
             .field("status", &self.status())

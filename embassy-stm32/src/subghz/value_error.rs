@@ -14,13 +14,13 @@ pub struct ValueError<T> {
 impl<T> ValueError<T> {
     /// Create a new `ValueError` for a value that exceeded an upper bound.
     ///
-    /// Unfortunately panic is not avaliable in `const fn`, so there are no
+    /// Unfortunately panic is not available in `const fn`, so there are no
     /// guarantees on the value being greater than the limit.
     ///
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::ValueError;
+    /// use stm32wlxx_hal::subghz::ValueError;
     ///
     /// const ERROR: ValueError<u8> = ValueError::too_high(101u8, 100u8);
     /// assert!(ERROR.over());
@@ -36,13 +36,13 @@ impl<T> ValueError<T> {
 
     /// Create a new `ValueError` for a value that exceeded a lower bound.
     ///
-    /// Unfortunately panic is not avaliable in `const fn`, so there are no
+    /// Unfortunately panic is not available in `const fn`, so there are no
     /// guarantees on the value being less than the limit.
     ///
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::ValueError;
+    /// use stm32wlxx_hal::subghz::ValueError;
     ///
     /// const ERROR: ValueError<u8> = ValueError::too_low(200u8, 201u8);
     /// assert!(ERROR.under());
@@ -61,7 +61,7 @@ impl<T> ValueError<T> {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::ValueError;
+    /// use stm32wlxx_hal::subghz::ValueError;
     ///
     /// const ERROR: ValueError<u8> = ValueError::too_high(101u8, 100u8);
     /// assert_eq!(ERROR.value(), &101u8);
@@ -75,7 +75,7 @@ impl<T> ValueError<T> {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::ValueError;
+    /// use stm32wlxx_hal::subghz::ValueError;
     ///
     /// const ERROR: ValueError<u8> = ValueError::too_high(101u8, 100u8);
     /// assert_eq!(ERROR.limit(), &100u8);
@@ -89,7 +89,7 @@ impl<T> ValueError<T> {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::ValueError;
+    /// use stm32wlxx_hal::subghz::ValueError;
     ///
     /// const ERROR: ValueError<u8> = ValueError::too_high(101u8, 100u8);
     /// assert!(ERROR.over());
@@ -104,7 +104,7 @@ impl<T> ValueError<T> {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::ValueError;
+    /// use stm32wlxx_hal::subghz::ValueError;
     ///
     /// const ERROR: ValueError<u8> = ValueError::too_low(200u8, 201u8);
     /// assert!(ERROR.under());

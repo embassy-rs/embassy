@@ -49,7 +49,7 @@ impl TcxoTrim {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::TcxoTrim;
+    /// use stm32wlxx_hal::subghz::TcxoTrim;
     ///
     /// assert_eq!(TcxoTrim::Volts1pt6.as_millivolts(), 1600);
     /// assert_eq!(TcxoTrim::Volts1pt7.as_millivolts(), 1700);
@@ -93,7 +93,7 @@ impl TcxoMode {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::TcxoMode;
+    /// use stm32wlxx_hal::subghz::TcxoMode;
     ///
     /// const TCXO_MODE: TcxoMode = TcxoMode::new();
     /// ```
@@ -111,7 +111,7 @@ impl TcxoMode {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{TcxoMode, TcxoTrim};
+    /// use stm32wlxx_hal::subghz::{TcxoMode, TcxoTrim};
     ///
     /// const TCXO_MODE: TcxoMode = TcxoMode::new().set_txco_trim(TcxoTrim::Volts1pt6);
     /// # assert_eq!(TCXO_MODE.as_slice()[1], 0x00);
@@ -128,7 +128,7 @@ impl TcxoMode {
     ///
     /// ```
     /// use core::time::Duration;
-    /// use stm32wl_hal::subghz::{TcxoMode, Timeout};
+    /// use stm32wlxx_hal::subghz::{TcxoMode, Timeout};
     ///
     /// // 15.625 ms timeout
     /// const TIMEOUT: Timeout = Timeout::from_duration_sat(Duration::from_millis(15_625));
@@ -151,7 +151,7 @@ impl TcxoMode {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{TcxoMode, TcxoTrim, Timeout};
+    /// use stm32wlxx_hal::subghz::{TcxoMode, TcxoTrim, Timeout};
     ///
     /// const TCXO_MODE: TcxoMode = TcxoMode::new()
     ///     .set_txco_trim(TcxoTrim::Volts1pt7)

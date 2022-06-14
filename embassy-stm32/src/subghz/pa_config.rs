@@ -1,4 +1,4 @@
-/// Power amplifier configuration paramters.
+/// Power amplifier configuration parameters.
 ///
 /// Argument of [`set_pa_config`].
 ///
@@ -13,37 +13,58 @@ impl PaConfig {
     /// Optimal settings for +15dBm output power with the low-power PA.
     ///
     /// This must be used with [`TxParams::LP_15`](super::TxParams::LP_15).
-    pub const LP_15: PaConfig = PaConfig::new().set_pa_duty_cycle(0x6).set_hp_max(0x0).set_pa(PaSel::Lp);
+    pub const LP_15: PaConfig = PaConfig::new()
+        .set_pa_duty_cycle(0x6)
+        .set_hp_max(0x0)
+        .set_pa(PaSel::Lp);
 
     /// Optimal settings for +14dBm output power with the low-power PA.
     ///
     /// This must be used with [`TxParams::LP_14`](super::TxParams::LP_14).
-    pub const LP_14: PaConfig = PaConfig::new().set_pa_duty_cycle(0x4).set_hp_max(0x0).set_pa(PaSel::Lp);
+    pub const LP_14: PaConfig = PaConfig::new()
+        .set_pa_duty_cycle(0x4)
+        .set_hp_max(0x0)
+        .set_pa(PaSel::Lp);
 
     /// Optimal settings for +10dBm output power with the low-power PA.
     ///
     /// This must be used with [`TxParams::LP_10`](super::TxParams::LP_10).
-    pub const LP_10: PaConfig = PaConfig::new().set_pa_duty_cycle(0x1).set_hp_max(0x0).set_pa(PaSel::Lp);
+    pub const LP_10: PaConfig = PaConfig::new()
+        .set_pa_duty_cycle(0x1)
+        .set_hp_max(0x0)
+        .set_pa(PaSel::Lp);
 
     /// Optimal settings for +22dBm output power with the high-power PA.
     ///
     /// This must be used with [`TxParams::HP`](super::TxParams::HP).
-    pub const HP_22: PaConfig = PaConfig::new().set_pa_duty_cycle(0x4).set_hp_max(0x7).set_pa(PaSel::Hp);
+    pub const HP_22: PaConfig = PaConfig::new()
+        .set_pa_duty_cycle(0x4)
+        .set_hp_max(0x7)
+        .set_pa(PaSel::Hp);
 
     /// Optimal settings for +20dBm output power with the high-power PA.
     ///
     /// This must be used with [`TxParams::HP`](super::TxParams::HP).
-    pub const HP_20: PaConfig = PaConfig::new().set_pa_duty_cycle(0x3).set_hp_max(0x5).set_pa(PaSel::Hp);
+    pub const HP_20: PaConfig = PaConfig::new()
+        .set_pa_duty_cycle(0x3)
+        .set_hp_max(0x5)
+        .set_pa(PaSel::Hp);
 
     /// Optimal settings for +17dBm output power with the high-power PA.
     ///
     /// This must be used with [`TxParams::HP`](super::TxParams::HP).
-    pub const HP_17: PaConfig = PaConfig::new().set_pa_duty_cycle(0x2).set_hp_max(0x3).set_pa(PaSel::Hp);
+    pub const HP_17: PaConfig = PaConfig::new()
+        .set_pa_duty_cycle(0x2)
+        .set_hp_max(0x3)
+        .set_pa(PaSel::Hp);
 
     /// Optimal settings for +14dBm output power with the high-power PA.
     ///
     /// This must be used with [`TxParams::HP`](super::TxParams::HP).
-    pub const HP_14: PaConfig = PaConfig::new().set_pa_duty_cycle(0x2).set_hp_max(0x2).set_pa(PaSel::Hp);
+    pub const HP_14: PaConfig = PaConfig::new()
+        .set_pa_duty_cycle(0x2)
+        .set_hp_max(0x2)
+        .set_pa(PaSel::Hp);
 
     /// Create a new `PaConfig` struct.
     ///
@@ -52,7 +73,7 @@ impl PaConfig {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::PaConfig;
+    /// use stm32wlxx_hal::subghz::PaConfig;
     ///
     /// const PA_CONFIG: PaConfig = PaConfig::new();
     /// ```
@@ -71,14 +92,14 @@ impl PaConfig {
     /// # Caution
     ///
     /// The following restrictions must be observed to avoid over-stress on the PA:
-    /// * LP PA mode with synthesis frequency > 400 MHz, PaDutyCycle must be < 0x7.
-    /// * LP PA mode with synthesis frequency < 400 MHz, PaDutyCycle must be < 0x4.
-    /// * HP PA mode, PaDutyCycle must be < 0x4
+    /// * LP PA mode with synthesis frequency > 400 MHz, `pa_duty_cycle` must be < 0x7.
+    /// * LP PA mode with synthesis frequency < 400 MHz, `pa_duty_cycle` must be < 0x4.
+    /// * HP PA mode, `pa_duty_cycle` must be < 0x4
     ///
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{PaConfig, PaSel};
+    /// use stm32wlxx_hal::subghz::{PaConfig, PaSel};
     ///
     /// const PA_CONFIG: PaConfig = PaConfig::new().set_pa(PaSel::Lp).set_pa_duty_cycle(0x4);
     /// # assert_eq!(PA_CONFIG.as_slice()[1], 0x04);
@@ -96,7 +117,7 @@ impl PaConfig {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{PaConfig, PaSel};
+    /// use stm32wlxx_hal::subghz::{PaConfig, PaSel};
     ///
     /// const PA_CONFIG: PaConfig = PaConfig::new().set_pa(PaSel::Hp).set_hp_max(0x2);
     /// # assert_eq!(PA_CONFIG.as_slice()[2], 0x02);
@@ -112,7 +133,7 @@ impl PaConfig {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{PaConfig, PaSel};
+    /// use stm32wlxx_hal::subghz::{PaConfig, PaSel};
     ///
     /// const PA_CONFIG_HP: PaConfig = PaConfig::new().set_pa(PaSel::Hp);
     /// const PA_CONFIG_LP: PaConfig = PaConfig::new().set_pa(PaSel::Lp);
@@ -130,7 +151,7 @@ impl PaConfig {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{PaConfig, PaSel};
+    /// use stm32wlxx_hal::subghz::{PaConfig, PaSel};
     ///
     /// const PA_CONFIG: PaConfig = PaConfig::new()
     ///     .set_pa(PaSel::Hp)

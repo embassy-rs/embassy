@@ -26,7 +26,7 @@ impl HseTrim {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::HseTrim;
+    /// use stm32wlxx_hal::subghz::HseTrim;
     ///
     /// assert_eq!(HseTrim::POR, HseTrim::default());
     /// ```
@@ -39,7 +39,7 @@ impl HseTrim {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::HseTrim;
+    /// use stm32wlxx_hal::subghz::HseTrim;
     ///
     /// assert_eq!(HseTrim::from_raw(0xFF), HseTrim::MAX);
     /// assert_eq!(HseTrim::from_raw(0x2F), HseTrim::MAX);
@@ -61,7 +61,7 @@ impl HseTrim {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::HseTrim;
+    /// use stm32wlxx_hal::subghz::HseTrim;
     ///
     /// assert!(HseTrim::from_farads(1.0).is_err());
     /// assert!(HseTrim::from_farads(1e-12).is_err());
@@ -84,7 +84,7 @@ impl HseTrim {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::HseTrim;
+    /// use stm32wlxx_hal::subghz::HseTrim;
     ///
     /// assert_eq!((HseTrim::MAX.as_farads() * 10e11) as u8, 33);
     /// assert_eq!((HseTrim::MIN.as_farads() * 10e11) as u8, 11);

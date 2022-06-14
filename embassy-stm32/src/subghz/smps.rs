@@ -21,7 +21,7 @@ impl SmpsDrv {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::SmpsDrv;
+    /// use stm32wlxx_hal::subghz::SmpsDrv;
     ///
     /// assert_eq!(SmpsDrv::Milli20.as_milliamps(), 20);
     /// assert_eq!(SmpsDrv::Milli40.as_milliamps(), 40);

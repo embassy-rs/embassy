@@ -91,7 +91,7 @@ impl GenericPacketParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::GenericPacketParams;
+    /// use stm32wlxx_hal::subghz::GenericPacketParams;
     ///
     /// const PKT_PARAMS: GenericPacketParams = GenericPacketParams::new();
     /// assert_eq!(PKT_PARAMS, GenericPacketParams::default());
@@ -119,7 +119,7 @@ impl GenericPacketParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::GenericPacketParams;
+    /// use stm32wlxx_hal::subghz::GenericPacketParams;
     ///
     /// const PKT_PARAMS: GenericPacketParams = GenericPacketParams::new().set_preamble_len(0x1234);
     /// # assert_eq!(PKT_PARAMS.as_slice()[1], 0x12);
@@ -135,19 +135,22 @@ impl GenericPacketParams {
         self
     }
 
-    /// Preabmle detection length in number of bit symbols.
+    /// Preamble detection length in number of bit symbols.
     ///
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{GenericPacketParams, PreambleDetection};
+    /// use stm32wlxx_hal::subghz::{GenericPacketParams, PreambleDetection};
     ///
     /// const PKT_PARAMS: GenericPacketParams =
     ///     GenericPacketParams::new().set_preamble_detection(PreambleDetection::Bit8);
     /// # assert_eq!(PKT_PARAMS.as_slice()[3], 0x4);
     /// ```
     #[must_use = "set_preamble_detection returns a modified GenericPacketParams"]
-    pub const fn set_preamble_detection(mut self, pb_det: PreambleDetection) -> GenericPacketParams {
+    pub const fn set_preamble_detection(
+        mut self,
+        pb_det: PreambleDetection,
+    ) -> GenericPacketParams {
         self.buf[3] = pb_det as u8;
         self
     }
@@ -162,7 +165,7 @@ impl GenericPacketParams {
     /// Set the sync word length to 4 bytes (16 bits).
     ///
     /// ```
-    /// use stm32wl_hal::subghz::GenericPacketParams;
+    /// use stm32wlxx_hal::subghz::GenericPacketParams;
     ///
     /// const PKT_PARAMS: GenericPacketParams = GenericPacketParams::new().set_sync_word_len(16);
     /// # assert_eq!(PKT_PARAMS.as_slice()[4], 0x10);
@@ -185,7 +188,7 @@ impl GenericPacketParams {
     /// Enable address on the node address.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{AddrComp, GenericPacketParams};
+    /// use stm32wlxx_hal::subghz::{AddrComp, GenericPacketParams};
     ///
     /// const PKT_PARAMS: GenericPacketParams =
     ///     GenericPacketParams::new().set_addr_comp(AddrComp::Node);
@@ -208,7 +211,7 @@ impl GenericPacketParams {
     /// Set the header type to a variable length.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{GenericPacketParams, HeaderType};
+    /// use stm32wlxx_hal::subghz::{GenericPacketParams, HeaderType};
     ///
     /// const PKT_PARAMS: GenericPacketParams =
     ///     GenericPacketParams::new().set_header_type(HeaderType::Variable);
@@ -225,7 +228,7 @@ impl GenericPacketParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::GenericPacketParams;
+    /// use stm32wlxx_hal::subghz::GenericPacketParams;
     ///
     /// const PKT_PARAMS: GenericPacketParams = GenericPacketParams::new().set_payload_len(12);
     /// # assert_eq!(PKT_PARAMS.as_slice()[7], 12);
@@ -241,7 +244,7 @@ impl GenericPacketParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{CrcType, GenericPacketParams};
+    /// use stm32wlxx_hal::subghz::{CrcType, GenericPacketParams};
     ///
     /// const PKT_PARAMS: GenericPacketParams =
     ///     GenericPacketParams::new().set_crc_type(CrcType::Byte2Inverted);
@@ -260,7 +263,7 @@ impl GenericPacketParams {
     /// Enable whitening.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::GenericPacketParams;
+    /// use stm32wlxx_hal::subghz::GenericPacketParams;
     ///
     /// const PKT_PARAMS: GenericPacketParams = GenericPacketParams::new().set_whitening_enable(true);
     /// # assert_eq!(PKT_PARAMS.as_slice()[9], 1);
@@ -276,7 +279,7 @@ impl GenericPacketParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{
+    /// use stm32wlxx_hal::subghz::{
     ///     AddrComp, CrcType, GenericPacketParams, HeaderType, PreambleDetection,
     /// };
     ///
@@ -322,7 +325,7 @@ impl LoRaPacketParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::LoRaPacketParams;
+    /// use stm32wlxx_hal::subghz::LoRaPacketParams;
     ///
     /// const PKT_PARAMS: LoRaPacketParams = LoRaPacketParams::new();
     /// assert_eq!(PKT_PARAMS, LoRaPacketParams::default());
@@ -349,7 +352,7 @@ impl LoRaPacketParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::LoRaPacketParams;
+    /// use stm32wlxx_hal::subghz::LoRaPacketParams;
     ///
     /// const PKT_PARAMS: LoRaPacketParams = LoRaPacketParams::new().set_preamble_len(0x1234);
     /// # assert_eq!(PKT_PARAMS.as_slice()[1], 0x12);
@@ -372,7 +375,7 @@ impl LoRaPacketParams {
     /// Set the payload type to a fixed length.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{HeaderType, LoRaPacketParams};
+    /// use stm32wlxx_hal::subghz::{HeaderType, LoRaPacketParams};
     ///
     /// const PKT_PARAMS: LoRaPacketParams = LoRaPacketParams::new().set_header_type(HeaderType::Fixed);
     /// # assert_eq!(PKT_PARAMS.as_slice()[3], 0x01);
@@ -388,7 +391,7 @@ impl LoRaPacketParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::LoRaPacketParams;
+    /// use stm32wlxx_hal::subghz::LoRaPacketParams;
     ///
     /// const PKT_PARAMS: LoRaPacketParams = LoRaPacketParams::new().set_payload_len(12);
     /// # assert_eq!(PKT_PARAMS.as_slice()[4], 12);
@@ -406,7 +409,7 @@ impl LoRaPacketParams {
     /// Enable CRC.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::LoRaPacketParams;
+    /// use stm32wlxx_hal::subghz::LoRaPacketParams;
     ///
     /// const PKT_PARAMS: LoRaPacketParams = LoRaPacketParams::new().set_crc_en(true);
     /// # assert_eq!(PKT_PARAMS.as_slice()[5], 0x1);
@@ -424,7 +427,7 @@ impl LoRaPacketParams {
     /// Use an inverted IQ setup.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::LoRaPacketParams;
+    /// use stm32wlxx_hal::subghz::LoRaPacketParams;
     ///
     /// const PKT_PARAMS: LoRaPacketParams = LoRaPacketParams::new().set_invert_iq(true);
     /// # assert_eq!(PKT_PARAMS.as_slice()[6], 0x1);
@@ -440,7 +443,7 @@ impl LoRaPacketParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{HeaderType, LoRaPacketParams};
+    /// use stm32wlxx_hal::subghz::{HeaderType, LoRaPacketParams};
     ///
     /// const PKT_PARAMS: LoRaPacketParams = LoRaPacketParams::new()
     ///     .set_preamble_len(5 * 8)
@@ -482,7 +485,7 @@ impl BpskPacketParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::BpskPacketParams;
+    /// use stm32wlxx_hal::subghz::BpskPacketParams;
     ///
     /// const PKT_PARAMS: BpskPacketParams = BpskPacketParams::new();
     /// assert_eq!(PKT_PARAMS, BpskPacketParams::default());
@@ -500,7 +503,7 @@ impl BpskPacketParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::BpskPacketParams;
+    /// use stm32wlxx_hal::subghz::BpskPacketParams;
     ///
     /// const PKT_PARAMS: BpskPacketParams = BpskPacketParams::new().set_payload_len(12);
     /// # assert_eq!(PKT_PARAMS.as_slice()[1], 12);
@@ -516,7 +519,7 @@ impl BpskPacketParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{BpskPacketParams, HeaderType};
+    /// use stm32wlxx_hal::subghz::{BpskPacketParams, HeaderType};
     ///
     /// const PKT_PARAMS: BpskPacketParams = BpskPacketParams::new().set_payload_len(24);
     ///
