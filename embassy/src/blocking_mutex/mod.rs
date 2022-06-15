@@ -11,13 +11,17 @@ use self::raw::RawMutex;
 ///
 /// Provides a blocking mutual exclusion primitive backed by an implementation of [`raw::RawMutex`].
 ///
-/// Which implementation you select depends on the context in which you're using the mutex.
+/// Which implementation you select depends on the context in which you're using the mutex, and you can choose which kind
+/// of interior mutability fits your use case.
 ///
 /// Use [`CriticalSectionMutex`] when data can be shared between threads and interrupts.
 ///
 /// Use [`NoopMutex`] when data is only shared between tasks running on the same executor.
 ///
 /// Use [`ThreadModeMutex`] when data is shared between tasks running on the same executor but you want a global singleton.
+///
+/// In all cases, the blocking mutex is intended to be short lived and not held across await points.
+/// Use the async [`Mutex`](crate::mutex::Mutex) if you need a lock that is held across await points.
 pub struct Mutex<R, T: ?Sized> {
     // NOTE: `raw` must be FIRST, so when using ThreadModeMutex the "can't drop in non-thread-mode" gets
     // to run BEFORE dropping `data`.
