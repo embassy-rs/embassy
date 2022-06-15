@@ -11,6 +11,7 @@ pub mod descriptor;
 mod descriptor_reader;
 pub mod driver;
 pub mod types;
+pub mod util;
 
 use embassy::util::{select, Either};
 use heapless::Vec;
