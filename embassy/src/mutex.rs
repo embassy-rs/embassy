@@ -1,9 +1,6 @@
-/// Async mutex.
-///
-/// The mutex is generic over a blocking [`RawMutex`](crate::blocking_mutex::raw::RawMutex).
-/// The raw mutex is used to guard access to the internal "is locked" flag. It
-/// is held for very short periods only, while locking and unlocking. It is *not* held
-/// for the entire time the async Mutex is locked.
+//! Async mutex.
+//!
+//! This module provides a mutex that can be used to synchronize data between asynchronous tasks.
 use core::cell::{RefCell, UnsafeCell};
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
@@ -24,6 +21,21 @@ struct State {
     waker: WakerRegistration,
 }
 
+/// Async mutex.
+///
+/// The mutex is generic over a blocking [`RawMutex`](crate::blocking_mutex::raw::RawMutex).
+/// The raw mutex is used to guard access to the internal "is locked" flag. It
+/// is held for very short periods only, while locking and unlocking. It is *not* held
+/// for the entire time the async Mutex is locked.
+///
+/// Which implementation you select depends on the context in which you're using the mutex.
+///
+/// Use [`CriticalSectionRawMutex`](crate::blocking_mutex::raw::CriticalSectionRawMutex) when data can be shared between threads and interrupts.
+///
+/// Use [`NoopRawMutex`](crate::blocking_mutex::raw::NoopRawMutex) when data is only shared between tasks running on the same executor.
+///
+/// Use [`ThreadModeRawMutex`](crate::blocking_mutex::raw::ThreadModeRawMutex) when data is shared between tasks running on the same executor but you want a singleton.
+///
 pub struct Mutex<M, T>
 where
     M: RawMutex,

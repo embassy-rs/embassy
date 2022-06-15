@@ -1,14 +1,23 @@
-//! Blocking mutex (not async)
-
+//! Blocking mutex.
+//!
+//! This module provides a blocking mutex that can be used to synchronize data.
 pub mod raw;
 
 use core::cell::UnsafeCell;
 
 use self::raw::RawMutex;
 
-/// Any object implementing this trait guarantees exclusive access to the data contained
-/// within the mutex for the duration of the lock.
-/// Adapted from <https://github.com/rust-embedded/mutex-trait>.
+/// Blocking mutex (not async)
+///
+/// Provides a blocking mutual exclusion primitive backed by an implementation of [`raw::RawMutex`].
+///
+/// Which implementation you select depends on the context in which you're using the mutex.
+///
+/// Use [`CriticalSectionMutex`] when data can be shared between threads and interrupts.
+///
+/// Use [`NoopMutex`] when data is only shared between tasks running on the same executor.
+///
+/// Use [`ThreadModeMutex`] when data is shared between tasks running on the same executor but you want a global singleton.
 pub struct Mutex<R, T: ?Sized> {
     // NOTE: `raw` must be FIRST, so when using ThreadModeMutex the "can't drop in non-thread-mode" gets
     // to run BEFORE dropping `data`.
@@ -78,7 +87,18 @@ impl<R, T> Mutex<R, T> {
     }
 }
 
+/// A mutex that allows borrowing data across executors and interrupts.
+///
+/// # Safety
+///
+/// This mutex is safe to share between different executors and interrupts.
 pub type CriticalSectionMutex<T> = Mutex<raw::CriticalSectionRawMutex, T>;
+
+/// A mutex that allows borrowing data in the context of a single executor.
+///
+/// # Safety
+///
+/// **This Mutex is only safe within a single executor.**
 pub type NoopMutex<T> = Mutex<raw::NoopRawMutex, T>;
 
 impl<T> Mutex<raw::CriticalSectionRawMutex, T> {
