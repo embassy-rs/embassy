@@ -21,7 +21,7 @@ impl CurrentLim {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::CurrentLim;
+    /// use stm32wlxx_hal::subghz::CurrentLim;
     ///
     /// assert_eq!(CurrentLim::Milli25.as_milliamps(), 25);
     /// assert_eq!(CurrentLim::Milli50.as_milliamps(), 50);
@@ -74,7 +74,7 @@ impl PwrCtrl {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::PwrCtrl;
+    /// use stm32wlxx_hal::subghz::PwrCtrl;
     ///
     /// const PWR_CTRL: PwrCtrl = PwrCtrl::RESET.set_current_lim_en(true);
     /// # assert_eq!(u8::from(PWR_CTRL), 0x50u8);
@@ -94,7 +94,7 @@ impl PwrCtrl {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::PwrCtrl;
+    /// use stm32wlxx_hal::subghz::PwrCtrl;
     ///
     /// let pc: PwrCtrl = PwrCtrl::RESET;
     /// assert_eq!(pc.current_limit_en(), true);
@@ -120,7 +120,7 @@ impl PwrCtrl {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{CurrentLim, PwrCtrl};
+    /// use stm32wlxx_hal::subghz::{CurrentLim, PwrCtrl};
     ///
     /// let pc: PwrCtrl = PwrCtrl::RESET;
     /// assert_eq!(pc.current_lim(), CurrentLim::Milli50);

@@ -1,4 +1,4 @@
-/// Power amplifier configuration paramters.
+/// Power amplifier configuration parameters.
 ///
 /// Argument of [`set_pa_config`].
 ///
@@ -52,7 +52,7 @@ impl PaConfig {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::PaConfig;
+    /// use stm32wlxx_hal::subghz::PaConfig;
     ///
     /// const PA_CONFIG: PaConfig = PaConfig::new();
     /// ```
@@ -71,14 +71,14 @@ impl PaConfig {
     /// # Caution
     ///
     /// The following restrictions must be observed to avoid over-stress on the PA:
-    /// * LP PA mode with synthesis frequency > 400 MHz, PaDutyCycle must be < 0x7.
-    /// * LP PA mode with synthesis frequency < 400 MHz, PaDutyCycle must be < 0x4.
-    /// * HP PA mode, PaDutyCycle must be < 0x4
+    /// * LP PA mode with synthesis frequency > 400 MHz, `pa_duty_cycle` must be < 0x7.
+    /// * LP PA mode with synthesis frequency < 400 MHz, `pa_duty_cycle` must be < 0x4.
+    /// * HP PA mode, `pa_duty_cycle` must be < 0x4
     ///
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{PaConfig, PaSel};
+    /// use stm32wlxx_hal::subghz::{PaConfig, PaSel};
     ///
     /// const PA_CONFIG: PaConfig = PaConfig::new().set_pa(PaSel::Lp).set_pa_duty_cycle(0x4);
     /// # assert_eq!(PA_CONFIG.as_slice()[1], 0x04);
@@ -96,7 +96,7 @@ impl PaConfig {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{PaConfig, PaSel};
+    /// use stm32wlxx_hal::subghz::{PaConfig, PaSel};
     ///
     /// const PA_CONFIG: PaConfig = PaConfig::new().set_pa(PaSel::Hp).set_hp_max(0x2);
     /// # assert_eq!(PA_CONFIG.as_slice()[2], 0x02);
@@ -112,7 +112,7 @@ impl PaConfig {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{PaConfig, PaSel};
+    /// use stm32wlxx_hal::subghz::{PaConfig, PaSel};
     ///
     /// const PA_CONFIG_HP: PaConfig = PaConfig::new().set_pa(PaSel::Hp);
     /// const PA_CONFIG_LP: PaConfig = PaConfig::new().set_pa(PaSel::Lp);
@@ -130,7 +130,7 @@ impl PaConfig {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{PaConfig, PaSel};
+    /// use stm32wlxx_hal::subghz::{PaConfig, PaSel};
     ///
     /// const PA_CONFIG: PaConfig = PaConfig::new()
     ///     .set_pa(PaSel::Hp)

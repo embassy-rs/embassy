@@ -15,7 +15,7 @@ impl RfFreq {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::RfFreq;
+    /// use stm32wlxx_hal::subghz::RfFreq;
     ///
     /// assert_eq!(RfFreq::F915.freq(), 915_000_000);
     /// ```
@@ -26,7 +26,7 @@ impl RfFreq {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::RfFreq;
+    /// use stm32wlxx_hal::subghz::RfFreq;
     ///
     /// assert_eq!(RfFreq::F868.freq(), 868_000_000);
     /// ```
@@ -37,7 +37,7 @@ impl RfFreq {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::RfFreq;
+    /// use stm32wlxx_hal::subghz::RfFreq;
     ///
     /// assert_eq!(RfFreq::F433.freq(), 433_000_000);
     /// ```
@@ -52,7 +52,7 @@ impl RfFreq {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::RfFreq;
+    /// use stm32wlxx_hal::subghz::RfFreq;
     ///
     /// const FREQ: RfFreq = RfFreq::from_raw(0x39300000);
     /// assert_eq!(FREQ, RfFreq::F915);
@@ -78,7 +78,7 @@ impl RfFreq {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::RfFreq;
+    /// use stm32wlxx_hal::subghz::RfFreq;
     ///
     /// const FREQ: RfFreq = RfFreq::from_frequency(915_000_000);
     /// assert_eq!(FREQ, RfFreq::F915);
@@ -97,7 +97,7 @@ impl RfFreq {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::RfFreq;
+    /// use stm32wlxx_hal::subghz::RfFreq;
     ///
     /// assert_eq!(RfFreq::from_raw(0x39300000).freq(), 915_000_000);
     /// ```
@@ -110,7 +110,7 @@ impl RfFreq {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::RfFreq;
+    /// use stm32wlxx_hal::subghz::RfFreq;
     ///
     /// assert_eq!(RfFreq::F915.as_slice(), &[0x86, 0x39, 0x30, 0x00, 0x00]);
     /// ```

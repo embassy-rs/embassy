@@ -27,7 +27,7 @@ impl Default for FallbackMode {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::FallbackMode;
+    /// use stm32wlxx_hal::subghz::FallbackMode;
     ///
     /// assert_eq!(FallbackMode::default(), FallbackMode::Standby);
     /// ```

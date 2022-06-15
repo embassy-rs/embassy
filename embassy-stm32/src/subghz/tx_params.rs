@@ -100,7 +100,7 @@ impl TxParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::TxParams;
+    /// use stm32wlxx_hal::subghz::TxParams;
     ///
     /// const TX_PARAMS: TxParams = TxParams::new();
     /// assert_eq!(TX_PARAMS, TxParams::default());
@@ -136,7 +136,7 @@ impl TxParams {
     /// Set the output power to 0 dB.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{RampTime, TxParams};
+    /// use stm32wlxx_hal::subghz::{RampTime, TxParams};
     ///
     /// const TX_PARAMS: TxParams = TxParams::new().set_power(0x00);
     /// # assert_eq!(TX_PARAMS.as_slice()[1], 0x00);
@@ -156,7 +156,7 @@ impl TxParams {
     /// Set the ramp time to 200 microseconds.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{RampTime, TxParams};
+    /// use stm32wlxx_hal::subghz::{RampTime, TxParams};
     ///
     /// const TX_PARAMS: TxParams = TxParams::new().set_ramp_time(RampTime::Micros200);
     /// # assert_eq!(TX_PARAMS.as_slice()[2], 0x04);
@@ -172,7 +172,7 @@ impl TxParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{RampTime, TxParams};
+    /// use stm32wlxx_hal::subghz::{RampTime, TxParams};
     ///
     /// const TX_PARAMS: TxParams = TxParams::new()
     ///     .set_ramp_time(RampTime::Micros80)

@@ -99,7 +99,7 @@ impl Irq {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::Irq;
+    /// use stm32wlxx_hal::subghz::Irq;
     ///
     /// assert_eq!(Irq::TxDone.mask(), 0x0001);
     /// assert_eq!(Irq::Timeout.mask(), 0x0200);
@@ -128,7 +128,7 @@ impl CfgIrq {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::CfgIrq;
+    /// use stm32wlxx_hal::subghz::CfgIrq;
     ///
     /// const IRQ_CFG: CfgIrq = CfgIrq::new();
     /// ```
@@ -153,7 +153,7 @@ impl CfgIrq {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{CfgIrq, Irq, IrqLine};
+    /// use stm32wlxx_hal::subghz::{CfgIrq, Irq, IrqLine};
     ///
     /// const IRQ_CFG: CfgIrq = CfgIrq::new()
     ///     .irq_enable(IrqLine::Global, Irq::TxDone)
@@ -179,7 +179,7 @@ impl CfgIrq {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{CfgIrq, Irq};
+    /// use stm32wlxx_hal::subghz::{CfgIrq, Irq};
     ///
     /// const IRQ_CFG: CfgIrq = CfgIrq::new()
     ///     .irq_enable_all(Irq::TxDone)
@@ -214,7 +214,7 @@ impl CfgIrq {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{CfgIrq, Irq, IrqLine};
+    /// use stm32wlxx_hal::subghz::{CfgIrq, Irq, IrqLine};
     ///
     /// const IRQ_CFG: CfgIrq = CfgIrq::new()
     ///     .irq_enable(IrqLine::Global, Irq::TxDone)
@@ -239,7 +239,7 @@ impl CfgIrq {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{CfgIrq, Irq};
+    /// use stm32wlxx_hal::subghz::{CfgIrq, Irq};
     ///
     /// const IRQ_CFG: CfgIrq = CfgIrq::new()
     ///     .irq_enable_all(Irq::TxDone)
@@ -269,7 +269,7 @@ impl CfgIrq {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{CfgIrq, Irq};
+    /// use stm32wlxx_hal::subghz::{CfgIrq, Irq};
     ///
     /// const IRQ_CFG: CfgIrq = CfgIrq::new()
     ///     .irq_enable_all(Irq::TxDone)

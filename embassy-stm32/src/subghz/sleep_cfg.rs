@@ -42,7 +42,7 @@ impl SleepCfg {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::SleepCfg;
+    /// use stm32wlxx_hal::subghz::SleepCfg;
     ///
     /// const SLEEP_CFG: SleepCfg = SleepCfg::new();
     /// assert_eq!(SLEEP_CFG, SleepCfg::default());
@@ -57,7 +57,7 @@ impl SleepCfg {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{SleepCfg, Startup};
+    /// use stm32wlxx_hal::subghz::{SleepCfg, Startup};
     ///
     /// const SLEEP_CFG: SleepCfg = SleepCfg::new().set_startup(Startup::Cold);
     /// # assert_eq!(u8::from(SLEEP_CFG), 0b001);
@@ -77,7 +77,7 @@ impl SleepCfg {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::SleepCfg;
+    /// use stm32wlxx_hal::subghz::SleepCfg;
     ///
     /// const SLEEP_CFG: SleepCfg = SleepCfg::new().set_rtc_wakeup_en(false);
     /// # assert_eq!(u8::from(SLEEP_CFG), 0b100);

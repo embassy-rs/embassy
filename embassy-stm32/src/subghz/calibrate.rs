@@ -28,7 +28,7 @@ impl CalibrateImage {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::CalibrateImage;
+    /// use stm32wlxx_hal::subghz::CalibrateImage;
     ///
     /// const CAL: CalibrateImage = CalibrateImage::new(0xE1, 0xE9);
     /// assert_eq!(CAL, CalibrateImage::ISM_902_928);
@@ -54,7 +54,7 @@ impl CalibrateImage {
     /// Create an image calibration for the 430 - 440 MHz ISM band.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::CalibrateImage;
+    /// use stm32wlxx_hal::subghz::CalibrateImage;
     ///
     /// let cal: CalibrateImage = CalibrateImage::from_freq(428, 444);
     /// assert_eq!(cal, CalibrateImage::ISM_430_440);
@@ -106,7 +106,7 @@ impl Calibrate {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::Calibrate;
+    /// use stm32wlxx_hal::subghz::Calibrate;
     ///
     /// assert_eq!(Calibrate::Image.mask(), 0b0100_0000);
     /// assert_eq!(Calibrate::AdcBulkP.mask(), 0b0010_0000);

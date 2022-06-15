@@ -23,7 +23,7 @@ impl PacketType {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::PacketType;
+    /// use stm32wlxx_hal::subghz::PacketType;
     ///
     /// assert_eq!(PacketType::from_raw(0), Ok(PacketType::Fsk));
     /// assert_eq!(PacketType::from_raw(1), Ok(PacketType::LoRa));

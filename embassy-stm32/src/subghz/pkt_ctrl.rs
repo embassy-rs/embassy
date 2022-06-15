@@ -50,7 +50,7 @@ impl PktCtrl {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::PktCtrl;
+    /// use stm32wlxx_hal::subghz::PktCtrl;
     ///
     /// const PKT_CTRL: PktCtrl = PktCtrl::RESET.set_sync_det_en(true);
     /// ```
@@ -70,7 +70,7 @@ impl PktCtrl {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::PktCtrl;
+    /// use stm32wlxx_hal::subghz::PktCtrl;
     ///
     /// let pc: PktCtrl = PktCtrl::RESET;
     /// assert_eq!(pc.sync_det_en(), true);
@@ -88,7 +88,7 @@ impl PktCtrl {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::PktCtrl;
+    /// use stm32wlxx_hal::subghz::PktCtrl;
     ///
     /// const PKT_CTRL: PktCtrl = PktCtrl::RESET.set_cont_tx_en(true);
     /// ```
@@ -107,7 +107,7 @@ impl PktCtrl {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::PktCtrl;
+    /// use stm32wlxx_hal::subghz::PktCtrl;
     ///
     /// let pc: PktCtrl = PktCtrl::RESET;
     /// assert_eq!(pc.cont_tx_en(), false);
@@ -133,7 +133,7 @@ impl PktCtrl {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{InfSeqSel, PktCtrl};
+    /// use stm32wlxx_hal::subghz::{InfSeqSel, PktCtrl};
     ///
     /// let pc: PktCtrl = PktCtrl::RESET;
     /// assert_eq!(pc.inf_seq_sel(), InfSeqSel::Five);
@@ -159,12 +159,12 @@ impl PktCtrl {
         }
     }
 
-    /// Enable infinute sequence generation.
+    /// Enable infinite sequence generation.
     ///
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::PktCtrl;
+    /// use stm32wlxx_hal::subghz::PktCtrl;
     ///
     /// const PKT_CTRL: PktCtrl = PktCtrl::RESET.set_inf_seq_en(true);
     /// ```
@@ -178,12 +178,12 @@ impl PktCtrl {
         self
     }
 
-    /// Returns `true` if infinute sequence generation is enabled.
+    /// Returns `true` if infinite sequence generation is enabled.
     ///
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::PktCtrl;
+    /// use stm32wlxx_hal::subghz::PktCtrl;
     ///
     /// let pc: PktCtrl = PktCtrl::RESET;
     /// assert_eq!(pc.inf_seq_en(), false);
@@ -201,7 +201,7 @@ impl PktCtrl {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::PktCtrl;
+    /// use stm32wlxx_hal::subghz::PktCtrl;
     ///
     /// const PKT_CTRL: PktCtrl = PktCtrl::RESET.set_whitening_init(true);
     /// ```
@@ -220,7 +220,7 @@ impl PktCtrl {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::PktCtrl;
+    /// use stm32wlxx_hal::subghz::PktCtrl;
     ///
     /// let pc: PktCtrl = PktCtrl::RESET;
     /// assert_eq!(pc.whitening_init(), true);

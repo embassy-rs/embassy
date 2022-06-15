@@ -75,7 +75,7 @@ impl CadParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::CadParams;
+    /// use stm32wlxx_hal::subghz::CadParams;
     ///
     /// const CAD_PARAMS: CadParams = CadParams::new();
     /// assert_eq!(CAD_PARAMS, CadParams::default());
@@ -97,7 +97,7 @@ impl CadParams {
     /// Set the number of symbols to 4.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{CadParams, NbCadSymbol};
+    /// use stm32wlxx_hal::subghz::{CadParams, NbCadSymbol};
     ///
     /// const CAD_PARAMS: CadParams = CadParams::new().set_num_symbol(NbCadSymbol::S4);
     /// # assert_eq!(CAD_PARAMS.as_slice()[1], 0x2);
@@ -117,7 +117,7 @@ impl CadParams {
     /// Setting the recommended value for a spreading factor of 7.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::CadParams;
+    /// use stm32wlxx_hal::subghz::CadParams;
     ///
     /// const CAD_PARAMS: CadParams = CadParams::new().set_det_peak(0x20).set_det_min(0x10);
     /// # assert_eq!(CAD_PARAMS.as_slice()[2], 0x20);
@@ -140,7 +140,7 @@ impl CadParams {
     /// Setting the recommended value for a spreading factor of 6.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::CadParams;
+    /// use stm32wlxx_hal::subghz::CadParams;
     ///
     /// const CAD_PARAMS: CadParams = CadParams::new().set_det_peak(0x18).set_det_min(0x10);
     /// # assert_eq!(CAD_PARAMS.as_slice()[2], 0x18);
@@ -159,7 +159,7 @@ impl CadParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{CadParams, ExitMode};
+    /// use stm32wlxx_hal::subghz::{CadParams, ExitMode};
     ///
     /// const CAD_PARAMS: CadParams = CadParams::new().set_exit_mode(ExitMode::Standby);
     /// # assert_eq!(CAD_PARAMS.as_slice()[4], 0x00);
@@ -178,7 +178,7 @@ impl CadParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{CadParams, ExitMode, Timeout};
+    /// use stm32wlxx_hal::subghz::{CadParams, ExitMode, Timeout};
     ///
     /// const TIMEOUT: Timeout = Timeout::from_raw(0x123456);
     /// const CAD_PARAMS: CadParams = CadParams::new()
@@ -203,7 +203,7 @@ impl CadParams {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::{CadParams, ExitMode, NbCadSymbol, Timeout};
+    /// use stm32wlxx_hal::subghz::{CadParams, ExitMode, NbCadSymbol, Timeout};
     ///
     /// const TIMEOUT: Timeout = Timeout::from_raw(0x123456);
     /// const CAD_PARAMS: CadParams = CadParams::new()

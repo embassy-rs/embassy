@@ -33,7 +33,7 @@ impl BitSync {
     /// Enable simple bit synchronization.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::BitSync;
+    /// use stm32wlxx_hal::subghz::BitSync;
     ///
     /// const BIT_SYNC: BitSync = BitSync::RESET.set_simple_bit_sync_en(true);
     /// # assert_eq!(u8::from(BIT_SYNC), 0x40u8);
@@ -53,7 +53,7 @@ impl BitSync {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::BitSync;
+    /// use stm32wlxx_hal::subghz::BitSync;
     ///
     /// let bs: BitSync = BitSync::RESET;
     /// assert_eq!(bs.simple_bit_sync_en(), false);
@@ -73,7 +73,7 @@ impl BitSync {
     /// Invert receive data.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::BitSync;
+    /// use stm32wlxx_hal::subghz::BitSync;
     ///
     /// const BIT_SYNC: BitSync = BitSync::RESET.set_rx_data_inv(true);
     /// # assert_eq!(u8::from(BIT_SYNC), 0x20u8);
@@ -93,7 +93,7 @@ impl BitSync {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::BitSync;
+    /// use stm32wlxx_hal::subghz::BitSync;
     ///
     /// let bs: BitSync = BitSync::RESET;
     /// assert_eq!(bs.rx_data_inv(), false);
@@ -113,7 +113,7 @@ impl BitSync {
     /// Enable normal bit synchronization.
     ///
     /// ```
-    /// use stm32wl_hal::subghz::BitSync;
+    /// use stm32wlxx_hal::subghz::BitSync;
     ///
     /// const BIT_SYNC: BitSync = BitSync::RESET.set_norm_bit_sync_en(true);
     /// # assert_eq!(u8::from(BIT_SYNC), 0x10u8);
@@ -133,7 +133,7 @@ impl BitSync {
     /// # Example
     ///
     /// ```
-    /// use stm32wl_hal::subghz::BitSync;
+    /// use stm32wlxx_hal::subghz::BitSync;
     ///
     /// let bs: BitSync = BitSync::RESET;
     /// assert_eq!(bs.norm_bit_sync_en(), false);
