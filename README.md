@@ -42,7 +42,7 @@ The <a href="https://github.com/embassy-rs/nrf-softdevice">nrf-softdevice</a> cr
 
 ## Sneak peek
 
-```rust
+```rust,ignore
 use defmt::info;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
@@ -93,20 +93,21 @@ Examples are found in the `examples/` folder seperated by the chip manufacturer 
 ### Running examples
 
 - Setup git submodules (needed for STM32 examples)
-```
+
+```bash
 git submodule init
 git submodule update
 ```
 
 - Install `probe-run` with defmt support.
 
-```
+```bash
 cargo install probe-run
 ```
 
 - Change directory to the sample's base directory. For example:
 
-```
+```bash
 cd examples/nrf
 ```
 
@@ -114,7 +115,7 @@ cd examples/nrf
 
 For example:
 
-```
+```bash
 cargo run --bin blinky
 ```
 
