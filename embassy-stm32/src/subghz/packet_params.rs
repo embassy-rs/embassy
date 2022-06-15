@@ -135,7 +135,7 @@ impl GenericPacketParams {
         self
     }
 
-    /// Preabmle detection length in number of bit symbols.
+    /// Preamble detection length in number of bit symbols.
     ///
     /// # Example
     ///
