@@ -49,9 +49,7 @@ impl SleepCfg {
     /// # assert_eq!(u8::from(SLEEP_CFG), 0b101);
     /// ```
     pub const fn new() -> SleepCfg {
-        SleepCfg(0)
-            .set_startup(Startup::Warm)
-            .set_rtc_wakeup_en(true)
+        SleepCfg(0).set_startup(Startup::Warm).set_rtc_wakeup_en(true)
     }
 
     /// Set the startup mode.

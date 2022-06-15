@@ -89,10 +89,7 @@ impl RfFreq {
 
     // Get the frequency bit value.
     const fn as_bits(&self) -> u32 {
-        ((self.buf[1] as u32) << 24)
-            | ((self.buf[2] as u32) << 16)
-            | ((self.buf[3] as u32) << 8)
-            | (self.buf[4] as u32)
+        ((self.buf[1] as u32) << 24) | ((self.buf[2] as u32) << 16) | ((self.buf[3] as u32) << 8) | (self.buf[4] as u32)
     }
 
     /// Get the actual frequency.

@@ -192,11 +192,6 @@ impl core::fmt::Debug for Status {
 #[cfg(feature = "defmt")]
 impl defmt::Format for Status {
     fn format(&self, fmt: defmt::Formatter) {
-        defmt::write!(
-            fmt,
-            "Status {{ mode: {}, cmd: {} }}",
-            self.mode(),
-            self.cmd()
-        )
+        defmt::write!(fmt, "Status {{ mode: {}, cmd: {} }}", self.mode(), self.cmd())
     }
 }

@@ -145,8 +145,7 @@ impl Timeout {
         // `core::Duration` were not `const fn`, which leads to the hacks
         // you see here.
         let nanos: u128 = duration.as_nanos();
-        const UPPER_LIMIT: u128 =
-            Timeout::MAX.as_nanos() as u128 + (Timeout::RESOLUTION_NANOS as u128) / 2;
+        const UPPER_LIMIT: u128 = Timeout::MAX.as_nanos() as u128 + (Timeout::RESOLUTION_NANOS as u128) / 2;
         const LOWER_LIMIT: u128 = (((Timeout::RESOLUTION_NANOS as u128) + 1) / 2) as u128;
 
         if nanos > UPPER_LIMIT {

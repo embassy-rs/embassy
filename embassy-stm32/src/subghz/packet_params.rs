@@ -147,10 +147,7 @@ impl GenericPacketParams {
     /// # assert_eq!(PKT_PARAMS.as_slice()[3], 0x4);
     /// ```
     #[must_use = "set_preamble_detection returns a modified GenericPacketParams"]
-    pub const fn set_preamble_detection(
-        mut self,
-        pb_det: PreambleDetection,
-    ) -> GenericPacketParams {
+    pub const fn set_preamble_detection(mut self, pb_det: PreambleDetection) -> GenericPacketParams {
         self.buf[3] = pb_det as u8;
         self
     }
