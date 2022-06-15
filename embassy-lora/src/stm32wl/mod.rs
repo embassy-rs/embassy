@@ -8,9 +8,9 @@ use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{AnyPin, Output};
 use embassy_stm32::interrupt::{InterruptExt, SUBGHZ_RADIO};
 use embassy_stm32::subghz::{
-    CalibrateImage, CfgIrq, CodingRate, HeaderType, Irq, LoRaBandwidth, LoRaModParams, LoRaPacketParams, LoRaSyncWord,
-    Ocp, PaConfig, PaSel, PacketType, RampTime, RegMode, RfFreq, SpreadingFactor as SF, StandbyClk, Status, SubGhz,
-    TcxoMode, TcxoTrim, Timeout, TxParams,
+    CalibrateImage, CfgIrq, CodingRate, Error, HeaderType, Irq, LoRaBandwidth, LoRaModParams, LoRaPacketParams,
+    LoRaSyncWord, Ocp, PaConfig, PaSel, PacketType, RampTime, RegMode, RfFreq, SpreadingFactor as SF, StandbyClk,
+    Status, SubGhz, TcxoMode, TcxoTrim, Timeout, TxParams,
 };
 use embassy_stm32::Unborrow;
 use lorawan_device::async_device::radio::{Bandwidth, PhyRxTx, RfConfig, RxQuality, SpreadingFactor, TxConfig};
@@ -128,12 +128,7 @@ impl<'a> StateInner<'a> {
         self.radio
             .set_rf_frequency(&RfFreq::from_frequency(config.rf.frequency))?;
 
-        let mod_params = LoRaModParams::new()
-            .set_sf(convert_spreading_factor(config.rf.spreading_factor))
-            .set_bw(convert_bandwidth(config.rf.bandwidth))
-            .set_cr(CodingRate::Cr45)
-            .set_ldro_en(true);
-        self.radio.set_lora_mod_params(&mod_params)?;
+        self.set_lora_mod_params(config.rf)?;
 
         let packet_params = LoRaPacketParams::new()
             .set_preamble_len(8)
@@ -177,6 +172,15 @@ impl<'a> StateInner<'a> {
         }
     }
 
+    fn set_lora_mod_params(&mut self, config: RfConfig) -> Result<(), Error> {
+        let mod_params = LoRaModParams::new()
+            .set_sf(convert_spreading_factor(config.spreading_factor))
+            .set_bw(convert_bandwidth(config.bandwidth))
+            .set_cr(CodingRate::Cr45)
+            .set_ldro_en(true);
+        self.radio.set_lora_mod_params(&mod_params)
+    }
+
     /// Perform a radio receive operation with the radio config and receive buffer. The receive buffer must
     /// be able to hold a single LoRaWAN packet.
     async fn do_rx(&mut self, config: RfConfig, buf: &mut [u8]) -> Result<(usize, RxQuality), RadioError> {
@@ -188,12 +192,7 @@ impl<'a> StateInner<'a> {
 
         self.radio.set_rf_frequency(&RfFreq::from_frequency(config.frequency))?;
 
-        let mod_params = LoRaModParams::new()
-            .set_sf(convert_spreading_factor(config.spreading_factor))
-            .set_bw(convert_bandwidth(config.bandwidth))
-            .set_cr(CodingRate::Cr45)
-            .set_ldro_en(true);
-        self.radio.set_lora_mod_params(&mod_params)?;
+        self.set_lora_mod_params(config)?;
 
         let packet_params = LoRaPacketParams::new()
             .set_preamble_len(8)
