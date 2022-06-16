@@ -315,7 +315,7 @@ pub struct LoRaPacketParams {
 }
 
 impl LoRaPacketParams {
-    /// Create a new `GenericPacketParams`.
+    /// Create a new `LoRaPacketParams`.
     ///
     /// This is the same as `default`, but in a `const` function.
     ///
