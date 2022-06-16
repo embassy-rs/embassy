@@ -5,7 +5,7 @@
 //! ## WARNING: here be dragons!
 //!
 //! Using this module requires respecting subtle safety contracts. If you can, prefer using the safe
-//! executor wrappers in [`crate::executor`] and the [`crate::task`] macro, which are fully safe.
+//! executor wrappers in [`executor`](crate::executor) and the [`embassy::task`](embassy_macros::task) macro, which are fully safe.
 
 mod run_queue;
 #[cfg(feature = "time")]
@@ -115,7 +115,7 @@ impl TaskHeader {
 /// A `TaskStorage` must live forever, it may not be deallocated even after the task has finished
 /// running. Hence the relevant methods require `&'static self`. It may be reused, however.
 ///
-/// Internally, the [embassy::task](crate::task) macro allocates an array of `TaskStorage`s
+/// Internally, the [embassy::task](embassy_macros::task) macro allocates an array of `TaskStorage`s
 /// in a `static`. The most common reason to use the raw `Task` is to have control of where
 /// the memory for the task is allocated: on the stack, or on the heap with e.g. `Box::leak`, etc.
 
@@ -158,7 +158,7 @@ impl<F: Future + 'static> TaskStorage<F> {
     ///
     /// This function will fail if the task is already spawned and has not finished running.
     /// In this case, the error is delayed: a "poisoned" SpawnToken is returned, which will
-    /// cause [`Spawner::spawn()`] to return the error.
+    /// cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
     ///
     /// Once the task has finished running, you may spawn it again. It is allowed to spawn it
     /// on a different executor.
@@ -230,7 +230,7 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     ///
     /// This will loop over the pool and spawn the task in the first storage that
     /// is currently free. If none is free, a "poisoned" SpawnToken is returned,
-    /// which will cause [`Spawner::spawn()`] to return the error.
+    /// which will cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
         for task in &self.pool {
             if task.spawn_mark_used() {

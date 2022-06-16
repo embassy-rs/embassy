@@ -1,11 +1,22 @@
+//! Mutex primitives.
+//!
+//! This module provides a trait for mutexes that can be used in different contexts.
 use core::marker::PhantomData;
 
+/// Any object implementing this trait guarantees exclusive access to the data contained
+/// within the mutex for the duration of the lock.
+/// Adapted from <https://github.com/rust-embedded/mutex-trait>.
 pub trait RawMutex {
     const INIT: Self;
 
     fn lock<R>(&self, f: impl FnOnce() -> R) -> R;
 }
 
+/// A mutex that allows borrowing data across executors and interrupts.
+///
+/// # Safety
+///
+/// This mutex is safe to share between different executors and interrupts.
 pub struct CriticalSectionRawMutex {
     _phantom: PhantomData<()>,
 }
@@ -28,6 +39,11 @@ impl RawMutex for CriticalSectionRawMutex {
 
 // ================
 
+/// A mutex that allows borrowing data in the context of a single executor.
+///
+/// # Safety
+///
+/// **This Mutex is only safe within a single executor.**
 pub struct NoopRawMutex {
     _phantom: PhantomData<*mut ()>,
 }
@@ -53,6 +69,13 @@ impl RawMutex for NoopRawMutex {
 mod thread_mode {
     use super::*;
 
+    /// A "mutex" that only allows borrowing from thread mode.
+    ///
+    /// # Safety
+    ///
+    /// **This Mutex is only safe on single-core systems.**
+    ///
+    /// On multi-core systems, a `ThreadModeRawMutex` **is not sufficient** to ensure exclusive access.
     pub struct ThreadModeRawMutex {
         _phantom: PhantomData<()>,
     }

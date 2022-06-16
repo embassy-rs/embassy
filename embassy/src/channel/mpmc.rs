@@ -433,7 +433,7 @@ where
 
     /// Attempt to immediately send a message.
     ///
-    /// This method differs from [`send`] by returning immediately if the channel's
+    /// This method differs from [`send`](Channel::send) by returning immediately if the channel's
     /// buffer is full, instead of waiting.
     ///
     /// # Errors

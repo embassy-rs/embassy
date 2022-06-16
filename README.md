@@ -2,7 +2,7 @@
 
 Embassy is the next-generation framework for embedded applications. Write safe, correct and energy-efficient embedded code faster, using the Rust programming language, its async facilities, and the Embassy libraries.
 
-## [Documentation](https://embassy.dev/embassy/dev/index.html) - [API reference](https://docs.embassy.dev/) - [Website](https://embassy.dev/) - [Chat](https://matrix.to/#/#embassy-rs:matrix.org)
+## <a href="https://embassy.dev/embassy/dev/index.html">Documentation</a> - <a href="https://docs.embassy.dev/">API reference</a> - <a href="https://embassy.dev/">Website</a> - <a href="https://matrix.to/#/#embassy-rs:matrix.org">Chat</a>
 ## Rust + async ❤️ embedded
 
 The Rust programming language is blazingly fast and memory-efficient, with no runtime, garbage collector or OS. It catches a wide variety of bugs at compile time, thanks to its full memory- and thread-safety, and expressive type system. 
@@ -42,7 +42,7 @@ The <a href="https://github.com/embassy-rs/nrf-softdevice">nrf-softdevice</a> cr
 
 ## Sneak peek
 
-```rust
+```rust,ignore
 use defmt::info;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
@@ -93,20 +93,21 @@ Examples are found in the `examples/` folder seperated by the chip manufacturer 
 ### Running examples
 
 - Setup git submodules (needed for STM32 examples)
-```
+
+```bash
 git submodule init
 git submodule update
 ```
 
 - Install `probe-run` with defmt support.
 
-```
+```bash
 cargo install probe-run
 ```
 
 - Change directory to the sample's base directory. For example:
 
-```
+```bash
 cd examples/nrf
 ```
 
@@ -114,7 +115,7 @@ cd examples/nrf
 
 For example:
 
-```
+```bash
 cargo run --bin blinky
 ```
 
@@ -145,8 +146,8 @@ EMBedded ASYnc! :)
 This work is licensed under either of
 
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
-  http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+  <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
 

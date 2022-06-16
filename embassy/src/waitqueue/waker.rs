@@ -6,6 +6,10 @@ use atomic_polyfill::{compiler_fence, AtomicPtr, Ordering};
 use crate::executor::raw::{task_from_waker, wake_task, TaskHeader};
 
 /// Utility struct to register and wake a waker.
+///
+/// # Safety
+///
+/// This type is optimized for (and only works with) embassy tasks.
 #[derive(Debug)]
 pub struct WakerRegistration {
     waker: Option<NonNull<TaskHeader>>,
@@ -53,6 +57,11 @@ impl WakerRegistration {
 unsafe impl Send for WakerRegistration {}
 unsafe impl Sync for WakerRegistration {}
 
+/// Utility struct to atomically register and wake a waker.
+///
+/// # Safety
+///
+/// This type is optimized for (and only works with) embassy tasks.
 pub struct AtomicWaker {
     waker: AtomicPtr<TaskHeader>,
 }
