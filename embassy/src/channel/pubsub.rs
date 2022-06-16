@@ -495,6 +495,8 @@ impl<'s, 'a, T: Clone> Future for SubscriberWaitFuture<'s, 'a, T> {
     }
 }
 
+impl<'s, 'a, T: Clone> Unpin for SubscriberWaitFuture<'s, 'a, T> {}
+
 /// Future for the publisher wait action
 pub struct PublisherWaitFuture<'s, 'a, T: Clone> {
     /// The message we need to publish
@@ -525,6 +527,8 @@ impl<'s, 'a, T: Clone> Future for PublisherWaitFuture<'s, 'a, T> {
         }
     }
 }
+
+impl<'s, 'a, T: Clone> Unpin for PublisherWaitFuture<'s, 'a, T> {}
 
 /// The result of the subscriber wait procedure
 #[derive(Debug, Clone, PartialEq)]
