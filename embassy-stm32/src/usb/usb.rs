@@ -161,6 +161,9 @@ impl<'d, T: Instance> Driver<'d, T> {
             dm.set_as_af(dm.af_num(), AFType::OutputPushPull);
         }
 
+        // Initialize the bus so that it signals that power is available
+        BUS_WAKER.wake();
+
         Self {
             phantom: PhantomData,
             alloc: [EndpointData {
@@ -406,6 +409,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
             Bus {
                 phantom: PhantomData,
                 ep_types,
+                inited: false,
             },
             ControlPipe {
                 _phantom: PhantomData,
@@ -420,6 +424,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ep_types: [EpType; EP_COUNT - 1],
+    inited: bool,
 }
 
 impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
@@ -428,53 +433,59 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     fn poll<'a>(&'a mut self) -> Self::PollFuture<'a> {
         poll_fn(move |cx| unsafe {
             BUS_WAKER.register(cx.waker());
-            let regs = T::regs();
 
-            let flags = IRQ_FLAGS.load(Ordering::Acquire);
+            if self.inited {
+                let regs = T::regs();
 
-            if flags & IRQ_FLAG_RESUME != 0 {
-                IRQ_FLAGS.fetch_and(!IRQ_FLAG_RESUME, Ordering::AcqRel);
-                return Poll::Ready(Event::Resume);
-            }
+                let flags = IRQ_FLAGS.load(Ordering::Acquire);
 
-            if flags & IRQ_FLAG_RESET != 0 {
-                IRQ_FLAGS.fetch_and(!IRQ_FLAG_RESET, Ordering::AcqRel);
-
-                trace!("RESET REGS WRITINGINGING");
-                regs.daddr().write(|w| {
-                    w.set_ef(true);
-                    w.set_add(0);
-                });
-
-                regs.epr(0).write(|w| {
-                    w.set_ep_type(EpType::CONTROL);
-                    w.set_stat_rx(Stat::NAK);
-                    w.set_stat_tx(Stat::NAK);
-                });
-
-                for i in 1..EP_COUNT {
-                    regs.epr(i).write(|w| {
-                        w.set_ea(i as _);
-                        w.set_ep_type(self.ep_types[i - 1]);
-                    })
+                if flags & IRQ_FLAG_RESUME != 0 {
+                    IRQ_FLAGS.fetch_and(!IRQ_FLAG_RESUME, Ordering::AcqRel);
+                    return Poll::Ready(Event::Resume);
                 }
 
-                for w in &EP_IN_WAKERS {
-                    w.wake()
+                if flags & IRQ_FLAG_RESET != 0 {
+                    IRQ_FLAGS.fetch_and(!IRQ_FLAG_RESET, Ordering::AcqRel);
+
+                    trace!("RESET REGS WRITINGINGING");
+                    regs.daddr().write(|w| {
+                        w.set_ef(true);
+                        w.set_add(0);
+                    });
+
+                    regs.epr(0).write(|w| {
+                        w.set_ep_type(EpType::CONTROL);
+                        w.set_stat_rx(Stat::NAK);
+                        w.set_stat_tx(Stat::NAK);
+                    });
+
+                    for i in 1..EP_COUNT {
+                        regs.epr(i).write(|w| {
+                            w.set_ea(i as _);
+                            w.set_ep_type(self.ep_types[i - 1]);
+                        })
+                    }
+
+                    for w in &EP_IN_WAKERS {
+                        w.wake()
+                    }
+                    for w in &EP_OUT_WAKERS {
+                        w.wake()
+                    }
+
+                    return Poll::Ready(Event::Reset);
                 }
-                for w in &EP_OUT_WAKERS {
-                    w.wake()
+
+                if flags & IRQ_FLAG_SUSPEND != 0 {
+                    IRQ_FLAGS.fetch_and(!IRQ_FLAG_SUSPEND, Ordering::AcqRel);
+                    return Poll::Ready(Event::Suspend);
                 }
 
-                return Poll::Ready(Event::Reset);
+                Poll::Pending
+            } else {
+                self.inited = true;
+                return Poll::Ready(Event::PowerDetected);
             }
-
-            if flags & IRQ_FLAG_SUSPEND != 0 {
-                IRQ_FLAGS.fetch_and(!IRQ_FLAG_SUSPEND, Ordering::AcqRel);
-                return Poll::Ready(Event::Suspend);
-            }
-
-            Poll::Pending
         })
     }
 

@@ -6,47 +6,18 @@
 use core::mem;
 
 use defmt::{info, panic};
-use embassy::channel::signal::Signal;
 use embassy::executor::Spawner;
-use embassy::interrupt::InterruptExt;
 use embassy_nrf::usb::{Driver, Instance};
-use embassy_nrf::{interrupt, interrupt, pac, pac, Peripherals};
+use embassy_nrf::{interrupt, pac, Peripherals};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::util::EnabledUsbDevice;
 use embassy_usb::{Builder, Config};
 use embassy_usb_serial::{CdcAcmClass, State};
 use futures::future::join;
-use {defmt_rtt as _, panic_probe as _}; // global logger
-
-static ENABLE_USB: Signal<bool> = Signal::new();
-
-fn on_power_interrupt(_: *mut ()) {
-    let regs = unsafe { &*pac::POWER::ptr() };
-
-    if regs.events_usbdetected.read().bits() != 0 {
-        regs.events_usbdetected.reset();
-        info!("Vbus detected, enabling USB...");
-        ENABLE_USB.signal(true);
-    }
-
-    if regs.events_usbremoved.read().bits() != 0 {
-        regs.events_usbremoved.reset();
-        info!("Vbus removed, disabling USB...");
-        ENABLE_USB.signal(false);
-    }
-}
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     let clock: pac::CLOCK = unsafe { mem::transmute(()) };
-    let power: pac::POWER = unsafe { mem::transmute(()) };
-
-    let power_irq = interrupt::take!(POWER_CLOCK);
-    power_irq.set_handler(on_power_interrupt);
-    power_irq.unpend();
-    power_irq.enable();
-
-    power.intenset.write(|w| w.usbdetected().set().usbremoved().set());
 
     info!("Enabling ext hfosc...");
     clock.tasks_hfclkstart.write(|w| unsafe { w.bits(1) });
@@ -54,7 +25,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     // Create the driver, from the HAL.
     let irq = interrupt::take!(USBD);
-    let driver = Driver::new(p.USBD, irq);
+    let power_irq = interrupt::take!(POWER_CLOCK);
+    let driver = Driver::with_power_management(p.USBD, irq, power_irq);
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);
@@ -94,7 +66,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
 
     // Build the builder.
-    let mut usb = EnabledUsbDevice::new(builder.build(), &ENABLE_USB);
+    let mut usb = builder.build();
 
     // Run the USB device.
     let usb_fut = usb.run();

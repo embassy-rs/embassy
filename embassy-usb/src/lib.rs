@@ -11,7 +11,6 @@ pub mod descriptor;
 mod descriptor_reader;
 pub mod driver;
 pub mod types;
-pub mod util;
 
 use embassy::util::{select, Either};
 use heapless::Vec;
@@ -115,6 +114,7 @@ struct Inner<'d, D: Driver<'d>> {
 
     device_state: UsbDeviceState,
     suspended: bool,
+    power_available: bool,
     remote_wakeup_enabled: bool,
     self_powered: bool,
 
@@ -157,6 +157,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
 
                 device_state: UsbDeviceState::Disabled,
                 suspended: false,
+                power_available: false,
                 remote_wakeup_enabled: false,
                 self_powered: false,
                 address: 0,
@@ -186,6 +187,11 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     /// before calling any other `UsbDevice` methods to fully reset the
     /// peripheral.
     pub async fn run_until_suspend(&mut self) -> () {
+        while !self.inner.power_available {
+            let evt = self.inner.bus.poll().await;
+            self.inner.handle_bus_event(evt);
+        }
+
         if self.inner.device_state == UsbDeviceState::Disabled {
             self.inner.bus.enable().await;
             self.inner.device_state = UsbDeviceState::Default;
@@ -195,7 +201,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             }
         }
 
-        while !self.inner.suspended {
+        while !self.inner.suspended && self.inner.power_available {
             let control_fut = self.control.setup();
             let bus_fut = self.inner.bus.poll();
             match select(bus_fut, control_fut).await {
@@ -223,7 +229,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     ///
     /// This future is cancel-safe.
     pub async fn wait_resume(&mut self) {
-        while self.inner.suspended {
+        while self.inner.suspended || !self.inner.power_available {
             let evt = self.inner.bus.poll().await;
             self.inner.handle_bus_event(evt);
         }
@@ -376,6 +382,14 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 if let Some(h) = &self.handler {
                     h.suspended(true);
                 }
+            }
+            Event::PowerDetected => {
+                trace!("usb: power detected");
+                self.power_available = true;
+            }
+            Event::PowerRemoved => {
+                trace!("usb: power removed");
+                self.power_available = false;
             }
         }
     }

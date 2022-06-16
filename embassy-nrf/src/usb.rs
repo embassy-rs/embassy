@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
-use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
 use core::task::Poll;
 
 use cortex_m::peripheral::NVIC;
@@ -25,6 +25,7 @@ static EP0_WAKER: AtomicWaker = NEW_AW;
 static EP_IN_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
 static EP_OUT_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
 static READY_ENDPOINTS: AtomicU32 = AtomicU32::new(0);
+static POWER_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
@@ -39,11 +40,35 @@ impl<'d, T: Instance> Driver<'d, T> {
         irq.unpend();
         irq.enable();
 
+        // Initialize the bus so that it signals that power is available.
+        // Not required when using with_power_management as we then rely on the irq.
+        POWER_AVAILABLE.store(true, Ordering::Relaxed);
+        BUS_WAKER.wake();
+
         Self {
             phantom: PhantomData,
             alloc_in: Allocator::new(),
             alloc_out: Allocator::new(),
         }
+    }
+
+    /// Establish a new device that then uses the POWER peripheral to
+    /// detect USB power detected/removed events are handled.
+    #[cfg(not(feature = "_nrf5340-app"))]
+    pub fn with_power_management(
+        _usb: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        power_irq: impl Interrupt,
+    ) -> Self {
+        let regs = unsafe { &*pac::POWER::ptr() };
+
+        power_irq.set_handler(Self::on_power_interrupt);
+        power_irq.unpend();
+        power_irq.enable();
+
+        regs.intenset.write(|w| w.usbdetected().set().usbremoved().set());
+
+        Self::new(_usb, irq)
     }
 
     fn on_interrupt(_: *mut ()) {
@@ -76,7 +101,6 @@ impl<'d, T: Instance> Driver<'d, T> {
         // doesn't cause an infinite irq loop.
         if regs.events_usbevent.read().bits() != 0 {
             regs.events_usbevent.reset();
-            //regs.intenclr.write(|w| w.usbevent().clear());
             BUS_WAKER.wake();
         }
 
@@ -94,6 +118,31 @@ impl<'d, T: Instance> Driver<'d, T> {
                     Out::waker(i).wake();
                 }
             }
+        }
+    }
+
+    #[cfg(not(feature = "_nrf5340-app"))]
+    fn on_power_interrupt(_: *mut ()) {
+        let regs = unsafe { &*pac::POWER::ptr() };
+
+        let mut power_changed = false;
+        let mut power_available = false;
+
+        if regs.events_usbdetected.read().bits() != 0 {
+            regs.events_usbdetected.reset();
+            power_changed = true;
+            power_available = true;
+        }
+
+        if regs.events_usbremoved.read().bits() != 0 {
+            regs.events_usbremoved.reset();
+            power_changed = true;
+            power_available = false;
+        }
+
+        if power_changed {
+            POWER_AVAILABLE.store(power_available, Ordering::Relaxed);
+            BUS_WAKER.wake();
         }
     }
 }
@@ -138,7 +187,10 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
         (
-            Bus { phantom: PhantomData },
+            Bus {
+                phantom: PhantomData,
+                power_available: false,
+            },
             ControlPipe {
                 _phantom: PhantomData,
                 max_packet_size: control_max_packet_size,
@@ -149,6 +201,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
 pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
+    power_available: bool,
 }
 
 impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
@@ -244,6 +297,17 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             if r.ready().bit() {
                 regs.eventcause.write(|w| w.ready().set_bit());
                 trace!("USB event: ready");
+            }
+
+            if POWER_AVAILABLE.load(Ordering::Relaxed) != self.power_available {
+                self.power_available = !self.power_available;
+                if self.power_available {
+                    trace!("Power event: available");
+                    return Poll::Ready(Event::PowerDetected);
+                } else {
+                    trace!("Power event: removed");
+                    return Poll::Ready(Event::PowerRemoved);
+                }
             }
 
             Poll::Pending
