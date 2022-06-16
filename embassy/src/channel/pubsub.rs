@@ -274,6 +274,16 @@ impl<'a, T: Clone> Subscriber<'a, T> {
         SubscriberWaitFuture { subscriber: self }
     }
 
+    /// Wait for a published message (ignoring lag results)
+    pub async fn next_message_pure(&mut self) -> T {
+        loop {
+            match self.next_message().await {
+                WaitResult::Lagged(_) => continue,
+                WaitResult::Message(message) => break message,
+            }
+        }
+    }
+
     /// Try to see if there's a published message we haven't received yet.
     ///
     /// This function does not peek. The message is received if there is one.
@@ -286,6 +296,19 @@ impl<'a, T: Clone> Subscriber<'a, T> {
             result => {
                 self.next_message_id += 1;
                 result
+            }
+        }
+    }
+
+    /// Try to see if there's a published message we haven't received yet (ignoring lag results).
+    ///
+    /// This function does not peek. The message is received if there is one.
+    pub fn try_next_message_pure(&mut self) -> Option<T> {
+        loop {
+            match self.try_next_message() {
+                Some(WaitResult::Lagged(_)) => continue,
+                Some(WaitResult::Message(message)) => break Some(message),
+                None => break None,
             }
         }
     }
