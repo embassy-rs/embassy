@@ -316,8 +316,7 @@ impl<'a, T: Clone> futures::Stream for Subscriber<'a, T> {
             // No, so we need to reregister our waker and sleep again
             None => {
                 unsafe {
-                    this
-                        .channel
+                    this.channel
                         .register_subscriber_waker(this.subscriber_index, cx.waker());
                 }
                 Poll::Pending
