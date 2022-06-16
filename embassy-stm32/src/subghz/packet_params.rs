@@ -465,9 +465,9 @@ impl Default for LoRaPacketParams {
     }
 }
 
-/// Packet parameters for [`set_lora_packet_params`].
+/// Packet parameters for [`set_bpsk_packet_params`].
 ///
-/// [`set_lora_packet_params`]: super::SubGhz::set_lora_packet_params
+/// [`set_bpsk_packet_params`]: super::SubGhz::set_bpsk_packet_params
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct BpskPacketParams {
