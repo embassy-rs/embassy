@@ -270,14 +270,14 @@ pub struct Subscriber<'a, T: Clone> {
 
 impl<'a, T: Clone> Subscriber<'a, T> {
     /// Wait for a published message
-    pub fn next<'s>(&'s mut self) -> SubscriberWaitFuture<'s, 'a, T> {
+    pub fn next_message<'s>(&'s mut self) -> SubscriberWaitFuture<'s, 'a, T> {
         SubscriberWaitFuture { subscriber: self }
     }
 
     /// Try to see if there's a published message we haven't received yet.
     ///
     /// This function does not peek. The message is received if there is one.
-    pub fn try_next(&mut self) -> Option<WaitResult<T>> {
+    pub fn try_next_message(&mut self) -> Option<WaitResult<T>> {
         match self.channel.get_message(self.next_message_id) {
             Some(WaitResult::Lagged(amount)) => {
                 self.next_message_id += amount;
@@ -524,11 +524,11 @@ mod tests {
 
         pub0.publish(42).await;
 
-        assert_eq!(sub0.next().await, WaitResult::Message(42));
-        assert_eq!(sub1.next().await, WaitResult::Message(42));
+        assert_eq!(sub0.next_message().await, WaitResult::Message(42));
+        assert_eq!(sub1.next_message().await, WaitResult::Message(42));
 
-        assert_eq!(sub0.try_next(), None);
-        assert_eq!(sub1.try_next(), None);
+        assert_eq!(sub0.try_next_message(), None);
+        assert_eq!(sub1.try_next_message(), None);
     }
 
     #[futures_test::test]
@@ -545,12 +545,12 @@ mod tests {
         pub0.publish_immediate(46);
         pub0.publish_immediate(47);
 
-        assert_eq!(sub0.try_next(), Some(WaitResult::Lagged(2)));
-        assert_eq!(sub0.next().await, WaitResult::Message(44));
-        assert_eq!(sub0.next().await, WaitResult::Message(45));
-        assert_eq!(sub0.next().await, WaitResult::Message(46));
-        assert_eq!(sub0.next().await, WaitResult::Message(47));
-        assert_eq!(sub0.try_next(), None);
+        assert_eq!(sub0.try_next_message(), Some(WaitResult::Lagged(2)));
+        assert_eq!(sub0.next_message().await, WaitResult::Message(44));
+        assert_eq!(sub0.next_message().await, WaitResult::Message(45));
+        assert_eq!(sub0.next_message().await, WaitResult::Message(46));
+        assert_eq!(sub0.next_message().await, WaitResult::Message(47));
+        assert_eq!(sub0.try_next_message(), None);
     }
 
     #[test]
