@@ -25,7 +25,9 @@ pub struct PubSubChannel<M: RawMutex, T: Clone, const CAP: usize, const SUBS: us
     inner: Mutex<M, RefCell<PubSubState<T, CAP, SUBS, PUBS>>>,
 }
 
-impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubChannel<M, T, CAP, SUBS, PUBS> {
+impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>
+    PubSubChannel<M, T, CAP, SUBS, PUBS>
+{
     /// Create a new channel
     pub const fn new() -> Self {
         Self {
@@ -134,7 +136,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
             // We are going to call something is Self again.
             // The lock is fine, but we need to get rid of the refcell borrow
             drop(s);
-            
+
             // This will succeed because we made sure there is space
             unsafe { self.try_publish(message).unwrap_unchecked() };
         });
@@ -354,7 +356,6 @@ impl<'a, T: Clone> ImmediatePublisher<'a, T> {
     pub fn try_publish(&self, message: T) -> Result<(), T> {
         self.channel.try_publish(message)
     }
-    
 }
 
 /// Error type for the [PubSubChannel]
@@ -480,8 +481,8 @@ pub enum WaitResult<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::blocking_mutex::raw::NoopRawMutex;
     use super::*;
+    use crate::blocking_mutex::raw::NoopRawMutex;
 
     #[futures_test::test]
     async fn all_subscribers_receive() {
@@ -586,5 +587,4 @@ mod tests {
 
         drop(sub0);
     }
-
 }
