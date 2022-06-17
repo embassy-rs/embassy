@@ -1,5 +1,4 @@
 [package]
-authors = ["Ulf Lilleengen <lulf@redhat.com>"]
 edition = "2021"
 name = "embassy-boot-stm32l4-examples"
 version = "0.1.0"
