@@ -2,7 +2,7 @@
 name = "embassy-lora"
 version = "0.1.0"
 authors = ["Ulf Lilleengen <lulf@redhat.com>"]
-edition = "2018"
+edition = "2021"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-lora-v$VERSION/embassy-lora/src/"

@@ -1,9 +1,8 @@
 [package]
 authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>", "Ulf Lilleengen <ulf.lilleengen@gmail.com>"]
-edition = "2018"
+edition = "2021"
 name = "embassy-stm32l1-examples"
 version = "0.1.0"
-resolver = "2"
 
 [dependencies]
 embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime", "time-tick-32768hz"] }

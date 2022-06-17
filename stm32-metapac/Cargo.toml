@@ -1,8 +1,7 @@
 [package]
 name = "stm32-metapac"
 version = "0.1.0"
-edition = "2018"
-resolver = "2"
+edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
 description = "Peripheral Access Crate (PAC) for all STM32 chips, including metadata."

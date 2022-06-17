@@ -2,8 +2,7 @@
 name = "embassy-stm32"
 version = "0.1.0"
 authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
-edition = "2018"
-resolver = "2"
+edition = "2021"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-v$VERSION/embassy-stm32/src/"
@@ -63,7 +62,7 @@ vcell = "0.1.3"
 bxcan = "0.6.2"
 nb = "1.0.0"
 stm32-fmc = "0.2.4"
-seq-macro = "0.2.2"
+seq-macro = "0.3.0"
 cfg-if = "1.0.0"
 embedded-io = { version = "0.3.0", features = ["async"], optional = true }
 

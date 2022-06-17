@@ -2,8 +2,7 @@
 name = "embassy-cortex-m"
 version = "0.1.0"
 authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
-edition = "2018"
-resolver = "2"
+edition = "2021"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-cortex-m-v$VERSION/embassy-cortex-m/src/"
