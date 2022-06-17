@@ -2,11 +2,13 @@ use core::task::Waker;
 
 use super::WakerRegistration;
 
+/// Utility struct to register and wake multiple wakers.
 pub struct MultiWakerRegistration<const N: usize> {
     wakers: [WakerRegistration; N],
 }
 
 impl<const N: usize> MultiWakerRegistration<N> {
+    /// Create a new empty instance
     pub const fn new() -> Self {
         const WAKER: WakerRegistration = WakerRegistration::new();
         Self { wakers: [WAKER; N] }

@@ -29,6 +29,48 @@ pub use subscriber::{DynSubscriber, Subscriber};
 /// - With [Publisher::publish_immediate] the publisher doesn't await and instead lets the oldest message
 /// in the queue drop if necessary. This will cause any [Subscriber] that missed the message to receive
 /// an error to indicate that it has lagged.
+///
+/// ## Example
+///
+/// ```
+/// # use embassy::blocking_mutex::raw::NoopRawMutex;
+/// # use embassy::channel::pubsub::WaitResult;
+/// # use embassy::channel::pubsub::PubSubChannel;
+/// # use futures_executor::block_on;
+/// # let test = async {
+/// // Create the channel. This can be static as well
+/// let channel = PubSubChannel::<NoopRawMutex, u32, 4, 4, 4>::new();
+///
+/// // This is a generic subscriber with a direct reference to the channel
+/// let mut sub0 = channel.subscriber().unwrap();
+/// // This is a dynamic subscriber with a dynamic (trait object) reference to the channel
+/// let mut sub1 = channel.dyn_subscriber().unwrap();
+///
+/// let pub0 = channel.publisher().unwrap();
+///
+/// // Publish a message, but wait if the queue is full
+/// pub0.publish(42).await;
+///
+/// // Publish a message, but if the queue is full, just kick out the oldest message.
+/// // This may cause some subscribers to miss a message
+/// pub0.publish_immediate(43);
+///
+/// // Wait for a new message. If the subscriber missed a message, the WaitResult will be a Lag result
+/// assert_eq!(sub0.next_message().await, WaitResult::Message(42));
+/// assert_eq!(sub1.next_message().await, WaitResult::Message(42));
+///
+/// // Wait again, but this time ignore any Lag results
+/// assert_eq!(sub0.next_message_pure().await, 43);
+/// assert_eq!(sub1.next_message_pure().await, 43);
+///
+/// // There's also a polling interface
+/// assert_eq!(sub0.try_next_message(), None);
+/// assert_eq!(sub1.try_next_message(), None);
+/// # };
+/// #
+/// # block_on(test);
+/// ```
+///
 pub struct PubSubChannel<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> {
     inner: Mutex<M, RefCell<PubSubState<T, CAP, SUBS, PUBS>>>,
 }
