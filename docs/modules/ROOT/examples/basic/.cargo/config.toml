@@ -4,3 +4,6 @@ runner = "probe-run --chip nRF52840_xxAA"
 
 [build]
 target = "thumbv7em-none-eabi"
+
+[env]
+DEFMT_LOG = "trace"

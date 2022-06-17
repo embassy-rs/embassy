@@ -4,3 +4,6 @@ runner = "probe-run --chip STM32WB55CCUx --speed 1000 --connect-under-reset"
 
 [build]
 target = "thumbv7em-none-eabihf"
+
+[env]
+DEFMT_LOG = "trace"
