@@ -477,12 +477,12 @@ impl<'a, T: Instance> Drop for UarteRx<'a, T> {
 }
 
 #[cfg(not(any(feature = "_nrf9160", feature = "nrf5340")))]
-pub(in crate) fn apply_workaround_for_enable_anomaly(_r: &crate::pac::uarte0::RegisterBlock) {
+pub(crate) fn apply_workaround_for_enable_anomaly(_r: &crate::pac::uarte0::RegisterBlock) {
     // Do nothing
 }
 
 #[cfg(any(feature = "_nrf9160", feature = "nrf5340"))]
-pub(in crate) fn apply_workaround_for_enable_anomaly(r: &crate::pac::uarte0::RegisterBlock) {
+pub(crate) fn apply_workaround_for_enable_anomaly(r: &crate::pac::uarte0::RegisterBlock) {
     use core::ops::Deref;
 
     // Apply workaround for anomalies:
@@ -529,7 +529,7 @@ pub(in crate) fn apply_workaround_for_enable_anomaly(r: &crate::pac::uarte0::Reg
     }
 }
 
-pub(in crate) fn drop_tx_rx(r: &pac::uarte0::RegisterBlock, s: &sealed::State) {
+pub(crate) fn drop_tx_rx(r: &pac::uarte0::RegisterBlock, s: &sealed::State) {
     if s.tx_rx_refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
         // Finally we can disable, and we do so for the peripheral
         // i.e. not just rx concerns.
