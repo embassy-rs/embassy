@@ -47,6 +47,11 @@ impl WakerRegistration {
             w.wake()
         }
     }
+
+    /// Returns true if a waker is currently registered
+    pub fn occupied(&self) -> bool {
+        self.waker.is_some()
+    }
 }
 
 /// Utility struct to register and wake a waker.

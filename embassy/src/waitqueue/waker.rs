@@ -50,6 +50,11 @@ impl WakerRegistration {
             unsafe { wake_task(w) }
         }
     }
+
+    /// Returns true if a waker is currently registered
+    pub fn occupied(&self) -> bool {
+        self.waker.is_some()
+    }
 }
 
 // SAFETY: `WakerRegistration` effectively contains an `Option<Waker>`,
