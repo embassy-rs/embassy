@@ -1,18 +1,24 @@
 //! Implementation of [PubSubChannel], a queue where published messages get received by all subscribers.
 
+#![deny(missing_docs)]
+
 use core::cell::RefCell;
 use core::fmt::Debug;
-use core::future::Future;
-use core::marker::PhantomData;
-use core::ops::{Deref, DerefMut};
-use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 
 use heapless::Deque;
 
+use self::publisher::{ImmediatePub, Pub};
+use self::subscriber::Sub;
 use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
 use crate::waitqueue::MultiWakerRegistration;
+
+pub mod publisher;
+pub mod subscriber;
+
+pub use publisher::{DynImmediatePublisher, DynPublisher, ImmediatePublisher, Publisher};
+pub use subscriber::{DynSubscriber, Subscriber};
 
 /// A broadcast channel implementation where multiple publishers can send messages to multiple subscribers
 ///
@@ -48,11 +54,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
                 Err(Error::MaximumSubscribersReached)
             } else {
                 s.subscriber_count += 1;
-                Ok(Subscriber(Sub {
-                    next_message_id: s.next_message_id,
-                    channel: self,
-                    _phantom: Default::default(),
-                }))
+                Ok(Subscriber(Sub::new(s.next_message_id, self)))
             }
         })
     }
@@ -68,11 +70,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
                 Err(Error::MaximumSubscribersReached)
             } else {
                 s.subscriber_count += 1;
-                Ok(DynSubscriber(Sub {
-                    next_message_id: s.next_message_id,
-                    channel: self as _,
-                    _phantom: Default::default(),
-                }))
+                Ok(DynSubscriber(Sub::new(s.next_message_id, self)))
             }
         })
     }
@@ -88,10 +86,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
                 Err(Error::MaximumPublishersReached)
             } else {
                 s.publisher_count += 1;
-                Ok(Publisher(Pub {
-                    channel: self,
-                    _phantom: Default::default(),
-                }))
+                Ok(Publisher(Pub::new(self)))
             }
         })
     }
@@ -107,10 +102,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
                 Err(Error::MaximumPublishersReached)
             } else {
                 s.publisher_count += 1;
-                Ok(DynPublisher(Pub {
-                    channel: self,
-                    _phantom: Default::default(),
-                }))
+                Ok(DynPublisher(Pub::new(self)))
             }
         })
     }
@@ -118,19 +110,13 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     /// Create a new publisher that can only send immediate messages.
     /// This kind of publisher does not take up a publisher slot.
     pub fn immediate_publisher(&self) -> ImmediatePublisher<M, T, CAP, SUBS, PUBS> {
-        ImmediatePublisher(ImmediatePub {
-            channel: self,
-            _phantom: Default::default(),
-        })
+        ImmediatePublisher(ImmediatePub::new(self))
     }
 
     /// Create a new publisher that can only send immediate messages.
     /// This kind of publisher does not take up a publisher slot.
     pub fn dyn_immediate_publisher(&self) -> DynImmediatePublisher<T> {
-        DynImmediatePublisher(ImmediatePub {
-            channel: self,
-            _phantom: Default::default(),
-        })
+        DynImmediatePublisher(ImmediatePub::new(self))
     }
 }
 
@@ -340,258 +326,6 @@ impl<T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubSta
     }
 }
 
-/// A subscriber to a channel
-///
-/// This instance carries a reference to the channel, but uses a trait object for it so that the channel's
-/// generics are erased on this subscriber
-pub struct Sub<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
-    /// The message id of the next message we are yet to receive
-    next_message_id: u64,
-    /// The channel we are a subscriber to
-    channel: &'a PSB,
-    _phantom: PhantomData<T>,
-}
-
-impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Sub<'a, PSB, T> {
-    /// Wait for a published message
-    pub fn next_message<'s>(&'s mut self) -> SubscriberWaitFuture<'s, 'a, PSB, T> {
-        SubscriberWaitFuture { subscriber: self }
-    }
-
-    /// Wait for a published message (ignoring lag results)
-    pub async fn next_message_pure(&mut self) -> T {
-        loop {
-            match self.next_message().await {
-                WaitResult::Lagged(_) => continue,
-                WaitResult::Message(message) => break message,
-            }
-        }
-    }
-
-    /// Try to see if there's a published message we haven't received yet.
-    ///
-    /// This function does not peek. The message is received if there is one.
-    pub fn try_next_message(&mut self) -> Option<WaitResult<T>> {
-        match self.channel.get_message_with_context(&mut self.next_message_id, None) {
-            Poll::Ready(result) => Some(result),
-            Poll::Pending => None,
-        }
-    }
-
-    /// Try to see if there's a published message we haven't received yet (ignoring lag results).
-    ///
-    /// This function does not peek. The message is received if there is one.
-    pub fn try_next_message_pure(&mut self) -> Option<T> {
-        loop {
-            match self.try_next_message() {
-                Some(WaitResult::Lagged(_)) => continue,
-                Some(WaitResult::Message(message)) => break Some(message),
-                None => break None,
-            }
-        }
-    }
-}
-
-impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Drop for Sub<'a, PSB, T> {
-    fn drop(&mut self) {
-        self.channel.unregister_subscriber(self.next_message_id)
-    }
-}
-
-impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Unpin for Sub<'a, PSB, T> {}
-
-pub struct DynSubscriber<'a, T: Clone>(Sub<'a, dyn PubSubBehavior<T> + 'a, T>);
-
-impl<'a, T: Clone> Deref for DynSubscriber<'a, T> {
-    type Target = Sub<'a, dyn PubSubBehavior<T> + 'a, T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'a, T: Clone> DerefMut for DynSubscriber<'a, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-pub struct Subscriber<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
-    Sub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>,
-);
-
-impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> Deref
-    for Subscriber<'a, M, T, CAP, SUBS, PUBS>
-{
-    type Target = Sub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> DerefMut
-    for Subscriber<'a, M, T, CAP, SUBS, PUBS>
-{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-/// Warning: The stream implementation ignores lag results and returns all messages.
-/// This might miss some messages without you knowing it.
-impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> futures::Stream for Sub<'a, PSB, T> {
-    type Item = T;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self
-            .channel
-            .get_message_with_context(&mut self.next_message_id, Some(cx))
-        {
-            Poll::Ready(WaitResult::Message(message)) => Poll::Ready(Some(message)),
-            Poll::Ready(WaitResult::Lagged(_)) => {
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            }
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-/// A publisher to a channel
-///
-/// This instance carries a reference to the channel, but uses a trait object for it so that the channel's
-/// generics are erased on this subscriber
-pub struct Pub<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
-    /// The channel we are a publisher for
-    channel: &'a PSB,
-    _phantom: PhantomData<T>,
-}
-
-impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Pub<'a, PSB, T> {
-    /// Publish a message right now even when the queue is full.
-    /// This may cause a subscriber to miss an older message.
-    pub fn publish_immediate(&self, message: T) {
-        self.channel.publish_immediate(message)
-    }
-
-    /// Publish a message. But if the message queue is full, wait for all subscribers to have read the last message
-    pub fn publish<'s>(&'s self, message: T) -> PublisherWaitFuture<'s, 'a, PSB, T> {
-        PublisherWaitFuture {
-            message: Some(message),
-            publisher: self,
-        }
-    }
-
-    /// Publish a message if there is space in the message queue
-    pub fn try_publish(&self, message: T) -> Result<(), T> {
-        self.channel.publish_with_context(message, None)
-    }
-}
-
-impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Drop for Pub<'a, PSB, T> {
-    fn drop(&mut self) {
-        self.channel.unregister_publisher()
-    }
-}
-
-pub struct DynPublisher<'a, T: Clone>(Pub<'a, dyn PubSubBehavior<T> + 'a, T>);
-
-impl<'a, T: Clone> Deref for DynPublisher<'a, T> {
-    type Target = Pub<'a, dyn PubSubBehavior<T> + 'a, T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'a, T: Clone> DerefMut for DynPublisher<'a, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-pub struct Publisher<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
-    Pub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>,
-);
-
-impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> Deref
-    for Publisher<'a, M, T, CAP, SUBS, PUBS>
-{
-    type Target = Pub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> DerefMut
-    for Publisher<'a, M, T, CAP, SUBS, PUBS>
-{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-/// A publisher that can only use the `publish_immediate` function, but it doesn't have to be registered with the channel.
-/// (So an infinite amount is possible)
-pub struct ImmediatePub<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
-    /// The channel we are a publisher for
-    channel: &'a PSB,
-    _phantom: PhantomData<T>,
-}
-
-impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> ImmediatePub<'a, PSB, T> {
-    /// Publish the message right now even when the queue is full.
-    /// This may cause a subscriber to miss an older message.
-    pub fn publish_immediate(&mut self, message: T) {
-        self.channel.publish_immediate(message)
-    }
-
-    /// Publish a message if there is space in the message queue
-    pub fn try_publish(&self, message: T) -> Result<(), T> {
-        self.channel.publish_with_context(message, None)
-    }
-}
-
-pub struct DynImmediatePublisher<'a, T: Clone>(ImmediatePub<'a, dyn PubSubBehavior<T> + 'a, T>);
-
-impl<'a, T: Clone> Deref for DynImmediatePublisher<'a, T> {
-    type Target = ImmediatePub<'a, dyn PubSubBehavior<T> + 'a, T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'a, T: Clone> DerefMut for DynImmediatePublisher<'a, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-pub struct ImmediatePublisher<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
-    ImmediatePub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>,
-);
-
-impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> Deref
-    for ImmediatePublisher<'a, M, T, CAP, SUBS, PUBS>
-{
-    type Target = ImmediatePub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> DerefMut
-    for ImmediatePublisher<'a, M, T, CAP, SUBS, PUBS>
-{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 /// Error type for the [PubSubChannel]
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -603,58 +337,28 @@ pub enum Error {
     MaximumPublishersReached,
 }
 
+/// 'Middle level' behaviour of the pubsub channel.
+/// This trait is used so that Sub and Pub can be generic over the channel.
 pub trait PubSubBehavior<T> {
+    /// Try to get a message from the queue with the given message id.
+    /// 
+    /// If the message is not yet present and a context is given, then its waker is registered in the subsriber wakers.
     fn get_message_with_context(&self, next_message_id: &mut u64, cx: Option<&mut Context<'_>>) -> Poll<WaitResult<T>>;
 
+    /// Try to publish a message to the queue.
+    /// 
+    /// If the queue is full and a context is given, then its waker is registered in the publisher wakers.
     fn publish_with_context(&self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), T>;
 
+    /// Publish a message immediately
     fn publish_immediate(&self, message: T);
 
+    /// Let the channel know that a subscriber has dropped
     fn unregister_subscriber(&self, subscriber_next_message_id: u64);
 
+    /// Let the channel know that a publisher has dropped
     fn unregister_publisher(&self);
 }
-
-/// Future for the subscriber wait action
-pub struct SubscriberWaitFuture<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
-    subscriber: &'s mut Sub<'a, PSB, T>,
-}
-
-impl<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Future for SubscriberWaitFuture<'s, 'a, PSB, T> {
-    type Output = WaitResult<T>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.subscriber
-            .channel
-            .get_message_with_context(&mut self.subscriber.next_message_id, Some(cx))
-    }
-}
-
-impl<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Unpin for SubscriberWaitFuture<'s, 'a, PSB, T> {}
-
-/// Future for the publisher wait action
-pub struct PublisherWaitFuture<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
-    /// The message we need to publish
-    message: Option<T>,
-    publisher: &'s Pub<'a, PSB, T>,
-}
-
-impl<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Future for PublisherWaitFuture<'s, 'a, PSB, T> {
-    type Output = ();
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let message = self.message.take().unwrap();
-        match self.publisher.channel.publish_with_context(message, Some(cx)) {
-            Ok(()) => Poll::Ready(()),
-            Err(message) => {
-                self.message = Some(message);
-                Poll::Pending
-            }
-        }
-    }
-}
-
-impl<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Unpin for PublisherWaitFuture<'s, 'a, PSB, T> {}
 
 /// The result of the subscriber wait procedure
 #[derive(Debug, Clone, PartialEq)]
