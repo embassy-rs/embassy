@@ -341,12 +341,12 @@ pub enum Error {
 /// This trait is used so that Sub and Pub can be generic over the channel.
 pub trait PubSubBehavior<T> {
     /// Try to get a message from the queue with the given message id.
-    /// 
+    ///
     /// If the message is not yet present and a context is given, then its waker is registered in the subsriber wakers.
     fn get_message_with_context(&self, next_message_id: &mut u64, cx: Option<&mut Context<'_>>) -> Poll<WaitResult<T>>;
 
     /// Try to publish a message to the queue.
-    /// 
+    ///
     /// If the queue is full and a context is given, then its waker is registered in the publisher wakers.
     fn publish_with_context(&self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), T>;
 
