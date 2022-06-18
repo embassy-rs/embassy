@@ -4,3 +4,6 @@ runner = "probe-run --chip STM32G484VETx"
 
 [build]
 target = "thumbv7em-none-eabi"
+
+[env]
+DEFMT_LOG = "trace"

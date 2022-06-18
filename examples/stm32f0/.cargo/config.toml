@@ -3,3 +3,6 @@ runner = 'probe-run --chip STM32F030F4Px'
 
 [build]
 target = "thumbv6m-none-eabi"
+
+[env]
+DEFMT_LOG = "trace"

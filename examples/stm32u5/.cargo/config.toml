@@ -4,3 +4,6 @@ runner = "probe-run --chip STM32U585AIIx"
 
 [build]
 target = "thumbv8m.main-none-eabihf"
+
+[env]
+DEFMT_LOG = "trace"

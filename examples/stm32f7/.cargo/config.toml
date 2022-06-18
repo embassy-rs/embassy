@@ -4,3 +4,6 @@ runner = "probe-run --chip STM32F767ZITx"
 
 [build]
 target = "thumbv7em-none-eabihf"
+
+[env]
+DEFMT_LOG = "trace"
