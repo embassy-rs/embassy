@@ -2,7 +2,7 @@
 name = "embassy-rp"
 version = "0.1.0"
 authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
-edition = "2018"
+edition = "2021"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-rp-v$VERSION/embassy-rp/src/"

@@ -51,7 +51,7 @@ seq_macro::seq!(N in 2..=128 {
     pub enum PllClkDiv {
         NotDivided,
         #(
-            Div#N = (N-1),
+            Div~N = (N-1),
         )*
     }
 
@@ -60,7 +60,7 @@ seq_macro::seq!(N in 2..=128 {
             match self {
                 PllClkDiv::NotDivided => 1,
                 #(
-                    PllClkDiv::Div#N => (N + 1),
+                    PllClkDiv::Div~N => (N + 1),
                 )*
             }
         }
@@ -78,7 +78,7 @@ seq_macro::seq!(N in 4..=512 {
     pub enum PllN {
         NotMultiplied,
         #(
-            Mul#N = (N-1),
+            Mul~N = (N-1),
         )*
     }
 
@@ -87,7 +87,7 @@ seq_macro::seq!(N in 4..=512 {
             match self {
                 PllN::NotMultiplied => 1,
                 #(
-                    PllN::Mul#N => (N + 1),
+                    PllN::Mul~N => (N + 1),
                 )*
             }
         }

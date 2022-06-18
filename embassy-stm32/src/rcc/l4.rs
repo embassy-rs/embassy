@@ -102,7 +102,7 @@ seq_macro::seq!(N in 8..=86 {
     #[derive(Clone, Copy)]
     pub enum PLLMul {
         #(
-            Mul#N,
+            Mul~N,
         )*
     }
 
@@ -110,7 +110,7 @@ seq_macro::seq!(N in 8..=86 {
         fn from(val: PLLMul) -> u8 {
             match val {
                 #(
-                    PLLMul::Mul#N => N,
+                    PLLMul::Mul~N => N,
                 )*
             }
         }
@@ -120,7 +120,7 @@ seq_macro::seq!(N in 8..=86 {
         pub fn to_mul(self) -> u32 {
             match self {
                 #(
-                    PLLMul::Mul#N => N,
+                    PLLMul::Mul~N => N,
                 )*
             }
         }
