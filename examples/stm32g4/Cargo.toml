@@ -1,5 +1,4 @@
 [package]
-authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>", "Ben Gamari <ben@smart-cactus.org>"]
 edition = "2021"
 name = "embassy-stm32g4-examples"
 version = "0.1.0"

@@ -1,5 +1,4 @@
 [package]
-authors = ["Ulf Lilleengen <lulf@redhat.com>"]
 edition = "2021"
 name = "embassy-wasm-example"
 version = "0.1.0"

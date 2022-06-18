@@ -1,7 +1,6 @@
 [package]
 name = "embassy-hal-common"
 version = "0.1.0"
-authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2021"
 
 [features]

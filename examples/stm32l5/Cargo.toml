@@ -1,5 +1,4 @@
 [package]
-authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
 edition = "2021"
 name = "embassy-stm32l5-examples"
 version = "0.1.0"
