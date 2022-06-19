@@ -47,6 +47,7 @@ time = []
 time-tick-32768hz = ["time"]
 time-tick-1000hz = ["time"]
 time-tick-1mhz = ["time"]
+time-tick-16mhz = ["time"]
 
 executor-agnostic = []
 
