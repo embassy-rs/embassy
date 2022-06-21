@@ -370,6 +370,7 @@ impl<T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubSta
 
 /// Error type for the [PubSubChannel]
 #[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// All subscriber slots are used. To add another subscriber, first another subscriber must be dropped or
     /// the capacity of the channels must be increased.
@@ -404,6 +405,7 @@ pub trait PubSubBehavior<T> {
 
 /// The result of the subscriber wait procedure
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum WaitResult<T> {
     /// The subscriber did not receive all messages and lagged by the given amount of messages.
     /// (This is the amount of messages that were missed)
