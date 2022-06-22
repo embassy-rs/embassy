@@ -71,7 +71,7 @@ quote = "1.0.15"
 stm32-metapac = { version = "0.1.0", path = "../stm32-metapac", default-features = false, features = ["metadata"]}
 
 [features]
-defmt = ["dep:defmt", "embassy/defmt", "embedded-io?/defmt", "embassy-usb?/defmt"]
+defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy/defmt", "embedded-io?/defmt", "embassy-usb?/defmt"]
 sdmmc-rs = ["embedded-sdmmc"]
 net = ["embassy-net" ]
 memory-x = ["stm32-metapac/memory-x"]
