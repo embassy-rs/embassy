@@ -108,7 +108,7 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> ImmediatePub<'a, PSB, T> {
     }
     /// Publish the message right now even when the queue is full.
     /// This may cause a subscriber to miss an older message.
-    pub fn publish_immediate(&mut self, message: T) {
+    pub fn publish_immediate(&self, message: T) {
         self.channel.publish_immediate(message)
     }
 
