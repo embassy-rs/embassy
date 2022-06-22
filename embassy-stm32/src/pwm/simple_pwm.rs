@@ -92,6 +92,8 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         this.inner.start();
 
         unsafe {
+            this.inner.enable_outputs(true);
+
             this.inner
                 .set_output_compare_mode(Channel::Ch1, OutputCompareMode::PwmMode1);
             this.inner
