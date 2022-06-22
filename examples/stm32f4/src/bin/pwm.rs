@@ -7,18 +7,11 @@ use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_stm32::pwm::simple_pwm::SimplePwm;
 use embassy_stm32::pwm::Channel;
-use embassy_stm32::time::{Hertz, U32Ext};
-use embassy_stm32::{Config, Peripherals};
+use embassy_stm32::time::U32Ext;
+use embassy_stm32::Peripherals;
 use {defmt_rtt as _, panic_probe as _};
 
-fn config() -> Config {
-    let mut config = Config::default();
-    config.rcc.hse = Some(Hertz(8_000_000));
-    config.rcc.sys_ck = Some(Hertz(84_000_000));
-    config
-}
-
-#[embassy::main(config = "config()")]
+#[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
