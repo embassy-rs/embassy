@@ -5,7 +5,7 @@
 use cortex_m_rt::entry;
 use defmt::*;
 use embassy_stm32::can::bxcan::filter::Mask32;
-use embassy_stm32::can::bxcan::{Frame, StandardId};
+use embassy_stm32::can::bxcan::{Fifo, Frame, StandardId};
 use embassy_stm32::can::Can;
 use embassy_stm32::gpio::{Input, Pull};
 use {defmt_rtt as _, panic_probe as _};
@@ -25,7 +25,7 @@ fn main() -> ! {
 
     let mut can = Can::new(p.CAN1, p.PA11, p.PA12);
 
-    can.modify_filters().enable_bank(0, Mask32::accept_all());
+    can.modify_filters().enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
 
     can.modify_config()
         .set_bit_timing(0x001c0003) // http://www.bittiming.can-wiki.info/
