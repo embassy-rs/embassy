@@ -25,8 +25,8 @@ pub use subscriber::{DynSubscriber, Subscriber};
 /// Any published message can be read by all subscribers.
 /// A publisher can choose how it sends its message.
 ///
-/// - With [Publisher::publish] the publisher has to wait until there is space in the internal message queue.
-/// - With [Publisher::publish_immediate] the publisher doesn't await and instead lets the oldest message
+/// - With [Pub::publish()] the publisher has to wait until there is space in the internal message queue.
+/// - With [Pub::publish_immediate()] the publisher doesn't await and instead lets the oldest message
 /// in the queue drop if necessary. This will cause any [Subscriber] that missed the message to receive
 /// an error to indicate that it has lagged.
 ///
