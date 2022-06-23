@@ -3,7 +3,7 @@
 //! WARNING!!! The functionality provided here is intended to be used only
 //! in situations where hardware flow control are available i.e. CTS and RTS.
 //! This is a problem that should be addressed at a later stage and can be
-//! fully explained at https://github.com/embassy-rs/embassy/issues/536.
+//! fully explained at <https://github.com/embassy-rs/embassy/issues/536>.
 //!
 //! Note that discarding a future from a read or write operation may lead to losing
 //! data. For example, when using `futures_util::future::select` and completion occurs

@@ -19,9 +19,9 @@ use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
-use futures::future::poll_fn;
-// Re-export SVD variants to allow user to directly set values.
-pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
+use futures::future::poll_fn; // Re-export SVD variants to allow user to directly set values.
+pub use pac::uarte0::baudrate::BAUDRATE_A as Baudrate;
+pub use pac::uarte0::config::PARITY_A as Parity;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::sealed::Pin as _;
