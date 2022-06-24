@@ -1,3 +1,4 @@
+//! Embassy executor and interrupt handling specific to cortex-m devices.
 #![no_std]
 
 // This mod MUST go first, so that the others see its macros.

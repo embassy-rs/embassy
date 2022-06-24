@@ -1,3 +1,4 @@
+//! Peripheral interrupt handling specific to cortex-m devices.
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 
@@ -11,18 +12,25 @@ use crate::interrupt::{Interrupt, InterruptExt, Priority};
 /// It needs to be `Send` because `&mut` references are sent back and forth between the 'thread' which owns the `PeripheralMutex` and the interrupt,
 /// and `&mut T` is only `Send` where `T: Send`.
 pub trait PeripheralState: Send {
+    /// The interrupt that is used for this peripheral.
     type Interrupt: Interrupt;
+
+    /// The interrupt handler that should be invoked for the peripheral. Implementations need to clear the appropriate interrupt flags to ensure the handle will not be called again.
     fn on_interrupt(&mut self);
 }
 
+/// A type for storing the state of a peripheral that can be stored in a static.
 pub struct StateStorage<S>(MaybeUninit<S>);
 
 impl<S> StateStorage<S> {
+    /// Create a new instance for storing peripheral state.
     pub const fn new() -> Self {
         Self(MaybeUninit::uninit())
     }
 }
 
+/// A type for a peripheral that keeps the state of a peripheral that can be accessed from thread mode and an interrupt handler in
+/// a safe way.
 pub struct PeripheralMutex<'a, S: PeripheralState> {
     state: *mut S,
     _phantom: PhantomData<&'a mut S>,
@@ -87,6 +95,8 @@ impl<'a, S: PeripheralState> PeripheralMutex<'a, S> {
         }
     }
 
+    /// Access the peripheral state ensuring interrupts are disabled so that the state can be
+    /// safely accessed.
     pub fn with<R>(&mut self, f: impl FnOnce(&mut S) -> R) -> R {
         self.irq.disable();
 

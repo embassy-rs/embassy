@@ -429,7 +429,7 @@ mod eh02 {
         }
     }
 
-    /// Implement [`InputPin`] for [`Flex`];
+    /// Implement [`embedded_hal_02::digital::v2::InputPin`] for [`Flex`];
     ///
     /// If the pin is not in input mode the result is unspecified.
     impl<'d, T: Pin> embedded_hal_02::digital::v2::InputPin for Flex<'d, T> {

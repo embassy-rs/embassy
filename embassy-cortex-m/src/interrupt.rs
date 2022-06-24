@@ -1,3 +1,4 @@
+//! Interrupt handling for cortex-m devices.
 use core::{mem, ptr};
 
 use atomic_polyfill::{compiler_fence, AtomicPtr, Ordering};
@@ -29,8 +30,16 @@ unsafe impl cortex_m::interrupt::InterruptNumber for NrWrap {
     }
 }
 
+/// Represents an interrupt type that can be configured by embassy to handle
+/// interrupts.
 pub unsafe trait Interrupt: Unborrow<Target = Self> {
+    /// Return the NVIC interrupt number for this interrupt.
     fn number(&self) -> u16;
+    /// Steal an instance of this interrupt
+    ///
+    /// # Safety
+    ///
+    /// This may panic if the interrupt has already been stolen and configured.
     unsafe fn steal() -> Self;
 
     /// Implementation detail, do not use outside embassy crates.
@@ -38,19 +47,55 @@ pub unsafe trait Interrupt: Unborrow<Target = Self> {
     unsafe fn __handler(&self) -> &'static Handler;
 }
 
+/// Represents additional behavior for all interrupts.
 pub trait InterruptExt: Interrupt {
+    /// Configure the interrupt handler for this interrupt.
+    ///
+    /// # Safety
+    ///
+    /// It is the responsibility of the caller to ensure the handler
+    /// points to a valid handler as long as interrupts are enabled.
     fn set_handler(&self, func: unsafe fn(*mut ()));
+
+    /// Remove the interrupt handler for this interrupt.
     fn remove_handler(&self);
+
+    /// Set point to a context that is passed to the interrupt handler when
+    /// an interrupt is pending.
+    ///
+    /// # Safety
+    ///
+    /// It is the responsibility of the caller to ensure the context
+    /// points to a valid handler as long as interrupts are enabled.
     fn set_handler_context(&self, ctx: *mut ());
+
+    /// Enable the interrupt. Once enabled, the interrupt handler may
+    /// be called "any time".
     fn enable(&self);
+
+    /// Disable the interrupt.
     fn disable(&self);
+
+    /// Check if interrupt is being handled.
     #[cfg(not(armv6m))]
     fn is_active(&self) -> bool;
+
+    /// Check if interrupt is enabled.
     fn is_enabled(&self) -> bool;
+
+    /// Check if interrupt is pending.
     fn is_pending(&self) -> bool;
+
+    /// Set interrupt pending.
     fn pend(&self);
+
+    /// Unset interrupt pending.
     fn unpend(&self);
+
+    /// Get the priority of the interrupt.
     fn get_priority(&self) -> Priority;
+
+    /// Set the interrupt priority.
     fn set_priority(&self, prio: Priority);
 }
 
@@ -159,6 +204,7 @@ const PRIO_MASK: u8 = 0xfe;
 #[cfg(feature = "prio-bits-8")]
 const PRIO_MASK: u8 = 0xff;
 
+/// The interrupt priority level.
 #[cfg(feature = "prio-bits-0")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -167,6 +213,7 @@ pub enum Priority {
     P0 = 0x0,
 }
 
+/// The interrupt priority level.
 #[cfg(feature = "prio-bits-1")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -176,6 +223,7 @@ pub enum Priority {
     P1 = 0x80,
 }
 
+/// The interrupt priority level.
 #[cfg(feature = "prio-bits-2")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -187,6 +235,7 @@ pub enum Priority {
     P3 = 0xc0,
 }
 
+/// The interrupt priority level.
 #[cfg(feature = "prio-bits-3")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -202,6 +251,7 @@ pub enum Priority {
     P7 = 0xe0,
 }
 
+/// The interrupt priority level.
 #[cfg(feature = "prio-bits-4")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -225,6 +275,7 @@ pub enum Priority {
     P15 = 0xf0,
 }
 
+/// The interrupt priority level.
 #[cfg(feature = "prio-bits-5")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -264,6 +315,7 @@ pub enum Priority {
     P31 = 0xf8,
 }
 
+/// The interrupt priority level.
 #[cfg(feature = "prio-bits-6")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -335,6 +387,7 @@ pub enum Priority {
     P63 = 0xfc,
 }
 
+/// The interrupt priority level.
 #[cfg(feature = "prio-bits-7")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -470,6 +523,7 @@ pub enum Priority {
     P127 = 0xfe,
 }
 
+/// The interrupt priority level.
 #[cfg(feature = "prio-bits-8")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
