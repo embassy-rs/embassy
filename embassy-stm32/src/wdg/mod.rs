@@ -2,9 +2,7 @@ use core::marker::PhantomData;
 
 use embassy::util::Unborrow;
 use embassy_hal_common::unborrow;
-
 use stm32_metapac::iwdg::vals::Key;
-
 pub use stm32_metapac::iwdg::vals::Pr as Prescaler;
 
 pub struct IndependentWatchdog<'d, T: Instance> {
@@ -12,7 +10,7 @@ pub struct IndependentWatchdog<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> IndependentWatchdog<'d, T> {
-    pub fn new(_instance: impl Unborrow<Target = T>, presc: Prescaler) -> Self {
+    pub fn new(_instance: impl Unborrow<Target = T> + 'd, presc: Prescaler) -> Self {
         unborrow!(_instance);
 
         let wdg = T::regs();
@@ -30,7 +28,7 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
         T::regs().kr().write(|w| w.set_key(Key::START));
     }
 
-    pub unsafe fn feed(&mut self) {
+    pub unsafe fn pet(&mut self) {
         T::regs().kr().write(|w| w.set_key(Key::RESET));
     }
 }
