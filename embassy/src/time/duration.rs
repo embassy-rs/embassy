@@ -41,23 +41,45 @@ impl Duration {
         Duration { ticks }
     }
 
-    /// Creates a duration from the specified number of seconds
+    /// Creates a duration from the specified number of seconds, rounding up.
     pub const fn from_secs(secs: u64) -> Duration {
         Duration {
             ticks: secs * TICKS_PER_SECOND,
         }
     }
 
-    /// Creates a duration from the specified number of milliseconds
+    /// Creates a duration from the specified number of milliseconds, rounding up.
     pub const fn from_millis(millis: u64) -> Duration {
+        Duration {
+            ticks: div_ceil(millis * (TICKS_PER_SECOND / GCD_1K), 1000 / GCD_1K),
+        }
+    }
+
+    /// Creates a duration from the specified number of microseconds, rounding up.
+    /// NOTE: Delays this small may be inaccurate.
+    pub const fn from_micros(micros: u64) -> Duration {
+        Duration {
+            ticks: div_ceil(micros * (TICKS_PER_SECOND / GCD_1M), 1_000_000 / GCD_1M),
+        }
+    }
+
+    /// Creates a duration from the specified number of seconds, rounding down.
+    pub const fn from_secs_floor(secs: u64) -> Duration {
+        Duration {
+            ticks: secs * TICKS_PER_SECOND,
+        }
+    }
+
+    /// Creates a duration from the specified number of milliseconds, rounding down.
+    pub const fn from_millis_floor(millis: u64) -> Duration {
         Duration {
             ticks: millis * (TICKS_PER_SECOND / GCD_1K) / (1000 / GCD_1K),
         }
     }
 
-    /// Creates a duration from the specified number of microseconds
+    /// Creates a duration from the specified number of microseconds, rounding down.
     /// NOTE: Delays this small may be inaccurate.
-    pub const fn from_micros(micros: u64) -> Duration {
+    pub const fn from_micros_floor(micros: u64) -> Duration {
         Duration {
             ticks: micros * (TICKS_PER_SECOND / GCD_1M) / (1_000_000 / GCD_1M),
         }
@@ -154,4 +176,9 @@ impl<'a> fmt::Display for Duration {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} ticks", self.ticks)
     }
+}
+
+#[inline]
+const fn div_ceil(num: u64, den: u64) -> u64 {
+    (num + den - 1) / den
 }
