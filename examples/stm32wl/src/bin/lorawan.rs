@@ -31,7 +31,7 @@ async fn main(_spawner: Spawner) {
     let ctrl3 = Output::new(p.PC5.degrade(), Level::High, Speed::High);
     let rfs = RadioSwitch::new(ctrl1, ctrl2, ctrl3);
 
-    let radio = SubGhz::new(p.SUBGHZSPI, p.PA5, p.PA7, p.PA6, NoDma, NoDma);
+    let radio = SubGhz::new(p.SUBGHZSPI, NoDma, NoDma);
 
     let irq = interrupt::take!(SUBGHZ_RADIO);
     static mut RADIO_STATE: SubGhzState<'static> = SubGhzState::new();
