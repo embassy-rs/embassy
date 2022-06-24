@@ -1,18 +1,16 @@
 [package]
 edition = "2021"
-name = "embassy-boot-stm32"
+name = "stm32-bootloader-example"
 version = "0.1.0"
-description = "Bootloader lib for STM32 chips"
-
-[lib]
+description = "Example bootloader for STM32 chips"
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.3", optional = true }
 
-embassy = { path = "../../embassy", default-features = false }
-embassy-stm32 = { path = "../../embassy-stm32", default-features = false, features = ["nightly"] }
-embassy-boot = { path = "../boot", default-features = false }
+embassy = { path = "../../../../embassy", default-features = false }
+embassy-stm32 = { path = "../../../../embassy-stm32", default-features = false, features = ["nightly"] }
+embassy-boot-stm32 = { path = "../../../../embassy-boot/stm32", default-features = false }
 cortex-m = { version = "0.7" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.0"
@@ -22,7 +20,7 @@ cfg-if = "1.0.0"
 [features]
 defmt = [
     "dep:defmt",
-    "embassy-boot/defmt",
+    "embassy-boot-stm32/defmt",
     "embassy-stm32/defmt",
 ]
 debug = ["defmt-rtt"]
