@@ -445,6 +445,10 @@ impl Executor {
 /// Wake a task by raw pointer.
 ///
 /// You can obtain task pointers from `Waker`s using [`task_from_waker`].
+///
+/// # Safety
+///
+/// `task` must be a valid task pointer obtained from [`task_from_waker`].
 pub unsafe fn wake_task(task: NonNull<TaskHeader>) {
     task.as_ref().enqueue();
 }

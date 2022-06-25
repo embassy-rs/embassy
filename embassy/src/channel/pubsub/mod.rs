@@ -104,7 +104,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     /// Create a new subscriber. It will only receive messages that are published after its creation.
     ///
     /// If there are no subscriber slots left, an error will be returned.
-    pub fn dyn_subscriber<'a>(&'a self) -> Result<DynSubscriber<'a, T>, Error> {
+    pub fn dyn_subscriber(&self) -> Result<DynSubscriber<'_, T>, Error> {
         self.inner.lock(|inner| {
             let mut s = inner.borrow_mut();
 
@@ -136,7 +136,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     /// Create a new publisher
     ///
     /// If there are no publisher slots left, an error will be returned.
-    pub fn dyn_publisher<'a>(&'a self) -> Result<DynPublisher<'a, T>, Error> {
+    pub fn dyn_publisher(&self) -> Result<DynPublisher<'_, T>, Error> {
         self.inner.lock(|inner| {
             let mut s = inner.borrow_mut();
 
@@ -369,7 +369,7 @@ impl<T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubSta
 }
 
 /// Error type for the [PubSubChannel]
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// All subscriber slots are used. To add another subscriber, first another subscriber must be dropped or
@@ -404,7 +404,7 @@ pub trait PubSubBehavior<T> {
 }
 
 /// The result of the subscriber wait procedure
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum WaitResult<T> {
     /// The subscriber did not receive all messages and lagged by the given amount of messages.

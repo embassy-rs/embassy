@@ -160,11 +160,20 @@ mod thread_mode_mutex {
     }
 
     impl<T: ?Sized> ThreadModeMutex<T> {
+        /// Lock the `ThreadModeMutex`, granting access to the data.
+        ///
+        /// # Panics
+        ///
+        /// This will panic if not currently running in thread mode.
         pub fn lock<R>(&self, f: impl FnOnce(&T) -> R) -> R {
             f(self.borrow())
         }
 
         /// Borrows the data
+        ///
+        /// # Panics
+        ///
+        /// This will panic if not currently running in thread mode.
         pub fn borrow(&self) -> &T {
             assert!(
                 raw::in_thread_mode(),

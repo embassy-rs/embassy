@@ -16,13 +16,14 @@ pub struct WakerRegistration {
 }
 
 impl WakerRegistration {
+    /// Create a new `WakerRegistration`.
     pub const fn new() -> Self {
         Self { waker: None }
     }
 
     /// Register a waker. Overwrites the previous waker, if any.
     pub fn register(&mut self, w: &Waker) {
-        let w = unsafe { task_from_waker(w) };
+        let w = task_from_waker(w);
         match self.waker {
             // Optimization: If both the old and new Wakers wake the same task, do nothing.
             Some(w2) if w == w2 => {}
@@ -72,6 +73,7 @@ pub struct AtomicWaker {
 }
 
 impl AtomicWaker {
+    /// Create a new `AtomicWaker`.
     pub const fn new() -> Self {
         Self {
             waker: AtomicPtr::new(ptr::null_mut()),
@@ -80,7 +82,7 @@ impl AtomicWaker {
 
     /// Register a waker. Overwrites the previous waker, if any.
     pub fn register(&self, w: &Waker) {
-        let w = unsafe { task_from_waker(w) };
+        let w = task_from_waker(w);
         self.waker.store(w.as_ptr(), Ordering::Relaxed);
         compiler_fence(Ordering::SeqCst);
     }
