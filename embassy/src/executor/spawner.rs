@@ -93,7 +93,7 @@ impl Spawner {
     pub async fn for_current_executor() -> Self {
         poll_fn(|cx| unsafe {
             let task = raw::task_from_waker(cx.waker());
-            let executor = (&*task.as_ptr()).executor.get();
+            let executor = (*task.as_ptr()).executor.get();
             Poll::Ready(Self::new(&*executor))
         })
         .await
@@ -169,7 +169,7 @@ impl SendSpawner {
     pub async fn for_current_executor() -> Self {
         poll_fn(|cx| unsafe {
             let task = raw::task_from_waker(cx.waker());
-            let executor = (&*task.as_ptr()).executor.get();
+            let executor = (*task.as_ptr()).executor.get();
             Poll::Ready(Self::new(&*executor))
         })
         .await

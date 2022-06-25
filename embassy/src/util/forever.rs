@@ -82,9 +82,17 @@ impl<T> Forever<T> {
         }
     }
 
+    /// Unsafely get a mutable reference to the contents of this Forever.
+    ///
+    /// # Safety
+    ///
+    /// This is undefined behavior if:
+    ///
+    /// - The `Forever` has not been initialized yet (with `put' or `put_with`), or
+    /// - A reference to the contents (mutable or not) already exists.
     #[inline(always)]
     #[allow(clippy::mut_from_ref)]
-    pub unsafe fn steal(&'static self) -> &'static mut T {
+    pub unsafe fn steal(&self) -> &mut T {
         let p = self.t.get();
         let p = (&mut *p).as_mut_ptr();
         &mut *p
