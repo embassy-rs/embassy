@@ -9,13 +9,39 @@ use embassy_executor::Spawner;
 use embassy_lora::stm32wl::*;
 use embassy_lora::LoraTimer;
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::gpio::{Level, Output, Pin, Speed};
+use embassy_stm32::gpio::{AnyPin, Level, Output, Pin, Speed};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::subghz::*;
 use embassy_stm32::{interrupt, pac};
 use lorawan::default_crypto::DefaultFactory as Crypto;
 use lorawan_device::async_device::{region, Device, JoinMode};
 use {defmt_rtt as _, panic_probe as _};
+
+struct RadioSwitch<'a> {
+    ctrl1: Output<'a, AnyPin>,
+    ctrl2: Output<'a, AnyPin>,
+    ctrl3: Output<'a, AnyPin>,
+}
+
+impl<'a> RadioSwitch<'a> {
+    fn new(ctrl1: Output<'a, AnyPin>, ctrl2: Output<'a, AnyPin>, ctrl3: Output<'a, AnyPin>) -> Self {
+        Self { ctrl1, ctrl2, ctrl3 }
+    }
+}
+
+impl<'a> embassy_lora::stm32wl::RadioSwitch for RadioSwitch<'a> {
+    fn set_rx(&mut self) {
+        self.ctrl1.set_high();
+        self.ctrl2.set_low();
+        self.ctrl3.set_high();
+    }
+
+    fn set_tx(&mut self) {
+        self.ctrl1.set_low();
+        self.ctrl2.set_high();
+        self.ctrl3.set_high();
+    }
+}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

@@ -4,7 +4,6 @@ use core::task::Poll;
 
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::gpio::{AnyPin, Output};
 use embassy_stm32::interrupt::{Interrupt, InterruptExt, SUBGHZ_RADIO};
 use embassy_stm32::subghz::{
     CalibrateImage, CfgIrq, CodingRate, Error, HeaderType, Irq, LoRaBandwidth, LoRaModParams, LoRaPacketParams,
@@ -100,7 +99,7 @@ impl<'d, RS: RadioSwitch> SubGhzRadio<'d, RS> {
     async fn do_tx(&mut self, config: TxConfig, buf: &[u8]) -> Result<u32, RadioError> {
         //trace!("TX Request: {}", config);
         trace!("TX START");
-        self.switch.set_tx_lp();
+        self.switch.set_tx();
         self.configure()?;
 
         self.radio
@@ -236,15 +235,15 @@ impl<'d, RS: RadioSwitch> SubGhzRadio<'d, RS> {
     }
 }
 
-impl PhyRxTx for SubGhzRadio<'static> {
+impl<RS: RadioSwitch> PhyRxTx for SubGhzRadio<'static, RS> {
     type PhyError = RadioError;
 
-    type TxFuture<'m> = impl Future<Output = Result<u32, Self::PhyError>> + 'm;
+    type TxFuture<'m> = impl Future<Output = Result<u32, Self::PhyError>> + 'm where RS: 'm;
     fn tx<'m>(&'m mut self, config: TxConfig, buf: &'m [u8]) -> Self::TxFuture<'m> {
         async move { self.do_tx(config, buf).await }
     }
 
-    type RxFuture<'m> = impl Future<Output = Result<(usize, RxQuality), Self::PhyError>> + 'm;
+    type RxFuture<'m> = impl Future<Output = Result<(usize, RxQuality), Self::PhyError>> + 'm  where RS: 'm;
     fn rx<'m>(&'m mut self, config: RfConfig, buf: &'m mut [u8]) -> Self::RxFuture<'m> {
         async move { self.do_rx(config, buf).await }
     }
@@ -265,36 +264,9 @@ impl<'d, RS> Timings for SubGhzRadio<'d, RS> {
     }
 }
 
-/// Represents the radio switch found on STM32WL based boards, used to control the radio for transmission or reception.
-pub struct RadioSwitch<'d> {
-    ctrl1: Output<'d, AnyPin>,
-    ctrl2: Output<'d, AnyPin>,
-    ctrl3: Output<'d, AnyPin>,
-}
-
-impl<'d> RadioSwitch<'d> {
-    pub fn new(ctrl1: Output<'d, AnyPin>, ctrl2: Output<'d, AnyPin>, ctrl3: Output<'d, AnyPin>) -> Self {
-        Self { ctrl1, ctrl2, ctrl3 }
-    }
-
-    pub(crate) fn set_rx(&mut self) {
-        self.ctrl1.set_high();
-        self.ctrl2.set_low();
-        self.ctrl3.set_high();
-    }
-
-    pub(crate) fn set_tx_lp(&mut self) {
-        self.ctrl1.set_high();
-        self.ctrl2.set_high();
-        self.ctrl3.set_high();
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn set_tx_hp(&mut self) {
-        self.ctrl2.set_high();
-        self.ctrl1.set_low();
-        self.ctrl3.set_high();
-    }
+pub trait RadioSwitch {
+    fn set_rx(&mut self);
+    fn set_tx(&mut self);
 }
 
 fn convert_spreading_factor(sf: SpreadingFactor) -> SF {
