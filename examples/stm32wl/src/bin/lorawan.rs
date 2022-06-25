@@ -60,7 +60,9 @@ async fn main(_spawner: Spawner) {
     let radio = SubGhz::new(p.SUBGHZSPI, NoDma, NoDma);
     let irq = interrupt::take!(SUBGHZ_RADIO);
 
-    let radio = SubGhzRadio::new(radio, rfs, irq);
+    let mut radio_config = SubGhzRadioConfig::default();
+    radio_config.calibrate_image = CalibrateImage::ISM_863_870;
+    let radio = SubGhzRadio::new(radio, rfs, irq, radio_config).unwrap();
 
     let mut region: region::Configuration = region::EU868::default().into();
 
