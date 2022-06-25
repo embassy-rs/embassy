@@ -22,7 +22,7 @@ impl WakerRegistration {
 
     /// Register a waker. Overwrites the previous waker, if any.
     pub fn register(&mut self, w: &Waker) {
-        let w = unsafe { task_from_waker(w) };
+        let w = task_from_waker(w);
         match self.waker {
             // Optimization: If both the old and new Wakers wake the same task, do nothing.
             Some(w2) if w == w2 => {}
@@ -80,7 +80,7 @@ impl AtomicWaker {
 
     /// Register a waker. Overwrites the previous waker, if any.
     pub fn register(&self, w: &Waker) {
-        let w = unsafe { task_from_waker(w) };
+        let w = task_from_waker(w);
         self.waker.store(w.as_ptr(), Ordering::Relaxed);
         compiler_fence(Ordering::SeqCst);
     }

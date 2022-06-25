@@ -33,12 +33,18 @@ pub(crate) unsafe fn from_task(p: NonNull<TaskHeader>) -> Waker {
 /// # Panics
 ///
 /// Panics if the waker is not created by the Embassy executor.
-pub unsafe fn task_from_waker(waker: &Waker) -> NonNull<TaskHeader> {
-    let hack: &WakerHack = mem::transmute(waker);
+pub fn task_from_waker(waker: &Waker) -> NonNull<TaskHeader> {
+    // safety: OK because WakerHack has the same layout as Waker.
+    // This is not really guaranteed because the structs are `repr(Rust)`, it is
+    // indeed the case in the current implementation.
+    // TODO use waker_getters when stable. https://github.com/rust-lang/rust/issues/96992
+    let hack: &WakerHack = unsafe { mem::transmute(waker) };
     if hack.vtable != &VTABLE {
         panic!("Found waker not created by the embassy executor. Consider enabling the `executor-agnostic` feature on the `embassy` crate.")
     }
-    NonNull::new_unchecked(hack.data as *mut TaskHeader)
+
+    // safety: we never create a waker with a null data pointer.
+    unsafe { NonNull::new_unchecked(hack.data as *mut TaskHeader) }
 }
 
 struct WakerHack {
