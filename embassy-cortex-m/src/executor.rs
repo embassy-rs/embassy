@@ -1,8 +1,7 @@
 //! Executor specific to cortex-m devices.
 use core::marker::PhantomData;
 
-pub use embassy::executor::Executor;
-use embassy::executor::{raw, SendSpawner};
+pub use embassy::executor::*;
 
 use crate::interrupt::{Interrupt, InterruptExt};
 
