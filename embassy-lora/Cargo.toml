@@ -18,6 +18,7 @@ flavors = [
 sx127x = []
 stm32wl = ["embassy-stm32", "embassy-stm32/subghz"]
 time = []
+defmt = ["dep:defmt", "lorawan/defmt", "lorawan-device/defmt"]
 
 [dependencies]
 
