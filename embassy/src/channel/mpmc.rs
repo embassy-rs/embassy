@@ -180,6 +180,7 @@ where
     }
 }
 
+/// Future returned by [`Channel::recv`] and  [`Receiver::recv`].
 pub struct RecvFuture<'ch, M, T, const N: usize>
 where
     M: RawMutex,
@@ -201,6 +202,7 @@ where
     }
 }
 
+/// Future returned by [`DynamicReceiver::recv`].
 pub struct DynamicRecvFuture<'ch, T> {
     channel: &'ch dyn DynamicChannel<T>,
 }
@@ -216,6 +218,7 @@ impl<'ch, T> Future for DynamicRecvFuture<'ch, T> {
     }
 }
 
+/// Future returned by [`Channel::send`] and  [`Sender::send`].
 pub struct SendFuture<'ch, M, T, const N: usize>
 where
     M: RawMutex,
@@ -246,6 +249,7 @@ where
 
 impl<'ch, M, T, const N: usize> Unpin for SendFuture<'ch, M, T, N> where M: RawMutex {}
 
+/// Future returned by [`DynamicSender::send`].
 pub struct DynamicSendFuture<'ch, T> {
     channel: &'ch dyn DynamicChannel<T>,
     message: Option<T>,

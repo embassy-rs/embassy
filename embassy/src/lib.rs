@@ -3,6 +3,7 @@
 #![cfg_attr(all(feature = "nightly", target_arch = "xtensa"), feature(asm_experimental_arch))]
 #![allow(clippy::new_without_default)]
 #![doc = include_str!("../../README.md")]
+#![warn(missing_docs)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;

@@ -31,6 +31,7 @@ unsafe impl<T> Send for Forever<T> {}
 unsafe impl<T> Sync for Forever<T> {}
 
 impl<T> Forever<T> {
+    /// Create a new `Forever`.
     #[inline(always)]
     pub const fn new() -> Self {
         Self {
@@ -39,11 +40,15 @@ impl<T> Forever<T> {
         }
     }
 
-    /// Gives this `Forever` a value.
+    /// Store a value in this `Forever`, returning a mutable reference to it.
     ///
-    /// Panics if this `Forever` already has a value.
+    /// Using this method, the compiler usually constructs `val` in the stack and then moves
+    /// it into the `Forever`. If `T` is big, this is likely to cause stack overflows.
+    /// Considering using [`Signal::put_with`] instead, which will construct it in-place inside the `Forever`.
     ///
-    /// Returns a mutable reference to the stored value.
+    /// # Panics
+    ///
+    /// Panics if this `Forever` already has a value stored in it.
     #[inline(always)]
     #[allow(clippy::mut_from_ref)]
     pub fn put(&'static self, val: T) -> &'static mut T {
@@ -52,7 +57,7 @@ impl<T> Forever<T> {
             .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
             .is_err()
         {
-            panic!("Forever.put() called multiple times");
+            panic!("Forever::put() called multiple times");
         }
 
         unsafe {
@@ -63,6 +68,14 @@ impl<T> Forever<T> {
         }
     }
 
+    /// Store the closure return value in this `Forever`, returning a mutable reference to it.
+    ///
+    /// The advantage over [`Forever::put`] is that this method allows the closure to construct
+    /// the `T` value in-place directly inside the `Forever`, saving stack space.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this `Forever` already has a value stored in it.
     #[inline(always)]
     #[allow(clippy::mut_from_ref)]
     pub fn put_with(&'static self, val: impl FnOnce() -> T) -> &'static mut T {

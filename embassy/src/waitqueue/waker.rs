@@ -16,6 +16,7 @@ pub struct WakerRegistration {
 }
 
 impl WakerRegistration {
+    /// Create a new `WakerRegistration`.
     pub const fn new() -> Self {
         Self { waker: None }
     }
@@ -72,6 +73,7 @@ pub struct AtomicWaker {
 }
 
 impl AtomicWaker {
+    /// Create a new `AtomicWaker`.
     pub const fn new() -> Self {
         Self {
             waker: AtomicPtr::new(ptr::null_mut()),

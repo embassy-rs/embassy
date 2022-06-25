@@ -2,9 +2,12 @@ use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
+/// Result for [`select`].
 #[derive(Debug, Clone)]
 pub enum Either<A, B> {
+    /// First future finished first.
     First(A),
+    /// Second future finished first.
     Second(B),
 }
 
@@ -55,10 +58,14 @@ where
 
 // ====================================================================
 
+/// Result for [`select3`].
 #[derive(Debug, Clone)]
 pub enum Either3<A, B, C> {
+    /// First future finished first.
     First(A),
+    /// Second future finished first.
     Second(B),
+    /// Third future finished first.
     Third(C),
 }
 
@@ -109,11 +116,16 @@ where
 
 // ====================================================================
 
+/// Result for [`select4`].
 #[derive(Debug, Clone)]
 pub enum Either4<A, B, C, D> {
+    /// First future finished first.
     First(A),
+    /// Second future finished first.
     Second(B),
+    /// Third future finished first.
     Third(C),
+    /// Fourth future finished first.
     Fourth(D),
 }
 

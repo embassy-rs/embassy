@@ -44,6 +44,7 @@ unsafe impl Send for CriticalSectionRawMutex {}
 unsafe impl Sync for CriticalSectionRawMutex {}
 
 impl CriticalSectionRawMutex {
+    /// Create a new `CriticalSectionRawMutex`.
     pub const fn new() -> Self {
         Self { _phantom: PhantomData }
     }
@@ -71,6 +72,7 @@ pub struct NoopRawMutex {
 unsafe impl Send for NoopRawMutex {}
 
 impl NoopRawMutex {
+    /// Create a new `NoopRawMutex`.
     pub const fn new() -> Self {
         Self { _phantom: PhantomData }
     }
@@ -104,6 +106,7 @@ mod thread_mode {
     unsafe impl Sync for ThreadModeRawMutex {}
 
     impl ThreadModeRawMutex {
+        /// Create a new `ThreadModeRawMutex`.
         pub const fn new() -> Self {
             Self { _phantom: PhantomData }
         }

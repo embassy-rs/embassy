@@ -4,11 +4,19 @@ use core::future::Future;
 use core::mem;
 use core::task::{Context, Poll, Waker};
 
-/// Synchronization primitive. Allows creating awaitable signals that may be passed between tasks.
-/// For a simple use-case where the receiver is only ever interested in the latest value of
-/// something, Signals work well. For more advanced use cases, you might want to use [`Channel`](crate::channel::mpmc::Channel) instead..
+/// Single-slot signaling primitive.
 ///
-/// Signals are generally declared as being a static const and then borrowed as required.
+/// This is similar to a [`Channel`](crate::channel::mpmc::Channel) with a buffer size of 1, except
+/// "sending" to it (calling [`Signal::signal`]) when full will overwrite the previous value instead
+/// of waiting for the receiver to pop the previous value.
+///
+/// It is useful for sending data between tasks when the receiver only cares about
+/// the latest data, and therefore it's fine to "lose" messages. This is often the case for "state"
+/// updates.
+///
+/// For more advanced use cases, you might want to use [`Channel`](crate::channel::mpmc::Channel) instead.
+///
+/// Signals are generally declared as `static`s and then borrowed as required.
 ///
 /// ```
 /// use embassy::channel::signal::Signal;
@@ -34,6 +42,7 @@ unsafe impl<T: Send> Send for Signal<T> {}
 unsafe impl<T: Send> Sync for Signal<T> {}
 
 impl<T> Signal<T> {
+    /// Create a new `Signal`.
     pub const fn new() -> Self {
         Self {
             state: UnsafeCell::new(State::None),
@@ -42,7 +51,7 @@ impl<T> Signal<T> {
 }
 
 impl<T: Send> Signal<T> {
-    /// Mark this Signal as completed.
+    /// Mark this Signal as signaled.
     pub fn signal(&self, val: T) {
         critical_section::with(|_| unsafe {
             let state = &mut *self.state.get();
@@ -52,6 +61,7 @@ impl<T: Send> Signal<T> {
         })
     }
 
+    /// Remove the queued value in this `Signal`, if any.
     pub fn reset(&self) {
         critical_section::with(|_| unsafe {
             let state = &mut *self.state.get();
@@ -59,7 +69,7 @@ impl<T: Send> Signal<T> {
         })
     }
 
-    pub fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
+    fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
         critical_section::with(|_| unsafe {
             let state = &mut *self.state.get();
             match state {
