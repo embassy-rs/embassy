@@ -19,9 +19,10 @@ use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
-use futures::future::poll_fn; // Re-export SVD variants to allow user to directly set values.
-pub use pac::uarte0::baudrate::BAUDRATE_A as Baudrate;
-pub use pac::uarte0::config::PARITY_A as Parity;
+use futures::future::poll_fn;
+use pac::uarte0::RegisterBlock;
+// Re-export SVD variants to allow user to directly set values.
+pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::sealed::Pin as _;
@@ -32,6 +33,7 @@ use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::util::slice_in_ram_or;
 use crate::{pac, Unborrow};
 
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct Config {
     pub parity: Parity,
@@ -144,37 +146,18 @@ impl<'d, T: Instance> Uarte<'d, T> {
         }
         r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
 
-        // Configure
+        irq.set_handler(Self::on_interrupt);
+        irq.unpend();
+        irq.enable();
+
         let hardware_flow_control = match (rts.is_some(), cts.is_some()) {
             (false, false) => false,
             (true, true) => true,
             _ => panic!("RTS and CTS pins must be either both set or none set."),
         };
-        r.config.write(|w| {
-            w.hwfc().bit(hardware_flow_control);
-            w.parity().variant(config.parity);
-            w
-        });
-        r.baudrate.write(|w| w.baudrate().variant(config.baudrate));
-
-        // Disable all interrupts
-        r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
-
-        // Reset rxstarted, txstarted. These are used by drop to know whether a transfer was
-        // stopped midway or not.
-        r.events_rxstarted.reset();
-        r.events_txstarted.reset();
-
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
-
-        // Enable
-        apply_workaround_for_enable_anomaly(&r);
-        r.enable.write(|w| w.enable().enabled());
+        configure(r, config, hardware_flow_control);
 
         let s = T::state();
-
         s.tx_rx_refcount.store(2, Ordering::Relaxed);
 
         Self {
@@ -238,7 +221,87 @@ impl<'d, T: Instance> Uarte<'d, T> {
     }
 }
 
+fn configure(r: &RegisterBlock, config: Config, hardware_flow_control: bool) {
+    r.config.write(|w| {
+        w.hwfc().bit(hardware_flow_control);
+        w.parity().variant(config.parity);
+        w
+    });
+    r.baudrate.write(|w| w.baudrate().variant(config.baudrate));
+
+    // Disable all interrupts
+    r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
+
+    // Reset rxstarted, txstarted. These are used by drop to know whether a transfer was
+    // stopped midway or not.
+    r.events_rxstarted.reset();
+    r.events_txstarted.reset();
+
+    // Enable
+    apply_workaround_for_enable_anomaly(&r);
+    r.enable.write(|w| w.enable().enabled());
+}
+
 impl<'d, T: Instance> UarteTx<'d, T> {
+    /// Create a new tx-only UARTE without hardware flow control
+    pub fn new(
+        uarte: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        txd: impl Unborrow<Target = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Self {
+        unborrow!(txd);
+        Self::new_inner(uarte, irq, txd.degrade(), None, config)
+    }
+
+    /// Create a new tx-only UARTE with hardware flow control (RTS/CTS)
+    pub fn new_with_rtscts(
+        uarte: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        txd: impl Unborrow<Target = impl GpioPin> + 'd,
+        cts: impl Unborrow<Target = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Self {
+        unborrow!(txd, cts);
+        Self::new_inner(uarte, irq, txd.degrade(), Some(cts.degrade()), config)
+    }
+
+    fn new_inner(
+        _uarte: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        txd: AnyPin,
+        cts: Option<AnyPin>,
+        config: Config,
+    ) -> Self {
+        unborrow!(irq);
+
+        let r = T::regs();
+
+        txd.set_high();
+        txd.conf().write(|w| w.dir().output().drive().s0s1());
+        r.psel.txd.write(|w| unsafe { w.bits(txd.psel_bits()) });
+
+        if let Some(pin) = &cts {
+            pin.conf().write(|w| w.input().connect().drive().h0h1());
+        }
+        r.psel.cts.write(|w| unsafe { w.bits(cts.psel_bits()) });
+
+        r.psel.rxd.write(|w| w.connect().disconnected());
+        r.psel.rts.write(|w| w.connect().disconnected());
+
+        let hardware_flow_control = cts.is_some();
+        configure(r, config, hardware_flow_control);
+
+        irq.set_handler(Uarte::<T>::on_interrupt);
+        irq.unpend();
+        irq.enable();
+
+        let s = T::state();
+        s.tx_rx_refcount.store(1, Ordering::Relaxed);
+
+        Self { phantom: PhantomData }
+    }
+
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         match self.write_from_ram(buffer).await {
             Ok(_) => Ok(()),
@@ -372,6 +435,65 @@ impl<'a, T: Instance> Drop for UarteTx<'a, T> {
 }
 
 impl<'d, T: Instance> UarteRx<'d, T> {
+    /// Create a new rx-only UARTE without hardware flow control
+    pub fn new(
+        uarte: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Self {
+        unborrow!(rxd);
+        Self::new_inner(uarte, irq, rxd.degrade(), None, config)
+    }
+
+    /// Create a new rx-only UARTE with hardware flow control (RTS/CTS)
+    pub fn new_with_rtscts(
+        uarte: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
+        rts: impl Unborrow<Target = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Self {
+        unborrow!(rxd, rts);
+        Self::new_inner(uarte, irq, rxd.degrade(), Some(rts.degrade()), config)
+    }
+
+    fn new_inner(
+        _uarte: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        rxd: AnyPin,
+        rts: Option<AnyPin>,
+        config: Config,
+    ) -> Self {
+        unborrow!(irq);
+
+        let r = T::regs();
+
+        rxd.conf().write(|w| w.input().connect().drive().h0h1());
+        r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
+
+        if let Some(pin) = &rts {
+            pin.set_high();
+            pin.conf().write(|w| w.dir().output().drive().h0h1());
+        }
+        r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
+
+        r.psel.txd.write(|w| w.connect().disconnected());
+        r.psel.cts.write(|w| w.connect().disconnected());
+
+        irq.set_handler(Uarte::<T>::on_interrupt);
+        irq.unpend();
+        irq.enable();
+
+        let hardware_flow_control = rts.is_some();
+        configure(r, config, hardware_flow_control);
+
+        let s = T::state();
+        s.tx_rx_refcount.store(1, Ordering::Relaxed);
+
+        Self { phantom: PhantomData }
+    }
+
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         if buffer.len() == 0 {
             return Err(Error::BufferZeroLength);
