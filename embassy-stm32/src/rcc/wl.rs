@@ -202,53 +202,10 @@ impl Default for Config {
 
 pub(crate) unsafe fn init(config: Config) {
     let (sys_clk, sw, vos) = match config.mux {
-        ClockSrc::HSI16 => {
-            // Enable HSI16
-            RCC.cr().write(|w| w.set_hsion(true));
-            while !RCC.cr().read().hsirdy() {}
-
-            (HSI_FREQ.0, 0x01, VoltageScale::Range2)
-        }
-        ClockSrc::HSE32 => {
-            // Enable HSE32
-            RCC.cr().write(|w| {
-                w.set_hsebyppwr(true);
-                w.set_hseon(true);
-            });
-            while !RCC.cr().read().hserdy() {}
-
-            (HSE32_FREQ.0, 0x02, VoltageScale::Range1)
-        }
-        ClockSrc::MSI(range) => {
-            RCC.cr().write(|w| {
-                w.set_msirange(range.into());
-                w.set_msion(true);
-            });
-
-            while !RCC.cr().read().msirdy() {}
-
-            (range.freq(), 0x00, range.vos())
-        }
+        ClockSrc::HSI16 => (HSI_FREQ.0, 0x01, VoltageScale::Range2),
+        ClockSrc::HSE32 => (HSE32_FREQ.0, 0x02, VoltageScale::Range1),
+        ClockSrc::MSI(range) => (range.freq(), 0x00, range.vos()),
     };
-
-    RCC.cfgr().modify(|w| {
-        w.set_sw(sw.into());
-        if config.ahb_pre == AHBPrescaler::NotDivided {
-            w.set_hpre(0);
-        } else {
-            w.set_hpre(config.ahb_pre.into());
-        }
-        w.set_ppre1(config.apb1_pre.into());
-        w.set_ppre2(config.apb2_pre.into());
-    });
-
-    RCC.extcfgr().modify(|w| {
-        if config.shd_ahb_pre == AHBPrescaler::NotDivided {
-            w.set_shdhpre(0);
-        } else {
-            w.set_shdhpre(config.shd_ahb_pre.into());
-        }
-    });
 
     let ahb_freq: u32 = match config.ahb_pre {
         AHBPrescaler::NotDivided => sys_clk,
@@ -288,16 +245,6 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    let apb3_freq = shd_ahb_freq;
-
-    if config.enable_lsi {
-        let csr = RCC.csr().read();
-        if !csr.lsion() {
-            RCC.csr().modify(|w| w.set_lsion(true));
-            while !RCC.csr().read().lsirdy() {}
-        }
-    }
-
     // Adjust flash latency
     let flash_clk_src_freq: u32 = shd_ahb_freq;
     let ws = match vos {
@@ -319,6 +266,61 @@ pub(crate) unsafe fn init(config: Config) {
 
     while FLASH.acr().read().latency() != ws {}
 
+    match config.mux {
+        ClockSrc::HSI16 => {
+            // Enable HSI16
+            RCC.cr().write(|w| w.set_hsion(true));
+            while !RCC.cr().read().hsirdy() {}
+        }
+        ClockSrc::HSE32 => {
+            // Enable HSE32
+            RCC.cr().write(|w| {
+                w.set_hsebyppwr(true);
+                w.set_hseon(true);
+            });
+            while !RCC.cr().read().hserdy() {}
+        }
+        ClockSrc::MSI(range) => {
+            let cr = RCC.cr().read();
+            assert!(!cr.msion() || cr.msirdy());
+            RCC.cr().write(|w| {
+                w.set_msirgsel(true);
+                w.set_msirange(range.into());
+                w.set_msion(true);
+            });
+            while !RCC.cr().read().msirdy() {}
+        }
+    }
+
+    RCC.extcfgr().modify(|w| {
+        if config.shd_ahb_pre == AHBPrescaler::NotDivided {
+            w.set_shdhpre(0);
+        } else {
+            w.set_shdhpre(config.shd_ahb_pre.into());
+        }
+    });
+
+    RCC.cfgr().modify(|w| {
+        w.set_sw(sw.into());
+        if config.ahb_pre == AHBPrescaler::NotDivided {
+            w.set_hpre(0);
+        } else {
+            w.set_hpre(config.ahb_pre.into());
+        }
+        w.set_ppre1(config.apb1_pre.into());
+        w.set_ppre2(config.apb2_pre.into());
+    });
+
+    // TODO: switch voltage range
+
+    if config.enable_lsi {
+        let csr = RCC.csr().read();
+        if !csr.lsion() {
+            RCC.csr().modify(|w| w.set_lsion(true));
+            while !RCC.csr().read().lsirdy() {}
+        }
+    }
+
     set_freqs(Clocks {
         sys: Hertz(sys_clk),
         ahb1: Hertz(ahb_freq),
@@ -326,7 +328,7 @@ pub(crate) unsafe fn init(config: Config) {
         ahb3: Hertz(shd_ahb_freq),
         apb1: Hertz(apb1_freq),
         apb2: Hertz(apb2_freq),
-        apb3: Hertz(apb3_freq),
+        apb3: Hertz(shd_ahb_freq),
         apb1_tim: Hertz(apb1_tim_freq),
         apb2_tim: Hertz(apb2_tim_freq),
     });
