@@ -5,8 +5,8 @@ edition = "2021"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-cortex-m-v$VERSION/embassy-cortex-m/src/"
-src_base_git = "https://github.com/embassy-rs/embassy/blob/master/embassy-cortex-m/src/"
-features = []
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-cortex-m/src/"
+features = ["prio-bits-3"]
 flavors = [
     { name = "thumbv6m-none-eabi",        target = "thumbv6m-none-eabi",         features = [] },
     { name = "thumbv7m-none-eabi",        target = "thumbv7m-none-eabi",         features = [] },
