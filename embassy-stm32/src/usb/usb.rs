@@ -141,7 +141,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         unsafe {
             crate::peripherals::PWR::enable();
 
-            pac::PWR.cr2().modify(|w| w.set_usv(pac::pwr::vals::Usv::VALID));
+            pac::PWR.cr2().modify(|w| w.set_usv(true));
         }
 
         unsafe {

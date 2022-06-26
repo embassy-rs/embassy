@@ -117,13 +117,12 @@ impl Gen {
         write!(&mut extra, "pub const CORE_INDEX: usize = {};\n", core_index).unwrap();
 
         let flash = chip.memory.iter().find(|r| r.name == "BANK_1").unwrap();
-        write!(&mut extra, "pub const FLASH_BASE: usize = {};\n", flash.address,).unwrap();
-        write!(&mut extra, "pub const FLASH_SIZE: usize = {};\n", flash.size,).unwrap();
-        if let Some(settings) = &flash.settings {
-            write!(&mut extra, "pub const ERASE_SIZE: usize = {};\n", settings.erase_size,).unwrap();
-            write!(&mut extra, "pub const WRITE_SIZE: usize = {};\n", settings.write_size,).unwrap();
-            write!(&mut extra, "pub const ERASE_VALUE: u8 = {};\n", settings.erase_value,).unwrap();
-        }
+        let settings = flash.settings.as_ref().unwrap();
+        write!(&mut extra, "pub const FLASH_BASE: usize = {};\n", flash.address).unwrap();
+        write!(&mut extra, "pub const FLASH_SIZE: usize = {};\n", flash.size).unwrap();
+        write!(&mut extra, "pub const ERASE_SIZE: usize = {};\n", settings.erase_size).unwrap();
+        write!(&mut extra, "pub const WRITE_SIZE: usize = {};\n", settings.write_size).unwrap();
+        write!(&mut extra, "pub const ERASE_VALUE: u8 = {};\n", settings.erase_value).unwrap();
 
         // Cleanups!
         transform::sort::Sort {}.run(&mut ir).unwrap();
