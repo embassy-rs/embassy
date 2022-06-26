@@ -205,6 +205,8 @@ const PRIO_MASK: u8 = 0xfe;
 const PRIO_MASK: u8 = 0xff;
 
 /// The interrupt priority level.
+///
+/// NOTE: The contents of this enum differ according to the set `prio-bits-*` Cargo feature.
 #[cfg(feature = "prio-bits-0")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -214,6 +216,8 @@ pub enum Priority {
 }
 
 /// The interrupt priority level.
+///
+/// NOTE: The contents of this enum differ according to the set `prio-bits-*` Cargo feature.
 #[cfg(feature = "prio-bits-1")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -224,6 +228,8 @@ pub enum Priority {
 }
 
 /// The interrupt priority level.
+///
+/// NOTE: The contents of this enum differ according to the set `prio-bits-*` Cargo feature.
 #[cfg(feature = "prio-bits-2")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -236,6 +242,8 @@ pub enum Priority {
 }
 
 /// The interrupt priority level.
+///
+/// NOTE: The contents of this enum differ according to the set `prio-bits-*` Cargo feature.
 #[cfg(feature = "prio-bits-3")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -252,6 +260,8 @@ pub enum Priority {
 }
 
 /// The interrupt priority level.
+///
+/// NOTE: The contents of this enum differ according to the set `prio-bits-*` Cargo feature.
 #[cfg(feature = "prio-bits-4")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -276,6 +286,8 @@ pub enum Priority {
 }
 
 /// The interrupt priority level.
+///
+/// NOTE: The contents of this enum differ according to the set `prio-bits-*` Cargo feature.
 #[cfg(feature = "prio-bits-5")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -316,6 +328,8 @@ pub enum Priority {
 }
 
 /// The interrupt priority level.
+///
+/// NOTE: The contents of this enum differ according to the set `prio-bits-*` Cargo feature.
 #[cfg(feature = "prio-bits-6")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -388,6 +402,8 @@ pub enum Priority {
 }
 
 /// The interrupt priority level.
+///
+/// NOTE: The contents of this enum differ according to the set `prio-bits-*` Cargo feature.
 #[cfg(feature = "prio-bits-7")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -524,6 +540,8 @@ pub enum Priority {
 }
 
 /// The interrupt priority level.
+///
+/// NOTE: The contents of this enum differ according to the set `prio-bits-*` Cargo feature.
 #[cfg(feature = "prio-bits-8")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
