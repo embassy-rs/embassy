@@ -15,12 +15,13 @@ mod waker;
 
 use core::cell::Cell;
 use core::future::Future;
+use core::marker::PhantomData;
 use core::pin::Pin;
 use core::ptr::NonNull;
 use core::task::{Context, Poll};
 use core::{mem, ptr};
 
-use atomic_polyfill::{AtomicU32, Ordering};
+use atomic_polyfill::{AtomicPtr, AtomicU32, Ordering};
 use critical_section::CriticalSection;
 
 use self::run_queue::{RunQueue, RunQueueItem};
@@ -217,18 +218,18 @@ unsafe impl<F: Future + 'static> Sync for TaskStorage<F> {}
 // repr(C) is needed to guarantee that the Task is located at offset 0
 // This makes it safe to cast between TaskHeader and TaskStorage pointers.
 #[repr(C)]
-pub struct ScopedTaskStorage<'a, F: Future + 'a> {
-    header: &'a TaskHeader,
+pub struct ScopedTaskStorage<F> {
+    header: TaskHeader,
     future: UninitCell<F>, // Valid if STATE_SPAWNED
     waker: AtomicWaker,
 }
 
-impl<'a, F: Future + 'a> ScopedTaskStorage<'a, F> {
+impl<F> ScopedTaskStorage<F> {
     /// Create a new TaskStorage, in not-spawned state.
     #[cfg(feature = "nightly")]
-    pub const fn new(header: &'static TaskHeader) -> Self {
+    pub const fn new() -> Self {
         Self {
-            header,
+            header: TaskHeader::new(),
             future: UninitCell::uninit(),
             waker: AtomicWaker::new(),
         }
@@ -245,10 +246,10 @@ impl<'a, F: Future + 'a> ScopedTaskStorage<'a, F> {
     }
 
     /// TODO
-    pub fn spawn_scoped(
-        &'a self,
-        future: impl FnOnce() -> F,
-    ) -> Option<(SpawnScopedGuard<'a, F>, SpawnToken<impl Sized>)> {
+    pub fn spawn_scoped<'a>(&'a self, future: F) -> Option<(SpawnScopedGuard<'a, F>, SpawnToken<impl Sized>)>
+    where
+        F: Future + 'a,
+    {
         if self.spawn_mark_used() {
             return Some((SpawnScopedGuard { storage: self }, unsafe {
                 SpawnToken::<F>::new(self.spawn_initialize(future))
@@ -266,14 +267,20 @@ impl<'a, F: Future + 'a> ScopedTaskStorage<'a, F> {
             .is_ok()
     }
 
-    unsafe fn spawn_initialize(&self, future: impl FnOnce() -> F) -> NonNull<TaskHeader> {
+    unsafe fn spawn_initialize<'a>(&'a self, future: F) -> NonNull<TaskHeader>
+    where
+        F: Future + 'a,
+    {
         // Initialize the task
         self.header.poll_fn.write(Self::poll);
-        self.future.write(future());
-        NonNull::new_unchecked(self.header as *const TaskHeader as *mut TaskHeader)
+        self.future.write(future);
+        NonNull::new_unchecked(&self.header as *const TaskHeader as *mut TaskHeader)
     }
 
-    unsafe fn poll(p: NonNull<TaskHeader>) {
+    unsafe fn poll<'a>(p: NonNull<TaskHeader>)
+    where
+        F: Future + 'a,
+    {
         let this = &*(p.as_ptr() as *const Self);
 
         let future = Pin::new_unchecked(this.future.as_mut());
@@ -294,11 +301,11 @@ impl<'a, F: Future + 'a> ScopedTaskStorage<'a, F> {
     }
 }
 
-unsafe impl<'a, F: Future + 'a> Sync for ScopedTaskStorage<'a, F> {}
+unsafe impl<F> Sync for ScopedTaskStorage<F> {}
 
 /// TODO
-pub struct SpawnScopedGuard<'a, F: Future> {
-    storage: &'a ScopedTaskStorage<'a, F>,
+pub struct SpawnScopedGuard<'a, F: Future + 'a> {
+    storage: &'a ScopedTaskStorage<F>,
 }
 
 impl<'a, F: Future> Future for SpawnScopedGuard<'a, F> {

@@ -27,30 +27,37 @@ async fn run2(a: &mut u8) {
 
 #[embassy::main]
 async fn main(spawner: Spawner, _p: Peripherals) -> ! {
-    let run1_head = TaskHeader::new();
-    let run2_head = TaskHeader::new();
+    // let run1_head = TaskHeader::new();
+    // let run2_head = TaskHeader::new();
 
-    let run1_head = unsafe { make_static(&run1_head) };
-    let run2_head = unsafe { make_static(&run2_head) };
+    // let run1_head = unsafe { make_static(&run1_head) };
+    // let run2_head = unsafe { make_static(&run2_head) };
 
-    let run1_task = ScopedTaskStorage::new(run1_head);
-    let run2_task = ScopedTaskStorage::new(run2_head);
+    let run1_task = ScopedTaskStorage::new();
+    let run2_task = ScopedTaskStorage::new();
 
     let mut x = 0;
-    let x_ref = &mut x;
+    // let x_ref = &mut x;
 
     // Safety: these variables do live forever if main never returns.
     // let run1_task = unsafe { make_static(&run1_task) };
     // let run2_task = unsafe { make_static(&run2_task) };
+    {
+        let (run1_guard, run1_token) = unwrap!(run1_task.spawn_scoped(run1()));
+        let (run2_guard, run2_token) = unwrap!(run2_task.spawn_scoped(run2(&mut x)));
 
-    let (run1_guard, run1_token) = unwrap!(run1_task.spawn_scoped(|| run1()));
-    let (run2_guard, run2_token) = unwrap!(run2_task.spawn_scoped(|| run2(x_ref)));
+        unwrap!(spawner.spawn(run1_token));
+        unwrap!(spawner.spawn(run2_token));
 
-    unwrap!(spawner.spawn(run1_token));
-    unwrap!(spawner.spawn(run2_token));
+        run1_guard.await;
+        run2_guard.await;
+    }
 
-    run1_guard.await;
-    run2_guard.await;
+    // {
+    //     let (run2_guard, run2_token) = unwrap!(run2_task.spawn_scoped(run2(&mut x)));
+    //     unwrap!(spawner.spawn(run2_token));
+    //     run2_guard.await;
+    // }
 
     info!("x: {}", x);
 
