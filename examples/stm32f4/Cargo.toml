@@ -5,8 +5,22 @@ version = "0.1.0"
 
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime", "unstable-traits", "time-tick-32768hz"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "unstable-traits", "defmt", "stm32f429zi", "unstable-pac", "memory-x", "time-driver-any", "exti"]  }
+embassy = { version = "0.1.0", path = "../../embassy", features = [
+    "defmt",
+    "defmt-timestamp-uptime",
+    "unstable-traits",
+    "time-tick-32768hz",
+] }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = [
+    "nightly",
+    "unstable-traits",
+    "defmt",
+    "stm32f429zi",
+    "unstable-pac",
+    "memory-x",
+    "time-driver-any",
+    "exti",
+] }
 
 defmt = "0.3"
 defmt-rtt = "0.3"
@@ -16,9 +30,14 @@ cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 embedded-io = "0.3.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
-futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
+futures = { version = "0.3.17", default-features = false, features = [
+    "async-await",
+] }
 heapless = { version = "0.7.5", default-features = false }
 nb = "1.0.0"
 
 usb-device = "0.2"
 usbd-serial = "0.1.1"
+
+[profile.release]
+debug = 1

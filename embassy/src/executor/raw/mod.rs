@@ -31,6 +31,7 @@ use super::SpawnToken;
 use crate::time::driver::{self, AlarmHandle};
 #[cfg(feature = "time")]
 use crate::time::Instant;
+use crate::waitqueue::AtomicWaker;
 
 /// Task is spawned (has a future)
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
@@ -57,8 +58,9 @@ pub struct TaskHeader {
 }
 
 impl TaskHeader {
+    /// TODO
     #[cfg(feature = "nightly")]
-    pub(crate) const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             state: AtomicU32::new(0),
             run_queue_item: RunQueueItem::new(),
@@ -122,12 +124,12 @@ impl TaskHeader {
 // repr(C) is needed to guarantee that the Task is located at offset 0
 // This makes it safe to cast between TaskHeader and TaskStorage pointers.
 #[repr(C)]
-pub struct TaskStorage<F: Future + 'static> {
+pub struct TaskStorage<F: Future> {
     raw: TaskHeader,
     future: UninitCell<F>, // Valid if STATE_SPAWNED
 }
 
-impl<F: Future + 'static> TaskStorage<F> {
+impl<F: Future> TaskStorage<F> {
     #[cfg(feature = "nightly")]
     const NEW: Self = Self::new();
 
@@ -162,7 +164,10 @@ impl<F: Future + 'static> TaskStorage<F> {
     ///
     /// Once the task has finished running, you may spawn it again. It is allowed to spawn it
     /// on a different executor.
-    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
+    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized>
+    where
+        F: 'static,
+    {
         if self.spawn_mark_used() {
             return unsafe { SpawnToken::<F>::new(self.spawn_initialize(future)) };
         }
@@ -206,6 +211,116 @@ impl<F: Future + 'static> TaskStorage<F> {
 }
 
 unsafe impl<F: Future + 'static> Sync for TaskStorage<F> {}
+
+/// TODO
+
+// repr(C) is needed to guarantee that the Task is located at offset 0
+// This makes it safe to cast between TaskHeader and TaskStorage pointers.
+#[repr(C)]
+pub struct ScopedTaskStorage<'a, F: Future + 'a> {
+    header: &'a TaskHeader,
+    future: UninitCell<F>, // Valid if STATE_SPAWNED
+    waker: AtomicWaker,
+}
+
+impl<'a, F: Future + 'a> ScopedTaskStorage<'a, F> {
+    /// Create a new TaskStorage, in not-spawned state.
+    #[cfg(feature = "nightly")]
+    pub const fn new(header: &'static TaskHeader) -> Self {
+        Self {
+            header,
+            future: UninitCell::uninit(),
+            waker: AtomicWaker::new(),
+        }
+    }
+
+    /// Create a new TaskStorage, in not-spawned state.
+    #[cfg(not(feature = "nightly"))]
+    pub fn new() -> Self {
+        Self {
+            raw: TaskHeader::new(),
+            future: UninitCell::uninit(),
+            waker: AtomicWaker::new(),
+        }
+    }
+
+    /// TODO
+    pub fn spawn_scoped(
+        &'a self,
+        future: impl FnOnce() -> F,
+    ) -> Option<(SpawnScopedGuard<'a, F>, SpawnToken<impl Sized>)> {
+        if self.spawn_mark_used() {
+            return Some((SpawnScopedGuard { storage: self }, unsafe {
+                SpawnToken::<F>::new(self.spawn_initialize(future))
+            }));
+        }
+
+        None
+    }
+
+    fn spawn_mark_used(&self) -> bool {
+        let state = STATE_SPAWNED | STATE_RUN_QUEUED;
+        self.header
+            .state
+            .compare_exchange(0, state, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    unsafe fn spawn_initialize(&self, future: impl FnOnce() -> F) -> NonNull<TaskHeader> {
+        // Initialize the task
+        self.header.poll_fn.write(Self::poll);
+        self.future.write(future());
+        NonNull::new_unchecked(self.header as *const TaskHeader as *mut TaskHeader)
+    }
+
+    unsafe fn poll(p: NonNull<TaskHeader>) {
+        let this = &*(p.as_ptr() as *const Self);
+
+        let future = Pin::new_unchecked(this.future.as_mut());
+        let waker = waker::from_task(p);
+        let mut cx = Context::from_waker(&waker);
+        match future.poll(&mut cx) {
+            Poll::Ready(_) => {
+                this.future.drop_in_place();
+                this.header.state.fetch_and(!STATE_SPAWNED, Ordering::AcqRel);
+                this.waker.wake();
+            }
+            Poll::Pending => {}
+        }
+
+        // the compiler is emitting a virtual call for waker drop, but we know
+        // it's a noop for our waker.
+        mem::forget(waker);
+    }
+}
+
+unsafe impl<'a, F: Future + 'a> Sync for ScopedTaskStorage<'a, F> {}
+
+/// TODO
+pub struct SpawnScopedGuard<'a, F: Future> {
+    storage: &'a ScopedTaskStorage<'a, F>,
+}
+
+impl<'a, F: Future> Future for SpawnScopedGuard<'a, F> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.storage.waker.register(cx.waker());
+        if self.storage.header.state.load(Ordering::Relaxed) & STATE_SPAWNED == 0 {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+impl<'a, F: Future> Drop for SpawnScopedGuard<'a, F> {
+    fn drop(&mut self) {
+        if self.storage.header.state.load(Ordering::Relaxed) & STATE_SPAWNED != 0 {
+            panic!("SpawnScopedGuard dropped while task is still queued! Consider awaiting the guard")
+        }
+    }
+}
 
 /// Raw storage that can hold up to N tasks of the same type.
 ///
