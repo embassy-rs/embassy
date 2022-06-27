@@ -15,7 +15,7 @@ application.
 
 ```
 # Flash bootloader
-cargo flash --manifest-path ../../../embassy-boot/stm32/Cargo.toml --release --features embassy-stm32/stm32l151cb-a --chip STM32L151CBxxA
+cargo flash --manifest-path ../../bootloader/stm32/Cargo.toml --release --features embassy-stm32/stm32l151cb-a --chip STM32L151CBxxA
 # Build 'b'
 cargo build --release --bin b
 # Generate binary for 'b'

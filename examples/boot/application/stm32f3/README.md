@@ -1,6 +1,6 @@
 # Examples using bootloader
 
-Example for nRF52 demonstrating the bootloader. The example consists of application binaries, 'a'
+Example for STM32F3 demonstrating the bootloader. The example consists of application binaries, 'a'
 which allows you to press a button to start the DFU process, and 'b' which is the updated
 application.
 
@@ -9,18 +9,13 @@ application.
 
 * `cargo-binutils`
 * `cargo-flash`
-* `embassy-boot-nrf`
+* `embassy-boot-stm32`
 
 ## Usage
 
-
-
 ```
-# Use bare metal linker script
-cp memory-bl.x ../../../embassy-boot/nrf/memory.x
-
 # Flash bootloader
-cargo flash --manifest-path ../../../embassy-boot/nrf/Cargo.toml --features embassy-nrf/nrf52840 --release --chip nRF52840_xxAA
+cargo flash --manifest-path ../../bootloader/stm32/Cargo.toml --release --features embassy-stm32/stm32f303re --chip STM32F303RETx
 # Build 'b'
 cargo build --release --bin b
 # Generate binary for 'b'
@@ -30,5 +25,5 @@ cargo objcopy --release --bin b -- -O binary b.bin
 # Flash `a` (which includes b.bin)
 
 ```
-cargo flash --release --bin a --chip nRF52840_xxAA
+cargo flash --release --bin a --chip STM32F303RETx
 ```

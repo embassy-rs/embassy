@@ -1,29 +1,28 @@
 [package]
 edition = "2021"
-name = "embassy-boot-stm32"
+name = "nrf-bootloader-example"
 version = "0.1.0"
-description = "Bootloader lib for STM32 chips"
-
-[lib]
+description = "Bootloader for nRF chips"
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.3", optional = true }
 
-embassy = { path = "../../embassy", default-features = false }
-embassy-stm32 = { path = "../../embassy-stm32", default-features = false, features = ["nightly"] }
-embassy-boot = { path = "../boot", default-features = false }
+embassy = { path = "../../../../embassy", default-features = false }
+embassy-nrf = { path = "../../../../embassy-nrf", default-features = false, features = ["nightly"] }
+embassy-boot-nrf = { path = "../../../../embassy-boot/nrf", default-features = false }
 cortex-m = { version = "0.7" }
 cortex-m-rt = { version = "0.7" }
-embedded-storage = "0.3.0"
-embedded-storage-async = "0.3.0"
 cfg-if = "1.0.0"
 
 [features]
 defmt = [
     "dep:defmt",
-    "embassy-boot/defmt",
-    "embassy-stm32/defmt",
+    "embassy-boot-nrf/defmt",
+    "embassy-nrf/defmt",
+]
+softdevice = [
+    "embassy-boot-nrf/softdevice",
 ]
 debug = ["defmt-rtt"]
 
