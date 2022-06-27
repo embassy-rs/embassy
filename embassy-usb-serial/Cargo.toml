@@ -5,7 +5,7 @@ edition = "2021"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-serial-v$VERSION/embassy-usb-serial/src/"
-src_base_git = "https://github.com/embassy-rs/embassy/blob/master/embassy-usb-serial/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-serial/src/"
 features = ["defmt"]
 flavors = [
     { name = "default", target = "thumbv7em-none-eabihf" },

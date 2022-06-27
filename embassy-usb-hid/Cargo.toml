@@ -5,7 +5,7 @@ edition = "2021"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-hid-v$VERSION/embassy-usb-hid/src/"
-src_base_git = "https://github.com/embassy-rs/embassy/blob/master/embassy-usb-hid/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-hid/src/"
 features = ["defmt", "embassy/time-tick-1mhz"]
 flavors = [
     { name = "default", target = "thumbv7em-none-eabihf" },

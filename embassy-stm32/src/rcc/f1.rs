@@ -2,7 +2,7 @@ use core::convert::TryFrom;
 
 use super::{set_freqs, Clocks};
 use crate::pac::flash::vals::Latency;
-use crate::pac::rcc::vals::{Adcpre, Hpre, Pllmul, Pllsrc, Ppre1, Sw, Usbpre};
+use crate::pac::rcc::vals::*;
 use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
 
@@ -110,6 +110,7 @@ pub(crate) unsafe fn init(config: Config) {
     // the USB clock is only valid if an external crystal is used, the PLL is enabled, and the
     // PLL output frequency is a supported one.
     // usbpre == false: divide clock by 1.5, otherwise no division
+    #[cfg(not(rcc_f100))]
     let (usbpre, _usbclk_valid) = match (config.hse, pllmul_bits, real_sysclk) {
         (Some(_), Some(_), 72_000_000) => (false, true),
         (Some(_), Some(_), 48_000_000) => (true, true),
@@ -154,6 +155,7 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre2(Ppre1(ppre2_bits));
         w.set_ppre1(Ppre1(ppre1_bits));
         w.set_hpre(Hpre(hpre_bits));
+        #[cfg(not(rcc_f100))]
         w.set_usbpre(Usbpre(usbpre as u8));
         w.set_sw(Sw(if pllmul_bits.is_some() {
             // PLL
