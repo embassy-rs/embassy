@@ -1,7 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy::util::Unborrow;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrow};
 use stm32_metapac::iwdg::vals::Key;
 pub use stm32_metapac::iwdg::vals::Pr as Prescaler;
 
