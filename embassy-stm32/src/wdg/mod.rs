@@ -40,10 +40,14 @@ mod sealed {
 
 pub trait Instance: sealed::Instance {}
 
-impl sealed::Instance for crate::peripherals::IWDG {
-    fn regs() -> crate::pac::iwdg::Iwdg {
-        crate::pac::IWDG
-    }
-}
+foreach_peripheral!(
+    (iwdg, $inst:ident) => {
+        impl sealed::Instance for crate::peripherals::$inst {
+            fn regs() -> crate::pac::iwdg::Iwdg {
+                crate::pac::$inst
+            }
+        }
 
-impl Instance for crate::peripherals::IWDG {}
+        impl Instance for crate::peripherals::$inst {}
+    };
+);
