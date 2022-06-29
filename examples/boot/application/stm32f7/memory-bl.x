@@ -5,7 +5,7 @@ MEMORY
   BOOTLOADER_STATE                  : ORIGIN = 0x08040000, LENGTH = 256K
   ACTIVE                            : ORIGIN = 0x08080000, LENGTH = 256K
   DFU                               : ORIGIN = 0x080c0000, LENGTH = 512K
-  RAM                         (rwx) : ORIGIN = 0x20000008, LENGTH = 368K + 16K
+  RAM                         (rwx) : ORIGIN = 0x20000000, LENGTH = 368K + 16K
 }
 
 __bootloader_state_start = ORIGIN(BOOTLOADER_STATE) - ORIGIN(FLASH);
