@@ -744,11 +744,11 @@ mod eh1 {
 
     use super::*;
 
-    impl<'d, T: Pin> ErrorType for Flex<'d, T> {
+    impl<'d, T: Pin> ErrorType for Input<'d, T> {
         type Error = Infallible;
     }
 
-    impl<'d, T: Pin> InputPin for Flex<'d, T> {
+    impl<'d, T: Pin> InputPin for Input<'d, T> {
         #[inline]
         fn is_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_high())
