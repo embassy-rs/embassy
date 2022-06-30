@@ -9,6 +9,7 @@ description = "Bootloader lib for STM32 chips"
 [dependencies]
 defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.3", optional = true }
+log = { version = "0.4", optional = true }
 
 embassy = { path = "../../embassy", default-features = false }
 embassy-stm32 = { path = "../../embassy-stm32", default-features = false, features = ["nightly"] }
@@ -24,6 +25,11 @@ defmt = [
     "dep:defmt",
     "embassy-boot/defmt",
     "embassy-stm32/defmt",
+]
+log = [
+    "dep:log",
+    "embassy-boot/log",
+    "embassy-stm32/log",
 ]
 debug = ["defmt-rtt"]
 
