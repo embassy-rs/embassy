@@ -587,22 +587,13 @@ impl FirmwareUpdater {
     ) -> Result<(), F::Error> {
         flash.read(self.state.from as u32, aligned).await?;
 
-        let mut is_set = true;
-        for b in 0..aligned.len() {
-            if aligned[b] != magic {
-                is_set = false;
-            }
-        }
-        if !is_set {
-            for i in 0..aligned.len() {
-                aligned[i] = 0;
-            }
+        if aligned.iter().find(|&&b| b != magic).is_some() {
+            aligned.fill(0);
+
             flash.write(self.state.from as u32, aligned).await?;
             flash.erase(self.state.from as u32, self.state.to as u32).await?;
 
-            for i in 0..aligned.len() {
-                aligned[i] = magic;
-            }
+            aligned.fill(magic);
             flash.write(self.state.from as u32, aligned).await?;
         }
         Ok(())
