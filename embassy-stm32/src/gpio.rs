@@ -7,6 +7,102 @@ use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 use crate::pac::gpio::{self, vals};
 use crate::{pac, peripherals, Unborrow};
 
+/// GPIO flexible pin.
+///
+/// This pin can either be a disconnected, input, or output pin, or both. The level register bit will remain
+/// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
+/// mode.
+pub struct Flex<'d, T: Pin> {
+    pub(crate) pin: T,
+    phantom: PhantomData<&'d mut T>,
+}
+
+impl<'d, T: Pin> Flex<'d, T> {
+    /// Wrap the pin in a `Flex`.
+    ///
+    /// The pin remains disconnected. The initial output level is unspecified, but can be changed
+    /// before the pin is put into output mode.
+    ///
+    #[inline] 
+    pub fn new(pin: impl Unborrow<Target = T> + 'd) -> Self {
+        unborrow!(pin);
+        // Pin will be in disconnected state.
+        Self {
+            pin,
+            phantom: PhantomData,
+        }
+    }
+    
+    /// Put the pin into input mode.
+    #[inline] 
+    pub fn set_as_input(&mut self, pull: Pull) {
+        critical_section::with(|_| unsafe {
+            let r = self.pin.block();
+            let n = self.pin.pin() as usize;
+            #[cfg(gpio_v1)]
+            {
+                let cnf = match pull {
+                    Pull::Up => {
+                        r.bsrr().write(|w| w.set_bs(n, true));
+                        vals::CnfIn::PULL
+                    }
+                    Pull::Down => {
+                        r.bsrr().write(|w| w.set_br(n, true));
+                        vals::CnfIn::PULL
+                    }
+                    Pull::None => vals::CnfIn::FLOATING,
+                };
+
+                let crlh = if n < 8 { 0 } else { 1 };
+                r.cr(crlh).modify(|w| {
+                    w.set_mode(n % 8, vals::Mode::INPUT);
+                    w.set_cnf_in(n % 8, cnf);
+                });
+            }
+            #[cfg(gpio_v2)]
+            {
+                r.pupdr().modify(|w| w.set_pupdr(n, pull.into()));
+                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
+                r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
+            }
+        });
+    }
+
+    #[inline]
+    pub fn is_high(&self) -> bool {
+        !self.is_low()
+    }
+
+    #[inline]
+    pub fn is_low(&self) -> bool {
+        let state = unsafe { self.pin.block().idr().read().idr(self.pin.pin() as _) };
+        state == vals::Idr::LOW
+    }
+}
+
+impl<'d, T: Pin> Drop for Flex<'d, T> {
+    #[inline]
+    fn drop(&mut self) {
+        critical_section::with(|_| unsafe {
+            let r = self.pin.block();
+            let n = self.pin.pin() as usize;
+            #[cfg(gpio_v1)]
+            {
+                let crlh = if n < 8 { 0 } else { 1 };
+                r.cr(crlh).modify(|w| {
+                    w.set_mode(n % 8, vals::Mode::INPUT);
+                    w.set_cnf_in(n % 8, vals::CnfIn::FLOATING);
+                });
+            }
+            #[cfg(gpio_v2)]
+            {
+                r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
+                r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
+            }
+        });
+    }
+}
+
 /// Pull setting for an input.
 #[derive(Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -70,78 +166,25 @@ impl From<Speed> for vals::Ospeedr {
 
 /// GPIO input driver.
 pub struct Input<'d, T: Pin> {
-    pub(crate) pin: T,
-    phantom: PhantomData<&'d mut T>,
+    pub(crate) pin: Flex<'d, T>
 }
 
 impl<'d, T: Pin> Input<'d, T> {
     #[inline]
     pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
-        unborrow!(pin);
-
-        critical_section::with(|_| unsafe {
-            let r = pin.block();
-            let n = pin.pin() as usize;
-            #[cfg(gpio_v1)]
-            {
-                let cnf = match pull {
-                    Pull::Up => {
-                        r.bsrr().write(|w| w.set_bs(n, true));
-                        vals::CnfIn::PULL
-                    }
-                    Pull::Down => {
-                        r.bsrr().write(|w| w.set_br(n, true));
-                        vals::CnfIn::PULL
-                    }
-                    Pull::None => vals::CnfIn::FLOATING,
-                };
-
-                let crlh = if n < 8 { 0 } else { 1 };
-                r.cr(crlh).modify(|w| {
-                    w.set_mode(n % 8, vals::Mode::INPUT);
-                    w.set_cnf_in(n % 8, cnf);
-                });
-            }
-            #[cfg(gpio_v2)]
-            {
-                r.pupdr().modify(|w| w.set_pupdr(n, pull.into()));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
-                r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
-            }
-        });
-
-        Self {
-            pin,
-            phantom: PhantomData,
-        }
+        let mut pin = Flex::new(pin);
+        pin.set_as_input(pull);
+        Self { pin }
     }
 
     #[inline]
     pub fn is_high(&self) -> bool {
-        !self.is_low()
+        self.pin.is_high()
     }
 
     #[inline]
     pub fn is_low(&self) -> bool {
-        let state = unsafe { self.pin.block().idr().read().idr(self.pin.pin() as _) };
-        state == vals::Idr::LOW
-    }
-}
-
-impl<'d, T: Pin> Drop for Input<'d, T> {
-    #[inline]
-    fn drop(&mut self) {
-        critical_section::with(|_| unsafe {
-            let r = self.pin.block();
-            let n = self.pin.pin() as usize;
-            #[cfg(gpio_v1)]
-            {
-                let crlh = if n < 8 { 0 } else { 1 };
-                r.cr(crlh).modify(|w| w.set_cnf_in(n % 8, vals::CnfIn::FLOATING));
-            }
-            #[cfg(gpio_v2)]
-            r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
-        });
+        self.pin.is_low()
     }
 }
 
@@ -609,7 +652,7 @@ mod eh02 {
 
     use super::*;
 
-    impl<'d, T: Pin> InputPin for Input<'d, T> {
+    impl<'d, T: Pin> InputPin for Flex<'d, T> {
         type Error = Infallible;
 
         #[inline]
@@ -701,11 +744,11 @@ mod eh1 {
 
     use super::*;
 
-    impl<'d, T: Pin> ErrorType for Input<'d, T> {
+    impl<'d, T: Pin> ErrorType for Flex<'d, T> {
         type Error = Infallible;
     }
 
-    impl<'d, T: Pin> InputPin for Input<'d, T> {
+    impl<'d, T: Pin> InputPin for Flex<'d, T> {
         #[inline]
         fn is_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_high())
