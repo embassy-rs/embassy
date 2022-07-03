@@ -1,7 +1,5 @@
-use core::marker::PhantomData;
-
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 pub use embedded_hal_02::spi::{Phase, Polarity};
 
 use crate::gpio::sealed::Pin as _;
@@ -33,8 +31,7 @@ impl Default for Config {
 }
 
 pub struct Spi<'d, T: Instance> {
-    inner: T,
-    phantom: PhantomData<&'d mut T>,
+    inner: Unborrowed<'d, T>,
 }
 
 fn div_roundup(a: u32, b: u32) -> u32 {
@@ -63,48 +60,41 @@ fn calc_prescs(freq: u32) -> (u8, u8) {
 impl<'d, T: Instance> Spi<'d, T> {
     pub fn new(
         inner: impl Unborrow<Target = T> + 'd,
-        clk: impl Unborrow<Target = impl ClkPin<T>> + 'd,
-        mosi: impl Unborrow<Target = impl MosiPin<T>> + 'd,
-        miso: impl Unborrow<Target = impl MisoPin<T>> + 'd,
+        clk: impl Unborrow<Target = impl ClkPin<T> + 'd> + 'd,
+        mosi: impl Unborrow<Target = impl MosiPin<T> + 'd> + 'd,
+        miso: impl Unborrow<Target = impl MisoPin<T> + 'd> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(clk, mosi, miso);
-        Self::new_inner(
-            inner,
-            Some(clk.degrade()),
-            Some(mosi.degrade()),
-            Some(miso.degrade()),
-            None,
-            config,
-        )
+        unborrow_and_degrade!(clk, mosi, miso);
+        Self::new_inner(inner, Some(clk), Some(mosi), Some(miso), None, config)
     }
 
     pub fn new_txonly(
         inner: impl Unborrow<Target = T> + 'd,
-        clk: impl Unborrow<Target = impl ClkPin<T>> + 'd,
-        mosi: impl Unborrow<Target = impl MosiPin<T>> + 'd,
+        clk: impl Unborrow<Target = impl ClkPin<T> + 'd> + 'd,
+        mosi: impl Unborrow<Target = impl MosiPin<T> + 'd> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(clk, mosi);
-        Self::new_inner(inner, Some(clk.degrade()), Some(mosi.degrade()), None, None, config)
+        unborrow_and_degrade!(clk, mosi);
+        Self::new_inner(inner, Some(clk), Some(mosi), None, None, config)
     }
 
     pub fn new_rxonly(
         inner: impl Unborrow<Target = T> + 'd,
-        clk: impl Unborrow<Target = impl ClkPin<T>> + 'd,
-        miso: impl Unborrow<Target = impl MisoPin<T>> + 'd,
+        clk: impl Unborrow<Target = impl ClkPin<T> + 'd> + 'd,
+        miso: impl Unborrow<Target = impl MisoPin<T> + 'd> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(clk, miso);
-        Self::new_inner(inner, Some(clk.degrade()), None, Some(miso.degrade()), None, config)
+        unborrow_and_degrade!(clk, miso);
+        Self::new_inner(inner, Some(clk), None, Some(miso), None, config)
     }
 
     fn new_inner(
         inner: impl Unborrow<Target = T> + 'd,
-        clk: Option<AnyPin>,
-        mosi: Option<AnyPin>,
-        miso: Option<AnyPin>,
-        cs: Option<AnyPin>,
+        clk: Option<Unborrowed<'d, AnyPin>>,
+        mosi: Option<Unborrowed<'d, AnyPin>>,
+        miso: Option<Unborrowed<'d, AnyPin>>,
+        cs: Option<Unborrowed<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         unborrow!(inner);
@@ -137,10 +127,7 @@ impl<'d, T: Instance> Spi<'d, T> {
                 pin.io().ctrl().write(|w| w.set_funcsel(1));
             }
         }
-        Self {
-            inner,
-            phantom: PhantomData,
-        }
+        Self { inner }
     }
 
     pub fn blocking_write(&mut self, data: &[u8]) -> Result<(), Error> {

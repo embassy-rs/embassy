@@ -1,11 +1,11 @@
+#![macro_use]
 use core::future::Future;
-use core::marker::PhantomData;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
 use embassy::waitqueue::AtomicWaker;
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
-use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
+use embassy_hal_common::{unborrow, unsafe_impl_unborrow, Unborrowed};
 
 use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
@@ -177,13 +177,13 @@ unsafe fn IO_IRQ_BANK0() {
 }
 
 struct InputFuture<'a, T: Pin> {
-    pin: &'a mut T,
+    pin: Unborrowed<'a, T>,
     level: InterruptTrigger,
-    phantom: PhantomData<&'a mut AnyPin>,
 }
 
 impl<'d, T: Pin> InputFuture<'d, T> {
-    pub fn new(pin: &'d mut T, level: InterruptTrigger) -> Self {
+    pub fn new(pin: impl Unborrow<Target = T> + 'd, level: InterruptTrigger) -> Self {
+        unborrow!(pin);
         unsafe {
             let irq = interrupt::IO_IRQ_BANK0::steal();
             irq.disable();
@@ -215,11 +215,7 @@ impl<'d, T: Pin> InputFuture<'d, T> {
             irq.enable();
         }
 
-        Self {
-            pin,
-            level,
-            phantom: PhantomData,
-        }
+        Self { pin, level }
     }
 }
 
@@ -419,8 +415,7 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d, T: Pin> {
-    pin: T,
-    phantom: PhantomData<&'d mut T>,
+    pin: Unborrowed<'d, T>,
 }
 
 impl<'d, T: Pin> Flex<'d, T> {
@@ -438,10 +433,7 @@ impl<'d, T: Pin> Flex<'d, T> {
             });
         }
 
-        Self {
-            pin,
-            phantom: PhantomData,
-        }
+        Self { pin }
     }
 
     #[inline]
@@ -667,7 +659,25 @@ pub trait Pin: Unborrow<Target = Self> + sealed::Pin {
 pub struct AnyPin {
     pin_bank: u8,
 }
+
+impl AnyPin {
+    pub(crate) fn unborrow_and_degrade<'a>(pin: impl Unborrow<Target = impl Pin + 'a> + 'a) -> Unborrowed<'a, Self> {
+        Unborrowed::new(AnyPin {
+            pin_bank: pin.unborrow().pin_bank(),
+        })
+    }
+}
+
+macro_rules! unborrow_and_degrade {
+    ($($name:ident),*) => {
+        $(
+            let $name = $crate::gpio::AnyPin::unborrow_and_degrade($name);
+        )*
+    };
+}
+
 unsafe_impl_unborrow!(AnyPin);
+
 impl Pin for AnyPin {}
 impl sealed::Pin for AnyPin {
     fn pin_bank(&self) -> u8 {

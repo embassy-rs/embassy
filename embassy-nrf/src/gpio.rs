@@ -417,7 +417,7 @@ impl AnyPin {
         Self { pin_port }
     }
 
-    pub fn unborrow_and_degrade<'a>(pin: impl Unborrow<Target = impl Pin + 'a> + 'a) -> Unborrowed<'a, Self> {
+    pub(crate) fn unborrow_and_degrade<'a>(pin: impl Unborrow<Target = impl Pin + 'a> + 'a) -> Unborrowed<'a, Self> {
         Unborrowed::new(AnyPin {
             pin_port: pin.unborrow().pin_port(),
         })

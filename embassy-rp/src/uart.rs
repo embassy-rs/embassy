@@ -1,6 +1,4 @@
-use core::marker::PhantomData;
-
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 use gpio::Pin;
 
 use crate::{gpio, pac, peripherals, Unborrow};
@@ -23,8 +21,7 @@ impl Default for Config {
 }
 
 pub struct Uart<'d, T: Instance> {
-    inner: T,
-    phantom: PhantomData<&'d mut T>,
+    inner: Unborrowed<'d, T>,
 }
 
 impl<'d, T: Instance> Uart<'d, T> {
@@ -78,10 +75,7 @@ impl<'d, T: Instance> Uart<'d, T> {
             cts.io().ctrl().write(|w| w.set_funcsel(2));
             rts.io().ctrl().write(|w| w.set_funcsel(2));
         }
-        Self {
-            inner,
-            phantom: PhantomData,
-        }
+        Self { inner }
     }
 
     pub fn send(&mut self, data: &[u8]) {
