@@ -1,7 +1,45 @@
+use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut};
+
+/// This is essentially a `&mut T`, but it is the size of `T` not the size
+/// of a pointer. This is useful if T is a zero sized type.
+pub struct Unborrowed<'a, T> {
+    inner: T,
+    _lifetime: PhantomData<&'a mut T>,
+}
+
+impl<'a, T> Unborrowed<'a, T> {
+    pub fn new(inner: T) -> Self {
+        Self {
+            inner,
+            _lifetime: PhantomData,
+        }
+    }
+
+    pub unsafe fn into_inner(self) -> T {
+        self.inner
+    }
+}
+
+impl<'a, T> Deref for Unborrowed<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<'a, T> DerefMut for Unborrowed<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
 /// Unsafely unborrow an owned singleton out of a `&mut`.
 ///
 /// It is intended to be implemented for owned peripheral singletons, such as `USART3` or `AnyPin`.
-/// Unborrowing an owned `T` yields the same `T`. Unborrowing a `&mut T` yields a copy of the T.
+/// Unborrowing an owned `T` yields an `Unborrowed<'static, T>`.
+/// Unborrowing a `&'a mut T` yields an `Unborrowed<'a, T>`.
 ///
 /// This allows writing HAL drivers that either own or borrow their peripherals, but that don't have
 /// to store pointers in the borrowed case.
@@ -15,17 +53,33 @@ pub unsafe trait Unborrow {
     type Target;
 
     /// Unborrow a value.
-    ///
-    /// Safety: This returns a copy of a singleton that's normally not
-    /// copiable. The returned copy must ONLY be used while the lifetime of `self` is
-    /// valid, as if it were accessed through `self` every time.
-    unsafe fn unborrow(self) -> Self::Target;
+    fn unborrow<'a>(self) -> Unborrowed<'a, Self::Target>
+    where
+        Self: 'a;
 }
 
-unsafe impl<'a, T: Unborrow> Unborrow for &'a mut T {
+unsafe impl<'b, T: Unborrow> Unborrow for &'b mut T {
     type Target = T::Target;
-    unsafe fn unborrow(self) -> Self::Target {
-        T::unborrow(core::ptr::read(self))
+
+    fn unborrow<'a>(self) -> Unborrowed<'a, Self::Target>
+    where
+        Self: 'a,
+    {
+        // Safety: This returns a copy of a singleton that's normally not
+        // copiable. The returned copy must ONLY be used while the lifetime of `self` is
+        // valid, as if it were accessed through `self` every time.
+        T::unborrow(unsafe { core::ptr::read(self) })
+    }
+}
+
+unsafe impl<'b, T> Unborrow for Unborrowed<'b, T> {
+    type Target = T;
+
+    fn unborrow<'a>(self) -> Unborrowed<'a, Self::Target>
+    where
+        Self: 'a,
+    {
+        self
     }
 }
 
@@ -38,8 +92,11 @@ macro_rules! unsafe_impl_unborrow_tuples {
             ),+
         {
             type Target = ($($t),+);
-            unsafe fn unborrow(self) -> Self::Target {
-                self
+            fn unborrow<'a>(self) -> Unborrowed<'a, Self::Target>
+            where
+                Self: 'a
+            {
+                Unborrowed::new(self)
             }
         }
 

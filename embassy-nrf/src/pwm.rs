@@ -3,7 +3,7 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use embassy_hal_common::unborrow;
+use embassy_hal_common::Unborrowed;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Pin as GpioPin, PselBits};
@@ -17,20 +17,20 @@ use crate::{pac, Unborrow};
 pub struct SimplePwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     duty: [u16; 4],
-    ch0: Option<AnyPin>,
-    ch1: Option<AnyPin>,
-    ch2: Option<AnyPin>,
-    ch3: Option<AnyPin>,
+    ch0: Option<Unborrowed<'d, AnyPin>>,
+    ch1: Option<Unborrowed<'d, AnyPin>>,
+    ch2: Option<Unborrowed<'d, AnyPin>>,
+    ch3: Option<Unborrowed<'d, AnyPin>>,
 }
 
 /// SequencePwm allows you to offload the updating of a sequence of duty cycles
 /// to up to four channels, as well as repeat that sequence n times.
 pub struct SequencePwm<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
-    ch0: Option<AnyPin>,
-    ch1: Option<AnyPin>,
-    ch2: Option<AnyPin>,
-    ch3: Option<AnyPin>,
+    ch0: Option<Unborrowed<'d, AnyPin>>,
+    ch1: Option<Unborrowed<'d, AnyPin>>,
+    ch2: Option<Unborrowed<'d, AnyPin>>,
+    ch3: Option<Unborrowed<'d, AnyPin>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,8 +55,8 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         ch0: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
-        unborrow!(ch0);
-        Self::new_inner(pwm, Some(ch0.degrade()), None, None, None, config)
+        unborrow_and_degrade!(ch0);
+        Self::new_inner(pwm, Some(ch0), None, None, None, config)
     }
 
     /// Create a new 2-channel PWM
@@ -67,8 +67,8 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         ch1: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
-        unborrow!(ch0, ch1);
-        Self::new_inner(pwm, Some(ch0.degrade()), Some(ch1.degrade()), None, None, config)
+        unborrow_and_degrade!(ch0, ch1);
+        Self::new_inner(pwm, Some(ch0), Some(ch1), None, None, config)
     }
 
     /// Create a new 3-channel PWM
@@ -80,15 +80,8 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         ch2: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
-        unborrow!(ch0, ch1, ch2);
-        Self::new_inner(
-            pwm,
-            Some(ch0.degrade()),
-            Some(ch1.degrade()),
-            Some(ch2.degrade()),
-            None,
-            config,
-        )
+        unborrow_and_degrade!(ch0, ch1, ch2);
+        Self::new_inner(pwm, Some(ch0), Some(ch1), Some(ch2), None, config)
     }
 
     /// Create a new 4-channel PWM
@@ -101,23 +94,16 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         ch3: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
-        unborrow!(ch0, ch1, ch2, ch3);
-        Self::new_inner(
-            pwm,
-            Some(ch0.degrade()),
-            Some(ch1.degrade()),
-            Some(ch2.degrade()),
-            Some(ch3.degrade()),
-            config,
-        )
+        unborrow_and_degrade!(ch0, ch1, ch2, ch3);
+        Self::new_inner(pwm, Some(ch0), Some(ch1), Some(ch2), Some(ch3), config)
     }
 
     fn new_inner(
         _pwm: impl Unborrow<Target = T> + 'd,
-        ch0: Option<AnyPin>,
-        ch1: Option<AnyPin>,
-        ch2: Option<AnyPin>,
-        ch3: Option<AnyPin>,
+        ch0: Option<Unborrowed<'d, AnyPin>>,
+        ch1: Option<Unborrowed<'d, AnyPin>>,
+        ch2: Option<Unborrowed<'d, AnyPin>>,
+        ch3: Option<Unborrowed<'d, AnyPin>>,
         config: Config,
     ) -> Result<Self, Error> {
         let r = T::regs();
@@ -574,8 +560,10 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     /// Create a new 1-channel PWM
     #[allow(unused_unsafe)]
     pub fn new_1ch(pwm: impl Unborrow<Target = T> + 'd, ch0: impl Unborrow<Target = impl GpioPin> + 'd) -> Self {
-        unborrow!(ch0);
-        Self::new_inner(pwm, Some(ch0.degrade()), None, None, None)
+        unsafe {
+            unborrow_and_degrade!(ch0);
+            Self::new_inner(pwm, Some(ch0), None, None, None)
+        }
     }
 
     /// Create a new 2-channel PWM
@@ -585,8 +573,8 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         ch0: impl Unborrow<Target = impl GpioPin> + 'd,
         ch1: impl Unborrow<Target = impl GpioPin> + 'd,
     ) -> Self {
-        unborrow!(ch0, ch1);
-        Self::new_inner(pwm, Some(ch0.degrade()), Some(ch1.degrade()), None, None)
+        unborrow_and_degrade!(ch0, ch1);
+        Self::new_inner(pwm, Some(ch0), Some(ch1), None, None)
     }
 
     /// Create a new 3-channel PWM
@@ -597,8 +585,10 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         ch1: impl Unborrow<Target = impl GpioPin> + 'd,
         ch2: impl Unborrow<Target = impl GpioPin> + 'd,
     ) -> Self {
-        unborrow!(ch0, ch1, ch2);
-        Self::new_inner(pwm, Some(ch0.degrade()), Some(ch1.degrade()), Some(ch2.degrade()), None)
+        unsafe {
+            unborrow_and_degrade!(ch0, ch1, ch2);
+            Self::new_inner(pwm, Some(ch0), Some(ch1), Some(ch2), None)
+        }
     }
 
     /// Create a new 4-channel PWM
@@ -610,22 +600,18 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         ch2: impl Unborrow<Target = impl GpioPin> + 'd,
         ch3: impl Unborrow<Target = impl GpioPin> + 'd,
     ) -> Self {
-        unborrow!(ch0, ch1, ch2, ch3);
-        Self::new_inner(
-            pwm,
-            Some(ch0.degrade()),
-            Some(ch1.degrade()),
-            Some(ch2.degrade()),
-            Some(ch3.degrade()),
-        )
+        unsafe {
+            unborrow_and_degrade!(ch0, ch1, ch2, ch3);
+            Self::new_inner(pwm, Some(ch0), Some(ch1), Some(ch2), Some(ch3))
+        }
     }
 
     fn new_inner(
         _pwm: impl Unborrow<Target = T> + 'd,
-        ch0: Option<AnyPin>,
-        ch1: Option<AnyPin>,
-        ch2: Option<AnyPin>,
-        ch3: Option<AnyPin>,
+        ch0: Option<Unborrowed<'d, AnyPin>>,
+        ch1: Option<Unborrowed<'d, AnyPin>>,
+        ch2: Option<Unborrowed<'d, AnyPin>>,
+        ch3: Option<Unborrowed<'d, AnyPin>>,
     ) -> Self {
         let r = T::regs();
 

@@ -18,7 +18,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 use futures::future::poll_fn;
 use pac::uarte0::RegisterBlock;
 // Re-export SVD variants to allow user to directly set values.
@@ -89,8 +89,8 @@ impl<'d, T: Instance> Uarte<'d, T> {
         txd: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(rxd, txd);
-        Self::new_inner(uarte, irq, rxd.degrade(), txd.degrade(), None, None, config)
+        unborrow_and_degrade!(rxd, txd);
+        Self::new_inner(uarte, irq, rxd, txd, None, None, config)
     }
 
     /// Create a new UARTE with hardware flow control (RTS/CTS)
@@ -103,25 +103,17 @@ impl<'d, T: Instance> Uarte<'d, T> {
         rts: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(rxd, txd, cts, rts);
-        Self::new_inner(
-            uarte,
-            irq,
-            rxd.degrade(),
-            txd.degrade(),
-            Some(cts.degrade()),
-            Some(rts.degrade()),
-            config,
-        )
+        unborrow_and_degrade!(rxd, txd, cts, rts);
+        Self::new_inner(uarte, irq, rxd, txd, Some(cts), Some(rts), config)
     }
 
     fn new_inner(
         _uarte: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        rxd: AnyPin,
-        txd: AnyPin,
-        cts: Option<AnyPin>,
-        rts: Option<AnyPin>,
+        rxd: Unborrowed<'d, AnyPin>,
+        txd: Unborrowed<'d, AnyPin>,
+        cts: Option<Unborrowed<'d, AnyPin>>,
+        rts: Option<Unborrowed<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         unborrow!(irq);
@@ -250,8 +242,8 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         txd: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(txd);
-        Self::new_inner(uarte, irq, txd.degrade(), None, config)
+        unborrow_and_degrade!(txd);
+        Self::new_inner(uarte, irq, txd, None, config)
     }
 
     /// Create a new tx-only UARTE with hardware flow control (RTS/CTS)
@@ -262,15 +254,15 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         cts: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(txd, cts);
-        Self::new_inner(uarte, irq, txd.degrade(), Some(cts.degrade()), config)
+        unborrow_and_degrade!(txd, cts);
+        Self::new_inner(uarte, irq, txd, Some(cts), config)
     }
 
     fn new_inner(
         _uarte: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        txd: AnyPin,
-        cts: Option<AnyPin>,
+        txd: Unborrowed<'d, AnyPin>,
+        cts: Option<Unborrowed<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         unborrow!(irq);
@@ -442,8 +434,8 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         rxd: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(rxd);
-        Self::new_inner(uarte, irq, rxd.degrade(), None, config)
+        unborrow_and_degrade!(rxd);
+        Self::new_inner(uarte, irq, rxd, None, config)
     }
 
     /// Create a new rx-only UARTE with hardware flow control (RTS/CTS)
@@ -454,15 +446,15 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         rts: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(rxd, rts);
-        Self::new_inner(uarte, irq, rxd.degrade(), Some(rts.degrade()), config)
+        unborrow_and_degrade!(rxd, rts);
+        Self::new_inner(uarte, irq, rxd, Some(rts), config)
     }
 
     fn new_inner(
         _uarte: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        rxd: AnyPin,
-        rts: Option<AnyPin>,
+        rxd: Unborrowed<'d, AnyPin>,
+        rts: Option<Unborrowed<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         unborrow!(irq);
@@ -685,19 +677,8 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         txd: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(rxd, txd);
-        Self::new_inner(
-            uarte,
-            timer,
-            ppi_ch1,
-            ppi_ch2,
-            irq,
-            rxd.degrade(),
-            txd.degrade(),
-            None,
-            None,
-            config,
-        )
+        unborrow_and_degrade!(rxd, txd);
+        Self::new_inner(uarte, timer, ppi_ch1, ppi_ch2, irq, rxd, txd, None, None, config)
     }
 
     /// Create a new UARTE with hardware flow control (RTS/CTS)
@@ -713,17 +694,17 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         rts: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(rxd, txd, cts, rts);
+        unborrow_and_degrade!(rxd, txd, cts, rts);
         Self::new_inner(
             uarte,
             timer,
             ppi_ch1,
             ppi_ch2,
             irq,
-            rxd.degrade(),
-            txd.degrade(),
-            Some(cts.degrade()),
-            Some(rts.degrade()),
+            rxd,
+            txd,
+            Some(cts),
+            Some(rts),
             config,
         )
     }
@@ -734,10 +715,10 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
         ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
         irq: impl Unborrow<Target = U::Interrupt> + 'd,
-        rxd: AnyPin,
-        txd: AnyPin,
-        cts: Option<AnyPin>,
-        rts: Option<AnyPin>,
+        rxd: Unborrowed<'d, AnyPin>,
+        txd: Unborrowed<'d, AnyPin>,
+        cts: Option<Unborrowed<'d, AnyPin>>,
+        rts: Option<Unborrowed<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         let baudrate = config.baudrate;
@@ -763,7 +744,7 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         timer.cc(0).short_compare_stop();
 
         let mut ppi_ch1 = Ppi::new_one_to_two(
-            ppi_ch1.degrade(),
+            unsafe { ppi_ch1.into_inner() }.degrade(),
             Event::from_reg(&r.events_rxdrdy),
             timer.task_clear(),
             timer.task_start(),
@@ -771,7 +752,7 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         ppi_ch1.enable();
 
         let mut ppi_ch2 = Ppi::new_one_to_one(
-            ppi_ch2.degrade(),
+            unsafe { ppi_ch2.into_inner() }.degrade(),
             timer.cc(0).event_compare(),
             Task::from_reg(&r.tasks_stoprx),
         );

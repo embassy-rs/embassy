@@ -24,8 +24,11 @@ macro_rules! peripherals {
                 unsafe impl $crate::Unborrow for $name {
                     type Target = $name;
                     #[inline]
-                    unsafe fn unborrow(self) -> $name {
-                        self
+                    fn unborrow<'a>(self) -> $crate::Unborrowed<'a, Self::Target>
+                    where
+                        Self: 'a,
+                    {
+                        $crate::Unborrowed::new(self)
                     }
                 }
             )*
@@ -80,7 +83,7 @@ macro_rules! peripherals {
 macro_rules! unborrow {
     ($($name:ident),*) => {
         $(
-            let mut $name = unsafe { $name.unborrow() };
+            let mut $name = $name.unborrow();
         )*
     }
 }
@@ -91,8 +94,11 @@ macro_rules! unsafe_impl_unborrow {
         unsafe impl $crate::Unborrow for $type {
             type Target = $type;
             #[inline]
-            unsafe fn unborrow(self) -> Self::Target {
-                self
+            fn unborrow<'a>(self) -> $crate::Unborrowed<'a, Self::Target>
+            where
+                Self: 'a,
+            {
+                $crate::Unborrowed::new(self)
             }
         }
     };

@@ -147,7 +147,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         timer.cc(0).short_compare_stop();
 
         let mut ppi_ch1 = Ppi::new_one_to_two(
-            ppi_ch1.degrade(),
+            //TODO: Avoid into_inner?
+            unsafe { ppi_ch1.into_inner() }.degrade(),
             Event::from_reg(&r.events_rxdrdy),
             timer.task_clear(),
             timer.task_start(),
@@ -155,14 +156,16 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch1.enable();
 
         let mut ppi_ch2 = Ppi::new_one_to_one(
-            ppi_ch2.degrade(),
+            //TODO: Avoid into_inner?
+            unsafe { ppi_ch2.into_inner() }.degrade(),
             timer.cc(0).event_compare(),
             Task::from_reg(&r.tasks_stoprx),
         );
         ppi_ch2.enable();
 
         Self {
-            inner: PeripheralMutex::new(irq, &mut state.0, move || StateInner {
+            //TODO: Avoid into_inner?
+            inner: PeripheralMutex::new(unsafe { irq.into_inner() }, &mut state.0, move || StateInner {
                 phantom: PhantomData,
                 timer,
                 _ppi_ch1: ppi_ch1,

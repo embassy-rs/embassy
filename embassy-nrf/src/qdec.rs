@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
@@ -49,8 +49,8 @@ impl<'d> Qdec<'d> {
         b: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(a, b);
-        Self::new_inner(qdec, irq, a.degrade(), b.degrade(), None, config)
+        unborrow_and_degrade!(a, b);
+        Self::new_inner(qdec, irq, a, b, None, config)
     }
 
     pub fn new_with_led(
@@ -61,16 +61,16 @@ impl<'d> Qdec<'d> {
         led: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(a, b, led);
-        Self::new_inner(qdec, irq, a.degrade(), b.degrade(), Some(led.degrade()), config)
+        unborrow_and_degrade!(a, b, led);
+        Self::new_inner(qdec, irq, a, b, Some(led), config)
     }
 
     fn new_inner(
         _t: impl Unborrow<Target = QDEC> + 'd,
         irq: impl Unborrow<Target = interrupt::QDEC> + 'd,
-        a: AnyPin,
-        b: AnyPin,
-        led: Option<AnyPin>,
+        a: Unborrowed<'d, AnyPin>,
+        b: Unborrowed<'d, AnyPin>,
+        led: Option<Unborrowed<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         unborrow!(irq);

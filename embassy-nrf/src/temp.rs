@@ -1,11 +1,10 @@
 //! Temperature sensor interface.
 
-use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 use fixed::types::I30F2;
 use futures::future::poll_fn;
 
@@ -15,8 +14,7 @@ use crate::{interrupt, pac, Unborrow};
 
 /// Integrated temperature sensor.
 pub struct Temp<'d> {
-    _temp: PhantomData<&'d TEMP>,
-    _irq: interrupt::TEMP,
+    _irq: Unborrowed<'d, interrupt::TEMP>,
 }
 
 static WAKER: AtomicWaker = AtomicWaker::new();
@@ -33,10 +31,7 @@ impl<'d> Temp<'d> {
             WAKER.wake();
         });
         irq.enable();
-        Self {
-            _temp: PhantomData,
-            _irq: irq,
-        }
+        Self { _irq: irq }
     }
 
     /// Perform an asynchronous temperature measurement. The returned future

@@ -5,7 +5,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::poll_fn;
 pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
@@ -60,15 +60,8 @@ impl<'d, T: Instance> Spim<'d, T> {
         mosi: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(sck, miso, mosi);
-        Self::new_inner(
-            spim,
-            irq,
-            sck.degrade(),
-            Some(miso.degrade()),
-            Some(mosi.degrade()),
-            config,
-        )
+        unborrow_and_degrade!(sck, miso, mosi);
+        Self::new_inner(spim, irq, sck, Some(miso), Some(mosi), config)
     }
 
     pub fn new_txonly(
@@ -78,8 +71,8 @@ impl<'d, T: Instance> Spim<'d, T> {
         mosi: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(sck, mosi);
-        Self::new_inner(spim, irq, sck.degrade(), None, Some(mosi.degrade()), config)
+        unborrow_and_degrade!(sck, mosi);
+        Self::new_inner(spim, irq, sck, None, Some(mosi), config)
     }
 
     pub fn new_rxonly(
@@ -89,16 +82,16 @@ impl<'d, T: Instance> Spim<'d, T> {
         miso: impl Unborrow<Target = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(sck, miso);
-        Self::new_inner(spim, irq, sck.degrade(), Some(miso.degrade()), None, config)
+        unborrow_and_degrade!(sck, miso);
+        Self::new_inner(spim, irq, sck, Some(miso), None, config)
     }
 
     fn new_inner(
         _spim: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        sck: AnyPin,
-        miso: Option<AnyPin>,
-        mosi: Option<AnyPin>,
+        sck: Unborrowed<'d, AnyPin>,
+        miso: Option<Unborrowed<'d, AnyPin>>,
+        mosi: Option<Unborrowed<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         unborrow!(irq);

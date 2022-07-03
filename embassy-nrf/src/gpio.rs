@@ -2,10 +2,9 @@
 
 use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
-use core::marker::PhantomData;
 
 use cfg_if::cfg_if;
-use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
+use embassy_hal_common::{unborrow, unsafe_impl_unborrow, Unborrowed};
 
 use self::sealed::Pin as _;
 use crate::pac::p0 as gpio;
@@ -194,8 +193,7 @@ fn convert_pull(pull: Pull) -> PULL_A {
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d, T: Pin> {
-    pub(crate) pin: T,
-    phantom: PhantomData<&'d mut T>,
+    pub(crate) pin: Unborrowed<'d, T>,
 }
 
 impl<'d, T: Pin> Flex<'d, T> {
@@ -207,10 +205,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     pub fn new(pin: impl Unborrow<Target = T> + 'd) -> Self {
         unborrow!(pin);
         // Pin will be in disconnected state.
-        Self {
-            pin,
-            phantom: PhantomData,
-        }
+        Self { pin }
     }
 
     /// Put the pin into input mode.
@@ -421,6 +416,20 @@ impl AnyPin {
     pub unsafe fn steal(pin_port: u8) -> Self {
         Self { pin_port }
     }
+
+    pub fn unborrow_and_degrade<'a>(pin: impl Unborrow<Target = impl Pin + 'a> + 'a) -> Unborrowed<'a, Self> {
+        Unborrowed::new(AnyPin {
+            pin_port: pin.unborrow().pin_port(),
+        })
+    }
+}
+
+macro_rules! unborrow_and_degrade {
+    ($($name:ident),*) => {
+        $(
+            let $name = $crate::gpio::AnyPin::unborrow_and_degrade($name);
+        )*
+    };
 }
 
 unsafe_impl_unborrow!(AnyPin);
@@ -438,10 +447,13 @@ pub(crate) trait PselBits {
     fn psel_bits(&self) -> u32;
 }
 
-impl PselBits for Option<AnyPin> {
+impl<'a, P: Pin> PselBits for Option<Unborrowed<'a, P>> {
     #[inline]
     fn psel_bits(&self) -> u32 {
-        self.as_ref().map_or(1u32 << 31, Pin::psel_bits)
+        match self {
+            Some(pin) => pin.psel_bits(),
+            None => 1u32 << 31,
+        }
     }
 }
 

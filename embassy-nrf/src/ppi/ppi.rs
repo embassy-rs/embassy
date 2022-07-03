@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use embassy_hal_common::unborrow;
 
 use super::{Channel, ConfigurableChannel, Event, Ppi, StaticChannel, Task};
@@ -29,10 +27,7 @@ impl<'d, C: StaticChannel> Ppi<'d, C, 0, 1> {
         let n = ch.number();
         r.fork[n].tep.write(|w| unsafe { w.bits(task.reg_val()) });
 
-        Self {
-            ch,
-            phantom: PhantomData,
-        }
+        Self { ch }
     }
 }
 
@@ -45,10 +40,7 @@ impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
         r.ch[n].eep.write(|w| unsafe { w.bits(event.reg_val()) });
         r.ch[n].tep.write(|w| unsafe { w.bits(task.reg_val()) });
 
-        Self {
-            ch,
-            phantom: PhantomData,
-        }
+        Self { ch }
     }
 }
 
@@ -63,10 +55,7 @@ impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
         r.ch[n].tep.write(|w| unsafe { w.bits(task1.reg_val()) });
         r.fork[n].tep.write(|w| unsafe { w.bits(task2.reg_val()) });
 
-        Self {
-            ch,
-            phantom: PhantomData,
-        }
+        Self { ch }
     }
 }
 

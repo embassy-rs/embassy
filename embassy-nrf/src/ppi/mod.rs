@@ -15,10 +15,9 @@
 //! many tasks and events, but any single task or event can only be coupled with one channel.
 //!
 
-use core::marker::PhantomData;
 use core::ptr::NonNull;
 
-use embassy_hal_common::unsafe_impl_unborrow;
+use embassy_hal_common::{unsafe_impl_unborrow, Unborrowed};
 
 use crate::{peripherals, Unborrow};
 
@@ -28,12 +27,11 @@ mod dppi;
 mod ppi;
 
 pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> {
-    ch: C,
+    ch: Unborrowed<'d, C>,
     #[cfg(feature = "_dppi")]
     events: [Event; EVENT_COUNT],
     #[cfg(feature = "_dppi")]
     tasks: [Task; TASK_COUNT],
-    phantom: PhantomData<&'d mut C>,
 }
 
 const REGISTER_DPPI_CONFIG_OFFSET: usize = 0x80 / core::mem::size_of::<u32>();

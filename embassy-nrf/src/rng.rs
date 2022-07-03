@@ -1,11 +1,10 @@
-use core::marker::PhantomData;
 use core::ptr;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 use futures::future::poll_fn;
 
 use crate::interrupt::InterruptExt;
@@ -34,8 +33,7 @@ struct State {
 ///
 /// It has a non-blocking API, and a blocking api through `rand`.
 pub struct Rng<'d> {
-    irq: interrupt::RNG,
-    phantom: PhantomData<(&'d mut RNG, &'d mut interrupt::RNG)>,
+    irq: Unborrowed<'d, interrupt::RNG>,
 }
 
 impl<'d> Rng<'d> {
@@ -48,10 +46,7 @@ impl<'d> Rng<'d> {
     pub fn new(_rng: impl Unborrow<Target = RNG> + 'd, irq: impl Unborrow<Target = interrupt::RNG> + 'd) -> Self {
         unborrow!(irq);
 
-        let this = Self {
-            irq,
-            phantom: PhantomData,
-        };
+        let this = Self { irq };
 
         this.stop();
         this.disable_irq();

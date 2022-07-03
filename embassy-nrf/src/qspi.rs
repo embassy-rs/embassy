@@ -1,11 +1,10 @@
 #![macro_use]
 
-use core::marker::PhantomData;
 use core::ptr;
 use core::task::Poll;
 
 use embassy_hal_common::drop::DropBomb;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
@@ -63,9 +62,8 @@ pub enum Error {
 }
 
 pub struct Qspi<'d, T: Instance, const FLASH_SIZE: usize> {
-    irq: T::Interrupt,
+    irq: Unborrowed<'d, T::Interrupt>,
     dpm_enabled: bool,
-    phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
@@ -84,12 +82,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
 
         let r = T::regs();
 
-        let sck = sck.degrade();
-        let csn = csn.degrade();
-        let io0 = io0.degrade();
-        let io1 = io1.degrade();
-        let io2 = io2.degrade();
-        let io3 = io3.degrade();
+        unborrow_and_degrade!(sck, csn, io0, io1, io2, io3);
 
         for pin in [&sck, &csn, &io0, &io1, &io2, &io3] {
             pin.set_high();
@@ -143,7 +136,6 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         let mut res = Self {
             dpm_enabled: config.deep_power_down.is_some(),
             irq,
-            phantom: PhantomData,
         };
 
         r.events_ready.reset();

@@ -9,7 +9,7 @@ mod macros;
 pub mod ratio;
 pub mod ring_buffer;
 mod unborrow;
-pub use unborrow::Unborrow;
+pub use unborrow::{Unborrow, Unborrowed};
 
 /// Low power blocking wait loop using WFE/SEV.
 pub fn low_power_wait_until(mut condition: impl FnMut() -> bool) {
