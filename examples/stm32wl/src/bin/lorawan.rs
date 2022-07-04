@@ -38,8 +38,21 @@ async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
     static mut RADIO_STATE: SubGhzState<'static> = SubGhzState::new();
     let radio = unsafe { SubGhzRadio::new(&mut RADIO_STATE, radio, rfs, irq) };
 
-    let region = region::EU868::default().into();
+    let mut region: region::Configuration = region::EU868::default().into();
+
+    // NOTE: This is specific for TTN, as they have a special RX1 delay
+    region.set_receive_delay1(5000);
+
     let mut device: Device<_, Crypto, _, _> = Device::new(region, radio, LoraTimer, Rng::new(p.RNG));
+
+    // Depending on network, this might be part of JOIN
+    device.set_datarate(region::DR::_0); // SF12
+
+    // device.set_datarate(region::DR::_1); // SF11
+    // device.set_datarate(region::DR::_2); // SF10
+    // device.set_datarate(region::DR::_3); // SF9
+    // device.set_datarate(region::DR::_4); // SF8
+    // device.set_datarate(region::DR::_5); // SF7
 
     defmt::info!("Joining LoRaWAN network");
 
@@ -55,7 +68,12 @@ async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
         .unwrap();
     defmt::info!("LoRaWAN network joined");
 
+    let mut rx: [u8; 255] = [0; 255];
     defmt::info!("Sending 'PING'");
-    device.send(b"PING", 1, false).await.ok().unwrap();
-    defmt::info!("Message sent!");
+    let len = device.send_recv(b"PING", &mut rx[..], 1, true).await.ok().unwrap();
+    if len > 0 {
+        defmt::info!("Message sent, received downlink: {:?}", &rx[..len]);
+    } else {
+        defmt::info!("Message sent!");
+    }
 }
