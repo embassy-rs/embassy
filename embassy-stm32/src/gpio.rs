@@ -93,6 +93,32 @@ impl<'d, T: Pin> Flex<'d, T> {
     }
 
     #[inline]
+    fn set_as_input_output(&mut self,speed: Speed, pull : Pull) {
+        critical_section::with(|_| unsafe {
+            let r = self.pin.block();
+            let n = self.pin.pin() as usize;
+            #[cfg(gpio_v1)]
+            {
+                let crlh = if n < 8 { 0 } else { 1 };
+                match pull {
+                    Pull::Up => r.bsrr().write(|w| w.set_bs(n, true)),
+                    Pull::Down => r.bsrr().write(|w| w.set_br(n, true)),
+                    Pull::None => {}
+                }
+                r.cr(crlh).modify(|w| w.set_mode(n % 8, speed.into()));
+                r.cr(crlh).modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OPENDRAIN));
+            }
+            #[cfg(gpio_v2)]
+            {
+                r.pupdr().modify(|w| w.set_pupdr(n, pull.into()));
+                r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPENDRAIN));
+                pin.set_speed(speed);
+                r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
+            }
+        });
+    }
+
+    #[inline]
     pub fn is_high(&self) -> bool {
         !self.is_low()
     }
@@ -304,58 +330,31 @@ impl<'d, T: Pin> Output<'d, T> {
 
 /// GPIO output open-drain driver.
 pub struct OutputOpenDrain<'d, T: Pin> {
-    pub(crate) pin: T,
-    phantom: PhantomData<&'d mut T>,
+    pub(crate) pin: Flex<'d, T>
 }
 
 impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     #[inline]
     pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level, speed: Speed, pull: Pull) -> Self {
-        unborrow!(pin);
+        let mut pin = Flex::new(pin);
 
         match initial_output {
             Level::High => pin.set_high(),
             Level::Low => pin.set_low(),
         }
 
-        critical_section::with(|_| unsafe {
-            let r = pin.block();
-            let n = pin.pin() as usize;
-            #[cfg(gpio_v1)]
-            {
-                let crlh = if n < 8 { 0 } else { 1 };
-                match pull {
-                    Pull::Up => r.bsrr().write(|w| w.set_bs(n, true)),
-                    Pull::Down => r.bsrr().write(|w| w.set_br(n, true)),
-                    Pull::None => {}
-                }
-                r.cr(crlh).modify(|w| w.set_mode(n % 8, speed.into()));
-                r.cr(crlh).modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OPENDRAIN));
-            }
-            #[cfg(gpio_v2)]
-            {
-                r.pupdr().modify(|w| w.set_pupdr(n, pull.into()));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPENDRAIN));
-                pin.set_speed(speed);
-                r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
-            }
-        });
-
-        Self {
-            pin,
-            phantom: PhantomData,
-        }
+        pin.set_as_input_output(speed, pull);
+        Self { pin }
     }
 
     #[inline]
     pub fn is_high(&self) -> bool {
-        !self.is_low()
+        !self.pin.is_low()
     }
 
     #[inline]
     pub fn is_low(&self) -> bool {
-        let state = unsafe { self.pin.block().idr().read().idr(self.pin.pin() as _) };
-        state == vals::Idr::LOW
+        self.pin.is_low()
     }
 
     /// Set the output as high.
@@ -379,41 +378,13 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     /// Is the output pin set as low?
     #[inline]
     pub fn is_set_low(&self) -> bool {
-        let state = unsafe { self.pin.block().odr().read().odr(self.pin.pin() as _) };
-        state == vals::Odr::LOW
+        self.pin.is_set_low()
     }
 
     /// Toggle pin output
     #[inline]
     pub fn toggle(&mut self) {
-        if self.is_set_low() {
-            self.set_high()
-        } else {
-            self.set_low()
-        }
-    }
-}
-
-impl<'d, T: Pin> Drop for OutputOpenDrain<'d, T> {
-    #[inline]
-    fn drop(&mut self) {
-        critical_section::with(|_| unsafe {
-            let r = self.pin.block();
-            let n = self.pin.pin() as usize;
-            #[cfg(gpio_v1)]
-            {
-                let crlh = if n < 8 { 0 } else { 1 };
-                r.cr(crlh).modify(|w| {
-                    w.set_mode(n % 8, vals::Mode::INPUT);
-                    w.set_cnf_in(n % 8, vals::CnfIn::FLOATING);
-                });
-            }
-            #[cfg(gpio_v2)]
-            {
-                r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
-                r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
-            }
-        });
+        self.pin.toggle()
     }
 }
 
