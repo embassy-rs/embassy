@@ -657,6 +657,90 @@ mod eh02 {
 
     use super::*;
 
+    impl<'d, T: Pin> InputPin for Input<'d, T> {
+        type Error = Infallible;
+
+        #[inline]
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        #[inline]
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
+    }
+
+    impl<'d, T: Pin> OutputPin for Output<'d, T> {
+        type Error = Infallible;
+
+        #[inline]
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_high())
+        }
+
+        #[inline]
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_low())
+        }
+    }
+
+    impl<'d, T: Pin> StatefulOutputPin for Output<'d, T> {
+        #[inline]
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_high())
+        }
+
+        /// Is the output pin set as low?
+        #[inline]
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_low())
+        }
+    }
+
+    impl<'d, T: Pin> ToggleableOutputPin for Output<'d, T> {
+        type Error = Infallible;
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            Ok(self.toggle())
+        }
+    }
+
+    impl<'d, T: Pin> OutputPin for OutputOpenDrain<'d, T> {
+        type Error = Infallible;
+
+        #[inline]
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_high())
+        }
+
+        #[inline]
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_low())
+        }
+    }
+
+    impl<'d, T: Pin> StatefulOutputPin for OutputOpenDrain<'d, T> {
+        #[inline]
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_high())
+        }
+
+        /// Is the output pin set as low?
+        #[inline]
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_low())
+        }
+    }
+
+    impl<'d, T: Pin> ToggleableOutputPin for OutputOpenDrain<'d, T> {
+        type Error = Infallible;
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            Ok(self.toggle())
+        }
+    }
+
     impl<'d, T: Pin> InputPin for Flex<'d, T> {
         type Error = Infallible;
 
@@ -699,41 +783,6 @@ mod eh02 {
     }
 
     impl<'d, T: Pin> ToggleableOutputPin for Flex<'d, T> {
-        type Error = Infallible;
-        #[inline]
-        fn toggle(&mut self) -> Result<(), Self::Error> {
-            Ok(self.toggle())
-        }
-    }
-
-    impl<'d, T: Pin> OutputPin for OutputOpenDrain<'d, T> {
-        type Error = Infallible;
-
-        #[inline]
-        fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
-        }
-
-        #[inline]
-        fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
-        }
-    }
-
-    impl<'d, T: Pin> StatefulOutputPin for OutputOpenDrain<'d, T> {
-        #[inline]
-        fn is_set_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_high())
-        }
-
-        /// Is the output pin set as low?
-        #[inline]
-        fn is_set_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_low())
-        }
-    }
-
-    impl<'d, T: Pin> ToggleableOutputPin for OutputOpenDrain<'d, T> {
         type Error = Infallible;
         #[inline]
         fn toggle(&mut self) -> Result<(), Self::Error> {
@@ -836,6 +885,63 @@ mod eh1 {
             Ok(self.toggle())
         }
     }
+
+    impl<'d, T: Pin> ErrorType for Flex<'d, T> {
+        type Error = Infallible;
+    }
+
+    impl<'d, T: Pin> InputPin for Flex<'d, T> {
+        #[inline]
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        #[inline]
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
+    }
+
+    impl<'d, T: Pin> ErrorType for Flex<'d, T> {
+        type Error = Infallible;
+    }
+
+    impl<'d, T: Pin> OutputPin for Flex<'d, T> {
+        #[inline]
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_high())
+        }
+
+        #[inline]
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_low())
+        }
+    }
+
+    impl<'d, T: Pin> ToggleableOutputPin for Flex<'d, T> {
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            Ok(self.toggle())
+        }
+    }
+
+    impl<'d, T: Pin> ErrorType for Flex<'d, T> {
+        type Error = Infallible;
+    }
+
+    impl<'d, T: Pin> StatefulOutputPin for Flex<'d, T> {
+        #[inline]
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_high())
+        }
+
+        /// Is the output pin set as low?
+        #[inline]
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_low())
+        }
+    }
+
 }
 
 #[cfg(feature = "unstable-pac")]
