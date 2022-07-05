@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "embassy-boot-stm32f7-examples"
+name = "embassy-boot-stm32h7-examples"
 version = "0.1.0"
 
 [dependencies]
