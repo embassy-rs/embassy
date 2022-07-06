@@ -14,13 +14,13 @@ use {defmt_rtt as _, panic_probe as _};
 
 async fn add_ref(a: &mut u8, b: u8) {
     Timer::after(Duration::from_secs(2)).await;
+    info!("add_ref(): done!");
     *a += b;
-    info!("run1(): done!");
 }
 
 async fn add_rtn(a: u8, b: u8) -> u8 {
     Timer::after(Duration::from_secs(1)).await;
-    info!("run2(): done!");
+    info!("add_rtn(): done!");
     a + b
 }
 
