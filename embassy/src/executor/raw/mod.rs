@@ -239,7 +239,7 @@ impl<T> ScopedTaskStorage<T> {
     #[cfg(not(feature = "nightly"))]
     pub fn new() -> Self {
         Self {
-            raw: TaskHeader::new(),
+            header: TaskHeader::new(),
             future: UninitCell::uninit(),
             result: UnsafeCell::new(MaybeUninit::uninit()),
             waker: AtomicWaker::new(),
