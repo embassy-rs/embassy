@@ -61,9 +61,8 @@ pub struct TaskHeader {
 }
 
 impl TaskHeader {
-    /// TODO
     #[cfg(feature = "nightly")]
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             state: AtomicU32::new(0),
             run_queue_item: RunQueueItem::new(),
@@ -127,12 +126,12 @@ impl TaskHeader {
 // repr(C) is needed to guarantee that the Task is located at offset 0
 // This makes it safe to cast between TaskHeader and TaskStorage pointers.
 #[repr(C)]
-pub struct TaskStorage<F: Future> {
+pub struct TaskStorage<F: Future + 'static> {
     raw: TaskHeader,
     future: UninitCell<F>, // Valid if STATE_SPAWNED
 }
 
-impl<F: Future> TaskStorage<F> {
+impl<F: Future + 'static> TaskStorage<F> {
     #[cfg(feature = "nightly")]
     const NEW: Self = Self::new();
 
@@ -167,10 +166,7 @@ impl<F: Future> TaskStorage<F> {
     ///
     /// Once the task has finished running, you may spawn it again. It is allowed to spawn it
     /// on a different executor.
-    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized>
-    where
-        F: 'static,
-    {
+    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
         if self.spawn_mark_used() {
             return unsafe { SpawnToken::<F>::new(self.spawn_initialize(future)) };
         }
