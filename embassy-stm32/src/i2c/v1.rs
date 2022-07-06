@@ -282,7 +282,6 @@ impl<'d, T: Instance> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, T> {
 
 #[cfg(feature = "unstable-traits")]
 mod eh1 {
-    use super::super::{RxDma, TxDma};
     use super::*;
 
     impl embedded_hal_1::i2c::Error for Error {
