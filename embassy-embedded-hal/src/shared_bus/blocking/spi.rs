@@ -37,22 +37,21 @@ where
     type Bus = BUS;
 
     fn transaction<R>(&mut self, f: impl FnOnce(&mut Self::Bus) -> Result<R, BUS::Error>) -> Result<R, Self::Error> {
-        self.cs.set_low().map_err(SpiBusDeviceError::Cs)?;
-
-        let (f_res, flush_res) = self.bus.lock(|bus| {
+        self.bus.lock(|bus| {
             let mut bus = bus.borrow_mut();
+            self.cs.set_low().map_err(SpiBusDeviceError::Cs)?;
+
             let f_res = f(&mut bus);
+
             // On failure, it's important to still flush and deassert CS.
             let flush_res = bus.flush();
-            (f_res, flush_res)
-        });
+            let cs_res = self.cs.set_high();
 
-        let cs_res = self.cs.set_high();
+            let f_res = f_res.map_err(SpiBusDeviceError::Spi)?;
+            flush_res.map_err(SpiBusDeviceError::Spi)?;
+            cs_res.map_err(SpiBusDeviceError::Cs)?;
 
-        let f_res = f_res.map_err(SpiBusDeviceError::Spi)?;
-        flush_res.map_err(SpiBusDeviceError::Spi)?;
-        cs_res.map_err(SpiBusDeviceError::Cs)?;
-
-        Ok(f_res)
+            Ok(f_res)
+        })
     }
 }
