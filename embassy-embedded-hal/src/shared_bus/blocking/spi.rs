@@ -4,7 +4,7 @@ use core::fmt::Debug;
 
 use embedded_hal_1::digital::blocking::OutputPin;
 use embedded_hal_1::spi;
-use embedded_hal_1::spi::blocking::SpiDevice;
+use embedded_hal_1::spi::blocking::{SpiBusFlush, SpiDevice};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum SpiBusDeviceError<BUS, CS> {
@@ -44,15 +44,15 @@ where
     type Error = SpiBusDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<BUS, CS> spi::SpiDevice for SpiBusDevice<'_, BUS, CS>
+impl<BUS, CS> SpiDevice for SpiBusDevice<'_, BUS, CS>
 where
-    BUS: spi::SpiBusFlush,
+    BUS: SpiBusFlush,
     CS: OutputPin,
 {
     type Bus = BUS;
     fn transaction<R>(&mut self, f: impl FnOnce(&mut Self::Bus) -> Result<R, BUS::Error>) -> Result<R, Self::Error> {
         let mut bus = self.bus.borrow_mut();
-        self.cs.set_low().map_err(SpiDeviceWithCsError::Cs)?;
+        self.cs.set_low().map_err(SpiBusDeviceError::Cs)?;
 
         let f_res = f(&mut bus);
 
@@ -60,9 +60,9 @@ where
         let flush_res = bus.flush();
         let cs_res = self.cs.set_high();
 
-        let f_res = f_res.map_err(SpiDeviceWithCsError::Spi)?;
-        flush_res.map_err(SpiDeviceWithCsError::Spi)?;
-        cs_res.map_err(SpiDeviceWithCsError::Cs)?;
+        let f_res = f_res.map_err(SpiBusDeviceError::Spi)?;
+        flush_res.map_err(SpiBusDeviceError::Spi)?;
+        cs_res.map_err(SpiBusDeviceError::Cs)?;
 
         Ok(f_res)
     }

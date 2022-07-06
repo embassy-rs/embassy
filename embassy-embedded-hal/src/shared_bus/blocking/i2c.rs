@@ -1,67 +1,82 @@
 //! Blocking shared I2C bus
 use core::cell::RefCell;
-use core::fmt::Debug;
-use core::future::Future;
 
-use embedded_hal_1::i2c;
+use embassy::blocking_mutex::raw::RawMutex;
+use embassy::blocking_mutex::Mutex;
+use embedded_hal_1::i2c::blocking::{I2c, Operation};
+use embedded_hal_1::i2c::ErrorType;
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum I2cBusDeviceError<BUS> {
-    I2c(BUS),
+use crate::shared_bus::i2c::I2cBusDeviceError;
+
+pub struct I2cBusDevice<'a, M: RawMutex, BUS> {
+    bus: &'a Mutex<M, RefCell<BUS>>,
 }
 
-impl<BUS> i2c::Error for I2cBusDeviceError<BUS>
-where
-    BUS: i2c::Error + Debug,
-{
-    fn kind(&self) -> i2c::ErrorKind {
-        match self {
-            Self::I2c(e) => e.kind(),
-        }
-    }
-}
-
-pub struct I2cBusDevice<'a, BUS> {
-    bus: &'a RefCell<BUS>,
-}
-
-impl<'a, BUS> I2cBusDevice<'a, BUS> {
-    pub fn new(bus: &'a RefCell<BUS>) -> Self {
+impl<'a, M: RawMutex, BUS> I2cBusDevice<'a, M, BUS> {
+    pub fn new(bus: &'a Mutex<M, RefCell<BUS>>) -> Self {
         Self { bus }
     }
 }
 
-impl<'a, BUS> i2c::ErrorType for I2cBusDevice<'a, BUS>
+impl<'a, M: RawMutex, BUS> ErrorType for I2cBusDevice<'a, M, BUS>
 where
-    BUS: i2c::ErrorType,
+    BUS: ErrorType,
 {
     type Error = I2cBusDeviceError<BUS::Error>;
 }
 
-impl<M, BUS> i2c::I2c for I2cBusDevice<'_, BUS>
+impl<M, BUS> I2c for I2cBusDevice<'_, M, BUS>
 where
-    BUS: i2c::I2c,
+    M: RawMutex,
+    BUS: I2c,
 {
     fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
-        let mut bus = self.bus.borrow_mut();
-        bus.read(address, buffer).map_err(I2cBusDeviceError::I2c)?;
-        Ok(())
+        self.bus
+            .lock(|bus| bus.borrow_mut().read(address, buffer).map_err(I2cBusDeviceError::I2c))
     }
 
     fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
-        let mut bus = self.bus.borrow_mut();
-        bus.write(address, bytes).map_err(I2cBusDeviceError::I2c)?;
-        Ok(())
+        self.bus
+            .lock(|bus| bus.borrow_mut().write(address, bytes).map_err(I2cBusDeviceError::I2c))
     }
 
     fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Self::Error> {
-        let mut bus = self.bus.borrow_mut();
-        bus.write_read(address, wr_buffer, rd_buffer)
-            .map_err(I2cBusDeviceError::I2c)?;
-        Ok(())
+        self.bus.lock(|bus| {
+            bus.borrow_mut()
+                .write_read(address, wr_buffer, rd_buffer)
+                .map_err(I2cBusDeviceError::I2c)
+        })
     }
 
-    fn transaction<'a>(&mut self, address: u8, operations: &mut [i2c::Operation<'a>]) -> Result<(), Self::Error> {
+    fn transaction<'a>(&mut self, address: u8, operations: &mut [Operation<'a>]) -> Result<(), Self::Error> {
+        let _ = address;
+        let _ = operations;
+        todo!()
+    }
+
+    fn write_iter<B: IntoIterator<Item = u8>>(&mut self, addr: u8, bytes: B) -> Result<(), Self::Error> {
+        let _ = addr;
+        let _ = bytes;
+        todo!()
+    }
+
+    fn write_iter_read<B: IntoIterator<Item = u8>>(
+        &mut self,
+        addr: u8,
+        bytes: B,
+        buffer: &mut [u8],
+    ) -> Result<(), Self::Error> {
+        let _ = addr;
+        let _ = bytes;
+        let _ = buffer;
+        todo!()
+    }
+
+    fn transaction_iter<'a, O: IntoIterator<Item = Operation<'a>>>(
+        &mut self,
+        address: u8,
+        operations: O,
+    ) -> Result<(), Self::Error> {
         let _ = address;
         let _ = operations;
         todo!()
