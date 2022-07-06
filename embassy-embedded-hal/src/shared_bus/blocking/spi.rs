@@ -1,42 +1,26 @@
 //! Blocking shared SPI bus
 use core::cell::RefCell;
-use core::fmt::Debug;
 
+use embassy::blocking_mutex::raw::RawMutex;
+use embassy::blocking_mutex::Mutex;
 use embedded_hal_1::digital::blocking::OutputPin;
 use embedded_hal_1::spi;
 use embedded_hal_1::spi::blocking::{SpiBusFlush, SpiDevice};
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum SpiBusDeviceError<BUS, CS> {
-    Spi(BUS),
-    Cs(CS),
-}
+use crate::shared_bus::spi::SpiBusDeviceError;
 
-impl<BUS, CS> spi::Error for SpiBusDeviceError<BUS, CS>
-where
-    BUS: spi::Error + Debug,
-    CS: Debug,
-{
-    fn kind(&self) -> spi::ErrorKind {
-        match self {
-            Self::Spi(e) => e.kind(),
-            Self::Cs(_) => spi::ErrorKind::Other,
-        }
-    }
-}
-
-pub struct SpiBusDevice<'a, BUS, CS> {
-    bus: &'a RefCell<BUS>,
+pub struct SpiBusDevice<'a, M: RawMutex, BUS, CS> {
+    bus: &'a Mutex<M, RefCell<BUS>>,
     cs: CS,
 }
 
-impl<'a, BUS, CS> SpiBusDevice<'a, BUS, CS> {
-    pub fn new(bus: &'a RefCell<BUS>, cs: CS) -> Self {
+impl<'a, M: RawMutex, BUS, CS> SpiBusDevice<'a, M, BUS, CS> {
+    pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS) -> Self {
         Self { bus, cs }
     }
 }
 
-impl<'a, BUS, CS> spi::ErrorType for SpiBusDevice<'a, BUS, CS>
+impl<'a, M: RawMutex, BUS, CS> spi::ErrorType for SpiBusDevice<'a, M, BUS, CS>
 where
     BUS: spi::ErrorType,
     CS: OutputPin,
@@ -44,20 +28,25 @@ where
     type Error = SpiBusDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<BUS, CS> SpiDevice for SpiBusDevice<'_, BUS, CS>
+impl<BUS, M, CS> SpiDevice for SpiBusDevice<'_, M, BUS, CS>
 where
+    M: RawMutex,
     BUS: SpiBusFlush,
     CS: OutputPin,
 {
     type Bus = BUS;
+
     fn transaction<R>(&mut self, f: impl FnOnce(&mut Self::Bus) -> Result<R, BUS::Error>) -> Result<R, Self::Error> {
-        let mut bus = self.bus.borrow_mut();
         self.cs.set_low().map_err(SpiBusDeviceError::Cs)?;
 
-        let f_res = f(&mut bus);
+        let (f_res, flush_res) = self.bus.lock(|bus| {
+            let mut bus = bus.borrow_mut();
+            let f_res = f(&mut bus);
+            // On failure, it's important to still flush and deassert CS.
+            let flush_res = bus.flush();
+            (f_res, flush_res)
+        });
 
-        // On failure, it's important to still flush and deassert CS.
-        let flush_res = bus.flush();
         let cs_res = self.cs.set_high();
 
         let f_res = f_res.map_err(SpiBusDeviceError::Spi)?;
