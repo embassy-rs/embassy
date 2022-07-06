@@ -855,7 +855,6 @@ mod eh1 {
         type Error = Error;
     }
 
-    
     impl<'d, T: Instance> embedded_hal_1::i2c::blocking::I2c for I2c<'d, T> {
         fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_read(address, buffer)
