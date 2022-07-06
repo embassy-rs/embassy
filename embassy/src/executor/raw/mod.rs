@@ -13,15 +13,15 @@ mod timer_queue;
 pub(crate) mod util;
 mod waker;
 
-use core::cell::Cell;
+use core::cell::{Cell, UnsafeCell};
 use core::future::Future;
-use core::marker::PhantomData;
+use core::mem::MaybeUninit;
 use core::pin::Pin;
 use core::ptr::NonNull;
 use core::task::{Context, Poll};
 use core::{mem, ptr};
 
-use atomic_polyfill::{AtomicPtr, AtomicU32, Ordering};
+use atomic_polyfill::{AtomicU32, Ordering};
 use critical_section::CriticalSection;
 
 use self::run_queue::{RunQueue, RunQueueItem};
@@ -41,6 +41,8 @@ pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
 /// Task is in the executor timer queue
 #[cfg(feature = "time")]
 pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
+/// Task has a pending result
+pub(crate) const STATE_RESULT_PENDING: u32 = 1 << 3;
 
 /// Raw task header for use in task pointers.
 ///
@@ -218,19 +220,21 @@ unsafe impl<F: Future + 'static> Sync for TaskStorage<F> {}
 // repr(C) is needed to guarantee that the Task is located at offset 0
 // This makes it safe to cast between TaskHeader and TaskStorage pointers.
 #[repr(C)]
-pub struct ScopedTaskStorage<F> {
+pub struct ScopedTaskStorage<T> {
     header: TaskHeader,
-    future: UninitCell<F>, // Valid if STATE_SPAWNED
+    future: UninitCell<*mut dyn Future<Output = T>>, // Valid if STATE_SPAWNED
+    result: UnsafeCell<MaybeUninit<T>>,              // Valid if STATE_RESULT_PENDING
     waker: AtomicWaker,
 }
 
-impl<F> ScopedTaskStorage<F> {
+impl<T> ScopedTaskStorage<T> {
     /// Create a new TaskStorage, in not-spawned state.
     #[cfg(feature = "nightly")]
     pub const fn new() -> Self {
         Self {
             header: TaskHeader::new(),
             future: UninitCell::uninit(),
+            result: UnsafeCell::new(MaybeUninit::uninit()),
             waker: AtomicWaker::new(),
         }
     }
@@ -241,19 +245,25 @@ impl<F> ScopedTaskStorage<F> {
         Self {
             raw: TaskHeader::new(),
             future: UninitCell::uninit(),
+            result: UnsafeCell::new(MaybeUninit::uninit()),
             waker: AtomicWaker::new(),
         }
     }
 
     /// TODO
-    pub fn spawn_scoped<'a>(&'a self, future: F) -> Option<(SpawnScopedGuard<'a, F>, SpawnToken<impl Sized>)>
-    where
-        F: Future + 'a,
-    {
+    pub fn spawn_scoped<'a>(
+        &'static self,
+        future: &'a mut (dyn Future<Output = T> + 'a),
+    ) -> Option<(SpawnScopedGuard<'a, T>, SpawnToken<impl Sized + 'a>)> {
         if self.spawn_mark_used() {
-            return Some((SpawnScopedGuard { storage: self }, unsafe {
-                SpawnToken::<F>::new(self.spawn_initialize(future))
-            }));
+            let guard = SpawnScopedGuard { storage: self };
+            let token = unsafe {
+                SpawnToken::<&'a mut (dyn Future<Output = T> + 'a)>::new(
+                    self.spawn_initialize(core::mem::transmute(future as *mut dyn Future<Output = T>)),
+                )
+            };
+
+            return Some((guard, token));
         }
 
         None
@@ -267,29 +277,25 @@ impl<F> ScopedTaskStorage<F> {
             .is_ok()
     }
 
-    unsafe fn spawn_initialize<'a>(&'a self, future: F) -> NonNull<TaskHeader>
-    where
-        F: Future + 'a,
-    {
+    unsafe fn spawn_initialize(&'static self, future: *mut dyn Future<Output = T>) -> NonNull<TaskHeader> {
         // Initialize the task
         self.header.poll_fn.write(Self::poll);
         self.future.write(future);
         NonNull::new_unchecked(&self.header as *const TaskHeader as *mut TaskHeader)
     }
 
-    unsafe fn poll<'a>(p: NonNull<TaskHeader>)
-    where
-        F: Future + 'a,
-    {
+    unsafe fn poll(p: NonNull<TaskHeader>) {
         let this = &*(p.as_ptr() as *const Self);
 
-        let future = Pin::new_unchecked(this.future.as_mut());
+        let future = Pin::new_unchecked(&mut **this.future.as_mut());
         let waker = waker::from_task(p);
         let mut cx = Context::from_waker(&waker);
         match future.poll(&mut cx) {
-            Poll::Ready(_) => {
+            Poll::Ready(res) => {
                 this.future.drop_in_place();
                 this.header.state.fetch_and(!STATE_SPAWNED, Ordering::AcqRel);
+                (*this.result.get()).write(res);
+                this.header.state.fetch_or(STATE_RESULT_PENDING, Ordering::Release);
                 this.waker.wake();
             }
             Poll::Pending => {}
@@ -304,27 +310,49 @@ impl<F> ScopedTaskStorage<F> {
 unsafe impl<F> Sync for ScopedTaskStorage<F> {}
 
 /// TODO
-pub struct SpawnScopedGuard<'a, F: Future + 'a> {
-    storage: &'a ScopedTaskStorage<F>,
+pub struct SpawnScopedGuard<'a, T> {
+    storage: &'a ScopedTaskStorage<T>,
 }
 
-impl<'a, F: Future> Future for SpawnScopedGuard<'a, F> {
-    type Output = ();
+impl<'a, T> Future for SpawnScopedGuard<'a, T> {
+    type Output = T;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.storage.waker.register(cx.waker());
-        if self.storage.header.state.load(Ordering::Relaxed) & STATE_SPAWNED == 0 {
-            Poll::Ready(())
+        if self
+            .storage
+            .header
+            .state
+            .fetch_and(!STATE_RESULT_PENDING, Ordering::Acquire)
+            & STATE_RESULT_PENDING
+            != 0
+        {
+            // Safety: STATE_RESULT_PENDING ensures that result is init
+            Poll::Ready(unsafe { (*self.storage.result.get()).assume_init_read() })
         } else {
             Poll::Pending
         }
     }
 }
 
-impl<'a, F: Future> Drop for SpawnScopedGuard<'a, F> {
+impl<'a, T> Drop for SpawnScopedGuard<'a, T> {
     fn drop(&mut self) {
         if self.storage.header.state.load(Ordering::Relaxed) & STATE_SPAWNED != 0 {
             panic!("SpawnScopedGuard dropped while task is still queued! Consider awaiting the guard")
+        }
+
+        if self
+            .storage
+            .header
+            .state
+            .fetch_and(!STATE_RESULT_PENDING, Ordering::Acquire)
+            & STATE_RESULT_PENDING
+            != 0
+        {
+            // Safety: STATE_RESULT_PENDING ensures that result is init
+            unsafe {
+                (*self.storage.result.get()).assume_init_drop();
+            }
         }
     }
 }

@@ -9,64 +9,54 @@ use embassy::executor::raw::{ScopedTaskStorage, TaskHeader};
 use embassy::executor::{Executor, Spawner};
 use embassy::time::{Duration, Timer};
 use embassy_stm32::Peripherals;
+use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
 
-async fn run1() {
-    Timer::after(Duration::from_secs(1)).await;
+async fn add_ref(a: &mut u8, b: u8) {
+    Timer::after(Duration::from_secs(2)).await;
+    *a += b;
     info!("run1(): done!");
 }
 
-async fn run2(a: &mut u8) {
-    Timer::after(Duration::from_secs(2)).await;
-    *a += 1;
+async fn add_rtn(a: u8, b: u8) -> u8 {
+    Timer::after(Duration::from_secs(1)).await;
     info!("run2(): done!");
+    a + b
 }
 
-// static RUN1_HEAD: TaskHeader = TaskHeader::new();
-// static RUN2_HEAD: TaskHeader = TaskHeader::new();
+static TASK_STORAGE1: ScopedTaskStorage<()> = ScopedTaskStorage::new();
+static TASK_STORAGE2: ScopedTaskStorage<u8> = ScopedTaskStorage::new();
 
 #[embassy::main]
 async fn main(spawner: Spawner, _p: Peripherals) -> ! {
-    // let run1_head = TaskHeader::new();
-    // let run2_head = TaskHeader::new();
+    let mut a = 2;
 
-    // let run1_head = unsafe { make_static(&run1_head) };
-    // let run2_head = unsafe { make_static(&run2_head) };
+    let mut fut1 = add_ref(&mut a, 2);
+    let mut fut2 = add_rtn(2, 2);
+    let (run1_guard, run1_token) = unwrap!(TASK_STORAGE1.spawn_scoped(&mut fut1));
+    let (run2_guard, run2_token) = unwrap!(TASK_STORAGE2.spawn_scoped(&mut fut2));
 
-    let run1_task = ScopedTaskStorage::new();
-    let run2_task = ScopedTaskStorage::new();
+    unwrap!(spawner.spawn(run1_token));
+    unwrap!(spawner.spawn(run2_token));
 
-    let mut x = 0;
-    // let x_ref = &mut x;
+    run1_guard.await;
+    drop(fut1); // Release mutable reference to a. Could also use scope brackets instead of drop.
 
-    // Safety: these variables do live forever if main never returns.
-    // let run1_task = unsafe { make_static(&run1_task) };
-    // let run2_task = unsafe { make_static(&run2_task) };
-    {
-        let (run1_guard, run1_token) = unwrap!(run1_task.spawn_scoped(run1()));
-        let (run2_guard, run2_token) = unwrap!(run2_task.spawn_scoped(run2(&mut x)));
+    info!("add_ref: {}", a);
+    info!("add_rtn: {}", run2_guard.await);
 
-        unwrap!(spawner.spawn(run1_token));
-        unwrap!(spawner.spawn(run2_token));
+    // Spawn add_ref again
+    let mut fut1 = add_ref(&mut a, 2);
+    let (run1_guard, run1_token) = unwrap!(TASK_STORAGE1.spawn_scoped(&mut fut1));
+    unwrap!(spawner.spawn(run1_token));
 
-        run1_guard.await;
-        run2_guard.await;
-    }
+    run1_guard.await;
+    drop(fut1);
 
-    // {
-    //     let (run2_guard, run2_token) = unwrap!(run2_task.spawn_scoped(run2(&mut x)));
-    //     unwrap!(spawner.spawn(run2_token));
-    //     run2_guard.await;
-    // }
-
-    info!("x: {}", x);
+    info!("add_ref: {}", a);
 
     loop {
         info!("Hello World!");
         Timer::after(Duration::from_secs(1)).await;
     }
-}
-
-unsafe fn make_static<T>(t: &T) -> &'static T {
-    mem::transmute(t)
 }
