@@ -280,6 +280,75 @@ impl<'d, T: Instance> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, T> {
     }
 }
 
+#[cfg(feature = "unstable-traits")]
+mod eh1 {
+    use super::super::{RxDma, TxDma};
+    use super::*;
+
+    impl embedded_hal_1::i2c::Error for Error {
+        fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
+            match *self {
+                Self::Bus => embedded_hal_1::i2c::ErrorKind::Bus,
+                Self::Arbitration => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
+                Self::Nack => {
+                    embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Unknown)
+                }
+                Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::Crc => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::Overrun => embedded_hal_1::i2c::ErrorKind::Overrun,
+                Self::ZeroLengthTransfer => embedded_hal_1::i2c::ErrorKind::Other,
+            }
+        }
+    }
+
+    impl<'d, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_1::i2c::ErrorType for I2c<'d, T, TXDMA, RXDMA> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::i2c::blocking::I2c for I2c<'d, T> {
+        fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+            self.blocking_read(address, buffer)
+        }
+
+        fn write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(address, buffer)
+        }
+
+        fn write_iter<B>(&mut self, _address: u8, _bytes: B) -> Result<(), Self::Error>
+        where
+            B: IntoIterator<Item = u8>,
+        {
+            todo!();
+        }
+
+        fn write_iter_read<B>(&mut self, _address: u8, _bytes: B, _buffer: &mut [u8]) -> Result<(), Self::Error>
+        where
+            B: IntoIterator<Item = u8>,
+        {
+            todo!();
+        }
+
+        fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Self::Error> {
+            self.blocking_write_read(address, wr_buffer, rd_buffer)
+        }
+
+        fn transaction<'a>(
+            &mut self,
+            _address: u8,
+            _operations: &mut [embedded_hal_1::i2c::blocking::Operation<'a>],
+        ) -> Result<(), Self::Error> {
+            todo!();
+        }
+
+        fn transaction_iter<'a, O>(&mut self, _address: u8, _operations: O) -> Result<(), Self::Error>
+        where
+            O: IntoIterator<Item = embedded_hal_1::i2c::blocking::Operation<'a>>,
+        {
+            todo!();
+        }
+    }
+}
+
 enum Mode {
     Fast,
     Standard,
