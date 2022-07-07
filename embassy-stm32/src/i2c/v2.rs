@@ -851,7 +851,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_1::i2c::ErrorType for I2c<'d, T, TXDMA, RXDMA> {
+    impl<'d, T: Instance, TXDMA, RXDMA> embedded_hal_1::i2c::ErrorType for I2c<'d, T, TXDMA, RXDMA> {
         type Error = Error;
     }
 
