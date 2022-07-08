@@ -832,7 +832,6 @@ impl Timings {
 
 #[cfg(feature = "unstable-traits")]
 mod eh1 {
-    use super::super::{RxDma, TxDma};
     use super::*;
 
     impl embedded_hal_1::i2c::Error for Error {
