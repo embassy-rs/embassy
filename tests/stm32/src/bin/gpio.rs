@@ -6,7 +6,7 @@
 mod example_common;
 use defmt::assert;
 use embassy::executor::Spawner;
-use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::gpio::{Input, Level, Output, OutputOpenDrain, Flex, Pull, Speed};
 use embassy_stm32::Peripherals;
 use example_common::*;
 
@@ -87,6 +87,96 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         delay();
         assert!(b.is_high());
     }
+
+    // Test output open drain
+    {
+        let b = Input::new(&mut b, Pull::Down);
+        // no pull, the status is undefined
+
+        let mut a = OutputOpenDrain::new(&mut a, Level::Low, Speed::Low, Pull::None);
+        delay();
+        assert!(b.is_low());
+        a.set_high(); // High-Z output
+        delay();
+        assert!(b.is_low());
+    }
+
+    // FLEX
+    // Test initial output
+    {
+        let mut b = Flex::new(&mut b);
+        b.set_as_input(Pull::None);
+
+        {
+            let mut a = Flex::new(&mut a);
+            a.set_low();
+            a.set_as_output(Speed::Low);
+            delay();
+            assert!(b.is_low());
+        }
+        {
+            let mut a = Flex::new(&mut a);
+            a.set_as_output(Speed::Low);
+            a.set_high();
+            delay();
+            assert!(b.is_high());
+        }
+    }
+    /*
+    // Test input no pull
+    {
+        let b = Input::new(&mut b, Pull::None);
+        // no pull, the status is undefined
+
+        let mut a = Output::new(&mut a, Level::Low, Speed::Low);
+        delay();
+        assert!(b.is_low());
+        a.set_high();
+        delay();
+        assert!(b.is_high());
+    }
+
+    // Test input pulldown
+    {
+        let b = Input::new(&mut b, Pull::Down);
+        delay();
+        assert!(b.is_low());
+
+        let mut a = Output::new(&mut a, Level::Low, Speed::Low);
+        delay();
+        assert!(b.is_low());
+        a.set_high();
+        delay();
+        assert!(b.is_high());
+    }
+
+    // Test input pullup
+    {
+        let b = Input::new(&mut b, Pull::Up);
+        delay();
+        assert!(b.is_high());
+
+        let mut a = Output::new(&mut a, Level::Low, Speed::Low);
+        delay();
+        assert!(b.is_low());
+        a.set_high();
+        delay();
+        assert!(b.is_high());
+    }
+
+    // Test output open drain
+    {
+        let b = Input::new(&mut b, Pull::Down);
+        // no pull, the status is undefined
+
+        let mut a = OutputOpenDrain::new(&mut a, Level::Low, Speed::Low, Pull::None);
+        delay();
+        assert!(b.is_low());
+        a.set_high(); // High-Z output
+        delay();
+        assert!(b.is_low());
+    }
+*/
 
     info!("Test OK");
     cortex_m::asm::bkpt();
