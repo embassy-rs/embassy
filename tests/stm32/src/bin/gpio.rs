@@ -138,26 +138,29 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         assert!(b.is_high());
     }
 
-    /*
+
     // Test input pulldown
     {
-        let b = Input::new(&mut b, Pull::Down);
+        let mut b = Flex::new(&mut b);
+        b.set_as_input(Pull::Down);        // no pull, the status is undefined
         delay();
         assert!(b.is_low());
-
-        let mut a = Output::new(&mut a, Level::Low, Speed::Low);
+        
+        let mut a = Flex::new(&mut a);
+        a.set_low();
+        a.set_as_output(Speed::Low);
         delay();
         assert!(b.is_low());
         a.set_high();
         delay();
         assert!(b.is_high());
     }
-
+    /*
     // Test input pullup
     {
-        let b = Input::new(&mut b, Pull::Up);
+        let b = Input::new(&mut b, Pull::Down);
         delay();
-        assert!(b.is_high());
+        assert!(b.is_low());
 
         let mut a = Output::new(&mut a, Level::Low, Speed::Low);
         delay();
