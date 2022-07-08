@@ -135,7 +135,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         let mut a = Flex::new(&mut a);
         a.set_low();
         a.set_as_output(Speed::Low); 
-        
+
         delay();
         assert!(b.is_low());
         a.set_high();
