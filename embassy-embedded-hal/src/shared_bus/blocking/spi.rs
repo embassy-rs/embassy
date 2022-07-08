@@ -76,7 +76,6 @@ where
     }
 }
 
-<<<<<<< HEAD
 pub struct SpiBusDeviceWithConfig<'a, M: RawMutex, BUS, CS, C> {
     bus: &'a Mutex<M, RefCell<BUS>>,
     cs: CS,
@@ -120,8 +119,11 @@ where
             let f_res = f_res.map_err(SpiBusDeviceError::Spi)?;
             flush_res.map_err(SpiBusDeviceError::Spi)?;
             cs_res.map_err(SpiBusDeviceError::Cs)?;
+            Ok(f_res)
+        })
+    }
+}
 
-=======
 impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Transfer<u8> for SpiBusDevice<'_, M, BUS, CS>
 where
     M: RawMutex,
@@ -158,7 +160,6 @@ where
             let cs_res = self.cs.set_high();
             let f_res = f_res.map_err(SpiBusDeviceError::Spi)?;
             cs_res.map_err(SpiBusDeviceError::Cs)?;
->>>>>>> master
             Ok(f_res)
         })
     }

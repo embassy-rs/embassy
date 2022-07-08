@@ -101,7 +101,6 @@ where
     }
 }
 
-<<<<<<< HEAD
 pub struct I2cBusDeviceWithConfig<'a, M: RawMutex, BUS, C> {
     bus: &'a Mutex<M, RefCell<BUS>>,
     config: C,
@@ -183,7 +182,8 @@ where
         let _ = operations;
         todo!()
     }
-=======
+}
+
 impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::Write for I2cBusDevice<'_, M, BUS>
 where
     M: RawMutex,
@@ -224,5 +224,4 @@ where
                 .map_err(I2cBusDeviceError::I2c)
         })
     }
->>>>>>> master
 }
