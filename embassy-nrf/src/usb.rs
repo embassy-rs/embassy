@@ -35,6 +35,17 @@ pub struct Driver<'d, T: Instance> {
 
 impl<'d, T: Instance> Driver<'d, T> {
     pub fn new(_usb: impl Unborrow<Target = T> + 'd, irq: impl Unborrow<Target = T::Interrupt> + 'd) -> Self {
+        Self::with_power_state(_usb, irq, true)
+    }
+
+    /// Establish a new device that then puts the USB device into an initial power state.
+    /// Required when using the nRF softdevice where power is unavailable until
+    /// notified by it, at which time the the [`Self::power()`] method should then be called.
+    pub fn with_power_state(
+        _usb: impl Unborrow<Target = T> + 'd,
+        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        power_available: bool,
+    ) -> Self {
         unborrow!(irq);
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
@@ -42,7 +53,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         // Initialize the bus so that it signals that power is available.
         // Not required when using with_power_management as we then rely on the irq.
-        POWER_AVAILABLE.store(true, Ordering::Relaxed);
+        POWER_AVAILABLE.store(power_available, Ordering::Relaxed);
         BUS_WAKER.wake();
 
         Self {
@@ -68,7 +79,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         regs.intenset.write(|w| w.usbdetected().set().usbremoved().set());
 
-        Self::new(_usb, irq)
+        Self::with_power_state(_usb, irq, regs.usbregstatus.read().vbusdetect().is_vbus_present())
     }
 
     fn on_interrupt(_: *mut ()) {
@@ -144,6 +155,14 @@ impl<'d, T: Instance> Driver<'d, T> {
             POWER_AVAILABLE.store(power_available, Ordering::Relaxed);
             BUS_WAKER.wake();
         }
+    }
+
+    /// Manually declare that USB power is available or unavailable.
+    /// Useful in scenarios where power management cannot be managed
+    /// automatically e.g. when dealing with the nrf-softdevice.
+    pub fn power(available: bool) {
+        POWER_AVAILABLE.store(available, Ordering::Relaxed);
+        BUS_WAKER.wake();
     }
 }
 
