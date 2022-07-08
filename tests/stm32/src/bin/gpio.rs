@@ -104,20 +104,24 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // FLEX
     // Test initial output
     {
-        let mut b = Flex::new(&mut b);
+        //Flex pin configured as input  
+        let mut b = Flex::new(&mut b); 
         b.set_as_input(Pull::None);
 
         {
-            let mut a = Flex::new(&mut a);
-            a.set_low();
+            //Flex pin configured as output  
+            let mut a = Flex::new(&mut a); //Flex pin configured as output  
+            a.set_low(); // Pin state must be set before configuring the pin, thus we avoid unknown state
             a.set_as_output(Speed::Low);
             delay();
             assert!(b.is_low());
         }
         {
-            let mut a = Flex::new(&mut a);
-            a.set_as_output(Speed::Low);
+            //Flex pin configured as output  
+            let mut a = Flex::new(&mut a); 
             a.set_high();
+            a.set_as_output(Speed::Low);
+
             delay();
             assert!(b.is_high());
         }
@@ -125,12 +129,13 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     // Test input no pull
     {
-        let mut b = Flex::new(&mut b);
+        let mut b = Flex::new(&mut b); 
         b.set_as_input(Pull::None);        // no pull, the status is undefined
 
         let mut a = Flex::new(&mut a);
         a.set_low();
-        a.set_as_output(Speed::Low);
+        a.set_as_output(Speed::Low); 
+        
         delay();
         assert!(b.is_low());
         a.set_high();
