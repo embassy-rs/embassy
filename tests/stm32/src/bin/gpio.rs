@@ -172,20 +172,21 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         delay();
         assert!(b.is_low());
     }
-    /*
+
     // Test output open drain
     {
-        let b = Input::new(&mut b, Pull::Down);
-        // no pull, the status is undefined
+        let mut b = Flex::new(&mut b);
+        b.set_as_input(Pull::Down);
 
-        let mut a = OutputOpenDrain::new(&mut a, Level::Low, Speed::Low, Pull::None);
+        let mut a = Flex::new(&mut a);
+        a.set_low();
+        a.set_as_input_output(Speed::Low, Pull::None);  
         delay();
         assert!(b.is_low());
         a.set_high(); // High-Z output
         delay();
         assert!(b.is_low());
     }
-*/
 
     info!("Test OK");
     cortex_m::asm::bkpt();
