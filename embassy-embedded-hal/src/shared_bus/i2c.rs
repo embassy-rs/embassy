@@ -119,28 +119,30 @@ where
     }
 }
 
-pub struct I2cBusDeviceWithConfig<'a, M: RawMutex, BUS, C> {
+pub struct I2cBusDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig> {
     bus: &'a Mutex<M, BUS>,
-    config: C,
+    config: BUS::Config,
 }
 
-impl<'a, M: RawMutex, BUS, C> I2cBusDeviceWithConfig<'a, M, BUS, C> {
-    pub fn new(bus: &'a Mutex<M, BUS>, config: C) -> Self {
+impl<'a, M: RawMutex, BUS: SetConfig> I2cBusDeviceWithConfig<'a, M, BUS> {
+    pub fn new(bus: &'a Mutex<M, BUS>, config: BUS::Config) -> Self {
         Self { bus, config }
     }
 }
 
-impl<'a, M: RawMutex, BUS, C> i2c::ErrorType for I2cBusDeviceWithConfig<'a, M, BUS, C>
+impl<'a, M, BUS> i2c::ErrorType for I2cBusDeviceWithConfig<'a, M, BUS>
 where
     BUS: i2c::ErrorType,
+    M: RawMutex,
+    BUS: SetConfig,
 {
     type Error = I2cBusDeviceError<BUS::Error>;
 }
 
-impl<M, BUS, C> i2c::I2c for I2cBusDeviceWithConfig<'_, M, BUS, C>
+impl<M, BUS> i2c::I2c for I2cBusDeviceWithConfig<'_, M, BUS>
 where
     M: RawMutex + 'static,
-    BUS: i2c::I2c + SetConfig<C> + 'static,
+    BUS: i2c::I2c + SetConfig + 'static,
 {
     type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 

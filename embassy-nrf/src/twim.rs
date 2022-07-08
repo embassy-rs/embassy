@@ -880,8 +880,9 @@ cfg_if::cfg_if! {
     }
 }
 
-impl<'d, T: Instance> SetConfig<Config> for Twim<'d, T> {
-    fn set_config(&mut self, config: &Config) {
+impl<'d, T: Instance> SetConfig for Twim<'d, T> {
+    type Config = Config;
+    fn set_config(&mut self, config: &Self::Config) {
         let r = T::regs();
         r.frequency
             .write(|w| unsafe { w.frequency().bits(config.frequency as u32) });

@@ -112,30 +112,31 @@ where
     }
 }
 
-pub struct SpiBusDeviceWithConfig<'a, M: RawMutex, BUS, CS, C> {
+pub struct SpiBusDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig, CS> {
     bus: &'a Mutex<M, BUS>,
     cs: CS,
-    config: C,
+    config: BUS::Config,
 }
 
-impl<'a, M: RawMutex, BUS, CS, C> SpiBusDeviceWithConfig<'a, M, BUS, CS, C> {
-    pub fn new(bus: &'a Mutex<M, BUS>, cs: CS, config: C) -> Self {
+impl<'a, M: RawMutex, BUS: SetConfig, CS> SpiBusDeviceWithConfig<'a, M, BUS, CS> {
+    pub fn new(bus: &'a Mutex<M, BUS>, cs: CS, config: BUS::Config) -> Self {
         Self { bus, cs, config }
     }
 }
 
-impl<'a, M: RawMutex, BUS, CS, C> spi::ErrorType for SpiBusDeviceWithConfig<'a, M, BUS, CS, C>
+impl<'a, M, BUS, CS> spi::ErrorType for SpiBusDeviceWithConfig<'a, M, BUS, CS>
 where
-    BUS: spi::ErrorType,
+    BUS: spi::ErrorType + SetConfig,
     CS: OutputPin,
+    M: RawMutex,
 {
     type Error = SpiBusDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<M, BUS, CS, C> spi::SpiDevice for SpiBusDeviceWithConfig<'_, M, BUS, CS, C>
+impl<M, BUS, CS> spi::SpiDevice for SpiBusDeviceWithConfig<'_, M, BUS, CS>
 where
     M: RawMutex + 'static,
-    BUS: spi::SpiBusFlush + SetConfig<C> + 'static,
+    BUS: spi::SpiBusFlush + SetConfig + 'static,
     CS: OutputPin,
 {
     type Bus = BUS;

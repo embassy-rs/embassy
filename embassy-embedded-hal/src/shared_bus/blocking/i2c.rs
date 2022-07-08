@@ -101,28 +101,71 @@ where
     }
 }
 
-pub struct I2cBusDeviceWithConfig<'a, M: RawMutex, BUS, C> {
-    bus: &'a Mutex<M, RefCell<BUS>>,
-    config: C,
+impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::Write for I2cBusDevice<'_, M, BUS>
+where
+    M: RawMutex,
+    BUS: embedded_hal_02::blocking::i2c::Write<Error = E>,
+{
+    type Error = I2cBusDeviceError<E>;
+
+    fn write<'w>(&mut self, addr: u8, bytes: &'w [u8]) -> Result<(), Self::Error> {
+        self.bus
+            .lock(|bus| bus.borrow_mut().write(addr, bytes).map_err(I2cBusDeviceError::I2c))
+    }
 }
 
-impl<'a, M: RawMutex, BUS, C> I2cBusDeviceWithConfig<'a, M, BUS, C> {
-    pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, config: C) -> Self {
+impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::Read for I2cBusDevice<'_, M, BUS>
+where
+    M: RawMutex,
+    BUS: embedded_hal_02::blocking::i2c::Read<Error = E>,
+{
+    type Error = I2cBusDeviceError<E>;
+
+    fn read<'w>(&mut self, addr: u8, bytes: &'w mut [u8]) -> Result<(), Self::Error> {
+        self.bus
+            .lock(|bus| bus.borrow_mut().read(addr, bytes).map_err(I2cBusDeviceError::I2c))
+    }
+}
+
+impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::WriteRead for I2cBusDevice<'_, M, BUS>
+where
+    M: RawMutex,
+    BUS: embedded_hal_02::blocking::i2c::WriteRead<Error = E>,
+{
+    type Error = I2cBusDeviceError<E>;
+
+    fn write_read<'w>(&mut self, addr: u8, bytes: &'w [u8], buffer: &'w mut [u8]) -> Result<(), Self::Error> {
+        self.bus.lock(|bus| {
+            bus.borrow_mut()
+                .write_read(addr, bytes, buffer)
+                .map_err(I2cBusDeviceError::I2c)
+        })
+    }
+}
+
+pub struct I2cBusDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig> {
+    bus: &'a Mutex<M, RefCell<BUS>>,
+    config: BUS::Config,
+}
+
+impl<'a, M: RawMutex, BUS: SetConfig> I2cBusDeviceWithConfig<'a, M, BUS> {
+    pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, config: BUS::Config) -> Self {
         Self { bus, config }
     }
 }
 
-impl<'a, M: RawMutex, BUS, C> ErrorType for I2cBusDeviceWithConfig<'a, M, BUS, C>
+impl<'a, M, BUS> ErrorType for I2cBusDeviceWithConfig<'a, M, BUS>
 where
-    BUS: ErrorType,
+    M: RawMutex,
+    BUS: ErrorType + SetConfig,
 {
     type Error = I2cBusDeviceError<BUS::Error>;
 }
 
-impl<M, BUS, C> I2c for I2cBusDeviceWithConfig<'_, M, BUS, C>
+impl<M, BUS> I2c for I2cBusDeviceWithConfig<'_, M, BUS>
 where
     M: RawMutex,
-    BUS: I2c + SetConfig<C>,
+    BUS: I2c + SetConfig,
 {
     fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
         self.bus.lock(|bus| {
@@ -181,47 +224,5 @@ where
         let _ = address;
         let _ = operations;
         todo!()
-    }
-}
-
-impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::Write for I2cBusDevice<'_, M, BUS>
-where
-    M: RawMutex,
-    BUS: embedded_hal_02::blocking::i2c::Write<Error = E>,
-{
-    type Error = I2cBusDeviceError<E>;
-
-    fn write<'w>(&mut self, addr: u8, bytes: &'w [u8]) -> Result<(), Self::Error> {
-        self.bus
-            .lock(|bus| bus.borrow_mut().write(addr, bytes).map_err(I2cBusDeviceError::I2c))
-    }
-}
-
-impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::Read for I2cBusDevice<'_, M, BUS>
-where
-    M: RawMutex,
-    BUS: embedded_hal_02::blocking::i2c::Read<Error = E>,
-{
-    type Error = I2cBusDeviceError<E>;
-
-    fn read<'w>(&mut self, addr: u8, bytes: &'w mut [u8]) -> Result<(), Self::Error> {
-        self.bus
-            .lock(|bus| bus.borrow_mut().read(addr, bytes).map_err(I2cBusDeviceError::I2c))
-    }
-}
-
-impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::WriteRead for I2cBusDevice<'_, M, BUS>
-where
-    M: RawMutex,
-    BUS: embedded_hal_02::blocking::i2c::WriteRead<Error = E>,
-{
-    type Error = I2cBusDeviceError<E>;
-
-    fn write_read<'w>(&mut self, addr: u8, bytes: &'w [u8], buffer: &'w mut [u8]) -> Result<(), Self::Error> {
-        self.bus.lock(|bus| {
-            bus.borrow_mut()
-                .write_read(addr, bytes, buffer)
-                .map_err(I2cBusDeviceError::I2c)
-        })
     }
 }

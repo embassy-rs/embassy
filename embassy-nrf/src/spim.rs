@@ -523,8 +523,9 @@ cfg_if::cfg_if! {
     }
 }
 
-impl<'d, T: Instance> SetConfig<Config> for Spim<'d, T> {
-    fn set_config(&mut self, config: &Config) {
+impl<'d, T: Instance> SetConfig for Spim<'d, T> {
+    type Config = Config;
+    fn set_config(&mut self, config: &Self::Config) {
         let r = T::regs();
         // Configure mode.
         let mode = config.mode;
