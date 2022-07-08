@@ -1,4 +1,21 @@
 //! Blocking shared I2C bus
+//!
+//! # Example (nrf52)
+//!
+//! ```rust
+//! use embassy_embedded_hal::shared_bus::blocking::i2c::I2cBusDevice;
+//! use embassy::blocking_mutex::{NoopMutex, raw::NoopRawMutex};
+//!
+//! static I2C_BUS: Forever<NoopMutex<RefCell<Twim<TWISPI0>>>> = Forever::new();
+//! let irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+//! let i2c = Twim::new(p.TWISPI0, irq, p.P0_03, p.P0_04, Config::default());
+//! let i2c_bus = NoopMutex::new(RefCell::new(i2c));
+//! let i2c_bus = I2C_BUS.put(i2c_bus);
+//!
+//! let i2c_dev1 = I2cBusDevice::new(i2c_bus);
+//! let mpu = Mpu6050::new(i2c_dev1);
+//! ```
+
 use core::cell::RefCell;
 
 use embassy::blocking_mutex::raw::RawMutex;
@@ -84,6 +101,7 @@ where
     }
 }
 
+<<<<<<< HEAD
 pub struct I2cBusDeviceWithConfig<'a, M: RawMutex, BUS, C> {
     bus: &'a Mutex<M, RefCell<BUS>>,
     config: C,
@@ -165,4 +183,46 @@ where
         let _ = operations;
         todo!()
     }
+=======
+impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::Write for I2cBusDevice<'_, M, BUS>
+where
+    M: RawMutex,
+    BUS: embedded_hal_02::blocking::i2c::Write<Error = E>,
+{
+    type Error = I2cBusDeviceError<E>;
+
+    fn write<'w>(&mut self, addr: u8, bytes: &'w [u8]) -> Result<(), Self::Error> {
+        self.bus
+            .lock(|bus| bus.borrow_mut().write(addr, bytes).map_err(I2cBusDeviceError::I2c))
+    }
+}
+
+impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::Read for I2cBusDevice<'_, M, BUS>
+where
+    M: RawMutex,
+    BUS: embedded_hal_02::blocking::i2c::Read<Error = E>,
+{
+    type Error = I2cBusDeviceError<E>;
+
+    fn read<'w>(&mut self, addr: u8, bytes: &'w mut [u8]) -> Result<(), Self::Error> {
+        self.bus
+            .lock(|bus| bus.borrow_mut().read(addr, bytes).map_err(I2cBusDeviceError::I2c))
+    }
+}
+
+impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::WriteRead for I2cBusDevice<'_, M, BUS>
+where
+    M: RawMutex,
+    BUS: embedded_hal_02::blocking::i2c::WriteRead<Error = E>,
+{
+    type Error = I2cBusDeviceError<E>;
+
+    fn write_read<'w>(&mut self, addr: u8, bytes: &'w [u8], buffer: &'w mut [u8]) -> Result<(), Self::Error> {
+        self.bus.lock(|bus| {
+            bus.borrow_mut()
+                .write_read(addr, bytes, buffer)
+                .map_err(I2cBusDeviceError::I2c)
+        })
+    }
+>>>>>>> master
 }
