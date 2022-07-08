@@ -68,8 +68,12 @@ impl<'d, T: Pin> Flex<'d, T> {
         });
     }
 
+    /// Put the pin into output mode.
+    ///
+    /// The pin level will be whatever was set before (or low by default). If you want it to begin
+    /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
-    fn set_as_output(&mut self, speed: Speed) {
+    pub fn set_as_output(&mut self, speed: Speed) {
 
         critical_section::with(|_| unsafe {
             let r = self.pin.block();
@@ -91,9 +95,18 @@ impl<'d, T: Pin> Flex<'d, T> {
             }
         });
     }
-
+    
+    /// Put the pin into input + output mode.
+    ///
+    /// This is commonly used for "open drain" mode.
+    /// the hardware will drive the line low if you set it to low, and will leave it floating if you set
+    /// it to high, in which case you can read the input to figure out whether another device
+    /// is driving the line low.
+    ///
+    /// The pin level will be whatever was set before (or low by default). If you want it to begin
+    /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
-    fn set_as_input_output(&mut self,speed: Speed, pull : Pull) {
+    pub fn set_as_input_output(&mut self,speed: Speed, pull : Pull) {
         critical_section::with(|_| unsafe {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
