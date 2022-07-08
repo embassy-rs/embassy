@@ -29,6 +29,8 @@ use embassy::blocking_mutex::raw::RawMutex;
 use embassy::mutex::Mutex;
 use embedded_hal_async::i2c;
 
+use crate::SetConfig;
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum I2cBusDeviceError<BUS> {
     I2c(BUS),
@@ -97,6 +99,82 @@ where
     ) -> Self::WriteReadFuture<'a> {
         async move {
             let mut bus = self.bus.lock().await;
+            bus.write_read(address, wr_buffer, rd_buffer)
+                .await
+                .map_err(I2cBusDeviceError::I2c)?;
+            Ok(())
+        }
+    }
+
+    type TransactionFuture<'a, 'b> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a, 'b: 'a;
+
+    fn transaction<'a, 'b>(
+        &'a mut self,
+        address: u8,
+        operations: &'a mut [embedded_hal_async::i2c::Operation<'b>],
+    ) -> Self::TransactionFuture<'a, 'b> {
+        let _ = address;
+        let _ = operations;
+        async move { todo!() }
+    }
+}
+
+pub struct I2cBusDeviceWithConfig<'a, M: RawMutex, BUS, C> {
+    bus: &'a Mutex<M, BUS>,
+    config: C,
+}
+
+impl<'a, M: RawMutex, BUS, C> I2cBusDeviceWithConfig<'a, M, BUS, C> {
+    pub fn new(bus: &'a Mutex<M, BUS>, config: C) -> Self {
+        Self { bus, config }
+    }
+}
+
+impl<'a, M: RawMutex, BUS, C> i2c::ErrorType for I2cBusDeviceWithConfig<'a, M, BUS, C>
+where
+    BUS: i2c::ErrorType,
+{
+    type Error = I2cBusDeviceError<BUS::Error>;
+}
+
+impl<M, BUS, C> i2c::I2c for I2cBusDeviceWithConfig<'_, M, BUS, C>
+where
+    M: RawMutex + 'static,
+    BUS: i2c::I2c + SetConfig<C> + 'static,
+{
+    type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+    fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        async move {
+            let mut bus = self.bus.lock().await;
+            bus.set_config(&self.config);
+            bus.read(address, buffer).await.map_err(I2cBusDeviceError::I2c)?;
+            Ok(())
+        }
+    }
+
+    type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+    fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
+        async move {
+            let mut bus = self.bus.lock().await;
+            bus.set_config(&self.config);
+            bus.write(address, bytes).await.map_err(I2cBusDeviceError::I2c)?;
+            Ok(())
+        }
+    }
+
+    type WriteReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+    fn write_read<'a>(
+        &'a mut self,
+        address: u8,
+        wr_buffer: &'a [u8],
+        rd_buffer: &'a mut [u8],
+    ) -> Self::WriteReadFuture<'a> {
+        async move {
+            let mut bus = self.bus.lock().await;
+            bus.set_config(&self.config);
             bus.write_read(address, wr_buffer, rd_buffer)
                 .await
                 .map_err(I2cBusDeviceError::I2c)?;

@@ -34,6 +34,8 @@ use embedded_hal_1::digital::blocking::OutputPin;
 use embedded_hal_1::spi::ErrorType;
 use embedded_hal_async::spi;
 
+use crate::SetConfig;
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum SpiBusDeviceError<BUS, CS> {
     Spi(BUS),
@@ -93,6 +95,65 @@ where
     {
         async move {
             let mut bus = self.bus.lock().await;
+            self.cs.set_low().map_err(SpiBusDeviceError::Cs)?;
+
+            let f_res = f(&mut *bus).await;
+
+            // On failure, it's important to still flush and deassert CS.
+            let flush_res = bus.flush().await;
+            let cs_res = self.cs.set_high();
+
+            let f_res = f_res.map_err(SpiBusDeviceError::Spi)?;
+            flush_res.map_err(SpiBusDeviceError::Spi)?;
+            cs_res.map_err(SpiBusDeviceError::Cs)?;
+
+            Ok(f_res)
+        }
+    }
+}
+
+pub struct SpiBusDeviceWithConfig<'a, M: RawMutex, BUS, CS, C> {
+    bus: &'a Mutex<M, BUS>,
+    cs: CS,
+    config: C,
+}
+
+impl<'a, M: RawMutex, BUS, CS, C> SpiBusDeviceWithConfig<'a, M, BUS, CS, C> {
+    pub fn new(bus: &'a Mutex<M, BUS>, cs: CS, config: C) -> Self {
+        Self { bus, cs, config }
+    }
+}
+
+impl<'a, M: RawMutex, BUS, CS, C> spi::ErrorType for SpiBusDeviceWithConfig<'a, M, BUS, CS, C>
+where
+    BUS: spi::ErrorType,
+    CS: OutputPin,
+{
+    type Error = SpiBusDeviceError<BUS::Error, CS::Error>;
+}
+
+impl<M, BUS, CS, C> spi::SpiDevice for SpiBusDeviceWithConfig<'_, M, BUS, CS, C>
+where
+    M: RawMutex + 'static,
+    BUS: spi::SpiBusFlush + SetConfig<C> + 'static,
+    CS: OutputPin,
+{
+    type Bus = BUS;
+
+    type TransactionFuture<'a, R, F, Fut> = impl Future<Output = Result<R, Self::Error>> + 'a
+    where
+        Self: 'a, R: 'a, F: FnOnce(*mut Self::Bus) -> Fut + 'a,
+        Fut: Future<Output =  Result<R, <Self::Bus as ErrorType>::Error>> + 'a;
+
+    fn transaction<'a, R, F, Fut>(&'a mut self, f: F) -> Self::TransactionFuture<'a, R, F, Fut>
+    where
+        R: 'a,
+        F: FnOnce(*mut Self::Bus) -> Fut + 'a,
+        Fut: Future<Output = Result<R, <Self::Bus as ErrorType>::Error>> + 'a,
+    {
+        async move {
+            let mut bus = self.bus.lock().await;
+            bus.set_config(&self.config);
             self.cs.set_low().map_err(SpiBusDeviceError::Cs)?;
 
             let f_res = f(&mut *bus).await;

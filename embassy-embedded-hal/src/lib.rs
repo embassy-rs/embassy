@@ -4,3 +4,7 @@
 
 pub mod adapter;
 pub mod shared_bus;
+
+pub trait SetConfig<C> {
+    fn set_config(&mut self, config: &C);
+}

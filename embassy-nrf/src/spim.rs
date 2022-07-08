@@ -4,6 +4,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
+use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::unborrow;
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::poll_fn;
@@ -519,5 +520,47 @@ cfg_if::cfg_if! {
                 self.transfer_in_place(words)
             }
         }
+    }
+}
+
+impl<'d, T: Instance> SetConfig<Config> for Spim<'d, T> {
+    fn set_config(&mut self, config: &Config) {
+        let r = T::regs();
+        // Configure mode.
+        let mode = config.mode;
+        r.config.write(|w| {
+            match mode {
+                MODE_0 => {
+                    w.order().msb_first();
+                    w.cpol().active_high();
+                    w.cpha().leading();
+                }
+                MODE_1 => {
+                    w.order().msb_first();
+                    w.cpol().active_high();
+                    w.cpha().trailing();
+                }
+                MODE_2 => {
+                    w.order().msb_first();
+                    w.cpol().active_low();
+                    w.cpha().leading();
+                }
+                MODE_3 => {
+                    w.order().msb_first();
+                    w.cpol().active_low();
+                    w.cpha().trailing();
+                }
+            }
+
+            w
+        });
+
+        // Configure frequency.
+        let frequency = config.frequency;
+        r.frequency.write(|w| w.frequency().variant(frequency));
+
+        // Set over-read character
+        let orc = config.orc;
+        r.orc.write(|w| unsafe { w.orc().bits(orc) });
     }
 }

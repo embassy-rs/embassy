@@ -15,6 +15,7 @@ use core::task::Poll;
 #[cfg(feature = "time")]
 use embassy::time::{Duration, Instant};
 use embassy::waitqueue::AtomicWaker;
+use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
 
@@ -24,6 +25,7 @@ use crate::interrupt::{Interrupt, InterruptExt};
 use crate::util::{slice_in_ram, slice_in_ram_or};
 use crate::{gpio, pac, Unborrow};
 
+#[derive(Clone, Copy)]
 pub enum Frequency {
     #[doc = "26738688: 100 kbps"]
     K100 = 26738688,
@@ -875,5 +877,13 @@ cfg_if::cfg_if! {
                 async move { todo!() }
             }
         }
+    }
+}
+
+impl<'d, T: Instance> SetConfig<Config> for Twim<'d, T> {
+    fn set_config(&mut self, config: &Config) {
+        let r = T::regs();
+        r.frequency
+            .write(|w| unsafe { w.frequency().bits(config.frequency as u32) });
     }
 }

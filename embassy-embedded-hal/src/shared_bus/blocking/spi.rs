@@ -8,6 +8,7 @@ use embedded_hal_1::spi;
 use embedded_hal_1::spi::blocking::{SpiBusFlush, SpiDevice};
 
 use crate::shared_bus::spi::SpiBusDeviceError;
+use crate::SetConfig;
 
 pub struct SpiBusDevice<'a, M: RawMutex, BUS, CS> {
     bus: &'a Mutex<M, RefCell<BUS>>,
@@ -39,6 +40,55 @@ where
     fn transaction<R>(&mut self, f: impl FnOnce(&mut Self::Bus) -> Result<R, BUS::Error>) -> Result<R, Self::Error> {
         self.bus.lock(|bus| {
             let mut bus = bus.borrow_mut();
+            self.cs.set_low().map_err(SpiBusDeviceError::Cs)?;
+
+            let f_res = f(&mut bus);
+
+            // On failure, it's important to still flush and deassert CS.
+            let flush_res = bus.flush();
+            let cs_res = self.cs.set_high();
+
+            let f_res = f_res.map_err(SpiBusDeviceError::Spi)?;
+            flush_res.map_err(SpiBusDeviceError::Spi)?;
+            cs_res.map_err(SpiBusDeviceError::Cs)?;
+
+            Ok(f_res)
+        })
+    }
+}
+
+pub struct SpiBusDeviceWithConfig<'a, M: RawMutex, BUS, CS, C> {
+    bus: &'a Mutex<M, RefCell<BUS>>,
+    cs: CS,
+    config: C,
+}
+
+impl<'a, M: RawMutex, BUS, CS, C> SpiBusDeviceWithConfig<'a, M, BUS, CS, C> {
+    pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS, config: C) -> Self {
+        Self { bus, cs, config }
+    }
+}
+
+impl<'a, M: RawMutex, BUS, CS, C> spi::ErrorType for SpiBusDeviceWithConfig<'a, M, BUS, CS, C>
+where
+    BUS: spi::ErrorType,
+    CS: OutputPin,
+{
+    type Error = SpiBusDeviceError<BUS::Error, CS::Error>;
+}
+
+impl<BUS, M, CS, C> SpiDevice for SpiBusDeviceWithConfig<'_, M, BUS, CS, C>
+where
+    M: RawMutex,
+    BUS: SpiBusFlush + SetConfig<C>,
+    CS: OutputPin,
+{
+    type Bus = BUS;
+
+    fn transaction<R>(&mut self, f: impl FnOnce(&mut Self::Bus) -> Result<R, BUS::Error>) -> Result<R, Self::Error> {
+        self.bus.lock(|bus| {
+            let mut bus = bus.borrow_mut();
+            bus.set_config(&self.config);
             self.cs.set_low().map_err(SpiBusDeviceError::Cs)?;
 
             let f_res = f(&mut bus);
