@@ -20,7 +20,7 @@ flavors = [
 unstable-pac = []
 
 # Enable nightly-only features
-nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async"]
+nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly"]
 
 # Implement embedded-hal 1.0 alpha traits.
 # Implement embedded-hal-async traits if `nightly` is set as well.

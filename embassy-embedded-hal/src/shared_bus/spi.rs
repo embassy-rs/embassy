@@ -32,6 +32,7 @@ use embassy::blocking_mutex::raw::RawMutex;
 use embassy::mutex::Mutex;
 use embedded_hal_1::digital::blocking::OutputPin;
 use embedded_hal_1::spi::ErrorType;
+#[cfg(feature = "nightly")]
 use embedded_hal_async::spi;
 
 use crate::SetConfig;
@@ -74,6 +75,7 @@ where
     type Error = SpiBusDeviceError<BUS::Error, CS::Error>;
 }
 
+#[cfg(feature = "nightly")]
 impl<M, BUS, CS> spi::SpiDevice for SpiBusDevice<'_, M, BUS, CS>
 where
     M: RawMutex + 'static,
@@ -133,6 +135,7 @@ where
     type Error = SpiBusDeviceError<BUS::Error, CS::Error>;
 }
 
+#[cfg(feature = "nightly")]
 impl<M, BUS, CS> spi::SpiDevice for SpiBusDeviceWithConfig<'_, M, BUS, CS>
 where
     M: RawMutex + 'static,

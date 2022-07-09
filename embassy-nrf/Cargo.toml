@@ -21,7 +21,7 @@ time = ["embassy/time"]
 defmt = ["dep:defmt", "embassy/defmt", "embassy-usb?/defmt", "embedded-io?/defmt"]
 
 # Enable nightly-only features
-nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-usb", "embedded-storage-async", "dep:embedded-io"]
+nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-usb", "embedded-storage-async", "dep:embedded-io", "embassy-embedded-hal/nightly"]
 
 # Reexport the PAC for the currently enabled chip at `embassy_nrf::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-nrf may major-bump (breaking) the PAC version.

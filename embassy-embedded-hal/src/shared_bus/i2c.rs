@@ -27,6 +27,7 @@ use core::future::Future;
 
 use embassy::blocking_mutex::raw::RawMutex;
 use embassy::mutex::Mutex;
+#[cfg(feature = "nightly")]
 use embedded_hal_async::i2c;
 
 use crate::SetConfig;
@@ -64,6 +65,7 @@ where
     type Error = I2cBusDeviceError<BUS::Error>;
 }
 
+#[cfg(feature = "nightly")]
 impl<M, BUS> i2c::I2c for I2cBusDevice<'_, M, BUS>
 where
     M: RawMutex + 'static,
@@ -139,6 +141,7 @@ where
     type Error = I2cBusDeviceError<BUS::Error>;
 }
 
+#[cfg(feature = "nightly")]
 impl<M, BUS> i2c::I2c for I2cBusDeviceWithConfig<'_, M, BUS>
 where
     M: RawMutex + 'static,
