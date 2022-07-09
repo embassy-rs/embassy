@@ -12,7 +12,7 @@ nightly = ["embedded-hal-async"]
 embassy = { version = "0.1.0", path = "../embassy" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
-embedded-hal-async = { version = "0.1.0-alpha.1" }
+embedded-hal-async = { version = "0.1.0-alpha.1", optional = true }
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.3.0"
 nb = "1.0.0"
