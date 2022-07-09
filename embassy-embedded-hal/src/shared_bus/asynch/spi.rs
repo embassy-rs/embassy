@@ -25,7 +25,6 @@
 //! let spi_dev2 = SpiBusDevice::new(spi_bus, cs_pin2);
 //! let display2 = ST7735::new(spi_dev2, dc2, rst2, Default::default(), 160, 128);
 //! ```
-use core::fmt::Debug;
 use core::future::Future;
 
 use embassy::blocking_mutex::raw::RawMutex;
@@ -54,19 +53,6 @@ where
     CS: OutputPin,
 {
     type Error = SpiBusDeviceError<BUS::Error, CS::Error>;
-}
-
-impl<BUS, CS> spi::Error for SpiBusDeviceError<BUS, CS>
-where
-    BUS: spi::Error + Debug,
-    CS: Debug,
-{
-    fn kind(&self) -> spi::ErrorKind {
-        match self {
-            Self::Spi(e) => e.kind(),
-            Self::Cs(_) => spi::ErrorKind::Other,
-        }
-    }
 }
 
 impl<M, BUS, CS> spi::SpiDevice for SpiBusDevice<'_, M, BUS, CS>

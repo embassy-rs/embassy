@@ -22,7 +22,6 @@
 //! let i2c_dev2 = I2cBusDevice::new(i2c_bus);
 //! let mpu = Mpu6050::new(i2c_dev2);
 //! ```
-use core::fmt::Debug;
 use core::future::Future;
 
 use embassy::blocking_mutex::raw::RawMutex;
@@ -39,17 +38,6 @@ pub struct I2cBusDevice<'a, M: RawMutex, BUS> {
 impl<'a, M: RawMutex, BUS> I2cBusDevice<'a, M, BUS> {
     pub fn new(bus: &'a Mutex<M, BUS>) -> Self {
         Self { bus }
-    }
-}
-
-impl<BUS> i2c::Error for I2cBusDeviceError<BUS>
-where
-    BUS: i2c::Error + Debug,
-{
-    fn kind(&self) -> i2c::ErrorKind {
-        match self {
-            Self::I2c(e) => e.kind(),
-        }
     }
 }
 
