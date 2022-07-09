@@ -7,7 +7,7 @@ use core::mem;
 
 use defmt::{info, panic};
 use embassy::executor::Spawner;
-use embassy_nrf::usb::{Driver, Instance};
+use embassy_nrf::usb::{Driver, Instance, PowerUsb, UsbSupply};
 use embassy_nrf::{interrupt, pac, Peripherals};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // Create the driver, from the HAL.
     let irq = interrupt::take!(USBD);
     let power_irq = interrupt::take!(POWER_CLOCK);
-    let driver = Driver::with_power_management(p.USBD, irq, power_irq);
+    let driver = Driver::new(p.USBD, irq, PowerUsb::new(power_irq));
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);
@@ -97,7 +97,9 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-async fn echo<'d, T: Instance + 'd>(class: &mut CdcAcmClass<'d, Driver<'d, T>>) -> Result<(), Disconnected> {
+async fn echo<'d, T: Instance + 'd, P: UsbSupply + 'd>(
+    class: &mut CdcAcmClass<'d, Driver<'d, T, P>>,
+) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
         let n = class.read_packet(&mut buf).await?;

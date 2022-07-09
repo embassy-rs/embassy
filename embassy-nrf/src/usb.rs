@@ -25,61 +25,161 @@ static EP0_WAKER: AtomicWaker = NEW_AW;
 static EP_IN_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
 static EP_OUT_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
 static READY_ENDPOINTS: AtomicU32 = AtomicU32::new(0);
-static POWER_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
-pub struct Driver<'d, T: Instance> {
+/// There are multiple ways to detect USB power. The behavior
+/// here provides a hook into determining whether it is.
+pub trait UsbSupply {
+    fn is_usb_detected(&self) -> bool;
+
+    type UsbPowerReadyFuture<'a>: Future<Output = Result<(), ()>> + 'a
+    where
+        Self: 'a;
+    fn wait_power_ready(&mut self) -> Self::UsbPowerReadyFuture<'_>;
+}
+
+pub struct Driver<'d, T: Instance, P: UsbSupply> {
     phantom: PhantomData<&'d mut T>,
     alloc_in: Allocator,
     alloc_out: Allocator,
+    usb_supply: P,
 }
 
-impl<'d, T: Instance> Driver<'d, T> {
-    pub fn new(_usb: impl Unborrow<Target = T> + 'd, irq: impl Unborrow<Target = T::Interrupt> + 'd) -> Self {
-        Self::with_power_state(_usb, irq, true)
+/// Uses the POWER peripheral to detect when power is available
+/// for USB. Unsuitable for usage with the nRF softdevice.
+#[cfg(not(feature = "_nrf5340-app"))]
+pub struct PowerUsb {}
+
+/// Can be used to signal that power is available. Particularly suited for
+/// use with the nRF softdevice.
+pub struct SignalledSupply {
+    usb_detected: AtomicBool,
+    power_ready: AtomicBool,
+}
+
+static POWER_WAKER: AtomicWaker = NEW_AW;
+
+#[cfg(not(feature = "_nrf5340-app"))]
+impl PowerUsb {
+    pub fn new(power_irq: impl Interrupt) -> Self {
+        let regs = unsafe { &*pac::POWER::ptr() };
+
+        power_irq.set_handler(Self::on_interrupt);
+        power_irq.unpend();
+        power_irq.enable();
+
+        regs.intenset
+            .write(|w| w.usbdetected().set().usbremoved().set().usbpwrrdy().set());
+
+        Self {}
     }
 
-    /// Establish a new device that then puts the USB device into an initial power state.
-    /// Required when using the nRF softdevice where power is unavailable until
-    /// notified by it, at which time the the [`Self::power()`] method should then be called.
-    pub fn with_power_state(
+    #[cfg(not(feature = "_nrf5340-app"))]
+    fn on_interrupt(_: *mut ()) {
+        let regs = unsafe { &*pac::POWER::ptr() };
+
+        if regs.events_usbdetected.read().bits() != 0 {
+            regs.events_usbdetected.reset();
+            BUS_WAKER.wake();
+        }
+
+        if regs.events_usbremoved.read().bits() != 0 {
+            regs.events_usbremoved.reset();
+            BUS_WAKER.wake();
+            POWER_WAKER.wake();
+        }
+
+        if regs.events_usbpwrrdy.read().bits() != 0 {
+            regs.events_usbpwrrdy.reset();
+            POWER_WAKER.wake();
+        }
+    }
+}
+
+#[cfg(not(feature = "_nrf5340-app"))]
+impl UsbSupply for PowerUsb {
+    fn is_usb_detected(&self) -> bool {
+        let regs = unsafe { &*pac::POWER::ptr() };
+        regs.usbregstatus.read().vbusdetect().is_vbus_present()
+    }
+
+    type UsbPowerReadyFuture<'a> = impl Future<Output = Result<(), ()>> + 'a where Self: 'a;
+    fn wait_power_ready(&mut self) -> Self::UsbPowerReadyFuture<'_> {
+        poll_fn(move |cx| {
+            POWER_WAKER.register(cx.waker());
+            let regs = unsafe { &*pac::POWER::ptr() };
+
+            if regs.usbregstatus.read().outputrdy().is_ready() {
+                Poll::Ready(Ok(()))
+            } else if !self.is_usb_detected() {
+                Poll::Ready(Err(()))
+            } else {
+                Poll::Pending
+            }
+        })
+    }
+}
+
+impl SignalledSupply {
+    pub fn new(usb_detected: bool, power_ready: bool) -> Self {
+        BUS_WAKER.wake();
+
+        Self {
+            usb_detected: AtomicBool::new(usb_detected),
+            power_ready: AtomicBool::new(power_ready),
+        }
+    }
+
+    pub fn detected(&self, detected: bool) {
+        self.usb_detected.store(detected, Ordering::Relaxed);
+        self.power_ready.store(false, Ordering::Relaxed);
+        BUS_WAKER.wake();
+        POWER_WAKER.wake();
+    }
+
+    pub fn ready(&self) {
+        self.power_ready.store(true, Ordering::Relaxed);
+        POWER_WAKER.wake();
+    }
+}
+
+impl UsbSupply for SignalledSupply {
+    fn is_usb_detected(&self) -> bool {
+        self.usb_detected.load(Ordering::Relaxed)
+    }
+
+    type UsbPowerReadyFuture<'a> = impl Future<Output = Result<(), ()>> + 'a where Self: 'a;
+    fn wait_power_ready(&mut self) -> Self::UsbPowerReadyFuture<'_> {
+        poll_fn(move |cx| {
+            POWER_WAKER.register(cx.waker());
+
+            if self.power_ready.load(Ordering::Relaxed) {
+                Poll::Ready(Ok(()))
+            } else if !self.usb_detected.load(Ordering::Relaxed) {
+                Poll::Ready(Err(()))
+            } else {
+                Poll::Pending
+            }
+        })
+    }
+}
+
+impl<'d, T: Instance, P: UsbSupply> Driver<'d, T, P> {
+    pub fn new(
         _usb: impl Unborrow<Target = T> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        power_available: bool,
+        usb_supply: P,
     ) -> Self {
         unborrow!(irq);
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
         irq.enable();
 
-        // Initialize the bus so that it signals that power is available.
-        // Not required when using with_power_management as we then rely on the irq.
-        POWER_AVAILABLE.store(power_available, Ordering::Relaxed);
-        BUS_WAKER.wake();
-
         Self {
             phantom: PhantomData,
             alloc_in: Allocator::new(),
             alloc_out: Allocator::new(),
+            usb_supply,
         }
-    }
-
-    /// Establish a new device that then uses the POWER peripheral to
-    /// detect USB power detected/removed events are handled.
-    #[cfg(not(feature = "_nrf5340-app"))]
-    pub fn with_power_management(
-        _usb: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        power_irq: impl Interrupt,
-    ) -> Self {
-        let regs = unsafe { &*pac::POWER::ptr() };
-
-        power_irq.set_handler(Self::on_power_interrupt);
-        power_irq.unpend();
-        power_irq.enable();
-
-        regs.intenset.write(|w| w.usbdetected().set().usbremoved().set());
-
-        Self::with_power_state(_usb, irq, regs.usbregstatus.read().vbusdetect().is_vbus_present())
     }
 
     fn on_interrupt(_: *mut ()) {
@@ -131,46 +231,13 @@ impl<'d, T: Instance> Driver<'d, T> {
             }
         }
     }
-
-    #[cfg(not(feature = "_nrf5340-app"))]
-    fn on_power_interrupt(_: *mut ()) {
-        let regs = unsafe { &*pac::POWER::ptr() };
-
-        let mut power_changed = false;
-        let mut power_available = false;
-
-        if regs.events_usbdetected.read().bits() != 0 {
-            regs.events_usbdetected.reset();
-            power_changed = true;
-            power_available = true;
-        }
-
-        if regs.events_usbremoved.read().bits() != 0 {
-            regs.events_usbremoved.reset();
-            power_changed = true;
-            power_available = false;
-        }
-
-        if power_changed {
-            POWER_AVAILABLE.store(power_available, Ordering::Relaxed);
-            BUS_WAKER.wake();
-        }
-    }
-
-    /// Manually declare that USB power is available or unavailable.
-    /// Useful in scenarios where power management cannot be managed
-    /// automatically e.g. when dealing with the nrf-softdevice.
-    pub fn power(available: bool) {
-        POWER_AVAILABLE.store(available, Ordering::Relaxed);
-        BUS_WAKER.wake();
-    }
 }
 
-impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
+impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P> {
     type EndpointOut = Endpoint<'d, T, Out>;
     type EndpointIn = Endpoint<'d, T, In>;
     type ControlPipe = ControlPipe<'d, T>;
-    type Bus = Bus<'d, T>;
+    type Bus = Bus<'d, T, P>;
 
     fn alloc_endpoint_in(
         &mut self,
@@ -209,6 +276,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
             Bus {
                 phantom: PhantomData,
                 power_available: false,
+                usb_supply: self.usb_supply,
             },
             ControlPipe {
                 _phantom: PhantomData,
@@ -218,12 +286,13 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     }
 }
 
-pub struct Bus<'d, T: Instance> {
+pub struct Bus<'d, T: Instance, P: UsbSupply> {
     phantom: PhantomData<&'d mut T>,
     power_available: bool,
+    usb_supply: P,
 }
 
-impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
+impl<'d, T: Instance, P: UsbSupply> driver::Bus for Bus<'d, T, P> {
     type EnableFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
     type DisableFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
     type PollFuture<'a> = impl Future<Output = Event> + 'a where Self: 'a;
@@ -260,9 +329,14 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 w.epdata().set_bit();
                 w
             });
-            // Enable the USB pullup, allowing enumeration.
-            regs.usbpullup.write(|w| w.connect().enabled());
-            trace!("enabled");
+
+            if self.usb_supply.wait_power_ready().await.is_ok() {
+                // Enable the USB pullup, allowing enumeration.
+                regs.usbpullup.write(|w| w.connect().enabled());
+                trace!("enabled");
+            } else {
+                trace!("usb power not ready due to usb removal");
+            }
         }
     }
 
@@ -318,7 +392,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 trace!("USB event: ready");
             }
 
-            if POWER_AVAILABLE.load(Ordering::Relaxed) != self.power_available {
+            if self.usb_supply.is_usb_detected() != self.power_available {
                 self.power_available = !self.power_available;
                 if self.power_available {
                     trace!("Power event: available");

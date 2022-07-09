@@ -8,7 +8,7 @@ use core::mem;
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_nrf::usb::Driver;
+use embassy_nrf::usb::{Driver, PowerUsb};
 use embassy_nrf::{interrupt, pac, Peripherals};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config};
@@ -20,19 +20,15 @@ use {defmt_rtt as _, panic_probe as _};
 #[embassy::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     let clock: pac::CLOCK = unsafe { mem::transmute(()) };
-    let power: pac::POWER = unsafe { mem::transmute(()) };
 
     info!("Enabling ext hfosc...");
     clock.tasks_hfclkstart.write(|w| unsafe { w.bits(1) });
     while clock.events_hfclkstarted.read().bits() != 1 {}
 
-    info!("Waiting for vbus...");
-    while !power.usbregstatus.read().vbusdetect().is_vbus_present() {}
-    info!("vbus OK");
-
     // Create the driver, from the HAL.
     let irq = interrupt::take!(USBD);
-    let driver = Driver::new(p.USBD, irq);
+    let power_irq = interrupt::take!(POWER_CLOCK);
+    let driver = Driver::new(p.USBD, irq, PowerUsb::new(power_irq));
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);
