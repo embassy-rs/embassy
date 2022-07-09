@@ -1,6 +1,16 @@
 //! Shared bus implementations
+#[cfg(feature = "nightly")]
+pub mod asynch;
+
 pub mod blocking;
-/// Shared i2c bus implementation for embedded-hal-async
-pub mod i2c;
-/// Shared SPI bus implementation for embedded-hal-async
-pub mod spi;
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum I2cBusDeviceError<BUS> {
+    I2c(BUS),
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum SpiBusDeviceError<BUS, CS> {
+    Spi(BUS),
+    Cs(CS),
+}

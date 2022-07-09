@@ -27,14 +27,19 @@ use core::future::Future;
 
 use embassy::blocking_mutex::raw::RawMutex;
 use embassy::mutex::Mutex;
-#[cfg(feature = "nightly")]
 use embedded_hal_async::i2c;
 
+use crate::shared_bus::I2cBusDeviceError;
 use crate::SetConfig;
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum I2cBusDeviceError<BUS> {
-    I2c(BUS),
+pub struct I2cBusDevice<'a, M: RawMutex, BUS> {
+    bus: &'a Mutex<M, BUS>,
+}
+
+impl<'a, M: RawMutex, BUS> I2cBusDevice<'a, M, BUS> {
+    pub fn new(bus: &'a Mutex<M, BUS>) -> Self {
+        Self { bus }
+    }
 }
 
 impl<BUS> i2c::Error for I2cBusDeviceError<BUS>
@@ -48,16 +53,6 @@ where
     }
 }
 
-pub struct I2cBusDevice<'a, M: RawMutex, BUS> {
-    bus: &'a Mutex<M, BUS>,
-}
-
-impl<'a, M: RawMutex, BUS> I2cBusDevice<'a, M, BUS> {
-    pub fn new(bus: &'a Mutex<M, BUS>) -> Self {
-        Self { bus }
-    }
-}
-
 impl<'a, M: RawMutex, BUS> i2c::ErrorType for I2cBusDevice<'a, M, BUS>
 where
     BUS: i2c::ErrorType,
@@ -65,7 +60,6 @@ where
     type Error = I2cBusDeviceError<BUS::Error>;
 }
 
-#[cfg(feature = "nightly")]
 impl<M, BUS> i2c::I2c for I2cBusDevice<'_, M, BUS>
 where
     M: RawMutex + 'static,
@@ -141,7 +135,6 @@ where
     type Error = I2cBusDeviceError<BUS::Error>;
 }
 
-#[cfg(feature = "nightly")]
 impl<M, BUS> i2c::I2c for I2cBusDeviceWithConfig<'_, M, BUS>
 where
     M: RawMutex + 'static,

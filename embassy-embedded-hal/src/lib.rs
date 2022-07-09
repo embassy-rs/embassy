@@ -2,7 +2,9 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
+#[cfg(feature = "nightly")]
 pub mod adapter;
+
 pub mod shared_bus;
 
 pub trait SetConfig {

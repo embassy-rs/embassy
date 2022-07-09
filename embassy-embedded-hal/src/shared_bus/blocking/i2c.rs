@@ -23,7 +23,7 @@ use embassy::blocking_mutex::Mutex;
 use embedded_hal_1::i2c::blocking::{I2c, Operation};
 use embedded_hal_1::i2c::ErrorType;
 
-use crate::shared_bus::i2c::I2cBusDeviceError;
+use crate::shared_bus::I2cBusDeviceError;
 use crate::SetConfig;
 
 pub struct I2cBusDevice<'a, M: RawMutex, BUS> {

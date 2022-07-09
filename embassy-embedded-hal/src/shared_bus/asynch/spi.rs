@@ -32,29 +32,10 @@ use embassy::blocking_mutex::raw::RawMutex;
 use embassy::mutex::Mutex;
 use embedded_hal_1::digital::blocking::OutputPin;
 use embedded_hal_1::spi::ErrorType;
-#[cfg(feature = "nightly")]
 use embedded_hal_async::spi;
 
+use crate::shared_bus::SpiBusDeviceError;
 use crate::SetConfig;
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum SpiBusDeviceError<BUS, CS> {
-    Spi(BUS),
-    Cs(CS),
-}
-
-impl<BUS, CS> spi::Error for SpiBusDeviceError<BUS, CS>
-where
-    BUS: spi::Error + Debug,
-    CS: Debug,
-{
-    fn kind(&self) -> spi::ErrorKind {
-        match self {
-            Self::Spi(e) => e.kind(),
-            Self::Cs(_) => spi::ErrorKind::Other,
-        }
-    }
-}
 
 pub struct SpiBusDevice<'a, M: RawMutex, BUS, CS> {
     bus: &'a Mutex<M, BUS>,
@@ -75,7 +56,19 @@ where
     type Error = SpiBusDeviceError<BUS::Error, CS::Error>;
 }
 
-#[cfg(feature = "nightly")]
+impl<BUS, CS> spi::Error for SpiBusDeviceError<BUS, CS>
+where
+    BUS: spi::Error + Debug,
+    CS: Debug,
+{
+    fn kind(&self) -> spi::ErrorKind {
+        match self {
+            Self::Spi(e) => e.kind(),
+            Self::Cs(_) => spi::ErrorKind::Other,
+        }
+    }
+}
+
 impl<M, BUS, CS> spi::SpiDevice for SpiBusDevice<'_, M, BUS, CS>
 where
     M: RawMutex + 'static,
@@ -135,7 +128,6 @@ where
     type Error = SpiBusDeviceError<BUS::Error, CS::Error>;
 }
 
-#[cfg(feature = "nightly")]
 impl<M, BUS, CS> spi::SpiDevice for SpiBusDeviceWithConfig<'_, M, BUS, CS>
 where
     M: RawMutex + 'static,

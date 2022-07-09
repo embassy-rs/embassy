@@ -26,7 +26,7 @@ use embedded_hal_1::digital::blocking::OutputPin;
 use embedded_hal_1::spi;
 use embedded_hal_1::spi::blocking::{SpiBusFlush, SpiDevice};
 
-use crate::shared_bus::spi::SpiBusDeviceError;
+use crate::shared_bus::SpiBusDeviceError;
 use crate::SetConfig;
 
 pub struct SpiBusDevice<'a, M: RawMutex, BUS, CS> {
