@@ -1,0 +1,48 @@
+[package]
+edition = "2021"
+name = "embassy-rp-tests"
+version = "0.1.0"
+
+[dependencies]
+embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
+embassy-rp = { version = "0.1.0", path = "../../embassy-rp", features = ["nightly", "defmt", "unstable-pac", "unstable-traits"]  }
+
+defmt = "0.3.0"
+defmt-rtt = "0.3.0"
+
+cortex-m = "0.7.3"
+cortex-m-rt = "0.7.0"
+embedded-hal = "0.2.6"
+embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
+embedded-hal-async = { version = "0.1.0-alpha.1" }
+panic-probe = { version = "0.3.0", features = ["print-defmt"] }
+
+[profile.dev]
+debug = 2
+debug-assertions = true
+opt-level = 's'
+overflow-checks = true
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = "fat"
+opt-level = 's'
+overflow-checks = false
+
+# do not optimize proc-macro crates = faster builds from scratch
+[profile.dev.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[profile.release.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
