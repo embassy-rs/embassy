@@ -90,7 +90,7 @@ impl<'d, T: Pin> Flex<'d, T> {
             {
                 r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
                 r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
-                pin.set_speed(speed);
+                self.pin.set_speed(speed);
                 r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
             }
         });
@@ -125,7 +125,7 @@ impl<'d, T: Pin> Flex<'d, T> {
             {
                 r.pupdr().modify(|w| w.set_pupdr(n, pull.into()));
                 r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPENDRAIN));
-                pin.set_speed(speed);
+                self.pin.set_speed(speed);
                 r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
             }
         });
