@@ -99,7 +99,7 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
     }
 
     pub async fn wait_for_high<'a>(&'a mut self) {
-        let fut = ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, false);
+        let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false);
         if self.is_high() {
             return;
         }
@@ -107,7 +107,7 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
     }
 
     pub async fn wait_for_low<'a>(&'a mut self) {
-        let fut = ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), false, true);
+        let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true);
         if self.is_low() {
             return;
         }
@@ -115,15 +115,15 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
     }
 
     pub async fn wait_for_rising_edge<'a>(&'a mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, false).await
+        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false).await
     }
 
     pub async fn wait_for_falling_edge<'a>(&'a mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), false, true).await
+        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true).await
     }
 
     pub async fn wait_for_any_edge<'a>(&'a mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, true).await
+        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, true).await
     }
 }
 
