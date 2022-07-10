@@ -7,6 +7,197 @@ use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
 use crate::pac::gpio::{self, vals};
 use crate::{pac, peripherals, Unborrow};
 
+/// GPIO flexible pin.
+///
+/// This pin can either be a disconnected, input, or output pin, or both. The level register bit will remain
+/// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
+/// mode.
+pub struct Flex<'d, T: Pin> {
+    pub(crate) pin: T,
+    phantom: PhantomData<&'d mut T>,
+}
+
+impl<'d, T: Pin> Flex<'d, T> {
+    /// Wrap the pin in a `Flex`.
+    ///
+    /// The pin remains disconnected. The initial output level is unspecified, but can be changed
+    /// before the pin is put into output mode.
+    ///
+    #[inline]
+    pub fn new(pin: impl Unborrow<Target = T> + 'd) -> Self {
+        unborrow!(pin);
+        // Pin will be in disconnected state.
+        Self {
+            pin,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Put the pin into input mode.
+    #[inline]
+    pub fn set_as_input(&mut self, pull: Pull) {
+        critical_section::with(|_| unsafe {
+            let r = self.pin.block();
+            let n = self.pin.pin() as usize;
+            #[cfg(gpio_v1)]
+            {
+                let cnf = match pull {
+                    Pull::Up => {
+                        r.bsrr().write(|w| w.set_bs(n, true));
+                        vals::CnfIn::PULL
+                    }
+                    Pull::Down => {
+                        r.bsrr().write(|w| w.set_br(n, true));
+                        vals::CnfIn::PULL
+                    }
+                    Pull::None => vals::CnfIn::FLOATING,
+                };
+
+                let crlh = if n < 8 { 0 } else { 1 };
+                r.cr(crlh).modify(|w| {
+                    w.set_mode(n % 8, vals::Mode::INPUT);
+                    w.set_cnf_in(n % 8, cnf);
+                });
+            }
+            #[cfg(gpio_v2)]
+            {
+                r.pupdr().modify(|w| w.set_pupdr(n, pull.into()));
+                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
+                r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
+            }
+        });
+    }
+
+    /// Put the pin into output mode.
+    ///
+    /// The pin level will be whatever was set before (or low by default). If you want it to begin
+    /// at a specific level, call `set_high`/`set_low` on the pin first.
+    #[inline]
+    pub fn set_as_output(&mut self, speed: Speed) {
+        critical_section::with(|_| unsafe {
+            let r = self.pin.block();
+            let n = self.pin.pin() as usize;
+            #[cfg(gpio_v1)]
+            {
+                let crlh = if n < 8 { 0 } else { 1 };
+                r.cr(crlh).modify(|w| {
+                    w.set_mode(n % 8, speed.into());
+                    w.set_cnf_out(n % 8, vals::CnfOut::PUSHPULL);
+                });
+            }
+            #[cfg(gpio_v2)]
+            {
+                r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
+                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
+                self.pin.set_speed(speed);
+                r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
+            }
+        });
+    }
+
+    /// Put the pin into input + output mode.
+    ///
+    /// This is commonly used for "open drain" mode.
+    /// the hardware will drive the line low if you set it to low, and will leave it floating if you set
+    /// it to high, in which case you can read the input to figure out whether another device
+    /// is driving the line low.
+    ///
+    /// The pin level will be whatever was set before (or low by default). If you want it to begin
+    /// at a specific level, call `set_high`/`set_low` on the pin first.
+    #[inline]
+    pub fn set_as_input_output(&mut self, speed: Speed, pull: Pull) {
+        critical_section::with(|_| unsafe {
+            let r = self.pin.block();
+            let n = self.pin.pin() as usize;
+            #[cfg(gpio_v1)]
+            {
+                let crlh = if n < 8 { 0 } else { 1 };
+                match pull {
+                    Pull::Up => r.bsrr().write(|w| w.set_bs(n, true)),
+                    Pull::Down => r.bsrr().write(|w| w.set_br(n, true)),
+                    Pull::None => {}
+                }
+                r.cr(crlh).modify(|w| w.set_mode(n % 8, speed.into()));
+                r.cr(crlh).modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OPENDRAIN));
+            }
+            #[cfg(gpio_v2)]
+            {
+                r.pupdr().modify(|w| w.set_pupdr(n, pull.into()));
+                r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPENDRAIN));
+                self.pin.set_speed(speed);
+                r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
+            }
+        });
+    }
+
+    #[inline]
+    pub fn is_high(&self) -> bool {
+        !self.is_low()
+    }
+
+    #[inline]
+    pub fn is_low(&self) -> bool {
+        let state = unsafe { self.pin.block().idr().read().idr(self.pin.pin() as _) };
+        state == vals::Idr::LOW
+    }
+
+    #[inline]
+    pub fn is_set_high(&self) -> bool {
+        !self.is_set_low()
+    }
+
+    /// Is the output pin set as low?
+    #[inline]
+    pub fn is_set_low(&self) -> bool {
+        let state = unsafe { self.pin.block().odr().read().odr(self.pin.pin() as _) };
+        state == vals::Odr::LOW
+    }
+
+    #[inline]
+    pub fn set_high(&mut self) {
+        self.pin.set_high();
+    }
+
+    /// Set the output as low.
+    #[inline]
+    pub fn set_low(&mut self) {
+        self.pin.set_low();
+    }
+
+    /// Toggle pin output
+    #[inline]
+    pub fn toggle(&mut self) {
+        if self.is_set_low() {
+            self.set_high()
+        } else {
+            self.set_low()
+        }
+    }
+}
+
+impl<'d, T: Pin> Drop for Flex<'d, T> {
+    #[inline]
+    fn drop(&mut self) {
+        critical_section::with(|_| unsafe {
+            let r = self.pin.block();
+            let n = self.pin.pin() as usize;
+            #[cfg(gpio_v1)]
+            {
+                let crlh = if n < 8 { 0 } else { 1 };
+                r.cr(crlh).modify(|w| {
+                    w.set_mode(n % 8, vals::Mode::INPUT);
+                    w.set_cnf_in(n % 8, vals::CnfIn::FLOATING);
+                });
+            }
+            #[cfg(gpio_v2)]
+            {
+                r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
+                r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
+            }
+        });
+    }
+}
+
 /// Pull setting for an input.
 #[derive(Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -70,78 +261,25 @@ impl From<Speed> for vals::Ospeedr {
 
 /// GPIO input driver.
 pub struct Input<'d, T: Pin> {
-    pub(crate) pin: T,
-    phantom: PhantomData<&'d mut T>,
+    pub(crate) pin: Flex<'d, T>,
 }
 
 impl<'d, T: Pin> Input<'d, T> {
     #[inline]
     pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
-        unborrow!(pin);
-
-        critical_section::with(|_| unsafe {
-            let r = pin.block();
-            let n = pin.pin() as usize;
-            #[cfg(gpio_v1)]
-            {
-                let cnf = match pull {
-                    Pull::Up => {
-                        r.bsrr().write(|w| w.set_bs(n, true));
-                        vals::CnfIn::PULL
-                    }
-                    Pull::Down => {
-                        r.bsrr().write(|w| w.set_br(n, true));
-                        vals::CnfIn::PULL
-                    }
-                    Pull::None => vals::CnfIn::FLOATING,
-                };
-
-                let crlh = if n < 8 { 0 } else { 1 };
-                r.cr(crlh).modify(|w| {
-                    w.set_mode(n % 8, vals::Mode::INPUT);
-                    w.set_cnf_in(n % 8, cnf);
-                });
-            }
-            #[cfg(gpio_v2)]
-            {
-                r.pupdr().modify(|w| w.set_pupdr(n, pull.into()));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
-                r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
-            }
-        });
-
-        Self {
-            pin,
-            phantom: PhantomData,
-        }
+        let mut pin = Flex::new(pin);
+        pin.set_as_input(pull);
+        Self { pin }
     }
 
     #[inline]
     pub fn is_high(&self) -> bool {
-        !self.is_low()
+        self.pin.is_high()
     }
 
     #[inline]
     pub fn is_low(&self) -> bool {
-        let state = unsafe { self.pin.block().idr().read().idr(self.pin.pin() as _) };
-        state == vals::Idr::LOW
-    }
-}
-
-impl<'d, T: Pin> Drop for Input<'d, T> {
-    #[inline]
-    fn drop(&mut self) {
-        critical_section::with(|_| unsafe {
-            let r = self.pin.block();
-            let n = self.pin.pin() as usize;
-            #[cfg(gpio_v1)]
-            {
-                let crlh = if n < 8 { 0 } else { 1 };
-                r.cr(crlh).modify(|w| w.set_cnf_in(n % 8, vals::CnfIn::FLOATING));
-            }
-            #[cfg(gpio_v2)]
-            r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
-        });
+        self.pin.is_low()
     }
 }
 
@@ -155,44 +293,19 @@ pub enum Level {
 
 /// GPIO output driver.
 pub struct Output<'d, T: Pin> {
-    pub(crate) pin: T,
-    phantom: PhantomData<&'d mut T>,
+    pub(crate) pin: Flex<'d, T>,
 }
 
 impl<'d, T: Pin> Output<'d, T> {
     #[inline]
     pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level, speed: Speed) -> Self {
-        unborrow!(pin);
-
+        let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
             Level::Low => pin.set_low(),
         }
-
-        critical_section::with(|_| unsafe {
-            let r = pin.block();
-            let n = pin.pin() as usize;
-            #[cfg(gpio_v1)]
-            {
-                let crlh = if n < 8 { 0 } else { 1 };
-                r.cr(crlh).modify(|w| {
-                    w.set_mode(n % 8, speed.into());
-                    w.set_cnf_out(n % 8, vals::CnfOut::PUSHPULL);
-                });
-            }
-            #[cfg(gpio_v2)]
-            {
-                r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
-                pin.set_speed(speed);
-                r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
-            }
-        });
-
-        Self {
-            pin,
-            phantom: PhantomData,
-        }
+        pin.set_as_output(speed);
+        Self { pin }
     }
 
     /// Set the output as high.
@@ -210,104 +323,49 @@ impl<'d, T: Pin> Output<'d, T> {
     /// Is the output pin set as high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
-        !self.is_set_low()
+        self.pin.is_set_high()
     }
 
     /// Is the output pin set as low?
     #[inline]
     pub fn is_set_low(&self) -> bool {
-        let state = unsafe { self.pin.block().odr().read().odr(self.pin.pin() as _) };
-        state == vals::Odr::LOW
+        self.pin.is_set_low()
     }
 
     /// Toggle pin output
     #[inline]
     pub fn toggle(&mut self) {
-        if self.is_set_low() {
-            self.set_high()
-        } else {
-            self.set_low()
-        }
-    }
-}
-
-impl<'d, T: Pin> Drop for Output<'d, T> {
-    #[inline]
-    fn drop(&mut self) {
-        critical_section::with(|_| unsafe {
-            let r = self.pin.block();
-            let n = self.pin.pin() as usize;
-            #[cfg(gpio_v1)]
-            {
-                let crlh = if n < 8 { 0 } else { 1 };
-                r.cr(crlh).modify(|w| {
-                    w.set_mode(n % 8, vals::Mode::INPUT);
-                    w.set_cnf_in(n % 8, vals::CnfIn::FLOATING);
-                });
-            }
-            #[cfg(gpio_v2)]
-            {
-                r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
-                r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
-            }
-        });
+        self.pin.toggle();
     }
 }
 
 /// GPIO output open-drain driver.
 pub struct OutputOpenDrain<'d, T: Pin> {
-    pub(crate) pin: T,
-    phantom: PhantomData<&'d mut T>,
+    pub(crate) pin: Flex<'d, T>,
 }
 
 impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     #[inline]
     pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level, speed: Speed, pull: Pull) -> Self {
-        unborrow!(pin);
+        let mut pin = Flex::new(pin);
 
         match initial_output {
             Level::High => pin.set_high(),
             Level::Low => pin.set_low(),
         }
 
-        critical_section::with(|_| unsafe {
-            let r = pin.block();
-            let n = pin.pin() as usize;
-            #[cfg(gpio_v1)]
-            {
-                let crlh = if n < 8 { 0 } else { 1 };
-                match pull {
-                    Pull::Up => r.bsrr().write(|w| w.set_bs(n, true)),
-                    Pull::Down => r.bsrr().write(|w| w.set_br(n, true)),
-                    Pull::None => {}
-                }
-                r.cr(crlh).modify(|w| w.set_mode(n % 8, speed.into()));
-                r.cr(crlh).modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OPENDRAIN));
-            }
-            #[cfg(gpio_v2)]
-            {
-                r.pupdr().modify(|w| w.set_pupdr(n, pull.into()));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPENDRAIN));
-                pin.set_speed(speed);
-                r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
-            }
-        });
-
-        Self {
-            pin,
-            phantom: PhantomData,
-        }
+        pin.set_as_input_output(speed, pull);
+        Self { pin }
     }
 
     #[inline]
     pub fn is_high(&self) -> bool {
-        !self.is_low()
+        !self.pin.is_low()
     }
 
     #[inline]
     pub fn is_low(&self) -> bool {
-        let state = unsafe { self.pin.block().idr().read().idr(self.pin.pin() as _) };
-        state == vals::Idr::LOW
+        self.pin.is_low()
     }
 
     /// Set the output as high.
@@ -331,41 +389,13 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     /// Is the output pin set as low?
     #[inline]
     pub fn is_set_low(&self) -> bool {
-        let state = unsafe { self.pin.block().odr().read().odr(self.pin.pin() as _) };
-        state == vals::Odr::LOW
+        self.pin.is_set_low()
     }
 
     /// Toggle pin output
     #[inline]
     pub fn toggle(&mut self) {
-        if self.is_set_low() {
-            self.set_high()
-        } else {
-            self.set_low()
-        }
-    }
-}
-
-impl<'d, T: Pin> Drop for OutputOpenDrain<'d, T> {
-    #[inline]
-    fn drop(&mut self) {
-        critical_section::with(|_| unsafe {
-            let r = self.pin.block();
-            let n = self.pin.pin() as usize;
-            #[cfg(gpio_v1)]
-            {
-                let crlh = if n < 8 { 0 } else { 1 };
-                r.cr(crlh).modify(|w| {
-                    w.set_mode(n % 8, vals::Mode::INPUT);
-                    w.set_cnf_in(n % 8, vals::CnfIn::FLOATING);
-                });
-            }
-            #[cfg(gpio_v2)]
-            {
-                r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
-                r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
-            }
-        });
+        self.pin.toggle()
     }
 }
 
@@ -692,6 +722,55 @@ mod eh02 {
             Ok(self.toggle())
         }
     }
+
+    impl<'d, T: Pin> InputPin for Flex<'d, T> {
+        type Error = Infallible;
+
+        #[inline]
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        #[inline]
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
+    }
+
+    impl<'d, T: Pin> OutputPin for Flex<'d, T> {
+        type Error = Infallible;
+
+        #[inline]
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_high())
+        }
+
+        #[inline]
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_low())
+        }
+    }
+
+    impl<'d, T: Pin> StatefulOutputPin for Flex<'d, T> {
+        #[inline]
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_high())
+        }
+
+        /// Is the output pin set as low?
+        #[inline]
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_low())
+        }
+    }
+
+    impl<'d, T: Pin> ToggleableOutputPin for Flex<'d, T> {
+        type Error = Infallible;
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            Ok(self.toggle())
+        }
+    }
 }
 
 #[cfg(feature = "unstable-traits")]
@@ -786,6 +865,54 @@ mod eh1 {
         #[inline]
         fn toggle(&mut self) -> Result<(), Self::Error> {
             Ok(self.toggle())
+        }
+    }
+
+    impl<'d, T: Pin> InputPin for Flex<'d, T> {
+        #[inline]
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        #[inline]
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
+    }
+
+    impl<'d, T: Pin> OutputPin for Flex<'d, T> {
+        #[inline]
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_high())
+        }
+
+        #[inline]
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            Ok(self.set_low())
+        }
+    }
+
+    impl<'d, T: Pin> ToggleableOutputPin for Flex<'d, T> {
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            Ok(self.toggle())
+        }
+    }
+
+    impl<'d, T: Pin> ErrorType for Flex<'d, T> {
+        type Error = Infallible;
+    }
+
+    impl<'d, T: Pin> StatefulOutputPin for Flex<'d, T> {
+        #[inline]
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_high())
+        }
+
+        /// Is the output pin set as low?
+        #[inline]
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_low())
         }
     }
 }

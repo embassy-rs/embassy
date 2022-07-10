@@ -6,7 +6,7 @@
 mod example_common;
 use defmt::assert;
 use embassy::executor::Spawner;
-use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::gpio::{Flex, Input, Level, Output, OutputOpenDrain, Pull, Speed};
 use embassy_stm32::Peripherals;
 use example_common::*;
 
@@ -86,6 +86,110 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         a.set_high();
         delay();
         assert!(b.is_high());
+    }
+
+    // Test output open drain
+    {
+        let b = Input::new(&mut b, Pull::Down);
+        // no pull, the status is undefined
+
+        let mut a = OutputOpenDrain::new(&mut a, Level::Low, Speed::Low, Pull::None);
+        delay();
+        assert!(b.is_low());
+        a.set_high(); // High-Z output
+        delay();
+        assert!(b.is_low());
+    }
+
+    // FLEX
+    // Test initial output
+    {
+        //Flex pin configured as input
+        let mut b = Flex::new(&mut b);
+        b.set_as_input(Pull::None);
+
+        {
+            //Flex pin configured as output
+            let mut a = Flex::new(&mut a); //Flex pin configured as output
+            a.set_low(); // Pin state must be set before configuring the pin, thus we avoid unknown state
+            a.set_as_output(Speed::Low);
+            delay();
+            assert!(b.is_low());
+        }
+        {
+            //Flex pin configured as output
+            let mut a = Flex::new(&mut a);
+            a.set_high();
+            a.set_as_output(Speed::Low);
+
+            delay();
+            assert!(b.is_high());
+        }
+    }
+
+    // Test input no pull
+    {
+        let mut b = Flex::new(&mut b);
+        b.set_as_input(Pull::None); // no pull, the status is undefined
+
+        let mut a = Flex::new(&mut a);
+        a.set_low();
+        a.set_as_output(Speed::Low);
+
+        delay();
+        assert!(b.is_low());
+        a.set_high();
+        delay();
+        assert!(b.is_high());
+    }
+
+    // Test input pulldown
+    {
+        let mut b = Flex::new(&mut b);
+        b.set_as_input(Pull::Down);
+        delay();
+        assert!(b.is_low());
+
+        let mut a = Flex::new(&mut a);
+        a.set_low();
+        a.set_as_output(Speed::Low);
+        delay();
+        assert!(b.is_low());
+        a.set_high();
+        delay();
+        assert!(b.is_high());
+    }
+
+    // Test input pullup
+    {
+        let mut b = Flex::new(&mut b);
+        b.set_as_input(Pull::Up);
+        delay();
+        assert!(b.is_high());
+
+        let mut a = Flex::new(&mut a);
+        a.set_high();
+        a.set_as_output(Speed::Low);
+        delay();
+        assert!(b.is_high());
+        a.set_low();
+        delay();
+        assert!(b.is_low());
+    }
+
+    // Test output open drain
+    {
+        let mut b = Flex::new(&mut b);
+        b.set_as_input(Pull::Down);
+
+        let mut a = Flex::new(&mut a);
+        a.set_low();
+        a.set_as_input_output(Speed::Low, Pull::None);
+        delay();
+        assert!(b.is_low());
+        a.set_high(); // High-Z output
+        delay();
+        assert!(b.is_low());
     }
 
     info!("Test OK");
