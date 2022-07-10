@@ -3,6 +3,7 @@
 use core::marker::PhantomData;
 use core::ptr;
 
+use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::unborrow;
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::join;
@@ -1022,3 +1023,10 @@ foreach_peripheral!(
         impl Instance for peripherals::$inst {}
     };
 );
+
+impl<'d, T: Instance, Tx, Rx> SetConfig for Spi<'d, T, Tx, Rx> {
+    type Config = Config;
+    fn set_config(&mut self, config: &Self::Config) {
+        self.reconfigure(*config);
+    }
+}

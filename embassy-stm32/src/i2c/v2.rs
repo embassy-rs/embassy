@@ -4,6 +4,7 @@ use core::task::Poll;
 
 use atomic_polyfill::{AtomicUsize, Ordering};
 use embassy::waitqueue::AtomicWaker;
+use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::unborrow;
 use futures::future::poll_fn;
@@ -938,6 +939,22 @@ cfg_if::cfg_if! {
                 let _ = operations;
                 async move { todo!() }
             }
+        }
+    }
+}
+
+impl<'d, T: Instance> SetConfig for I2c<'d, T> {
+    type Config = Hertz;
+    fn set_config(&mut self, config: &Self::Config) {
+        let timings = Timings::new(T::frequency(), *config);
+        unsafe {
+            T::regs().timingr().write(|reg| {
+                reg.set_presc(timings.prescale);
+                reg.set_scll(timings.scll);
+                reg.set_sclh(timings.sclh);
+                reg.set_sdadel(timings.sdadel);
+                reg.set_scldel(timings.scldel);
+            });
         }
     }
 }

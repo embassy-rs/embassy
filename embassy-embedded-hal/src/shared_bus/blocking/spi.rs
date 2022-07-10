@@ -26,7 +26,8 @@ use embedded_hal_1::digital::blocking::OutputPin;
 use embedded_hal_1::spi;
 use embedded_hal_1::spi::blocking::{SpiBusFlush, SpiDevice};
 
-use crate::shared_bus::spi::SpiBusDeviceError;
+use crate::shared_bus::SpiBusDeviceError;
+use crate::SetConfig;
 
 pub struct SpiBusDevice<'a, M: RawMutex, BUS, CS> {
     bus: &'a Mutex<M, RefCell<BUS>>,
@@ -110,6 +111,55 @@ where
             let f_res = bus.write(words);
             let cs_res = self.cs.set_high();
             let f_res = f_res.map_err(SpiBusDeviceError::Spi)?;
+            cs_res.map_err(SpiBusDeviceError::Cs)?;
+            Ok(f_res)
+        })
+    }
+}
+
+pub struct SpiBusDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig, CS> {
+    bus: &'a Mutex<M, RefCell<BUS>>,
+    cs: CS,
+    config: BUS::Config,
+}
+
+impl<'a, M: RawMutex, BUS: SetConfig, CS> SpiBusDeviceWithConfig<'a, M, BUS, CS> {
+    pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS, config: BUS::Config) -> Self {
+        Self { bus, cs, config }
+    }
+}
+
+impl<'a, M, BUS, CS> spi::ErrorType for SpiBusDeviceWithConfig<'a, M, BUS, CS>
+where
+    M: RawMutex,
+    BUS: spi::ErrorType + SetConfig,
+    CS: OutputPin,
+{
+    type Error = SpiBusDeviceError<BUS::Error, CS::Error>;
+}
+
+impl<BUS, M, CS> SpiDevice for SpiBusDeviceWithConfig<'_, M, BUS, CS>
+where
+    M: RawMutex,
+    BUS: SpiBusFlush + SetConfig,
+    CS: OutputPin,
+{
+    type Bus = BUS;
+
+    fn transaction<R>(&mut self, f: impl FnOnce(&mut Self::Bus) -> Result<R, BUS::Error>) -> Result<R, Self::Error> {
+        self.bus.lock(|bus| {
+            let mut bus = bus.borrow_mut();
+            bus.set_config(&self.config);
+            self.cs.set_low().map_err(SpiBusDeviceError::Cs)?;
+
+            let f_res = f(&mut bus);
+
+            // On failure, it's important to still flush and deassert CS.
+            let flush_res = bus.flush();
+            let cs_res = self.cs.set_high();
+
+            let f_res = f_res.map_err(SpiBusDeviceError::Spi)?;
+            flush_res.map_err(SpiBusDeviceError::Spi)?;
             cs_res.map_err(SpiBusDeviceError::Cs)?;
             Ok(f_res)
         })

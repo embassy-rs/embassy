@@ -35,6 +35,7 @@ embassy = { version = "0.1.0", path = "../embassy" }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-4"]}
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["stm32"] }
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
+embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-net = { version = "0.1.0", path = "../embassy-net", optional = true }
 embassy-usb = {version = "0.1.0", path = "../embassy-usb", optional = true }
 
@@ -90,7 +91,7 @@ time-driver-tim12 = ["_time-driver"]
 time-driver-tim15 = ["_time-driver"]
 
 # Enable nightly-only features
-nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io", "dep:embassy-usb"]
+nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io", "dep:embassy-usb", "embassy-embedded-hal/nightly"]
 
 # Reexport stm32-metapac at `embassy_stm32::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.

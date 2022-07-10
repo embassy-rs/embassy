@@ -1,5 +1,6 @@
 use core::marker::PhantomData;
 
+use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::unborrow;
 
 use crate::gpio::sealed::AFType;
@@ -446,6 +447,26 @@ impl Timings {
             //sclh,
             //sdadel,
             //scldel,
+        }
+    }
+}
+
+impl<'d, T: Instance> SetConfig for I2c<'d, T> {
+    type Config = Hertz;
+    fn set_config(&mut self, config: &Self::Config) {
+        let timings = Timings::new(T::frequency(), *config);
+        unsafe {
+            T::regs().cr2().modify(|reg| {
+                reg.set_freq(timings.freq);
+            });
+            T::regs().ccr().modify(|reg| {
+                reg.set_f_s(timings.mode.f_s());
+                reg.set_duty(timings.duty.duty());
+                reg.set_ccr(timings.ccr);
+            });
+            T::regs().trise().modify(|reg| {
+                reg.set_trise(timings.trise);
+            });
         }
     }
 }

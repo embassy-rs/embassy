@@ -1,5 +1,6 @@
 use core::marker::PhantomData;
 
+use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::unborrow;
 pub use embedded_hal_02::spi::{Phase, Polarity};
 
@@ -347,6 +348,23 @@ mod eh1 {
 
         fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_transfer_in_place(words)
+        }
+    }
+}
+
+impl<'d, T: Instance> SetConfig for Spi<'d, T> {
+    type Config = Config;
+    fn set_config(&mut self, config: &Self::Config) {
+        let p = self.inner.regs();
+        let (presc, postdiv) = calc_prescs(config.frequency);
+        unsafe {
+            p.cpsr().write(|w| w.set_cpsdvsr(presc));
+            p.cr0().write(|w| {
+                w.set_dss(0b0111); // 8bit
+                w.set_spo(config.polarity == Polarity::IdleHigh);
+                w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
+                w.set_scr(postdiv);
+            });
         }
     }
 }
