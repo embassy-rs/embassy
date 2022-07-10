@@ -5,7 +5,6 @@ use embassy_hal_common::{unborrow, Unborrow};
 use stm32_metapac::iwdg::vals::{Key, Pr};
 
 use crate::rcc::LSI_FREQ;
-use crate::time::Hertz;
 
 pub struct IndependentWatchdog<'d, T: Instance> {
     wdg: PhantomData<&'d mut T>,
