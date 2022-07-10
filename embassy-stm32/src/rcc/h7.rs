@@ -498,7 +498,7 @@ pub(crate) unsafe fn init(mut config: Config) {
     // per_ck from HSI by default
     let (per_ck, ckpersel) = match (config.per_ck == config.hse, config.per_ck) {
         (true, Some(hse)) => (hse, Ckpersel::HSE),        // HSE
-        (_, Some(HSI_FREQ)) => (CSI_FREQ, Ckpersel::CSI), // CSI
+        (_, Some(CSI_FREQ)) => (CSI_FREQ, Ckpersel::CSI), // CSI
         _ => (HSI_FREQ, Ckpersel::HSI),                   // HSI
     };
 
