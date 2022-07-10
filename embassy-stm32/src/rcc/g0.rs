@@ -361,7 +361,7 @@ pub(crate) unsafe fn init(config: Config) {
             // Enable LSI
             RCC.csr().write(|w| w.set_lsion(true));
             while !RCC.csr().read().lsirdy() {}
-            (LSI_FREQ, Sw::LSI)
+            (LSI_FREQ.0, Sw::LSI)
         }
     };
 
