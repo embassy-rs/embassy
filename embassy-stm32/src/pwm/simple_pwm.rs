@@ -1,84 +1,70 @@
+use core::marker::PhantomData;
+
 use embassy_hal_common::{into_ref, PeripheralRef};
 
 use super::*;
 #[allow(unused_imports)]
 use crate::gpio::sealed::{AFType, Pin};
+use crate::gpio::AnyPin;
 use crate::time::Hertz;
 use crate::Peripheral;
+
+pub struct Ch1;
+pub struct Ch2;
+pub struct Ch3;
+pub struct Ch4;
+
+pub struct PwmPin<'d, Perip, Channel> {
+    _pin: PeripheralRef<'d, AnyPin>,
+    phantom: PhantomData<(Perip, Channel)>,
+}
+
+macro_rules! channel_impl {
+    ($channel:ident, $pin_trait:ident) => {
+        impl<'d, Perip: CaptureCompare16bitInstance> PwmPin<'d, Perip, $channel> {
+            pub fn new(pin: impl Peripheral<P = impl $pin_trait<Perip>> + 'd) -> Self {
+                into_ref!(pin);
+                critical_section::with(|_| unsafe {
+                    pin.set_low();
+                    pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
+                    #[cfg(gpio_v2)]
+                    pin.set_speed(crate::gpio::Speed::VeryHigh);
+                });
+                PwmPin {
+                    _pin: pin.map_into(),
+                    phantom: PhantomData,
+                }
+            }
+        }
+    };
+}
+
+channel_impl!(Ch1, Channel1Pin);
+channel_impl!(Ch2, Channel2Pin);
+channel_impl!(Ch3, Channel3Pin);
+channel_impl!(Ch4, Channel4Pin);
 
 pub struct SimplePwm<'d, T> {
     inner: PeripheralRef<'d, T>,
 }
 
-macro_rules! config_pins {
-    ($($pin:ident),*) => {
-        into_ref!($($pin),*);
-        // NOTE(unsafe) Exclusive access to the registers
-        critical_section::with(|_| unsafe {
-            $(
-                $pin.set_low();
-                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                #[cfg(gpio_v2)]
-                $pin.set_speed(crate::gpio::Speed::VeryHigh);
-            )*
-        })
-    };
-}
-
 impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
-    pub fn new_1ch(
+    pub fn new(
         tim: impl Peripheral<P = T> + 'd,
-        ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
+        _ch1: Option<PwmPin<T, Ch1>>,
+        _ch2: Option<PwmPin<T, Ch2>>,
+        _ch3: Option<PwmPin<T, Ch3>>,
+        _ch4: Option<PwmPin<T, Ch4>>,
         freq: Hertz,
     ) -> Self {
-        Self::new_inner(tim, freq, move || {
-            config_pins!(ch1);
-        })
+        Self::new_inner(tim, freq)
     }
 
-    pub fn new_2ch(
-        tim: impl Peripheral<P = T> + 'd,
-        ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
-        ch2: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
-        freq: Hertz,
-    ) -> Self {
-        Self::new_inner(tim, freq, move || {
-            config_pins!(ch1, ch2);
-        })
-    }
-
-    pub fn new_3ch(
-        tim: impl Peripheral<P = T> + 'd,
-        ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
-        ch2: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
-        ch3: impl Peripheral<P = impl Channel3Pin<T>> + 'd,
-        freq: Hertz,
-    ) -> Self {
-        Self::new_inner(tim, freq, move || {
-            config_pins!(ch1, ch2, ch3);
-        })
-    }
-
-    pub fn new_4ch(
-        tim: impl Peripheral<P = T> + 'd,
-        ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
-        ch2: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
-        ch3: impl Peripheral<P = impl Channel3Pin<T>> + 'd,
-        ch4: impl Peripheral<P = impl Channel4Pin<T>> + 'd,
-        freq: Hertz,
-    ) -> Self {
-        Self::new_inner(tim, freq, move || {
-            config_pins!(ch1, ch2, ch3, ch4);
-        })
-    }
-
-    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, configure_pins: impl FnOnce()) -> Self {
+    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz) -> Self {
         into_ref!(tim);
 
         T::enable();
         <T as crate::rcc::sealed::RccPeripheral>::reset();
-
-        configure_pins();
 
         let mut this = Self { inner: tim };
 
