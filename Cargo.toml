@@ -1,0 +1,22 @@
+[package]
+name = "cyw43"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+defmt = ["dep:defmt", "embassy-rp/defmt", "embassy/defmt"]
+log = ["dep:log"]
+[dependencies]
+embassy = { version = "0.1.0" }
+embassy-rp = { version = "0.1.0", features = ["unstable-traits", "nightly", "unstable-pac"] }
+atomic-polyfill = "0.1.5"
+
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.17", optional = true }
+
+cortex-m = "0.7.3"
+cortex-m-rt = "0.7.0"
+futures = { version = "0.3.17", default-features = false, features = ["async-await", "cfg-target-has-atomic", "unstable"] }
+
+embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
+embedded-hal-async = { version = "0.1.0-alpha.1" }

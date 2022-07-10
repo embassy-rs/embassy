@@ -1,0 +1,59 @@
+[package]
+name = "cyw43-example-rpi-pico-w"
+version = "0.1.0"
+edition = "2021"
+
+
+[dependencies]
+cyw43 = { path = "../../", features = ["defmt"]}
+embassy = { version = "0.1.0",  features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-rp = { version = "0.1.0",  features = ["defmt", "unstable-traits", "nightly", "unstable-pac"] }
+atomic-polyfill = "0.1.5"
+
+defmt = "0.3"
+defmt-rtt = "0.3"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+
+cortex-m = "0.7.3"
+cortex-m-rt = "0.7.0"
+futures = { version = "0.3.17", default-features = false, features = ["async-await", "cfg-target-has-atomic", "unstable"] }
+
+embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
+embedded-hal-async = { version = "0.1.0-alpha.1" }
+
+
+[patch.crates-io]
+embassy = { git = "https://github.com/embassy-rs/embassy", rev = "5f43c1d37e9db847c7861fe0bd821db62edba9f6" }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "5f43c1d37e9db847c7861fe0bd821db62edba9f6" }
+#embassy = { path = "/home/dirbaio/embassy/embassy/embassy" }
+#embassy-rp = { path = "/home/dirbaio/embassy/embassy/embassy-rp" }
+
+[profile.dev]
+debug = 2
+debug-assertions = true
+opt-level = 1
+overflow-checks = true
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 'z'
+overflow-checks = false
+
+# do not optimize proc-macro crates = faster builds from scratch
+[profile.dev.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[profile.release.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false

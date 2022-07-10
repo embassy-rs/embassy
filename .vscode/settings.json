@@ -1,0 +1,15 @@
+{
+    "editor.formatOnSave": true,
+    "rust-analyzer.cargo.buildScripts.enable": true,
+    "rust-analyzer.cargo.noDefaultFeatures": true,
+    "rust-analyzer.cargo.target": "thumbv6m-none-eabi",
+    "rust-analyzer.checkOnSave.allTargets": false,
+    "rust-analyzer.checkOnSave.noDefaultFeatures": true,
+    "rust-analyzer.imports.granularity.enforce": true,
+    "rust-analyzer.imports.granularity.group": "module",
+    "rust-analyzer.procMacro.attributes.enable": false,
+    "rust-analyzer.procMacro.enable": true,
+    "rust-analyzer.linkedProjects": [
+        "examples/rpi-pico-w/Cargo.toml",
+    ],
+}
