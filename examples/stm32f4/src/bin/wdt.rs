@@ -32,6 +32,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         led.set_low();
         Timer::after(Duration::from_millis(300)).await;
 
+        // Pet watchdog for 5 iterations and then stop.
+        // MCU should restart in 1 second after the last pet.
         if i < 5 {
             info!("Petting watchdog");
             unsafe {
