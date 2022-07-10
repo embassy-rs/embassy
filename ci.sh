@@ -6,6 +6,14 @@ export CARGO_TARGET_DIR=$PWD/target_ci
 export RUSTFLAGS=-Dwarnings
 export DEFMT_LOG=trace
 
+TARGET=$(rustc -vV | sed -n 's|host: ||p')
+
+if [ $TARGET = "x86_64-unknown-linux-gnu" ]; then
+    BUILD_EXTRA="--- build --release --manifest-path examples/std/Cargo.toml --target $TARGET --out-dir out/examples/std"
+else
+    BUILD_EXTRA=""
+fi
+
 find . -name '*.rs' -not -path '*target*' -not -path '*stm32-metapac-gen/out/*' -not -path '*stm32-metapac/src/*' | xargs rustfmt --check  --skip-children --unstable-features --edition 2018
 
 # Generate stm32-metapac
@@ -19,7 +27,7 @@ cp -r stm32-metapac-backup stm32-metapac
 
 # for some reason Cargo stomps the cache if we don't specify --target.
 # This happens with vanilla Cargo, not just cargo-batch. Bug?
-(cd stm32-metapac-gen; cargo run --release --target x86_64-unknown-linux-gnu)
+(cd stm32-metapac-gen; cargo run --release --target $TARGET)
 rm -rf stm32-metapac
 mv stm32-metapac-gen/out stm32-metapac
 
@@ -68,7 +76,6 @@ cargo batch  \
     --- build --release --manifest-path docs/modules/ROOT/examples/layer-by-layer/blinky-hal/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/modules/ROOT/examples/layer-by-layer/blinky-irq/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/modules/ROOT/examples/layer-by-layer/blinky-async/Cargo.toml --target thumbv7em-none-eabi \
-    --- build --release --manifest-path examples/std/Cargo.toml --target x86_64-unknown-linux-gnu --out-dir out/examples/std \
     --- build --release --manifest-path examples/nrf/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf \
     --- build --release --manifest-path examples/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/rp \
     --- build --release --manifest-path examples/stm32f0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32f0 \
@@ -105,6 +112,7 @@ cargo batch  \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wb55rg --out-dir out/tests/nucleo-stm32wb55rg \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32u585ai --out-dir out/tests/iot-stm32u585ai \
     --- build --release --manifest-path tests/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/tests/rpi-pico \
+    $BUILD_EXTRA
 
 
 function run_elf {
