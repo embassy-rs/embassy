@@ -454,7 +454,7 @@ pub(crate) unsafe fn init(config: Config) {
     let (sys_clk, sw) = match config.mux {
         ClockSrc::HSI => {
             assert!(config.hsi, "HSI must be enabled to be used as system clock");
-            (HSI, Sw::HSI)
+            (HSI_FREQ, Sw::HSI)
         }
         ClockSrc::HSE => {
             let hse_config = config

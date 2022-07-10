@@ -1,6 +1,6 @@
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
-use crate::time::U32Ext;
+use crate::time::{Hertz, U32Ext};
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
 /// and with the addition of the init function to configure a system clock.
