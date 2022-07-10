@@ -22,15 +22,12 @@ pub struct I2c<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> I2c<'d, T> {
-    pub fn new<F>(
+    pub fn new(
         _peri: impl Unborrow<Target = T> + 'd,
         scl: impl Unborrow<Target = impl SclPin<T>> + 'd,
         sda: impl Unborrow<Target = impl SdaPin<T>> + 'd,
-        freq: F,
-    ) -> Self
-    where
-        F: Into<Hertz>,
-    {
+        freq: Hertz,
+    ) -> Self {
         unborrow!(scl, sda);
 
         T::enable();

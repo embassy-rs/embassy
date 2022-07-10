@@ -29,53 +29,53 @@ macro_rules! config_pins {
 }
 
 impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
-    pub fn new_1ch<F: Into<Hertz>>(
+    pub fn new_1ch(
         tim: impl Unborrow<Target = T> + 'd,
         ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
-        freq: F,
+        freq: Hertz,
     ) -> Self {
         Self::new_inner(tim, freq, move || {
             config_pins!(ch1);
         })
     }
 
-    pub fn new_2ch<F: Into<Hertz>>(
+    pub fn new_2ch(
         tim: impl Unborrow<Target = T> + 'd,
         ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
         ch2: impl Unborrow<Target = impl Channel2Pin<T>> + 'd,
-        freq: F,
+        freq: Hertz,
     ) -> Self {
         Self::new_inner(tim, freq, move || {
             config_pins!(ch1, ch2);
         })
     }
 
-    pub fn new_3ch<F: Into<Hertz>>(
+    pub fn new_3ch(
         tim: impl Unborrow<Target = T> + 'd,
         ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
         ch2: impl Unborrow<Target = impl Channel2Pin<T>> + 'd,
         ch3: impl Unborrow<Target = impl Channel3Pin<T>> + 'd,
-        freq: F,
+        freq: Hertz,
     ) -> Self {
         Self::new_inner(tim, freq, move || {
             config_pins!(ch1, ch2, ch3);
         })
     }
 
-    pub fn new_4ch<F: Into<Hertz>>(
+    pub fn new_4ch(
         tim: impl Unborrow<Target = T> + 'd,
         ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
         ch2: impl Unborrow<Target = impl Channel2Pin<T>> + 'd,
         ch3: impl Unborrow<Target = impl Channel3Pin<T>> + 'd,
         ch4: impl Unborrow<Target = impl Channel4Pin<T>> + 'd,
-        freq: F,
+        freq: Hertz,
     ) -> Self {
         Self::new_inner(tim, freq, move || {
             config_pins!(ch1, ch2, ch3, ch4);
         })
     }
 
-    fn new_inner<F: Into<Hertz>>(tim: impl Unborrow<Target = T> + 'd, freq: F, configure_pins: impl FnOnce()) -> Self {
+    fn new_inner(tim: impl Unborrow<Target = T> + 'd, freq: Hertz, configure_pins: impl FnOnce()) -> Self {
         unborrow!(tim);
 
         T::enable();
@@ -118,7 +118,7 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         }
     }
 
-    pub fn set_freq<F: Into<Hertz>>(&mut self, freq: F) {
+    pub fn set_freq(&mut self, freq: Hertz) {
         self.inner.set_frequency(freq);
     }
 

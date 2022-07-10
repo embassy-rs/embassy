@@ -23,7 +23,7 @@ pub(crate) mod sealed {
 
         fn reset(&mut self);
 
-        fn set_frequency<F: Into<Hertz>>(&mut self, frequency: F);
+        fn set_frequency(&mut self, frequency: Hertz);
 
         fn clear_update_interrupt(&mut self) -> bool;
 
@@ -37,7 +37,7 @@ pub(crate) mod sealed {
     pub trait GeneralPurpose32bitInstance: GeneralPurpose16bitInstance {
         fn regs_gp32() -> crate::pac::timer::TimGp32;
 
-        fn set_frequency<F: Into<Hertz>>(&mut self, frequency: F);
+        fn set_frequency(&mut self, frequency: Hertz);
     }
 
     pub trait AdvancedControlInstance: Basic16bitInstance {
@@ -81,9 +81,9 @@ macro_rules! impl_basic_16bit_timer {
                 }
             }
 
-            fn set_frequency<F: Into<Hertz>>(&mut self, frequency: F) {
+            fn set_frequency(&mut self, frequency: Hertz) {
                 use core::convert::TryInto;
-                let f = frequency.into().0;
+                let f = frequency.0;
                 let timer_f = Self::frequency().0;
                 let pclk_ticks_per_timer_period = timer_f / f;
                 let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 16)).try_into());
@@ -132,9 +132,9 @@ macro_rules! impl_32bit_timer {
                 crate::pac::$inst
             }
 
-            fn set_frequency<F: Into<Hertz>>(&mut self, frequency: F) {
+            fn set_frequency(&mut self, frequency: Hertz) {
                 use core::convert::TryInto;
-                let f = frequency.into().0;
+                let f = frequency.0;
                 let timer_f = Self::frequency().0;
                 let pclk_ticks_per_timer_period = (timer_f / f) as u64;
                 let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 32)).try_into());

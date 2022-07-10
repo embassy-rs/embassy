@@ -5,13 +5,13 @@
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
-use embassy_stm32::time::U32Ext;
+use embassy_stm32::time::mhz;
 use embassy_stm32::{interrupt, Config, Peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 fn config() -> Config {
     let mut config = Config::default();
-    config.rcc.sys_ck = Some(200.mhz().into());
+    config.rcc.sys_ck = Some(mhz(200));
     config
 }
 
@@ -31,7 +31,7 @@ async fn main(_spawner: Spawner, p: Peripherals) -> ! {
     // Should print 400kHz for initialization
     info!("Configured clock: {}", sdmmc.clock().0);
 
-    unwrap!(sdmmc.init_card(25.mhz()).await);
+    unwrap!(sdmmc.init_card(mhz(25)).await);
 
     let card = unwrap!(sdmmc.card());
 

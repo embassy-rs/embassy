@@ -6,7 +6,7 @@ use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
 use super::{AdcPin, Instance};
-use crate::time::{Hertz, U32Ext};
+use crate::time::Hertz;
 use crate::{pac, Unborrow};
 
 pub enum Resolution {
@@ -336,14 +336,14 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
         let frequency = Hertz(T::frequency().0 / prescaler.divisor());
         info!("ADC frequency set to {} Hz", frequency.0);
 
-        if frequency > 50.mhz().into() {
+        if frequency > Hertz::mhz(50) {
             panic!("Maximal allowed frequency for the ADC is 50 MHz and it varies with different packages, refer to ST docs for more information.");
         }
-        let boost = if frequency < 6_250.khz().into() {
+        let boost = if frequency < Hertz::khz(6_250) {
             Boost::LT6_25
-        } else if frequency < 12_500.khz().into() {
+        } else if frequency < Hertz::khz(12_500) {
             Boost::LT12_5
-        } else if frequency < 25.mhz().into() {
+        } else if frequency < Hertz::mhz(25) {
             Boost::LT25
         } else {
             Boost::LT50

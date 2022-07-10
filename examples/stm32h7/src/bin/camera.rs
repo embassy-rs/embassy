@@ -8,20 +8,20 @@ use embassy_stm32::dcmi::{self, *};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::rcc::{Mco, Mco1Source, McoClock};
-use embassy_stm32::time::U32Ext;
+use embassy_stm32::time::{khz, mhz};
 use embassy_stm32::{interrupt, Config, Peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 #[allow(unused)]
 pub fn config() -> Config {
     let mut config = Config::default();
-    config.rcc.sys_ck = Some(400.mhz().into());
-    config.rcc.hclk = Some(400.mhz().into());
-    config.rcc.pll1.q_ck = Some(100.mhz().into());
-    config.rcc.pclk1 = Some(100.mhz().into());
-    config.rcc.pclk2 = Some(100.mhz().into());
-    config.rcc.pclk3 = Some(100.mhz().into());
-    config.rcc.pclk4 = Some(100.mhz().into());
+    config.rcc.sys_ck = Some(mhz(400));
+    config.rcc.hclk = Some(mhz(400));
+    config.rcc.pll1.q_ck = Some(mhz(100));
+    config.rcc.pclk1 = Some(mhz(100));
+    config.rcc.pclk2 = Some(mhz(100));
+    config.rcc.pclk3 = Some(mhz(100));
+    config.rcc.pclk4 = Some(mhz(100));
     config
 }
 
@@ -39,7 +39,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let mut led = Output::new(p.PE3, Level::High, Speed::Low);
     let i2c_irq = interrupt::take!(I2C1_EV);
-    let cam_i2c = I2c::new(p.I2C1, p.PB8, p.PB9, i2c_irq, p.DMA1_CH1, p.DMA1_CH2, 100u32.khz());
+    let cam_i2c = I2c::new(p.I2C1, p.PB8, p.PB9, i2c_irq, p.DMA1_CH1, p.DMA1_CH2, khz(100));
 
     let mut camera = Ov7725::new(cam_i2c, mco);
 

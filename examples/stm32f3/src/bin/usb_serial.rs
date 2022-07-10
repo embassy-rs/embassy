@@ -6,7 +6,7 @@ use defmt::{panic, *};
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::time::U32Ext;
+use embassy_stm32::time::mhz;
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{interrupt, Config, Peripherals};
 use embassy_usb::driver::EndpointError;
@@ -18,10 +18,10 @@ use {defmt_rtt as _, panic_probe as _};
 fn config() -> Config {
     let mut config = Config::default();
 
-    config.rcc.hse = Some(8.mhz().into());
-    config.rcc.sysclk = Some(48.mhz().into());
-    config.rcc.pclk1 = Some(24.mhz().into());
-    config.rcc.pclk2 = Some(24.mhz().into());
+    config.rcc.hse = Some(mhz(8));
+    config.rcc.sysclk = Some(mhz(48));
+    config.rcc.pclk1 = Some(mhz(24));
+    config.rcc.pclk2 = Some(mhz(24));
     config.rcc.pll48 = true;
 
     config

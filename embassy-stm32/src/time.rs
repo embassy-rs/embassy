@@ -1,126 +1,34 @@
 //! Time units
 
-/// Bits per second
-#[derive(PartialEq, PartialOrd, Clone, Copy, Debug)]
-pub struct Bps(pub u32);
-
 /// Hertz
 #[derive(PartialEq, PartialOrd, Clone, Copy, Debug, Eq)]
 pub struct Hertz(pub u32);
 
-/// KiloHertz
-#[derive(PartialEq, PartialOrd, Clone, Copy, Debug)]
-pub struct KiloHertz(pub u32);
-
-/// MegaHertz
-#[derive(PartialEq, PartialOrd, Clone, Copy, Debug)]
-pub struct MegaHertz(pub u32);
-
-/// MilliSeconds
-#[derive(PartialEq, PartialOrd, Clone, Copy, Debug)]
-pub struct MilliSeconds(pub u32);
-
-/// MicroSeconds
-#[derive(PartialEq, PartialOrd, Clone, Copy, Debug)]
-pub struct MicroSeconds(pub u32);
-
-/// NanoSeconds
-#[derive(PartialEq, PartialOrd, Clone, Copy, Debug)]
-pub struct NanoSeconds(pub u32);
-
-/// Extension trait that adds convenience methods to the `u32` type
-pub trait U32Ext {
-    /// Wrap in `Bps`
-    fn bps(self) -> Bps;
-
-    /// Wrap in `Hertz`
-    fn hz(self) -> Hertz;
-
-    /// Wrap in `KiloHertz`
-    fn khz(self) -> KiloHertz;
-
-    /// Wrap in `MegaHertz`
-    fn mhz(self) -> MegaHertz;
-
-    /// Wrap in "MilliSeconds"
-    fn ms(self) -> MilliSeconds;
-
-    /// Wrap in "MicroSeconds"
-    fn us(self) -> MicroSeconds;
-
-    /// Wrap in "NanoSeconds"
-    fn ns(self) -> NanoSeconds;
-}
-
-impl U32Ext for u32 {
-    fn bps(self) -> Bps {
-        Bps(self)
+impl Hertz {
+    pub fn hz(hertz: u32) -> Self {
+        Self(hertz)
     }
 
-    fn hz(self) -> Hertz {
-        Hertz(self)
+    pub fn khz(kilohertz: u32) -> Self {
+        Self(kilohertz * 1_000)
     }
 
-    fn khz(self) -> KiloHertz {
-        KiloHertz(self)
-    }
-
-    fn mhz(self) -> MegaHertz {
-        MegaHertz(self)
-    }
-
-    fn ms(self) -> MilliSeconds {
-        MilliSeconds(self)
-    }
-
-    fn us(self) -> MicroSeconds {
-        MicroSeconds(self)
-    }
-
-    fn ns(self) -> NanoSeconds {
-        NanoSeconds(self)
+    pub fn mhz(megahertz: u32) -> Self {
+        Self(megahertz * 1_000_000)
     }
 }
 
-// Unit conversions
-impl Into<Hertz> for Bps {
-    fn into(self) -> Hertz {
-        Hertz(self.0)
-    }
+/// This is a convenience shortcut for [`Hertz::hz`]
+pub fn hz(hertz: u32) -> Hertz {
+    Hertz::hz(hertz)
 }
 
-impl Into<Hertz> for KiloHertz {
-    fn into(self) -> Hertz {
-        Hertz(self.0 * 1_000)
-    }
+/// This is a convenience shortcut for [`Hertz::khz`]
+pub fn khz(kilohertz: u32) -> Hertz {
+    Hertz::khz(kilohertz)
 }
 
-impl Into<Hertz> for MegaHertz {
-    fn into(self) -> Hertz {
-        Hertz(self.0 * 1_000_000)
-    }
-}
-
-impl Into<KiloHertz> for MegaHertz {
-    fn into(self) -> KiloHertz {
-        KiloHertz(self.0 * 1_000)
-    }
-}
-
-impl Into<NanoSeconds> for MicroSeconds {
-    fn into(self) -> NanoSeconds {
-        NanoSeconds(self.0 * 1_000)
-    }
-}
-
-impl Into<NanoSeconds> for MilliSeconds {
-    fn into(self) -> NanoSeconds {
-        NanoSeconds(self.0 * 1_000_000)
-    }
-}
-
-impl Into<MicroSeconds> for MilliSeconds {
-    fn into(self) -> MicroSeconds {
-        MicroSeconds(self.0 * 1_000)
-    }
+/// This is a convenience shortcut for [`Hertz::mhz`]
+pub fn mhz(megahertz: u32) -> Hertz {
+    Hertz::mhz(megahertz)
 }
