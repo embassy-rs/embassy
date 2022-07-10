@@ -1,15 +1,19 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait, concat_bytes)]
-
+#![feature(type_alias_impl_trait, concat_bytes, const_slice_from_raw_parts)]
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+mod structs;
+
+use core::cell::Cell;
 use core::slice;
 
 use embassy::time::{block_for, Duration, Timer};
 use embassy::util::yield_now;
 use embassy_rp::gpio::{Flex, Output, Pin};
+
+use self::structs::*;
 
 fn swap16(x: u32) -> u32 {
     (x & 0xFF00FF00) >> 8 | (x & 0x00FF00FF) << 8
@@ -169,68 +173,73 @@ const CHIP: Chip = Chip {
 };
 
 #[derive(Clone, Copy)]
-#[repr(C)]
-struct SdpcmHeader {
-    len: u16,
-    len_inv: u16,
-    /// Rx/Tx sequence number
-    sequence: u8,
-    ///  4 MSB Channel number, 4 LSB arbitrary flag
-    channel_and_flags: u8,
-    /// Length of next data frame, reserved for Tx
-    next_length: u8,
-    /// Data offset
-    header_length: u8,
-    /// Flow control bits, reserved for Tx
-    wireless_flow_control: u8,
-    /// Maximum Sequence number allowed by firmware for Tx
-    bus_data_credit: u8,
-    /// Reserved
-    reserved: [u8; 2],
+enum IoctlState {
+    Idle,
+
+    Pending {
+        kind: u32,
+        cmd: u32,
+        iface: u32,
+        buf: *const [u8],
+    },
+    Sent,
+    Done,
 }
 
-#[derive(Clone, Copy)]
-#[repr(C)]
-struct CdcHeader {
-    cmd: u32,
-    out_len: u16,
-    in_len: u16,
-    flags: u16,
-    id: u16,
-    status: u32,
+pub struct State {
+    ioctl_id: Cell<u16>,
+    ioctl_state: Cell<IoctlState>,
 }
 
-#[derive(Clone, Copy)]
-#[repr(C)]
-struct BdcHeader {
-    flags: u8,
-    /// 802.1d Priority (low 3 bits)
-    priority: u8,
-    flags2: u8,
-    /// Offset from end of BDC header to packet data, in 4-uint8_t words. Leaves room for optional headers.
-    data_offset: u8,
-}
-
-macro_rules! impl_bytes {
-    ($t:ident) => {
-        impl $t {
-            const SIZE: usize = core::mem::size_of::<Self>();
-
-            pub fn to_bytes(&self) -> [u8; Self::SIZE] {
-                unsafe { core::mem::transmute(*self) }
-            }
-
-            pub fn from_bytes(bytes: &[u8; Self::SIZE]) -> Self {
-                unsafe { core::mem::transmute(*bytes) }
-            }
+impl State {
+    pub fn new() -> Self {
+        Self {
+            ioctl_id: Cell::new(0),
+            ioctl_state: Cell::new(IoctlState::Idle),
         }
-    };
+    }
 }
-impl_bytes!(SdpcmHeader);
-impl_bytes!(CdcHeader);
-impl_bytes!(BdcHeader);
 
-pub struct Driver<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> {
+pub struct Control<'a> {
+    state: &'a State,
+}
+
+impl<'a> Control<'a> {
+    pub async fn init(&mut self) {
+        let clm = unsafe { slice::from_raw_parts(0x10140000 as *const u8, 4752) };
+
+        let mut buf = [0; 8 + 12 + 1024];
+        buf[0..8].copy_from_slice(b"clmload\x00");
+        buf[8..20].copy_from_slice(b"\x02\x10\x02\x00\x00\x04\x00\x00\x00\x00\x00\x00");
+        buf[20..].copy_from_slice(&clm[..1024]);
+        self.ioctl(2, 263, 0, &buf).await;
+        info!("IOCTL done");
+    }
+
+    async fn ioctl(&mut self, kind: u32, cmd: u32, iface: u32, buf: &[u8]) {
+        // TODO cancel ioctl on future drop.
+
+        while !matches!(self.state.ioctl_state.get(), IoctlState::Idle) {
+            yield_now().await;
+        }
+
+        self.state.ioctl_id.set(self.state.ioctl_id.get().wrapping_add(1));
+
+        self.state
+            .ioctl_state
+            .set(IoctlState::Pending { kind, cmd, iface, buf });
+
+        while !matches!(self.state.ioctl_state.get(), IoctlState::Done) {
+            yield_now().await;
+        }
+
+        self.state.ioctl_state.set(IoctlState::Idle);
+    }
+}
+
+pub struct Runner<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> {
+    state: &'a State,
+
     pwr: Output<'a, PWR>,
 
     /// SPI chip-select.
@@ -249,18 +258,29 @@ pub struct Driver<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> {
     backplane_window: u32,
 }
 
-impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Driver<'a, PWR, CS, CLK, DIO> {
-    pub fn new(pwr: Output<'a, PWR>, cs: Output<'a, CS>, clk: Output<'a, CLK>, dio: Flex<'a, DIO>) -> Self {
-        Self {
-            pwr,
-            cs,
-            clk,
-            dio,
-            backplane_window: 0xAAAA_AAAA,
-        }
-    }
+pub async fn new<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin>(
+    state: &'a State,
+    pwr: Output<'a, PWR>,
+    cs: Output<'a, CS>,
+    clk: Output<'a, CLK>,
+    dio: Flex<'a, DIO>,
+) -> (Control<'a>, Runner<'a, PWR, CS, CLK, DIO>) {
+    let mut runner = Runner {
+        state,
+        pwr,
+        cs,
+        clk,
+        dio,
+        backplane_window: 0xAAAA_AAAA,
+    };
 
-    pub async fn init(&mut self) {
+    runner.init().await;
+
+    (Control { state }, runner)
+}
+
+impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
+    async fn init(&mut self) {
         // Set strap to select gSPI mode.
         self.dio.set_as_output();
         self.dio.set_low();
@@ -306,6 +326,8 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Driver<'a, PWR, CS, CLK, DIO> {
         self.bp_write32(CHIP.socsram_base_address + 0x10, 3);
         self.bp_write32(CHIP.socsram_base_address + 0x44, 0);
 
+        let ram_addr = CHIP.atcm_ram_base_address;
+
         // I'm flashing the firmwares independently at hardcoded addresses, instead of baking them
         // into the program with `include_bytes!` or similar, so that flashing the program stays fast.
         //
@@ -314,9 +336,6 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Driver<'a, PWR, CS, CLK, DIO> {
         // probe-rs-cli download 43439A0.bin --format bin --chip RP2040 --base-address 0x10100000
         // probe-rs-cli download 43439A0.clm_blob --format bin --chip RP2040 --base-address 0x10140000
         let fw = unsafe { slice::from_raw_parts(0x10100000 as *const u8, 224190) };
-        let clm = unsafe { slice::from_raw_parts(0x10140000 as *const u8, 4752) };
-
-        let ram_addr = CHIP.atcm_ram_base_address;
 
         info!("loading fw");
         self.bp_write(ram_addr, fw);
@@ -374,17 +393,20 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Driver<'a, PWR, CS, CLK, DIO> {
         let _ = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP);
          */
 
-        let mut buf = [0; 8 + 12 + 1024];
-        buf[0..8].copy_from_slice(b"clmload\x00");
-        buf[8..20].copy_from_slice(b"\x02\x10\x02\x00\x00\x04\x00\x00\x00\x00\x00\x00");
-        buf[20..].copy_from_slice(&clm[..1024]);
-        self.send_ioctl(2, 263, 0, &buf);
-
         info!("init done ");
+    }
 
+    pub async fn run(mut self) -> ! {
         let mut old_irq = 0;
         let mut buf = [0; 2048];
         loop {
+            // Send stuff
+            if let IoctlState::Pending { kind, cmd, iface, buf } = self.state.ioctl_state.get() {
+                self.send_ioctl(kind, cmd, iface, unsafe { &*buf }, self.state.ioctl_id.get());
+                self.state.ioctl_state.set(IoctlState::Sent);
+            }
+
+            // Receive stuff
             let irq = self.read16(FUNC_BUS, REG_BUS_INTERRUPT);
             if irq != old_irq {
                 info!("irq: {:04x}", irq);
@@ -419,6 +441,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Driver<'a, PWR, CS, CLK, DIO> {
                 }
             }
 
+            // TODO use IRQs
             yield_now().await;
         }
     }
@@ -453,14 +476,16 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Driver<'a, PWR, CS, CLK, DIO> {
                 let cdc_header =
                     CdcHeader::from_bytes(packet[SdpcmHeader::SIZE..][..CdcHeader::SIZE].try_into().unwrap());
 
-                // TODO check cdc_header.id matches
-                // TODO check status
+                if cdc_header.id == self.state.ioctl_id.get() {
+                    assert_eq!(cdc_header.status, 0); // todo propagate error
+                    self.state.ioctl_state.set(IoctlState::Done);
+                }
             }
             _ => {}
         }
     }
 
-    fn send_ioctl(&mut self, kind: u32, cmd: u32, iface: u32, data: &[u8]) {
+    fn send_ioctl(&mut self, kind: u32, cmd: u32, iface: u32, data: &[u8], id: u16) {
         let mut buf = [0; 2048];
 
         let total_len = SdpcmHeader::SIZE + CdcHeader::SIZE + data.len();
@@ -469,7 +494,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Driver<'a, PWR, CS, CLK, DIO> {
             len: total_len as u16,
             len_inv: !total_len as u16,
             sequence: 0x02,       // todo
-            channel_and_flags: 0, // control channle
+            channel_and_flags: 0, // control channel
             next_length: 0,
             header_length: SdpcmHeader::SIZE as _,
             wireless_flow_control: 0,
@@ -482,7 +507,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Driver<'a, PWR, CS, CLK, DIO> {
             out_len: data.len() as _,
             in_len: 0,
             flags: kind as u16 | (iface as u16) << 12,
-            id: 1, // todo
+            id,
             status: 0,
         };
 
@@ -780,16 +805,13 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Driver<'a, PWR, CS, CLK, DIO> {
                     w |= 0x01;
                 }
                 self.clk.set_high();
-                delay();
 
                 // falling edge
                 self.clk.set_low();
-                delay();
             }
             *word = w
         }
         self.clk.set_low();
-        delay();
     }
 
     fn spi_write(&mut self, words: &[u8]) {
@@ -804,23 +826,17 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Driver<'a, PWR, CS, CLK, DIO> {
                 } else {
                     self.dio.set_high();
                 }
-                delay();
 
                 // rising edge
                 self.clk.set_high();
-                delay();
 
                 word = word << 1;
             }
         }
         self.clk.set_low();
-        delay();
+
         self.dio.set_as_input();
     }
-}
-
-fn delay() {
-    //cortex_m::asm::delay(5);
 }
 
 macro_rules! nvram {
