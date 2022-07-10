@@ -880,10 +880,6 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Pin> ErrorType for Flex<'d, T> {
-        type Error = Infallible;
-    }
-
     impl<'d, T: Pin> OutputPin for Flex<'d, T> {
         #[inline]
         fn set_high(&mut self) -> Result<(), Self::Error> {
