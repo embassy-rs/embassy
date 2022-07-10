@@ -16,7 +16,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let mut led = Output::new(p.PB7, Level::High, Speed::Low);
 
-    let mut wdt = IndependentWatchdog::new(p.IWDG, Duration::from_secs(1));
+    let mut wdt = IndependentWatchdog::new(p.IWDG, 1_000_000);
     unsafe {
         wdt.unleash();
     }

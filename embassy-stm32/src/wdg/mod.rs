@@ -1,6 +1,5 @@
 use core::marker::PhantomData;
 
-use embassy::time::Duration;
 use embassy_hal_common::{unborrow, Unborrow};
 use stm32_metapac::iwdg::vals::{Key, Pr};
 
@@ -13,25 +12,29 @@ pub struct IndependentWatchdog<'d, T: Instance> {
 // 12-bit counter
 const MAX_RL: u16 = 0xFFF;
 
-/// Calculates maximum watchdog timeout (RL = 0xFFF) for a given prescaler
-const fn max_timeout(prescaler: u8) -> Duration {
-    Duration::from_micros(1_000_000 / (LSI_FREQ.0 / prescaler as u32) as u64 * MAX_RL as u64)
+/// Calculates maximum watchdog timeout in us (RL = 0xFFF) for a given prescaler
+const fn max_timeout(prescaler: u8) -> u32 {
+    1_000_000 * MAX_RL as u32 / (LSI_FREQ.0 / prescaler as u32)
 }
 
 /// Calculates watchdog reload value for the given prescaler and desired timeout
-const fn reload_value(prescaler: u8, timeout: Duration) -> u16 {
-    ((LSI_FREQ.0 / prescaler as u32) as u64 * timeout.as_micros() / 1_000_000) as u16
+const fn reload_value(prescaler: u8, timeout_us: u32) -> u16 {
+    (timeout_us / prescaler as u32 * LSI_FREQ.0 / 1_000_000) as u16
 }
 
 impl<'d, T: Instance> IndependentWatchdog<'d, T> {
-    pub fn new(_instance: impl Unborrow<Target = T> + 'd, timeout: Duration) -> Self {
+    /// Creates an IWDG (Independent Watchdog) instance with a given timeout value in microseconds.
+    ///
+    /// [Self] has to be started with [Self::unleash()].
+    /// Once timer expires, MCU will be reset. To prevent this, timer must be reloaded by repeatedly calling [Self::pet()] within timeout interval.
+    pub fn new(_instance: impl Unborrow<Target = T> + 'd, timeout_us: u32) -> Self {
         unborrow!(_instance);
 
         // Find lowest prescaler value, which makes watchdog period longer or equal to timeout.
         // This iterates from 4 (2^2) to 256 (2^8).
         let psc_power = unwrap!((2..=8).find(|psc_power| {
             let psc = 2u8.pow(*psc_power);
-            timeout <= max_timeout(psc)
+            timeout_us <= max_timeout(psc)
         }));
 
         // Prescaler value
@@ -42,7 +45,7 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
         assert!(pr <= 0b110);
 
         // Reload value
-        let rl = reload_value(psc, timeout);
+        let rl = reload_value(psc, timeout_us);
 
         let wdg = T::regs();
         unsafe {
