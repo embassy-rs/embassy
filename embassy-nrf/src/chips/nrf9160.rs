@@ -260,6 +260,9 @@ embassy_hal_common::peripherals! {
     P0_29,
     P0_30,
     P0_31,
+
+    // PDM
+    PDM,
 }
 
 impl_uarte!(UARTETWISPI0, UARTE0, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);

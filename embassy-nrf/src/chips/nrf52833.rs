@@ -158,6 +158,9 @@ embassy_hal_common::peripherals! {
 
     // QDEC
     QDEC,
+
+    // PDM
+    PDM,
 }
 
 #[cfg(feature = "nightly")]
