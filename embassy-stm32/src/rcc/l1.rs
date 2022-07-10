@@ -4,7 +4,10 @@ use crate::rcc::{set_freqs, Clocks};
 use crate::time::{Hertz, U32Ext};
 
 /// HSI speed
-pub const HSI_FREQ: u32 = 16_000_000;
+pub const HSI_FREQ: Hertz = Hertz(16_000_000);
+
+/// LSI speed
+pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 /// System clock mux source
 #[derive(Clone, Copy)]
@@ -211,7 +214,7 @@ pub(crate) unsafe fn init(config: Config) {
             RCC.cr().write(|w| w.set_hsion(true));
             while !RCC.cr().read().hsirdy() {}
 
-            (HSI_FREQ, Sw::HSI)
+            (HSI_FREQ.0, Sw::HSI)
         }
         ClockSrc::HSE(freq) => {
             // Enable HSE
@@ -232,7 +235,7 @@ pub(crate) unsafe fn init(config: Config) {
                     // Enable HSI
                     RCC.cr().write(|w| w.set_hsion(true));
                     while !RCC.cr().read().hsirdy() {}
-                    HSI_FREQ
+                    HSI_FREQ.0
                 }
             };
 

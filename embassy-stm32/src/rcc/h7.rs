@@ -12,10 +12,17 @@ use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 use crate::{peripherals, Unborrow};
 
-const HSI: Hertz = Hertz(64_000_000);
-const CSI: Hertz = Hertz(4_000_000);
-const HSI48: Hertz = Hertz(48_000_000);
-const LSI: Hertz = Hertz(32_000);
+/// HSI speed
+pub const HSI_FREQ: Hertz = Hertz(64_000_000);
+
+/// CSI speed
+pub const CSI_FREQ: Hertz = Hertz(4_000_000);
+
+/// HSI48 speed
+pub const HSI48_FREQ: Hertz = Hertz(48_000_000);
+
+/// LSI speed
+pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 /// Voltage Scale
 ///
@@ -461,7 +468,7 @@ pub(crate) unsafe fn init(mut config: Config) {
     // achieved, but the mechanism for doing so is not yet
     // implemented here.
 
-    let srcclk = config.hse.unwrap_or(HSI); // Available clocks
+    let srcclk = config.hse.unwrap_or(HSI_FREQ); // Available clocks
     let (sys_ck, sys_use_pll1_p) = sys_ck_setup(&mut config, srcclk);
 
     // Configure traceclk from PLL if needed
@@ -490,9 +497,9 @@ pub(crate) unsafe fn init(mut config: Config) {
 
     // per_ck from HSI by default
     let (per_ck, ckpersel) = match (config.per_ck == config.hse, config.per_ck) {
-        (true, Some(hse)) => (hse, Ckpersel::HSE), // HSE
-        (_, Some(CSI)) => (CSI, Ckpersel::CSI),    // CSI
-        _ => (HSI, Ckpersel::HSI),                 // HSI
+        (true, Some(hse)) => (hse, Ckpersel::HSE),        // HSE
+        (_, Some(HSI_FREQ)) => (CSI_FREQ, Ckpersel::CSI), // CSI
+        _ => (HSI_FREQ, Ckpersel::HSI),                   // HSI
     };
 
     // D1 Core Prescaler
@@ -664,10 +671,10 @@ pub(crate) unsafe fn init(mut config: Config) {
         ppre2,
         ppre3,
         ppre4,
-        csi_ck: Some(CSI),
-        hsi_ck: Some(HSI),
-        hsi48_ck: Some(HSI48),
-        lsi_ck: Some(LSI),
+        csi_ck: Some(CSI_FREQ),
+        hsi_ck: Some(HSI_FREQ),
+        hsi48_ck: Some(HSI48_FREQ),
+        lsi_ck: Some(LSI_FREQ),
         per_ck: Some(per_ck),
         hse_ck,
         pll1_p_ck: pll1_p_ck.map(Hertz),

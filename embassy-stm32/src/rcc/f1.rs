@@ -6,7 +6,11 @@ use crate::pac::rcc::vals::*;
 use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
 
-const HSI: u32 = 8_000_000;
+/// HSI speed
+pub const HSI_FREQ: Hertz = Hertz(8_000_000);
+
+/// LSI speed
+pub const LSI_FREQ: Hertz = Hertz(40_000);
 
 /// Configuration of the clocks
 ///
@@ -23,12 +27,12 @@ pub struct Config {
 }
 
 pub(crate) unsafe fn init(config: Config) {
-    let pllsrcclk = config.hse.map(|hse| hse.0).unwrap_or(HSI / 2);
+    let pllsrcclk = config.hse.map(|hse| hse.0).unwrap_or(HSI_FREQ.0 / 2);
     let sysclk = config.sys_ck.map(|sys| sys.0).unwrap_or(pllsrcclk);
     let pllmul = sysclk / pllsrcclk;
 
     let (pllmul_bits, real_sysclk) = if pllmul == 1 {
-        (None, config.hse.map(|hse| hse.0).unwrap_or(HSI))
+        (None, config.hse.map(|hse| hse.0).unwrap_or(HSI_FREQ.0))
     } else {
         let pllmul = core::cmp::min(core::cmp::max(pllmul, 1), 16);
         (Some(pllmul as u8 - 2), pllsrcclk * pllmul)

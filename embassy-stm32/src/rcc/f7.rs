@@ -5,7 +5,11 @@ use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
-const HSI: u32 = 16_000_000;
+/// HSI speed
+pub const HSI_FREQ: Hertz = Hertz(16_000_000);
+
+/// LSI speed
+pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 /// Clocks configuration
 #[non_exhaustive]
@@ -117,7 +121,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     }
 
-    let pllsrcclk = config.hse.map(|hse| hse.0).unwrap_or(HSI);
+    let pllsrcclk = config.hse.map(|hse| hse.0).unwrap_or(HSI_FREQ.0);
     let sysclk = config.sys_ck.map(|sys| sys.0).unwrap_or(pllsrcclk);
     let sysclk_on_pll = sysclk != pllsrcclk;
 

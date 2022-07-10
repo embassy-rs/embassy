@@ -8,7 +8,10 @@ use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
-pub const HSI: Hertz = Hertz(16_000_000);
+pub const HSI_FREQ: Hertz = Hertz(16_000_000);
+
+/// LSI speed
+pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 #[derive(Clone, Copy)]
 pub struct HSEConfig {
@@ -429,7 +432,7 @@ pub(crate) unsafe fn init(config: Config) {
                 .unwrap_or_else(|| panic!("HSE must be configured to be used as PLL input"));
             hse_config.frequency
         }
-        PLLSrc::HSI => HSI,
+        PLLSrc::HSI => HSI_FREQ,
     };
 
     // Reference: STM32F215xx/217xx datasheet Table 33. Main PLL characteristics

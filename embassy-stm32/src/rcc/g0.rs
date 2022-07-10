@@ -5,10 +5,10 @@ use crate::rcc::{set_freqs, Clocks};
 use crate::time::{Hertz, U32Ext};
 
 /// HSI speed
-pub const HSI_FREQ: u32 = 16_000_000;
+pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
 /// LSI speed
-pub const LSI_FREQ: u32 = 32_000;
+pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 /// System clock mux source
 #[derive(Clone, Copy)]
@@ -248,7 +248,7 @@ impl PllConfig {
     pub(crate) unsafe fn init(self) -> u32 {
         assert!(self.n >= 8 && self.n <= 86);
         let (src, input_freq) = match self.source {
-            PllSrc::HSI16 => (vals::Pllsrc::HSI16, HSI_FREQ),
+            PllSrc::HSI16 => (vals::Pllsrc::HSI16, HSI_FREQ.0),
             PllSrc::HSE(freq) => (vals::Pllsrc::HSE, freq.0),
         };
 
@@ -344,7 +344,7 @@ pub(crate) unsafe fn init(config: Config) {
             });
             while !RCC.cr().read().hsirdy() {}
 
-            (HSI_FREQ >> div.0, Sw::HSI)
+            (HSI_FREQ.0 >> div.0, Sw::HSI)
         }
         ClockSrc::HSE(freq) => {
             // Enable HSE

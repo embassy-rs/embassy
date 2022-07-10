@@ -4,19 +4,11 @@ use embassy::time::Duration;
 use embassy_hal_common::{unborrow, Unborrow};
 use stm32_metapac::iwdg::vals::{Key, Pr};
 
+use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
 
 pub struct IndependentWatchdog<'d, T: Instance> {
     wdg: PhantomData<&'d mut T>,
-}
-
-// Some STM32 families have 40 kHz LSI clock instead of 32 kHz
-cfg_if::cfg_if! {
-    if #[cfg(any(stm32f0, stm32f1))] {
-        pub const IWDG_FREQ: Hertz = Hertz(40_000);
-    } else {
-        pub const IWDG_FREQ: Hertz = Hertz(32_000);
-    }
 }
 
 // 12-bit counter
@@ -24,12 +16,12 @@ const MAX_RL: u16 = 0xFFF;
 
 /// Calculates maximum watchdog timeout (RL = 0xFFF) for a given prescaler
 const fn max_timeout(prescaler: u8) -> Duration {
-    Duration::from_micros(1_000_000 / (IWDG_FREQ.0 / prescaler as u32) as u64 * MAX_RL as u64)
+    Duration::from_micros(1_000_000 / (LSI_FREQ.0 / prescaler as u32) as u64 * MAX_RL as u64)
 }
 
 /// Calculates watchdog reload value for the given prescaler and desired timeout
 const fn reload_value(prescaler: u8, timeout: Duration) -> u16 {
-    ((IWDG_FREQ.0 / prescaler as u32) as u64 * timeout.as_micros() / 1_000_000) as u16
+    ((LSI_FREQ.0 / prescaler as u32) as u64 * timeout.as_micros() / 1_000_000) as u16
 }
 
 impl<'d, T: Instance> IndependentWatchdog<'d, T> {
