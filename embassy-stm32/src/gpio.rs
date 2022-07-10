@@ -23,7 +23,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
     ///
-    #[inline] 
+    #[inline]
     pub fn new(pin: impl Unborrow<Target = T> + 'd) -> Self {
         unborrow!(pin);
         // Pin will be in disconnected state.
@@ -32,9 +32,9 @@ impl<'d, T: Pin> Flex<'d, T> {
             phantom: PhantomData,
         }
     }
-    
+
     /// Put the pin into input mode.
-    #[inline] 
+    #[inline]
     pub fn set_as_input(&mut self, pull: Pull) {
         critical_section::with(|_| unsafe {
             let r = self.pin.block();
@@ -74,7 +74,6 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
     pub fn set_as_output(&mut self, speed: Speed) {
-
         critical_section::with(|_| unsafe {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
@@ -95,7 +94,7 @@ impl<'d, T: Pin> Flex<'d, T> {
             }
         });
     }
-    
+
     /// Put the pin into input + output mode.
     ///
     /// This is commonly used for "open drain" mode.
@@ -106,7 +105,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// The pin level will be whatever was set before (or low by default). If you want it to begin
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
-    pub fn set_as_input_output(&mut self,speed: Speed, pull : Pull) {
+    pub fn set_as_input_output(&mut self, speed: Speed, pull: Pull) {
         critical_section::with(|_| unsafe {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
@@ -164,7 +163,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     pub fn set_low(&mut self) {
         self.pin.set_low();
     }
-    
+
     /// Toggle pin output
     #[inline]
     pub fn toggle(&mut self) {
@@ -262,7 +261,7 @@ impl From<Speed> for vals::Ospeedr {
 
 /// GPIO input driver.
 pub struct Input<'d, T: Pin> {
-    pub(crate) pin: Flex<'d, T>
+    pub(crate) pin: Flex<'d, T>,
 }
 
 impl<'d, T: Pin> Input<'d, T> {
@@ -340,10 +339,9 @@ impl<'d, T: Pin> Output<'d, T> {
     }
 }
 
-
 /// GPIO output open-drain driver.
 pub struct OutputOpenDrain<'d, T: Pin> {
-    pub(crate) pin: Flex<'d, T>
+    pub(crate) pin: Flex<'d, T>,
 }
 
 impl<'d, T: Pin> OutputOpenDrain<'d, T> {
@@ -925,7 +923,6 @@ mod eh1 {
             Ok(self.is_set_low())
         }
     }
-
 }
 
 #[cfg(feature = "unstable-pac")]

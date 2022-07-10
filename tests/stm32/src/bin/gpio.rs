@@ -6,7 +6,7 @@
 mod example_common;
 use defmt::assert;
 use embassy::executor::Spawner;
-use embassy_stm32::gpio::{Input, Level, Output, OutputOpenDrain, Flex, Pull, Speed};
+use embassy_stm32::gpio::{Flex, Input, Level, Output, OutputOpenDrain, Pull, Speed};
 use embassy_stm32::Peripherals;
 use example_common::*;
 
@@ -104,21 +104,21 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // FLEX
     // Test initial output
     {
-        //Flex pin configured as input  
-        let mut b = Flex::new(&mut b); 
+        //Flex pin configured as input
+        let mut b = Flex::new(&mut b);
         b.set_as_input(Pull::None);
 
         {
-            //Flex pin configured as output  
-            let mut a = Flex::new(&mut a); //Flex pin configured as output  
+            //Flex pin configured as output
+            let mut a = Flex::new(&mut a); //Flex pin configured as output
             a.set_low(); // Pin state must be set before configuring the pin, thus we avoid unknown state
             a.set_as_output(Speed::Low);
             delay();
             assert!(b.is_low());
         }
         {
-            //Flex pin configured as output  
-            let mut a = Flex::new(&mut a); 
+            //Flex pin configured as output
+            let mut a = Flex::new(&mut a);
             a.set_high();
             a.set_as_output(Speed::Low);
 
@@ -129,12 +129,12 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     // Test input no pull
     {
-        let mut b = Flex::new(&mut b); 
-        b.set_as_input(Pull::None);        // no pull, the status is undefined
+        let mut b = Flex::new(&mut b);
+        b.set_as_input(Pull::None); // no pull, the status is undefined
 
         let mut a = Flex::new(&mut a);
         a.set_low();
-        a.set_as_output(Speed::Low); 
+        a.set_as_output(Speed::Low);
 
         delay();
         assert!(b.is_low());
@@ -143,11 +143,10 @@ async fn main(_spawner: Spawner, p: Peripherals) {
         assert!(b.is_high());
     }
 
-
     // Test input pulldown
     {
         let mut b = Flex::new(&mut b);
-        b.set_as_input(Pull::Down);      
+        b.set_as_input(Pull::Down);
         delay();
         assert!(b.is_low());
 
@@ -164,7 +163,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // Test input pullup
     {
         let mut b = Flex::new(&mut b);
-        b.set_as_input(Pull::Up);        
+        b.set_as_input(Pull::Up);
         delay();
         assert!(b.is_high());
 
@@ -185,7 +184,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
         let mut a = Flex::new(&mut a);
         a.set_low();
-        a.set_as_input_output(Speed::Low, Pull::None);  
+        a.set_as_input_output(Speed::Low, Pull::None);
         delay();
         assert!(b.is_low());
         a.set_high(); // High-Z output
