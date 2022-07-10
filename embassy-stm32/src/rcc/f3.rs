@@ -4,7 +4,11 @@ use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
-const HSI: u32 = 8_000_000;
+/// HSI speed
+pub const HSI_FREQ: Hertz = Hertz(8_000_000);
+
+/// LSI speed
+pub const LSI_FREQ: Hertz = Hertz(40_000);
 
 /// Clocks configutation
 #[non_exhaustive]
@@ -180,7 +184,7 @@ pub(crate) unsafe fn init(config: Config) {
 fn get_sysclk(config: &Config) -> (Hertz, Option<PllConfig>) {
     match (config.sysclk, config.hse) {
         (Some(sysclk), Some(hse)) if sysclk == hse => (hse, None),
-        (Some(sysclk), None) if sysclk.0 == HSI => (Hertz(HSI), None),
+        (Some(sysclk), None) if sysclk == HSI_FREQ => (HSI_FREQ, None),
         // If the user selected System clock is different from HSI or HSE
         // we will have to setup PLL clock source
         (Some(sysclk), _) => {
@@ -188,7 +192,7 @@ fn get_sysclk(config: &Config) -> (Hertz, Option<PllConfig>) {
             (sysclk, Some(pll_config))
         }
         (None, Some(hse)) => (hse, None),
-        (None, None) => (Hertz(HSI), None),
+        (None, None) => (HSI_FREQ, None),
     }
 }
 
@@ -228,15 +232,15 @@ fn calc_pll(config: &Config, Hertz(sysclk): Hertz) -> (Hertz, PllConfig) {
                         stm32f302xd, stm32f302xe, stm32f303xd,
                         stm32f303xe, stm32f398xe
                     ))] {
-                    let (multiplier, divisor) = get_mul_div(sysclk, HSI);
+                    let (multiplier, divisor) = get_mul_div(sysclk, HSI_FREQ.0);
                     (
-                        Hertz((HSI / divisor) * multiplier),
+                        Hertz((HSI_FREQ.0 / divisor) * multiplier),
                         Pllsrc::HSI_DIV_PREDIV,
                         into_pll_mul(multiplier),
                         Some(into_pre_div(divisor)),
                     )
                 } else {
-                    let pllsrcclk = HSI / 2;
+                    let pllsrcclk = HSI_FREQ.0 / 2;
                     let multiplier = sysclk / pllsrcclk;
                     assert!(multiplier <= 16);
                     (

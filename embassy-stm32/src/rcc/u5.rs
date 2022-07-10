@@ -4,8 +4,11 @@ use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::{Hertz, U32Ext};
 
-/// HSI16 speed
-pub const HSI16_FREQ: u32 = 16_000_000;
+/// HSI speed
+pub const HSI_FREQ: Hertz = Hertz(16_000_000);
+
+/// LSI speed
+pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 /// Voltage Scale
 ///
@@ -333,13 +336,13 @@ pub(crate) unsafe fn init(config: Config) {
             RCC.cr().write(|w| w.set_hsion(true));
             while !RCC.cr().read().hsirdy() {}
 
-            HSI16_FREQ
+            HSI_FREQ.0
         }
         ClockSrc::PLL1R(src, m, n, div) => {
             let freq = match src {
                 PllSrc::MSI(_) => MSIRange::default().into(),
                 PllSrc::HSE(hertz) => hertz.0,
-                PllSrc::HSI16 => HSI16_FREQ,
+                PllSrc::HSI16 => HSI_FREQ.0,
             };
 
             // disable
