@@ -15,14 +15,7 @@ unsafe fn is_dual_bank() -> bool {
     match FLASH_SIZE / 1024 {
         // 1 MB devices depend on configuration
         1024 => {
-            if cfg!(any(
-                feature = "stm32f427",
-                feature = "stm32f429",
-                feature = "stm32f437",
-                feature = "stm32f439",
-                feature = "stm32f469",
-                feature = "stm32f479",
-            )) {
+            if cfg!(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479)) {
                 pac::FLASH.optcr().read().db1m()
             } else {
                 false
@@ -119,7 +112,7 @@ pub(crate) unsafe fn blocking_erase(from: u32, to: u32) -> Result<(), Error> {
 }
 
 unsafe fn erase_sector(sector: u8) -> Result<(), Error> {
-    let bank = (sector >= SECOND_BANK_SECTOR_START) as u8;
+    let bank = sector / SECOND_BANK_SECTOR_START as u8;
     let snb = (bank << 4) + (sector % SECOND_BANK_SECTOR_START as u8);
 
     pac::FLASH.cr().modify(|w| {
