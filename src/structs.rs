@@ -15,6 +15,7 @@ macro_rules! impl_bytes {
 }
 
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct SdpcmHeader {
     pub len: u16,
@@ -37,6 +38,7 @@ pub struct SdpcmHeader {
 impl_bytes!(SdpcmHeader);
 
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct CdcHeader {
     pub cmd: u32,
@@ -49,8 +51,9 @@ pub struct CdcHeader {
 impl_bytes!(CdcHeader);
 
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
-pub struct BdcHeader {
+pub struct BcdHeader {
     pub flags: u8,
     /// 802.1d Priority (low 3 bits)
     pub priority: u8,
@@ -58,7 +61,36 @@ pub struct BdcHeader {
     /// Offset from end of BDC header to packet data, in 4-uint8_t words. Leaves room for optional headers.
     pub data_offset: u8,
 }
-impl_bytes!(BdcHeader);
+impl_bytes!(BcdHeader);
+
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C)]
+pub struct EventHeader {
+    /// version   
+    pub version: u16,
+    /// see flags below
+    pub flags: u16,
+    /// Message (see below)
+    pub event_type: u32,
+    /// Status code (see below)
+    pub status: u32,
+    /// Reason code (if applicable)
+    pub reason: u32,
+    /// WLC_E_AUTH
+    pub auth_type: u32,
+    /// data buf
+    pub datalen: u32,
+    /// Station address (if applicable)
+    pub addr: [u8; 6],
+    /// name of the incoming packet interface
+    pub ifname: [u8; 16],
+    /// destination OS i/f index
+    pub ifidx: u8,
+    /// source bsscfg index
+    pub bsscfgidx: u8,
+}
+impl_bytes!(EventHeader);
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -78,6 +110,7 @@ pub const DOWNLOAD_FLAG_HANDLER_VER: u16 = 0x1000;
 pub const DOWNLOAD_TYPE_CLM: u16 = 2;
 
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct CountryInfo {
     pub country_abbrev: [u8; 4],
@@ -85,3 +118,21 @@ pub struct CountryInfo {
     pub country_code: [u8; 4],
 }
 impl_bytes!(CountryInfo);
+
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C)]
+pub struct SsidInfo {
+    pub len: u32,
+    pub ssid: [u8; 32],
+}
+impl_bytes!(SsidInfo);
+
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C)]
+pub struct EventMask {
+    pub iface: u32,
+    pub events: [u8; 24],
+}
+impl_bytes!(EventMask);

@@ -20,3 +20,4 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
 embedded-hal-async = { version = "0.1.0-alpha.1" }
+num_enum = { version = "0.5.7", default-features = false }

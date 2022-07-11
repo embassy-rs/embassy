@@ -45,4 +45,7 @@ async fn main(spawner: Spawner, p: Peripherals) {
     spawner.spawn(wifi_task(runner)).unwrap();
 
     control.init().await;
+
+    let ssid = "MikroTik-951589";
+    control.join(ssid).await;
 }

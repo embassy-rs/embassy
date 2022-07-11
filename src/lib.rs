@@ -7,6 +7,7 @@
 pub(crate) mod fmt;
 
 mod countries;
+mod events;
 mod structs;
 
 use core::cell::Cell;
@@ -253,9 +254,52 @@ impl<'a> Control<'a> {
         };
         self.set_iovar("country", &country_info.to_bytes()).await;
 
+        // set country takes some time, next ioctls fail if we don't wait.
+        Timer::after(Duration::from_millis(100)).await;
+
+        // self.set_iovar_u32("ampdu_ba_wsize", 8).await;
+        // self.set_iovar_u32("ampdu_mpdu", 4).await;
+        // self.set_iovar_u32("ampdu_rx_factor", 0).await; // this crashes
+
+        Timer::after(Duration::from_millis(100)).await;
+
+        // evts
+        let mut evts = EventMask {
+            iface: 0,
+            events: [0xFF; 24],
+        };
+        self.set_iovar("bsscfg:event_msgs", &evts.to_bytes()).await;
+
+        // set wifi up
+        self.ioctl(2, 2, 0, &[]).await;
+
+        Timer::after(Duration::from_millis(100)).await;
+
         info!("INIT DONE");
     }
 
+    pub async fn join(&mut self, ssid: &str) {
+        self.ioctl_set_u32(134, 0, 0).await; // wsec = open
+        self.set_iovar_u32x2("bsscfg:sup_wpa", 0, 0).await;
+        self.ioctl_set_u32(20, 0, 1).await; // set_infra = 1
+        self.ioctl_set_u32(22, 0, 0).await; // set_auth = open (0)
+
+        let mut i = SsidInfo {
+            len: ssid.len() as _,
+            ssid: [0; 32],
+        };
+        i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
+        self.ioctl(2, 26, 0, &i.to_bytes()).await; // set_ssid
+
+        info!("JOINED");
+    }
+
+    async fn set_iovar_u32x2(&mut self, name: &str, val1: u32, val2: u32) {
+        let mut buf = [0; 8];
+        buf[0..4].copy_from_slice(&val1.to_le_bytes());
+        buf[4..8].copy_from_slice(&val2.to_le_bytes());
+        self.set_iovar(name, &buf).await
+    }
     async fn set_iovar_u32(&mut self, name: &str, val: u32) {
         self.set_iovar(name, &val.to_le_bytes()).await
     }
@@ -270,6 +314,10 @@ impl<'a> Control<'a> {
 
         let total_len = name.len() + 1 + val.len();
         self.ioctl(2, 263, 0, &buf[..total_len]).await;
+    }
+
+    async fn ioctl_set_u32(&mut self, cmd: u32, iface: u32, val: u32) {
+        self.ioctl(2, cmd, 0, &val.to_le_bytes()).await
     }
 
     async fn ioctl(&mut self, kind: u32, cmd: u32, iface: u32, buf: &[u8]) {
@@ -488,7 +536,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
                     }
                     self.cs.set_high();
 
-                    info!("rx {:02x}", &buf[..(len as usize).min(48)]);
+                    //info!("rx {:02x}", &buf[..(len as usize).min(36)]);
 
                     self.rx(&buf[..len as usize]);
                 }
@@ -528,14 +576,38 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
                     return;
                 }
 
-                let cdc_header =
-                    CdcHeader::from_bytes(payload[..CdcHeader::SIZE].try_into().unwrap());
+                let cdc_header = CdcHeader::from_bytes(payload[..CdcHeader::SIZE].try_into().unwrap());
 
                 if cdc_header.id == self.state.ioctl_id.get() {
                     assert_eq!(cdc_header.status, 0); // todo propagate error
                     self.state.ioctl_state.set(IoctlState::Done);
                 }
             }
+            1 => {
+                let bcd_header = BcdHeader::from_bytes(&payload[..BcdHeader::SIZE].try_into().unwrap());
+                //info!("{}", bcd_header);
+
+                let packet_start = BcdHeader::SIZE + 4 * bcd_header.data_offset as usize;
+                if packet_start > payload.len() {
+                    warn!("packet start out of range.");
+                    return;
+                }
+                let packet = &payload[packet_start..];
+                //info!("rx {:02x}", &packet[..(packet.len() as usize).min(36)]);
+
+                let evt = EventHeader::from_bytes(&packet[24..][..EventHeader::SIZE].try_into().unwrap());
+                let evt_num = evt.event_type.to_be() as u8;
+                let evt_data_len = evt.datalen.to_be() as u8;
+                let evt_data = &packet[24 + EventHeader::SIZE..][..evt_data_len as usize];
+                info!(
+                    "=== EVENT {} ({}) {} {:02x}",
+                    events::Event::from(evt_num),
+                    evt_num,
+                    evt,
+                    evt_data
+                );
+            }
+
             _ => {}
         }
     }
@@ -575,7 +647,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
 
         let total_len = (total_len + 3) & !3; // round up to 4byte
 
-        info!("tx {:02x}", &buf[..total_len.min(48)]);
+        //info!("tx {:02x}", &buf[..total_len.min(48)]);
 
         let cmd = cmd_word(true, true, FUNC_WLAN, 0, total_len as _);
         self.cs.set_low();
