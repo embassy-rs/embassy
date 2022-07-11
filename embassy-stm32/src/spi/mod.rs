@@ -83,19 +83,16 @@ pub struct Spi<'d, T: Instance, Tx, Rx> {
 }
 
 impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
-    pub fn new<F>(
+    pub fn new(
         peri: impl Unborrow<Target = T> + 'd,
         sck: impl Unborrow<Target = impl SckPin<T>> + 'd,
         mosi: impl Unborrow<Target = impl MosiPin<T>> + 'd,
         miso: impl Unborrow<Target = impl MisoPin<T>> + 'd,
         txdma: impl Unborrow<Target = Tx> + 'd,
         rxdma: impl Unborrow<Target = Rx> + 'd,
-        freq: F,
+        freq: Hertz,
         config: Config,
-    ) -> Self
-    where
-        F: Into<Hertz>,
-    {
+    ) -> Self {
         unborrow!(sck, mosi, miso);
         unsafe {
             sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
@@ -121,18 +118,15 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         )
     }
 
-    pub fn new_rxonly<F>(
+    pub fn new_rxonly(
         peri: impl Unborrow<Target = T> + 'd,
         sck: impl Unborrow<Target = impl SckPin<T>> + 'd,
         miso: impl Unborrow<Target = impl MisoPin<T>> + 'd,
         txdma: impl Unborrow<Target = Tx> + 'd, // TODO remove
         rxdma: impl Unborrow<Target = Rx> + 'd,
-        freq: F,
+        freq: Hertz,
         config: Config,
-    ) -> Self
-    where
-        F: Into<Hertz>,
-    {
+    ) -> Self {
         unborrow!(sck, miso);
         unsafe {
             sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
@@ -155,18 +149,15 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         )
     }
 
-    pub fn new_txonly<F>(
+    pub fn new_txonly(
         peri: impl Unborrow<Target = T> + 'd,
         sck: impl Unborrow<Target = impl SckPin<T>> + 'd,
         mosi: impl Unborrow<Target = impl MosiPin<T>> + 'd,
         txdma: impl Unborrow<Target = Tx> + 'd,
         rxdma: impl Unborrow<Target = Rx> + 'd, // TODO remove
-        freq: F,
+        freq: Hertz,
         config: Config,
-    ) -> Self
-    where
-        F: Into<Hertz>,
-    {
+    ) -> Self {
         unborrow!(sck, mosi);
         unsafe {
             sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
@@ -189,19 +180,16 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         )
     }
 
-    fn new_inner<F>(
+    fn new_inner(
         _peri: impl Unborrow<Target = T> + 'd,
         sck: Option<AnyPin>,
         mosi: Option<AnyPin>,
         miso: Option<AnyPin>,
         txdma: impl Unborrow<Target = Tx> + 'd,
         rxdma: impl Unborrow<Target = Rx> + 'd,
-        freq: F,
+        freq: Hertz,
         config: Config,
-    ) -> Self
-    where
-        F: Into<Hertz>,
-    {
+    ) -> Self {
         unborrow!(txdma, rxdma);
 
         let pclk = T::frequency();

@@ -7,15 +7,15 @@ use embassy::executor::Spawner;
 use embassy::time::{Delay, Duration, Timer};
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::rcc::AdcClockSource;
-use embassy_stm32::time::U32Ext;
+use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, Peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 pub fn config() -> Config {
     let mut config = Config::default();
-    config.rcc.sys_ck = Some(400.mhz().into());
-    config.rcc.hclk = Some(200.mhz().into());
-    config.rcc.per_ck = Some(64.mhz().into());
+    config.rcc.sys_ck = Some(mhz(400));
+    config.rcc.hclk = Some(mhz(200));
+    config.rcc.per_ck = Some(mhz(64));
     config.rcc.adc_clock_source = AdcClockSource::PerCk;
     config
 }

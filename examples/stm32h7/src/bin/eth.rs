@@ -12,7 +12,7 @@ use embassy_stm32::eth::generic_smi::GenericSMI;
 use embassy_stm32::eth::{Ethernet, State};
 use embassy_stm32::peripherals::ETH;
 use embassy_stm32::rng::Rng;
-use embassy_stm32::time::U32Ext;
+use embassy_stm32::time::mhz;
 use embassy_stm32::{interrupt, Config, Peripherals};
 use embedded_io::asynch::Write;
 use rand_core::RngCore;
@@ -35,9 +35,9 @@ async fn net_task(stack: &'static Stack<Device>) -> ! {
 
 pub fn config() -> Config {
     let mut config = Config::default();
-    config.rcc.sys_ck = Some(400.mhz().into());
-    config.rcc.hclk = Some(200.mhz().into());
-    config.rcc.pll1.q_ck = Some(100.mhz().into());
+    config.rcc.sys_ck = Some(mhz(400));
+    config.rcc.hclk = Some(mhz(200));
+    config.rcc.pll1.q_ck = Some(mhz(100));
     config
 }
 

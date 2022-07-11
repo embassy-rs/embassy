@@ -10,19 +10,19 @@ use embassy::time::{Duration, Timer};
 use embassy_stm32::gpio::low_level::AFType;
 use embassy_stm32::gpio::Speed;
 use embassy_stm32::pwm::*;
-use embassy_stm32::time::{Hertz, U32Ext};
+use embassy_stm32::time::{khz, mhz, Hertz};
 use embassy_stm32::{unborrow, Config, Peripherals, Unborrow};
 use {defmt_rtt as _, panic_probe as _};
 
 pub fn config() -> Config {
     let mut config = Config::default();
-    config.rcc.sys_ck = Some(400.mhz().into());
-    config.rcc.hclk = Some(400.mhz().into());
-    config.rcc.pll1.q_ck = Some(100.mhz().into());
-    config.rcc.pclk1 = Some(100.mhz().into());
-    config.rcc.pclk2 = Some(100.mhz().into());
-    config.rcc.pclk3 = Some(100.mhz().into());
-    config.rcc.pclk4 = Some(100.mhz().into());
+    config.rcc.sys_ck = Some(mhz(400));
+    config.rcc.hclk = Some(mhz(400));
+    config.rcc.pll1.q_ck = Some(mhz(100));
+    config.rcc.pclk1 = Some(mhz(100));
+    config.rcc.pclk2 = Some(mhz(100));
+    config.rcc.pclk3 = Some(mhz(100));
+    config.rcc.pclk4 = Some(mhz(100));
     config
 }
 
@@ -30,7 +30,7 @@ pub fn config() -> Config {
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
-    let mut pwm = SimplePwm32::new(p.TIM5, p.PA0, p.PA1, p.PA2, p.PA3, 10000.hz());
+    let mut pwm = SimplePwm32::new(p.TIM5, p.PA0, p.PA1, p.PA2, p.PA3, khz(10));
     let max = pwm.get_max_duty();
     pwm.enable(Channel::Ch1);
 
@@ -54,13 +54,13 @@ pub struct SimplePwm32<'d, T: CaptureCompare32bitInstance> {
 }
 
 impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
-    pub fn new<F: Into<Hertz>>(
+    pub fn new(
         tim: impl Unborrow<Target = T> + 'd,
         ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
         ch2: impl Unborrow<Target = impl Channel2Pin<T>> + 'd,
         ch3: impl Unborrow<Target = impl Channel3Pin<T>> + 'd,
         ch4: impl Unborrow<Target = impl Channel4Pin<T>> + 'd,
-        freq: F,
+        freq: Hertz,
     ) -> Self {
         unborrow!(tim, ch1, ch2, ch3, ch4);
 
@@ -115,7 +115,7 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
         }
     }
 
-    pub fn set_freq<F: Into<Hertz>>(&mut self, freq: F) {
+    pub fn set_freq(&mut self, freq: Hertz) {
         <T as embassy_stm32::timer::low_level::GeneralPurpose32bitInstance>::set_frequency(&mut self.inner, freq);
     }
 

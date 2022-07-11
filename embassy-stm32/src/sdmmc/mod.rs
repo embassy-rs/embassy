@@ -261,7 +261,7 @@ impl<'d, T: Instance, P: Pins<T>> Sdmmc<'d, T, P, NoDma> {
 
 impl<'d, T: Instance, P: Pins<T>, Dma: SdmmcDma<T>> Sdmmc<'d, T, P, Dma> {
     #[inline(always)]
-    pub async fn init_card(&mut self, freq: impl Into<Hertz>) -> Result<(), Error> {
+    pub async fn init_card(&mut self, freq: Hertz) -> Result<(), Error> {
         let inner = T::inner();
         let freq = freq.into();
 

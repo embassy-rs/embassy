@@ -39,18 +39,15 @@ pub struct I2c<'d, T: Instance, TXDMA = NoDma, RXDMA = NoDma> {
 }
 
 impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
-    pub fn new<F>(
+    pub fn new(
         _peri: impl Unborrow<Target = T> + 'd,
         scl: impl Unborrow<Target = impl SclPin<T>> + 'd,
         sda: impl Unborrow<Target = impl SdaPin<T>> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
         tx_dma: impl Unborrow<Target = TXDMA> + 'd,
         rx_dma: impl Unborrow<Target = RXDMA> + 'd,
-        freq: F,
-    ) -> Self
-    where
-        F: Into<Hertz>,
-    {
+        freq: Hertz,
+    ) -> Self {
         unborrow!(irq, scl, sda, tx_dma, rx_dma);
 
         T::enable();

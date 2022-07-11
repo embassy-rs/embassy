@@ -11,7 +11,7 @@ use embassy_lora::LoraTimer;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::rng::Rng;
-use embassy_stm32::time::U32Ext;
+use embassy_stm32::time::khz;
 use embassy_stm32::{spi, Peripherals};
 use lorawan::default_crypto::DefaultFactory as Crypto;
 use lorawan_device::async_device::{region, Device, JoinMode};
@@ -34,7 +34,7 @@ async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
         p.PA6,
         p.DMA1_CH3,
         p.DMA1_CH2,
-        200_000.hz(),
+        khz(200),
         spi::Config::default(),
     );
 

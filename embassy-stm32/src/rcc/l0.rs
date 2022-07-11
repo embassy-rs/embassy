@@ -3,7 +3,7 @@ use crate::pac::RCC;
 #[cfg(crs)]
 use crate::pac::{CRS, SYSCFG};
 use crate::rcc::{set_freqs, Clocks};
-use crate::time::{Hertz, U32Ext};
+use crate::time::Hertz;
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
@@ -266,7 +266,7 @@ pub(crate) unsafe fn init(config: Config) {
                 PLLDiv::Div3 => freq / 3,
                 PLLDiv::Div4 => freq / 4,
             };
-            assert!(freq <= 32_u32.mhz().0);
+            assert!(freq <= 32_000_000);
 
             RCC.cfgr().write(move |w| {
                 w.set_pllmul(mul.into());
@@ -359,11 +359,11 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     set_freqs(Clocks {
-        sys: sys_clk.hz(),
-        ahb1: ahb_freq.hz(),
-        apb1: apb1_freq.hz(),
-        apb2: apb2_freq.hz(),
-        apb1_tim: apb1_tim_freq.hz(),
-        apb2_tim: apb2_tim_freq.hz(),
+        sys: Hertz(sys_clk),
+        ahb1: Hertz(ahb_freq),
+        apb1: Hertz(apb1_freq),
+        apb2: Hertz(apb2_freq),
+        apb1_tim: Hertz(apb1_tim_freq),
+        apb2_tim: Hertz(apb2_tim_freq),
     });
 }
