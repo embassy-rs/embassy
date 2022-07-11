@@ -1,9 +1,12 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait, concat_bytes, const_slice_from_raw_parts)]
+#![deny(unused_must_use)]
+
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+mod countries;
 mod structs;
 
 use core::cell::Cell;
@@ -206,14 +209,67 @@ pub struct Control<'a> {
 
 impl<'a> Control<'a> {
     pub async fn init(&mut self) {
+        const CHUNK_SIZE: usize = 1024;
+
         let clm = unsafe { slice::from_raw_parts(0x10140000 as *const u8, 4752) };
 
-        let mut buf = [0; 8 + 12 + 1024];
-        buf[0..8].copy_from_slice(b"clmload\x00");
-        buf[8..20].copy_from_slice(b"\x02\x10\x02\x00\x00\x04\x00\x00\x00\x00\x00\x00");
-        buf[20..].copy_from_slice(&clm[..1024]);
-        self.ioctl(2, 263, 0, &buf).await;
-        info!("IOCTL done");
+        info!("Downloading CLM...");
+
+        let mut offs = 0;
+        for chunk in clm.chunks(CHUNK_SIZE) {
+            let mut flag = DOWNLOAD_FLAG_HANDLER_VER;
+            if offs == 0 {
+                flag |= DOWNLOAD_FLAG_BEGIN;
+            }
+            offs += chunk.len();
+            if offs == clm.len() {
+                flag |= DOWNLOAD_FLAG_END;
+            }
+
+            let header = DownloadHeader {
+                flag,
+                dload_type: DOWNLOAD_TYPE_CLM,
+                len: chunk.len() as _,
+                crc: 0,
+            };
+            let mut buf = [0; 8 + 12 + CHUNK_SIZE];
+            buf[0..8].copy_from_slice(b"clmload\x00");
+            buf[8..20].copy_from_slice(&header.to_bytes());
+            buf[20..][..chunk.len()].copy_from_slice(&chunk);
+            self.ioctl(2, 263, 0, &buf[..8 + 12 + chunk.len()]).await;
+        }
+
+        info!("Configuring misc stuff...");
+
+        self.set_iovar_u32("bus:txglom", 0).await;
+        self.set_iovar_u32("apsta", 1).await;
+        self.set_iovar("cur_etheraddr", &[02, 03, 04, 05, 06, 07]).await;
+
+        let country = countries::WORLD_WIDE_XX;
+        let country_info = CountryInfo {
+            country_abbrev: [country.code[0], country.code[1], 0, 0],
+            country_code: [country.code[0], country.code[1], 0, 0],
+            rev: if country.rev == 0 { -1 } else { country.rev as _ },
+        };
+        self.set_iovar("country", &country_info.to_bytes()).await;
+
+        info!("INIT DONE");
+    }
+
+    async fn set_iovar_u32(&mut self, name: &str, val: u32) {
+        self.set_iovar(name, &val.to_le_bytes()).await
+    }
+
+    async fn set_iovar(&mut self, name: &str, val: &[u8]) {
+        info!("set {} = {:02x}", name, val);
+
+        let mut buf = [0; 64];
+        buf[..name.len()].copy_from_slice(name.as_bytes());
+        buf[name.len()] = 0;
+        buf[name.len() + 1..][..val.len()].copy_from_slice(val);
+
+        let total_len = name.len() + 1 + val.len();
+        self.ioctl(2, 263, 0, &buf[..total_len]).await;
     }
 
     async fn ioctl(&mut self, kind: u32, cmd: u32, iface: u32, buf: &[u8]) {
@@ -255,6 +311,7 @@ pub struct Runner<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> {
     /// - strap to set to gSPI mode on boot.
     dio: Flex<'a, DIO>,
 
+    ioctl_seq: u8,
     backplane_window: u32,
 }
 
@@ -271,6 +328,8 @@ pub async fn new<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin>(
         cs,
         clk,
         dio,
+
+        ioctl_seq: 0,
         backplane_window: 0xAAAA_AAAA,
     };
 
@@ -397,7 +456,6 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
     }
 
     pub async fn run(mut self) -> ! {
-        let mut old_irq = 0;
         let mut buf = [0; 2048];
         loop {
             // Send stuff
@@ -408,10 +466,6 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
 
             // Receive stuff
             let irq = self.read16(FUNC_BUS, REG_BUS_INTERRUPT);
-            if irq != old_irq {
-                info!("irq: {:04x}", irq);
-            }
-            old_irq = irq;
 
             if irq & IRQ_F2_PACKET_AVAILABLE != 0 {
                 let mut status = 0xFFFF_FFFF;
@@ -421,7 +475,6 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
 
                 if status & STATUS_F2_PKT_AVAILABLE != 0 {
                     let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                    info!("got len {}", len);
 
                     let cmd = cmd_word(false, true, FUNC_WLAN, 0, len);
 
@@ -435,7 +488,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
                     }
                     self.cs.set_high();
 
-                    info!("rxd packet {:02x}", &buf[..len as usize]);
+                    info!("rx {:02x}", &buf[..(len as usize).min(48)]);
 
                     self.rx(&buf[..len as usize]);
                 }
@@ -466,15 +519,17 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
 
         let channel = sdpcm_header.channel_and_flags & 0x0f;
 
+        let payload = &packet[sdpcm_header.header_length as _..];
+
         match channel {
             0 => {
-                if packet.len() < SdpcmHeader::SIZE + CdcHeader::SIZE {
-                    warn!("control packet too short, len={}", packet.len());
+                if payload.len() < CdcHeader::SIZE {
+                    warn!("payload too short, len={}", payload.len());
                     return;
                 }
 
                 let cdc_header =
-                    CdcHeader::from_bytes(packet[SdpcmHeader::SIZE..][..CdcHeader::SIZE].try_into().unwrap());
+                    CdcHeader::from_bytes(payload[..CdcHeader::SIZE].try_into().unwrap());
 
                 if cdc_header.id == self.state.ioctl_id.get() {
                     assert_eq!(cdc_header.status, 0); // todo propagate error
@@ -490,10 +545,13 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
 
         let total_len = SdpcmHeader::SIZE + CdcHeader::SIZE + data.len();
 
+        let seq = self.ioctl_seq;
+        self.ioctl_seq = self.ioctl_seq.wrapping_add(1);
+
         let sdpcm_header = SdpcmHeader {
-            len: total_len as u16,
+            len: total_len as u16, // TODO does this len need to be rounded up to u32?
             len_inv: !total_len as u16,
-            sequence: 0x02,       // todo
+            sequence: seq,
             channel_and_flags: 0, // control channel
             next_length: 0,
             header_length: SdpcmHeader::SIZE as _,
@@ -515,7 +573,9 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         buf[SdpcmHeader::SIZE..][..CdcHeader::SIZE].copy_from_slice(&cdc_header.to_bytes());
         buf[SdpcmHeader::SIZE + CdcHeader::SIZE..][..data.len()].copy_from_slice(data);
 
-        info!("txing {:02x}", &buf[..total_len]);
+        let total_len = (total_len + 3) & !3; // round up to 4byte
+
+        info!("tx {:02x}", &buf[..total_len.min(48)]);
 
         let cmd = cmd_word(true, true, FUNC_WLAN, 0, total_len as _);
         self.cs.set_low();
