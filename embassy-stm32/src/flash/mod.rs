@@ -10,6 +10,7 @@ const FLASH_END: usize = FLASH_BASE + FLASH_SIZE;
 
 #[cfg_attr(any(flash_wl, flash_wb, flash_l0, flash_l1, flash_l4), path = "l.rs")]
 #[cfg_attr(flash_f3, path = "f3.rs")]
+#[cfg_attr(flash_f4, path = "f4.rs")]
 #[cfg_attr(flash_f7, path = "f7.rs")]
 #[cfg_attr(flash_h7, path = "h7.rs")]
 mod family;
