@@ -202,6 +202,12 @@ pub enum Event {
     /// A USB resume request has been detected after being suspended or, in the case of self-powered
     /// devices, the device has been connected to the USB bus.
     Resume,
+
+    /// The USB power has been detected.
+    PowerDetected,
+
+    /// The USB power has been removed. Not supported by all devices.
+    PowerRemoved,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

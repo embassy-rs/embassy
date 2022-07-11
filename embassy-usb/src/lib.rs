@@ -30,6 +30,9 @@ use crate::driver::ControlPipe;
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum UsbDeviceState {
+    /// The USB device has no power.
+    Unpowered,
+
     /// The USB device is disabled.
     Disabled,
 
@@ -154,7 +157,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 config_descriptor,
                 bos_descriptor,
 
-                device_state: UsbDeviceState::Disabled,
+                device_state: UsbDeviceState::Unpowered,
                 suspended: false,
                 remote_wakeup_enabled: false,
                 self_powered: false,
@@ -185,20 +188,11 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     /// before calling any other `UsbDevice` methods to fully reset the
     /// peripheral.
     pub async fn run_until_suspend(&mut self) -> () {
-        if self.inner.device_state == UsbDeviceState::Disabled {
-            self.inner.bus.enable().await;
-            self.inner.device_state = UsbDeviceState::Default;
-
-            if let Some(h) = &self.inner.handler {
-                h.enabled(true);
-            }
-        }
-
         while !self.inner.suspended {
             let control_fut = self.control.setup();
             let bus_fut = self.inner.bus.poll();
             match select(bus_fut, control_fut).await {
-                Either::First(evt) => self.inner.handle_bus_event(evt),
+                Either::First(evt) => self.inner.handle_bus_event(evt).await,
                 Either::Second(req) => self.handle_control(req).await,
             }
         }
@@ -224,7 +218,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     pub async fn wait_resume(&mut self) {
         while self.inner.suspended {
             let evt = self.inner.bus.poll().await;
-            self.inner.handle_bus_event(evt);
+            self.inner.handle_bus_event(evt).await;
         }
     }
 
@@ -341,7 +335,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
 }
 
 impl<'d, D: Driver<'d>> Inner<'d, D> {
-    fn handle_bus_event(&mut self, evt: Event) {
+    async fn handle_bus_event(&mut self, evt: Event) {
         match evt {
             Event::Reset => {
                 trace!("usb: reset");
@@ -374,6 +368,24 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 self.suspended = true;
                 if let Some(h) = &self.handler {
                     h.suspended(true);
+                }
+            }
+            Event::PowerDetected => {
+                trace!("usb: power detected");
+                self.bus.enable().await;
+                self.device_state = UsbDeviceState::Default;
+
+                if let Some(h) = &self.handler {
+                    h.enabled(true);
+                }
+            }
+            Event::PowerRemoved => {
+                trace!("usb: power removed");
+                self.bus.disable().await;
+                self.device_state = UsbDeviceState::Unpowered;
+
+                if let Some(h) = &self.handler {
+                    h.enabled(false);
                 }
             }
         }
