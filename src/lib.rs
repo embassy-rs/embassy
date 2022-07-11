@@ -243,7 +243,7 @@ impl<'a> Control<'a> {
         info!("Configuring misc stuff...");
 
         self.set_iovar_u32("bus:txglom", 0).await;
-        self.set_iovar_u32("apsta", 1).await;
+        //self.set_iovar_u32("apsta", 1).await;
         self.set_iovar("cur_etheraddr", &[02, 03, 04, 05, 06, 07]).await;
 
         let country = countries::WORLD_WIDE_XX;
@@ -257,9 +257,13 @@ impl<'a> Control<'a> {
         // set country takes some time, next ioctls fail if we don't wait.
         Timer::after(Duration::from_millis(100)).await;
 
-        // self.set_iovar_u32("ampdu_ba_wsize", 8).await;
-        // self.set_iovar_u32("ampdu_mpdu", 4).await;
-        // self.set_iovar_u32("ampdu_rx_factor", 0).await; // this crashes
+        self.ioctl_set_u32(64, 0, 0).await; // WLC_SET_ANTDIV
+
+        self.set_iovar_u32("bus:txglom", 0).await;
+        //self.set_iovar_u32("apsta", 1).await;
+        self.set_iovar_u32("ampdu_ba_wsize", 8).await;
+        self.set_iovar_u32("ampdu_mpdu", 4).await;
+        //self.set_iovar_u32("ampdu_rx_factor", 0).await; // this crashes
 
         Timer::after(Duration::from_millis(100)).await;
 
@@ -272,6 +276,12 @@ impl<'a> Control<'a> {
 
         // set wifi up
         self.ioctl(2, 2, 0, &[]).await;
+
+        Timer::after(Duration::from_millis(100)).await;
+
+        self.ioctl_set_u32(86, 0, 0).await; // no power save
+        self.ioctl_set_u32(110, 0, 1).await; // SET_GMODE = auto
+        self.ioctl_set_u32(142, 0, 0).await; // SET_BAND = any
 
         Timer::after(Duration::from_millis(100)).await;
 
@@ -494,11 +504,11 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         let mut val = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR);
         val |= 0x01; // SBSDIO_SLPCSR_KEEP_SDIO_ON
         self.write8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR, val);
+         */
 
         // clear pulls
         self.write8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP, 0);
         let _ = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP);
-         */
 
         info!("init done ");
     }
@@ -595,14 +605,12 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
                 let packet = &payload[packet_start..];
                 //info!("rx {:02x}", &packet[..(packet.len() as usize).min(36)]);
 
-                let evt = EventHeader::from_bytes(&packet[24..][..EventHeader::SIZE].try_into().unwrap());
-                let evt_num = evt.event_type.to_be() as u8;
-                let evt_data_len = evt.datalen.to_be() as u8;
-                let evt_data = &packet[24 + EventHeader::SIZE..][..evt_data_len as usize];
+                let mut evt = EventHeader::from_bytes(&packet[24..][..EventHeader::SIZE].try_into().unwrap());
+                evt.byteswap();
+                let evt_data = &packet[24 + EventHeader::SIZE..][..evt.datalen as usize];
                 info!(
-                    "=== EVENT {} ({}) {} {:02x}",
-                    events::Event::from(evt_num),
-                    evt_num,
+                    "=== EVENT {}: {} {:02x}",
+                    events::Event::from(evt.event_type as u8),
                     evt,
                     evt_data
                 );

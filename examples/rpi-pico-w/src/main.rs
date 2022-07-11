@@ -6,6 +6,7 @@ use core::slice;
 
 use defmt::{assert, assert_eq, panic, *};
 use embassy::executor::Spawner;
+use embassy::time::{Duration, Timer};
 use embassy::util::Forever;
 use embassy_rp::gpio::{Flex, Level, Output, Pin};
 use embassy_rp::peripherals::{PIN_23, PIN_24, PIN_25, PIN_29};

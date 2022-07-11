@@ -92,6 +92,18 @@ pub struct EventHeader {
 }
 impl_bytes!(EventHeader);
 
+impl EventHeader {
+    pub fn byteswap(&mut self) {
+        self.version = self.version.to_be();
+        self.flags = self.flags.to_be();
+        self.event_type = self.event_type.to_be();
+        self.status = self.status.to_be();
+        self.reason = self.reason.to_be();
+        self.auth_type = self.auth_type.to_be();
+        self.datalen = self.datalen.to_be();
+    }
+}
+
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct DownloadHeader {
