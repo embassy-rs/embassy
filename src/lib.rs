@@ -12,12 +12,19 @@ mod structs;
 
 use core::cell::Cell;
 use core::slice;
+use core::sync::atomic::Ordering;
+use core::task::Waker;
 
+use atomic_polyfill::AtomicBool;
+use embassy::blocking_mutex::raw::NoopRawMutex;
+use embassy::channel::mpmc::Channel;
 use embassy::time::{block_for, Duration, Timer};
 use embassy::util::yield_now;
+use embassy_net::{PacketBoxExt, PacketBuf};
 use embassy_rp::gpio::{Flex, Output, Pin};
 
 use self::structs::*;
+use crate::events::Event;
 
 fn swap16(x: u32) -> u32 {
     (x & 0xFF00FF00) >> 8 | (x & 0x00FF00FF) << 8
@@ -197,6 +204,10 @@ enum IoctlState {
 pub struct State {
     ioctl_id: Cell<u16>,
     ioctl_state: Cell<IoctlState>,
+
+    tx_channel: Channel<NoopRawMutex, PacketBuf, 8>,
+    rx_channel: Channel<NoopRawMutex, PacketBuf, 8>,
+    link_up: AtomicBool,
 }
 
 impl State {
@@ -204,6 +215,10 @@ impl State {
         Self {
             ioctl_id: Cell::new(0),
             ioctl_state: Cell::new(IoctlState::Idle),
+
+            tx_channel: Channel::new(),
+            rx_channel: Channel::new(),
+            link_up: AtomicBool::new(true), // TODO set up/down as we join/deassociate
         }
     }
 }
@@ -213,7 +228,7 @@ pub struct Control<'a> {
 }
 
 impl<'a> Control<'a> {
-    pub async fn init(&mut self) {
+    pub async fn init(&mut self) -> NetDevice<'a> {
         const CHUNK_SIZE: usize = 1024;
 
         let clm = unsafe { slice::from_raw_parts(0x10140000 as *const u8, 4752) };
@@ -253,6 +268,15 @@ impl<'a> Control<'a> {
         self.set_iovar_u32("apsta", 1).await;
         //self.set_iovar("cur_etheraddr", &[02, 03, 04, 05, 06, 07]).await;
 
+        // read MAC addr.
+        let mut mac_addr = [0; 6];
+        assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
+        info!("mac addr: {:02x}", mac_addr);
+
+        // TODO get_iovar is broken, it returns all zeros.
+        // Harcdode our own MAC for now.
+        let mac_addr = [0x28, 0xCD, 0xC1, 0x00, 0x3F, 0x05];
+
         let country = countries::WORLD_WIDE_XX;
         let country_info = CountryInfo {
             country_abbrev: [country.code[0], country.code[1], 0, 0],
@@ -283,6 +307,15 @@ impl<'a> Control<'a> {
             iface: 0,
             events: [0xFF; 24],
         };
+
+        // Disable spammy uninteresting events.
+        evts.unset(Event::RADIO);
+        evts.unset(Event::IF);
+        evts.unset(Event::PROBREQ_MSG);
+        evts.unset(Event::PROBREQ_MSG_RX);
+        evts.unset(Event::PROBRESP_MSG);
+        evts.unset(Event::PROBRESP_MSG);
+
         self.set_iovar("bsscfg:event_msgs", &evts.to_bytes()).await;
 
         Timer::after(Duration::from_millis(100)).await;
@@ -305,6 +338,11 @@ impl<'a> Control<'a> {
         Timer::after(Duration::from_millis(100)).await;
 
         info!("INIT DONE");
+
+        NetDevice {
+            state: self.state,
+            mac_addr,
+        }
     }
 
     pub async fn join_open(&mut self, ssid: &str) {
@@ -387,6 +425,7 @@ impl<'a> Control<'a> {
         self.ioctl(2, 263, 0, &mut buf).await;
     }
 
+    // TODO this is not really working, it always returns all zeros.
     async fn get_iovar(&mut self, name: &str, res: &mut [u8]) -> usize {
         info!("get {}", name);
 
@@ -395,7 +434,7 @@ impl<'a> Control<'a> {
         buf[name.len()] = 0;
 
         let total_len = name.len() + 1 + res.len();
-        let res_len = self.ioctl(2, 262, 0, &mut buf[..total_len]).await - name.len() - 1;
+        let res_len = self.ioctl(0, 262, 0, &mut buf[..total_len]).await - name.len() - 1;
         res[..res_len].copy_from_slice(&buf[name.len() + 1..][..res_len]);
         res_len
     }
@@ -407,9 +446,6 @@ impl<'a> Control<'a> {
 
     async fn ioctl(&mut self, kind: u32, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
         // TODO cancel ioctl on future drop.
-
-        // snail mode 🐌
-        Timer::after(Duration::from_millis(100)).await;
 
         while !matches!(self.state.ioctl_state.get(), IoctlState::Idle) {
             yield_now().await;
@@ -431,6 +467,50 @@ impl<'a> Control<'a> {
         self.state.ioctl_state.set(IoctlState::Idle);
 
         resp_len
+    }
+}
+
+pub struct NetDevice<'a> {
+    state: &'a State,
+    mac_addr: [u8; 6],
+}
+
+impl<'a> embassy_net::Device for NetDevice<'a> {
+    fn register_waker(&mut self, waker: &Waker) {
+        // loopy loopy wakey wakey
+        waker.wake_by_ref()
+    }
+
+    fn link_state(&mut self) -> embassy_net::LinkState {
+        match self.state.link_up.load(Ordering::Relaxed) {
+            true => embassy_net::LinkState::Up,
+            false => embassy_net::LinkState::Down,
+        }
+    }
+
+    fn capabilities(&self) -> embassy_net::DeviceCapabilities {
+        let mut caps = embassy_net::DeviceCapabilities::default();
+        caps.max_transmission_unit = 1514; // 1500 IP + 14 ethernet header
+        caps.medium = embassy_net::Medium::Ethernet;
+        caps
+    }
+
+    fn is_transmit_ready(&mut self) -> bool {
+        true
+    }
+
+    fn transmit(&mut self, pkt: PacketBuf) {
+        if self.state.tx_channel.try_send(pkt).is_err() {
+            warn!("TX failed")
+        }
+    }
+
+    fn receive(&mut self) -> Option<PacketBuf> {
+        self.state.rx_channel.try_recv().ok()
+    }
+
+    fn ethernet_address(&self) -> [u8; 6] {
+        self.mac_addr
     }
 }
 
@@ -576,7 +656,10 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         while self.read32(FUNC_BUS, REG_BUS_STATUS) & STATUS_F2_RX_READY == 0 {}
 
         // Some random configs related to sleep.
-        // I think they're not needed if we don't want sleep...???
+        // These aren't needed if we don't want to sleep the bus.
+        // TODO do we need to sleep the bus to read the irq line, due to
+        // being on the same pin as MOSI/MISO?
+
         /*
         let mut val = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL);
         val |= 0x02; // WAKE_TILL_HT_AVAIL
@@ -606,9 +689,14 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         let mut buf = [0; 2048];
         loop {
             // Send stuff
+            // TODO flow control
             if let IoctlState::Pending { kind, cmd, iface, buf } = self.state.ioctl_state.get() {
                 self.send_ioctl(kind, cmd, iface, unsafe { &*buf }, self.state.ioctl_id.get());
                 self.state.ioctl_state.set(IoctlState::Sent { buf });
+            }
+
+            if let Ok(p) = self.state.tx_channel.try_recv() {
+                self.send_packet(&p);
             }
 
             // Receive stuff
@@ -644,6 +732,52 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
             // TODO use IRQs
             yield_now().await;
         }
+    }
+
+    fn send_packet(&mut self, packet: &[u8]) {
+        trace!("tx pkt {:02x}", &packet[..packet.len().min(48)]);
+
+        let mut buf = [0; 2048];
+
+        let total_len = SdpcmHeader::SIZE + BcdHeader::SIZE + packet.len();
+
+        let seq = self.ioctl_seq;
+        self.ioctl_seq = self.ioctl_seq.wrapping_add(1);
+
+        let sdpcm_header = SdpcmHeader {
+            len: total_len as u16, // TODO does this len need to be rounded up to u32?
+            len_inv: !total_len as u16,
+            sequence: seq,
+            channel_and_flags: 2, // data channel
+            next_length: 0,
+            header_length: SdpcmHeader::SIZE as _,
+            wireless_flow_control: 0,
+            bus_data_credit: 0,
+            reserved: [0, 0],
+        };
+
+        let bcd_header = BcdHeader {
+            flags: 0x20,
+            priority: 0,
+            flags2: 0,
+            data_offset: 0,
+        };
+        trace!("tx {:?}", sdpcm_header);
+        trace!("    {:?}", bcd_header);
+
+        buf[0..SdpcmHeader::SIZE].copy_from_slice(&sdpcm_header.to_bytes());
+        buf[SdpcmHeader::SIZE..][..BcdHeader::SIZE].copy_from_slice(&bcd_header.to_bytes());
+        buf[SdpcmHeader::SIZE + BcdHeader::SIZE..][..packet.len()].copy_from_slice(packet);
+
+        let total_len = (total_len + 3) & !3; // round up to 4byte
+
+        trace!("    {:02x}", &buf[..total_len.min(48)]);
+
+        let cmd = cmd_word(true, true, FUNC_WLAN, 0, total_len as _);
+        self.cs.set_low();
+        self.spi_write(&cmd.to_le_bytes());
+        self.spi_write(&buf[..total_len]);
+        self.cs.set_high();
     }
 
     fn rx(&mut self, packet: &[u8]) {
@@ -683,6 +817,8 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
                         assert_eq!(cdc_header.status, 0); // todo propagate error instead
 
                         let resp_len = cdc_header.len as usize;
+                        info!("IOCTL Response: {:02x}", &payload[CdcHeader::SIZE..][..resp_len]);
+
                         (unsafe { &mut *buf }[..resp_len]).copy_from_slice(&payload[CdcHeader::SIZE..][..resp_len]);
                         self.state.ioctl_state.set(IoctlState::Done { resp_len });
                     }
@@ -703,14 +839,32 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
                 let mut evt = EventHeader::from_bytes(&packet[24..][..EventHeader::SIZE].try_into().unwrap());
                 evt.byteswap();
                 let evt_data = &packet[24 + EventHeader::SIZE..][..evt.datalen as usize];
-                info!(
+                debug!(
                     "=== EVENT {}: {} {:02x}",
                     events::Event::from(evt.event_type as u8),
                     evt,
                     evt_data
                 );
             }
+            2 => {
+                let bcd_header = BcdHeader::from_bytes(&payload[..BcdHeader::SIZE].try_into().unwrap());
+                trace!("    {:?}", bcd_header);
 
+                let packet_start = BcdHeader::SIZE + 4 * bcd_header.data_offset as usize;
+                if packet_start > payload.len() {
+                    warn!("packet start out of range.");
+                    return;
+                }
+                let packet = &payload[packet_start..];
+                trace!("rx pkt {:02x}", &packet[..(packet.len() as usize).min(48)]);
+
+                let mut p = unwrap!(embassy_net::PacketBox::new(embassy_net::Packet::new()));
+                p[..packet.len()].copy_from_slice(packet);
+
+                if let Err(_) = self.state.rx_channel.try_send(p.slice(0..packet.len())) {
+                    warn!("failed to push rxd packet to the channel.")
+                }
+            }
             _ => {}
         }
     }

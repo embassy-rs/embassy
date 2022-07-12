@@ -8,6 +8,7 @@ edition = "2021"
 cyw43 = { path = "../../", features = ["defmt"]}
 embassy = { version = "0.1.0",  features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { version = "0.1.0",  features = ["defmt", "unstable-traits", "nightly", "unstable-pac"] }
+embassy-net = { version = "0.1.0", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "pool-16"] }
 atomic-polyfill = "0.1.5"
 
 defmt = "0.3"
@@ -20,13 +21,21 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
 embedded-hal-async = { version = "0.1.0-alpha.1" }
+embedded-io = { version = "0.3.0", features = ["async", "defmt"] }
+heapless = "0.7.15"
 
 
 [patch.crates-io]
 embassy = { git = "https://github.com/embassy-rs/embassy", rev = "5f43c1d37e9db847c7861fe0bd821db62edba9f6" }
 embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "5f43c1d37e9db847c7861fe0bd821db62edba9f6" }
+embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "5f43c1d37e9db847c7861fe0bd821db62edba9f6" }
 #embassy = { path = "/home/dirbaio/embassy/embassy/embassy" }
 #embassy-rp = { path = "/home/dirbaio/embassy/embassy/embassy-rp" }
+#embassy-net = { path = "/home/dirbaio/embassy/embassy/embassy-net" }
+#smoltcp = { path = "./smoltcp" }
+
+#[patch."https://github.com/smoltcp-rs/smoltcp"]
+#smoltcp = { path = "./smoltcp" }
 
 [profile.dev]
 debug = 2

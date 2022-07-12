@@ -9,6 +9,7 @@ log = ["dep:log"]
 [dependencies]
 embassy = { version = "0.1.0" }
 embassy-rp = { version = "0.1.0", features = ["unstable-traits", "nightly", "unstable-pac"] }
+embassy-net = { version = "0.1.0" }
 atomic-polyfill = "0.1.5"
 
 defmt = { version = "0.3", optional = true }

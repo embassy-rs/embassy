@@ -1,3 +1,5 @@
+use crate::events::Event;
+
 macro_rules! impl_bytes {
     ($t:ident) => {
         impl $t {
@@ -157,3 +159,10 @@ pub struct EventMask {
     pub events: [u8; 24],
 }
 impl_bytes!(EventMask);
+
+impl EventMask {
+    pub fn unset(&mut self, evt: Event) {
+        let evt = evt as u8 as usize;
+        self.events[evt / 8] &= !(1 << (evt % 8));
+    }
+}
