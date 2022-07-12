@@ -298,7 +298,7 @@ impl From<u8> for StopBits {
 pub enum ParityType {
     None = 0,
     Odd = 1,
-    Event = 2,
+    Even = 2,
     Mark = 3,
     Space = 4,
 }
