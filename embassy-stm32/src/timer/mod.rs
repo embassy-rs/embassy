@@ -40,7 +40,7 @@ pub(crate) mod sealed {
         fn set_frequency(&mut self, frequency: Hertz);
     }
 
-    pub trait AdvancedControlInstance: Basic16bitInstance {
+    pub trait AdvancedControlInstance: GeneralPurpose16bitInstance {
         fn regs_advanced() -> crate::pac::timer::TimAdv;
     }
 }
@@ -204,11 +204,21 @@ foreach_interrupt! {
         impl Basic16bitInstance for crate::peripherals::$inst {
         }
 
+        impl sealed::GeneralPurpose16bitInstance for crate::peripherals::$inst {
+            fn regs_gp16() -> crate::pac::timer::TimGp16 {
+                crate::pac::timer::TimGp16(crate::pac::$inst.0)
+            }
+        }
+
+        impl GeneralPurpose16bitInstance for crate::peripherals::$inst {
+        }
+
         impl sealed::AdvancedControlInstance for crate::peripherals::$inst {
             fn regs_advanced() -> crate::pac::timer::TimAdv {
                 crate::pac::$inst
             }
         }
+
         impl AdvancedControlInstance for crate::peripherals::$inst {
         }
     };
