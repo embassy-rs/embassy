@@ -54,7 +54,7 @@ impl From<OutputCompareMode> for stm32_metapac::timer::vals::Ocm {
 pub(crate) mod sealed {
     use super::*;
 
-    pub trait CaptureCompare16bitInstance: crate::timer::sealed::Basic16bitInstance {
+    pub trait CaptureCompare16bitInstance: crate::timer::sealed::GeneralPurpose16bitInstance {
         /// Global output enable. Does not do anything on non-advanced timers.
         unsafe fn enable_outputs(&mut self, enable: bool);
 
@@ -79,7 +79,7 @@ pub(crate) mod sealed {
 }
 
 pub trait CaptureCompare16bitInstance:
-    sealed::CaptureCompare16bitInstance + crate::timer::Basic16bitInstance + 'static
+    sealed::CaptureCompare16bitInstance + crate::timer::GeneralPurpose16bitInstance + 'static
 {
 }
 pub trait CaptureCompare32bitInstance:
