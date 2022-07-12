@@ -184,10 +184,14 @@ enum IoctlState {
         kind: u32,
         cmd: u32,
         iface: u32,
-        buf: *const [u8],
+        buf: *mut [u8],
     },
-    Sent,
-    Done,
+    Sent {
+        buf: *mut [u8],
+    },
+    Done {
+        resp_len: usize,
+    },
 }
 
 pub struct State {
@@ -237,8 +241,11 @@ impl<'a> Control<'a> {
             buf[0..8].copy_from_slice(b"clmload\x00");
             buf[8..20].copy_from_slice(&header.to_bytes());
             buf[20..][..chunk.len()].copy_from_slice(&chunk);
-            self.ioctl(2, 263, 0, &buf[..8 + 12 + chunk.len()]).await;
+            self.ioctl(2, 263, 0, &mut buf[..8 + 12 + chunk.len()]).await;
         }
+
+        // check clmload ok
+        assert_eq!(self.get_iovar_u32("clmload_status").await, 0);
 
         info!("Configuring misc stuff...");
 
@@ -275,7 +282,7 @@ impl<'a> Control<'a> {
         self.set_iovar("bsscfg:event_msgs", &evts.to_bytes()).await;
 
         // set wifi up
-        self.ioctl(2, 2, 0, &[]).await;
+        self.ioctl(2, 2, 0, &mut []).await;
 
         Timer::after(Duration::from_millis(100)).await;
 
@@ -299,7 +306,7 @@ impl<'a> Control<'a> {
             ssid: [0; 32],
         };
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
-        self.ioctl(2, 26, 0, &i.to_bytes()).await; // set_ssid
+        self.ioctl(2, 26, 0, &mut i.to_bytes()).await; // set_ssid
 
         info!("JOINED");
     }
@@ -310,8 +317,16 @@ impl<'a> Control<'a> {
         buf[4..8].copy_from_slice(&val2.to_le_bytes());
         self.set_iovar(name, &buf).await
     }
+
     async fn set_iovar_u32(&mut self, name: &str, val: u32) {
         self.set_iovar(name, &val.to_le_bytes()).await
+    }
+
+    async fn get_iovar_u32(&mut self, name: &str) -> u32 {
+        let mut buf = [0; 4];
+        let len = self.get_iovar(name, &mut buf).await;
+        assert_eq!(len, 4);
+        u32::from_le_bytes(buf)
     }
 
     async fn set_iovar(&mut self, name: &str, val: &[u8]) {
@@ -323,14 +338,28 @@ impl<'a> Control<'a> {
         buf[name.len() + 1..][..val.len()].copy_from_slice(val);
 
         let total_len = name.len() + 1 + val.len();
-        self.ioctl(2, 263, 0, &buf[..total_len]).await;
+        self.ioctl(2, 263, 0, &mut buf).await;
+    }
+
+    async fn get_iovar(&mut self, name: &str, res: &mut [u8]) -> usize {
+        info!("get {}", name);
+
+        let mut buf = [0; 64];
+        buf[..name.len()].copy_from_slice(name.as_bytes());
+        buf[name.len()] = 0;
+
+        let total_len = name.len() + 1 + res.len();
+        let res_len = self.ioctl(2, 262, 0, &mut buf[..total_len]).await - name.len() - 1;
+        res[..res_len].copy_from_slice(&buf[name.len() + 1..][..res_len]);
+        res_len
     }
 
     async fn ioctl_set_u32(&mut self, cmd: u32, iface: u32, val: u32) {
-        self.ioctl(2, cmd, 0, &val.to_le_bytes()).await
+        let mut buf = val.to_le_bytes();
+        self.ioctl(2, cmd, 0, &mut buf).await;
     }
 
-    async fn ioctl(&mut self, kind: u32, cmd: u32, iface: u32, buf: &[u8]) {
+    async fn ioctl(&mut self, kind: u32, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
         // TODO cancel ioctl on future drop.
 
         while !matches!(self.state.ioctl_state.get(), IoctlState::Idle) {
@@ -343,11 +372,16 @@ impl<'a> Control<'a> {
             .ioctl_state
             .set(IoctlState::Pending { kind, cmd, iface, buf });
 
-        while !matches!(self.state.ioctl_state.get(), IoctlState::Done) {
+        let resp_len = loop {
+            if let IoctlState::Done { resp_len } = self.state.ioctl_state.get() {
+                break resp_len;
+            }
             yield_now().await;
-        }
+        };
 
         self.state.ioctl_state.set(IoctlState::Idle);
+
+        resp_len
     }
 }
 
@@ -519,7 +553,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
             // Send stuff
             if let IoctlState::Pending { kind, cmd, iface, buf } = self.state.ioctl_state.get() {
                 self.send_ioctl(kind, cmd, iface, unsafe { &*buf }, self.state.ioctl_id.get());
-                self.state.ioctl_state.set(IoctlState::Sent);
+                self.state.ioctl_state.set(IoctlState::Sent { buf });
             }
 
             // Receive stuff
@@ -546,7 +580,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
                     }
                     self.cs.set_high();
 
-                    //info!("rx {:02x}", &buf[..(len as usize).min(36)]);
+                    trace!("rx {:02x}", &buf[..(len as usize).min(48)]);
 
                     self.rx(&buf[..len as usize]);
                 }
@@ -564,7 +598,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         }
 
         let sdpcm_header = SdpcmHeader::from_bytes(packet[..SdpcmHeader::SIZE].try_into().unwrap());
-
+        trace!("rx {:?}", sdpcm_header);
         if sdpcm_header.len != !sdpcm_header.len_inv {
             warn!("len inv mismatch");
             return;
@@ -587,15 +621,21 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
                 }
 
                 let cdc_header = CdcHeader::from_bytes(payload[..CdcHeader::SIZE].try_into().unwrap());
+                trace!("    {:?}", cdc_header);
 
-                if cdc_header.id == self.state.ioctl_id.get() {
-                    assert_eq!(cdc_header.status, 0); // todo propagate error
-                    self.state.ioctl_state.set(IoctlState::Done);
+                if let IoctlState::Sent { buf } = self.state.ioctl_state.get() {
+                    if cdc_header.id == self.state.ioctl_id.get() {
+                        assert_eq!(cdc_header.status, 0); // todo propagate error instead
+
+                        let resp_len = cdc_header.len as usize;
+                        (unsafe { &mut *buf }[..resp_len]).copy_from_slice(&payload[CdcHeader::SIZE..][..resp_len]);
+                        self.state.ioctl_state.set(IoctlState::Done { resp_len });
+                    }
                 }
             }
             1 => {
                 let bcd_header = BcdHeader::from_bytes(&payload[..BcdHeader::SIZE].try_into().unwrap());
-                //info!("{}", bcd_header);
+                trace!("    {:?}", bcd_header);
 
                 let packet_start = BcdHeader::SIZE + 4 * bcd_header.data_offset as usize;
                 if packet_start > payload.len() {
@@ -603,7 +643,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
                     return;
                 }
                 let packet = &payload[packet_start..];
-                //info!("rx {:02x}", &packet[..(packet.len() as usize).min(36)]);
+                trace!("    {:02x}", &packet[..(packet.len() as usize).min(36)]);
 
                 let mut evt = EventHeader::from_bytes(&packet[24..][..EventHeader::SIZE].try_into().unwrap());
                 evt.byteswap();
@@ -642,12 +682,13 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
 
         let cdc_header = CdcHeader {
             cmd: cmd,
-            out_len: data.len() as _,
-            in_len: 0,
+            len: data.len() as _,
             flags: kind as u16 | (iface as u16) << 12,
             id,
             status: 0,
         };
+        trace!("tx {:?}", sdpcm_header);
+        trace!("    {:?}", cdc_header);
 
         buf[0..SdpcmHeader::SIZE].copy_from_slice(&sdpcm_header.to_bytes());
         buf[SdpcmHeader::SIZE..][..CdcHeader::SIZE].copy_from_slice(&cdc_header.to_bytes());
@@ -655,7 +696,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
 
         let total_len = (total_len + 3) & !3; // round up to 4byte
 
-        //info!("tx {:02x}", &buf[..total_len.min(48)]);
+        trace!("    {:02x}", &buf[..total_len.min(48)]);
 
         let cmd = cmd_word(true, true, FUNC_WLAN, 0, total_len as _);
         self.cs.set_low();

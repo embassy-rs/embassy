@@ -42,8 +42,7 @@ impl_bytes!(SdpcmHeader);
 #[repr(C)]
 pub struct CdcHeader {
     pub cmd: u32,
-    pub out_len: u16,
-    pub in_len: u16,
+    pub len: u32,
     pub flags: u16,
     pub id: u16,
     pub status: u32,
