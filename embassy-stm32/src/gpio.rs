@@ -160,7 +160,7 @@ impl<'d, T: Pin> Flex<'d, T> {
 
     /// What level output is set to
     #[inline]
-    pub fn get_set_level(&self) -> Level {
+    pub fn get_output_level(&self) -> Level {
         self.is_set_high().into()
     }
 
@@ -385,7 +385,7 @@ impl<'d, T: Pin> Output<'d, T> {
 
     /// What level output is set to
     #[inline]
-    pub fn get_set_level(&self) -> Level {
+    pub fn get_output_level(&self) -> Level {
         self.pin.is_set_high().into()
     }
 
@@ -466,7 +466,7 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
 
     /// What level output is set to
     #[inline]
-    pub fn get_set_level(&self) -> Level {
+    pub fn get_output_level(&self) -> Level {
         self.pin.is_set_high().into()
     }
 
