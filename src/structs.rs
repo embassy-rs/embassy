@@ -142,6 +142,16 @@ impl_bytes!(SsidInfo);
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
+pub struct PassphraseInfo {
+    pub len: u16,
+    pub flags: u16,
+    pub passphrase: [u8; 64],
+}
+impl_bytes!(PassphraseInfo);
+
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C)]
 pub struct EventMask {
     pub iface: u32,
     pub events: [u8; 24],

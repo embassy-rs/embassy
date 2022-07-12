@@ -47,6 +47,6 @@ async fn main(spawner: Spawner, p: Peripherals) {
 
     control.init().await;
 
-    let ssid = "MikroTik-951589";
-    control.join(ssid).await;
+    //control.join_open("MikroTik-951589").await;
+    control.join_wpa2("MikroTik-951589", "fasdfasdfasdf").await;
 }

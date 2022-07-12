@@ -250,8 +250,8 @@ impl<'a> Control<'a> {
         info!("Configuring misc stuff...");
 
         self.set_iovar_u32("bus:txglom", 0).await;
-        //self.set_iovar_u32("apsta", 1).await;
-        self.set_iovar("cur_etheraddr", &[02, 03, 04, 05, 06, 07]).await;
+        self.set_iovar_u32("apsta", 1).await;
+        //self.set_iovar("cur_etheraddr", &[02, 03, 04, 05, 06, 07]).await;
 
         let country = countries::WORLD_WIDE_XX;
         let country_info = CountryInfo {
@@ -267,9 +267,13 @@ impl<'a> Control<'a> {
         self.ioctl_set_u32(64, 0, 0).await; // WLC_SET_ANTDIV
 
         self.set_iovar_u32("bus:txglom", 0).await;
-        //self.set_iovar_u32("apsta", 1).await;
+        Timer::after(Duration::from_millis(100)).await;
+        //self.set_iovar_u32("apsta", 1).await; // this crashes, also we already did it before...??
+        Timer::after(Duration::from_millis(100)).await;
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
+        Timer::after(Duration::from_millis(100)).await;
         self.set_iovar_u32("ampdu_mpdu", 4).await;
+        Timer::after(Duration::from_millis(100)).await;
         //self.set_iovar_u32("ampdu_rx_factor", 0).await; // this crashes
 
         Timer::after(Duration::from_millis(100)).await;
@@ -281,12 +285,20 @@ impl<'a> Control<'a> {
         };
         self.set_iovar("bsscfg:event_msgs", &evts.to_bytes()).await;
 
+        Timer::after(Duration::from_millis(100)).await;
+
         // set wifi up
         self.ioctl(2, 2, 0, &mut []).await;
 
         Timer::after(Duration::from_millis(100)).await;
 
-        self.ioctl_set_u32(86, 0, 0).await; // no power save
+        // power save mode 2
+        self.set_iovar_u32("pm2_sleep_ret", 0xc8).await;
+        self.set_iovar_u32("bcn_li_bcn", 1).await;
+        self.set_iovar_u32("bcn_li_dtim", 1).await;
+        self.set_iovar_u32("assoc_listen", 10).await;
+        self.ioctl_set_u32(0x86, 0, 2).await;
+
         self.ioctl_set_u32(110, 0, 1).await; // SET_GMODE = auto
         self.ioctl_set_u32(142, 0, 0).await; // SET_BAND = any
 
@@ -295,11 +307,45 @@ impl<'a> Control<'a> {
         info!("INIT DONE");
     }
 
-    pub async fn join(&mut self, ssid: &str) {
+    pub async fn join_open(&mut self, ssid: &str) {
+        self.set_iovar_u32("ampdu_ba_wsize", 8).await;
+
         self.ioctl_set_u32(134, 0, 0).await; // wsec = open
         self.set_iovar_u32x2("bsscfg:sup_wpa", 0, 0).await;
         self.ioctl_set_u32(20, 0, 1).await; // set_infra = 1
         self.ioctl_set_u32(22, 0, 0).await; // set_auth = open (0)
+
+        let mut i = SsidInfo {
+            len: ssid.len() as _,
+            ssid: [0; 32],
+        };
+        i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
+        self.ioctl(2, 26, 0, &mut i.to_bytes()).await; // set_ssid
+
+        info!("JOINED");
+    }
+
+    pub async fn join_wpa2(&mut self, ssid: &str, passphrase: &str) {
+        self.set_iovar_u32("ampdu_ba_wsize", 8).await;
+
+        self.ioctl_set_u32(134, 0, 4).await; // wsec = wpa2
+        self.set_iovar_u32x2("bsscfg:sup_wpa", 0, 1).await;
+        self.set_iovar_u32x2("bsscfg:sup_wpa2_eapver", 0, 0xFFFF_FFFF).await;
+        self.set_iovar_u32x2("bsscfg:sup_wpa_tmo", 0, 2500).await;
+
+        Timer::after(Duration::from_millis(100)).await;
+
+        let mut pfi = PassphraseInfo {
+            len: passphrase.len() as _,
+            flags: 1,
+            passphrase: [0; 64],
+        };
+        pfi.passphrase[..passphrase.len()].copy_from_slice(passphrase.as_bytes());
+        self.ioctl(2, 268, 0, &mut pfi.to_bytes()).await; // WLC_SET_WSEC_PMK
+
+        self.ioctl_set_u32(20, 0, 1).await; // set_infra = 1
+        self.ioctl_set_u32(22, 0, 0).await; // set_auth = 0 (open)
+        self.ioctl_set_u32(165, 0, 0x80).await; // set_wpa_auth
 
         let mut i = SsidInfo {
             len: ssid.len() as _,
@@ -361,6 +407,9 @@ impl<'a> Control<'a> {
 
     async fn ioctl(&mut self, kind: u32, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
         // TODO cancel ioctl on future drop.
+
+        // snail mode 🐌
+        Timer::after(Duration::from_millis(100)).await;
 
         while !matches!(self.state.ioctl_state.get(), IoctlState::Idle) {
             yield_now().await;
