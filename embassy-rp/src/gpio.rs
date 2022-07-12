@@ -73,7 +73,7 @@ impl<'d, T: Pin> Input<'d, T> {
     /// Returns current pin level
     #[inline]
     pub fn get_level(&self) -> Level {
-        self.pin.is_high().into()
+        self.pin.get_level()
     }
 }
 
@@ -109,10 +109,7 @@ impl<'d, T: Pin> Output<'d, T> {
     /// Set the output level.
     #[inline]
     pub fn set_level(&mut self, level: Level) {
-        match level {
-            Level::Low => self.pin.set_low(),
-            Level::High => self.pin.set_high(),
-        }
+        self.pin.set_level(level)
     }
 
     /// Is the output pin set as high?
@@ -130,7 +127,7 @@ impl<'d, T: Pin> Output<'d, T> {
     /// What level output is set to
     #[inline]
     pub fn get_output_level(&self) -> Level {
-        self.pin.is_set_high().into()
+        self.pin.get_output_level()
     }
 
     /// Toggle pin output
