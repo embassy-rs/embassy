@@ -14,6 +14,24 @@ pub enum Level {
     High,
 }
 
+impl From<bool> for Level {
+    fn from(val: bool) -> Self {
+        match val {
+            true => Self::High,
+            false => Self::Low,
+        }
+    }
+}
+
+impl Into<bool> for Level {
+    fn into(self) -> bool {
+        match self {
+            Level::Low => false,
+            Level::High => true,
+        }
+    }
+}
+
 /// Represents a pull setting for an input.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Pull {
@@ -34,6 +52,7 @@ pub struct Input<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Input<'d, T> {
+    #[inline]
     pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input();
@@ -41,12 +60,20 @@ impl<'d, T: Pin> Input<'d, T> {
         Self { pin }
     }
 
+    #[inline]
     pub fn is_high(&self) -> bool {
         self.pin.is_high()
     }
 
+    #[inline]
     pub fn is_low(&self) -> bool {
         self.pin.is_low()
+    }
+
+    /// Returns current pin level
+    #[inline]
+    pub fn get_level(&self) -> Level {
+        self.pin.get_level()
     }
 }
 
@@ -79,6 +106,12 @@ impl<'d, T: Pin> Output<'d, T> {
         self.pin.set_low()
     }
 
+    /// Set the output level.
+    #[inline]
+    pub fn set_level(&mut self, level: Level) {
+        self.pin.set_level(level)
+    }
+
     /// Is the output pin set as high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
@@ -89,6 +122,12 @@ impl<'d, T: Pin> Output<'d, T> {
     #[inline]
     pub fn is_set_low(&self) -> bool {
         self.pin.is_set_low()
+    }
+
+    /// What level output is set to
+    #[inline]
+    pub fn get_output_level(&self) -> Level {
+        self.pin.get_output_level()
     }
 
     /// Toggle pin output
@@ -129,6 +168,15 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
         self.pin.set_as_output()
     }
 
+    /// Set the output level.
+    #[inline]
+    pub fn set_level(&mut self, level: Level) {
+        match level {
+            Level::Low => self.set_low(),
+            Level::High => self.set_high(),
+        }
+    }
+
     /// Is the output level high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
@@ -139,6 +187,12 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     #[inline]
     pub fn is_set_low(&self) -> bool {
         self.pin.is_set_as_output()
+    }
+
+    /// What level output is set to
+    #[inline]
+    pub fn get_output_level(&self) -> Level {
+        self.is_set_high().into()
     }
 
     /// Toggle pin output
@@ -236,6 +290,12 @@ impl<'d, T: Pin> Flex<'d, T> {
         unsafe { self.pin.sio_in().read() & self.bit() == 0 }
     }
 
+    /// Returns current pin level
+    #[inline]
+    pub fn get_level(&self) -> Level {
+        self.is_high().into()
+    }
+
     /// Set the output as high.
     #[inline]
     pub fn set_high(&mut self) {
@@ -248,6 +308,15 @@ impl<'d, T: Pin> Flex<'d, T> {
         unsafe { self.pin.sio_out().value_clr().write_value(self.bit()) }
     }
 
+    /// Set the output level.
+    #[inline]
+    pub fn set_level(&mut self, level: Level) {
+        match level {
+            Level::Low => self.set_low(),
+            Level::High => self.set_high(),
+        }
+    }
+
     /// Is the output level high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
@@ -258,6 +327,12 @@ impl<'d, T: Pin> Flex<'d, T> {
     #[inline]
     pub fn is_set_low(&self) -> bool {
         !self.is_set_high()
+    }
+
+    /// What level output is set to
+    #[inline]
+    pub fn get_output_level(&self) -> Level {
+        self.is_set_high().into()
     }
 
     /// Toggle pin output
