@@ -593,6 +593,12 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         self.write8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP, 0);
         let _ = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP);
 
+        // start HT clock
+        //self.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10);
+        //info!("waiting for HT clock...");
+        //while self.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR) & 0x80 == 0 {}
+        //info!("clock ok");
+
         info!("init done ");
     }
 
@@ -1084,18 +1090,18 @@ static NVRAM: &'static [u8] = &*nvram!(
     b"boardtype=0x0887",
     b"boardrev=0x1100",
     b"boardnum=22",
-    b"macaddr=00:A0:50:86:aa:b6",
+    b"macaddr=00:A0:50:b5:59:5e",
     b"sromrev=11",
     b"boardflags=0x00404001",
     b"boardflags3=0x04000000",
-    b"xtalfreq=26000",
+    b"xtalfreq=37400",
     b"nocrc=1",
     b"ag0=255",
     b"aa2g=1",
     b"ccode=ALL",
     b"pa0itssit=0x20",
     b"extpagain2g=0",
-    b"pa2ga0=-168,7161,-820",
+    b"pa2ga0=-168,6649,-778",
     b"AvVmid_c0=0x0,0xc8",
     b"cckpwroffset0=5",
     b"maxp2ga0=84",
@@ -1118,7 +1124,7 @@ static NVRAM: &'static [u8] = &*nvram!(
     b"il0macaddr=00:90:4c:c5:12:38",
     b"wl0id=0x431b",
     b"deadman_to=0xffffffff",
-    b"muxenab=0x1",
+    b"muxenab=0x100",
     b"spurconfig=0x3",
     b"glitch_based_crsmin=1",
     b"btc_mode=1",
