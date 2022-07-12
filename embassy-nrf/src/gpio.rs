@@ -38,6 +38,7 @@ pub struct Input<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Input<'d, T> {
+    #[inline]
     pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input(pull);
@@ -45,12 +46,20 @@ impl<'d, T: Pin> Input<'d, T> {
         Self { pin }
     }
 
+    #[inline]
     pub fn is_high(&self) -> bool {
         self.pin.is_high()
     }
 
+    #[inline]
     pub fn is_low(&self) -> bool {
         self.pin.is_low()
+    }
+
+    /// Returns current pin level
+    #[inline]
+    pub fn get_level(&self) -> Level {
+        self.pin.is_high().into()
     }
 }
 
@@ -60,6 +69,24 @@ impl<'d, T: Pin> Input<'d, T> {
 pub enum Level {
     Low,
     High,
+}
+
+impl From<bool> for Level {
+    fn from(val: bool) -> Self {
+        match val {
+            true => Self::High,
+            false => Self::Low,
+        }
+    }
+}
+
+impl Into<bool> for Level {
+    fn into(self) -> bool {
+        match self {
+            Level::Low => false,
+            Level::High => true,
+        }
+    }
 }
 
 // These numbers match DRIVE_A exactly so hopefully the compiler will unify them.
@@ -91,6 +118,7 @@ pub struct Output<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Output<'d, T> {
+    #[inline]
     pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level, drive: OutputDrive) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
@@ -103,23 +131,42 @@ impl<'d, T: Pin> Output<'d, T> {
     }
 
     /// Set the output as high.
+    #[inline]
     pub fn set_high(&mut self) {
         self.pin.set_high()
     }
 
     /// Set the output as low.
+    #[inline]
     pub fn set_low(&mut self) {
         self.pin.set_low()
     }
 
+    /// Set the output level.
+    #[inline]
+    pub fn set_level(&mut self, level: Level) {
+        match level {
+            Level::Low => self.pin.set_low(),
+            Level::High => self.pin.set_high(),
+        }
+    }
+
     /// Is the output pin set as high?
+    #[inline]
     pub fn is_set_high(&self) -> bool {
         self.pin.is_set_high()
     }
 
     /// Is the output pin set as low?
+    #[inline]
     pub fn is_set_low(&self) -> bool {
         self.pin.is_set_low()
+    }
+
+    /// What level output is set to
+    #[inline]
+    pub fn get_set_level(&self) -> Level {
+        self.pin.is_set_high().into()
     }
 }
 
@@ -159,6 +206,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     ///
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
+    #[inline]
     pub fn new(pin: impl Unborrow<Target = T> + 'd) -> Self {
         unborrow!(pin);
         // Pin will be in disconnected state.
@@ -169,6 +217,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     }
 
     /// Put the pin into input mode.
+    #[inline]
     pub fn set_as_input(&mut self, pull: Pull) {
         self.pin.conf().write(|w| {
             w.dir().input();
@@ -184,6 +233,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     ///
     /// The pin level will be whatever was set before (or low by default). If you want it to begin
     /// at a specific level, call `set_high`/`set_low` on the pin first.
+    #[inline]
     pub fn set_as_output(&mut self, drive: OutputDrive) {
         self.pin.conf().write(|w| {
             w.dir().output();
@@ -204,6 +254,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     ///
     /// The pin level will be whatever was set before (or low by default). If you want it to begin
     /// at a specific level, call `set_high`/`set_low` on the pin first.
+    #[inline]
     pub fn set_as_input_output(&mut self, pull: Pull, drive: OutputDrive) {
         self.pin.conf().write(|w| {
             w.dir().output();
@@ -216,36 +267,64 @@ impl<'d, T: Pin> Flex<'d, T> {
     }
 
     /// Put the pin into disconnected mode.
+    #[inline]
     pub fn set_as_disconnected(&mut self) {
         self.pin.conf().reset();
     }
 
+    #[inline]
     pub fn is_high(&self) -> bool {
         !self.is_low()
     }
 
+    #[inline]
     pub fn is_low(&self) -> bool {
         self.pin.block().in_.read().bits() & (1 << self.pin.pin()) == 0
     }
 
+    /// Returns current pin level
+    #[inline]
+    pub fn get_level(&self) -> Level {
+        self.is_high().into()
+    }
+
     /// Set the output as high.
+    #[inline]
     pub fn set_high(&mut self) {
         self.pin.set_high()
     }
 
     /// Set the output as low.
+    #[inline]
     pub fn set_low(&mut self) {
         self.pin.set_low()
     }
 
+    /// Set the output level.
+    #[inline]
+    pub fn set_level(&mut self, level: Level) {
+        match level {
+            Level::Low => self.pin.set_low(),
+            Level::High => self.pin.set_high(),
+        }
+    }
+
     /// Is the output pin set as high?
+    #[inline]
     pub fn is_set_high(&self) -> bool {
         !self.is_set_low()
     }
 
     /// Is the output pin set as low?
+    #[inline]
     pub fn is_set_low(&self) -> bool {
         self.pin.block().out.read().bits() & (1 << self.pin.pin()) == 0
+    }
+
+    /// What level output is set to
+    #[inline]
+    pub fn get_set_level(&self) -> Level {
+        self.is_set_high().into()
     }
 }
 
