@@ -4,7 +4,7 @@ So you've got one of the xref:examples.adoc[examples] running, but what now? Let
 
 == Main
 
-The full example can be found link:https://github.com/embassy-rs/embassy/tree/book-poc/docs/modules/ROOT/examples/basic[here].
+The full example can be found link:https://github.com/embassy-rs/embassy/tree/master/docs/modules/ROOT/examples/basic[here].
 
 === Rust Nightly
 
