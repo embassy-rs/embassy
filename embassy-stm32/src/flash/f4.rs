@@ -99,9 +99,9 @@ unsafe fn get_sector(addr: u32) -> u8 {
 
 pub(crate) unsafe fn blocking_erase(from: u32, to: u32) -> Result<(), Error> {
     let start_sector = get_sector(from);
-    let end_sector = get_sector(to);
+    let end_sector = get_sector(to - 1); // end range is exclusive
 
-    for sector in start_sector..end_sector {
+    for sector in start_sector..=end_sector {
         let ret = erase_sector(sector as u8);
         if ret.is_err() {
             return ret;
@@ -114,6 +114,8 @@ pub(crate) unsafe fn blocking_erase(from: u32, to: u32) -> Result<(), Error> {
 unsafe fn erase_sector(sector: u8) -> Result<(), Error> {
     let bank = sector / SECOND_BANK_SECTOR_START as u8;
     let snb = (bank << 4) + (sector % SECOND_BANK_SECTOR_START as u8);
+
+    trace!("Erasing sector: {}", sector);
 
     pac::FLASH.cr().modify(|w| {
         w.set_ser(true);
