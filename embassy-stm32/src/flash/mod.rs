@@ -72,7 +72,7 @@ impl<'d> Flash<'d> {
         if to < from || to as usize > FLASH_END {
             return Err(Error::Size);
         }
-        if ((to - from) as usize % ERASE_SIZE) != 0 {
+        if (from as usize % ERASE_SIZE) != 0 || (to as usize % ERASE_SIZE) != 0 {
             return Err(Error::Unaligned);
         }
 
