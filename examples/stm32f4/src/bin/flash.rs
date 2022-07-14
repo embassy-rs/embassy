@@ -7,6 +7,7 @@ use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_stm32::flash::Flash;
 use embassy_stm32::Peripherals;
+use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy::main]
@@ -18,11 +19,8 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     // Sector 5
     test_flash(&mut f, 128 * 1024, 128 * 1024);
 
-    // Sector 11, last in bank 1
-    test_flash(&mut f, (1024 - 128) * 1024, 128 * 1024);
-
-    // Sectors 12..=16, start of bank 2 (16K, 16K, 16K, 16K, 64K)
-    test_flash(&mut f, 1024 * 1024, 128 * 1024);
+    // Sectors 11..=16, across banks (128K, 16K, 16K, 16K, 16K, 64K)
+    test_flash(&mut f, (1024 - 128) * 1024, 256 * 1024);
 
     // Sectors 23, last in bank 2
     test_flash(&mut f, (2048 - 128) * 1024, 128 * 1024);

@@ -7,8 +7,6 @@ use super::{ERASE_SIZE, FLASH_BASE, FLASH_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-// Only available on some devices
-const SECOND_BANK_OFFSET: usize = FLASH_SIZE / 2;
 const SECOND_BANK_SECTOR_START: u32 = 12;
 
 unsafe fn is_dual_bank() -> bool {
@@ -68,44 +66,52 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
     ret
 }
 
-unsafe fn get_sector(addr: u32) -> u8 {
+struct FlashSector {
+    index: u8,
+    size: u32,
+}
+
+fn get_sector(addr: u32, dual_bank: bool) -> FlashSector {
     let offset = addr - FLASH_BASE as u32;
 
-    let sector = if is_dual_bank() {
-        let bank = offset / SECOND_BANK_OFFSET as u32;
-        let offset_in_bank = offset % SECOND_BANK_OFFSET as u32;
+    let bank_size = match dual_bank {
+        true => FLASH_SIZE / 2,
+        false => FLASH_SIZE,
+    } as u32;
 
-        let sector_in_bank = if offset_in_bank >= ERASE_SIZE as u32 / 2 {
-            4 + offset_in_bank / ERASE_SIZE as u32
-        } else {
-            offset_in_bank / (ERASE_SIZE as u32 / 8)
-        };
+    let bank = offset / bank_size;
+    let offset_in_bank = offset % bank_size;
 
-        if bank == 1 {
-            SECOND_BANK_SECTOR_START + sector_in_bank
-        } else {
-            sector_in_bank
-        }
+    let index_in_bank = if offset_in_bank >= ERASE_SIZE as u32 / 2 {
+        4 + offset_in_bank / ERASE_SIZE as u32
     } else {
-        if offset >= ERASE_SIZE as u32 / 2 {
-            4 + offset / ERASE_SIZE as u32
-        } else {
-            offset / (ERASE_SIZE as u32 / 8)
-        }
+        offset_in_bank / (ERASE_SIZE as u32 / 8)
     };
 
-    sector as u8
+    // First 4 sectors are 16KB, then one 64KB, and rest are 128KB
+    let size = match index_in_bank {
+        0..=3 => 16 * 1024,
+        4 => 64 * 1024,
+        _ => 128 * 1024,
+    };
+
+    let index = if bank == 1 {
+        SECOND_BANK_SECTOR_START + index_in_bank
+    } else {
+        index_in_bank
+    } as u8;
+
+    FlashSector { index, size }
 }
 
 pub(crate) unsafe fn blocking_erase(from: u32, to: u32) -> Result<(), Error> {
-    let start_sector = get_sector(from);
-    let end_sector = get_sector(to - 1); // end range is exclusive
+    let mut addr = from;
+    let dual_bank = is_dual_bank();
 
-    for sector in start_sector..=end_sector {
-        let ret = erase_sector(sector as u8);
-        if ret.is_err() {
-            return ret;
-        }
+    while addr < to {
+        let sector = get_sector(addr, dual_bank);
+        erase_sector(sector.index)?;
+        addr += sector.size;
     }
 
     Ok(())
