@@ -4,7 +4,6 @@
 
 use defmt::{info, unwrap};
 use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
 use embassy_stm32::flash::Flash;
 use embassy_stm32::Peripherals;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
