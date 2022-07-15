@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait, concat_bytes, const_slice_from_raw_parts)]
+#![feature(type_alias_impl_trait, concat_bytes)]
 #![deny(unused_must_use)]
 
 // This mod MUST go first, so that the others see its macros.
@@ -21,7 +21,8 @@ use embassy::channel::mpmc::Channel;
 use embassy::time::{block_for, Duration, Timer};
 use embassy::util::yield_now;
 use embassy_net::{PacketBoxExt, PacketBuf};
-use embassy_rp::gpio::{Flex, Output, Pin};
+use embedded_hal_1::digital::blocking::OutputPin;
+use embedded_hal_async::spi::{SpiBusRead, SpiBusWrite, SpiDevice};
 
 use self::structs::*;
 use crate::events::Event;
@@ -514,41 +515,26 @@ impl<'a> embassy_net::Device for NetDevice<'a> {
     }
 }
 
-pub struct Runner<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> {
+pub struct Runner<'a, PWR, SPI> {
     state: &'a State,
 
-    pwr: Output<'a, PWR>,
-
-    /// SPI chip-select.
-    cs: Output<'a, CS>,
-
-    /// SPI clock
-    clk: Output<'a, CLK>,
-
-    /// 4 signals, all in one!!
-    /// - SPI MISO
-    /// - SPI MOSI
-    /// - IRQ
-    /// - strap to set to gSPI mode on boot.
-    dio: Flex<'a, DIO>,
+    pwr: PWR,
+    spi: SPI,
 
     ioctl_seq: u8,
     backplane_window: u32,
 }
 
-pub async fn new<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin>(
-    state: &'a State,
-    pwr: Output<'a, PWR>,
-    cs: Output<'a, CS>,
-    clk: Output<'a, CLK>,
-    dio: Flex<'a, DIO>,
-) -> (Control<'a>, Runner<'a, PWR, CS, CLK, DIO>) {
+pub async fn new<'a, PWR, SPI>(state: &'a State, pwr: PWR, spi: SPI) -> (Control<'a>, Runner<'a, PWR, SPI>)
+where
+    PWR: OutputPin,
+    SPI: SpiDevice,
+    SPI::Bus: SpiBusRead + SpiBusWrite,
+{
     let mut runner = Runner {
         state,
         pwr,
-        cs,
-        clk,
-        dio,
+        spi,
 
         ioctl_seq: 0,
         backplane_window: 0xAAAA_AAAA,
@@ -559,52 +545,53 @@ pub async fn new<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin>(
     (Control { state }, runner)
 }
 
-impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
+impl<'a, PWR, SPI> Runner<'a, PWR, SPI>
+where
+    PWR: OutputPin,
+    SPI: SpiDevice,
+    SPI::Bus: SpiBusRead + SpiBusWrite,
+{
     async fn init(&mut self) {
-        // Set strap to select gSPI mode.
-        self.dio.set_as_output();
-        self.dio.set_low();
-
         // Reset
-        self.pwr.set_low();
+        self.pwr.set_low().unwrap();
         Timer::after(Duration::from_millis(20)).await;
-        self.pwr.set_high();
+        self.pwr.set_high().unwrap();
         Timer::after(Duration::from_millis(250)).await;
 
         info!("waiting for ping...");
-        while self.read32_swapped(REG_BUS_FEEDBEAD) != FEEDBEAD {}
+        while self.read32_swapped(REG_BUS_FEEDBEAD).await != FEEDBEAD {}
         info!("ping ok");
 
-        self.write32_swapped(0x18, TEST_PATTERN);
-        let val = self.read32_swapped(REG_BUS_TEST);
+        self.write32_swapped(0x18, TEST_PATTERN).await;
+        let val = self.read32_swapped(REG_BUS_TEST).await;
         assert_eq!(val, TEST_PATTERN);
 
         // 32bit, big endian.
-        self.write32_swapped(REG_BUS_CTRL, 0x00010033);
+        self.write32_swapped(REG_BUS_CTRL, 0x00010033).await;
 
-        let val = self.read32(FUNC_BUS, REG_BUS_FEEDBEAD);
+        let val = self.read32(FUNC_BUS, REG_BUS_FEEDBEAD).await;
         assert_eq!(val, FEEDBEAD);
-        let val = self.read32(FUNC_BUS, REG_BUS_TEST);
+        let val = self.read32(FUNC_BUS, REG_BUS_TEST).await;
         assert_eq!(val, TEST_PATTERN);
 
         // No response delay in any of the funcs.
         // seems to break backplane??? eat the 4-byte delay instead, that's what the vendor drivers do...
-        //self.write32(FUNC_BUS, REG_BUS_RESP_DELAY, 0);
+        //self.write32(FUNC_BUS, REG_BUS_RESP_DELAY, 0).await;
 
         // Init ALP (no idea what that stands for) clock
-        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x08);
+        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x08).await;
         info!("waiting for clock...");
-        while self.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR) & 0x40 == 0 {}
+        while self.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x40 == 0 {}
         info!("clock ok");
 
-        let chip_id = self.bp_read16(0x1800_0000);
+        let chip_id = self.bp_read16(0x1800_0000).await;
         info!("chip ID: {}", chip_id);
 
         // Upload firmware.
-        self.core_disable(Core::WLAN);
-        self.core_reset(Core::SOCSRAM);
-        self.bp_write32(CHIP.socsram_base_address + 0x10, 3);
-        self.bp_write32(CHIP.socsram_base_address + 0x44, 0);
+        self.core_disable(Core::WLAN).await;
+        self.core_reset(Core::SOCSRAM).await;
+        self.bp_write32(CHIP.socsram_base_address + 0x10, 3).await;
+        self.bp_write32(CHIP.socsram_base_address + 0x44, 0).await;
 
         let ram_addr = CHIP.atcm_ram_base_address;
 
@@ -618,42 +605,44 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         let fw = unsafe { slice::from_raw_parts(0x10100000 as *const u8, 224190) };
 
         info!("loading fw");
-        self.bp_write(ram_addr, fw);
+        self.bp_write(ram_addr, fw).await;
 
         info!("verifying fw");
         let mut buf = [0; 1024];
         for (i, chunk) in fw.chunks(1024).enumerate() {
             let buf = &mut buf[..chunk.len()];
-            self.bp_read(ram_addr + i as u32 * 1024, buf);
+            self.bp_read(ram_addr + i as u32 * 1024, buf).await;
             assert_eq!(chunk, buf);
         }
 
         info!("loading nvram");
         // Round up to 4 bytes.
         let nvram_len = (NVRAM.len() + 3) / 4 * 4;
-        self.bp_write(ram_addr + CHIP.chip_ram_size - 4 - nvram_len as u32, NVRAM);
+        self.bp_write(ram_addr + CHIP.chip_ram_size - 4 - nvram_len as u32, NVRAM)
+            .await;
 
         let nvram_len_words = nvram_len as u32 / 4;
         let nvram_len_magic = (!nvram_len_words << 16) | nvram_len_words;
-        self.bp_write32(ram_addr + CHIP.chip_ram_size - 4, nvram_len_magic);
+        self.bp_write32(ram_addr + CHIP.chip_ram_size - 4, nvram_len_magic)
+            .await;
 
         // Start core!
         info!("starting up core...");
-        self.core_reset(Core::WLAN);
-        assert!(self.core_is_up(Core::WLAN));
+        self.core_reset(Core::WLAN).await;
+        assert!(self.core_is_up(Core::WLAN).await);
 
-        while self.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR) & 0x80 == 0 {}
+        while self.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
 
         // "Set up the interrupt mask and enable interrupts"
-        self.bp_write32(CHIP.sdiod_core_base_address + 0x24, 0xF0);
+        self.bp_write32(CHIP.sdiod_core_base_address + 0x24, 0xF0).await;
 
         // "Lower F2 Watermark to avoid DMA Hang in F2 when SD Clock is stopped."
         // Sounds scary...
-        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 32);
+        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 32).await;
 
         // wait for wifi startup
         info!("waiting for wifi init...");
-        while self.read32(FUNC_BUS, REG_BUS_STATUS) & STATUS_F2_RX_READY == 0 {}
+        while self.read32(FUNC_BUS, REG_BUS_STATUS).await & STATUS_F2_RX_READY == 0 {}
 
         // Some random configs related to sleep.
         // These aren't needed if we don't want to sleep the bus.
@@ -661,25 +650,25 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         // being on the same pin as MOSI/MISO?
 
         /*
-        let mut val = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL);
+        let mut val = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL).await;
         val |= 0x02; // WAKE_TILL_HT_AVAIL
-        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL, val);
-        self.write8(FUNC_BUS, 0xF0, 0x08); // SDIOD_CCCR_BRCM_CARDCAP.CMD_NODEC = 1
-        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x02); // SBSDIO_FORCE_HT
+        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL, val).await;
+        self.write8(FUNC_BUS, 0xF0, 0x08).await; // SDIOD_CCCR_BRCM_CARDCAP.CMD_NODEC = 1
+        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x02).await; // SBSDIO_FORCE_HT
 
-        let mut val = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR);
+        let mut val = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR).await;
         val |= 0x01; // SBSDIO_SLPCSR_KEEP_SDIO_ON
-        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR, val);
+        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR, val).await;
          */
 
         // clear pulls
-        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP, 0);
-        let _ = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP);
+        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP, 0).await;
+        let _ = self.read8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP).await;
 
         // start HT clock
-        //self.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10);
+        //self.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10).await;
         //info!("waiting for HT clock...");
-        //while self.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR) & 0x80 == 0 {}
+        //while self.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
         //info!("clock ok");
 
         info!("init done ");
@@ -691,21 +680,22 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
             // Send stuff
             // TODO flow control
             if let IoctlState::Pending { kind, cmd, iface, buf } = self.state.ioctl_state.get() {
-                self.send_ioctl(kind, cmd, iface, unsafe { &*buf }, self.state.ioctl_id.get());
+                self.send_ioctl(kind, cmd, iface, unsafe { &*buf }, self.state.ioctl_id.get())
+                    .await;
                 self.state.ioctl_state.set(IoctlState::Sent { buf });
             }
 
             if let Ok(p) = self.state.tx_channel.try_recv() {
-                self.send_packet(&p);
+                self.send_packet(&p).await;
             }
 
             // Receive stuff
-            let irq = self.read16(FUNC_BUS, REG_BUS_INTERRUPT);
+            let irq = self.read16(FUNC_BUS, REG_BUS_INTERRUPT).await;
 
             if irq & IRQ_F2_PACKET_AVAILABLE != 0 {
                 let mut status = 0xFFFF_FFFF;
                 while status == 0xFFFF_FFFF {
-                    status = self.read32(FUNC_BUS, REG_BUS_STATUS);
+                    status = self.read32(FUNC_BUS, REG_BUS_STATUS).await;
                 }
 
                 if status & STATUS_F2_PKT_AVAILABLE != 0 {
@@ -713,15 +703,23 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
 
                     let cmd = cmd_word(false, true, FUNC_WLAN, 0, len);
 
-                    self.cs.set_low();
-                    self.spi_write(&cmd.to_le_bytes());
-                    self.spi_read(&mut buf[..len as usize]);
-                    // pad to 32bit
-                    let mut junk = [0; 4];
-                    if len % 4 != 0 {
-                        self.spi_read(&mut junk[..(4 - len as usize % 4)]);
-                    }
-                    self.cs.set_high();
+                    self.spi
+                        .transaction(|bus| {
+                            let bus = unsafe { &mut *bus };
+                            async {
+                                bus.write(&cmd.to_le_bytes()).await?;
+                                bus.read(&mut buf[..len as usize]).await?;
+                                // pad to 32bit
+                                let mut junk = [0; 4];
+                                if len % 4 != 0 {
+                                    bus.read(&mut junk[..(4 - len as usize % 4)]).await?;
+                                }
+
+                                Ok(())
+                            }
+                        })
+                        .await
+                        .unwrap();
 
                     trace!("rx {:02x}", &buf[..(len as usize).min(48)]);
 
@@ -734,7 +732,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         }
     }
 
-    fn send_packet(&mut self, packet: &[u8]) {
+    async fn send_packet(&mut self, packet: &[u8]) {
         trace!("tx pkt {:02x}", &packet[..packet.len().min(48)]);
 
         let mut buf = [0; 2048];
@@ -774,10 +772,17 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         trace!("    {:02x}", &buf[..total_len.min(48)]);
 
         let cmd = cmd_word(true, true, FUNC_WLAN, 0, total_len as _);
-        self.cs.set_low();
-        self.spi_write(&cmd.to_le_bytes());
-        self.spi_write(&buf[..total_len]);
-        self.cs.set_high();
+        self.spi
+            .transaction(|bus| {
+                let bus = unsafe { &mut *bus };
+                async {
+                    bus.write(&cmd.to_le_bytes()).await?;
+                    bus.write(&buf[..total_len]).await?;
+                    Ok(())
+                }
+            })
+            .await
+            .unwrap();
     }
 
     fn rx(&mut self, packet: &[u8]) {
@@ -869,7 +874,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         }
     }
 
-    fn send_ioctl(&mut self, kind: u32, cmd: u32, iface: u32, data: &[u8], id: u16) {
+    async fn send_ioctl(&mut self, kind: u32, cmd: u32, iface: u32, data: &[u8], id: u16) {
         let mut buf = [0; 2048];
 
         let total_len = SdpcmHeader::SIZE + CdcHeader::SIZE + data.len();
@@ -908,60 +913,69 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         trace!("    {:02x}", &buf[..total_len.min(48)]);
 
         let cmd = cmd_word(true, true, FUNC_WLAN, 0, total_len as _);
-        self.cs.set_low();
-        self.spi_write(&cmd.to_le_bytes());
-        self.spi_write(&buf[..total_len]);
-        self.cs.set_high();
+
+        self.spi
+            .transaction(|bus| {
+                let bus = unsafe { &mut *bus };
+                async {
+                    bus.write(&cmd.to_le_bytes()).await?;
+                    bus.write(&buf[..total_len]).await?;
+                    Ok(())
+                }
+            })
+            .await
+            .unwrap();
     }
 
-    fn core_disable(&mut self, core: Core) {
+    async fn core_disable(&mut self, core: Core) {
         let base = core.base_addr();
 
         // Dummy read?
-        let _ = self.bp_read8(base + AI_RESETCTRL_OFFSET);
+        let _ = self.bp_read8(base + AI_RESETCTRL_OFFSET).await;
 
         // Check it isn't already reset
-        let r = self.bp_read8(base + AI_RESETCTRL_OFFSET);
+        let r = self.bp_read8(base + AI_RESETCTRL_OFFSET).await;
         if r & AI_RESETCTRL_BIT_RESET != 0 {
             return;
         }
 
-        self.bp_write8(base + AI_IOCTRL_OFFSET, 0);
-        let _ = self.bp_read8(base + AI_IOCTRL_OFFSET);
+        self.bp_write8(base + AI_IOCTRL_OFFSET, 0).await;
+        let _ = self.bp_read8(base + AI_IOCTRL_OFFSET).await;
 
         block_for(Duration::from_millis(1));
 
-        self.bp_write8(base + AI_RESETCTRL_OFFSET, AI_RESETCTRL_BIT_RESET);
-        let _ = self.bp_read8(base + AI_RESETCTRL_OFFSET);
+        self.bp_write8(base + AI_RESETCTRL_OFFSET, AI_RESETCTRL_BIT_RESET).await;
+        let _ = self.bp_read8(base + AI_RESETCTRL_OFFSET).await;
     }
 
-    fn core_reset(&mut self, core: Core) {
-        self.core_disable(core);
+    async fn core_reset(&mut self, core: Core) {
+        self.core_disable(core).await;
 
         let base = core.base_addr();
-        self.bp_write8(base + AI_IOCTRL_OFFSET, AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN);
-        let _ = self.bp_read8(base + AI_IOCTRL_OFFSET);
+        self.bp_write8(base + AI_IOCTRL_OFFSET, AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN)
+            .await;
+        let _ = self.bp_read8(base + AI_IOCTRL_OFFSET).await;
 
-        self.bp_write8(base + AI_RESETCTRL_OFFSET, 0);
+        self.bp_write8(base + AI_RESETCTRL_OFFSET, 0).await;
 
-        block_for(Duration::from_millis(1));
+        Timer::after(Duration::from_millis(1)).await;
 
-        self.bp_write8(base + AI_IOCTRL_OFFSET, AI_IOCTRL_BIT_CLOCK_EN);
-        let _ = self.bp_read8(base + AI_IOCTRL_OFFSET);
+        self.bp_write8(base + AI_IOCTRL_OFFSET, AI_IOCTRL_BIT_CLOCK_EN).await;
+        let _ = self.bp_read8(base + AI_IOCTRL_OFFSET).await;
 
-        block_for(Duration::from_millis(1));
+        Timer::after(Duration::from_millis(1)).await;
     }
 
-    fn core_is_up(&mut self, core: Core) -> bool {
+    async fn core_is_up(&mut self, core: Core) -> bool {
         let base = core.base_addr();
 
-        let io = self.bp_read8(base + AI_IOCTRL_OFFSET);
+        let io = self.bp_read8(base + AI_IOCTRL_OFFSET).await;
         if io & (AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN) != AI_IOCTRL_BIT_CLOCK_EN {
             debug!("core_is_up: returning false due to bad ioctrl {:02x}", io);
             return false;
         }
 
-        let r = self.bp_read8(base + AI_RESETCTRL_OFFSET);
+        let r = self.bp_read8(base + AI_RESETCTRL_OFFSET).await;
         if r & (AI_RESETCTRL_BIT_RESET) != 0 {
             debug!("core_is_up: returning false due to bad resetctrl {:02x}", r);
             return false;
@@ -970,7 +984,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         true
     }
 
-    fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
+    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
         // It seems the HW force-aligns the addr
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
@@ -984,24 +998,32 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
 
             let len = data.len().min(BACKPLANE_MAX_TRANSFER_SIZE).min(window_remaining);
 
-            self.backplane_set_window(addr);
+            self.backplane_set_window(addr).await;
 
             let cmd = cmd_word(false, true, FUNC_BACKPLANE, window_offs, len as u32);
-            self.cs.set_low();
-            self.spi_write(&cmd.to_le_bytes());
 
-            // 4-byte response delay.
-            let mut junk = [0; 4];
-            self.spi_read(&mut junk);
+            self.spi
+                .transaction(|bus| {
+                    let bus = unsafe { &mut *bus };
+                    async {
+                        bus.write(&cmd.to_le_bytes()).await?;
 
-            // Read data
-            self.spi_read(&mut data[..len]);
+                        // 4-byte response delay.
+                        let mut junk = [0; 4];
+                        bus.read(&mut junk).await?;
 
-            // pad to 32bit
-            if len % 4 != 0 {
-                self.spi_read(&mut junk[..(4 - len % 4)]);
-            }
-            self.cs.set_high();
+                        // Read data
+                        bus.read(&mut data[..len]).await?;
+
+                        // pad to 32bit
+                        if len % 4 != 0 {
+                            bus.read(&mut junk[..(4 - len % 4)]).await?;
+                        }
+                        Ok(())
+                    }
+                })
+                .await
+                .unwrap();
 
             // Advance ptr.
             addr += len as u32;
@@ -1009,7 +1031,7 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         }
     }
 
-    fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) {
+    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) {
         // It seems the HW force-aligns the addr
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
@@ -1023,18 +1045,26 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
 
             let len = data.len().min(BACKPLANE_MAX_TRANSFER_SIZE).min(window_remaining);
 
-            self.backplane_set_window(addr);
+            self.backplane_set_window(addr).await;
 
             let cmd = cmd_word(true, true, FUNC_BACKPLANE, window_offs, len as u32);
-            self.cs.set_low();
-            self.spi_write(&cmd.to_le_bytes());
-            self.spi_write(&data[..len]);
-            // pad to 32bit
-            if len % 4 != 0 {
-                let zeros = [0; 4];
-                self.spi_write(&zeros[..(4 - len % 4)]);
-            }
-            self.cs.set_high();
+
+            self.spi
+                .transaction(|bus| {
+                    let bus = unsafe { &mut *bus };
+                    async {
+                        bus.write(&cmd.to_le_bytes()).await?;
+                        bus.write(&data[..len]).await?;
+                        // pad to 32bit
+                        if len % 4 != 0 {
+                            let zeros = [0; 4];
+                            bus.write(&zeros[..(4 - len % 4)]).await?;
+                        }
+                        Ok(())
+                    }
+                })
+                .await
+                .unwrap();
 
             // Advance ptr.
             addr += len as u32;
@@ -1042,51 +1072,51 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
         }
     }
 
-    fn bp_read8(&mut self, addr: u32) -> u8 {
-        self.backplane_readn(addr, 1) as u8
+    async fn bp_read8(&mut self, addr: u32) -> u8 {
+        self.backplane_readn(addr, 1).await as u8
     }
 
-    fn bp_write8(&mut self, addr: u32, val: u8) {
-        self.backplane_writen(addr, val as u32, 1)
+    async fn bp_write8(&mut self, addr: u32, val: u8) {
+        self.backplane_writen(addr, val as u32, 1).await
     }
 
-    fn bp_read16(&mut self, addr: u32) -> u16 {
-        self.backplane_readn(addr, 2) as u16
+    async fn bp_read16(&mut self, addr: u32) -> u16 {
+        self.backplane_readn(addr, 2).await as u16
     }
 
-    fn bp_write16(&mut self, addr: u32, val: u16) {
-        self.backplane_writen(addr, val as u32, 2)
+    async fn bp_write16(&mut self, addr: u32, val: u16) {
+        self.backplane_writen(addr, val as u32, 2).await
     }
 
-    fn bp_read32(&mut self, addr: u32) -> u32 {
-        self.backplane_readn(addr, 4)
+    async fn bp_read32(&mut self, addr: u32) -> u32 {
+        self.backplane_readn(addr, 4).await
     }
 
-    fn bp_write32(&mut self, addr: u32, val: u32) {
-        self.backplane_writen(addr, val, 4)
+    async fn bp_write32(&mut self, addr: u32, val: u32) {
+        self.backplane_writen(addr, val, 4).await
     }
 
-    fn backplane_readn(&mut self, addr: u32, len: u32) -> u32 {
-        self.backplane_set_window(addr);
+    async fn backplane_readn(&mut self, addr: u32, len: u32) -> u32 {
+        self.backplane_set_window(addr).await;
 
         let mut bus_addr = addr & BACKPLANE_ADDRESS_MASK;
         if len == 4 {
             bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG
         }
-        self.readn(FUNC_BACKPLANE, bus_addr, len)
+        self.readn(FUNC_BACKPLANE, bus_addr, len).await
     }
 
-    fn backplane_writen(&mut self, addr: u32, val: u32, len: u32) {
-        self.backplane_set_window(addr);
+    async fn backplane_writen(&mut self, addr: u32, val: u32, len: u32) {
+        self.backplane_set_window(addr).await;
 
         let mut bus_addr = addr & BACKPLANE_ADDRESS_MASK;
         if len == 4 {
             bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG
         }
-        self.writen(FUNC_BACKPLANE, bus_addr, val, len)
+        self.writen(FUNC_BACKPLANE, bus_addr, val, len).await
     }
 
-    fn backplane_set_window(&mut self, addr: u32) {
+    async fn backplane_set_window(&mut self, addr: u32) {
         let new_window = addr & !BACKPLANE_ADDRESS_MASK;
 
         if (new_window >> 24) as u8 != (self.backplane_window >> 24) as u8 {
@@ -1094,138 +1124,124 @@ impl<'a, PWR: Pin, CS: Pin, CLK: Pin, DIO: Pin> Runner<'a, PWR, CS, CLK, DIO> {
                 FUNC_BACKPLANE,
                 REG_BACKPLANE_BACKPLANE_ADDRESS_HIGH,
                 (new_window >> 24) as u8,
-            );
+            )
+            .await;
         }
         if (new_window >> 16) as u8 != (self.backplane_window >> 16) as u8 {
             self.write8(
                 FUNC_BACKPLANE,
                 REG_BACKPLANE_BACKPLANE_ADDRESS_MID,
                 (new_window >> 16) as u8,
-            );
+            )
+            .await;
         }
         if (new_window >> 8) as u8 != (self.backplane_window >> 8) as u8 {
             self.write8(
                 FUNC_BACKPLANE,
                 REG_BACKPLANE_BACKPLANE_ADDRESS_LOW,
                 (new_window >> 8) as u8,
-            );
+            )
+            .await;
         }
         self.backplane_window = new_window;
     }
 
-    fn read8(&mut self, func: u32, addr: u32) -> u8 {
-        self.readn(func, addr, 1) as u8
+    async fn read8(&mut self, func: u32, addr: u32) -> u8 {
+        self.readn(func, addr, 1).await as u8
     }
 
-    fn write8(&mut self, func: u32, addr: u32, val: u8) {
-        self.writen(func, addr, val as u32, 1)
+    async fn write8(&mut self, func: u32, addr: u32, val: u8) {
+        self.writen(func, addr, val as u32, 1).await
     }
 
-    fn read16(&mut self, func: u32, addr: u32) -> u16 {
-        self.readn(func, addr, 2) as u16
+    async fn read16(&mut self, func: u32, addr: u32) -> u16 {
+        self.readn(func, addr, 2).await as u16
     }
 
-    fn write16(&mut self, func: u32, addr: u32, val: u16) {
-        self.writen(func, addr, val as u32, 2)
+    async fn write16(&mut self, func: u32, addr: u32, val: u16) {
+        self.writen(func, addr, val as u32, 2).await
     }
 
-    fn read32(&mut self, func: u32, addr: u32) -> u32 {
-        self.readn(func, addr, 4)
+    async fn read32(&mut self, func: u32, addr: u32) -> u32 {
+        self.readn(func, addr, 4).await
     }
 
-    fn write32(&mut self, func: u32, addr: u32, val: u32) {
-        self.writen(func, addr, val, 4)
+    async fn write32(&mut self, func: u32, addr: u32, val: u32) {
+        self.writen(func, addr, val, 4).await
     }
 
-    fn readn(&mut self, func: u32, addr: u32, len: u32) -> u32 {
+    async fn readn(&mut self, func: u32, addr: u32, len: u32) -> u32 {
         let cmd = cmd_word(false, true, func, addr, len);
         let mut buf = [0; 4];
 
-        self.cs.set_low();
-        self.spi_write(&cmd.to_le_bytes());
-        if func == FUNC_BACKPLANE {
-            // 4-byte response delay.
-            self.spi_read(&mut buf);
-        }
-        self.spi_read(&mut buf);
-        self.cs.set_high();
+        self.spi
+            .transaction(|bus| {
+                let bus = unsafe { &mut *bus };
+                async {
+                    bus.write(&cmd.to_le_bytes()).await?;
+                    if func == FUNC_BACKPLANE {
+                        // 4-byte response delay.
+                        bus.read(&mut buf).await?;
+                    }
+                    bus.read(&mut buf).await?;
+                    Ok(())
+                }
+            })
+            .await
+            .unwrap();
 
         u32::from_le_bytes(buf)
     }
 
-    fn writen(&mut self, func: u32, addr: u32, val: u32, len: u32) {
+    async fn writen(&mut self, func: u32, addr: u32, val: u32, len: u32) {
         let cmd = cmd_word(true, true, func, addr, len);
 
-        self.cs.set_low();
-        self.spi_write(&cmd.to_le_bytes());
-        self.spi_write(&val.to_le_bytes());
-        self.cs.set_high();
+        self.spi
+            .transaction(|bus| {
+                let bus = unsafe { &mut *bus };
+                async {
+                    bus.write(&cmd.to_le_bytes()).await?;
+                    bus.write(&val.to_le_bytes()).await?;
+                    Ok(())
+                }
+            })
+            .await
+            .unwrap();
     }
 
-    fn read32_swapped(&mut self, addr: u32) -> u32 {
+    async fn read32_swapped(&mut self, addr: u32) -> u32 {
         let cmd = cmd_word(false, true, FUNC_BUS, addr, 4);
         let mut buf = [0; 4];
 
-        self.cs.set_low();
-        self.spi_write(&swap16(cmd).to_le_bytes());
-        self.spi_read(&mut buf);
-        self.cs.set_high();
+        self.spi
+            .transaction(|bus| {
+                let bus = unsafe { &mut *bus };
+                async {
+                    bus.write(&swap16(cmd).to_le_bytes()).await?;
+                    bus.read(&mut buf).await?;
+                    Ok(())
+                }
+            })
+            .await
+            .unwrap();
 
         swap16(u32::from_le_bytes(buf))
     }
 
-    fn write32_swapped(&mut self, addr: u32, val: u32) {
+    async fn write32_swapped(&mut self, addr: u32, val: u32) {
         let cmd = cmd_word(true, true, FUNC_BUS, addr, 4);
 
-        self.cs.set_low();
-        self.spi_write(&swap16(cmd).to_le_bytes());
-        self.spi_write(&swap16(val).to_le_bytes());
-        self.cs.set_high();
-    }
-
-    fn spi_read(&mut self, words: &mut [u8]) {
-        self.dio.set_as_input();
-        for word in words {
-            let mut w = 0;
-            for _ in 0..8 {
-                w = w << 1;
-
-                // rising edge, sample data
-                if self.dio.is_high() {
-                    w |= 0x01;
+        self.spi
+            .transaction(|bus| {
+                let bus = unsafe { &mut *bus };
+                async {
+                    bus.write(&swap16(cmd).to_le_bytes()).await?;
+                    bus.write(&swap16(val).to_le_bytes()).await?;
+                    Ok(())
                 }
-                self.clk.set_high();
-
-                // falling edge
-                self.clk.set_low();
-            }
-            *word = w
-        }
-        self.clk.set_low();
-    }
-
-    fn spi_write(&mut self, words: &[u8]) {
-        self.dio.set_as_output();
-        for word in words {
-            let mut word = *word;
-            for _ in 0..8 {
-                // falling edge, setup data
-                self.clk.set_low();
-                if word & 0x80 == 0 {
-                    self.dio.set_low();
-                } else {
-                    self.dio.set_high();
-                }
-
-                // rising edge
-                self.clk.set_high();
-
-                word = word << 1;
-            }
-        }
-        self.clk.set_low();
-
-        self.dio.set_as_input();
+            })
+            .await
+            .unwrap();
     }
 }
 

@@ -8,7 +8,7 @@
     "rust-analyzer.imports.granularity.enforce": true,
     "rust-analyzer.imports.granularity.group": "module",
     "rust-analyzer.procMacro.attributes.enable": false,
-    "rust-analyzer.procMacro.enable": true,
+    "rust-analyzer.procMacro.enable": false,
     "rust-analyzer.linkedProjects": [
         "examples/rpi-pico-w/Cargo.toml",
     ],
