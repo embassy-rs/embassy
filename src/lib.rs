@@ -11,6 +11,7 @@ mod events;
 mod structs;
 
 use core::cell::Cell;
+use core::cmp::{max, min};
 use core::slice;
 use core::sync::atomic::Ordering;
 use core::task::Waker;
@@ -272,16 +273,11 @@ impl<'a> Control<'a> {
 
         self.set_iovar_u32("bus:txglom", 0).await;
         self.set_iovar_u32("apsta", 1).await;
-        //self.set_iovar("cur_etheraddr", &[02, 03, 04, 05, 06, 07]).await;
 
         // read MAC addr.
         let mut mac_addr = [0; 6];
         assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
         info!("mac addr: {:02x}", mac_addr);
-
-        // TODO get_iovar is broken, it returns all zeros.
-        // Harcdode our own MAC for now.
-        let mac_addr = [0x28, 0xCD, 0xC1, 0x00, 0x3F, 0x05];
 
         let country = countries::WORLD_WIDE_XX;
         let country_info = CountryInfo {
@@ -439,10 +435,12 @@ impl<'a> Control<'a> {
         buf[..name.len()].copy_from_slice(name.as_bytes());
         buf[name.len()] = 0;
 
-        let total_len = name.len() + 1 + res.len();
-        let res_len = self.ioctl(0, 262, 0, &mut buf[..total_len]).await - name.len() - 1;
-        res[..res_len].copy_from_slice(&buf[name.len() + 1..][..res_len]);
-        res_len
+        let total_len = max(name.len() + 1, res.len());
+        let res_len = self.ioctl(0, 262, 0, &mut buf[..total_len]).await;
+
+        let out_len = min(res.len(), res_len);
+        res[..out_len].copy_from_slice(&buf[..out_len]);
+        out_len
     }
 
     async fn ioctl_set_u32(&mut self, cmd: u32, iface: u32, val: u32) {
@@ -712,7 +710,7 @@ where
                         .await
                         .unwrap();
 
-                    trace!("rx {:02x}", &buf[..(len as usize).min(48)]);
+                    trace!("rx {:02x}", &slice8_mut(&mut buf)[..(len as usize).min(48)]);
 
                     self.rx(&slice8_mut(&mut buf)[..len as usize]);
                 }
