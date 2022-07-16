@@ -153,17 +153,17 @@ impl SpiBusFlush for MySpi {
     }
 }
 
-impl SpiBusRead for MySpi {
+impl SpiBusRead<u32> for MySpi {
     type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>>
     where
         Self: 'a;
 
-    fn read<'a>(&'a mut self, words: &'a mut [u8]) -> Self::ReadFuture<'a> {
+    fn read<'a>(&'a mut self, words: &'a mut [u32]) -> Self::ReadFuture<'a> {
         async move {
             self.dio.set_as_input();
             for word in words {
                 let mut w = 0;
-                for _ in 0..8 {
+                for _ in 0..32 {
                     w = w << 1;
 
                     // rising edge, sample data
@@ -183,20 +183,20 @@ impl SpiBusRead for MySpi {
     }
 }
 
-impl SpiBusWrite for MySpi {
+impl SpiBusWrite<u32> for MySpi {
     type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>>
     where
         Self: 'a;
 
-    fn write<'a>(&'a mut self, words: &'a [u8]) -> Self::WriteFuture<'a> {
+    fn write<'a>(&'a mut self, words: &'a [u32]) -> Self::WriteFuture<'a> {
         async move {
             self.dio.set_as_output();
             for word in words {
                 let mut word = *word;
-                for _ in 0..8 {
+                for _ in 0..32 {
                     // falling edge, setup data
                     self.clk.set_low();
-                    if word & 0x80 == 0 {
+                    if word & 0x8000_0000 == 0 {
                         self.dio.set_low();
                     } else {
                         self.dio.set_high();

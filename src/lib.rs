@@ -28,11 +28,16 @@ use self::structs::*;
 use crate::events::Event;
 
 fn swap16(x: u32) -> u32 {
-    (x & 0xFF00FF00) >> 8 | (x & 0x00FF00FF) << 8
+    x.rotate_left(16)
 }
 
 fn cmd_word(write: bool, incr: bool, func: u32, addr: u32, len: u32) -> u32 {
     (write as u32) << 31 | (incr as u32) << 30 | (func & 0b11) << 28 | (addr & 0x1FFFF) << 11 | (len & 0x7FF)
+}
+
+fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
+    let len = x.len() * 4;
+    unsafe { slice::from_raw_parts_mut(x.as_mut_ptr() as _, len) }
 }
 
 const FUNC_BUS: u32 = 0;
@@ -529,7 +534,7 @@ pub async fn new<'a, PWR, SPI>(state: &'a State, pwr: PWR, spi: SPI) -> (Control
 where
     PWR: OutputPin,
     SPI: SpiDevice,
-    SPI::Bus: SpiBusRead + SpiBusWrite,
+    SPI::Bus: SpiBusRead<u32> + SpiBusWrite<u32>,
 {
     let mut runner = Runner {
         state,
@@ -549,7 +554,7 @@ impl<'a, PWR, SPI> Runner<'a, PWR, SPI>
 where
     PWR: OutputPin,
     SPI: SpiDevice,
-    SPI::Bus: SpiBusRead + SpiBusWrite,
+    SPI::Bus: SpiBusRead<u32> + SpiBusWrite<u32>,
 {
     async fn init(&mut self) {
         // Reset
@@ -566,8 +571,8 @@ where
         let val = self.read32_swapped(REG_BUS_TEST).await;
         assert_eq!(val, TEST_PATTERN);
 
-        // 32bit, big endian.
-        self.write32_swapped(REG_BUS_CTRL, 0x00010033).await;
+        // 32bit, little endian.
+        self.write32_swapped(REG_BUS_CTRL, 0x00010031).await;
 
         let val = self.read32(FUNC_BUS, REG_BUS_FEEDBEAD).await;
         assert_eq!(val, FEEDBEAD);
@@ -606,14 +611,6 @@ where
 
         info!("loading fw");
         self.bp_write(ram_addr, fw).await;
-
-        info!("verifying fw");
-        let mut buf = [0; 1024];
-        for (i, chunk) in fw.chunks(1024).enumerate() {
-            let buf = &mut buf[..chunk.len()];
-            self.bp_read(ram_addr + i as u32 * 1024, buf).await;
-            assert_eq!(chunk, buf);
-        }
 
         info!("loading nvram");
         // Round up to 4 bytes.
@@ -675,7 +672,7 @@ where
     }
 
     pub async fn run(mut self) -> ! {
-        let mut buf = [0; 2048];
+        let mut buf = [0; 512];
         loop {
             // Send stuff
             // TODO flow control
@@ -707,14 +704,8 @@ where
                         .transaction(|bus| {
                             let bus = unsafe { &mut *bus };
                             async {
-                                bus.write(&cmd.to_le_bytes()).await?;
-                                bus.read(&mut buf[..len as usize]).await?;
-                                // pad to 32bit
-                                let mut junk = [0; 4];
-                                if len % 4 != 0 {
-                                    bus.read(&mut junk[..(4 - len as usize % 4)]).await?;
-                                }
-
+                                bus.write(&[cmd]).await?;
+                                bus.read(&mut buf[..(len as usize + 3) / 4]).await?;
                                 Ok(())
                             }
                         })
@@ -723,7 +714,7 @@ where
 
                     trace!("rx {:02x}", &buf[..(len as usize).min(48)]);
 
-                    self.rx(&buf[..len as usize]);
+                    self.rx(&slice8_mut(&mut buf)[..len as usize]);
                 }
             }
 
@@ -735,7 +726,8 @@ where
     async fn send_packet(&mut self, packet: &[u8]) {
         trace!("tx pkt {:02x}", &packet[..packet.len().min(48)]);
 
-        let mut buf = [0; 2048];
+        let mut buf = [0; 512];
+        let buf8 = slice8_mut(&mut buf);
 
         let total_len = SdpcmHeader::SIZE + BcdHeader::SIZE + packet.len();
 
@@ -763,21 +755,21 @@ where
         trace!("tx {:?}", sdpcm_header);
         trace!("    {:?}", bcd_header);
 
-        buf[0..SdpcmHeader::SIZE].copy_from_slice(&sdpcm_header.to_bytes());
-        buf[SdpcmHeader::SIZE..][..BcdHeader::SIZE].copy_from_slice(&bcd_header.to_bytes());
-        buf[SdpcmHeader::SIZE + BcdHeader::SIZE..][..packet.len()].copy_from_slice(packet);
+        buf8[0..SdpcmHeader::SIZE].copy_from_slice(&sdpcm_header.to_bytes());
+        buf8[SdpcmHeader::SIZE..][..BcdHeader::SIZE].copy_from_slice(&bcd_header.to_bytes());
+        buf8[SdpcmHeader::SIZE + BcdHeader::SIZE..][..packet.len()].copy_from_slice(packet);
 
         let total_len = (total_len + 3) & !3; // round up to 4byte
 
-        trace!("    {:02x}", &buf[..total_len.min(48)]);
+        trace!("    {:02x}", &buf8[..total_len.min(48)]);
 
         let cmd = cmd_word(true, true, FUNC_WLAN, 0, total_len as _);
         self.spi
             .transaction(|bus| {
                 let bus = unsafe { &mut *bus };
                 async {
-                    bus.write(&cmd.to_le_bytes()).await?;
-                    bus.write(&buf[..total_len]).await?;
+                    bus.write(&[cmd]).await?;
+                    bus.write(&buf[..(total_len + 3 / 4)]).await?;
                     Ok(())
                 }
             })
@@ -875,7 +867,8 @@ where
     }
 
     async fn send_ioctl(&mut self, kind: u32, cmd: u32, iface: u32, data: &[u8], id: u16) {
-        let mut buf = [0; 2048];
+        let mut buf = [0; 512];
+        let buf8 = slice8_mut(&mut buf);
 
         let total_len = SdpcmHeader::SIZE + CdcHeader::SIZE + data.len();
 
@@ -904,13 +897,13 @@ where
         trace!("tx {:?}", sdpcm_header);
         trace!("    {:?}", cdc_header);
 
-        buf[0..SdpcmHeader::SIZE].copy_from_slice(&sdpcm_header.to_bytes());
-        buf[SdpcmHeader::SIZE..][..CdcHeader::SIZE].copy_from_slice(&cdc_header.to_bytes());
-        buf[SdpcmHeader::SIZE + CdcHeader::SIZE..][..data.len()].copy_from_slice(data);
+        buf8[0..SdpcmHeader::SIZE].copy_from_slice(&sdpcm_header.to_bytes());
+        buf8[SdpcmHeader::SIZE..][..CdcHeader::SIZE].copy_from_slice(&cdc_header.to_bytes());
+        buf8[SdpcmHeader::SIZE + CdcHeader::SIZE..][..data.len()].copy_from_slice(data);
 
         let total_len = (total_len + 3) & !3; // round up to 4byte
 
-        trace!("    {:02x}", &buf[..total_len.min(48)]);
+        trace!("    {:02x}", &buf8[..total_len.min(48)]);
 
         let cmd = cmd_word(true, true, FUNC_WLAN, 0, total_len as _);
 
@@ -918,8 +911,8 @@ where
             .transaction(|bus| {
                 let bus = unsafe { &mut *bus };
                 async {
-                    bus.write(&cmd.to_le_bytes()).await?;
-                    bus.write(&buf[..total_len]).await?;
+                    bus.write(&[cmd]).await?;
+                    bus.write(&buf[..(total_len + 3) / 4]).await?;
                     Ok(())
                 }
             })
@@ -984,7 +977,7 @@ where
         true
     }
 
-    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
+    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u32]) {
         // It seems the HW force-aligns the addr
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
@@ -1006,19 +999,14 @@ where
                 .transaction(|bus| {
                     let bus = unsafe { &mut *bus };
                     async {
-                        bus.write(&cmd.to_le_bytes()).await?;
+                        bus.write(&[cmd]).await?;
 
                         // 4-byte response delay.
-                        let mut junk = [0; 4];
+                        let mut junk = [0; 1];
                         bus.read(&mut junk).await?;
 
                         // Read data
-                        bus.read(&mut data[..len]).await?;
-
-                        // pad to 32bit
-                        if len % 4 != 0 {
-                            bus.read(&mut junk[..(4 - len % 4)]).await?;
-                        }
+                        bus.read(&mut data[..len / 4]).await?;
                         Ok(())
                     }
                 })
@@ -1027,7 +1015,7 @@ where
 
             // Advance ptr.
             addr += len as u32;
-            data = &mut data[len..];
+            data = &mut data[len / 4..];
         }
     }
 
@@ -1038,12 +1026,15 @@ where
         // To simplify, enforce 4-align for now.
         assert!(addr % 4 == 0);
 
+        let mut buf = [0u32; BACKPLANE_MAX_TRANSFER_SIZE / 4];
+
         while !data.is_empty() {
             // Ensure transfer doesn't cross a window boundary.
             let window_offs = addr & BACKPLANE_ADDRESS_MASK;
             let window_remaining = BACKPLANE_WINDOW_SIZE - window_offs as usize;
 
             let len = data.len().min(BACKPLANE_MAX_TRANSFER_SIZE).min(window_remaining);
+            slice8_mut(&mut buf)[..len].copy_from_slice(&data[..len]);
 
             self.backplane_set_window(addr).await;
 
@@ -1053,13 +1044,8 @@ where
                 .transaction(|bus| {
                     let bus = unsafe { &mut *bus };
                     async {
-                        bus.write(&cmd.to_le_bytes()).await?;
-                        bus.write(&data[..len]).await?;
-                        // pad to 32bit
-                        if len % 4 != 0 {
-                            let zeros = [0; 4];
-                            bus.write(&zeros[..(4 - len % 4)]).await?;
-                        }
+                        bus.write(&[cmd]).await?;
+                        bus.write(&buf[..(len + 3) / 4]).await?;
                         Ok(())
                     }
                 })
@@ -1172,13 +1158,13 @@ where
 
     async fn readn(&mut self, func: u32, addr: u32, len: u32) -> u32 {
         let cmd = cmd_word(false, true, func, addr, len);
-        let mut buf = [0; 4];
+        let mut buf = [0; 1];
 
         self.spi
             .transaction(|bus| {
                 let bus = unsafe { &mut *bus };
                 async {
-                    bus.write(&cmd.to_le_bytes()).await?;
+                    bus.write(&[cmd]).await?;
                     if func == FUNC_BACKPLANE {
                         // 4-byte response delay.
                         bus.read(&mut buf).await?;
@@ -1190,7 +1176,7 @@ where
             .await
             .unwrap();
 
-        u32::from_le_bytes(buf)
+        buf[0]
     }
 
     async fn writen(&mut self, func: u32, addr: u32, val: u32, len: u32) {
@@ -1200,8 +1186,7 @@ where
             .transaction(|bus| {
                 let bus = unsafe { &mut *bus };
                 async {
-                    bus.write(&cmd.to_le_bytes()).await?;
-                    bus.write(&val.to_le_bytes()).await?;
+                    bus.write(&[cmd, val]).await?;
                     Ok(())
                 }
             })
@@ -1211,13 +1196,13 @@ where
 
     async fn read32_swapped(&mut self, addr: u32) -> u32 {
         let cmd = cmd_word(false, true, FUNC_BUS, addr, 4);
-        let mut buf = [0; 4];
+        let mut buf = [0; 1];
 
         self.spi
             .transaction(|bus| {
                 let bus = unsafe { &mut *bus };
                 async {
-                    bus.write(&swap16(cmd).to_le_bytes()).await?;
+                    bus.write(&[swap16(cmd)]).await?;
                     bus.read(&mut buf).await?;
                     Ok(())
                 }
@@ -1225,7 +1210,7 @@ where
             .await
             .unwrap();
 
-        swap16(u32::from_le_bytes(buf))
+        swap16(buf[0])
     }
 
     async fn write32_swapped(&mut self, addr: u32, val: u32) {
@@ -1235,8 +1220,7 @@ where
             .transaction(|bus| {
                 let bus = unsafe { &mut *bus };
                 async {
-                    bus.write(&swap16(cmd).to_le_bytes()).await?;
-                    bus.write(&swap16(val).to_le_bytes()).await?;
+                    bus.write(&[swap16(cmd), swap16(val)]).await?;
                     Ok(())
                 }
             })
