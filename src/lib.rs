@@ -235,10 +235,8 @@ pub struct Control<'a> {
 }
 
 impl<'a> Control<'a> {
-    pub async fn init(&mut self) -> NetDevice<'a> {
+    pub async fn init(&mut self, clm: &[u8]) -> NetDevice<'a> {
         const CHUNK_SIZE: usize = 1024;
-
-        let clm = unsafe { slice::from_raw_parts(0x10140000 as *const u8, 4752) };
 
         info!("Downloading CLM...");
 
@@ -528,7 +526,12 @@ pub struct Runner<'a, PWR, SPI> {
     backplane_window: u32,
 }
 
-pub async fn new<'a, PWR, SPI>(state: &'a State, pwr: PWR, spi: SPI) -> (Control<'a>, Runner<'a, PWR, SPI>)
+pub async fn new<'a, PWR, SPI>(
+    state: &'a State,
+    pwr: PWR,
+    spi: SPI,
+    firmware: &[u8],
+) -> (Control<'a>, Runner<'a, PWR, SPI>)
 where
     PWR: OutputPin,
     SPI: SpiDevice,
@@ -543,7 +546,7 @@ where
         backplane_window: 0xAAAA_AAAA,
     };
 
-    runner.init().await;
+    runner.init(firmware).await;
 
     (Control { state }, runner)
 }
@@ -554,7 +557,7 @@ where
     SPI: SpiDevice,
     SPI::Bus: SpiBusRead<u32> + SpiBusWrite<u32>,
 {
-    async fn init(&mut self) {
+    async fn init(&mut self, firmware: &[u8]) {
         // Reset
         self.pwr.set_low().unwrap();
         Timer::after(Duration::from_millis(20)).await;
@@ -598,17 +601,8 @@ where
 
         let ram_addr = CHIP.atcm_ram_base_address;
 
-        // I'm flashing the firmwares independently at hardcoded addresses, instead of baking them
-        // into the program with `include_bytes!` or similar, so that flashing the program stays fast.
-        //
-        // Flash them like this, also don't forget to update the lengths below if you change them!.
-        //
-        // probe-rs-cli download 43439A0.bin --format bin --chip RP2040 --base-address 0x10100000
-        // probe-rs-cli download 43439A0.clm_blob --format bin --chip RP2040 --base-address 0x10140000
-        let fw = unsafe { slice::from_raw_parts(0x10100000 as *const u8, 224190) };
-
         info!("loading fw");
-        self.bp_write(ram_addr, fw).await;
+        self.bp_write(ram_addr, firmware).await;
 
         info!("loading nvram");
         // Round up to 4 bytes.
