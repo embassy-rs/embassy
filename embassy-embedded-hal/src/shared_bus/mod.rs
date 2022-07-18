@@ -9,11 +9,11 @@ pub mod asynch;
 pub mod blocking;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum I2cBusDeviceError<BUS> {
+pub enum I2cDeviceError<BUS> {
     I2c(BUS),
 }
 
-impl<BUS> i2c::Error for I2cBusDeviceError<BUS>
+impl<BUS> i2c::Error for I2cDeviceError<BUS>
 where
     BUS: i2c::Error + Debug,
 {
@@ -25,12 +25,12 @@ where
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum SpiBusDeviceError<BUS, CS> {
+pub enum SpiDeviceError<BUS, CS> {
     Spi(BUS),
     Cs(CS),
 }
 
-impl<BUS, CS> spi::Error for SpiBusDeviceError<BUS, CS>
+impl<BUS, CS> spi::Error for SpiDeviceError<BUS, CS>
 where
     BUS: spi::Error + Debug,
     CS: Debug,

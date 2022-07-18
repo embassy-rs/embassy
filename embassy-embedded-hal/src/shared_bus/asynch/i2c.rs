@@ -3,7 +3,7 @@
 //! # Example (nrf52)
 //!
 //! ```rust
-//! use embassy_embedded_hal::shared_bus::i2c::I2cBusDevice;
+//! use embassy_embedded_hal::shared_bus::i2c::I2cDevice;
 //! use embassy::mutex::Mutex;
 //! use embassy::blocking_mutex::raw::ThreadModeRawMutex;
 //!
@@ -15,11 +15,11 @@
 //! let i2c_bus = I2C_BUS.put(i2c_bus);
 //!
 //! // Device 1, using embedded-hal-async compatible driver for QMC5883L compass
-//! let i2c_dev1 = I2cBusDevice::new(i2c_bus);
+//! let i2c_dev1 = I2cDevice::new(i2c_bus);
 //! let compass = QMC5883L::new(i2c_dev1).await.unwrap();
 //!
 //! // Device 2, using embedded-hal-async compatible driver for Mpu6050 accelerometer
-//! let i2c_dev2 = I2cBusDevice::new(i2c_bus);
+//! let i2c_dev2 = I2cDevice::new(i2c_bus);
 //! let mpu = Mpu6050::new(i2c_dev2);
 //! ```
 use core::future::Future;
@@ -28,27 +28,27 @@ use embassy::blocking_mutex::raw::RawMutex;
 use embassy::mutex::Mutex;
 use embedded_hal_async::i2c;
 
-use crate::shared_bus::I2cBusDeviceError;
+use crate::shared_bus::I2cDeviceError;
 use crate::SetConfig;
 
-pub struct I2cBusDevice<'a, M: RawMutex, BUS> {
+pub struct I2cDevice<'a, M: RawMutex, BUS> {
     bus: &'a Mutex<M, BUS>,
 }
 
-impl<'a, M: RawMutex, BUS> I2cBusDevice<'a, M, BUS> {
+impl<'a, M: RawMutex, BUS> I2cDevice<'a, M, BUS> {
     pub fn new(bus: &'a Mutex<M, BUS>) -> Self {
         Self { bus }
     }
 }
 
-impl<'a, M: RawMutex, BUS> i2c::ErrorType for I2cBusDevice<'a, M, BUS>
+impl<'a, M: RawMutex, BUS> i2c::ErrorType for I2cDevice<'a, M, BUS>
 where
     BUS: i2c::ErrorType,
 {
-    type Error = I2cBusDeviceError<BUS::Error>;
+    type Error = I2cDeviceError<BUS::Error>;
 }
 
-impl<M, BUS> i2c::I2c for I2cBusDevice<'_, M, BUS>
+impl<M, BUS> i2c::I2c for I2cDevice<'_, M, BUS>
 where
     M: RawMutex + 'static,
     BUS: i2c::I2c + 'static,
@@ -58,7 +58,7 @@ where
     fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
         async move {
             let mut bus = self.bus.lock().await;
-            bus.read(address, buffer).await.map_err(I2cBusDeviceError::I2c)?;
+            bus.read(address, buffer).await.map_err(I2cDeviceError::I2c)?;
             Ok(())
         }
     }
@@ -68,7 +68,7 @@ where
     fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
         async move {
             let mut bus = self.bus.lock().await;
-            bus.write(address, bytes).await.map_err(I2cBusDeviceError::I2c)?;
+            bus.write(address, bytes).await.map_err(I2cDeviceError::I2c)?;
             Ok(())
         }
     }
@@ -85,7 +85,7 @@ where
             let mut bus = self.bus.lock().await;
             bus.write_read(address, wr_buffer, rd_buffer)
                 .await
-                .map_err(I2cBusDeviceError::I2c)?;
+                .map_err(I2cDeviceError::I2c)?;
             Ok(())
         }
     }
@@ -103,27 +103,27 @@ where
     }
 }
 
-pub struct I2cBusDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig> {
+pub struct I2cDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig> {
     bus: &'a Mutex<M, BUS>,
     config: BUS::Config,
 }
 
-impl<'a, M: RawMutex, BUS: SetConfig> I2cBusDeviceWithConfig<'a, M, BUS> {
+impl<'a, M: RawMutex, BUS: SetConfig> I2cDeviceWithConfig<'a, M, BUS> {
     pub fn new(bus: &'a Mutex<M, BUS>, config: BUS::Config) -> Self {
         Self { bus, config }
     }
 }
 
-impl<'a, M, BUS> i2c::ErrorType for I2cBusDeviceWithConfig<'a, M, BUS>
+impl<'a, M, BUS> i2c::ErrorType for I2cDeviceWithConfig<'a, M, BUS>
 where
     BUS: i2c::ErrorType,
     M: RawMutex,
     BUS: SetConfig,
 {
-    type Error = I2cBusDeviceError<BUS::Error>;
+    type Error = I2cDeviceError<BUS::Error>;
 }
 
-impl<M, BUS> i2c::I2c for I2cBusDeviceWithConfig<'_, M, BUS>
+impl<M, BUS> i2c::I2c for I2cDeviceWithConfig<'_, M, BUS>
 where
     M: RawMutex + 'static,
     BUS: i2c::I2c + SetConfig + 'static,
@@ -134,7 +134,7 @@ where
         async move {
             let mut bus = self.bus.lock().await;
             bus.set_config(&self.config);
-            bus.read(address, buffer).await.map_err(I2cBusDeviceError::I2c)?;
+            bus.read(address, buffer).await.map_err(I2cDeviceError::I2c)?;
             Ok(())
         }
     }
@@ -145,7 +145,7 @@ where
         async move {
             let mut bus = self.bus.lock().await;
             bus.set_config(&self.config);
-            bus.write(address, bytes).await.map_err(I2cBusDeviceError::I2c)?;
+            bus.write(address, bytes).await.map_err(I2cDeviceError::I2c)?;
             Ok(())
         }
     }
@@ -163,7 +163,7 @@ where
             bus.set_config(&self.config);
             bus.write_read(address, wr_buffer, rd_buffer)
                 .await
-                .map_err(I2cBusDeviceError::I2c)?;
+                .map_err(I2cDeviceError::I2c)?;
             Ok(())
         }
     }
