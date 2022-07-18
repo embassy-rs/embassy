@@ -3,7 +3,7 @@
 //! # Example (nrf52)
 //!
 //! ```rust
-//! use embassy_embedded_hal::shared_bus::blocking::spi::SpiBusDevice;
+//! use embassy_embedded_hal::shared_bus::blocking::spi::SpiDevice;
 //! use embassy::blocking_mutex::{NoopMutex, raw::NoopRawMutex};
 //!
 //! static SPI_BUS: Forever<NoopMutex<RefCell<Spim<SPI3>>>> = Forever::new();
@@ -14,7 +14,7 @@
 //!
 //! // Device 1, using embedded-hal compatible driver for ST7735 LCD display
 //! let cs_pin1 = Output::new(p.P0_24, Level::Low, OutputDrive::Standard);
-//! let spi_dev1 = SpiBusDevice::new(spi_bus, cs_pin1);
+//! let spi_dev1 = SpiDevice::new(spi_bus, cs_pin1);
 //! let display1 = ST7735::new(spi_dev1, dc1, rst1, Default::default(), false, 160, 128);
 //! ```
 
@@ -24,31 +24,31 @@ use embassy::blocking_mutex::raw::RawMutex;
 use embassy::blocking_mutex::Mutex;
 use embedded_hal_1::digital::blocking::OutputPin;
 use embedded_hal_1::spi;
-use embedded_hal_1::spi::blocking::{SpiBusFlush, SpiDevice};
+use embedded_hal_1::spi::blocking::SpiBusFlush;
 
-use crate::shared_bus::SpiBusDeviceError;
+use crate::shared_bus::SpiDeviceError;
 use crate::SetConfig;
 
-pub struct SpiBusDevice<'a, M: RawMutex, BUS, CS> {
+pub struct SpiDevice<'a, M: RawMutex, BUS, CS> {
     bus: &'a Mutex<M, RefCell<BUS>>,
     cs: CS,
 }
 
-impl<'a, M: RawMutex, BUS, CS> SpiBusDevice<'a, M, BUS, CS> {
+impl<'a, M: RawMutex, BUS, CS> SpiDevice<'a, M, BUS, CS> {
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS) -> Self {
         Self { bus, cs }
     }
 }
 
-impl<'a, M: RawMutex, BUS, CS> spi::ErrorType for SpiBusDevice<'a, M, BUS, CS>
+impl<'a, M: RawMutex, BUS, CS> spi::ErrorType for SpiDevice<'a, M, BUS, CS>
 where
     BUS: spi::ErrorType,
     CS: OutputPin,
 {
-    type Error = SpiBusDeviceError<BUS::Error, CS::Error>;
+    type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<BUS, M, CS> SpiDevice for SpiBusDevice<'_, M, BUS, CS>
+impl<BUS, M, CS> embedded_hal_1::spi::blocking::SpiDevice for SpiDevice<'_, M, BUS, CS>
 where
     M: RawMutex,
     BUS: SpiBusFlush,
@@ -59,7 +59,7 @@ where
     fn transaction<R>(&mut self, f: impl FnOnce(&mut Self::Bus) -> Result<R, BUS::Error>) -> Result<R, Self::Error> {
         self.bus.lock(|bus| {
             let mut bus = bus.borrow_mut();
-            self.cs.set_low().map_err(SpiBusDeviceError::Cs)?;
+            self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
             let f_res = f(&mut bus);
 
@@ -67,78 +67,78 @@ where
             let flush_res = bus.flush();
             let cs_res = self.cs.set_high();
 
-            let f_res = f_res.map_err(SpiBusDeviceError::Spi)?;
-            flush_res.map_err(SpiBusDeviceError::Spi)?;
-            cs_res.map_err(SpiBusDeviceError::Cs)?;
+            let f_res = f_res.map_err(SpiDeviceError::Spi)?;
+            flush_res.map_err(SpiDeviceError::Spi)?;
+            cs_res.map_err(SpiDeviceError::Cs)?;
 
             Ok(f_res)
         })
     }
 }
 
-impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Transfer<u8> for SpiBusDevice<'_, M, BUS, CS>
+impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Transfer<u8> for SpiDevice<'_, M, BUS, CS>
 where
     M: RawMutex,
     BUS: embedded_hal_02::blocking::spi::Transfer<u8, Error = BusErr>,
     CS: OutputPin<Error = CsErr>,
 {
-    type Error = SpiBusDeviceError<BusErr, CsErr>;
+    type Error = SpiDeviceError<BusErr, CsErr>;
     fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
         self.bus.lock(|bus| {
             let mut bus = bus.borrow_mut();
-            self.cs.set_low().map_err(SpiBusDeviceError::Cs)?;
+            self.cs.set_low().map_err(SpiDeviceError::Cs)?;
             let f_res = bus.transfer(words);
             let cs_res = self.cs.set_high();
-            let f_res = f_res.map_err(SpiBusDeviceError::Spi)?;
-            cs_res.map_err(SpiBusDeviceError::Cs)?;
+            let f_res = f_res.map_err(SpiDeviceError::Spi)?;
+            cs_res.map_err(SpiDeviceError::Cs)?;
             Ok(f_res)
         })
     }
 }
 
-impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Write<u8> for SpiBusDevice<'_, M, BUS, CS>
+impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Write<u8> for SpiDevice<'_, M, BUS, CS>
 where
     M: RawMutex,
     BUS: embedded_hal_02::blocking::spi::Write<u8, Error = BusErr>,
     CS: OutputPin<Error = CsErr>,
 {
-    type Error = SpiBusDeviceError<BusErr, CsErr>;
+    type Error = SpiDeviceError<BusErr, CsErr>;
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
         self.bus.lock(|bus| {
             let mut bus = bus.borrow_mut();
-            self.cs.set_low().map_err(SpiBusDeviceError::Cs)?;
+            self.cs.set_low().map_err(SpiDeviceError::Cs)?;
             let f_res = bus.write(words);
             let cs_res = self.cs.set_high();
-            let f_res = f_res.map_err(SpiBusDeviceError::Spi)?;
-            cs_res.map_err(SpiBusDeviceError::Cs)?;
+            let f_res = f_res.map_err(SpiDeviceError::Spi)?;
+            cs_res.map_err(SpiDeviceError::Cs)?;
             Ok(f_res)
         })
     }
 }
 
-pub struct SpiBusDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig, CS> {
+pub struct SpiDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig, CS> {
     bus: &'a Mutex<M, RefCell<BUS>>,
     cs: CS,
     config: BUS::Config,
 }
 
-impl<'a, M: RawMutex, BUS: SetConfig, CS> SpiBusDeviceWithConfig<'a, M, BUS, CS> {
+impl<'a, M: RawMutex, BUS: SetConfig, CS> SpiDeviceWithConfig<'a, M, BUS, CS> {
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS, config: BUS::Config) -> Self {
         Self { bus, cs, config }
     }
 }
 
-impl<'a, M, BUS, CS> spi::ErrorType for SpiBusDeviceWithConfig<'a, M, BUS, CS>
+impl<'a, M, BUS, CS> spi::ErrorType for SpiDeviceWithConfig<'a, M, BUS, CS>
 where
     M: RawMutex,
     BUS: spi::ErrorType + SetConfig,
     CS: OutputPin,
 {
-    type Error = SpiBusDeviceError<BUS::Error, CS::Error>;
+    type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<BUS, M, CS> SpiDevice for SpiBusDeviceWithConfig<'_, M, BUS, CS>
+impl<BUS, M, CS> embedded_hal_1::spi::blocking::SpiDevice for SpiDeviceWithConfig<'_, M, BUS, CS>
 where
     M: RawMutex,
     BUS: SpiBusFlush + SetConfig,
@@ -150,7 +150,7 @@ where
         self.bus.lock(|bus| {
             let mut bus = bus.borrow_mut();
             bus.set_config(&self.config);
-            self.cs.set_low().map_err(SpiBusDeviceError::Cs)?;
+            self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
             let f_res = f(&mut bus);
 
@@ -158,9 +158,9 @@ where
             let flush_res = bus.flush();
             let cs_res = self.cs.set_high();
 
-            let f_res = f_res.map_err(SpiBusDeviceError::Spi)?;
-            flush_res.map_err(SpiBusDeviceError::Spi)?;
-            cs_res.map_err(SpiBusDeviceError::Cs)?;
+            let f_res = f_res.map_err(SpiDeviceError::Spi)?;
+            flush_res.map_err(SpiDeviceError::Spi)?;
+            cs_res.map_err(SpiDeviceError::Cs)?;
             Ok(f_res)
         })
     }
