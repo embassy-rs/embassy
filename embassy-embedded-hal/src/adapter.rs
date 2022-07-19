@@ -1,9 +1,12 @@
+//! Adapters between embedded-hal traits.
+
 use core::future::Future;
 
 use embedded_hal_02::{blocking, serial};
 
-/// BlockingAsync is a wrapper that implements async traits using blocking peripherals. This allows
-/// driver writers to depend on the async traits while still supporting embedded-hal peripheral implementations.
+/// Wrapper that implements async traits using blocking implementations.
+///
+/// This allows driver writers to depend on the async traits while still supporting embedded-hal peripheral implementations.
 ///
 /// BlockingAsync will implement any async trait that maps to embedded-hal traits implemented for the wrapped driver.
 ///
