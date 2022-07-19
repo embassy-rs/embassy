@@ -8,8 +8,10 @@ pub mod asynch;
 
 pub mod blocking;
 
+/// Error returned by I2C device implementations in this crate.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum I2cDeviceError<BUS> {
+    /// An operation on the inner I2C bus failed.
     I2c(BUS),
 }
 
@@ -24,9 +26,12 @@ where
     }
 }
 
+/// Error returned by SPI device implementations in this crate.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum SpiDeviceError<BUS, CS> {
+    /// An operation on the inner SPI bus failed.
     Spi(BUS),
+    /// Setting the value of the Chip Select (CS) pin failed.
     Cs(CS),
 }
 

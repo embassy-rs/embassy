@@ -26,11 +26,13 @@ use embedded_hal_1::i2c::ErrorType;
 use crate::shared_bus::I2cDeviceError;
 use crate::SetConfig;
 
+/// I2C device on a shared bus.
 pub struct I2cDevice<'a, M: RawMutex, BUS> {
     bus: &'a Mutex<M, RefCell<BUS>>,
 }
 
 impl<'a, M: RawMutex, BUS> I2cDevice<'a, M, BUS> {
+    /// Create a new `I2cDevice`.
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>) -> Self {
         Self { bus }
     }
@@ -143,12 +145,18 @@ where
     }
 }
 
+/// I2C device on a shared bus, with its own configuration.
+///
+/// This is like [`I2cDevice`], with an additional bus configuration that's applied
+/// to the bus before each use using [`SetConfig`]. This allows different
+/// devices on the same bus to use different communication settings.
 pub struct I2cDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig> {
     bus: &'a Mutex<M, RefCell<BUS>>,
     config: BUS::Config,
 }
 
 impl<'a, M: RawMutex, BUS: SetConfig> I2cDeviceWithConfig<'a, M, BUS> {
+    /// Create a new `I2cDeviceWithConfig`.
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, config: BUS::Config) -> Self {
         Self { bus, config }
     }

@@ -29,12 +29,14 @@ use embedded_hal_1::spi::blocking::SpiBusFlush;
 use crate::shared_bus::SpiDeviceError;
 use crate::SetConfig;
 
+/// SPI device on a shared bus.
 pub struct SpiDevice<'a, M: RawMutex, BUS, CS> {
     bus: &'a Mutex<M, RefCell<BUS>>,
     cs: CS,
 }
 
 impl<'a, M: RawMutex, BUS, CS> SpiDevice<'a, M, BUS, CS> {
+    /// Create a new `SpiDevice`.
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS) -> Self {
         Self { bus, cs }
     }
@@ -117,6 +119,11 @@ where
     }
 }
 
+/// SPI device on a shared bus, with its own configuration.
+///
+/// This is like [`SpiDevice`], with an additional bus configuration that's applied
+/// to the bus before each use using [`SetConfig`]. This allows different
+/// devices on the same bus to use different communication settings.
 pub struct SpiDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig, CS> {
     bus: &'a Mutex<M, RefCell<BUS>>,
     cs: CS,
@@ -124,6 +131,7 @@ pub struct SpiDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig, CS> {
 }
 
 impl<'a, M: RawMutex, BUS: SetConfig, CS> SpiDeviceWithConfig<'a, M, BUS, CS> {
+    /// Create a new `SpiDeviceWithConfig`.
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS, config: BUS::Config) -> Self {
         Self { bus, cs, config }
     }
