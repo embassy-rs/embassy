@@ -211,6 +211,7 @@ const PRIO_MASK: u8 = 0xff;
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
+#[allow(missing_docs)]
 pub enum Priority {
     P0 = 0x0,
 }
@@ -222,6 +223,7 @@ pub enum Priority {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
+#[allow(missing_docs)]
 pub enum Priority {
     P0 = 0x0,
     P1 = 0x80,
@@ -234,6 +236,7 @@ pub enum Priority {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
+#[allow(missing_docs)]
 pub enum Priority {
     P0 = 0x0,
     P1 = 0x40,
@@ -248,6 +251,7 @@ pub enum Priority {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
+#[allow(missing_docs)]
 pub enum Priority {
     P0 = 0x0,
     P1 = 0x20,
@@ -266,6 +270,7 @@ pub enum Priority {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
+#[allow(missing_docs)]
 pub enum Priority {
     P0 = 0x0,
     P1 = 0x10,
@@ -292,6 +297,7 @@ pub enum Priority {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
+#[allow(missing_docs)]
 pub enum Priority {
     P0 = 0x0,
     P1 = 0x8,
@@ -334,6 +340,7 @@ pub enum Priority {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
+#[allow(missing_docs)]
 pub enum Priority {
     P0 = 0x0,
     P1 = 0x4,
@@ -408,6 +415,7 @@ pub enum Priority {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
+#[allow(missing_docs)]
 pub enum Priority {
     P0 = 0x0,
     P1 = 0x2,
@@ -546,6 +554,7 @@ pub enum Priority {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
+#[allow(missing_docs)]
 pub enum Priority {
     P0 = 0x0,
     P1 = 0x1,
