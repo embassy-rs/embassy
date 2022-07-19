@@ -18,7 +18,7 @@ flavors = [
 
 time = ["embassy/time"]
 
-defmt = ["dep:defmt", "embassy/defmt", "embassy-usb?/defmt", "embedded-io?/defmt"]
+defmt = ["dep:defmt", "embassy/defmt", "embassy-usb?/defmt", "embedded-io?/defmt", "embassy-embedded-hal/defmt"]
 
 # Enable nightly-only features
 nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-usb", "embedded-storage-async", "dep:embedded-io", "embassy-embedded-hal/nightly"]
