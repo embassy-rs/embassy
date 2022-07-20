@@ -210,7 +210,7 @@ pub(crate) async unsafe fn write(offset: u32, buf: &[u8]) -> Result<(), Error> {
         w.set_pg(false);
         w.set_eopie(false);
         w.set_errie(false);
-});
+    });
 
     ret
 }
