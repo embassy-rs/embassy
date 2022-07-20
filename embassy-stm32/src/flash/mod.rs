@@ -24,7 +24,10 @@ impl<'d> Flash<'d> {
     pub fn new(p: impl Unborrow<Target = FLASH>) -> Self {
         unborrow!(p);
 
-        unsafe { family::init(); }
+        #[cfg(flash_f4)]
+        unsafe {
+            family::init();
+        }
 
         Self {
             _inner: p,
@@ -184,9 +187,9 @@ mod asynch {
                     return Err(Error::Unaligned);
                 }
                 trace!("Writing {} bytes at 0x{:x}", data.len(), addr);
-        
+
                 self.clear_all_err();
-        
+
                 unsafe { family::write(addr, data).await }
             }
         }
