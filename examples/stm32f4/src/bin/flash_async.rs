@@ -6,10 +6,23 @@ use defmt::{info, unwrap};
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
 use embassy_stm32::flash::Flash;
+use embassy_stm32::gpio::{AnyPin, Level, Output, Pin, Speed};
 use embassy_stm32::Peripherals;
-use embassy_stm32::gpio::{AnyPin, Level, Speed, Output, Pin};
-use embedded_storage_async::nor_flash::{AsyncReadNorFlash, AsyncNorFlash};
+use embedded_storage_async::nor_flash::{AsyncNorFlash, AsyncReadNorFlash};
 use {defmt_rtt as _, panic_probe as _};
+
+#[embassy::main]
+async fn main(spawner: Spawner, p: Peripherals) {
+    info!("Hello Flash!");
+
+    let mut f = Flash::unlock(p.FLASH);
+
+    // Led should blink uninterrupted during ~2sec erase operation
+    spawner.spawn(blinky(p.PB7.degrade())).unwrap();
+
+    // Test on bank 2 in order not to stall CPU.
+    test_flash(&mut f, 1024 * 1024, 128 * 1024).await;
+}
 
 #[embassy::task]
 async fn blinky(p: AnyPin) {
@@ -24,24 +37,6 @@ async fn blinky(p: AnyPin) {
         led.set_low();
         Timer::after(Duration::from_millis(300)).await;
     }
-}
-
-#[embassy::main]
-async fn main(spawner: Spawner, p: Peripherals) {
-    info!("Hello Flash!");
-
-    let mut f = Flash::unlock(p.FLASH);
-
-    spawner.spawn(blinky(p.PB7.degrade())).unwrap();
-
-    // Sector 5
-    // test_flash(&mut f, 128 * 1024, 128 * 1024).await;
-
-    // Sectors 11..=16, across banks (128K, 16K, 16K, 16K, 16K, 64K)
-    // test_flash(&mut f, (1024 - 128) * 1024, 256 * 1024).await;
-
-    // Sectors 23, last in bank 2
-    test_flash(&mut f, (2048 - 128) * 1024, 128 * 1024).await;
 }
 
 async fn test_flash<'a>(f: &mut Flash<'a>, offset: u32, size: u32) {
@@ -61,13 +56,16 @@ async fn test_flash<'a>(f: &mut Flash<'a>, offset: u32, size: u32) {
     info!("Read after erase: {=[u8]:x}", buf);
 
     info!("Writing...");
-    unwrap!(f.write(
-        offset,
-        &[
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
-            30, 31, 32
-        ]
-    ).await);
+    unwrap!(
+        f.write(
+            offset,
+            &[
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
+                29, 30, 31, 32
+            ]
+        )
+        .await
+    );
 
     info!("Reading...");
     let mut buf = [0u8; 32];
