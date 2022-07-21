@@ -12,4 +12,8 @@
     "rust-analyzer.linkedProjects": [
         "examples/rpi-pico-w/Cargo.toml",
     ],
+    "rust-analyzer.server.extraEnv": {
+        "WIFI_NETWORK": "foo",
+        "WIFI_PASSWORD": "foo",
+    }
 }

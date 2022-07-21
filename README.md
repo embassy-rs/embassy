@@ -25,8 +25,7 @@ TODO:
 
 - `cargo install probe-run`
 - `cd examples/rpi-pico-w`
-- Edit `src/main.rs` with your Wifi network's name and password.
-- `cargo run --release`
+- `WIFI_NETWORK=MyWifiNetwork WIFI_PASSWORD=MyWifiPassword cargo run --release`
 
 After a few seconds, you should see that DHCP picks up an IP address like this
 

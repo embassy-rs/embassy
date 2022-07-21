@@ -71,8 +71,8 @@ async fn main(spawner: Spawner, p: Peripherals) {
 
     let net_device = control.init(clm).await;
 
-    //control.join_open("MikroTik-951589").await;
-    control.join_wpa2("DirbaioWifi", "HelloWorld").await;
+    //control.join_open(env!("WIFI_NETWORK")).await;
+    control.join_wpa2(env!("WIFI_NETWORK"), env!("WIFI_PASSWORD")).await;
 
     let config = embassy_net::ConfigStrategy::Dhcp;
     //let config = embassy_net::ConfigStrategy::Static(embassy_net::Config {
