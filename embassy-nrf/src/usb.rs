@@ -47,7 +47,9 @@ pub struct Driver<'d, T: Instance, P: UsbSupply> {
 /// Uses the POWER peripheral to detect when power is available
 /// for USB. Unsuitable for usage with the nRF softdevice.
 #[cfg(not(feature = "_nrf5340-app"))]
-pub struct PowerUsb {}
+pub struct PowerUsb {
+    _private: (),
+}
 
 /// Can be used to signal that power is available. Particularly suited for
 /// use with the nRF softdevice.
@@ -70,7 +72,7 @@ impl PowerUsb {
         regs.intenset
             .write(|w| w.usbdetected().set().usbremoved().set().usbpwrrdy().set());
 
-        Self {}
+        Self { _private: () }
     }
 
     #[cfg(not(feature = "_nrf5340-app"))]
