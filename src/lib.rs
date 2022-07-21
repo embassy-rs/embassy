@@ -422,7 +422,7 @@ impl<'a> Control<'a> {
         buf[name.len() + 1..][..val.len()].copy_from_slice(val);
 
         let total_len = name.len() + 1 + val.len();
-        self.ioctl(2, 263, 0, &mut buf).await;
+        self.ioctl(2, 263, 0, &mut buf[..total_len]).await;
     }
 
     // TODO this is not really working, it always returns all zeros.
@@ -904,7 +904,7 @@ where
                 let bus = unsafe { &mut *bus };
                 async {
                     bus.write(&[cmd]).await?;
-                    bus.write(&buf[..(total_len + 3) / 4]).await?;
+                    bus.write(&buf[..total_len / 4]).await?;
                     Ok(())
                 }
             })
