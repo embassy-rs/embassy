@@ -50,6 +50,10 @@ cargo batch  \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52840,gpiote,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52840,log,gpiote,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52840,defmt,gpiote,time-driver-rtc1,unstable-traits \
+    --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv6m-none-eabi --features nightly,unstable-traits,defmt \
+    --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv6m-none-eabi --features nightly,unstable-traits,log \
+    --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv6m-none-eabi --features nightly,unstable-traits \
+    --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv6m-none-eabi --features nightly \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f410tb,defmt,exti,time-driver-any,embassy/time-tick-32768hz,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f411ce,defmt,exti,time-driver-any,embassy/time-tick-32768hz,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f429zi,log,exti,time-driver-any,embassy/time-tick-32768hz,unstable-traits \
