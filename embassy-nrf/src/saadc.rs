@@ -119,6 +119,25 @@ impl sealed::Input for VddhDiv5Input {
 #[cfg(any(feature = "_nrf5340-app", feature = "nrf52833", feature = "nrf52840"))]
 impl Input for VddhDiv5Input {}
 
+pub struct AnyInput {
+    channel: InputChannel,
+}
+
+unsafe impl Unborrow for AnyInput {
+    type Target = AnyInput;
+    unsafe fn unborrow(self) -> Self::Target {
+        self
+    }
+}
+
+impl sealed::Input for AnyInput {
+    fn channel(&self) -> InputChannel {
+        self.channel
+    }
+}
+
+impl Input for AnyInput {}
+
 impl<'d> ChannelConfig<'d> {
     /// Default configuration for single ended channel sampling.
     pub fn single_ended(input: impl Unborrow<Target = impl Input> + 'd) -> Self {
@@ -670,7 +689,13 @@ pub(crate) mod sealed {
 }
 
 /// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
-pub trait Input: sealed::Input + Unborrow<Target = Self> {}
+pub trait Input: sealed::Input + Unborrow<Target = Self> + Sized {
+    fn degrade_saadc(self) -> AnyInput {
+        AnyInput {
+            channel: self.channel(),
+        }
+    }
+}
 
 macro_rules! impl_saadc_input {
     ($pin:ident, $ch:ident) => {
