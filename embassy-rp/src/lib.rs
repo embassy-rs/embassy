@@ -1,6 +1,5 @@
 #![no_std]
-#![feature(generic_associated_types)]
-#![feature(type_alias_impl_trait)]
+#![cfg_attr(feature = "nightly", feature(generic_associated_types, type_alias_impl_trait))]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
