@@ -21,16 +21,7 @@ macro_rules! peripherals {
                 }
 
                 $(#[$cfg])?
-                unsafe impl $crate::Unborrow for $name {
-                    type Target = $name;
-                    #[inline]
-                    fn unborrow<'a>(self) -> $crate::Unborrowed<'a, Self::Target>
-                    where
-                        Self: 'a,
-                    {
-                        $crate::Unborrowed::new(self)
-                    }
-                }
+                $crate::unsafe_impl_unborrow!($name);
             )*
         }
 
