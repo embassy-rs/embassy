@@ -8,9 +8,14 @@ macro_rules! peripherals {
                 pub struct $name { _private: () }
 
                 $(#[$cfg])?
-                impl embassy::util::Steal for $name {
+                impl $name {
+                    /// Unsafely create an instance of this peripheral out of thin air.
+                    ///
+                    /// # Safety
+                    ///
+                    /// You must ensure that you're only using one instance of this type at a time.
                     #[inline]
-                    unsafe fn steal() -> Self {
+                    pub unsafe fn steal() -> Self {
                         Self{ _private: ()}
                     }
                 }
@@ -23,7 +28,6 @@ macro_rules! peripherals {
                         self
                     }
                 }
-
             )*
         }
 
@@ -48,23 +52,27 @@ macro_rules! peripherals {
                         panic!("init called more than once!")
                     }
                     _EMBASSY_DEVICE_PERIPHERALS = true;
-                    <Self as embassy::util::Steal>::steal()
+                    Self::steal()
                 })
             }
         }
 
-        impl embassy::util::Steal for Peripherals {
+        impl Peripherals {
+            /// Unsafely create an instance of this peripheral out of thin air.
+            ///
+            /// # Safety
+            ///
+            /// You must ensure that you're only using one instance of this type at a time.
             #[inline]
-            unsafe fn steal() -> Self {
+            pub unsafe fn steal() -> Self {
                 Self {
                     $(
                         $(#[$cfg])?
-                        $name: <peripherals::$name as embassy::util::Steal>::steal(),
+                        $name: peripherals::$name::steal(),
                     )*
                 }
             }
         }
-
     };
 }
 
