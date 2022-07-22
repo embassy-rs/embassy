@@ -23,6 +23,12 @@ pub struct Flash<'d> {
 impl<'d> Flash<'d> {
     pub fn new(p: impl Unborrow<Target = FLASH>) -> Self {
         unborrow!(p);
+
+        #[cfg(flash_f4)]
+        unsafe {
+            family::init();
+        }
+
         Self {
             _inner: p,
             _phantom: PhantomData,
@@ -143,45 +149,67 @@ impl<'d> NorFlash for Flash<'d> {
     }
 }
 
-/*
-cfg_if::cfg_if! {
-    if #[cfg(feature = "nightly")]
-    {
-        use embedded_storage_async::nor_flash::{AsyncNorFlash, AsyncReadNorFlash};
-        use core::future::Future;
+#[cfg(all(feature = "nightly", flash_f4))]
+mod asynch {
+    use core::future::Future;
 
-        impl<'d> AsyncNorFlash for Flash<'d> {
-            const WRITE_SIZE: usize = <Self as NorFlash>::WRITE_SIZE;
-            const ERASE_SIZE: usize = <Self as NorFlash>::ERASE_SIZE;
+    use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+    use embedded_storage_async::nor_flash::{AsyncNorFlash, AsyncReadNorFlash};
 
-            type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-            fn write<'a>(&'a mut self, offset: u32, data: &'a [u8]) -> Self::WriteFuture<'a> {
-                async move {
-                    todo!()
+    use super::{family, Error, Flash, ERASE_SIZE, FLASH_BASE, FLASH_END, FLASH_SIZE, WRITE_SIZE};
+
+    impl<'d> AsyncReadNorFlash for Flash<'d> {
+        const READ_SIZE: usize = <Self as ReadNorFlash>::READ_SIZE;
+        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+        fn read<'a>(&'a mut self, offset: u32, bytes: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            async move { self.blocking_read(offset, bytes) }
+        }
+
+        fn capacity(&self) -> usize {
+            FLASH_SIZE
+        }
+    }
+
+    impl<'d> AsyncNorFlash for Flash<'d> {
+        const WRITE_SIZE: usize = <Self as NorFlash>::WRITE_SIZE;
+        const ERASE_SIZE: usize = <Self as NorFlash>::ERASE_SIZE;
+
+        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+        fn write<'a>(&'a mut self, offset: u32, data: &'a [u8]) -> Self::WriteFuture<'a> {
+            async move {
+                let addr = FLASH_BASE as u32 + offset;
+                if addr as usize + data.len() > FLASH_END {
+                    return Err(Error::Size);
                 }
-            }
-
-            type EraseFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-            fn erase<'a>(&'a mut self, from: u32, to: u32) -> Self::EraseFuture<'a> {
-                async move {
-                    todo!()
+                if addr as usize % WRITE_SIZE != 0 || data.len() as usize % WRITE_SIZE != 0 {
+                    return Err(Error::Unaligned);
                 }
+                trace!("Writing {} bytes at 0x{:x}", data.len(), addr);
+
+                self.clear_all_err();
+
+                unsafe { family::write(addr, data).await }
             }
         }
 
-        impl<'d> AsyncReadNorFlash for Flash<'d> {
-            const READ_SIZE: usize = <Self as ReadNorFlash>::READ_SIZE;
-            type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-            fn read<'a>(&'a mut self, address: u32, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-                async move {
-                    todo!()
-                }
-            }
+        type EraseFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-            fn capacity(&self) -> usize {
-                FLASH_SIZE
+        fn erase<'a>(&'a mut self, from: u32, to: u32) -> Self::EraseFuture<'a> {
+            async move {
+                let from = FLASH_BASE as u32 + from;
+                let to = FLASH_BASE as u32 + to;
+                if to < from || to as usize > FLASH_END {
+                    return Err(Error::Size);
+                }
+                if (from as usize % ERASE_SIZE) != 0 || (to as usize % ERASE_SIZE) != 0 {
+                    return Err(Error::Unaligned);
+                }
+
+                self.clear_all_err();
+                unsafe { family::erase(from, to).await }
             }
         }
     }
 }
-*/
