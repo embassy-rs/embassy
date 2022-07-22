@@ -1,12 +1,11 @@
 use core::cmp;
-use core::marker::PhantomData;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicUsize, Ordering};
 use embassy::waitqueue::AtomicWaker;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 use futures::future::poll_fn;
 
 use crate::dma::NoDma;
@@ -32,15 +31,15 @@ impl State {
 }
 
 pub struct I2c<'d, T: Instance, TXDMA = NoDma, RXDMA = NoDma> {
-    phantom: PhantomData<&'d mut T>,
-    tx_dma: TXDMA,
+    _peri: Unborrowed<'d, T>,
+    tx_dma: Unborrowed<'d, TXDMA>,
     #[allow(dead_code)]
-    rx_dma: RXDMA,
+    rx_dma: Unborrowed<'d, RXDMA>,
 }
 
 impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     pub fn new(
-        _peri: impl Unborrow<Target = T> + 'd,
+        peri: impl Unborrow<Target = T> + 'd,
         scl: impl Unborrow<Target = impl SclPin<T>> + 'd,
         sda: impl Unborrow<Target = impl SdaPin<T>> + 'd,
         irq: impl Unborrow<Target = T::Interrupt> + 'd,
@@ -48,7 +47,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         rx_dma: impl Unborrow<Target = RXDMA> + 'd,
         freq: Hertz,
     ) -> Self {
-        unborrow!(irq, scl, sda, tx_dma, rx_dma);
+        unborrow!(peri, irq, scl, sda, tx_dma, rx_dma);
 
         T::enable();
         T::reset();
@@ -88,7 +87,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         irq.enable();
 
         Self {
-            phantom: PhantomData,
+            _peri: peri,
             tx_dma,
             rx_dma,
         }

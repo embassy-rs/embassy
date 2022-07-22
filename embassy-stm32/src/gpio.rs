@@ -1,8 +1,7 @@
 #![macro_use]
 use core::convert::Infallible;
-use core::marker::PhantomData;
 
-use embassy_hal_common::{impl_unborrow, unborrow};
+use embassy_hal_common::{impl_unborrow, unborrow, Unborrowed};
 
 use crate::pac::gpio::{self, vals};
 use crate::{pac, peripherals, Unborrow};
@@ -13,8 +12,7 @@ use crate::{pac, peripherals, Unborrow};
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d, T: Pin> {
-    pub(crate) pin: T,
-    phantom: PhantomData<&'d mut T>,
+    pub(crate) pin: Unborrowed<'d, T>,
 }
 
 impl<'d, T: Pin> Flex<'d, T> {
@@ -27,10 +25,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     pub fn new(pin: impl Unborrow<Target = T> + 'd) -> Self {
         unborrow!(pin);
         // Pin will be in disconnected state.
-        Self {
-            pin,
-            phantom: PhantomData,
-        }
+        Self { pin }
     }
 
     /// Put the pin into input mode.
@@ -626,7 +621,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Pin: sealed::Pin + Sized + 'static {
+pub trait Pin: Into<AnyPin> + sealed::Pin + Sized + 'static {
     #[cfg(feature = "exti")]
     type ExtiChannel: crate::exti::Channel;
 
@@ -697,6 +692,12 @@ foreach_pin!(
             #[inline]
             fn pin_port(&self) -> u8 {
                 $port_num * 16 + $pin_num
+            }
+        }
+
+        impl From<peripherals::$pin_name> for AnyPin {
+            fn from(x: peripherals::$pin_name) -> Self {
+                x.degrade()
             }
         }
     };

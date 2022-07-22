@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
@@ -72,23 +72,22 @@ pub enum Error {
 }
 
 pub struct Uart<'d, T: Instance, TxDma = NoDma, RxDma = NoDma> {
-    phantom: PhantomData<&'d mut T>,
     tx: UartTx<'d, T, TxDma>,
     rx: UartRx<'d, T, RxDma>,
 }
 
 pub struct UartTx<'d, T: Instance, TxDma = NoDma> {
     phantom: PhantomData<&'d mut T>,
-    tx_dma: TxDma,
+    tx_dma: Unborrowed<'d, TxDma>,
 }
 
 pub struct UartRx<'d, T: Instance, RxDma = NoDma> {
     phantom: PhantomData<&'d mut T>,
-    rx_dma: RxDma,
+    rx_dma: Unborrowed<'d, RxDma>,
 }
 
 impl<'d, T: Instance, TxDma> UartTx<'d, T, TxDma> {
-    fn new(tx_dma: TxDma) -> Self {
+    fn new(tx_dma: Unborrowed<'d, TxDma>) -> Self {
         Self {
             tx_dma,
             phantom: PhantomData,
@@ -134,7 +133,7 @@ impl<'d, T: Instance, TxDma> UartTx<'d, T, TxDma> {
 }
 
 impl<'d, T: Instance, RxDma> UartRx<'d, T, RxDma> {
-    fn new(rx_dma: RxDma) -> Self {
+    fn new(rx_dma: Unborrowed<'d, RxDma>) -> Self {
         Self {
             rx_dma,
             phantom: PhantomData,
@@ -234,7 +233,6 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         }
 
         Self {
-            phantom: PhantomData,
             tx: UartTx::new(tx_dma),
             rx: UartRx::new(rx_dma),
         }

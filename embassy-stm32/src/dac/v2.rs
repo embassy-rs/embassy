@@ -1,6 +1,4 @@
-use core::marker::PhantomData;
-
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 
 use crate::dac::{DacPin, Instance};
 use crate::pac::dac;
@@ -90,7 +88,7 @@ pub enum Value {
 
 pub struct Dac<'d, T: Instance> {
     channels: u8,
-    phantom: PhantomData<&'d mut T>,
+    _peri: Unborrowed<'d, T>,
 }
 
 macro_rules! enable {
@@ -116,7 +114,7 @@ impl<'d, T: Instance> Dac<'d, T> {
         Self::new_inner(peri, 2)
     }
 
-    fn new_inner(_peri: T, channels: u8) -> Self {
+    fn new_inner(peri: Unborrowed<'d, T>, channels: u8) -> Self {
         unsafe {
             // Sadly we cannot use `RccPeripheral::enable` since devices are quite inconsistent DAC clock
             // configuration.
@@ -144,10 +142,7 @@ impl<'d, T: Instance> Dac<'d, T> {
             }
         }
 
-        Self {
-            channels,
-            phantom: PhantomData,
-        }
+        Self { channels, _peri: peri }
     }
 
     /// Check the channel is configured

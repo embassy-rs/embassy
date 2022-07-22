@@ -1,10 +1,9 @@
 #![macro_use]
 
-use core::marker::PhantomData;
 use core::ptr;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::join;
 
@@ -73,13 +72,13 @@ impl Config {
 }
 
 pub struct Spi<'d, T: Instance, Tx, Rx> {
-    sck: Option<AnyPin>,
-    mosi: Option<AnyPin>,
-    miso: Option<AnyPin>,
-    txdma: Tx,
-    rxdma: Rx,
+    _peri: Unborrowed<'d, T>,
+    sck: Option<Unborrowed<'d, AnyPin>>,
+    mosi: Option<Unborrowed<'d, AnyPin>>,
+    miso: Option<Unborrowed<'d, AnyPin>>,
+    txdma: Unborrowed<'d, Tx>,
+    rxdma: Unborrowed<'d, Rx>,
     current_word_size: WordSize,
-    phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
@@ -93,7 +92,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         freq: Hertz,
         config: Config,
     ) -> Self {
-        unborrow!(sck, mosi, miso);
+        unborrow!(peri, sck, mosi, miso);
         unsafe {
             sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
             #[cfg(any(spi_v2, spi_v3, spi_v4))]
@@ -108,9 +107,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         Self::new_inner(
             peri,
-            Some(sck.degrade()),
-            Some(mosi.degrade()),
-            Some(miso.degrade()),
+            Some(sck.map_into()),
+            Some(mosi.map_into()),
+            Some(miso.map_into()),
             txdma,
             rxdma,
             freq,
@@ -139,9 +138,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         Self::new_inner(
             peri,
-            Some(sck.degrade()),
+            Some(sck.map_into()),
             None,
-            Some(miso.degrade()),
+            Some(miso.map_into()),
             txdma,
             rxdma,
             freq,
@@ -170,8 +169,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         Self::new_inner(
             peri,
-            Some(sck.degrade()),
-            Some(mosi.degrade()),
+            Some(sck.map_into()),
+            Some(mosi.map_into()),
             None,
             txdma,
             rxdma,
@@ -181,16 +180,16 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 
     fn new_inner(
-        _peri: impl Unborrow<Target = T> + 'd,
-        sck: Option<AnyPin>,
-        mosi: Option<AnyPin>,
-        miso: Option<AnyPin>,
+        peri: impl Unborrow<Target = T> + 'd,
+        sck: Option<Unborrowed<'d, AnyPin>>,
+        mosi: Option<Unborrowed<'d, AnyPin>>,
+        miso: Option<Unborrowed<'d, AnyPin>>,
         txdma: impl Unborrow<Target = Tx> + 'd,
         rxdma: impl Unborrow<Target = Rx> + 'd,
         freq: Hertz,
         config: Config,
     ) -> Self {
-        unborrow!(txdma, rxdma);
+        unborrow!(peri, txdma, rxdma);
 
         let pclk = T::frequency();
         let br = compute_baud_rate(pclk, freq.into());
@@ -280,13 +279,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
 
         Self {
+            _peri: peri,
             sck,
             mosi,
             miso,
             txdma,
             rxdma,
             current_word_size: WordSize::EightBit,
-            phantom: PhantomData,
         }
     }
 
@@ -995,7 +994,7 @@ pub trait Word: Copy + 'static + sealed::Word + Default + crate::dma::Word {}
 impl Word for u8 {}
 impl Word for u16 {}
 
-pub trait Instance: sealed::Instance + RccPeripheral {}
+pub trait Instance: Unborrow<Target = Self> + sealed::Instance + RccPeripheral {}
 pin_trait!(SckPin, Instance);
 pin_trait!(MosiPin, Instance);
 pin_trait!(MisoPin, Instance);

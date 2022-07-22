@@ -4,7 +4,7 @@ use core::task::Waker;
 
 use embassy::waitqueue::AtomicWaker;
 use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
 
 use crate::gpio::sealed::{AFType, Pin as _};
@@ -25,7 +25,7 @@ impl<'d, T: Instance, const TX: usize, const RX: usize> State<'d, T, TX, RX> {
 }
 pub struct Ethernet<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> {
     state: PeripheralMutex<'d, Inner<'d, T, TX, RX>>,
-    pins: [AnyPin; 9],
+    pins: [Unborrowed<'d, AnyPin>; 9],
     _phy: P,
     clock_range: u8,
     phy_addr: u8,
@@ -143,15 +143,15 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, 
         };
 
         let pins = [
-            ref_clk.degrade(),
-            mdio.degrade(),
-            mdc.degrade(),
-            crs.degrade(),
-            rx_d0.degrade(),
-            rx_d1.degrade(),
-            tx_d0.degrade(),
-            tx_d1.degrade(),
-            tx_en.degrade(),
+            ref_clk.map_into(),
+            mdio.map_into(),
+            mdc.map_into(),
+            crs.map_into(),
+            rx_d0.map_into(),
+            rx_d1.map_into(),
+            tx_d0.map_into(),
+            tx_d1.map_into(),
+            tx_en.map_into(),
         ];
 
         let mut this = Self {

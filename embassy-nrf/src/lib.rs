@@ -135,7 +135,7 @@ pub use chip::pac;
 pub(crate) use chip::pac;
 pub use chip::{peripherals, Peripherals};
 pub use embassy_cortex_m::executor;
-pub use embassy_hal_common::{unborrow, Unborrow};
+pub use embassy_hal_common::{unborrow, Unborrow, Unborrowed};
 pub use embassy_macros::cortex_m_interrupt as interrupt;
 
 pub mod config {

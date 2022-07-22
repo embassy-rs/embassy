@@ -17,7 +17,7 @@ mod reset;
 // Reexports
 
 pub use embassy_cortex_m::executor;
-pub use embassy_hal_common::{unborrow, Unborrow};
+pub use embassy_hal_common::{unborrow, Unborrow, Unborrowed};
 pub use embassy_macros::cortex_m_interrupt as interrupt;
 #[cfg(feature = "unstable-pac")]
 pub use rp2040_pac2 as pac;

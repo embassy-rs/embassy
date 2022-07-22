@@ -1,6 +1,4 @@
-use core::marker::PhantomData;
-
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 
 use super::*;
 #[allow(unused_imports)]
@@ -9,8 +7,7 @@ use crate::time::Hertz;
 use crate::Unborrow;
 
 pub struct SimplePwm<'d, T> {
-    phantom: PhantomData<&'d mut T>,
-    inner: T,
+    inner: Unborrowed<'d, T>,
 }
 
 macro_rules! config_pins {
@@ -83,10 +80,7 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
 
         configure_pins();
 
-        let mut this = Self {
-            inner: tim,
-            phantom: PhantomData,
-        };
+        let mut this = Self { inner: tim };
 
         this.inner.set_frequency(freq);
         this.inner.start();

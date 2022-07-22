@@ -1,6 +1,4 @@
-use core::marker::PhantomData;
-
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 
 use crate::pac::crc::vals;
 use crate::pac::CRC as PAC_CRC;
@@ -9,8 +7,7 @@ use crate::rcc::sealed::RccPeripheral;
 use crate::Unborrow;
 
 pub struct Crc<'d> {
-    _peripheral: CRC,
-    _phantom: PhantomData<&'d mut CRC>,
+    _peripheral: Unborrowed<'d, CRC>,
     _config: Config,
 }
 
@@ -79,7 +76,6 @@ impl<'d> Crc<'d> {
         unborrow!(peripheral);
         let mut instance = Self {
             _peripheral: peripheral,
-            _phantom: PhantomData,
             _config: config,
         };
         CRC::reset();

@@ -1,10 +1,9 @@
 #![macro_use]
 
-use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 use futures::future::poll_fn;
 use rand_core::{CryptoRng, RngCore};
 
@@ -19,8 +18,7 @@ pub enum Error {
 }
 
 pub struct Rng<'d, T: Instance> {
-    _inner: T,
-    _phantom: PhantomData<&'d mut T>,
+    _inner: Unborrowed<'d, T>,
 }
 
 impl<'d, T: Instance> Rng<'d, T> {
@@ -28,10 +26,7 @@ impl<'d, T: Instance> Rng<'d, T> {
         T::enable();
         T::reset();
         unborrow!(inner);
-        let mut random = Self {
-            _inner: inner,
-            _phantom: PhantomData,
-        };
+        let mut random = Self { _inner: inner };
         random.reset();
         random
     }

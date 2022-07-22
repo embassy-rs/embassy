@@ -8,7 +8,6 @@ mod dmamux;
 mod gpdma;
 
 use core::future::Future;
-use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
@@ -207,6 +206,8 @@ impl Default for TransferOptions {
 }
 
 mod transfers {
+    use embassy_hal_common::Unborrowed;
+
     use super::*;
 
     #[allow(unused)]
@@ -255,17 +256,13 @@ mod transfers {
     }
 
     pub(crate) struct Transfer<'a, C: Channel> {
-        channel: C,
-        _phantom: PhantomData<&'a mut C>,
+        channel: Unborrowed<'a, C>,
     }
 
     impl<'a, C: Channel> Transfer<'a, C> {
         pub(crate) fn new(channel: impl Unborrow<Target = C> + 'a) -> Self {
             unborrow!(channel);
-            Self {
-                channel,
-                _phantom: PhantomData,
-            }
+            Self { channel }
         }
     }
 

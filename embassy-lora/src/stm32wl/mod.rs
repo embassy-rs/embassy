@@ -3,7 +3,7 @@ use core::future::Future;
 use core::mem::MaybeUninit;
 
 use embassy::channel::signal::Signal;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{AnyPin, Output};
 use embassy_stm32::interrupt::{InterruptExt, SUBGHZ_RADIO};
@@ -30,35 +30,35 @@ pub struct RadioError;
 
 static IRQ: Signal<(Status, u16)> = Signal::new();
 
-struct StateInner<'a> {
-    radio: SubGhz<'a, NoDma, NoDma>,
-    switch: RadioSwitch<'a>,
+struct StateInner<'d> {
+    radio: SubGhz<'d, NoDma, NoDma>,
+    switch: RadioSwitch<'d>,
 }
 
 /// External state storage for the radio state
 pub struct SubGhzState<'a>(MaybeUninit<StateInner<'a>>);
-impl<'a> SubGhzState<'a> {
+impl<'d> SubGhzState<'d> {
     pub const fn new() -> Self {
         Self(MaybeUninit::uninit())
     }
 }
 
 /// The radio peripheral keeping the radio state and owning the radio IRQ.
-pub struct SubGhzRadio<'a> {
-    state: *mut StateInner<'a>,
-    _irq: SUBGHZ_RADIO,
+pub struct SubGhzRadio<'d> {
+    state: *mut StateInner<'d>,
+    _irq: Unborrowed<'d, SUBGHZ_RADIO>,
 }
 
-impl<'a> SubGhzRadio<'a> {
+impl<'d> SubGhzRadio<'d> {
     /// Create a new instance of a SubGhz radio for LoRaWAN.
     ///
     /// # Safety
     /// Do not leak self or futures
     pub unsafe fn new(
-        state: &'a mut SubGhzState<'a>,
-        radio: SubGhz<'a, NoDma, NoDma>,
-        switch: RadioSwitch<'a>,
-        irq: impl Unborrow<Target = SUBGHZ_RADIO>,
+        state: &'d mut SubGhzState<'d>,
+        radio: SubGhz<'d, NoDma, NoDma>,
+        switch: RadioSwitch<'d>,
+        irq: impl Unborrow<Target = SUBGHZ_RADIO> + 'd,
     ) -> Self {
         unborrow!(irq);
 
@@ -73,7 +73,7 @@ impl<'a> SubGhzRadio<'a> {
             // This is safe because we only get interrupts when configured for, so
             // the radio will be awaiting on the signal at this point. If not, the ISR will
             // anyway only adjust the state in the IRQ signal state.
-            let state = &mut *(p as *mut StateInner<'a>);
+            let state = &mut *(p as *mut StateInner<'d>);
             state.on_interrupt();
         });
         irq.set_handler_context(state_ptr as *mut ());
@@ -86,7 +86,7 @@ impl<'a> SubGhzRadio<'a> {
     }
 }
 
-impl<'a> StateInner<'a> {
+impl<'d> StateInner<'d> {
     /// Configure radio settings in preparation for TX or RX
     pub(crate) fn configure(&mut self) -> Result<(), RadioError> {
         trace!("Configuring STM32WL SUBGHZ radio");
@@ -272,13 +272,13 @@ impl PhyRxTx for SubGhzRadio<'static> {
     }
 }
 
-impl<'a> From<embassy_stm32::spi::Error> for RadioError {
+impl From<embassy_stm32::spi::Error> for RadioError {
     fn from(_: embassy_stm32::spi::Error) -> Self {
         RadioError
     }
 }
 
-impl<'a> Timings for SubGhzRadio<'a> {
+impl<'d> Timings for SubGhzRadio<'d> {
     fn get_rx_window_offset_ms(&self) -> i32 {
         -200
     }
@@ -288,14 +288,14 @@ impl<'a> Timings for SubGhzRadio<'a> {
 }
 
 /// Represents the radio switch found on STM32WL based boards, used to control the radio for transmission or reception.
-pub struct RadioSwitch<'a> {
-    ctrl1: Output<'a, AnyPin>,
-    ctrl2: Output<'a, AnyPin>,
-    ctrl3: Output<'a, AnyPin>,
+pub struct RadioSwitch<'d> {
+    ctrl1: Output<'d, AnyPin>,
+    ctrl2: Output<'d, AnyPin>,
+    ctrl3: Output<'d, AnyPin>,
 }
 
-impl<'a> RadioSwitch<'a> {
-    pub fn new(ctrl1: Output<'a, AnyPin>, ctrl2: Output<'a, AnyPin>, ctrl3: Output<'a, AnyPin>) -> Self {
+impl<'d> RadioSwitch<'d> {
+    pub fn new(ctrl1: Output<'d, AnyPin>, ctrl2: Output<'d, AnyPin>, ctrl3: Output<'d, AnyPin>) -> Self {
         Self { ctrl1, ctrl2, ctrl3 }
     }
 

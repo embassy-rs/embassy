@@ -21,12 +21,17 @@ async fn main(_spawner: Spawner, p: Peripherals) -> ! {
 
     let irq = interrupt::take!(SDIO);
 
-    let mut sdmmc = Sdmmc::new(
+    let mut sdmmc = Sdmmc::new_4bit(
         p.SDIO,
-        (p.PC12, p.PD2, p.PC8, p.PC9, p.PC10, p.PC11),
         irq,
-        Default::default(),
         p.DMA2_CH3,
+        p.PC12,
+        p.PD2,
+        p.PC8,
+        p.PC9,
+        p.PC10,
+        p.PC11,
+        Default::default(),
     );
 
     // Should print 400kHz for initialization

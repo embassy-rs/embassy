@@ -1,8 +1,7 @@
-use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{unborrow, Unborrowed};
 use futures::future::poll_fn;
 
 use crate::gpio::sealed::AFType;
@@ -82,9 +81,8 @@ macro_rules! config_pins {
 }
 
 pub struct Dcmi<'d, T: Instance, Dma: FrameDma<T>> {
-    inner: T,
-    dma: Dma,
-    phantom: PhantomData<&'d mut T>,
+    inner: Unborrowed<'d, T>,
+    dma: Unborrowed<'d, Dma>,
 }
 
 impl<'d, T, Dma> Dcmi<'d, T, Dma>
@@ -301,9 +299,9 @@ where
     }
 
     fn new_inner(
-        peri: T,
-        dma: Dma,
-        irq: T::Interrupt,
+        peri: Unborrowed<'d, T>,
+        dma: Unborrowed<'d, Dma>,
+        irq: Unborrowed<'d, T::Interrupt>,
         config: Config,
         use_embedded_synchronization: bool,
         edm: u8,
@@ -327,11 +325,7 @@ where
         irq.unpend();
         irq.enable();
 
-        Self {
-            inner: peri,
-            dma,
-            phantom: PhantomData,
-        }
+        Self { inner: peri, dma }
     }
 
     unsafe fn on_interrupt(_: *mut ()) {

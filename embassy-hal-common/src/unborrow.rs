@@ -16,6 +16,16 @@ impl<'a, T> Unborrowed<'a, T> {
         }
     }
 
+    pub fn map_into<U>(self) -> Unborrowed<'a, U>
+    where
+        T: Into<U>,
+    {
+        Unborrowed {
+            inner: self.inner.into(),
+            _lifetime: PhantomData,
+        }
+    }
+
     pub unsafe fn into_inner(self) -> T {
         self.inner
     }

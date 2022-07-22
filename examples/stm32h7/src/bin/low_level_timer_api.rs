@@ -2,8 +2,6 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use core::marker::PhantomData;
-
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
@@ -11,7 +9,7 @@ use embassy_stm32::gpio::low_level::AFType;
 use embassy_stm32::gpio::Speed;
 use embassy_stm32::pwm::*;
 use embassy_stm32::time::{khz, mhz, Hertz};
-use embassy_stm32::{unborrow, Config, Peripherals, Unborrow};
+use embassy_stm32::{unborrow, Config, Peripherals, Unborrow, Unborrowed};
 use {defmt_rtt as _, panic_probe as _};
 
 pub fn config() -> Config {
@@ -49,8 +47,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     }
 }
 pub struct SimplePwm32<'d, T: CaptureCompare32bitInstance> {
-    phantom: PhantomData<&'d mut T>,
-    inner: T,
+    inner: Unborrowed<'d, T>,
 }
 
 impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
@@ -78,10 +75,7 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
             ch4.set_as_af(ch1.af_num(), AFType::OutputPushPull);
         }
 
-        let mut this = Self {
-            inner: tim,
-            phantom: PhantomData,
-        };
+        let mut this = Self { inner: tim };
 
         this.set_freq(freq);
         this.inner.start();
