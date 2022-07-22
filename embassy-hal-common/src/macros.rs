@@ -82,14 +82,12 @@ macro_rules! unborrow {
 #[macro_export]
 macro_rules! unsafe_impl_unborrow {
     ($type:ident) => {
-        unsafe impl $crate::Unborrow for $type {
+        impl $crate::Unborrow for $type {
             type Target = $type;
+
             #[inline]
-            fn unborrow<'a>(self) -> $crate::Unborrowed<'a, Self::Target>
-            where
-                Self: 'a,
-            {
-                $crate::Unborrowed::new(self)
+            unsafe fn unborrow_unchecked(&mut self) -> Self::Target {
+                $type { ..*self }
             }
         }
     };

@@ -43,75 +43,30 @@ impl<'a, T> DerefMut for Unborrowed<'a, T> {
 ///
 /// This allows writing HAL drivers that either own or borrow their peripherals, but that don't have
 /// to store pointers in the borrowed case.
-///
-/// Safety: this trait can be used to copy non-Copy types. Implementors must not cause
-/// immediate UB when copied, and must not cause UB when copies are later used, provided they
-/// are only used according the [`Self::unborrow`] safety contract.
-///
-pub unsafe trait Unborrow {
+pub trait Unborrow: Sized {
     /// Unborrow result type
     type Target;
 
+    unsafe fn unborrow_unchecked(&mut self) -> Self::Target;
+
     /// Unborrow a value.
-    fn unborrow<'a>(self) -> Unborrowed<'a, Self::Target>
-    where
-        Self: 'a;
-}
-
-unsafe impl<'b, T: Unborrow> Unborrow for &'b mut T {
-    type Target = T::Target;
-
-    fn unborrow<'a>(self) -> Unborrowed<'a, Self::Target>
+    #[inline]
+    fn unborrow<'a>(mut self) -> Unborrowed<'a, Self::Target>
     where
         Self: 'a,
     {
-        // Safety: This returns a copy of a singleton that's normally not
-        // copiable. The returned copy must ONLY be used while the lifetime of `self` is
-        // valid, as if it were accessed through `self` every time.
-        T::unborrow(unsafe { core::ptr::read(self) })
+        Unborrowed::new(unsafe { self.unborrow_unchecked() })
     }
 }
 
-unsafe impl<'b, T> Unborrow for Unborrowed<'b, T> {
-    type Target = T;
+impl<'b, T: DerefMut> Unborrow for T
+where
+    T::Target: Unborrow,
+{
+    type Target = <T::Target as Unborrow>::Target;
 
-    fn unborrow<'a>(self) -> Unborrowed<'a, Self::Target>
-    where
-        Self: 'a,
-    {
-        self
+    #[inline]
+    unsafe fn unborrow_unchecked(&mut self) -> Self::Target {
+        self.deref_mut().unborrow_unchecked()
     }
 }
-
-macro_rules! unsafe_impl_unborrow_tuples {
-    ($($t:ident),+) => {
-        unsafe impl<$($t),+> Unborrow for ($($t),+)
-        where
-            $(
-                $t: Unborrow<Target = $t>
-            ),+
-        {
-            type Target = ($($t),+);
-            fn unborrow<'a>(self) -> Unborrowed<'a, Self::Target>
-            where
-                Self: 'a
-            {
-                Unborrowed::new(self)
-            }
-        }
-
-
-    };
-}
-
-unsafe_impl_unborrow_tuples!(A, B);
-unsafe_impl_unborrow_tuples!(A, B, C);
-unsafe_impl_unborrow_tuples!(A, B, C, D);
-unsafe_impl_unborrow_tuples!(A, B, C, D, E);
-unsafe_impl_unborrow_tuples!(A, B, C, D, E, F);
-unsafe_impl_unborrow_tuples!(A, B, C, D, E, F, G);
-unsafe_impl_unborrow_tuples!(A, B, C, D, E, F, G, H);
-unsafe_impl_unborrow_tuples!(A, B, C, D, E, F, G, H, I);
-unsafe_impl_unborrow_tuples!(A, B, C, D, E, F, G, H, I, J);
-unsafe_impl_unborrow_tuples!(A, B, C, D, E, F, G, H, I, J, K);
-unsafe_impl_unborrow_tuples!(A, B, C, D, E, F, G, H, I, J, K, L);
