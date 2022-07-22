@@ -21,7 +21,7 @@ macro_rules! peripherals {
                 }
 
                 $(#[$cfg])?
-                $crate::unsafe_impl_unborrow!($name);
+                $crate::impl_unborrow!($name);
             )*
         }
 
@@ -80,7 +80,7 @@ macro_rules! unborrow {
 }
 
 #[macro_export]
-macro_rules! unsafe_impl_unborrow {
+macro_rules! impl_unborrow {
     ($type:ident) => {
         impl $crate::Unborrow for $type {
             type Target = $type;

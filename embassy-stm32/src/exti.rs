@@ -4,7 +4,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use embassy::waitqueue::AtomicWaker;
-use embassy_hal_common::unsafe_impl_unborrow;
+use embassy_hal_common::impl_unborrow;
 
 use crate::gpio::{AnyPin, Input, Pin as GpioPin};
 use crate::pac::exti::regs::Lines;
@@ -320,7 +320,7 @@ pub trait Channel: sealed::Channel + Sized {
 pub struct AnyChannel {
     number: u8,
 }
-unsafe_impl_unborrow!(AnyChannel);
+impl_unborrow!(AnyChannel);
 impl sealed::Channel for AnyChannel {}
 impl Channel for AnyChannel {
     fn number(&self) -> usize {

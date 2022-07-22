@@ -13,10 +13,10 @@ use core::mem;
 use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 
-#[cfg(dmamux)]
-pub use dmamux::*;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{impl_unborrow, unborrow};
 
+#[cfg(dmamux)]
+pub use self::dmamux::*;
 use crate::Unborrow;
 
 #[cfg(feature = "unstable-pac")]
@@ -294,13 +294,7 @@ pub trait Channel: sealed::Channel + Unborrow<Target = Self> + 'static {}
 
 pub struct NoDma;
 
-unsafe impl Unborrow for NoDma {
-    type Target = NoDma;
-
-    unsafe fn unborrow(self) -> Self::Target {
-        self
-    }
-}
+impl_unborrow!(NoDma);
 
 // safety: must be called only once at startup
 pub(crate) unsafe fn init() {

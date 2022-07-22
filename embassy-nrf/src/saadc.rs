@@ -5,7 +5,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
-use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
+use embassy_hal_common::{impl_unborrow, unborrow};
 use futures::future::poll_fn;
 use pac::{saadc, SAADC};
 use saadc::ch::config::{GAIN_A, REFSEL_A, RESP_A, TACQ_A};
@@ -77,7 +77,7 @@ pub struct ChannelConfig<'d> {
 /// internal voltage.
 pub struct VddInput;
 
-unsafe_impl_unborrow!(VddInput);
+impl_unborrow!(VddInput);
 
 impl sealed::Input for VddInput {
     #[cfg(not(feature = "_nrf9160"))]
@@ -97,7 +97,7 @@ impl Input for VddInput {}
 pub struct VddhDiv5Input;
 
 #[cfg(any(feature = "_nrf5340-app", feature = "nrf52833", feature = "nrf52840"))]
-unsafe_impl_unborrow!(VddhDiv5Input);
+impl_unborrow!(VddhDiv5Input);
 
 #[cfg(any(feature = "_nrf5340-app", feature = "nrf52833", feature = "nrf52840"))]
 impl sealed::Input for VddhDiv5Input {
@@ -113,12 +113,7 @@ pub struct AnyInput {
     channel: InputChannel,
 }
 
-unsafe impl Unborrow for AnyInput {
-    type Target = AnyInput;
-    unsafe fn unborrow(self) -> Self::Target {
-        self
-    }
-}
+impl_unborrow!(AnyInput);
 
 impl sealed::Input for AnyInput {
     fn channel(&self) -> InputChannel {

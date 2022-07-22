@@ -5,7 +5,7 @@ use core::task::{Context, Poll};
 
 use embassy::waitqueue::AtomicWaker;
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
-use embassy_hal_common::{unborrow, unsafe_impl_unborrow, Unborrowed};
+use embassy_hal_common::{impl_unborrow, unborrow, Unborrowed};
 
 use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
@@ -676,7 +676,7 @@ macro_rules! unborrow_and_degrade {
     };
 }
 
-unsafe_impl_unborrow!(AnyPin);
+impl_unborrow!(AnyPin);
 
 impl Pin for AnyPin {}
 impl sealed::Pin for AnyPin {

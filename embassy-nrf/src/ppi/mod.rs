@@ -17,7 +17,7 @@
 
 use core::ptr::NonNull;
 
-use embassy_hal_common::{unsafe_impl_unborrow, Unborrowed};
+use embassy_hal_common::{impl_unborrow, Unborrowed};
 
 use crate::{peripherals, Unborrow};
 
@@ -117,7 +117,7 @@ pub trait Group: sealed::Group + Sized {
 pub struct AnyStaticChannel {
     pub(crate) number: u8,
 }
-unsafe_impl_unborrow!(AnyStaticChannel);
+impl_unborrow!(AnyStaticChannel);
 impl sealed::Channel for AnyStaticChannel {}
 impl Channel for AnyStaticChannel {
     fn number(&self) -> usize {
@@ -135,7 +135,7 @@ impl StaticChannel for AnyStaticChannel {
 pub struct AnyConfigurableChannel {
     pub(crate) number: u8,
 }
-unsafe_impl_unborrow!(AnyConfigurableChannel);
+impl_unborrow!(AnyConfigurableChannel);
 impl sealed::Channel for AnyConfigurableChannel {}
 impl Channel for AnyConfigurableChannel {
     fn number(&self) -> usize {
@@ -187,7 +187,7 @@ macro_rules! impl_ppi_channel {
 pub struct AnyGroup {
     number: u8,
 }
-unsafe_impl_unborrow!(AnyGroup);
+impl_unborrow!(AnyGroup);
 impl sealed::Group for AnyGroup {}
 impl Group for AnyGroup {
     fn number(&self) -> usize {

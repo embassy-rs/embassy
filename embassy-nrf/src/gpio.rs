@@ -4,7 +4,7 @@ use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 
 use cfg_if::cfg_if;
-use embassy_hal_common::{unborrow, unsafe_impl_unborrow, Unborrowed};
+use embassy_hal_common::{impl_unborrow, unborrow, Unborrowed};
 
 use self::sealed::Pin as _;
 use crate::pac::p0 as gpio;
@@ -432,7 +432,7 @@ macro_rules! unborrow_and_degrade {
     };
 }
 
-unsafe_impl_unborrow!(AnyPin);
+impl_unborrow!(AnyPin);
 impl Pin for AnyPin {}
 impl sealed::Pin for AnyPin {
     #[inline]

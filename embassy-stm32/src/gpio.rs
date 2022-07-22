@@ -2,7 +2,7 @@
 use core::convert::Infallible;
 use core::marker::PhantomData;
 
-use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
+use embassy_hal_common::{impl_unborrow, unborrow};
 
 use crate::pac::gpio::{self, vals};
 use crate::{pac, peripherals, Unborrow};
@@ -673,7 +673,7 @@ impl AnyPin {
     }
 }
 
-unsafe_impl_unborrow!(AnyPin);
+impl_unborrow!(AnyPin);
 impl Pin for AnyPin {
     #[cfg(feature = "exti")]
     type ExtiChannel = crate::exti::AnyChannel;
