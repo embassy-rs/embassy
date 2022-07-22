@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use embassy_hal_common::unborrow;
 
 use super::{Channel, ConfigurableChannel, Event, Ppi, Task};
@@ -48,12 +46,7 @@ impl<'d, C: ConfigurableChannel, const EVENT_COUNT: usize, const TASK_COUNT: usi
             unsafe { event.publish_reg().write_volatile(val) }
         }
 
-        Self {
-            ch,
-            events,
-            tasks,
-            phantom: PhantomData,
-        }
+        Self { ch, events, tasks }
     }
 }
 
