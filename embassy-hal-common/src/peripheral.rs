@@ -27,6 +27,12 @@ impl<'a, T> PeripheralRef<'a, T> {
         }
     }
 
+    /// Map the inner peripheral using `Into`.
+    ///
+    /// This converts from `PeripheralRef<'a, T>` to `PeripheralRef<'a, U>`, using an
+    /// `Into` impl to convert from `T` to `U`.
+    ///
+    /// For example, this can be useful to degrade GPIO pins: converting from PeripheralRef<'a, PB11>` to `PeripheralRef<'a, AnyPin>`.
     #[inline]
     pub fn map_into<U>(self) -> PeripheralRef<'a, U>
     where
