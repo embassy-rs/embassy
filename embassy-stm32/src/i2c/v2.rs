@@ -5,7 +5,7 @@ use atomic_polyfill::{AtomicUsize, Ordering};
 use embassy::waitqueue::AtomicWaker;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::{unborrow, Unborrowed};
+use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::poll_fn;
 
 use crate::dma::NoDma;
@@ -14,7 +14,7 @@ use crate::i2c::{Error, Instance, SclPin, SdaPin};
 use crate::interrupt::InterruptExt;
 use crate::pac::i2c;
 use crate::time::Hertz;
-use crate::Unborrow;
+use crate::Peripheral;
 
 pub struct State {
     waker: AtomicWaker,
@@ -31,23 +31,23 @@ impl State {
 }
 
 pub struct I2c<'d, T: Instance, TXDMA = NoDma, RXDMA = NoDma> {
-    _peri: Unborrowed<'d, T>,
-    tx_dma: Unborrowed<'d, TXDMA>,
+    _peri: PeripheralRef<'d, T>,
+    tx_dma: PeripheralRef<'d, TXDMA>,
     #[allow(dead_code)]
-    rx_dma: Unborrowed<'d, RXDMA>,
+    rx_dma: PeripheralRef<'d, RXDMA>,
 }
 
 impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     pub fn new(
-        peri: impl Unborrow<Target = T> + 'd,
-        scl: impl Unborrow<Target = impl SclPin<T>> + 'd,
-        sda: impl Unborrow<Target = impl SdaPin<T>> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        tx_dma: impl Unborrow<Target = TXDMA> + 'd,
-        rx_dma: impl Unborrow<Target = RXDMA> + 'd,
+        peri: impl Peripheral<P = T> + 'd,
+        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
+        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        tx_dma: impl Peripheral<P = TXDMA> + 'd,
+        rx_dma: impl Peripheral<P = RXDMA> + 'd,
         freq: Hertz,
     ) -> Self {
-        unborrow!(peri, irq, scl, sda, tx_dma, rx_dma);
+        into_ref!(peri, irq, scl, sda, tx_dma, rx_dma);
 
         T::enable();
         T::reset();

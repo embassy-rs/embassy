@@ -3,13 +3,13 @@
 use core::marker::PhantomData;
 use core::{ptr, slice};
 
-use embassy_hal_common::unborrow;
+use embassy_hal_common::into_ref;
 use embedded_storage::nor_flash::{
     ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
 };
 
 use crate::peripherals::NVMC;
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 pub const PAGE_SIZE: usize = 4096;
 pub const FLASH_SIZE: usize = crate::chip::FLASH_SIZE;
@@ -35,8 +35,8 @@ pub struct Nvmc<'d> {
 }
 
 impl<'d> Nvmc<'d> {
-    pub fn new(_p: impl Unborrow<Target = NVMC> + 'd) -> Self {
-        unborrow!(_p);
+    pub fn new(_p: impl Peripheral<P = NVMC> + 'd) -> Self {
+        into_ref!(_p);
 
         Self { _p: PhantomData }
     }

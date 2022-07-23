@@ -1,10 +1,10 @@
 #![macro_use]
 use core::convert::Infallible;
 
-use embassy_hal_common::{impl_unborrow, unborrow, Unborrowed};
+use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
 
 use crate::pac::gpio::{self, vals};
-use crate::{pac, peripherals, Unborrow};
+use crate::{pac, peripherals, Peripheral};
 
 /// GPIO flexible pin.
 ///
@@ -12,7 +12,7 @@ use crate::{pac, peripherals, Unborrow};
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d, T: Pin> {
-    pub(crate) pin: Unborrowed<'d, T>,
+    pub(crate) pin: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Pin> Flex<'d, T> {
@@ -22,8 +22,8 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// before the pin is put into output mode.
     ///
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd) -> Self {
-        unborrow!(pin);
+    pub fn new(pin: impl Peripheral<P = T> + 'd) -> Self {
+        into_ref!(pin);
         // Pin will be in disconnected state.
         Self { pin }
     }
@@ -280,7 +280,7 @@ pub struct Input<'d, T: Pin> {
 
 impl<'d, T: Pin> Input<'d, T> {
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: impl Peripheral<P = T> + 'd, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input(pull);
         Self { pin }
@@ -335,7 +335,7 @@ pub struct Output<'d, T: Pin> {
 
 impl<'d, T: Pin> Output<'d, T> {
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level, speed: Speed) -> Self {
+    pub fn new(pin: impl Peripheral<P = T> + 'd, initial_output: Level, speed: Speed) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -395,7 +395,7 @@ pub struct OutputOpenDrain<'d, T: Pin> {
 
 impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level, speed: Speed, pull: Pull) -> Self {
+    pub fn new(pin: impl Peripheral<P = T> + 'd, initial_output: Level, speed: Speed, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
 
         match initial_output {
@@ -668,7 +668,7 @@ impl AnyPin {
     }
 }
 
-impl_unborrow!(AnyPin);
+impl_peripheral!(AnyPin);
 impl Pin for AnyPin {
     #[cfg(feature = "exti")]
     type ExtiChannel = crate::exti::AnyChannel;

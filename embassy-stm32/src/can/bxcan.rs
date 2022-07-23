@@ -1,11 +1,11 @@
 use core::ops::{Deref, DerefMut};
 
 pub use bxcan;
-use embassy_hal_common::{unborrow, Unborrowed};
+use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::gpio::sealed::AFType;
 use crate::rcc::RccPeripheral;
-use crate::{peripherals, Unborrow};
+use crate::{peripherals, Peripheral};
 
 pub struct Can<'d, T: Instance> {
     can: bxcan::Can<BxcanInstance<'d, T>>,
@@ -13,11 +13,11 @@ pub struct Can<'d, T: Instance> {
 
 impl<'d, T: Instance> Can<'d, T> {
     pub fn new(
-        peri: impl Unborrow<Target = T> + 'd,
-        rx: impl Unborrow<Target = impl RxPin<T>> + 'd,
-        tx: impl Unborrow<Target = impl TxPin<T>> + 'd,
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
     ) -> Self {
-        unborrow!(peri, rx, tx);
+        into_ref!(peri, rx, tx);
 
         unsafe {
             rx.set_as_af(rx.af_num(), AFType::Input);
@@ -66,7 +66,7 @@ pub(crate) mod sealed {
 
 pub trait Instance: sealed::Instance + RccPeripheral {}
 
-pub struct BxcanInstance<'a, T>(Unborrowed<'a, T>);
+pub struct BxcanInstance<'a, T>(PeripheralRef<'a, T>);
 
 unsafe impl<'d, T: Instance> bxcan::Instance for BxcanInstance<'d, T> {
     const REGISTERS: *mut bxcan::RegisterBlock = T::REGISTERS;

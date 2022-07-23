@@ -1,18 +1,18 @@
-use embassy_hal_common::{unborrow, Unborrowed};
+use embassy_hal_common::{into_ref, PeripheralRef};
 
 use super::*;
 #[allow(unused_imports)]
 use crate::gpio::sealed::{AFType, Pin};
 use crate::time::Hertz;
-use crate::Unborrow;
+use crate::Peripheral;
 
 pub struct SimplePwm<'d, T> {
-    inner: Unborrowed<'d, T>,
+    inner: PeripheralRef<'d, T>,
 }
 
 macro_rules! config_pins {
     ($($pin:ident),*) => {
-        unborrow!($($pin),*);
+        into_ref!($($pin),*);
         // NOTE(unsafe) Exclusive access to the registers
         critical_section::with(|_| unsafe {
             $(
@@ -27,8 +27,8 @@ macro_rules! config_pins {
 
 impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     pub fn new_1ch(
-        tim: impl Unborrow<Target = T> + 'd,
-        ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
+        tim: impl Peripheral<P = T> + 'd,
+        ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
         freq: Hertz,
     ) -> Self {
         Self::new_inner(tim, freq, move || {
@@ -37,9 +37,9 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     }
 
     pub fn new_2ch(
-        tim: impl Unborrow<Target = T> + 'd,
-        ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
-        ch2: impl Unborrow<Target = impl Channel2Pin<T>> + 'd,
+        tim: impl Peripheral<P = T> + 'd,
+        ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
+        ch2: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
         freq: Hertz,
     ) -> Self {
         Self::new_inner(tim, freq, move || {
@@ -48,10 +48,10 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     }
 
     pub fn new_3ch(
-        tim: impl Unborrow<Target = T> + 'd,
-        ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
-        ch2: impl Unborrow<Target = impl Channel2Pin<T>> + 'd,
-        ch3: impl Unborrow<Target = impl Channel3Pin<T>> + 'd,
+        tim: impl Peripheral<P = T> + 'd,
+        ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
+        ch2: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
+        ch3: impl Peripheral<P = impl Channel3Pin<T>> + 'd,
         freq: Hertz,
     ) -> Self {
         Self::new_inner(tim, freq, move || {
@@ -60,11 +60,11 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     }
 
     pub fn new_4ch(
-        tim: impl Unborrow<Target = T> + 'd,
-        ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
-        ch2: impl Unborrow<Target = impl Channel2Pin<T>> + 'd,
-        ch3: impl Unborrow<Target = impl Channel3Pin<T>> + 'd,
-        ch4: impl Unborrow<Target = impl Channel4Pin<T>> + 'd,
+        tim: impl Peripheral<P = T> + 'd,
+        ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
+        ch2: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
+        ch3: impl Peripheral<P = impl Channel3Pin<T>> + 'd,
+        ch4: impl Peripheral<P = impl Channel4Pin<T>> + 'd,
         freq: Hertz,
     ) -> Self {
         Self::new_inner(tim, freq, move || {
@@ -72,8 +72,8 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         })
     }
 
-    fn new_inner(tim: impl Unborrow<Target = T> + 'd, freq: Hertz, configure_pins: impl FnOnce()) -> Self {
-        unborrow!(tim);
+    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, configure_pins: impl FnOnce()) -> Self {
+        into_ref!(tim);
 
         T::enable();
         <T as crate::rcc::sealed::RccPeripheral>::reset();

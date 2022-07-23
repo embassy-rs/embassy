@@ -1,10 +1,10 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::unborrow;
+use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
 use crate::adc::{AdcPin, Instance};
-use crate::Unborrow;
+use crate::Peripheral;
 
 pub const VDDA_CALIB_MV: u32 = 3000;
 
@@ -208,8 +208,8 @@ pub struct Adc<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(_peri: impl Unborrow<Target = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
-        unborrow!(_peri);
+    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+        into_ref!(_peri);
         enable();
         unsafe {
             T::regs().cr().modify(|reg| {

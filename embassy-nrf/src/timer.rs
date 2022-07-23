@@ -5,12 +5,12 @@ use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::into_ref;
 use futures::future::poll_fn;
 
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::ppi::{Event, Task};
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 pub(crate) mod sealed {
 
@@ -28,7 +28,7 @@ pub(crate) mod sealed {
     pub trait TimerType {}
 }
 
-pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static + Send {
+pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
     type Interrupt: Interrupt;
 }
 pub trait ExtendedInstance: Instance + sealed::ExtendedInstance {}
@@ -99,11 +99,8 @@ pub struct Timer<'d, T: Instance, I: TimerType = NotAwaitable> {
 }
 
 impl<'d, T: Instance> Timer<'d, T, Awaitable> {
-    pub fn new_awaitable(
-        timer: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-    ) -> Self {
-        unborrow!(irq);
+    pub fn new_awaitable(timer: impl Peripheral<P = T> + 'd, irq: impl Peripheral<P = T::Interrupt> + 'd) -> Self {
+        into_ref!(irq);
 
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
@@ -117,7 +114,7 @@ impl<'d, T: Instance> Timer<'d, T, NotAwaitable> {
     ///
     /// This can be useful for triggering tasks via PPI
     /// `Uarte` uses this internally.
-    pub fn new(timer: impl Unborrow<Target = T> + 'd) -> Self {
+    pub fn new(timer: impl Peripheral<P = T> + 'd) -> Self {
         Self::new_irqless(timer)
     }
 }
@@ -126,7 +123,7 @@ impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
     /// Create a `Timer` without an interrupt, meaning `Cc::wait` won't work.
     ///
     /// This is used by the public constructors.
-    fn new_irqless(_timer: impl Unborrow<Target = T> + 'd) -> Self {
+    fn new_irqless(_timer: impl Peripheral<P = T> + 'd) -> Self {
         let regs = T::regs();
 
         let mut this = Self { phantom: PhantomData };

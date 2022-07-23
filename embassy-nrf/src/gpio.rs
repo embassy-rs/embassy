@@ -4,12 +4,12 @@ use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 
 use cfg_if::cfg_if;
-use embassy_hal_common::{impl_unborrow, unborrow, Unborrowed};
+use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
 
 use self::sealed::Pin as _;
 use crate::pac::p0 as gpio;
 use crate::pac::p0::pin_cnf::{DRIVE_A, PULL_A};
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 /// A GPIO port with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]
@@ -38,7 +38,7 @@ pub struct Input<'d, T: Pin> {
 
 impl<'d, T: Pin> Input<'d, T> {
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: impl Peripheral<P = T> + 'd, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input(pull);
 
@@ -118,7 +118,7 @@ pub struct Output<'d, T: Pin> {
 
 impl<'d, T: Pin> Output<'d, T> {
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level, drive: OutputDrive) -> Self {
+    pub fn new(pin: impl Peripheral<P = T> + 'd, initial_output: Level, drive: OutputDrive) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -193,7 +193,7 @@ fn convert_pull(pull: Pull) -> PULL_A {
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d, T: Pin> {
-    pub(crate) pin: Unborrowed<'d, T>,
+    pub(crate) pin: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Pin> Flex<'d, T> {
@@ -202,8 +202,8 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd) -> Self {
-        unborrow!(pin);
+    pub fn new(pin: impl Peripheral<P = T> + 'd) -> Self {
+        into_ref!(pin);
         // Pin will be in disconnected state.
         Self { pin }
     }
@@ -374,7 +374,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Pin: Unborrow<Target = Self> + sealed::Pin + Sized + 'static {
+pub trait Pin: Peripheral<P = Self> + sealed::Pin + Sized + 'static {
     /// Number of the pin within the port (0..31)
     #[inline]
     fn pin(&self) -> u8 {
@@ -417,22 +417,22 @@ impl AnyPin {
         Self { pin_port }
     }
 
-    pub(crate) fn unborrow_and_degrade<'a>(pin: impl Unborrow<Target = impl Pin + 'a> + 'a) -> Unborrowed<'a, Self> {
-        Unborrowed::new(AnyPin {
-            pin_port: pin.unborrow().pin_port(),
+    pub(crate) fn into_degraded_ref<'a>(pin: impl Peripheral<P = impl Pin + 'a> + 'a) -> PeripheralRef<'a, Self> {
+        PeripheralRef::new(AnyPin {
+            pin_port: pin.into_ref().pin_port(),
         })
     }
 }
 
-macro_rules! unborrow_and_degrade {
+macro_rules! into_degraded_ref {
     ($($name:ident),*) => {
         $(
-            let $name = $crate::gpio::AnyPin::unborrow_and_degrade($name);
+            let $name = $crate::gpio::AnyPin::into_degraded_ref($name);
         )*
     };
 }
 
-impl_unborrow!(AnyPin);
+impl_peripheral!(AnyPin);
 impl Pin for AnyPin {}
 impl sealed::Pin for AnyPin {
     #[inline]
@@ -447,7 +447,7 @@ pub(crate) trait PselBits {
     fn psel_bits(&self) -> u32;
 }
 
-impl<'a, P: Pin> PselBits for Option<Unborrowed<'a, P>> {
+impl<'a, P: Pin> PselBits for Option<PeripheralRef<'a, P>> {
     #[inline]
     fn psel_bits(&self) -> u32 {
         match self {

@@ -3,7 +3,7 @@ use core::future::Future;
 use core::mem::MaybeUninit;
 
 use embassy::channel::signal::Signal;
-use embassy_hal_common::{unborrow, Unborrowed};
+use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{AnyPin, Output};
 use embassy_stm32::interrupt::{InterruptExt, SUBGHZ_RADIO};
@@ -12,7 +12,7 @@ use embassy_stm32::subghz::{
     LoRaSyncWord, Ocp, PaConfig, PaSel, PacketType, RampTime, RegMode, RfFreq, SpreadingFactor as SF, StandbyClk,
     Status, SubGhz, TcxoMode, TcxoTrim, Timeout, TxParams,
 };
-use embassy_stm32::Unborrow;
+use embassy_stm32::Peripheral;
 use lorawan_device::async_device::radio::{Bandwidth, PhyRxTx, RfConfig, RxQuality, SpreadingFactor, TxConfig};
 use lorawan_device::async_device::Timings;
 
@@ -46,7 +46,7 @@ impl<'d> SubGhzState<'d> {
 /// The radio peripheral keeping the radio state and owning the radio IRQ.
 pub struct SubGhzRadio<'d> {
     state: *mut StateInner<'d>,
-    _irq: Unborrowed<'d, SUBGHZ_RADIO>,
+    _irq: PeripheralRef<'d, SUBGHZ_RADIO>,
 }
 
 impl<'d> SubGhzRadio<'d> {
@@ -58,9 +58,9 @@ impl<'d> SubGhzRadio<'d> {
         state: &'d mut SubGhzState<'d>,
         radio: SubGhz<'d, NoDma, NoDma>,
         switch: RadioSwitch<'d>,
-        irq: impl Unborrow<Target = SUBGHZ_RADIO> + 'd,
+        irq: impl Peripheral<P = SUBGHZ_RADIO> + 'd,
     ) -> Self {
-        unborrow!(irq);
+        into_ref!(irq);
 
         let mut inner = StateInner { radio, switch };
         inner.radio.reset();

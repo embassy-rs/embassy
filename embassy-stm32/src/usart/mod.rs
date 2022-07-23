@@ -2,14 +2,14 @@
 
 use core::marker::PhantomData;
 
-use embassy_hal_common::{unborrow, Unborrowed};
+use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
 use crate::interrupt::Interrupt;
 use crate::pac::usart::{regs, vals};
 use crate::rcc::RccPeripheral;
-use crate::{peripherals, Unborrow};
+use crate::{peripherals, Peripheral};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DataBits {
@@ -78,16 +78,16 @@ pub struct Uart<'d, T: Instance, TxDma = NoDma, RxDma = NoDma> {
 
 pub struct UartTx<'d, T: Instance, TxDma = NoDma> {
     phantom: PhantomData<&'d mut T>,
-    tx_dma: Unborrowed<'d, TxDma>,
+    tx_dma: PeripheralRef<'d, TxDma>,
 }
 
 pub struct UartRx<'d, T: Instance, RxDma = NoDma> {
     phantom: PhantomData<&'d mut T>,
-    rx_dma: Unborrowed<'d, RxDma>,
+    rx_dma: PeripheralRef<'d, RxDma>,
 }
 
 impl<'d, T: Instance, TxDma> UartTx<'d, T, TxDma> {
-    fn new(tx_dma: Unborrowed<'d, TxDma>) -> Self {
+    fn new(tx_dma: PeripheralRef<'d, TxDma>) -> Self {
         Self {
             tx_dma,
             phantom: PhantomData,
@@ -133,7 +133,7 @@ impl<'d, T: Instance, TxDma> UartTx<'d, T, TxDma> {
 }
 
 impl<'d, T: Instance, RxDma> UartRx<'d, T, RxDma> {
-    fn new(rx_dma: Unborrowed<'d, RxDma>) -> Self {
+    fn new(rx_dma: PeripheralRef<'d, RxDma>) -> Self {
         Self {
             rx_dma,
             phantom: PhantomData,
@@ -189,14 +189,14 @@ impl<'d, T: Instance, RxDma> UartRx<'d, T, RxDma> {
 
 impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     pub fn new(
-        _inner: impl Unborrow<Target = T> + 'd,
-        rx: impl Unborrow<Target = impl RxPin<T>> + 'd,
-        tx: impl Unborrow<Target = impl TxPin<T>> + 'd,
-        tx_dma: impl Unborrow<Target = TxDma> + 'd,
-        rx_dma: impl Unborrow<Target = RxDma> + 'd,
+        _inner: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = TxDma> + 'd,
+        rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(_inner, rx, tx, tx_dma, rx_dma);
+        into_ref!(_inner, rx, tx, tx_dma, rx_dma);
 
         T::enable();
         T::reset();

@@ -1,13 +1,13 @@
-use embassy_hal_common::{unborrow, Unborrowed};
+use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::pac::crc::vals;
 use crate::pac::CRC as PAC_CRC;
 use crate::peripherals::CRC;
 use crate::rcc::sealed::RccPeripheral;
-use crate::Unborrow;
+use crate::Peripheral;
 
 pub struct Crc<'d> {
-    _peripheral: Unborrowed<'d, CRC>,
+    _peripheral: PeripheralRef<'d, CRC>,
     _config: Config,
 }
 
@@ -67,13 +67,13 @@ pub enum PolySize {
 
 impl<'d> Crc<'d> {
     /// Instantiates the CRC32 peripheral and initializes it to default values.
-    pub fn new(peripheral: impl Unborrow<Target = CRC> + 'd, config: Config) -> Self {
+    pub fn new(peripheral: impl Peripheral<P = CRC> + 'd, config: Config) -> Self {
         // Note: enable and reset come from RccPeripheral.
         // enable CRC clock in RCC.
         CRC::enable();
         // Reset CRC to default values.
         CRC::reset();
-        unborrow!(peripheral);
+        into_ref!(peripheral);
         let mut instance = Self {
             _peripheral: peripheral,
             _config: config,

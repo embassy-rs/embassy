@@ -1,10 +1,10 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::unborrow;
+use embassy_hal_common::into_ref;
 
 use crate::gpio::sealed::AFType;
 use crate::gpio::{Pull, Speed};
-use crate::Unborrow;
+use crate::Peripheral;
 
 mod pins;
 pub use pins::*;
@@ -39,7 +39,7 @@ where
 
 macro_rules! config_pins {
     ($($pin:ident),*) => {
-        unborrow!($($pin),*);
+        into_ref!($($pin),*);
         $(
             $pin.set_as_af_pull($pin.af_num(), AFType::OutputPushPull, Pull::Up);
             $pin.set_speed(Speed::VeryHigh);
@@ -57,12 +57,12 @@ macro_rules! fmc_sdram_constructor {
         ctrl: [$(($ctrl_pin_name:ident: $ctrl_signal:ident)),*]
     )) => {
         pub fn $name<CHIP: stm32_fmc::SdramChip>(
-            _instance: impl Unborrow<Target = T> + 'd,
-            $($addr_pin_name: impl Unborrow<Target = impl $addr_signal<T>> + 'd),*,
-            $($ba_pin_name: impl Unborrow<Target = impl $ba_signal<T>> + 'd),*,
-            $($d_pin_name: impl Unborrow<Target = impl $d_signal<T>> + 'd),*,
-            $($nbl_pin_name: impl Unborrow<Target = impl $nbl_signal<T>> + 'd),*,
-            $($ctrl_pin_name: impl Unborrow<Target = impl $ctrl_signal<T>> + 'd),*,
+            _instance: impl Peripheral<P = T> + 'd,
+            $($addr_pin_name: impl Peripheral<P = impl $addr_signal<T>> + 'd),*,
+            $($ba_pin_name: impl Peripheral<P = impl $ba_signal<T>> + 'd),*,
+            $($d_pin_name: impl Peripheral<P = impl $d_signal<T>> + 'd),*,
+            $($nbl_pin_name: impl Peripheral<P = impl $nbl_signal<T>> + 'd),*,
+            $($ctrl_pin_name: impl Peripheral<P = impl $ctrl_signal<T>> + 'd),*,
             chip: CHIP
         ) -> stm32_fmc::Sdram<Fmc<'d, T>, CHIP> {
 

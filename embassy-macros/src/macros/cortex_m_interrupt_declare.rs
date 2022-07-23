@@ -25,7 +25,7 @@ pub fn run(name: syn::Ident) -> Result<TokenStream, TokenStream> {
             }
         }
 
-        ::embassy_hal_common::impl_unborrow!(#name_interrupt);
+        ::embassy_hal_common::impl_peripheral!(#name_interrupt);
     };
     Ok(result)
 }

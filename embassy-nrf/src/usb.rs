@@ -7,7 +7,7 @@ use core::task::Poll;
 
 use cortex_m::peripheral::NVIC;
 use embassy::waitqueue::AtomicWaker;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::into_ref;
 pub use embassy_usb;
 use embassy_usb::driver::{self, EndpointError, Event, Unsupported};
 use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
@@ -17,7 +17,7 @@ use pac::usbd::RegisterBlock;
 
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::util::slice_in_ram;
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static BUS_WAKER: AtomicWaker = NEW_AW;
@@ -166,12 +166,8 @@ impl UsbSupply for SignalledSupply {
 }
 
 impl<'d, T: Instance, P: UsbSupply> Driver<'d, T, P> {
-    pub fn new(
-        _usb: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        usb_supply: P,
-    ) -> Self {
-        unborrow!(irq);
+    pub fn new(_usb: impl Peripheral<P = T> + 'd, irq: impl Peripheral<P = T::Interrupt> + 'd, usb_supply: P) -> Self {
+        into_ref!(irq);
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
         irq.enable();
@@ -950,7 +946,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static + Send {
+pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
     type Interrupt: Interrupt;
 }
 

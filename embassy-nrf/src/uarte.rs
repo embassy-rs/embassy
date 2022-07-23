@@ -18,7 +18,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::{unborrow, Unborrowed};
+use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::poll_fn;
 use pac::uarte0::RegisterBlock;
 // Re-export SVD variants to allow user to directly set values.
@@ -31,7 +31,7 @@ use crate::interrupt::{Interrupt, InterruptExt};
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::util::slice_in_ram_or;
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 #[derive(Clone)]
 #[non_exhaustive]
@@ -83,40 +83,40 @@ pub struct UarteRx<'d, T: Instance> {
 impl<'d, T: Instance> Uarte<'d, T> {
     /// Create a new UARTE without hardware flow control
     pub fn new(
-        uarte: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
-        txd: impl Unborrow<Target = impl GpioPin> + 'd,
+        uarte: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        rxd: impl Peripheral<P = impl GpioPin> + 'd,
+        txd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow_and_degrade!(rxd, txd);
+        into_degraded_ref!(rxd, txd);
         Self::new_inner(uarte, irq, rxd, txd, None, None, config)
     }
 
     /// Create a new UARTE with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts(
-        uarte: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
-        txd: impl Unborrow<Target = impl GpioPin> + 'd,
-        cts: impl Unborrow<Target = impl GpioPin> + 'd,
-        rts: impl Unborrow<Target = impl GpioPin> + 'd,
+        uarte: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        rxd: impl Peripheral<P = impl GpioPin> + 'd,
+        txd: impl Peripheral<P = impl GpioPin> + 'd,
+        cts: impl Peripheral<P = impl GpioPin> + 'd,
+        rts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow_and_degrade!(rxd, txd, cts, rts);
+        into_degraded_ref!(rxd, txd, cts, rts);
         Self::new_inner(uarte, irq, rxd, txd, Some(cts), Some(rts), config)
     }
 
     fn new_inner(
-        _uarte: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        rxd: Unborrowed<'d, AnyPin>,
-        txd: Unborrowed<'d, AnyPin>,
-        cts: Option<Unborrowed<'d, AnyPin>>,
-        rts: Option<Unborrowed<'d, AnyPin>>,
+        _uarte: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        rxd: PeripheralRef<'d, AnyPin>,
+        txd: PeripheralRef<'d, AnyPin>,
+        cts: Option<PeripheralRef<'d, AnyPin>>,
+        rts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        unborrow!(irq);
+        into_ref!(irq);
 
         let r = T::regs();
 
@@ -237,35 +237,35 @@ fn configure(r: &RegisterBlock, config: Config, hardware_flow_control: bool) {
 impl<'d, T: Instance> UarteTx<'d, T> {
     /// Create a new tx-only UARTE without hardware flow control
     pub fn new(
-        uarte: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        txd: impl Unborrow<Target = impl GpioPin> + 'd,
+        uarte: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        txd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow_and_degrade!(txd);
+        into_degraded_ref!(txd);
         Self::new_inner(uarte, irq, txd, None, config)
     }
 
     /// Create a new tx-only UARTE with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts(
-        uarte: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        txd: impl Unborrow<Target = impl GpioPin> + 'd,
-        cts: impl Unborrow<Target = impl GpioPin> + 'd,
+        uarte: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        txd: impl Peripheral<P = impl GpioPin> + 'd,
+        cts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow_and_degrade!(txd, cts);
+        into_degraded_ref!(txd, cts);
         Self::new_inner(uarte, irq, txd, Some(cts), config)
     }
 
     fn new_inner(
-        _uarte: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        txd: Unborrowed<'d, AnyPin>,
-        cts: Option<Unborrowed<'d, AnyPin>>,
+        _uarte: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        txd: PeripheralRef<'d, AnyPin>,
+        cts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        unborrow!(irq);
+        into_ref!(irq);
 
         let r = T::regs();
 
@@ -429,35 +429,35 @@ impl<'a, T: Instance> Drop for UarteTx<'a, T> {
 impl<'d, T: Instance> UarteRx<'d, T> {
     /// Create a new rx-only UARTE without hardware flow control
     pub fn new(
-        uarte: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
+        uarte: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        rxd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow_and_degrade!(rxd);
+        into_degraded_ref!(rxd);
         Self::new_inner(uarte, irq, rxd, None, config)
     }
 
     /// Create a new rx-only UARTE with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts(
-        uarte: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
-        rts: impl Unborrow<Target = impl GpioPin> + 'd,
+        uarte: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        rxd: impl Peripheral<P = impl GpioPin> + 'd,
+        rts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow_and_degrade!(rxd, rts);
+        into_degraded_ref!(rxd, rts);
         Self::new_inner(uarte, irq, rxd, Some(rts), config)
     }
 
     fn new_inner(
-        _uarte: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        rxd: Unborrowed<'d, AnyPin>,
-        rts: Option<Unborrowed<'d, AnyPin>>,
+        _uarte: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        rxd: PeripheralRef<'d, AnyPin>,
+        rts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        unborrow!(irq);
+        into_ref!(irq);
 
         let r = T::regs();
 
@@ -668,33 +668,33 @@ pub struct UarteWithIdle<'d, U: Instance, T: TimerInstance> {
 impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
     /// Create a new UARTE without hardware flow control
     pub fn new(
-        uarte: impl Unborrow<Target = U> + 'd,
-        timer: impl Unborrow<Target = T> + 'd,
-        ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
-        ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
-        irq: impl Unborrow<Target = U::Interrupt> + 'd,
-        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
-        txd: impl Unborrow<Target = impl GpioPin> + 'd,
+        uarte: impl Peripheral<P = U> + 'd,
+        timer: impl Peripheral<P = T> + 'd,
+        ppi_ch1: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
+        ppi_ch2: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
+        irq: impl Peripheral<P = U::Interrupt> + 'd,
+        rxd: impl Peripheral<P = impl GpioPin> + 'd,
+        txd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow_and_degrade!(rxd, txd);
+        into_degraded_ref!(rxd, txd);
         Self::new_inner(uarte, timer, ppi_ch1, ppi_ch2, irq, rxd, txd, None, None, config)
     }
 
     /// Create a new UARTE with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts(
-        uarte: impl Unborrow<Target = U> + 'd,
-        timer: impl Unborrow<Target = T> + 'd,
-        ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
-        ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
-        irq: impl Unborrow<Target = U::Interrupt> + 'd,
-        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
-        txd: impl Unborrow<Target = impl GpioPin> + 'd,
-        cts: impl Unborrow<Target = impl GpioPin> + 'd,
-        rts: impl Unborrow<Target = impl GpioPin> + 'd,
+        uarte: impl Peripheral<P = U> + 'd,
+        timer: impl Peripheral<P = T> + 'd,
+        ppi_ch1: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
+        ppi_ch2: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
+        irq: impl Peripheral<P = U::Interrupt> + 'd,
+        rxd: impl Peripheral<P = impl GpioPin> + 'd,
+        txd: impl Peripheral<P = impl GpioPin> + 'd,
+        cts: impl Peripheral<P = impl GpioPin> + 'd,
+        rts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow_and_degrade!(rxd, txd, cts, rts);
+        into_degraded_ref!(rxd, txd, cts, rts);
         Self::new_inner(
             uarte,
             timer,
@@ -710,15 +710,15 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
     }
 
     fn new_inner(
-        uarte: impl Unborrow<Target = U> + 'd,
-        timer: impl Unborrow<Target = T> + 'd,
-        ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
-        ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
-        irq: impl Unborrow<Target = U::Interrupt> + 'd,
-        rxd: Unborrowed<'d, AnyPin>,
-        txd: Unborrowed<'d, AnyPin>,
-        cts: Option<Unborrowed<'d, AnyPin>>,
-        rts: Option<Unborrowed<'d, AnyPin>>,
+        uarte: impl Peripheral<P = U> + 'd,
+        timer: impl Peripheral<P = T> + 'd,
+        ppi_ch1: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
+        ppi_ch2: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
+        irq: impl Peripheral<P = U::Interrupt> + 'd,
+        rxd: PeripheralRef<'d, AnyPin>,
+        txd: PeripheralRef<'d, AnyPin>,
+        cts: Option<PeripheralRef<'d, AnyPin>>,
+        rts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         let baudrate = config.baudrate;
@@ -726,7 +726,7 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
 
         let mut timer = Timer::new(timer);
 
-        unborrow!(ppi_ch1, ppi_ch2);
+        into_ref!(ppi_ch1, ppi_ch2);
 
         let r = U::regs();
 
@@ -939,7 +939,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static + Send {
+pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
     type Interrupt: Interrupt;
 }
 

@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::{unborrow, Unborrow};
+use embassy_hal_common::{into_ref, Peripheral};
 use stm32_metapac::iwdg::vals::{Key, Pr};
 
 use crate::rcc::LSI_FREQ;
@@ -27,8 +27,8 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
     ///
     /// [Self] has to be started with [Self::unleash()].
     /// Once timer expires, MCU will be reset. To prevent this, timer must be reloaded by repeatedly calling [Self::pet()] within timeout interval.
-    pub fn new(_instance: impl Unborrow<Target = T> + 'd, timeout_us: u32) -> Self {
-        unborrow!(_instance);
+    pub fn new(_instance: impl Peripheral<P = T> + 'd, timeout_us: u32) -> Self {
+        into_ref!(_instance);
 
         // Find lowest prescaler value, which makes watchdog period longer or equal to timeout.
         // This iterates from 4 (2^2) to 256 (2^8).

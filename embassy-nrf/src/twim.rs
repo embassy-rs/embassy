@@ -16,14 +16,14 @@ use core::task::Poll;
 use embassy::time::{Duration, Instant};
 use embassy::waitqueue::AtomicWaker;
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::into_ref;
 use futures::future::poll_fn;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::Pin as GpioPin;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::util::{slice_in_ram, slice_in_ram_or};
-use crate::{gpio, pac, Unborrow};
+use crate::{gpio, pac, Peripheral};
 
 #[derive(Clone, Copy)]
 pub enum Frequency {
@@ -80,13 +80,13 @@ pub struct Twim<'d, T: Instance> {
 
 impl<'d, T: Instance> Twim<'d, T> {
     pub fn new(
-        _twim: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        sda: impl Unborrow<Target = impl GpioPin> + 'd,
-        scl: impl Unborrow<Target = impl GpioPin> + 'd,
+        _twim: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        sda: impl Peripheral<P = impl GpioPin> + 'd,
+        scl: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(irq, sda, scl);
+        into_ref!(irq, sda, scl);
 
         let r = T::regs();
 
@@ -707,7 +707,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static {
+pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 

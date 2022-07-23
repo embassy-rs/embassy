@@ -5,7 +5,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
-use embassy_hal_common::{impl_unborrow, unborrow};
+use embassy_hal_common::{impl_peripheral, into_ref};
 use futures::future::poll_fn;
 use pac::{saadc, SAADC};
 use saadc::ch::config::{GAIN_A, REFSEL_A, RESP_A, TACQ_A};
@@ -17,7 +17,7 @@ use saadc::resolution::VAL_A;
 use crate::interrupt::InterruptExt;
 use crate::ppi::{ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
-use crate::{interrupt, pac, peripherals, Unborrow};
+use crate::{interrupt, pac, peripherals, Peripheral};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -77,7 +77,7 @@ pub struct ChannelConfig<'d> {
 /// internal voltage.
 pub struct VddInput;
 
-impl_unborrow!(VddInput);
+impl_peripheral!(VddInput);
 
 impl sealed::Input for VddInput {
     #[cfg(not(feature = "_nrf9160"))]
@@ -97,7 +97,7 @@ impl Input for VddInput {}
 pub struct VddhDiv5Input;
 
 #[cfg(any(feature = "_nrf5340-app", feature = "nrf52833", feature = "nrf52840"))]
-impl_unborrow!(VddhDiv5Input);
+impl_peripheral!(VddhDiv5Input);
 
 #[cfg(any(feature = "_nrf5340-app", feature = "nrf52833", feature = "nrf52840"))]
 impl sealed::Input for VddhDiv5Input {
@@ -113,7 +113,7 @@ pub struct AnyInput {
     channel: InputChannel,
 }
 
-impl_unborrow!(AnyInput);
+impl_peripheral!(AnyInput);
 
 impl sealed::Input for AnyInput {
     fn channel(&self) -> InputChannel {
@@ -125,8 +125,8 @@ impl Input for AnyInput {}
 
 impl<'d> ChannelConfig<'d> {
     /// Default configuration for single ended channel sampling.
-    pub fn single_ended(input: impl Unborrow<Target = impl Input> + 'd) -> Self {
-        unborrow!(input);
+    pub fn single_ended(input: impl Peripheral<P = impl Input> + 'd) -> Self {
+        into_ref!(input);
         Self {
             reference: Reference::INTERNAL,
             gain: Gain::GAIN1_6,
@@ -139,10 +139,10 @@ impl<'d> ChannelConfig<'d> {
     }
     /// Default configuration for differential channel sampling.
     pub fn differential(
-        p_input: impl Unborrow<Target = impl Input> + 'd,
-        n_input: impl Unborrow<Target = impl Input> + 'd,
+        p_input: impl Peripheral<P = impl Input> + 'd,
+        n_input: impl Peripheral<P = impl Input> + 'd,
     ) -> Self {
-        unborrow!(p_input, n_input);
+        into_ref!(p_input, n_input);
         Self {
             reference: Reference::INTERNAL,
             gain: Gain::GAIN1_6,
@@ -167,12 +167,12 @@ pub enum SamplerState {
 
 impl<'d, const N: usize> Saadc<'d, N> {
     pub fn new(
-        _saadc: impl Unborrow<Target = peripherals::SAADC> + 'd,
-        irq: impl Unborrow<Target = interrupt::SAADC> + 'd,
+        _saadc: impl Peripheral<P = peripherals::SAADC> + 'd,
+        irq: impl Peripheral<P = interrupt::SAADC> + 'd,
         config: Config,
         channel_configs: [ChannelConfig; N],
     ) -> Self {
-        unborrow!(irq);
+        into_ref!(irq);
 
         let r = unsafe { &*SAADC::ptr() };
 
@@ -674,7 +674,7 @@ pub(crate) mod sealed {
 }
 
 /// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
-pub trait Input: sealed::Input + Unborrow<Target = Self> + Sized {
+pub trait Input: sealed::Input + Peripheral<P = Self> + Sized {
     fn degrade_saadc(self) -> AnyInput {
         AnyInput {
             channel: self.channel(),

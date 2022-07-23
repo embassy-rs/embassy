@@ -3,7 +3,7 @@ use core::mem::MaybeUninit;
 
 use cortex_m::peripheral::scb::VectActive;
 use cortex_m::peripheral::{NVIC, SCB};
-use embassy_hal_common::{unborrow, Unborrow, Unborrowed};
+use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 
 use crate::interrupt::{Interrupt, InterruptExt, Priority};
 
@@ -33,7 +33,7 @@ impl<S> StateStorage<S> {
 /// a safe way.
 pub struct PeripheralMutex<'a, S: PeripheralState> {
     state: *mut S,
-    irq: Unborrowed<'a, S::Interrupt>,
+    irq: PeripheralRef<'a, S::Interrupt>,
 }
 
 /// Whether `irq` can be preempted by the current interrupt.
@@ -62,11 +62,11 @@ impl<'a, S: PeripheralState> PeripheralMutex<'a, S> {
     ///
     /// Registers `on_interrupt` as the `irq`'s handler, and enables it.
     pub fn new(
-        irq: impl Unborrow<Target = S::Interrupt> + 'a,
+        irq: impl Peripheral<P = S::Interrupt> + 'a,
         storage: &'a mut StateStorage<S>,
         init: impl FnOnce() -> S,
     ) -> Self {
-        unborrow!(irq);
+        into_ref!(irq);
 
         if can_be_preempted(&*irq) {
             panic!(

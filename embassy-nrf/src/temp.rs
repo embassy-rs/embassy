@@ -4,24 +4,24 @@ use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::{unborrow, Unborrowed};
+use embassy_hal_common::{into_ref, PeripheralRef};
 use fixed::types::I30F2;
 use futures::future::poll_fn;
 
 use crate::interrupt::InterruptExt;
 use crate::peripherals::TEMP;
-use crate::{interrupt, pac, Unborrow};
+use crate::{interrupt, pac, Peripheral};
 
 /// Integrated temperature sensor.
 pub struct Temp<'d> {
-    _irq: Unborrowed<'d, interrupt::TEMP>,
+    _irq: PeripheralRef<'d, interrupt::TEMP>,
 }
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 impl<'d> Temp<'d> {
-    pub fn new(_t: impl Unborrow<Target = TEMP> + 'd, irq: impl Unborrow<Target = interrupt::TEMP> + 'd) -> Self {
-        unborrow!(_t, irq);
+    pub fn new(_t: impl Peripheral<P = TEMP> + 'd, irq: impl Peripheral<P = interrupt::TEMP> + 'd) -> Self {
+        into_ref!(_t, irq);
 
         // Enable interrupt that signals temperature values
         irq.disable();

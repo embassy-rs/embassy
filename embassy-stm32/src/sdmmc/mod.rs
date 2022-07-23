@@ -5,7 +5,7 @@ use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::{unborrow, Unborrowed};
+use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::poll_fn;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
@@ -16,7 +16,7 @@ use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
-use crate::{peripherals, Unborrow};
+use crate::{peripherals, Peripheral};
 
 /// The signalling scheme used on the SDMMC bus
 #[non_exhaustive]
@@ -176,16 +176,16 @@ impl Default for Config {
 
 /// Sdmmc device
 pub struct Sdmmc<'d, T: Instance, Dma = NoDma> {
-    _peri: Unborrowed<'d, T>,
-    irq: Unborrowed<'d, T::Interrupt>,
-    dma: Unborrowed<'d, Dma>,
+    _peri: PeripheralRef<'d, T>,
+    irq: PeripheralRef<'d, T::Interrupt>,
+    dma: PeripheralRef<'d, Dma>,
 
-    clk: Unborrowed<'d, AnyPin>,
-    cmd: Unborrowed<'d, AnyPin>,
-    d0: Unborrowed<'d, AnyPin>,
-    d1: Option<Unborrowed<'d, AnyPin>>,
-    d2: Option<Unborrowed<'d, AnyPin>>,
-    d3: Option<Unborrowed<'d, AnyPin>>,
+    clk: PeripheralRef<'d, AnyPin>,
+    cmd: PeripheralRef<'d, AnyPin>,
+    d0: PeripheralRef<'d, AnyPin>,
+    d1: Option<PeripheralRef<'d, AnyPin>>,
+    d2: Option<PeripheralRef<'d, AnyPin>>,
+    d3: Option<PeripheralRef<'d, AnyPin>>,
 
     config: Config,
     /// Current clock to card
@@ -199,15 +199,15 @@ pub struct Sdmmc<'d, T: Instance, Dma = NoDma> {
 #[cfg(sdmmc_v1)]
 impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
     pub fn new_1bit(
-        sdmmc: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        dma: impl Unborrow<Target = Dma> + 'd,
-        clk: impl Unborrow<Target = impl CkPin<T>> + 'd,
-        cmd: impl Unborrow<Target = impl CmdPin<T>> + 'd,
-        d0: impl Unborrow<Target = impl D0Pin<T>> + 'd,
+        sdmmc: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        dma: impl Peripheral<P = Dma> + 'd,
+        clk: impl Peripheral<P = impl CkPin<T>> + 'd,
+        cmd: impl Peripheral<P = impl CmdPin<T>> + 'd,
+        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(clk, cmd, d0);
+        into_ref!(clk, cmd, d0);
 
         critical_section::with(|_| unsafe {
             clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
@@ -234,18 +234,18 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
     }
 
     pub fn new_4bit(
-        sdmmc: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        dma: impl Unborrow<Target = Dma> + 'd,
-        clk: impl Unborrow<Target = impl CkPin<T>> + 'd,
-        cmd: impl Unborrow<Target = impl CmdPin<T>> + 'd,
-        d0: impl Unborrow<Target = impl D0Pin<T>> + 'd,
-        d1: impl Unborrow<Target = impl D1Pin<T>> + 'd,
-        d2: impl Unborrow<Target = impl D2Pin<T>> + 'd,
-        d3: impl Unborrow<Target = impl D3Pin<T>> + 'd,
+        sdmmc: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        dma: impl Peripheral<P = Dma> + 'd,
+        clk: impl Peripheral<P = impl CkPin<T>> + 'd,
+        cmd: impl Peripheral<P = impl CmdPin<T>> + 'd,
+        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
+        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
+        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
+        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(clk, cmd, d0, d1, d2, d3);
+        into_ref!(clk, cmd, d0, d1, d2, d3);
 
         critical_section::with(|_| unsafe {
             clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
@@ -278,18 +278,18 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
     }
 
     fn new_inner(
-        sdmmc: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        dma: impl Unborrow<Target = Dma> + 'd,
-        clk: Unborrowed<'d, AnyPin>,
-        cmd: Unborrowed<'d, AnyPin>,
-        d0: Unborrowed<'d, AnyPin>,
-        d1: Option<Unborrowed<'d, AnyPin>>,
-        d2: Option<Unborrowed<'d, AnyPin>>,
-        d3: Option<Unborrowed<'d, AnyPin>>,
+        sdmmc: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        dma: impl Peripheral<P = Dma> + 'd,
+        clk: PeripheralRef<'d, AnyPin>,
+        cmd: PeripheralRef<'d, AnyPin>,
+        d0: PeripheralRef<'d, AnyPin>,
+        d1: Option<PeripheralRef<'d, AnyPin>>,
+        d2: Option<PeripheralRef<'d, AnyPin>>,
+        d3: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        unborrow!(sdmmc, irq, dma);
+        into_ref!(sdmmc, irq, dma);
 
         T::enable();
         T::reset();
@@ -324,14 +324,14 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
 #[cfg(sdmmc_v2)]
 impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
     pub fn new_1bit(
-        sdmmc: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        clk: impl Unborrow<Target = impl CkPin<T>> + 'd,
-        cmd: impl Unborrow<Target = impl CmdPin<T>> + 'd,
-        d0: impl Unborrow<Target = impl D0Pin<T>> + 'd,
+        sdmmc: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        clk: impl Peripheral<P = impl CkPin<T>> + 'd,
+        cmd: impl Peripheral<P = impl CmdPin<T>> + 'd,
+        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(clk, cmd, d0);
+        into_ref!(clk, cmd, d0);
 
         critical_section::with(|_| unsafe {
             clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
@@ -357,17 +357,17 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
     }
 
     pub fn new_4bit(
-        sdmmc: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        clk: impl Unborrow<Target = impl CkPin<T>> + 'd,
-        cmd: impl Unborrow<Target = impl CmdPin<T>> + 'd,
-        d0: impl Unborrow<Target = impl D0Pin<T>> + 'd,
-        d1: impl Unborrow<Target = impl D1Pin<T>> + 'd,
-        d2: impl Unborrow<Target = impl D2Pin<T>> + 'd,
-        d3: impl Unborrow<Target = impl D3Pin<T>> + 'd,
+        sdmmc: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        clk: impl Peripheral<P = impl CkPin<T>> + 'd,
+        cmd: impl Peripheral<P = impl CmdPin<T>> + 'd,
+        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
+        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
+        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
+        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(clk, cmd, d0, d1, d2, d3);
+        into_ref!(clk, cmd, d0, d1, d2, d3);
 
         critical_section::with(|_| unsafe {
             clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
@@ -399,17 +399,17 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
     }
 
     fn new_inner(
-        sdmmc: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        clk: Unborrowed<'d, AnyPin>,
-        cmd: Unborrowed<'d, AnyPin>,
-        d0: Unborrowed<'d, AnyPin>,
-        d1: Option<Unborrowed<'d, AnyPin>>,
-        d2: Option<Unborrowed<'d, AnyPin>>,
-        d3: Option<Unborrowed<'d, AnyPin>>,
+        sdmmc: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        clk: PeripheralRef<'d, AnyPin>,
+        cmd: PeripheralRef<'d, AnyPin>,
+        d0: PeripheralRef<'d, AnyPin>,
+        d1: Option<PeripheralRef<'d, AnyPin>>,
+        d2: Option<PeripheralRef<'d, AnyPin>>,
+        d3: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        unborrow!(sdmmc, irq);
+        into_ref!(sdmmc, irq);
 
         T::enable();
         T::reset();
@@ -424,7 +424,7 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
         Self {
             _peri: sdmmc,
             irq,
-            dma: NoDma.unborrow(),
+            dma: NoDma.into_ref(),
 
             clk,
             cmd,

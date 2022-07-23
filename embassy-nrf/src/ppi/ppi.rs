@@ -1,7 +1,7 @@
-use embassy_hal_common::unborrow;
+use embassy_hal_common::into_ref;
 
 use super::{Channel, ConfigurableChannel, Event, Ppi, StaticChannel, Task};
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 impl Task {
     fn reg_val(&self) -> u32 {
@@ -20,8 +20,8 @@ fn regs() -> &'static pac::ppi::RegisterBlock {
 
 #[cfg(not(feature = "nrf51"))] // Not for nrf51 because of the fork task
 impl<'d, C: StaticChannel> Ppi<'d, C, 0, 1> {
-    pub fn new_zero_to_one(ch: impl Unborrow<Target = C> + 'd, task: Task) -> Self {
-        unborrow!(ch);
+    pub fn new_zero_to_one(ch: impl Peripheral<P = C> + 'd, task: Task) -> Self {
+        into_ref!(ch);
 
         let r = regs();
         let n = ch.number();
@@ -32,8 +32,8 @@ impl<'d, C: StaticChannel> Ppi<'d, C, 0, 1> {
 }
 
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
-    pub fn new_one_to_one(ch: impl Unborrow<Target = C> + 'd, event: Event, task: Task) -> Self {
-        unborrow!(ch);
+    pub fn new_one_to_one(ch: impl Peripheral<P = C> + 'd, event: Event, task: Task) -> Self {
+        into_ref!(ch);
 
         let r = regs();
         let n = ch.number();
@@ -46,8 +46,8 @@ impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
 
 #[cfg(not(feature = "nrf51"))] // Not for nrf51 because of the fork task
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
-    pub fn new_one_to_two(ch: impl Unborrow<Target = C> + 'd, event: Event, task1: Task, task2: Task) -> Self {
-        unborrow!(ch);
+    pub fn new_one_to_two(ch: impl Peripheral<P = C> + 'd, event: Event, task1: Task, task2: Task) -> Self {
+        into_ref!(ch);
 
         let r = regs();
         let n = ch.number();

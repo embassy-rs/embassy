@@ -4,13 +4,13 @@ use core::task::Waker;
 
 use embassy::waitqueue::AtomicWaker;
 use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
-use embassy_hal_common::{unborrow, Unborrowed};
+use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
 
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::{AnyPin, Speed};
 use crate::pac::{ETH, RCC, SYSCFG};
-use crate::Unborrow;
+use crate::Peripheral;
 
 mod descriptors;
 use descriptors::DescriptorRing;
@@ -25,7 +25,7 @@ impl<'d, T: Instance, const TX: usize, const RX: usize> State<'d, T, TX, RX> {
 }
 pub struct Ethernet<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> {
     state: PeripheralMutex<'d, Inner<'d, T, TX, RX>>,
-    pins: [Unborrowed<'d, AnyPin>; 9],
+    pins: [PeripheralRef<'d, AnyPin>; 9],
     _phy: P,
     clock_range: u8,
     phy_addr: u8,
@@ -48,22 +48,22 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, 
     /// safety: the returned instance is not leak-safe
     pub unsafe fn new(
         state: &'d mut State<'d, T, TX, RX>,
-        peri: impl Unborrow<Target = T> + 'd,
-        interrupt: impl Unborrow<Target = crate::interrupt::ETH> + 'd,
-        ref_clk: impl Unborrow<Target = impl RefClkPin<T>> + 'd,
-        mdio: impl Unborrow<Target = impl MDIOPin<T>> + 'd,
-        mdc: impl Unborrow<Target = impl MDCPin<T>> + 'd,
-        crs: impl Unborrow<Target = impl CRSPin<T>> + 'd,
-        rx_d0: impl Unborrow<Target = impl RXD0Pin<T>> + 'd,
-        rx_d1: impl Unborrow<Target = impl RXD1Pin<T>> + 'd,
-        tx_d0: impl Unborrow<Target = impl TXD0Pin<T>> + 'd,
-        tx_d1: impl Unborrow<Target = impl TXD1Pin<T>> + 'd,
-        tx_en: impl Unborrow<Target = impl TXEnPin<T>> + 'd,
+        peri: impl Peripheral<P = T> + 'd,
+        interrupt: impl Peripheral<P = crate::interrupt::ETH> + 'd,
+        ref_clk: impl Peripheral<P = impl RefClkPin<T>> + 'd,
+        mdio: impl Peripheral<P = impl MDIOPin<T>> + 'd,
+        mdc: impl Peripheral<P = impl MDCPin<T>> + 'd,
+        crs: impl Peripheral<P = impl CRSPin<T>> + 'd,
+        rx_d0: impl Peripheral<P = impl RXD0Pin<T>> + 'd,
+        rx_d1: impl Peripheral<P = impl RXD1Pin<T>> + 'd,
+        tx_d0: impl Peripheral<P = impl TXD0Pin<T>> + 'd,
+        tx_d1: impl Peripheral<P = impl TXD1Pin<T>> + 'd,
+        tx_en: impl Peripheral<P = impl TXEnPin<T>> + 'd,
         phy: P,
         mac_addr: [u8; 6],
         phy_addr: u8,
     ) -> Self {
-        unborrow!(interrupt, ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
+        into_ref!(interrupt, ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
         // Enable the necessary Clocks
         // NOTE(unsafe) We have exclusive access to the registers
@@ -316,7 +316,7 @@ struct Inner<'d, T: Instance, const TX: usize, const RX: usize> {
 }
 
 impl<'d, T: Instance, const TX: usize, const RX: usize> Inner<'d, T, TX, RX> {
-    pub fn new(_peri: impl Unborrow<Target = T> + 'd) -> Self {
+    pub fn new(_peri: impl Peripheral<P = T> + 'd) -> Self {
         Self {
             _peri: PhantomData,
             desc_ring: DescriptorRing::new(),

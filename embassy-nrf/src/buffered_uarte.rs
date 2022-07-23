@@ -22,7 +22,7 @@ use core::task::Poll;
 use embassy::waitqueue::WakerRegistration;
 use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::ring_buffer::RingBuffer;
-use embassy_hal_common::{low_power_wait_until, unborrow};
+use embassy_hal_common::{into_ref, low_power_wait_until};
 use futures::future::poll_fn;
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
@@ -32,7 +32,7 @@ use crate::interrupt::InterruptExt;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::uarte::{apply_workaround_for_enable_anomaly, Config, Instance as UarteInstance};
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum RxState {
@@ -78,20 +78,20 @@ impl<'d, U: UarteInstance, T: TimerInstance> Unpin for BufferedUarte<'d, U, T> {
 impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     pub fn new(
         state: &'d mut State<'d, U, T>,
-        _uarte: impl Unborrow<Target = U> + 'd,
-        timer: impl Unborrow<Target = T> + 'd,
-        ppi_ch1: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
-        ppi_ch2: impl Unborrow<Target = impl ConfigurableChannel + 'd> + 'd,
-        irq: impl Unborrow<Target = U::Interrupt> + 'd,
-        rxd: impl Unborrow<Target = impl GpioPin> + 'd,
-        txd: impl Unborrow<Target = impl GpioPin> + 'd,
-        cts: impl Unborrow<Target = impl GpioPin> + 'd,
-        rts: impl Unborrow<Target = impl GpioPin> + 'd,
+        _uarte: impl Peripheral<P = U> + 'd,
+        timer: impl Peripheral<P = T> + 'd,
+        ppi_ch1: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
+        ppi_ch2: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
+        irq: impl Peripheral<P = U::Interrupt> + 'd,
+        rxd: impl Peripheral<P = impl GpioPin> + 'd,
+        txd: impl Peripheral<P = impl GpioPin> + 'd,
+        cts: impl Peripheral<P = impl GpioPin> + 'd,
+        rts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
     ) -> Self {
-        unborrow!(ppi_ch1, ppi_ch2, irq, rxd, txd, cts, rts);
+        into_ref!(ppi_ch1, ppi_ch2, irq, rxd, txd, cts, rts);
 
         let r = U::regs();
 

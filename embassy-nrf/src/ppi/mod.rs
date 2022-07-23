@@ -17,9 +17,9 @@
 
 use core::ptr::NonNull;
 
-use embassy_hal_common::{impl_unborrow, Unborrowed};
+use embassy_hal_common::{impl_peripheral, PeripheralRef};
 
-use crate::{peripherals, Unborrow};
+use crate::{peripherals, Peripheral};
 
 #[cfg(feature = "_dppi")]
 mod dppi;
@@ -27,7 +27,7 @@ mod dppi;
 mod ppi;
 
 pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> {
-    ch: Unborrowed<'d, C>,
+    ch: PeripheralRef<'d, C>,
     #[cfg(feature = "_dppi")]
     events: [Event; EVENT_COUNT],
     #[cfg(feature = "_dppi")]
@@ -87,7 +87,7 @@ pub(crate) mod sealed {
     pub trait Group {}
 }
 
-pub trait Channel: sealed::Channel + Unborrow<Target = Self> + Sized {
+pub trait Channel: sealed::Channel + Peripheral<P = Self> + Sized {
     /// Returns the number of the channel
     fn number(&self) -> usize;
 }
@@ -117,7 +117,7 @@ pub trait Group: sealed::Group + Sized {
 pub struct AnyStaticChannel {
     pub(crate) number: u8,
 }
-impl_unborrow!(AnyStaticChannel);
+impl_peripheral!(AnyStaticChannel);
 impl sealed::Channel for AnyStaticChannel {}
 impl Channel for AnyStaticChannel {
     fn number(&self) -> usize {
@@ -135,7 +135,7 @@ impl StaticChannel for AnyStaticChannel {
 pub struct AnyConfigurableChannel {
     pub(crate) number: u8,
 }
-impl_unborrow!(AnyConfigurableChannel);
+impl_peripheral!(AnyConfigurableChannel);
 impl sealed::Channel for AnyConfigurableChannel {}
 impl Channel for AnyConfigurableChannel {
     fn number(&self) -> usize {
@@ -187,7 +187,7 @@ macro_rules! impl_ppi_channel {
 pub struct AnyGroup {
     number: u8,
 }
-impl_unborrow!(AnyGroup);
+impl_peripheral!(AnyGroup);
 impl sealed::Group for AnyGroup {}
 impl Group for AnyGroup {
     fn number(&self) -> usize {

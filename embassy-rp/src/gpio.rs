@@ -5,11 +5,11 @@ use core::task::{Context, Poll};
 
 use embassy::waitqueue::AtomicWaker;
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
-use embassy_hal_common::{impl_unborrow, unborrow, Unborrowed};
+use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
 
 use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
-use crate::{interrupt, pac, peripherals, Unborrow};
+use crate::{interrupt, pac, peripherals, Peripheral};
 
 const PIN_COUNT: usize = 30;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
@@ -61,7 +61,7 @@ pub struct Input<'d, T: Pin> {
 
 impl<'d, T: Pin> Input<'d, T> {
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: impl Peripheral<P = T> + 'd, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input();
         pin.set_pull(pull);
@@ -177,13 +177,13 @@ unsafe fn IO_IRQ_BANK0() {
 }
 
 struct InputFuture<'a, T: Pin> {
-    pin: Unborrowed<'a, T>,
+    pin: PeripheralRef<'a, T>,
     level: InterruptTrigger,
 }
 
 impl<'d, T: Pin> InputFuture<'d, T> {
-    pub fn new(pin: impl Unborrow<Target = T> + 'd, level: InterruptTrigger) -> Self {
-        unborrow!(pin);
+    pub fn new(pin: impl Peripheral<P = T> + 'd, level: InterruptTrigger) -> Self {
+        into_ref!(pin);
         unsafe {
             let irq = interrupt::IO_IRQ_BANK0::steal();
             irq.disable();
@@ -290,7 +290,7 @@ pub struct Output<'d, T: Pin> {
 
 impl<'d, T: Pin> Output<'d, T> {
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: impl Peripheral<P = T> + 'd, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -351,7 +351,7 @@ pub struct OutputOpenDrain<'d, T: Pin> {
 
 impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: impl Peripheral<P = T> + 'd, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_low();
         match initial_output {
@@ -415,13 +415,13 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d, T: Pin> {
-    pin: Unborrowed<'d, T>,
+    pin: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Pin> Flex<'d, T> {
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd) -> Self {
-        unborrow!(pin);
+    pub fn new(pin: impl Peripheral<P = T> + 'd) -> Self {
+        into_ref!(pin);
 
         unsafe {
             pin.pad_ctrl().write(|w| {
@@ -647,7 +647,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Pin: Unborrow<Target = Self> + sealed::Pin {
+pub trait Pin: Peripheral<P = Self> + sealed::Pin {
     /// Degrade to a generic pin struct
     fn degrade(self) -> AnyPin {
         AnyPin {
@@ -661,22 +661,22 @@ pub struct AnyPin {
 }
 
 impl AnyPin {
-    pub(crate) fn unborrow_and_degrade<'a>(pin: impl Unborrow<Target = impl Pin + 'a> + 'a) -> Unborrowed<'a, Self> {
-        Unborrowed::new(AnyPin {
-            pin_bank: pin.unborrow().pin_bank(),
+    pub(crate) fn into_degraded_ref<'a>(pin: impl Peripheral<P = impl Pin + 'a> + 'a) -> PeripheralRef<'a, Self> {
+        PeripheralRef::new(AnyPin {
+            pin_bank: pin.into_ref().pin_bank(),
         })
     }
 }
 
-macro_rules! unborrow_and_degrade {
+macro_rules! into_degraded_ref {
     ($($name:ident),*) => {
         $(
-            let $name = $crate::gpio::AnyPin::unborrow_and_degrade($name);
+            let $name = $crate::gpio::AnyPin::into_degraded_ref($name);
         )*
     };
 }
 
-impl_unborrow!(AnyPin);
+impl_peripheral!(AnyPin);
 
 impl Pin for AnyPin {}
 impl sealed::Pin for AnyPin {

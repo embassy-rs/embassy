@@ -3,11 +3,11 @@
 use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
-use embassy_hal_common::{unborrow, Unborrowed};
+use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::poll_fn;
 use rand_core::{CryptoRng, RngCore};
 
-use crate::{pac, peripherals, Unborrow};
+use crate::{pac, peripherals, Peripheral};
 
 pub(crate) static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -18,14 +18,14 @@ pub enum Error {
 }
 
 pub struct Rng<'d, T: Instance> {
-    _inner: Unborrowed<'d, T>,
+    _inner: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Instance> Rng<'d, T> {
-    pub fn new(inner: impl Unborrow<Target = T> + 'd) -> Self {
+    pub fn new(inner: impl Peripheral<P = T> + 'd) -> Self {
         T::enable();
         T::reset();
-        unborrow!(inner);
+        into_ref!(inner);
         let mut random = Self { _inner: inner };
         random.reset();
         random
