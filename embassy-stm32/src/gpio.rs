@@ -621,7 +621,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Pin: Into<AnyPin> + sealed::Pin + Sized + 'static {
+pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'static {
     #[cfg(feature = "exti")]
     type ExtiChannel: crate::exti::Channel;
 
