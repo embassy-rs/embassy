@@ -3,7 +3,7 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use embassy_hal_common::PeripheralRef;
+use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Pin as GpioPin, PselBits};
@@ -55,8 +55,8 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         ch0: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
-        into_degraded_ref!(ch0);
-        Self::new_inner(pwm, Some(ch0), None, None, None, config)
+        into_ref!(ch0);
+        Self::new_inner(pwm, Some(ch0.map_into()), None, None, None, config)
     }
 
     /// Create a new 2-channel PWM
@@ -67,8 +67,8 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         ch1: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
-        into_degraded_ref!(ch0, ch1);
-        Self::new_inner(pwm, Some(ch0), Some(ch1), None, None, config)
+        into_ref!(ch0, ch1);
+        Self::new_inner(pwm, Some(ch0.map_into()), Some(ch1.map_into()), None, None, config)
     }
 
     /// Create a new 3-channel PWM
@@ -80,8 +80,15 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         ch2: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
-        into_degraded_ref!(ch0, ch1, ch2);
-        Self::new_inner(pwm, Some(ch0), Some(ch1), Some(ch2), None, config)
+        into_ref!(ch0, ch1, ch2);
+        Self::new_inner(
+            pwm,
+            Some(ch0.map_into()),
+            Some(ch1.map_into()),
+            Some(ch2.map_into()),
+            None,
+            config,
+        )
     }
 
     /// Create a new 4-channel PWM
@@ -94,8 +101,15 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         ch3: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
-        into_degraded_ref!(ch0, ch1, ch2, ch3);
-        Self::new_inner(pwm, Some(ch0), Some(ch1), Some(ch2), Some(ch3), config)
+        into_ref!(ch0, ch1, ch2, ch3);
+        Self::new_inner(
+            pwm,
+            Some(ch0.map_into()),
+            Some(ch1.map_into()),
+            Some(ch2.map_into()),
+            Some(ch3.map_into()),
+            config,
+        )
     }
 
     fn new_inner(
@@ -561,8 +575,8 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     #[allow(unused_unsafe)]
     pub fn new_1ch(pwm: impl Peripheral<P = T> + 'd, ch0: impl Peripheral<P = impl GpioPin> + 'd) -> Self {
         unsafe {
-            into_degraded_ref!(ch0);
-            Self::new_inner(pwm, Some(ch0), None, None, None)
+            into_ref!(ch0);
+            Self::new_inner(pwm, Some(ch0.map_into()), None, None, None)
         }
     }
 
@@ -573,8 +587,8 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         ch0: impl Peripheral<P = impl GpioPin> + 'd,
         ch1: impl Peripheral<P = impl GpioPin> + 'd,
     ) -> Self {
-        into_degraded_ref!(ch0, ch1);
-        Self::new_inner(pwm, Some(ch0), Some(ch1), None, None)
+        into_ref!(ch0, ch1);
+        Self::new_inner(pwm, Some(ch0.map_into()), Some(ch1.map_into()), None, None)
     }
 
     /// Create a new 3-channel PWM
@@ -586,8 +600,14 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         ch2: impl Peripheral<P = impl GpioPin> + 'd,
     ) -> Self {
         unsafe {
-            into_degraded_ref!(ch0, ch1, ch2);
-            Self::new_inner(pwm, Some(ch0), Some(ch1), Some(ch2), None)
+            into_ref!(ch0, ch1, ch2);
+            Self::new_inner(
+                pwm,
+                Some(ch0.map_into()),
+                Some(ch1.map_into()),
+                Some(ch2.map_into()),
+                None,
+            )
         }
     }
 
@@ -601,8 +621,14 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         ch3: impl Peripheral<P = impl GpioPin> + 'd,
     ) -> Self {
         unsafe {
-            into_degraded_ref!(ch0, ch1, ch2, ch3);
-            Self::new_inner(pwm, Some(ch0), Some(ch1), Some(ch2), Some(ch3))
+            into_ref!(ch0, ch1, ch2, ch3);
+            Self::new_inner(
+                pwm,
+                Some(ch0.map_into()),
+                Some(ch1.map_into()),
+                Some(ch2.map_into()),
+                Some(ch3.map_into()),
+            )
         }
     }
 

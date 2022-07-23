@@ -49,8 +49,8 @@ impl<'d> Qdec<'d> {
         b: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(a, b);
-        Self::new_inner(qdec, irq, a, b, None, config)
+        into_ref!(a, b);
+        Self::new_inner(qdec, irq, a.map_into(), b.map_into(), None, config)
     }
 
     pub fn new_with_led(
@@ -61,8 +61,8 @@ impl<'d> Qdec<'d> {
         led: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(a, b, led);
-        Self::new_inner(qdec, irq, a, b, Some(led), config)
+        into_ref!(a, b, led);
+        Self::new_inner(qdec, irq, a.map_into(), b.map_into(), Some(led.map_into()), config)
     }
 
     fn new_inner(

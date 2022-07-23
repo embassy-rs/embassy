@@ -7,7 +7,6 @@ use embassy_hal_common::drop::DropBomb;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::poll_fn;
 
-use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, Pin as GpioPin};
 use crate::interrupt::{Interrupt, InterruptExt};
 pub use crate::pac::qspi::ifconfig0::{
@@ -82,12 +81,18 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
 
         let r = T::regs();
 
-        into_degraded_ref!(sck, csn, io0, io1, io2, io3);
-
-        for pin in [&sck, &csn, &io0, &io1, &io2, &io3] {
-            pin.set_high();
-            pin.conf().write(|w| w.dir().output().drive().h0h1());
-        }
+        sck.set_high();
+        csn.set_high();
+        io0.set_high();
+        io1.set_high();
+        io2.set_high();
+        io3.set_high();
+        sck.conf().write(|w| w.dir().output().drive().h0h1());
+        csn.conf().write(|w| w.dir().output().drive().h0h1());
+        io0.conf().write(|w| w.dir().output().drive().h0h1());
+        io1.conf().write(|w| w.dir().output().drive().h0h1());
+        io2.conf().write(|w| w.dir().output().drive().h0h1());
+        io3.conf().write(|w| w.dir().output().drive().h0h1());
 
         r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
         r.psel.csn.write(|w| unsafe { w.bits(csn.psel_bits()) });

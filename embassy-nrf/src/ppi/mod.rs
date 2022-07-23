@@ -92,11 +92,11 @@ pub trait Channel: sealed::Channel + Peripheral<P = Self> + Sized {
     fn number(&self) -> usize;
 }
 
-pub trait ConfigurableChannel: Channel {
+pub trait ConfigurableChannel: Channel + Into<AnyConfigurableChannel> {
     fn degrade(self) -> AnyConfigurableChannel;
 }
 
-pub trait StaticChannel: Channel {
+pub trait StaticChannel: Channel + Into<AnyStaticChannel> {
     fn degrade(self) -> AnyStaticChannel;
 }
 
@@ -167,6 +167,12 @@ macro_rules! impl_ppi_channel {
                 }
             }
         }
+
+        impl From<peripherals::$type> for crate::ppi::AnyStaticChannel {
+            fn from(val: peripherals::$type) -> Self {
+                crate::ppi::StaticChannel::degrade(val)
+            }
+        }
     };
     ($type:ident, $number:expr => configurable) => {
         impl_ppi_channel!($type, $number);
@@ -176,6 +182,12 @@ macro_rules! impl_ppi_channel {
                 crate::ppi::AnyConfigurableChannel {
                     number: self.number() as u8,
                 }
+            }
+        }
+
+        impl From<peripherals::$type> for crate::ppi::AnyConfigurableChannel {
+            fn from(val: peripherals::$type) -> Self {
+                crate::ppi::ConfigurableChannel::degrade(val)
             }
         }
     };

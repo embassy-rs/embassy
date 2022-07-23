@@ -65,8 +65,15 @@ impl<'d, T: Instance> Spi<'d, T> {
         miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(clk, mosi, miso);
-        Self::new_inner(inner, Some(clk), Some(mosi), Some(miso), None, config)
+        into_ref!(clk, mosi, miso);
+        Self::new_inner(
+            inner,
+            Some(clk.map_into()),
+            Some(mosi.map_into()),
+            Some(miso.map_into()),
+            None,
+            config,
+        )
     }
 
     pub fn new_txonly(
@@ -75,8 +82,8 @@ impl<'d, T: Instance> Spi<'d, T> {
         mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(clk, mosi);
-        Self::new_inner(inner, Some(clk), Some(mosi), None, None, config)
+        into_ref!(clk, mosi);
+        Self::new_inner(inner, Some(clk.map_into()), Some(mosi.map_into()), None, None, config)
     }
 
     pub fn new_rxonly(
@@ -85,8 +92,8 @@ impl<'d, T: Instance> Spi<'d, T> {
         miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(clk, miso);
-        Self::new_inner(inner, Some(clk), None, Some(miso), None, config)
+        into_ref!(clk, miso);
+        Self::new_inner(inner, Some(clk.map_into()), None, Some(miso.map_into()), None, config)
     }
 
     fn new_inner(

@@ -43,10 +43,6 @@ impl<'a, T> PeripheralRef<'a, T> {
             _lifetime: PhantomData,
         }
     }
-
-    pub unsafe fn into_inner(self) -> T {
-        self.inner
-    }
 }
 
 impl<'a, T> Deref for PeripheralRef<'a, T> {

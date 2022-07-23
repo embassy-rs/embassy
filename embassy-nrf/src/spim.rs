@@ -60,8 +60,15 @@ impl<'d, T: Instance> Spim<'d, T> {
         mosi: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(sck, miso, mosi);
-        Self::new_inner(spim, irq, sck, Some(miso), Some(mosi), config)
+        into_ref!(sck, miso, mosi);
+        Self::new_inner(
+            spim,
+            irq,
+            sck.map_into(),
+            Some(miso.map_into()),
+            Some(mosi.map_into()),
+            config,
+        )
     }
 
     pub fn new_txonly(
@@ -71,8 +78,8 @@ impl<'d, T: Instance> Spim<'d, T> {
         mosi: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(sck, mosi);
-        Self::new_inner(spim, irq, sck, None, Some(mosi), config)
+        into_ref!(sck, mosi);
+        Self::new_inner(spim, irq, sck.map_into(), None, Some(mosi.map_into()), config)
     }
 
     pub fn new_rxonly(
@@ -82,8 +89,8 @@ impl<'d, T: Instance> Spim<'d, T> {
         miso: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(sck, miso);
-        Self::new_inner(spim, irq, sck, Some(miso), None, config)
+        into_ref!(sck, miso);
+        Self::new_inner(spim, irq, sck.map_into(), Some(miso.map_into()), None, config)
     }
 
     fn new_inner(

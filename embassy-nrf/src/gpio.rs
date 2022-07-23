@@ -374,7 +374,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Pin: Peripheral<P = Self> + sealed::Pin + Sized + 'static {
+pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'static {
     /// Number of the pin within the port (0..31)
     #[inline]
     fn pin(&self) -> u8 {
@@ -416,20 +416,6 @@ impl AnyPin {
     pub unsafe fn steal(pin_port: u8) -> Self {
         Self { pin_port }
     }
-
-    pub(crate) fn into_degraded_ref<'a>(pin: impl Peripheral<P = impl Pin + 'a> + 'a) -> PeripheralRef<'a, Self> {
-        PeripheralRef::new(AnyPin {
-            pin_port: pin.into_ref().pin_port(),
-        })
-    }
-}
-
-macro_rules! into_degraded_ref {
-    ($($name:ident),*) => {
-        $(
-            let $name = $crate::gpio::AnyPin::into_degraded_ref($name);
-        )*
-    };
 }
 
 impl_peripheral!(AnyPin);
@@ -473,6 +459,12 @@ macro_rules! impl_pin {
             #[inline]
             fn pin_port(&self) -> u8 {
                 $port_num * 32 + $pin_num
+            }
+        }
+
+        impl From<peripherals::$type> for crate::gpio::AnyPin {
+            fn from(val: peripherals::$type) -> Self {
+                crate::gpio::Pin::degrade(val)
             }
         }
     };

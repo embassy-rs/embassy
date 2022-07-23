@@ -89,8 +89,8 @@ impl<'d, T: Instance> Uarte<'d, T> {
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(rxd, txd);
-        Self::new_inner(uarte, irq, rxd, txd, None, None, config)
+        into_ref!(rxd, txd);
+        Self::new_inner(uarte, irq, rxd.map_into(), txd.map_into(), None, None, config)
     }
 
     /// Create a new UARTE with hardware flow control (RTS/CTS)
@@ -103,8 +103,16 @@ impl<'d, T: Instance> Uarte<'d, T> {
         rts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(rxd, txd, cts, rts);
-        Self::new_inner(uarte, irq, rxd, txd, Some(cts), Some(rts), config)
+        into_ref!(rxd, txd, cts, rts);
+        Self::new_inner(
+            uarte,
+            irq,
+            rxd.map_into(),
+            txd.map_into(),
+            Some(cts.map_into()),
+            Some(rts.map_into()),
+            config,
+        )
     }
 
     fn new_inner(
@@ -242,8 +250,8 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(txd);
-        Self::new_inner(uarte, irq, txd, None, config)
+        into_ref!(txd);
+        Self::new_inner(uarte, irq, txd.map_into(), None, config)
     }
 
     /// Create a new tx-only UARTE with hardware flow control (RTS/CTS)
@@ -254,8 +262,8 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         cts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(txd, cts);
-        Self::new_inner(uarte, irq, txd, Some(cts), config)
+        into_ref!(txd, cts);
+        Self::new_inner(uarte, irq, txd.map_into(), Some(cts.map_into()), config)
     }
 
     fn new_inner(
@@ -434,8 +442,8 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         rxd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(rxd);
-        Self::new_inner(uarte, irq, rxd, None, config)
+        into_ref!(rxd);
+        Self::new_inner(uarte, irq, rxd.map_into(), None, config)
     }
 
     /// Create a new rx-only UARTE with hardware flow control (RTS/CTS)
@@ -446,8 +454,8 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         rts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(rxd, rts);
-        Self::new_inner(uarte, irq, rxd, Some(rts), config)
+        into_ref!(rxd, rts);
+        Self::new_inner(uarte, irq, rxd.map_into(), Some(rts.map_into()), config)
     }
 
     fn new_inner(
@@ -677,8 +685,19 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(rxd, txd);
-        Self::new_inner(uarte, timer, ppi_ch1, ppi_ch2, irq, rxd, txd, None, None, config)
+        into_ref!(rxd, txd);
+        Self::new_inner(
+            uarte,
+            timer,
+            ppi_ch1,
+            ppi_ch2,
+            irq,
+            rxd.map_into(),
+            txd.map_into(),
+            None,
+            None,
+            config,
+        )
     }
 
     /// Create a new UARTE with hardware flow control (RTS/CTS)
@@ -694,17 +713,17 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         rts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_degraded_ref!(rxd, txd, cts, rts);
+        into_ref!(rxd, txd, cts, rts);
         Self::new_inner(
             uarte,
             timer,
             ppi_ch1,
             ppi_ch2,
             irq,
-            rxd,
-            txd,
-            Some(cts),
-            Some(rts),
+            rxd.map_into(),
+            txd.map_into(),
+            Some(cts.map_into()),
+            Some(rts.map_into()),
             config,
         )
     }
@@ -744,7 +763,7 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         timer.cc(0).short_compare_stop();
 
         let mut ppi_ch1 = Ppi::new_one_to_two(
-            unsafe { ppi_ch1.into_inner() }.degrade(),
+            ppi_ch1.map_into(),
             Event::from_reg(&r.events_rxdrdy),
             timer.task_clear(),
             timer.task_start(),
@@ -752,7 +771,7 @@ impl<'d, U: Instance, T: TimerInstance> UarteWithIdle<'d, U, T> {
         ppi_ch1.enable();
 
         let mut ppi_ch2 = Ppi::new_one_to_one(
-            unsafe { ppi_ch2.into_inner() }.degrade(),
+            ppi_ch2.map_into(),
             timer.cc(0).event_compare(),
             Task::from_reg(&r.tasks_stoprx),
         );
