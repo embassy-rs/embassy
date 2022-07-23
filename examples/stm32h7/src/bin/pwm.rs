@@ -5,7 +5,7 @@
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
-use embassy_stm32::pwm::simple_pwm::SimplePwm;
+use embassy_stm32::pwm::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::pwm::Channel;
 use embassy_stm32::time::{khz, mhz};
 use embassy_stm32::{Config, Peripherals};
@@ -27,7 +27,8 @@ pub fn config() -> Config {
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
-    let mut pwm = SimplePwm::new_1ch(p.TIM3, p.PA6, khz(10));
+    let ch1 = PwmPin::new_ch1(p.PA6);
+    let mut pwm = SimplePwm::new(p.TIM3, Some(ch1), None, None, None, khz(10));
     let max = pwm.get_max_duty();
     pwm.enable(Channel::Ch1);
 

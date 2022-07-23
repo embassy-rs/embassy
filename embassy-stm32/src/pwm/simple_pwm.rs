@@ -20,9 +20,9 @@ pub struct PwmPin<'d, Perip, Channel> {
 }
 
 macro_rules! channel_impl {
-    ($channel:ident, $pin_trait:ident) => {
+    ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
         impl<'d, Perip: CaptureCompare16bitInstance> PwmPin<'d, Perip, $channel> {
-            pub fn new(pin: impl Peripheral<P = impl $pin_trait<Perip>> + 'd) -> Self {
+            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<Perip>> + 'd) -> Self {
                 into_ref!(pin);
                 critical_section::with(|_| unsafe {
                     pin.set_low();
@@ -39,10 +39,10 @@ macro_rules! channel_impl {
     };
 }
 
-channel_impl!(Ch1, Channel1Pin);
-channel_impl!(Ch2, Channel2Pin);
-channel_impl!(Ch3, Channel3Pin);
-channel_impl!(Ch4, Channel4Pin);
+channel_impl!(new_ch1, Ch1, Channel1Pin);
+channel_impl!(new_ch2, Ch2, Channel2Pin);
+channel_impl!(new_ch3, Ch3, Channel3Pin);
+channel_impl!(new_ch4, Ch4, Channel4Pin);
 
 pub struct SimplePwm<'d, T> {
     inner: PeripheralRef<'d, T>,
@@ -51,10 +51,10 @@ pub struct SimplePwm<'d, T> {
 impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     pub fn new(
         tim: impl Peripheral<P = T> + 'd,
-        _ch1: Option<PwmPin<T, Ch1>>,
-        _ch2: Option<PwmPin<T, Ch2>>,
-        _ch3: Option<PwmPin<T, Ch3>>,
-        _ch4: Option<PwmPin<T, Ch4>>,
+        _ch1: Option<PwmPin<'d, T, Ch1>>,
+        _ch2: Option<PwmPin<'d, T, Ch2>>,
+        _ch3: Option<PwmPin<'d, T, Ch3>>,
+        _ch4: Option<PwmPin<'d, T, Ch4>>,
         freq: Hertz,
     ) -> Self {
         Self::new_inner(tim, freq)
