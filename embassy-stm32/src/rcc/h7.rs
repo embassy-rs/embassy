@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::unborrow;
+use embassy_hal_common::into_ref;
 pub use pll::PllConfig;
 use stm32_metapac::rcc::vals::{Mco1, Mco2};
 
@@ -10,7 +10,7 @@ use crate::pac::rcc::vals::{Adcsel, Ckpersel, Dppre, Hpre, Hsidiv, Pllsrc, Sw, T
 use crate::pac::{PWR, RCC, SYSCFG};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
-use crate::{peripherals, Unborrow};
+use crate::{peripherals, Peripheral};
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(64_000_000);
@@ -385,12 +385,12 @@ pub struct Mco<'d, T: McoInstance> {
 
 impl<'d, T: McoInstance> Mco<'d, T> {
     pub fn new(
-        _peri: impl Unborrow<Target = T> + 'd,
-        pin: impl Unborrow<Target = impl McoPin<T>> + 'd,
+        _peri: impl Peripheral<P = T> + 'd,
+        pin: impl Peripheral<P = impl McoPin<T>> + 'd,
         source: impl McoSource<Raw = T::Source>,
         prescaler: McoClock,
     ) -> Self {
-        unborrow!(pin);
+        into_ref!(pin);
 
         critical_section::with(|_| unsafe {
             T::apply_clock_settings(source.into_raw(), prescaler.into_raw());

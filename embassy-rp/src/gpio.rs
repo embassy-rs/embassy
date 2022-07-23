@@ -1,15 +1,15 @@
+#![macro_use]
 use core::future::Future;
-use core::marker::PhantomData;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
 use embassy::waitqueue::AtomicWaker;
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
-use embassy_hal_common::{unborrow, unsafe_impl_unborrow};
+use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
 
 use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
-use crate::{interrupt, pac, peripherals, Unborrow};
+use crate::{interrupt, pac, peripherals, Peripheral};
 
 const PIN_COUNT: usize = 30;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
@@ -61,7 +61,7 @@ pub struct Input<'d, T: Pin> {
 
 impl<'d, T: Pin> Input<'d, T> {
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: impl Peripheral<P = T> + 'd, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input();
         pin.set_pull(pull);
@@ -177,13 +177,13 @@ unsafe fn IO_IRQ_BANK0() {
 }
 
 struct InputFuture<'a, T: Pin> {
-    pin: &'a mut T,
+    pin: PeripheralRef<'a, T>,
     level: InterruptTrigger,
-    phantom: PhantomData<&'a mut AnyPin>,
 }
 
 impl<'d, T: Pin> InputFuture<'d, T> {
-    pub fn new(pin: &'d mut T, level: InterruptTrigger) -> Self {
+    pub fn new(pin: impl Peripheral<P = T> + 'd, level: InterruptTrigger) -> Self {
+        into_ref!(pin);
         unsafe {
             let irq = interrupt::IO_IRQ_BANK0::steal();
             irq.disable();
@@ -215,11 +215,7 @@ impl<'d, T: Pin> InputFuture<'d, T> {
             irq.enable();
         }
 
-        Self {
-            pin,
-            level,
-            phantom: PhantomData,
-        }
+        Self { pin, level }
     }
 }
 
@@ -294,7 +290,7 @@ pub struct Output<'d, T: Pin> {
 
 impl<'d, T: Pin> Output<'d, T> {
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: impl Peripheral<P = T> + 'd, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -355,7 +351,7 @@ pub struct OutputOpenDrain<'d, T: Pin> {
 
 impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: impl Peripheral<P = T> + 'd, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_low();
         match initial_output {
@@ -419,14 +415,13 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d, T: Pin> {
-    pin: T,
-    phantom: PhantomData<&'d mut T>,
+    pin: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Pin> Flex<'d, T> {
     #[inline]
-    pub fn new(pin: impl Unborrow<Target = T> + 'd) -> Self {
-        unborrow!(pin);
+    pub fn new(pin: impl Peripheral<P = T> + 'd) -> Self {
+        into_ref!(pin);
 
         unsafe {
             pin.pad_ctrl().write(|w| {
@@ -438,10 +433,7 @@ impl<'d, T: Pin> Flex<'d, T> {
             });
         }
 
-        Self {
-            pin,
-            phantom: PhantomData,
-        }
+        Self { pin }
     }
 
     #[inline]
@@ -655,7 +647,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Pin: Unborrow<Target = Self> + sealed::Pin {
+pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'static {
     /// Degrade to a generic pin struct
     fn degrade(self) -> AnyPin {
         AnyPin {
@@ -667,7 +659,9 @@ pub trait Pin: Unborrow<Target = Self> + sealed::Pin {
 pub struct AnyPin {
     pin_bank: u8,
 }
-unsafe_impl_unborrow!(AnyPin);
+
+impl_peripheral!(AnyPin);
+
 impl Pin for AnyPin {}
 impl sealed::Pin for AnyPin {
     fn pin_bank(&self) -> u8 {
@@ -683,6 +677,12 @@ macro_rules! impl_pin {
         impl sealed::Pin for peripherals::$name {
             fn pin_bank(&self) -> u8 {
                 ($bank as u8) * 32 + $pin_num
+            }
+        }
+
+        impl From<peripherals::$name> for crate::gpio::AnyPin {
+            fn from(val: peripherals::$name) -> Self {
+                crate::gpio::Pin::degrade(val)
             }
         }
     };

@@ -5,12 +5,12 @@ use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::poll_fn;
 
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::ppi::{Event, Task};
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 pub(crate) mod sealed {
 
@@ -28,7 +28,7 @@ pub(crate) mod sealed {
     pub trait TimerType {}
 }
 
-pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static + Send {
+pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
     type Interrupt: Interrupt;
 }
 pub trait ExtendedInstance: Instance + sealed::ExtendedInstance {}
@@ -95,15 +95,13 @@ impl TimerType for Awaitable {}
 impl TimerType for NotAwaitable {}
 
 pub struct Timer<'d, T: Instance, I: TimerType = NotAwaitable> {
-    phantom: PhantomData<(&'d mut T, I)>,
+    _p: PeripheralRef<'d, T>,
+    _i: PhantomData<I>,
 }
 
 impl<'d, T: Instance> Timer<'d, T, Awaitable> {
-    pub fn new_awaitable(
-        timer: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-    ) -> Self {
-        unborrow!(irq);
+    pub fn new_awaitable(timer: impl Peripheral<P = T> + 'd, irq: impl Peripheral<P = T::Interrupt> + 'd) -> Self {
+        into_ref!(irq);
 
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
@@ -117,7 +115,7 @@ impl<'d, T: Instance> Timer<'d, T, NotAwaitable> {
     ///
     /// This can be useful for triggering tasks via PPI
     /// `Uarte` uses this internally.
-    pub fn new(timer: impl Unborrow<Target = T> + 'd) -> Self {
+    pub fn new(timer: impl Peripheral<P = T> + 'd) -> Self {
         Self::new_irqless(timer)
     }
 }
@@ -126,10 +124,15 @@ impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
     /// Create a `Timer` without an interrupt, meaning `Cc::wait` won't work.
     ///
     /// This is used by the public constructors.
-    fn new_irqless(_timer: impl Unborrow<Target = T> + 'd) -> Self {
+    fn new_irqless(timer: impl Peripheral<P = T> + 'd) -> Self {
+        into_ref!(timer);
+
         let regs = T::regs();
 
-        let mut this = Self { phantom: PhantomData };
+        let mut this = Self {
+            _p: timer,
+            _i: PhantomData,
+        };
 
         // Stop the timer before doing anything else,
         // since changing BITMODE while running can cause 'unpredictable behaviour' according to the specification.
@@ -233,7 +236,8 @@ impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
         }
         Cc {
             n,
-            phantom: PhantomData,
+            _p: self._p.reborrow(),
+            _i: PhantomData,
         }
     }
 }
@@ -245,12 +249,13 @@ impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
 ///
 /// The timer will fire the register's COMPARE event when its counter reaches the value stored in the register.
 /// When the register's CAPTURE task is triggered, the timer will store the current value of its counter in the register
-pub struct Cc<'a, T: Instance, I: TimerType = NotAwaitable> {
+pub struct Cc<'d, T: Instance, I: TimerType = NotAwaitable> {
     n: usize,
-    phantom: PhantomData<(&'a mut T, I)>,
+    _p: PeripheralRef<'d, T>,
+    _i: PhantomData<I>,
 }
 
-impl<'a, T: Instance> Cc<'a, T, Awaitable> {
+impl<'d, T: Instance> Cc<'d, T, Awaitable> {
     /// Wait until the timer's counter reaches the value stored in this register.
     ///
     /// This requires a mutable reference so that this task's waker cannot be overwritten by a second call to `wait`.
@@ -284,9 +289,9 @@ impl<'a, T: Instance> Cc<'a, T, Awaitable> {
         on_drop.defuse();
     }
 }
-impl<'a, T: Instance> Cc<'a, T, NotAwaitable> {}
+impl<'d, T: Instance> Cc<'d, T, NotAwaitable> {}
 
-impl<'a, T: Instance, I: TimerType> Cc<'a, T, I> {
+impl<'d, T: Instance, I: TimerType> Cc<'d, T, I> {
     /// Get the current value stored in the register.
     pub fn read(&self) -> u32 {
         T::regs().cc[self.n].read().cc().bits()

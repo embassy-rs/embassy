@@ -2,8 +2,6 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use core::marker::PhantomData;
-
 use defmt::*;
 use embassy::executor::Spawner;
 use embassy::time::{Duration, Timer};
@@ -11,7 +9,7 @@ use embassy_stm32::gpio::low_level::AFType;
 use embassy_stm32::gpio::Speed;
 use embassy_stm32::pwm::*;
 use embassy_stm32::time::{khz, mhz, Hertz};
-use embassy_stm32::{unborrow, Config, Peripherals, Unborrow};
+use embassy_stm32::{into_ref, Config, Peripheral, PeripheralRef, Peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 pub fn config() -> Config {
@@ -49,20 +47,19 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     }
 }
 pub struct SimplePwm32<'d, T: CaptureCompare32bitInstance> {
-    phantom: PhantomData<&'d mut T>,
-    inner: T,
+    inner: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
     pub fn new(
-        tim: impl Unborrow<Target = T> + 'd,
-        ch1: impl Unborrow<Target = impl Channel1Pin<T>> + 'd,
-        ch2: impl Unborrow<Target = impl Channel2Pin<T>> + 'd,
-        ch3: impl Unborrow<Target = impl Channel3Pin<T>> + 'd,
-        ch4: impl Unborrow<Target = impl Channel4Pin<T>> + 'd,
+        tim: impl Peripheral<P = T> + 'd,
+        ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
+        ch2: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
+        ch3: impl Peripheral<P = impl Channel3Pin<T>> + 'd,
+        ch4: impl Peripheral<P = impl Channel4Pin<T>> + 'd,
         freq: Hertz,
     ) -> Self {
-        unborrow!(tim, ch1, ch2, ch3, ch4);
+        into_ref!(tim, ch1, ch2, ch3, ch4);
 
         T::enable();
         <T as embassy_stm32::rcc::low_level::RccPeripheral>::reset();
@@ -78,10 +75,7 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
             ch4.set_as_af(ch1.af_num(), AFType::OutputPushPull);
         }
 
-        let mut this = Self {
-            inner: tim,
-            phantom: PhantomData,
-        };
+        let mut this = Self { inner: tim };
 
         this.set_freq(freq);
         this.inner.start();

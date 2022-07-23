@@ -21,10 +21,15 @@ async fn main(_spawner: Spawner, p: Peripherals) -> ! {
 
     let irq = interrupt::take!(SDMMC1);
 
-    let mut sdmmc = Sdmmc::new(
+    let mut sdmmc = Sdmmc::new_4bit(
         p.SDMMC1,
-        (p.PC12, p.PD2, p.PC8, p.PC9, p.PC10, p.PC11),
         irq,
+        p.PC12,
+        p.PD2,
+        p.PC8,
+        p.PC9,
+        p.PC10,
+        p.PC11,
         Default::default(),
     );
 

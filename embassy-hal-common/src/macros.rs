@@ -21,13 +21,7 @@ macro_rules! peripherals {
                 }
 
                 $(#[$cfg])?
-                unsafe impl $crate::Unborrow for $name {
-                    type Target = $name;
-                    #[inline]
-                    unsafe fn unborrow(self) -> $name {
-                        self
-                    }
-                }
+                $crate::impl_peripheral!($name);
             )*
         }
 
@@ -77,22 +71,23 @@ macro_rules! peripherals {
 }
 
 #[macro_export]
-macro_rules! unborrow {
+macro_rules! into_ref {
     ($($name:ident),*) => {
         $(
-            let mut $name = unsafe { $name.unborrow() };
+            let mut $name = $name.into_ref();
         )*
     }
 }
 
 #[macro_export]
-macro_rules! unsafe_impl_unborrow {
+macro_rules! impl_peripheral {
     ($type:ident) => {
-        unsafe impl $crate::Unborrow for $type {
-            type Target = $type;
+        impl $crate::Peripheral for $type {
+            type P = $type;
+
             #[inline]
-            unsafe fn unborrow(self) -> Self::Target {
-                self
+            unsafe fn clone_unchecked(&mut self) -> Self::P {
+                $type { ..*self }
             }
         }
     };

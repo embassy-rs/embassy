@@ -8,16 +8,15 @@ mod dmamux;
 mod gpdma;
 
 use core::future::Future;
-use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 
-#[cfg(dmamux)]
-pub use dmamux::*;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{impl_peripheral, into_ref};
 
-use crate::Unborrow;
+#[cfg(dmamux)]
+pub use self::dmamux::*;
+use crate::Peripheral;
 
 #[cfg(feature = "unstable-pac")]
 pub mod low_level {
@@ -207,17 +206,19 @@ impl Default for TransferOptions {
 }
 
 mod transfers {
+    use embassy_hal_common::PeripheralRef;
+
     use super::*;
 
     #[allow(unused)]
     pub fn read<'a, W: Word>(
-        channel: impl Unborrow<Target = impl Channel> + 'a,
+        channel: impl Peripheral<P = impl Channel> + 'a,
         request: Request,
         reg_addr: *mut W,
         buf: &'a mut [W],
     ) -> impl Future<Output = ()> + 'a {
         assert!(buf.len() > 0 && buf.len() <= 0xFFFF);
-        unborrow!(channel);
+        into_ref!(channel);
 
         unsafe { channel.start_read::<W>(request, reg_addr, buf, Default::default()) };
 
@@ -226,13 +227,13 @@ mod transfers {
 
     #[allow(unused)]
     pub fn write<'a, W: Word>(
-        channel: impl Unborrow<Target = impl Channel> + 'a,
+        channel: impl Peripheral<P = impl Channel> + 'a,
         request: Request,
         buf: &'a [W],
         reg_addr: *mut W,
     ) -> impl Future<Output = ()> + 'a {
         assert!(buf.len() > 0 && buf.len() <= 0xFFFF);
-        unborrow!(channel);
+        into_ref!(channel);
 
         unsafe { channel.start_write::<W>(request, buf, reg_addr, Default::default()) };
 
@@ -241,13 +242,13 @@ mod transfers {
 
     #[allow(unused)]
     pub fn write_repeated<'a, W: Word>(
-        channel: impl Unborrow<Target = impl Channel> + 'a,
+        channel: impl Peripheral<P = impl Channel> + 'a,
         request: Request,
         repeated: W,
         count: usize,
         reg_addr: *mut W,
     ) -> impl Future<Output = ()> + 'a {
-        unborrow!(channel);
+        into_ref!(channel);
 
         unsafe { channel.start_write_repeated::<W>(request, repeated, count, reg_addr, Default::default()) };
 
@@ -255,17 +256,13 @@ mod transfers {
     }
 
     pub(crate) struct Transfer<'a, C: Channel> {
-        channel: C,
-        _phantom: PhantomData<&'a mut C>,
+        channel: PeripheralRef<'a, C>,
     }
 
     impl<'a, C: Channel> Transfer<'a, C> {
-        pub(crate) fn new(channel: impl Unborrow<Target = C> + 'a) -> Self {
-            unborrow!(channel);
-            Self {
-                channel,
-                _phantom: PhantomData,
-            }
+        pub(crate) fn new(channel: impl Peripheral<P = C> + 'a) -> Self {
+            into_ref!(channel);
+            Self { channel }
         }
     }
 
@@ -290,17 +287,11 @@ mod transfers {
     }
 }
 
-pub trait Channel: sealed::Channel + Unborrow<Target = Self> + 'static {}
+pub trait Channel: sealed::Channel + Peripheral<P = Self> + 'static {}
 
 pub struct NoDma;
 
-unsafe impl Unborrow for NoDma {
-    type Target = NoDma;
-
-    unsafe fn unborrow(self) -> Self::Target {
-        self
-    }
-}
+impl_peripheral!(NoDma);
 
 // safety: must be called only once at startup
 pub(crate) unsafe fn init() {

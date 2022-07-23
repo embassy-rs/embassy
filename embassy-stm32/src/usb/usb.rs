@@ -7,7 +7,7 @@ use core::task::Poll;
 use atomic_polyfill::{AtomicBool, AtomicU8};
 use embassy::time::{block_for, Duration};
 use embassy::waitqueue::AtomicWaker;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::into_ref;
 use embassy_usb::driver::{self, EndpointAllocError, EndpointError, Event, Unsupported};
 use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
 use futures::future::poll_fn;
@@ -20,7 +20,7 @@ use crate::gpio::sealed::AFType;
 use crate::interrupt::InterruptExt;
 use crate::pac::usb::regs;
 use crate::rcc::sealed::RccPeripheral;
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 const EP_COUNT: usize = 8;
 
@@ -125,12 +125,12 @@ pub struct Driver<'d, T: Instance> {
 
 impl<'d, T: Instance> Driver<'d, T> {
     pub fn new(
-        _usb: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        dp: impl Unborrow<Target = impl DpPin<T>> + 'd,
-        dm: impl Unborrow<Target = impl DmPin<T>> + 'd,
+        _usb: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        dp: impl Peripheral<P = impl DpPin<T>> + 'd,
+        dm: impl Peripheral<P = impl DmPin<T>> + 'd,
     ) -> Self {
-        unborrow!(irq, dp, dm);
+        into_ref!(irq, dp, dm);
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
         irq.enable();

@@ -39,11 +39,11 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
     pub fn new(
         state: &'d mut State<'d, T>,
         _uart: Uart<'d, T, NoDma, NoDma>,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
     ) -> BufferedUart<'d, T> {
-        unborrow!(irq);
+        into_ref!(irq);
 
         let r = T::regs();
         unsafe {

@@ -1,13 +1,13 @@
 use core::marker::PhantomData;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::into_ref;
 
 use crate::gpio::sealed::AFType;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
 use crate::pac::i2c;
 use crate::time::Hertz;
-use crate::Unborrow;
+use crate::Peripheral;
 
 pub struct State {}
 
@@ -23,12 +23,12 @@ pub struct I2c<'d, T: Instance> {
 
 impl<'d, T: Instance> I2c<'d, T> {
     pub fn new(
-        _peri: impl Unborrow<Target = T> + 'd,
-        scl: impl Unborrow<Target = impl SclPin<T>> + 'd,
-        sda: impl Unborrow<Target = impl SdaPin<T>> + 'd,
+        _peri: impl Peripheral<P = T> + 'd,
+        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
+        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
         freq: Hertz,
     ) -> Self {
-        unborrow!(scl, sda);
+        into_ref!(scl, sda);
 
         T::enable();
         T::reset();

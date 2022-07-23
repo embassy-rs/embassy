@@ -1,11 +1,10 @@
 #![macro_use]
 
-use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 use futures::future::poll_fn;
 pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
@@ -15,7 +14,7 @@ use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::util::{slice_in_ram_or, slice_ptr_parts, slice_ptr_parts_mut};
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -31,7 +30,7 @@ pub enum Error {
 ///
 /// For more details about EasyDMA, consult the module documentation.
 pub struct Spim<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+    _p: PeripheralRef<'d, T>,
 }
 
 #[non_exhaustive]
@@ -53,55 +52,55 @@ impl Default for Config {
 
 impl<'d, T: Instance> Spim<'d, T> {
     pub fn new(
-        spim: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        sck: impl Unborrow<Target = impl GpioPin> + 'd,
-        miso: impl Unborrow<Target = impl GpioPin> + 'd,
-        mosi: impl Unborrow<Target = impl GpioPin> + 'd,
+        spim: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        sck: impl Peripheral<P = impl GpioPin> + 'd,
+        miso: impl Peripheral<P = impl GpioPin> + 'd,
+        mosi: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(sck, miso, mosi);
+        into_ref!(sck, miso, mosi);
         Self::new_inner(
             spim,
             irq,
-            sck.degrade(),
-            Some(miso.degrade()),
-            Some(mosi.degrade()),
+            sck.map_into(),
+            Some(miso.map_into()),
+            Some(mosi.map_into()),
             config,
         )
     }
 
     pub fn new_txonly(
-        spim: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        sck: impl Unborrow<Target = impl GpioPin> + 'd,
-        mosi: impl Unborrow<Target = impl GpioPin> + 'd,
+        spim: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        sck: impl Peripheral<P = impl GpioPin> + 'd,
+        mosi: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(sck, mosi);
-        Self::new_inner(spim, irq, sck.degrade(), None, Some(mosi.degrade()), config)
+        into_ref!(sck, mosi);
+        Self::new_inner(spim, irq, sck.map_into(), None, Some(mosi.map_into()), config)
     }
 
     pub fn new_rxonly(
-        spim: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        sck: impl Unborrow<Target = impl GpioPin> + 'd,
-        miso: impl Unborrow<Target = impl GpioPin> + 'd,
+        spim: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        sck: impl Peripheral<P = impl GpioPin> + 'd,
+        miso: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(sck, miso);
-        Self::new_inner(spim, irq, sck.degrade(), Some(miso.degrade()), None, config)
+        into_ref!(sck, miso);
+        Self::new_inner(spim, irq, sck.map_into(), Some(miso.map_into()), None, config)
     }
 
     fn new_inner(
-        _spim: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        sck: AnyPin,
-        miso: Option<AnyPin>,
-        mosi: Option<AnyPin>,
+        spim: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        sck: PeripheralRef<'d, AnyPin>,
+        miso: Option<PeripheralRef<'d, AnyPin>>,
+        mosi: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        unborrow!(irq);
+        into_ref!(spim, irq);
 
         let r = T::regs();
 
@@ -181,7 +180,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         irq.unpend();
         irq.enable();
 
-        Self { phantom: PhantomData }
+        Self { _p: spim }
     }
 
     fn on_interrupt(_: *mut ()) {
@@ -386,7 +385,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static {
+pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 

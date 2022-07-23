@@ -1,12 +1,10 @@
-use core::marker::PhantomData;
-
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Phase, Polarity};
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Pin as GpioPin};
-use crate::{pac, peripherals, Unborrow};
+use crate::{pac, peripherals, Peripheral};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -33,8 +31,7 @@ impl Default for Config {
 }
 
 pub struct Spi<'d, T: Instance> {
-    inner: T,
-    phantom: PhantomData<&'d mut T>,
+    inner: PeripheralRef<'d, T>,
 }
 
 fn div_roundup(a: u32, b: u32) -> u32 {
@@ -62,52 +59,52 @@ fn calc_prescs(freq: u32) -> (u8, u8) {
 
 impl<'d, T: Instance> Spi<'d, T> {
     pub fn new(
-        inner: impl Unborrow<Target = T> + 'd,
-        clk: impl Unborrow<Target = impl ClkPin<T>> + 'd,
-        mosi: impl Unborrow<Target = impl MosiPin<T>> + 'd,
-        miso: impl Unborrow<Target = impl MisoPin<T>> + 'd,
+        inner: impl Peripheral<P = T> + 'd,
+        clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(clk, mosi, miso);
+        into_ref!(clk, mosi, miso);
         Self::new_inner(
             inner,
-            Some(clk.degrade()),
-            Some(mosi.degrade()),
-            Some(miso.degrade()),
+            Some(clk.map_into()),
+            Some(mosi.map_into()),
+            Some(miso.map_into()),
             None,
             config,
         )
     }
 
     pub fn new_txonly(
-        inner: impl Unborrow<Target = T> + 'd,
-        clk: impl Unborrow<Target = impl ClkPin<T>> + 'd,
-        mosi: impl Unborrow<Target = impl MosiPin<T>> + 'd,
+        inner: impl Peripheral<P = T> + 'd,
+        clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(clk, mosi);
-        Self::new_inner(inner, Some(clk.degrade()), Some(mosi.degrade()), None, None, config)
+        into_ref!(clk, mosi);
+        Self::new_inner(inner, Some(clk.map_into()), Some(mosi.map_into()), None, None, config)
     }
 
     pub fn new_rxonly(
-        inner: impl Unborrow<Target = T> + 'd,
-        clk: impl Unborrow<Target = impl ClkPin<T>> + 'd,
-        miso: impl Unborrow<Target = impl MisoPin<T>> + 'd,
+        inner: impl Peripheral<P = T> + 'd,
+        clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(clk, miso);
-        Self::new_inner(inner, Some(clk.degrade()), None, Some(miso.degrade()), None, config)
+        into_ref!(clk, miso);
+        Self::new_inner(inner, Some(clk.map_into()), None, Some(miso.map_into()), None, config)
     }
 
     fn new_inner(
-        inner: impl Unborrow<Target = T> + 'd,
-        clk: Option<AnyPin>,
-        mosi: Option<AnyPin>,
-        miso: Option<AnyPin>,
-        cs: Option<AnyPin>,
+        inner: impl Peripheral<P = T> + 'd,
+        clk: Option<PeripheralRef<'d, AnyPin>>,
+        mosi: Option<PeripheralRef<'d, AnyPin>>,
+        miso: Option<PeripheralRef<'d, AnyPin>>,
+        cs: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        unborrow!(inner);
+        into_ref!(inner);
 
         unsafe {
             let p = inner.regs();
@@ -137,10 +134,7 @@ impl<'d, T: Instance> Spi<'d, T> {
                 pin.io().ctrl().write(|w| w.set_funcsel(1));
             }
         }
-        Self {
-            inner,
-            phantom: PhantomData,
-        }
+        Self { inner }
     }
 
     pub fn blocking_write(&mut self, data: &[u8]) -> Result<(), Error> {

@@ -15,12 +15,11 @@
 //! many tasks and events, but any single task or event can only be coupled with one channel.
 //!
 
-use core::marker::PhantomData;
 use core::ptr::NonNull;
 
-use embassy_hal_common::unsafe_impl_unborrow;
+use embassy_hal_common::{impl_peripheral, PeripheralRef};
 
-use crate::{peripherals, Unborrow};
+use crate::{peripherals, Peripheral};
 
 #[cfg(feature = "_dppi")]
 mod dppi;
@@ -28,12 +27,11 @@ mod dppi;
 mod ppi;
 
 pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> {
-    ch: C,
+    ch: PeripheralRef<'d, C>,
     #[cfg(feature = "_dppi")]
     events: [Event; EVENT_COUNT],
     #[cfg(feature = "_dppi")]
     tasks: [Task; TASK_COUNT],
-    phantom: PhantomData<&'d mut C>,
 }
 
 const REGISTER_DPPI_CONFIG_OFFSET: usize = 0x80 / core::mem::size_of::<u32>();
@@ -89,16 +87,16 @@ pub(crate) mod sealed {
     pub trait Group {}
 }
 
-pub trait Channel: sealed::Channel + Unborrow<Target = Self> + Sized {
+pub trait Channel: sealed::Channel + Peripheral<P = Self> + Sized {
     /// Returns the number of the channel
     fn number(&self) -> usize;
 }
 
-pub trait ConfigurableChannel: Channel {
+pub trait ConfigurableChannel: Channel + Into<AnyConfigurableChannel> {
     fn degrade(self) -> AnyConfigurableChannel;
 }
 
-pub trait StaticChannel: Channel {
+pub trait StaticChannel: Channel + Into<AnyStaticChannel> {
     fn degrade(self) -> AnyStaticChannel;
 }
 
@@ -119,7 +117,7 @@ pub trait Group: sealed::Group + Sized {
 pub struct AnyStaticChannel {
     pub(crate) number: u8,
 }
-unsafe_impl_unborrow!(AnyStaticChannel);
+impl_peripheral!(AnyStaticChannel);
 impl sealed::Channel for AnyStaticChannel {}
 impl Channel for AnyStaticChannel {
     fn number(&self) -> usize {
@@ -137,7 +135,7 @@ impl StaticChannel for AnyStaticChannel {
 pub struct AnyConfigurableChannel {
     pub(crate) number: u8,
 }
-unsafe_impl_unborrow!(AnyConfigurableChannel);
+impl_peripheral!(AnyConfigurableChannel);
 impl sealed::Channel for AnyConfigurableChannel {}
 impl Channel for AnyConfigurableChannel {
     fn number(&self) -> usize {
@@ -169,6 +167,12 @@ macro_rules! impl_ppi_channel {
                 }
             }
         }
+
+        impl From<peripherals::$type> for crate::ppi::AnyStaticChannel {
+            fn from(val: peripherals::$type) -> Self {
+                crate::ppi::StaticChannel::degrade(val)
+            }
+        }
     };
     ($type:ident, $number:expr => configurable) => {
         impl_ppi_channel!($type, $number);
@@ -180,6 +184,12 @@ macro_rules! impl_ppi_channel {
                 }
             }
         }
+
+        impl From<peripherals::$type> for crate::ppi::AnyConfigurableChannel {
+            fn from(val: peripherals::$type) -> Self {
+                crate::ppi::ConfigurableChannel::degrade(val)
+            }
+        }
     };
 }
 
@@ -189,7 +199,7 @@ macro_rules! impl_ppi_channel {
 pub struct AnyGroup {
     number: u8,
 }
-unsafe_impl_unborrow!(AnyGroup);
+impl_peripheral!(AnyGroup);
 impl sealed::Group for AnyGroup {}
 impl Group for AnyGroup {
     fn number(&self) -> usize {

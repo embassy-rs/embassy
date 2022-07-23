@@ -25,12 +25,7 @@ pub fn run(name: syn::Ident) -> Result<TokenStream, TokenStream> {
             }
         }
 
-        unsafe impl ::embassy_hal_common::Unborrow for #name_interrupt {
-            type Target = #name_interrupt;
-            unsafe fn unborrow(self) -> #name_interrupt {
-                self
-            }
-        }
+        ::embassy_hal_common::impl_peripheral!(#name_interrupt);
     };
     Ok(result)
 }

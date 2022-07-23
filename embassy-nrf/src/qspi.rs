@@ -1,20 +1,18 @@
 #![macro_use]
 
-use core::marker::PhantomData;
 use core::ptr;
 use core::task::Poll;
 
 use embassy_hal_common::drop::DropBomb;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::poll_fn;
 
-use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, Pin as GpioPin};
 use crate::interrupt::{Interrupt, InterruptExt};
 pub use crate::pac::qspi::ifconfig0::{
     ADDRMODE_A as AddressMode, PPSIZE_A as WritePageSize, READOC_A as ReadOpcode, WRITEOC_A as WriteOpcode,
 };
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 // TODO
 // - config:
@@ -63,38 +61,38 @@ pub enum Error {
 }
 
 pub struct Qspi<'d, T: Instance, const FLASH_SIZE: usize> {
-    irq: T::Interrupt,
+    irq: PeripheralRef<'d, T::Interrupt>,
     dpm_enabled: bool,
-    phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
     pub fn new(
-        _qspi: impl Unborrow<Target = T> + 'd,
-        irq: impl Unborrow<Target = T::Interrupt> + 'd,
-        sck: impl Unborrow<Target = impl GpioPin> + 'd,
-        csn: impl Unborrow<Target = impl GpioPin> + 'd,
-        io0: impl Unborrow<Target = impl GpioPin> + 'd,
-        io1: impl Unborrow<Target = impl GpioPin> + 'd,
-        io2: impl Unborrow<Target = impl GpioPin> + 'd,
-        io3: impl Unborrow<Target = impl GpioPin> + 'd,
+        _qspi: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        sck: impl Peripheral<P = impl GpioPin> + 'd,
+        csn: impl Peripheral<P = impl GpioPin> + 'd,
+        io0: impl Peripheral<P = impl GpioPin> + 'd,
+        io1: impl Peripheral<P = impl GpioPin> + 'd,
+        io2: impl Peripheral<P = impl GpioPin> + 'd,
+        io3: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Qspi<'d, T, FLASH_SIZE> {
-        unborrow!(irq, sck, csn, io0, io1, io2, io3);
+        into_ref!(irq, sck, csn, io0, io1, io2, io3);
 
         let r = T::regs();
 
-        let sck = sck.degrade();
-        let csn = csn.degrade();
-        let io0 = io0.degrade();
-        let io1 = io1.degrade();
-        let io2 = io2.degrade();
-        let io3 = io3.degrade();
-
-        for pin in [&sck, &csn, &io0, &io1, &io2, &io3] {
-            pin.set_high();
-            pin.conf().write(|w| w.dir().output().drive().h0h1());
-        }
+        sck.set_high();
+        csn.set_high();
+        io0.set_high();
+        io1.set_high();
+        io2.set_high();
+        io3.set_high();
+        sck.conf().write(|w| w.dir().output().drive().h0h1());
+        csn.conf().write(|w| w.dir().output().drive().h0h1());
+        io0.conf().write(|w| w.dir().output().drive().h0h1());
+        io1.conf().write(|w| w.dir().output().drive().h0h1());
+        io2.conf().write(|w| w.dir().output().drive().h0h1());
+        io3.conf().write(|w| w.dir().output().drive().h0h1());
 
         r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
         r.psel.csn.write(|w| unsafe { w.bits(csn.psel_bits()) });
@@ -143,7 +141,6 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         let mut res = Self {
             dpm_enabled: config.deep_power_down.is_some(),
             irq,
-            phantom: PhantomData,
         };
 
         r.events_ready.reset();
@@ -536,7 +533,7 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: Unborrow<Target = Self> + sealed::Instance + 'static {
+pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
     type Interrupt: Interrupt;
 }
 

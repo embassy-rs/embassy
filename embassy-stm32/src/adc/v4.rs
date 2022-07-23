@@ -7,7 +7,7 @@ use pac::adccommon::vals::Presc;
 
 use super::{AdcPin, Instance};
 use crate::time::Hertz;
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 pub enum Resolution {
     SixteenBit,
@@ -322,8 +322,8 @@ pub struct Adc<'d, T: Instance> {
 }
 
 impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
-    pub fn new(_peri: impl Unborrow<Target = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
-        embassy_hal_common::unborrow!(_peri);
+    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
+        embassy_hal_common::into_ref!(_peri);
         T::enable();
         T::reset();
 

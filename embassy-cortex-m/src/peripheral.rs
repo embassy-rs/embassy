@@ -1,9 +1,9 @@
 //! Peripheral interrupt handling specific to cortex-m devices.
-use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 
 use cortex_m::peripheral::scb::VectActive;
 use cortex_m::peripheral::{NVIC, SCB};
+use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 
 use crate::interrupt::{Interrupt, InterruptExt, Priority};
 
@@ -33,8 +33,7 @@ impl<S> StateStorage<S> {
 /// a safe way.
 pub struct PeripheralMutex<'a, S: PeripheralState> {
     state: *mut S,
-    _phantom: PhantomData<&'a mut S>,
-    irq: S::Interrupt,
+    irq: PeripheralRef<'a, S::Interrupt>,
 }
 
 /// Whether `irq` can be preempted by the current interrupt.
@@ -62,8 +61,14 @@ impl<'a, S: PeripheralState> PeripheralMutex<'a, S> {
     /// Create a new `PeripheralMutex` wrapping `irq`, with `init` initializing the initial state.
     ///
     /// Registers `on_interrupt` as the `irq`'s handler, and enables it.
-    pub fn new(irq: S::Interrupt, storage: &'a mut StateStorage<S>, init: impl FnOnce() -> S) -> Self {
-        if can_be_preempted(&irq) {
+    pub fn new(
+        irq: impl Peripheral<P = S::Interrupt> + 'a,
+        storage: &'a mut StateStorage<S>,
+        init: impl FnOnce() -> S,
+    ) -> Self {
+        into_ref!(irq);
+
+        if can_be_preempted(&*irq) {
             panic!(
                 "`PeripheralMutex` cannot be created in an interrupt with higher priority than the interrupt it wraps"
             );
@@ -88,11 +93,7 @@ impl<'a, S: PeripheralState> PeripheralMutex<'a, S> {
         irq.set_handler_context(state_ptr as *mut ());
         irq.enable();
 
-        Self {
-            irq,
-            state: state_ptr,
-            _phantom: PhantomData,
-        }
+        Self { irq, state: state_ptr }
     }
 
     /// Access the peripheral state ensuring interrupts are disabled so that the state can be

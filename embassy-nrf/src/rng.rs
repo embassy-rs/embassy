@@ -1,16 +1,15 @@
-use core::marker::PhantomData;
 use core::ptr;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::poll_fn;
 
 use crate::interrupt::InterruptExt;
 use crate::peripherals::RNG;
-use crate::{interrupt, pac, Unborrow};
+use crate::{interrupt, pac, Peripheral};
 
 impl RNG {
     fn regs() -> &'static pac::rng::RegisterBlock {
@@ -34,8 +33,7 @@ struct State {
 ///
 /// It has a non-blocking API, and a blocking api through `rand`.
 pub struct Rng<'d> {
-    irq: interrupt::RNG,
-    phantom: PhantomData<(&'d mut RNG, &'d mut interrupt::RNG)>,
+    irq: PeripheralRef<'d, interrupt::RNG>,
 }
 
 impl<'d> Rng<'d> {
@@ -45,13 +43,10 @@ impl<'d> Rng<'d> {
     /// e.g. using `mem::forget`.
     ///
     /// The synchronous API is safe.
-    pub fn new(_rng: impl Unborrow<Target = RNG> + 'd, irq: impl Unborrow<Target = interrupt::RNG> + 'd) -> Self {
-        unborrow!(irq);
+    pub fn new(_rng: impl Peripheral<P = RNG> + 'd, irq: impl Peripheral<P = interrupt::RNG> + 'd) -> Self {
+        into_ref!(irq);
 
-        let this = Self {
-            irq,
-            phantom: PhantomData,
-        };
+        let this = Self { irq };
 
         this.stop();
         this.disable_irq();

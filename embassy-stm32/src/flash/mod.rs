@@ -1,11 +1,9 @@
-use core::marker::PhantomData;
-
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{into_ref, PeripheralRef};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
 pub use crate::pac::{ERASE_SIZE, ERASE_VALUE, FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
 use crate::peripherals::FLASH;
-use crate::Unborrow;
+use crate::Peripheral;
 const FLASH_END: usize = FLASH_BASE + FLASH_SIZE;
 
 #[cfg_attr(any(flash_wl, flash_wb, flash_l0, flash_l1, flash_l4), path = "l.rs")]
@@ -16,20 +14,16 @@ const FLASH_END: usize = FLASH_BASE + FLASH_SIZE;
 mod family;
 
 pub struct Flash<'d> {
-    _inner: FLASH,
-    _phantom: PhantomData<&'d mut FLASH>,
+    _inner: PeripheralRef<'d, FLASH>,
 }
 
 impl<'d> Flash<'d> {
-    pub fn new(p: impl Unborrow<Target = FLASH>) -> Self {
-        unborrow!(p);
-        Self {
-            _inner: p,
-            _phantom: PhantomData,
-        }
+    pub fn new(p: impl Peripheral<P = FLASH> + 'd) -> Self {
+        into_ref!(p);
+        Self { _inner: p }
     }
 
-    pub fn unlock(p: impl Unborrow<Target = FLASH>) -> Self {
+    pub fn unlock(p: impl Peripheral<P = FLASH> + 'd) -> Self {
         let flash = Self::new(p);
 
         unsafe { family::unlock() };

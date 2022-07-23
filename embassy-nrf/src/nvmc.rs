@@ -1,15 +1,14 @@
 //! Nvmcerature sensor interface.
 
-use core::marker::PhantomData;
 use core::{ptr, slice};
 
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{into_ref, PeripheralRef};
 use embedded_storage::nor_flash::{
     ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
 };
 
 use crate::peripherals::NVMC;
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 pub const PAGE_SIZE: usize = 4096;
 pub const FLASH_SIZE: usize = crate::chip::FLASH_SIZE;
@@ -31,14 +30,13 @@ impl NorFlashError for Error {
 }
 
 pub struct Nvmc<'d> {
-    _p: PhantomData<&'d NVMC>,
+    _p: PeripheralRef<'d, NVMC>,
 }
 
 impl<'d> Nvmc<'d> {
-    pub fn new(_p: impl Unborrow<Target = NVMC> + 'd) -> Self {
-        unborrow!(_p);
-
-        Self { _p: PhantomData }
+    pub fn new(_p: impl Peripheral<P = NVMC> + 'd) -> Self {
+        into_ref!(_p);
+        Self { _p }
     }
 
     fn regs() -> &'static pac::nvmc::RegisterBlock {

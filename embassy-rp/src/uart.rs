@@ -1,9 +1,7 @@
-use core::marker::PhantomData;
-
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{into_ref, PeripheralRef};
 use gpio::Pin;
 
-use crate::{gpio, pac, peripherals, Unborrow};
+use crate::{gpio, pac, peripherals, Peripheral};
 
 #[non_exhaustive]
 pub struct Config {
@@ -23,20 +21,19 @@ impl Default for Config {
 }
 
 pub struct Uart<'d, T: Instance> {
-    inner: T,
-    phantom: PhantomData<&'d mut T>,
+    inner: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Instance> Uart<'d, T> {
     pub fn new(
-        inner: impl Unborrow<Target = T> + 'd,
-        tx: impl Unborrow<Target = impl TxPin<T>> + 'd,
-        rx: impl Unborrow<Target = impl RxPin<T>> + 'd,
-        cts: impl Unborrow<Target = impl CtsPin<T>> + 'd,
-        rts: impl Unborrow<Target = impl RtsPin<T>> + 'd,
+        inner: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(inner, tx, rx, cts, rts);
+        into_ref!(inner, tx, rx, cts, rts);
 
         unsafe {
             let p = inner.regs();
@@ -78,10 +75,7 @@ impl<'d, T: Instance> Uart<'d, T> {
             cts.io().ctrl().write(|w| w.set_funcsel(2));
             rts.io().ctrl().write(|w| w.set_funcsel(2));
         }
-        Self {
-            inner,
-            phantom: PhantomData,
-        }
+        Self { inner }
     }
 
     pub fn send(&mut self, data: &[u8]) {

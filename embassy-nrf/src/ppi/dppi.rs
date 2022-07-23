@@ -1,9 +1,7 @@
-use core::marker::PhantomData;
-
-use embassy_hal_common::unborrow;
+use embassy_hal_common::into_ref;
 
 use super::{Channel, ConfigurableChannel, Event, Ppi, Task};
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 const DPPI_ENABLE_BIT: u32 = 0x8000_0000;
 const DPPI_CHANNEL_MASK: u32 = 0x0000_00FF;
@@ -13,13 +11,13 @@ fn regs() -> &'static pac::dppic::RegisterBlock {
 }
 
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
-    pub fn new_one_to_one(ch: impl Unborrow<Target = C> + 'd, event: Event, task: Task) -> Self {
+    pub fn new_one_to_one(ch: impl Peripheral<P = C> + 'd, event: Event, task: Task) -> Self {
         Ppi::new_many_to_many(ch, [event], [task])
     }
 }
 
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
-    pub fn new_one_to_two(ch: impl Unborrow<Target = C> + 'd, event: Event, task1: Task, task2: Task) -> Self {
+    pub fn new_one_to_two(ch: impl Peripheral<P = C> + 'd, event: Event, task1: Task, task2: Task) -> Self {
         Ppi::new_many_to_many(ch, [event], [task1, task2])
     }
 }
@@ -28,11 +26,11 @@ impl<'d, C: ConfigurableChannel, const EVENT_COUNT: usize, const TASK_COUNT: usi
     Ppi<'d, C, EVENT_COUNT, TASK_COUNT>
 {
     pub fn new_many_to_many(
-        ch: impl Unborrow<Target = C> + 'd,
+        ch: impl Peripheral<P = C> + 'd,
         events: [Event; EVENT_COUNT],
         tasks: [Task; TASK_COUNT],
     ) -> Self {
-        unborrow!(ch);
+        into_ref!(ch);
 
         let val = DPPI_ENABLE_BIT | (ch.number() as u32 & DPPI_CHANNEL_MASK);
         for task in tasks {
@@ -48,12 +46,7 @@ impl<'d, C: ConfigurableChannel, const EVENT_COUNT: usize, const TASK_COUNT: usi
             unsafe { event.publish_reg().write_volatile(val) }
         }
 
-        Self {
-            ch,
-            events,
-            tasks,
-            phantom: PhantomData,
-        }
+        Self { ch, events, tasks }
     }
 }
 

@@ -83,7 +83,7 @@ use crate::peripherals::SUBGHZSPI;
 use crate::rcc::sealed::RccPeripheral;
 use crate::spi::{BitOrder, Config as SpiConfig, MisoPin, MosiPin, SckPin, Spi, MODE_0};
 use crate::time::Hertz;
-use crate::{pac, Unborrow};
+use crate::{pac, Peripheral};
 
 /// Passthrough for SPI errors (for now)
 pub type Error = crate::spi::Error;
@@ -211,12 +211,12 @@ impl<'d, Tx, Rx> SubGhz<'d, Tx, Rx> {
     /// This will reset the radio and the SPI bus, and enable the peripheral
     /// clock.
     pub fn new(
-        peri: impl Unborrow<Target = SUBGHZSPI> + 'd,
-        sck: impl Unborrow<Target = impl SckPin<SUBGHZSPI>> + 'd,
-        mosi: impl Unborrow<Target = impl MosiPin<SUBGHZSPI>> + 'd,
-        miso: impl Unborrow<Target = impl MisoPin<SUBGHZSPI>> + 'd,
-        txdma: impl Unborrow<Target = Tx> + 'd,
-        rxdma: impl Unborrow<Target = Rx> + 'd,
+        peri: impl Peripheral<P = SUBGHZSPI> + 'd,
+        sck: impl Peripheral<P = impl SckPin<SUBGHZSPI>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<SUBGHZSPI>> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<SUBGHZSPI>> + 'd,
+        txdma: impl Peripheral<P = Tx> + 'd,
+        rxdma: impl Peripheral<P = Rx> + 'd,
     ) -> Self {
         Self::pulse_radio_reset();
 

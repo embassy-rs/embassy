@@ -1,14 +1,14 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::unborrow;
+use embassy_hal_common::into_ref;
 
 use crate::gpio::sealed::AFType;
 use crate::rcc::RccPeripheral;
-use crate::{peripherals, Unborrow};
+use crate::{peripherals, Peripheral};
 
 macro_rules! config_ulpi_pins {
     ($($pin:ident),*) => {
-        unborrow!($($pin),*);
+        into_ref!($($pin),*);
         // NOTE(unsafe) Exclusive access to the registers
         critical_section::with(|_| unsafe {
             $(
@@ -43,11 +43,11 @@ pub struct UsbOtg<'d, T: Instance> {
 impl<'d, T: Instance> UsbOtg<'d, T> {
     /// Initializes USB OTG peripheral with internal Full-Speed PHY
     pub fn new_fs(
-        _peri: impl Unborrow<Target = T> + 'd,
-        dp: impl Unborrow<Target = impl DpPin<T>> + 'd,
-        dm: impl Unborrow<Target = impl DmPin<T>> + 'd,
+        _peri: impl Peripheral<P = T> + 'd,
+        dp: impl Peripheral<P = impl DpPin<T>> + 'd,
+        dm: impl Peripheral<P = impl DmPin<T>> + 'd,
     ) -> Self {
-        unborrow!(dp, dm);
+        into_ref!(dp, dm);
 
         unsafe {
             dp.set_as_af(dp.af_num(), AFType::OutputPushPull);
@@ -62,19 +62,19 @@ impl<'d, T: Instance> UsbOtg<'d, T> {
 
     /// Initializes USB OTG peripheral with external High-Speed PHY
     pub fn new_hs_ulpi(
-        _peri: impl Unborrow<Target = T> + 'd,
-        ulpi_clk: impl Unborrow<Target = impl UlpiClkPin<T>> + 'd,
-        ulpi_dir: impl Unborrow<Target = impl UlpiDirPin<T>> + 'd,
-        ulpi_nxt: impl Unborrow<Target = impl UlpiNxtPin<T>> + 'd,
-        ulpi_stp: impl Unborrow<Target = impl UlpiStpPin<T>> + 'd,
-        ulpi_d0: impl Unborrow<Target = impl UlpiD0Pin<T>> + 'd,
-        ulpi_d1: impl Unborrow<Target = impl UlpiD1Pin<T>> + 'd,
-        ulpi_d2: impl Unborrow<Target = impl UlpiD2Pin<T>> + 'd,
-        ulpi_d3: impl Unborrow<Target = impl UlpiD3Pin<T>> + 'd,
-        ulpi_d4: impl Unborrow<Target = impl UlpiD4Pin<T>> + 'd,
-        ulpi_d5: impl Unborrow<Target = impl UlpiD5Pin<T>> + 'd,
-        ulpi_d6: impl Unborrow<Target = impl UlpiD6Pin<T>> + 'd,
-        ulpi_d7: impl Unborrow<Target = impl UlpiD7Pin<T>> + 'd,
+        _peri: impl Peripheral<P = T> + 'd,
+        ulpi_clk: impl Peripheral<P = impl UlpiClkPin<T>> + 'd,
+        ulpi_dir: impl Peripheral<P = impl UlpiDirPin<T>> + 'd,
+        ulpi_nxt: impl Peripheral<P = impl UlpiNxtPin<T>> + 'd,
+        ulpi_stp: impl Peripheral<P = impl UlpiStpPin<T>> + 'd,
+        ulpi_d0: impl Peripheral<P = impl UlpiD0Pin<T>> + 'd,
+        ulpi_d1: impl Peripheral<P = impl UlpiD1Pin<T>> + 'd,
+        ulpi_d2: impl Peripheral<P = impl UlpiD2Pin<T>> + 'd,
+        ulpi_d3: impl Peripheral<P = impl UlpiD3Pin<T>> + 'd,
+        ulpi_d4: impl Peripheral<P = impl UlpiD4Pin<T>> + 'd,
+        ulpi_d5: impl Peripheral<P = impl UlpiD5Pin<T>> + 'd,
+        ulpi_d6: impl Peripheral<P = impl UlpiD6Pin<T>> + 'd,
+        ulpi_d7: impl Peripheral<P = impl UlpiD7Pin<T>> + 'd,
     ) -> Self {
         config_ulpi_pins!(
             ulpi_clk, ulpi_dir, ulpi_nxt, ulpi_stp, ulpi_d0, ulpi_d1, ulpi_d2, ulpi_d3, ulpi_d4, ulpi_d5, ulpi_d6,

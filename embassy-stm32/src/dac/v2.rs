@@ -1,10 +1,8 @@
-use core::marker::PhantomData;
-
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::dac::{DacPin, Instance};
 use crate::pac::dac;
-use crate::Unborrow;
+use crate::Peripheral;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -90,7 +88,7 @@ pub enum Value {
 
 pub struct Dac<'d, T: Instance> {
     channels: u8,
-    phantom: PhantomData<&'d mut T>,
+    _peri: PeripheralRef<'d, T>,
 }
 
 macro_rules! enable {
@@ -102,21 +100,21 @@ macro_rules! enable {
 }
 
 impl<'d, T: Instance> Dac<'d, T> {
-    pub fn new_1ch(peri: impl Unborrow<Target = T> + 'd, _ch1: impl Unborrow<Target = impl DacPin<T, 1>> + 'd) -> Self {
-        unborrow!(peri);
+    pub fn new_1ch(peri: impl Peripheral<P = T> + 'd, _ch1: impl Peripheral<P = impl DacPin<T, 1>> + 'd) -> Self {
+        into_ref!(peri);
         Self::new_inner(peri, 1)
     }
 
     pub fn new_2ch(
-        peri: impl Unborrow<Target = T> + 'd,
-        _ch1: impl Unborrow<Target = impl DacPin<T, 1>> + 'd,
-        _ch2: impl Unborrow<Target = impl DacPin<T, 2>> + 'd,
+        peri: impl Peripheral<P = T> + 'd,
+        _ch1: impl Peripheral<P = impl DacPin<T, 1>> + 'd,
+        _ch2: impl Peripheral<P = impl DacPin<T, 2>> + 'd,
     ) -> Self {
-        unborrow!(peri);
+        into_ref!(peri);
         Self::new_inner(peri, 2)
     }
 
-    fn new_inner(_peri: T, channels: u8) -> Self {
+    fn new_inner(peri: PeripheralRef<'d, T>, channels: u8) -> Self {
         unsafe {
             // Sadly we cannot use `RccPeripheral::enable` since devices are quite inconsistent DAC clock
             // configuration.
@@ -144,10 +142,7 @@ impl<'d, T: Instance> Dac<'d, T> {
             }
         }
 
-        Self {
-            channels,
-            phantom: PhantomData,
-        }
+        Self { channels, _peri: peri }
     }
 
     /// Check the channel is configured

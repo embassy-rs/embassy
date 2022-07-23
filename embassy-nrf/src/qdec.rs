@@ -1,21 +1,20 @@
 //! Quadrature decoder interface
 
-use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
-use embassy_hal_common::unborrow;
+use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::interrupt::InterruptExt;
 use crate::peripherals::QDEC;
-use crate::{interrupt, pac, Unborrow};
+use crate::{interrupt, pac, Peripheral};
 
 /// Quadrature decoder
 pub struct Qdec<'d> {
-    phantom: PhantomData<&'d QDEC>,
+    _p: PeripheralRef<'d, QDEC>,
 }
 
 #[non_exhaustive]
@@ -43,37 +42,37 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 
 impl<'d> Qdec<'d> {
     pub fn new(
-        qdec: impl Unborrow<Target = QDEC> + 'd,
-        irq: impl Unborrow<Target = interrupt::QDEC> + 'd,
-        a: impl Unborrow<Target = impl GpioPin> + 'd,
-        b: impl Unborrow<Target = impl GpioPin> + 'd,
+        qdec: impl Peripheral<P = QDEC> + 'd,
+        irq: impl Peripheral<P = interrupt::QDEC> + 'd,
+        a: impl Peripheral<P = impl GpioPin> + 'd,
+        b: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(a, b);
-        Self::new_inner(qdec, irq, a.degrade(), b.degrade(), None, config)
+        into_ref!(a, b);
+        Self::new_inner(qdec, irq, a.map_into(), b.map_into(), None, config)
     }
 
     pub fn new_with_led(
-        qdec: impl Unborrow<Target = QDEC> + 'd,
-        irq: impl Unborrow<Target = interrupt::QDEC> + 'd,
-        a: impl Unborrow<Target = impl GpioPin> + 'd,
-        b: impl Unborrow<Target = impl GpioPin> + 'd,
-        led: impl Unborrow<Target = impl GpioPin> + 'd,
+        qdec: impl Peripheral<P = QDEC> + 'd,
+        irq: impl Peripheral<P = interrupt::QDEC> + 'd,
+        a: impl Peripheral<P = impl GpioPin> + 'd,
+        b: impl Peripheral<P = impl GpioPin> + 'd,
+        led: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        unborrow!(a, b, led);
-        Self::new_inner(qdec, irq, a.degrade(), b.degrade(), Some(led.degrade()), config)
+        into_ref!(a, b, led);
+        Self::new_inner(qdec, irq, a.map_into(), b.map_into(), Some(led.map_into()), config)
     }
 
     fn new_inner(
-        _t: impl Unborrow<Target = QDEC> + 'd,
-        irq: impl Unborrow<Target = interrupt::QDEC> + 'd,
-        a: AnyPin,
-        b: AnyPin,
-        led: Option<AnyPin>,
+        p: impl Peripheral<P = QDEC> + 'd,
+        irq: impl Peripheral<P = interrupt::QDEC> + 'd,
+        a: PeripheralRef<'d, AnyPin>,
+        b: PeripheralRef<'d, AnyPin>,
+        led: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        unborrow!(irq);
+        into_ref!(p, irq);
         let r = Self::regs();
 
         // Select pins.
@@ -131,7 +130,7 @@ impl<'d> Qdec<'d> {
         });
         irq.enable();
 
-        Self { phantom: PhantomData }
+        Self { _p: p }
     }
 
     /// Perform an asynchronous read of the decoder.
