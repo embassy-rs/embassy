@@ -15,14 +15,13 @@
 
 use core::cmp::min;
 use core::future::Future;
-use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy::waitqueue::WakerRegistration;
 use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::ring_buffer::RingBuffer;
-use embassy_hal_common::{into_ref, low_power_wait_until};
+use embassy_hal_common::{into_ref, low_power_wait_until, PeripheralRef};
 use futures::future::poll_fn;
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
@@ -54,7 +53,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> State<'d, U, T> {
 }
 
 struct StateInner<'d, U: UarteInstance, T: TimerInstance> {
-    phantom: PhantomData<&'d mut U>,
+    _peri: PeripheralRef<'d, U>,
     timer: Timer<'d, T>,
     _ppi_ch1: Ppi<'d, AnyConfigurableChannel, 1, 2>,
     _ppi_ch2: Ppi<'d, AnyConfigurableChannel, 1, 1>,
@@ -78,7 +77,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> Unpin for BufferedUarte<'d, U, T> {
 impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     pub fn new(
         state: &'d mut State<'d, U, T>,
-        _uarte: impl Peripheral<P = U> + 'd,
+        peri: impl Peripheral<P = U> + 'd,
         timer: impl Peripheral<P = T> + 'd,
         ppi_ch1: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
         ppi_ch2: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
@@ -91,7 +90,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
     ) -> Self {
-        into_ref!(ppi_ch1, ppi_ch2, irq, rxd, txd, cts, rts);
+        into_ref!(peri, ppi_ch1, ppi_ch2, irq, rxd, txd, cts, rts);
 
         let r = U::regs();
 
@@ -163,7 +162,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 
         Self {
             inner: PeripheralMutex::new(irq, &mut state.0, move || StateInner {
-                phantom: PhantomData,
+                _peri: peri,
                 timer,
                 _ppi_ch1: ppi_ch1,
                 _ppi_ch2: ppi_ch2,

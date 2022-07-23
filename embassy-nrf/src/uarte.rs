@@ -13,7 +13,6 @@
 //! memory may be used given that buffers are passed in directly to its read and write
 //! methods.
 
-use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
@@ -63,7 +62,6 @@ pub enum Error {
 ///
 /// For more details about EasyDMA, consult the module documentation.
 pub struct Uarte<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
     tx: UarteTx<'d, T>,
     rx: UarteRx<'d, T>,
 }
@@ -71,13 +69,13 @@ pub struct Uarte<'d, T: Instance> {
 /// Transmitter interface to the UARTE peripheral obtained
 /// via [Uarte]::split.
 pub struct UarteTx<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+    _p: PeripheralRef<'d, T>,
 }
 
 /// Receiver interface to the UARTE peripheral obtained
 /// via [Uarte]::split.
 pub struct UarteRx<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+    _p: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Instance> Uarte<'d, T> {
@@ -116,7 +114,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
     }
 
     fn new_inner(
-        _uarte: impl Peripheral<P = T> + 'd,
+        uarte: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
         rxd: PeripheralRef<'d, AnyPin>,
         txd: PeripheralRef<'d, AnyPin>,
@@ -124,7 +122,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
         rts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(irq);
+        into_ref!(uarte, irq);
 
         let r = T::regs();
 
@@ -161,9 +159,10 @@ impl<'d, T: Instance> Uarte<'d, T> {
         s.tx_rx_refcount.store(2, Ordering::Relaxed);
 
         Self {
-            phantom: PhantomData,
-            tx: UarteTx { phantom: PhantomData },
-            rx: UarteRx { phantom: PhantomData },
+            tx: UarteTx {
+                _p: unsafe { uarte.clone_unchecked() },
+            },
+            rx: UarteRx { _p: uarte },
         }
     }
 
@@ -267,13 +266,13 @@ impl<'d, T: Instance> UarteTx<'d, T> {
     }
 
     fn new_inner(
-        _uarte: impl Peripheral<P = T> + 'd,
+        uarte: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
         txd: PeripheralRef<'d, AnyPin>,
         cts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(irq);
+        into_ref!(uarte, irq);
 
         let r = T::regs();
 
@@ -299,7 +298,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
 
-        Self { phantom: PhantomData }
+        Self { _p: uarte }
     }
 
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
@@ -459,13 +458,13 @@ impl<'d, T: Instance> UarteRx<'d, T> {
     }
 
     fn new_inner(
-        _uarte: impl Peripheral<P = T> + 'd,
+        uarte: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
         rxd: PeripheralRef<'d, AnyPin>,
         rts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(irq);
+        into_ref!(uarte, irq);
 
         let r = T::regs();
 
@@ -491,7 +490,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
 
-        Self { phantom: PhantomData }
+        Self { _p: uarte }
     }
 
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {

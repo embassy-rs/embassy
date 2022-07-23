@@ -27,6 +27,36 @@ impl<'a, T> PeripheralRef<'a, T> {
         }
     }
 
+    /// Unsafely clone (duplicate) a peripheral singleton.
+    ///
+    /// # Safety
+    ///
+    /// This returns an owned clone of the peripheral. You must manually ensure
+    /// only one copy of the peripheral is in use at a time. For example, don't
+    /// create two SPI drivers on `SPI1`, because they will "fight" each other.
+    ///
+    /// You should strongly prefer using `reborrow()` instead. It returns a
+    /// `PeripheralRef` that borrows `self`, which allows the borrow checker
+    /// to enforce this at compile time.
+    pub unsafe fn clone_unchecked(&mut self) -> PeripheralRef<'a, T>
+    where
+        T: Peripheral<P = T>,
+    {
+        PeripheralRef::new(self.inner.clone_unchecked())
+    }
+
+    /// Reborrow into a "child" PeripheralRef.
+    ///
+    /// `self` will stay borrowed until the child PeripheralRef is dropped.
+    pub fn reborrow(&mut self) -> PeripheralRef<'_, T>
+    where
+        T: Peripheral<P = T>,
+    {
+        // safety: we're returning the clone inside a new PeripheralRef that borrows
+        // self, so user code can't use both at the same time.
+        PeripheralRef::new(unsafe { self.inner.clone_unchecked() })
+    }
+
     /// Map the inner peripheral using `Into`.
     ///
     /// This converts from `PeripheralRef<'a, T>` to `PeripheralRef<'a, U>`, using an

@@ -1,6 +1,5 @@
 #![macro_use]
 
-use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
@@ -31,7 +30,7 @@ pub enum Error {
 ///
 /// For more details about EasyDMA, consult the module documentation.
 pub struct Spim<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+    _p: PeripheralRef<'d, T>,
 }
 
 #[non_exhaustive]
@@ -94,14 +93,14 @@ impl<'d, T: Instance> Spim<'d, T> {
     }
 
     fn new_inner(
-        _spim: impl Peripheral<P = T> + 'd,
+        spim: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
         sck: PeripheralRef<'d, AnyPin>,
         miso: Option<PeripheralRef<'d, AnyPin>>,
         mosi: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(irq);
+        into_ref!(spim, irq);
 
         let r = T::regs();
 
@@ -181,7 +180,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         irq.unpend();
         irq.enable();
 
-        Self { phantom: PhantomData }
+        Self { _p: spim }
     }
 
     fn on_interrupt(_: *mut ()) {

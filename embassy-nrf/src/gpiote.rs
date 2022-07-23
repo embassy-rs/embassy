@@ -1,10 +1,9 @@
 use core::convert::Infallible;
 use core::future::Future;
-use core::marker::PhantomData;
 use core::task::{Context, Poll};
 
 use embassy::waitqueue::AtomicWaker;
-use embassy_hal_common::impl_peripheral;
+use embassy_hal_common::{impl_peripheral, Peripheral, PeripheralRef};
 use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
@@ -301,16 +300,22 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
 // =======================
 
 pub(crate) struct PortInputFuture<'a> {
-    pin_port: u8,
-    phantom: PhantomData<&'a mut AnyPin>,
+    pin: PeripheralRef<'a, AnyPin>,
+}
+
+impl<'a> PortInputFuture<'a> {
+    fn new(pin: impl Peripheral<P = impl GpioPin> + 'a) -> Self {
+        Self {
+            pin: pin.into_ref().map_into(),
+        }
+    }
 }
 
 impl<'a> Unpin for PortInputFuture<'a> {}
 
 impl<'a> Drop for PortInputFuture<'a> {
     fn drop(&mut self) {
-        let pin = unsafe { AnyPin::steal(self.pin_port) };
-        pin.conf().modify(|_, w| w.sense().disabled());
+        self.pin.conf().modify(|_, w| w.sense().disabled());
     }
 }
 
@@ -318,10 +323,9 @@ impl<'a> Future for PortInputFuture<'a> {
     type Output = ();
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        PORT_WAKERS[self.pin_port as usize].register(cx.waker());
+        PORT_WAKERS[self.pin.pin_port() as usize].register(cx.waker());
 
-        let pin = unsafe { AnyPin::steal(self.pin_port) };
-        if pin.conf().read().sense().is_disabled() {
+        if self.pin.conf().read().sense().is_disabled() {
             Poll::Ready(())
         } else {
             Poll::Pending
@@ -354,22 +358,12 @@ impl<'d, T: GpioPin> Input<'d, T> {
 impl<'d, T: GpioPin> Flex<'d, T> {
     pub async fn wait_for_high(&mut self) {
         self.pin.conf().modify(|_, w| w.sense().high());
-
-        PortInputFuture {
-            pin_port: self.pin.pin_port(),
-            phantom: PhantomData,
-        }
-        .await
+        PortInputFuture::new(&mut self.pin).await
     }
 
     pub async fn wait_for_low(&mut self) {
         self.pin.conf().modify(|_, w| w.sense().low());
-
-        PortInputFuture {
-            pin_port: self.pin.pin_port(),
-            phantom: PhantomData,
-        }
-        .await
+        PortInputFuture::new(&mut self.pin).await
     }
 
     pub async fn wait_for_rising_edge(&mut self) {
@@ -388,11 +382,7 @@ impl<'d, T: GpioPin> Flex<'d, T> {
         } else {
             self.pin.conf().modify(|_, w| w.sense().high());
         }
-        PortInputFuture {
-            pin_port: self.pin.pin_port(),
-            phantom: PhantomData,
-        }
-        .await
+        PortInputFuture::new(&mut self.pin).await
     }
 }
 

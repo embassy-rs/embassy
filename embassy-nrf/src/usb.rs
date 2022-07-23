@@ -7,7 +7,7 @@ use core::task::Poll;
 
 use cortex_m::peripheral::NVIC;
 use embassy::waitqueue::AtomicWaker;
-use embassy_hal_common::into_ref;
+use embassy_hal_common::{into_ref, PeripheralRef};
 pub use embassy_usb;
 use embassy_usb::driver::{self, EndpointError, Event, Unsupported};
 use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
@@ -38,7 +38,7 @@ pub trait UsbSupply {
 }
 
 pub struct Driver<'d, T: Instance, P: UsbSupply> {
-    phantom: PhantomData<&'d mut T>,
+    _p: PeripheralRef<'d, T>,
     alloc_in: Allocator,
     alloc_out: Allocator,
     usb_supply: P,
@@ -166,14 +166,14 @@ impl UsbSupply for SignalledSupply {
 }
 
 impl<'d, T: Instance, P: UsbSupply> Driver<'d, T, P> {
-    pub fn new(_usb: impl Peripheral<P = T> + 'd, irq: impl Peripheral<P = T::Interrupt> + 'd, usb_supply: P) -> Self {
-        into_ref!(irq);
+    pub fn new(usb: impl Peripheral<P = T> + 'd, irq: impl Peripheral<P = T::Interrupt> + 'd, usb_supply: P) -> Self {
+        into_ref!(usb, irq);
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
         irq.enable();
 
         Self {
-            phantom: PhantomData,
+            _p: usb,
             alloc_in: Allocator::new(),
             alloc_out: Allocator::new(),
             usb_supply,
@@ -269,15 +269,15 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
         }))
     }
 
-    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
+    fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
         (
             Bus {
-                phantom: PhantomData,
+                _p: unsafe { self._p.clone_unchecked() },
                 power_available: false,
                 usb_supply: self.usb_supply,
             },
             ControlPipe {
-                _phantom: PhantomData,
+                _p: self._p,
                 max_packet_size: control_max_packet_size,
             },
         )
@@ -285,7 +285,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
 }
 
 pub struct Bus<'d, T: Instance, P: UsbSupply> {
-    phantom: PhantomData<&'d mut T>,
+    _p: PeripheralRef<'d, T>,
     power_available: bool,
     usb_supply: P,
 }
@@ -746,7 +746,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
 }
 
 pub struct ControlPipe<'d, T: Instance> {
-    _phantom: PhantomData<&'d mut T>,
+    _p: PeripheralRef<'d, T>,
     max_packet_size: u16,
 }
 

@@ -1,6 +1,5 @@
 //! Quadrature decoder interface
 
-use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy::waitqueue::AtomicWaker;
@@ -15,7 +14,7 @@ use crate::{interrupt, pac, Peripheral};
 
 /// Quadrature decoder
 pub struct Qdec<'d> {
-    phantom: PhantomData<&'d QDEC>,
+    _p: PeripheralRef<'d, QDEC>,
 }
 
 #[non_exhaustive]
@@ -66,14 +65,14 @@ impl<'d> Qdec<'d> {
     }
 
     fn new_inner(
-        _t: impl Peripheral<P = QDEC> + 'd,
+        p: impl Peripheral<P = QDEC> + 'd,
         irq: impl Peripheral<P = interrupt::QDEC> + 'd,
         a: PeripheralRef<'d, AnyPin>,
         b: PeripheralRef<'d, AnyPin>,
         led: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(irq);
+        into_ref!(p, irq);
         let r = Self::regs();
 
         // Select pins.
@@ -131,7 +130,7 @@ impl<'d> Qdec<'d> {
         });
         irq.enable();
 
-        Self { phantom: PhantomData }
+        Self { _p: p }
     }
 
     /// Perform an asynchronous read of the decoder.

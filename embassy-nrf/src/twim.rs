@@ -7,7 +7,6 @@
 //! - nRF52832: Section 33
 //! - nRF52840: Section 6.31
 use core::future::Future;
-use core::marker::PhantomData;
 use core::sync::atomic::compiler_fence;
 use core::sync::atomic::Ordering::SeqCst;
 use core::task::Poll;
@@ -16,7 +15,7 @@ use core::task::Poll;
 use embassy::time::{Duration, Instant};
 use embassy::waitqueue::AtomicWaker;
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_common::into_ref;
+use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::poll_fn;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
@@ -75,18 +74,18 @@ pub enum Error {
 ///
 /// For more details about EasyDMA, consult the module documentation.
 pub struct Twim<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+    _p: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Instance> Twim<'d, T> {
     pub fn new(
-        _twim: impl Peripheral<P = T> + 'd,
+        twim: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
         sda: impl Peripheral<P = impl GpioPin> + 'd,
         scl: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(irq, sda, scl);
+        into_ref!(twim, irq, sda, scl);
 
         let r = T::regs();
 
@@ -136,7 +135,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         irq.unpend();
         irq.enable();
 
-        Self { phantom: PhantomData }
+        Self { _p: twim }
     }
 
     fn on_interrupt(_: *mut ()) {
