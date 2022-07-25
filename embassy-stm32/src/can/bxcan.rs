@@ -28,7 +28,7 @@ impl<'d, T: Instance> Can<'d, T> {
         T::reset();
 
         Self {
-            can: bxcan::Can::builder(BxcanInstance(peri)).enable(),
+            can: bxcan::Can::builder(BxcanInstance::from_ref(peri)).enable(),
         }
     }
 }
@@ -67,6 +67,16 @@ pub(crate) mod sealed {
 pub trait Instance: sealed::Instance + RccPeripheral {}
 
 pub struct BxcanInstance<'a, T>(PeripheralRef<'a, T>);
+
+impl<'a, T: Instance> BxcanInstance<'a, T> {
+    pub fn new(peri: impl Peripheral<P = T> + 'a) -> Self {
+        Self::from_ref(peri.into_ref())
+    }
+
+    pub fn from_ref(peri: PeripheralRef<'a, T>) -> Self {
+        Self(peri)
+    }
+}
 
 unsafe impl<'d, T: Instance> bxcan::Instance for BxcanInstance<'d, T> {
     const REGISTERS: *mut bxcan::RegisterBlock = T::REGISTERS;
