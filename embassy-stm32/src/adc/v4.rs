@@ -9,6 +9,11 @@ use super::{AdcPin, Instance};
 use crate::time::Hertz;
 use crate::{pac, Peripheral};
 
+/// Default VREF voltage used for sample conversion to millivolts.
+pub const VREF_DEFAULT_MV: u32 = 3300;
+/// VREF voltage used for factory calibration of VREFINTCAL register.
+pub const VREF_CALIB_MV: u32 = 3300;
+
 pub enum Resolution {
     SixteenBit,
     FourteenBit,
@@ -53,10 +58,10 @@ mod sealed {
     }
 }
 
-// NOTE: Vref/Temperature/Vbat are only available on ADC3 on H7, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
-pub struct Vref;
-impl<T: Instance> InternalChannel<T> for Vref {}
-impl<T: Instance> sealed::InternalChannel<T> for Vref {
+// NOTE: Vrefint/Temperature/Vbat are only available on ADC3 on H7, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
+pub struct VrefInt;
+impl<T: Instance> InternalChannel<T> for VrefInt {}
+impl<T: Instance> sealed::InternalChannel<T> for VrefInt {
     fn channel(&self) -> u8 {
         19
     }
@@ -317,6 +322,7 @@ impl Prescaler {
 
 pub struct Adc<'d, T: Instance> {
     sample_time: SampleTime,
+    vref: u32,
     resolution: Resolution,
     phantom: PhantomData<&'d mut T>,
 }
@@ -354,6 +360,7 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
 
         let mut s = Self {
             sample_time: Default::default(),
+            vref: VREF_DEFAULT_MV,
             resolution: Resolution::default(),
             phantom: PhantomData,
         };
@@ -422,14 +429,14 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vref(&self) -> Vref {
+    pub fn enable_vrefint(&self) -> VrefInt {
         unsafe {
             T::common_regs().ccr().modify(|reg| {
                 reg.set_vrefen(true);
             });
         }
 
-        Vref {}
+        VrefInt {}
     }
 
     pub fn enable_temperature(&self) -> Temperature {
@@ -460,9 +467,16 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
         self.resolution = resolution;
     }
 
+    /// Set VREF used for [to_millivolts()] conversion.
+    ///
+    /// Use this if you have a known precise VREF (VDDA) pin reference voltage.
+    pub fn set_vref(&mut self, vref: u32) {
+        self.vref = vref;
+    }
+
     /// Convert a measurement to millivolts
     pub fn to_millivolts(&self, sample: u16) -> u16 {
-        ((u32::from(sample) * 3300) / self.resolution.to_max_count()) as u16
+        ((u32::from(sample) * self.vref) / self.resolution.to_max_count()) as u16
     }
 
     /// Perform a single conversion.

@@ -6,7 +6,10 @@ use embedded_hal_02::blocking::delay::DelayUs;
 use crate::adc::{AdcPin, Instance};
 use crate::Peripheral;
 
-pub const VDDA_CALIB_MV: u32 = 3000;
+/// Default VREF voltage used for sample conversion to millivolts.
+pub const VREF_DEFAULT_MV: u32 = 3300;
+/// VREF voltage used for factory calibration of VREFINTCAL register.
+pub const VREF_CALIB_MV: u32 = 3000;
 
 /// Sadly we cannot use `RccPeripheral::enable` since devices are quite inconsistent ADC clock
 /// configuration.
@@ -44,7 +47,7 @@ impl Resolution {
         }
     }
 
-    fn to_max_count(&self) -> u32 {
+    pub fn to_max_count(&self) -> u32 {
         match self {
             Resolution::TwelveBit => (1 << 12) - 1,
             Resolution::TenBit => (1 << 10) - 1,
@@ -54,9 +57,9 @@ impl Resolution {
     }
 }
 
-pub struct Vref;
-impl<T: Instance> AdcPin<T> for Vref {}
-impl<T: Instance> super::sealed::AdcPin<T> for Vref {
+pub struct VrefInt;
+impl<T: Instance> AdcPin<T> for VrefInt {}
+impl<T: Instance> super::sealed::AdcPin<T> for VrefInt {
     fn channel(&self) -> u8 {
         #[cfg(not(stm32g0))]
         let val = 0;
@@ -202,7 +205,7 @@ pub use sample_time::SampleTime;
 
 pub struct Adc<'d, T: Instance> {
     sample_time: SampleTime,
-    calibrated_vdda: u32,
+    vref: u32,
     resolution: Resolution,
     phantom: PhantomData<&'d mut T>,
 }
@@ -241,12 +244,12 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self {
             sample_time: Default::default(),
             resolution: Resolution::default(),
-            calibrated_vdda: VDDA_CALIB_MV,
+            vref: VREF_DEFAULT_MV,
             phantom: PhantomData,
         }
     }
 
-    pub fn enable_vref(&self, delay: &mut impl DelayUs<u32>) -> Vref {
+    pub fn enable_vrefint(&self, delay: &mut impl DelayUs<u32>) -> VrefInt {
         unsafe {
             T::common_regs().ccr().modify(|reg| {
                 reg.set_vrefen(true);
@@ -259,7 +262,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         //cortex_m::asm::delay(20_000_000);
         delay.delay_us(15);
 
-        Vref {}
+        VrefInt {}
     }
 
     pub fn enable_temperature(&self) -> Temperature {
@@ -282,16 +285,16 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat {}
     }
 
-    /// Calculates the system VDDA by sampling the internal VREF channel and comparing
+    /// Calculates the system VDDA by sampling the internal VREFINT channel and comparing
     /// the result with the value stored at the factory. If the chip's VDDA is not stable, run
     /// this before each ADC conversion.
     #[cfg(not(stm32g0))] // TODO is this supposed to be public?
     #[allow(unused)] // TODO is this supposed to be public?
-    fn calibrate(&mut self, vref: &mut Vref) {
+    fn calibrate(&mut self, vrefint: &mut VrefInt) {
         #[cfg(stm32l5)]
-        let vref_cal: u32 = todo!();
+        let vrefint_cal: u32 = todo!();
         #[cfg(not(stm32l5))]
-        let vref_cal = unsafe { crate::pac::VREFINTCAL.data().read().value() };
+        let vrefint_cal = unsafe { crate::pac::VREFINTCAL.data().read().value() };
         let old_sample_time = self.sample_time;
 
         // "Table 24. Embedded internal voltage reference" states that the sample time needs to be
@@ -300,11 +303,11 @@ impl<'d, T: Instance> Adc<'d, T> {
         self.sample_time = SampleTime::Cycles640_5;
 
         // This can't actually fail, it's just in a result to satisfy hal trait
-        let vref_samp = self.read(vref);
+        let vrefint_samp = self.read(vrefint);
 
         self.sample_time = old_sample_time;
 
-        self.calibrated_vdda = (VDDA_CALIB_MV * u32::from(vref_cal)) / u32::from(vref_samp);
+        self.vref = (VREF_CALIB_MV * u32::from(vrefint_cal)) / u32::from(vrefint_samp);
     }
 
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
@@ -315,9 +318,16 @@ impl<'d, T: Instance> Adc<'d, T> {
         self.resolution = resolution;
     }
 
+    /// Set VREF used for [to_millivolts()] conversion.
+    ///
+    /// Use this if you have a known precise VREF (VDDA) pin reference voltage.
+    pub fn set_vref(&mut self, vref: u32) {
+        self.vref = vref;
+    }
+
     /// Convert a measurement to millivolts
     pub fn to_millivolts(&self, sample: u16) -> u16 {
-        ((u32::from(sample) * self.calibrated_vdda) / self.resolution.to_max_count()) as u16
+        ((u32::from(sample) * self.vref) / self.resolution.to_max_count()) as u16
     }
 
     /*
