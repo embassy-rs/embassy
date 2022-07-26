@@ -467,7 +467,7 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
         self.resolution = resolution;
     }
 
-    /// Set VREF used for [to_millivolts()] conversion.
+    /// Set VREF value in millivolts. This value is used for [to_millivolts()] sample conversion.
     ///
     /// Use this if you have a known precise VREF (VDDA) pin reference voltage.
     pub fn set_vref(&mut self, vref: u32) {
