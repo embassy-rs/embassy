@@ -52,20 +52,7 @@ impl<T> Forever<T> {
     #[inline(always)]
     #[allow(clippy::mut_from_ref)]
     pub fn put(&'static self, val: T) -> &'static mut T {
-        if self
-            .used
-            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-            .is_err()
-        {
-            panic!("Forever::put() called multiple times");
-        }
-
-        unsafe {
-            let p = self.t.get();
-            let p = (&mut *p).as_mut_ptr();
-            p.write(val);
-            &mut *p
-        }
+        self.put_with(|| val)
     }
 
     /// Store the closure return value in this `Forever`, returning a mutable reference to it.
