@@ -74,12 +74,8 @@ impl<T> Forever<T> {
             panic!("Forever.put() called multiple times");
         }
 
-        unsafe {
-            let p = self.t.get();
-            let p = (&mut *p).as_mut_ptr();
-            p.write(val());
-            &mut *p
-        }
+        let p: &'static mut MaybeUninit<T> = unsafe { &mut *self.t.get() };
+        p.write(val())
     }
 
     /// Unsafely get a mutable reference to the contents of this Forever.
@@ -93,8 +89,7 @@ impl<T> Forever<T> {
     #[inline(always)]
     #[allow(clippy::mut_from_ref)]
     pub unsafe fn steal(&self) -> &mut T {
-        let p = self.t.get();
-        let p = (&mut *p).as_mut_ptr();
-        &mut *p
+        let p: &mut MaybeUninit<T> = &mut *self.t.get();
+        p.assume_init_mut()
     }
 }
