@@ -205,7 +205,7 @@ pub use sample_time::SampleTime;
 
 pub struct Adc<'d, T: Instance> {
     sample_time: SampleTime,
-    vref: u32,
+    vref_mv: u32,
     resolution: Resolution,
     phantom: PhantomData<&'d mut T>,
 }
@@ -244,7 +244,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self {
             sample_time: Default::default(),
             resolution: Resolution::default(),
-            vref: VREF_DEFAULT_MV,
+            vref_mv: VREF_DEFAULT_MV,
             phantom: PhantomData,
         }
     }
@@ -307,7 +307,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         self.sample_time = old_sample_time;
 
-        self.vref = (VREF_CALIB_MV * u32::from(vrefint_cal)) / u32::from(vrefint_samp);
+        self.vref_mv = (VREF_CALIB_MV * u32::from(vrefint_cal)) / u32::from(vrefint_samp);
     }
 
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
@@ -321,13 +321,13 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// Set VREF value in millivolts. This value is used for [to_millivolts()] sample conversion.
     ///
     /// Use this if you have a known precise VREF (VDDA) pin reference voltage.
-    pub fn set_vref(&mut self, vref: u32) {
-        self.vref = vref;
+    pub fn set_vref_mv(&mut self, vref_mv: u32) {
+        self.vref_mv = vref_mv;
     }
 
     /// Convert a measurement to millivolts
     pub fn to_millivolts(&self, sample: u16) -> u16 {
-        ((u32::from(sample) * self.vref) / self.resolution.to_max_count()) as u16
+        ((u32::from(sample) * self.vref_mv) / self.resolution.to_max_count()) as u16
     }
 
     /*
