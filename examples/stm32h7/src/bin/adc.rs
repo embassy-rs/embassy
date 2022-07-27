@@ -28,11 +28,11 @@ async fn main(_spawner: Spawner, mut p: Peripherals) {
 
     adc.set_sample_time(SampleTime::Cycles32_5);
 
-    let mut vref_channel = adc.enable_vref();
+    let mut vrefint_channel = adc.enable_vrefint();
 
     loop {
-        let vref = adc.read_internal(&mut vref_channel);
-        info!("vref: {}", vref);
+        let vrefint = adc.read_internal(&mut vrefint_channel);
+        info!("vrefint: {}", vrefint);
         let measured = adc.read(&mut p.PC0);
         info!("measured: {}", measured);
         Timer::after(Duration::from_millis(500)).await;
