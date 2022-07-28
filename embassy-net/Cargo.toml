@@ -18,6 +18,7 @@ std = []
 
 defmt = ["dep:defmt", "smoltcp/defmt"]
 
+udp = ["smoltcp/socket-udp"]
 tcp = ["smoltcp/socket-tcp"]
 dns = ["smoltcp/socket-dns"]
 dhcpv4 = ["medium-ethernet", "smoltcp/socket-dhcpv4"]
