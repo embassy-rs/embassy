@@ -209,7 +209,6 @@ enum IoctlState {
 }
 
 pub struct State {
-    ioctl_id: Cell<u16>,
     ioctl_state: Cell<IoctlState>,
 
     tx_channel: Channel<NoopRawMutex, PacketBuf, 8>,
@@ -220,7 +219,6 @@ pub struct State {
 impl State {
     pub fn new() -> Self {
         Self {
-            ioctl_id: Cell::new(0),
             ioctl_state: Cell::new(IoctlState::Idle),
 
             tx_channel: Channel::new(),
@@ -453,8 +451,6 @@ impl<'a> Control<'a> {
             yield_now().await;
         }
 
-        self.state.ioctl_id.set(self.state.ioctl_id.get().wrapping_add(1));
-
         self.state
             .ioctl_state
             .set(IoctlState::Pending { kind, cmd, iface, buf });
@@ -522,7 +518,8 @@ pub struct Runner<'a, PWR, SPI> {
     pwr: PWR,
     spi: SPI,
 
-    ioctl_seq: u8,
+    ioctl_id: u16,
+    sdpcm_seq: u8,
     backplane_window: u32,
 }
 
@@ -542,7 +539,8 @@ where
         pwr,
         spi,
 
-        ioctl_seq: 0,
+        ioctl_id: 0,
+        sdpcm_seq: 0,
         backplane_window: 0xAAAA_AAAA,
     };
 
@@ -669,8 +667,7 @@ where
             // Send stuff
             // TODO flow control
             if let IoctlState::Pending { kind, cmd, iface, buf } = self.state.ioctl_state.get() {
-                self.send_ioctl(kind, cmd, iface, unsafe { &*buf }, self.state.ioctl_id.get())
-                    .await;
+                self.send_ioctl(kind, cmd, iface, unsafe { &*buf }).await;
                 self.state.ioctl_state.set(IoctlState::Sent { buf });
             }
 
@@ -723,8 +720,8 @@ where
 
         let total_len = SdpcmHeader::SIZE + BcdHeader::SIZE + packet.len();
 
-        let seq = self.ioctl_seq;
-        self.ioctl_seq = self.ioctl_seq.wrapping_add(1);
+        let seq = self.sdpcm_seq;
+        self.sdpcm_seq = self.sdpcm_seq.wrapping_add(1);
 
         let sdpcm_header = SdpcmHeader {
             len: total_len as u16, // TODO does this len need to be rounded up to u32?
@@ -802,7 +799,7 @@ where
                 trace!("    {:?}", cdc_header);
 
                 if let IoctlState::Sent { buf } = self.state.ioctl_state.get() {
-                    if cdc_header.id == self.state.ioctl_id.get() {
+                    if cdc_header.id == self.ioctl_id {
                         assert_eq!(cdc_header.status, 0); // todo propagate error instead
 
                         let resp_len = cdc_header.len as usize;
@@ -858,19 +855,20 @@ where
         }
     }
 
-    async fn send_ioctl(&mut self, kind: u32, cmd: u32, iface: u32, data: &[u8], id: u16) {
+    async fn send_ioctl(&mut self, kind: u32, cmd: u32, iface: u32, data: &[u8]) {
         let mut buf = [0; 512];
         let buf8 = slice8_mut(&mut buf);
 
         let total_len = SdpcmHeader::SIZE + CdcHeader::SIZE + data.len();
 
-        let seq = self.ioctl_seq;
-        self.ioctl_seq = self.ioctl_seq.wrapping_add(1);
+        let sdpcm_seq = self.sdpcm_seq;
+        self.sdpcm_seq = self.sdpcm_seq.wrapping_add(1);
+        self.ioctl_id = self.ioctl_id.wrapping_add(1);
 
         let sdpcm_header = SdpcmHeader {
             len: total_len as u16, // TODO does this len need to be rounded up to u32?
             len_inv: !total_len as u16,
-            sequence: seq,
+            sequence: sdpcm_seq,
             channel_and_flags: 0, // control channel
             next_length: 0,
             header_length: SdpcmHeader::SIZE as _,
@@ -883,7 +881,7 @@ where
             cmd: cmd,
             len: data.len() as _,
             flags: kind as u16 | (iface as u16) << 12,
-            id,
+            id: self.ioctl_id,
             status: 0,
         };
         trace!("tx {:?}", sdpcm_header);
