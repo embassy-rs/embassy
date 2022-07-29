@@ -4,15 +4,15 @@
 mod serial_port;
 
 use async_io::Async;
-use embassy::executor::Executor;
-use embassy::util::Forever;
+use embassy_executor::executor::Executor;
+use embassy_util::Forever;
 use embedded_io::asynch::Read;
 use log::*;
 use nix::sys::termios;
 
 use self::serial_port::SerialPort;
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn run() {
     // Open the serial port.
     let baudrate = termios::BaudRate::B115200;

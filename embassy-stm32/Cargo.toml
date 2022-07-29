@@ -10,7 +10,7 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32
 # TODO: sdmmc
 # TODO: net
 # TODO: subghz
-features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any", "embassy/time-tick-32768hz"]
+features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any", "embassy-executor/time-tick-32768hz"]
 flavors = [
     { regex_feature = "stm32f0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32f1.*", target = "thumbv7m-none-eabi" },
@@ -31,7 +31,8 @@ flavors = [
 ]
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../embassy" }
+embassy-util = { version = "0.1.0", path = "../embassy-util" }
+embassy-executor = { version = "0.1.0", path = "../embassy-executor" }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-4"]}
 embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["stm32"] }
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
@@ -72,7 +73,7 @@ quote = "1.0.15"
 stm32-metapac = { version = "0.1.0", path = "../stm32-metapac", default-features = false, features = ["metadata"]}
 
 [features]
-defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy/defmt", "embassy-embedded-hal/defmt", "embedded-io?/defmt", "embassy-usb?/defmt"]
+defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-util/defmt", "embassy-executor/defmt", "embassy-embedded-hal/defmt", "embedded-io?/defmt", "embassy-usb?/defmt"]
 sdmmc-rs = ["embedded-sdmmc"]
 net = ["embassy-net" ]
 memory-x = ["stm32-metapac/memory-x"]
@@ -81,7 +82,7 @@ exti = []
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
-_time-driver = ["embassy/time"]
+_time-driver = ["embassy-executor/time"]
 time-driver-any = ["_time-driver"]
 time-driver-tim2 = ["_time-driver"]
 time-driver-tim3 = ["_time-driver"]
@@ -91,7 +92,7 @@ time-driver-tim12 = ["_time-driver"]
 time-driver-tim15 = ["_time-driver"]
 
 # Enable nightly-only features
-nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io", "dep:embassy-usb", "embassy-embedded-hal/nightly"]
+nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io", "dep:embassy-usb", "embassy-embedded-hal/nightly"]
 
 # Reexport stm32-metapac at `embassy_stm32::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.

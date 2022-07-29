@@ -4,7 +4,8 @@ name = "embassy-boot-nrf-examples"
 version = "0.1.0"
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../../../embassy", features = ["nightly"] }
+embassy-util = { version = "0.1.0", path = "../../../../embassy-util" }
+embassy-executor = { version = "0.1.0", path = "../../../../embassy-executor", features = ["nightly"] }
 embassy-nrf = { version = "0.1.0", path = "../../../../embassy-nrf", features = ["time-driver-rtc1", "gpiote", "nightly", "nrf52840"] }
 embassy-boot-nrf = { version = "0.1.0", path = "../../../../embassy-boot/nrf" }
 embassy-embedded-hal = { version = "0.1.0", path = "../../../../embassy-embedded-hal" }

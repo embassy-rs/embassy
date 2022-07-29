@@ -7,7 +7,7 @@ edition = "2021"
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = [ "pool-4", "defmt", "tcp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "embassy/time", "embassy/time-tick-1mhz"]
+features = [ "pool-4", "defmt", "tcp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "embassy-executor/time", "embassy-executor/time-tick-1mhz"]
 flavors = [
     { name = "default", target = "thumbv7em-none-eabihf" },
 ]
@@ -37,7 +37,8 @@ pool-128 = []
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-embassy             = { version = "0.1.0", path = "../embassy" }
+embassy-executor    = { version = "0.1.0", path = "../embassy-executor" }
+embassy-util        = { version = "0.1.0", path = "../embassy-util" }
 embedded-io         = { version = "0.3.0", features = [ "async" ] }
 
 managed             = { version = "0.8.0", default-features = false, features = [ "map" ] }

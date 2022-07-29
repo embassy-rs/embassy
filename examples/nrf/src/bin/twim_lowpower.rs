@@ -11,15 +11,15 @@
 use core::mem;
 
 use defmt::*;
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Timer};
 use embassy_nrf::twim::{self, Twim};
 use embassy_nrf::{interrupt, Peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 const ADDRESS: u8 = 0x50;
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, mut p: Peripherals) {
     info!("Started!");
     let mut irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);

@@ -14,8 +14,8 @@ use panic_reset as _;
 
 static APP_B: &[u8] = include_bytes!("../../b.bin");
 
-#[embassy::main]
-async fn main(_s: embassy::executor::Spawner, p: Peripherals) {
+#[embassy_executor::main]
+async fn main(_s: embassy_executor::executor::Spawner, p: Peripherals) {
     let flash = Flash::unlock(p.FLASH);
     let mut flash = BlockingAsync::new(flash);
 

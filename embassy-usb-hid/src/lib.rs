@@ -11,7 +11,6 @@ use core::mem::MaybeUninit;
 use core::ops::Range;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use embassy::time::Duration;
 use embassy_usb::control::{ControlHandler, InResponse, OutResponse, Request, RequestType};
 use embassy_usb::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use embassy_usb::Builder;
@@ -373,7 +372,7 @@ pub trait RequestHandler {
     /// If `id` is `None`, get the idle rate for all reports. Returning `None`
     /// will reject the control request. Any duration at or above 1.024 seconds
     /// or below 4ms will be returned as an indefinite idle rate.
-    fn get_idle(&self, id: Option<ReportId>) -> Option<Duration> {
+    fn get_idle_ms(&self, id: Option<ReportId>) -> Option<u32> {
         let _ = id;
         None
     }
@@ -381,9 +380,9 @@ pub trait RequestHandler {
     /// Set the idle rate for `id` to `dur`.
     ///
     /// If `id` is `None`, set the idle rate of all input reports to `dur`. If
-    /// an indefinite duration is requested, `dur` will be set to `Duration::MAX`.
-    fn set_idle(&self, id: Option<ReportId>, dur: Duration) {
-        let _ = (id, dur);
+    /// an indefinite duration is requested, `dur` will be set to `u32::MAX`.
+    fn set_idle_ms(&self, id: Option<ReportId>, duration_ms: u32) {
+        let _ = (id, duration_ms);
     }
 }
 
@@ -447,13 +446,9 @@ impl<'d> ControlHandler for Control<'d> {
                     if let Some(handler) = self.request_handler {
                         let id = req.value as u8;
                         let id = (id != 0).then(|| ReportId::In(id));
-                        let dur = u64::from(req.value >> 8);
-                        let dur = if dur == 0 {
-                            Duration::MAX
-                        } else {
-                            Duration::from_millis(4 * dur)
-                        };
-                        handler.set_idle(id, dur);
+                        let dur = u32::from(req.value >> 8);
+                        let dur = if dur == 0 { u32::MAX } else { 4 * dur };
+                        handler.set_idle_ms(id, dur);
                     }
                     OutResponse::Accepted
                 }
@@ -495,8 +490,8 @@ impl<'d> ControlHandler for Control<'d> {
                 if let Some(handler) = self.request_handler {
                     let id = req.value as u8;
                     let id = (id != 0).then(|| ReportId::In(id));
-                    if let Some(dur) = handler.get_idle(id) {
-                        let dur = u8::try_from(dur.as_millis() / 4).unwrap_or(0);
+                    if let Some(dur) = handler.get_idle_ms(id) {
+                        let dur = u8::try_from(dur / 4).unwrap_or(0);
                         buf[0] = dur;
                         InResponse::Accepted(&buf[0..1])
                     } else {

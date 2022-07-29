@@ -35,7 +35,8 @@ prio-bits-8 = []
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-embassy = { version = "0.1.0", path = "../embassy"}
+embassy-util = { version = "0.1.0", path = "../embassy-util" }
+embassy-executor = { version = "0.1.0", path = "../embassy-executor"}
 embassy-macros = { version = "0.1.0", path = "../embassy-macros"}
 embassy-hal-common = { version = "0.1.0", path = "../embassy-hal-common"}
 atomic-polyfill = "0.1.5"

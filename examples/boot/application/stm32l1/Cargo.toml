@@ -4,7 +4,8 @@ name = "embassy-boot-stm32l1-examples"
 version = "0.1.0"
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../../../embassy", features = ["nightly", "time-tick-32768hz"] }
+embassy-util = { version = "0.1.0", path = "../../../../embassy-util", features = ["defmt"] }
+embassy-executor = { version = "0.1.0", path = "../../../../embassy-executor", features = ["nightly", "time-tick-32768hz"] }
 embassy-stm32 = { version = "0.1.0", path = "../../../../embassy-stm32", features = ["unstable-traits", "nightly", "stm32l151cb-a", "time-driver-any", "exti"]  }
 embassy-boot-stm32 = { version = "0.1.0", path = "../../../../embassy-boot/stm32" }
 embassy-embedded-hal = { version = "0.1.0", path = "../../../../embassy-embedded-hal" }

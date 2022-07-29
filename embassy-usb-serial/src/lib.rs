@@ -9,11 +9,11 @@ use core::cell::Cell;
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use embassy::blocking_mutex::CriticalSectionMutex;
 use embassy_usb::control::{self, ControlHandler, InResponse, OutResponse, Request};
 use embassy_usb::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use embassy_usb::types::*;
 use embassy_usb::Builder;
+use embassy_util::blocking_mutex::CriticalSectionMutex;
 
 /// This should be used as `device_class` when building the `UsbDevice`.
 pub const USB_CLASS_CDC: u8 = 0x02;

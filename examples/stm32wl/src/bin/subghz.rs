@@ -6,13 +6,13 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy::channel::signal::Signal;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt::{Interrupt, InterruptExt};
 use embassy_stm32::subghz::*;
 use embassy_stm32::{interrupt, Peripherals};
+use embassy_util::channel::signal::Signal;
 use {defmt_rtt as _, panic_probe as _};
 
 const PING_DATA: &str = "PING";
@@ -57,8 +57,8 @@ fn config() -> embassy_stm32::Config {
     config
 }
 
-#[embassy::main(config = "config()")]
-async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
+#[embassy_executor::main(config = "config()")]
+async fn main(_spawner: embassy_executor::executor::Spawner, p: Peripherals) {
     let mut led1 = Output::new(p.PB15, Level::High, Speed::Low);
     let mut led2 = Output::new(p.PB9, Level::Low, Speed::Low);
     let mut led3 = Output::new(p.PB11, Level::Low, Speed::Low);

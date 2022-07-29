@@ -5,12 +5,12 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use defmt::assert;
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Instant, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Instant, Timer};
 use embassy_stm32::Peripherals;
 use example_common::*;
 
-#[embassy::main(config = "config()")]
+#[embassy_executor::main(config = "config()")]
 async fn main(_spawner: Spawner, _p: Peripherals) {
     info!("Hello World!");
 

@@ -1,0 +1,28 @@
+[package]
+name = "embassy-util"
+version = "0.1.0"
+edition = "2021"
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-util-v$VERSION/embassy-util/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-util/src/"
+features = ["nightly", "defmt", "unstable-traits", "time", "time-tick-1mhz"]
+flavors = [
+    { name = "default", target = "x86_64-unknown-linux-gnu" },
+]
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }
+
+futures-util = { version = "0.3.17", default-features = false }
+atomic-polyfill = "0.1.5"
+critical-section = "0.2.5"
+heapless = "0.7.5"
+cfg-if = "1.0.0"
+
+[dev-dependencies]
+futures-executor = { version = "0.3.17", features = [ "thread-pool" ] }
+futures-test = "0.3.17"
+futures-timer = "3.0.2"
+futures-util = { version = "0.3.17", features = [ "channel" ] }

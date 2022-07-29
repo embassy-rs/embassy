@@ -2,9 +2,9 @@ use core::cell::Cell;
 
 use atomic_polyfill::{AtomicU8, Ordering};
 use critical_section::CriticalSection;
-use embassy::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy::blocking_mutex::Mutex;
-use embassy::time::driver::{AlarmHandle, Driver};
+use embassy_executor::time::driver::{AlarmHandle, Driver};
+use embassy_util::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_util::blocking_mutex::Mutex;
 
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::{interrupt, pac};
@@ -26,7 +26,7 @@ struct TimerDriver {
     next_alarm: AtomicU8,
 }
 
-embassy::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver{
+embassy_executor::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver{
     alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), [DUMMY_ALARM; ALARM_COUNT]),
     next_alarm: AtomicU8::new(0),
 });

@@ -5,7 +5,7 @@ name = "embassy-basic-example"
 version = "0.1.0"
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../../../../embassy", features = ["defmt", "nightly"] }
+embassy-executor = { version = "0.1.0", path = "../../../../../embassy-executor", features = ["defmt", "nightly"] }
 embassy-nrf = { version = "0.1.0", path = "../../../../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "nightly"] }
 
 defmt = "0.3"

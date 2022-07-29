@@ -2,9 +2,9 @@
 
 use core::task::Poll;
 
-use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_util::waitqueue::AtomicWaker;
 use fixed::types::I30F2;
 use futures::future::poll_fn;
 

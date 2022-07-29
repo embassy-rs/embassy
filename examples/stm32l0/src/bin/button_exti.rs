@@ -3,7 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy::executor::Spawner;
+use embassy_executor::executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::Peripherals;
@@ -15,7 +15,7 @@ fn config() -> embassy_stm32::Config {
     config
 }
 
-#[embassy::main(config = "config()")]
+#[embassy_executor::main(config = "config()")]
 async fn main(_spawner: Spawner, p: Peripherals) {
     let button = Input::new(p.PB2, Pull::Up);
     let mut button = ExtiInput::new(button, p.EXTI2);

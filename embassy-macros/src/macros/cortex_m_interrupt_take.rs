@@ -16,15 +16,15 @@ pub fn run(name: syn::Ident) -> Result<TokenStream, TokenStream> {
                     static HANDLER: interrupt::Handler;
                 }
 
-                let func = HANDLER.func.load(::embassy::export::atomic::Ordering::Relaxed);
-                let ctx = HANDLER.ctx.load(::embassy::export::atomic::Ordering::Relaxed);
+                let func = HANDLER.func.load(::embassy_executor::export::atomic::Ordering::Relaxed);
+                let ctx = HANDLER.ctx.load(::embassy_executor::export::atomic::Ordering::Relaxed);
                 let func: fn(*mut ()) = ::core::mem::transmute(func);
                 func(ctx)
             }
 
-            static TAKEN: ::embassy::export::atomic::AtomicBool = ::embassy::export::atomic::AtomicBool::new(false);
+            static TAKEN: ::embassy_executor::export::atomic::AtomicBool = ::embassy_executor::export::atomic::AtomicBool::new(false);
 
-            if TAKEN.compare_exchange(false, true, ::embassy::export::atomic::Ordering::AcqRel, ::embassy::export::atomic::Ordering::Acquire).is_err() {
+            if TAKEN.compare_exchange(false, true, ::embassy_executor::export::atomic::Ordering::AcqRel, ::embassy_executor::export::atomic::Ordering::Acquire).is_err() {
                 core::panic!("IRQ Already taken");
             }
 

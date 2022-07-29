@@ -2,12 +2,12 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use embassy::executor::Spawner;
+use embassy_executor::executor::Spawner;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::Peripherals;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     let button = Input::new(p.PIN_28, Pull::Up);
     let mut led = Output::new(p.PIN_25, Level::Low);

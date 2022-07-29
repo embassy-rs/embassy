@@ -932,7 +932,7 @@ impl<'d, U: Instance, T: TimerInstance> UarteRxWithIdle<'d, U, T> {
 pub(crate) mod sealed {
     use core::sync::atomic::AtomicU8;
 
-    use embassy::waitqueue::AtomicWaker;
+    use embassy_util::waitqueue::AtomicWaker;
 
     use super::*;
 

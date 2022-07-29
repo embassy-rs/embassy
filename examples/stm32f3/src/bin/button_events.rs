@@ -11,14 +11,14 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy::channel::mpmc::Channel;
-use embassy::executor::Spawner;
-use embassy::time::{with_timeout, Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{with_timeout, Duration, Timer};
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{AnyPin, Input, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::peripherals::PA0;
 use embassy_stm32::Peripherals;
+use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_util::channel::mpmc::Channel;
 use {defmt_rtt as _, panic_probe as _};
 
 struct Leds<'a> {
@@ -99,7 +99,7 @@ enum ButtonEvent {
 
 static CHANNEL: Channel<ThreadModeRawMutex, ButtonEvent, 4> = Channel::new();
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(spawner: Spawner, p: Peripherals) {
     let button = Input::new(p.PA0, Pull::Down);
     let button = ExtiInput::new(button, p.EXTI0);
@@ -120,14 +120,14 @@ async fn main(spawner: Spawner, p: Peripherals) {
     spawner.spawn(led_blinker(leds)).unwrap();
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn led_blinker(mut leds: Leds<'static>) {
     loop {
         leds.show().await;
     }
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn button_waiter(mut button: ExtiInput<'static, PA0>) {
     const DOUBLE_CLICK_DELAY: u64 = 250;
     const HOLD_DELAY: u64 = 1000;

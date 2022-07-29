@@ -12,7 +12,7 @@ flavors = [
 ]
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../embassy" }
+embassy-util = { version = "0.1.0", path = "../embassy-util" }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }

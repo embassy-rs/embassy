@@ -5,11 +5,11 @@ use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicBool, AtomicU8};
-use embassy::time::{block_for, Duration};
-use embassy::waitqueue::AtomicWaker;
+use embassy_executor::time::{block_for, Duration};
 use embassy_hal_common::into_ref;
 use embassy_usb::driver::{self, EndpointAllocError, EndpointError, Event, Unsupported};
 use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
+use embassy_util::waitqueue::AtomicWaker;
 use futures::future::poll_fn;
 use futures::Future;
 use pac::common::{Reg, RW};

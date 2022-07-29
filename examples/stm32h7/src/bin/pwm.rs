@@ -3,8 +3,8 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Timer};
 use embassy_stm32::pwm::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::pwm::Channel;
 use embassy_stm32::time::{khz, mhz};
@@ -23,7 +23,7 @@ pub fn config() -> Config {
     config
 }
 
-#[embassy::main(config = "config()")]
+#[embassy_executor::main(config = "config()")]
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 

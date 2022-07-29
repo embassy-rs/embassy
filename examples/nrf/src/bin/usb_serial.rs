@@ -6,7 +6,7 @@
 use core::mem;
 
 use defmt::{info, panic};
-use embassy::executor::Spawner;
+use embassy_executor::executor::Spawner;
 use embassy_nrf::usb::{Driver, Instance, PowerUsb, UsbSupply};
 use embassy_nrf::{interrupt, pac, Peripherals};
 use embassy_usb::driver::EndpointError;
@@ -15,7 +15,7 @@ use embassy_usb_serial::{CdcAcmClass, State};
 use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 

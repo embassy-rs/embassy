@@ -20,14 +20,15 @@ flavors = [
 unstable-pac = []
 
 # Enable nightly-only features
-nightly = ["embassy/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly"]
+nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly"]
 
 # Implement embedded-hal 1.0 alpha traits.
 # Implement embedded-hal-async traits if `nightly` is set as well.
 unstable-traits = ["embedded-hal-1"]
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../embassy", features = [ "time-tick-1mhz" ] }
+embassy-util = { version = "0.1.0", path = "../embassy-util" }
+embassy-executor = { version = "0.1.0", path = "../embassy-executor", features = [ "time-tick-1mhz" ] }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-3"]}
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }

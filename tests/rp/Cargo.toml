@@ -4,7 +4,8 @@ name = "embassy-rp-tests"
 version = "0.1.0"
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt"] }
+embassy-util = { version = "0.1.0", path = "../../embassy-util", features = ["defmt"] }
+embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["defmt"] }
 embassy-rp = { version = "0.1.0", path = "../../embassy-rp", features = ["nightly", "defmt", "unstable-pac", "unstable-traits"]  }
 
 defmt = "0.3.0"

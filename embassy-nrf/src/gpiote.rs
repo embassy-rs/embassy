@@ -2,8 +2,8 @@ use core::convert::Infallible;
 use core::future::Future;
 use core::task::{Context, Poll};
 
-use embassy::waitqueue::AtomicWaker;
 use embassy_hal_common::{impl_peripheral, Peripheral, PeripheralRef};
+use embassy_util::waitqueue::AtomicWaker;
 use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;

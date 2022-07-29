@@ -3,9 +3,9 @@ use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
 
 use critical_section::CriticalSection;
-use embassy::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy::blocking_mutex::CriticalSectionMutex as Mutex;
-use embassy::time::driver::{AlarmHandle, Driver};
+use embassy_executor::time::driver::{AlarmHandle, Driver};
+use embassy_util::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_util::blocking_mutex::CriticalSectionMutex as Mutex;
 
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::{interrupt, pac};
@@ -119,7 +119,7 @@ struct RtcDriver {
 }
 
 const ALARM_STATE_NEW: AlarmState = AlarmState::new();
-embassy::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
+embassy_executor::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
     alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),

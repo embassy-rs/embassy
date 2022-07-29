@@ -2,7 +2,6 @@
 use core::future::Future;
 use core::mem::MaybeUninit;
 
-use embassy::channel::signal::Signal;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{AnyPin, Output};
@@ -13,6 +12,7 @@ use embassy_stm32::subghz::{
     Status, SubGhz, TcxoMode, TcxoTrim, Timeout, TxParams,
 };
 use embassy_stm32::Peripheral;
+use embassy_util::channel::signal::Signal;
 use lorawan_device::async_device::radio::{Bandwidth, PhyRxTx, RfConfig, RxQuality, SpreadingFactor, TxConfig};
 use lorawan_device::async_device::Timings;
 

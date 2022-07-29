@@ -59,14 +59,14 @@
 
 use cortex_m_rt::entry;
 use defmt::{info, unwrap};
-use embassy::time::{Duration, Instant, Timer};
-use embassy::util::Forever;
+use embassy_executor::time::{Duration, Instant, Timer};
 use embassy_nrf::executor::{Executor, InterruptExecutor};
 use embassy_nrf::interrupt;
 use embassy_nrf::interrupt::InterruptExt;
+use embassy_util::Forever;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn run_high() {
     loop {
         info!("        [high] tick!");
@@ -74,7 +74,7 @@ async fn run_high() {
     }
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn run_med() {
     loop {
         let start = Instant::now();
@@ -91,7 +91,7 @@ async fn run_med() {
     }
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn run_low() {
     loop {
         let start = Instant::now();

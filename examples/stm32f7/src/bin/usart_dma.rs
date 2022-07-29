@@ -5,14 +5,14 @@
 use core::fmt::Write;
 
 use defmt::*;
-use embassy::executor::Spawner;
+use embassy_executor::executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_stm32::Peripherals;
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     let config = Config::default();
     let mut usart = Uart::new(p.UART7, p.PA8, p.PA15, p.DMA1_CH1, NoDma, config);

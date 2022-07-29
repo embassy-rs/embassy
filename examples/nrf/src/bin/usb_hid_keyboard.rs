@@ -7,23 +7,22 @@ use core::mem;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt::*;
-use embassy::channel::signal::Signal;
-use embassy::executor::Spawner;
-use embassy::time::Duration;
-use embassy::util::{select, Either};
+use embassy_executor::executor::Spawner;
 use embassy_nrf::gpio::{Input, Pin, Pull};
 use embassy_nrf::usb::{Driver, PowerUsb};
 use embassy_nrf::{interrupt, pac, Peripherals};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, DeviceStateHandler};
 use embassy_usb_hid::{HidReaderWriter, ReportId, RequestHandler, State};
+use embassy_util::channel::signal::Signal;
+use embassy_util::{select, Either};
 use futures::future::join;
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
 static SUSPENDED: AtomicBool = AtomicBool::new(false);
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 
@@ -154,11 +153,11 @@ impl RequestHandler for MyRequestHandler {
         OutResponse::Accepted
     }
 
-    fn set_idle(&self, id: Option<ReportId>, dur: Duration) {
+    fn set_idle_ms(&self, id: Option<ReportId>, dur: u32) {
         info!("Set idle rate for {:?} to {:?}", id, dur);
     }
 
-    fn get_idle(&self, id: Option<ReportId>) -> Option<Duration> {
+    fn get_idle_ms(&self, id: Option<ReportId>) -> Option<u32> {
         info!("Get idle rate for {:?}", id);
         None
     }

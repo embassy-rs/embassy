@@ -5,8 +5,8 @@
 use core::convert::TryFrom;
 
 use defmt::*;
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Timer};
 use embassy_stm32::rcc::{
     APBPrescaler, ClockSrc, HSEConfig, HSESrc, PLL48Div, PLLConfig, PLLMainDiv, PLLMul, PLLPreDiv, PLLSrc,
 };
@@ -43,7 +43,7 @@ fn config() -> Config {
     config
 }
 
-#[embassy::main(config = "config()")]
+#[embassy_executor::main(config = "config()")]
 async fn main(_spawner: Spawner, _p: Peripherals) {
     loop {
         Timer::after(Duration::from_millis(1000)).await;

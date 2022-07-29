@@ -6,8 +6,8 @@
 use core::mem;
 
 use defmt::*;
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Timer};
 use embassy_nrf::usb::{Driver, PowerUsb};
 use embassy_nrf::{interrupt, pac, Peripherals};
 use embassy_usb::control::OutResponse;
@@ -17,7 +17,7 @@ use futures::future::join;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 
@@ -113,11 +113,11 @@ impl RequestHandler for MyRequestHandler {
         OutResponse::Accepted
     }
 
-    fn set_idle(&self, id: Option<ReportId>, dur: Duration) {
+    fn set_idle_ms(&self, id: Option<ReportId>, dur: u32) {
         info!("Set idle rate for {:?} to {:?}", id, dur);
     }
 
-    fn get_idle(&self, id: Option<ReportId>) -> Option<Duration> {
+    fn get_idle_ms(&self, id: Option<ReportId>) -> Option<u32> {
         info!("Get idle rate for {:?}", id);
         None
     }

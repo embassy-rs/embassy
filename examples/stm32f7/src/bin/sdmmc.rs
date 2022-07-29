@@ -3,7 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy::executor::Spawner;
+use embassy_executor::executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::time::mhz;
 use embassy_stm32::{interrupt, Config, Peripherals};
@@ -15,7 +15,7 @@ fn config() -> Config {
     config
 }
 
-#[embassy::main(config = "config()")]
+#[embassy_executor::main(config = "config()")]
 async fn main(_spawner: Spawner, p: Peripherals) -> ! {
     info!("Hello World!");
 

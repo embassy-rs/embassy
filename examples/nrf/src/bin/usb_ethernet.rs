@@ -8,10 +8,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Waker;
 
 use defmt::*;
-use embassy::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy::channel::mpmc::Channel;
-use embassy::executor::Spawner;
-use embassy::util::Forever;
+use embassy_executor::executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{PacketBox, PacketBoxExt, PacketBuf, Stack, StackResources};
 use embassy_nrf::rng::Rng;
@@ -19,6 +16,9 @@ use embassy_nrf::usb::{Driver, PowerUsb};
 use embassy_nrf::{interrupt, pac, peripherals, Peripherals};
 use embassy_usb::{Builder, Config, UsbDevice};
 use embassy_usb_ncm::{CdcNcmClass, Receiver, Sender, State};
+use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_util::channel::mpmc::Channel;
+use embassy_util::Forever;
 use embedded_io::asynch::{Read, Write};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -32,12 +32,12 @@ macro_rules! forever {
     }};
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn usb_task(mut device: UsbDevice<'static, MyDriver>) -> ! {
     device.run().await
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn usb_ncm_rx_task(mut class: Receiver<'static, MyDriver>) {
     loop {
         warn!("WAITING for connection");
@@ -66,7 +66,7 @@ async fn usb_ncm_rx_task(mut class: Receiver<'static, MyDriver>) {
     }
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn usb_ncm_tx_task(mut class: Sender<'static, MyDriver>) {
     loop {
         let pkt = TX_CHANNEL.recv().await;
@@ -76,12 +76,12 @@ async fn usb_ncm_tx_task(mut class: Sender<'static, MyDriver>) {
     }
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn net_task(stack: &'static Stack<Device>) -> ! {
     stack.run().await
 }
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(spawner: Spawner, p: Peripherals) {
     let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 

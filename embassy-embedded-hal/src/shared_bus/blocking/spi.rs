@@ -4,7 +4,7 @@
 //!
 //! ```rust
 //! use embassy_embedded_hal::shared_bus::blocking::spi::SpiDevice;
-//! use embassy::blocking_mutex::{NoopMutex, raw::NoopRawMutex};
+//! use embassy_util::blocking_mutex::{NoopMutex, raw::NoopRawMutex};
 //!
 //! static SPI_BUS: Forever<NoopMutex<RefCell<Spim<SPI3>>>> = Forever::new();
 //! let irq = interrupt::take!(SPIM3);
@@ -20,8 +20,8 @@
 
 use core::cell::RefCell;
 
-use embassy::blocking_mutex::raw::RawMutex;
-use embassy::blocking_mutex::Mutex;
+use embassy_util::blocking_mutex::raw::RawMutex;
+use embassy_util::blocking_mutex::Mutex;
 use embedded_hal_1::digital::blocking::OutputPin;
 use embedded_hal_1::spi;
 use embedded_hal_1::spi::blocking::SpiBusFlush;

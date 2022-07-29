@@ -8,7 +8,6 @@ description = "Bootloader for nRF chips"
 defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.3", optional = true }
 
-embassy = { path = "../../../../embassy", default-features = false }
 embassy-nrf = { path = "../../../../embassy-nrf", default-features = false, features = ["nightly"] }
 embassy-boot-nrf = { path = "../../../../embassy-boot/nrf", default-features = false }
 cortex-m = { version = "0.7" }

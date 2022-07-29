@@ -13,7 +13,8 @@ stm32wb55rg = ["embassy-stm32/stm32wb55rg"]     # Nucleo
 stm32u585ai = ["embassy-stm32/stm32u585ai"]     # IoT board
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "time-tick-32768hz"] }
+embassy-util = { version = "0.1.0", path = "../../embassy-util", features = ["defmt"] }
+embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["defmt", "time-tick-32768hz"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "unstable-pac", "memory-x", "time-driver-tim2"]  }
 
 defmt = "0.3.0"

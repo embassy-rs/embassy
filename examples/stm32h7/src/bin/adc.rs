@@ -3,8 +3,8 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy::executor::Spawner;
-use embassy::time::{Delay, Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Delay, Duration, Timer};
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::rcc::AdcClockSource;
 use embassy_stm32::time::mhz;
@@ -20,7 +20,7 @@ pub fn config() -> Config {
     config
 }
 
-#[embassy::main(config = "config()")]
+#[embassy_executor::main(config = "config()")]
 async fn main(_spawner: Spawner, mut p: Peripherals) {
     info!("Hello World!");
 

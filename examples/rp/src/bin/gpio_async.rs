@@ -3,8 +3,8 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Timer};
 use embassy_rp::{gpio, Peripherals};
 use gpio::{Input, Level, Output, Pull};
 use {defmt_rtt as _, panic_probe as _};
@@ -19,7 +19,7 @@ use {defmt_rtt as _, panic_probe as _};
 /// high signal on PIN 16. Once the high event/signal occurs the program will
 /// continue and turn off the LED, and then wait for 2 seconds before completing
 /// the loop and starting over again.
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     let mut led = Output::new(p.PIN_25, Level::Low);
     let mut async_input = Input::new(p.PIN_16, Pull::None);

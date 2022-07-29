@@ -4,13 +4,13 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-use embassy::time::{Duration, Timer};
+use embassy_executor::time::{Duration, Timer};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::Peripherals;
 use panic_reset as _;
 
-#[embassy::main]
-async fn main(_s: embassy::executor::Spawner, p: Peripherals) {
+#[embassy_executor::main]
+async fn main(_s: embassy_executor::executor::Spawner, p: Peripherals) {
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
     //let mut led = Output::new(p.P1_10, Level::Low, OutputDrive::Standard);
 

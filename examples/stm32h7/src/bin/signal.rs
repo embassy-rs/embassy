@@ -3,15 +3,15 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::{info, unwrap};
-use embassy::channel::signal::Signal;
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Timer};
 use embassy_stm32::Peripherals;
+use embassy_util::channel::signal::Signal;
 use {defmt_rtt as _, panic_probe as _};
 
 static SIGNAL: Signal<u32> = Signal::new();
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn my_sending_task() {
     let mut counter: u32 = 0;
 
@@ -24,7 +24,7 @@ async fn my_sending_task() {
     }
 }
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(spawner: Spawner, _p: Peripherals) {
     unwrap!(spawner.spawn(my_sending_task()));
 

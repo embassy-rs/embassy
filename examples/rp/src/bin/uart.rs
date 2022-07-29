@@ -2,11 +2,11 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use embassy::executor::Spawner;
+use embassy_executor::executor::Spawner;
 use embassy_rp::{uart, Peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     let config = uart::Config::default();
     let mut uart = uart::Uart::new(p.UART0, p.PIN_0, p.PIN_1, p.PIN_2, p.PIN_3, config);

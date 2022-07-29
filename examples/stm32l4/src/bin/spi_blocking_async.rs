@@ -3,8 +3,8 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy::executor::Spawner;
 use embassy_embedded_hal::adapter::BlockingAsync;
+use embassy_executor::executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::spi::{Config, Spi};
@@ -13,7 +13,7 @@ use embassy_stm32::Peripherals;
 use embedded_hal_async::spi::SpiBus;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 

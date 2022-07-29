@@ -1,10 +1,10 @@
 #![feature(type_alias_impl_trait)]
 
 use clap::Parser;
-use embassy::executor::{Executor, Spawner};
-use embassy::util::Forever;
+use embassy_executor::executor::{Executor, Spawner};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{ConfigStrategy, Ipv4Address, Ipv4Cidr, Stack, StackResources};
+use embassy_util::Forever;
 use embedded_io::asynch::Write;
 use heapless::Vec;
 use log::*;
@@ -34,12 +34,12 @@ struct Opts {
     static_ip: bool,
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn net_task(stack: &'static Stack<TunTapDevice>) -> ! {
     stack.run().await
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn main_task(spawner: Spawner) {
     let opts: Opts = Opts::parse();
 

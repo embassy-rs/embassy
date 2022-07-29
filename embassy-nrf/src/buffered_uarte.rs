@@ -18,10 +18,10 @@ use core::future::Future;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy::waitqueue::WakerRegistration;
 use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::ring_buffer::RingBuffer;
-use embassy_hal_common::{into_ref, low_power_wait_until, PeripheralRef};
+use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_util::waitqueue::WakerRegistration;
 use futures::future::poll_fn;
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
@@ -449,4 +449,14 @@ impl<'a, U: UarteInstance, T: TimerInstance> PeripheralState for StateInner<'a, 
         }
         trace!("irq: end");
     }
+}
+
+/// Low power blocking wait loop using WFE/SEV.
+fn low_power_wait_until(mut condition: impl FnMut() -> bool) {
+    while !condition() {
+        // WFE might "eat" an event that would have otherwise woken the executor.
+        cortex_m::asm::wfe();
+    }
+    // Retrigger an event to be transparent to the executor.
+    cortex_m::asm::sev();
 }

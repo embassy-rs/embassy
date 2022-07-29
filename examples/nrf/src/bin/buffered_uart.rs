@@ -3,14 +3,14 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy::executor::Spawner;
+use embassy_executor::executor::Spawner;
 use embassy_nrf::buffered_uarte::{BufferedUarte, State};
 use embassy_nrf::{interrupt, uarte, Peripherals};
 use embedded_io::asynch::{BufRead, Write};
 use futures::pin_mut;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     let mut config = uarte::Config::default();
     config.parity = uarte::Parity::EXCLUDED;

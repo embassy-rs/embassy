@@ -3,9 +3,9 @@ use core::future::Future;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
-use embassy::waitqueue::AtomicWaker;
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_util::waitqueue::AtomicWaker;
 
 use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
