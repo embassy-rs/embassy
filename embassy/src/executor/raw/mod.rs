@@ -57,23 +57,7 @@ pub struct TaskHeader {
 }
 
 impl TaskHeader {
-    #[cfg(feature = "nightly")]
     pub(crate) const fn new() -> Self {
-        Self {
-            state: AtomicU32::new(0),
-            run_queue_item: RunQueueItem::new(),
-            executor: Cell::new(ptr::null()),
-            poll_fn: UninitCell::uninit(),
-
-            #[cfg(feature = "time")]
-            expires_at: Cell::new(Instant::from_ticks(0)),
-            #[cfg(feature = "time")]
-            timer_queue_item: timer_queue::TimerQueueItem::new(),
-        }
-    }
-
-    #[cfg(not(feature = "nightly"))]
-    pub(crate) fn new() -> Self {
         Self {
             state: AtomicU32::new(0),
             run_queue_item: RunQueueItem::new(),
@@ -128,21 +112,10 @@ pub struct TaskStorage<F: Future + 'static> {
 }
 
 impl<F: Future + 'static> TaskStorage<F> {
-    #[cfg(feature = "nightly")]
     const NEW: Self = Self::new();
 
     /// Create a new TaskStorage, in not-spawned state.
-    #[cfg(feature = "nightly")]
     pub const fn new() -> Self {
-        Self {
-            raw: TaskHeader::new(),
-            future: UninitCell::uninit(),
-        }
-    }
-
-    /// Create a new TaskStorage, in not-spawned state.
-    #[cfg(not(feature = "nightly"))]
-    pub fn new() -> Self {
         Self {
             raw: TaskHeader::new(),
             future: UninitCell::uninit(),
@@ -210,12 +183,10 @@ unsafe impl<F: Future + 'static> Sync for TaskStorage<F> {}
 /// Raw storage that can hold up to N tasks of the same type.
 ///
 /// This is essentially a `[TaskStorage<F>; N]`.
-#[cfg(feature = "nightly")]
 pub struct TaskPool<F: Future + 'static, const N: usize> {
     pool: [TaskStorage<F>; N],
 }
 
-#[cfg(feature = "nightly")]
 impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     /// Create a new TaskPool, with all tasks in non-spawned state.
     pub const fn new() -> Self {
