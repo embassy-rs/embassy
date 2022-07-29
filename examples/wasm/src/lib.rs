@@ -1,10 +1,10 @@
 #![feature(type_alias_impl_trait)]
 #![allow(incomplete_features)]
 
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Timer};
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn ticker() {
     let window = web_sys::window().expect("no global `window` exists");
 
@@ -24,7 +24,7 @@ async fn ticker() {
     }
 }
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(spawner: Spawner) {
     wasm_logger::init(wasm_logger::Config::default());
     spawner.spawn(ticker()).unwrap();

@@ -6,23 +6,23 @@
 use core::mem;
 
 use defmt::{info, panic, unwrap};
-use embassy::executor::Spawner;
-use embassy::util::Forever;
+use embassy_executor::executor::Spawner;
 use embassy_nrf::usb::{Driver, PowerUsb};
 use embassy_nrf::{interrupt, pac, peripherals, Peripherals};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config, UsbDevice};
 use embassy_usb_serial::{CdcAcmClass, State};
+use embassy_util::Forever;
 use {defmt_rtt as _, panic_probe as _};
 
 type MyDriver = Driver<'static, peripherals::USBD, PowerUsb>;
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn usb_task(mut device: UsbDevice<'static, MyDriver>) {
     device.run().await;
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn echo_task(mut class: CdcAcmClass<'static, MyDriver>) {
     loop {
         class.wait_connection().await;
@@ -32,7 +32,7 @@ async fn echo_task(mut class: CdcAcmClass<'static, MyDriver>) {
     }
 }
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(spawner: Spawner, p: Peripherals) {
     let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 

@@ -4,8 +4,8 @@
 //!
 //! ```rust
 //! use embassy_embedded_hal::shared_bus::i2c::I2cDevice;
-//! use embassy::mutex::Mutex;
-//! use embassy::blocking_mutex::raw::ThreadModeRawMutex;
+//! use embassy_util::mutex::Mutex;
+//! use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
 //!
 //! static I2C_BUS: Forever<Mutex::<ThreadModeRawMutex, Twim<TWISPI0>>> = Forever::new();
 //! let config = twim::Config::default();
@@ -24,8 +24,8 @@
 //! ```
 use core::future::Future;
 
-use embassy::blocking_mutex::raw::RawMutex;
-use embassy::mutex::Mutex;
+use embassy_util::blocking_mutex::raw::RawMutex;
+use embassy_util::mutex::Mutex;
 use embedded_hal_async::i2c;
 
 use crate::shared_bus::I2cDeviceError;

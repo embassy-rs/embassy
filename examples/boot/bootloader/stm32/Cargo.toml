@@ -8,7 +8,6 @@ description = "Example bootloader for STM32 chips"
 defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.3", optional = true }
 
-embassy = { path = "../../../../embassy", default-features = false }
 embassy-stm32 = { path = "../../../../embassy-stm32", default-features = false, features = ["nightly"] }
 embassy-boot-stm32 = { path = "../../../../embassy-boot/stm32", default-features = false }
 cortex-m = { version = "0.7" }

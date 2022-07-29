@@ -5,10 +5,11 @@ version = "0.1.0"
 
 [features]
 default = ["nightly"]
-nightly = ["embassy-nrf/nightly", "embassy-nrf/unstable-traits", "embassy-usb", "embassy-usb-serial", "embassy-usb-hid", "embassy-usb-ncm", "embedded-io/async", "embassy-net"]
+nightly = ["embassy-executor/nightly", "embassy-nrf/nightly", "embassy-nrf/unstable-traits", "embassy-usb", "embassy-usb-serial", "embassy-usb-hid", "embassy-usb-ncm", "embedded-io/async", "embassy-net"]
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-util = { version = "0.1.0", path = "../../embassy-util", features = ["defmt"] }
+embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac"] }
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "pool-16"], optional = true }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"], optional = true }

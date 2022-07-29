@@ -3,7 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy::time::Delay;
+use embassy_executor::time::Delay;
 use embassy_stm32::adc::{Adc, Resolution};
 use embassy_stm32::pac;
 use {defmt_rtt as _, panic_probe as _};

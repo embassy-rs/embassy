@@ -13,8 +13,8 @@ use panic_reset as _;
 
 static APP_B: &[u8] = include_bytes!("../../b.bin");
 
-#[embassy::main]
-async fn main(_s: embassy::executor::Spawner, p: Peripherals) {
+#[embassy_executor::main]
+async fn main(_s: embassy_executor::executor::Spawner, p: Peripherals) {
     let mut button = Input::new(p.P0_11, Pull::Up);
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
     //let mut led = Output::new(p.P1_10, Level::Low, OutputDrive::Standard);

@@ -2,8 +2,8 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Timer};
 use embassy_stm32::dcmi::{self, *};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
@@ -32,7 +32,7 @@ const HEIGHT: usize = 100;
 
 static mut FRAME: [u32; WIDTH * HEIGHT / 2] = [0u32; WIDTH * HEIGHT / 2];
 
-#[embassy::main(config = "config()")]
+#[embassy_executor::main(config = "config()")]
 async fn main(_spawner: Spawner, p: Peripherals) {
     defmt::info!("Hello World!");
     let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::Hsi, McoClock::Divided(3));
@@ -78,7 +78,7 @@ mod ov7725 {
     use core::marker::PhantomData;
 
     use defmt::Format;
-    use embassy::time::{Duration, Timer};
+    use embassy_executor::time::{Duration, Timer};
     use embassy_stm32::rcc::{Mco, McoInstance};
     use embedded_hal_async::i2c::I2c;
 

@@ -7,11 +7,11 @@ use core::str::from_utf8;
 
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy::executor::Executor;
-use embassy::util::Forever;
+use embassy_executor::executor::Executor;
 use embassy_stm32::peripherals::{DMA1_CH3, DMA1_CH4, SPI3};
 use embassy_stm32::time::mhz;
 use embassy_stm32::{spi, Config};
+use embassy_util::Forever;
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -23,7 +23,7 @@ pub fn config() -> Config {
     config
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn main_task(mut spi: spi::Spi<'static, SPI3, DMA1_CH3, DMA1_CH4>) {
     for n in 0u32.. {
         let mut write: String<128> = String::new();

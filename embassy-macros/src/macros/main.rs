@@ -49,14 +49,14 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
 
     let embassy_prefix = args.embassy_prefix;
     let embassy_prefix_lit = embassy_prefix.literal();
-    let embassy_path = embassy_prefix.append("embassy").path();
+    let embassy_path = embassy_prefix.append("embassy_executor").path();
     let f_body = f.block;
 
     #[cfg(feature = "wasm")]
     let main = quote! {
         #[wasm_bindgen::prelude::wasm_bindgen(start)]
         pub fn main() -> Result<(), wasm_bindgen::JsValue> {
-            static EXECUTOR: #embassy_path::util::Forever<#embassy_path::executor::Executor> = #embassy_path::util::Forever::new();
+            static EXECUTOR: ::embassy_util::Forever<#embassy_path::executor::Executor> = ::embassy_util::Forever::new();
             let executor = EXECUTOR.put(#embassy_path::executor::Executor::new());
 
             executor.start(|spawner| {

@@ -7,7 +7,8 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["log", "wasm", "nightly"] }
+embassy-util = { version = "0.1.0", path = "../../embassy-util", features = ["log"] }
+embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["log", "wasm", "nightly"] }
 
 wasm-logger = "0.2.0"
 wasm-bindgen = "0.2"

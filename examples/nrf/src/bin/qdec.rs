@@ -3,12 +3,12 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::info;
-use embassy::executor::Spawner;
+use embassy_executor::executor::Spawner;
 use embassy_nrf::qdec::{self, Qdec};
 use embassy_nrf::{interrupt, Peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     let irq = interrupt::take!(QDEC);
     let config = qdec::Config::default();

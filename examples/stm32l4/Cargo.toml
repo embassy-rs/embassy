@@ -6,7 +6,8 @@ version = "0.1.0"
 [features]
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime", "time-tick-32768hz"] }
+embassy-util = { version = "0.1.0", path = "../../embassy-util", features = ["defmt"] }
+embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["defmt", "defmt-timestamp-uptime", "time-tick-32768hz"] }
 embassy-embedded-hal = { version = "0.1.0", path = "../../embassy-embedded-hal" }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "unstable-pac", "stm32l4s5vi", "time-driver-any", "exti", "unstable-traits"]  }
 

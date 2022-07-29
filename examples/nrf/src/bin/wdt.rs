@@ -3,13 +3,13 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy::executor::Spawner;
+use embassy_executor::executor::Spawner;
 use embassy_nrf::gpio::{Input, Pull};
 use embassy_nrf::wdt::{Config, Watchdog};
 use embassy_nrf::Peripherals;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 

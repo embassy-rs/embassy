@@ -2,9 +2,9 @@ use core::future::Future;
 use core::task::Poll;
 
 use atomic_polyfill::{compiler_fence, Ordering};
-use embassy::waitqueue::WakerRegistration;
 use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::ring_buffer::RingBuffer;
+use embassy_util::waitqueue::WakerRegistration;
 use futures::future::poll_fn;
 
 use super::*;

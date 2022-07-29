@@ -2,10 +2,10 @@ use core::cmp;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicUsize, Ordering};
-use embassy::waitqueue::AtomicWaker;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_util::waitqueue::AtomicWaker;
 use futures::future::poll_fn;
 
 use crate::dma::NoDma;

@@ -504,7 +504,7 @@ impl<'d> SubGhz<'d, NoDma, NoDma> {
     ///
     /// sg.set_standby(StandbyClk::Rc)?;
     /// unsafe { sg.set_sleep(SleepCfg::default())? };
-    /// embassy::time::Timer::after(embassy::time::Duration::from_micros(500)).await;
+    /// embassy_executor::time::Timer::after(embassy_executor::time::Duration::from_micros(500)).await;
     /// unsafe { wakeup() };
     /// # Ok::<(), embassy_stm32::subghz::Error>(())
     /// ```

@@ -16,7 +16,7 @@ struct Args {
 pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, TokenStream> {
     let args = Args::from_list(&args).map_err(|e| e.write_errors())?;
 
-    let embassy_prefix = args.embassy_prefix.append("embassy");
+    let embassy_prefix = args.embassy_prefix.append("embassy_executor");
     let embassy_path = embassy_prefix.path();
 
     let pool_size: usize = args.pool_size.unwrap_or(1);

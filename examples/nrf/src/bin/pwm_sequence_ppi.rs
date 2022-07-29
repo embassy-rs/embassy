@@ -5,7 +5,7 @@
 use core::future::pending;
 
 use defmt::*;
-use embassy::executor::Spawner;
+use embassy_executor::executor::Spawner;
 use embassy_nrf::gpio::{Input, Pull};
 use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
 use embassy_nrf::ppi::Ppi;
@@ -13,7 +13,7 @@ use embassy_nrf::pwm::{Config, Prescaler, SequenceConfig, SequencePwm, SingleSeq
 use embassy_nrf::Peripherals;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     let seq_words: [u16; 5] = [1000, 250, 100, 50, 0];
 

@@ -23,8 +23,8 @@ fn config() -> embassy_stm32::Config {
     config
 }
 
-#[embassy::main(config = "config()")]
-async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
+#[embassy_executor::main(config = "config()")]
+async fn main(_spawner: embassy_executor::executor::Spawner, p: Peripherals) {
     unsafe { pac::RCC.ccipr().modify(|w| w.set_rngsel(0b01)) }
 
     let ctrl1 = Output::new(p.PC3.degrade(), Level::High, Speed::High);

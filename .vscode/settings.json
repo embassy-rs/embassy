@@ -12,10 +12,15 @@
     //"embassy-net/medium-ethernet",
     //"embassy-net/tcp",
     //"embassy-net/pool-16",
+    //"time-tick-16mhz",
+    //"defmt-timestamp-uptime",
     "nightly",
+    //"unstable-traits",
   ],
   "rust-analyzer.linkedProjects": [
     // Declare for the target you wish to develop
+    //"embassy-executor/Cargo.toml",
+    //"embassy-util/Cargo.toml",
     "examples/nrf/Cargo.toml",
     // "examples/rp/Cargo.toml",
     // "examples/std/Cargo.toml",

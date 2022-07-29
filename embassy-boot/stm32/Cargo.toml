@@ -11,7 +11,7 @@ defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.3", optional = true }
 log = { version = "0.4", optional = true }
 
-embassy = { path = "../../embassy", default-features = false }
+embassy-util = { path = "../../embassy-util" }
 embassy-stm32 = { path = "../../embassy-stm32", default-features = false, features = ["nightly"] }
 embassy-boot = { path = "../boot", default-features = false }
 cortex-m = { version = "0.7" }

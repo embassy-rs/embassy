@@ -24,8 +24,8 @@ fn config() -> embassy_stm32::Config {
     config
 }
 
-#[embassy::main(config = "config()")]
-async fn main(_spawner: embassy::executor::Spawner, p: Peripherals) {
+#[embassy_executor::main(config = "config()")]
+async fn main(_spawner: embassy_executor::executor::Spawner, p: Peripherals) {
     // SPI for sx127x
     let spi = spi::Spi::new(
         p.SPI1,

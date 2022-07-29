@@ -4,13 +4,13 @@
 
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt::*;
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Timer};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::Peripherals;
 use panic_reset as _;
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     Timer::after(Duration::from_millis(300)).await;
     let mut led = Output::new(p.PB7, Level::High, Speed::Low);

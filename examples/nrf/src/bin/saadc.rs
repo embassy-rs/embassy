@@ -3,13 +3,13 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::info;
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Timer};
 use embassy_nrf::saadc::{ChannelConfig, Config, Saadc};
 use embassy_nrf::{interrupt, Peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, mut p: Peripherals) {
     let config = Config::default();
     let channel_config = ChannelConfig::single_ended(&mut p.P0_02);

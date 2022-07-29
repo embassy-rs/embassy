@@ -2,10 +2,10 @@ use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
-use embassy::waitqueue::AtomicWaker;
 use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
+use embassy_util::waitqueue::AtomicWaker;
 
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::{AnyPin, Speed};

@@ -3,14 +3,14 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::{assert, *};
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Instant, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Instant, Timer};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::Peripherals;
 use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("embassy-rp gpio_async test");
 

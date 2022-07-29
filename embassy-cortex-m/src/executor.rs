@@ -1,7 +1,7 @@
 //! Executor specific to cortex-m devices.
 use core::marker::PhantomData;
 
-pub use embassy::executor::*;
+pub use embassy_executor::executor::*;
 
 use crate::interrupt::{Interrupt, InterruptExt};
 
@@ -60,18 +60,18 @@ impl<I: Interrupt> InterruptExecutor<I> {
     /// The executor keeps running in the background through the interrupt.
     ///
     /// This returns a [`SendSpawner`] you can use to spawn tasks on it. A [`SendSpawner`]
-    /// is returned instead of a [`Spawner`](embassy::executor::Spawner) because the executor effectively runs in a
+    /// is returned instead of a [`Spawner`](embassy_executor::executor::Spawner) because the executor effectively runs in a
     /// different "thread" (the interrupt), so spawning tasks on it is effectively
     /// sending them.
     ///
-    /// To obtain a [`Spawner`](embassy::executor::Spawner) for this executor, use [`Spawner::for_current_executor()`](embassy::executor::Spawner::for_current_executor()) from
+    /// To obtain a [`Spawner`](embassy_executor::executor::Spawner) for this executor, use [`Spawner::for_current_executor()`](embassy_executor::executor::Spawner::for_current_executor()) from
     /// a task running in it.
     ///
     /// This function requires `&'static mut self`. This means you have to store the
     /// Executor instance in a place where it'll live forever and grants you mutable
     /// access. There's a few ways to do this:
     ///
-    /// - a [Forever](embassy::util::Forever) (safe)
+    /// - a [Forever](embassy_util::Forever) (safe)
     /// - a `static mut` (unsafe)
     /// - a local variable in a function you know never returns (like `fn main() -> !`), upgrading its lifetime with `transmute`. (unsafe)
     pub fn start(&'static mut self) -> SendSpawner {

@@ -439,9 +439,9 @@ impl From<Timeout> for [u8; 3] {
     }
 }
 
-impl From<Timeout> for embassy::time::Duration {
+impl From<Timeout> for embassy_executor::time::Duration {
     fn from(to: Timeout) -> Self {
-        embassy::time::Duration::from_micros(to.as_micros().into())
+        embassy_executor::time::Duration::from_micros(to.as_micros().into())
     }
 }
 

@@ -44,17 +44,17 @@ impl From<RampTime> for core::time::Duration {
     }
 }
 
-impl From<RampTime> for embassy::time::Duration {
+impl From<RampTime> for embassy_executor::time::Duration {
     fn from(rt: RampTime) -> Self {
         match rt {
-            RampTime::Micros10 => embassy::time::Duration::from_micros(10),
-            RampTime::Micros20 => embassy::time::Duration::from_micros(20),
-            RampTime::Micros40 => embassy::time::Duration::from_micros(40),
-            RampTime::Micros80 => embassy::time::Duration::from_micros(80),
-            RampTime::Micros200 => embassy::time::Duration::from_micros(200),
-            RampTime::Micros800 => embassy::time::Duration::from_micros(800),
-            RampTime::Micros1700 => embassy::time::Duration::from_micros(1700),
-            RampTime::Micros3400 => embassy::time::Duration::from_micros(3400),
+            RampTime::Micros10 => embassy_executor::time::Duration::from_micros(10),
+            RampTime::Micros20 => embassy_executor::time::Duration::from_micros(20),
+            RampTime::Micros40 => embassy_executor::time::Duration::from_micros(40),
+            RampTime::Micros80 => embassy_executor::time::Duration::from_micros(80),
+            RampTime::Micros200 => embassy_executor::time::Duration::from_micros(200),
+            RampTime::Micros800 => embassy_executor::time::Duration::from_micros(800),
+            RampTime::Micros1700 => embassy_executor::time::Duration::from_micros(1700),
+            RampTime::Micros3400 => embassy_executor::time::Duration::from_micros(3400),
         }
     }
 }

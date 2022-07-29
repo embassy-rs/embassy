@@ -4,13 +4,13 @@
 
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy::executor::Executor;
-use embassy::util::Forever;
+use embassy_executor::executor::Executor;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
+use embassy_util::Forever;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn main_task() {
     let p = embassy_stm32::init(Default::default());
 

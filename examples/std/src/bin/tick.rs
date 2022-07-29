@@ -1,10 +1,10 @@
 #![feature(type_alias_impl_trait)]
 
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Timer};
 use log::*;
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn run() {
     loop {
         info!("tick");
@@ -12,7 +12,7 @@ async fn run() {
     }
 }
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(spawner: Spawner) {
     env_logger::builder()
         .filter_level(log::LevelFilter::Debug)

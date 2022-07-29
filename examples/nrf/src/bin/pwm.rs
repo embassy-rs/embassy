@@ -3,8 +3,8 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Timer};
 use embassy_nrf::pwm::{Prescaler, SimplePwm};
 use embassy_nrf::Peripherals;
 use {defmt_rtt as _, panic_probe as _};
@@ -70,7 +70,7 @@ static DUTY: [u16; 1024] = [
     7255, 7331, 7407, 7484, 7561, 7638, 7716, 7794, 7873, 7952, 8031, 8111,
 ];
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     let mut pwm = SimplePwm::new_4ch(p.PWM0, p.P0_13, p.P0_14, p.P0_16, p.P0_15);
     pwm.set_prescaler(Prescaler::Div1);

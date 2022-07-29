@@ -5,12 +5,12 @@
 use core::task::Poll;
 
 use defmt::{info, unwrap};
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Instant, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Instant, Timer};
 use embassy_nrf::Peripherals;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn run1() {
     loop {
         info!("DING DONG");
@@ -18,14 +18,14 @@ async fn run1() {
     }
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn run2() {
     loop {
         Timer::at(Instant::from_ticks(0)).await;
     }
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn run3() {
     futures::future::poll_fn(|cx| {
         cx.waker().wake_by_ref();
@@ -34,7 +34,7 @@ async fn run3() {
     .await;
 }
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(spawner: Spawner, _p: Peripherals) {
     unwrap!(spawner.spawn(run1()));
     unwrap!(spawner.spawn(run2()));

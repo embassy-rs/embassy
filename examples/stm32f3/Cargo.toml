@@ -4,7 +4,8 @@ name = "embassy-stm32f3-examples"
 version = "0.1.0"
 
 [dependencies]
-embassy = { version = "0.1.0", path = "../../embassy", features = ["defmt", "defmt-timestamp-uptime", "time-tick-32768hz"] }
+embassy-util = { version = "0.1.0", path = "../../embassy-util", features = ["defmt"] }
+embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["defmt", "defmt-timestamp-uptime", "time-tick-32768hz"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "stm32f303ze", "unstable-pac", "memory-x", "time-driver-any", "exti"]  }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
 embassy-usb-serial = { version = "0.1.0", path = "../../embassy-usb-serial", features = ["defmt"] }

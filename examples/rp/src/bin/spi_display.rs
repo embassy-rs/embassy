@@ -5,8 +5,8 @@
 use core::cell::RefCell;
 
 use defmt::*;
-use embassy::executor::Spawner;
-use embassy::time::Delay;
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::Delay;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::spi::Spi;
 use embassy_rp::{spi, Peripherals};
@@ -27,7 +27,7 @@ use crate::touch::Touch;
 //const DISPLAY_FREQ: u32 = 64_000_000;
 const TOUCH_FREQ: u32 = 200_000;
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 

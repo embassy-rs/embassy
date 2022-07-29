@@ -3,10 +3,10 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::unwrap;
-use embassy::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy::channel::pubsub::{DynSubscriber, PubSubChannel, Subscriber};
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
+use embassy_executor::executor::Spawner;
+use embassy_executor::time::{Duration, Timer};
+use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_util::channel::pubsub::{DynSubscriber, PubSubChannel, Subscriber};
 use {defmt_rtt as _, panic_probe as _};
 
 /// Create the message bus. It has a queue of 4, supports 3 subscribers and 1 publisher
@@ -19,7 +19,7 @@ enum Message {
     C,
 }
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(spawner: Spawner, _p: embassy_nrf::Peripherals) {
     defmt::info!("Hello World!");
 
@@ -64,7 +64,7 @@ async fn main(spawner: Spawner, _p: embassy_nrf::Peripherals) {
 /// A logger task that just awaits the messages it receives
 ///
 /// This takes the generic `Subscriber`. This is most performant, but requires you to write down all of the generics
-#[embassy::task]
+#[embassy_executor::task]
 async fn fast_logger(mut messages: Subscriber<'static, ThreadModeRawMutex, Message, 4, 3, 1>) {
     loop {
         let message = messages.next_message().await;
@@ -76,7 +76,7 @@ async fn fast_logger(mut messages: Subscriber<'static, ThreadModeRawMutex, Messa
 /// Because of this, depeding on how the messages were published, the subscriber might miss some messages
 ///
 /// This takes the dynamic `DynSubscriber`. This is not as performant as the generic version, but let's you ignore some of the generics
-#[embassy::task]
+#[embassy_executor::task]
 async fn slow_logger(mut messages: DynSubscriber<'static, Message>) {
     loop {
         // Do some work
@@ -93,7 +93,7 @@ async fn slow_logger(mut messages: DynSubscriber<'static, Message>) {
 }
 
 /// Same as `slow_logger` but it ignores lag results
-#[embassy::task]
+#[embassy_executor::task]
 async fn slow_logger_pure(mut messages: DynSubscriber<'static, Message>) {
     loop {
         // Do some work

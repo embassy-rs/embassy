@@ -3,7 +3,7 @@
 use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
-use embassy::waitqueue::AtomicWaker;
+use embassy_util::waitqueue::AtomicWaker;
 
 use super::{TransferOptions, Word, WordSize};
 use crate::_generated::BDMA_CHANNEL_COUNT;

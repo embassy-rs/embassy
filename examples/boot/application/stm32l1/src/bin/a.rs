@@ -4,9 +4,9 @@
 
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt::*;
-use embassy::time::{Duration, Timer};
 use embassy_boot_stm32::FirmwareUpdater;
 use embassy_embedded_hal::adapter::BlockingAsync;
+use embassy_executor::time::{Duration, Timer};
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::flash::Flash;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
@@ -15,8 +15,8 @@ use panic_reset as _;
 
 static APP_B: &[u8] = include_bytes!("../../b.bin");
 
-#[embassy::main]
-async fn main(_s: embassy::executor::Spawner, p: Peripherals) {
+#[embassy_executor::main]
+async fn main(_s: embassy_executor::executor::Spawner, p: Peripherals) {
     let flash = Flash::unlock(p.FLASH);
     let mut flash = BlockingAsync::new(flash);
 

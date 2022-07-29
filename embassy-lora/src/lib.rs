@@ -18,6 +18,6 @@ pub struct LoraTimer;
 impl lorawan_device::async_device::radio::Timer for LoraTimer {
     type DelayFuture<'m> = impl core::future::Future<Output = ()> + 'm;
     fn delay_ms<'m>(&'m mut self, millis: u64) -> Self::DelayFuture<'m> {
-        embassy::time::Timer::after(embassy::time::Duration::from_millis(millis))
+        embassy_executor::time::Timer::after(embassy_executor::time::Duration::from_millis(millis))
     }
 }
