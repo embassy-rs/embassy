@@ -32,11 +32,19 @@ pub enum BitOrder {
     MsbFirst,
 }
 
+#[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum MasterSlave {
+    Master,
+    Slave,
+}
+
 #[non_exhaustive]
 #[derive(Copy, Clone)]
 pub struct Config {
     pub mode: Mode,
     pub bit_order: BitOrder,
+    pub master_slave: MasterSlave,
 }
 
 impl Default for Config {
@@ -44,6 +52,7 @@ impl Default for Config {
         Self {
             mode: MODE_0,
             bit_order: BitOrder::MsbFirst,
+            master_slave: MasterSlave::Master,
         }
     }
 }
@@ -67,6 +76,21 @@ impl Config {
         match self.bit_order {
             BitOrder::LsbFirst => vals::Lsbfirst::LSBFIRST,
             BitOrder::MsbFirst => vals::Lsbfirst::MSBFIRST,
+        }
+    }
+
+    #[cfg(any(spi_f1, spi_v1, spi_v2))]
+    fn raw_mstr(&self) -> vals::Mstr {
+        match self.master_slave {
+            MasterSlave::Master => vals::Mstr::MASTER,
+            MasterSlave::Slave => vals::Mstr::SLAVE,
+        }
+    }
+    #[cfg(any(spi_v3, spi_v4))]
+    fn raw_master(&self) -> vals::Master {
+        match self.master_slave {
+            MasterSlave::Master => vals::Master::MASTER,
+            MasterSlave::Slave => vals::Master::SLAVE,
         }
     }
 }
@@ -94,13 +118,23 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     ) -> Self {
         into_ref!(peri, sck, mosi, miso);
         unsafe {
-            sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
+            match config.master_slave {
+                MasterSlave::Master => {
+                    sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
+                    mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
+                    miso.set_as_af(miso.af_num(), AFType::Input);
+                }
+                MasterSlave::Slave => {
+                    sck.set_as_af(sck.af_num(), AFType::Input);
+                    mosi.set_as_af(mosi.af_num(), AFType::Input);
+                    miso.set_as_af(miso.af_num(), AFType::OutputPushPull);
+                }
+            }
+
             #[cfg(any(spi_v2, spi_v3, spi_v4))]
             sck.set_speed(crate::gpio::Speed::VeryHigh);
-            mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
             #[cfg(any(spi_v2, spi_v3, spi_v4))]
             mosi.set_speed(crate::gpio::Speed::VeryHigh);
-            miso.set_as_af(miso.af_num(), AFType::Input);
             #[cfg(any(spi_v2, spi_v3, spi_v4))]
             miso.set_speed(crate::gpio::Speed::VeryHigh);
         }
@@ -117,6 +151,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         )
     }
 
+    // TODO: it receive only on master, on slave in miso is expecting to write something
     pub fn new_rxonly(
         peri: impl Peripheral<P = T> + 'd,
         sck: impl Peripheral<P = impl SckPin<T>> + 'd,
@@ -128,10 +163,19 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     ) -> Self {
         into_ref!(sck, miso);
         unsafe {
-            sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
+            match config.master_slave {
+                MasterSlave::Master => {
+                    sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
+                    miso.set_as_af(miso.af_num(), AFType::Input);
+                }
+                MasterSlave::Slave => {
+                    sck.set_as_af(sck.af_num(), AFType::Input);
+                    miso.set_as_af(miso.af_num(), AFType::OutputPushPull);
+                }
+            }
+
             #[cfg(any(spi_v2, spi_v3, spi_v4))]
-            sck.set_speed(crate::gpio::Speed::VeryHigh);
-            miso.set_as_af(miso.af_num(), AFType::Input);
+            mosi.set_speed(crate::gpio::Speed::VeryHigh);
             #[cfg(any(spi_v2, spi_v3, spi_v4))]
             miso.set_speed(crate::gpio::Speed::VeryHigh);
         }
@@ -148,6 +192,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         )
     }
 
+    // TODO: it send only on master, on slave in mosi is expecting to read
     pub fn new_txonly(
         peri: impl Peripheral<P = T> + 'd,
         sck: impl Peripheral<P = impl SckPin<T>> + 'd,
@@ -158,13 +203,22 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         config: Config,
     ) -> Self {
         into_ref!(sck, mosi);
-        unsafe {
-            sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
-            #[cfg(any(spi_v2, spi_v3, spi_v4))]
-            sck.set_speed(crate::gpio::Speed::VeryHigh);
-            mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
+                unsafe {
+            match config.master_slave {
+                MasterSlave::Master => {
+                    sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
+                    mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
+                }
+                MasterSlave::Slave => {
+                    sck.set_as_af(sck.af_num(), AFType::Input);
+                    mosi.set_as_af(mosi.af_num(), AFType::Input);
+                }
+            }
+
             #[cfg(any(spi_v2, spi_v3, spi_v4))]
             mosi.set_speed(crate::gpio::Speed::VeryHigh);
+            #[cfg(any(spi_v2, spi_v3, spi_v4))]
+            miso.set_speed(crate::gpio::Speed::VeryHigh);
         }
 
         Self::new_inner(
@@ -202,6 +256,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         T::enable();
         T::reset();
 
+
+        #[cfg(any(spi_v1, spi_f1, spi_v2))]
+        let mstr = config.raw_mstr();
+
+        #[cfg(any(spi_v3, spi_v4))]
+        let master = config.raw_master();
+
         #[cfg(any(spi_v1, spi_f1))]
         unsafe {
             T::REGS.cr2().modify(|w| {
@@ -211,7 +272,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
 
-                w.set_mstr(vals::Mstr::MASTER);
+                w.set_mstr(mstr);
                 w.set_br(br);
                 w.set_spe(true);
                 w.set_lsbfirst(lsbfirst);
@@ -236,7 +297,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
 
-                w.set_mstr(vals::Mstr::MASTER);
+                w.set_mstr(mstr);
                 w.set_br(br);
                 w.set_lsbfirst(lsbfirst);
                 w.set_ssi(true);
@@ -256,7 +317,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
                 w.set_ssm(true);
-                w.set_master(vals::Master::MASTER);
+                w.set_master(master);
                 w.set_comm(vals::Comm::FULLDUPLEX);
                 w.set_ssom(vals::Ssom::ASSERTED);
                 w.set_midi(0);
@@ -297,8 +358,15 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let lsbfirst = config.raw_byte_order();
 
         #[cfg(any(spi_v1, spi_f1, spi_v2))]
+        let mstr = config.raw_mstr();
+
+        #[cfg(any(spi_v3, spi_v4))]
+        let master = config.raw_master();
+
+        #[cfg(any(spi_v1, spi_f1, spi_v2))]
         unsafe {
             T::REGS.cr1().modify(|w| {
+                w.set_mstr(mstr);
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
@@ -308,6 +376,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         #[cfg(any(spi_v3, spi_v4))]
         unsafe {
             T::REGS.cfg2().modify(|w| {
+                w.set_master(master);
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
@@ -336,10 +405,24 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         } else {
             BitOrder::MsbFirst
         };
+        #[cfg(any(spi_v1, spi_f1, spi_v2))]
+        let master_slave = if cfg.mstr() == vals::Mstr::MASTER {
+            MasterSlave::Master
+        } else {
+            MasterSlave::Slave
+        };
+
+        #[cfg(any(spi_v3, spi_v4))]
+        let master_slave = if cfg.master() == vals::Master::MASTER {
+            MasterSlave::Master
+        } else {
+            MasterSlave::Slave
+        };
 
         Config {
             mode: Mode { polarity, phase },
             bit_order,
+            master_slave,
         }
     }
 
@@ -412,6 +495,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         unsafe { self.txdma.start_write(tx_request, data, tx_dst, Default::default()) }
         let tx_f = Transfer::new(&mut self.txdma);
 
+        set_slave_select(T::REGS, true);
         unsafe {
             set_txdmaen(T::REGS, true);
             T::REGS.cr1().modify(|w| {
@@ -426,6 +510,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         tx_f.await;
 
         finish_dma(T::REGS);
+
+        set_slave_select(T::REGS, false);
 
         Ok(())
     }
@@ -463,6 +549,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let clock_byte = 0x00u8;
         let tx_f = crate::dma::write_repeated(&mut self.txdma, tx_request, clock_byte, clock_byte_count, tx_dst);
 
+        set_slave_select(T::REGS, true);
         unsafe {
             set_txdmaen(T::REGS, true);
             T::REGS.cr1().modify(|w| {
@@ -477,6 +564,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         join(tx_f, rx_f).await;
 
         finish_dma(T::REGS);
+        set_slave_select(T::REGS, false);
 
         Ok(())
     }
@@ -515,6 +603,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         unsafe { self.txdma.start_write(tx_request, write, tx_dst, Default::default()) }
         let tx_f = Transfer::new(&mut self.txdma);
 
+        set_slave_select(T::REGS, true);
         unsafe {
             set_txdmaen(T::REGS, true);
             T::REGS.cr1().modify(|w| {
@@ -529,6 +618,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         join(tx_f, rx_f).await;
 
         finish_dma(T::REGS);
+        set_slave_select(T::REGS, false);
 
         Ok(())
     }
@@ -563,9 +653,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         unsafe { T::REGS.cr1().modify(|w| w.set_spe(true)) }
         flush_rx_fifo(T::REGS);
         self.set_word_size(W::WORDSIZE);
+        set_slave_select(T::REGS, true);
         for word in words.iter_mut() {
             *word = transfer_word(T::REGS, W::default())?;
         }
+        set_slave_select(T::REGS, false);
         Ok(())
     }
 
@@ -573,9 +665,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         unsafe { T::REGS.cr1().modify(|w| w.set_spe(true)) }
         flush_rx_fifo(T::REGS);
         self.set_word_size(W::WORDSIZE);
+        set_slave_select(T::REGS, true);
         for word in words.iter_mut() {
             *word = transfer_word(T::REGS, *word)?;
         }
+        set_slave_select(T::REGS, false);
         Ok(())
     }
 
@@ -583,6 +677,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         unsafe { T::REGS.cr1().modify(|w| w.set_spe(true)) }
         flush_rx_fifo(T::REGS);
         self.set_word_size(W::WORDSIZE);
+        set_slave_select(T::REGS, true);
         let len = read.len().max(write.len());
         for i in 0..len {
             let wb = write.get(i).copied().unwrap_or_default();
@@ -591,6 +686,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 *r = rb;
             }
         }
+        set_slave_select(T::REGS, false);
         Ok(())
     }
 }
@@ -720,6 +816,30 @@ fn flush_rx_fifo(regs: Regs) {
         while regs.sr().read().rxp() {
             let _ = regs.rxdr().read();
         }
+    }
+}
+
+fn set_slave_select(regs: Regs, val: bool) {
+    #[cfg(any(spi_v1, spi_f1, spi_v2))]
+    let master_slave = if unsafe { regs.cr1().read().mstr() == vals::Mstr::MASTER } {
+        MasterSlave::Master
+    } else {
+        MasterSlave::Slave
+    };
+
+    #[cfg(any(spi_v3, spi_v4))]
+    let master_slave = if unsafe { regs.cfg2().read().master() == vals::Master::MASTER } {
+        MasterSlave::Master
+    } else {
+        MasterSlave::Slave
+    };
+    // FIXME: for some reason spi_v3 and spi_v4 set ssi to false on init method,
+    // so i am not sure that it has same logic like in spi_v1/2/f3
+    #[cfg(not(any(spi_v3, spi_v4)))]
+    if let MasterSlave::Slave = master_slave {
+        // On slave ssi bit should be UNSET only when module is ready to receive something.
+        // Because we use only SOFTWARE slave select - we set it during any transfer_inner/read/write
+        unsafe { regs.cr1().write(|w| w.set_ssi(!val)) }
     }
 }
 
