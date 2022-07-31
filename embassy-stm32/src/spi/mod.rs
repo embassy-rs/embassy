@@ -484,24 +484,16 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
 
         self.set_word_size(W::WORDSIZE);
-        unsafe {
-            T::REGS.cr1().modify(|w| {
-                w.set_spe(false);
-            });
-        }
-
         let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
         unsafe { self.txdma.start_write(tx_request, data, tx_dst, Default::default()) }
         let tx_f = Transfer::new(&mut self.txdma);
 
         set_slave_select(T::REGS, true);
+        set_txdmaen(T::REGS, true);
+
+        #[cfg(any(spi_v3, spi_v4))]
         unsafe {
-            set_txdmaen(T::REGS, true);
-            T::REGS.cr1().modify(|w| {
-                w.set_spe(true);
-            });
-            #[cfg(any(spi_v3, spi_v4))]
             T::REGS.cr1().modify(|w| {
                 w.set_cstart(true);
             });
@@ -526,15 +518,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
 
         self.set_word_size(W::WORDSIZE);
-        unsafe {
-            T::REGS.cr1().modify(|w| {
-                w.set_spe(false);
-            });
-            set_rxdmaen(T::REGS, true);
-        }
+        set_rxdmaen(T::REGS, true);
 
-        // SPIv3 clears rxfifo on SPE=0
-        #[cfg(not(any(spi_v3, spi_v4)))]
         flush_rx_fifo(T::REGS);
 
         let clock_byte_count = data.len();
@@ -550,12 +535,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let tx_f = crate::dma::write_repeated(&mut self.txdma, tx_request, clock_byte, clock_byte_count, tx_dst);
 
         set_slave_select(T::REGS, true);
+        set_txdmaen(T::REGS, true);
+
+        #[cfg(any(spi_v3, spi_v4))]
         unsafe {
-            set_txdmaen(T::REGS, true);
-            T::REGS.cr1().modify(|w| {
-                w.set_spe(true);
-            });
-            #[cfg(any(spi_v3, spi_v4))]
             T::REGS.cr1().modify(|w| {
                 w.set_cstart(true);
             });
@@ -582,15 +565,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         }
 
         self.set_word_size(W::WORDSIZE);
-        unsafe {
-            T::REGS.cr1().modify(|w| {
-                w.set_spe(false);
-            });
-            set_rxdmaen(T::REGS, true);
-        }
+        set_rxdmaen(T::REGS, true);
 
-        // SPIv3 clears rxfifo on SPE=0
-        #[cfg(not(any(spi_v3, spi_v4)))]
         flush_rx_fifo(T::REGS);
 
         let rx_request = self.rxdma.request();
@@ -604,12 +580,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let tx_f = Transfer::new(&mut self.txdma);
 
         set_slave_select(T::REGS, true);
+        set_txdmaen(T::REGS, true);
+        #[cfg(any(spi_v3, spi_v4))]
         unsafe {
-            set_txdmaen(T::REGS, true);
-            T::REGS.cr1().modify(|w| {
-                w.set_spe(true);
-            });
-            #[cfg(any(spi_v3, spi_v4))]
             T::REGS.cr1().modify(|w| {
                 w.set_cstart(true);
             });
@@ -640,7 +613,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 
     pub fn blocking_write<W: Word>(&mut self, words: &[W]) -> Result<(), Error> {
-        unsafe { T::REGS.cr1().modify(|w| w.set_spe(true)) }
         flush_rx_fifo(T::REGS);
         self.set_word_size(W::WORDSIZE);
         for word in words.iter() {
@@ -650,7 +622,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 
     pub fn blocking_read<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
-        unsafe { T::REGS.cr1().modify(|w| w.set_spe(true)) }
         flush_rx_fifo(T::REGS);
         self.set_word_size(W::WORDSIZE);
         set_slave_select(T::REGS, true);
@@ -662,7 +633,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 
     pub fn blocking_transfer_in_place<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
-        unsafe { T::REGS.cr1().modify(|w| w.set_spe(true)) }
         flush_rx_fifo(T::REGS);
         self.set_word_size(W::WORDSIZE);
         set_slave_select(T::REGS, true);
@@ -674,7 +644,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 
     pub fn blocking_transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
-        unsafe { T::REGS.cr1().modify(|w| w.set_spe(true)) }
         flush_rx_fifo(T::REGS);
         self.set_word_size(W::WORDSIZE);
         set_slave_select(T::REGS, true);
@@ -879,9 +848,6 @@ fn finish_dma(regs: Regs) {
         #[cfg(not(any(spi_v3, spi_v4)))]
         while regs.sr().read().bsy() {}
 
-        regs.cr1().modify(|w| {
-            w.set_spe(false);
-        });
 
         #[cfg(not(any(spi_v3, spi_v4)))]
         regs.cr2().modify(|reg| {
