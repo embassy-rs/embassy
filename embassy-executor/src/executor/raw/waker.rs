@@ -2,7 +2,7 @@ use core::mem;
 use core::ptr::NonNull;
 use core::task::{RawWaker, RawWakerVTable, Waker};
 
-use super::TaskHeader;
+use super::{wake_task, TaskHeader};
 
 const VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake, drop);
 
@@ -11,7 +11,7 @@ unsafe fn clone(p: *const ()) -> RawWaker {
 }
 
 unsafe fn wake(p: *const ()) {
-    (*(p as *mut TaskHeader)).enqueue()
+    wake_task(NonNull::new_unchecked(p as *mut TaskHeader))
 }
 
 unsafe fn drop(_: *const ()) {

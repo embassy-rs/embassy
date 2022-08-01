@@ -46,10 +46,10 @@ impl RunQueue {
     ///
     /// `item` must NOT be already enqueued in any queue.
     #[inline(always)]
-    pub(crate) unsafe fn enqueue(&self, _cs: CriticalSection, task: *mut TaskHeader) -> bool {
+    pub(crate) unsafe fn enqueue(&self, _cs: CriticalSection, task: NonNull<TaskHeader>) -> bool {
         let prev = self.head.load(Ordering::Relaxed);
-        (*task).run_queue_item.next.store(prev, Ordering::Relaxed);
-        self.head.store(task, Ordering::Relaxed);
+        task.as_ref().run_queue_item.next.store(prev, Ordering::Relaxed);
+        self.head.store(task.as_ptr(), Ordering::Relaxed);
         prev.is_null()
     }
 
