@@ -17,7 +17,7 @@ impl<'d, T: Instance> Can<'d, T> {
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
     ) -> Self {
-        into_ref!(peri, rx, tx);
+        into_ref!(rx, tx);
 
         unsafe {
             rx.set_as_af(rx.af_num(), AFType::Input);
@@ -28,7 +28,7 @@ impl<'d, T: Instance> Can<'d, T> {
         T::reset();
 
         Self {
-            can: bxcan::Can::builder(BxcanInstance::from_ref(peri)).enable(),
+            can: bxcan::Can::builder(BxcanInstance::new(peri)).enable(),
         }
     }
 }
@@ -70,11 +70,7 @@ pub struct BxcanInstance<'a, T>(PeripheralRef<'a, T>);
 
 impl<'a, T: Instance> BxcanInstance<'a, T> {
     pub fn new(peri: impl Peripheral<P = T> + 'a) -> Self {
-        Self::from_ref(peri.into_ref())
-    }
-
-    pub fn from_ref(peri: PeripheralRef<'a, T>) -> Self {
-        Self(peri)
+        Self(peri.into_ref())
     }
 }
 
