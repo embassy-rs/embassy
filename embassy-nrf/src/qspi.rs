@@ -12,23 +12,33 @@ use crate::interrupt::{Interrupt, InterruptExt};
 pub use crate::pac::qspi::ifconfig0::{
     ADDRMODE_A as AddressMode, PPSIZE_A as WritePageSize, READOC_A as ReadOpcode, WRITEOC_A as WriteOpcode,
 };
+pub use crate::pac::qspi::ifconfig1::SPIMODE_A as SpiMode;
 use crate::{pac, Peripheral};
-
-// TODO
-// - config:
-//   - 32bit address mode
-//   - SPI freq
-//   - SPI sck delay
-//   - Deep power down mode (DPM)
-//   - SPI mode 3
-// - activate/deactivate
-// - set gpio in high drive
 
 pub struct DeepPowerDownConfig {
     /// Time required for entering DPM, in units of 16us
     pub enter_time: u16,
     /// Time required for exiting DPM, in units of 16us
     pub exit_time: u16,
+}
+
+pub enum Frequency {
+    M32 = 0,
+    M16 = 1,
+    M10_7 = 2,
+    M8 = 3,
+    M6_4 = 4,
+    M5_3 = 5,
+    M4_6 = 6,
+    M4 = 7,
+    M3_6 = 8,
+    M3_2 = 9,
+    M2_9 = 10,
+    M2_7 = 11,
+    M2_5 = 12,
+    M2_3 = 13,
+    M2_1 = 14,
+    M2 = 15,
 }
 
 #[non_exhaustive]
@@ -38,6 +48,12 @@ pub struct Config {
     pub write_opcode: WriteOpcode,
     pub write_page_size: WritePageSize,
     pub deep_power_down: Option<DeepPowerDownConfig>,
+    pub frequency: Frequency,
+    /// Value is specified in number of 16 MHz periods (62.5 ns)
+    pub sck_delay: u8,
+    /// Whether data is captured on the clock rising edge and data is output on a falling edge (MODE0) or vice-versa (MODE3)
+    pub spi_mode: SpiMode,
+    pub address_mode: AddressMode,
 }
 
 impl Default for Config {
@@ -48,6 +64,10 @@ impl Default for Config {
             xip_offset: 0,
             write_page_size: WritePageSize::_256BYTES,
             deep_power_down: None,
+            frequency: Frequency::M8,
+            sck_delay: 80,
+            spi_mode: SpiMode::MODE0,
+            address_mode: AddressMode::_24BIT,
         }
     }
 }
@@ -102,7 +122,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         r.psel.io3.write(|w| unsafe { w.bits(io3.psel_bits()) });
 
         r.ifconfig0.write(|w| {
-            w.addrmode().variant(AddressMode::_24BIT);
+            w.addrmode().variant(config.address_mode);
             w.dpmenable().bit(config.deep_power_down.is_some());
             w.ppsize().variant(config.write_page_size);
             w.readoc().variant(config.read_opcode);
@@ -119,10 +139,10 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         }
 
         r.ifconfig1.write(|w| unsafe {
-            w.sckdelay().bits(80);
+            w.sckdelay().bits(config.sck_delay);
             w.dpmen().exit();
-            w.spimode().mode0();
-            w.sckfreq().bits(3);
+            w.spimode().variant(config.spi_mode);
+            w.sckfreq().bits(config.frequency as u8);
             w
         });
 
