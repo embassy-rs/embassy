@@ -309,13 +309,10 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
     }
 
     fn start_write(&mut self, address: usize, data: &[u8]) -> Result<(), Error> {
-        //info!("start_write ptr {}", data.as_ptr() as u32);
         assert_eq!(data.as_ptr() as u32 % 4, 0);
-        //info!("start_write OK ptr");
         assert_eq!(data.len() as u32 % 4, 0);
-        //info!("start_write OK len");
         assert_eq!(address as u32 % 4, 0);
-        //info!("start_write OK addr");
+
         if address > FLASH_SIZE {
             return Err(Error::OutOfBounds);
         }
@@ -363,11 +360,8 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
     pub async fn write(&mut self, address: usize, data: &[u8]) -> Result<(), Error> {
         let bomb = DropBomb::new();
 
-        //info!("WRITE {} bytes at {}", data.len(), address);
         self.start_write(address, data)?;
-        //info!("STARTED");
         self.wait_ready().await;
-        //info!("WRITE DONE");
 
         bomb.defuse();
 
