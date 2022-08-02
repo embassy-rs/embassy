@@ -144,7 +144,7 @@ impl SignalledSupply {
     }
 }
 
-impl UsbSupply for SignalledSupply {
+impl UsbSupply for &SignalledSupply {
     fn is_usb_detected(&self) -> bool {
         self.usb_detected.load(Ordering::Relaxed)
     }
