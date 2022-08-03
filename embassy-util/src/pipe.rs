@@ -319,6 +319,115 @@ where
     }
 }
 
+#[cfg(feature = "nightly")]
+mod io_impls {
+    use core::convert::Infallible;
+
+    use futures_util::FutureExt;
+
+    use super::*;
+
+    impl<M: RawMutex, const N: usize> embedded_io::Io for Pipe<M, N> {
+        type Error = Infallible;
+    }
+
+    impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for Pipe<M, N> {
+        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        where
+            Self: 'a;
+
+        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            Pipe::read(self, buf).map(Ok)
+        }
+    }
+
+    impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for Pipe<M, N> {
+        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        where
+            Self: 'a;
+
+        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+            Pipe::write(self, buf).map(Ok)
+        }
+
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+        where
+            Self: 'a;
+
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            futures_util::future::ready(Ok(()))
+        }
+    }
+
+    impl<M: RawMutex, const N: usize> embedded_io::Io for &Pipe<M, N> {
+        type Error = Infallible;
+    }
+
+    impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for &Pipe<M, N> {
+        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        where
+            Self: 'a;
+
+        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            Pipe::read(self, buf).map(Ok)
+        }
+    }
+
+    impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for &Pipe<M, N> {
+        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        where
+            Self: 'a;
+
+        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+            Pipe::write(self, buf).map(Ok)
+        }
+
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+        where
+            Self: 'a;
+
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            futures_util::future::ready(Ok(()))
+        }
+    }
+
+    impl<M: RawMutex, const N: usize> embedded_io::Io for Reader<'_, M, N> {
+        type Error = Infallible;
+    }
+
+    impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for Reader<'_, M, N> {
+        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        where
+            Self: 'a;
+
+        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            Reader::read(self, buf).map(Ok)
+        }
+    }
+
+    impl<M: RawMutex, const N: usize> embedded_io::Io for Writer<'_, M, N> {
+        type Error = Infallible;
+    }
+
+    impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for Writer<'_, M, N> {
+        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        where
+            Self: 'a;
+
+        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+            Writer::write(self, buf).map(Ok)
+        }
+
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+        where
+            Self: 'a;
+
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            futures_util::future::ready(Ok(()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use futures_executor::ThreadPool;
