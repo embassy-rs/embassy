@@ -8,9 +8,13 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+// internal use
+mod ring_buffer;
+
 pub mod blocking_mutex;
 pub mod channel;
 pub mod mutex;
+pub mod pipe;
 pub mod waitqueue;
 
 mod forever;
