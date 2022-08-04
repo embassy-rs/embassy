@@ -1,9 +1,9 @@
 #![macro_use]
 
-use cfg_if::cfg_if;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::pac::dac;
+use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -102,14 +102,6 @@ pub struct Dac<'d, T: Instance> {
     _peri: PeripheralRef<'d, T>,
 }
 
-macro_rules! enable {
-    ($enable_reg:ident, $enable_field:ident, $reset_reg:ident, $reset_field:ident) => {
-        crate::pac::RCC.$enable_reg().modify(|w| w.$enable_field(true));
-        crate::pac::RCC.$reset_reg().modify(|w| w.$reset_field(true));
-        crate::pac::RCC.$reset_reg().modify(|w| w.$reset_field(false));
-    };
-}
-
 impl<'d, T: Instance> Dac<'d, T> {
     pub fn new_1ch(peri: impl Peripheral<P = T> + 'd, _ch1: impl Peripheral<P = impl DacPin<T, 1>> + 'd) -> Self {
         into_ref!(peri);
@@ -126,27 +118,10 @@ impl<'d, T: Instance> Dac<'d, T> {
     }
 
     fn new_inner(peri: PeripheralRef<'d, T>, channels: u8) -> Self {
-        unsafe {
-            // Sadly we cannot use `RccPeripheral::enable` since devices are quite inconsistent DAC clock
-            // configuration.
-            critical_section::with(|_| {
-                cfg_if! {
-                    if #[cfg(rcc_f1)] {
-                        enable!(apb1enr, set_dacen, apb1rstr, set_dacrst);
-                    } else if #[cfg(rcc_h7)] {
-                        enable!(apb1lenr, set_dac12en, apb1lrstr, set_dac12rst);
-                    } else if #[cfg(rcc_h7ab)] {
-                        enable!(apb1lenr, set_dac1en, apb1lrstr, set_dac1rst);
-                    } else if #[cfg(stm32g0)] {
-                        enable!(apbenr1, set_dac1en, apbrstr1, set_dac1rst);
-                    } else if #[cfg(any(stm32l4, stm32l5))] {
-                        enable!(apb1enr1, set_dac1en, apb1rstr1, set_dac1rst);
-                    } else {
-                        unimplemented!("DAC enable/reset is not yet implemented for this chip");
-                    }
-                }
-            });
+        T::enable();
+        T::reset();
 
+        unsafe {
             T::regs().cr().modify(|reg| {
                 for ch in 0..channels {
                     reg.set_en(ch as usize, true);
@@ -248,12 +223,44 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: sealed::Instance + 'static {}
+pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
 
 pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 
 foreach_peripheral!(
     (dac, $inst:ident) => {
+        // H7 uses single bit for both DAC1 and DAC2, this is a hack until a proper fix is implemented
+        #[cfg(rcc_h7)]
+        impl crate::rcc::sealed::RccPeripheral for peripherals::$inst {
+            fn frequency() -> crate::time::Hertz {
+                critical_section::with(|_| unsafe {
+                    crate::rcc::get_freqs().apb1
+                })
+            }
+
+            fn reset() {
+                critical_section::with(|_| unsafe {
+                    crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(true));
+                    crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(false));
+                })
+            }
+
+            fn enable() {
+                critical_section::with(|_| unsafe {
+                    crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
+                })
+            }
+
+            fn disable() {
+                critical_section::with(|_| unsafe {
+                    crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(false));
+                })
+            }
+        }
+
+        #[cfg(rcc_h7)]
+        impl crate::rcc::RccPeripheral for peripherals::$inst {}
+
         impl crate::dac::sealed::Instance for peripherals::$inst {
             fn regs() -> &'static crate::pac::dac::Dac {
                 &crate::pac::$inst
