@@ -317,6 +317,35 @@ where
     pub fn clear(&self) {
         self.lock(|c| c.clear())
     }
+
+    /// Return whether the pipe is full (no free space in the buffer)
+    pub fn is_full(&self) -> bool {
+        self.len() == N
+    }
+
+    /// Return whether the pipe is empty (no data buffered)
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Total byte capacity.
+    ///
+    /// This is the same as the `N` generic param.
+    pub fn capacity(&self) -> usize {
+        N
+    }
+
+    /// Used byte capacity.
+    pub fn len(&self) -> usize {
+        self.lock(|c| c.buffer.len())
+    }
+
+    /// Free byte capacity.
+    ///
+    /// This is equivalent to `capacity() - len()`
+    pub fn free_capacity(&self) -> usize {
+        N - self.len()
+    }
 }
 
 #[cfg(feature = "nightly")]
