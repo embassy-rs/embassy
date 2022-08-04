@@ -1,8 +1,10 @@
+#![macro_use]
+
+use cfg_if::cfg_if;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
-use crate::dac::{DacPin, Instance};
 use crate::pac::dac;
-use crate::Peripheral;
+use crate::{peripherals, Peripheral};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -16,6 +18,15 @@ pub enum Error {
 pub enum Channel {
     Ch1,
     Ch2,
+}
+
+impl Channel {
+    fn index(&self) -> usize {
+        match self {
+            Channel::Ch1 => 0,
+            Channel::Ch2 => 1,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -119,27 +130,28 @@ impl<'d, T: Instance> Dac<'d, T> {
             // Sadly we cannot use `RccPeripheral::enable` since devices are quite inconsistent DAC clock
             // configuration.
             critical_section::with(|_| {
-                #[cfg(rcc_h7)]
-                enable!(apb1lenr, set_dac12en, apb1lrstr, set_dac12rst);
-                #[cfg(rcc_h7ab)]
-                enable!(apb1lenr, set_dac1en, apb1lrstr, set_dac1rst);
-                #[cfg(stm32g0)]
-                enable!(apbenr1, set_dac1en, apbrstr1, set_dac1rst);
-                #[cfg(any(stm32l4, stm32l5))]
-                enable!(apb1enr1, set_dac1en, apb1rstr1, set_dac1rst);
+                cfg_if! {
+                    if #[cfg(rcc_f1)] {
+                        enable!(apb1enr, set_dacen, apb1rstr, set_dacrst);
+                    } else if #[cfg(rcc_h7)] {
+                        enable!(apb1lenr, set_dac12en, apb1lrstr, set_dac12rst);
+                    } else if #[cfg(rcc_h7ab)] {
+                        enable!(apb1lenr, set_dac1en, apb1lrstr, set_dac1rst);
+                    } else if #[cfg(stm32g0)] {
+                        enable!(apbenr1, set_dac1en, apbrstr1, set_dac1rst);
+                    } else if #[cfg(any(stm32l4, stm32l5))] {
+                        enable!(apb1enr1, set_dac1en, apb1rstr1, set_dac1rst);
+                    } else {
+                        unimplemented!("DAC enable/reset is not yet implemented for this chip");
+                    }
+                }
             });
 
-            if channels >= 1 {
-                T::regs().cr().modify(|reg| {
-                    reg.set_en1(true);
-                });
-            }
-
-            if channels >= 2 {
-                T::regs().cr().modify(|reg| {
-                    reg.set_en2(true);
-                });
-            }
+            T::regs().cr().modify(|reg| {
+                for ch in 0..channels {
+                    reg.set_en(ch as usize, true);
+                }
+            });
         }
 
         Self { channels, _peri: peri }
@@ -156,17 +168,10 @@ impl<'d, T: Instance> Dac<'d, T> {
 
     fn set_channel_enable(&mut self, ch: Channel, on: bool) -> Result<(), Error> {
         self.check_channel_exists(ch)?;
-        match ch {
-            Channel::Ch1 => unsafe {
-                T::regs().cr().modify(|reg| {
-                    reg.set_en1(on);
-                })
-            },
-            Channel::Ch2 => unsafe {
-                T::regs().cr().modify(|reg| {
-                    reg.set_en2(on);
-                });
-            },
+        unsafe {
+            T::regs().cr().modify(|reg| {
+                reg.set_en(ch.index(), on);
+            })
         }
         Ok(())
     }
@@ -203,17 +208,10 @@ impl<'d, T: Instance> Dac<'d, T> {
 
     pub fn trigger(&mut self, ch: Channel) -> Result<(), Error> {
         self.check_channel_exists(ch)?;
-        match ch {
-            Channel::Ch1 => unsafe {
-                T::regs().swtrigr().write(|reg| {
-                    reg.set_swtrig1(true);
-                });
-            },
-            Channel::Ch2 => unsafe {
-                T::regs().swtrigr().write(|reg| {
-                    reg.set_swtrig2(true);
-                })
-            },
+        unsafe {
+            T::regs().swtrigr().write(|reg| {
+                reg.set_swtrig(ch.index(), true);
+            });
         }
         Ok(())
     }
@@ -221,38 +219,53 @@ impl<'d, T: Instance> Dac<'d, T> {
     pub fn trigger_all(&mut self) {
         unsafe {
             T::regs().swtrigr().write(|reg| {
-                reg.set_swtrig1(true);
-                reg.set_swtrig2(true);
+                reg.set_swtrig(Channel::Ch1.index(), true);
+                reg.set_swtrig(Channel::Ch2.index(), true);
             })
         }
     }
 
     pub fn set(&mut self, ch: Channel, value: Value) -> Result<(), Error> {
         self.check_channel_exists(ch)?;
-        match ch {
-            Channel::Ch1 => match value {
-                Value::Bit8(v) => unsafe {
-                    T::regs().dhr8r1().write(|reg| reg.set_dacc1dhr(v));
-                },
-                Value::Bit12(v, Alignment::Left) => unsafe {
-                    T::regs().dhr12l1().write(|reg| reg.set_dacc1dhr(v));
-                },
-                Value::Bit12(v, Alignment::Right) => unsafe {
-                    T::regs().dhr12r1().write(|reg| reg.set_dacc1dhr(v));
-                },
+        match value {
+            Value::Bit8(v) => unsafe {
+                T::regs().dhr8r(ch.index()).write(|reg| reg.set_dhr(v));
             },
-            Channel::Ch2 => match value {
-                Value::Bit8(v) => unsafe {
-                    T::regs().dhr8r2().write(|reg| reg.set_dacc2dhr(v));
-                },
-                Value::Bit12(v, Alignment::Left) => unsafe {
-                    T::regs().dhr12l2().write(|reg| reg.set_dacc2dhr(v));
-                },
-                Value::Bit12(v, Alignment::Right) => unsafe {
-                    T::regs().dhr12r2().write(|reg| reg.set_dacc2dhr(v));
-                },
+            Value::Bit12(v, Alignment::Left) => unsafe {
+                T::regs().dhr12l(ch.index()).write(|reg| reg.set_dhr(v));
+            },
+            Value::Bit12(v, Alignment::Right) => unsafe {
+                T::regs().dhr12r(ch.index()).write(|reg| reg.set_dhr(v));
             },
         }
         Ok(())
     }
+}
+
+pub(crate) mod sealed {
+    pub trait Instance {
+        fn regs() -> &'static crate::pac::dac::Dac;
+    }
+}
+
+pub trait Instance: sealed::Instance + 'static {}
+
+pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
+
+foreach_peripheral!(
+    (dac, $inst:ident) => {
+        impl crate::dac::sealed::Instance for peripherals::$inst {
+            fn regs() -> &'static crate::pac::dac::Dac {
+                &crate::pac::$inst
+            }
+        }
+
+        impl crate::dac::Instance for peripherals::$inst {}
+    };
+);
+
+macro_rules! impl_dac_pin {
+    ($inst:ident, $pin:ident, $ch:expr) => {
+        impl crate::dac::DacPin<peripherals::$inst, $ch> for crate::peripherals::$pin {}
+    };
 }
