@@ -77,6 +77,12 @@ pub(crate) mod sealed {
             options: TransferOptions,
         );
 
+        /// Start an endless stransfer of data between a peripheral and memory.
+        /// A single buffer is used for the operation on the memory side. The DMA call the waker when half or the entirety of the buffer has been read/written
+        /// It is the responsability of the user to ensure no software operation is performed on the half of the buffer the DMA is writting/reading on
+        unsafe fn start_circular_read<W: super::Word>(
+            &mut self, _request: Request, reg_addr: *const W, buf: *mut [W], options: TransferOptions);
+
         /// DMA double-buffered mode is unsafe as UB can happen when the hardware writes to a buffer currently owned by the software
         /// more information can be found here: https://github.com/embassy-rs/embassy/issues/702
         /// This feature is now used solely for the purposes of implementing giant DMA transfers required for DCMI

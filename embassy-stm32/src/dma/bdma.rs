@@ -66,6 +66,7 @@ foreach_dma_channel! {
                     ptr as *mut u32,
                     len,
                     true,
+                    false,
                     vals::Size::from(W::bits()),
                     options,
                     #[cfg(dmamux)]
@@ -87,6 +88,7 @@ foreach_dma_channel! {
                     buf.as_ptr() as *mut u32,
                     count,
                     false,
+                    false,
                     vals::Size::from(W::bits()),
                     options,
                     #[cfg(dmamux)]
@@ -107,6 +109,29 @@ foreach_dma_channel! {
                     reg_addr as *const u32,
                     ptr as *mut u32,
                     len,
+                    true,
+                    false,
+                    vals::Size::from(W::bits()),
+                    options,
+                    #[cfg(dmamux)]
+                    <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_REGS,
+                    #[cfg(dmamux)]
+                    <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_CH_NUM,
+                );
+            }
+
+            unsafe fn start_circular_read<W: Word>(&mut self, _request: Request, reg_addr: *const W, buf: *mut [W], options: TransferOptions) {
+                let (ptr, len) = super::slice_ptr_parts_mut(buf);
+                low_level_api::start_transfer(
+                    pac::$dma_peri,
+                    $channel_num,
+                    #[cfg(any(bdma_v2, dmamux))]
+                    _request,
+                    vals::Dir::FROMPERIPHERAL,
+                    reg_addr as *const u32,
+                    ptr as *mut u32,
+                    len,
+                    true,
                     true,
                     vals::Size::from(W::bits()),
                     options,
@@ -179,6 +204,7 @@ mod low_level_api {
         mem_addr: *mut u32,
         mem_len: usize,
         incr_mem: bool,
+        circular: bool,
         data_size: vals::Size,
         options: TransferOptions,
         #[cfg(dmamux)] dmamux_regs: pac::dmamux::Dmamux,
@@ -203,21 +229,38 @@ mod low_level_api {
 
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
-
+        
+        // Set Peripheral and Memory adresses for the transfer
         ch.par().write_value(peri_addr as u32);
         ch.mar().write_value(mem_addr as u32);
+
+        // Set the number of elements to be transfered
         ch.ndtr().write(|w| w.set_ndt(mem_len as u16));
+
         ch.cr().write(|w| {
+
+            // Set the individual size of the elements to be transfered
             w.set_psize(data_size);
             w.set_msize(data_size);
+
+            // If Memory Increment Mode is enabled, DMA will increase the adress of the memory adress by `data_size` after each element of size `data_size` transfered
             if incr_mem {
-                w.set_minc(vals::Inc::ENABLED);
+                w.set_minc(vals::Inc::ENABLED); 
             } else {
                 w.set_minc(vals::Inc::DISABLED);
             }
-            w.set_dir(dir);
-            w.set_teie(true);
-            w.set_tcie(true);
+            
+            //Set MEM <-> PERIPH transfer direction / MEM -> PERIPH : WRITE /  MEM <- PERIPH : READ
+            w.set_dir(dir); 
+
+            // Set circularity; if ENABLED, DMA will wrap around at the end of a transfer
+            if circular { w.set_circ(vals::Circ::ENABLED)};
+
+            // Enable interrupts trhough their masks
+            w.set_teie(true); // Error IRQ
+            w.set_tcie(true); // Transfer Complete IRQ
+            if circular { w.set_htie(true)}; //  Half Transfer Complete IRQ
+
             w.set_en(true);
         });
     }
@@ -272,6 +315,11 @@ mod low_level_api {
             panic!("DMA: error on BDMA@{:08x} channel {}", dma.0 as u32, channel_num);
         }
         if isr.tcif(channel_num) && cr.read().tcie() {
+            cr.write(|_| ()); // Disable channel interrupts with the default value.
+            STATE.ch_wakers[index].wake();
+        }
+        //Only in circular mode
+        else if isr.htif(channel_num) && cr.read().tcie() {
             cr.write(|_| ()); // Disable channel interrupts with the default value.
             STATE.ch_wakers[index].wake();
         }
