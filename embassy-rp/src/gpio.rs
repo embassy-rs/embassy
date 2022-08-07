@@ -85,27 +85,27 @@ impl<'d, T: Pin> Input<'d, T> {
     }
 
     #[inline]
-    pub async fn wait_for_high<'a>(&mut self) {
+    pub async fn wait_for_high(&mut self) {
         self.pin.wait_for_high().await;
     }
 
     #[inline]
-    pub async fn wait_for_low<'a>(&mut self) {
+    pub async fn wait_for_low(&mut self) {
         self.pin.wait_for_low().await;
     }
 
     #[inline]
-    pub async fn wait_for_rising_edge<'a>(&mut self) {
+    pub async fn wait_for_rising_edge(&mut self) {
         self.pin.wait_for_rising_edge().await;
     }
 
     #[inline]
-    pub async fn wait_for_falling_edge<'a>(&mut self) {
+    pub async fn wait_for_falling_edge(&mut self) {
         self.pin.wait_for_falling_edge().await;
     }
 
     #[inline]
-    pub async fn wait_for_any_edge<'a>(&mut self) {
+    pub async fn wait_for_any_edge(&mut self) {
         self.pin.wait_for_any_edge().await;
     }
 }
@@ -545,29 +545,29 @@ impl<'d, T: Pin> Flex<'d, T> {
     }
 
     #[inline]
-    pub async fn wait_for_high<'a>(&mut self) {
+    pub async fn wait_for_high(&mut self) {
         InputFuture::new(&mut self.pin, InterruptTrigger::LevelHigh).await;
     }
 
     #[inline]
-    pub async fn wait_for_low<'a>(&mut self) {
+    pub async fn wait_for_low(&mut self) {
         InputFuture::new(&mut self.pin, InterruptTrigger::LevelLow).await;
     }
 
     #[inline]
-    pub async fn wait_for_rising_edge<'a>(&mut self) {
+    pub async fn wait_for_rising_edge(&mut self) {
         self.wait_for_low().await;
         self.wait_for_high().await;
     }
 
     #[inline]
-    pub async fn wait_for_falling_edge<'a>(&mut self) {
+    pub async fn wait_for_falling_edge(&mut self) {
         self.wait_for_high().await;
         self.wait_for_low().await;
     }
 
     #[inline]
-    pub async fn wait_for_any_edge<'a>(&mut self) {
+    pub async fn wait_for_any_edge(&mut self) {
         if self.is_high() {
             self.wait_for_low().await;
         } else {
