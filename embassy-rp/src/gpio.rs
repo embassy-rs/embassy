@@ -152,24 +152,26 @@ unsafe fn IO_IRQ_BANK0() {
         let event = (intsx.read().0 >> pin_group * 4) & 0xf as u32;
 
         if let Some(trigger) = InterruptTrigger::from_u32(event) {
-            proc_intx.inte(pin / 8).write(|w| match trigger {
-                InterruptTrigger::AnyEdge => {
-                    w.set_edge_high(pin_group, false);
-                    w.set_edge_low(pin_group, false);
-                }
-                InterruptTrigger::LevelHigh => {
-                    debug!("IO_IRQ_BANK0 pin {} LevelHigh triggered\n", pin);
-                    w.set_level_high(pin_group, false);
-                }
-                InterruptTrigger::LevelLow => {
-                    w.set_level_low(pin_group, false);
-                }
-                InterruptTrigger::EdgeHigh => {
-                    w.set_edge_high(pin_group, false);
-                }
-                InterruptTrigger::EdgeLow => {
-                    w.set_edge_low(pin_group, false);
-                }
+            critical_section::with(|_| {
+                proc_intx.inte(pin / 8).modify(|w| match trigger {
+                    InterruptTrigger::AnyEdge => {
+                        w.set_edge_high(pin_group, false);
+                        w.set_edge_low(pin_group, false);
+                    }
+                    InterruptTrigger::LevelHigh => {
+                        debug!("IO_IRQ_BANK0 pin {} LevelHigh triggered\n", pin);
+                        w.set_level_high(pin_group, false);
+                    }
+                    InterruptTrigger::LevelLow => {
+                        w.set_level_low(pin_group, false);
+                    }
+                    InterruptTrigger::EdgeHigh => {
+                        w.set_edge_high(pin_group, false);
+                    }
+                    InterruptTrigger::EdgeLow => {
+                        w.set_edge_low(pin_group, false);
+                    }
+                });
             });
             INTERRUPT_WAKERS[pin as usize].wake();
         }
@@ -193,23 +195,25 @@ impl<'d, T: Pin> InputFuture<'d, T> {
             // pin, and each group consists of LEVEL_LOW, LEVEL_HIGH, EDGE_LOW,
             // and EGDE_HIGH.
             let pin_group = (pin.pin() % 8) as usize;
-            pin.int_proc().inte((pin.pin() / 8) as usize).write(|w| match level {
-                InterruptTrigger::LevelHigh => {
-                    debug!("InputFuture::new enable LevelHigh for pin {} \n", pin.pin());
-                    w.set_level_high(pin_group, true);
-                }
-                InterruptTrigger::LevelLow => {
-                    w.set_level_low(pin_group, true);
-                }
-                InterruptTrigger::EdgeHigh => {
-                    w.set_edge_high(pin_group, true);
-                }
-                InterruptTrigger::EdgeLow => {
-                    w.set_edge_low(pin_group, true);
-                }
-                InterruptTrigger::AnyEdge => {
-                    // noop
-                }
+            critical_section::with(|_| {
+                pin.int_proc().inte((pin.pin() / 8) as usize).modify(|w| match level {
+                    InterruptTrigger::LevelHigh => {
+                        debug!("InputFuture::new enable LevelHigh for pin {} \n", pin.pin());
+                        w.set_level_high(pin_group, true);
+                    }
+                    InterruptTrigger::LevelLow => {
+                        w.set_level_low(pin_group, true);
+                    }
+                    InterruptTrigger::EdgeHigh => {
+                        w.set_edge_high(pin_group, true);
+                    }
+                    InterruptTrigger::EdgeLow => {
+                        w.set_edge_low(pin_group, true);
+                    }
+                    InterruptTrigger::AnyEdge => {
+                        // noop
+                    }
+                });
             });
 
             irq.enable();
