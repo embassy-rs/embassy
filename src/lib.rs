@@ -815,20 +815,55 @@ where
                 trace!("    {:?}", bcd_header);
 
                 let packet_start = BcdHeader::SIZE + 4 * bcd_header.data_offset as usize;
-                if packet_start > payload.len() {
-                    warn!("packet start out of range.");
+
+                if packet_start + EventPacket::SIZE > payload.len() {
+                    warn!("BCD event, incomplete header");
                     return;
                 }
-                let packet = &payload[packet_start..];
-                trace!("    {:02x}", &packet[..(packet.len() as usize).min(36)]);
+                let bcd_packet = &payload[packet_start..];
+                trace!("    {:02x}", &bcd_packet[..(bcd_packet.len() as usize).min(36)]);
 
-                let mut evt = EventHeader::from_bytes(&packet[24..][..EventHeader::SIZE].try_into().unwrap());
-                evt.byteswap();
-                let evt_data = &packet[24 + EventHeader::SIZE..][..evt.datalen as usize];
+                let mut event_packet = EventPacket::from_bytes(&bcd_packet[..EventPacket::SIZE].try_into().unwrap());
+                event_packet.byteswap();
+
+                const ETH_P_LINK_CTL: u16 = 0x886c; // HPNA, wlan link local tunnel, according to linux if_ether.h
+                if event_packet.eth.ether_type != ETH_P_LINK_CTL {
+                    warn!(
+                        "unexpected ethernet type 0x{:04x}, expected Broadcom ether type 0x{:04x}",
+                        event_packet.eth.ether_type, ETH_P_LINK_CTL
+                    );
+                    return;
+                }
+                const BROADCOM_OUI: &[u8] = &[0x00, 0x10, 0x18];
+                if event_packet.hdr.oui != BROADCOM_OUI {
+                    warn!(
+                        "unexpected ethernet OUI {:02x}, expected Broadcom OUI {:02x}",
+                        event_packet.hdr.oui, BROADCOM_OUI
+                    );
+                    return;
+                }
+                const BCMILCP_SUBTYPE_VENDOR_LONG: u16 = 32769;
+                if event_packet.hdr.subtype != BCMILCP_SUBTYPE_VENDOR_LONG {
+                    warn!("unexpected subtype {}", event_packet.hdr.subtype);
+                    return;
+                }
+
+                const BCMILCP_BCM_SUBTYPE_EVENT: u16 = 1;
+                if event_packet.hdr.user_subtype != BCMILCP_BCM_SUBTYPE_EVENT {
+                    warn!("unexpected user_subtype {}", event_packet.hdr.subtype);
+                    return;
+                }
+
+                if event_packet.msg.datalen as usize >= (bcd_packet.len() - EventMessage::SIZE) {
+                    warn!("BCD event, incomplete data");
+                    return;
+                }
+
+                let evt_data = &bcd_packet[EventMessage::SIZE..][..event_packet.msg.datalen as usize];
                 debug!(
                     "=== EVENT {}: {} {:02x}",
-                    events::Event::from(evt.event_type as u8),
-                    evt,
+                    events::Event::from(event_packet.msg.event_type as u8),
+                    event_packet.msg,
                     evt_data
                 );
             }

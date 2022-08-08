@@ -67,7 +67,41 @@ impl_bytes!(BcdHeader);
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
+pub struct EthernetHeader {
+    pub destination_mac: [u8; 6],
+    pub source_mac: [u8; 6],
+    pub ether_type: u16,
+}
+
+impl EthernetHeader {
+    pub fn byteswap(&mut self) {
+        self.ether_type = self.ether_type.to_be();
+    }
+}
+
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C)]
 pub struct EventHeader {
+    pub subtype: u16,
+    pub length: u16,
+    pub version: u8,
+    pub oui: [u8; 3],
+    pub user_subtype: u16,
+}
+
+impl EventHeader {
+    pub fn byteswap(&mut self) {
+        self.subtype = self.subtype.to_be();
+        self.length = self.length.to_be();
+        self.user_subtype = self.user_subtype.to_be();
+    }
+}
+
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C)]
+pub struct EventMessage {
     /// version   
     pub version: u16,
     /// see flags below
@@ -91,9 +125,9 @@ pub struct EventHeader {
     /// source bsscfg index
     pub bsscfgidx: u8,
 }
-impl_bytes!(EventHeader);
+impl_bytes!(EventMessage);
 
-impl EventHeader {
+impl EventMessage {
     pub fn byteswap(&mut self) {
         self.version = self.version.to_be();
         self.flags = self.flags.to_be();
@@ -102,6 +136,24 @@ impl EventHeader {
         self.reason = self.reason.to_be();
         self.auth_type = self.auth_type.to_be();
         self.datalen = self.datalen.to_be();
+    }
+}
+
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C)]
+pub struct EventPacket {
+    pub eth: EthernetHeader,
+    pub hdr: EventHeader,
+    pub msg: EventMessage,
+}
+impl_bytes!(EventPacket);
+
+impl EventPacket {
+    pub fn byteswap(&mut self) {
+        self.eth.byteswap();
+        self.hdr.byteswap();
+        self.msg.byteswap();
     }
 }
 
