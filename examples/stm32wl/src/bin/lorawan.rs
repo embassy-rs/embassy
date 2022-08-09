@@ -37,7 +37,7 @@ impl<'a> embassy_lora::stm32wl::RadioSwitch for RadioSwitch<'a> {
     }
 
     fn set_tx(&mut self) {
-        self.ctrl1.set_low();
+        self.ctrl1.set_high();
         self.ctrl2.set_high();
         self.ctrl3.set_high();
     }
@@ -69,7 +69,7 @@ async fn main(_spawner: Spawner) {
     // NOTE: This is specific for TTN, as they have a special RX1 delay
     region.set_receive_delay1(5000);
 
-    let mut device: Device<_, Crypto, _, _> = Device::new(region, radio, LoraTimer, Rng::new(p.RNG));
+    let mut device: Device<_, Crypto, _, _> = Device::new(region, radio, LoraTimer::new(), Rng::new(p.RNG));
 
     // Depending on network, this might be part of JOIN
     device.set_datarate(region::DR::_0); // SF12
