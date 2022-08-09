@@ -41,6 +41,8 @@ pub struct SubGhzRadio<'d, RS> {
 pub struct SubGhzRadioConfig {
     pub reg_mode: RegMode,
     pub calibrate_image: CalibrateImage,
+    pub pa_config: PaConfig,
+    pub tx_params: TxParams,
 }
 
 impl<'d, RS: RadioSwitch> SubGhzRadio<'d, RS> {
@@ -155,8 +157,10 @@ impl<'d, RS: RadioSwitch> SubGhzRadio<'d, RS> {
 
         self.radio.set_buffer_base_address(0, 0)?;
 
+        // NOTE: Upper layer handles timeout by cancelling the future
         self.radio
-            .set_rx(Timeout::from_millis_sat(self.get_rx_window_duration_ms()))?;
+            .set_rx(Timeout::DISABLED)?;
+
         trace!("RX started");
 
         loop {
@@ -221,8 +225,8 @@ fn configure_radio(radio: &mut SubGhz<'_, NoDma, NoDma>, config: SubGhzRadioConf
     radio.calibrate(0x7F)?;
     radio.calibrate_image(config.calibrate_image)?;
 
-    radio.set_pa_config(&PaConfig::HP_14)?;
-    radio.set_tx_params(&TxParams::HP.set_ramp_time(RampTime::Micros40))?;
+    radio.set_pa_config(&config.pa_config)?;
+    radio.set_tx_params(&config.tx_params)?;
     radio.set_pa_ocp(Ocp::Max140m)?;
 
     radio.set_packet_type(PacketType::LoRa)?;
