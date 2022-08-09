@@ -389,10 +389,7 @@ pub mod client {
     }
 
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpConnection<'d, N, TX_SZ, RX_SZ> {
-        fn new<D: Device>(
-            stack: &'d Stack<D>,
-            state: &'d TcpClientState<N, TX_SZ, RX_SZ>,
-        ) -> Result<Self, Error> {
+        fn new<D: Device>(stack: &'d Stack<D>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Result<Self, Error> {
             let mut bufs = state.pool.alloc().ok_or(Error::ConnectionReset)?;
             Ok(Self {
                 socket: unsafe { TcpSocket::new(stack, &mut bufs.as_mut().0, &mut bufs.as_mut().1) },
@@ -456,9 +453,7 @@ pub mod client {
 
     impl<const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpClientState<N, TX_SZ, RX_SZ> {
         pub const fn new() -> Self {
-            Self {
-                pool: Pool::new()
-            }
+            Self { pool: Pool::new() }
         }
     }
 
