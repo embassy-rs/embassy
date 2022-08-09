@@ -258,10 +258,10 @@ impl From<embassy_stm32::spi::Error> for RadioError {
 
 impl<'d, RS> Timings for SubGhzRadio<'d, RS> {
     fn get_rx_window_offset_ms(&self) -> i32 {
-        -200
+        -500
     }
     fn get_rx_window_duration_ms(&self) -> u32 {
-        800
+        3000
     }
 }
 
