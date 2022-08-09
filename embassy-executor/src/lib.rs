@@ -19,4 +19,25 @@ pub use embassy_macros::{main, task};
 /// Implementation details for embassy macros. DO NOT USE.
 pub mod export {
     pub use atomic_polyfill as atomic;
+
+    #[cfg(feature = "rtos-trace")]
+    pub use rtos_trace::trace;
+
+    /// Expands the given block of code when `embassy-executor` is compiled with
+    /// the `rtos-trace` feature.
+    #[doc(hidden)]
+    #[macro_export]
+    #[cfg(feature = "rtos-trace")]
+    macro_rules! rtos_trace {
+        ($($tt:tt)*) => { $($tt)* };
+    }
+
+    /// Does not expand the given block of code when `embassy-executor` is
+    /// compiled without the `rtos-trace` feature.
+    #[doc(hidden)]
+    #[macro_export]
+    #[cfg(not(feature = "rtos-trace"))]
+    macro_rules! rtos_trace {
+        ($($tt:tt)*) => {};
+    }
 }

@@ -22,6 +22,8 @@ use core::{mem, ptr};
 
 use atomic_polyfill::{AtomicU32, Ordering};
 use critical_section::CriticalSection;
+#[cfg(feature = "rtos-trace")]
+use rtos_trace::trace;
 
 use self::run_queue::{RunQueue, RunQueueItem};
 use self::util::UninitCell;
@@ -306,6 +308,9 @@ impl Executor {
     /// - `task` must NOT be already enqueued (in this executor or another one).
     #[inline(always)]
     unsafe fn enqueue(&self, cs: CriticalSection, task: NonNull<TaskHeader>) {
+        #[cfg(feature = "rtos-trace")]
+        trace::task_ready_begin(task.as_ptr() as u32);
+
         if self.run_queue.enqueue(cs, task) {
             (self.signal_fn)(self.signal_ctx)
         }
@@ -322,6 +327,9 @@ impl Executor {
     /// sending the task to the executor thread.
     pub(super) unsafe fn spawn(&'static self, task: NonNull<TaskHeader>) {
         task.as_ref().executor.set(self);
+
+        #[cfg(feature = "rtos-trace")]
+        trace::task_new(task.as_ptr() as u32);
 
         critical_section::with(|cs| {
             self.enqueue(cs, task);
@@ -365,8 +373,14 @@ impl Executor {
                 return;
             }
 
+            #[cfg(feature = "rtos-trace")]
+            trace::task_exec_begin(p.as_ptr() as u32);
+
             // Run the task
             task.poll_fn.read()(p as _);
+
+            #[cfg(feature = "rtos-trace")]
+            trace::task_exec_end();
 
             // Enqueue or update into timer_queue
             #[cfg(feature = "time")]
@@ -381,6 +395,9 @@ impl Executor {
             let next_expiration = self.timer_queue.next_expiration();
             driver::set_alarm(self.alarm, next_expiration.as_ticks());
         }
+
+        #[cfg(feature = "rtos-trace")]
+        trace::system_idle();
     }
 
     /// Get a spawner that spawns tasks in this executor.
@@ -425,3 +442,21 @@ pub(crate) unsafe fn register_timer(at: Instant, waker: &core::task::Waker) {
     let expires_at = task.expires_at.get();
     task.expires_at.set(expires_at.min(at));
 }
+
+#[cfg(feature = "rtos-trace")]
+impl rtos_trace::RtosTraceOSCallbacks for Executor {
+    fn task_list() {
+        // We don't know what tasks exist, so we can't send them.
+    }
+    #[cfg(feature = "time")]
+    fn time() -> u64 {
+        Instant::now().as_micros()
+    }
+    #[cfg(not(feature = "time"))]
+    fn time() -> u64 {
+        0
+    }
+}
+
+#[cfg(feature = "rtos-trace")]
+rtos_trace::global_os_callbacks!{Executor}
