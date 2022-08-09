@@ -339,15 +339,16 @@ pub mod client {
 
     use super::*;
 
+    /// TCP client capable of creating up to N multiple connections with tx and rx buffers according to TX_SZ and RX_SZ.
     pub struct TcpClient<'d, D: Device, const N: usize, const TX_SZ: usize = 1024, const RX_SZ: usize = 1024> {
         stack: &'d Stack<D>,
-        tx: &'d BufferPool<TX_SZ, N>,
-        rx: &'d BufferPool<RX_SZ, N>,
+        state: &'d TcpClientState<N, TX_SZ, RX_SZ>,
     }
 
     impl<'d, D: Device, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpClient<'d, D, N, TX_SZ, RX_SZ> {
-        pub fn new(stack: &'d Stack<D>, tx: &'d BufferPool<TX_SZ, N>, rx: &'d BufferPool<RX_SZ, N>) -> Self {
-            Self { stack, tx, rx }
+        /// Create a new TcpClient
+        pub fn new(stack: &'d Stack<D>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Self {
+            Self { stack, state }
         }
     }
 
@@ -370,7 +371,7 @@ pub mod client {
                     IpAddr::V6(_) => panic!("ipv6 support not enabled"),
                 };
                 let remote_endpoint = (addr, remote.port());
-                let mut socket = TcpConnection::new(&self.stack, self.tx, self.rx)?;
+                let mut socket = TcpConnection::new(&self.stack, self.state)?;
                 socket
                     .socket
                     .connect(remote_endpoint)
@@ -383,26 +384,20 @@ pub mod client {
 
     pub struct TcpConnection<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> {
         socket: TcpSocket<'d>,
-        tx: &'d BufferPool<TX_SZ, N>,
-        rx: &'d BufferPool<RX_SZ, N>,
-        txb: NonNull<[u8; TX_SZ]>,
-        rxb: NonNull<[u8; RX_SZ]>,
+        state: &'d TcpClientState<N, TX_SZ, RX_SZ>,
+        bufs: NonNull<([u8; TX_SZ], [u8; RX_SZ])>,
     }
 
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpConnection<'d, N, TX_SZ, RX_SZ> {
         fn new<D: Device>(
             stack: &'d Stack<D>,
-            tx: &'d BufferPool<TX_SZ, N>,
-            rx: &'d BufferPool<RX_SZ, N>,
+            state: &'d TcpClientState<N, TX_SZ, RX_SZ>,
         ) -> Result<Self, Error> {
-            let mut txb = tx.alloc().ok_or(Error::ConnectionReset)?;
-            let mut rxb = rx.alloc().ok_or(Error::ConnectionReset)?;
+            let mut bufs = state.pool.alloc().ok_or(Error::ConnectionReset)?;
             Ok(Self {
-                socket: unsafe { TcpSocket::new(stack, rxb.as_mut(), txb.as_mut()) },
-                tx,
-                rx,
-                txb,
-                rxb,
+                socket: unsafe { TcpSocket::new(stack, &mut bufs.as_mut().0, &mut bufs.as_mut().1) },
+                state,
+                bufs,
             })
         }
     }
@@ -411,8 +406,7 @@ pub mod client {
         fn drop(&mut self) {
             unsafe {
                 self.socket.close();
-                self.rx.free(self.rxb);
-                self.tx.free(self.txb);
+                self.state.pool.free(self.bufs);
             }
         }
     }
@@ -455,9 +449,22 @@ pub mod client {
         }
     }
 
-    pub type BufferPool<const BUFSZ: usize, const N: usize> = Pool<[u8; BUFSZ], N>;
+    /// State for TcpClient
+    pub struct TcpClientState<const N: usize, const TX_SZ: usize, const RX_SZ: usize> {
+        pool: Pool<([u8; TX_SZ], [u8; RX_SZ]), N>,
+    }
 
-    pub struct Pool<T, const N: usize> {
+    impl<const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpClientState<N, TX_SZ, RX_SZ> {
+        pub const fn new() -> Self {
+            Self {
+                pool: Pool::new()
+            }
+        }
+    }
+
+    unsafe impl<const N: usize, const TX_SZ: usize, const RX_SZ: usize> Sync for TcpClientState<N, TX_SZ, RX_SZ> {}
+
+    struct Pool<T, const N: usize> {
         used: [AtomicBool; N],
         data: [UnsafeCell<MaybeUninit<T>>; N],
     }
@@ -466,7 +473,7 @@ pub mod client {
         const VALUE: AtomicBool = AtomicBool::new(false);
         const UNINIT: UnsafeCell<MaybeUninit<T>> = UnsafeCell::new(MaybeUninit::uninit());
 
-        pub const fn new() -> Self {
+        const fn new() -> Self {
             Self {
                 used: [Self::VALUE; N],
                 data: [Self::UNINIT; N],
