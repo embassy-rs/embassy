@@ -4,10 +4,23 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::into_ref;
 
 use crate::gpio::sealed::AFType;
+use crate::gpio::Pull;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
 use crate::pac::i2c;
 use crate::time::Hertz;
 use crate::Peripheral;
+
+#[non_exhaustive]
+#[derive(Copy, Clone)]
+pub struct Config {
+    pullup_enable: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { pullup_enable: true }
+    }
+}
 
 pub struct State {}
 
@@ -27,15 +40,21 @@ impl<'d, T: Instance> I2c<'d, T> {
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
         freq: Hertz,
+        config: Config,
     ) -> Self {
         into_ref!(scl, sda);
 
         T::enable();
         T::reset();
 
+        let pull = match config.pullup_enable {
+            true => Pull::Up,
+            false => Pull::None,
+        };
+
         unsafe {
-            scl.set_as_af(scl.af_num(), AFType::OutputOpenDrain);
-            sda.set_as_af(sda.af_num(), AFType::OutputOpenDrain);
+            scl.set_as_af_pull(scl.af_num(), AFType::OutputOpenDrain, pull);
+            sda.set_as_af_pull(sda.af_num(), AFType::OutputOpenDrain, pull);
         }
 
         unsafe {

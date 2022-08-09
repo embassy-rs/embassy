@@ -39,7 +39,16 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let mut led = Output::new(p.PE3, Level::High, Speed::Low);
     let i2c_irq = interrupt::take!(I2C1_EV);
-    let cam_i2c = I2c::new(p.I2C1, p.PB8, p.PB9, i2c_irq, p.DMA1_CH1, p.DMA1_CH2, khz(100));
+    let cam_i2c = I2c::new(
+        p.I2C1,
+        p.PB8,
+        p.PB9,
+        i2c_irq,
+        p.DMA1_CH1,
+        p.DMA1_CH2,
+        khz(100),
+        Default::default(),
+    );
 
     let mut camera = Ov7725::new(cam_i2c, mco);
 

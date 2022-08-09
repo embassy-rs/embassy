@@ -10,11 +10,24 @@ use futures::future::poll_fn;
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
+use crate::gpio::Pull;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
 use crate::interrupt::InterruptExt;
 use crate::pac::i2c;
 use crate::time::Hertz;
 use crate::Peripheral;
+
+#[non_exhaustive]
+#[derive(Copy, Clone)]
+pub struct Config {
+    pullup_enable: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { pullup_enable: true }
+    }
+}
 
 pub struct State {
     waker: AtomicWaker,
@@ -46,15 +59,21 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         tx_dma: impl Peripheral<P = TXDMA> + 'd,
         rx_dma: impl Peripheral<P = RXDMA> + 'd,
         freq: Hertz,
+        config: Config,
     ) -> Self {
         into_ref!(peri, irq, scl, sda, tx_dma, rx_dma);
 
         T::enable();
         T::reset();
 
+        let pull = match config.pullup_enable {
+            true => Pull::Up,
+            false => Pull::None,
+        };
+
         unsafe {
-            scl.set_as_af(scl.af_num(), AFType::OutputOpenDrain);
-            sda.set_as_af(sda.af_num(), AFType::OutputOpenDrain);
+            scl.set_as_af_pull(scl.af_num(), AFType::OutputOpenDrain, pull);
+            sda.set_as_af_pull(sda.af_num(), AFType::OutputOpenDrain, pull);
         }
 
         unsafe {
