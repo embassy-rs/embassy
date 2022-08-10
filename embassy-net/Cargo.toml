@@ -31,6 +31,7 @@ pool-16 = []
 pool-32 = []
 pool-64 = []
 pool-128 = []
+unstable-traits = []
 
 [dependencies]
 
@@ -48,6 +49,8 @@ generic-array       = { version = "0.14.4", default-features = false }
 stable_deref_trait  = { version = "1.2.0", default-features = false }
 futures             = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
 atomic-pool = "0.2.1"
+atomic-polyfill = "0.1.5"
+embedded-nal-async = "0.2.0"
 
 [dependencies.smoltcp]
 version = "0.8.0"
