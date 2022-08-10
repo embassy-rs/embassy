@@ -13,12 +13,16 @@ use crate::Peripheral;
 #[non_exhaustive]
 #[derive(Copy, Clone)]
 pub struct Config {
-    pullup_enable: bool,
+    pub sda_pullup: bool,
+    pub scl_pullup: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { pullup_enable: true }
+        Self {
+            sda_pullup: false,
+            scl_pullup: false,
+        }
     }
 }
 
@@ -47,14 +51,23 @@ impl<'d, T: Instance> I2c<'d, T> {
         T::enable();
         T::reset();
 
-        let pull = match config.pullup_enable {
-            true => Pull::Up,
-            false => Pull::None,
-        };
-
         unsafe {
-            scl.set_as_af_pull(scl.af_num(), AFType::OutputOpenDrain, pull);
-            sda.set_as_af_pull(sda.af_num(), AFType::OutputOpenDrain, pull);
+            scl.set_as_af_pull(
+                scl.af_num(),
+                AFType::OutputOpenDrain,
+                match config.scl_pullup {
+                    true => Pull::Up,
+                    false => Pull::None,
+                },
+            );
+            sda.set_as_af_pull(
+                sda.af_num(),
+                AFType::OutputOpenDrain,
+                match config.sda_pullup {
+                    true => Pull::Up,
+                    false => Pull::None,
+                },
+            );
         }
 
         unsafe {
