@@ -459,4 +459,4 @@ impl rtos_trace::RtosTraceOSCallbacks for Executor {
 }
 
 #[cfg(feature = "rtos-trace")]
-rtos_trace::global_os_callbacks!{Executor}
+rtos_trace::global_os_callbacks! {Executor}
