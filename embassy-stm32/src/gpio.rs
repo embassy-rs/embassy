@@ -213,7 +213,7 @@ impl<'d, T: Pin> Drop for Flex<'d, T> {
 }
 
 /// Pull setting for an input.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Pull {
     None,
@@ -235,7 +235,7 @@ impl From<Pull> for vals::Pupdr {
 }
 
 /// Speed settings
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Speed {
     Low,
@@ -303,7 +303,7 @@ impl<'d, T: Pin> Input<'d, T> {
 }
 
 /// Digital input or output level.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Level {
     Low,
@@ -470,7 +470,7 @@ pub(crate) mod sealed {
     use super::*;
 
     /// Alternate function type settings
-    #[derive(Debug)]
+    #[derive(Debug, Copy, Clone)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum AFType {
         Input,
