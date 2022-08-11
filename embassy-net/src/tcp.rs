@@ -181,7 +181,7 @@ impl<'a> Drop for TcpSocket<'a> {
 // =======================
 
 #[derive(Copy, Clone)]
-pub struct TcpIo<'a> {
+struct TcpIo<'a> {
     stack: &'a UnsafeCell<SocketStack>,
     handle: SocketHandle,
 }
