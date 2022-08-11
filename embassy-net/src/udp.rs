@@ -30,14 +30,6 @@ pub struct UdpSocket<'a> {
     io: UdpIo<'a>,
 }
 
-pub struct UdpReader<'a> {
-    io: UdpIo<'a>,
-}
-
-pub struct UdpWriter<'a> {
-    io: UdpIo<'a>,
-}
-
 impl<'a> UdpSocket<'a> {
     pub fn new<D: Device>(
         stack: &'a Stack<D>,
@@ -66,10 +58,6 @@ impl<'a> UdpSocket<'a> {
         }
     }
 
-    pub fn split(&mut self) -> (UdpReader<'_>, UdpWriter<'_>) {
-        (UdpReader { io: self.io }, UdpWriter { io: self.io })
-    }
-
     pub fn bind<T>(&mut self, endpoint: T) -> Result<(), BindError>
     where
         T: Into<IpListenEndpoint>,
@@ -90,19 +78,15 @@ impl<'a> UdpSocket<'a> {
         }
     }
 
-    pub async fn send_to<T>(&mut self, buf: &[u8], remote_endpoint: T) -> Result<(), Error>
+    pub async fn send_to<T>(&self, buf: &[u8], remote_endpoint: T) -> Result<(), Error>
     where
         T: Into<IpEndpoint>,
     {
         self.io.write(buf, remote_endpoint.into()).await
     }
 
-    pub async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, IpEndpoint), Error> {
+    pub async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, IpEndpoint), Error> {
         self.io.read(buf).await
-    }
-
-    pub async fn flush(&mut self) -> Result<(), Error> {
-        self.io.flush().await
     }
 
     pub fn endpoint(&self) -> IpListenEndpoint {
@@ -149,7 +133,7 @@ impl UdpIo<'_> {
     }
 
     /// SAFETY: must not call reentrantly.
-    unsafe fn with_mut<R>(&mut self, f: impl FnOnce(&mut udp::Socket, &mut Interface) -> R) -> R {
+    unsafe fn with_mut<R>(&self, f: impl FnOnce(&mut udp::Socket, &mut Interface) -> R) -> R {
         let s = &mut *self.stack.get();
         let socket = s.sockets.get_mut::<udp::Socket>(self.handle);
         let res = f(socket, &mut s.iface);
@@ -157,7 +141,7 @@ impl UdpIo<'_> {
         res
     }
 
-    async fn read(&mut self, buf: &mut [u8]) -> Result<(usize, IpEndpoint), Error> {
+    async fn read(&self, buf: &mut [u8]) -> Result<(usize, IpEndpoint), Error> {
         poll_fn(move |cx| unsafe {
             self.with_mut(|s, _| match s.recv_slice(buf) {
                 Ok(x) => Poll::Ready(Ok(x)),
@@ -172,7 +156,7 @@ impl UdpIo<'_> {
         .await
     }
 
-    async fn write(&mut self, buf: &[u8], ep: IpEndpoint) -> Result<(), Error> {
+    async fn write(&self, buf: &[u8], ep: IpEndpoint) -> Result<(), Error> {
         poll_fn(move |cx| unsafe {
             self.with_mut(|s, _| match s.send_slice(buf, ep) {
                 // Entire datagram has been sent
@@ -185,43 +169,5 @@ impl UdpIo<'_> {
             })
         })
         .await
-    }
-
-    async fn flush(&mut self) -> Result<(), Error> {
-        poll_fn(move |_| {
-            Poll::Ready(Ok(())) // TODO: Is there a better implementation for this?
-        })
-        .await
-    }
-}
-
-impl UdpReader<'_> {
-    pub async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, IpEndpoint), Error> {
-        self.io.read(buf).await
-    }
-}
-
-impl UdpWriter<'_> {
-    pub async fn send_to<T>(&mut self, buf: &[u8], remote_endpoint: T) -> Result<(), Error>
-    where
-        T: Into<IpEndpoint>,
-    {
-        self.io.write(buf, remote_endpoint.into()).await
-    }
-
-    pub async fn flush(&mut self) -> Result<(), Error> {
-        self.io.flush().await
-    }
-}
-
-impl embedded_io::Error for BindError {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        embedded_io::ErrorKind::Other
-    }
-}
-
-impl embedded_io::Error for Error {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        embedded_io::ErrorKind::Other
     }
 }
