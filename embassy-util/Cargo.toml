@@ -12,6 +12,7 @@ flavors = [
 ]
 
 [features]
+std = []
 nightly = ["embedded-io/async"]
 
 [dependencies]
