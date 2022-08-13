@@ -4,10 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-defmt = ["dep:defmt", "embassy/defmt"]
+defmt = ["dep:defmt"]
 log = ["dep:log"]
+
 [dependencies]
-embassy = { version = "0.1.0" }
+embassy-executor = { version = "0.1.0", features = [ "time" ] }
+embassy-util = { version = "0.1.0" }
 embassy-net = { version = "0.1.0" }
 atomic-polyfill = "0.1.5"
 

@@ -17,11 +17,11 @@ use core::sync::atomic::Ordering;
 use core::task::Waker;
 
 use atomic_polyfill::AtomicBool;
-use embassy::blocking_mutex::raw::NoopRawMutex;
-use embassy::channel::mpmc::Channel;
-use embassy::time::{block_for, Duration, Timer};
-use embassy::util::yield_now;
+use embassy_executor::time::{block_for, Duration, Timer};
 use embassy_net::{PacketBoxExt, PacketBuf};
+use embassy_util::blocking_mutex::raw::NoopRawMutex;
+use embassy_util::channel::mpmc::Channel;
+use embassy_util::yield_now;
 use embedded_hal_1::digital::blocking::OutputPin;
 use embedded_hal_async::spi::{SpiBusRead, SpiBusWrite, SpiDevice};
 

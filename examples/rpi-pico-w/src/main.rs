@@ -5,15 +5,14 @@
 use core::convert::Infallible;
 use core::future::Future;
 
-use defmt::{assert, assert_eq, panic, *};
-use embassy::executor::Spawner;
-use embassy::time::{Duration, Timer};
-use embassy::util::Forever;
+use defmt::*;
+use embassy_executor::executor::Spawner;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources};
-use embassy_rp::gpio::{Flex, Level, Output, Pin};
+use embassy_net::{Stack, StackResources};
+use embassy_rp::gpio::{Flex, Level, Output};
 use embassy_rp::peripherals::{PIN_23, PIN_24, PIN_25, PIN_29};
 use embassy_rp::Peripherals;
+use embassy_util::Forever;
 use embedded_hal_1::spi::ErrorType;
 use embedded_hal_async::spi::{ExclusiveDevice, SpiBusFlush, SpiBusRead, SpiBusWrite};
 use embedded_io::asynch::{Read, Write};
@@ -27,19 +26,19 @@ macro_rules! forever {
     }};
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn wifi_task(
     runner: cyw43::Runner<'static, Output<'static, PIN_23>, ExclusiveDevice<MySpi, Output<'static, PIN_25>>>,
 ) -> ! {
     runner.run().await
 }
 
-#[embassy::task]
+#[embassy_executor::task]
 async fn net_task(stack: &'static Stack<cyw43::NetDevice<'static>>) -> ! {
     stack.run().await
 }
 
-#[embassy::main]
+#[embassy_executor::main]
 async fn main(spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
