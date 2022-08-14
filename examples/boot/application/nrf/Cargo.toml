@@ -15,5 +15,5 @@ defmt-rtt = { version = "0.3", optional = true }
 panic-reset = { version = "0.1.1" }
 embedded-hal = { version = "0.2.6" }
 
-cortex-m = "0.7.3"
+cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"

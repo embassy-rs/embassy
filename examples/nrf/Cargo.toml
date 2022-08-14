@@ -21,7 +21,7 @@ embedded-io = "0.3.0"
 defmt = "0.3"
 defmt-rtt = "0.3"
 
-cortex-m = "0.7.3"
+cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
