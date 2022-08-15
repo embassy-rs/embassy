@@ -7,11 +7,13 @@ use crate::adc::{AdcPin, Instance};
 use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::Peripheral;
-
+use crate::dma::{Transfer};
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
 // No calibration data for F103, voltage should be 1.2v
 pub const VREF_INT: u32 = 1200;
+
+dma_trait!(RxDma, Instance);
 
 pub struct Vref;
 impl<T: Instance> AdcPin<T> for Vref {}
@@ -28,6 +30,17 @@ impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
         16
     }
 }
+
+/// The state of a continuously running sampler. While it reflects
+/// the progress of a sampler, it also signals what should be done
+/// next. For example, if the sampler has stopped then the Saadc implementation
+/// can then tear down its infrastructure.
+#[derive(PartialEq)]
+pub enum SamplerState {
+    Sampled,
+    Stopped,
+}
+
 
 mod sample_time {
     /// ADC sample time
@@ -95,6 +108,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         into_ref!(_peri);
         T::enable();
         T::reset();
+
         unsafe {
             T::regs().cr2().modify(|reg| reg.set_adon(true));
         }
@@ -219,6 +233,47 @@ impl<'d, T: Instance> Adc<'d, T> {
         // Configure the channel to sample
         unsafe { T::regs().sqr3().write(|reg| reg.set_sq(0, pin.channel())) }
         self.convert()
+    }
+
+    pub async fn read_continuous<S, const N:usize, U >(&mut self, pin: &mut impl AdcPin<T>, mut rxdma: U, data: &mut [[u16;N]; 2], sampler: &mut S)
+     where
+        S: FnMut(&[u16; N]) -> SamplerState,
+        U: RxDma<T> + Peripheral<P = U>
+     {
+       // into_ref!(rxdma);
+        
+        let rx_request = rxdma.request();
+        let rx_src = T::regs().dr().ptr() as *mut u16;
+
+        unsafe{rxdma.start_circular_read(rx_request, rx_src, data.as_mut_ptr(), Default::default());}
+        
+        let rx_f = Transfer::new( rxdma);
+        rx_f.await;
+
+        sampler(&data[0]);
+        
+        unsafe {
+            Self::set_channel_sample_time(pin.channel(), self.sample_time);
+            T::regs().cr1().modify(|reg| {
+                reg.set_scan(false);
+                reg.set_discen(false);
+            }); 
+            T::regs().sqr1().modify(|reg| reg.set_l(0));
+
+            T::regs().cr2().modify(|reg| {
+                reg.set_cont(true);
+                reg.set_exttrig(true);
+                reg.set_swstart(false);
+                reg.set_extsel(crate::pac::adc::vals::Extsel::SWSTART);
+                reg.set_dma(true)
+            });
+        }
+        
+        // Configure the channel to sample
+        unsafe { T::regs().sqr3().write(|reg| reg.set_sq(0, pin.channel())) }
+
+        
+
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
