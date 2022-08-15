@@ -69,7 +69,8 @@ impl<T: Send> Signal<T> {
         })
     }
 
-    fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
+    /// Manually poll the Signal future.
+    pub fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
         critical_section::with(|_| unsafe {
             let state = &mut *self.state.get();
             match state {
