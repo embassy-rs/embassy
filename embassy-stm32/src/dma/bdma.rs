@@ -318,8 +318,9 @@ mod low_level_api {
             cr.write(|_| ()); // Disable channel interrupts with the default value.
             STATE.ch_wakers[index].wake();
         }
-        //Only in circular mode
-        else if isr.htif(channel_num) && cr.read().tcie() {
+
+        //Enabled only in circular mode
+        else if isr.htif(channel_num) && cr.read().htie() {
             cr.write(|_| ()); // Disable channel interrupts with the default value.
             STATE.ch_wakers[index].wake();
         }
