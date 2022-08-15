@@ -4,6 +4,12 @@ name = "embassy-boot-nrf"
 version = "0.1.0"
 description = "Bootloader lib for nRF chips"
 
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-nrf-v$VERSION/embassy-boot/nrf/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot/nrf/src/"
+features = ["embassy-nrf/nrf52840"]
+target = "thumbv7em-none-eabi"
+
 [lib]
 
 [dependencies]

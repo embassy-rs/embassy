@@ -7,9 +7,7 @@ edition = "2021"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-hid-v$VERSION/embassy-usb-hid/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-hid/src/"
 features = ["defmt"]
-flavors = [
-    { name = "default", target = "thumbv7em-none-eabihf" },
-]
+target = "thumbv7em-none-eabi"
 
 [features]
 default = ["usbd-hid"]

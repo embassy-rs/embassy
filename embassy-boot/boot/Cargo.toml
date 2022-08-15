@@ -4,6 +4,11 @@ name = "embassy-boot"
 version = "0.1.0"
 description = "Bootloader using Embassy"
 
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-v$VERSION/embassy-boot/boot/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot/boot/src/"
+target = "thumbv7em-none-eabi"
+
 [lib]
 
 [dependencies]

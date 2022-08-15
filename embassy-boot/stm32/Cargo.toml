@@ -4,6 +4,12 @@ name = "embassy-boot-stm32"
 version = "0.1.0"
 description = "Bootloader lib for STM32 chips"
 
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-nrf-v$VERSION/embassy-boot/stm32/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot/stm32/src/"
+features = ["embassy-stm32/stm32f429zi"]
+target = "thumbv7em-none-eabi"
+
 [lib]
 
 [dependencies]

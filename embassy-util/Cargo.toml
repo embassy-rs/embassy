@@ -7,9 +7,7 @@ edition = "2021"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-util-v$VERSION/embassy-util/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-util/src/"
 features = ["nightly"]
-flavors = [
-    { name = "default", target = "x86_64-unknown-linux-gnu" },
-]
+target = "thumbv7em-none-eabi"
 
 [features]
 nightly = ["embedded-io/async"]
