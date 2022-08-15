@@ -3,6 +3,16 @@ name = "embassy-embedded-hal"
 version = "0.1.0"
 edition = "2021"
 
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-embedded-hal-v$VERSION/embassy-embedded-hal/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-embedded-hal/src/"
+features = ["nightly"]
+flavors = [
+    { name = "default", target = "x86_64-unknown-linux-gnu", features = ["std"] },
+]
+
+
 [features]
 std = []
 # Enable nightly-only features
