@@ -23,20 +23,20 @@ pub mod export {
     pub use rtos_trace::trace;
 
     /// Expands the given block of code when `embassy-executor` is compiled with
-    /// the `rtos-trace` feature.
+    /// the `rtos-trace-interrupt` feature.
     #[doc(hidden)]
     #[macro_export]
-    #[cfg(feature = "rtos-trace")]
-    macro_rules! rtos_trace {
+    #[cfg(feature = "rtos-trace-interrupt")]
+    macro_rules! rtos_trace_interrupt {
         ($($tt:tt)*) => { $($tt)* };
     }
 
     /// Does not expand the given block of code when `embassy-executor` is
-    /// compiled without the `rtos-trace` feature.
+    /// compiled without the `rtos-trace-interrupt` feature.
     #[doc(hidden)]
     #[macro_export]
-    #[cfg(not(feature = "rtos-trace"))]
-    macro_rules! rtos_trace {
+    #[cfg(not(feature = "rtos-trace-interrupt"))]
+    macro_rules! rtos_trace_interrupt {
         ($($tt:tt)*) => {};
     }
 }

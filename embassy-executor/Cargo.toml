@@ -50,6 +50,9 @@ time-tick-1000hz = ["time"]
 time-tick-1mhz = ["time"]
 time-tick-16mhz = ["time"]
 
+# Trace interrupt invocations with rtos-trace.
+rtos-trace-interrupt = ["rtos-trace"]
+
 [dependencies]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
