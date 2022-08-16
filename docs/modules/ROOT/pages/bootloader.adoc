@@ -20,7 +20,10 @@ In general, the bootloader works on any platform that implements the `embedded-s
 
 == Design
 
-The bootloader divides the storage into 4 main partitions, configured by a linker script:
+image::bootloader_flash.png[Bootloader flash layout]
+
+The bootloader divides the storage into 4 main partitions, configurable when creating the bootloader
+instance or via linker scripts:
 
 * BOOTLOADER - Where the bootloader is placed. The bootloader itself consumes about 8kB of flash.
 * ACTIVE - Where the main application is placed. The bootloader will attempt to load the application at the start of this partition. This partition is only written to by the bootloader.

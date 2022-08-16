@@ -15,6 +15,20 @@ In Rust, non-blocking operations can be implemented using async-await. Async-awa
 
 == What is Embassy?
 
-Embassy is an executor and a Hardware Access Layer (HAL). The executor is a scheduler that generally executes a fixed number of tasks, allocated at startup, though more can be added later. The HAL is an API that you can use to access peripherals, such as USART, UART, I2C, SPI, CAN, and USB. Embassy provides implementations of both async and blocking APIs where it makes sense. DMA (Direct Memory Access) is an example where async is a good fit, whereas GPIO states are a better fit for a blocking API.
+The Embassy project consists of several crates that you can use together or independently:
 
-Embassy may also provide a system timer that you can use for both async and blocking delays. For less than one microsecond, blocking delays should be used because the cost of context-switching is too high and the executor will be unable to provide accurate timing.
+* **Executor** - The link:https://docs.embassy.dev/embassy-executor/[embassy-executor] is an async/await executor that generally executes a fixed number of tasks, allocated at startup, though more can be added later. The HAL is an API that you can use to access peripherals, such as USART, UART, I2C, SPI, CAN, and USB. Embassy provides implementations of both async and blocking APIs where it makes sense. DMA (Direct Memory Access) is an example where async is a good fit, whereas GPIO states are a better fit for a blocking API. The executor may also provide a system timer that you can use for both async and blocking delays. For less than one microsecond, blocking delays should be used because the cost of context-switching is too high and the executor will be unable to provide accurate timing.
+
+* **Hardware Abstraction Layers** - HALs implement safe, idiomatic Rust APIs to use the hardware capabilities, so raw register manipulation is not needed. The Embassy project maintains HALs for select hardware, but you can still use HALs from other projects with Embassy.
+** link:https://docs.embassy.dev/embassy-stm32/[embassy-stm32], for all STM32 microcontroller families.
+** link:https://docs.embassy.dev/embassy-nrf/[embassy-nrf], for the Nordic Semiconductor nRF52, nRF53, nRF91 series.
+
+* **Networking** - The link:https://docs.embassy.dev/embassy-net/[embassy-net] network stack implements extensive networking functionality, including Ethernet, IP, TCP, UDP, ICMP and DHCP. Async drastically simplifies managing timeouts and serving multiple connections concurrently.
+
+* **Bluetooth** - The link:https://github.com/embassy-rs/nrf-softdevice[nrf-softdevice] crate provides Bluetooth Low Energy 4.x and 5.x support for nRF52 microcontrollers.
+
+* **LoRa** - link:https://docs.embassy.dev/embassy-lora/[embassy-lora] supports LoRa networking on STM32WL wireless microcontrollers and Semtech SX127x transceivers.
+
+* **USB** - link:https://docs.embassy.dev/embassy-usb/[embassy-usb] implements a device-side USB stack. Implementations for common classes such as USB serial (CDC ACM) and USB HID are available, and a rich builder API allows building your own.
+
+* **Bootloader and DFU** - link:https://github.com/embassy-rs/embassy/tree/master/embassy-boot[embassy-boot] is a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
