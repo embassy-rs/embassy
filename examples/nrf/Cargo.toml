@@ -4,28 +4,72 @@ name = "embassy-nrf-examples"
 version = "0.1.0"
 
 [features]
-default = ["nightly"]
+default = ["defmt", "nightly"]
 nightly = ["embassy-executor/nightly", "embassy-nrf/nightly", "embassy-nrf/unstable-traits", "embassy-usb", "embassy-usb-serial", "embassy-usb-hid", "embassy-usb-ncm", "embedded-io/async", "embassy-net"]
+defmt = [
+    "dep:defmt",
+    "dep:defmt-rtt",
+    "embassy-util/defmt",
+    "embassy-executor/defmt",
+    "embassy-executor/defmt-timestamp-uptime",
+    "embassy-nrf/defmt",
+    "embassy-net/defmt",
+    "embassy-usb/defmt",
+    "embassy-usb-serial/defmt",
+    "embassy-usb-hid/defmt",
+    "embassy-usb-ncm/defmt",
+    "panic-probe/print-defmt",
+]
+log = [
+    "dep:log",
+    "embassy-util/log",
+    "embassy-executor/log",
+    "embassy-nrf/log",
+    "embassy-net/log",
+    "embassy-usb-ncm/log",
+    # Currently broken:
+    # "embassy-usb/log",
+    # "embassy-usb-serial/log",
+    # "embassy-usb-hid/log",
+]
+rtos-trace = [
+    "dep:rtos-trace",
+    "dep:systemview-target",
+    "log",
+    "embassy-executor/rtos-trace",
+    "embassy-executor/rtos-trace-interrupt",
+]
 
 [dependencies]
-embassy-util = { version = "0.1.0", path = "../../embassy-util", features = ["defmt"] }
-embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac"] }
-embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "pool-16"], optional = true }
-embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"], optional = true }
-embassy-usb-serial = { version = "0.1.0", path = "../../embassy-usb-serial", features = ["defmt"], optional = true }
-embassy-usb-hid = { version = "0.1.0", path = "../../embassy-usb-hid", features = ["defmt"], optional = true }
-embassy-usb-ncm = { version = "0.1.0", path = "../../embassy-usb-ncm", features = ["defmt"], optional = true }
+embassy-util = { version = "0.1.0", path = "../../embassy-util" }
+embassy-executor = { version = "0.1.0", path = "../../embassy-executor" }
+embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac"] }
+embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["tcp", "dhcpv4", "medium-ethernet", "pool-16"], optional = true }
+embassy-usb = { version = "0.1.0", path = "../../embassy-usb", optional = true }
+embassy-usb-serial = { version = "0.1.0", path = "../../embassy-usb-serial", optional = true }
+embassy-usb-hid = { version = "0.1.0", path = "../../embassy-usb-hid", optional = true }
+embassy-usb-ncm = { version = "0.1.0", path = "../../embassy-usb-ncm", optional = true }
 embedded-io = "0.3.0"
 
-defmt = "0.3"
-defmt-rtt = "0.3"
+defmt = { version = "0.3", optional = true }
+defmt-rtt = { version = "0.3", optional = true }
 
 cortex-m = "0.7.3"
 cortex-m-rt = "0.7.0"
-panic-probe = { version = "0.3", features = ["print-defmt"] }
+panic-probe = { version = "0.3" }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.3.0"
 usbd-hid = "0.5.2"
 serde = { version = "1.0.136", default-features = false }
+rtos-trace = { version = "0.1.3", optional = true }
+systemview-target = { version = "0.1.1", optional = true, features = ["callbacks-app", "callbacks-os", "log", "cortex-m"] }
+log = { version = "0.4.17", optional = true }
+
+[[bin]]
+name = "rtos_trace"
+required-features = ["nightly", "rtos-trace", "log"]
+
+[patch.crates-io]
+rtos-trace = { git = "https://gitlab.com/quentinmit/rtos-trace.git", branch = "build-fix" }
+systemview-target = { git = "https://gitlab.com/quentinmit/rtos-trace.git", branch = "build-fix" }
