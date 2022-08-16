@@ -13,6 +13,7 @@ use embassy_nrf::Peripherals;
 use rtos_trace;
 use systemview_target::SystemView;
 use panic_probe as _;
+#[cfg(feature = "log")]
 use log::*;
 
 static LOGGER: systemview_target::SystemView = systemview_target::SystemView::new();
@@ -31,7 +32,10 @@ rtos_trace::global_application_callbacks!{TraceInfo}
 #[embassy_executor::task]
 async fn run1() {
     loop {
+        #[cfg(feature = "log")]
         info!("DING DONG");
+        #[cfg(not(feature = "log"))]
+        rtos_trace::trace::marker(13);
         Timer::after(Duration::from_ticks(16000)).await;
     }
 }
@@ -55,8 +59,11 @@ async fn run3() {
 #[embassy_executor::main]
 async fn main(spawner: Spawner, _p: Peripherals) {
     LOGGER.init();
-    ::log::set_logger(&LOGGER).ok();
-    ::log::set_max_level(::log::LevelFilter::Trace);
+    #[cfg(feature = "log")]
+    {
+        ::log::set_logger(&LOGGER).ok();
+        ::log::set_max_level(::log::LevelFilter::Trace);
+    }
 
     spawner.spawn(run1()).unwrap();
     spawner.spawn(run2()).unwrap();

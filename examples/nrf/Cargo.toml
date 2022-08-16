@@ -35,7 +35,6 @@ log = [
 rtos-trace = [
     "dep:rtos-trace",
     "dep:systemview-target",
-    "log",
     "embassy-executor/rtos-trace",
     "embassy-executor/rtos-trace-interrupt",
 ]
@@ -68,7 +67,7 @@ log = { version = "0.4.17", optional = true }
 
 [[bin]]
 name = "rtos_trace"
-required-features = ["nightly", "rtos-trace", "log"]
+required-features = ["nightly", "rtos-trace"]
 
 [patch.crates-io]
 rtos-trace = { git = "https://gitlab.com/quentinmit/rtos-trace.git", branch = "build-fix" }
