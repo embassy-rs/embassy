@@ -7,17 +7,15 @@ use core::task::Poll;
 use embassy_executor::executor::Spawner;
 use embassy_executor::time::{Duration, Instant, Timer};
 use embassy_nrf::Peripherals;
-
-// N.B. systemview_target cannot be used at the same time as defmt_rtt.
-
-use rtos_trace;
-use systemview_target::SystemView;
-use panic_probe as _;
 #[cfg(feature = "log")]
 use log::*;
+use panic_probe as _;
+// N.B. systemview_target cannot be used at the same time as defmt_rtt.
+use rtos_trace;
+use systemview_target::SystemView;
 
 static LOGGER: systemview_target::SystemView = systemview_target::SystemView::new();
-rtos_trace::global_trace!{SystemView}
+rtos_trace::global_trace! {SystemView}
 
 struct TraceInfo();
 
@@ -27,7 +25,7 @@ impl rtos_trace::RtosTraceApplicationCallbacks for TraceInfo {
         64000000
     }
 }
-rtos_trace::global_application_callbacks!{TraceInfo}
+rtos_trace::global_application_callbacks! {TraceInfo}
 
 #[embassy_executor::task]
 async fn run1() {
