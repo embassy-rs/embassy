@@ -6,7 +6,7 @@
 use core::mem;
 
 use defmt::{info, panic, unwrap};
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_nrf::usb::{Driver, PowerUsb};
 use embassy_nrf::{interrupt, pac, peripherals};
 use embassy_usb::driver::EndpointError;

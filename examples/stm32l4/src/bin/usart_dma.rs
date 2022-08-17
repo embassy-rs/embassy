@@ -5,7 +5,7 @@
 use core::fmt::Write;
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
 use heapless::String;

@@ -2,14 +2,14 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_stm32::dcmi::{self, *};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::rcc::{Mco, Mco1Source, McoClock};
 use embassy_stm32::time::{khz, mhz};
 use embassy_stm32::{interrupt, Config};
+use embassy_time::{Duration, Timer};
 use ov7725::*;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -83,8 +83,8 @@ mod ov7725 {
     use core::marker::PhantomData;
 
     use defmt::Format;
-    use embassy_executor::time::{Duration, Timer};
     use embassy_stm32::rcc::{Mco, McoInstance};
+    use embassy_time::{Duration, Timer};
     use embedded_hal_async::i2c::I2c;
 
     #[repr(u8)]

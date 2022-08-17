@@ -3,9 +3,9 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::{assert, *};
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Instant, Timer};
+use embassy_executor::Spawner;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_time::{Duration, Instant, Timer};
 use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
 

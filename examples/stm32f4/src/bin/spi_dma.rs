@@ -6,7 +6,7 @@ use core::fmt::Write;
 use core::str::from_utf8;
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use heapless::String;

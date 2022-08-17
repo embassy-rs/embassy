@@ -3,11 +3,11 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_nrf::pwm::{
     Config, Prescaler, Sequence, SequenceConfig, SequenceMode, SequencePwm, Sequencer, StartSequence,
 };
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]

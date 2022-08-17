@@ -4,9 +4,9 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
+use embassy_time::{Duration, Timer};
 use panic_reset as _;
 
 #[embassy_executor::main]

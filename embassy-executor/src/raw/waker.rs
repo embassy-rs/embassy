@@ -40,7 +40,7 @@ pub fn task_from_waker(waker: &Waker) -> NonNull<TaskHeader> {
     // TODO use waker_getters when stable. https://github.com/rust-lang/rust/issues/96992
     let hack: &WakerHack = unsafe { mem::transmute(waker) };
     if hack.vtable != &VTABLE {
-        panic!("Found waker not created by the Embassy executor. `embassy_executor::time::Timer` only works with the Embassy executor.")
+        panic!("Found waker not created by the Embassy executor. `embassy_time::Timer` only works with the Embassy executor.")
     }
 
     // safety: we never create a waker with a null data pointer.

@@ -7,7 +7,7 @@ use atomic_polyfill::{AtomicU8, Ordering};
 use wasm_bindgen::prelude::*;
 use wasm_timer::Instant as StdInstant;
 
-use crate::time::driver::{AlarmHandle, Driver};
+use crate::driver::{AlarmHandle, Driver};
 
 const ALARM_COUNT: usize = 4;
 

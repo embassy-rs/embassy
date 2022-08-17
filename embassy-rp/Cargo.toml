@@ -28,7 +28,8 @@ unstable-traits = ["embedded-hal-1"]
 
 [dependencies]
 embassy-util = { version = "0.1.0", path = "../embassy-util" }
-embassy-executor = { version = "0.1.0", path = "../embassy-executor", features = [ "time-tick-1mhz" ] }
+embassy-executor = { version = "0.1.0", path = "../embassy-executor" }
+embassy-time = { version = "0.1.0", path = "../embassy-time", features = [ "tick-1mhz" ] }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-3"]}
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }

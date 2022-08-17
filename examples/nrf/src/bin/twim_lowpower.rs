@@ -11,10 +11,10 @@
 use core::mem;
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_nrf::interrupt;
 use embassy_nrf::twim::{self, Twim};
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 const ADDRESS: u8 = 0x50;

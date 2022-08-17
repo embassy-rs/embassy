@@ -4,7 +4,7 @@
 
 use defmt::*;
 use embassy_embedded_hal::adapter::BlockingAsync;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::spi::{Config, Spi};

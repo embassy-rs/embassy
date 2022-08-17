@@ -5,8 +5,8 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use defmt::assert;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Instant, Timer};
+use embassy_executor::Spawner;
+use embassy_time::{Duration, Instant, Timer};
 use example_common::*;
 
 #[embassy_executor::main]

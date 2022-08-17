@@ -5,7 +5,7 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_lora::stm32wl::*;
 use embassy_lora::LoraTimer;
 use embassy_stm32::dma::NoDma;

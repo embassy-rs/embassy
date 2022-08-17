@@ -1,3 +1,8 @@
+#![cfg_attr(not(any(feature = "std", feature = "wasm")), no_std)]
+#![cfg_attr(feature = "nightly", feature(generic_associated_types, type_alias_impl_trait))]
+#![allow(clippy::new_without_default)]
+#![warn(missing_docs)]
+
 //! Timekeeping, delays and timeouts.
 //!
 //! Timekeeping is done with elapsed time since system boot. Time is represented in
@@ -26,7 +31,7 @@
 //! like `2021-08-24 13:33:21`).
 //!
 //! If persistence across reboots is not needed, support can be built on top of
-//! `embassy_executor::time` by storing the offset between "seconds elapsed since boot"
+//! `embassy_time` by storing the offset between "seconds elapsed since boot"
 //! and "seconds since unix epoch".
 //!
 //! # Time driver
@@ -35,12 +40,13 @@
 //! Only one driver can be active in a program.
 //!
 //! All methods and structs transparently call into the active driver. This makes it
-//! possible for libraries to use `embassy_executor::time` in a driver-agnostic way without
+//! possible for libraries to use `embassy_time` in a driver-agnostic way without
 //! requiring generic parameters.
 //!
 //! For more details, check the [`driver`] module.
 
-#![deny(missing_docs)]
+// This mod MUST go first, so that the others see its macros.
+pub(crate) mod fmt;
 
 mod delay;
 pub mod driver;
@@ -50,7 +56,6 @@ mod timer;
 
 #[cfg(feature = "std")]
 mod driver_std;
-
 #[cfg(feature = "wasm")]
 mod driver_wasm;
 
@@ -59,24 +64,24 @@ pub use duration::Duration;
 pub use instant::Instant;
 pub use timer::{with_timeout, Ticker, TimeoutError, Timer};
 
-#[cfg(feature = "time-tick-1000hz")]
+#[cfg(feature = "tick-1000hz")]
 const TPS: u64 = 1_000;
 
-#[cfg(feature = "time-tick-32768hz")]
+#[cfg(feature = "tick-32768hz")]
 const TPS: u64 = 32_768;
 
-#[cfg(feature = "time-tick-1mhz")]
+#[cfg(feature = "tick-1mhz")]
 const TPS: u64 = 1_000_000;
 
-#[cfg(feature = "time-tick-16mhz")]
+#[cfg(feature = "tick-16mhz")]
 const TPS: u64 = 16_000_000;
 
 /// Ticks per second of the global timebase.
 ///
-/// This value is specified by the `time-tick-*` Cargo features, which
+/// This value is specified by the `tick-*` Cargo features, which
 /// should be set by the time driver. Some drivers support a fixed tick rate, others
 /// allow you to choose a tick rate with Cargo features of their own. You should not
-/// set the `time-tick-*` features for embassy yourself as an end user.
+/// set the `tick-*` features for embassy yourself as an end user.
 pub const TICKS_PER_SECOND: u64 = TPS;
 
 const fn gcd(a: u64, b: u64) -> u64 {
@@ -89,3 +94,6 @@ const fn gcd(a: u64, b: u64) -> u64 {
 
 pub(crate) const GCD_1K: u64 = gcd(TICKS_PER_SECOND, 1_000);
 pub(crate) const GCD_1M: u64 = gcd(TICKS_PER_SECOND, 1_000_000);
+
+#[cfg(feature = "defmt-timestamp-uptime")]
+defmt::timestamp! {"{=u64:us}", Instant::now().as_micros() }

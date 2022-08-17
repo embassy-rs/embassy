@@ -7,7 +7,7 @@ use core::str::from_utf8;
 
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy_executor::executor::Executor;
+use embassy_executor::Executor;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::peripherals::SPI3;
 use embassy_stm32::time::mhz;

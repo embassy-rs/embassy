@@ -3,7 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::{assert, *};
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_rp::gpio::{Flex, Input, Level, Output, OutputOpenDrain, Pull};
 use {defmt_rtt as _, panic_probe as _};
 

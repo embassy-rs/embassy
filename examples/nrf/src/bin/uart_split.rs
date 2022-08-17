@@ -3,7 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_nrf::peripherals::UARTE0;
 use embassy_nrf::uarte::UarteRx;
 use embassy_nrf::{interrupt, uarte};

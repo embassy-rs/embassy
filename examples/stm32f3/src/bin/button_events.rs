@@ -11,11 +11,11 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{with_timeout, Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{AnyPin, Input, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::peripherals::PA0;
+use embassy_time::{with_timeout, Duration, Timer};
 use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_util::channel::mpmc::Channel;
 use {defmt_rtt as _, panic_probe as _};

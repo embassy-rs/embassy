@@ -33,7 +33,7 @@ mod eh1 {
 
 cfg_if::cfg_if! {
     if #[cfg(all(feature = "unstable-traits", feature = "nightly"))] {
-        use crate::time::Timer;
+        use crate::Timer;
         use core::future::Future;
         use futures_util::FutureExt;
 

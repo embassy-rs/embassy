@@ -3,7 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_rp::spi::Spi;
 use embassy_rp::{gpio, spi};
 use gpio::{Level, Output};

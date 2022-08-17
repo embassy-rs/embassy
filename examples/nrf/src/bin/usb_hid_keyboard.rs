@@ -7,7 +7,7 @@ use core::mem;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Input, Pin, Pull};
 use embassy_nrf::usb::{Driver, PowerUsb};
 use embassy_nrf::{interrupt, pac};

@@ -5,11 +5,11 @@
 use core::cell::RefCell;
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::Delay;
+use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::spi;
 use embassy_rp::spi::Spi;
+use embassy_time::Delay;
 use embedded_graphics::image::{Image, ImageRawLE};
 use embedded_graphics::mono_font::ascii::FONT_10X20;
 use embedded_graphics::mono_font::MonoTextStyle;

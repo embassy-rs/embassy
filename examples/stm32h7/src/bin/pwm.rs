@@ -3,12 +3,12 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_stm32::pwm::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::pwm::Channel;
 use embassy_stm32::time::{khz, mhz};
 use embassy_stm32::Config;
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]

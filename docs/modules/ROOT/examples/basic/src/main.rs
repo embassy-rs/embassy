@@ -3,10 +3,10 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::peripherals::P0_13;
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _}; // global logger
 
 #[embassy_executor::task]

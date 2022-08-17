@@ -3,7 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::info;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_nrf::interrupt;
 use embassy_nrf::qdec::{self, Qdec};
 use {defmt_rtt as _, panic_probe as _};

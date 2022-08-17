@@ -1,17 +1,17 @@
 //! Time driver interface
 //!
-//! This module defines the interface a driver needs to implement to power the `embassy_executor::time` module.
+//! This module defines the interface a driver needs to implement to power the `embassy_time` module.
 //!
 //! # Implementing a driver
 //!
 //! - Define a struct `MyDriver`
 //! - Implement [`Driver`] for it
 //! - Register it as the global driver with [`time_driver_impl`].
-//! - Enable the Cargo features `embassy-executor/time` and one of `embassy-executor/time-tick-*` corresponding to the
+//! - Enable the Cargo features `embassy-executor/time` and one of `embassy-time/tick-*` corresponding to the
 //!   tick rate of your driver.
 //!
 //! If you wish to make the tick rate configurable by the end user, you should do so by exposing your own
-//! Cargo features and having each enable the corresponding `embassy-executor/time-tick-*`.
+//! Cargo features and having each enable the corresponding `embassy-time/tick-*`.
 //!
 //! # Linkage details
 //!
@@ -34,10 +34,10 @@
 //! # Example
 //!
 //! ```
-//! use embassy_executor::time::driver::{Driver, AlarmHandle};
+//! use embassy_time::driver::{Driver, AlarmHandle};
 //!
 //! struct MyDriver{}; // not public!
-//! embassy_executor::time_driver_impl!(static DRIVER: MyDriver = MyDriver{});
+//! embassy_time::time_driver_impl!(static DRIVER: MyDriver = MyDriver{});
 //!
 //! impl Driver for MyDriver {
 //!     fn now(&self) -> u64 {
@@ -121,17 +121,25 @@ extern "Rust" {
     fn _embassy_time_set_alarm(alarm: AlarmHandle, timestamp: u64);
 }
 
-pub(crate) fn now() -> u64 {
+/// See [`Driver::now`]
+pub fn now() -> u64 {
     unsafe { _embassy_time_now() }
 }
+
+/// See [`Driver::allocate_alarm`]
+///
 /// Safety: it is UB to make the alarm fire before setting a callback.
-pub(crate) unsafe fn allocate_alarm() -> Option<AlarmHandle> {
+pub unsafe fn allocate_alarm() -> Option<AlarmHandle> {
     _embassy_time_allocate_alarm()
 }
-pub(crate) fn set_alarm_callback(alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
+
+/// See [`Driver::set_alarm_callback`]
+pub fn set_alarm_callback(alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
     unsafe { _embassy_time_set_alarm_callback(alarm, callback, ctx) }
 }
-pub(crate) fn set_alarm(alarm: AlarmHandle, timestamp: u64) {
+
+/// See [`Driver::set_alarm`]
+pub fn set_alarm(alarm: AlarmHandle, timestamp: u64) {
     unsafe { _embassy_time_set_alarm(alarm, timestamp) }
 }
 
@@ -145,26 +153,22 @@ macro_rules! time_driver_impl {
 
         #[no_mangle]
         fn _embassy_time_now() -> u64 {
-            <$t as $crate::time::driver::Driver>::now(&$name)
+            <$t as $crate::driver::Driver>::now(&$name)
         }
 
         #[no_mangle]
-        unsafe fn _embassy_time_allocate_alarm() -> Option<$crate::time::driver::AlarmHandle> {
-            <$t as $crate::time::driver::Driver>::allocate_alarm(&$name)
+        unsafe fn _embassy_time_allocate_alarm() -> Option<$crate::driver::AlarmHandle> {
+            <$t as $crate::driver::Driver>::allocate_alarm(&$name)
         }
 
         #[no_mangle]
-        fn _embassy_time_set_alarm_callback(
-            alarm: $crate::time::driver::AlarmHandle,
-            callback: fn(*mut ()),
-            ctx: *mut (),
-        ) {
-            <$t as $crate::time::driver::Driver>::set_alarm_callback(&$name, alarm, callback, ctx)
+        fn _embassy_time_set_alarm_callback(alarm: $crate::driver::AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
+            <$t as $crate::driver::Driver>::set_alarm_callback(&$name, alarm, callback, ctx)
         }
 
         #[no_mangle]
-        fn _embassy_time_set_alarm(alarm: $crate::time::driver::AlarmHandle, timestamp: u64) {
-            <$t as $crate::time::driver::Driver>::set_alarm(&$name, alarm, timestamp)
+        fn _embassy_time_set_alarm(alarm: $crate::driver::AlarmHandle, timestamp: u64) {
+            <$t as $crate::driver::Driver>::set_alarm(&$name, alarm, timestamp)
         }
     };
 }

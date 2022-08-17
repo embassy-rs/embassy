@@ -3,7 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::{panic, *};
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_stm32::rcc::*;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, Instance};
