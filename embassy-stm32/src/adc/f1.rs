@@ -244,7 +244,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         let rx_request = rxdma.request();
         let rx_src = T::regs().dr().ptr() as *mut u16;
 
-        unsafe{rxdma.start_circular_read(rx_request, rx_src, data.as_mut_ptr(), Default::default());}
+        unsafe{rxdma.start_circular_read(rx_request, rx_src, data.as_mut_ptr(), N*2,  Default::default());}
              
         unsafe {
             Self::set_channel_sample_time(pin.channel(), self.sample_time);
@@ -283,7 +283,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             let sampler_state =  sampler(&data[buf_index]);
             
             if sampler_state == SamplerState::Sampled{
-                buf_index = (!buf_index & 0x01) ; // switch the buffer index (0/1)
+                buf_index = !buf_index & 0x01 ; // switch the buffer index (0/1)
             }
             else if sampler_state == SamplerState::Stopped{
                 //TODO DMA de-init

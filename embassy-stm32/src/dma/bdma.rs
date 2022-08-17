@@ -120,8 +120,8 @@ foreach_dma_channel! {
                 );
             }
 
-            unsafe fn start_circular_read<W: Word>(&mut self, _request: Request, reg_addr: *const W, buf: *mut [W], options: TransferOptions) {
-                let (ptr, len) = super::slice_ptr_parts_mut(buf);
+            unsafe fn start_circular_read<W: Word>(&mut self, _request: Request, reg_addr: *const W, buf_ptr: *mut [W], buf_len : usize, options: TransferOptions) {
+                // buffer length is not determined at compile time here
                 low_level_api::start_transfer(
                     pac::$dma_peri,
                     $channel_num,
@@ -129,8 +129,8 @@ foreach_dma_channel! {
                     _request,
                     vals::Dir::FROMPERIPHERAL,
                     reg_addr as *const u32,
-                    ptr as *mut u32,
-                    len,
+                    buf_ptr as *mut u32,
+                    buf_len,
                     true,
                     true,
                     vals::Size::from(W::bits()),
@@ -318,11 +318,11 @@ mod low_level_api {
             cr.write(|_| ()); // Disable channel interrupts with the default value.
             STATE.ch_wakers[index].wake();
         }
-
         //Enabled only in circular mode
         else if isr.htif(channel_num) && cr.read().htie() {
             cr.write(|_| ()); // Disable channel interrupts with the default value.
-            STATE.ch_wakers[index].wake();
+            STATE.ch_wakers[index].wake();            
         }
+
     }
 }
