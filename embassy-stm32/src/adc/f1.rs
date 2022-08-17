@@ -240,18 +240,12 @@ impl<'d, T: Instance> Adc<'d, T> {
         S: FnMut(&[u16; N]) -> SamplerState,
         U: RxDma<T> + Peripheral<P = U>
      {
-       // into_ref!(rxdma);
-        
+             
         let rx_request = rxdma.request();
         let rx_src = T::regs().dr().ptr() as *mut u16;
 
         unsafe{rxdma.start_circular_read(rx_request, rx_src, data.as_mut_ptr(), Default::default());}
-        
-        let rx_f = Transfer::new( rxdma);
-        rx_f.await;
-
-        sampler(&data[0]);
-        
+             
         unsafe {
             Self::set_channel_sample_time(pin.channel(), self.sample_time);
             T::regs().cr1().modify(|reg| {
@@ -265,14 +259,37 @@ impl<'d, T: Instance> Adc<'d, T> {
                 reg.set_exttrig(true);
                 reg.set_swstart(false);
                 reg.set_extsel(crate::pac::adc::vals::Extsel::SWSTART);
-                reg.set_dma(true)
+                reg.set_dma(true);
             });
         }
         
         // Configure the channel to sample
         unsafe { T::regs().sqr3().write(|reg| reg.set_sq(0, pin.channel())) }
 
-        
+        //Enable ADC
+        unsafe {
+            T::regs().cr2().modify(|reg| {
+                reg.set_adon(true);
+                reg.set_swstart(true);
+            });
+        }
+        let mut buf_index = 0;
+        //Loop for retrieving data
+        loop{
+            
+            let rx_f = Transfer::new( &mut rxdma);
+            rx_f.await;
+            
+            let sampler_state =  sampler(&data[buf_index]);
+            
+            if sampler_state == SamplerState::Sampled{
+                buf_index = (!buf_index & 0x01) ; // switch the buffer index (0/1)
+            }
+            else if sampler_state == SamplerState::Stopped{
+                //TODO DMA de-init
+                break;
+            }
+        }
 
     }
 

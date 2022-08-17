@@ -20,10 +20,13 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     adc.calibrate(&mut vref);
 
     // Ideally I would like that array to go directly into .bss
-    let mut data =  [[0;100]; 2];
+    let mut data =  [[0;1000]; 2];
 
     adc.read_continuous(&mut pin, p.DMA1_CH1,&mut data,
          &mut |buf| {
+        info!("--> 0 {} ", buf[0]);
+        info!("--> 1 {} ", buf[1]);
+        info!("--> 2 {} ", buf[2]);
         SamplerState::Sampled
     }).await;
 
