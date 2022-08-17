@@ -6,6 +6,12 @@ use cortex_m::peripheral::NVIC;
 use embassy_hal_common::Peripheral;
 pub use embassy_macros::cortex_m_interrupt_take as take;
 
+/// Do not use. Used for macros only. Not covered by semver guarantees.
+#[doc(hidden)]
+pub mod _export {
+    pub use atomic_polyfill as atomic;
+}
+
 /// Implementation detail, do not use outside embassy crates.
 #[doc(hidden)]
 pub struct Handler {
