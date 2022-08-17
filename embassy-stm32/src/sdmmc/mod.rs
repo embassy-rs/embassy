@@ -999,10 +999,17 @@ impl SdmmcInner {
     fn clkcr_set_clkdiv(&self, freq: u32, width: BusWidth, ker_ck: Hertz, clock: &mut Hertz) -> Result<(), Error> {
         let regs = self.0;
 
+        let width_u32 = match width {
+            BusWidth::One => 1u32,
+            BusWidth::Four => 4u32,
+            BusWidth::Eight => 8u32,
+            _ => panic!("Invalid Bus Width"),
+        };
+
         let (clkdiv, new_clock) = clk_div(ker_ck, freq)?;
         // Enforce AHB and SDMMC_CK clock relation. See RM0433 Rev 7
         // Section 55.5.8
-        let sdmmc_bus_bandwidth = new_clock.0 * (width as u32);
+        let sdmmc_bus_bandwidth = new_clock.0 * width_u32;
         assert!(ker_ck.0 > 3 * sdmmc_bus_bandwidth / 32);
         *clock = new_clock;
 
