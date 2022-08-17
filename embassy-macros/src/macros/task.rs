@@ -3,21 +3,15 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
 use crate::util::ctxt::Ctxt;
-use crate::util::path::ModulePrefix;
 
 #[derive(Debug, FromMeta)]
 struct Args {
     #[darling(default)]
     pool_size: Option<usize>,
-    #[darling(default)]
-    embassy_prefix: ModulePrefix,
 }
 
 pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, TokenStream> {
     let args = Args::from_list(&args).map_err(|e| e.write_errors())?;
-
-    let embassy_prefix = args.embassy_prefix.append("embassy_executor");
-    let embassy_path = embassy_prefix.path();
 
     let pool_size: usize = args.pool_size.unwrap_or(1);
 
@@ -70,9 +64,9 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
         // in the user's code.
         #task_inner
 
-        #visibility fn #task_ident(#fargs) -> #embassy_path::executor::SpawnToken<impl Sized> {
+        #visibility fn #task_ident(#fargs) -> ::embassy_executor::executor::SpawnToken<impl Sized> {
             type Fut = impl ::core::future::Future + 'static;
-            static POOL: #embassy_path::executor::raw::TaskPool<Fut, #pool_size> = #embassy_path::executor::raw::TaskPool::new();
+            static POOL: ::embassy_executor::executor::raw::TaskPool<Fut, #pool_size> = ::embassy_executor::executor::raw::TaskPool::new();
             unsafe { POOL._spawn_async_fn(move || #task_inner_ident(#(#arg_names,)*)) }
         }
     };
