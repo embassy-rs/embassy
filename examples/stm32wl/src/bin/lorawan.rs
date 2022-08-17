@@ -5,13 +5,14 @@
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
+use embassy_executor::executor::Spawner;
 use embassy_lora::stm32wl::*;
 use embassy_lora::LoraTimer;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Level, Output, Pin, Speed};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::subghz::*;
-use embassy_stm32::{interrupt, pac, Peripherals};
+use embassy_stm32::{interrupt, pac};
 use lorawan::default_crypto::DefaultFactory as Crypto;
 use lorawan_device::async_device::{region, Device, JoinMode};
 use {defmt_rtt as _, panic_probe as _};
@@ -23,8 +24,9 @@ fn config() -> embassy_stm32::Config {
     config
 }
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: embassy_executor::executor::Spawner, p: Peripherals) {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = embassy_stm32::init(config());
     unsafe { pac::RCC.ccipr().modify(|w| w.set_rngsel(0b01)) }
 
     let ctrl1 = Output::new(p.PC3.degrade(), Level::High, Speed::High);

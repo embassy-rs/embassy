@@ -13,8 +13,5 @@ proc-macro2 = "1.0.29"
 proc-macro = true
 
 [features]
-nrf = []
-stm32 = []
-rp = []
 std = []
 wasm = []

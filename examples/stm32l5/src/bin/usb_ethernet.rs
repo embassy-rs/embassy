@@ -14,7 +14,7 @@ use embassy_stm32::rcc::*;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{interrupt, Config, Peripherals};
+use embassy_stm32::{interrupt, Config};
 use embassy_usb::{Builder, UsbDevice};
 use embassy_usb_ncm::{CdcNcmClass, Receiver, Sender, State};
 use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
@@ -93,8 +93,9 @@ fn config() -> Config {
     config
 }
 
-#[embassy_executor::main(config = "config()")]
-async fn main(spawner: Spawner, p: Peripherals) {
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    let p = embassy_stm32::init(config());
     // Create the driver, from the HAL.
     let irq = interrupt::take!(USB_FS);
     let driver = Driver::new(p.USB, irq, p.PA12, p.PA11);

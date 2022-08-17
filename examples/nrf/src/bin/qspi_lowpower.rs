@@ -7,7 +7,7 @@ use core::mem;
 use defmt::{info, unwrap};
 use embassy_executor::executor::Spawner;
 use embassy_executor::time::{Duration, Timer};
-use embassy_nrf::{interrupt, qspi, Peripherals};
+use embassy_nrf::{interrupt, qspi};
 use {defmt_rtt as _, panic_probe as _};
 
 // Workaround for alignment requirements.
@@ -16,7 +16,8 @@ use {defmt_rtt as _, panic_probe as _};
 struct AlignedBuf([u8; 64]);
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, mut p: Peripherals) {
+async fn main(_p: Spawner) {
+    let mut p = embassy_nrf::init(Default::default());
     let mut irq = interrupt::take!(QSPI);
 
     loop {

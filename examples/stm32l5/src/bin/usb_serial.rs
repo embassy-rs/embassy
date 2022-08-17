@@ -7,7 +7,7 @@ use embassy_executor::executor::Spawner;
 use embassy_stm32::rcc::*;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{interrupt, Config, Peripherals};
+use embassy_stm32::{interrupt, Config};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
 use embassy_usb_serial::{CdcAcmClass, State};
@@ -24,8 +24,9 @@ fn config() -> Config {
     config
 }
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, p: Peripherals) {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = embassy_stm32::init(config());
     info!("Hello World!");
 
     // Create the driver, from the HAL.

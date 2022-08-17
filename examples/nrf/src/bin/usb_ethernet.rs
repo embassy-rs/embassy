@@ -13,7 +13,7 @@ use embassy_net::tcp::TcpSocket;
 use embassy_net::{PacketBox, PacketBoxExt, PacketBuf, Stack, StackResources};
 use embassy_nrf::rng::Rng;
 use embassy_nrf::usb::{Driver, PowerUsb};
-use embassy_nrf::{interrupt, pac, peripherals, Peripherals};
+use embassy_nrf::{interrupt, pac, peripherals};
 use embassy_usb::{Builder, Config, UsbDevice};
 use embassy_usb_ncm::{CdcNcmClass, Receiver, Sender, State};
 use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
@@ -82,7 +82,8 @@ async fn net_task(stack: &'static Stack<Device>) -> ! {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
     let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 
     info!("Enabling ext hfosc...");

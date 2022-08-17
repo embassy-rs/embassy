@@ -8,7 +8,7 @@ use embassy_executor::time::{Delay, Duration, Timer};
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::rcc::AdcClockSource;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{Config, Peripherals};
+use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
 
 pub fn config() -> Config {
@@ -20,8 +20,9 @@ pub fn config() -> Config {
     config
 }
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, mut p: Peripherals) {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let mut p = embassy_stm32::init(config());
     info!("Hello World!");
 
     let mut adc = Adc::new(p.ADC3, &mut Delay);

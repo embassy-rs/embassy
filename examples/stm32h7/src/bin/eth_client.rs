@@ -12,7 +12,7 @@ use embassy_stm32::eth::{Ethernet, State};
 use embassy_stm32::peripherals::ETH;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{interrupt, Config, Peripherals};
+use embassy_stm32::{interrupt, Config};
 use embassy_util::Forever;
 use embedded_io::asynch::Write;
 use embedded_nal_async::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpConnect};
@@ -42,8 +42,9 @@ pub fn config() -> Config {
     config
 }
 
-#[embassy_executor::main(config = "config()")]
-async fn main(spawner: Spawner, p: Peripherals) -> ! {
+#[embassy_executor::main]
+async fn main(spawner: Spawner) -> ! {
+    let p = embassy_stm32::init(config());
     info!("Hello World!");
 
     // Generate random seed.

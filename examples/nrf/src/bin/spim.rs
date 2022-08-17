@@ -5,11 +5,12 @@
 use defmt::{info, unwrap};
 use embassy_executor::executor::Spawner;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
-use embassy_nrf::{interrupt, spim, Peripherals};
+use embassy_nrf::{interrupt, spim};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
     info!("running!");
 
     let mut config = spim::Config::default();

@@ -11,7 +11,7 @@ use embassy_stm32::rcc::{
     APBPrescaler, ClockSrc, HSEConfig, HSESrc, PLL48Div, PLLConfig, PLLMainDiv, PLLMul, PLLPreDiv, PLLSrc,
 };
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, Peripherals};
+use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
 
 // Example config for maximum performance on a NUCLEO-F207ZG board
@@ -43,8 +43,9 @@ fn config() -> Config {
     config
 }
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, _p: Peripherals) {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let _p = embassy_stm32::init(config());
     loop {
         Timer::after(Duration::from_millis(1000)).await;
         info!("1s elapsed");

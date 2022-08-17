@@ -8,11 +8,11 @@ use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::Peripherals;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_stm32::init(Default::default());
     info!("Hello World, folks!");
 
     let mut spi = Spi::new(

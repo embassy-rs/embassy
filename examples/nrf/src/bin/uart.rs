@@ -4,11 +4,12 @@
 
 use defmt::*;
 use embassy_executor::executor::Spawner;
-use embassy_nrf::{interrupt, uarte, Peripherals};
+use embassy_nrf::{interrupt, uarte};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
     let mut config = uarte::Config::default();
     config.parity = uarte::Parity::EXCLUDED;
     config.baudrate = uarte::Baudrate::BAUD115200;

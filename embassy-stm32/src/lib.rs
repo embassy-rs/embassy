@@ -75,8 +75,8 @@ pub(crate) mod _generated {
 // Reexports
 pub use _generated::{peripherals, Peripherals};
 pub use embassy_cortex_m::executor;
+pub use embassy_cortex_m::interrupt::_export::interrupt;
 pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
-pub use embassy_macros::cortex_m_interrupt as interrupt;
 #[cfg(feature = "unstable-pac")]
 pub use stm32_metapac as pac;
 #[cfg(not(feature = "unstable-pac"))]

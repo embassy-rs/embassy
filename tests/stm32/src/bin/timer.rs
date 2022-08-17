@@ -7,11 +7,11 @@ mod example_common;
 use defmt::assert;
 use embassy_executor::executor::Spawner;
 use embassy_executor::time::{Duration, Instant, Timer};
-use embassy_stm32::Peripherals;
 use example_common::*;
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, _p: Peripherals) {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let _p = embassy_stm32::init(config());
     info!("Hello World!");
 
     let start = Instant::now();

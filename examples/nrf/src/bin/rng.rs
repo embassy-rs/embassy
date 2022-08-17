@@ -3,13 +3,14 @@
 #![feature(type_alias_impl_trait)]
 
 use embassy_executor::executor::Spawner;
+use embassy_nrf::interrupt;
 use embassy_nrf::rng::Rng;
-use embassy_nrf::{interrupt, Peripherals};
 use rand::Rng as _;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
     let mut rng = Rng::new(p.RNG, interrupt::take!(RNG));
 
     // Async API

@@ -9,7 +9,7 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::rcc::{Mco, Mco1Source, McoClock};
 use embassy_stm32::time::{khz, mhz};
-use embassy_stm32::{interrupt, Config, Peripherals};
+use embassy_stm32::{interrupt, Config};
 use {defmt_rtt as _, panic_probe as _};
 
 #[allow(unused)]
@@ -32,8 +32,9 @@ const HEIGHT: usize = 100;
 
 static mut FRAME: [u32; WIDTH * HEIGHT / 2] = [0u32; WIDTH * HEIGHT / 2];
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, p: Peripherals) {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = embassy_stm32::init(config());
     defmt::info!("Hello World!");
     let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::Hsi, McoClock::Divided(3));
 

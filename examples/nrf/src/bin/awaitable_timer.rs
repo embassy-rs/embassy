@@ -4,12 +4,13 @@
 
 use defmt::info;
 use embassy_executor::executor::Spawner;
+use embassy_nrf::interrupt;
 use embassy_nrf::timer::Timer;
-use embassy_nrf::{interrupt, Peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
     let mut t = Timer::new_awaitable(p.TIMER0, interrupt::take!(TIMER0));
     // default frequency is 1MHz, so this triggers every second
     t.cc(0).write(1_000_000);

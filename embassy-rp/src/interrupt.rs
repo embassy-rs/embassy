@@ -4,8 +4,8 @@
 //! nrf_softdevice::interrupt. Intended for switching between the two at compile-time.
 
 // Re-exports
+use embassy_cortex_m::interrupt::_export::declare;
 pub use embassy_cortex_m::interrupt::*;
-use embassy_macros::cortex_m_interrupt_declare as declare;
 
 use crate::pac::Interrupt as InterruptEnum;
 declare!(TIMER_IRQ_0);

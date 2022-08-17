@@ -6,12 +6,12 @@ use defmt::{assert, *};
 use embassy_executor::executor::Spawner;
 use embassy_executor::time::{Duration, Instant, Timer};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::Peripherals;
 use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_rp::init(Default::default());
     info!("embassy-rp gpio_async test");
 
     // On the CI device the following pins are connected with each other.

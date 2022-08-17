@@ -9,7 +9,7 @@ use embassy_stm32::gpio::low_level::AFType;
 use embassy_stm32::gpio::Speed;
 use embassy_stm32::pwm::*;
 use embassy_stm32::time::{khz, mhz, Hertz};
-use embassy_stm32::{into_ref, Config, Peripheral, PeripheralRef, Peripherals};
+use embassy_stm32::{into_ref, Config, Peripheral, PeripheralRef};
 use {defmt_rtt as _, panic_probe as _};
 
 pub fn config() -> Config {
@@ -24,8 +24,9 @@ pub fn config() -> Config {
     config
 }
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, p: Peripherals) {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = embassy_stm32::init(config());
     info!("Hello World!");
 
     let mut pwm = SimplePwm32::new(p.TIM5, p.PA0, p.PA1, p.PA2, p.PA3, khz(10));

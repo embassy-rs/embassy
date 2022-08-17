@@ -7,11 +7,11 @@ use defmt_rtt::*;
 use embassy_executor::executor::Spawner;
 use embassy_executor::time::{Duration, Timer};
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::Peripherals;
 use panic_reset as _;
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_stm32::init(Default::default());
     let mut led = Output::new(p.PB15, Level::High, Speed::Low);
 
     loop {

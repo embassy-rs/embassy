@@ -9,7 +9,7 @@ use defmt::*;
 use embassy_executor::executor::Spawner;
 use embassy_executor::time::{Duration, Timer};
 use embassy_nrf::usb::{Driver, PowerUsb};
-use embassy_nrf::{interrupt, pac, Peripherals};
+use embassy_nrf::{interrupt, pac};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config};
 use embassy_usb_hid::{HidWriter, ReportId, RequestHandler, State};
@@ -18,7 +18,8 @@ use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
     let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 
     info!("Enabling ext hfosc...");
