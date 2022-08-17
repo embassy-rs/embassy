@@ -60,8 +60,8 @@ embedded-hal-async = { version = "0.1.0-alpha.1", optional = true}
 
 futures-util = { version = "0.3.17", default-features = false }
 embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
-atomic-polyfill = "0.1.5"
-critical-section = "0.2.5"
+atomic-polyfill = "1.0.1"
+critical-section = "1.1"
 cfg-if = "1.0.0"
 
 # WASM dependencies

@@ -18,7 +18,7 @@ defmt = { version = "0.3", optional = true }
 embassy-util = { path = "../../embassy-util" }
 embassy-nrf = { path = "../../embassy-nrf", default-features = false, features = ["nightly"] }
 embassy-boot = { path = "../boot", default-features = false }
-cortex-m = { version = "0.7" }
+cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.3.0"

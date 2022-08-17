@@ -10,7 +10,7 @@ defmt-rtt = { version = "0.3", optional = true }
 
 embassy-stm32 = { path = "../../../../embassy-stm32", default-features = false, features = ["nightly"] }
 embassy-boot-stm32 = { path = "../../../../embassy-boot/stm32", default-features = false }
-cortex-m = { version = "0.7" }
+cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.3.0"
