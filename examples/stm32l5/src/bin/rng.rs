@@ -9,7 +9,8 @@ use embassy_stm32::rng::Rng;
 use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
 
-fn config() -> Config {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.mux = ClockSrc::PLL(
         PLLSource::HSI16,
@@ -18,12 +19,8 @@ fn config() -> Config {
         PLLMul::Mul8,
         Some(PLLClkDiv::Div2),
     );
-    config
-}
+    let p = embassy_stm32::init(config);
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(config());
     info!("Hello World!");
 
     let mut rng = Rng::new(p.RNG);

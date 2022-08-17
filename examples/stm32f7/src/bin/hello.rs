@@ -9,15 +9,12 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
 
-fn config() -> Config {
-    let mut config = Config::default();
-    config.rcc.sys_ck = Some(Hertz(84_000_000));
-    config
-}
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
-    let _p = embassy_stm32::init(config());
+    let mut config = Config::default();
+    config.rcc.sys_ck = Some(Hertz(84_000_000));
+    let _p = embassy_stm32::init(config);
+
     loop {
         info!("Hello World!");
         Timer::after(Duration::from_secs(1)).await;

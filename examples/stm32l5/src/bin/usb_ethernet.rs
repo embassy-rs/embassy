@@ -83,19 +83,13 @@ async fn net_task(stack: &'static Stack<Device>) -> ! {
     stack.run().await
 }
 
-fn config() -> Config {
-    let mut config = Config::default();
-    config.rcc.mux = ClockSrc::HSE(Hertz(16_000_000));
-
-    config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PLLClkDiv::Div2, PLLSrcDiv::Div1, PLLMul::Mul10, None);
-    config.rcc.hsi48 = true;
-
-    config
-}
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let mut config = Config::default();
+    config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PLLClkDiv::Div2, PLLSrcDiv::Div1, PLLMul::Mul10, None);
+    config.rcc.hsi48 = true;
+    let p = embassy_stm32::init(config);
+
     // Create the driver, from the HAL.
     let irq = interrupt::take!(USB_FS);
     let driver = Driver::new(p.USB, irq, p.PA12, p.PA11);

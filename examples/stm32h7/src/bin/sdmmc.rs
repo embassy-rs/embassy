@@ -9,15 +9,11 @@ use embassy_stm32::time::mhz;
 use embassy_stm32::{interrupt, Config};
 use {defmt_rtt as _, panic_probe as _};
 
-fn config() -> Config {
-    let mut config = Config::default();
-    config.rcc.sys_ck = Some(mhz(200));
-    config
-}
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
-    let p = embassy_stm32::init(config());
+    let mut config = Config::default();
+    config.rcc.sys_ck = Some(mhz(200));
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let irq = interrupt::take!(SDMMC1);

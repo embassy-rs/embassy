@@ -15,21 +15,16 @@ use embassy_usb_serial::{CdcAcmClass, State};
 use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
 
-fn config() -> Config {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-
     config.rcc.hse = Some(mhz(8));
     config.rcc.sysclk = Some(mhz(48));
     config.rcc.pclk1 = Some(mhz(24));
     config.rcc.pclk2 = Some(mhz(24));
     config.rcc.pll48 = true;
+    let p = embassy_stm32::init(config);
 
-    config
-}
-
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(config());
     info!("Hello World!");
 
     // Needed for nucleo-stm32f303ze

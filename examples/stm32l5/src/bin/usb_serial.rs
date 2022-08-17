@@ -14,19 +14,13 @@ use embassy_usb_serial::{CdcAcmClass, State};
 use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
 
-fn config() -> Config {
-    let mut config = Config::default();
-    config.rcc.mux = ClockSrc::HSE(Hertz(16_000_000));
-
-    config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PLLClkDiv::Div2, PLLSrcDiv::Div1, PLLMul::Mul10, None);
-    config.rcc.hsi48 = true;
-
-    config
-}
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let mut config = Config::default();
+    config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PLLClkDiv::Div2, PLLSrcDiv::Div1, PLLMul::Mul10, None);
+    config.rcc.hsi48 = true;
+    let p = embassy_stm32::init(config);
+
     info!("Hello World!");
 
     // Create the driver, from the HAL.

@@ -18,16 +18,13 @@ use lorawan::default_crypto::DefaultFactory as Crypto;
 use lorawan_device::async_device::{region, Device, JoinMode};
 use {defmt_rtt as _, panic_probe as _};
 
-fn config() -> embassy_stm32::Config {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSI16;
     config.rcc.enable_hsi48 = true;
-    config
-}
+    let p = embassy_stm32::init(config);
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(config());
     // SPI for sx127x
     let spi = spi::Spi::new(
         p.SPI1,

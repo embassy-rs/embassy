@@ -17,16 +17,13 @@ use lorawan::default_crypto::DefaultFactory as Crypto;
 use lorawan_device::async_device::{region, Device, JoinMode};
 use {defmt_rtt as _, panic_probe as _};
 
-fn config() -> embassy_stm32::Config {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSI16;
     config.rcc.enable_lsi = true;
-    config
-}
+    let p = embassy_stm32::init(config);
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(config());
     unsafe { pac::RCC.ccipr().modify(|w| w.set_rngsel(0b01)) }
 
     let ctrl1 = Output::new(p.PC3.degrade(), Level::High, Speed::High);

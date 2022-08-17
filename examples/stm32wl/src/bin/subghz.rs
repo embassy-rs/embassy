@@ -52,15 +52,12 @@ const TCXO_MODE: TcxoMode = TcxoMode::new()
 
 const TX_PARAMS: TxParams = TxParams::new().set_power(0x0D).set_ramp_time(RampTime::Micros40);
 
-fn config() -> embassy_stm32::Config {
-    let mut config = embassy_stm32::Config::default();
-    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE32;
-    config
-}
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let mut config = embassy_stm32::Config::default();
+    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE32;
+    let p = embassy_stm32::init(config);
+
     let mut led1 = Output::new(p.PB15, Level::High, Speed::Low);
     let mut led2 = Output::new(p.PB9, Level::Low, Speed::Low);
     let mut led3 = Output::new(p.PB11, Level::Low, Speed::Low);

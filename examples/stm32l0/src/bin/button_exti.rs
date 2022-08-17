@@ -6,17 +6,15 @@ use defmt::*;
 use embassy_executor::executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Pull};
+use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
-
-fn config() -> embassy_stm32::Config {
-    let mut config = embassy_stm32::Config::default();
-    config.rcc.enable_hsi48 = true;
-    config
-}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let mut config = Config::default();
+    config.rcc.enable_hsi48 = true;
+    let p = embassy_stm32::init(config);
+
     let button = Input::new(p.PB2, Pull::Up);
     let mut button = ExtiInput::new(button, p.EXTI2);
 

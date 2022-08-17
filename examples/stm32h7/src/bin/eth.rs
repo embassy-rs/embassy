@@ -33,17 +33,13 @@ async fn net_task(stack: &'static Stack<Device>) -> ! {
     stack.run().await
 }
 
-pub fn config() -> Config {
+#[embassy_executor::main]
+async fn main(spawner: Spawner) -> ! {
     let mut config = Config::default();
     config.rcc.sys_ck = Some(mhz(400));
     config.rcc.hclk = Some(mhz(200));
     config.rcc.pll1.q_ck = Some(mhz(100));
-    config
-}
-
-#[embassy_executor::main]
-async fn main(spawner: Spawner) -> ! {
-    let p = embassy_stm32::init(config());
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     // Generate random seed.
