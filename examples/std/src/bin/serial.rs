@@ -4,7 +4,7 @@
 mod serial_port;
 
 use async_io::Async;
-use embassy_executor::executor::Executor;
+use embassy_executor::Executor;
 use embassy_util::Forever;
 use embedded_io::asynch::Read;
 use log::*;

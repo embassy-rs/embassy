@@ -3,9 +3,9 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::unwrap;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive, Pin};
+use embassy_time::{Duration, Timer};
 use embassy_util::blocking_mutex::raw::NoopRawMutex;
 use embassy_util::channel::mpmc::{Channel, Receiver, Sender};
 use embassy_util::Forever;

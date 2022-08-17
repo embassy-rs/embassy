@@ -3,8 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_net::tcp::client::{TcpClient, TcpClientState};
 use embassy_net::{Stack, StackResources};
 use embassy_stm32::eth::generic_smi::GenericSMI;
@@ -13,6 +12,7 @@ use embassy_stm32::peripherals::ETH;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::mhz;
 use embassy_stm32::{interrupt, Config};
+use embassy_time::{Duration, Timer};
 use embassy_util::Forever;
 use embedded_io::asynch::Write;
 use embedded_nal_async::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpConnect};

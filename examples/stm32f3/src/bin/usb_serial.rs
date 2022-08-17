@@ -3,12 +3,12 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::{panic, *};
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::mhz;
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{interrupt, Config};
+use embassy_time::{Duration, Timer};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
 use embassy_usb_serial::{CdcAcmClass, State};

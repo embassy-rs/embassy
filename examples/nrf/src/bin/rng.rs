@@ -2,7 +2,7 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_nrf::interrupt;
 use embassy_nrf::rng::Rng;
 use rand::Rng as _;

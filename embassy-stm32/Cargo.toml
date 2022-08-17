@@ -10,7 +10,7 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32
 # TODO: sdmmc
 # TODO: net
 # TODO: subghz
-features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any", "embassy-executor/time-tick-32768hz"]
+features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any", "embassy-time/tick-32768hz"]
 flavors = [
     { regex_feature = "stm32f0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32f1.*", target = "thumbv7m-none-eabi" },
@@ -33,6 +33,7 @@ flavors = [
 [dependencies]
 embassy-util = { version = "0.1.0", path = "../embassy-util" }
 embassy-executor = { version = "0.1.0", path = "../embassy-executor" }
+embassy-time = { version = "0.1.0", path = "../embassy-time", optional = true }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-4"]}
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
@@ -80,7 +81,7 @@ exti = []
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
-_time-driver = ["embassy-executor/time"]
+_time-driver = ["dep:embassy-time"]
 time-driver-any = ["_time-driver"]
 time-driver-tim2 = ["_time-driver"]
 time-driver-tim3 = ["_time-driver"]

@@ -5,7 +5,7 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use defmt::assert;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Flex, Input, Level, Output, OutputOpenDrain, Pull, Speed};
 use example_common::*;
 

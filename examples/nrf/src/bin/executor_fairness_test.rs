@@ -5,8 +5,8 @@
 use core::task::Poll;
 
 use defmt::{info, unwrap};
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Instant, Timer};
+use embassy_executor::Spawner;
+use embassy_time::{Duration, Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]

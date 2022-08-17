@@ -6,10 +6,10 @@
 use core::mem;
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_nrf::usb::{Driver, PowerUsb};
 use embassy_nrf::{interrupt, pac};
+use embassy_time::{Duration, Timer};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config};
 use embassy_usb_hid::{HidWriter, ReportId, RequestHandler, State};

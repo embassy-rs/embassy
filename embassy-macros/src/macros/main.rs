@@ -34,8 +34,8 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
     let main = quote! {
         #[wasm_bindgen::prelude::wasm_bindgen(start)]
         pub fn main() -> Result<(), wasm_bindgen::JsValue> {
-            static EXECUTOR: ::embassy_util::Forever<::embassy_executor::executor::Executor> = ::embassy_util::Forever::new();
-            let executor = EXECUTOR.put(::embassy_executor::executor::Executor::new());
+            static EXECUTOR: ::embassy_util::Forever<::embassy_executor::Executor> = ::embassy_util::Forever::new();
+            let executor = EXECUTOR.put(::embassy_executor::Executor::new());
 
             executor.start(|spawner| {
                 spawner.spawn(__embassy_main(spawner)).unwrap();
@@ -48,7 +48,7 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
     #[cfg(all(feature = "std", not(feature = "wasm")))]
     let main = quote! {
         fn main() -> ! {
-            let mut executor = ::embassy_executor::executor::Executor::new();
+            let mut executor = ::embassy_executor::Executor::new();
             let executor = unsafe { __make_static(&mut executor) };
 
             executor.run(|spawner| {
@@ -61,7 +61,7 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
     let main = quote! {
         #[cortex_m_rt::entry]
         fn main() -> ! {
-            let mut executor = ::embassy_executor::executor::Executor::new();
+            let mut executor = ::embassy_executor::Executor::new();
             let executor = unsafe { __make_static(&mut executor) };
 
             executor.run(|spawner| {

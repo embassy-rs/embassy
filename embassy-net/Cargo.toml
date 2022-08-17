@@ -7,7 +7,7 @@ edition = "2021"
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = [ "pool-4", "defmt", "tcp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "embassy-executor/time", "embassy-executor/time-tick-1mhz"]
+features = [ "pool-4", "defmt", "tcp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "embassy-time/tick-1mhz"]
 target = "thumbv7em-none-eabi"
 
 [features]
@@ -37,16 +37,16 @@ unstable-traits = []
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-embassy-executor    = { version = "0.1.0", path = "../embassy-executor" }
-embassy-util        = { version = "0.1.0", path = "../embassy-util" }
-embedded-io         = { version = "0.3.0", features = [ "async" ] }
+embassy-time = { version = "0.1.0", path = "../embassy-time" }
+embassy-util = { version = "0.1.0", path = "../embassy-util" }
+embedded-io = { version = "0.3.0", features = [ "async" ] }
 
-managed             = { version = "0.8.0", default-features = false, features = [ "map" ] }
-heapless            = { version = "0.7.5", default-features = false }
-as-slice            = "0.2.1"
-generic-array       = { version = "0.14.4", default-features = false }
-stable_deref_trait  = { version = "1.2.0", default-features = false }
-futures             = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
+managed = { version = "0.8.0", default-features = false, features = [ "map" ] }
+heapless = { version = "0.7.5", default-features = false }
+as-slice = "0.2.1"
+generic-array = { version = "0.14.4", default-features = false }
+stable_deref_trait = { version = "1.2.0", default-features = false }
+futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
 atomic-pool = "0.2.1"
 atomic-polyfill = "0.1.5"
 embedded-nal-async = "0.2.0"

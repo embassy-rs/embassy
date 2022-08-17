@@ -5,9 +5,9 @@ use core::mem;
 
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy_executor::executor::raw::TaskStorage;
-use embassy_executor::executor::Executor;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::raw::TaskStorage;
+use embassy_executor::Executor;
+use embassy_time::{Duration, Timer};
 use embassy_util::Forever;
 use {defmt_rtt as _, panic_probe as _};
 

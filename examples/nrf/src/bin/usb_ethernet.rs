@@ -8,7 +8,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Waker;
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{PacketBox, PacketBoxExt, PacketBuf, Stack, StackResources};
 use embassy_nrf::rng::Rng;

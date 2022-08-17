@@ -6,11 +6,11 @@
 use defmt_rtt::*;
 use embassy_boot_stm32::FirmwareUpdater;
 use embassy_embedded_hal::adapter::BlockingAsync;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::flash::Flash;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_time::{Duration, Timer};
 use panic_reset as _;
 
 static APP_B: &[u8] = include_bytes!("../../b.bin");

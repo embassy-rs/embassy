@@ -3,7 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::interrupt;

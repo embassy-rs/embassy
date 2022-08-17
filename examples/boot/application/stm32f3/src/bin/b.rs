@@ -4,9 +4,9 @@
 
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt::*;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_time::{Duration, Timer};
 use panic_reset as _;
 
 #[embassy_executor::main]

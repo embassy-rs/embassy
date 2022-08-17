@@ -5,7 +5,7 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use defmt::assert_eq;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;

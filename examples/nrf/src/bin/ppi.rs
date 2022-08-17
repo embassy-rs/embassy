@@ -5,7 +5,7 @@
 use core::future::pending;
 
 use defmt::info;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::gpiote::{self, InputChannel, InputChannelPolarity};
 use embassy_nrf::ppi::Ppi;

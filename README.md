@@ -16,7 +16,7 @@ Rust's <a href="https://rust-lang.github.io/async-book/">async/await</a> allows 
   - <a href="https://docs.embassy.dev/embassy-nrf/">embassy-nrf</a>, for the Nordic Semiconductor nRF52, nRF53, nRF91 series.
 
 - **Time that Just Works** - 
-No more messing with hardware timers. <a href="https://docs.embassy.dev/embassy/git/thumbv7em-none-eabihf/time/index.html">embassy_executor::time</a> provides Instant, Duration and Timer types that are globally available and never overflow.
+No more messing with hardware timers. <a href="https://docs.embassy.dev/embassy-time">embassy_time</a> provides Instant, Duration and Timer types that are globally available and never overflow.
 
 - **Real-time ready** - 
 Tasks on the same async executor run cooperatively, but you can create multiple executors with different priorities, so that higher priority tasks preempt lower priority ones. See the <a href="https://github.com/embassy-rs/embassy/blob/master/examples/nrf/src/bin/multiprio.rs">example</a>.
@@ -44,8 +44,8 @@ The <a href="https://github.com/embassy-rs/nrf-softdevice">nrf-softdevice</a> cr
 
 ```rust,ignore
 use defmt::info;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
+use embassy_time::{Duration, Timer};
 use embassy_nrf::gpio::{AnyPin, Input, Level, Output, OutputDrive, Pin, Pull};
 use embassy_nrf::Peripherals;
 

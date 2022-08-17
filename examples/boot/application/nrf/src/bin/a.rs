@@ -6,7 +6,7 @@
 
 use embassy_boot_nrf::FirmwareUpdater;
 use embassy_embedded_hal::adapter::BlockingAsync;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::nvmc::Nvmc;
 use panic_reset as _;

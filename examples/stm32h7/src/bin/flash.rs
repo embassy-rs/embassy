@@ -3,9 +3,9 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::{info, unwrap};
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_stm32::flash::Flash;
+use embassy_time::{Duration, Timer};
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use {defmt_rtt as _, panic_probe as _};
 

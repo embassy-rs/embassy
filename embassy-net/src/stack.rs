@@ -2,7 +2,7 @@ use core::cell::UnsafeCell;
 use core::future::Future;
 use core::task::{Context, Poll};
 
-use embassy_executor::time::{Instant, Timer};
+use embassy_time::{Instant, Timer};
 use embassy_util::waitqueue::WakerRegistration;
 use futures::future::poll_fn;
 use futures::pin_mut;

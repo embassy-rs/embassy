@@ -3,7 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_nrf::buffered_uarte::{BufferedUarte, State};
 use embassy_nrf::{interrupt, uarte};
 use embedded_io::asynch::{BufRead, Write};

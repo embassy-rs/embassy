@@ -1,0 +1,54 @@
+[package]
+name = "embassy-time"
+version = "0.1.0"
+edition = "2021"
+
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-v$VERSION/embassy-time/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time/src/"
+features = ["nightly", "defmt", "unstable-traits", "std"]
+target = "x86_64-unknown-linux-gnu"
+
+[features]
+std = ["tick-1mhz"]
+wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-1mhz"]
+
+# Enable nightly-only features
+nightly = ["embedded-hal-async"]
+
+# Implement embedded-hal 1.0 alpha and embedded-hal-async traits.
+# Implement embedded-hal-async traits if `nightly` is set as well.
+unstable-traits = ["embedded-hal-1"]
+
+# Display a timestamp of the number of seconds since startup next to defmt log messages
+# To use this you must have a time driver provided.
+defmt-timestamp-uptime = ["defmt"]
+
+# Set the `embassy_time` tick rate.
+# NOTE: This feature is only intended to be enabled by crates providing the time driver implementation.
+# If you're not writing your own driver, check the driver documentation to customize the tick rate.
+# If you're writing a driver and your tick rate is not listed here, please add it and send a PR!
+tick-32768hz = []
+tick-1000hz = []
+tick-1mhz = []
+tick-16mhz = []
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }
+
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8", optional = true}
+embedded-hal-async = { version = "0.1.0-alpha.1", optional = true}
+
+futures-util = { version = "0.3.17", default-features = false }
+embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
+atomic-polyfill = "1.0.1"
+critical-section = "1.1"
+cfg-if = "1.0.0"
+
+# WASM dependencies
+wasm-bindgen = { version = "0.2.76", features = ["nightly"], optional = true }
+js-sys = { version = "0.3", optional = true }
+wasm-timer = { version = "0.2.5", optional = true }

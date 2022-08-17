@@ -4,12 +4,12 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_stm32::rcc::*;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{interrupt, Config, Peripherals};
+use embassy_time::{Duration, Timer};
 use embassy_usb::control::OutResponse;
 use embassy_usb::Builder;
 use embassy_usb_hid::{HidWriter, ReportId, RequestHandler, State};
