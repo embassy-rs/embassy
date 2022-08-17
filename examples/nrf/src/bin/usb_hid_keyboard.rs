@@ -10,7 +10,7 @@ use defmt::*;
 use embassy_executor::executor::Spawner;
 use embassy_nrf::gpio::{Input, Pin, Pull};
 use embassy_nrf::usb::{Driver, PowerUsb};
-use embassy_nrf::{interrupt, pac, Peripherals};
+use embassy_nrf::{interrupt, pac};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, DeviceStateHandler};
 use embassy_usb_hid::{HidReaderWriter, ReportId, RequestHandler, State};
@@ -23,7 +23,8 @@ use {defmt_rtt as _, panic_probe as _};
 static SUSPENDED: AtomicBool = AtomicBool::new(false);
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
     let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 
     info!("Enabling ext hfosc...");

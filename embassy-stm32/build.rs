@@ -96,7 +96,7 @@ fn main() {
     g.extend(quote! {
         pub mod interrupt {
             use crate::pac::Interrupt as InterruptEnum;
-            use embassy_macros::cortex_m_interrupt_declare as declare;
+            use embassy_cortex_m::interrupt::_export::declare;
             #(
                 declare!(#irqs);
             )*

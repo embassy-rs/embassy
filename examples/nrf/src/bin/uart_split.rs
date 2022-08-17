@@ -6,7 +6,7 @@ use defmt::*;
 use embassy_executor::executor::Spawner;
 use embassy_nrf::peripherals::UARTE0;
 use embassy_nrf::uarte::UarteRx;
-use embassy_nrf::{interrupt, uarte, Peripherals};
+use embassy_nrf::{interrupt, uarte};
 use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_util::channel::mpmc::Channel;
 use {defmt_rtt as _, panic_probe as _};
@@ -14,7 +14,8 @@ use {defmt_rtt as _, panic_probe as _};
 static CHANNEL: Channel<ThreadModeRawMutex, [u8; 8], 1> = Channel::new();
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
     let mut config = uarte::Config::default();
     config.parity = uarte::Parity::EXCLUDED;
     config.baudrate = uarte::Baudrate::BAUD115200;

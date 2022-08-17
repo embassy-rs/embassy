@@ -5,15 +5,16 @@
 use defmt::info;
 use embassy_executor::executor::Spawner;
 use embassy_executor::time::Duration;
+use embassy_nrf::interrupt;
 use embassy_nrf::saadc::{ChannelConfig, Config, Saadc, SamplerState};
 use embassy_nrf::timer::Frequency;
-use embassy_nrf::{interrupt, Peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 // Demonstrates both continuous sampling and scanning multiple channels driven by a PPI linked timer
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, mut p: Peripherals) {
+async fn main(_p: Spawner) {
+    let mut p = embassy_nrf::init(Default::default());
     let config = Config::default();
     let channel_1_config = ChannelConfig::single_ended(&mut p.P0_02);
     let channel_2_config = ChannelConfig::single_ended(&mut p.P0_03);

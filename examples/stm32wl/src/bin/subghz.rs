@@ -6,12 +6,13 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
+use embassy_executor::executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{Interrupt, InterruptExt};
 use embassy_stm32::subghz::*;
-use embassy_stm32::{interrupt, Peripherals};
 use embassy_util::channel::signal::Signal;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -51,14 +52,12 @@ const TCXO_MODE: TcxoMode = TcxoMode::new()
 
 const TX_PARAMS: TxParams = TxParams::new().set_power(0x0D).set_ramp_time(RampTime::Micros40);
 
-fn config() -> embassy_stm32::Config {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE32;
-    config
-}
+    let p = embassy_stm32::init(config);
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: embassy_executor::executor::Spawner, p: Peripherals) {
     let mut led1 = Output::new(p.PB15, Level::High, Speed::Low);
     let mut led2 = Output::new(p.PB9, Level::Low, Speed::Low);
     let mut led3 = Output::new(p.PB11, Level::Low, Speed::Low);

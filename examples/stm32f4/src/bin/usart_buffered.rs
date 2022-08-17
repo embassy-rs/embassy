@@ -5,13 +5,14 @@
 use defmt::*;
 use embassy_executor::executor::Spawner;
 use embassy_stm32::dma::NoDma;
+use embassy_stm32::interrupt;
 use embassy_stm32::usart::{BufferedUart, Config, State, Uart};
-use embassy_stm32::{interrupt, Peripherals};
 use embedded_io::asynch::BufRead;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
     let config = Config::default();

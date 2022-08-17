@@ -7,19 +7,17 @@ use embassy_executor::executor::Spawner;
 use embassy_executor::time::{Delay, Duration, Timer};
 use embassy_stm32::fmc::Fmc;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{Config, Peripherals};
+use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
 
-pub fn config() -> Config {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.sys_ck = Some(mhz(400));
     config.rcc.hclk = Some(mhz(200));
     config.rcc.pll1.q_ck = Some(mhz(100));
-    config
-}
+    let p = embassy_stm32::init(config);
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
     let mut core_peri = cortex_m::Peripherals::take().unwrap();

@@ -8,23 +8,21 @@ use embassy_executor::time::{Duration, Timer};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{interrupt, Config, Peripherals};
+use embassy_stm32::{interrupt, Config};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
 use embassy_usb_serial::{CdcAcmClass, State};
 use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
 
-fn config() -> Config {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.hse = Some(Hertz(8_000_000));
     config.rcc.sys_ck = Some(Hertz(48_000_000));
     config.rcc.pclk1 = Some(Hertz(24_000_000));
-    config
-}
+    let mut p = embassy_stm32::init(config);
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, mut p: Peripherals) {
     info!("Hello World!");
 
     {

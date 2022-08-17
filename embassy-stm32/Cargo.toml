@@ -34,7 +34,6 @@ flavors = [
 embassy-util = { version = "0.1.0", path = "../embassy-util" }
 embassy-executor = { version = "0.1.0", path = "../embassy-executor" }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-4"]}
-embassy-macros = { version = "0.1.0", path = "../embassy-macros", features = ["stm32"] }
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-net = { version = "0.1.0", path = "../embassy-net", optional = true }

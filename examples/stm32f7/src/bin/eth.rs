@@ -12,7 +12,7 @@ use embassy_stm32::eth::{Ethernet, State};
 use embassy_stm32::peripherals::ETH;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{interrupt, Config, Peripherals};
+use embassy_stm32::{interrupt, Config};
 use embassy_util::Forever;
 use embedded_io::asynch::Write;
 use rand_core::RngCore;
@@ -33,14 +33,12 @@ async fn net_task(stack: &'static Stack<Device>) -> ! {
     stack.run().await
 }
 
-fn config() -> Config {
+#[embassy_executor::main]
+async fn main(spawner: Spawner) -> ! {
     let mut config = Config::default();
     config.rcc.sys_ck = Some(mhz(200));
-    config
-}
+    let p = embassy_stm32::init(config);
 
-#[embassy_executor::main(config = "config()")]
-async fn main(spawner: Spawner, p: Peripherals) -> ! {
     info!("Hello World!");
 
     // Generate random seed.

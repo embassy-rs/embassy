@@ -6,17 +6,15 @@ use defmt::info;
 use embassy_executor::executor::Spawner;
 use embassy_executor::time::{Duration, Timer};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, Peripherals};
+use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
 
-fn config() -> Config {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) -> ! {
     let mut config = Config::default();
     config.rcc.sys_ck = Some(Hertz(36_000_000));
-    config
-}
+    let _p = embassy_stm32::init(config);
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, _p: Peripherals) -> ! {
     loop {
         info!("Hello World!");
         Timer::after(Duration::from_secs(1)).await;

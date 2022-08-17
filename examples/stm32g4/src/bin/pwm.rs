@@ -8,11 +8,11 @@ use embassy_executor::time::{Duration, Timer};
 use embassy_stm32::pwm::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::pwm::Channel;
 use embassy_stm32::time::khz;
-use embassy_stm32::Peripherals;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
     let ch1 = PwmPin::new_ch1(p.PA5);

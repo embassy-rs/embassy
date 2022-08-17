@@ -7,7 +7,6 @@ use embassy_executor::executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::peripherals::{DMA1_CH1, UART7};
 use embassy_stm32::usart::{Config, Uart, UartRx};
-use embassy_stm32::Peripherals;
 use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_util::channel::mpmc::Channel;
 use {defmt_rtt as _, panic_probe as _};
@@ -27,7 +26,8 @@ async fn writer(mut usart: Uart<'static, UART7, NoDma, NoDma>) {
 static CHANNEL: Channel<ThreadModeRawMutex, [u8; 8], 1> = Channel::new();
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, p: Peripherals) -> ! {
+async fn main(spawner: Spawner) -> ! {
+    let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
     let config = Config::default();

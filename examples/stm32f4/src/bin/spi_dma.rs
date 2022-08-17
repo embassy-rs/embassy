@@ -9,12 +9,12 @@ use defmt::*;
 use embassy_executor::executor::Spawner;
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::Peripherals;
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
     let mut spi = Spi::new(

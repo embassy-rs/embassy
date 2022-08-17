@@ -8,10 +8,11 @@ use embassy_executor::time::{Duration, Timer};
 use embassy_stm32::pwm::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::pwm::Channel;
 use embassy_stm32::time::{khz, mhz};
-use embassy_stm32::{Config, Peripherals};
+use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
 
-pub fn config() -> Config {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.sys_ck = Some(mhz(400));
     config.rcc.hclk = Some(mhz(400));
@@ -20,11 +21,7 @@ pub fn config() -> Config {
     config.rcc.pclk2 = Some(mhz(100));
     config.rcc.pclk3 = Some(mhz(100));
     config.rcc.pclk4 = Some(mhz(100));
-    config
-}
-
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, p: Peripherals) {
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let ch1 = PwmPin::new_ch1(p.PA6);

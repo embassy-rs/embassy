@@ -5,7 +5,6 @@
 use defmt::{info, unwrap};
 use embassy_executor::executor::Spawner;
 use embassy_executor::time::{Duration, Timer};
-use embassy_nrf::Peripherals;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task(pool_size = 2)]
@@ -16,7 +15,8 @@ async fn my_task(n: u32) {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, _p: Peripherals) {
+async fn main(spawner: Spawner) {
+    let _p = embassy_nrf::init(Default::default());
     info!("Hello World!");
     unwrap!(spawner.spawn(my_task(0)));
 }

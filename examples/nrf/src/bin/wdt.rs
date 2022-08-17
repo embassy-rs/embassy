@@ -6,11 +6,11 @@ use defmt::*;
 use embassy_executor::executor::Spawner;
 use embassy_nrf::gpio::{Input, Pull};
 use embassy_nrf::wdt::{Config, Watchdog};
-use embassy_nrf::Peripherals;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
     info!("Hello World!");
 
     let mut config = Config::default();

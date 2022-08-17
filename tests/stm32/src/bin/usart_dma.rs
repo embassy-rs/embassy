@@ -7,11 +7,11 @@ mod example_common;
 use defmt::assert_eq;
 use embassy_executor::executor::Spawner;
 use embassy_stm32::usart::{Config, Uart};
-use embassy_stm32::Peripherals;
 use example_common::*;
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, p: Peripherals) {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = embassy_stm32::init(config());
     info!("Hello World!");
 
     #[cfg(feature = "stm32wb55rg")]

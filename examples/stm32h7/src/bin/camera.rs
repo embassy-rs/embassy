@@ -9,11 +9,17 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::rcc::{Mco, Mco1Source, McoClock};
 use embassy_stm32::time::{khz, mhz};
-use embassy_stm32::{interrupt, Config, Peripherals};
+use embassy_stm32::{interrupt, Config};
+use ov7725::*;
 use {defmt_rtt as _, panic_probe as _};
 
-#[allow(unused)]
-pub fn config() -> Config {
+const WIDTH: usize = 100;
+const HEIGHT: usize = 100;
+
+static mut FRAME: [u32; WIDTH * HEIGHT / 2] = [0u32; WIDTH * HEIGHT / 2];
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.sys_ck = Some(mhz(400));
     config.rcc.hclk = Some(mhz(400));
@@ -22,18 +28,8 @@ pub fn config() -> Config {
     config.rcc.pclk2 = Some(mhz(100));
     config.rcc.pclk3 = Some(mhz(100));
     config.rcc.pclk4 = Some(mhz(100));
-    config
-}
+    let p = embassy_stm32::init(config);
 
-use ov7725::*;
-
-const WIDTH: usize = 100;
-const HEIGHT: usize = 100;
-
-static mut FRAME: [u32; WIDTH * HEIGHT / 2] = [0u32; WIDTH * HEIGHT / 2];
-
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, p: Peripherals) {
     defmt::info!("Hello World!");
     let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::Hsi, McoClock::Divided(3));
 

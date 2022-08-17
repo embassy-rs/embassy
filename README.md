@@ -65,7 +65,9 @@ async fn blink(pin: AnyPin) {
 
 // Main is itself an async task as well.
 #[embassy_executor::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
+
     // Spawned tasks run in the background, concurrently.
     spawner.spawn(blink(p.P0_13.degrade())).unwrap();
 

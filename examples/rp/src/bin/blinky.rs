@@ -5,12 +5,13 @@
 use defmt::*;
 use embassy_executor::executor::Spawner;
 use embassy_executor::time::{Duration, Timer};
-use embassy_rp::{gpio, Peripherals};
+use embassy_rp::gpio;
 use gpio::{Level, Output};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_rp::init(Default::default());
     let mut led = Output::new(p.PIN_25, Level::Low);
 
     loop {
