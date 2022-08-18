@@ -30,9 +30,6 @@ pub fn copy<'a, C: Channel, W: Word>(ch: impl Peripheral<P = C> + 'a, from: &[W]
             w.set_en(true);
         });
 
-        // FIXME:
-        while p.ctrl_trig().read().busy() {}
-
         compiler_fence(Ordering::SeqCst);
     }
     Transfer::new(ch)
@@ -51,8 +48,11 @@ impl<'a, C: Channel> Transfer<'a, C> {
 
 impl<'a, C: Channel> Drop for Transfer<'a, C> {
     fn drop(&mut self) {
-        // self.channel.request_stop();
-        // while self.channel.is_running() {}
+        let p = self.channel.regs();
+        unsafe {
+            p.ctrl_trig().write(|w| w.set_en(false));
+            while p.ctrl_trig().read().busy() {}
+        }
     }
 }
 
@@ -64,7 +64,7 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
         // if self.channel.is_running() {
         //     Poll::Pending
         // } else {
-            Poll::Ready(())
+        Poll::Ready(())
         // }
     }
 }
@@ -87,9 +87,7 @@ pub trait Channel: Peripheral<P = Self> + sealed::Channel + Into<AnyChannel> + S
     }
 
     fn degrade(self) -> AnyChannel {
-        AnyChannel {
-            number: self.number(),
-        }
+        AnyChannel { number: self.number() }
     }
 }
 
