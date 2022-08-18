@@ -5,26 +5,45 @@ use core::task::{Context, Poll, Waker};
 use embassy_hal_common::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_util::waitqueue::AtomicWaker;
 use futures::Future;
+use pac::dma::vals::DataSize;
 
 use crate::pac::dma::vals;
 use crate::{pac, peripherals};
 
-pub fn copy<'a, C: Channel, W: Word>(ch: impl Peripheral<P = C> + 'a, from: &[W], to: &mut [W]) -> Transfer<'a, C> {
-    assert!(from.len() == to.len());
+pub(crate) fn read<'a, C: Channel, W: Word>(ch: impl Peripheral<P = C> + 'a, from: *const W, to: *mut [W]) -> Transfer<'a, C> {
+    let (ptr, len) = crate::dma::slice_ptr_parts_mut(to);
+    copy(ch, from as *const u32, ptr as *mut u32, len, W::size())
+}
 
+pub(crate) fn write<'a, C: Channel, W: Word>(
+    ch: impl Peripheral<P = C> + 'a,
+    from: *const [W],
+    to: *mut W,
+) -> Transfer<'a, C> {
+    let (from_ptr, len) = crate::dma::slice_ptr_parts(from);
+    copy(ch, from_ptr as *const u32, to as *mut u32, len, W::size())
+}
+
+fn copy<'a, C: Channel>(
+    ch: impl Peripheral<P = C> + 'a,
+    from: *const u32,
+    to: *mut u32,
+    len: usize,
+    data_size: DataSize,
+) -> Transfer<'a, C> {
     into_ref!(ch);
 
     unsafe {
         let p = ch.regs();
 
-        p.read_addr().write_value(from.as_ptr() as u32);
-        p.write_addr().write_value(to.as_mut_ptr() as u32);
-        p.trans_count().write_value(from.len() as u32);
+        p.read_addr().write_value(from as u32);
+        p.write_addr().write_value(to as u32);
+        p.trans_count().write_value(len as u32);
 
         compiler_fence(Ordering::SeqCst);
 
         p.ctrl_trig().write(|w| {
-            w.set_data_size(W::size());
+            w.set_data_size(data_size);
             w.set_incr_read(true);
             w.set_incr_write(true);
             w.set_chain_to(ch.number());
@@ -60,7 +79,7 @@ impl<'a, C: Channel> Drop for Transfer<'a, C> {
 impl<'a, C: Channel> Unpin for Transfer<'a, C> {}
 impl<'a, C: Channel> Future for Transfer<'a, C> {
     type Output = ();
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.channel.set_waker(cx.waker());
 
         if self.channel.is_running() {
@@ -110,12 +129,14 @@ pub trait Channel: Peripheral<P = Self> + sealed::Channel + Into<AnyChannel> + S
     }
 
     fn is_running(&self) -> bool {
-        self.regs().ctrl_trig().read().en()
+        unsafe { self.regs().ctrl_trig().read().en() }
     }
 
     fn set_waker(&self, waker: &Waker) {
         STATE.channels[self.number() as usize].waker.register(waker);
     }
+
+    fn on_irq() {}
 
     fn degrade(self) -> AnyChannel {
         AnyChannel { number: self.number() }
@@ -175,6 +196,17 @@ macro_rules! channel {
             }
         }
     };
+}
+
+// TODO: replace transmutes with core::ptr::metadata once it's stable
+#[allow(unused)]
+pub(crate) fn slice_ptr_parts<T>(slice: *const [T]) -> (usize, usize) {
+    unsafe { core::mem::transmute(slice) }
+}
+
+#[allow(unused)]
+pub(crate) fn slice_ptr_parts_mut<T>(slice: *mut [T]) -> (usize, usize) {
+    unsafe { core::mem::transmute(slice) }
 }
 
 channel!(DMA_CH0, 0);

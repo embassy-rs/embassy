@@ -128,7 +128,7 @@ impl<'d, T: Instance> UartTx<'d, T, Async> {
             }
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            let transfer = crate::dma::copy(ch, buffer, unsafe { T::regs().uartdr().ptr() });
+            let transfer = crate::dma::write(ch, buffer, T::regs().uartdr().ptr() as *mut _);
             transfer.await;
         }
         Ok(())
@@ -178,7 +178,7 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
             }
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            let transfer = crate::dma::copy(ch, unsafe { T::regs().uartdr().ptr() }, buffer);
+            let transfer = crate::dma::read(ch, T::regs().uartdr().ptr() as *const _, buffer);
             transfer.await;
         }
         Ok(())
