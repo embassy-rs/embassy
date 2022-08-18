@@ -9,19 +9,15 @@ use embassy_stm32::time::mhz;
 use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
 
-pub fn config() -> Config {
-    let mut config = Config::default();
-    config.rcc.sys_ck = Some(mhz(400));
-    config.rcc.hclk = Some(mhz(200));
-    config.rcc.pll1.q_ck = Some(mhz(100));
-    config
-}
-
 #[entry]
 fn main() -> ! {
     info!("Hello World, dude!");
 
-    let p = embassy_stm32::init(config());
+    let mut config = Config::default();
+    config.rcc.sys_ck = Some(mhz(400));
+    config.rcc.hclk = Some(mhz(200));
+    config.rcc.pll1.q_ck = Some(mhz(100));
+    let p = embassy_stm32::init(config);
 
     let mut dac = Dac::new_1ch(p.DAC1, p.PA4);
 

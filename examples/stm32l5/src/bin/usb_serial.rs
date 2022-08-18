@@ -3,29 +3,24 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::{panic, *};
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_stm32::rcc::*;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{interrupt, Config, Peripherals};
+use embassy_stm32::{interrupt, Config};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
 use embassy_usb_serial::{CdcAcmClass, State};
 use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
 
-fn config() -> Config {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.mux = ClockSrc::HSE(Hertz(16_000_000));
-
     config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PLLClkDiv::Div2, PLLSrcDiv::Div1, PLLMul::Mul10, None);
     config.rcc.hsi48 = true;
+    let p = embassy_stm32::init(config);
 
-    config
-}
-
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
     // Create the driver, from the HAL.

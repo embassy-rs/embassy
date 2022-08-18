@@ -346,7 +346,7 @@ impl_saadc_input!(P0_19, ANALOGINPUT6);
 impl_saadc_input!(P0_20, ANALOGINPUT7);
 
 pub mod irqs {
-    use embassy_macros::cortex_m_interrupt_declare as declare;
+    use embassy_cortex_m::interrupt::_export::declare;
 
     use crate::pac::Interrupt as InterruptEnum;
 

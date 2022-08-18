@@ -6,9 +6,9 @@
 use core::mem;
 
 use defmt::{info, panic, unwrap};
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_nrf::usb::{Driver, PowerUsb};
-use embassy_nrf::{interrupt, pac, peripherals, Peripherals};
+use embassy_nrf::{interrupt, pac, peripherals};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config, UsbDevice};
 use embassy_usb_serial::{CdcAcmClass, State};
@@ -33,7 +33,8 @@ async fn echo_task(mut class: CdcAcmClass<'static, MyDriver>) {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
     let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 
     info!("Enabling ext hfosc...");

@@ -7,7 +7,7 @@ use core::str::from_utf8;
 
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy_executor::executor::Executor;
+use embassy_executor::Executor;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::peripherals::SPI3;
 use embassy_stm32::time::mhz;
@@ -15,14 +15,6 @@ use embassy_stm32::{spi, Config};
 use embassy_util::Forever;
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
-
-pub fn config() -> Config {
-    let mut config = Config::default();
-    config.rcc.sys_ck = Some(mhz(400));
-    config.rcc.hclk = Some(mhz(200));
-    config.rcc.pll1.q_ck = Some(mhz(100));
-    config
-}
 
 #[embassy_executor::task]
 async fn main_task(mut spi: spi::Spi<'static, SPI3, NoDma, NoDma>) {
@@ -45,7 +37,11 @@ static EXECUTOR: Forever<Executor> = Forever::new();
 fn main() -> ! {
     info!("Hello World!");
 
-    let p = embassy_stm32::init(config());
+    let mut config = Config::default();
+    config.rcc.sys_ck = Some(mhz(400));
+    config.rcc.hclk = Some(mhz(200));
+    config.rcc.pll1.q_ck = Some(mhz(100));
+    let p = embassy_stm32::init(config);
 
     let spi = spi::Spi::new(
         p.SPI3,

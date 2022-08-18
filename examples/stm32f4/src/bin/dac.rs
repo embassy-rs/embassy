@@ -3,13 +3,13 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_stm32::dac::{Channel, Dac, Value};
-use embassy_stm32::Peripherals;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) -> ! {
+async fn main(_spawner: Spawner) -> ! {
+    let p = embassy_stm32::init(Default::default());
     info!("Hello World, dude!");
 
     let mut dac = Dac::new_1ch(p.DAC, p.PA4);

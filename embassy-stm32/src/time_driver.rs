@@ -4,8 +4,8 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::{mem, ptr};
 
 use atomic_polyfill::{AtomicU32, AtomicU8};
-use embassy_executor::time::driver::{AlarmHandle, Driver};
-use embassy_executor::time::TICKS_PER_SECOND;
+use embassy_time::driver::{AlarmHandle, Driver};
+use embassy_time::TICKS_PER_SECOND;
 use embassy_util::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_util::blocking_mutex::Mutex;
 use stm32_metapac::timer::regs;
@@ -133,7 +133,7 @@ struct RtcDriver {
 
 const ALARM_STATE_NEW: AlarmState = AlarmState::new();
 
-embassy_executor::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
+embassy_time::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
     alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),

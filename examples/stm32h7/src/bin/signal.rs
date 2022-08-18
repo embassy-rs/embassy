@@ -3,9 +3,8 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::{info, unwrap};
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
-use embassy_stm32::Peripherals;
+use embassy_executor::Spawner;
+use embassy_time::{Duration, Timer};
 use embassy_util::channel::signal::Signal;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -25,7 +24,8 @@ async fn my_sending_task() {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, _p: Peripherals) {
+async fn main(spawner: Spawner) {
+    let _p = embassy_stm32::init(Default::default());
     unwrap!(spawner.spawn(my_sending_task()));
 
     loop {

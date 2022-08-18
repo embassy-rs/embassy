@@ -5,13 +5,13 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use defmt::assert;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Flex, Input, Level, Output, OutputOpenDrain, Pull, Speed};
-use embassy_stm32::Peripherals;
 use example_common::*;
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, p: Peripherals) {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = embassy_stm32::init(config());
     info!("Hello World!");
 
     // Arduino pins D0 and D1

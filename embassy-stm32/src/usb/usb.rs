@@ -5,8 +5,8 @@ use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicBool, AtomicU8};
-use embassy_executor::time::{block_for, Duration};
 use embassy_hal_common::into_ref;
+use embassy_time::{block_for, Duration};
 use embassy_usb::driver::{self, EndpointAllocError, EndpointError, Event, Unsupported};
 use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
 use embassy_util::waitqueue::AtomicWaker;

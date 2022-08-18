@@ -1,7 +1,7 @@
 #![feature(type_alias_impl_trait)]
 
 use clap::Parser;
-use embassy_executor::executor::{Executor, Spawner};
+use embassy_executor::{Executor, Spawner};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{ConfigStrategy, Ipv4Address, Ipv4Cidr, Stack, StackResources};
 use embassy_util::Forever;

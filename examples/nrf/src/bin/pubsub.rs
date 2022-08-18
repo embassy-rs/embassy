@@ -3,8 +3,8 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::unwrap;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
+use embassy_time::{Duration, Timer};
 use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_util::channel::pubsub::{DynSubscriber, PubSubChannel, Subscriber};
 use {defmt_rtt as _, panic_probe as _};
@@ -20,7 +20,8 @@ enum Message {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, _p: embassy_nrf::Peripherals) {
+async fn main(spawner: Spawner) {
+    let _p = embassy_nrf::init(Default::default());
     defmt::info!("Hello World!");
 
     // It's good to set up the subscribers before publishing anything.

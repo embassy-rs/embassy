@@ -1,12 +1,11 @@
 use core::future::Future;
 use core::pin::Pin;
-use core::task::{Context, Poll};
+use core::task::{Context, Poll, Waker};
 
 use futures_util::future::{select, Either};
 use futures_util::{pin_mut, Stream};
 
-use crate::executor::raw;
-use crate::time::{Duration, Instant};
+use crate::{Duration, Instant};
 
 /// Error returned by [`with_timeout`] on timeout.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,7 +48,7 @@ impl Timer {
     /// # #![feature(type_alias_impl_trait)]
     /// #
     /// # fn foo() {}
-    /// use embassy_executor::time::{Duration, Timer};
+    /// use embassy_time::{Duration, Timer};
     ///
     /// #[embassy_executor::task]
     /// async fn demo_sleep_seconds() {
@@ -73,7 +72,7 @@ impl Future for Timer {
         if self.yielded_once && self.expires_at <= Instant::now() {
             Poll::Ready(())
         } else {
-            unsafe { raw::register_timer(self.expires_at, cx.waker()) };
+            schedule_wake(self.expires_at, cx.waker());
             self.yielded_once = true;
             Poll::Pending
         }
@@ -88,7 +87,7 @@ impl Future for Timer {
 /// ``` no_run
 /// # #![feature(type_alias_impl_trait)]
 /// #
-/// use embassy_executor::time::{Duration, Timer};
+/// use embassy_time::{Duration, Timer};
 /// # fn foo() {}
 ///
 /// #[embassy_executor::task]
@@ -108,7 +107,7 @@ impl Future for Timer {
 /// ``` no_run
 /// # #![feature(type_alias_impl_trait)]
 /// #
-/// use embassy_executor::time::{Duration, Ticker};
+/// use embassy_time::{Duration, Ticker};
 /// use futures::StreamExt;
 /// # fn foo(){}
 ///
@@ -144,8 +143,16 @@ impl Stream for Ticker {
             self.expires_at += dur;
             Poll::Ready(Some(()))
         } else {
-            unsafe { raw::register_timer(self.expires_at, cx.waker()) };
+            schedule_wake(self.expires_at, cx.waker());
             Poll::Pending
         }
     }
+}
+
+extern "Rust" {
+    fn _embassy_time_schedule_wake(at: Instant, waker: &Waker);
+}
+
+fn schedule_wake(at: Instant, waker: &Waker) {
+    unsafe { _embassy_time_schedule_wake(at, waker) }
 }

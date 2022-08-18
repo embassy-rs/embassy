@@ -4,9 +4,9 @@ use core::ptr;
 use core::ptr::NonNull;
 
 use atomic_polyfill::Ordering;
+use embassy_time::Instant;
 
 use super::{TaskHeader, STATE_TIMER_QUEUED};
-use crate::time::Instant;
 
 pub(crate) struct TimerQueueItem {
     next: Cell<*mut TaskHeader>,
