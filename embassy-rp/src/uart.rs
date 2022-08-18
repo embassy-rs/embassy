@@ -2,6 +2,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_common::{into_ref, PeripheralRef};
 
+use crate::dma::{AnyChannel, Channel};
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
 use crate::{pac, peripherals, Peripheral};
@@ -76,26 +77,27 @@ pub enum Error {
     Framing,
 }
 
-pub struct Uart<'d, T: Instance> {
-    tx: UartTx<'d, T>,
-    rx: UartRx<'d, T>,
+pub struct Uart<'d, T: Instance, M: Mode> {
+    tx: UartTx<'d, T, M>,
+    rx: UartRx<'d, T, M>,
 }
 
-pub struct UartTx<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+pub struct UartTx<'d, T: Instance, M: Mode> {
+    tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+    phantom: PhantomData<(&'d mut T, M)>,
 }
 
-pub struct UartRx<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+pub struct UartRx<'d, T: Instance, M: Mode> {
+    rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+    phantom: PhantomData<(&'d mut T, M)>,
 }
 
-impl<'d, T: Instance> UartTx<'d, T> {
-    fn new() -> Self {
-        Self { phantom: PhantomData }
-    }
-
-    pub async fn write(&mut self, _buffer: &[u8]) -> Result<(), Error> {
-        todo!()
+impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
+    fn new(tx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
+        Self {
+            tx_dma,
+            phantom: PhantomData,
+        }
     }
 
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
@@ -116,13 +118,29 @@ impl<'d, T: Instance> UartTx<'d, T> {
     }
 }
 
-impl<'d, T: Instance> UartRx<'d, T> {
-    fn new() -> Self {
-        Self { phantom: PhantomData }
+impl<'d, T: Instance> UartTx<'d, T, Async> {
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        if let Some(ch) = &mut self.tx_dma {
+            unsafe {
+                T::regs().uartdmacr().modify(|reg| {
+                    reg.set_txdmae(true);
+                });
+            }
+            // If we don't assign future to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            let transfer = crate::dma::copy(ch, buffer, unsafe { T::regs().uartdr().ptr() });
+            transfer.await;
+        }
+        Ok(())
     }
+}
 
-    pub async fn read(&mut self, _buffer: &mut [u8]) -> Result<(), Error> {
-        todo!();
+impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
+    fn new(rx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
+        Self {
+            rx_dma,
+            phantom: PhantomData,
+        }
     }
 
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
@@ -150,25 +168,42 @@ impl<'d, T: Instance> UartRx<'d, T> {
     }
 }
 
-impl<'d, T: Instance> Uart<'d, T> {
+impl<'d, T: Instance> UartRx<'d, T, Async> {
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        if let Some(ch) = &mut self.rx_dma {
+            unsafe {
+                T::regs().uartdmacr().modify(|reg| {
+                    reg.set_rxdmae(true);
+                });
+            }
+            // If we don't assign future to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            let transfer = crate::dma::copy(ch, unsafe { T::regs().uartdr().ptr() }, buffer);
+            transfer.await;
+        }
+        Ok(())
+    }
+}
+
+impl<'d, T: Instance> Uart<'d, T, Blocking> {
     /// Create a new UART without hardware flow control
-    pub fn new(
+    pub fn new_blocking(
         uart: impl Peripheral<P = T> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(tx, rx);
-        Self::new_inner(uart, rx.map_into(), tx.map_into(), None, None, config)
+        Self::new_inner(uart, rx.map_into(), tx.map_into(), None, None, None, None, config)
     }
 
     /// Create a new UART with hardware flow control (RTS/CTS)
-    pub fn new_with_rtscts(
+    pub fn new_with_rtscts_blocking(
         uart: impl Peripheral<P = T> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
         rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(tx, rx, cts, rts);
@@ -176,18 +211,72 @@ impl<'d, T: Instance> Uart<'d, T> {
             uart,
             rx.map_into(),
             tx.map_into(),
-            Some(cts.map_into()),
             Some(rts.map_into()),
+            Some(cts.map_into()),
+            None,
+            None,
+            config,
+        )
+    }
+}
+
+impl<'d, T: Instance> Uart<'d, T, Async> {
+    /// Create a new DMA enabled UART without hardware flow control
+    pub fn new(
+        uart: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl Channel> + 'd,
+        rx_dma: impl Peripheral<P = impl Channel> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(tx, rx, tx_dma, rx_dma);
+        Self::new_inner(
+            uart,
+            rx.map_into(),
+            tx.map_into(),
+            None,
+            None,
+            Some(tx_dma.map_into()),
+            Some(rx_dma.map_into()),
             config,
         )
     }
 
+    /// Create a new DMA enabled UART with hardware flow control (RTS/CTS)
+    pub fn new_with_rtscts(
+        uart: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl Channel> + 'd,
+        rx_dma: impl Peripheral<P = impl Channel> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(tx, rx, cts, rts, tx_dma, rx_dma);
+        Self::new_inner(
+            uart,
+            rx.map_into(),
+            tx.map_into(),
+            Some(rts.map_into()),
+            Some(cts.map_into()),
+            Some(tx_dma.map_into()),
+            Some(rx_dma.map_into()),
+            config,
+        )
+    }
+}
+
+impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
     fn new_inner(
         _uart: impl Peripheral<P = T> + 'd,
         tx: PeripheralRef<'d, AnyPin>,
         rx: PeripheralRef<'d, AnyPin>,
-        cts: Option<PeripheralRef<'d, AnyPin>>,
         rts: Option<PeripheralRef<'d, AnyPin>>,
+        cts: Option<PeripheralRef<'d, AnyPin>>,
+        tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+        rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         config: Config,
     ) -> Self {
         into_ref!(_uart);
@@ -246,15 +335,13 @@ impl<'d, T: Instance> Uart<'d, T> {
         }
 
         Self {
-            tx: UartTx::new(),
-            rx: UartRx::new(),
+            tx: UartTx::new(tx_dma),
+            rx: UartRx::new(rx_dma),
         }
     }
+}
 
-    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        self.tx.write(buffer).await
-    }
-
+impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.blocking_write(buffer)
     }
@@ -263,26 +350,31 @@ impl<'d, T: Instance> Uart<'d, T> {
         self.tx.blocking_flush()
     }
 
-    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        self.rx.read(buffer).await
-    }
-
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
     }
 
-    /// Split the Uart into a transmitter and receiver, which is
-    /// particuarly useful when having two tasks correlating to
-    /// transmitting and receiving.
-    pub fn split(self) -> (UartTx<'d, T>, UartRx<'d, T>) {
+    /// Split the Uart into a transmitter and receiver, which is particuarly
+    /// useful when having two tasks correlating to transmitting and receiving.
+    pub fn split(self) -> (UartTx<'d, T, M>, UartRx<'d, T, M>) {
         (self.tx, self.rx)
+    }
+}
+
+impl<'d, T: Instance> Uart<'d, T, Async> {
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.tx.write(buffer).await
+    }
+
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.rx.read(buffer).await
     }
 }
 
 mod eh02 {
     use super::*;
 
-    impl<'d, T: Instance> embedded_hal_02::serial::Read<u8> for UartRx<'d, T> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_02::serial::Read<u8> for UartRx<'d, T, M> {
         type Error = Error;
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             let r = T::regs();
@@ -306,7 +398,7 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Instance> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, T> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, T, M> {
         type Error = Error;
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
@@ -316,14 +408,14 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Instance> embedded_hal_02::serial::Read<u8> for Uart<'d, T> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_02::serial::Read<u8> for Uart<'d, T, M> {
         type Error = Error;
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             embedded_hal_02::serial::Read::read(&mut self.rx)
         }
     }
 
-    impl<'d, T: Instance> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, T> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, T, M> {
         type Error = Error;
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
@@ -419,6 +511,8 @@ cfg_if::cfg_if! {
 mod sealed {
     use super::*;
 
+    pub trait Mode {}
+
     pub trait Instance {
         fn regs() -> pac::uart::Uart;
     }
@@ -427,6 +521,21 @@ mod sealed {
     pub trait CtsPin<T: Instance> {}
     pub trait RtsPin<T: Instance> {}
 }
+
+pub trait Mode: sealed::Mode {}
+
+macro_rules! impl_mode {
+    ($name:ident) => {
+        impl sealed::Mode for $name {}
+        impl Mode for $name {}
+    };
+}
+
+pub struct Blocking;
+pub struct Async;
+
+impl_mode!(Blocking);
+impl_mode!(Async);
 
 pub trait Instance: sealed::Instance {}
 
