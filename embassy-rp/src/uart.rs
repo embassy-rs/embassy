@@ -151,7 +151,7 @@ impl<'d, T: Instance> UartRx<'d, T> {
 }
 
 impl<'d, T: Instance> Uart<'d, T> {
-    /// Create a new UARTE without hardware flow control
+    /// Create a new UART without hardware flow control
     pub fn new(
         uart: impl Peripheral<P = T> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
