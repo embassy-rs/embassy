@@ -10,11 +10,11 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let config = uart::Config::default();
-    let mut uart = uart::Uart::new(p.UART0, p.PIN_0, p.PIN_1, p.PIN_2, p.PIN_3, config);
-    uart.send("Hello World!\r\n".as_bytes());
+    let mut uart = uart::Uart::new_with_rtscts(p.UART0, p.PIN_0, p.PIN_1, p.PIN_2, p.PIN_3, config);
+    uart.blocking_write("Hello World!\r\n".as_bytes()).unwrap();
 
     loop {
-        uart.send("hello there!\r\n".as_bytes());
+        uart.blocking_write("hello there!\r\n".as_bytes()).unwrap();
         cortex_m::asm::delay(1_000_000);
     }
 }
