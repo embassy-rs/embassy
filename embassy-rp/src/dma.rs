@@ -96,10 +96,6 @@ impl State {
 
 static STATE: State = State::new();
 
-pub struct NoDma;
-
-impl_peripheral!(NoDma);
-
 mod sealed {
     pub trait Channel {}
 
