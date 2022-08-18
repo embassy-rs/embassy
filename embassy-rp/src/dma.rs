@@ -1,6 +1,6 @@
 use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
-use core::task::{Context, Poll, Waker};
+use core::task::{Context, Poll};
 
 use embassy_hal_common::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_util::waitqueue::AtomicWaker;
@@ -84,9 +84,9 @@ impl<'a, C: Channel> Unpin for Transfer<'a, C> {}
 impl<'a, C: Channel> Future for Transfer<'a, C> {
     type Output = ();
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.channel.set_waker(cx.waker());
+        CHANNEL_WAKERS[self.channel.number() as usize].register(cx.waker());
 
-        if self.channel.is_running() {
+        if unsafe { self.channel.regs().ctrl_trig().read().en() } {
             Poll::Pending
         } else {
             Poll::Ready(())
@@ -94,30 +94,9 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
     }
 }
 
-struct ChannelState {
-    waker: AtomicWaker,
-}
-
-impl ChannelState {
-    const fn new() -> Self {
-        Self {
-            waker: AtomicWaker::new(),
-        }
-    }
-}
-
-struct State {
-    channels: [ChannelState; 12],
-}
-
-impl State {
-    const fn new() -> Self {
-        const CH: ChannelState = ChannelState::new();
-        Self { channels: [CH; 12] }
-    }
-}
-
-static STATE: State = State::new();
+const CHANNEL_COUNT: usize = 12;
+const NEW_AW: AtomicWaker = AtomicWaker::new();
+static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AW; CHANNEL_COUNT];
 
 mod sealed {
     pub trait Channel {}
@@ -130,18 +109,6 @@ pub trait Channel: Peripheral<P = Self> + sealed::Channel + Into<AnyChannel> + S
 
     fn regs(&self) -> pac::dma::Channel {
         pac::DMA.ch(self.number() as _)
-    }
-
-    fn is_running(&self) -> bool {
-        unsafe { self.regs().ctrl_trig().read().en() }
-    }
-
-    fn set_waker(&self, waker: &Waker) {
-        STATE.channels[self.number() as usize].waker.register(waker);
-    }
-
-    fn on_irq() {
-        // FIXME:
     }
 
     fn degrade(self) -> AnyChannel {
