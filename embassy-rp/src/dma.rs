@@ -10,7 +10,11 @@ use pac::dma::vals::DataSize;
 use crate::pac::dma::vals;
 use crate::{pac, peripherals};
 
-pub(crate) fn read<'a, C: Channel, W: Word>(ch: impl Peripheral<P = C> + 'a, from: *const W, to: *mut [W]) -> Transfer<'a, C> {
+pub(crate) fn read<'a, C: Channel, W: Word>(
+    ch: impl Peripheral<P = C> + 'a,
+    from: *const W,
+    to: *mut [W],
+) -> Transfer<'a, C> {
     let (ptr, len) = crate::dma::slice_ptr_parts_mut(to);
     copy(ch, from as *const u32, ptr as *mut u32, len, W::size())
 }
@@ -44,7 +48,7 @@ fn copy<'a, C: Channel>(
 
         p.ctrl_trig().write(|w| {
             w.set_data_size(data_size);
-            w.set_incr_read(true);
+            w.set_incr_read(false);
             w.set_incr_write(true);
             w.set_chain_to(ch.number());
             w.set_en(true);
@@ -136,7 +140,9 @@ pub trait Channel: Peripheral<P = Self> + sealed::Channel + Into<AnyChannel> + S
         STATE.channels[self.number() as usize].waker.register(waker);
     }
 
-    fn on_irq() {}
+    fn on_irq() {
+        // FIXME:
+    }
 
     fn degrade(self) -> AnyChannel {
         AnyChannel { number: self.number() }
