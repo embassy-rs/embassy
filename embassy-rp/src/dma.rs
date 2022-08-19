@@ -17,7 +17,7 @@ unsafe fn DMA_IRQ_0() {
 
     critical_section::with(|_| {
         for channel in 0..CHANNEL_COUNT {
-            if ints0 & (1 << channel) == 1 {
+            if ints0 & (1 << channel) == (1 << channel) {
                 CHANNEL_WAKERS[channel].wake();
             }
         }
