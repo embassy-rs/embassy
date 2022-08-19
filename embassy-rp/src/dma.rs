@@ -25,30 +25,39 @@ unsafe fn DMA_IRQ_0() {
     });
 }
 
-pub(crate) fn read<'a, C: Channel, W: Word>(
-    ch: impl Peripheral<P = C> + 'a,
-    from: *const W,
-    to: *mut [W],
-) -> Transfer<'a, C> {
+pub fn read<'a, C: Channel, W: Word>(ch: impl Peripheral<P = C> + 'a, from: *const W, to: &mut [W]) -> Transfer<'a, C> {
     let (ptr, len) = crate::dma::slice_ptr_parts_mut(to);
-    copy(ch, from as *const u32, ptr as *mut u32, len, W::size())
+    copy_inner(ch, from as *const u32, ptr as *mut u32, len, W::size(), false, true)
 }
 
-pub(crate) fn write<'a, C: Channel, W: Word>(
-    ch: impl Peripheral<P = C> + 'a,
-    from: *const [W],
-    to: *mut W,
-) -> Transfer<'a, C> {
+pub fn write<'a, C: Channel, W: Word>(ch: impl Peripheral<P = C> + 'a, from: &[W], to: *mut W) -> Transfer<'a, C> {
     let (from_ptr, len) = crate::dma::slice_ptr_parts(from);
-    copy(ch, from_ptr as *const u32, to as *mut u32, len, W::size())
+    copy_inner(ch, from_ptr as *const u32, to as *mut u32, len, W::size(), true, false)
 }
 
-fn copy<'a, C: Channel>(
+pub fn copy<'a, C: Channel, W: Word>(ch: impl Peripheral<P = C> + 'a, from: &[W], to: &mut [W]) -> Transfer<'a, C> {
+    let (from_ptr, from_len) = crate::dma::slice_ptr_parts(from);
+    let (to_ptr, to_len) = crate::dma::slice_ptr_parts_mut(to);
+    assert_eq!(from_len, to_len);
+    copy_inner(
+        ch,
+        from_ptr as *const u32,
+        to_ptr as *mut u32,
+        from_len,
+        W::size(),
+        true,
+        true,
+    )
+}
+
+fn copy_inner<'a, C: Channel>(
     ch: impl Peripheral<P = C> + 'a,
     from: *const u32,
     to: *mut u32,
     len: usize,
     data_size: DataSize,
+    incr_read: bool,
+    incr_write: bool,
 ) -> Transfer<'a, C> {
     into_ref!(ch);
 
@@ -63,8 +72,8 @@ fn copy<'a, C: Channel>(
 
         p.ctrl_trig().write(|w| {
             w.set_data_size(data_size);
-            w.set_incr_read(false);
-            w.set_incr_write(true);
+            w.set_incr_read(incr_read);
+            w.set_incr_write(incr_write);
             w.set_chain_to(ch.number());
             w.set_en(true);
         });
@@ -74,7 +83,7 @@ fn copy<'a, C: Channel>(
     Transfer::new(ch)
 }
 
-pub(crate) struct Transfer<'a, C: Channel> {
+pub struct Transfer<'a, C: Channel> {
     channel: PeripheralRef<'a, C>,
 }
 
@@ -114,7 +123,7 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
         // calls to wake will deregister the waker.
         CHANNEL_WAKERS[self.channel.number() as usize].register(cx.waker());
 
-        if unsafe { self.channel.regs().ctrl_trig().read().en() } {
+        if unsafe { self.channel.regs().ctrl_trig().read().busy() } {
             Poll::Pending
         } else {
             Poll::Ready(())
