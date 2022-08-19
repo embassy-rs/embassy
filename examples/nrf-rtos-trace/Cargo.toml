@@ -35,5 +35,4 @@ name = "rtos_trace"
 required-features = ["nightly"]
 
 [patch.crates-io]
-rtos-trace = { git = "https://gitlab.com/quentinmit/rtos-trace.git", branch = "build-fix" }
-systemview-target = { git = "https://gitlab.com/quentinmit/rtos-trace.git", branch = "build-fix" }
+systemview-target = { git = "https://gitlab.com/bern-rtos/tools/rtos-trace.git", rev = "3f68ec60f07aa87c191628568263f57073aa3dab" }
