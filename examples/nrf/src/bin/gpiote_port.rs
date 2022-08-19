@@ -3,9 +3,8 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::{info, unwrap};
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_nrf::gpio::{AnyPin, Input, Pin as _, Pull};
-use embassy_nrf::Peripherals;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task(pool_size = 4)]
@@ -19,7 +18,8 @@ async fn button_task(n: usize, mut pin: Input<'static, AnyPin>) {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
     info!("Starting!");
 
     let btn1 = Input::new(p.P0_11.degrade(), Pull::Up);

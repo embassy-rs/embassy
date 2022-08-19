@@ -9,5 +9,4 @@ edition = "2021"
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-embassy-util = { version = "0.1.0", path = "../embassy-util" }
 num-traits = { version = "0.2.14", default-features = false }

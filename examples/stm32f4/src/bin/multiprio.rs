@@ -59,10 +59,10 @@
 
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy_executor::time::{Duration, Instant, Timer};
 use embassy_stm32::executor::{Executor, InterruptExecutor};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::InterruptExt;
+use embassy_time::{Duration, Instant, Timer};
 use embassy_util::Forever;
 use {defmt_rtt as _, panic_probe as _};
 

@@ -4,6 +4,12 @@ name = "embassy-boot-nrf"
 version = "0.1.0"
 description = "Bootloader lib for nRF chips"
 
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-nrf-v$VERSION/embassy-boot/nrf/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot/nrf/src/"
+features = ["embassy-nrf/nrf52840"]
+target = "thumbv7em-none-eabi"
+
 [lib]
 
 [dependencies]
@@ -12,7 +18,7 @@ defmt = { version = "0.3", optional = true }
 embassy-util = { path = "../../embassy-util" }
 embassy-nrf = { path = "../../embassy-nrf", default-features = false, features = ["nightly"] }
 embassy-boot = { path = "../boot", default-features = false }
-cortex-m = { version = "0.7" }
+cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.3.0"

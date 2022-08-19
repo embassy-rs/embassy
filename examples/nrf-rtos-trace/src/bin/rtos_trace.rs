@@ -4,9 +4,8 @@
 
 use core::task::Poll;
 
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Instant, Timer};
-use embassy_nrf::Peripherals;
+use embassy_executor::Spawner;
+use embassy_time::{Duration, Instant, Timer};
 #[cfg(feature = "log")]
 use log::*;
 use panic_probe as _;
@@ -55,7 +54,8 @@ async fn run3() {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, _p: Peripherals) {
+async fn main(spawner: Spawner) {
+    let _p = embassy_nrf::init(Default::default());
     LOGGER.init();
     #[cfg(feature = "log")]
     {

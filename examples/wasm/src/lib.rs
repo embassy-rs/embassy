@@ -1,8 +1,8 @@
 #![feature(type_alias_impl_trait)]
 #![allow(incomplete_features)]
 
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
+use embassy_time::{Duration, Timer};
 
 #[embassy_executor::task]
 async fn ticker() {

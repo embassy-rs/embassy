@@ -6,7 +6,7 @@ use std::{mem, ptr, thread};
 
 use atomic_polyfill::{AtomicU8, Ordering};
 
-use crate::time::driver::{AlarmHandle, Driver};
+use crate::driver::{AlarmHandle, Driver};
 
 const ALARM_COUNT: usize = 4;
 

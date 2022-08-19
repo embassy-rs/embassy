@@ -7,9 +7,7 @@ edition = "2021"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-ncm-v$VERSION/embassy-usb-ncm/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-ncm/src/"
 features = ["defmt"]
-flavors = [
-    { name = "default", target = "thumbv7em-none-eabihf" },
-]
+target = "thumbv7em-none-eabi"
 
 [dependencies]
 embassy-util = { version = "0.1.0", path = "../embassy-util" }

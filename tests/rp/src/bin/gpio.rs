@@ -3,13 +3,13 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::{assert, *};
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_rp::gpio::{Flex, Input, Level, Output, OutputOpenDrain, Pull};
-use embassy_rp::Peripherals;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_rp::init(Default::default());
     info!("Hello World!");
 
     let (mut a, mut b) = (p.PIN_0, p.PIN_1);

@@ -6,17 +6,18 @@
 use defmt_rtt::*;
 use embassy_boot_stm32::FirmwareUpdater;
 use embassy_embedded_hal::adapter::BlockingAsync;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::flash::Flash;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
-use embassy_stm32::Peripherals;
+use embassy_time::{Duration, Timer};
 use panic_reset as _;
 
 static APP_B: &[u8] = include_bytes!("../../b.bin");
 
 #[embassy_executor::main]
-async fn main(_s: embassy_executor::executor::Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_stm32::init(Default::default());
     let flash = Flash::unlock(p.FLASH);
     let mut flash = BlockingAsync::new(flash);
 

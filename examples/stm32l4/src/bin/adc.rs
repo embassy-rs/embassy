@@ -3,9 +3,9 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::time::Delay;
 use embassy_stm32::adc::{Adc, Resolution};
 use embassy_stm32::pac;
+use embassy_time::Delay;
 use {defmt_rtt as _, panic_probe as _};
 
 #[cortex_m_rt::entry]

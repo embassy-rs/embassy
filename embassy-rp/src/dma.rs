@@ -1,5 +1,7 @@
 use core::sync::atomic::{compiler_fence, Ordering};
 
+use embassy_hal_common::impl_peripheral;
+
 use crate::pac::dma::vals;
 use crate::{pac, peripherals};
 
@@ -34,6 +36,10 @@ impl<T: Channel> Dma<T> {
         }
     }
 }
+
+pub struct NoDma;
+
+impl_peripheral!(NoDma);
 
 mod sealed {
     use super::*;

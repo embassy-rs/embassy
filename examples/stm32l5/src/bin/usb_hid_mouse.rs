@@ -4,12 +4,12 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_stm32::rcc::*;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{interrupt, Config, Peripherals};
+use embassy_time::{Duration, Timer};
 use embassy_usb::control::OutResponse;
 use embassy_usb::Builder;
 use embassy_usb_hid::{HidWriter, ReportId, RequestHandler, State};
@@ -17,18 +17,13 @@ use futures::future::join;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
-fn config() -> Config {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.mux = ClockSrc::HSE(Hertz(16_000_000));
-
     config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PLLClkDiv::Div2, PLLSrcDiv::Div1, PLLMul::Mul10, None);
     config.rcc.hsi48 = true;
+    let p = embassy_stm32::init(config);
 
-    config
-}
-
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, p: Peripherals) {
     // Create the driver, from the HAL.
     let irq = interrupt::take!(USB_FS);
     let driver = Driver::new(p.USB, irq, p.PA12, p.PA11);

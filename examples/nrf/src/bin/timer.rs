@@ -3,9 +3,8 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::{info, unwrap};
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
-use embassy_nrf::Peripherals;
+use embassy_executor::Spawner;
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
@@ -25,7 +24,8 @@ async fn run2() {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, _p: Peripherals) {
+async fn main(spawner: Spawner) {
+    let _p = embassy_nrf::init(Default::default());
     unwrap!(spawner.spawn(run1()));
     unwrap!(spawner.spawn(run2()));
 }

@@ -4,6 +4,12 @@ name = "embassy-boot-stm32"
 version = "0.1.0"
 description = "Bootloader lib for STM32 chips"
 
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-nrf-v$VERSION/embassy-boot/stm32/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot/stm32/src/"
+features = ["embassy-stm32/stm32f429zi"]
+target = "thumbv7em-none-eabi"
+
 [lib]
 
 [dependencies]
@@ -14,7 +20,7 @@ log = { version = "0.4", optional = true }
 embassy-util = { path = "../../embassy-util" }
 embassy-stm32 = { path = "../../embassy-stm32", default-features = false, features = ["nightly"] }
 embassy-boot = { path = "../boot", default-features = false }
-cortex-m = { version = "0.7" }
+cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.3.0"

@@ -8,7 +8,7 @@
 //! executor wrappers in [`executor`](crate::executor) and the [`embassy_executor::task`](embassy_macros::task) macro, which are fully safe.
 
 mod run_queue;
-#[cfg(feature = "time")]
+#[cfg(feature = "integrated-timers")]
 mod timer_queue;
 pub(crate) mod util;
 mod waker;
@@ -22,6 +22,10 @@ use core::{mem, ptr};
 
 use atomic_polyfill::{AtomicU32, Ordering};
 use critical_section::CriticalSection;
+#[cfg(feature = "integrated-timers")]
+use embassy_time::driver::{self, AlarmHandle};
+#[cfg(feature = "integrated-timers")]
+use embassy_time::Instant;
 #[cfg(feature = "rtos-trace")]
 use rtos_trace::trace;
 
@@ -29,17 +33,13 @@ use self::run_queue::{RunQueue, RunQueueItem};
 use self::util::UninitCell;
 pub use self::waker::task_from_waker;
 use super::SpawnToken;
-#[cfg(feature = "time")]
-use crate::time::driver::{self, AlarmHandle};
-#[cfg(feature = "time")]
-use crate::time::Instant;
 
 /// Task is spawned (has a future)
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
 /// Task is in the executor run queue
 pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
 /// Task is in the executor timer queue
-#[cfg(feature = "time")]
+#[cfg(feature = "integrated-timers")]
 pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
 
 /// Raw task header for use in task pointers.
@@ -52,9 +52,9 @@ pub struct TaskHeader {
     pub(crate) executor: Cell<*const Executor>, // Valid if state != 0
     pub(crate) poll_fn: UninitCell<unsafe fn(NonNull<TaskHeader>)>, // Valid if STATE_SPAWNED
 
-    #[cfg(feature = "time")]
+    #[cfg(feature = "integrated-timers")]
     pub(crate) expires_at: Cell<Instant>,
-    #[cfg(feature = "time")]
+    #[cfg(feature = "integrated-timers")]
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
 }
 
@@ -66,9 +66,9 @@ impl TaskHeader {
             executor: Cell::new(ptr::null()),
             poll_fn: UninitCell::uninit(),
 
-            #[cfg(feature = "time")]
+            #[cfg(feature = "integrated-timers")]
             expires_at: Cell::new(Instant::from_ticks(0)),
-            #[cfg(feature = "time")]
+            #[cfg(feature = "integrated-timers")]
             timer_queue_item: timer_queue::TimerQueueItem::new(),
         }
     }
@@ -269,9 +269,9 @@ pub struct Executor {
     signal_fn: fn(*mut ()),
     signal_ctx: *mut (),
 
-    #[cfg(feature = "time")]
+    #[cfg(feature = "integrated-timers")]
     pub(crate) timer_queue: timer_queue::TimerQueue,
-    #[cfg(feature = "time")]
+    #[cfg(feature = "integrated-timers")]
     alarm: AlarmHandle,
 }
 
@@ -283,9 +283,9 @@ impl Executor {
     ///
     /// See [`Executor`] docs for details on `signal_fn`.
     pub fn new(signal_fn: fn(*mut ()), signal_ctx: *mut ()) -> Self {
-        #[cfg(feature = "time")]
+        #[cfg(feature = "integrated-timers")]
         let alarm = unsafe { unwrap!(driver::allocate_alarm()) };
-        #[cfg(feature = "time")]
+        #[cfg(feature = "integrated-timers")]
         driver::set_alarm_callback(alarm, signal_fn, signal_ctx);
 
         Self {
@@ -293,9 +293,9 @@ impl Executor {
             signal_fn,
             signal_ctx,
 
-            #[cfg(feature = "time")]
+            #[cfg(feature = "integrated-timers")]
             timer_queue: timer_queue::TimerQueue::new(),
-            #[cfg(feature = "time")]
+            #[cfg(feature = "integrated-timers")]
             alarm,
         }
     }
@@ -354,13 +354,13 @@ impl Executor {
     /// somehow schedule for `poll()` to be called later, at a time you know for sure there's
     /// no `poll()` already running.
     pub unsafe fn poll(&'static self) {
-        #[cfg(feature = "time")]
+        #[cfg(feature = "integrated-timers")]
         self.timer_queue.dequeue_expired(Instant::now(), |task| wake_task(task));
 
         self.run_queue.dequeue_all(|p| {
             let task = p.as_ref();
 
-            #[cfg(feature = "time")]
+            #[cfg(feature = "integrated-timers")]
             task.expires_at.set(Instant::MAX);
 
             let state = task.state.fetch_and(!STATE_RUN_QUEUED, Ordering::AcqRel);
@@ -383,11 +383,11 @@ impl Executor {
             trace::task_exec_end();
 
             // Enqueue or update into timer_queue
-            #[cfg(feature = "time")]
+            #[cfg(feature = "integrated-timers")]
             self.timer_queue.update(p);
         });
 
-        #[cfg(feature = "time")]
+        #[cfg(feature = "integrated-timers")]
         {
             // If this is already in the past, set_alarm will immediately trigger the alarm.
             // This will cause `signal_fn` to be called, which will cause `poll()` to be called again,
@@ -435,8 +435,9 @@ pub unsafe fn wake_task(task: NonNull<TaskHeader>) {
     })
 }
 
-#[cfg(feature = "time")]
-pub(crate) unsafe fn register_timer(at: Instant, waker: &core::task::Waker) {
+#[cfg(feature = "integrated-timers")]
+#[no_mangle]
+unsafe fn _embassy_time_schedule_wake(at: Instant, waker: &core::task::Waker) {
     let task = waker::task_from_waker(waker);
     let task = task.as_ref();
     let expires_at = task.expires_at.get();
@@ -448,11 +449,11 @@ impl rtos_trace::RtosTraceOSCallbacks for Executor {
     fn task_list() {
         // We don't know what tasks exist, so we can't send them.
     }
-    #[cfg(feature = "time")]
+    #[cfg(feature = "integrated-timers")]
     fn time() -> u64 {
         Instant::now().as_micros()
     }
-    #[cfg(not(feature = "time"))]
+    #[cfg(not(feature = "integrated-timers"))]
     fn time() -> u64 {
         0
     }

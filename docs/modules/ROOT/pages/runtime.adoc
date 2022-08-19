@@ -1,6 +1,6 @@
-= Embassy runtime
+= Embassy executor
 
-The Embassy runtime is an async/await executor designed for embedded usage along with support functionality for interrupts and timers.
+The Embassy executor is an async/await executor designed for embedded usage along with support functionality for interrupts and timers.
 
 == Features
 
