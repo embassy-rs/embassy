@@ -2,13 +2,28 @@ use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
+use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_util::waitqueue::AtomicWaker;
 use futures::Future;
 use pac::dma::vals::DataSize;
 
 use crate::pac::dma::vals;
-use crate::{pac, peripherals};
+use crate::{interrupt, pac, peripherals};
+
+#[interrupt]
+unsafe fn DMA_IRQ_0() {
+    let ints0 = pac::DMA.ints0().read().ints0();
+
+    critical_section::with(|_| {
+        for channel in 0..CHANNEL_COUNT {
+            if ints0 & (1 << channel) == 1 {
+                CHANNEL_WAKERS[channel].wake();
+            }
+        }
+        pac::DMA.ints0().write(|w| w.set_ints0(ints0));
+    });
+}
 
 pub(crate) fn read<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
@@ -66,6 +81,17 @@ pub(crate) struct Transfer<'a, C: Channel> {
 impl<'a, C: Channel> Transfer<'a, C> {
     pub(crate) fn new(channel: impl Peripheral<P = C> + 'a) -> Self {
         into_ref!(channel);
+
+        unsafe {
+            let irq = interrupt::DMA_IRQ_0::steal();
+            irq.disable();
+            irq.set_priority(interrupt::Priority::P6);
+
+            pac::DMA.inte0().write(|w| w.set_inte0(1 << channel.number()));
+
+            irq.enable();
+        }
+
         Self { channel }
     }
 }
@@ -84,6 +110,8 @@ impl<'a, C: Channel> Unpin for Transfer<'a, C> {}
 impl<'a, C: Channel> Future for Transfer<'a, C> {
     type Output = ();
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // We need to register/re-register the waker for each poll because any
+        // calls to wake will deregister the waker.
         CHANNEL_WAKERS[self.channel.number() as usize].register(cx.waker());
 
         if unsafe { self.channel.regs().ctrl_trig().read().en() } {
