@@ -6,7 +6,10 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
-use crate::pac::lpuart::{regs, vals};
+#[cfg(any(lpuart_v1, lpuart_v2))]
+use crate::pac::lpuart::{regs, vals, Lpuart as Regs};
+#[cfg(not(any(lpuart_v1, lpuart_v2)))]
+use crate::pac::usart::{regs, vals, Usart as Regs};
 use crate::{peripherals, Peripheral};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -362,7 +365,7 @@ cfg_if::cfg_if! {
     if #[cfg(all(feature = "unstable-traits", feature = "nightly", feature = "_todo_embedded_hal_serial"))] {
         use core::future::Future;
 
-        impl<'d, T: UartInstance, TxDma> embedded_hal_async::serial::Write for UartTx<'d, T, TxDma>
+        impl<'d, T: BasicInstance, TxDma> embedded_hal_async::serial::Write for UartTx<'d, T, TxDma>
         where
             TxDma: crate::usart::TxDma<T>,
         {
@@ -379,7 +382,7 @@ cfg_if::cfg_if! {
             }
         }
 
-        impl<'d, T: UartInstance, RxDma> embedded_hal_async::serial::Read for UartRx<'d, T, RxDma>
+        impl<'d, T: BasicInstance, RxDma> embedded_hal_async::serial::Read for UartRx<'d, T, RxDma>
         where
             RxDma: crate::usart::RxDma<T>,
         {
@@ -390,7 +393,7 @@ cfg_if::cfg_if! {
             }
         }
 
-        impl<'d, T: UartInstance, TxDma, RxDma> embedded_hal_async::serial::Write for Uart<'d, T, TxDma, RxDma>
+        impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_async::serial::Write for Uart<'d, T, TxDma, RxDma>
         where
             TxDma: crate::usart::TxDma<T>,
         {
@@ -407,7 +410,7 @@ cfg_if::cfg_if! {
             }
         }
 
-        impl<'d, T: UartInstance, TxDma, RxDma> embedded_hal_async::serial::Read for Uart<'d, T, TxDma, RxDma>
+        impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_async::serial::Read for Uart<'d, T, TxDma, RxDma>
         where
             RxDma: crate::usart::RxDma<T>,
         {
@@ -442,38 +445,39 @@ fn sr(r: crate::pac::usart::Usart) -> crate::pac::common::Reg<regs::Sr, crate::p
 
 #[cfg(usart_v1)]
 #[allow(unused)]
-unsafe fn clear_interrupt_flags(_r: crate::pac::usart::Usart, _sr: regs::Sr) {
+unsafe fn clear_interrupt_flags(_r: Regs, _sr: regs::Sr) {
     // On v1 the flags are cleared implicitly by reads and writes to DR.
 }
 
 #[cfg(usart_v2)]
-fn tdr(r: crate::pac::lpuart::Lpuart) -> *mut u8 {
+fn tdr(r: Regs) -> *mut u8 {
     r.tdr().ptr() as _
 }
 
 #[cfg(usart_v2)]
-fn rdr(r: crate::pac::lpuart::Lpuart) -> *mut u8 {
+fn rdr(r: Regs) -> *mut u8 {
     r.rdr().ptr() as _
 }
 
 #[cfg(usart_v2)]
-fn sr(r: crate::pac::lpuart::Lpuart) -> crate::pac::common::Reg<regs::Isr, crate::pac::common::R> {
+fn sr(r: Regs) -> crate::pac::common::Reg<regs::Isr, crate::pac::common::R> {
     r.isr()
 }
 
 #[cfg(usart_v2)]
 #[allow(unused)]
-unsafe fn clear_interrupt_flags(r: crate::pac::lpuart::Lpuart, sr: regs::Isr) {
+unsafe fn clear_interrupt_flags(r: Regs, sr: regs::Isr) {
     r.icr().write(|w| *w = regs::Icr(sr.0));
 }
 
 pub(crate) mod sealed {
+    use super::*;
 
     pub trait BasicInstance: crate::rcc::RccPeripheral {
         const MULTIPLIER: u32;
         type Interrupt: crate::interrupt::Interrupt;
 
-        fn regs() -> crate::pac::lpuart::Lpuart;
+        fn regs() -> Regs;
     }
 
     pub trait FullInstance: BasicInstance {
@@ -500,26 +504,22 @@ macro_rules! impl_lpuart {
             const MULTIPLIER: u32 = $mul;
             type Interrupt = crate::interrupt::$irq;
 
-            fn regs() -> crate::pac::lpuart::Lpuart {
-                crate::pac::lpuart::Lpuart(crate::pac::$inst.0)
+            fn regs() -> Regs {
+                Regs(crate::pac::$inst.0)
             }
         }
+
+        impl BasicInstance for peripherals::$inst {}
     };
 }
 
 foreach_interrupt!(
-    ($inst:ident, lpuart, LPUART, $signal_name:ident, $irq:ident) => {
+    ($inst:ident, lpuart, $block:ident, $signal_name:ident, $irq:ident) => {
         impl_lpuart!($inst, $irq, 255);
-
-        impl BasicInstance for peripherals::$inst {
-        }
     };
 
-    ($inst:ident, usart, USART, $signal_name:ident, $irq:ident) => {
+    ($inst:ident, usart, $block:ident, $signal_name:ident, $irq:ident) => {
         impl_lpuart!($inst, $irq, 1);
-
-        impl BasicInstance for peripherals::$inst {
-        }
 
         impl sealed::FullInstance for peripherals::$inst {
 
