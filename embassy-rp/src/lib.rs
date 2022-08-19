@@ -6,6 +6,7 @@ pub(crate) mod fmt;
 
 pub mod dma;
 pub mod gpio;
+pub mod i2c;
 pub mod interrupt;
 pub mod spi;
 pub mod timer;
@@ -67,6 +68,9 @@ embassy_hal_common::peripherals! {
 
     SPI0,
     SPI1,
+
+    I2C0,
+    I2C1,
 
     DMA_CH0,
     DMA_CH1,

@@ -400,9 +400,11 @@ mod eh02 {
 
     impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, T, M> {
         type Error = Error;
+
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
         }
+
         fn bflush(&mut self) -> Result<(), Self::Error> {
             self.blocking_flush()
         }
@@ -410,6 +412,7 @@ mod eh02 {
 
     impl<'d, T: Instance, M: Mode> embedded_hal_02::serial::Read<u8> for Uart<'d, T, M> {
         type Error = Error;
+
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             embedded_hal_02::serial::Read::read(&mut self.rx)
         }
@@ -417,9 +420,11 @@ mod eh02 {
 
     impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, T, M> {
         type Error = Error;
+
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
         }
+
         fn bflush(&mut self) -> Result<(), Self::Error> {
             self.blocking_flush()
         }
