@@ -103,6 +103,14 @@ pub mod uarte;
 pub mod usb;
 #[cfg(not(feature = "_nrf5340"))]
 pub mod wdt;
+#[cfg(any(
+    feature = "nrf52810",
+    feature = "nrf52811",
+    feature = "nrf52832",
+    feature = "nrf52833",
+    feature = "nrf52840",
+))]
+pub mod pdm;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
 #[cfg_attr(feature = "nrf52805", path = "chips/nrf52805.rs")]

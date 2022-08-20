@@ -161,6 +161,9 @@ embassy_hal_common::peripherals! {
 
     // TEMP
     TEMP,
+
+    // PDM
+    PDM,
 }
 
 #[cfg(feature = "nightly")]
