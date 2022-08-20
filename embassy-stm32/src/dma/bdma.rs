@@ -314,13 +314,26 @@ mod low_level_api {
         if isr.teif(channel_num) {
             panic!("DMA: error on BDMA@{:08x} channel {}", dma.0 as u32, channel_num);
         }
+
         if isr.tcif(channel_num) && cr.read().tcie() {
-            cr.write(|_| ()); // Disable channel interrupts with the default value.
+
+            if cr.read().circ() == vals::Circ::DISABLED{
+                cr.modify(
+                    |rw| rw.set_tcie(false)
+                ); // Disable channel interrupt
+            }
+            dma.ifcr().write(|w|{w.set_tcif(channel_num, true)});
             STATE.ch_wakers[index].wake();
         }
-        //Enabled only in circular mode
+
+        //This interrupt mask is enabled only in circular mode
         else if isr.htif(channel_num) && cr.read().htie() {
-            cr.write(|_| ()); // Disable channel interrupts with the default value.
+            if cr.read().circ() == vals::Circ::DISABLED{
+                cr.modify(|rw| rw.set_htie(false)); // Disable channel interrupt 
+            }
+            
+            dma.ifcr().write(|w|{w.set_htif(channel_num, true)});
+
             STATE.ch_wakers[index].wake();            
         }
 
