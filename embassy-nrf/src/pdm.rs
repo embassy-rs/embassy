@@ -115,6 +115,11 @@ impl<'d> Pdm<'d> {
             r.intenclr.write(|w| w.started().clear());
             WAKER.wake();
         }
+
+        if r.events_stopped.read().bits() != 0 {
+            r.intenclr.write(|w| w.stopped().clear());
+            WAKER.wake();
+        }
     }
 
     fn _set_gain(r: &pdm::RegisterBlock, gain_left: I7F1, gain_right: I7F1) {
@@ -141,15 +146,20 @@ impl<'d> Pdm<'d> {
         r.sample.ptr.write(|w| unsafe { w.sampleptr().bits(buf.as_mut_ptr() as u32) });
         r.sample.maxcnt.write(|w| unsafe { w.buffsize().bits(N as _) });
 
-        // Reset and enable the end event
+        // Reset and enable the events
         r.events_end.reset();
-        r.intenset.write(|w| w.end().set());
+        r.events_stopped.reset();
+        r.intenset.write(|w| {
+            w.end().set();
+            w.stopped().set();
+            w
+        });
 
         // Don't reorder the start event before the previous writes. Hopefully self
         // wouldn't happen anyway.
         compiler_fence(Ordering::SeqCst);
 
-        r.tasks_start.write(|w| { w.tasks_start().set_bit() });
+        r.tasks_start.write(|w| w.tasks_start().set_bit());
 
         // Wait for 'end' event.
         poll_fn(|cx| {
@@ -158,7 +168,109 @@ impl<'d> Pdm<'d> {
             WAKER.register(cx.waker());
 
             if r.events_end.read().bits() != 0 {
+                // END means the whole buffer has been received.
                 r.events_end.reset();
+                // Note that the beginning of the buffer might be overwritten before the task fully stops :(
+                r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+            }
+
+            if r.events_stopped.read().bits() != 0 {
+                r.events_stopped.reset();
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+    }
+
+    /// Continuous sampling with double buffers.
+    ///
+    /// A TIMER and two PPI peripherals are passed in so that precise sampling
+    /// can be attained. The sampling interval is expressed by selecting a
+    /// timer clock frequency to use along with a counter threshold to be reached.
+    /// For example, 1KHz can be achieved using a frequency of 1MHz and a counter
+    /// threshold of 1000.
+    ///
+    /// A sampler closure is provided that receives the buffer of samples, noting
+    /// that the size of this buffer can be less than the original buffer's size.
+    /// A command is return from the closure that indicates whether the sampling
+    /// should continue or stop.
+    ///
+    /// NOTE: The time spent within the callback supplied should not exceed the time
+    /// taken to acquire the samples into a single buffer. You should measure the
+    /// time taken by the callback and set the sample buffer size accordingly.
+    /// Exceeding this time can lead to samples becoming dropped.
+    pub async fn run_task_sampler<S, const N: usize>(
+        &mut self,
+        bufs: &mut [[i16; N]; 2],
+        mut sampler: S,
+    ) where
+        S: FnMut(&[i16; N]) -> SamplerState,
+    {
+        let r = Self::regs();
+
+        r.sample.ptr.write(|w| unsafe { w.sampleptr().bits(bufs[0].as_mut_ptr() as u32) });
+        r.sample.maxcnt.write(|w| unsafe { w.buffsize().bits(N as _) });
+
+        // Reset and enable the events
+        r.events_end.reset();
+        r.events_started.reset();
+        r.events_stopped.reset();
+        r.intenset.write(|w| {
+            w.end().set();
+            w.started().set();
+            w.stopped().set();
+            w
+        });
+
+        // Don't reorder the start event before the previous writes. Hopefully self
+        // wouldn't happen anyway.
+        compiler_fence(Ordering::SeqCst);
+
+        r.tasks_start.write(|w| { w.tasks_start().set_bit() });
+
+        let mut current_buffer = 0;
+
+        let mut done = false;
+
+        // Wait for events and complete when the sampler indicates it has had enough.
+        poll_fn(|cx| {
+            let r = Self::regs();
+
+            WAKER.register(cx.waker());
+
+            if r.events_end.read().bits() != 0 {
+                compiler_fence(Ordering::SeqCst);
+
+                r.events_end.reset();
+                r.intenset.write(|w| w.end().set());
+
+                if !done { // Discard the last buffer after the user requested a stop.
+                    if sampler(&bufs[current_buffer]) == SamplerState::Sampled {
+                        let next_buffer = 1 - current_buffer;
+                        current_buffer = next_buffer;
+                    } else {
+                        r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+                        done = true;
+                    };
+                };
+            }
+
+            if r.events_started.read().bits() != 0 {
+                r.events_started.reset();
+                r.intenset.write(|w| w.started().set());
+
+                let next_buffer = 1 - current_buffer;
+                r.sample
+                    .ptr
+                    .write(|w| unsafe { w.sampleptr().bits(bufs[next_buffer].as_mut_ptr() as u32) });
+            }
+
+            if r.events_stopped.read().bits() != 0 {
+                r.events_stopped.reset();
+                r.intenset.write(|w| w.stopped().set());
+
                 return Poll::Ready(());
             }
 
