@@ -31,3 +31,4 @@ fixed = "1.10.0"
 embedded-storage = "0.3.0"
 usbd-hid = "0.5.2"
 serde = { version = "1.0.136", default-features = false }
+num-integer = { version = "0.1.45", default-features = false }

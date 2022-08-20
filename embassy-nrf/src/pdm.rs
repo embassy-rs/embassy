@@ -88,6 +88,8 @@ impl<'d> Pdm<'d> {
             w
         });
 
+        Self::_set_gain(r, gain_left, gain_right);
+
         r.psel.din.write(|w| unsafe { w.bits(data.psel_bits()) });
         r.psel.clk.write(|w| unsafe { w.bits(clock.psel_bits()) });
 
@@ -113,6 +115,18 @@ impl<'d> Pdm<'d> {
             r.intenclr.write(|w| w.started().clear());
             WAKER.wake();
         }
+    }
+
+    fn _set_gain(r: &pdm::RegisterBlock, gain_left: I7F1, gain_right: I7F1) {
+        let gain_left = gain_left.saturating_add(I7F1::from_bits(40)).saturating_to_num::<u8>().clamp(0, 0x50);
+        let gain_right = gain_right.saturating_add(I7F1::from_bits(40)).saturating_to_num::<u8>().clamp(0, 0x50);
+
+        r.gainl.write(|w| unsafe { w.gainl().bits(gain_left) });
+        r.gainr.write(|w| unsafe { w.gainr().bits(gain_right) });
+    }
+
+    pub fn set_gain(&mut self, gain_left: I7F1, gain_right: I7F1) {
+        Self::_set_gain(Self::regs(), gain_left, gain_right)
     }
 
     fn regs() -> &'static pdm::RegisterBlock {
@@ -151,6 +165,13 @@ impl<'d> Pdm<'d> {
             Poll::Pending
         })
         .await;
+    }
+}
+
+impl<'d> Drop for Pdm<'d> {
+    fn drop(&mut self) {
+        let r = Self::regs();
+        r.enable.write(|w| w.enable().disabled());
     }
 }
 
