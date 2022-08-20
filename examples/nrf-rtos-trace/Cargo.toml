@@ -27,12 +27,9 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 rand = { version = "0.8.4", default-features = false }
 serde = { version = "1.0.136", default-features = false }
 rtos-trace = "0.1.3"
-systemview-target = { version = "0.1.1", features = ["callbacks-app", "callbacks-os", "log", "cortex-m"] }
+systemview-target = { version = "0.1.2", features = ["callbacks-app", "callbacks-os", "log", "cortex-m"] }
 log = { version = "0.4.17", optional = true }
 
 [[bin]]
 name = "rtos_trace"
 required-features = ["nightly"]
-
-[patch.crates-io]
-systemview-target = { git = "https://gitlab.com/bern-rtos/tools/rtos-trace.git", rev = "3f68ec60f07aa87c191628568263f57073aa3dab" }
