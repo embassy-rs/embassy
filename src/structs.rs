@@ -172,6 +172,7 @@ pub const DOWNLOAD_FLAG_BEGIN: u16 = 0x0002;
 pub const DOWNLOAD_FLAG_END: u16 = 0x0004;
 pub const DOWNLOAD_FLAG_HANDLER_VER: u16 = 0x1000;
 
+// Country Locale Matrix (CLM)
 pub const DOWNLOAD_TYPE_CLM: u16 = 2;
 
 #[derive(Clone, Copy)]
