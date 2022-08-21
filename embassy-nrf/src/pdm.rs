@@ -4,6 +4,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_common::drop::OnDrop;
 use embassy_util::waitqueue::AtomicWaker;
 use futures::future::poll_fn;
 use pac::{pdm, PDM};
@@ -149,11 +150,9 @@ impl<'d> Pdm<'d> {
 
         // Reset and enable the events
         r.events_end.reset();
-        r.events_started.reset();
         r.events_stopped.reset();
         r.intenset.write(|w| {
             w.end().set();
-            w.started().set();
             w.stopped().set();
             w
         });
@@ -163,6 +162,12 @@ impl<'d> Pdm<'d> {
         compiler_fence(Ordering::SeqCst);
 
         r.tasks_start.write(|w| w.tasks_start().set_bit());
+
+        let ondrop = OnDrop::new(|| {
+            r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+            // N.B. It would be better if this were async, but Drop only support sync code.
+            while r.events_stopped.read().bits() != 0 {}
+        });
 
         // Wait for 'end' event.
         poll_fn(|cx| {
@@ -183,21 +188,14 @@ impl<'d> Pdm<'d> {
                     r.tasks_stop.write(|w| w.tasks_stop().set_bit());
                 }
             }
-
-            if r.events_started.read().bits() != 0 {
-                compiler_fence(Ordering::SeqCst);
-                r.events_started.reset();
-            }
-
             if r.events_stopped.read().bits() != 0 {
-                compiler_fence(Ordering::SeqCst);
-                r.events_stopped.reset();
                 return Poll::Ready(());
             }
 
             Poll::Pending
         })
         .await;
+        ondrop.defuse();
     }
 
     /// Continuous sampling with double buffers.
@@ -250,6 +248,12 @@ impl<'d> Pdm<'d> {
 
         let mut done = false;
 
+        let ondrop = OnDrop::new(|| {
+            r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+            // N.B. It would be better if this were async, but Drop only support sync code.
+            while r.events_stopped.read().bits() != 0 {}
+        });
+
         // Wait for events and complete when the sampler indicates it has had enough.
         poll_fn(|cx| {
             let r = Self::regs();
@@ -284,15 +288,13 @@ impl<'d> Pdm<'d> {
             }
 
             if r.events_stopped.read().bits() != 0 {
-                r.events_stopped.reset();
-                r.intenset.write(|w| w.stopped().set());
-
                 return Poll::Ready(());
             }
 
             Poll::Pending
         })
         .await;
+        ondrop.defuse();
     }
 }
 
