@@ -9,6 +9,8 @@ use embassy_util::waitqueue::AtomicWaker;
 use futures::future::poll_fn;
 use pac::{pdm, PDM};
 use pdm::mode::{EDGE_A, OPERATION_A};
+pub use pdm::pdmclkctrl::FREQ_A as Frequency;
+pub use pdm::ratio::RATIO_A as Ratio;
 use fixed::types::I7F1;
 
 use crate::interrupt::InterruptExt;
@@ -32,8 +34,10 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 /// See the `Default` impl for suitable default values.
 #[non_exhaustive]
 pub struct Config {
-    /// Clock
+    /// Clock frequency
+    pub frequency: Frequency,
     /// Clock ratio
+    pub ratio: Ratio,
     /// Channels
     pub channels: Channels,
     /// Edge to sample on
@@ -48,6 +52,8 @@ impl Default for Config {
     /// Default configuration for single channel sampling.
     fn default() -> Self {
         Self {
+            frequency: Frequency::DEFAULT,
+            ratio: Ratio::RATIO80,
             channels: Channels::Stereo,
             left_edge: Edge::FallingEdge,
             gain_left: I7F1::ZERO,
@@ -78,11 +84,12 @@ impl<'d> Pdm<'d> {
 
         let r = unsafe { &*PDM::ptr() };
 
-        let Config { channels, left_edge, gain_left, gain_right } = config;
+        let Config { frequency, ratio, channels, left_edge, gain_left, gain_right } = config;
 
         // Configure channels
         r.enable.write(|w| w.enable().enabled());
-        // TODO: Clock control
+        r.pdmclkctrl.write(|w| w.freq().variant(frequency));
+        r.ratio.write(|w| w.ratio().variant(ratio));
         r.mode.write(|w| {
             w.operation().variant(channels.into());
             w.edge().variant(left_edge.into());
