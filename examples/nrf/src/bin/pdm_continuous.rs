@@ -68,8 +68,9 @@ fn fft_peak_freq(input: &[i16; 1024]) -> (usize, u32) {
 
     result
         .iter()
-        .map(|c| ((c.norm_sqr()*32768.0) as u32).sqrt())
+        .map(|c| c.norm_sqr())
         .enumerate()
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+        .map(|(i, v)| (i, ((v*32768.0) as u32).sqrt()))
         .unwrap()
 }
