@@ -26,14 +26,16 @@ async fn main(_p: Spawner) {
             info!("Gain = {} dB", defmt::Debug2Format(&gain));
             for _ in 0..10 {
                 let mut buf = [0; 1500];
-                pdm.sample(&mut buf).await;
+                pdm.sample(5, &mut buf).await;
+                let mean = (buf.iter().map(|v| i32::from(*v)).sum::<i32>() / buf.len() as i32) as i16;
                 info!(
-                    "{} samples, min {=i16}, max {=i16}, RMS {=i16}",
+                    "{} samples, min {=i16}, max {=i16}, mean {=i16}, AC RMS {=i16}",
                     buf.len(),
                     buf.iter().min().unwrap(),
                     buf.iter().max().unwrap(),
+                    mean,
                     (
-                        buf.iter().map(|v| i32::from(*v).pow(2)).fold(0i32, |a,b| a.saturating_add(b))
+                        buf.iter().map(|v| i32::from(*v - mean).pow(2)).fold(0i32, |a,b| a.saturating_add(b))
                     / buf.len() as i32).sqrt() as i16,
                 );
                 info!("samples = {}", &buf);

@@ -139,7 +139,8 @@ impl<'d> Pdm<'d> {
     }
 
     /// One shot sampling. If the PDM is configured for multiple channels, the samples will be interleaved.
-    pub async fn sample<const N: usize>(&mut self, buf: &mut [i16; N]) {
+    /// The first samples from the PDM peripheral and microphone usually contain garbage data, so the discard parameter sets the number of complete buffers to discard before returning.
+    pub async fn sample<const N: usize>(&mut self, mut discard: usize, buf: &mut [i16; N]) {
         let r = Self::regs();
 
         // Set up the DMA
@@ -148,9 +149,11 @@ impl<'d> Pdm<'d> {
 
         // Reset and enable the events
         r.events_end.reset();
+        r.events_started.reset();
         r.events_stopped.reset();
         r.intenset.write(|w| {
             w.end().set();
+            w.started().set();
             w.stopped().set();
             w
         });
@@ -168,13 +171,26 @@ impl<'d> Pdm<'d> {
             WAKER.register(cx.waker());
 
             if r.events_end.read().bits() != 0 {
+                compiler_fence(Ordering::SeqCst);
                 // END means the whole buffer has been received.
                 r.events_end.reset();
-                // Note that the beginning of the buffer might be overwritten before the task fully stops :(
-                r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+                r.intenset.write(|w| w.end().set());
+
+                if discard > 0 {
+                    discard -= 1;
+                } else {
+                    // Note that the beginning of the buffer might be overwritten before the task fully stops :(
+                    r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+                }
+            }
+
+            if r.events_started.read().bits() != 0 {
+                compiler_fence(Ordering::SeqCst);
+                r.events_started.reset();
             }
 
             if r.events_stopped.read().bits() != 0 {
+                compiler_fence(Ordering::SeqCst);
                 r.events_stopped.reset();
                 return Poll::Ready(());
             }
