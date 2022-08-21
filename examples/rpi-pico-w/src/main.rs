@@ -42,7 +42,7 @@ async fn net_task(stack: &'static Stack<cyw43::NetDevice<'static>>) -> ! {
 async fn main(spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
-    // Include the WiFi firmware and CLM.
+    // Include the WiFi firmware and Country Locale Matrix (CLM) blobs.
     let fw = include_bytes!("../../../firmware/43439A0.bin");
     let clm = include_bytes!("../../../firmware/43439A0_clm.bin");
 
