@@ -38,6 +38,31 @@ cfg_if::cfg_if! {
     }
 }
 
+#[doc(hidden)]
+/// Implementation details for embassy macros. DO NOT USE.
+pub mod export {
+    #[cfg(feature = "rtos-trace")]
+    pub use rtos_trace::trace;
+
+    /// Expands the given block of code when `embassy-executor` is compiled with
+    /// the `rtos-trace-interrupt` feature.
+    #[doc(hidden)]
+    #[macro_export]
+    #[cfg(feature = "rtos-trace-interrupt")]
+    macro_rules! rtos_trace_interrupt {
+        ($($tt:tt)*) => { $($tt)* };
+    }
+
+    /// Does not expand the given block of code when `embassy-executor` is
+    /// compiled without the `rtos-trace-interrupt` feature.
+    #[doc(hidden)]
+    #[macro_export]
+    #[cfg(not(feature = "rtos-trace-interrupt"))]
+    macro_rules! rtos_trace_interrupt {
+        ($($tt:tt)*) => {};
+    }
+}
+
 pub mod raw;
 
 mod spawner;
