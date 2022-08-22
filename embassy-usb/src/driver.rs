@@ -12,7 +12,7 @@ pub trait Driver<'a> {
 
     /// Allocates an endpoint and specified endpoint parameters. This method is called by the device
     /// and class implementations to allocate endpoints, and can only be called before
-    /// [`start`](UsbBus::start) is called.
+    /// [`start`](Self::start) is called.
     ///
     /// # Arguments
     ///
@@ -95,7 +95,7 @@ pub trait Bus {
     ///
     /// # Errors
     ///
-    /// * [`Unsupported`](crate::UsbError::Unsupported) - This UsbBus implementation doesn't support
+    /// * [`Unsupported`](crate::driver::Unsupported) - This UsbBus implementation doesn't support
     ///   simulating a disconnect or it has not been enabled at creation time.
     fn force_reset(&mut self) -> Result<(), Unsupported> {
         Err(Unsupported)
@@ -105,7 +105,7 @@ pub trait Bus {
     ///
     /// # Errors
     ///
-    /// * [`Unsupported`](crate::UsbError::Unsupported) - This UsbBus implementation doesn't support
+    /// * [`Unsupported`](crate::driver::Unsupported) - This UsbBus implementation doesn't support
     ///   remote wakeup or it has not been enabled at creation time.
     fn remote_wakeup(&mut self) -> Self::RemoteWakeupFuture<'_>;
 }

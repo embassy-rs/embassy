@@ -26,6 +26,7 @@ mod dppi;
 #[cfg(feature = "_ppi")]
 mod ppi;
 
+/// An instance of the Programmable peripheral interconnect on nRF devices.
 pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> {
     ch: PeripheralRef<'d, C>,
     #[cfg(feature = "_dppi")]
@@ -48,6 +49,7 @@ impl Task {
         Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) })
     }
 
+    /// Address off subscription register for this task.
     pub fn subscribe_reg(&self) -> *mut u32 {
         unsafe { self.0.as_ptr().add(REGISTER_DPPI_CONFIG_OFFSET) }
     }
@@ -69,6 +71,7 @@ impl Event {
         Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) })
     }
 
+    /// Address of publish register for this event.
     pub fn publish_reg(&self) -> *mut u32 {
         unsafe { self.0.as_ptr().add(REGISTER_DPPI_CONFIG_OFFSET) }
     }
@@ -87,21 +90,29 @@ pub(crate) mod sealed {
     pub trait Group {}
 }
 
+/// Interface for PPI channels.
 pub trait Channel: sealed::Channel + Peripheral<P = Self> + Sized {
     /// Returns the number of the channel
     fn number(&self) -> usize;
 }
 
+/// Interface for PPI channels that can be configured.
 pub trait ConfigurableChannel: Channel + Into<AnyConfigurableChannel> {
+    /// Convert into a type erased configurable channel.
     fn degrade(self) -> AnyConfigurableChannel;
 }
 
+/// Interface for PPI channels that cannot be configured.
 pub trait StaticChannel: Channel + Into<AnyStaticChannel> {
+    /// Convert into a type erased static channel.
     fn degrade(self) -> AnyStaticChannel;
 }
 
+/// Interface for a group of PPI channels.
 pub trait Group: sealed::Group + Sized {
+    /// Returns the number of the group.
     fn number(&self) -> usize;
+    /// Convert into a type erased group.
     fn degrade(self) -> AnyGroup {
         AnyGroup {
             number: self.number() as u8,
@@ -196,6 +207,7 @@ macro_rules! impl_ppi_channel {
 // ======================
 //       groups
 
+/// A type erased PPI group.
 pub struct AnyGroup {
     number: u8,
 }

@@ -6,7 +6,7 @@
 //!
 //! - Define a struct `MyDriver`
 //! - Implement [`Driver`] for it
-//! - Register it as the global driver with [`time_driver_impl`].
+//! - Register it as the global driver with [`time_driver_impl`](crate::time_driver_impl).
 //! - Enable the Cargo features `embassy-executor/time` and one of `embassy-time/tick-*` corresponding to the
 //!   tick rate of your driver.
 //!

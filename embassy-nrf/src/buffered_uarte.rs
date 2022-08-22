@@ -45,8 +45,10 @@ enum TxState {
     Transmitting(usize),
 }
 
+/// A type for storing the state of the UARTE peripheral that can be stored in a static.
 pub struct State<'d, U: UarteInstance, T: TimerInstance>(StateStorage<StateInner<'d, U, T>>);
 impl<'d, U: UarteInstance, T: TimerInstance> State<'d, U, T> {
+    /// Create an instance for storing UARTE peripheral state.
     pub fn new() -> Self {
         Self(StateStorage::new())
     }
@@ -75,6 +77,12 @@ pub struct BufferedUarte<'d, U: UarteInstance, T: TimerInstance> {
 impl<'d, U: UarteInstance, T: TimerInstance> Unpin for BufferedUarte<'d, U, T> {}
 
 impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
+    /// Create a new instance of a BufferedUarte.
+    ///
+    /// See the [module documentation](crate::buffered_uarte) for more details about the intended use.
+    ///
+    /// The BufferedUarte uses the provided state to store the buffers and peripheral state. The timer and ppi channels are used to 'emulate' idle line detection so that read operations
+    /// can return early if there is no data to receive.
     pub fn new(
         state: &'d mut State<'d, U, T>,
         peri: impl Peripheral<P = U> + 'd,
@@ -178,6 +186,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         }
     }
 
+    /// Adjust the baud rate to the provided value.
     pub fn set_baudrate(&mut self, baudrate: Baudrate) {
         self.inner.with(|state| {
             let r = U::regs();
