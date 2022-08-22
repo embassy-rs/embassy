@@ -17,8 +17,8 @@ use core::sync::atomic::Ordering;
 use core::task::Waker;
 
 use atomic_polyfill::AtomicBool;
-use embassy_executor::time::{block_for, Duration, Timer};
 use embassy_net::{PacketBoxExt, PacketBuf};
+use embassy_time::{block_for, Duration, Timer};
 use embassy_util::blocking_mutex::raw::NoopRawMutex;
 use embassy_util::channel::mpmc::Channel;
 use embassy_util::yield_now;

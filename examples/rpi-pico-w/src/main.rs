@@ -6,23 +6,22 @@ use core::convert::Infallible;
 use core::future::Future;
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Stack, StackResources};
 use embassy_rp::gpio::{Flex, Level, Output};
 use embassy_rp::peripherals::{PIN_23, PIN_24, PIN_25, PIN_29};
-use embassy_rp::Peripherals;
-use embassy_util::Forever;
 use embedded_hal_1::spi::ErrorType;
 use embedded_hal_async::spi::{ExclusiveDevice, SpiBusFlush, SpiBusRead, SpiBusWrite};
 use embedded_io::asynch::{Read, Write};
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-macro_rules! forever {
+macro_rules! singleton {
     ($val:expr) => {{
         type T = impl Sized;
-        static FOREVER: Forever<T> = Forever::new();
-        FOREVER.put_with(move || $val)
+        static STATIC_CELL: StaticCell<T> = StaticCell::new();
+        STATIC_CELL.init_with(move || $val)
     }};
 }
 
@@ -39,8 +38,10 @@ async fn net_task(stack: &'static Stack<cyw43::NetDevice<'static>>) -> ! {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(spawner: Spawner) {
     info!("Hello World!");
+
+    let p = embassy_rp::init(Default::default());
 
     // Include the WiFi firmware and Country Locale Matrix (CLM) blobs.
     let fw = include_bytes!("../../../firmware/43439A0.bin");
@@ -63,7 +64,7 @@ async fn main(spawner: Spawner, p: Peripherals) {
     let bus = MySpi { clk, dio };
     let spi = ExclusiveDevice::new(bus, cs);
 
-    let state = forever!(cyw43::State::new());
+    let state = singleton!(cyw43::State::new());
     let (mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
 
     spawner.spawn(wifi_task(runner)).unwrap();
@@ -84,10 +85,10 @@ async fn main(spawner: Spawner, p: Peripherals) {
     let seed = 0x0123_4567_89ab_cdef; // chosen by fair dice roll. guarenteed to be random.
 
     // Init network stack
-    let stack = &*forever!(Stack::new(
+    let stack = &*singleton!(Stack::new(
         net_device,
         config,
-        forever!(StackResources::<1, 2, 8>::new()),
+        singleton!(StackResources::<1, 2, 8>::new()),
         seed
     ));
 
