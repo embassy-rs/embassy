@@ -1,10 +1,9 @@
 #![macro_use]
 
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{fence, Ordering, AtomicBool};
 use core::task::Waker;
 
 use embassy_util::waitqueue::AtomicWaker;
-
 use super::{TransferOptions, Word, WordSize};
 use crate::_generated::BDMA_CHANNEL_COUNT;
 use crate::dma::Request;
@@ -24,13 +23,16 @@ impl From<WordSize> for vals::Size {
 
 struct State {
     ch_wakers: [AtomicWaker; BDMA_CHANNEL_COUNT],
+    data_ready:[AtomicBool; BDMA_CHANNEL_COUNT]
 }
 
 impl State {
     const fn new() -> Self {
         const AW: AtomicWaker = AtomicWaker::new();
+        const AB: AtomicBool = AtomicBool::new(false);
         Self {
             ch_wakers: [AW; BDMA_CHANNEL_COUNT],
+            data_ready: [AB;BDMA_CHANNEL_COUNT]
         }
     }
 }
@@ -59,6 +61,7 @@ foreach_dma_channel! {
                 low_level_api::start_transfer(
                     pac::$dma_peri,
                     $channel_num,
+                    $index,
                     #[cfg(any(bdma_v2, dmamux))]
                     _request,
                     vals::Dir::FROMMEMORY,
@@ -81,6 +84,7 @@ foreach_dma_channel! {
                 low_level_api::start_transfer(
                     pac::$dma_peri,
                     $channel_num,
+                    $index,
                     #[cfg(any(bdma_v2, dmamux))]
                     _request,
                     vals::Dir::FROMMEMORY,
@@ -103,6 +107,7 @@ foreach_dma_channel! {
                 low_level_api::start_transfer(
                     pac::$dma_peri,
                     $channel_num,
+                    $index,
                     #[cfg(any(bdma_v2, dmamux))]
                     _request,
                     vals::Dir::FROMPERIPHERAL,
@@ -125,6 +130,7 @@ foreach_dma_channel! {
                 low_level_api::start_transfer(
                     pac::$dma_peri,
                     $channel_num,
+                    $index,
                     #[cfg(any(bdma_v2, dmamux))]
                     _request,
                     vals::Dir::FROMPERIPHERAL,
@@ -169,10 +175,18 @@ foreach_dma_channel! {
             fn request_stop(&mut self){
                 unsafe {low_level_api::request_stop(pac::$dma_peri, $channel_num);}
             }
-
-            fn is_running(&self) -> bool {
-                unsafe {low_level_api::is_running(pac::$dma_peri, $channel_num)}
+            fn is_performing_cicular_transfer(&mut self) -> bool {
+                unsafe {low_level_api::is_performing_cicular_transfer(pac::$dma_peri, $channel_num)}
             }
+            
+            fn is_running(&self) -> bool {
+                unsafe {low_level_api::is_running(pac::$dma_peri, $channel_num, $index)}
+            }
+
+            fn set_data_processing_done(&mut self){
+                unsafe {low_level_api::set_data_processing_done($index)}
+            }
+
             fn remaining_transfers(&mut self) -> u16 {
                 unsafe {low_level_api::get_remaining_transfers(pac::$dma_peri, $channel_num)}
             }
@@ -198,6 +212,7 @@ mod low_level_api {
     pub unsafe fn start_transfer(
         dma: pac::bdma::Dma,
         channel_number: u8,
+        index : u8,
         #[cfg(any(bdma_v2, dmamux))] request: Request,
         dir: vals::Dir,
         peri_addr: *const u32,
@@ -230,16 +245,17 @@ mod low_level_api {
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
         
-        // Set Peripheral and Memory adresses for the transfer
+        // Reset the software flag representing the state of a transfer
+        STATE.data_ready[index as usize].store(false, Ordering::SeqCst); 
+
         ch.par().write_value(peri_addr as u32);
         ch.mar().write_value(mem_addr as u32);
 
-        // Set the number of elements to be transfered
         ch.ndtr().write(|w| w.set_ndt(mem_len as u16));
 
         ch.cr().write(|w| {
 
-            // Set the individual size of the elements to be transfered
+            // Set the individual size of the elements to be transfered between the two memory locations
             w.set_psize(data_size);
             w.set_msize(data_size);
 
@@ -250,21 +266,20 @@ mod low_level_api {
                 w.set_minc(vals::Inc::DISABLED);
             }
             
-            //Set MEM <-> PERIPH transfer direction / MEM -> PERIPH : WRITE /  MEM <- PERIPH : READ
             w.set_dir(dir); 
 
             // Set circularity; if ENABLED, DMA will wrap around at the end of a transfer
             if circular { w.set_circ(vals::Circ::ENABLED)};
 
-            // Enable interrupts trhough their masks
-            w.set_teie(true); // Error IRQ
-            w.set_tcie(true); // Transfer Complete IRQ
-            if circular { w.set_htie(true)}; //  Half Transfer Complete IRQ
+            // Enable interrupts 
+            w.set_teie(true);
+            w.set_tcie(true);
+            if circular { w.set_htie(true)};
 
             w.set_en(true);
         });
     }
-
+    
     pub unsafe fn request_stop(dma: pac::bdma::Dma, channel_number: u8) {
         reset_status(dma, channel_number);
 
@@ -276,12 +291,20 @@ mod low_level_api {
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
         fence(Ordering::SeqCst);
     }
-
-    pub unsafe fn is_running(dma: pac::bdma::Dma, ch: u8) -> bool {
-        let ch = dma.ch(ch as _);
-        ch.cr().read().en()
+    
+    pub unsafe fn is_performing_cicular_transfer(dma: pac::bdma::Dma, ch: u8) ->bool{
+        dma.ch(ch as usize).cr().read().circ() == vals::Circ::ENABLED
     }
 
+    pub unsafe fn is_running(dma: pac::bdma::Dma, ch: u8, index: u8) -> bool {
+        !STATE.data_ready[index as usize].load(Ordering::SeqCst)
+    }
+    
+    pub unsafe fn set_data_processing_done(index: u8) {
+        STATE.data_ready[index as usize].store(false, Ordering::SeqCst);
+    }
+
+    
     /// Gets the total remaining transfers for the channel
     /// Note: this will be zero for transfers that completed without cancellation.
     pub unsafe fn get_remaining_transfers(dma: pac::bdma::Dma, ch: u8) -> u16 {
@@ -315,26 +338,30 @@ mod low_level_api {
             panic!("DMA: error on BDMA@{:08x} channel {}", dma.0 as u32, channel_num);
         }
 
-        if isr.tcif(channel_num) && cr.read().tcie() {
-
-            if cr.read().circ() == vals::Circ::DISABLED{
-                cr.modify(
-                    |rw| rw.set_tcie(false)
-                ); // Disable channel interrupt
+        else if STATE.data_ready[index].load(Ordering::SeqCst){
+            if cr.read().dir() == vals::Dir::FROMPERIPHERAL{
+                panic!("DMA: Concurrent access on the same buffer half between CPU and BDMA@{:08x} channel {}. User data processing may be too slow", dma.0 as u32, channel_num);
             }
-            dma.ifcr().write(|w|{w.set_tcif(channel_num, true)});
+        }
+
+        else if isr.tcif(channel_num) && cr.read().tcie() {
+
+            // Transfer has ended 
+            STATE.data_ready[index].store(true, Ordering::SeqCst); 
+
             STATE.ch_wakers[index].wake();
+            dma.ifcr().write(|w|{w.set_tcif(channel_num, true)});
+
         }
 
         //This interrupt mask is enabled only in circular mode
         else if isr.htif(channel_num) && cr.read().htie() {
-            if cr.read().circ() == vals::Circ::DISABLED{
-                cr.modify(|rw| rw.set_htie(false)); // Disable channel interrupt 
-            }
-            
-            dma.ifcr().write(|w|{w.set_htif(channel_num, true)});
 
-            STATE.ch_wakers[index].wake();            
+            // Transfer has ended 
+            STATE.data_ready[index].store(true, Ordering::SeqCst); 
+
+            STATE.ch_wakers[index].wake();   
+            dma.ifcr().write(|w|{w.set_htif(channel_num, true)});         
         }
 
     }

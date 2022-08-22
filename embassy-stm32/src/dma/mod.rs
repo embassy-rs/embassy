@@ -107,10 +107,18 @@ pub(crate) mod sealed {
         /// for `is_running() = false`.
         fn request_stop(&mut self);
 
+        // Return true if circular mode is enabled for this DMA channel
+        fn is_performing_cicular_transfer(&mut self)-> bool;
+        
         /// Returns whether this channel is running or stopped.
         ///
         /// The channel stops running when it either completes or is manually stopped.
         fn is_running(&self) -> bool;
+
+        /// In continous DMA mode only
+        /// Call this method to inform the application that the buffer delivered to the user has been processed corretly.
+        /// If this is not done, you'll get an assert
+       fn set_data_processing_done(&mut self);
 
         /// Returns the total number of remaining transfers.
         fn remaining_transfers(&mut self) -> u16;
@@ -274,8 +282,10 @@ mod transfers {
 
     impl<'a, C: Channel> Drop for Transfer<'a, C> {
         fn drop(&mut self) {
-            self.channel.request_stop();
-            while self.channel.is_running() {}
+            if ! self.channel.is_performing_cicular_transfer(){
+                self.channel.request_stop();
+                while self.channel.is_running() {}
+            }
         }
     }
 

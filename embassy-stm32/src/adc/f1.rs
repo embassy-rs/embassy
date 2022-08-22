@@ -8,6 +8,7 @@ use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::Peripheral;
 use crate::dma::{Transfer};
+
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
 // No calibration data for F103, voltage should be 1.2v
@@ -255,8 +256,8 @@ impl<'d, T: Instance> Adc<'d, T> {
             T::regs().sqr1().modify(|reg| reg.set_l(0));
 
             T::regs().cr2().modify(|reg| {
-                reg.set_cont(true);
-                reg.set_exttrig(true);
+                reg.set_cont(true); //Goes with circular DMA
+                reg.set_exttrig(true); 
                 reg.set_swstart(false);
                 reg.set_extsel(crate::pac::adc::vals::Extsel::SWSTART);
                 reg.set_dma(true);
@@ -279,17 +280,21 @@ impl<'d, T: Instance> Adc<'d, T> {
             
             let rx_f = Transfer::new( &mut rxdma);
             rx_f.await;
-            
+             
             let sampler_state =  sampler(&data[buf_index]);
+            rxdma.set_data_processing_done();
             
             if sampler_state == SamplerState::Sampled{
                 buf_index = !buf_index & 0x01 ; // switch the buffer index (0/1)
             }
             else if sampler_state == SamplerState::Stopped{
-                //TODO DMA de-init
                 break;
             }
         }
+
+        // Declarative stop of the DMA
+        rxdma.request_stop();
+        while rxdma.is_running() {}
 
     }
 

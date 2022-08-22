@@ -18,23 +18,18 @@ async fn main(_spawner: Spawner, p: Peripherals) {
 
     let mut vref = adc.enable_vref(&mut Delay);
     adc.calibrate(&mut vref);
-
-    // Ideally I would like that array to go directly into .bss
-    let mut data =  [[0;1000]; 2];
-
+    adc.set_sample_time(embassy_stm32::adc::SampleTime::Cycles239_5);
+    let mut data =  [[0;500]; 2];
+    
     adc.read_continuous(&mut pin, p.DMA1_CH1,&mut data,
          &mut |buf| {
         info!("--> 0 {} ", buf[0]);
-        info!("--> 1 {} ", buf[1]);
-        info!("--> 2 {} ", buf[2]);
+        info!("--> 99 {} ", buf[99]);
+        info!("--> 199 {} ", buf[199]);
+        info!("--> 299 {} ", buf[299]);
+        info!("--> 399 {} ", buf[399]);
+        info!("--> 499 {} ", buf[499]);
         SamplerState::Sampled
     }).await;
 
-    /*
-    loop {
-        let v = adc.read(&mut pin);
-        info!("--> {} - {} mV", v, adc.to_millivolts(v));
-        Timer::after(Duration::from_millis(100)).await;
-    }
-    */
 }
