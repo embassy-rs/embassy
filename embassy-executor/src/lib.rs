@@ -67,3 +67,9 @@ pub mod raw;
 
 mod spawner;
 pub use spawner::*;
+
+/// Do not use. Used for macros and HALs only. Not covered by semver guarantees.
+#[doc(hidden)]
+pub mod _export {
+    pub use static_cell::StaticCell;
+}

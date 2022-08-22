@@ -41,7 +41,7 @@ impl Executor {
     /// Executor instance in a place where it'll live forever and grants you mutable
     /// access. There's a few ways to do this:
     ///
-    /// - a [Forever](crate::util::Forever) (safe)
+    /// - a [StaticCell](https://docs.rs/static_cell/latest/static_cell/) (safe)
     /// - a `static mut` (unsafe)
     /// - a local variable in a function you know never returns (like `fn main() -> !`), upgrading its lifetime with `transmute`. (unsafe)
     ///

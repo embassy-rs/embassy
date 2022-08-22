@@ -13,17 +13,17 @@ use embassy_stm32::rng::Rng;
 use embassy_stm32::time::mhz;
 use embassy_stm32::{interrupt, Config};
 use embassy_time::{Duration, Timer};
-use embassy_util::Forever;
 use embedded_io::asynch::Write;
 use embedded_nal_async::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpConnect};
 use rand_core::RngCore;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-macro_rules! forever {
+macro_rules! singleton {
     ($val:expr) => {{
         type T = impl Sized;
-        static FOREVER: Forever<T> = Forever::new();
-        FOREVER.put_with(move || $val)
+        static STATIC_CELL: StaticCell<T> = StaticCell::new();
+        STATIC_CELL.init_with(move || $val)
     }};
 }
 
@@ -54,7 +54,7 @@ async fn main(spawner: Spawner) -> ! {
 
     let device = unsafe {
         Ethernet::new(
-            forever!(State::new()),
+            singleton!(State::new()),
             p.ETH,
             eth_int,
             p.PA1,
@@ -80,10 +80,10 @@ async fn main(spawner: Spawner) -> ! {
     //});
 
     // Init network stack
-    let stack = &*forever!(Stack::new(
+    let stack = &*singleton!(Stack::new(
         device,
         config,
-        forever!(StackResources::<1, 2, 8>::new()),
+        singleton!(StackResources::<1, 2, 8>::new()),
         seed
     ));
 

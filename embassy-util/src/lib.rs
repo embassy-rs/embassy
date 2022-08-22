@@ -16,10 +16,8 @@ pub mod mutex;
 pub mod pipe;
 pub mod waitqueue;
 
-mod forever;
 mod select;
 mod yield_now;
 
-pub use forever::*;
 pub use select::*;
 pub use yield_now::*;
