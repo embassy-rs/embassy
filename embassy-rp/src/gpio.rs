@@ -189,7 +189,7 @@ impl<'d, T: Pin> InputFuture<'d, T> {
         unsafe {
             let irq = interrupt::IO_IRQ_BANK0::steal();
             irq.disable();
-            irq.set_priority(interrupt::Priority::P6);
+            irq.set_priority(interrupt::Priority::P3);
 
             // Each INTR register is divided into 8 groups, one group for each
             // pin, and each group consists of LEVEL_LOW, LEVEL_HIGH, EDGE_LOW,
