@@ -1,3 +1,4 @@
+//! USB control data types.
 use core::mem;
 
 use super::types::*;
@@ -8,7 +9,7 @@ use super::types::*;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RequestType {
     /// Request is a USB standard request. Usually handled by
-    /// [`UsbDevice`](crate::device::UsbDevice).
+    /// [`UsbDevice`](crate::UsbDevice).
     Standard = 0,
     /// Request is intended for a USB class.
     Class = 1,

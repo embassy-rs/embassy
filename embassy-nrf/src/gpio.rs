@@ -1,3 +1,4 @@
+//! General purpose input/output for nRF.
 #![macro_use]
 
 use core::convert::Infallible;
@@ -26,8 +27,11 @@ pub enum Port {
 #[derive(Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Pull {
+    /// No pull.
     None,
+    /// Internal pull-up resistor.
     Up,
+    /// Internal pull-down resistor.
     Down,
 }
 
@@ -37,6 +41,7 @@ pub struct Input<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Input<'d, T> {
+    /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
     pub fn new(pin: impl Peripheral<P = T> + 'd, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
@@ -45,11 +50,13 @@ impl<'d, T: Pin> Input<'d, T> {
         Self { pin }
     }
 
+    /// Test if current pin level is high.
     #[inline]
     pub fn is_high(&self) -> bool {
         self.pin.is_high()
     }
 
+    /// Test if current pin level is low.
     #[inline]
     pub fn is_low(&self) -> bool {
         self.pin.is_low()
@@ -66,7 +73,9 @@ impl<'d, T: Pin> Input<'d, T> {
 #[derive(Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Level {
+    /// Logical low.
     Low,
+    /// Logical high.
     High,
 }
 
@@ -88,6 +97,7 @@ impl Into<bool> for Level {
     }
 }
 
+/// Drive strength settings for an output pin.
 // These numbers match DRIVE_A exactly so hopefully the compiler will unify them.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -117,6 +127,7 @@ pub struct Output<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Output<'d, T> {
+    /// Create GPIO output driver for a [Pin] with the provided [Level] and [OutputDriver] configuration.
     #[inline]
     pub fn new(pin: impl Peripheral<P = T> + 'd, initial_output: Level, drive: OutputDrive) -> Self {
         let mut pin = Flex::new(pin);
@@ -264,11 +275,13 @@ impl<'d, T: Pin> Flex<'d, T> {
         self.pin.conf().reset();
     }
 
+    /// Test if current pin level is high.
     #[inline]
     pub fn is_high(&self) -> bool {
         !self.is_low()
     }
 
+    /// Test if current pin level is low.
     #[inline]
     pub fn is_low(&self) -> bool {
         self.pin.block().in_.read().bits() & (1 << self.pin.pin()) == 0
@@ -374,6 +387,7 @@ pub(crate) mod sealed {
     }
 }
 
+/// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
 pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'static {
     /// Number of the pin within the port (0..31)
     #[inline]
@@ -392,6 +406,7 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'stat
         }
     }
 
+    /// Peripheral port register value
     #[inline]
     fn psel_bits(&self) -> u32 {
         self.pin_port() as u32
@@ -406,12 +421,16 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'stat
     }
 }
 
-// Type-erased GPIO pin
+/// Type-erased GPIO pin
 pub struct AnyPin {
     pin_port: u8,
 }
 
 impl AnyPin {
+    /// Create an [AnyPin] for a specific pin.
+    ///
+    /// # Safety
+    /// - `pin_port` should not in use by another driver.
     #[inline]
     pub unsafe fn steal(pin_port: u8) -> Self {
         Self { pin_port }
