@@ -34,8 +34,8 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
     let main = quote! {
         #[wasm_bindgen::prelude::wasm_bindgen(start)]
         pub fn main() -> Result<(), wasm_bindgen::JsValue> {
-            static EXECUTOR: ::embassy_util::Forever<::embassy_executor::Executor> = ::embassy_util::Forever::new();
-            let executor = EXECUTOR.put(::embassy_executor::Executor::new());
+            static EXECUTOR: ::embassy_executor::_export::StaticCell<::embassy_executor::Executor> = ::embassy_executor::_export::StaticCell::new();
+            let executor = EXECUTOR.init(::embassy_executor::Executor::new());
 
             executor.start(|spawner| {
                 spawner.spawn(__embassy_main(spawner)).unwrap();

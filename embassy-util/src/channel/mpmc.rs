@@ -471,10 +471,10 @@ mod tests {
     use futures_executor::ThreadPool;
     use futures_timer::Delay;
     use futures_util::task::SpawnExt;
+    use static_cell::StaticCell;
 
     use super::*;
     use crate::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
-    use crate::Forever;
 
     fn capacity<T, const N: usize>(c: &ChannelState<T, N>) -> usize {
         c.queue.capacity() - c.queue.len()
@@ -549,8 +549,8 @@ mod tests {
     async fn receiver_receives_given_try_send_async() {
         let executor = ThreadPool::new().unwrap();
 
-        static CHANNEL: Forever<Channel<CriticalSectionRawMutex, u32, 3>> = Forever::new();
-        let c = &*CHANNEL.put(Channel::new());
+        static CHANNEL: StaticCell<Channel<CriticalSectionRawMutex, u32, 3>> = StaticCell::new();
+        let c = &*CHANNEL.init(Channel::new());
         let c2 = c;
         assert!(executor
             .spawn(async move {
@@ -571,8 +571,8 @@ mod tests {
     async fn senders_sends_wait_until_capacity() {
         let executor = ThreadPool::new().unwrap();
 
-        static CHANNEL: Forever<Channel<CriticalSectionRawMutex, u32, 1>> = Forever::new();
-        let c = &*CHANNEL.put(Channel::new());
+        static CHANNEL: StaticCell<Channel<CriticalSectionRawMutex, u32, 1>> = StaticCell::new();
+        let c = &*CHANNEL.init(Channel::new());
         assert!(c.try_send(1).is_ok());
 
         let c2 = c;

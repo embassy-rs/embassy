@@ -6,11 +6,11 @@
 //! use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
 //! use embassy_util::blocking_mutex::{NoopMutex, raw::NoopRawMutex};
 //!
-//! static I2C_BUS: Forever<NoopMutex<RefCell<Twim<TWISPI0>>>> = Forever::new();
+//! static I2C_BUS: StaticCell<NoopMutex<RefCell<Twim<TWISPI0>>>> = StaticCell::new();
 //! let irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
 //! let i2c = Twim::new(p.TWISPI0, irq, p.P0_03, p.P0_04, Config::default());
 //! let i2c_bus = NoopMutex::new(RefCell::new(i2c));
-//! let i2c_bus = I2C_BUS.put(i2c_bus);
+//! let i2c_bus = I2C_BUS.init(i2c_bus);
 //!
 //! let i2c_dev1 = I2cDevice::new(i2c_bus);
 //! let mpu = Mpu6050::new(i2c_dev1);

@@ -12,7 +12,7 @@ use embassy_nrf::{interrupt, pac, peripherals};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config, UsbDevice};
 use embassy_usb_serial::{CdcAcmClass, State};
-use embassy_util::Forever;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 type MyDriver = Driver<'static, peripherals::USBD, PowerUsb>;
@@ -67,8 +67,8 @@ async fn main(spawner: Spawner) {
         control_buf: [u8; 64],
         serial_state: State<'static>,
     }
-    static RESOURCES: Forever<Resources> = Forever::new();
-    let res = RESOURCES.put(Resources {
+    static RESOURCES: StaticCell<Resources> = StaticCell::new();
+    let res = RESOURCES.init(Resources {
         device_descriptor: [0; 256],
         config_descriptor: [0; 256],
         bos_descriptor: [0; 256],

@@ -22,6 +22,7 @@ embedded-io = "0.3.0"
 defmt = "0.3"
 defmt-rtt = "0.3"
 
+static_cell = "1.0"
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
