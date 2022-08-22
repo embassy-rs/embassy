@@ -1,11 +1,11 @@
 [package]
-name = "embassy-util"
+name = "embassy-sync"
 version = "0.1.0"
 edition = "2021"
 
 [package.metadata.embassy_docs]
-src_base = "https://github.com/embassy-rs/embassy/blob/embassy-util-v$VERSION/embassy-util/src/"
-src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-util/src/"
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-sync-v$VERSION/embassy-sync/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-sync/src/"
 features = ["nightly"]
 target = "thumbv7em-none-eabi"
 

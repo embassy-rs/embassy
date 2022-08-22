@@ -8,14 +8,14 @@ default = ["log", "nightly"]
 nightly = ["embassy-executor/nightly", "embassy-nrf/nightly", "embassy-nrf/unstable-traits"]
 log = [
     "dep:log",
-    "embassy-util/log",
+    "embassy-sync/log",
     "embassy-executor/log",
     "embassy-time/log",
     "embassy-nrf/log",
 ]
 
 [dependencies]
-embassy-util = { version = "0.1.0", path = "../../embassy-util" }
+embassy-sync = { version = "0.1.0", path = "../../embassy-sync" }
 embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features=["rtos-trace", "rtos-trace-interrupt", "integrated-timers"] }
 embassy-time = { version = "0.1.0", path = "../../embassy-time" }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac"] }

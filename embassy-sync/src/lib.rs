@@ -14,10 +14,6 @@ pub mod blocking_mutex;
 pub mod channel;
 pub mod mutex;
 pub mod pipe;
+pub mod pubsub;
+pub mod signal;
 pub mod waitqueue;
-
-mod select;
-mod yield_now;
-
-pub use select::*;
-pub use yield_now::*;
