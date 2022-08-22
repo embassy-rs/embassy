@@ -1,0 +1,14 @@
+[package]
+name = "embassy-futures"
+version = "0.1.0"
+edition = "2021"
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-futures-v$VERSION/embassy-futures/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-futures/src/"
+features = ["nightly"]
+target = "thumbv7em-none-eabi"
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }

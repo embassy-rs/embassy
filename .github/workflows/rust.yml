@@ -69,4 +69,4 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Test
-        run: cd embassy-util && cargo test
+        run: cd embassy-sync && cargo test

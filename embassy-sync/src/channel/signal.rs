@@ -19,7 +19,7 @@ use core::task::{Context, Poll, Waker};
 /// Signals are generally declared as `static`s and then borrowed as required.
 ///
 /// ```
-/// use embassy_util::channel::signal::Signal;
+/// use embassy_sync::channel::signal::Signal;
 ///
 /// enum SomeCommand {
 ///   On,

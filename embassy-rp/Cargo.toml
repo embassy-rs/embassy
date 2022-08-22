@@ -27,7 +27,7 @@ nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "
 unstable-traits = ["embedded-hal-1"]
 
 [dependencies]
-embassy-util = { version = "0.1.0", path = "../embassy-util" }
+embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
 embassy-executor = { version = "0.1.0", path = "../embassy-executor" }
 embassy-time = { version = "0.1.0", path = "../embassy-time", features = [ "tick-1mhz" ] }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-2"]}

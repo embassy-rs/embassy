@@ -4,8 +4,8 @@
 //!
 //! ```rust
 //! use embassy_embedded_hal::shared_bus::spi::SpiDevice;
-//! use embassy_util::mutex::Mutex;
-//! use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
+//! use embassy_sync::mutex::Mutex;
+//! use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 //!
 //! static SPI_BUS: StaticCell<Mutex<ThreadModeRawMutex, spim::Spim<SPI3>>> = StaticCell::new();
 //! let mut config = spim::Config::default();
@@ -27,8 +27,8 @@
 //! ```
 use core::future::Future;
 
-use embassy_util::blocking_mutex::raw::RawMutex;
-use embassy_util::mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::RawMutex;
+use embassy_sync::mutex::Mutex;
 use embedded_hal_1::digital::blocking::OutputPin;
 use embedded_hal_1::spi::ErrorType;
 use embedded_hal_async::spi;

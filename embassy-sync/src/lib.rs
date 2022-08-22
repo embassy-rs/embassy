@@ -15,9 +15,3 @@ pub mod channel;
 pub mod mutex;
 pub mod pipe;
 pub mod waitqueue;
-
-mod select;
-mod yield_now;
-
-pub use select::*;
-pub use yield_now::*;

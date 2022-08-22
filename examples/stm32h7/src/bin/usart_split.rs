@@ -7,8 +7,8 @@ use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::peripherals::{DMA1_CH1, UART7};
 use embassy_stm32::usart::{Config, Uart, UartRx};
-use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_util::channel::mpmc::Channel;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::mpmc::Channel;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]

@@ -4,9 +4,9 @@
 
 use defmt::unwrap;
 use embassy_executor::Spawner;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::pubsub::{DynSubscriber, PubSubChannel, Subscriber};
 use embassy_time::{Duration, Timer};
-use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_util::channel::pubsub::{DynSubscriber, PubSubChannel, Subscriber};
 use {defmt_rtt as _, panic_probe as _};
 
 /// Create the message bus. It has a queue of 4, supports 3 subscribers and 1 publisher

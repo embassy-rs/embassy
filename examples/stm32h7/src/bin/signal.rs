@@ -4,8 +4,8 @@
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
+use embassy_sync::channel::signal::Signal;
 use embassy_time::{Duration, Timer};
-use embassy_util::channel::signal::Signal;
 use {defmt_rtt as _, panic_probe as _};
 
 static SIGNAL: Signal<u32> = Signal::new();
