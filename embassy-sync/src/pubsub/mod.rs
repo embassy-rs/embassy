@@ -34,8 +34,8 @@ pub use subscriber::{DynSubscriber, Subscriber};
 ///
 /// ```
 /// # use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-/// # use embassy_sync::channel::pubsub::WaitResult;
-/// # use embassy_sync::channel::pubsub::PubSubChannel;
+/// # use embassy_sync::pubsub::WaitResult;
+/// # use embassy_sync::pubsub::PubSubChannel;
 /// # use futures_executor::block_on;
 /// # let test = async {
 /// // Create the channel. This can be static as well

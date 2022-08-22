@@ -14,4 +14,6 @@ pub mod blocking_mutex;
 pub mod channel;
 pub mod mutex;
 pub mod pipe;
+pub mod pubsub;
+pub mod signal;
 pub mod waitqueue;

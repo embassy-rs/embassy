@@ -15,7 +15,7 @@ use embassy_nrf::rng::Rng;
 use embassy_nrf::usb::{Driver, PowerUsb};
 use embassy_nrf::{interrupt, pac, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::mpmc::Channel;
+use embassy_sync::channel::Channel;
 use embassy_usb::{Builder, Config, UsbDevice};
 use embassy_usb_ncm::{CdcNcmClass, Receiver, Sender, State};
 use embedded_io::asynch::{Read, Write};

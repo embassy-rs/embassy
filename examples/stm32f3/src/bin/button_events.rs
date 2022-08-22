@@ -16,7 +16,7 @@ use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{AnyPin, Input, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::peripherals::PA0;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::mpmc::Channel;
+use embassy_sync::channel::Channel;
 use embassy_time::{with_timeout, Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 

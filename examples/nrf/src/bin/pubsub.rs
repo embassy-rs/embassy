@@ -5,7 +5,7 @@
 use defmt::unwrap;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::pubsub::{DynSubscriber, PubSubChannel, Subscriber};
+use embassy_sync::pubsub::{DynSubscriber, PubSubChannel, Subscriber};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 

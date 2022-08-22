@@ -13,7 +13,7 @@ use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{Interrupt, InterruptExt};
 use embassy_stm32::subghz::*;
-use embassy_sync::channel::signal::Signal;
+use embassy_sync::signal::Signal;
 use {defmt_rtt as _, panic_probe as _};
 
 const PING_DATA: &str = "PING";

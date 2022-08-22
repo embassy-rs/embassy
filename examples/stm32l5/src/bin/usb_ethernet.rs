@@ -16,7 +16,7 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{interrupt, Config};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::mpmc::Channel;
+use embassy_sync::channel::Channel;
 use embassy_usb::{Builder, UsbDevice};
 use embassy_usb_ncm::{CdcNcmClass, Receiver, Sender, State};
 use embedded_io::asynch::{Read, Write};

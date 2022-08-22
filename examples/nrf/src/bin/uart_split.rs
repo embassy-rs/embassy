@@ -8,7 +8,7 @@ use embassy_nrf::peripherals::UARTE0;
 use embassy_nrf::uarte::UarteRx;
 use embassy_nrf::{interrupt, uarte};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::mpmc::Channel;
+use embassy_sync::channel::Channel;
 use {defmt_rtt as _, panic_probe as _};
 
 static CHANNEL: Channel<ThreadModeRawMutex, [u8; 8], 1> = Channel::new();

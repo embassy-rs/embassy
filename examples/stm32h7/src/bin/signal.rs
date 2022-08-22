@@ -4,7 +4,7 @@
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_sync::channel::signal::Signal;
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 

@@ -12,7 +12,7 @@ use embassy_stm32::subghz::{
     Status, SubGhz, TcxoMode, TcxoTrim, Timeout, TxParams,
 };
 use embassy_stm32::Peripheral;
-use embassy_sync::channel::signal::Signal;
+use embassy_sync::signal::Signal;
 use lorawan_device::async_device::radio::{Bandwidth, PhyRxTx, RfConfig, RxQuality, SpreadingFactor, TxConfig};
 use lorawan_device::async_device::Timings;
 

@@ -6,7 +6,7 @@ use defmt::unwrap;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive, Pin};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::channel::mpmc::{Channel, Receiver, Sender};
+use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_time::{Duration, Timer};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
