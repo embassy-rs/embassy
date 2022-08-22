@@ -5,7 +5,7 @@
 //! ## WARNING: here be dragons!
 //!
 //! Using this module requires respecting subtle safety contracts. If you can, prefer using the safe
-//! executor wrappers in [`executor`](crate::executor) and the [`embassy_executor::task`](embassy_macros::task) macro, which are fully safe.
+//! [executor wrappers](crate::Executor) and the [`embassy_executor::task`](embassy_macros::task) macro, which are fully safe.
 
 mod run_queue;
 #[cfg(feature = "integrated-timers")]
@@ -249,7 +249,7 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
 ///
 /// This is the core of the Embassy executor. It is low-level, requiring manual
 /// handling of wakeups and task polling. If you can, prefer using one of the
-/// higher level executors in [`crate::executor`].
+/// [higher level executors](crate::Executor).
 ///
 /// The raw executor leaves it up to you to handle wakeups and scheduling:
 ///
