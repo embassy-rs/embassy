@@ -9,7 +9,8 @@ log = ["dep:log"]
 
 [dependencies]
 embassy-time = { version = "0.1.0" }
-embassy-util = { version = "0.1.0" }
+embassy-sync = { version = "0.1.0" }
+embassy-futures = { version = "0.1.0" }
 embassy-net = { version = "0.1.0" }
 atomic-polyfill = "0.1.5"
 

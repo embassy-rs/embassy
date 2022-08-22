@@ -8,7 +8,6 @@ edition = "2021"
 cyw43 = { path = "../../", features = ["defmt"]}
 embassy-executor = { version = "0.1.0",  features = ["defmt", "integrated-timers"] }
 embassy-time = { version = "0.1.0",  features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-util = { version = "0.1.0" }
 embassy-rp = { version = "0.1.0",  features = ["defmt", "unstable-traits", "nightly", "unstable-pac"] }
 embassy-net = { version = "0.1.0", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "pool-16"] }
 atomic-polyfill = "0.1.5"
@@ -29,19 +28,12 @@ heapless = "0.7.15"
 
 
 [patch.crates-io]
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "53fbd0efb3e77e1e3de948afde2b5bf1a5a9735f" }
-embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "53fbd0efb3e77e1e3de948afde2b5bf1a5a9735f" }
-embassy-util = { git = "https://github.com/embassy-rs/embassy", rev = "53fbd0efb3e77e1e3de948afde2b5bf1a5a9735f" }
-embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "53fbd0efb3e77e1e3de948afde2b5bf1a5a9735f" }
-embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "53fbd0efb3e77e1e3de948afde2b5bf1a5a9735f" }
-#embassy-executor = { path = "/home/dirbaio/embassy/embassy/embassy-executor" }
-#embassy-util = { path = "/home/dirbaio/embassy/embassy/embassy-util" }
-#embassy-rp = { path = "/home/dirbaio/embassy/embassy/embassy-rp" }
-#embassy-net = { path = "/home/dirbaio/embassy/embassy/embassy-net" }
-#smoltcp = { path = "./smoltcp" }
-
-#[patch."https://github.com/smoltcp-rs/smoltcp"]
-#smoltcp = { path = "./smoltcp" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "cb9f0ef5b800ce4a22cde1805e0eb88425f1e07b" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "cb9f0ef5b800ce4a22cde1805e0eb88425f1e07b" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "cb9f0ef5b800ce4a22cde1805e0eb88425f1e07b" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "cb9f0ef5b800ce4a22cde1805e0eb88425f1e07b" }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "cb9f0ef5b800ce4a22cde1805e0eb88425f1e07b" }
+embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "cb9f0ef5b800ce4a22cde1805e0eb88425f1e07b" }
 
 [profile.dev]
 debug = 2
