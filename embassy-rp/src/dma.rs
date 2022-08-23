@@ -15,27 +15,47 @@ use crate::{interrupt, pac, peripherals};
 unsafe fn DMA_IRQ_0() {
     let ints0 = pac::DMA.ints0().read().ints0();
 
-    critical_section::with(|_| {
-        for channel in 0..CHANNEL_COUNT {
-            if ints0 & (1 << channel) == (1 << channel) {
-                CHANNEL_WAKERS[channel].wake();
-            }
+    for channel in 0..CHANNEL_COUNT {
+        if ints0 & (1 << channel) == (1 << channel) {
+            CHANNEL_WAKERS[channel].wake();
         }
-        pac::DMA.ints0().write(|w| w.set_ints0(ints0));
-    });
+    }
+    pac::DMA.ints0().write(|w| w.set_ints0(ints0));
 }
 
-pub fn read<'a, C: Channel, W: Word>(ch: impl Peripheral<P = C> + 'a, from: *const W, to: &mut [W]) -> Transfer<'a, C> {
+pub(crate) unsafe fn init() {
+    let irq = interrupt::DMA_IRQ_0::steal();
+    irq.disable();
+    irq.set_priority(interrupt::Priority::P6);
+
+    pac::DMA.inte0().write(|w| w.set_inte0(0xFFFF));
+
+    irq.enable();
+}
+
+pub unsafe fn read<'a, C: Channel, W: Word>(
+    ch: impl Peripheral<P = C> + 'a,
+    from: *const W,
+    to: &mut [W],
+) -> Transfer<'a, C> {
     let (ptr, len) = crate::dma::slice_ptr_parts_mut(to);
     copy_inner(ch, from as *const u32, ptr as *mut u32, len, W::size(), false, true)
 }
 
-pub fn write<'a, C: Channel, W: Word>(ch: impl Peripheral<P = C> + 'a, from: &[W], to: *mut W) -> Transfer<'a, C> {
+pub unsafe fn write<'a, C: Channel, W: Word>(
+    ch: impl Peripheral<P = C> + 'a,
+    from: &[W],
+    to: *mut W,
+) -> Transfer<'a, C> {
     let (from_ptr, len) = crate::dma::slice_ptr_parts(from);
     copy_inner(ch, from_ptr as *const u32, to as *mut u32, len, W::size(), true, false)
 }
 
-pub fn copy<'a, C: Channel, W: Word>(ch: impl Peripheral<P = C> + 'a, from: &[W], to: &mut [W]) -> Transfer<'a, C> {
+pub unsafe fn copy<'a, C: Channel, W: Word>(
+    ch: impl Peripheral<P = C> + 'a,
+    from: &[W],
+    to: &mut [W],
+) -> Transfer<'a, C> {
     let (from_ptr, from_len) = crate::dma::slice_ptr_parts(from);
     let (to_ptr, to_len) = crate::dma::slice_ptr_parts_mut(to);
     assert_eq!(from_len, to_len);
@@ -90,16 +110,6 @@ pub struct Transfer<'a, C: Channel> {
 impl<'a, C: Channel> Transfer<'a, C> {
     pub(crate) fn new(channel: impl Peripheral<P = C> + 'a) -> Self {
         into_ref!(channel);
-
-        unsafe {
-            let irq = interrupt::DMA_IRQ_0::steal();
-            irq.disable();
-            irq.set_priority(interrupt::Priority::P6);
-
-            pac::DMA.inte0().write(|w| w.set_inte0(1 << channel.number()));
-
-            irq.enable();
-        }
 
         Self { channel }
     }
