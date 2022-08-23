@@ -47,5 +47,5 @@ cfg-if = "1.0.0"
 static_cell = "1.0"
 
 # WASM dependencies
-wasm-bindgen = { version = "0.2.76", features = ["nightly"], optional = true }
+wasm-bindgen = { version = "0.2.82", optional = true }
 js-sys = { version = "0.3", optional = true }
