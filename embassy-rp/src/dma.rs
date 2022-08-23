@@ -14,8 +14,18 @@ use crate::{interrupt, pac, peripherals};
 #[interrupt]
 unsafe fn DMA_IRQ_0() {
     let ints0 = pac::DMA.ints0().read().ints0();
-
     for channel in 0..CHANNEL_COUNT {
+        let ctrl_trig = pac::DMA.ch(channel).ctrl_trig().read();
+        if ctrl_trig.ahb_error() {
+            panic!("DMA: ahb error on DMA_0 channel {}", channel);
+        }
+        if ctrl_trig.read_error() {
+            panic!("DMA: read error on DMA_0 channel {}", channel);
+        }
+        if ctrl_trig.write_error() {
+            panic!("DMA: write error on DMA_0 channel {}", channel);
+        }
+
         if ints0 & (1 << channel) == (1 << channel) {
             CHANNEL_WAKERS[channel].wake();
         }
@@ -119,7 +129,9 @@ impl<'a, C: Channel> Drop for Transfer<'a, C> {
     fn drop(&mut self) {
         let p = self.channel.regs();
         unsafe {
-            p.ctrl_trig().write(|w| w.set_en(false));
+            pac::DMA
+                .chan_abort()
+                .modify(|m| m.set_chan_abort(1 << self.channel.number()));
             while p.ctrl_trig().read().busy() {}
         }
     }
