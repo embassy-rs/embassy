@@ -39,13 +39,22 @@ pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize
 const REGISTER_DPPI_CONFIG_OFFSET: usize = 0x80 / core::mem::size_of::<u32>();
 
 /// Represents a task that a peripheral can do.
-/// When a task is subscribed to a PPI channel it will run when the channel is triggered by
-/// a published event.
 ///
-/// The pointer is to a task register
+/// When a task is subscribed to a PPI channel, it will run when the channel is triggered by
+/// a published event.
 #[derive(PartialEq, Eq, Clone, Copy)]
-pub struct Task(pub NonNull<u32>);
+pub struct Task(NonNull<u32>);
+
 impl Task {
+    /// Create a new `Task` from a task register pointer
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be a pointer to a valid `TASKS_*` register from an nRF peripheral.
+    pub unsafe fn new_unchecked(ptr: NonNull<u32>) -> Self {
+        Self(ptr)
+    }
+
     pub(crate) fn from_reg<T>(reg: &T) -> Self {
         Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) })
     }
@@ -63,12 +72,21 @@ impl Task {
 unsafe impl Send for Task {}
 
 /// Represents an event that a peripheral can publish.
-/// An event can be set to publish on a PPI channel when the event happens.
 ///
-/// The pointer is to an event register
+/// An event can be set to publish on a PPI channel when the event happens.
 #[derive(PartialEq, Eq, Clone, Copy)]
-pub struct Event(pub NonNull<u32>);
+pub struct Event(NonNull<u32>);
+
 impl Event {
+    /// Create a new `Event` from an event register pointer
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be a pointer to a valid `EVENTS_*` register from an nRF peripheral.
+    pub unsafe fn new_unchecked(ptr: NonNull<u32>) -> Self {
+        Self(ptr)
+    }
+
     pub(crate) fn from_reg<T>(reg: &T) -> Self {
         Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) })
     }
