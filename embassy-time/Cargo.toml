@@ -49,6 +49,6 @@ critical-section = "1.1"
 cfg-if = "1.0.0"
 
 # WASM dependencies
-wasm-bindgen = { version = "0.2.76", features = ["nightly"], optional = true }
+wasm-bindgen = { version = "0.2.81", optional = true }
 js-sys = { version = "0.3", optional = true }
 wasm-timer = { version = "0.2.5", optional = true }
