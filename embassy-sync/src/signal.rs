@@ -6,7 +6,7 @@ use core::task::{Context, Poll, Waker};
 
 /// Single-slot signaling primitive.
 ///
-/// This is similar to a [`Channel`](crate::channel::mpmc::Channel) with a buffer size of 1, except
+/// This is similar to a [`Channel`](crate::channel::Channel) with a buffer size of 1, except
 /// "sending" to it (calling [`Signal::signal`]) when full will overwrite the previous value instead
 /// of waiting for the receiver to pop the previous value.
 ///
@@ -14,7 +14,7 @@ use core::task::{Context, Poll, Waker};
 /// the latest data, and therefore it's fine to "lose" messages. This is often the case for "state"
 /// updates.
 ///
-/// For more advanced use cases, you might want to use [`Channel`](crate::channel::mpmc::Channel) instead.
+/// For more advanced use cases, you might want to use [`Channel`](crate::channel::Channel) instead.
 ///
 /// Signals are generally declared as `static`s and then borrowed as required.
 ///
