@@ -4,13 +4,13 @@
 //!
 //! ```rust
 //! use embassy_embedded_hal::shared_bus::blocking::spi::SpiDevice;
-//! use embassy_util::blocking_mutex::{NoopMutex, raw::NoopRawMutex};
+//! use embassy_sync::blocking_mutex::{NoopMutex, raw::NoopRawMutex};
 //!
-//! static SPI_BUS: Forever<NoopMutex<RefCell<Spim<SPI3>>>> = Forever::new();
+//! static SPI_BUS: StaticCell<NoopMutex<RefCell<Spim<SPI3>>>> = StaticCell::new();
 //! let irq = interrupt::take!(SPIM3);
 //! let spi = Spim::new_txonly(p.SPI3, irq, p.P0_15, p.P0_18, Config::default());
 //! let spi_bus = NoopMutex::new(RefCell::new(spi));
-//! let spi_bus = SPI_BUS.put(spi_bus);
+//! let spi_bus = SPI_BUS.init(spi_bus);
 //!
 //! // Device 1, using embedded-hal compatible driver for ST7735 LCD display
 //! let cs_pin1 = Output::new(p.P0_24, Level::Low, OutputDrive::Standard);
@@ -20,8 +20,8 @@
 
 use core::cell::RefCell;
 
-use embassy_util::blocking_mutex::raw::RawMutex;
-use embassy_util::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::RawMutex;
+use embassy_sync::blocking_mutex::Mutex;
 use embedded_hal_1::digital::blocking::OutputPin;
 use embedded_hal_1::spi;
 use embedded_hal_1::spi::blocking::SpiBusFlush;

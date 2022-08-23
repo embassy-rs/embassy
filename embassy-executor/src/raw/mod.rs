@@ -5,7 +5,7 @@
 //! ## WARNING: here be dragons!
 //!
 //! Using this module requires respecting subtle safety contracts. If you can, prefer using the safe
-//! executor wrappers in [`executor`](crate::executor) and the [`embassy_executor::task`](embassy_macros::task) macro, which are fully safe.
+//! [executor wrappers](crate::Executor) and the [`embassy_executor::task`](embassy_macros::task) macro, which are fully safe.
 
 mod run_queue;
 #[cfg(feature = "integrated-timers")]
@@ -26,6 +26,8 @@ use critical_section::CriticalSection;
 use embassy_time::driver::{self, AlarmHandle};
 #[cfg(feature = "integrated-timers")]
 use embassy_time::Instant;
+#[cfg(feature = "rtos-trace")]
+use rtos_trace::trace;
 
 use self::run_queue::{RunQueue, RunQueueItem};
 use self::util::UninitCell;
@@ -247,7 +249,7 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
 ///
 /// This is the core of the Embassy executor. It is low-level, requiring manual
 /// handling of wakeups and task polling. If you can, prefer using one of the
-/// higher level executors in [`crate::executor`].
+/// [higher level executors](crate::Executor).
 ///
 /// The raw executor leaves it up to you to handle wakeups and scheduling:
 ///
@@ -306,6 +308,9 @@ impl Executor {
     /// - `task` must NOT be already enqueued (in this executor or another one).
     #[inline(always)]
     unsafe fn enqueue(&self, cs: CriticalSection, task: NonNull<TaskHeader>) {
+        #[cfg(feature = "rtos-trace")]
+        trace::task_ready_begin(task.as_ptr() as u32);
+
         if self.run_queue.enqueue(cs, task) {
             (self.signal_fn)(self.signal_ctx)
         }
@@ -322,6 +327,9 @@ impl Executor {
     /// sending the task to the executor thread.
     pub(super) unsafe fn spawn(&'static self, task: NonNull<TaskHeader>) {
         task.as_ref().executor.set(self);
+
+        #[cfg(feature = "rtos-trace")]
+        trace::task_new(task.as_ptr() as u32);
 
         critical_section::with(|cs| {
             self.enqueue(cs, task);
@@ -365,8 +373,14 @@ impl Executor {
                 return;
             }
 
+            #[cfg(feature = "rtos-trace")]
+            trace::task_exec_begin(p.as_ptr() as u32);
+
             // Run the task
             task.poll_fn.read()(p as _);
+
+            #[cfg(feature = "rtos-trace")]
+            trace::task_exec_end();
 
             // Enqueue or update into timer_queue
             #[cfg(feature = "integrated-timers")]
@@ -381,6 +395,9 @@ impl Executor {
             let next_expiration = self.timer_queue.next_expiration();
             driver::set_alarm(self.alarm, next_expiration.as_ticks());
         }
+
+        #[cfg(feature = "rtos-trace")]
+        trace::system_idle();
     }
 
     /// Get a spawner that spawns tasks in this executor.
@@ -426,3 +443,21 @@ unsafe fn _embassy_time_schedule_wake(at: Instant, waker: &core::task::Waker) {
     let expires_at = task.expires_at.get();
     task.expires_at.set(expires_at.min(at));
 }
+
+#[cfg(feature = "rtos-trace")]
+impl rtos_trace::RtosTraceOSCallbacks for Executor {
+    fn task_list() {
+        // We don't know what tasks exist, so we can't send them.
+    }
+    #[cfg(feature = "integrated-timers")]
+    fn time() -> u64 {
+        Instant::now().as_micros()
+    }
+    #[cfg(not(feature = "integrated-timers"))]
+    fn time() -> u64 {
+        0
+    }
+}
+
+#[cfg(feature = "rtos-trace")]
+rtos_trace::global_os_callbacks! {Executor}

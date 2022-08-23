@@ -241,8 +241,8 @@ where
     /// Establish a new bounded pipe. For example, to create one with a NoopMutex:
     ///
     /// ```
-    /// use embassy_util::pipe::Pipe;
-    /// use embassy_util::blocking_mutex::raw::NoopRawMutex;
+    /// use embassy_sync::pipe::Pipe;
+    /// use embassy_sync::blocking_mutex::raw::NoopRawMutex;
     ///
     /// // Declare a bounded pipe, with a buffer of 256 bytes.
     /// let mut pipe = Pipe::<NoopRawMutex, 256>::new();
@@ -461,10 +461,10 @@ mod io_impls {
 mod tests {
     use futures_executor::ThreadPool;
     use futures_util::task::SpawnExt;
+    use static_cell::StaticCell;
 
     use super::*;
     use crate::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
-    use crate::Forever;
 
     fn capacity<const N: usize>(c: &PipeState<N>) -> usize {
         N - c.buffer.len()
@@ -528,8 +528,8 @@ mod tests {
     async fn receiver_receives_given_try_write_async() {
         let executor = ThreadPool::new().unwrap();
 
-        static CHANNEL: Forever<Pipe<CriticalSectionRawMutex, 3>> = Forever::new();
-        let c = &*CHANNEL.put(Pipe::new());
+        static CHANNEL: StaticCell<Pipe<CriticalSectionRawMutex, 3>> = StaticCell::new();
+        let c = &*CHANNEL.init(Pipe::new());
         let c2 = c;
         let f = async move {
             assert_eq!(c2.try_write(&[42]), Ok(1));

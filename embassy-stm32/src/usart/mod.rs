@@ -6,9 +6,10 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
-use crate::interrupt::Interrupt;
-use crate::pac::usart::{regs, vals};
-use crate::rcc::RccPeripheral;
+#[cfg(any(lpuart_v1, lpuart_v2))]
+use crate::pac::lpuart::{regs, vals, Lpuart as Regs};
+#[cfg(not(any(lpuart_v1, lpuart_v2)))]
+use crate::pac::usart::{regs, vals, Usart as Regs};
 use crate::{peripherals, Peripheral};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -71,22 +72,23 @@ pub enum Error {
     Parity,
 }
 
-pub struct Uart<'d, T: Instance, TxDma = NoDma, RxDma = NoDma> {
+pub struct Uart<'d, T: BasicInstance, TxDma = NoDma, RxDma = NoDma> {
+    phantom: PhantomData<&'d mut T>,
     tx: UartTx<'d, T, TxDma>,
     rx: UartRx<'d, T, RxDma>,
 }
 
-pub struct UartTx<'d, T: Instance, TxDma = NoDma> {
+pub struct UartTx<'d, T: BasicInstance, TxDma = NoDma> {
     phantom: PhantomData<&'d mut T>,
     tx_dma: PeripheralRef<'d, TxDma>,
 }
 
-pub struct UartRx<'d, T: Instance, RxDma = NoDma> {
+pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
     phantom: PhantomData<&'d mut T>,
     rx_dma: PeripheralRef<'d, RxDma>,
 }
 
-impl<'d, T: Instance, TxDma> UartTx<'d, T, TxDma> {
+impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
     fn new(tx_dma: PeripheralRef<'d, TxDma>) -> Self {
         Self {
             tx_dma,
@@ -132,7 +134,7 @@ impl<'d, T: Instance, TxDma> UartTx<'d, T, TxDma> {
     }
 }
 
-impl<'d, T: Instance, RxDma> UartRx<'d, T, RxDma> {
+impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
     fn new(rx_dma: PeripheralRef<'d, RxDma>) -> Self {
         Self {
             rx_dma,
@@ -187,7 +189,7 @@ impl<'d, T: Instance, RxDma> UartRx<'d, T, RxDma> {
     }
 }
 
-impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
+impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     pub fn new(
         _inner: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
@@ -203,7 +205,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         let pclk_freq = T::frequency();
 
         // TODO: better calculation, including error checking and OVER8 if possible.
-        let div = (pclk_freq.0 + (config.baudrate / 2)) / config.baudrate;
+        let div = (pclk_freq.0 + (config.baudrate / 2)) / config.baudrate * T::MULTIPLIER;
 
         let r = T::regs();
 
@@ -235,6 +237,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         Self {
             tx: UartTx::new(tx_dma),
             rx: UartRx::new(rx_dma),
+            phantom: PhantomData {},
         }
     }
 
@@ -275,7 +278,7 @@ impl<'d, T: Instance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
 mod eh02 {
     use super::*;
 
-    impl<'d, T: Instance, RxDma> embedded_hal_02::serial::Read<u8> for UartRx<'d, T, RxDma> {
+    impl<'d, T: BasicInstance, RxDma> embedded_hal_02::serial::Read<u8> for UartRx<'d, T, RxDma> {
         type Error = Error;
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             let r = T::regs();
@@ -302,7 +305,7 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Instance, TxDma> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, T, TxDma> {
+    impl<'d, T: BasicInstance, TxDma> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, T, TxDma> {
         type Error = Error;
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
@@ -312,14 +315,14 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_02::serial::Read<u8> for Uart<'d, T, TxDma, RxDma> {
+    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_02::serial::Read<u8> for Uart<'d, T, TxDma, RxDma> {
         type Error = Error;
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             embedded_hal_02::serial::Read::read(&mut self.rx)
         }
     }
 
-    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, T, TxDma, RxDma> {
+    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, T, TxDma, RxDma> {
         type Error = Error;
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
@@ -345,15 +348,15 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, TxDma, RxDma> embedded_hal_1::serial::ErrorType for Uart<'d, T, TxDma, RxDma> {
+    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_1::serial::ErrorType for Uart<'d, T, TxDma, RxDma> {
         type Error = Error;
     }
 
-    impl<'d, T: Instance, TxDma> embedded_hal_1::serial::ErrorType for UartTx<'d, T, TxDma> {
+    impl<'d, T: BasicInstance, TxDma> embedded_hal_1::serial::ErrorType for UartTx<'d, T, TxDma> {
         type Error = Error;
     }
 
-    impl<'d, T: Instance, RxDma> embedded_hal_1::serial::ErrorType for UartRx<'d, T, RxDma> {
+    impl<'d, T: BasicInstance, RxDma> embedded_hal_1::serial::ErrorType for UartRx<'d, T, RxDma> {
         type Error = Error;
     }
 }
@@ -362,7 +365,7 @@ cfg_if::cfg_if! {
     if #[cfg(all(feature = "unstable-traits", feature = "nightly", feature = "_todo_embedded_hal_serial"))] {
         use core::future::Future;
 
-        impl<'d, T: Instance, TxDma> embedded_hal_async::serial::Write for UartTx<'d, T, TxDma>
+        impl<'d, T: BasicInstance, TxDma> embedded_hal_async::serial::Write for UartTx<'d, T, TxDma>
         where
             TxDma: crate::usart::TxDma<T>,
         {
@@ -379,7 +382,7 @@ cfg_if::cfg_if! {
             }
         }
 
-        impl<'d, T: Instance, RxDma> embedded_hal_async::serial::Read for UartRx<'d, T, RxDma>
+        impl<'d, T: BasicInstance, RxDma> embedded_hal_async::serial::Read for UartRx<'d, T, RxDma>
         where
             RxDma: crate::usart::RxDma<T>,
         {
@@ -390,7 +393,7 @@ cfg_if::cfg_if! {
             }
         }
 
-        impl<'d, T: Instance, TxDma, RxDma> embedded_hal_async::serial::Write for Uart<'d, T, TxDma, RxDma>
+        impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_async::serial::Write for Uart<'d, T, TxDma, RxDma>
         where
             TxDma: crate::usart::TxDma<T>,
         {
@@ -407,7 +410,7 @@ cfg_if::cfg_if! {
             }
         }
 
-        impl<'d, T: Instance, TxDma, RxDma> embedded_hal_async::serial::Read for Uart<'d, T, TxDma, RxDma>
+        impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_async::serial::Read for Uart<'d, T, TxDma, RxDma>
         where
             RxDma: crate::usart::RxDma<T>,
         {
@@ -442,60 +445,90 @@ fn sr(r: crate::pac::usart::Usart) -> crate::pac::common::Reg<regs::Sr, crate::p
 
 #[cfg(usart_v1)]
 #[allow(unused)]
-unsafe fn clear_interrupt_flags(_r: crate::pac::usart::Usart, _sr: regs::Sr) {
+unsafe fn clear_interrupt_flags(_r: Regs, _sr: regs::Sr) {
     // On v1 the flags are cleared implicitly by reads and writes to DR.
 }
 
 #[cfg(usart_v2)]
-fn tdr(r: crate::pac::usart::Usart) -> *mut u8 {
+fn tdr(r: Regs) -> *mut u8 {
     r.tdr().ptr() as _
 }
 
 #[cfg(usart_v2)]
-fn rdr(r: crate::pac::usart::Usart) -> *mut u8 {
+fn rdr(r: Regs) -> *mut u8 {
     r.rdr().ptr() as _
 }
 
 #[cfg(usart_v2)]
-fn sr(r: crate::pac::usart::Usart) -> crate::pac::common::Reg<regs::Ixr, crate::pac::common::R> {
+fn sr(r: Regs) -> crate::pac::common::Reg<regs::Isr, crate::pac::common::R> {
     r.isr()
 }
 
 #[cfg(usart_v2)]
 #[allow(unused)]
-unsafe fn clear_interrupt_flags(r: crate::pac::usart::Usart, sr: regs::Ixr) {
-    r.icr().write(|w| *w = sr);
+unsafe fn clear_interrupt_flags(r: Regs, sr: regs::Isr) {
+    r.icr().write(|w| *w = regs::Icr(sr.0));
 }
 
 pub(crate) mod sealed {
-    pub trait Instance {
-        fn regs() -> crate::pac::usart::Usart;
+    use super::*;
+
+    pub trait BasicInstance: crate::rcc::RccPeripheral {
+        const MULTIPLIER: u32;
+        type Interrupt: crate::interrupt::Interrupt;
+
+        fn regs() -> Regs;
+    }
+
+    pub trait FullInstance: BasicInstance {
+        fn regs_uart() -> crate::pac::usart::Usart;
     }
 }
 
-pub trait Instance: sealed::Instance + RccPeripheral {
-    type Interrupt: Interrupt;
+pub trait BasicInstance: sealed::BasicInstance {}
+
+pub trait FullInstance: sealed::FullInstance {}
+
+pin_trait!(RxPin, BasicInstance);
+pin_trait!(TxPin, BasicInstance);
+pin_trait!(CtsPin, BasicInstance);
+pin_trait!(RtsPin, BasicInstance);
+pin_trait!(CkPin, BasicInstance);
+
+dma_trait!(TxDma, BasicInstance);
+dma_trait!(RxDma, BasicInstance);
+
+macro_rules! impl_lpuart {
+    ($inst:ident, $irq:ident, $mul:expr) => {
+        impl sealed::BasicInstance for crate::peripherals::$inst {
+            const MULTIPLIER: u32 = $mul;
+            type Interrupt = crate::interrupt::$irq;
+
+            fn regs() -> Regs {
+                Regs(crate::pac::$inst.0)
+            }
+        }
+
+        impl BasicInstance for peripherals::$inst {}
+    };
 }
 
-pin_trait!(RxPin, Instance);
-pin_trait!(TxPin, Instance);
-pin_trait!(CtsPin, Instance);
-pin_trait!(RtsPin, Instance);
-pin_trait!(CkPin, Instance);
-
-dma_trait!(TxDma, Instance);
-dma_trait!(RxDma, Instance);
-
 foreach_interrupt!(
+    ($inst:ident, lpuart, $block:ident, $signal_name:ident, $irq:ident) => {
+        impl_lpuart!($inst, $irq, 255);
+    };
+
     ($inst:ident, usart, $block:ident, $signal_name:ident, $irq:ident) => {
-        impl sealed::Instance for peripherals::$inst {
-            fn regs() -> crate::pac::usart::Usart {
+        impl_lpuart!($inst, $irq, 1);
+
+        impl sealed::FullInstance for peripherals::$inst {
+
+            fn regs_uart() -> crate::pac::usart::Usart {
                 crate::pac::$inst
             }
         }
 
-        impl Instance for peripherals::$inst {
-            type Interrupt = crate::interrupt::$irq;
+        impl FullInstance for peripherals::$inst {
         }
     };
 );

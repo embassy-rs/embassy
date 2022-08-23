@@ -18,7 +18,7 @@
   "rust-analyzer.linkedProjects": [
     // Declare for the target you wish to develop
     //"embassy-executor/Cargo.toml",
-    //"embassy-util/Cargo.toml",
+    //"embassy-sync/Cargo.toml",
     "examples/nrf/Cargo.toml",
     // "examples/rp/Cargo.toml",
     // "examples/std/Cargo.toml",

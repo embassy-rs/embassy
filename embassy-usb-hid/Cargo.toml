@@ -14,7 +14,7 @@ default = ["usbd-hid"]
 usbd-hid = ["dep:usbd-hid", "ssmarshal"]
 
 [dependencies]
-embassy-util = { version = "0.1.0", path = "../embassy-util" }
+embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
 embassy-usb = { version = "0.1.0", path = "../embassy-usb" }
 
 defmt = { version = "0.3", optional = true }

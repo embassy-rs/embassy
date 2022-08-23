@@ -526,7 +526,7 @@ cfg_if::cfg_if! {
 }
 
 pub(crate) mod sealed {
-    use embassy_util::waitqueue::AtomicWaker;
+    use embassy_sync::waitqueue::AtomicWaker;
 
     use super::*;
 

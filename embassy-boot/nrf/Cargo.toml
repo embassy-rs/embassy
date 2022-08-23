@@ -15,7 +15,7 @@ target = "thumbv7em-none-eabi"
 [dependencies]
 defmt = { version = "0.3", optional = true }
 
-embassy-util = { path = "../../embassy-util" }
+embassy-sync = { path = "../../embassy-sync" }
 embassy-nrf = { path = "../../embassy-nrf", default-features = false, features = ["nightly"] }
 embassy-boot = { path = "../boot", default-features = false }
 cortex-m = { version = "0.7.6" }

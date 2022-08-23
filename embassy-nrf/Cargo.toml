@@ -18,7 +18,7 @@ flavors = [
 
 time = ["dep:embassy-time"]
 
-defmt = ["dep:defmt", "embassy-executor/defmt", "embassy-util/defmt", "embassy-usb?/defmt", "embedded-io?/defmt", "embassy-embedded-hal/defmt"]
+defmt = ["dep:defmt", "embassy-executor/defmt", "embassy-sync/defmt", "embassy-usb?/defmt", "embedded-io?/defmt", "embassy-embedded-hal/defmt"]
 
 # Enable nightly-only features
 nightly = ["embedded-hal-1", "embedded-hal-async", "embassy-usb", "embedded-storage-async", "dep:embedded-io", "embassy-embedded-hal/nightly"]
@@ -66,7 +66,7 @@ _gpio-p1 = []
 [dependencies]
 embassy-executor = { version = "0.1.0", path = "../embassy-executor", optional = true }
 embassy-time = { version = "0.1.0", path = "../embassy-time", optional = true }
-embassy-util = { version = "0.1.0", path = "../embassy-util" }
+embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-3"]}
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }

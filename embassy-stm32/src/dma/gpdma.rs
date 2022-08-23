@@ -1,7 +1,7 @@
 use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
-use embassy_util::waitqueue::AtomicWaker;
+use embassy_sync::waitqueue::AtomicWaker;
 
 use super::{Request, TransferOptions, Word, WordSize};
 use crate::_generated::GPDMA_CHANNEL_COUNT;

@@ -3,9 +3,9 @@ use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
 
 use critical_section::CriticalSection;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
 use embassy_time::driver::{AlarmHandle, Driver};
-use embassy_util::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_util::blocking_mutex::CriticalSectionMutex as Mutex;
 
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::{interrupt, pac};
