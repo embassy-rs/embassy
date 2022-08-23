@@ -4,7 +4,7 @@ use core::task::{Context, Poll};
 
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
-use embassy_util::waitqueue::AtomicWaker;
+use embassy_sync::waitqueue::AtomicWaker;
 use futures::Future;
 use pac::dma::vals::DataSize;
 
@@ -36,7 +36,7 @@ unsafe fn DMA_IRQ_0() {
 pub(crate) unsafe fn init() {
     let irq = interrupt::DMA_IRQ_0::steal();
     irq.disable();
-    irq.set_priority(interrupt::Priority::P6);
+    irq.set_priority(interrupt::Priority::P3);
 
     pac::DMA.inte0().write(|w| w.set_inte0(0xFFFF));
 
