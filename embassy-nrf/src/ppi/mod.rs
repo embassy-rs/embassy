@@ -35,6 +35,7 @@ pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize
     tasks: [Task; TASK_COUNT],
 }
 
+#[cfg(feature = "_dppi")]
 const REGISTER_DPPI_CONFIG_OFFSET: usize = 0x80 / core::mem::size_of::<u32>();
 
 /// Represents a task that a peripheral can do.
@@ -49,7 +50,8 @@ impl Task {
         Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) })
     }
 
-    /// Address off subscription register for this task.
+    /// Address of subscription register for this task.
+    #[cfg(feature = "_dppi")]
     pub fn subscribe_reg(&self) -> *mut u32 {
         unsafe { self.0.as_ptr().add(REGISTER_DPPI_CONFIG_OFFSET) }
     }
@@ -72,6 +74,7 @@ impl Event {
     }
 
     /// Address of publish register for this event.
+    #[cfg(feature = "_dppi")]
     pub fn publish_reg(&self) -> *mut u32 {
         unsafe { self.0.as_ptr().add(REGISTER_DPPI_CONFIG_OFFSET) }
     }
