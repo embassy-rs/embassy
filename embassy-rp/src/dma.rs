@@ -17,13 +17,7 @@ unsafe fn DMA_IRQ_0() {
     for channel in 0..CHANNEL_COUNT {
         let ctrl_trig = pac::DMA.ch(channel).ctrl_trig().read();
         if ctrl_trig.ahb_error() {
-            panic!("DMA: ahb error on DMA_0 channel {}", channel);
-        }
-        if ctrl_trig.read_error() {
-            panic!("DMA: read error on DMA_0 channel {}", channel);
-        }
-        if ctrl_trig.write_error() {
-            panic!("DMA: write error on DMA_0 channel {}", channel);
+            panic!("DMA: error on DMA_0 channel {}", channel);
         }
 
         if ints0 & (1 << channel) == (1 << channel) {
