@@ -53,6 +53,8 @@ const REG_BUS_STATUS: u32 = 0x8;
 const REG_BUS_FEEDBEAD: u32 = 0x14;
 const REG_BUS_TEST: u32 = 0x18;
 const REG_BUS_RESP_DELAY: u32 = 0x1c;
+const WORD_LENGTH_32: u32 = 0x1;
+const HIGH_SPEED: u32 = 0x10;
 
 // SPI_STATUS_REGISTER bits
 const STATUS_DATA_NOT_AVAILABLE: u32 = 0x00000001;
@@ -570,8 +572,8 @@ where
         let val = self.read32_swapped(REG_BUS_TEST).await;
         assert_eq!(val, TEST_PATTERN);
 
-        // 32bit, little endian.
-        self.write32_swapped(REG_BUS_CTRL, 0x00010031).await;
+        // 32-bit word length, little endian (which is the default endianess).
+        self.write32_swapped(REG_BUS_CTRL, WORD_LENGTH_32 | HIGH_SPEED).await;
 
         let val = self.read32(FUNC_BUS, REG_BUS_FEEDBEAD).await;
         assert_eq!(val, FEEDBEAD);
