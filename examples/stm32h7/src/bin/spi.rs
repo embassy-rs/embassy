@@ -12,8 +12,8 @@ use embassy_stm32::dma::NoDma;
 use embassy_stm32::peripherals::SPI3;
 use embassy_stm32::time::mhz;
 use embassy_stm32::{spi, Config};
-use embassy_util::Forever;
 use heapless::String;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
@@ -31,7 +31,7 @@ async fn main_task(mut spi: spi::Spi<'static, SPI3, NoDma, NoDma>) {
     }
 }
 
-static EXECUTOR: Forever<Executor> = Forever::new();
+static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
 #[entry]
 fn main() -> ! {
@@ -54,7 +54,7 @@ fn main() -> ! {
         spi::Config::default(),
     );
 
-    let executor = EXECUTOR.put(Executor::new());
+    let executor = EXECUTOR.init(Executor::new());
 
     executor.run(|spawner| {
         unwrap!(spawner.spawn(main_task(spi)));

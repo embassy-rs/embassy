@@ -25,7 +25,7 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
 embassy-time = { version = "0.1.0", path = "../embassy-time" }
-embassy-util = { version = "0.1.0", path = "../embassy-util" }
+embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
 embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32", default-features = false, optional = true }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
 embedded-hal-async = { version = "0.1.0-alpha.1" }

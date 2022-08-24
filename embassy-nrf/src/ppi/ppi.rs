@@ -20,6 +20,7 @@ fn regs() -> &'static pac::ppi::RegisterBlock {
 
 #[cfg(not(feature = "nrf51"))] // Not for nrf51 because of the fork task
 impl<'d, C: StaticChannel> Ppi<'d, C, 0, 1> {
+    /// Configure PPI channel to trigger `task`.
     pub fn new_zero_to_one(ch: impl Peripheral<P = C> + 'd, task: Task) -> Self {
         into_ref!(ch);
 
@@ -32,6 +33,7 @@ impl<'d, C: StaticChannel> Ppi<'d, C, 0, 1> {
 }
 
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
+    /// Configure PPI channel to trigger `task` on `event`.
     pub fn new_one_to_one(ch: impl Peripheral<P = C> + 'd, event: Event, task: Task) -> Self {
         into_ref!(ch);
 
@@ -46,6 +48,7 @@ impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
 
 #[cfg(not(feature = "nrf51"))] // Not for nrf51 because of the fork task
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
+    /// Configure PPI channel to trigger `task1` and `task2` on `event`.
     pub fn new_one_to_two(ch: impl Peripheral<P = C> + 'd, event: Event, task1: Task, task2: Task) -> Self {
         into_ref!(ch);
 

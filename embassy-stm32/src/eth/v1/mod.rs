@@ -7,7 +7,7 @@ use core::task::Waker;
 use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
-use embassy_util::waitqueue::AtomicWaker;
+use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::sealed::{AFType, Pin as __GpioPin};
 use crate::gpio::{AnyPin, Speed};

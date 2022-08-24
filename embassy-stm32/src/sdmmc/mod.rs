@@ -5,7 +5,7 @@ use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
-use embassy_util::waitqueue::AtomicWaker;
+use embassy_sync::waitqueue::AtomicWaker;
 use futures::future::poll_fn;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
@@ -1514,8 +1514,8 @@ foreach_peripheral!(
                 INNER
             }
 
-            fn state() -> &'static ::embassy_util::waitqueue::AtomicWaker {
-                static WAKER: ::embassy_util::waitqueue::AtomicWaker = ::embassy_util::waitqueue::AtomicWaker::new();
+            fn state() -> &'static ::embassy_sync::waitqueue::AtomicWaker {
+                static WAKER: ::embassy_sync::waitqueue::AtomicWaker = ::embassy_sync::waitqueue::AtomicWaker::new();
                 &WAKER
             }
         }

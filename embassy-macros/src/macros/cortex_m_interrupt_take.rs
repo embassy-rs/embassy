@@ -19,7 +19,13 @@ pub fn run(name: syn::Ident) -> Result<TokenStream, TokenStream> {
                 let func = HANDLER.func.load(interrupt::_export::atomic::Ordering::Relaxed);
                 let ctx = HANDLER.ctx.load(interrupt::_export::atomic::Ordering::Relaxed);
                 let func: fn(*mut ()) = ::core::mem::transmute(func);
-                func(ctx)
+                ::embassy_executor::rtos_trace_interrupt! {
+                    ::embassy_executor::export::trace::isr_enter();
+                }
+                func(ctx);
+                ::embassy_executor::rtos_trace_interrupt! {
+                    ::embassy_executor::export::trace::isr_exit();
+                }
             }
 
             static TAKEN: interrupt::_export::atomic::AtomicBool = interrupt::_export::atomic::AtomicBool::new(false);

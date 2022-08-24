@@ -16,7 +16,7 @@ std = []
 nightly = ["embedded-hal-async", "embedded-storage-async"]
 
 [dependencies]
-embassy-util = { version = "0.1.0", path = "../embassy-util" }
+embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
 embedded-hal-async = { version = "0.1.0-alpha.1", optional = true }
