@@ -109,6 +109,7 @@ pub fn init(_config: config::Config) -> Peripherals {
     unsafe {
         clocks::init();
         timer::init();
+        dma::init();
     }
 
     peripherals

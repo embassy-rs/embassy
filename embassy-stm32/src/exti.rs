@@ -4,7 +4,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use embassy_hal_common::impl_peripheral;
-use embassy_util::waitqueue::AtomicWaker;
+use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AnyPin, Input, Pin as GpioPin};
 use crate::pac::exti::regs::Lines;

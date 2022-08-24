@@ -31,7 +31,7 @@ flavors = [
 ]
 
 [dependencies]
-embassy-util = { version = "0.1.0", path = "../embassy-util" }
+embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
 embassy-executor = { version = "0.1.0", path = "../embassy-executor" }
 embassy-time = { version = "0.1.0", path = "../embassy-time", optional = true }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-4"]}
@@ -72,7 +72,7 @@ quote = "1.0.15"
 stm32-metapac = { version = "0.1.0", path = "../stm32-metapac", default-features = false, features = ["metadata"]}
 
 [features]
-defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-util/defmt", "embassy-executor/defmt", "embassy-embedded-hal/defmt", "embedded-io?/defmt", "embassy-usb?/defmt"]
+defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-executor/defmt", "embassy-embedded-hal/defmt", "embedded-io?/defmt", "embassy-usb?/defmt"]
 sdmmc-rs = ["embedded-sdmmc"]
 net = ["embassy-net" ]
 memory-x = ["stm32-metapac/memory-x"]

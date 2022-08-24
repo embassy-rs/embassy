@@ -4,16 +4,16 @@
 //!
 //! ```rust
 //! use embassy_embedded_hal::shared_bus::spi::SpiDevice;
-//! use embassy_util::mutex::Mutex;
-//! use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
+//! use embassy_sync::mutex::Mutex;
+//! use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 //!
-//! static SPI_BUS: Forever<Mutex<ThreadModeRawMutex, spim::Spim<SPI3>>> = Forever::new();
+//! static SPI_BUS: StaticCell<Mutex<ThreadModeRawMutex, spim::Spim<SPI3>>> = StaticCell::new();
 //! let mut config = spim::Config::default();
 //! config.frequency = spim::Frequency::M32;
 //! let irq = interrupt::take!(SPIM3);
 //! let spi = spim::Spim::new_txonly(p.SPI3, irq, p.P0_15, p.P0_18, config);
 //! let spi_bus = Mutex::<ThreadModeRawMutex, _>::new(spi);
-//! let spi_bus = SPI_BUS.put(spi_bus);
+//! let spi_bus = SPI_BUS.init(spi_bus);
 //!
 //! // Device 1, using embedded-hal-async compatible driver for ST7735 LCD display
 //! let cs_pin1 = Output::new(p.P0_24, Level::Low, OutputDrive::Standard);
@@ -27,8 +27,8 @@
 //! ```
 use core::future::Future;
 
-use embassy_util::blocking_mutex::raw::RawMutex;
-use embassy_util::mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::RawMutex;
+use embassy_sync::mutex::Mutex;
 use embedded_hal_1::digital::blocking::OutputPin;
 use embedded_hal_1::spi::ErrorType;
 use embedded_hal_async::spi;

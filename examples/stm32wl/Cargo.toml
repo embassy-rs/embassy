@@ -4,7 +4,7 @@ name = "embassy-stm32wl-examples"
 version = "0.1.0"
 
 [dependencies]
-embassy-util = { version = "0.1.0", path = "../../embassy-util", features = ["defmt"] }
+embassy-sync = { version = "0.1.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["defmt", "integrated-timers"] }
 embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-32768hz"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "stm32wl55jc-cm4", "time-driver-any", "memory-x", "subghz", "unstable-pac", "exti"]  }

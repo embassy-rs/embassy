@@ -4,7 +4,7 @@ use core::task::{Context, Poll};
 
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
-use embassy_util::waitqueue::AtomicWaker;
+use embassy_sync::waitqueue::AtomicWaker;
 use futures::Future;
 use pac::dma::vals::DataSize;
 
@@ -14,28 +14,52 @@ use crate::{interrupt, pac, peripherals};
 #[interrupt]
 unsafe fn DMA_IRQ_0() {
     let ints0 = pac::DMA.ints0().read().ints0();
-
-    critical_section::with(|_| {
-        for channel in 0..CHANNEL_COUNT {
-            if ints0 & (1 << channel) == (1 << channel) {
-                CHANNEL_WAKERS[channel].wake();
-            }
+    for channel in 0..CHANNEL_COUNT {
+        let ctrl_trig = pac::DMA.ch(channel).ctrl_trig().read();
+        if ctrl_trig.ahb_error() {
+            panic!("DMA: error on DMA_0 channel {}", channel);
         }
-        pac::DMA.ints0().write(|w| w.set_ints0(ints0));
-    });
+
+        if ints0 & (1 << channel) == (1 << channel) {
+            CHANNEL_WAKERS[channel].wake();
+        }
+    }
+    pac::DMA.ints0().write(|w| w.set_ints0(ints0));
 }
 
-pub fn read<'a, C: Channel, W: Word>(ch: impl Peripheral<P = C> + 'a, from: *const W, to: &mut [W]) -> Transfer<'a, C> {
+pub(crate) unsafe fn init() {
+    let irq = interrupt::DMA_IRQ_0::steal();
+    irq.disable();
+    irq.set_priority(interrupt::Priority::P3);
+
+    pac::DMA.inte0().write(|w| w.set_inte0(0xFFFF));
+
+    irq.enable();
+}
+
+pub unsafe fn read<'a, C: Channel, W: Word>(
+    ch: impl Peripheral<P = C> + 'a,
+    from: *const W,
+    to: &mut [W],
+) -> Transfer<'a, C> {
     let (ptr, len) = crate::dma::slice_ptr_parts_mut(to);
     copy_inner(ch, from as *const u32, ptr as *mut u32, len, W::size(), false, true)
 }
 
-pub fn write<'a, C: Channel, W: Word>(ch: impl Peripheral<P = C> + 'a, from: &[W], to: *mut W) -> Transfer<'a, C> {
+pub unsafe fn write<'a, C: Channel, W: Word>(
+    ch: impl Peripheral<P = C> + 'a,
+    from: &[W],
+    to: *mut W,
+) -> Transfer<'a, C> {
     let (from_ptr, len) = crate::dma::slice_ptr_parts(from);
     copy_inner(ch, from_ptr as *const u32, to as *mut u32, len, W::size(), true, false)
 }
 
-pub fn copy<'a, C: Channel, W: Word>(ch: impl Peripheral<P = C> + 'a, from: &[W], to: &mut [W]) -> Transfer<'a, C> {
+pub unsafe fn copy<'a, C: Channel, W: Word>(
+    ch: impl Peripheral<P = C> + 'a,
+    from: &[W],
+    to: &mut [W],
+) -> Transfer<'a, C> {
     let (from_ptr, from_len) = crate::dma::slice_ptr_parts(from);
     let (to_ptr, to_len) = crate::dma::slice_ptr_parts_mut(to);
     assert_eq!(from_len, to_len);
@@ -91,16 +115,6 @@ impl<'a, C: Channel> Transfer<'a, C> {
     pub(crate) fn new(channel: impl Peripheral<P = C> + 'a) -> Self {
         into_ref!(channel);
 
-        unsafe {
-            let irq = interrupt::DMA_IRQ_0::steal();
-            irq.disable();
-            irq.set_priority(interrupt::Priority::P6);
-
-            pac::DMA.inte0().write(|w| w.set_inte0(1 << channel.number()));
-
-            irq.enable();
-        }
-
         Self { channel }
     }
 }
@@ -109,7 +123,9 @@ impl<'a, C: Channel> Drop for Transfer<'a, C> {
     fn drop(&mut self) {
         let p = self.channel.regs();
         unsafe {
-            p.ctrl_trig().write(|w| w.set_en(false));
+            pac::DMA
+                .chan_abort()
+                .modify(|m| m.set_chan_abort(1 << self.channel.number()));
             while p.ctrl_trig().read().busy() {}
         }
     }

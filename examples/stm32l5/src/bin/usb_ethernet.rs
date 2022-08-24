@@ -15,22 +15,22 @@ use embassy_stm32::rng::Rng;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{interrupt, Config};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_usb::{Builder, UsbDevice};
 use embassy_usb_ncm::{CdcNcmClass, Receiver, Sender, State};
-use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_util::channel::mpmc::Channel;
-use embassy_util::Forever;
 use embedded_io::asynch::{Read, Write};
 use rand_core::RngCore;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 type MyDriver = Driver<'static, embassy_stm32::peripherals::USB>;
 
-macro_rules! forever {
+macro_rules! singleton {
     ($val:expr) => {{
         type T = impl Sized;
-        static FOREVER: Forever<T> = Forever::new();
-        FOREVER.put_with(move || $val)
+        static STATIC_CELL: StaticCell<T> = StaticCell::new();
+        STATIC_CELL.init_with(move || $val)
     }};
 }
 
@@ -115,7 +115,7 @@ async fn main(spawner: Spawner) {
         control_buf: [u8; 128],
         serial_state: State<'static>,
     }
-    let res: &mut Resources = forever!(Resources {
+    let res: &mut Resources = singleton!(Resources {
         device_descriptor: [0; 256],
         config_descriptor: [0; 256],
         bos_descriptor: [0; 256],
@@ -171,10 +171,10 @@ async fn main(spawner: Spawner) {
 
     // Init network stack
     let device = Device { mac_addr: our_mac_addr };
-    let stack = &*forever!(Stack::new(
+    let stack = &*singleton!(Stack::new(
         device,
         config,
-        forever!(StackResources::<1, 2, 8>::new()),
+        singleton!(StackResources::<1, 2, 8>::new()),
         seed
     ));
 

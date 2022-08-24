@@ -4,22 +4,22 @@ use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{ConfigStrategy, Ipv4Address, Ipv4Cidr, Stack, StackResources};
-use embassy_util::Forever;
 use embedded_io::asynch::Write;
 use heapless::Vec;
 use log::*;
 use rand_core::{OsRng, RngCore};
+use static_cell::StaticCell;
 
 #[path = "../tuntap.rs"]
 mod tuntap;
 
 use crate::tuntap::TunTapDevice;
 
-macro_rules! forever {
+macro_rules! singleton {
     ($val:expr) => {{
         type T = impl Sized;
-        static FOREVER: Forever<T> = Forever::new();
-        FOREVER.put_with(move || $val)
+        static STATIC_CELL: StaticCell<T> = StaticCell::new();
+        STATIC_CELL.init_with(move || $val)
     }};
 }
 
@@ -63,10 +63,10 @@ async fn main_task(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    let stack = &*forever!(Stack::new(
+    let stack = &*singleton!(Stack::new(
         device,
         config,
-        forever!(StackResources::<1, 2, 8>::new()),
+        singleton!(StackResources::<1, 2, 8>::new()),
         seed
     ));
 
@@ -97,7 +97,7 @@ async fn main_task(spawner: Spawner) {
     }
 }
 
-static EXECUTOR: Forever<Executor> = Forever::new();
+static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
 fn main() {
     env_logger::builder()
@@ -106,7 +106,7 @@ fn main() {
         .format_timestamp_nanos()
         .init();
 
-    let executor = EXECUTOR.put(Executor::new());
+    let executor = EXECUTOR.init(Executor::new());
     executor.run(|spawner| {
         spawner.spawn(main_task(spawner)).unwrap();
     });

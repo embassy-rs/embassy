@@ -8,7 +8,7 @@ use defmt::{info, unwrap};
 use embassy_executor::raw::TaskStorage;
 use embassy_executor::Executor;
 use embassy_time::{Duration, Timer};
-use embassy_util::Forever;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 async fn run1() {
@@ -25,14 +25,14 @@ async fn run2() {
     }
 }
 
-static EXECUTOR: Forever<Executor> = Forever::new();
+static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
 
     let _p = embassy_nrf::init(Default::default());
-    let executor = EXECUTOR.put(Executor::new());
+    let executor = EXECUTOR.init(Executor::new());
 
     let run1_task = TaskStorage::new();
     let run2_task = TaskStorage::new();

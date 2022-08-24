@@ -4,10 +4,10 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::{mem, ptr};
 
 use atomic_polyfill::{AtomicU32, AtomicU8};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::driver::{AlarmHandle, Driver};
 use embassy_time::TICKS_PER_SECOND;
-use embassy_util::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_util::blocking_mutex::Mutex;
 use stm32_metapac::timer::regs;
 
 use crate::interrupt::{CriticalSection, InterruptExt};

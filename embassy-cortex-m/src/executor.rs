@@ -71,7 +71,7 @@ impl<I: Interrupt> InterruptExecutor<I> {
     /// Executor instance in a place where it'll live forever and grants you mutable
     /// access. There's a few ways to do this:
     ///
-    /// - a [Forever](embassy_util::Forever) (safe)
+    /// - a [StaticCell](https://docs.rs/static_cell/latest/static_cell/) (safe)
     /// - a `static mut` (unsafe)
     /// - a local variable in a function you know never returns (like `fn main() -> !`), upgrading its lifetime with `transmute`. (unsafe)
     pub fn start(&'static mut self) -> SendSpawner {

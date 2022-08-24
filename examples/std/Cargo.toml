@@ -4,7 +4,7 @@ name = "embassy-std-examples"
 version = "0.1.0"
 
 [dependencies]
-embassy-util = { version = "0.1.0", path = "../../embassy-util", features = ["log"] }
+embassy-sync = { version = "0.1.0", path = "../../embassy-sync", features = ["log"] }
 embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["log", "std", "nightly", "integrated-timers"] }
 embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["log", "std", "nightly"] }
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features=[ "std", "log", "medium-ethernet", "tcp", "udp", "dhcpv4", "pool-16"] }
@@ -20,3 +20,4 @@ libc = "0.2.101"
 clap = { version = "3.0.0-beta.5", features = ["derive"] }
 rand_core = { version = "0.6.3", features = ["std"] }
 heapless = { version = "0.7.5", default-features = false }
+static_cell = "1.0"

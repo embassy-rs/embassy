@@ -30,9 +30,13 @@ nightly = []
 
 integrated-timers = ["dep:embassy-time"]
 
+# Trace interrupt invocations with rtos-trace.
+rtos-trace-interrupt = ["rtos-trace"]
+
 [dependencies]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
+rtos-trace = { version = "0.1.2", optional = true }
 
 futures-util = { version = "0.3.17", default-features = false }
 embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
@@ -40,6 +44,7 @@ embassy-time  = { version = "0.1.0", path = "../embassy-time", optional = true}
 atomic-polyfill = "1.0.1"
 critical-section = "1.1"
 cfg-if = "1.0.0"
+static_cell = "1.0"
 
 # WASM dependencies
 wasm-bindgen = { version = "0.2.76", features = ["nightly"], optional = true }
