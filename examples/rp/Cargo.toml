@@ -9,6 +9,10 @@ embassy-sync = { version = "0.1.0", path = "../../embassy-sync", features = ["de
 embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["defmt", "integrated-timers"] }
 embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { version = "0.1.0", path = "../../embassy-rp", features = ["defmt", "unstable-traits", "nightly", "unstable-pac"] }
+embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
+embassy-usb-serial = { version = "0.1.0", path = "../../embassy-usb-serial", features = ["defmt"] }
+embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "pool-16"] }
+embassy-usb-ncm = { version = "0.1.0", path = "../../embassy-usb-ncm", features = ["defmt"] }
 
 defmt = "0.3"
 defmt-rtt = "0.3"
@@ -25,3 +29,5 @@ byte-slice-cast = { version = "1.2.0", default-features = false }
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
 embedded-hal-async = { version = "0.1.0-alpha.1" }
+embedded-io = { version = "0.3.0", features = ["async", "defmt"] }
+static_cell = "1.0.0"
