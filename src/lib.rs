@@ -91,6 +91,8 @@ const BACKPLANE_ADDRESS_MASK: u32 = 0x7FFF;
 const BACKPLANE_ADDRESS_32BIT_FLAG: u32 = 0x08000;
 const BACKPLANE_MAX_TRANSFER_SIZE: usize = 64;
 
+// Broadcom AMBA (Advanced Microcontroller Bus Architecture) Interconnect (AI)
+// constants
 const AI_IOCTRL_OFFSET: u32 = 0x408;
 const AI_IOCTRL_BIT_FGC: u8 = 0x0002;
 const AI_IOCTRL_BIT_CLOCK_EN: u8 = 0x0001;
