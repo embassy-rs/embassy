@@ -50,8 +50,8 @@ const REG_BUS_CTRL: u32 = 0x0;
 const REG_BUS_INTERRUPT: u32 = 0x04; // 16 bits - Interrupt status
 const REG_BUS_INTERRUPT_ENABLE: u32 = 0x06; // 16 bits - Interrupt mask
 const REG_BUS_STATUS: u32 = 0x8;
-const REG_BUS_FEEDBEAD: u32 = 0x14;
-const REG_BUS_TEST: u32 = 0x18;
+const REG_BUS_TEST_RO: u32 = 0x14;
+const REG_BUS_TEST_RW: u32 = 0x18;
 const REG_BUS_RESP_DELAY: u32 = 0x1c;
 
 // SPI_STATUS_REGISTER bits
@@ -563,19 +563,19 @@ where
         Timer::after(Duration::from_millis(250)).await;
 
         info!("waiting for ping...");
-        while self.read32_swapped(REG_BUS_FEEDBEAD).await != FEEDBEAD {}
+        while self.read32_swapped(REG_BUS_TEST_RO).await != FEEDBEAD {}
         info!("ping ok");
 
-        self.write32_swapped(0x18, TEST_PATTERN).await;
-        let val = self.read32_swapped(REG_BUS_TEST).await;
+        self.write32_swapped(REG_BUS_TEST_RW, TEST_PATTERN).await;
+        let val = self.read32_swapped(REG_BUS_TEST_RW).await;
         assert_eq!(val, TEST_PATTERN);
 
         // 32bit, little endian.
         self.write32_swapped(REG_BUS_CTRL, 0x00010031).await;
 
-        let val = self.read32(FUNC_BUS, REG_BUS_FEEDBEAD).await;
+        let val = self.read32(FUNC_BUS, REG_BUS_TEST_RO).await;
         assert_eq!(val, FEEDBEAD);
-        let val = self.read32(FUNC_BUS, REG_BUS_TEST).await;
+        let val = self.read32(FUNC_BUS, REG_BUS_TEST_RW).await;
         assert_eq!(val, TEST_PATTERN);
 
         // No response delay in any of the funcs.
