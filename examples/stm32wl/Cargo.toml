@@ -10,7 +10,7 @@ embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["de
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "stm32wl55jc-cm4", "time-driver-any", "memory-x", "subghz", "unstable-pac", "exti"]  }
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["stm32wl", "time", "defmt"] }
 
-lorawan-device = { version = "0.7.1", default-features = false, features = ["async"] }
+lorawan-device = { version = "0.8.0", default-features = false, features = ["async"] }
 lorawan = { version = "0.7.1", default-features = false, features = ["default-crypto"] }
 
 defmt = "0.3"

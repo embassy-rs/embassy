@@ -35,5 +35,5 @@ futures = { version = "0.3.17", default-features = false, features = [ "async-aw
 embedded-hal = { version = "0.2", features = ["unproven"] }
 bit_field = { version = "0.10" }
 
-lorawan-device = { version = "0.7.1", default-features = false, features = ["async"] }
+lorawan-device = { version = "0.8.0", default-features = false, features = ["async"] }
 lorawan = { version = "0.7.1", default-features = false }
