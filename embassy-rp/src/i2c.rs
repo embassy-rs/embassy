@@ -25,22 +25,17 @@ pub enum Error {
 #[derive(Copy, Clone)]
 pub struct Config {
     pub frequency: u32,
-    pub sda_pullup: bool,
-    pub scl_pullup: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             frequency: 100_000,
-            sda_pullup: false,
-            scl_pullup: false,
         }
     }
 }
 
-const TX_FIFO_SIZE: u8 = 16;
-const RX_FIFO_SIZE: u8 = 16;
+const FIFO_SIZE: u8 = 16;
 
 pub struct I2c<'d, T: Instance, M: Mode> {
     phantom: PhantomData<(&'d mut T, M)>,
@@ -64,7 +59,7 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
             p.ic_enable().write(|w| w.set_enable(false));
 
             // Select controller mode & speed
-            p.ic_con().write(|w| {
+            p.ic_con().modify(|w| {
                 // Always use "fast" mode (<= 400 kHz, works fine for standard
                 // mode too)
                 w.set_speed(i2c::vals::Speed::FAST);
@@ -85,11 +80,17 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
 
             scl.pad_ctrl().write(|w| {
                 w.set_schmitt(true);
-                w.set_pue(config.scl_pullup);
+                w.set_ie(true);
+                w.set_od(false);
+                w.set_pue(true);
+                w.set_pde(false);
             });
             sda.pad_ctrl().write(|w| {
                 w.set_schmitt(true);
-                w.set_pue(config.sda_pullup);
+                w.set_ie(true);
+                w.set_od(false);
+                w.set_pue(true);
+                w.set_pde(false);
             });
 
             // Configure baudrate
@@ -97,7 +98,7 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
             // There are some subtleties to I2C timing which we are completely
             // ignoring here See:
             // https://github.com/raspberrypi/pico-sdk/blob/bfcbefafc5d2a210551a4d9d80b4303d4ae0adf7/src/rp2_common/hardware_i2c/i2c.c#L69
-            let clk_base = crate::clocks::clk_sys_freq();
+            let clk_base = crate::clocks::clk_peri_freq();
 
             let period = (clk_base + config.frequency / 2) / config.frequency;
             let lcnt = period * 3 / 5; // spend 3/5 (60%) of the period low
@@ -134,7 +135,7 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
             p.ic_fs_spklen()
                 .write(|w| w.set_ic_fs_spklen(if lcnt < 16 { 1 } else { (lcnt / 16) as u8 }));
             p.ic_sda_hold()
-                .write(|w| w.set_ic_sda_tx_hold(sda_tx_hold_count as u16));
+                .modify(|w| w.set_ic_sda_tx_hold(sda_tx_hold_count as u16));
 
             // Enable I2C block
             p.ic_enable().write(|w| w.set_enable(true));
@@ -145,42 +146,6 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
 }
 
 impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
-    /// Number of bytes currently in the RX FIFO
-    #[inline]
-    pub fn rx_fifo_used(&self) -> u8 {
-        unsafe { T::regs().ic_rxflr().read().rxflr() }
-    }
-
-    /// Remaining capacity in the RX FIFO
-    #[inline]
-    pub fn rx_fifo_free(&self) -> u8 {
-        RX_FIFO_SIZE - self.rx_fifo_used()
-    }
-
-    /// RX FIFO is empty
-    #[inline]
-    pub fn rx_fifo_empty(&self) -> bool {
-        self.rx_fifo_used() == 0
-    }
-
-    /// Number of bytes currently in the TX FIFO
-    #[inline]
-    pub fn tx_fifo_used(&self) -> u8 {
-        unsafe { T::regs().ic_txflr().read().txflr() }
-    }
-
-    /// Remaining capacity in the TX FIFO
-    #[inline]
-    pub fn tx_fifo_free(&self) -> u8 {
-        TX_FIFO_SIZE - self.tx_fifo_used()
-    }
-
-    /// TX FIFO is at capacity
-    #[inline]
-    pub fn tx_fifo_full(&self) -> bool {
-        self.tx_fifo_free() == 0
-    }
-
     fn setup(addr: u16) -> Result<(), Error> {
         if addr >= 0x80 {
             return Err(Error::AddressOutOfRange(addr));
@@ -229,22 +194,13 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
             // NOTE(unsafe) We have &mut self
             unsafe {
                 // wait until there is space in the FIFO to write the next byte
-                while self.tx_fifo_full() {}
+                while p.ic_txflr().read().txflr() == FIFO_SIZE {}
 
                 p.ic_data_cmd().write(|w| {
-                    if restart && first {
-                        w.set_restart(true);
-                    } else {
-                        w.set_restart(false);
-                    }
+                    w.set_restart(restart && first);
+                    w.set_stop(send_stop && last);
 
-                    if send_stop && last {
-                        w.set_stop(true);
-                    } else {
-                        w.set_stop(false);
-                    }
-
-                    w.cmd()
+                    w.set_cmd(true);
                 });
 
                 while p.ic_rxflr().read().rxflr() == 0 {
@@ -273,11 +229,7 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
             // NOTE(unsafe) We have &mut self
             unsafe {
                 p.ic_data_cmd().write(|w| {
-                    if send_stop && last {
-                        w.set_stop(true);
-                    } else {
-                        w.set_stop(false);
-                    }
+                    w.set_stop(send_stop && last);
                     w.set_dat(*byte);
                 });
 
@@ -310,12 +262,13 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
         Ok(())
     }
 
-    // ========================= Blocking public API
+    // =========================
+    // Blocking public API
     // =========================
 
     pub fn blocking_read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
-        self.read_blocking_internal(buffer, false, true)
+        self.read_blocking_internal(buffer, true, true)
         // Automatic Stop
     }
 
@@ -400,6 +353,107 @@ mod eh02 {
     }
 }
 
+#[cfg(feature = "unstable-traits")]
+mod eh1 {
+    use super::*;
+
+    impl embedded_hal_1::i2c::Error for Error {
+        fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
+            match *self {
+                _ => embedded_hal_1::i2c::ErrorKind::Bus,
+                // Self::Arbitration => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
+                // Self::Nack => {
+                //     embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Unknown)
+                // }
+                // Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
+                // Self::Crc => embedded_hal_1::i2c::ErrorKind::Other,
+                // Self::Overrun => embedded_hal_1::i2c::ErrorKind::Overrun,
+                // Self::ZeroLengthTransfer => embedded_hal_1::i2c::ErrorKind::Other,
+            }
+        }
+    }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::ErrorType for I2c<'d, T, M> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::blocking::I2c for I2c<'d, T, M> {
+        fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+            self.blocking_read(address, buffer)
+        }
+
+        fn write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(address, buffer)
+        }
+
+        fn write_iter<B>(&mut self, address: u8, bytes: B) -> Result<(), Self::Error>
+        where
+            B: IntoIterator<Item = u8>,
+        {
+            let mut peekable = bytes.into_iter().peekable();
+            Self::setup(address.into())?;
+
+            while let Some(tx) = peekable.next() {
+                self.write_blocking_internal(&[tx], peekable.peek().is_none())?;
+            }
+            Ok(())
+        }
+
+        fn write_iter_read<B>(&mut self, address: u8, bytes: B, buffer: &mut [u8]) -> Result<(), Self::Error>
+        where
+            B: IntoIterator<Item = u8>,
+        {
+            let peekable = bytes.into_iter().peekable();
+            Self::setup(address.into())?;
+
+            for tx in peekable {
+                self.write_blocking_internal(&[tx], false)?
+            }
+            self.read_blocking_internal(buffer, true, true)
+        }
+
+        fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Self::Error> {
+            self.blocking_write_read(address, wr_buffer, rd_buffer)
+        }
+
+        fn transaction<'a>(
+            &mut self,
+            address: u8,
+            operations: &mut [embedded_hal_1::i2c::blocking::Operation<'a>],
+        ) -> Result<(), Self::Error> {
+            Self::setup(address.into())?;
+            for i in 0..operations.len() {
+                let last = i == operations.len() - 1;
+                match &mut operations[i] {
+                    embedded_hal_1::i2c::blocking::Operation::Read(buf) => {
+                        self.read_blocking_internal(buf, false, last)?
+                    }
+                    embedded_hal_1::i2c::blocking::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
+                }
+            }
+            Ok(())
+        }
+
+        fn transaction_iter<'a, O>(&mut self, address: u8, operations: O) -> Result<(), Self::Error>
+        where
+            O: IntoIterator<Item = embedded_hal_1::i2c::blocking::Operation<'a>>,
+        {
+            Self::setup(address.into())?;
+            let mut peekable = operations.into_iter().peekable();
+            while let Some(operation) = peekable.next() {
+                let last = peekable.peek().is_none();
+                match operation {
+                    embedded_hal_1::i2c::blocking::Operation::Read(buf) => {
+                        self.read_blocking_internal(buf, false, last)?
+                    }
+                    embedded_hal_1::i2c::blocking::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
 fn i2c_reserved_addr(addr: u16) -> bool {
     (addr & 0x78) == 0 || (addr & 0x78) == 0x78
 }
@@ -428,6 +482,8 @@ impl_mode!(Blocking);
 impl_mode!(Async);
 
 pub trait Instance: sealed::Instance {
+    type Interrupt;
+
     fn regs() -> pac::i2c::I2c;
 }
 
@@ -435,6 +491,8 @@ macro_rules! impl_instance {
     ($type:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$type {}
         impl Instance for peripherals::$type {
+            type Interrupt = crate::interrupt::$irq;
+
             fn regs() -> pac::i2c::I2c {
                 pac::$type
             }
@@ -442,8 +500,8 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(I2C0, I2c0);
-impl_instance!(I2C1, I2c1);
+impl_instance!(I2C0, I2C0_IRQ);
+impl_instance!(I2C1, I2C1_IRQ);
 
 pub trait SdaPin<T: Instance>: sealed::SdaPin<T> + crate::gpio::Pin {}
 pub trait SclPin<T: Instance>: sealed::SclPin<T> + crate::gpio::Pin {}
