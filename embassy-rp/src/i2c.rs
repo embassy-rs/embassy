@@ -5,12 +5,25 @@ use pac::i2c;
 
 use crate::{pac, peripherals, Peripheral};
 
+/// I2C error abort reason
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum AbortReason {
+    /// A bus operation was not acknowledged, e.g. due to the addressed device
+    /// not being available on the bus or the device not being ready to process
+    /// requests at the moment
+    NoAcknowledge,
+    /// The arbitration was lost, e.g. electrical problems with the clock signal
+    ArbitrationLoss,
+    Other(u32),
+}
+
 /// I2C error
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// I2C abort with error
-    Abort(u32),
+    Abort(AbortReason),
     /// User passed in a read buffer that was 0 length
     InvalidReadBufferLength,
     /// User passed in a write buffer that was 0 length
@@ -29,9 +42,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self {
-            frequency: 100_000,
-        }
+        Self { frequency: 100_000 }
     }
 }
 
@@ -164,18 +175,30 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
         Ok(())
     }
 
-    fn read_and_clear_abort_reason(&mut self) -> Option<u32> {
+    fn read_and_clear_abort_reason(&mut self) -> Result<(), Error> {
         let p = T::regs();
         unsafe {
-            let abort_reason = p.ic_tx_abrt_source().read().0;
-            if abort_reason != 0 {
+            let abort_reason = p.ic_tx_abrt_source().read();
+            if abort_reason.0 != 0 {
                 // Note clearing the abort flag also clears the reason, and this
                 // instance of flag is clear-on-read! Note also the
                 // IC_CLR_TX_ABRT register always reads as 0.
                 p.ic_clr_tx_abrt().read();
-                Some(abort_reason)
+
+                let reason = if abort_reason.abrt_7b_addr_noack()
+                    | abort_reason.abrt_10addr1_noack()
+                    | abort_reason.abrt_10addr2_noack()
+                {
+                    AbortReason::NoAcknowledge
+                } else if abort_reason.arb_lost() {
+                    AbortReason::ArbitrationLoss
+                } else {
+                    AbortReason::Other(abort_reason.0)
+                };
+
+                Err(Error::Abort(reason))
             } else {
-                None
+                Ok(())
             }
         }
     }
@@ -204,9 +227,7 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
                 });
 
                 while p.ic_rxflr().read().rxflr() == 0 {
-                    if let Some(abort_reason) = self.read_and_clear_abort_reason() {
-                        return Err(Error::Abort(abort_reason));
-                    }
+                    self.read_and_clear_abort_reason()?;
                 }
 
                 *byte = p.ic_data_cmd().read().dat();
@@ -241,7 +262,7 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
 
                 let abort_reason = self.read_and_clear_abort_reason();
 
-                if abort_reason.is_some() || (send_stop && last) {
+                if abort_reason.is_err() || (send_stop && last) {
                     // If the transaction was aborted or if it completed
                     // successfully wait until the STOP condition has occured.
 
@@ -254,9 +275,7 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
                 // condition. Note also the hardware clears RX FIFO as well as
                 // TX on abort, ecause we set hwparam
                 // IC_AVOID_RX_FIFO_FLUSH_ON_TX_ABRT to 0.
-                if let Some(abort_reason) = abort_reason {
-                    return Err(Error::Abort(abort_reason));
-                }
+                abort_reason?;
             }
         }
         Ok(())
@@ -360,15 +379,15 @@ mod eh1 {
     impl embedded_hal_1::i2c::Error for Error {
         fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
             match *self {
-                _ => embedded_hal_1::i2c::ErrorKind::Bus,
-                // Self::Arbitration => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
-                // Self::Nack => {
-                //     embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Unknown)
-                // }
-                // Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
-                // Self::Crc => embedded_hal_1::i2c::ErrorKind::Other,
-                // Self::Overrun => embedded_hal_1::i2c::ErrorKind::Overrun,
-                // Self::ZeroLengthTransfer => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::Abort(AbortReason::ArbitrationLoss) => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
+                Self::Abort(AbortReason::NoAcknowledge) => {
+                    embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Address)
+                }
+                Self::Abort(AbortReason::Other(_)) => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::InvalidReadBufferLength => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::InvalidWriteBufferLength => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::AddressOutOfRange(_) => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::AddressReserved(_) => embedded_hal_1::i2c::ErrorKind::Other,
             }
         }
     }
