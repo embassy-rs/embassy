@@ -113,7 +113,7 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
 
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         let r = T::regs();
-        unsafe { while r.uartfr().read().txff() {} }
+        unsafe { while !r.uartfr().read().txfe() {} }
         Ok(())
     }
 }
@@ -127,7 +127,7 @@ impl<'d, T: Instance> UartTx<'d, T, Async> {
             });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::write(ch, buffer, T::regs().uartdr().ptr() as *mut _)
+            crate::dma::write(ch, buffer, T::regs().uartdr().ptr() as *mut _, T::TX_DREQ)
         };
         transfer.await;
         Ok(())
@@ -147,6 +147,10 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
         unsafe {
             for b in buffer {
                 *b = loop {
+                    if r.uartfr().read().rxfe() {
+                        continue;
+                    }
+
                     let dr = r.uartdr().read();
 
                     if dr.oe() {
@@ -157,7 +161,7 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
                         return Err(Error::Parity);
                     } else if dr.fe() {
                         return Err(Error::Framing);
-                    } else if dr.fe() {
+                    } else {
                         break dr.data();
                     }
                 };
@@ -176,7 +180,7 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
             });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(ch, T::regs().uartdr().ptr() as *const _, buffer)
+            crate::dma::read(ch, T::regs().uartdr().ptr() as *const _, buffer, T::RX_DREQ)
         };
         transfer.await;
         Ok(())
@@ -282,6 +286,30 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
         unsafe {
             let r = T::regs();
 
+            tx.io().ctrl().write(|w| w.set_funcsel(2));
+            rx.io().ctrl().write(|w| w.set_funcsel(2));
+
+            tx.pad_ctrl().write(|w| {
+                w.set_ie(true);
+            });
+
+            rx.pad_ctrl().write(|w| {
+                w.set_ie(true);
+            });
+
+            if let Some(pin) = &cts {
+                pin.io().ctrl().write(|w| w.set_funcsel(2));
+                pin.pad_ctrl().write(|w| {
+                    w.set_ie(true);
+                });
+            }
+            if let Some(pin) = &rts {
+                pin.io().ctrl().write(|w| w.set_funcsel(2));
+                pin.pad_ctrl().write(|w| {
+                    w.set_ie(true);
+                });
+            }
+
             let clk_base = crate::clocks::clk_peri_freq();
 
             let baud_rate_div = (8 * clk_base) / config.baudrate;
@@ -302,9 +330,13 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
 
             let (pen, eps) = match config.parity {
                 Parity::ParityNone => (false, false),
-                Parity::ParityEven => (true, true),
                 Parity::ParityOdd => (true, false),
+                Parity::ParityEven => (true, true),
             };
+
+            // PL011 needs a (dummy) line control register write to latch in the
+            // divisors. We don't want to actually change LCR contents here.
+            r.uartlcr_h().modify(|_| {});
 
             r.uartlcr_h().write(|w| {
                 w.set_wlen(config.data_bits.bits());
@@ -321,15 +353,6 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
                 w.set_ctsen(cts.is_some());
                 w.set_rtsen(rts.is_some());
             });
-
-            tx.io().ctrl().write(|w| w.set_funcsel(2));
-            rx.io().ctrl().write(|w| w.set_funcsel(2));
-            if let Some(pin) = &cts {
-                pin.io().ctrl().write(|w| w.set_funcsel(2));
-            }
-            if let Some(pin) = &rts {
-                pin.io().ctrl().write(|w| w.set_funcsel(2));
-            }
         }
 
         Self {
@@ -377,6 +400,10 @@ mod eh02 {
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             let r = T::regs();
             unsafe {
+                if r.uartfr().read().rxfe() {
+                    return Err(nb::Error::WouldBlock);
+                }
+
                 let dr = r.uartdr().read();
 
                 if dr.oe() {
@@ -387,10 +414,8 @@ mod eh02 {
                     Err(nb::Error::Other(Error::Parity))
                 } else if dr.fe() {
                     Err(nb::Error::Other(Error::Framing))
-                } else if dr.fe() {
-                    Ok(dr.data())
                 } else {
-                    Err(nb::Error::WouldBlock)
+                    Ok(dr.data())
                 }
             }
         }
@@ -512,6 +537,9 @@ mod sealed {
     pub trait Mode {}
 
     pub trait Instance {
+        const TX_DREQ: u8;
+        const RX_DREQ: u8;
+
         fn regs() -> pac::uart::Uart;
     }
     pub trait TxPin<T: Instance> {}
@@ -538,8 +566,11 @@ impl_mode!(Async);
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_instance {
-    ($inst:ident, $irq:ident) => {
+    ($inst:ident, $irq:ident, $tx_dreq:expr, $rx_dreq:expr) => {
         impl sealed::Instance for peripherals::$inst {
+            const TX_DREQ: u8 = $tx_dreq;
+            const RX_DREQ: u8 = $rx_dreq;
+
             fn regs() -> pac::uart::Uart {
                 pac::$inst
             }
@@ -548,8 +579,8 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(UART0, UART0);
-impl_instance!(UART1, UART1);
+impl_instance!(UART0, UART0, 20, 21);
+impl_instance!(UART1, UART1, 22, 23);
 
 pub trait TxPin<T: Instance>: sealed::TxPin<T> + crate::gpio::Pin {}
 pub trait RxPin<T: Instance>: sealed::RxPin<T> + crate::gpio::Pin {}
