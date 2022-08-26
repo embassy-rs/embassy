@@ -183,6 +183,11 @@ impl<'d, const N: usize> Saadc<'d, N> {
             r.intenclr.write(|w| w.started().clear());
             WAKER.wake();
         }
+
+        if r.events_stopped.read().bits() != 0 {
+            r.intenclr.write(|w| w.stopped().clear());
+            WAKER.wake();
+        }
     }
 
     fn regs() -> &'static saadc::RegisterBlock {
@@ -251,6 +256,8 @@ impl<'d, const N: usize> Saadc<'d, N> {
             Poll::Pending
         })
         .await;
+
+        Self::stop_sampling().await;
     }
 
     /// Continuous sampling with double buffers.
@@ -398,6 +405,42 @@ impl<'d, const N: usize> Saadc<'d, N> {
                 r.result
                     .ptr
                     .write(|w| unsafe { w.ptr().bits(bufs[next_buffer].as_mut_ptr() as u32) });
+            }
+
+            Poll::Pending
+        })
+        .await;
+
+        Self::stop_sampling().await;
+    }
+
+    // Stop sampling and wait for it to stop
+    async fn stop_sampling() {
+        let r = Self::regs();
+
+        // Reset and enable the events
+
+        compiler_fence(Ordering::SeqCst);
+
+        r.events_stopped.reset();
+        r.intenset.write(|w| {
+            w.stopped().set();
+            w
+        });
+
+        // Stop
+
+        r.tasks_stop.write(|w| unsafe { w.bits(1) });
+
+        // Wait for 'stopped' event.
+        poll_fn(|cx| {
+            let r = Self::regs();
+
+            WAKER.register(cx.waker());
+
+            if r.events_stopped.read().bits() != 0 {
+                r.events_stopped.reset();
+                return Poll::Ready(());
             }
 
             Poll::Pending
