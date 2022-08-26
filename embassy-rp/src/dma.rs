@@ -41,18 +41,38 @@ pub unsafe fn read<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     from: *const W,
     to: &mut [W],
+    dreq: u8,
 ) -> Transfer<'a, C> {
-    let (ptr, len) = crate::dma::slice_ptr_parts_mut(to);
-    copy_inner(ch, from as *const u32, ptr as *mut u32, len, W::size(), false, true)
+    let (to_ptr, len) = crate::dma::slice_ptr_parts_mut(to);
+    copy_inner(
+        ch,
+        from as *const u32,
+        to_ptr as *mut u32,
+        len,
+        W::size(),
+        false,
+        true,
+        dreq,
+    )
 }
 
 pub unsafe fn write<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     from: &[W],
     to: *mut W,
+    dreq: u8,
 ) -> Transfer<'a, C> {
     let (from_ptr, len) = crate::dma::slice_ptr_parts(from);
-    copy_inner(ch, from_ptr as *const u32, to as *mut u32, len, W::size(), true, false)
+    copy_inner(
+        ch,
+        from_ptr as *const u32,
+        to as *mut u32,
+        len,
+        W::size(),
+        true,
+        false,
+        dreq,
+    )
 }
 
 pub unsafe fn copy<'a, C: Channel, W: Word>(
@@ -71,6 +91,7 @@ pub unsafe fn copy<'a, C: Channel, W: Word>(
         W::size(),
         true,
         true,
+        vals::TreqSel::PERMANENT.0,
     )
 }
 
@@ -82,6 +103,7 @@ fn copy_inner<'a, C: Channel>(
     data_size: DataSize,
     incr_read: bool,
     incr_write: bool,
+    dreq: u8,
 ) -> Transfer<'a, C> {
     into_ref!(ch);
 
@@ -95,6 +117,9 @@ fn copy_inner<'a, C: Channel>(
         compiler_fence(Ordering::SeqCst);
 
         p.ctrl_trig().write(|w| {
+            // TODO: Add all DREQ options to pac vals::TreqSel, and use
+            // `set_treq:sel`
+            w.0 = ((dreq as u32) & 0x3f) << 15usize;
             w.set_data_size(data_size);
             w.set_incr_read(incr_read);
             w.set_incr_write(incr_write);
