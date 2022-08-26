@@ -7,7 +7,7 @@ use embassy_stm32::dma::NoDma;
 use embassy_stm32::interrupt::{Interrupt, InterruptExt, SUBGHZ_RADIO};
 use embassy_stm32::subghz::{
     CalibrateImage, CfgIrq, CodingRate, Error, HeaderType, HseTrim, Irq, LoRaBandwidth, LoRaModParams,
-    LoRaPacketParams, LoRaSyncWord, Ocp, PaConfig, PacketType, RampTime, RegMode, RfFreq, SpreadingFactor as SF,
+    LoRaPacketParams, LoRaSyncWord, Ocp, PaConfig, PacketType, RegMode, RfFreq, SpreadingFactor as SF,
     StandbyClk, Status, SubGhz, TcxoMode, TcxoTrim, Timeout, TxParams,
 };
 use embassy_sync::waitqueue::AtomicWaker;
