@@ -115,6 +115,9 @@ pub(crate) mod sealed {
         /// The channel stops running when it either completes or is manually stopped.
         fn is_running(&self) -> bool;
 
+        /// Returns whether this channel has completed a transfer or not
+        fn is_data_ready(&self) -> bool;
+
         /// In continous DMA mode only
         /// Call this method to inform the application that the buffer delivered to the user has been processed corretly.
         /// If this is not done, you'll get an assert
@@ -280,8 +283,10 @@ mod transfers {
         }
     }
 
+    // I think the several functions should be called declarative
+    // It's use is inconsistent between circular and simple reads
     impl<'a, C: Channel> Drop for Transfer<'a, C> {
-        fn drop(&mut self) {
+        fn drop(&mut self) { 
             if ! self.channel.is_performing_cicular_transfer(){
                 self.channel.request_stop();
                 while self.channel.is_running() {}
@@ -294,10 +299,10 @@ mod transfers {
         type Output = ();
         fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
             self.channel.set_waker(cx.waker());
-            if self.channel.is_running() {
-                Poll::Pending
-            } else {
+            if self.channel.is_data_ready() {
                 Poll::Ready(())
+            } else {
+                Poll::Pending
             }
         }
     }

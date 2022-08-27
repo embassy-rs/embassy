@@ -180,7 +180,11 @@ foreach_dma_channel! {
             }
             
             fn is_running(&self) -> bool {
-                unsafe {low_level_api::is_running(pac::$dma_peri, $channel_num, $index)}
+                unsafe {low_level_api::is_running(pac::$dma_peri, $channel_num)}
+            }
+
+            fn is_data_ready(&self) -> bool {
+                unsafe {low_level_api::is_data_ready($index)}
             }
 
             fn set_data_processing_done(&mut self){
@@ -296,8 +300,13 @@ mod low_level_api {
         dma.ch(ch as usize).cr().read().circ() == vals::Circ::ENABLED
     }
 
-    pub unsafe fn is_running(dma: pac::bdma::Dma, ch: u8, index: u8) -> bool {
-        !STATE.data_ready[index as usize].load(Ordering::SeqCst)
+    pub unsafe fn is_running(dma: pac::bdma::Dma, ch: u8) -> bool {
+        let ch = dma.ch(ch as _);
+        ch.cr().read().en()
+    }
+
+    pub unsafe fn is_data_ready(index: u8) -> bool {
+        STATE.data_ready[index as usize].load(Ordering::SeqCst)
     }
     
     pub unsafe fn set_data_processing_done(index: u8) {
