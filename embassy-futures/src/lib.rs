@@ -6,11 +6,10 @@
 pub(crate) mod fmt;
 
 mod block_on;
-mod join;
-mod select;
 mod yield_now;
 
+pub mod join;
+pub mod select;
+
 pub use block_on::*;
-pub use join::*;
-pub use select::*;
 pub use yield_now::*;

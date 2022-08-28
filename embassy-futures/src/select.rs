@@ -1,3 +1,5 @@
+//! Wait for the first of several futures to complete.
+
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};

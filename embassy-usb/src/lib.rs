@@ -12,7 +12,7 @@ mod descriptor_reader;
 pub mod driver;
 pub mod types;
 
-use embassy_futures::{select, Either};
+use embassy_futures::select::{select, Either};
 use heapless::Vec;
 
 pub use self::builder::{Builder, Config};

@@ -1,3 +1,5 @@
+//! Wait for multiple futures to complete.
+
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
@@ -131,7 +133,7 @@ generate! {
 ///
 /// let a = async { 1 };
 /// let b = async { 2 };
-/// let pair = embassy_futures::join(a, b).await;
+/// let pair = embassy_futures::join::join(a, b).await;
 ///
 /// assert_eq!(pair, (1, 2));
 /// # });
@@ -160,7 +162,7 @@ where
 /// let a = async { 1 };
 /// let b = async { 2 };
 /// let c = async { 3 };
-/// let res = embassy_futures::join3(a, b, c).await;
+/// let res = embassy_futures::join::join3(a, b, c).await;
 ///
 /// assert_eq!(res, (1, 2, 3));
 /// # });
@@ -191,7 +193,7 @@ where
 /// let b = async { 2 };
 /// let c = async { 3 };
 /// let d = async { 4 };
-/// let res = embassy_futures::join4(a, b, c, d).await;
+/// let res = embassy_futures::join::join4(a, b, c, d).await;
 ///
 /// assert_eq!(res, (1, 2, 3, 4));
 /// # });
@@ -229,7 +231,7 @@ where
 /// let c = async { 3 };
 /// let d = async { 4 };
 /// let e = async { 5 };
-/// let res = embassy_futures::join5(a, b, c, d, e).await;
+/// let res = embassy_futures::join::join5(a, b, c, d, e).await;
 ///
 /// assert_eq!(res, (1, 2, 3, 4, 5));
 /// # });
