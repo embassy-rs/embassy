@@ -1,7 +1,10 @@
+use core::marker::PhantomData;
+
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Phase, Polarity};
 
+use crate::dma::{AnyChannel, Channel};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::{pac, peripherals, Peripheral};
@@ -30,8 +33,11 @@ impl Default for Config {
     }
 }
 
-pub struct Spi<'d, T: Instance> {
+pub struct Spi<'d, T: Instance, M: Mode> {
     inner: PeripheralRef<'d, T>,
+    tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+    rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+    phantom: PhantomData<(&'d mut T, M)>,
 }
 
 fn div_roundup(a: u32, b: u32) -> u32 {
@@ -57,9 +63,11 @@ fn calc_prescs(freq: u32) -> (u8, u8) {
     ((presc * 2) as u8, (postdiv - 1) as u8)
 }
 
-impl<'d, T: Instance> Spi<'d, T> {
+impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     pub fn new(
         inner: impl Peripheral<P = T> + 'd,
+        tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+        rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
@@ -68,6 +76,8 @@ impl<'d, T: Instance> Spi<'d, T> {
         into_ref!(clk, mosi, miso);
         Self::new_inner(
             inner,
+            tx_dma,
+            rx_dma,
             Some(clk.map_into()),
             Some(mosi.map_into()),
             Some(miso.map_into()),
@@ -78,26 +88,48 @@ impl<'d, T: Instance> Spi<'d, T> {
 
     pub fn new_txonly(
         inner: impl Peripheral<P = T> + 'd,
+        tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(clk, mosi);
-        Self::new_inner(inner, Some(clk.map_into()), Some(mosi.map_into()), None, None, config)
+        Self::new_inner(
+            inner,
+            tx_dma,
+            None,
+            Some(clk.map_into()),
+            Some(mosi.map_into()),
+            None,
+            None,
+            config,
+        )
     }
 
     pub fn new_rxonly(
         inner: impl Peripheral<P = T> + 'd,
+        rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(clk, miso);
-        Self::new_inner(inner, Some(clk.map_into()), None, Some(miso.map_into()), None, config)
+        Self::new_inner(
+            inner,
+            None,
+            rx_dma,
+            Some(clk.map_into()),
+            None,
+            Some(miso.map_into()),
+            None,
+            config,
+        )
     }
 
     fn new_inner(
         inner: impl Peripheral<P = T> + 'd,
+        tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+        rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         clk: Option<PeripheralRef<'d, AnyPin>>,
         mosi: Option<PeripheralRef<'d, AnyPin>>,
         miso: Option<PeripheralRef<'d, AnyPin>>,
@@ -134,7 +166,12 @@ impl<'d, T: Instance> Spi<'d, T> {
                 pin.io().ctrl().write(|w| w.set_funcsel(1));
             }
         }
-        Self { inner }
+        Self {
+            inner,
+            tx_dma,
+            rx_dma,
+            phantom: PhantomData,
+        }
     }
 
     pub fn blocking_write(&mut self, data: &[u8]) -> Result<(), Error> {
@@ -228,16 +265,25 @@ impl<'d, T: Instance> Spi<'d, T> {
 mod sealed {
     use super::*;
 
+    pub trait Mode {}
+
     pub trait Instance {
+        const TX_DREQ: u8;
+        const RX_DREQ: u8;
+
         fn regs(&self) -> pac::spi::Spi;
     }
 }
 
+pub trait Mode: sealed::Mode {}
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_instance {
-    ($type:ident, $irq:ident) => {
+    ($type:ident, $irq:ident, $tx_dreq:expr, $rx_dreq:expr) => {
         impl sealed::Instance for peripherals::$type {
+            const TX_DREQ: u8 = $tx_dreq;
+            const RX_DREQ: u8 = $rx_dreq;
+
             fn regs(&self) -> pac::spi::Spi {
                 pac::$type
             }
@@ -246,8 +292,8 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(SPI0, Spi0);
-impl_instance!(SPI1, Spi1);
+impl_instance!(SPI0, Spi0, 16, 17);
+impl_instance!(SPI1, Spi1, 18, 19);
 
 pub trait ClkPin<T: Instance>: GpioPin {}
 pub trait CsPin<T: Instance>: GpioPin {}
@@ -281,12 +327,25 @@ impl_pin!(PIN_17, SPI0, CsPin);
 impl_pin!(PIN_18, SPI0, ClkPin);
 impl_pin!(PIN_19, SPI0, MosiPin);
 
+macro_rules! impl_mode {
+    ($name:ident) => {
+        impl sealed::Mode for $name {}
+        impl Mode for $name {}
+    };
+}
+
+pub struct Blocking;
+pub struct Async;
+
+impl_mode!(Blocking);
+impl_mode!(Async);
+
 // ====================
 
 mod eh02 {
     use super::*;
 
-    impl<'d, T: Instance> embedded_hal_02::blocking::spi::Transfer<u8> for Spi<'d, T> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::spi::Transfer<u8> for Spi<'d, T, M> {
         type Error = Error;
         fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
             self.blocking_transfer_in_place(words)?;
@@ -294,7 +353,7 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Instance> embedded_hal_02::blocking::spi::Write<u8> for Spi<'d, T> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::spi::Write<u8> for Spi<'d, T, M> {
         type Error = Error;
 
         fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
@@ -313,29 +372,29 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::ErrorType for Spi<'d, T> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::ErrorType for Spi<'d, T, M> {
         type Error = Error;
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBusFlush for Spi<'d, T> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::blocking::SpiBusFlush for Spi<'d, T, M> {
         fn flush(&mut self) -> Result<(), Self::Error> {
             Ok(())
         }
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBusRead<u8> for Spi<'d, T> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::blocking::SpiBusRead<u8> for Spi<'d, T, M> {
         fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_transfer(words, &[])
         }
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBusWrite<u8> for Spi<'d, T> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::blocking::SpiBusWrite<u8> for Spi<'d, T, M> {
         fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(words)
         }
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::blocking::SpiBus<u8> for Spi<'d, T> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::blocking::SpiBus<u8> for Spi<'d, T, M> {
         fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
             self.blocking_transfer(read, write)
         }
@@ -346,7 +405,7 @@ mod eh1 {
     }
 }
 
-impl<'d, T: Instance> SetConfig for Spi<'d, T> {
+impl<'d, T: Instance, M: Mode> SetConfig for Spi<'d, T, M> {
     type Config = Config;
     fn set_config(&mut self, config: &Self::Config) {
         let p = self.inner.regs();
