@@ -199,11 +199,8 @@ pub struct SelectArray<Fut, const N: usize> {
 /// completion the item resolved will be returned, along with the index of the
 /// future that was ready.
 ///
-/// # Panics
-///
-/// This function will panic if the array specified contains no items.
+/// If the array is empty, the resulting future will be Pending forever.
 pub fn select_array<Fut: Future, const N: usize>(arr: [Fut; N]) -> SelectArray<Fut, N> {
-    assert!(N > 0);
     SelectArray { inner: arr }
 }
 
@@ -247,11 +244,8 @@ pub struct SelectSlice<'a, Fut> {
 /// completion the item resolved will be returned, along with the index of the
 /// future that was ready.
 ///
-/// # Panics
-///
-/// This function will panic if the slice specified contains no items.
+/// If the slice is empty, the resulting future will be Pending forever.
 pub fn select_slice<'a, Fut: Future>(slice: &'a mut [Fut]) -> SelectSlice<'a, Fut> {
-    assert!(!slice.is_empty());
     SelectSlice { inner: slice }
 }
 
