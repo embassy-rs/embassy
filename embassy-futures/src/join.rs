@@ -1,6 +1,7 @@
 //! Wait for multiple futures to complete.
 
 use core::future::Future;
+use core::mem::MaybeUninit;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use core::{fmt, mem};
@@ -251,4 +252,71 @@ where
     Fut5: Future,
 {
     Join5::new(future1, future2, future3, future4, future5)
+}
+
+// =====================================================
+
+/// Future for the [`join_array`] function.
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct JoinArray<Fut: Future, const N: usize> {
+    futures: [MaybeDone<Fut>; N],
+}
+
+impl<Fut: Future, const N: usize> fmt::Debug for JoinArray<Fut, N>
+where
+    Fut: Future + fmt::Debug,
+    Fut::Output: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JoinArray").field("futures", &self.futures).finish()
+    }
+}
+
+impl<Fut: Future, const N: usize> Future for JoinArray<Fut, N> {
+    type Output = [Fut::Output; N];
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = unsafe { self.get_unchecked_mut() };
+        let mut all_done = true;
+        for f in this.futures.iter_mut() {
+            all_done &= unsafe { Pin::new_unchecked(f) }.poll(cx);
+        }
+
+        if all_done {
+            let mut array: [MaybeUninit<Fut::Output>; N] = unsafe { MaybeUninit::uninit().assume_init() };
+            for i in 0..N {
+                array[i].write(this.futures[i].take_output());
+            }
+            Poll::Ready(unsafe { (&array as *const _ as *const [Fut::Output; N]).read() })
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+/// Joins the result of an array of futures, waiting for them all to complete.
+///
+/// This function will return a new future which awaits all futures to
+/// complete. The returned future will finish with a tuple of all results.
+///
+/// Note that this function consumes the passed futures and returns a
+/// wrapped version of it.
+///
+/// # Examples
+///
+/// ```
+/// # embassy_futures::block_on(async {
+///
+/// async fn foo(n: u32) -> u32 { n }
+/// let a = foo(1);
+/// let b = foo(2);
+/// let c = foo(3);
+/// let res = embassy_futures::join::join_array([a, b, c]).await;
+///
+/// assert_eq!(res, [1, 2, 3]);
+/// # });
+/// ```
+pub fn join_array<Fut: Future, const N: usize>(futures: [Fut; N]) -> JoinArray<Fut, N> {
+    JoinArray {
+        futures: futures.map(MaybeDone::Future),
+    }
 }
