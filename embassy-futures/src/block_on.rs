@@ -11,6 +11,8 @@ static VTABLE: RawWakerVTable = RawWakerVTable::new(|_| RawWaker::new(ptr::null(
 /// the current thread at 100% cpu usage until the future is done. The
 /// future's `Waker` mechanism is not used.
 ///
+/// You can use this to run multiple futures concurrently with [`join`][crate::join].
+///
 /// It's suitable for systems with no or limited concurrency and without
 /// strict requirements around power consumption. For more complex use
 /// cases, prefer using a "real" executor like `embassy-executor`, which
