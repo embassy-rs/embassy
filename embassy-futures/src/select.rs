@@ -4,6 +4,7 @@ use core::task::{Context, Poll};
 
 /// Result for [`select`].
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Either<A, B> {
     /// First future finished first.
     First(A),
@@ -60,6 +61,7 @@ where
 
 /// Result for [`select3`].
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Either3<A, B, C> {
     /// First future finished first.
     First(A),
@@ -118,6 +120,7 @@ where
 
 /// Result for [`select4`].
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Either4<A, B, C, D> {
     /// First future finished first.
     First(A),
