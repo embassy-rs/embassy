@@ -81,7 +81,13 @@ pub(crate) mod sealed {
         /// A single buffer is used for the operation on the memory side. The DMA call the waker when half or the entirety of the buffer has been read/written
         /// It is the responsability of the user to ensure no software operation is performed on the half of the buffer the DMA is writting/reading on
         unsafe fn start_circular_read<W: super::Word>(
-            &mut self, _request: Request, reg_addr: *const W, buf_ptr: *mut [W], buf_len : usize,  options: TransferOptions);
+            &mut self,
+            _request: Request,
+            reg_addr: *const W,
+            buf_ptr: *mut [W],
+            buf_len: usize,
+            options: TransferOptions,
+        );
 
         /// DMA double-buffered mode is unsafe as UB can happen when the hardware writes to a buffer currently owned by the software
         /// more information can be found here: https://github.com/embassy-rs/embassy/issues/702
@@ -108,8 +114,8 @@ pub(crate) mod sealed {
         fn request_stop(&mut self);
 
         // Return true if circular mode is enabled for this DMA channel
-        fn is_performing_cicular_transfer(&mut self)-> bool;
-        
+        fn is_performing_cicular_transfer(&mut self) -> bool;
+
         /// Returns whether this channel is running or stopped.
         ///
         /// The channel stops running when it either completes or is manually stopped.
@@ -121,7 +127,7 @@ pub(crate) mod sealed {
         /// In continous DMA mode only
         /// Call this method to inform the application that the buffer delivered to the user has been processed corretly.
         /// If this is not done, you'll get an assert
-       fn set_data_processing_done(&mut self);
+        fn set_data_processing_done(&mut self);
 
         /// Returns the total number of remaining transfers.
         fn remaining_transfers(&mut self) -> u16;
@@ -286,8 +292,8 @@ mod transfers {
     // I think the several functions should be called declarative
     // It's use is inconsistent between circular and simple reads
     impl<'a, C: Channel> Drop for Transfer<'a, C> {
-        fn drop(&mut self) { 
-            if ! self.channel.is_performing_cicular_transfer(){
+        fn drop(&mut self) {
+            if !self.channel.is_performing_cicular_transfer() {
                 self.channel.request_stop();
                 while self.channel.is_running() {}
             }
