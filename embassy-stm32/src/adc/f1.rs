@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::into_ref;
+use embassy_hal_common::{into_ref, PeripheralRef};
 use embedded_hal_02::blocking::delay::DelayUs;
 
 use crate::adc::{AdcPin, Instance};
@@ -236,10 +236,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         self.convert()
     }
 
-    pub async fn read_continuous<S, const N:usize, U >(&mut self, pin: &mut impl AdcPin<T>, mut rxdma: U, data: &mut [[u16;N]; 2], sampler: &mut S)
+    pub async fn read_continuous<S, const N:usize, U >(&mut self, pin: &mut impl AdcPin<T>, mut rxdma:  PeripheralRef<'_, U>, data: &mut [[u16;N]; 2], sampler: &mut S)
      where
         S: FnMut(&[u16; N]) -> SamplerState,
-        U: RxDma<T> + Peripheral<P = U>
+        U: RxDma<T>
      {
              
         let rx_request = rxdma.request();
