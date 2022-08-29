@@ -224,6 +224,8 @@ impl<'d, const N: usize> Saadc<'d, N> {
     }
 
     /// One shot sampling. The buffer must be the same size as the number of channels configured.
+    /// The sampling is stopped prior to returning in order to reduce power consumption (power
+    /// consumption remains higher if sampling is not stopped explicitly).
     pub async fn sample(&mut self, buf: &mut [i16; N]) {
         let r = Self::regs();
 
