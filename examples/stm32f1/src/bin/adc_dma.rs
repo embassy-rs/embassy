@@ -3,8 +3,8 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Delay, Duration, Timer};
+use embassy_executor::Spawner;
+use embassy_time::{Delay, Duration, Timer};
 use embassy_stm32::adc::{Adc,SamplerState, Instance, RxDma, AdcPin};
 use embassy_stm32::{Peripherals, Peripheral, PeripheralRef};
 use {defmt_rtt as _, panic_probe as _};
@@ -12,10 +12,10 @@ use {defmt_rtt as _, panic_probe as _};
 async fn single_read<T : Instance + Peripheral<P = T>>(adc : &mut Adc<'_, T>, pin: &mut impl AdcPin<T>){
     info!("Single read");
 
-    for i in (0..20) {
+    for i in 0..20 {
         let v = adc.read(pin);
         info!("--> {} - {} mV", v, adc.to_millivolts(v));
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after(Duration::from_millis(300)).await;
     }
 }
 
@@ -47,9 +47,9 @@ async fn continous_read<T : Instance + Peripheral<P = T>, U :  RxDma<T> + Periph
 }
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
     info!("Hello World!");
-
+   let p = embassy_stm32::init(Default::default());
     let mut adc = Adc::new(p.ADC1, &mut Delay);
     let mut pin = p.PB1;
     let mut dma_chan = p.DMA1_CH1.into_ref();
