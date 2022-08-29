@@ -1,8 +1,13 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::into_ref;
+use atomic_polyfill::Ordering;
+use embassy_cortex_m::interrupt::InterruptExt;
+use embassy_hal_common::{into_ref, PeripheralRef};
 use pac::i2c;
 
+use crate::dma::{AnyChannel, Channel};
+use crate::gpio::sealed::Pin;
+use crate::gpio::AnyPin;
 use crate::{pac, peripherals, Peripheral};
 
 /// I2C error abort reason
@@ -49,7 +54,163 @@ impl Default for Config {
 const FIFO_SIZE: u8 = 16;
 
 pub struct I2c<'d, T: Instance, M: Mode> {
+    tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+    rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+    dma_buf: [u16; 256],
     phantom: PhantomData<(&'d mut T, M)>,
+}
+
+impl<'d, T: Instance> I2c<'d, T, Async> {
+    pub fn new(
+        _peri: impl Peripheral<P = T> + 'd,
+        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
+        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        tx_dma: impl Peripheral<P = impl Channel> + 'd,
+        rx_dma: impl Peripheral<P = impl Channel> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(scl, sda, irq, tx_dma, rx_dma);
+
+        // Enable interrupts
+        unsafe {
+            T::regs().ic_intr_mask().modify(|w| {
+                w.set_m_rx_done(true);
+            });
+        }
+
+        irq.set_handler(Self::on_interrupt);
+        irq.unpend();
+        irq.enable();
+
+        Self::new_inner(
+            _peri,
+            scl.map_into(),
+            sda.map_into(),
+            Some(tx_dma.map_into()),
+            Some(rx_dma.map_into()),
+            config,
+        )
+    }
+
+    unsafe fn on_interrupt(_: *mut ()) {
+        let status = T::regs().ic_intr_stat().read();
+
+        // FIXME:
+        if status.tcr() || status.tc() {
+            let state = T::state();
+            state.chunks_transferred.fetch_add(1, Ordering::Relaxed);
+            state.waker.wake();
+        }
+        // The flag can only be cleared by writting to nbytes, we won't do that here, so disable
+        // the interrupt
+        // critical_section::with(|_| {
+        //     regs.cr1().modify(|w| w.set_tcie(false));
+        // });
+    }
+
+    async fn write_internal(&mut self, bytes: &[u8], send_stop: bool) -> Result<(), Error> {
+        let len = bytes.len();
+        for (idx, chunk) in bytes.chunks(self.dma_buf.len()).enumerate() {
+            let first = idx == 0;
+            let last = idx * self.dma_buf.len() + chunk.len() == len;
+
+            for (i, byte) in chunk.iter().enumerate() {
+                let mut b = i2c::regs::IcDataCmd::default();
+                b.set_dat(*byte);
+                b.set_stop(send_stop && last);
+
+                self.dma_buf[i] = b.0 as u16;
+            }
+
+            // Note(safety): Unwrap should be safe, as this can only be called
+            // when `Mode == Async`, where we have dma channels.
+            let ch = self.tx_dma.as_mut().unwrap();
+            let transfer = unsafe {
+                T::regs().ic_dma_cr().modify(|w| {
+                    w.set_tdmae(true);
+                });
+
+                crate::dma::write(ch, &self.dma_buf, T::regs().ic_data_cmd().ptr() as *mut _, T::TX_DREQ)
+            };
+
+            transfer.await;
+        }
+
+        Ok(())
+    }
+
+    async fn read_internal(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        let len = buffer.len();
+        self.read_blocking_internal(&mut buffer[..1], true, len == 1)?;
+
+        if len > 2 {
+            // Note(safety): Unwrap should be safe, as this can only be called
+            // when `Mode == Async`, where we have dma channels.
+            let ch = self.rx_dma.as_mut().unwrap();
+            let transfer = unsafe {
+                T::regs().ic_data_cmd().modify(|w| {
+                    w.set_cmd(true);
+                });
+
+                T::regs().ic_dma_cr().modify(|reg| {
+                    reg.set_rdmae(true);
+                });
+                // If we don't assign future to a variable, the data register pointer
+                // is held across an await and makes the future non-Send.
+                crate::dma::read(
+                    ch,
+                    T::regs().ic_data_cmd().ptr() as *const _,
+                    &mut buffer[1..len - 1],
+                    T::RX_DREQ,
+                )
+            };
+            transfer.await;
+        }
+
+        if len > 2 {
+            self.read_blocking_internal(&mut buffer[len - 1..], false, true)?;
+        }
+
+        Ok(())
+    }
+
+    // =========================
+    // Async public API
+    // =========================
+
+    pub async fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error> {
+        Self::setup(address.into())?;
+        if bytes.is_empty() {
+            self.write_blocking_internal(bytes, true)
+        } else {
+            self.write_internal(bytes, true).await
+        }
+    }
+
+    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        Self::setup(address.into())?;
+        if buffer.is_empty() {
+            self.read_blocking_internal(buffer, true, true)
+        } else {
+            self.read_internal(buffer).await
+        }
+    }
+
+    pub async fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
+        Self::setup(address.into())?;
+        if bytes.is_empty() {
+            self.write_blocking_internal(bytes, false)?;
+        } else {
+            self.write_internal(bytes, false).await?;
+        }
+
+        if buffer.is_empty() {
+            self.read_blocking_internal(buffer, true, true)
+        } else {
+            self.read_internal(buffer).await
+        }
+    }
 }
 
 impl<'d, T: Instance> I2c<'d, T, Blocking> {
@@ -59,7 +220,21 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
         sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(_peri, scl, sda);
+        into_ref!(scl, sda);
+        Self::new_inner(_peri, scl.map_into(), sda.map_into(), None, None, config)
+    }
+}
+
+impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
+    fn new_inner(
+        _peri: impl Peripheral<P = T> + 'd,
+        scl: PeripheralRef<'d, AnyPin>,
+        sda: PeripheralRef<'d, AnyPin>,
+        tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+        rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+        config: Config,
+    ) -> Self {
+        into_ref!(_peri);
 
         assert!(config.frequency <= 1_000_000);
         assert!(config.frequency > 0);
@@ -152,11 +327,14 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
             p.ic_enable().write(|w| w.set_enable(true));
         }
 
-        Self { phantom: PhantomData }
+        Self {
+            tx_dma,
+            rx_dma,
+            dma_buf: [0; 256],
+            phantom: PhantomData,
+        }
     }
-}
 
-impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
     fn setup(addr: u16) -> Result<(), Error> {
         if addr >= 0x80 {
             return Err(Error::AddressOutOfRange(addr));
@@ -304,46 +482,6 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
     }
 }
 
-// impl<'d, T: Instance> I2c<'d, T, Async> { // ========================= //
-//     Async public API // =========================
-
-//     pub async fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(),
-//         Error> { if bytes.is_empty() { self.write_blocking_internal(address,
-//             bytes, true) } else { self.write_dma_internal(address, bytes,
-//         true, true).await } }
-
-//     pub async fn write_vectored(&mut self, address: u8, bytes: &[&[u8]]) ->
-//         Result<(), Error> { if bytes.is_empty() { return
-//             Err(Error::ZeroLengthTransfer); } let mut iter = bytes.iter();
-
-//         let mut first = true; let mut current = iter.next(); while let
-//         Some(c) = current { let next = iter.next(); let is_last =
-//         next.is_none();
-
-//             self.write_dma_internal(address, c, first, is_last).await?;
-//             first = false;
-//             current = next;
-//         } Ok(())
-//     }
-
-//     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) ->
-//         Result<(), Error> { if buffer.is_empty() {
-//             self.read_blocking_internal(address, buffer, false) } else {
-//         self.read_dma_internal(address, buffer, false).await } }
-
-//     pub async fn write_read(&mut self, address: u8, bytes: &[u8], buffer:
-//         &mut [u8]) -> Result<(), Error> { if bytes.is_empty() {
-//             self.write_blocking_internal(address, bytes, false)?; } else {
-//         self.write_dma_internal(address, bytes, true, true).await?; }
-
-//         if buffer.is_empty() { self.read_blocking_internal(address, buffer,
-//             true)?; } else { self.read_dma_internal(address, buffer,
-//         true).await?; }
-
-//         Ok(())
-//     }
-// }
-
 mod eh02 {
     use super::*;
 
@@ -478,7 +616,34 @@ fn i2c_reserved_addr(addr: u16) -> bool {
 }
 
 mod sealed {
-    pub trait Instance {}
+    use atomic_polyfill::AtomicUsize;
+    use embassy_cortex_m::interrupt::Interrupt;
+    use embassy_sync::waitqueue::AtomicWaker;
+
+    pub(crate) struct State {
+        pub(crate) waker: AtomicWaker,
+        pub(crate) chunks_transferred: AtomicUsize,
+    }
+
+    impl State {
+        pub(crate) const fn new() -> Self {
+            Self {
+                waker: AtomicWaker::new(),
+                chunks_transferred: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    pub trait Instance {
+        const TX_DREQ: u8;
+        const RX_DREQ: u8;
+
+        type Interrupt: Interrupt;
+
+        fn regs() -> crate::pac::i2c::I2c;
+        fn state() -> &'static State;
+    }
+
     pub trait Mode {}
 
     pub trait SdaPin<T: Instance> {}
@@ -500,27 +665,31 @@ pub struct Async;
 impl_mode!(Blocking);
 impl_mode!(Async);
 
-pub trait Instance: sealed::Instance {
-    type Interrupt;
-
-    fn regs() -> pac::i2c::I2c;
-}
+pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_instance {
-    ($type:ident, $irq:ident) => {
-        impl sealed::Instance for peripherals::$type {}
-        impl Instance for peripherals::$type {
+    ($type:ident, $irq:ident, $tx_dreq:expr, $rx_dreq:expr) => {
+        impl sealed::Instance for peripherals::$type {
+            const TX_DREQ: u8 = $tx_dreq;
+            const RX_DREQ: u8 = $rx_dreq;
+
             type Interrupt = crate::interrupt::$irq;
 
             fn regs() -> pac::i2c::I2c {
                 pac::$type
             }
+
+            fn state() -> &'static sealed::State {
+                static STATE: sealed::State = sealed::State::new();
+                &STATE
+            }
         }
+        impl Instance for peripherals::$type {}
     };
 }
 
-impl_instance!(I2C0, I2C0_IRQ);
-impl_instance!(I2C1, I2C1_IRQ);
+impl_instance!(I2C0, I2C0_IRQ, 32, 33);
+impl_instance!(I2C1, I2C1_IRQ, 34, 35);
 
 pub trait SdaPin<T: Instance>: sealed::SdaPin<T> + crate::gpio::Pin {}
 pub trait SclPin<T: Instance>: sealed::SclPin<T> + crate::gpio::Pin {}
