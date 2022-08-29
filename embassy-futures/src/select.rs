@@ -1,9 +1,12 @@
+//! Wait for the first of several futures to complete.
+
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
 /// Result for [`select`].
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Either<A, B> {
     /// First future finished first.
     First(A),
@@ -60,6 +63,7 @@ where
 
 /// Result for [`select3`].
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Either3<A, B, C> {
     /// First future finished first.
     First(A),
@@ -118,6 +122,7 @@ where
 
 /// Result for [`select4`].
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Either4<A, B, C, D> {
     /// First future finished first.
     First(A),
@@ -183,28 +188,70 @@ where
 
 // ====================================================================
 
-/// Future for the [`select_all`] function.
+/// Future for the [`select_array`] function.
 #[derive(Debug)]
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct SelectAll<Fut, const N: usize> {
+pub struct SelectArray<Fut, const N: usize> {
     inner: [Fut; N],
 }
 
-/// Creates a new future which will select over a list of futures.
+/// Creates a new future which will select over an array of futures.
 ///
-/// The returned future will wait for any future within `iter` to be ready. Upon
+/// The returned future will wait for any future to be ready. Upon
 /// completion the item resolved will be returned, along with the index of the
 /// future that was ready.
 ///
-/// # Panics
-///
-/// This function will panic if the array specified contains no items.
-pub fn select_all<Fut: Future, const N: usize>(arr: [Fut; N]) -> SelectAll<Fut, N> {
-    assert!(N > 0);
-    SelectAll { inner: arr }
+/// If the array is empty, the resulting future will be Pending forever.
+pub fn select_array<Fut: Future, const N: usize>(arr: [Fut; N]) -> SelectArray<Fut, N> {
+    SelectArray { inner: arr }
 }
 
-impl<Fut: Future, const N: usize> Future for SelectAll<Fut, N> {
+impl<Fut: Future, const N: usize> Future for SelectArray<Fut, N> {
+    type Output = (Fut::Output, usize);
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // Safety: Since `self` is pinned, `inner` cannot move. Since `inner` cannot move,
+        // its elements also cannot move. Therefore it is safe to access `inner` and pin
+        // references to the contained futures.
+        let item = unsafe {
+            self.get_unchecked_mut()
+                .inner
+                .iter_mut()
+                .enumerate()
+                .find_map(|(i, f)| match Pin::new_unchecked(f).poll(cx) {
+                    Poll::Pending => None,
+                    Poll::Ready(e) => Some((i, e)),
+                })
+        };
+
+        match item {
+            Some((idx, res)) => Poll::Ready((res, idx)),
+            None => Poll::Pending,
+        }
+    }
+}
+
+// ====================================================================
+
+/// Future for the [`select_slice`] function.
+#[derive(Debug)]
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct SelectSlice<'a, Fut> {
+    inner: &'a mut [Fut],
+}
+
+/// Creates a new future which will select over a slice of futures.
+///
+/// The returned future will wait for any future to be ready. Upon
+/// completion the item resolved will be returned, along with the index of the
+/// future that was ready.
+///
+/// If the slice is empty, the resulting future will be Pending forever.
+pub fn select_slice<'a, Fut: Future>(slice: &'a mut [Fut]) -> SelectSlice<'a, Fut> {
+    SelectSlice { inner: slice }
+}
+
+impl<'a, Fut: Future> Future for SelectSlice<'a, Fut> {
     type Output = (Fut::Output, usize);
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
