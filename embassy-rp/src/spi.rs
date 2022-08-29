@@ -3,6 +3,7 @@ use core::marker::PhantomData;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Phase, Polarity};
+use futures::future::join;
 
 use crate::dma::{AnyChannel, Channel};
 use crate::gpio::sealed::Pin as _;
@@ -64,10 +65,8 @@ fn calc_prescs(freq: u32) -> (u8, u8) {
 }
 
 impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
-    pub fn new(
+    pub fn new_blocking(
         inner: impl Peripheral<P = T> + 'd,
-        tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
-        rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
@@ -76,8 +75,8 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         into_ref!(clk, mosi, miso);
         Self::new_inner(
             inner,
-            tx_dma,
-            rx_dma,
+            None,
+            None,
             Some(clk.map_into()),
             Some(mosi.map_into()),
             Some(miso.map_into()),
@@ -259,6 +258,81 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
             // enable
             p.cr1().write(|w| w.set_sse(true));
         }
+    }
+}
+
+impl<'d, T: Instance> Spi<'d, T, Async> {
+    pub fn new(
+        inner: impl Peripheral<P = T> + 'd,
+        tx_dma: impl Peripheral<P = impl Channel> + 'd,
+        rx_dma: impl Peripheral<P = impl Channel> + 'd,
+        clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(tx_dma, rx_dma, clk, mosi, miso);
+        Self::new_inner(
+            inner,
+            Some(tx_dma.map_into()),
+            Some(rx_dma.map_into()),
+            Some(clk.map_into()),
+            Some(mosi.map_into()),
+            Some(miso.map_into()),
+            None,
+            config,
+        )
+    }
+
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        let ch = self.tx_dma.as_mut().unwrap();
+        let transfer = unsafe {
+            self.inner.regs().dmacr().modify(|reg| {
+                reg.set_txdmae(true);
+            });
+            // If we don't assign future to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            crate::dma::write(ch, buffer, self.inner.regs().dr().ptr() as *mut _, T::TX_DREQ)
+        };
+        transfer.await;
+        Ok(())
+    }
+
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        let ch = self.rx_dma.as_mut().unwrap();
+        let transfer = unsafe {
+            self.inner.regs().dmacr().modify(|reg| {
+                reg.set_rxdmae(true);
+            });
+            // If we don't assign future to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            crate::dma::read(ch, self.inner.regs().dr().ptr() as *const _, buffer, T::RX_DREQ)
+        };
+        transfer.await;
+        Ok(())
+    }
+
+    pub async fn transfer(&mut self, rx_buffer: &mut [u8], tx_buffer: &[u8]) -> Result<(), Error> {
+        let tx_ch = self.tx_dma.as_mut().unwrap();
+        let tx_transfer = unsafe {
+            self.inner.regs().dmacr().modify(|reg| {
+                reg.set_txdmae(true);
+            });
+            // If we don't assign future to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            crate::dma::write(tx_ch, tx_buffer, self.inner.regs().dr().ptr() as *mut _, T::TX_DREQ)
+        };
+        let rx_ch = self.rx_dma.as_mut().unwrap();
+        let rx_transfer = unsafe {
+            self.inner.regs().dmacr().modify(|reg| {
+                reg.set_rxdmae(true);
+            });
+            // If we don't assign future to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            crate::dma::read(rx_ch, self.inner.regs().dr().ptr() as *const _, rx_buffer, T::RX_DREQ)
+        };
+        join(tx_transfer, rx_transfer).await;
+        Ok(())
     }
 }
 
