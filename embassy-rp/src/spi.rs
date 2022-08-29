@@ -479,6 +479,60 @@ mod eh1 {
     }
 }
 
+cfg_if::cfg_if! {
+    if #[cfg(all(feature = "unstable-traits", feature = "nightly"))] {
+        use core::future::Future;
+        impl<'d, T: Instance> embedded_hal_async::spi::SpiBusFlush for Spi<'d, T, Async> {
+            type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+            fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+                async { Ok(()) }
+            }
+        }
+
+        impl<'d, T: Instance> embedded_hal_async::spi::SpiBusWrite<u8>
+            for Spi<'d, T, Async>
+        {
+            type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+            fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
+                self.write(data)
+            }
+        }
+
+        impl<'d, T: Instance> embedded_hal_async::spi::SpiBusRead<u8>
+            for Spi<'d, T, Async>
+        {
+            type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+            fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
+                self.read(data)
+            }
+        }
+
+        impl<'d, T: Instance> embedded_hal_async::spi::SpiBus<u8>
+            for Spi<'d, T, Async>
+        {
+            type TransferFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+            fn transfer<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::TransferFuture<'a> {
+                self.transfer(rx, tx)
+            }
+
+            type TransferInPlaceFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+            fn transfer_in_place<'a>(
+                &'a mut self,
+                words: &'a mut [u8],
+            ) -> Self::TransferInPlaceFuture<'a> {
+                let (ptr, len) = crate::dma::slice_ptr_parts(words);
+                let tx_buffer = unsafe { core::slice::from_raw_parts(ptr as *const _, len) };
+                self.transfer(words, tx_buffer)
+            }
+        }
+    }
+}
+
 impl<'d, T: Instance, M: Mode> SetConfig for Spi<'d, T, M> {
     type Config = Config;
     fn set_config(&mut self, config: &Self::Config) {
