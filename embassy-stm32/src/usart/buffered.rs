@@ -4,19 +4,19 @@ use core::task::Poll;
 use atomic_polyfill::{compiler_fence, Ordering};
 use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::ring_buffer::RingBuffer;
-use embassy_util::waitqueue::WakerRegistration;
+use embassy_sync::waitqueue::WakerRegistration;
 use futures::future::poll_fn;
 
 use super::*;
 
-pub struct State<'d, T: Instance>(StateStorage<StateInner<'d, T>>);
-impl<'d, T: Instance> State<'d, T> {
+pub struct State<'d, T: BasicInstance>(StateStorage<StateInner<'d, T>>);
+impl<'d, T: BasicInstance> State<'d, T> {
     pub fn new() -> Self {
         Self(StateStorage::new())
     }
 }
 
-struct StateInner<'d, T: Instance> {
+struct StateInner<'d, T: BasicInstance> {
     phantom: PhantomData<&'d mut T>,
 
     rx_waker: WakerRegistration,
@@ -26,16 +26,16 @@ struct StateInner<'d, T: Instance> {
     tx: RingBuffer<'d>,
 }
 
-unsafe impl<'d, T: Instance> Send for StateInner<'d, T> {}
-unsafe impl<'d, T: Instance> Sync for StateInner<'d, T> {}
+unsafe impl<'d, T: BasicInstance> Send for StateInner<'d, T> {}
+unsafe impl<'d, T: BasicInstance> Sync for StateInner<'d, T> {}
 
-pub struct BufferedUart<'d, T: Instance> {
+pub struct BufferedUart<'d, T: BasicInstance> {
     inner: PeripheralMutex<'d, StateInner<'d, T>>,
 }
 
-impl<'d, T: Instance> Unpin for BufferedUart<'d, T> {}
+impl<'d, T: BasicInstance> Unpin for BufferedUart<'d, T> {}
 
-impl<'d, T: Instance> BufferedUart<'d, T> {
+impl<'d, T: BasicInstance> BufferedUart<'d, T> {
     pub fn new(
         state: &'d mut State<'d, T>,
         _uart: Uart<'d, T, NoDma, NoDma>,
@@ -66,7 +66,7 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
     }
 }
 
-impl<'d, T: Instance> StateInner<'d, T>
+impl<'d, T: BasicInstance> StateInner<'d, T>
 where
     Self: 'd,
 {
@@ -135,7 +135,7 @@ where
     }
 }
 
-impl<'d, T: Instance> PeripheralState for StateInner<'d, T>
+impl<'d, T: BasicInstance> PeripheralState for StateInner<'d, T>
 where
     Self: 'd,
 {
@@ -152,11 +152,11 @@ impl embedded_io::Error for Error {
     }
 }
 
-impl<'d, T: Instance> embedded_io::Io for BufferedUart<'d, T> {
+impl<'d, T: BasicInstance> embedded_io::Io for BufferedUart<'d, T> {
     type Error = Error;
 }
 
-impl<'d, T: Instance> embedded_io::asynch::Read for BufferedUart<'d, T> {
+impl<'d, T: BasicInstance> embedded_io::asynch::Read for BufferedUart<'d, T> {
     type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
     where
         Self: 'a;
@@ -194,7 +194,7 @@ impl<'d, T: Instance> embedded_io::asynch::Read for BufferedUart<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embedded_io::asynch::BufRead for BufferedUart<'d, T> {
+impl<'d, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUart<'d, T> {
     type FillBufFuture<'a> = impl Future<Output = Result<&'a [u8], Self::Error>>
     where
         Self: 'a;
@@ -231,7 +231,7 @@ impl<'d, T: Instance> embedded_io::asynch::BufRead for BufferedUart<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embedded_io::asynch::Write for BufferedUart<'d, T> {
+impl<'d, T: BasicInstance> embedded_io::asynch::Write for BufferedUart<'d, T> {
     type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
     where
         Self: 'a;

@@ -6,7 +6,7 @@
 #![allow(dead_code)]
 
 use bit_field::BitField;
-use embassy_executor::time::{Duration, Timer};
+use embassy_time::{Duration, Timer};
 use embedded_hal::digital::v2::OutputPin;
 use embedded_hal_async::spi::SpiBus;
 

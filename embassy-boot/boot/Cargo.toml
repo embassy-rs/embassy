@@ -4,12 +4,17 @@ name = "embassy-boot"
 version = "0.1.0"
 description = "Bootloader using Embassy"
 
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-v$VERSION/embassy-boot/boot/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot/boot/src/"
+target = "thumbv7em-none-eabi"
+
 [lib]
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4", optional = true  }
-embassy-util = { version = "0.1.0", path = "../../embassy-util" }
+embassy-sync = { version = "0.1.0", path = "../../embassy-sync" }
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.3.0"
 

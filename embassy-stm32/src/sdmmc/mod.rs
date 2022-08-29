@@ -5,7 +5,7 @@ use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
-use embassy_util::waitqueue::AtomicWaker;
+use embassy_sync::waitqueue::AtomicWaker;
 use futures::future::poll_fn;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
@@ -999,10 +999,17 @@ impl SdmmcInner {
     fn clkcr_set_clkdiv(&self, freq: u32, width: BusWidth, ker_ck: Hertz, clock: &mut Hertz) -> Result<(), Error> {
         let regs = self.0;
 
+        let width_u32 = match width {
+            BusWidth::One => 1u32,
+            BusWidth::Four => 4u32,
+            BusWidth::Eight => 8u32,
+            _ => panic!("Invalid Bus Width"),
+        };
+
         let (clkdiv, new_clock) = clk_div(ker_ck, freq)?;
         // Enforce AHB and SDMMC_CK clock relation. See RM0433 Rev 7
         // Section 55.5.8
-        let sdmmc_bus_bandwidth = new_clock.0 * (width as u32);
+        let sdmmc_bus_bandwidth = new_clock.0 * width_u32;
         assert!(ker_ck.0 > 3 * sdmmc_bus_bandwidth / 32);
         *clock = new_clock;
 
@@ -1507,8 +1514,8 @@ foreach_peripheral!(
                 INNER
             }
 
-            fn state() -> &'static ::embassy_util::waitqueue::AtomicWaker {
-                static WAKER: ::embassy_util::waitqueue::AtomicWaker = ::embassy_util::waitqueue::AtomicWaker::new();
+            fn state() -> &'static ::embassy_sync::waitqueue::AtomicWaker {
+                static WAKER: ::embassy_sync::waitqueue::AtomicWaker = ::embassy_sync::waitqueue::AtomicWaker::new();
                 &WAKER
             }
         }

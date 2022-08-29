@@ -7,10 +7,10 @@ use core::task::Poll;
 
 use cortex_m::peripheral::NVIC;
 use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 pub use embassy_usb;
 use embassy_usb::driver::{self, EndpointError, Event, Unsupported};
 use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
-use embassy_util::waitqueue::AtomicWaker;
 use futures::future::poll_fn;
 use futures::Future;
 use pac::usbd::RegisterBlock;
@@ -144,7 +144,7 @@ impl SignalledSupply {
     }
 }
 
-impl UsbSupply for SignalledSupply {
+impl UsbSupply for &SignalledSupply {
     fn is_usb_detected(&self) -> bool {
         self.usb_detected.load(Ordering::Relaxed)
     }

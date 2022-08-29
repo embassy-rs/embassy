@@ -1,0 +1,35 @@
+[package]
+name = "embassy-sync"
+version = "0.1.0"
+edition = "2021"
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-sync-v$VERSION/embassy-sync/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-sync/src/"
+features = ["nightly"]
+target = "thumbv7em-none-eabi"
+
+[features]
+nightly = ["embedded-io/async"]
+std = []
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }
+
+futures-util = { version = "0.3.17", default-features = false }
+atomic-polyfill = "1.0.1"
+critical-section = "1.1"
+heapless = "0.7.5"
+cfg-if = "1.0.0"
+embedded-io = "0.3.0"
+
+[dev-dependencies]
+futures-executor = { version = "0.3.17", features = [ "thread-pool" ] }
+futures-test = "0.3.17"
+futures-timer = "3.0.2"
+futures-util = { version = "0.3.17", features = [ "channel" ] }
+
+# Enable critical-section implementation for std, for tests
+critical-section = { version = "1.1", features = ["std"] }
+static_cell = "1.0"

@@ -40,7 +40,7 @@ flavors = [
 ]
 
 [dependencies]
-cortex-m = "0.7.3"
+cortex-m = "0.7.6"
 cortex-m-rt = { version = ">=0.6.15,<0.8", optional = true }
 
 # BEGIN BUILD DEPENDENCIES

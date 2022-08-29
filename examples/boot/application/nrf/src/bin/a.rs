@@ -6,15 +6,16 @@
 
 use embassy_boot_nrf::FirmwareUpdater;
 use embassy_embedded_hal::adapter::BlockingAsync;
+use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::nvmc::Nvmc;
-use embassy_nrf::Peripherals;
 use panic_reset as _;
 
 static APP_B: &[u8] = include_bytes!("../../b.bin");
 
 #[embassy_executor::main]
-async fn main(_s: embassy_executor::executor::Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
     let mut button = Input::new(p.P0_11, Pull::Up);
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
     //let mut led = Output::new(p.P1_10, Level::Low, OutputDrive::Standard);

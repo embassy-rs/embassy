@@ -11,14 +11,13 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{with_timeout, Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{AnyPin, Input, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::peripherals::PA0;
-use embassy_stm32::Peripherals;
-use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_util::channel::mpmc::Channel;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_time::{with_timeout, Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 struct Leds<'a> {
@@ -100,7 +99,8 @@ enum ButtonEvent {
 static CHANNEL: Channel<ThreadModeRawMutex, ButtonEvent, 4> = Channel::new();
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(spawner: Spawner) {
+    let p = embassy_stm32::init(Default::default());
     let button = Input::new(p.PA0, Pull::Down);
     let button = ExtiInput::new(button, p.EXTI0);
     info!("Press the USER button...");

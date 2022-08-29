@@ -8,27 +8,27 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Waker;
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{PacketBox, PacketBoxExt, PacketBuf, Stack, StackResources};
 use embassy_nrf::rng::Rng;
 use embassy_nrf::usb::{Driver, PowerUsb};
-use embassy_nrf::{interrupt, pac, peripherals, Peripherals};
+use embassy_nrf::{interrupt, pac, peripherals};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_usb::{Builder, Config, UsbDevice};
 use embassy_usb_ncm::{CdcNcmClass, Receiver, Sender, State};
-use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_util::channel::mpmc::Channel;
-use embassy_util::Forever;
 use embedded_io::asynch::{Read, Write};
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 type MyDriver = Driver<'static, peripherals::USBD, PowerUsb>;
 
-macro_rules! forever {
+macro_rules! singleton {
     ($val:expr) => {{
         type T = impl Sized;
-        static FOREVER: Forever<T> = Forever::new();
-        FOREVER.put_with(move || $val)
+        static STATIC_CELL: StaticCell<T> = StaticCell::new();
+        STATIC_CELL.init_with(move || $val)
     }};
 }
 
@@ -82,7 +82,8 @@ async fn net_task(stack: &'static Stack<Device>) -> ! {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
     let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 
     info!("Enabling ext hfosc...");
@@ -115,7 +116,7 @@ async fn main(spawner: Spawner, p: Peripherals) {
         control_buf: [u8; 128],
         serial_state: State<'static>,
     }
-    let res: &mut Resources = forever!(Resources {
+    let res: &mut Resources = singleton!(Resources {
         device_descriptor: [0; 256],
         config_descriptor: [0; 256],
         bos_descriptor: [0; 256],
@@ -173,10 +174,10 @@ async fn main(spawner: Spawner, p: Peripherals) {
 
     // Init network stack
     let device = Device { mac_addr: our_mac_addr };
-    let stack = &*forever!(Stack::new(
+    let stack = &*singleton!(Stack::new(
         device,
         config,
-        forever!(StackResources::<1, 2, 8>::new()),
+        singleton!(StackResources::<1, 2, 8>::new()),
         seed
     ));
 

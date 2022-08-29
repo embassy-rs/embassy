@@ -3,10 +3,10 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::unwrap;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
-use embassy_util::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_util::channel::pubsub::{DynSubscriber, PubSubChannel, Subscriber};
+use embassy_executor::Spawner;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::pubsub::{DynSubscriber, PubSubChannel, Subscriber};
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 /// Create the message bus. It has a queue of 4, supports 3 subscribers and 1 publisher
@@ -20,7 +20,8 @@ enum Message {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, _p: embassy_nrf::Peripherals) {
+async fn main(spawner: Spawner) {
+    let _p = embassy_nrf::init(Default::default());
     defmt::info!("Hello World!");
 
     // It's good to set up the subscribers before publishing anything.

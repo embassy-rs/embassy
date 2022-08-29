@@ -3,13 +3,20 @@ name = "embassy-embedded-hal"
 version = "0.1.0"
 edition = "2021"
 
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-embedded-hal-v$VERSION/embassy-embedded-hal/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-embedded-hal/src/"
+features = ["nightly", "std"]
+target = "thumbv7em-none-eabi"
+
 [features]
 std = []
 # Enable nightly-only features
 nightly = ["embedded-hal-async", "embedded-storage-async"]
 
 [dependencies]
-embassy-util = { version = "0.1.0", path = "../embassy-util" }
+embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
 embedded-hal-async = { version = "0.1.0-alpha.1", optional = true }

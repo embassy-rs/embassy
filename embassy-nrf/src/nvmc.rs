@@ -1,4 +1,4 @@
-//! Nvmcerature sensor interface.
+//! Non-Volatile Memory Controller (NVMC) module.
 
 use core::{ptr, slice};
 
@@ -10,13 +10,19 @@ use embedded_storage::nor_flash::{
 use crate::peripherals::NVMC;
 use crate::{pac, Peripheral};
 
+/// Erase size of NVMC flash in bytes.
 pub const PAGE_SIZE: usize = 4096;
+
+/// Size of NVMC flash in bytes.
 pub const FLASH_SIZE: usize = crate::chip::FLASH_SIZE;
 
+/// Error type for NVMC operations.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// Opration using a location not in flash.
     OutOfBounds,
+    /// Unaligned operation or using unaligned buffers.
     Unaligned,
 }
 
@@ -29,11 +35,13 @@ impl NorFlashError for Error {
     }
 }
 
+/// Non-Volatile Memory Controller (NVMC) that implements the `embedded-storage` traits.
 pub struct Nvmc<'d> {
     _p: PeripheralRef<'d, NVMC>,
 }
 
 impl<'d> Nvmc<'d> {
+    /// Create Nvmc driver.
     pub fn new(_p: impl Peripheral<P = NVMC> + 'd) -> Self {
         into_ref!(_p);
         Self { _p }

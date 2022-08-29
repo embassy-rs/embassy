@@ -2,18 +2,24 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_stm32::dcmi::{self, *};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::rcc::{Mco, Mco1Source, McoClock};
 use embassy_stm32::time::{khz, mhz};
-use embassy_stm32::{interrupt, Config, Peripherals};
+use embassy_stm32::{interrupt, Config};
+use embassy_time::{Duration, Timer};
+use ov7725::*;
 use {defmt_rtt as _, panic_probe as _};
 
-#[allow(unused)]
-pub fn config() -> Config {
+const WIDTH: usize = 100;
+const HEIGHT: usize = 100;
+
+static mut FRAME: [u32; WIDTH * HEIGHT / 2] = [0u32; WIDTH * HEIGHT / 2];
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.sys_ck = Some(mhz(400));
     config.rcc.hclk = Some(mhz(400));
@@ -22,24 +28,23 @@ pub fn config() -> Config {
     config.rcc.pclk2 = Some(mhz(100));
     config.rcc.pclk3 = Some(mhz(100));
     config.rcc.pclk4 = Some(mhz(100));
-    config
-}
+    let p = embassy_stm32::init(config);
 
-use ov7725::*;
-
-const WIDTH: usize = 100;
-const HEIGHT: usize = 100;
-
-static mut FRAME: [u32; WIDTH * HEIGHT / 2] = [0u32; WIDTH * HEIGHT / 2];
-
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, p: Peripherals) {
     defmt::info!("Hello World!");
     let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::Hsi, McoClock::Divided(3));
 
     let mut led = Output::new(p.PE3, Level::High, Speed::Low);
     let i2c_irq = interrupt::take!(I2C1_EV);
-    let cam_i2c = I2c::new(p.I2C1, p.PB8, p.PB9, i2c_irq, p.DMA1_CH1, p.DMA1_CH2, khz(100));
+    let cam_i2c = I2c::new(
+        p.I2C1,
+        p.PB8,
+        p.PB9,
+        i2c_irq,
+        p.DMA1_CH1,
+        p.DMA1_CH2,
+        khz(100),
+        Default::default(),
+    );
 
     let mut camera = Ov7725::new(cam_i2c, mco);
 
@@ -78,8 +83,8 @@ mod ov7725 {
     use core::marker::PhantomData;
 
     use defmt::Format;
-    use embassy_executor::time::{Duration, Timer};
     use embassy_stm32::rcc::{Mco, McoInstance};
+    use embassy_time::{Duration, Timer};
     use embedded_hal_async::i2c::I2c;
 
     #[repr(u8)]

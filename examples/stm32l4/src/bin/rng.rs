@@ -3,13 +3,14 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_stm32::rcc::{ClockSrc, PLLClkDiv, PLLMul, PLLSource, PLLSrcDiv};
 use embassy_stm32::rng::Rng;
-use embassy_stm32::{Config, Peripherals};
+use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
 
-fn config() -> Config {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     // 72Mhz clock (16 / 1 * 18 / 4)
     config.rcc.mux = ClockSrc::PLL(
@@ -19,11 +20,8 @@ fn config() -> Config {
         PLLMul::Mul18,
         Some(PLLClkDiv::Div6), // 48Mhz (16 / 1 * 18 / 6)
     );
-    config
-}
+    let p = embassy_stm32::init(config);
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, p: Peripherals) {
     info!("Hello World!");
 
     let mut rng = Rng::new(p.RNG);

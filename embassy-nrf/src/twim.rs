@@ -12,10 +12,10 @@ use core::sync::atomic::Ordering::SeqCst;
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-#[cfg(feature = "time")]
-use embassy_executor::time::{Duration, Instant};
 use embassy_hal_common::{into_ref, PeripheralRef};
-use embassy_util::waitqueue::AtomicWaker;
+use embassy_sync::waitqueue::AtomicWaker;
+#[cfg(feature = "time")]
+use embassy_time::{Duration, Instant};
 use futures::future::poll_fn;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};

@@ -6,13 +6,13 @@
 use core::mem;
 
 use defmt::{info, panic, unwrap};
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_nrf::usb::{Driver, PowerUsb};
-use embassy_nrf::{interrupt, pac, peripherals, Peripherals};
+use embassy_nrf::{interrupt, pac, peripherals};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config, UsbDevice};
 use embassy_usb_serial::{CdcAcmClass, State};
-use embassy_util::Forever;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 type MyDriver = Driver<'static, peripherals::USBD, PowerUsb>;
@@ -33,7 +33,8 @@ async fn echo_task(mut class: CdcAcmClass<'static, MyDriver>) {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, p: Peripherals) {
+async fn main(spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
     let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 
     info!("Enabling ext hfosc...");
@@ -66,8 +67,8 @@ async fn main(spawner: Spawner, p: Peripherals) {
         control_buf: [u8; 64],
         serial_state: State<'static>,
     }
-    static RESOURCES: Forever<Resources> = Forever::new();
-    let res = RESOURCES.put(Resources {
+    static RESOURCES: StaticCell<Resources> = StaticCell::new();
+    let res = RESOURCES.init(Resources {
         device_descriptor: [0; 256],
         config_descriptor: [0; 256],
         bos_descriptor: [0; 256],

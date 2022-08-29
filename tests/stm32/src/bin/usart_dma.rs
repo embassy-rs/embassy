@@ -5,20 +5,14 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use defmt::assert_eq;
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_stm32::usart::{Config, Uart};
-use embassy_stm32::Peripherals;
 use example_common::*;
 
-#[embassy_executor::main(config = "config()")]
-async fn main(_spawner: Spawner, p: Peripherals) {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = embassy_stm32::init(config());
     info!("Hello World!");
-
-    #[cfg(feature = "stm32wb55rg")]
-    {
-        info!("Test SKIPPED");
-        cortex_m::asm::bkpt();
-    }
 
     // Arduino pins D0 and D1
     // They're connected together with a 1K resistor.
@@ -31,7 +25,7 @@ async fn main(_spawner: Spawner, p: Peripherals) {
     #[cfg(feature = "stm32f429zi")]
     let (tx, rx, usart, tx_dma, rx_dma) = (p.PG14, p.PG9, p.USART6, p.DMA2_CH6, p.DMA2_CH1);
     #[cfg(feature = "stm32wb55rg")]
-    let (tx, rx, usart, tx_dma, rx_dma) = (p.PA9, p.PA10, p.USART1, p.DMA1_CH1, p.DMA1_CH2); // TODO this is wrong
+    let (tx, rx, usart, tx_dma, rx_dma) = (p.PA2, p.PA3, p.LPUART1, p.DMA1_CH1, p.DMA1_CH2);
     #[cfg(feature = "stm32h755zi")]
     let (tx, rx, usart, tx_dma, rx_dma) = (p.PB6, p.PB7, p.USART1, p.DMA1_CH0, p.DMA1_CH1);
     #[cfg(feature = "stm32u585ai")]

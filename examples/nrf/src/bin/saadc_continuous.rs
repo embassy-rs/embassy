@@ -3,17 +3,18 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::info;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::Duration;
+use embassy_executor::Spawner;
+use embassy_nrf::interrupt;
 use embassy_nrf::saadc::{ChannelConfig, Config, Saadc, SamplerState};
 use embassy_nrf::timer::Frequency;
-use embassy_nrf::{interrupt, Peripherals};
+use embassy_time::Duration;
 use {defmt_rtt as _, panic_probe as _};
 
 // Demonstrates both continuous sampling and scanning multiple channels driven by a PPI linked timer
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner, mut p: Peripherals) {
+async fn main(_p: Spawner) {
+    let mut p = embassy_nrf::init(Default::default());
     let config = Config::default();
     let channel_1_config = ChannelConfig::single_ended(&mut p.P0_02);
     let channel_2_config = ChannelConfig::single_ended(&mut p.P0_03);
@@ -27,7 +28,7 @@ async fn main(_spawner: Spawner, mut p: Peripherals) {
 
     // This delay demonstrates that starting the timer prior to running
     // the task sampler is benign given the calibration that follows.
-    embassy_executor::time::Timer::after(Duration::from_millis(500)).await;
+    embassy_time::Timer::after(Duration::from_millis(500)).await;
     saadc.calibrate().await;
 
     let mut bufs = [[[0; 3]; 500]; 2];

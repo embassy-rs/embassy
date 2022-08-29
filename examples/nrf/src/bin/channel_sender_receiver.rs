@@ -3,13 +3,12 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::unwrap;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive, Pin};
-use embassy_nrf::Peripherals;
-use embassy_util::blocking_mutex::raw::NoopRawMutex;
-use embassy_util::channel::mpmc::{Channel, Receiver, Sender};
-use embassy_util::Forever;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::channel::{Channel, Receiver, Sender};
+use embassy_time::{Duration, Timer};
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 enum LedState {
@@ -17,7 +16,7 @@ enum LedState {
     Off,
 }
 
-static CHANNEL: Forever<Channel<NoopRawMutex, LedState, 1>> = Forever::new();
+static CHANNEL: StaticCell<Channel<NoopRawMutex, LedState, 1>> = StaticCell::new();
 
 #[embassy_executor::task]
 async fn send_task(sender: Sender<'static, NoopRawMutex, LedState, 1>) {
@@ -42,8 +41,9 @@ async fn recv_task(led: AnyPin, receiver: Receiver<'static, NoopRawMutex, LedSta
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner, p: Peripherals) {
-    let channel = CHANNEL.put(Channel::new());
+async fn main(spawner: Spawner) {
+    let p = embassy_nrf::init(Default::default());
+    let channel = CHANNEL.init(Channel::new());
 
     unwrap!(spawner.spawn(send_task(channel.sender())));
     unwrap!(spawner.spawn(recv_task(p.P0_13.degrade(), channel.receiver())));

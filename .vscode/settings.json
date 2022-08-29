@@ -1,9 +1,7 @@
 {
   "editor.formatOnSave": true,
-  "rust-analyzer.checkOnSave.allFeatures": false,
   "rust-analyzer.checkOnSave.allTargets": false,
   "rust-analyzer.checkOnSave.noDefaultFeatures": true,
-  "rust-analyzer.cargo.allFeatures": false,
   "rust-analyzer.cargo.noDefaultFeatures": true,
   "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
@@ -20,7 +18,7 @@
   "rust-analyzer.linkedProjects": [
     // Declare for the target you wish to develop
     //"embassy-executor/Cargo.toml",
-    //"embassy-util/Cargo.toml",
+    //"embassy-sync/Cargo.toml",
     "examples/nrf/Cargo.toml",
     // "examples/rp/Cargo.toml",
     // "examples/std/Cargo.toml",

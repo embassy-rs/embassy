@@ -3,8 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_executor::executor::Spawner;
-use embassy_executor::time::{Duration, Timer};
+use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv4Address, Stack, StackResources};
 use embassy_stm32::eth::generic_smi::GenericSMI;
@@ -12,17 +11,18 @@ use embassy_stm32::eth::{Ethernet, State};
 use embassy_stm32::peripherals::ETH;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{interrupt, Config, Peripherals};
-use embassy_util::Forever;
+use embassy_stm32::{interrupt, Config};
+use embassy_time::{Duration, Timer};
 use embedded_io::asynch::Write;
 use rand_core::RngCore;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-macro_rules! forever {
+macro_rules! singleton {
     ($val:expr) => {{
         type T = impl Sized;
-        static FOREVER: Forever<T> = Forever::new();
-        FOREVER.put_with(move || $val)
+        static STATIC_CELL: StaticCell<T> = StaticCell::new();
+        STATIC_CELL.init_with(move || $val)
     }};
 }
 
@@ -33,14 +33,12 @@ async fn net_task(stack: &'static Stack<Device>) -> ! {
     stack.run().await
 }
 
-fn config() -> Config {
+#[embassy_executor::main]
+async fn main(spawner: Spawner) -> ! {
     let mut config = Config::default();
     config.rcc.sys_ck = Some(mhz(200));
-    config
-}
+    let p = embassy_stm32::init(config);
 
-#[embassy_executor::main(config = "config()")]
-async fn main(spawner: Spawner, p: Peripherals) -> ! {
     info!("Hello World!");
 
     // Generate random seed.
@@ -54,7 +52,7 @@ async fn main(spawner: Spawner, p: Peripherals) -> ! {
 
     let device = unsafe {
         Ethernet::new(
-            forever!(State::new()),
+            singleton!(State::new()),
             p.ETH,
             eth_int,
             p.PA1,
@@ -80,10 +78,10 @@ async fn main(spawner: Spawner, p: Peripherals) -> ! {
     //});
 
     // Init network stack
-    let stack = &*forever!(Stack::new(
+    let stack = &*singleton!(Stack::new(
         device,
         config,
-        forever!(StackResources::<1, 2, 8>::new()),
+        singleton!(StackResources::<1, 2, 8>::new()),
         seed
     ));
 

@@ -2,14 +2,14 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use embassy_executor::executor::Spawner;
+use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
-use embassy_stm32::Peripherals;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_s: Spawner, p: Peripherals) {
+async fn main(_spawner: Spawner) {
+    let p = embassy_stm32::init(Default::default());
     let mut led = Output::new(p.PB14, Level::Low, Speed::VeryHigh);
     let mut button = ExtiInput::new(Input::new(p.PC13, Pull::Up), p.EXTI13);
 

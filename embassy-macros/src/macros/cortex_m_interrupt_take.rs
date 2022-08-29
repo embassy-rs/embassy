@@ -6,6 +6,23 @@ pub fn run(name: syn::Ident) -> Result<TokenStream, TokenStream> {
     let name_interrupt = format_ident!("{}", name);
     let name_handler = format!("__EMBASSY_{}_HANDLER", name);
 
+    #[cfg(feature = "rtos-trace-interrupt")]
+    let (isr_enter, isr_exit) = (
+        quote! {
+            ::embassy_executor::rtos_trace_interrupt! {
+                ::embassy_executor::export::trace::isr_enter();
+            }
+        },
+        quote! {
+            ::embassy_executor::rtos_trace_interrupt! {
+                ::embassy_executor::export::trace::isr_exit();
+            }
+        },
+    );
+
+    #[cfg(not(feature = "rtos-trace-interrupt"))]
+    let (isr_enter, isr_exit) = (quote! {}, quote! {});
+
     let result = quote! {
         {
             #[allow(non_snake_case)]
@@ -16,15 +33,19 @@ pub fn run(name: syn::Ident) -> Result<TokenStream, TokenStream> {
                     static HANDLER: interrupt::Handler;
                 }
 
-                let func = HANDLER.func.load(::embassy_executor::export::atomic::Ordering::Relaxed);
-                let ctx = HANDLER.ctx.load(::embassy_executor::export::atomic::Ordering::Relaxed);
+                let func = HANDLER.func.load(interrupt::_export::atomic::Ordering::Relaxed);
+                let ctx = HANDLER.ctx.load(interrupt::_export::atomic::Ordering::Relaxed);
                 let func: fn(*mut ()) = ::core::mem::transmute(func);
-                func(ctx)
+                #isr_enter
+
+                func(ctx);
+                #isr_exit
+
             }
 
-            static TAKEN: ::embassy_executor::export::atomic::AtomicBool = ::embassy_executor::export::atomic::AtomicBool::new(false);
+            static TAKEN: interrupt::_export::atomic::AtomicBool = interrupt::_export::atomic::AtomicBool::new(false);
 
-            if TAKEN.compare_exchange(false, true, ::embassy_executor::export::atomic::Ordering::AcqRel, ::embassy_executor::export::atomic::Ordering::Acquire).is_err() {
+            if TAKEN.compare_exchange(false, true, interrupt::_export::atomic::Ordering::AcqRel, interrupt::_export::atomic::Ordering::Acquire).is_err() {
                 core::panic!("IRQ Already taken");
             }
 
