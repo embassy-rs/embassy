@@ -433,7 +433,7 @@ impl<'d, T: Pin> Flex<'d, T> {
             });
 
             pin.io().ctrl().write(|w| {
-                w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::SIO_0.0);
+                w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIO_0.0);
             });
         }
 
@@ -586,7 +586,7 @@ impl<'d, T: Pin> Drop for Flex<'d, T> {
         unsafe {
             self.pin.pad_ctrl().write(|_| {});
             self.pin.io().ctrl().write(|w| {
-                w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::NULL.0);
+                w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL.0);
             });
         }
     }

@@ -12,6 +12,7 @@ flavors = [
 ]
 
 [features]
+defmt = ["dep:defmt", "embassy-usb?/defmt"]
 
 # Reexport the PAC for the currently enabled chip at `embassy_rp::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-rp may major-bump (breaking) the PAC version.
@@ -20,7 +21,7 @@ flavors = [
 unstable-pac = []
 
 # Enable nightly-only features
-nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly"]
+nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb"]
 
 # Implement embedded-hal 1.0 alpha traits.
 # Implement embedded-hal-async traits if `nightly` is set as well.
@@ -33,6 +34,7 @@ embassy-time = { version = "0.1.0", path = "../embassy-time", features = [ "tick
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-2"]}
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
+embassy-usb = {version = "0.1.0", path = "../embassy-usb", optional = true }
 atomic-polyfill = "1.0.1"
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
@@ -43,8 +45,8 @@ cortex-m = "0.7.6"
 critical-section = "1.1"
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 
-rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev="9ad7223a48a065e612bc7dc7be5bf5bd0b41cfc4", features = ["rt"] }
-#rp2040-pac2 = { path = "../../rp/rp2040-pac2", features = ["rt"] }
+rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev="017e3c9007b2d3b6965f0d85b5bf8ce3fa6d7364", features = ["rt"] }
+#rp2040-pac2 = { path = "../../rp2040-pac2", features = ["rt"] }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8", optional = true}

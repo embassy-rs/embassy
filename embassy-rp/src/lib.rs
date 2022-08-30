@@ -10,6 +10,8 @@ pub mod interrupt;
 pub mod spi;
 pub mod timer;
 pub mod uart;
+#[cfg(feature = "nightly")]
+pub mod usb;
 
 mod clocks;
 mod reset;
@@ -80,6 +82,8 @@ embassy_hal_common::peripherals! {
     DMA_CH9,
     DMA_CH10,
     DMA_CH11,
+
+    USB,
 }
 
 #[link_section = ".boot2"]
@@ -109,4 +113,37 @@ pub fn init(_config: config::Config) -> Peripherals {
     }
 
     peripherals
+}
+
+/// Extension trait for PAC regs, adding atomic xor/bitset/bitclear writes.
+trait RegExt<T: Copy> {
+    unsafe fn write_xor<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
+    unsafe fn write_set<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
+    unsafe fn write_clear<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
+}
+
+impl<T: Default + Copy, A: pac::common::Write> RegExt<T> for pac::common::Reg<T, A> {
+    unsafe fn write_xor<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+        let mut val = Default::default();
+        let res = f(&mut val);
+        let ptr = (self.ptr() as *mut u8).add(0x1000) as *mut T;
+        ptr.write_volatile(val);
+        res
+    }
+
+    unsafe fn write_set<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+        let mut val = Default::default();
+        let res = f(&mut val);
+        let ptr = (self.ptr() as *mut u8).add(0x2000) as *mut T;
+        ptr.write_volatile(val);
+        res
+    }
+
+    unsafe fn write_clear<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+        let mut val = Default::default();
+        let res = f(&mut val);
+        let ptr = (self.ptr() as *mut u8).add(0x3000) as *mut T;
+        ptr.write_volatile(val);
+        res
+    }
 }
