@@ -3,6 +3,7 @@
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
+use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use futures::future::poll_fn;
@@ -225,8 +226,12 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
     /// One shot sampling. The buffer must be the same size as the number of channels configured.
     /// The sampling is stopped prior to returning in order to reduce power consumption (power
-    /// consumption remains higher if sampling is not stopped explicitly).
+    /// consumption remains higher if sampling is not stopped explicitly). Cancellation will
+    /// also cause the sampling to be stopped.
     pub async fn sample(&mut self, buf: &mut [i16; N]) {
+        // In case the future is dropped, stop the task and wait for it to end.
+        let on_drop = OnDrop::new(Self::stop_sampling_immediately);
+
         let r = Self::regs();
 
         // Set up the DMA
@@ -259,6 +264,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
         })
         .await;
 
+        on_drop.defuse();
         Self::stop_sampling().await;
     }
 
@@ -279,6 +285,12 @@ impl<'d, const N: usize> Saadc<'d, N> {
     /// taken to acquire the samples into a single buffer. You should measure the
     /// time taken by the callback and set the sample buffer size accordingly.
     /// Exceeding this time can lead to samples becoming dropped.
+    ///
+    /// The sampling is stopped prior to returning in order to reduce power consumption (power
+    /// consumption remains higher if sampling is not stopped explicitly), and to
+    /// free the buffers from being used by the peripheral. Cancellation will
+    /// also cause the sampling to be stopped.
+
     pub async fn run_task_sampler<S, T: TimerInstance, const N0: usize>(
         &mut self,
         timer: &mut T,
@@ -330,6 +342,9 @@ impl<'d, const N: usize> Saadc<'d, N> {
         I: FnMut(),
         S: FnMut(&[[i16; N]]) -> SamplerState,
     {
+        // In case the future is dropped, stop the task and wait for it to end.
+        let on_drop = OnDrop::new(Self::stop_sampling_immediately);
+
         let r = Self::regs();
 
         // Establish mode and sample rate
@@ -413,10 +428,24 @@ impl<'d, const N: usize> Saadc<'d, N> {
         })
         .await;
 
+        on_drop.defuse();
         Self::stop_sampling().await;
     }
 
-    // Stop sampling and wait for it to stop
+    // Stop sampling and wait for it to stop in a blocking fashion
+    fn stop_sampling_immediately() {
+        let r = Self::regs();
+
+        compiler_fence(Ordering::SeqCst);
+
+        r.events_stopped.reset();
+        r.tasks_stop.write(|w| unsafe { w.bits(1) });
+
+        while r.events_stopped.read().bits() == 0 {}
+        r.events_stopped.reset();
+    }
+
+    // Stop sampling and wait for it to stop in a non-blocking fashino
     async fn stop_sampling() {
         let r = Self::regs();
 
