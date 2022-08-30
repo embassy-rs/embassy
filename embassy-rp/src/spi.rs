@@ -334,6 +334,12 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         join(tx_transfer, rx_transfer).await;
         Ok(())
     }
+
+    pub async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Error> {
+        let (ptr, len) = crate::dma::slice_ptr_parts(words);
+        let tx_buffer = unsafe { core::slice::from_raw_parts(ptr as *const _, len) };
+        self.transfer(words, tx_buffer).await
+    }
 }
 
 mod sealed {
@@ -521,13 +527,8 @@ cfg_if::cfg_if! {
 
             type TransferInPlaceFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-            fn transfer_in_place<'a>(
-                &'a mut self,
-                words: &'a mut [u8],
-            ) -> Self::TransferInPlaceFuture<'a> {
-                let (ptr, len) = crate::dma::slice_ptr_parts(words);
-                let tx_buffer = unsafe { core::slice::from_raw_parts(ptr as *const _, len) };
-                self.transfer(words, tx_buffer)
+            fn transfer_in_place<'a>(&'a mut self, words: &'a mut [u8]) -> Self::TransferInPlaceFuture<'a> {
+                self.transfer_in_place(words)
             }
         }
     }
