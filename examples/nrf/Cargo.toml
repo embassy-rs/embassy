@@ -5,7 +5,7 @@ version = "0.1.0"
 
 [features]
 default = ["nightly"]
-nightly = ["embassy-executor/nightly", "embassy-nrf/nightly", "embassy-nrf/unstable-traits", "embassy-usb", "embassy-usb-serial", "embassy-usb-hid", "embassy-usb-ncm", "embedded-io/async", "embassy-net"]
+nightly = ["embassy-executor/nightly", "embassy-nrf/nightly", "embassy-net/nightly", "embassy-nrf/unstable-traits", "embassy-usb", "embassy-usb-serial", "embassy-usb-hid", "embassy-usb-ncm", "embedded-io/async", "embassy-net"]
 
 [dependencies]
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }

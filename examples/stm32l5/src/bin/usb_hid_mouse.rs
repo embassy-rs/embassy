@@ -6,9 +6,8 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::*;
-use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{interrupt, Config, Peripherals};
+use embassy_stm32::{interrupt, Config};
 use embassy_time::{Duration, Timer};
 use embassy_usb::control::OutResponse;
 use embassy_usb::Builder;
@@ -111,11 +110,11 @@ impl RequestHandler for MyRequestHandler {
         OutResponse::Accepted
     }
 
-    fn set_idle(&self, id: Option<ReportId>, dur: Duration) {
+    fn set_idle_ms(&self, id: Option<ReportId>, dur: u32) {
         info!("Set idle rate for {:?} to {:?}", id, dur);
     }
 
-    fn get_idle(&self, id: Option<ReportId>) -> Option<Duration> {
+    fn get_idle_ms(&self, id: Option<ReportId>) -> Option<u32> {
         info!("Get idle rate for {:?}", id);
         None
     }
