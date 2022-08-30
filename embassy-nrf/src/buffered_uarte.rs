@@ -207,7 +207,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     async fn inner_read<'a>(&'a self, buf: &'a mut [u8]) -> Result<usize, core::convert::Infallible> {
         poll_fn(move |cx| {
             let mut do_pend = false;
-            let res = self.inner.borrow_mut().with(|state| {
+            let mut inner = self.inner.borrow_mut();
+            let res = inner.with(|state| {
                 compiler_fence(Ordering::SeqCst);
                 trace!("poll_read");
 
@@ -227,7 +228,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
                 Poll::Pending
             });
             if do_pend {
-                self.inner.borrow().pend();
+                inner.pend();
             }
 
             res
@@ -237,7 +238,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 
     async fn inner_write<'a>(&'a self, buf: &'a [u8]) -> Result<usize, core::convert::Infallible> {
         poll_fn(move |cx| {
-            let res = self.inner.borrow_mut().with(|state| {
+            let mut inner = self.inner.borrow_mut();
+            let res = inner.with(|state| {
                 trace!("poll_write: {:?}", buf.len());
 
                 let tx_buf = state.tx.push_buf();
@@ -258,7 +260,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
                 Poll::Ready(Ok(n))
             });
 
-            self.inner.borrow_mut().pend();
+            inner.pend();
 
             res
         })
@@ -307,13 +309,14 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     }
 
     fn inner_consume(&self, amt: usize) {
-        let signal = self.inner.borrow_mut().with(|state| {
+        let mut inner = self.inner.borrow_mut();
+        let signal = inner.with(|state| {
             let full = state.rx.is_full();
             state.rx.pop(amt);
             full
         });
         if signal {
-            self.inner.borrow().pend();
+            inner.pend();
         }
     }
 }
