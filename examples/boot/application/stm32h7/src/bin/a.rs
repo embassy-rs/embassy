@@ -4,11 +4,11 @@
 
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt::*;
-use embassy_boot_stm32::FirmwareUpdater;
+use embassy_boot_stm32::{AlignedBuffer, FirmwareUpdater};
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
-use embassy_stm32::flash::Flash;
+use embassy_stm32::flash::{Flash, WRITE_SIZE};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use panic_reset as _;
 
@@ -29,13 +29,17 @@ async fn main(_spawner: Spawner) {
     let mut updater = FirmwareUpdater::default();
     button.wait_for_rising_edge().await;
     let mut offset = 0;
-    let mut buf: [u8; 128 * 1024] = [0; 128 * 1024];
+    let mut buf = AlignedBuffer([0; 128 * 1024]);
     for chunk in APP_B.chunks(128 * 1024) {
-        buf[..chunk.len()].copy_from_slice(chunk);
-        updater.write_firmware(offset, &buf, &mut flash, 2048).await.unwrap();
+        buf.as_mut()[..chunk.len()].copy_from_slice(chunk);
+        updater
+            .write_firmware(offset, buf.as_ref(), &mut flash, 2048)
+            .await
+            .unwrap();
         offset += chunk.len();
     }
-    updater.update(&mut flash).await.unwrap();
+    let mut magic = AlignedBuffer([0; WRITE_SIZE]);
+    updater.mark_updated(&mut flash, magic.as_mut()).await.unwrap();
     led.set_low();
     cortex_m::peripheral::SCB::sys_reset();
 }

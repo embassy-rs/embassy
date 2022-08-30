@@ -1,19 +1,21 @@
 #![no_std]
 #![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
-#![allow(incomplete_features)]
-#![feature(generic_const_exprs)]
-
+#![warn(missing_docs)]
+#![doc = include_str!("../../README.md")]
 mod fmt;
 
-pub use embassy_boot::{FirmwareUpdater, FlashConfig, FlashProvider, Partition, SingleFlashProvider};
+pub use embassy_boot::{AlignedBuffer, BootFlash, FirmwareUpdater, FlashConfig, Partition, SingleFlashConfig};
 use embassy_nrf::nvmc::{Nvmc, PAGE_SIZE};
 use embassy_nrf::peripherals::WDT;
 use embassy_nrf::wdt;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
+/// A bootloader for nRF devices.
 pub struct BootLoader {
-    boot: embassy_boot::BootLoader<PAGE_SIZE>,
+    boot: embassy_boot::BootLoader,
+    magic: AlignedBuffer<4>,
+    page: AlignedBuffer<PAGE_SIZE>,
 }
 
 impl BootLoader {
@@ -58,21 +60,25 @@ impl BootLoader {
     pub fn new(active: Partition, dfu: Partition, state: Partition) -> Self {
         Self {
             boot: embassy_boot::BootLoader::new(active, dfu, state),
+            magic: AlignedBuffer([0; 4]),
+            page: AlignedBuffer([0; PAGE_SIZE]),
         }
     }
 
-    /// Boots the application without softdevice mechanisms
-    pub fn prepare<F: FlashProvider>(&mut self, flash: &mut F) -> usize
-    where
-        [(); <<F as FlashProvider>::STATE as FlashConfig>::FLASH::WRITE_SIZE]:,
-        [(); <<F as FlashProvider>::ACTIVE as FlashConfig>::FLASH::ERASE_SIZE]:,
-    {
-        match self.boot.prepare_boot(flash) {
+    /// Inspect the bootloader state and perform actions required before booting, such as swapping
+    /// firmware.
+    pub fn prepare<F: FlashConfig>(&mut self, flash: &mut F) -> usize {
+        match self.boot.prepare_boot(flash, &mut self.magic.0, &mut self.page.0) {
             Ok(_) => self.boot.boot_address(),
             Err(_) => panic!("boot prepare error!"),
         }
     }
 
+    /// Boots the application without softdevice mechanisms.
+    ///
+    /// # Safety
+    ///
+    /// This modifies the stack pointer and reset vector and will run code placed in the active partition.
     #[cfg(not(feature = "softdevice"))]
     pub unsafe fn load(&mut self, start: usize) -> ! {
         let mut p = cortex_m::Peripherals::steal();
@@ -81,6 +87,11 @@ impl BootLoader {
         cortex_m::asm::bootload(start as *const u32)
     }
 
+    /// Boots the application assuming softdevice is present.
+    ///
+    /// # Safety
+    ///
+    /// This modifies the stack pointer and reset vector and will run code placed in the active partition.
     #[cfg(feature = "softdevice")]
     pub unsafe fn load(&mut self, _app: usize) -> ! {
         use nrf_softdevice_mbr as mbr;
