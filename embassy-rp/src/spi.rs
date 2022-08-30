@@ -264,11 +264,11 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
 impl<'d, T: Instance> Spi<'d, T, Async> {
     pub fn new(
         inner: impl Peripheral<P = T> + 'd,
-        tx_dma: impl Peripheral<P = impl Channel> + 'd,
-        rx_dma: impl Peripheral<P = impl Channel> + 'd,
         clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
+        tx_dma: impl Peripheral<P = impl Channel> + 'd,
+        rx_dma: impl Peripheral<P = impl Channel> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(tx_dma, rx_dma, clk, mosi, miso);
