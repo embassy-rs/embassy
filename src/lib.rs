@@ -762,7 +762,7 @@ where
                 let bus = unsafe { &mut *bus };
                 async {
                     bus.write(&[cmd]).await?;
-                    bus.write(&buf[..(total_len + 3 / 4)]).await?;
+                    bus.write(&buf[..(total_len / 4)]).await?;
                     Ok(())
                 }
             })
