@@ -1,5 +1,4 @@
 use core::cell::UnsafeCell;
-use core::future::Future;
 use core::mem;
 use core::task::Poll;
 
@@ -53,6 +52,18 @@ pub struct TcpReader<'a> {
 
 pub struct TcpWriter<'a> {
     io: TcpIo<'a>,
+}
+
+impl<'a> TcpReader<'a> {
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        self.io.read(buf).await
+    }
+}
+
+impl<'a> TcpWriter<'a> {
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        self.io.write(buf).await
+    }
 }
 
 impl<'a> TcpSocket<'a> {
@@ -127,6 +138,14 @@ impl<'a> TcpSocket<'a> {
             })
         })
         .await
+    }
+
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        self.io.read(buf).await
+    }
+
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        self.io.write(buf).await
     }
 
     pub fn set_timeout(&mut self, duration: Option<Duration>) {
@@ -241,6 +260,7 @@ impl<'d> TcpIo<'d> {
         .await
     }
 
+    #[allow(unused)]
     async fn flush(&mut self) -> Result<(), Error> {
         poll_fn(move |_| {
             Poll::Ready(Ok(())) // TODO: Is there a better implementation for this?
@@ -249,88 +269,96 @@ impl<'d> TcpIo<'d> {
     }
 }
 
-impl embedded_io::Error for ConnectError {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        embedded_io::ErrorKind::Other
+#[cfg(feature = "nightly")]
+mod embedded_io_impls {
+    use core::future::Future;
+
+    use super::*;
+
+    impl embedded_io::Error for ConnectError {
+        fn kind(&self) -> embedded_io::ErrorKind {
+            embedded_io::ErrorKind::Other
+        }
     }
-}
 
-impl embedded_io::Error for Error {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        embedded_io::ErrorKind::Other
+    impl embedded_io::Error for Error {
+        fn kind(&self) -> embedded_io::ErrorKind {
+            embedded_io::ErrorKind::Other
+        }
     }
-}
 
-impl<'d> embedded_io::Io for TcpSocket<'d> {
-    type Error = Error;
-}
+    impl<'d> embedded_io::Io for TcpSocket<'d> {
+        type Error = Error;
+    }
 
-impl<'d> embedded_io::asynch::Read for TcpSocket<'d> {
-    type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+    impl<'d> embedded_io::asynch::Read for TcpSocket<'d> {
+        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
     where
         Self: 'a;
 
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.io.read(buf)
+        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.io.read(buf)
+        }
     }
-}
 
-impl<'d> embedded_io::asynch::Write for TcpSocket<'d> {
-    type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+    impl<'d> embedded_io::asynch::Write for TcpSocket<'d> {
+        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
     where
         Self: 'a;
 
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.io.write(buf)
-    }
+        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.io.write(buf)
+        }
 
-    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
     where
         Self: 'a;
 
-    fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-        self.io.flush()
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            self.io.flush()
+        }
     }
-}
 
-impl<'d> embedded_io::Io for TcpReader<'d> {
-    type Error = Error;
-}
+    impl<'d> embedded_io::Io for TcpReader<'d> {
+        type Error = Error;
+    }
 
-impl<'d> embedded_io::asynch::Read for TcpReader<'d> {
-    type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+    impl<'d> embedded_io::asynch::Read for TcpReader<'d> {
+        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
     where
         Self: 'a;
 
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.io.read(buf)
+        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.io.read(buf)
+        }
     }
-}
 
-impl<'d> embedded_io::Io for TcpWriter<'d> {
-    type Error = Error;
-}
+    impl<'d> embedded_io::Io for TcpWriter<'d> {
+        type Error = Error;
+    }
 
-impl<'d> embedded_io::asynch::Write for TcpWriter<'d> {
-    type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+    impl<'d> embedded_io::asynch::Write for TcpWriter<'d> {
+        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
     where
         Self: 'a;
 
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.io.write(buf)
-    }
+        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.io.write(buf)
+        }
 
-    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
     where
         Self: 'a;
 
-    fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-        self.io.flush()
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            self.io.flush()
+        }
     }
 }
 
-#[cfg(feature = "unstable-traits")]
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 pub mod client {
+    use core::future::Future;
     use core::mem::MaybeUninit;
     use core::ptr::NonNull;
 

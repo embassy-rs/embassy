@@ -14,7 +14,7 @@ embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defm
 embassy-usb-serial = { version = "0.1.0", path = "../../embassy-usb-serial", features = ["defmt"] }
 embassy-usb-hid = { version = "0.1.0", path = "../../embassy-usb-hid", features = ["defmt"] }
 embassy-usb-ncm = { version = "0.1.0", path = "../../embassy-usb-ncm", features = ["defmt"] }
-embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "pool-16"] }
+embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "nightly", "tcp", "dhcpv4", "medium-ethernet", "pool-16"] }
 usbd-hid = "0.5.2"
 
 defmt = "0.3"

@@ -5,7 +5,6 @@
 use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::*;
-use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{interrupt, Config};
 use embassy_usb::driver::EndpointError;
