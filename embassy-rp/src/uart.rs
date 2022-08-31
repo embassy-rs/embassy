@@ -477,56 +477,57 @@ mod eh1 {
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(all(feature = "unstable-traits", feature = "nightly", feature = "_todo_embedded_hal_serial"))] {
-        use core::future::Future;
+#[cfg(all(
+    feature = "unstable-traits",
+    feature = "nightly",
+    feature = "_todo_embedded_hal_serial"
+))]
+mod eha {
+    use core::future::Future;
 
-        impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Write for UartTx<'d, T, M>
-        {
-            type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+    use super::*;
 
-            fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-                self.write(buf)
-            }
+    impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Write for UartTx<'d, T, M> {
+        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-            type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-            fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-                async move { Ok(()) }
-            }
+        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.write(buf)
         }
 
-        impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Read for UartRx<'d, T, M>
-        {
-            type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-            fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-                self.read(buf)
-            }
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            async move { Ok(()) }
+        }
+    }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Read for UartRx<'d, T, M> {
+        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.read(buf)
+        }
+    }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Write for Uart<'d, T, M> {
+        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.write(buf)
         }
 
-        impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Write for Uart<'d, T, M>
-        {
-            type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-            fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-                self.write(buf)
-            }
-
-            type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-            fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-                async move { Ok(()) }
-            }
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            async move { Ok(()) }
         }
+    }
 
-        impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Read for Uart<'d, T, M>
-        {
-            type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+    impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Read for Uart<'d, T, M> {
+        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-            fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-                self.read(buf)
-            }
+        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.read(buf)
         }
     }
 }
