@@ -67,12 +67,12 @@ fn calc_prescs(freq: u32) -> (u8, u8) {
 impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     fn new_inner(
         inner: impl Peripheral<P = T> + 'd,
-        tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
-        rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         clk: Option<PeripheralRef<'d, AnyPin>>,
         mosi: Option<PeripheralRef<'d, AnyPin>>,
         miso: Option<PeripheralRef<'d, AnyPin>>,
         cs: Option<PeripheralRef<'d, AnyPin>>,
+        tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+        rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         config: Config,
     ) -> Self {
         into_ref!(inner);
@@ -212,11 +212,11 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
         into_ref!(clk, mosi, miso);
         Self::new_inner(
             inner,
-            None,
-            None,
             Some(clk.map_into()),
             Some(mosi.map_into()),
             Some(miso.map_into()),
+            None,
+            None,
             None,
             config,
         )
@@ -231,10 +231,10 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
         into_ref!(clk, mosi);
         Self::new_inner(
             inner,
-            None,
-            None,
             Some(clk.map_into()),
             Some(mosi.map_into()),
+            None,
+            None,
             None,
             None,
             config,
@@ -250,11 +250,11 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
         into_ref!(clk, miso);
         Self::new_inner(
             inner,
-            None,
-            None,
             Some(clk.map_into()),
             None,
             Some(miso.map_into()),
+            None,
+            None,
             None,
             config,
         )
@@ -274,31 +274,31 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         into_ref!(tx_dma, rx_dma, clk, mosi, miso);
         Self::new_inner(
             inner,
-            Some(tx_dma.map_into()),
-            Some(rx_dma.map_into()),
             Some(clk.map_into()),
             Some(mosi.map_into()),
             Some(miso.map_into()),
             None,
+            Some(tx_dma.map_into()),
+            Some(rx_dma.map_into()),
             config,
         )
     }
 
     pub fn new_txonly(
         inner: impl Peripheral<P = T> + 'd,
-        tx_dma: impl Peripheral<P = impl Channel> + 'd,
         clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
+        tx_dma: impl Peripheral<P = impl Channel> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(tx_dma, clk, mosi);
         Self::new_inner(
             inner,
-            Some(tx_dma.map_into()),
-            None,
             Some(clk.map_into()),
             Some(mosi.map_into()),
             None,
+            None,
+            Some(tx_dma.map_into()),
             None,
             config,
         )
@@ -306,20 +306,20 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
 
     pub fn new_rxonly(
         inner: impl Peripheral<P = T> + 'd,
-        rx_dma: impl Peripheral<P = impl Channel> + 'd,
         clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
+        rx_dma: impl Peripheral<P = impl Channel> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(rx_dma, clk, miso);
         Self::new_inner(
             inner,
-            None,
-            Some(rx_dma.map_into()),
             Some(clk.map_into()),
             None,
             Some(miso.map_into()),
             None,
+            None,
+            Some(rx_dma.map_into()),
             config,
         )
     }
