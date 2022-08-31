@@ -120,6 +120,7 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
 
 impl<'d, T: Instance> UartTx<'d, T, Async> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        let (from_ptr, len) = crate::dma::slice_ptr_parts(buffer);
         let ch = self.tx_dma.as_mut().unwrap();
         let transfer = unsafe {
             T::regs().uartdmacr().modify(|reg| {
@@ -127,7 +128,7 @@ impl<'d, T: Instance> UartTx<'d, T, Async> {
             });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::write(ch, buffer, T::regs().uartdr().ptr() as *mut _, T::TX_DREQ)
+            crate::dma::write(ch, from_ptr as *const u32, T::regs().uartdr().ptr() as *mut _, len, T::TX_DREQ)
         };
         transfer.await;
         Ok(())
@@ -173,6 +174,7 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
 
 impl<'d, T: Instance> UartRx<'d, T, Async> {
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        let (to_ptr, len) = crate::dma::slice_ptr_parts_mut(buffer);
         let ch = self.rx_dma.as_mut().unwrap();
         let transfer = unsafe {
             T::regs().uartdmacr().modify(|reg| {
@@ -180,7 +182,7 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
             });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(ch, T::regs().uartdr().ptr() as *const _, buffer, T::RX_DREQ)
+            crate::dma::read(ch, T::regs().uartdr().ptr() as *const _, to_ptr as *mut u32, len, T::RX_DREQ)
         };
         transfer.await;
         Ok(())
