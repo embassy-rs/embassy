@@ -65,66 +65,6 @@ fn calc_prescs(freq: u32) -> (u8, u8) {
 }
 
 impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
-    pub fn new_blocking(
-        inner: impl Peripheral<P = T> + 'd,
-        clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
-        mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
-        miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
-        config: Config,
-    ) -> Self {
-        into_ref!(clk, mosi, miso);
-        Self::new_inner(
-            inner,
-            None,
-            None,
-            Some(clk.map_into()),
-            Some(mosi.map_into()),
-            Some(miso.map_into()),
-            None,
-            config,
-        )
-    }
-
-    pub fn new_txonly(
-        inner: impl Peripheral<P = T> + 'd,
-        tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
-        clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
-        mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
-        config: Config,
-    ) -> Self {
-        into_ref!(clk, mosi);
-        Self::new_inner(
-            inner,
-            tx_dma,
-            None,
-            Some(clk.map_into()),
-            Some(mosi.map_into()),
-            None,
-            None,
-            config,
-        )
-    }
-
-    pub fn new_rxonly(
-        inner: impl Peripheral<P = T> + 'd,
-        rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
-        clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
-        miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
-        config: Config,
-    ) -> Self {
-        into_ref!(clk, miso);
-        Self::new_inner(
-            inner,
-            None,
-            rx_dma,
-            Some(clk.map_into()),
-            None,
-            Some(miso.map_into()),
-            None,
-            config,
-        )
-    }
-
     fn new_inner(
         inner: impl Peripheral<P = T> + 'd,
         tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
@@ -261,6 +201,66 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     }
 }
 
+impl<'d, T: Instance> Spi<'d, T, Blocking> {
+    pub fn new_blocking(
+        inner: impl Peripheral<P = T> + 'd,
+        clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(clk, mosi, miso);
+        Self::new_inner(
+            inner,
+            None,
+            None,
+            Some(clk.map_into()),
+            Some(mosi.map_into()),
+            Some(miso.map_into()),
+            None,
+            config,
+        )
+    }
+
+    pub fn new_blocking_txonly(
+        inner: impl Peripheral<P = T> + 'd,
+        clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(clk, mosi);
+        Self::new_inner(
+            inner,
+            None,
+            None,
+            Some(clk.map_into()),
+            Some(mosi.map_into()),
+            None,
+            None,
+            config,
+        )
+    }
+
+    pub fn new_blocking_rxonly(
+        inner: impl Peripheral<P = T> + 'd,
+        clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(clk, miso);
+        Self::new_inner(
+            inner,
+            None,
+            None,
+            Some(clk.map_into()),
+            None,
+            Some(miso.map_into()),
+            None,
+            config,
+        )
+    }
+}
+
 impl<'d, T: Instance> Spi<'d, T, Async> {
     pub fn new(
         inner: impl Peripheral<P = T> + 'd,
@@ -284,6 +284,46 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         )
     }
 
+    pub fn new_txonly(
+        inner: impl Peripheral<P = T> + 'd,
+        tx_dma: impl Peripheral<P = impl Channel> + 'd,
+        clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T> + 'd> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(tx_dma, clk, mosi);
+        Self::new_inner(
+            inner,
+            Some(tx_dma.map_into()),
+            None,
+            Some(clk.map_into()),
+            Some(mosi.map_into()),
+            None,
+            None,
+            config,
+        )
+    }
+
+    pub fn new_rxonly(
+        inner: impl Peripheral<P = T> + 'd,
+        rx_dma: impl Peripheral<P = impl Channel> + 'd,
+        clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(rx_dma, clk, miso);
+        Self::new_inner(
+            inner,
+            None,
+            Some(rx_dma.map_into()),
+            Some(clk.map_into()),
+            None,
+            Some(miso.map_into()),
+            None,
+            config,
+        )
+    }
+
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let (from_ptr, len) = crate::dma::slice_ptr_parts(buffer);
         let ch = self.tx_dma.as_mut().unwrap();
@@ -293,7 +333,13 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::write(ch, from_ptr as *const u32, self.inner.regs().dr().ptr() as *mut _, len, T::TX_DREQ)
+            crate::dma::write(
+                ch,
+                from_ptr as *const u32,
+                self.inner.regs().dr().ptr() as *mut _,
+                len,
+                T::TX_DREQ,
+            )
         };
         transfer.await;
         Ok(())
@@ -308,7 +354,13 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(ch, self.inner.regs().dr().ptr() as *const _, to_ptr as *mut u32, len, T::RX_DREQ)
+            crate::dma::read(
+                ch,
+                self.inner.regs().dr().ptr() as *const _,
+                to_ptr as *mut u32,
+                len,
+                T::RX_DREQ,
+            )
         };
         transfer.await;
         Ok(())

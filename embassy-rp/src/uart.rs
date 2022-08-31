@@ -128,7 +128,13 @@ impl<'d, T: Instance> UartTx<'d, T, Async> {
             });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::write(ch, from_ptr as *const u32, T::regs().uartdr().ptr() as *mut _, len, T::TX_DREQ)
+            crate::dma::write(
+                ch,
+                from_ptr as *const u32,
+                T::regs().uartdr().ptr() as *mut _,
+                len,
+                T::TX_DREQ,
+            )
         };
         transfer.await;
         Ok(())
@@ -182,7 +188,13 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
             });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(ch, T::regs().uartdr().ptr() as *const _, to_ptr as *mut u32, len, T::RX_DREQ)
+            crate::dma::read(
+                ch,
+                T::regs().uartdr().ptr() as *const _,
+                to_ptr as *mut u32,
+                len,
+                T::RX_DREQ,
+            )
         };
         transfer.await;
         Ok(())
