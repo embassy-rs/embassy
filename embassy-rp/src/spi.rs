@@ -558,8 +558,9 @@ mod eh1 {
 
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 mod eha {
-    use super::*;
     use core::future::Future;
+
+    use super::*;
 
     impl<'d, T: Instance> embedded_hal_async::spi::SpiBusFlush for Spi<'d, T, Async> {
         type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
