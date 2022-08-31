@@ -4,7 +4,7 @@
 
 use defmt::{assert_eq, *};
 use embassy_executor::Spawner;
-use embassy_rp::spi::{Async, Config, Spi};
+use embassy_rp::spi::{Config, Spi};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -16,7 +16,7 @@ async fn main(_spawner: Spawner) {
     let mosi = p.PIN_3;
     let miso = p.PIN_4;
 
-    let mut spi: Spi<'_, _, Async> = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Config::default());
+    let mut spi = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Config::default());
 
     let tx_buf = [1_u8, 2, 3, 4, 5, 6];
     let mut rx_buf = [0_u8; 6];

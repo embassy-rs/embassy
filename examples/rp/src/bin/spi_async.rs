@@ -4,7 +4,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::spi::{Async, Config, Spi};
+use embassy_rp::spi::{Config, Spi};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -17,7 +17,7 @@ async fn main(_spawner: Spawner) {
     let mosi = p.PIN_11;
     let clk = p.PIN_10;
 
-    let mut spi: Spi<'_, _, Async> = Spi::new(p.SPI1, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Config::default());
+    let mut spi = Spi::new(p.SPI1, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Config::default());
 
     loop {
         let tx_buf = [1_u8, 2, 3, 4, 5, 6];
