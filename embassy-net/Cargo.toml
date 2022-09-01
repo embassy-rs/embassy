@@ -7,7 +7,7 @@ edition = "2021"
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = [ "pool-4", "defmt", "tcp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "embassy-time/tick-1mhz"]
+features = ["pool-4", "defmt", "tcp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip"]
 target = "thumbv7em-none-eabi"
 
 [features]

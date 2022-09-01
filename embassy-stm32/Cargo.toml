@@ -10,7 +10,7 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32
 # TODO: sdmmc
 # TODO: net
 # TODO: subghz
-features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any", "embassy-time/tick-32768hz"]
+features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any"]
 flavors = [
     { regex_feature = "stm32f0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32f1.*", target = "thumbv7m-none-eabi" },
