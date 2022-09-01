@@ -8,7 +8,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::spi;
-use embassy_rp::spi::Spi;
+use embassy_rp::spi::{Blocking, Spi};
 use embassy_time::Delay;
 use embedded_graphics::image::{Image, ImageRawLE};
 use embedded_graphics::mono_font::ascii::FONT_10X20;
@@ -48,7 +48,8 @@ async fn main(_spawner: Spawner) {
     config.phase = spi::Phase::CaptureOnSecondTransition;
     config.polarity = spi::Polarity::IdleHigh;
 
-    let spi_bus = RefCell::new(Spi::new(p.SPI1, clk, mosi, miso, config));
+    let spi: Spi<'_, _, Blocking> = Spi::new_blocking(p.SPI1, clk, mosi, miso, config);
+    let spi_bus = RefCell::new(spi);
 
     let display_spi = SpiDeviceWithCs::new(&spi_bus, Output::new(display_cs, Level::High));
     let touch_spi = SpiDeviceWithCs::new(&spi_bus, Output::new(touch_cs, Level::High));

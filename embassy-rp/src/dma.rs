@@ -40,10 +40,10 @@ pub(crate) unsafe fn init() {
 pub unsafe fn read<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     from: *const W,
-    to: &mut [W],
+    to: *mut [W],
     dreq: u8,
 ) -> Transfer<'a, C> {
-    let (to_ptr, len) = crate::dma::slice_ptr_parts_mut(to);
+    let (to_ptr, len) = crate::dma::slice_ptr_parts(to);
     copy_inner(
         ch,
         from as *const u32,
@@ -58,7 +58,7 @@ pub unsafe fn read<'a, C: Channel, W: Word>(
 
 pub unsafe fn write<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
-    from: &[W],
+    from: *const [W],
     to: *mut W,
     dreq: u8,
 ) -> Transfer<'a, C> {
