@@ -22,7 +22,7 @@ flavors = [
 
 [features]
 default = []
-std = ["embassy-macros/std"]
+std = ["embassy-macros/std", "critical-section/std"]
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "embassy-macros/wasm"]
 
 # Enable nightly-only features
