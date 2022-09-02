@@ -28,6 +28,7 @@ impl Partition {
     }
 
     /// Return the length of the partition
+    #[allow(clippy::len_without_is_empty)]
     pub const fn len(&self) -> usize {
         self.to - self.from
     }
@@ -229,31 +230,28 @@ impl BootLoader {
 
         // Copy contents from partition N to active
         let state = self.read_state(p, magic)?;
-        match state {
-            State::Swap => {
-                //
-                // Check if we already swapped. If we're in the swap state, this means we should revert
-                // since the app has failed to mark boot as successful
-                //
-                if !self.is_swapped(p, magic, page)? {
-                    trace!("Swapping");
-                    self.swap(p, magic, page)?;
-                    trace!("Swapping done");
-                } else {
-                    trace!("Reverting");
-                    self.revert(p, magic, page)?;
+        if state == State::Swap {
+            //
+            // Check if we already swapped. If we're in the swap state, this means we should revert
+            // since the app has failed to mark boot as successful
+            //
+            if !self.is_swapped(p, magic, page)? {
+                trace!("Swapping");
+                self.swap(p, magic, page)?;
+                trace!("Swapping done");
+            } else {
+                trace!("Reverting");
+                self.revert(p, magic, page)?;
 
-                    // Overwrite magic and reset progress
-                    let fstate = p.state();
-                    magic.fill(!P::STATE::ERASE_VALUE);
-                    fstate.write(self.state.from as u32, magic)?;
-                    fstate.erase(self.state.from as u32, self.state.to as u32)?;
+                // Overwrite magic and reset progress
+                let fstate = p.state();
+                magic.fill(!P::STATE::ERASE_VALUE);
+                fstate.write(self.state.from as u32, magic)?;
+                fstate.erase(self.state.from as u32, self.state.to as u32)?;
 
-                    magic.fill(BOOT_MAGIC);
-                    fstate.write(self.state.from as u32, magic)?;
-                }
+                magic.fill(BOOT_MAGIC);
+                fstate.write(self.state.from as u32, magic)?;
             }
-            _ => {}
         }
         Ok(state)
     }
@@ -1005,7 +1003,7 @@ mod tests {
         const ERASE_SIZE: usize = ERASE_SIZE;
 
         type EraseFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a;
-        fn erase<'a>(&'a mut self, from: u32, to: u32) -> Self::EraseFuture<'a> {
+        fn erase(&mut self, from: u32, to: u32) -> Self::EraseFuture<'_> {
             async move {
                 let from = from as usize;
                 let to = to as usize;
