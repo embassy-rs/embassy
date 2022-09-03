@@ -7,8 +7,8 @@ use embassy_stm32::dma::NoDma;
 use embassy_stm32::interrupt::{Interrupt, InterruptExt, SUBGHZ_RADIO};
 use embassy_stm32::subghz::{
     CalibrateImage, CfgIrq, CodingRate, Error, HeaderType, HseTrim, Irq, LoRaBandwidth, LoRaModParams,
-    LoRaPacketParams, LoRaSyncWord, Ocp, PaConfig, PacketType, RegMode, RfFreq, SpreadingFactor as SF,
-    StandbyClk, Status, SubGhz, TcxoMode, TcxoTrim, Timeout, TxParams,
+    LoRaPacketParams, LoRaSyncWord, Ocp, PaConfig, PacketType, RegMode, RfFreq, SpreadingFactor as SF, StandbyClk,
+    Status, SubGhz, TcxoMode, TcxoTrim, Timeout, TxParams,
 };
 use embassy_sync::waitqueue::AtomicWaker;
 use futures::future::poll_fn;
@@ -158,8 +158,7 @@ impl<'d, RS: RadioSwitch> SubGhzRadio<'d, RS> {
         self.radio.set_buffer_base_address(0, 0)?;
 
         // NOTE: Upper layer handles timeout by cancelling the future
-        self.radio
-            .set_rx(Timeout::DISABLED)?;
+        self.radio.set_rx(Timeout::DISABLED)?;
 
         trace!("RX started");
 
