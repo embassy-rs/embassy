@@ -19,6 +19,6 @@ embassy-usb = { version = "0.1.0", path = "../embassy-usb" }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
-usbd-hid = { version = "0.5.2", optional = true }
+usbd-hid = { version = "0.6.0", optional = true }
 ssmarshal = { version = "1.0", default-features = false, optional = true }
 futures-util = { version = "0.3.21", default-features = false }
