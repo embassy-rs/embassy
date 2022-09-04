@@ -9,13 +9,39 @@ use embassy_executor::Spawner;
 use embassy_lora::stm32wl::*;
 use embassy_lora::LoraTimer;
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::gpio::{Level, Output, Pin, Speed};
+use embassy_stm32::gpio::{AnyPin, Level, Output, Pin, Speed};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::subghz::*;
 use embassy_stm32::{interrupt, pac};
 use lorawan::default_crypto::DefaultFactory as Crypto;
 use lorawan_device::async_device::{region, Device, JoinMode};
 use {defmt_rtt as _, panic_probe as _};
+
+struct RadioSwitch<'a> {
+    ctrl1: Output<'a, AnyPin>,
+    ctrl2: Output<'a, AnyPin>,
+    ctrl3: Output<'a, AnyPin>,
+}
+
+impl<'a> RadioSwitch<'a> {
+    fn new(ctrl1: Output<'a, AnyPin>, ctrl2: Output<'a, AnyPin>, ctrl3: Output<'a, AnyPin>) -> Self {
+        Self { ctrl1, ctrl2, ctrl3 }
+    }
+}
+
+impl<'a> embassy_lora::stm32wl::RadioSwitch for RadioSwitch<'a> {
+    fn set_rx(&mut self) {
+        self.ctrl1.set_high();
+        self.ctrl2.set_low();
+        self.ctrl3.set_high();
+    }
+
+    fn set_tx(&mut self) {
+        self.ctrl1.set_high();
+        self.ctrl2.set_high();
+        self.ctrl3.set_high();
+    }
+}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -31,18 +57,19 @@ async fn main(_spawner: Spawner) {
     let ctrl3 = Output::new(p.PC5.degrade(), Level::High, Speed::High);
     let rfs = RadioSwitch::new(ctrl1, ctrl2, ctrl3);
 
-    let radio = SubGhz::new(p.SUBGHZSPI, p.PA5, p.PA7, p.PA6, NoDma, NoDma);
-
+    let radio = SubGhz::new(p.SUBGHZSPI, NoDma, NoDma);
     let irq = interrupt::take!(SUBGHZ_RADIO);
-    static mut RADIO_STATE: SubGhzState<'static> = SubGhzState::new();
-    let radio = unsafe { SubGhzRadio::new(&mut RADIO_STATE, radio, rfs, irq) };
+
+    let mut radio_config = SubGhzRadioConfig::default();
+    radio_config.calibrate_image = CalibrateImage::ISM_863_870;
+    let radio = SubGhzRadio::new(radio, rfs, irq, radio_config).unwrap();
 
     let mut region: region::Configuration = region::EU868::default().into();
 
     // NOTE: This is specific for TTN, as they have a special RX1 delay
     region.set_receive_delay1(5000);
 
-    let mut device: Device<_, Crypto, _, _> = Device::new(region, radio, LoraTimer, Rng::new(p.RNG));
+    let mut device: Device<_, Crypto, _, _> = Device::new(region, radio, LoraTimer::new(), Rng::new(p.RNG));
 
     // Depending on network, this might be part of JOIN
     device.set_datarate(region::DR::_0); // SF12

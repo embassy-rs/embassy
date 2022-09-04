@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
     let radio = Sx127xRadio::new(spi, cs, reset, ready_pin, DummySwitch).await.unwrap();
 
     let region = region::EU868::default().into();
-    let mut device: Device<_, Crypto, _, _> = Device::new(region, radio, LoraTimer, Rng::new(p.RNG));
+    let mut device: Device<_, Crypto, _, _> = Device::new(region, radio, LoraTimer::new(), Rng::new(p.RNG));
 
     defmt::info!("Joining LoRaWAN network");
 

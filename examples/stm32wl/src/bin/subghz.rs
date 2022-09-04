@@ -72,7 +72,7 @@ async fn main(_spawner: Spawner) {
         unsafe { interrupt::SUBGHZ_RADIO::steal() }.disable();
     });
 
-    let mut radio = SubGhz::new(p.SUBGHZSPI, p.PA5, p.PA7, p.PA6, NoDma, NoDma);
+    let mut radio = SubGhz::new(p.SUBGHZSPI, NoDma, NoDma);
 
     defmt::info!("Radio ready for use");
 

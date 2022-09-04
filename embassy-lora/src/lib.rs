@@ -11,13 +11,35 @@ pub mod stm32wl;
 #[cfg(feature = "sx127x")]
 pub mod sx127x;
 
+#[cfg(feature = "time")]
+use embassy_time::{Duration, Instant, Timer};
+
 /// A convenience timer to use with the LoRaWAN crate
-pub struct LoraTimer;
+#[cfg(feature = "time")]
+pub struct LoraTimer {
+    start: Instant,
+}
+
+#[cfg(feature = "time")]
+impl LoraTimer {
+    pub fn new() -> Self {
+        Self { start: Instant::now() }
+    }
+}
 
 #[cfg(feature = "time")]
 impl lorawan_device::async_device::radio::Timer for LoraTimer {
+    fn reset(&mut self) {
+        self.start = Instant::now();
+    }
+
+    type AtFuture<'m> = impl core::future::Future<Output = ()> + 'm;
+    fn at<'m>(&'m mut self, millis: u64) -> Self::AtFuture<'m> {
+        Timer::at(self.start + Duration::from_millis(millis))
+    }
+
     type DelayFuture<'m> = impl core::future::Future<Output = ()> + 'm;
     fn delay_ms<'m>(&'m mut self, millis: u64) -> Self::DelayFuture<'m> {
-        embassy_time::Timer::after(embassy_time::Duration::from_millis(millis))
+        Timer::after(Duration::from_millis(millis))
     }
 }
