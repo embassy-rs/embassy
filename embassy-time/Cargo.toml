@@ -26,6 +26,9 @@ unstable-traits = ["embedded-hal-1"]
 # To use this you must have a time driver provided.
 defmt-timestamp-uptime = ["defmt"]
 
+# TODO: Doc
+generic-queue = []
+
 # Set the `embassy_time` tick rate.
 #
 # At most 1 `tick-*` feature can be enabled. If none is enabled, a default of 1MHz is used.
@@ -111,9 +114,11 @@ embedded-hal-async = { version = "=0.1.0-alpha.2", optional = true}
 
 futures-util = { version = "0.3.17", default-features = false }
 embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
+embassy-sync = { version = "0.1", path = "../embassy-sync" }
 atomic-polyfill = "1.0.1"
 critical-section = "1.1"
 cfg-if = "1.0.0"
+heapless = "0.7"
 
 # WASM dependencies
 wasm-bindgen = { version = "0.2.81", optional = true }

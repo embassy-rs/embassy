@@ -11,6 +11,7 @@ mod delay;
 pub mod driver;
 mod duration;
 mod instant;
+pub mod queue;
 mod tick;
 mod timer;
 
