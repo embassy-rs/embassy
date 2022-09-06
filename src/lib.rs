@@ -526,7 +526,7 @@ pub struct Runner<'a, PWR, SPI> {
     sdpcm_seq: u8,
     backplane_window: u32,
 
-    tx_seq_max: u8,
+    sdpcm_seq_max: u8,
 }
 
 pub async fn new<'a, PWR, SPI>(
@@ -549,7 +549,7 @@ where
         sdpcm_seq: 0,
         backplane_window: 0xAAAA_AAAA,
 
-        tx_seq_max: 1,
+        sdpcm_seq_max: 1,
     };
 
     runner.init(firmware).await;
@@ -673,17 +673,20 @@ where
         let mut buf = [0; 512];
         loop {
             // Send stuff
-            // TODO flow control
-            if self.sdpcm_seq == self.tx_seq_max || self.tx_seq_max.wrapping_sub(self.sdpcm_seq) & 0x80 != 0 {
+            // TODO flow control not yet complete
+            if !self.has_credit() {
                 warn!("TX stalled");
             } else {
                 if let IoctlState::Pending { kind, cmd, iface, buf } = self.state.ioctl_state.get() {
                     self.send_ioctl(kind, cmd, iface, unsafe { &*buf }).await;
                     self.state.ioctl_state.set(IoctlState::Sent { buf });
                 }
-
-                if let Ok(p) = self.state.tx_channel.try_recv() {
-                    self.send_packet(&p).await;
+                if !self.has_credit() {
+                    warn!("TX stalled");
+                } else {
+                    if let Ok(p) = self.state.tx_channel.try_recv() {
+                        self.send_packet(&p).await;
+                    }
                 }
             }
 
@@ -906,12 +909,16 @@ where
 
     fn update_credit(&mut self, sdpcm_header: &SdpcmHeader) {
         if sdpcm_header.channel_and_flags & 0xf < 3 {
-            let mut tx_seq_max = sdpcm_header.bus_data_credit;
-            if tx_seq_max - self.sdpcm_seq > 0x40 {
-                tx_seq_max = self.sdpcm_seq + 2;
+            let mut sdpcm_seq_max = sdpcm_header.bus_data_credit;
+            if sdpcm_seq_max - self.sdpcm_seq > 0x40 {
+                sdpcm_seq_max = self.sdpcm_seq + 2;
             }
-            self.tx_seq_max = tx_seq_max;
+            self.sdpcm_seq_max = sdpcm_seq_max;
         }
+    }
+
+    fn has_credit(&mut self) -> bool {
+        self.sdpcm_seq != self.sdpcm_seq_max && self.sdpcm_seq_max.wrapping_sub(self.sdpcm_seq) & 0x80 == 0
     }
 
     async fn send_ioctl(&mut self, kind: u32, cmd: u32, iface: u32, data: &[u8]) {
