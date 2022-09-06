@@ -397,6 +397,12 @@ impl<'a> Control<'a> {
         info!("JOINED");
     }
 
+    pub async fn gpio_set(&mut self, gpio_n: u8, gpio_en: bool) {
+        assert!(gpio_n < 3);
+        self.set_iovar_u32x2("gpioout", 1 << gpio_n, if gpio_en { 1 << gpio_n } else { 0 })
+            .await
+    }
+
     async fn set_iovar_u32x2(&mut self, name: &str, val1: u32, val2: u32) {
         let mut buf = [0; 8];
         buf[0..4].copy_from_slice(&val1.to_le_bytes());
