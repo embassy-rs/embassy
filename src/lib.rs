@@ -916,7 +916,7 @@ where
     fn update_credit(&mut self, sdpcm_header: &SdpcmHeader) {
         if sdpcm_header.channel_and_flags & 0xf < 3 {
             let mut sdpcm_seq_max = sdpcm_header.bus_data_credit;
-            if sdpcm_seq_max - self.sdpcm_seq > 0x40 {
+            if sdpcm_seq_max.wrapping_sub(self.sdpcm_seq) > 0x40 {
                 sdpcm_seq_max = self.sdpcm_seq + 2;
             }
             self.sdpcm_seq_max = sdpcm_seq_max;
