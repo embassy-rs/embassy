@@ -343,7 +343,7 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
                 w.set_stp2(config.stop_bits == StopBits::STOP2);
                 w.set_pen(pen);
                 w.set_eps(eps);
-                w.set_fen(true);
+                w.set_fen(false);
             });
 
             r.uartcr().write(|w| {
