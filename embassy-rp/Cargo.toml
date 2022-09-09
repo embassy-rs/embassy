@@ -20,6 +20,8 @@ defmt = ["dep:defmt", "embassy-usb?/defmt"]
 # There are no plans to make this stable.
 unstable-pac = []
 
+time-driver = []
+
 # Enable nightly-only features
 nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb"]
 
