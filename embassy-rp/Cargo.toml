@@ -7,7 +7,9 @@ edition = "2021"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-rp-v$VERSION/embassy-rp/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-rp/src/"
 features = ["nightly", "defmt", "unstable-pac", "unstable-traits"]
-flavors = [{ name = "rp2040", target = "thumbv6m-none-eabi" }]
+flavors = [
+    { name = "rp2040", target = "thumbv6m-none-eabi" },
+]
 
 [features]
 defmt = ["dep:defmt", "embassy-usb?/defmt"]
@@ -18,16 +20,8 @@ defmt = ["dep:defmt", "embassy-usb?/defmt"]
 # There are no plans to make this stable.
 unstable-pac = []
 
-time-driver = []
-
 # Enable nightly-only features
-nightly = [
-    "embassy-executor/nightly",
-    "embedded-hal-1",
-    "embedded-hal-async",
-    "embassy-embedded-hal/nightly",
-    "dep:embassy-usb",
-]
+nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb", "dep:embedded-io"]
 
 # Implement embedded-hal 1.0 alpha traits.
 # Implement embedded-hal-async traits if `nightly` is set as well.
@@ -36,15 +30,11 @@ unstable-traits = ["embedded-hal-1"]
 [dependencies]
 embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
 embassy-executor = { version = "0.1.0", path = "../embassy-executor" }
-embassy-time = { version = "0.1.0", path = "../embassy-time", features = [
-    "tick-hz-1_000_000",
-] }
-embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = [
-    "prio-bits-2",
-] }
-embassy-hal-common = { version = "0.1.0", path = "../embassy-hal-common" }
-embassy-embedded-hal = { version = "0.1.0", path = "../embassy-embedded-hal" }
-embassy-usb = { version = "0.1.0", path = "../embassy-usb", optional = true }
+embassy-time = { version = "0.1.0", path = "../embassy-time", features = [ "tick-hz-1_000_000" ] }
+embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-2"]}
+embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
+embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
+embassy-usb = {version = "0.1.0", path = "../embassy-usb", optional = true }
 atomic-polyfill = "1.0.1"
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
@@ -53,18 +43,12 @@ cfg-if = "1.0.0"
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 critical-section = "1.1"
-futures = { version = "0.3.17", default-features = false, features = [
-    "async-await",
-] }
+futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 embedded-io = { version = "0.3.0", features = ["async"], optional = true }
 
-rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev = "017e3c9007b2d3b6965f0d85b5bf8ce3fa6d7364", features = [
-    "rt",
-] }
+rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev="017e3c9007b2d3b6965f0d85b5bf8ce3fa6d7364", features = ["rt"] }
 #rp2040-pac2 = { path = "../../rp2040-pac2", features = ["rt"] }
 
-embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
-    "unproven",
-] }
-embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8", optional = true }
-embedded-hal-async = { version = "0.1.0-alpha.1", optional = true }
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8", optional = true}
+embedded-hal-async = { version = "0.1.0-alpha.1", optional = true}

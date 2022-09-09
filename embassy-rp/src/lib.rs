@@ -8,7 +8,6 @@ pub mod dma;
 pub mod gpio;
 pub mod interrupt;
 pub mod spi;
-#[cfg(feature = "time-driver")]
 pub mod timer;
 pub mod uart;
 #[cfg(feature = "nightly")]
@@ -109,7 +108,6 @@ pub fn init(_config: config::Config) -> Peripherals {
 
     unsafe {
         clocks::init();
-        #[cfg(feature = "time-driver")]
         timer::init();
         dma::init();
     }
