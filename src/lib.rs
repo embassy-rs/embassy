@@ -126,6 +126,12 @@ const IRQ_F1_INTR: u16 = 0x2000;
 const IRQ_F2_INTR: u16 = 0x4000;
 const IRQ_F3_INTR: u16 = 0x8000;
 
+const IOCTL_CMD_UP: u32 = 2;
+const IOCTL_CMD_SET_SSID: u32 = 26;
+const IOCTL_CMD_SET_VAR: u32 = 263;
+const IOCTL_CMD_GET_VAR: u32 = 262;
+const IOCTL_CMD_SET_PASSPHRASE: u32 = 268;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Core {
     WLAN = 0,
@@ -263,7 +269,8 @@ impl<'a> Control<'a> {
             buf[0..8].copy_from_slice(b"clmload\x00");
             buf[8..20].copy_from_slice(&header.to_bytes());
             buf[20..][..chunk.len()].copy_from_slice(&chunk);
-            self.ioctl(2, 263, 0, &mut buf[..8 + 12 + chunk.len()]).await;
+            self.ioctl(2, IOCTL_CMD_SET_VAR, 0, &mut buf[..8 + 12 + chunk.len()])
+                .await;
         }
 
         // check clmload ok
@@ -323,7 +330,7 @@ impl<'a> Control<'a> {
         Timer::after(Duration::from_millis(100)).await;
 
         // set wifi up
-        self.ioctl(2, 2, 0, &mut []).await;
+        self.ioctl(2, IOCTL_CMD_UP, 0, &mut []).await;
 
         Timer::after(Duration::from_millis(100)).await;
 
@@ -360,7 +367,7 @@ impl<'a> Control<'a> {
             ssid: [0; 32],
         };
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
-        self.ioctl(2, 26, 0, &mut i.to_bytes()).await; // set_ssid
+        self.ioctl(2, IOCTL_CMD_SET_SSID, 0, &mut i.to_bytes()).await; // set_ssid
 
         info!("JOINED");
     }
@@ -381,7 +388,7 @@ impl<'a> Control<'a> {
             passphrase: [0; 64],
         };
         pfi.passphrase[..passphrase.len()].copy_from_slice(passphrase.as_bytes());
-        self.ioctl(2, 268, 0, &mut pfi.to_bytes()).await; // WLC_SET_WSEC_PMK
+        self.ioctl(2, IOCTL_CMD_SET_PASSPHRASE, 0, &mut pfi.to_bytes()).await; // WLC_SET_WSEC_PMK
 
         self.ioctl_set_u32(20, 0, 1).await; // set_infra = 1
         self.ioctl_set_u32(22, 0, 0).await; // set_auth = 0 (open)
@@ -430,7 +437,7 @@ impl<'a> Control<'a> {
         buf[name.len() + 1..][..val.len()].copy_from_slice(val);
 
         let total_len = name.len() + 1 + val.len();
-        self.ioctl(2, 263, 0, &mut buf[..total_len]).await;
+        self.ioctl(2, IOCTL_CMD_SET_VAR, 0, &mut buf[..total_len]).await;
     }
 
     // TODO this is not really working, it always returns all zeros.
@@ -442,7 +449,7 @@ impl<'a> Control<'a> {
         buf[name.len()] = 0;
 
         let total_len = max(name.len() + 1, res.len());
-        let res_len = self.ioctl(0, 262, 0, &mut buf[..total_len]).await;
+        let res_len = self.ioctl(0, IOCTL_CMD_GET_VAR, 0, &mut buf[..total_len]).await;
 
         let out_len = min(res.len(), res_len);
         res[..out_len].copy_from_slice(&buf[..out_len]);
