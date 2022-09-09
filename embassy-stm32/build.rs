@@ -507,7 +507,11 @@ fn main() {
         (("dcmi", "PSSI"), quote!(crate::dcmi::FrameDma)),
         // SDMMCv1 uses the same channel for both directions, so just implement for RX
         (("sdmmc", "RX"), quote!(crate::sdmmc::SdmmcDma)),
+        (("adc", "ADC"), quote!(crate::adc::RxDma)),
         (("adc", "ADC1"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC2"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC3"), quote!(crate::adc::RxDma)),
+
     ]
     .into();
 
