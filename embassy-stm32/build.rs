@@ -510,7 +510,7 @@ fn main() {
         (("adc", "ADC"), quote!(crate::adc::RxDma)),
         (("adc", "ADC1"), quote!(crate::adc::RxDma)),
         (("adc", "ADC2"), quote!(crate::adc::RxDma)),
-        (("adc", "ADC3"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC3"), quote!(crate::adc::RxDma))
 
     ]
     .into();

@@ -282,7 +282,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
         let mut buf_index = 0;
         //Loop for retrieving data
-        let rx_f = poll_fn(|cx| {
+        poll_fn(|cx| {
             rxdma.set_waker(cx.waker());
 
             if rxdma.is_data_ready() {

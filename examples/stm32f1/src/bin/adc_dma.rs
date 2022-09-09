@@ -5,7 +5,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, AdcPin, Instance, RxDma, SamplerState};
-use embassy_stm32::{Peripheral, PeripheralRef, Peripherals};
+use embassy_stm32::{Peripheral, PeripheralRef};
 use embassy_time::{Delay, Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
