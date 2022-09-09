@@ -289,26 +289,21 @@ mod transfers {
         }
     }
 
-    // I think the several functions should be called declarative
-    // It's use is inconsistent between circular and simple reads
     impl<'a, C: Channel> Drop for Transfer<'a, C> {
         fn drop(&mut self) {
-            if !self.channel.is_performing_cicular_transfer() {
-                self.channel.request_stop();
-                while self.channel.is_running() {}
-            }
+            self.channel.request_stop();
+            while self.channel.is_running() {}
         }
     }
-
     impl<'a, C: Channel> Unpin for Transfer<'a, C> {}
     impl<'a, C: Channel> Future for Transfer<'a, C> {
         type Output = ();
         fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
             self.channel.set_waker(cx.waker());
-            if self.channel.is_data_ready() {
-                Poll::Ready(())
-            } else {
+            if self.channel.is_running() {
                 Poll::Pending
+            } else {
+                Poll::Ready(())
             }
         }
     }

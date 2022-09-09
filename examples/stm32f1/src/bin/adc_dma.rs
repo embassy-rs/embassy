@@ -12,7 +12,7 @@ use {defmt_rtt as _, panic_probe as _};
 async fn single_read<T: Instance + Peripheral<P = T>>(adc: &mut Adc<'_, T>, pin: &mut impl AdcPin<T>) {
     info!("Single read");
 
-    for i in 0..20 {
+    for _ in 0..20 {
         let v = adc.read(pin);
         info!("--> {} - {} mV", v, adc.to_millivolts(v));
         Timer::after(Duration::from_millis(300)).await;
@@ -22,7 +22,7 @@ async fn single_read<T: Instance + Peripheral<P = T>>(adc: &mut Adc<'_, T>, pin:
 async fn continous_read<T: Instance + Peripheral<P = T>, U: RxDma<T> + Peripheral<P = U>>(
     adc: &mut Adc<'_, T>,
     pin: &mut impl AdcPin<T>,
-    mut dma_chan: PeripheralRef<'_, U>,
+    dma_chan: PeripheralRef<'_, U>,
 ) {
     info!("Continuous read");
 
