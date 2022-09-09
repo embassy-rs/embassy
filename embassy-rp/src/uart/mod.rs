@@ -544,7 +544,6 @@ mod eh1 {
             self.blocking_flush().map_err(nb::Error::Other)
         }
     }
-
 }
 
 #[cfg(all(
@@ -607,7 +606,6 @@ mod buffered;
 #[cfg(feature = "nightly")]
 pub use buffered::*;
 
-
 mod sealed {
     use super::*;
 
@@ -649,7 +647,7 @@ macro_rules! impl_instance {
         impl sealed::Instance for peripherals::$inst {
             const TX_DREQ: u8 = $tx_dreq;
             const RX_DREQ: u8 = $rx_dreq;
-            
+
             type Interrupt = crate::interrupt::$irq;
 
             fn regs() -> pac::uart::Uart {
