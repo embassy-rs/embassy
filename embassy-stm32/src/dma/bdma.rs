@@ -360,8 +360,8 @@ mod low_level_api {
 
             if cr.read().circ() == vals::Circ::DISABLED {
                 cr.write(|_| ()); // Disable channel with the default value.
-            } 
-     
+            }
+
             dma.ifcr().write(|w| w.set_tcif(channel_num, true));
         }
         //This interrupt mask is enabled only in circular mode

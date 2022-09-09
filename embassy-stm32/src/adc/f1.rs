@@ -1,14 +1,14 @@
 use core::marker::PhantomData;
+use core::task::Poll;
 
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embedded_hal_02::blocking::delay::DelayUs;
+use futures::future::poll_fn;
 
 use crate::adc::{AdcPin, Instance};
 use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::Peripheral;
-use futures::future::poll_fn;
-use core::task::Poll;
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
@@ -288,22 +288,21 @@ impl<'d, T: Instance> Adc<'d, T> {
             if rxdma.is_data_ready() {
                 let sampler_state = sampler(&data[buf_index]);
                 rxdma.set_data_processing_done();
-    
+
                 if sampler_state == SamplerState::Sampled {
                     buf_index = !buf_index & 0x01; // switch the buffer index (0/1)
-                    return Poll::Pending
-                } else  {
-                    return Poll::Ready(())
+                    return Poll::Pending;
+                } else {
+                    return Poll::Ready(());
                 }
+            } else {
+                return Poll::Pending;
             }
-            else{
-                return Poll::Pending
-            }
-        }).await;
+        })
+        .await;
 
         rxdma.request_stop();
         while rxdma.is_running() {}
-
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
