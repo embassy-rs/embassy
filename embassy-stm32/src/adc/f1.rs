@@ -5,12 +5,11 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use embedded_hal_02::blocking::delay::DelayUs;
 use futures::future::poll_fn;
 
+use super::RxDma;
 use crate::adc::{AdcPin, Instance};
 use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::Peripheral;
-dma_trait!(RxDma, Instance);
-
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
 // No calibration data for F103, voltage should be 1.2v
