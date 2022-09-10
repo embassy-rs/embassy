@@ -113,9 +113,6 @@ pub(crate) mod sealed {
         /// for `is_running() = false`.
         fn request_stop(&mut self);
 
-        // Return true if circular mode is enabled for this DMA channel
-        fn is_performing_cicular_transfer(&mut self) -> bool;
-
         /// Returns whether this channel is running or stopped.
         ///
         /// The channel stops running when it either completes or is manually stopped.

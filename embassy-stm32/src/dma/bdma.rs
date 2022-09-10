@@ -176,9 +176,6 @@ foreach_dma_channel! {
             fn request_stop(&mut self){
                 unsafe {low_level_api::request_stop(pac::$dma_peri, $channel_num);}
             }
-            fn is_performing_cicular_transfer(&mut self) -> bool {
-                unsafe {low_level_api::is_performing_cicular_transfer(pac::$dma_peri, $channel_num)}
-            }
 
             fn is_running(&self) -> bool {
                 unsafe {low_level_api::is_running(pac::$dma_peri, $channel_num)}
@@ -298,10 +295,6 @@ mod low_level_api {
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
         fence(Ordering::SeqCst);
-    }
-
-    pub unsafe fn is_performing_cicular_transfer(dma: pac::bdma::Dma, ch: u8) -> bool {
-        dma.ch(ch as usize).cr().read().circ() == vals::Circ::ENABLED
     }
 
     pub unsafe fn is_running(dma: pac::bdma::Dma, ch: u8) -> bool {

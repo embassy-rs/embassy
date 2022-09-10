@@ -139,6 +139,11 @@ foreach_dma_channel! {
                 );
             }
 
+
+            unsafe fn start_circular_read<W: Word>(&mut self, _request: Request, _reg_addr: *const W, _buf_ptr: *mut [W], _buf_len : usize, _options: TransferOptions) {
+                panic!("Unsafe circular mode is unavailable on DMA");
+                }
+
             unsafe fn start_double_buffered_read<W: Word>(
                 &mut self,
                 request: Request,
@@ -185,6 +190,14 @@ foreach_dma_channel! {
 
             fn is_running(&self) -> bool {
                 unsafe {low_level_api::is_running(pac::$dma_peri, $channel_num)}
+            }
+
+            fn is_data_ready(&self) -> bool {
+                panic!("This method is only called in the case of circular mode, which is not available for DMA");
+            }
+
+            fn set_data_processing_done(&mut self){
+                panic!("This method is only called in the case of circular mode, which is not available for DMA");
             }
 
             fn remaining_transfers(&mut self) -> u16 {

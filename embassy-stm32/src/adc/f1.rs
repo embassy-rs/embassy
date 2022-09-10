@@ -15,8 +15,6 @@ pub const ADC_MAX: u32 = (1 << 12) - 1;
 // No calibration data for F103, voltage should be 1.2v
 pub const VREF_INT: u32 = 1200;
 
-dma_trait!(RxDma, Instance);
-
 pub struct Vref;
 impl<T: Instance> AdcPin<T> for Vref {}
 impl<T: Instance> super::sealed::AdcPin<T> for Vref {

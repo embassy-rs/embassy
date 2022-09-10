@@ -7,6 +7,7 @@
 #[cfg_attr(adc_f1, path = "f1.rs")]
 #[cfg_attr(adc_v1, path = "v1.rs")]
 mod _version;
+dma_trait!(RxDma, Instance);
 
 #[allow(unused)]
 pub use _version::*;
