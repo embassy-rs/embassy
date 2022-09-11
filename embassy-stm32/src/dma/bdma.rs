@@ -344,6 +344,8 @@ mod low_level_api {
         } else if STATE.data_ready[index].load(Ordering::SeqCst) {
             if cr.read().dir() == vals::Dir::FROMPERIPHERAL {
                 panic!("DMA: Concurrent access on the same buffer half between CPU and BDMA@{:08x} channel {}. User data processing may be too slow", dma.0 as u32, channel_num);
+            } else {
+                panic!("DMA: Concurrent access on the same buffer half between CPU and BDMA@{:08x} channel {}.Writting on the buffer by the user may be too slow", dma.0 as u32, channel_num);
             }
         } else if isr.tcif(channel_num) && cr.read().tcie() {
             // Transfer has ended
