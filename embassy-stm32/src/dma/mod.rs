@@ -77,10 +77,22 @@ pub(crate) mod sealed {
             options: TransferOptions,
         );
 
-        /// Start an endless stransfer of data between a peripheral and memory.
-        /// A single buffer is used for the operation on the memory side. The DMA call the waker when half or the entirety of the buffer has been read/written
-        /// It is the responsability of the user to ensure no software operation is performed on the half of the buffer the DMA is writting/reading on
+        /// Start an endless stransfer of data from peripheral to a memory.
+        /// A single buffer is used for the operation on the memory side. The DMA call the waker when half or the entirety of the buffer has been read by the peripheral.
+        /// It is the responsability of the user to ensure no software operation is performed on the half of the buffer the DMA is writting.
         unsafe fn start_circular_read<W: super::Word>(
+            &mut self,
+            _request: Request,
+            reg_addr: *const W,
+            buf_ptr: *mut [W],
+            buf_len: usize,
+            options: TransferOptions,
+        );
+
+        /// Start an endless stransfer of data from memory to a peripheral.
+        /// A single buffer is used for the operation on the memory side. The DMA call the waker when half or the entirety of the buffer has been written to the peripheral.
+        /// It is the responsability of the user to ensure no software operation is performed on the half of the buffer the DMA is reading.
+        unsafe fn start_circular_write<W: super::Word>(
             &mut self,
             _request: Request,
             reg_addr: *const W,

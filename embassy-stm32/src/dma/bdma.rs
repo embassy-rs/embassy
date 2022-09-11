@@ -149,6 +149,29 @@ foreach_dma_channel! {
                 );
             }
 
+            unsafe fn start_circular_write<W: Word>(&mut self, _request: Request, reg_addr: *const W, buf_ptr: *mut [W], buf_len : usize, options: TransferOptions) {
+                // buffer length is not determined at compile time here
+                low_level_api::start_transfer(
+                    pac::$dma_peri,
+                    $channel_num,
+                    $index,
+                    #[cfg(any(bdma_v2, dmamux))]
+                    _request,
+                    vals::Dir::FROMMEMORY,
+                    reg_addr as *const u32,
+                    buf_ptr as *mut u32,
+                    buf_len,
+                    true,
+                    true,
+                    vals::Size::from(W::bits()),
+                    options,
+                    #[cfg(dmamux)]
+                    <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_REGS,
+                    #[cfg(dmamux)]
+                    <Self as super::dmamux::sealed::MuxChannel>::DMAMUX_CH_NUM,
+                );
+            }
+
             unsafe fn start_double_buffered_read<W: super::Word>(
                 &mut self,
                 _request: Request,
