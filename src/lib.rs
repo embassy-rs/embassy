@@ -92,6 +92,9 @@ const BACKPLANE_WINDOW_SIZE: usize = 0x8000;
 const BACKPLANE_ADDRESS_MASK: u32 = 0x7FFF;
 const BACKPLANE_ADDRESS_32BIT_FLAG: u32 = 0x08000;
 const BACKPLANE_MAX_TRANSFER_SIZE: usize = 64;
+// Active Low Power (ALP) clock constants
+const BACKPLANE_ALP_AVAIL_REQ: u8 = 0x08;
+const BACKPLANE_ALP_AVAIL: u8 = 0x40;
 
 // Broadcom AMBA (Advanced Microcontroller Bus Architecture) Interconnect (AI)
 // constants
@@ -603,10 +606,11 @@ where
         // seems to break backplane??? eat the 4-byte delay instead, that's what the vendor drivers do...
         //self.write32(FUNC_BUS, REG_BUS_RESP_DELAY, 0).await;
 
-        // Init ALP (no idea what that stands for) clock
-        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x08).await;
+        // Init ALP (Active Low Power) clock
+        self.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_ALP_AVAIL_REQ)
+            .await;
         info!("waiting for clock...");
-        while self.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x40 == 0 {}
+        while self.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_ALP_AVAIL == 0 {}
         info!("clock ok");
 
         let chip_id = self.bp_read16(0x1800_0000).await;
