@@ -79,7 +79,11 @@ impl<T: Send> Signal<T> {
                     Poll::Pending
                 }
                 State::Waiting(w) if w.will_wake(cx.waker()) => Poll::Pending,
-                State::Waiting(_) => panic!("waker overflow"),
+                State::Waiting(w) => {
+                    let w = mem::replace(w, cx.waker().clone());
+                    w.wake();
+                    Poll::Pending
+                }
                 State::Signaled(_) => match mem::replace(state, State::None) {
                     State::Signaled(res) => Poll::Ready(res),
                     _ => unreachable!(),
