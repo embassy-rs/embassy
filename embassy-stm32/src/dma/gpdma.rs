@@ -112,7 +112,7 @@ foreach_dma_channel! {
                 panic!("Unsafe circular read is unavailable on GPDMA");
                 }
 
-            unsafe fn start_circular_write<W: Word>(&mut self, _request: Request, reg_addr: *const W, buf_ptr: *mut [W], buf_len : usize, options: TransferOptions) {
+            unsafe fn start_circular_write<W: Word>(&mut self, _request: Request, _reg_addr: *const W, _buf_ptr: *mut [W], _buf_len : usize, _options: TransferOptions) {
                 panic!("Unsafe circular write is unavailable on DMA");
             }
 
