@@ -126,7 +126,7 @@ foreach_dma_channel! {
                 );
             }
 
-            unsafe fn start_circular_read<W: Word>(&mut self, _request: Request, _reg_addr: *const W, _buf_ptr: *mut [W], _buf_len : usize, _options: TransferOptions) {
+            unsafe fn start_circular_read<W: Word>(&mut self, _request: Request, reg_addr: *const W, buf_ptr: *mut [W], buf_len : usize, options: TransferOptions) {
                 // buffer length is not determined at compile time here
                 low_level_api::start_transfer(
                     pac::$dma_peri,
