@@ -144,7 +144,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         let len = buffer.len();
         self.read_blocking_internal(&mut buffer[..1], true, len == 1)?;
 
-        if len > 2 {
+        if len >= 2 {
             // Note(safety): Unwrap should be safe, as this can only be called
             // when `Mode == Async`, where we have dma channels.
             let ch = self.rx_dma.as_mut().unwrap();
@@ -168,7 +168,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
             transfer.await;
         }
 
-        if len > 2 {
+        if len >= 2 {
             self.read_blocking_internal(&mut buffer[len - 1..], false, true)?;
         }
 
@@ -202,7 +202,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         if bytes.is_empty() {
             self.write_blocking_internal(bytes, false)?;
         } else {
-            self.write_internal(bytes, false).await?;
+            self.write_internal(bytes, true).await?;
         }
 
         if buffer.is_empty() {
