@@ -11,7 +11,7 @@ use super::*;
 
 pub struct State<'d, T: BasicInstance>(StateStorage<StateInner<'d, T>>);
 impl<'d, T: BasicInstance> State<'d, T> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(StateStorage::new())
     }
 }
