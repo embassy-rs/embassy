@@ -132,6 +132,10 @@ const IOCTL_CMD_SET_VAR: u32 = 263;
 const IOCTL_CMD_GET_VAR: u32 = 262;
 const IOCTL_CMD_SET_PASSPHRASE: u32 = 268;
 
+const CHANNEL_TYPE_CONTROL: u8 = 0;
+const CHANNEL_TYPE_EVENT: u8 = 1;
+const CHANNEL_TYPE_DATA: u8 = 2;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Core {
     WLAN = 0,
@@ -755,7 +759,7 @@ where
             len: total_len as u16, // TODO does this len need to be rounded up to u32?
             len_inv: !total_len as u16,
             sequence: seq,
-            channel_and_flags: 2, // data channel
+            channel_and_flags: CHANNEL_TYPE_DATA,
             next_length: 0,
             header_length: SdpcmHeader::SIZE as _,
             wireless_flow_control: 0,
@@ -819,7 +823,7 @@ where
         let payload = &packet[sdpcm_header.header_length as _..];
 
         match channel {
-            0 => {
+            CHANNEL_TYPE_CONTROL => {
                 if payload.len() < CdcHeader::SIZE {
                     warn!("payload too short, len={}", payload.len());
                     return;
@@ -840,7 +844,7 @@ where
                     }
                 }
             }
-            1 => {
+            CHANNEL_TYPE_EVENT => {
                 let bcd_header = BcdHeader::from_bytes(&payload[..BcdHeader::SIZE].try_into().unwrap());
                 trace!("    {:?}", bcd_header);
 
@@ -897,7 +901,7 @@ where
                     evt_data
                 );
             }
-            2 => {
+            CHANNEL_TYPE_DATA => {
                 let bcd_header = BcdHeader::from_bytes(&payload[..BcdHeader::SIZE].try_into().unwrap());
                 trace!("    {:?}", bcd_header);
 
@@ -948,7 +952,7 @@ where
             len: total_len as u16, // TODO does this len need to be rounded up to u32?
             len_inv: !total_len as u16,
             sequence: sdpcm_seq,
-            channel_and_flags: 0, // control channel
+            channel_and_flags: CHANNEL_TYPE_CONTROL,
             next_length: 0,
             header_length: SdpcmHeader::SIZE as _,
             wireless_flow_control: 0,
