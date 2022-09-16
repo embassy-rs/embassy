@@ -7,6 +7,7 @@ pub(crate) mod fmt;
 pub mod dma;
 pub mod gpio;
 pub mod interrupt;
+pub mod rtc;
 pub mod spi;
 pub mod timer;
 pub mod uart;
@@ -84,6 +85,8 @@ embassy_hal_common::peripherals! {
     DMA_CH11,
 
     USB,
+
+    RTC,
 }
 
 #[link_section = ".boot2"]
