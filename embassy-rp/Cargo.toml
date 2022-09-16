@@ -6,7 +6,7 @@ edition = "2021"
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-rp-v$VERSION/embassy-rp/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-rp/src/"
-features = ["nightly", "defmt", "unstable-pac", "unstable-traits"]
+features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "time-driver"]
 flavors = [
     { name = "rp2040", target = "thumbv6m-none-eabi" },
 ]
