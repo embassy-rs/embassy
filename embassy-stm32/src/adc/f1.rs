@@ -31,11 +31,7 @@ impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
     }
 }
 
-/// The state of a continuously running sampler. While it reflects
-/// the progress of a sampler, it also signals what should be done
-/// next. For example, if the sampler has stopped then the Saadc implementation
-/// can then tear down its infrastructure.
-#[derive(PartialEq)]
+/// The state of a continuously running sampler
 pub enum SamplerState {
     Sampled,
     Stopped,
