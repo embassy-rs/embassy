@@ -114,7 +114,9 @@ where
 
     /// Consumes this mutex, returning the underlying data.
     pub fn into_inner(self) -> T
-    where T: Sized {
+    where
+        T: Sized,
+    {
         self.inner.into_inner()
     }
 
