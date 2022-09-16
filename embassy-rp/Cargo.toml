@@ -6,7 +6,7 @@ edition = "2021"
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-rp-v$VERSION/embassy-rp/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-rp/src/"
-features = ["nightly", "defmt", "unstable-pac", "unstable-traits"]
+features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "time-driver"]
 flavors = [
     { name = "rp2040", target = "thumbv6m-none-eabi" },
 ]
@@ -19,6 +19,8 @@ defmt = ["dep:defmt", "embassy-usb?/defmt"]
 # If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
 # There are no plans to make this stable.
 unstable-pac = []
+
+time-driver = []
 
 # Enable nightly-only features
 nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb"]
