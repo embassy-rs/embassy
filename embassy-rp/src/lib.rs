@@ -14,6 +14,7 @@ pub mod uart;
 pub mod usb;
 
 mod clocks;
+pub mod flash;
 mod reset;
 
 // Reexports
