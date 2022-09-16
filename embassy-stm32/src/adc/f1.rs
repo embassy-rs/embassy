@@ -7,7 +7,7 @@ use futures::future::poll_fn;
 
 use super::RxDma;
 use crate::adc::{AdcPin, Instance};
-use crate::rcc::get_freqs;
+use crate::rcc::get_freqs; 
 use crate::time::Hertz;
 use crate::Peripheral;
 pub const VDDA_CALIB_MV: u32 = 3300;
@@ -32,6 +32,7 @@ impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
 }
 
 /// The state of a continuously running sampler
+#[derive(PartialEq)]
 pub enum SamplerState {
     Sampled,
     Stopped,
