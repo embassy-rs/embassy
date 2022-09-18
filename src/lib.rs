@@ -938,7 +938,7 @@ where
         }
     }
 
-    fn has_credit(&mut self) -> bool {
+    fn has_credit(&self) -> bool {
         self.sdpcm_seq != self.sdpcm_seq_max && self.sdpcm_seq_max.wrapping_sub(self.sdpcm_seq) & 0x80 == 0
     }
 
