@@ -325,30 +325,29 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
     }
 
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        unsafe {
-            self.inner.regs().dmacr().write(|reg| {
-                reg.set_rxdmae(true);
-                reg.set_txdmae(true);
-            })
-        };
         let tx_ch = self.tx_dma.as_mut().unwrap();
         let tx_transfer = unsafe {
+            self.inner.regs().dmacr().modify(|reg| {
+                reg.set_txdmae(true);
+            });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
             crate::dma::write(tx_ch, buffer, self.inner.regs().dr().ptr() as *mut _, T::TX_DREQ)
         };
-        let rx_ch = self.rx_dma.as_mut().unwrap();
-        let rx_transfer = unsafe {
-            // If we don't assign future to a variable, the data register pointer
-            // is held across an await and makes the future non-Send.
-            crate::dma::read_repeated(
-                rx_ch,
-                self.inner.regs().dr().ptr() as *const u8,
-                buffer.len(),
-                T::RX_DREQ,
-            )
-        };
-        join(tx_transfer, rx_transfer).await;
+        tx_transfer.await;
+
+        let p = self.inner.regs();
+        unsafe {
+            while p.sr().read().bsy() {}
+
+            // clear RX FIFO contents to prevent stale reads
+            while p.sr().read().rne() {
+                let _: u16 = p.dr().read().data();
+            }
+            // clear RX overrun interrupt
+            p.icr().write(|w| w.set_roric(true));
+        }
+
         Ok(())
     }
 
