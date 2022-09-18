@@ -56,6 +56,25 @@ pub unsafe fn read<'a, C: Channel, W: Word>(
     )
 }
 
+pub unsafe fn read_repeated<'a, C: Channel, W: Word>(
+    ch: impl Peripheral<P = C> + 'a,
+    from: *const W,
+    len: usize,
+    dreq: u8,
+) -> Transfer<'a, C> {
+    let mut dummy: u32 = 0;
+    copy_inner(
+        ch,
+        from as *const u32,
+        &mut dummy as *mut u32,
+        len,
+        W::size(),
+        false,
+        false,
+        dreq,
+    )
+}
+
 pub unsafe fn write<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     from: *const [W],
@@ -70,6 +89,25 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
         len,
         W::size(),
         true,
+        false,
+        dreq,
+    )
+}
+
+pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
+    ch: impl Peripheral<P = C> + 'a,
+    to: *mut W,
+    len: usize,
+    dreq: u8,
+) -> Transfer<'a, C> {
+    let dummy: u32 = 0;
+    copy_inner(
+        ch,
+        &dummy as *const u32,
+        to as *mut u32,
+        len,
+        W::size(),
+        false,
         false,
         dreq,
     )
