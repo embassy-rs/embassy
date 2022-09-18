@@ -159,7 +159,7 @@ unsafe fn IO_IRQ_BANK0() {
                         w.set_edge_low(pin_group, false);
                     }
                     InterruptTrigger::LevelHigh => {
-                        debug!("IO_IRQ_BANK0 pin {} LevelHigh triggered\n", pin);
+                        debug!("IO_IRQ_BANK0 pin {} LevelHigh triggered", pin);
                         w.set_level_high(pin_group, false);
                     }
                     InterruptTrigger::LevelLow => {
@@ -198,7 +198,7 @@ impl<'d, T: Pin> InputFuture<'d, T> {
             critical_section::with(|_| {
                 pin.int_proc().inte((pin.pin() / 8) as usize).modify(|w| match level {
                     InterruptTrigger::LevelHigh => {
-                        debug!("InputFuture::new enable LevelHigh for pin {} \n", pin.pin());
+                        debug!("InputFuture::new enable LevelHigh for pin {}", pin.pin());
                         w.set_level_high(pin_group, true);
                     }
                     InterruptTrigger::LevelLow => {
@@ -245,45 +245,45 @@ impl<'d, T: Pin> Future for InputFuture<'d, T> {
         // the pin and if it has been disabled that means it was done by the
         // interrupt service routine, so we then know that the event/trigger
         // happened and Poll::Ready will be returned.
-        debug!("{:?} for pin {}\n", self.level, self.pin.pin());
+        debug!("{:?} for pin {}", self.level, self.pin.pin());
         match self.level {
             InterruptTrigger::AnyEdge => {
                 if !inte.edge_high(pin_group) && !inte.edge_low(pin_group) {
                     #[rustfmt::skip]
-                    debug!("{:?} for pin {} was cleared, return Poll::Ready\n", self.level, self.pin.pin());
+                    debug!("{:?} for pin {} was cleared, return Poll::Ready", self.level, self.pin.pin());
                     return Poll::Ready(());
                 }
             }
             InterruptTrigger::LevelHigh => {
                 if !inte.level_high(pin_group) {
                     #[rustfmt::skip]
-                    debug!("{:?} for pin {} was cleared, return Poll::Ready\n", self.level, self.pin.pin());
+                    debug!("{:?} for pin {} was cleared, return Poll::Ready", self.level, self.pin.pin());
                     return Poll::Ready(());
                 }
             }
             InterruptTrigger::LevelLow => {
                 if !inte.level_low(pin_group) {
                     #[rustfmt::skip]
-                    debug!("{:?} for pin {} was cleared, return Poll::Ready\n", self.level, self.pin.pin());
+                    debug!("{:?} for pin {} was cleared, return Poll::Ready", self.level, self.pin.pin());
                     return Poll::Ready(());
                 }
             }
             InterruptTrigger::EdgeHigh => {
                 if !inte.edge_high(pin_group) {
                     #[rustfmt::skip]
-                    debug!("{:?} for pin {} was cleared, return Poll::Ready\n", self.level, self.pin.pin());
+                    debug!("{:?} for pin {} was cleared, return Poll::Ready", self.level, self.pin.pin());
                     return Poll::Ready(());
                 }
             }
             InterruptTrigger::EdgeLow => {
                 if !inte.edge_low(pin_group) {
                     #[rustfmt::skip]
-                    debug!("{:?} for pin {} was cleared, return Poll::Ready\n", self.level, self.pin.pin());
+                    debug!("{:?} for pin {} was cleared, return Poll::Ready", self.level, self.pin.pin());
                     return Poll::Ready(());
                 }
             }
         }
-        debug!("InputFuture::poll return Poll::Pending\n");
+        debug!("InputFuture::poll return Poll::Pending");
         Poll::Pending
     }
 }
