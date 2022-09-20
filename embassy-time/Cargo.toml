@@ -26,7 +26,8 @@ unstable-traits = ["embedded-hal-1"]
 # To use this you must have a time driver provided.
 defmt-timestamp-uptime = ["defmt"]
 
-# TODO: Doc
+# Create a global queue that can be used with any executor
+# To use this you must have a time driver provided.
 generic-queue = []
 
 # Set the `embassy_time` tick rate.
@@ -124,3 +125,6 @@ heapless = "0.7"
 wasm-bindgen = { version = "0.2.81", optional = true }
 js-sys = { version = "0.3", optional = true }
 wasm-timer = { version = "0.2.5", optional = true }
+
+[dev-dependencies]
+serial_test = "0.9"

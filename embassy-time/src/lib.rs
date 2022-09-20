@@ -1,4 +1,4 @@
-#![cfg_attr(not(any(feature = "std", feature = "wasm")), no_std)]
+#![cfg_attr(not(any(feature = "std", feature = "wasm", test)), no_std)]
 #![cfg_attr(feature = "nightly", feature(type_alias_impl_trait))]
 #![doc = include_str!("../README.md")]
 #![allow(clippy::new_without_default)]
