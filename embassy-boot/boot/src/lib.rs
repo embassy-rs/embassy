@@ -447,24 +447,24 @@ where
 }
 
 /// A flash wrapper implementing the Flash and embedded_storage traits.
-pub struct BootFlash<'a, F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8 = 0xFF>
+pub struct BootFlash<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8 = 0xFF>
 where
     F: NorFlash + ReadNorFlash,
 {
-    flash: &'a mut F,
+    flash: F,
 }
 
-impl<'a, F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> BootFlash<'a, F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
 where
     F: NorFlash + ReadNorFlash,
 {
     /// Create a new instance of a bootable flash
-    pub fn new(flash: &'a mut F) -> Self {
+    pub fn new(flash: F) -> Self {
         Self { flash }
     }
 }
 
-impl<'a, F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> Flash for BootFlash<'a, F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> Flash for BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
 where
     F: NorFlash + ReadNorFlash,
 {
@@ -472,14 +472,14 @@ where
     const ERASE_VALUE: u8 = ERASE_VALUE;
 }
 
-impl<'a, F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> ErrorType for BootFlash<'a, F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> ErrorType for BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
 where
     F: ReadNorFlash + NorFlash,
 {
     type Error = F::Error;
 }
 
-impl<'a, F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> NorFlash for BootFlash<'a, F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> NorFlash for BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
 where
     F: ReadNorFlash + NorFlash,
 {
@@ -487,26 +487,26 @@ where
     const ERASE_SIZE: usize = F::ERASE_SIZE;
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        F::erase(self.flash, from, to)
+        F::erase(&mut self.flash, from, to)
     }
 
     fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        F::write(self.flash, offset, bytes)
+        F::write(&mut self.flash, offset, bytes)
     }
 }
 
-impl<'a, F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> ReadNorFlash for BootFlash<'a, F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> ReadNorFlash for BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
 where
     F: ReadNorFlash + NorFlash,
 {
     const READ_SIZE: usize = F::READ_SIZE;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        F::read(self.flash, offset, bytes)
+        F::read(&mut self.flash, offset, bytes)
     }
 
     fn capacity(&self) -> usize {
-        F::capacity(self.flash)
+        F::capacity(&self.flash)
     }
 }
 
