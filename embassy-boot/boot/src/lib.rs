@@ -222,10 +222,7 @@ impl BootLoader {
         page: &mut [u8],
     ) -> Result<State, BootError> {
         // Ensure we have enough progress pages to store copy progress
-        assert_eq!(self.active.len() % page.len(), 0);
-        assert_eq!(self.dfu.len() % page.len(), 0);
-        assert!(self.dfu.len() - self.active.len() >= page.len());
-        assert!(self.active.len() / page.len() <= (self.state.len() - P::STATE::WRITE_SIZE) / P::STATE::WRITE_SIZE);
+        assert_partitions(self.active, self.dfu, self.state, page.len(), P::STATE::WRITE_SIZE);
         assert_eq!(magic.len(), P::STATE::WRITE_SIZE);
 
         // Copy contents from partition N to active
@@ -407,6 +404,13 @@ impl BootLoader {
             Ok(State::Boot)
         }
     }
+}
+
+fn assert_partitions(active: Partition, dfu: Partition, state: Partition, page_size: usize, write_size: usize) {
+    assert_eq!(active.len() % page_size, 0);
+    assert_eq!(dfu.len() % page_size, 0);
+    assert!(dfu.len() - active.len() >= page_size);
+    assert!(2 * (active.len() / page_size) <= (state.len() - write_size) / write_size);
 }
 
 /// Convenience provider that uses a single flash for all partitions.
@@ -917,6 +921,15 @@ mod tests {
         for i in DFU.from + 4096..DFU.to {
             assert_eq!(dfu.0[i], original[i - DFU.from - 4096], "Index {}", i);
         }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_range_asserts() {
+        const ACTIVE: Partition = Partition::new(4096, 4194304);
+        const DFU: Partition = Partition::new(4194304, 2 * 4194304);
+        const STATE: Partition = Partition::new(0, 4096);
+        assert_partitions(ACTIVE, DFU, STATE, 4096, 4);
     }
 
     struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize>([u8; SIZE]);
