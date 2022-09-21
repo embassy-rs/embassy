@@ -427,10 +427,8 @@ impl<'u, 'd: 'u, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Write 
 
 impl<'a, U: UarteInstance, T: TimerInstance> Drop for StateInner<'a, U, T> {
     fn drop(&mut self) {
-        debug!("oh no, dropping uarte");
         let r = U::regs();
 
-        // TODO this probably deadlocks. do like Uarte instead.
         r.inten.reset();
         r.events_rxto.reset();
         r.tasks_stoprx.write(|w| w.tasks_stoprx().set_bit());
