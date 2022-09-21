@@ -550,13 +550,3 @@ impl<'a, U: UarteInstance, T: TimerInstance> PeripheralState for StateInner<'a, 
         trace!("irq: end");
     }
 }
-
-/// Low power blocking wait loop using WFE/SEV.
-fn low_power_wait_until(mut condition: impl FnMut() -> bool) {
-    while !condition() {
-        // WFE might "eat" an event that would have otherwise woken the executor.
-        cortex_m::asm::wfe();
-    }
-    // Retrigger an event to be transparent to the executor.
-    cortex_m::asm::sev();
-}
