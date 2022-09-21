@@ -431,13 +431,13 @@ impl<'a, U: UarteInstance, T: TimerInstance> Drop for StateInner<'a, U, T> {
 
         r.inten.reset();
         r.events_rxto.reset();
-        r.tasks_stoprx.write(|w| w.tasks_stoprx().set_bit());
+        r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
 
         r.events_txstopped.reset();
-        r.tasks_stoptx.write(|w| w.tasks_stoptx().set_bit());
-        while !r.events_txstopped.read().events_txstopped().bit_is_set() {}
+        r.tasks_stoptx.write(|w| unsafe { w.bits(1) });
+        while r.events_txstopped.read().bits() == 0 {}
 
-        while !r.events_rxto.read().events_rxto().bit_is_set() {}
+        while r.events_rxto.read().bits() == 0 {}
 
         r.enable.write(|w| w.enable().disabled());
 
