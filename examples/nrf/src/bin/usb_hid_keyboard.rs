@@ -77,7 +77,7 @@ async fn main(_spawner: Spawner) {
     // Build the builder.
     let mut usb = builder.build();
 
-    let remote_wakeup = Signal::new();
+    let remote_wakeup: Signal<_> = Signal::new();
 
     // Run the USB device.
     let usb_fut = async {
