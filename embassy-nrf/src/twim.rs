@@ -6,7 +6,7 @@
 //!
 //! - nRF52832: Section 33
 //! - nRF52840: Section 6.31
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::sync::atomic::compiler_fence;
 use core::sync::atomic::Ordering::SeqCst;
 use core::task::Poll;
@@ -16,7 +16,6 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
-use futures::future::poll_fn;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::Pin as GpioPin;

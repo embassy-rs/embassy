@@ -1,8 +1,8 @@
 use core::cell::UnsafeCell;
+use core::future::poll_fn;
 use core::mem;
 use core::task::Poll;
 
-use futures::future::poll_fn;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::tcp;
 use smoltcp::time::Duration;
@@ -103,7 +103,7 @@ impl<'a> TcpSocket<'a> {
             Err(tcp::ConnectError::Unaddressable) => return Err(ConnectError::NoRoute),
         }
 
-        futures::future::poll_fn(|cx| unsafe {
+        poll_fn(|cx| unsafe {
             self.io.with_mut(|s, _| match s.state() {
                 tcp::State::Closed | tcp::State::TimeWait => Poll::Ready(Err(ConnectError::ConnectionReset)),
                 tcp::State::Listen => unreachable!(),
@@ -128,7 +128,7 @@ impl<'a> TcpSocket<'a> {
             Err(tcp::ListenError::Unaddressable) => return Err(AcceptError::InvalidPort),
         }
 
-        futures::future::poll_fn(|cx| unsafe {
+        poll_fn(|cx| unsafe {
             self.io.with_mut(|s, _| match s.state() {
                 tcp::State::Listen | tcp::State::SynSent | tcp::State::SynReceived => {
                     s.register_send_waker(cx.waker());

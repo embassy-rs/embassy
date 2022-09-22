@@ -7,6 +7,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_futures::select::{select, Either};
 use embassy_nrf::gpio::{Input, Pin, Pull};
 use embassy_nrf::usb::{Driver, PowerUsb};
@@ -15,7 +16,6 @@ use embassy_sync::signal::Signal;
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, DeviceStateHandler};
 use embassy_usb_hid::{HidReaderWriter, ReportId, RequestHandler, State};
-use futures::future::join;
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 

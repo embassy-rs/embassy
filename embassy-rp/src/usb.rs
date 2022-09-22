@@ -1,3 +1,4 @@
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::slice;
 use core::sync::atomic::Ordering;
@@ -8,8 +9,6 @@ use embassy_hal_common::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb::driver::{self, EndpointAllocError, EndpointError, Event, Unsupported};
 use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
-use futures::future::poll_fn;
-use futures::Future;
 
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::{pac, peripherals, Peripheral, RegExt};

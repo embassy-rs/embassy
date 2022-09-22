@@ -2,10 +2,9 @@
 //!
 //! This module provides a mutex that can be used to synchronize data between asynchronous tasks.
 use core::cell::{RefCell, UnsafeCell};
+use core::future::poll_fn;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
-
-use futures_util::future::poll_fn;
 
 use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex as BlockingMutex;

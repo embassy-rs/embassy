@@ -13,12 +13,12 @@
 //! memory may be used given that buffers are passed in directly to its read and write
 //! methods.
 
+use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
-use futures::future::poll_fn;
 use pac::uarte0::RegisterBlock;
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};

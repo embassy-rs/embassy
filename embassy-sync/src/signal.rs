@@ -1,6 +1,6 @@
 //! A synchronization primitive for passing the latest value to a task.
 use core::cell::UnsafeCell;
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::mem;
 use core::task::{Context, Poll, Waker};
 
@@ -94,7 +94,7 @@ impl<T: Send> Signal<T> {
 
     /// Future that completes when this Signal has been signaled.
     pub fn wait(&self) -> impl Future<Output = T> + '_ {
-        futures_util::future::poll_fn(move |cx| self.poll_wait(cx))
+        poll_fn(move |cx| self.poll_wait(cx))
     }
 
     /// non-blocking method to check whether this signal has been signaled.

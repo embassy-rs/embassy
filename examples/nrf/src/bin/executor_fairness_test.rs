@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
+use core::future::poll_fn;
 use core::task::Poll;
 
 use defmt::{info, unwrap};
@@ -26,7 +27,7 @@ async fn run2() {
 
 #[embassy_executor::task]
 async fn run3() {
-    futures::future::poll_fn(|cx| {
+    poll_fn(|cx| {
         cx.waker().wake_by_ref();
         Poll::<()>::Pending
     })
