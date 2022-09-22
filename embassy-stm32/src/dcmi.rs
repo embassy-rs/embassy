@@ -429,7 +429,7 @@ where
             }
         });
 
-        let (_, result) = futures::future::join(dma_read, result).await;
+        let (_, result) = embassy_futures::join::join(dma_read, result).await;
 
         unsafe { Self::toggle(false) };
 
@@ -537,7 +537,7 @@ where
 
         unsafe { Self::toggle(true) };
 
-        let (_, result) = futures::future::join(dma_result, result).await;
+        let (_, result) = embassy_futures::join::join(dma_result, result).await;
 
         unsafe { Self::toggle(false) };
 

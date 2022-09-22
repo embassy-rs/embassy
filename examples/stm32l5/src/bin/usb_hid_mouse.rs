@@ -4,6 +4,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_stm32::rcc::*;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{interrupt, Config};
@@ -11,7 +12,6 @@ use embassy_time::{Duration, Timer};
 use embassy_usb::control::OutResponse;
 use embassy_usb::Builder;
 use embassy_usb_hid::{HidWriter, ReportId, RequestHandler, State};
-use futures::future::join;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 

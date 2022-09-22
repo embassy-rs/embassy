@@ -6,13 +6,13 @@ use core::mem;
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_nrf::usb::{Driver, PowerUsb};
 use embassy_nrf::{interrupt, pac};
 use embassy_time::{Duration, Timer};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config};
 use embassy_usb_hid::{HidWriter, ReportId, RequestHandler, State};
-use futures::future::join;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 

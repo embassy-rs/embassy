@@ -1,9 +1,9 @@
 use core::marker::PhantomData;
 
 use embassy_embedded_hal::SetConfig;
+use embassy_futures::join::join;
 use embassy_hal_common::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Phase, Polarity};
-use futures::future::join;
 
 use crate::dma::{AnyChannel, Channel};
 use crate::gpio::sealed::Pin as _;
