@@ -1,12 +1,12 @@
 #![macro_use]
 
+use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use futures::future::poll_fn;
 
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::ppi::{Event, Task};

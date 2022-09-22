@@ -15,7 +15,7 @@
 
 use core::cell::RefCell;
 use core::cmp::min;
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
@@ -23,7 +23,6 @@ use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorag
 use embassy_hal_common::ring_buffer::RingBuffer;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::WakerRegistration;
-use futures::future::poll_fn;
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
