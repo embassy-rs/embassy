@@ -1,6 +1,5 @@
 #![no_std]
 #![feature(type_alias_impl_trait)]
-#![feature(generic_associated_types)]
 //! embassy-lora is a collection of async radio drivers that integrate with the lorawan-device
 //! crate's async LoRaWAN MAC implementation.
 

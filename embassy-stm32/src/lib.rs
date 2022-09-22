@@ -1,5 +1,5 @@
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(generic_associated_types, type_alias_impl_trait))]
+#![cfg_attr(feature = "nightly", feature(type_alias_impl_trait))]
 
 // This must go FIRST so that all the other modules see its macros.
 pub mod fmt;

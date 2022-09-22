@@ -2,7 +2,6 @@
 #![no_main]
 #![macro_use]
 #![allow(dead_code)]
-#![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
