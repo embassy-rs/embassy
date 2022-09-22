@@ -1,12 +1,12 @@
 #![macro_use]
 
+use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-use futures::future::poll_fn;
 pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
 
 use crate::chip::FORCE_COPY_BUFFER_SIZE;

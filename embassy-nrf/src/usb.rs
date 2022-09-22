@@ -1,5 +1,6 @@
 #![macro_use]
 
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
@@ -11,8 +12,6 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub use embassy_usb;
 use embassy_usb::driver::{self, EndpointError, Event, Unsupported};
 use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
-use futures::future::poll_fn;
-use futures::Future;
 use pac::usbd::RegisterBlock;
 
 use crate::interrupt::{Interrupt, InterruptExt};
