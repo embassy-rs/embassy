@@ -139,6 +139,12 @@ const CHANNEL_TYPE_CONTROL: u8 = 0;
 const CHANNEL_TYPE_EVENT: u8 = 1;
 const CHANNEL_TYPE_DATA: u8 = 2;
 
+#[derive(Clone, Copy)]
+pub enum IoctlType {
+    Get = 0,
+    Set = 2,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Core {
     WLAN = 0,
@@ -212,7 +218,7 @@ enum IoctlState {
     Idle,
 
     Pending {
-        kind: u32,
+        kind: IoctlType,
         cmd: u32,
         iface: u32,
         buf: *mut [u8],
@@ -276,7 +282,7 @@ impl<'a> Control<'a> {
             buf[0..8].copy_from_slice(b"clmload\x00");
             buf[8..20].copy_from_slice(&header.to_bytes());
             buf[20..][..chunk.len()].copy_from_slice(&chunk);
-            self.ioctl(2, IOCTL_CMD_SET_VAR, 0, &mut buf[..8 + 12 + chunk.len()])
+            self.ioctl(IoctlType::Set, IOCTL_CMD_SET_VAR, 0, &mut buf[..8 + 12 + chunk.len()])
                 .await;
         }
 
@@ -337,7 +343,7 @@ impl<'a> Control<'a> {
         Timer::after(Duration::from_millis(100)).await;
 
         // set wifi up
-        self.ioctl(2, IOCTL_CMD_UP, 0, &mut []).await;
+        self.ioctl(IoctlType::Set, IOCTL_CMD_UP, 0, &mut []).await;
 
         Timer::after(Duration::from_millis(100)).await;
 
@@ -374,7 +380,8 @@ impl<'a> Control<'a> {
             ssid: [0; 32],
         };
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
-        self.ioctl(2, IOCTL_CMD_SET_SSID, 0, &mut i.to_bytes()).await; // set_ssid
+        self.ioctl(IoctlType::Set, IOCTL_CMD_SET_SSID, 0, &mut i.to_bytes())
+            .await; // set_ssid
 
         info!("JOINED");
     }
@@ -395,7 +402,8 @@ impl<'a> Control<'a> {
             passphrase: [0; 64],
         };
         pfi.passphrase[..passphrase.len()].copy_from_slice(passphrase.as_bytes());
-        self.ioctl(2, IOCTL_CMD_SET_PASSPHRASE, 0, &mut pfi.to_bytes()).await; // WLC_SET_WSEC_PMK
+        self.ioctl(IoctlType::Set, IOCTL_CMD_SET_PASSPHRASE, 0, &mut pfi.to_bytes())
+            .await; // WLC_SET_WSEC_PMK
 
         self.ioctl_set_u32(20, 0, 1).await; // set_infra = 1
         self.ioctl_set_u32(22, 0, 0).await; // set_auth = 0 (open)
@@ -406,7 +414,7 @@ impl<'a> Control<'a> {
             ssid: [0; 32],
         };
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
-        self.ioctl(2, 26, 0, &mut i.to_bytes()).await; // set_ssid
+        self.ioctl(IoctlType::Set, 26, 0, &mut i.to_bytes()).await; // set_ssid
 
         info!("JOINED");
     }
@@ -444,7 +452,8 @@ impl<'a> Control<'a> {
         buf[name.len() + 1..][..val.len()].copy_from_slice(val);
 
         let total_len = name.len() + 1 + val.len();
-        self.ioctl(2, IOCTL_CMD_SET_VAR, 0, &mut buf[..total_len]).await;
+        self.ioctl(IoctlType::Set, IOCTL_CMD_SET_VAR, 0, &mut buf[..total_len])
+            .await;
     }
 
     // TODO this is not really working, it always returns all zeros.
@@ -456,7 +465,9 @@ impl<'a> Control<'a> {
         buf[name.len()] = 0;
 
         let total_len = max(name.len() + 1, res.len());
-        let res_len = self.ioctl(0, IOCTL_CMD_GET_VAR, 0, &mut buf[..total_len]).await;
+        let res_len = self
+            .ioctl(IoctlType::Get, IOCTL_CMD_GET_VAR, 0, &mut buf[..total_len])
+            .await;
 
         let out_len = min(res.len(), res_len);
         res[..out_len].copy_from_slice(&buf[..out_len]);
@@ -465,10 +476,10 @@ impl<'a> Control<'a> {
 
     async fn ioctl_set_u32(&mut self, cmd: u32, iface: u32, val: u32) {
         let mut buf = val.to_le_bytes();
-        self.ioctl(2, cmd, 0, &mut buf).await;
+        self.ioctl(IoctlType::Set, cmd, 0, &mut buf).await;
     }
 
-    async fn ioctl(&mut self, kind: u32, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
+    async fn ioctl(&mut self, kind: IoctlType, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
         // TODO cancel ioctl on future drop.
 
         while !matches!(self.state.ioctl_state.get(), IoctlState::Idle) {
@@ -942,7 +953,7 @@ where
         self.sdpcm_seq != self.sdpcm_seq_max && self.sdpcm_seq_max.wrapping_sub(self.sdpcm_seq) & 0x80 == 0
     }
 
-    async fn send_ioctl(&mut self, kind: u32, cmd: u32, iface: u32, data: &[u8]) {
+    async fn send_ioctl(&mut self, kind: IoctlType, cmd: u32, iface: u32, data: &[u8]) {
         let mut buf = [0; 512];
         let buf8 = slice8_mut(&mut buf);
 
