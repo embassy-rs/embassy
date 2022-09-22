@@ -4,6 +4,7 @@
 
 use defmt::{panic, *};
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::mhz;
 use embassy_stm32::usb::{Driver, Instance};
@@ -12,7 +13,6 @@ use embassy_time::{Duration, Timer};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
 use embassy_usb_serial::{CdcAcmClass, State};
-use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]

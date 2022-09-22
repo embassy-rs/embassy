@@ -4,12 +4,12 @@
 
 use defmt::{info, panic};
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_rp::interrupt;
 use embassy_rp::usb::{Driver, Instance};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 use embassy_usb_serial::{CdcAcmClass, State};
-use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
