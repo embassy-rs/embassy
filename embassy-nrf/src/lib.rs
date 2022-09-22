@@ -43,7 +43,7 @@
 //! mutable slices always reside in RAM.
 
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(generic_associated_types, type_alias_impl_trait))]
+#![cfg_attr(feature = "nightly", feature(type_alias_impl_trait))]
 
 #[cfg(not(any(
     feature = "nrf51",
