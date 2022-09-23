@@ -22,6 +22,10 @@ unstable-pac = []
 
 time-driver = []
 
+rom-func-cache = []
+disable-intrinsics = []
+rom-v2-intrinsics = []
+
 # Enable nightly-only features
 nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb"]
 
