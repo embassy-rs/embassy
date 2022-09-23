@@ -7,8 +7,13 @@ mod fmt;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 use embedded_storage_async::nor_flash::AsyncNorFlash;
 
-const BOOT_MAGIC: u8 = 0xD0;
-const SWAP_MAGIC: u8 = 0xF0;
+/// Magic constant used to indicate to the bootloader, that the active image is
+/// valid and should be booted
+pub const BOOT_MAGIC: u8 = 0xD0;
+
+/// Magic constant used to indicate to the bootloader, that it should swap the
+/// active and DFU images
+pub const SWAP_MAGIC: u8 = 0xF0;
 
 /// A region in flash used by the bootloader.
 #[derive(Copy, Clone, Debug)]
