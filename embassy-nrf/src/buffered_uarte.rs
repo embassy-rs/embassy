@@ -429,14 +429,15 @@ impl<'a, U: UarteInstance, T: TimerInstance> Drop for StateInner<'a, U, T> {
     fn drop(&mut self) {
         let r = U::regs();
 
+        self.timer.stop();
+
         r.inten.reset();
         r.events_rxto.reset();
         r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
-
         r.events_txstopped.reset();
         r.tasks_stoptx.write(|w| unsafe { w.bits(1) });
-        while r.events_txstopped.read().bits() == 0 {}
 
+        while r.events_txstopped.read().bits() == 0 {}
         while r.events_rxto.read().bits() == 0 {}
 
         r.enable.write(|w| w.enable().disabled());
