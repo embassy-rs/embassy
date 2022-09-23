@@ -315,14 +315,14 @@ impl<'a> Control<'a> {
         self.set_iovar_u32("bus:txglom", 0).await;
         Timer::after(Duration::from_millis(100)).await;
         //self.set_iovar_u32("apsta", 1).await; // this crashes, also we already did it before...??
-        Timer::after(Duration::from_millis(100)).await;
+        //Timer::after(Duration::from_millis(100)).await;
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
         Timer::after(Duration::from_millis(100)).await;
         self.set_iovar_u32("ampdu_mpdu", 4).await;
         Timer::after(Duration::from_millis(100)).await;
         //self.set_iovar_u32("ampdu_rx_factor", 0).await; // this crashes
 
-        Timer::after(Duration::from_millis(100)).await;
+        //Timer::after(Duration::from_millis(100)).await;
 
         // evts
         let mut evts = EventMask {
