@@ -5,10 +5,12 @@ macro_rules! impl_bytes {
         impl $t {
             pub const SIZE: usize = core::mem::size_of::<Self>();
 
+            #[allow(unused)]
             pub fn to_bytes(&self) -> [u8; Self::SIZE] {
                 unsafe { core::mem::transmute(*self) }
             }
 
+            #[allow(unused)]
             pub fn from_bytes(bytes: &[u8; Self::SIZE]) -> Self {
                 unsafe { core::mem::transmute(*bytes) }
             }
@@ -167,6 +169,7 @@ pub struct DownloadHeader {
 }
 impl_bytes!(DownloadHeader);
 
+#[allow(unused)]
 pub const DOWNLOAD_FLAG_NO_CRC: u16 = 0x0001;
 pub const DOWNLOAD_FLAG_BEGIN: u16 = 0x0002;
 pub const DOWNLOAD_FLAG_END: u16 = 0x0004;
