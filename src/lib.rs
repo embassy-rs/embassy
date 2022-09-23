@@ -291,6 +291,9 @@ impl<'a> Control<'a> {
 
         info!("Configuring misc stuff...");
 
+        // Disable tx gloming which transfers multiple packets in one request.
+        // 'glom' is short for "conglomerate" which means "gather together into
+        // a compact mass".
         self.set_iovar_u32("bus:txglom", 0).await;
         self.set_iovar_u32("apsta", 1).await;
 
