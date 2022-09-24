@@ -1,7 +1,6 @@
 //! A synchronization primitive for passing the latest value to a task.
 use core::cell::Cell;
 use core::future::{poll_fn, Future};
-use core::mem;
 use core::task::{Context, Poll, Waker};
 
 use crate::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
