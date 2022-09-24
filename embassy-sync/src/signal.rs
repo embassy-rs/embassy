@@ -3,7 +3,7 @@ use core::cell::Cell;
 use core::future::{poll_fn, Future};
 use core::task::{Context, Poll, Waker};
 
-use crate::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
+use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
 
 /// Single-slot signaling primitive.
@@ -22,19 +22,20 @@ use crate::blocking_mutex::Mutex;
 ///
 /// ```
 /// use embassy_sync::signal::Signal;
+/// use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 ///
 /// enum SomeCommand {
 ///   On,
 ///   Off,
 /// }
 ///
-/// static SOME_SIGNAL: Signal<SomeCommand> = Signal::new();
+/// static SOME_SIGNAL: Signal<CriticalSectionRawMutex, SomeCommand> = Signal::new();
 /// ```
-pub struct Signal<T, R = CriticalSectionRawMutex>
+pub struct Signal<M, T>
 where
-    R: RawMutex,
+    M: RawMutex,
 {
-    state: Mutex<R, Cell<State<T>>>,
+    state: Mutex<M, Cell<State<T>>>,
 }
 
 enum State<T> {
@@ -43,9 +44,9 @@ enum State<T> {
     Signaled(T),
 }
 
-impl<T, R> Signal<T, R>
+impl<M, T> Signal<M, T>
 where
-    R: RawMutex,
+    M: RawMutex,
 {
     /// Create a new `Signal`.
     pub const fn new() -> Self {
@@ -55,9 +56,9 @@ where
     }
 }
 
-impl<R, T: Send> Signal<T, R>
+impl<M, T: Send> Signal<M, T>
 where
-    R: RawMutex,
+    M: RawMutex,
 {
     /// Mark this Signal as signaled.
     pub fn signal(&self, val: T) {

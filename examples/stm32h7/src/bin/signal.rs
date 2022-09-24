@@ -4,11 +4,12 @@
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
-static SIGNAL: Signal<u32> = Signal::new();
+static SIGNAL: Signal<CriticalSectionRawMutex, u32> = Signal::new();
 
 #[embassy_executor::task]
 async fn my_sending_task() {
