@@ -12,6 +12,7 @@ use embassy_futures::select::{select, Either};
 use embassy_nrf::gpio::{Input, Pin, Pull};
 use embassy_nrf::usb::{Driver, PowerUsb};
 use embassy_nrf::{interrupt, pac};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, DeviceStateHandler};
@@ -77,7 +78,7 @@ async fn main(_spawner: Spawner) {
     // Build the builder.
     let mut usb = builder.build();
 
-    let remote_wakeup = Signal::new();
+    let remote_wakeup: Signal<CriticalSectionRawMutex, _> = Signal::new();
 
     // Run the USB device.
     let usb_fut = async {
