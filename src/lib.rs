@@ -32,6 +32,13 @@ fn swap16(x: u32) -> u32 {
     x.rotate_left(16)
 }
 
+// CYW_SPID command structure constants.
+const WRITE: bool = true;
+const READ: bool = false;
+const INC_ADDR: bool = true;
+#[allow(unused)]
+const FIXED_ADDR: bool = false;
+
 fn cmd_word(write: bool, incr: bool, func: u32, addr: u32, len: u32) -> u32 {
     (write as u32) << 31 | (incr as u32) << 30 | (func & 0b11) << 28 | (addr & 0x1FFFF) << 11 | (len & 0x7FF)
 }
@@ -734,7 +741,7 @@ where
                 if status & STATUS_F2_PKT_AVAILABLE != 0 {
                     let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
 
-                    let cmd = cmd_word(false, true, FUNC_WLAN, 0, len);
+                    let cmd = cmd_word(READ, INC_ADDR, FUNC_WLAN, 0, len);
 
                     self.spi
                         .transaction(|bus| {
@@ -799,7 +806,7 @@ where
 
         trace!("    {:02x}", &buf8[..total_len.min(48)]);
 
-        let cmd = cmd_word(true, true, FUNC_WLAN, 0, total_len as _);
+        let cmd = cmd_word(WRITE, INC_ADDR, FUNC_WLAN, 0, total_len as _);
         self.spi
             .transaction(|bus| {
                 let bus = unsafe { &mut *bus };
@@ -993,7 +1000,7 @@ where
 
         trace!("    {:02x}", &buf8[..total_len.min(48)]);
 
-        let cmd = cmd_word(true, true, FUNC_WLAN, 0, total_len as _);
+        let cmd = cmd_word(WRITE, INC_ADDR, FUNC_WLAN, 0, total_len as _);
 
         self.spi
             .transaction(|bus| {
@@ -1081,7 +1088,7 @@ where
 
             self.backplane_set_window(addr).await;
 
-            let cmd = cmd_word(false, true, FUNC_BACKPLANE, window_offs, len as u32);
+            let cmd = cmd_word(READ, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
 
             self.spi
                 .transaction(|bus| {
@@ -1126,7 +1133,7 @@ where
 
             self.backplane_set_window(addr).await;
 
-            let cmd = cmd_word(true, true, FUNC_BACKPLANE, window_offs, len as u32);
+            let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
 
             self.spi
                 .transaction(|bus| {
@@ -1245,7 +1252,7 @@ where
     }
 
     async fn readn(&mut self, func: u32, addr: u32, len: u32) -> u32 {
-        let cmd = cmd_word(false, true, func, addr, len);
+        let cmd = cmd_word(READ, INC_ADDR, func, addr, len);
         let mut buf = [0; 1];
 
         self.spi
@@ -1268,7 +1275,7 @@ where
     }
 
     async fn writen(&mut self, func: u32, addr: u32, val: u32, len: u32) {
-        let cmd = cmd_word(true, true, func, addr, len);
+        let cmd = cmd_word(WRITE, INC_ADDR, func, addr, len);
 
         self.spi
             .transaction(|bus| {
@@ -1283,7 +1290,7 @@ where
     }
 
     async fn read32_swapped(&mut self, addr: u32) -> u32 {
-        let cmd = cmd_word(false, true, FUNC_BUS, addr, 4);
+        let cmd = cmd_word(READ, INC_ADDR, FUNC_BUS, addr, 4);
         let mut buf = [0; 1];
 
         self.spi
@@ -1302,7 +1309,7 @@ where
     }
 
     async fn write32_swapped(&mut self, addr: u32, val: u32) {
-        let cmd = cmd_word(true, true, FUNC_BUS, addr, 4);
+        let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BUS, addr, 4);
 
         self.spi
             .transaction(|bus| {
