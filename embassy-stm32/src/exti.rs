@@ -165,40 +165,41 @@ mod eh1 {
         }
     }
 }
-cfg_if::cfg_if! {
-    if #[cfg(all(feature = "unstable-traits", feature = "nightly"))] {
-        use futures::FutureExt;
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+mod eha {
+    use futures::FutureExt;
 
-        impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for ExtiInput<'d, T> {
-            type WaitForHighFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+    use super::*;
 
-            fn wait_for_high<'a>(&'a mut self) -> Self::WaitForHighFuture<'a> {
-                self.wait_for_high().map(Ok)
-            }
+    impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for ExtiInput<'d, T> {
+        type WaitForHighFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-            type WaitForLowFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        fn wait_for_high<'a>(&'a mut self) -> Self::WaitForHighFuture<'a> {
+            self.wait_for_high().map(Ok)
+        }
 
-            fn wait_for_low<'a>(&'a mut self) -> Self::WaitForLowFuture<'a> {
-                self.wait_for_low().map(Ok)
-            }
+        type WaitForLowFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-            type WaitForRisingEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        fn wait_for_low<'a>(&'a mut self) -> Self::WaitForLowFuture<'a> {
+            self.wait_for_low().map(Ok)
+        }
 
-            fn wait_for_rising_edge<'a>(&'a mut self) -> Self::WaitForRisingEdgeFuture<'a> {
-                self.wait_for_rising_edge().map(Ok)
-            }
+        type WaitForRisingEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-            type WaitForFallingEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        fn wait_for_rising_edge<'a>(&'a mut self) -> Self::WaitForRisingEdgeFuture<'a> {
+            self.wait_for_rising_edge().map(Ok)
+        }
 
-            fn wait_for_falling_edge<'a>(&'a mut self) -> Self::WaitForFallingEdgeFuture<'a> {
-                self.wait_for_falling_edge().map(Ok)
-            }
+        type WaitForFallingEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-            type WaitForAnyEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        fn wait_for_falling_edge<'a>(&'a mut self) -> Self::WaitForFallingEdgeFuture<'a> {
+            self.wait_for_falling_edge().map(Ok)
+        }
 
-            fn wait_for_any_edge<'a>(&'a mut self) -> Self::WaitForAnyEdgeFuture<'a> {
-                self.wait_for_any_edge().map(Ok)
-            }
+        type WaitForAnyEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+        fn wait_for_any_edge<'a>(&'a mut self) -> Self::WaitForAnyEdgeFuture<'a> {
+            self.wait_for_any_edge().map(Ok)
         }
     }
 }

@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) {
     // create SPI
     let mut config = spi::Config::default();
     config.frequency = 2_000_000;
-    let mut spi = Spi::new(p.SPI1, clk, mosi, miso, config);
+    let mut spi = Spi::new_blocking(p.SPI1, clk, mosi, miso, config);
 
     // Configure CS
     let mut cs = Output::new(touch_cs, Level::Low);

@@ -1,10 +1,10 @@
 //! Quadrature decoder interface
 
+use core::future::poll_fn;
 use core::task::Poll;
 
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Pin as GpioPin};

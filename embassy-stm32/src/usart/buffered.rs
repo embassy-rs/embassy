@@ -1,17 +1,16 @@
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::task::Poll;
 
 use atomic_polyfill::{compiler_fence, Ordering};
 use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::WakerRegistration;
-use futures::future::poll_fn;
 
 use super::*;
 
 pub struct State<'d, T: BasicInstance>(StateStorage<StateInner<'d, T>>);
 impl<'d, T: BasicInstance> State<'d, T> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(StateStorage::new())
     }
 }

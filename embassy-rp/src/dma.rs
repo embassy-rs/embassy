@@ -1,3 +1,4 @@
+use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
@@ -5,7 +6,6 @@ use core::task::{Context, Poll};
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use futures::Future;
 use pac::dma::vals::DataSize;
 
 use crate::pac::dma::vals;
@@ -40,10 +40,10 @@ pub(crate) unsafe fn init() {
 pub unsafe fn read<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     from: *const W,
-    to: &mut [W],
+    to: *mut [W],
     dreq: u8,
 ) -> Transfer<'a, C> {
-    let (to_ptr, len) = crate::dma::slice_ptr_parts_mut(to);
+    let (to_ptr, len) = crate::dma::slice_ptr_parts(to);
     copy_inner(
         ch,
         from as *const u32,
@@ -58,7 +58,7 @@ pub unsafe fn read<'a, C: Channel, W: Word>(
 
 pub unsafe fn write<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
-    from: &[W],
+    from: *const [W],
     to: *mut W,
     dreq: u8,
 ) -> Transfer<'a, C> {
@@ -70,6 +70,25 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
         len,
         W::size(),
         true,
+        false,
+        dreq,
+    )
+}
+
+pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
+    ch: impl Peripheral<P = C> + 'a,
+    to: *mut W,
+    len: usize,
+    dreq: u8,
+) -> Transfer<'a, C> {
+    let dummy: u32 = 0;
+    copy_inner(
+        ch,
+        &dummy as *const u32,
+        to as *mut u32,
+        len,
+        W::size(),
+        false,
         false,
         dreq,
     )

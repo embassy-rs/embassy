@@ -1,8 +1,8 @@
 use core::cell::UnsafeCell;
+use core::future::poll_fn;
 use core::mem;
 use core::task::Poll;
 
-use futures::future::poll_fn;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::udp::{self, PacketMetadata};
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};

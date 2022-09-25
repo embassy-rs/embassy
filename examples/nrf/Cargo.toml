@@ -5,7 +5,7 @@ version = "0.1.0"
 
 [features]
 default = ["nightly"]
-nightly = ["embassy-executor/nightly", "embassy-nrf/nightly", "embassy-nrf/unstable-traits", "embassy-usb", "embassy-usb-serial", "embassy-usb-hid", "embassy-usb-ncm", "embedded-io/async", "embassy-net"]
+nightly = ["embassy-executor/nightly", "embassy-nrf/nightly", "embassy-net/nightly", "embassy-nrf/unstable-traits", "embassy-usb", "embassy-usb-serial", "embassy-usb-hid", "embassy-usb-ncm", "embedded-io/async", "embassy-net"]
 
 [dependencies]
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
@@ -30,5 +30,5 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.3.0"
-usbd-hid = "0.5.2"
+usbd-hid = "0.6.0"
 serde = { version = "1.0.136", default-features = false }

@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 #![macro_use]
-#![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
 use embassy_boot_nrf::FirmwareUpdater;
@@ -36,7 +35,8 @@ async fn main(_spawner: Spawner) {
                 updater.write_firmware(offset, &buf, &mut nvmc, 4096).await.unwrap();
                 offset += chunk.len();
             }
-            updater.update(&mut nvmc).await.unwrap();
+            let mut magic = [0; 4];
+            updater.mark_updated(&mut nvmc, &mut magic).await.unwrap();
             led.set_high();
             cortex_m::peripheral::SCB::sys_reset();
         }
