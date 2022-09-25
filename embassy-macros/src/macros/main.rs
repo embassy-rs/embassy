@@ -45,7 +45,7 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
         }
     };
 
-    #[cfg(all(feature = "std", not(feature = "wasm")))]
+    #[cfg(all(feature = "std", not(feature = "wasm"), not(feature = "riscv")))]
     let main = quote! {
         fn main() -> ! {
             let mut executor = ::embassy_executor::Executor::new();
@@ -57,13 +57,24 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
         }
     };
 
-    #[cfg(all(not(feature = "std"), not(feature = "wasm")))]
+    #[cfg(all(not(feature = "std"), not(feature = "wasm"), not(feature = "riscv")))]
     let main = quote! {
         #[cortex_m_rt::entry]
         fn main() -> ! {
             let mut executor = ::embassy_executor::Executor::new();
             let executor = unsafe { __make_static(&mut executor) };
+            executor.run(|spawner| {
+                spawner.must_spawn(__embassy_main(spawner));
+            })
+        }
+    };
 
+    #[cfg(all(not(feature = "std"), not(feature = "wasm"), feature = "riscv"))]
+    let main = quote! {
+        #[riscv_rt::entry]
+        fn main() -> ! {
+            let mut executor = ::embassy_executor::Executor::new();
+            let executor = unsafe { __make_static(&mut executor) };
             executor.run(|spawner| {
                 spawner.must_spawn(__embassy_main(spawner));
             })

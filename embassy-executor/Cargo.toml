@@ -25,6 +25,7 @@ flavors = [
 default = []
 std = ["embassy-macros/std", "critical-section/std"]
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "embassy-macros/wasm"]
+riscv = ["embassy-macros/riscv"]
 
 # Enable nightly-only features
 nightly = []

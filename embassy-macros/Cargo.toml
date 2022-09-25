@@ -16,6 +16,7 @@ proc-macro = true
 [features]
 std = []
 wasm = []
+riscv = []
 
 # Enabling this cause interrupt::take! to require embassy-executor
 rtos-trace-interrupt = []
