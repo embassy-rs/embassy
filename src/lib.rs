@@ -483,7 +483,7 @@ impl<'a> Control<'a> {
 
     async fn ioctl_set_u32(&mut self, cmd: u32, iface: u32, val: u32) {
         let mut buf = val.to_le_bytes();
-        self.ioctl(IoctlType::Set, cmd, 0, &mut buf).await;
+        self.ioctl(IoctlType::Set, cmd, iface, &mut buf).await;
     }
 
     async fn ioctl(&mut self, kind: IoctlType, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
