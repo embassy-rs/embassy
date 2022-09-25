@@ -247,7 +247,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     async fn handle_control(&mut self, req: [u8; 8]) {
         let req = Request::parse(&req);
 
-        trace!("control request: {:02x}", req);
+        trace!("control request: {:?}", req);
 
         match req.direction {
             UsbDirection::In => self.handle_control_in(req).await,

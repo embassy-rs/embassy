@@ -268,7 +268,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
 }
 
 /// Number of stop bits for LineCoding
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum StopBits {
     /// 1 stop bit
@@ -292,7 +292,7 @@ impl From<u8> for StopBits {
 }
 
 /// Parity for LineCoding
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ParityType {
     None = 0,
@@ -316,7 +316,7 @@ impl From<u8> for ParityType {
 ///
 /// This is provided by the host for specifying the standard UART parameters such as baud rate. Can
 /// be ignored if you don't plan to interface with a physical UART.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct LineCoding {
     stop_bits: StopBits,
