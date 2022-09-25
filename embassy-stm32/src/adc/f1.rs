@@ -93,15 +93,21 @@ mod sample_time {
 
 pub use sample_time::SampleTime;
 
-pub struct Adc<'d, T: Instance> {
+pub struct Adc<'d, T: Instance, RXDMA> {
     sample_time: SampleTime,
     calibrated_vdda: u32,
+    rxdma: PeripheralRef<'d, RXDMA>,
     phantom: PhantomData<&'d mut T>,
 }
 
-impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+impl<'d, T: Instance, RXDMA> Adc<'d, T, RXDMA> {
+    pub fn new(
+        _peri: impl Peripheral<P = T> + 'd,
+        rxdma: impl Peripheral<P = RXDMA> + 'd,
+        delay: &mut impl DelayUs<u32>,
+    ) -> Self {
         into_ref!(_peri);
+        into_ref!(rxdma);
         T::enable();
         T::reset();
 
@@ -133,6 +139,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self {
             sample_time: Default::default(),
             calibrated_vdda: VDDA_CALIB_MV,
+            rxdma,
             phantom: PhantomData,
         }
     }
@@ -231,21 +238,21 @@ impl<'d, T: Instance> Adc<'d, T> {
         self.convert()
     }
 
-    pub async fn read_continuous<S, const N: usize, U>(
+    pub async fn read_continuous<S, const N: usize>(
         &mut self,
         pin: &mut impl AdcPin<T>,
-        mut rxdma: PeripheralRef<'_, U>,
         data: &mut [[u16; N]; 2],
         sampler: &mut S,
     ) where
         S: FnMut(&[u16; N]) -> SamplerState,
-        U: RxDma<T>,
+        RXDMA: RxDma<T>,
     {
-        let rx_request = rxdma.request();
+        let rx_request = self.rxdma.request();
         let rx_src = T::regs().dr().ptr() as *mut u16;
 
         unsafe {
-            rxdma.start_circular_read(rx_request, rx_src, data.as_mut_ptr(), N * 2, Default::default());
+            self.rxdma
+                .start_circular_read(rx_request, rx_src, data.as_mut_ptr(), N * 2, Default::default());
         }
 
         unsafe {
@@ -278,11 +285,11 @@ impl<'d, T: Instance> Adc<'d, T> {
         let mut buf_index = 0;
         //Loop for retrieving data
         poll_fn(|cx| {
-            rxdma.set_waker(cx.waker());
+            self.rxdma.set_waker(cx.waker());
 
-            if rxdma.is_data_ready() {
+            if self.rxdma.is_data_ready() {
                 let sampler_state = sampler(&data[buf_index]);
-                rxdma.set_data_processing_done();
+                self.rxdma.set_data_processing_done();
 
                 if sampler_state == SamplerState::Sampled {
                     buf_index = !buf_index & 0x01; // switch the buffer index (0/1)
@@ -296,8 +303,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         })
         .await;
 
-        rxdma.request_stop();
-        while rxdma.is_running() {}
+        self.rxdma.request_stop();
+        while self.rxdma.is_running() {}
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
