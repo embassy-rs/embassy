@@ -138,6 +138,7 @@ const IRQ_F3_INTR: u16 = 0x8000;
 
 const IOCTL_CMD_UP: u32 = 2;
 const IOCTL_CMD_SET_SSID: u32 = 26;
+const IOCTL_CMD_ANTDIV: u32 = 64;
 const IOCTL_CMD_SET_VAR: u32 = 263;
 const IOCTL_CMD_GET_VAR: u32 = 262;
 const IOCTL_CMD_SET_PASSPHRASE: u32 = 268;
@@ -317,7 +318,8 @@ impl<'a> Control<'a> {
         // set country takes some time, next ioctls fail if we don't wait.
         Timer::after(Duration::from_millis(100)).await;
 
-        self.ioctl_set_u32(64, 0, 0).await; // WLC_SET_ANTDIV
+        // Set antenna to chip antenna
+        self.ioctl_set_u32(IOCTL_CMD_ANTDIV, 0, 0).await;
 
         self.set_iovar_u32("bus:txglom", 0).await;
         Timer::after(Duration::from_millis(100)).await;
