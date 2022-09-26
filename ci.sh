@@ -121,7 +121,7 @@ cargo batch  \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h755zi --out-dir out/tests/nucleo-stm32h755zi \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wb55rg --out-dir out/tests/nucleo-stm32wb55rg \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32u585ai --out-dir out/tests/iot-stm32u585ai \
-    --- build --release --manifest-path tests/rp/Cargo.toml --target thumbv6m-none-eabi --features embassy-rp/time-driver --out-dir out/tests/rpi-pico \
+    --- build --release --manifest-path tests/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/tests/rpi-pico \
     $BUILD_EXTRA
 
 
