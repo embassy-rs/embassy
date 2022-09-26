@@ -7,6 +7,7 @@ pub(crate) mod fmt;
 pub use embassy_usb_driver as driver;
 
 mod builder;
+pub mod class;
 pub mod control;
 pub mod descriptor;
 mod descriptor_reader;

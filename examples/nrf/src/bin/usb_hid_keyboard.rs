@@ -14,9 +14,9 @@ use embassy_nrf::usb::{Driver, PowerUsb};
 use embassy_nrf::{interrupt, pac};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
+use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, DeviceStateHandler};
-use embassy_usb_hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -67,7 +67,7 @@ async fn main(_spawner: Spawner) {
     );
 
     // Create classes on the builder.
-    let config = embassy_usb_hid::Config {
+    let config = embassy_usb::class::hid::Config {
         report_descriptor: KeyboardReport::desc(),
         request_handler: Some(&request_handler),
         poll_ms: 60,
