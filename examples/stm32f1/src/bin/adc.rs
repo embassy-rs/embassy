@@ -5,6 +5,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::Adc;
+use embassy_stm32::dma::NoDma;
 use embassy_time::{Delay, Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -13,7 +14,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let mut adc = Adc::new(p.ADC1, &mut Delay);
+    let mut adc = Adc::new(p.ADC1, NoDma, &mut Delay);
     let mut pin = p.PB1;
 
     let mut vref = adc.enable_vref(&mut Delay);
