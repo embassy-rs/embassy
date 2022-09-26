@@ -700,8 +700,8 @@ impl FirmwareUpdater {
     ///
     /// Using this instead of `write_firmware` allows for an optimized API in
     /// exchange for added complexity.
-    pub fn prepare_update<F: NorFlash>(&mut self, flash: &mut F) -> Result<FirmwareWriter, F::Error> {
-        flash.erase((self.dfu.from) as u32, (self.dfu.to) as u32)?;
+    pub async fn prepare_update<F: AsyncNorFlash>(&mut self, flash: &mut F) -> Result<FirmwareWriter, F::Error> {
+        flash.erase((self.dfu.from) as u32, (self.dfu.to) as u32).await?;
 
         trace!("Erased from {} to {}", self.dfu.from, self.dfu.to);
 
