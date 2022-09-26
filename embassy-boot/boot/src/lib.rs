@@ -604,6 +604,21 @@ impl FirmwareUpdater {
         self.dfu.len()
     }
 
+    /// Obtain the current state.
+    ///
+    /// This is useful to check if the bootloader has just done a swap, in order
+    /// to do verifications and self-tests of the new image before calling
+    /// `mark_booted`.
+    pub async fn get_state<F: AsyncNorFlash>(&mut self, flash: &mut F, aligned: &mut [u8]) -> Result<State, F::Error> {
+        flash.read(self.state.from as u32, aligned).await?;
+
+        if !aligned.iter().any(|&b| b != SWAP_MAGIC) {
+            Ok(State::Swap)
+        } else {
+            Ok(State::Boot)
+        }
+    }
+
     /// Mark to trigger firmware swap on next boot.
     ///
     /// # Safety
@@ -660,12 +675,6 @@ impl FirmwareUpdater {
     ) -> Result<(), F::Error> {
         assert!(data.len() >= F::ERASE_SIZE);
 
-        trace!(
-            "Writing firmware at offset 0x{:x} len {}",
-            self.dfu.from + offset,
-            data.len()
-        );
-
         flash
             .erase(
                 (self.dfu.from + offset) as u32,
@@ -679,10 +688,203 @@ impl FirmwareUpdater {
             self.dfu.from + offset + data.len()
         );
 
-        let mut write_offset = self.dfu.from + offset;
+        FirmwareWriter(self.dfu)
+            .write_block(offset, data, flash, block_size)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Prepare for an incoming DFU update by erasing the entire DFU area and
+    /// returning a `FirmwareWriter`.
+    ///
+    /// Using this instead of `write_firmware` allows for an optimized API in
+    /// exchange for added complexity.
+    pub async fn prepare_update<F: AsyncNorFlash>(&mut self, flash: &mut F) -> Result<FirmwareWriter, F::Error> {
+        flash.erase((self.dfu.from) as u32, (self.dfu.to) as u32).await?;
+
+        trace!("Erased from {} to {}", self.dfu.from, self.dfu.to);
+
+        Ok(FirmwareWriter(self.dfu))
+    }
+
+    //
+    // Blocking API
+    //
+
+    /// Obtain the current state.
+    ///
+    /// This is useful to check if the bootloader has just done a swap, in order
+    /// to do verifications and self-tests of the new image before calling
+    /// `mark_booted`.
+    pub fn get_state_blocking<F: NorFlash>(&mut self, flash: &mut F, aligned: &mut [u8]) -> Result<State, F::Error> {
+        flash.read(self.state.from as u32, aligned)?;
+
+        if !aligned.iter().any(|&b| b != SWAP_MAGIC) {
+            Ok(State::Swap)
+        } else {
+            Ok(State::Boot)
+        }
+    }
+
+    /// Mark to trigger firmware swap on next boot.
+    ///
+    /// # Safety
+    ///
+    /// The `aligned` buffer must have a size of F::WRITE_SIZE, and follow the alignment rules for the flash being written to.
+    pub fn mark_updated_blocking<F: NorFlash>(&mut self, flash: &mut F, aligned: &mut [u8]) -> Result<(), F::Error> {
+        assert_eq!(aligned.len(), F::WRITE_SIZE);
+        self.set_magic_blocking(aligned, SWAP_MAGIC, flash)
+    }
+
+    /// Mark firmware boot successful and stop rollback on reset.
+    ///
+    /// # Safety
+    ///
+    /// The `aligned` buffer must have a size of F::WRITE_SIZE, and follow the alignment rules for the flash being written to.
+    pub fn mark_booted_blocking<F: NorFlash>(&mut self, flash: &mut F, aligned: &mut [u8]) -> Result<(), F::Error> {
+        assert_eq!(aligned.len(), F::WRITE_SIZE);
+        self.set_magic_blocking(aligned, BOOT_MAGIC, flash)
+    }
+
+    fn set_magic_blocking<F: NorFlash>(
+        &mut self,
+        aligned: &mut [u8],
+        magic: u8,
+        flash: &mut F,
+    ) -> Result<(), F::Error> {
+        flash.read(self.state.from as u32, aligned)?;
+
+        if aligned.iter().any(|&b| b != magic) {
+            aligned.fill(0);
+
+            flash.write(self.state.from as u32, aligned)?;
+            flash.erase(self.state.from as u32, self.state.to as u32)?;
+
+            aligned.fill(magic);
+            flash.write(self.state.from as u32, aligned)?;
+        }
+        Ok(())
+    }
+
+    /// Write data to a flash page.
+    ///
+    /// The buffer must follow alignment requirements of the target flash and a multiple of page size big.
+    ///
+    /// # Safety
+    ///
+    /// Failing to meet alignment and size requirements may result in a panic.
+    pub fn write_firmware_blocking<F: NorFlash>(
+        &mut self,
+        offset: usize,
+        data: &[u8],
+        flash: &mut F,
+        block_size: usize,
+    ) -> Result<(), F::Error> {
+        assert!(data.len() >= F::ERASE_SIZE);
+
+        flash.erase(
+            (self.dfu.from + offset) as u32,
+            (self.dfu.from + offset + data.len()) as u32,
+        )?;
+
+        trace!(
+            "Erased from {} to {}",
+            self.dfu.from + offset,
+            self.dfu.from + offset + data.len()
+        );
+
+        FirmwareWriter(self.dfu).write_block_blocking(offset, data, flash, block_size)?;
+
+        Ok(())
+    }
+
+    /// Prepare for an incoming DFU update by erasing the entire DFU area and
+    /// returning a `FirmwareWriter`.
+    ///
+    /// Using this instead of `write_firmware_blocking` allows for an optimized
+    /// API in exchange for added complexity.
+    pub fn prepare_update_blocking<F: NorFlash>(&mut self, flash: &mut F) -> Result<FirmwareWriter, F::Error> {
+        flash.erase((self.dfu.from) as u32, (self.dfu.to) as u32)?;
+
+        trace!("Erased from {} to {}", self.dfu.from, self.dfu.to);
+
+        Ok(FirmwareWriter(self.dfu))
+    }
+}
+
+/// FirmwareWriter allows writing blocks to an already erased flash.
+pub struct FirmwareWriter(Partition);
+
+impl FirmwareWriter {
+    /// Write data to a flash page.
+    ///
+    /// The buffer must follow alignment requirements of the target flash and a multiple of page size big.
+    ///
+    /// # Safety
+    ///
+    /// Failing to meet alignment and size requirements may result in a panic.
+    pub async fn write_block<F: AsyncNorFlash>(
+        &mut self,
+        offset: usize,
+        data: &[u8],
+        flash: &mut F,
+        block_size: usize,
+    ) -> Result<(), F::Error> {
+        trace!(
+            "Writing firmware at offset 0x{:x} len {}",
+            self.0.from + offset,
+            data.len()
+        );
+
+        let mut write_offset = self.0.from + offset;
         for chunk in data.chunks(block_size) {
             trace!("Wrote chunk at {}: {:?}", write_offset, chunk);
             flash.write(write_offset as u32, chunk).await?;
+            write_offset += chunk.len();
+        }
+        /*
+        trace!("Wrote data, reading back for verification");
+
+        let mut buf: [u8; 4096] = [0; 4096];
+        let mut data_offset = 0;
+        let mut read_offset = self.dfu.from + offset;
+        for chunk in buf.chunks_mut(block_size) {
+            flash.read(read_offset as u32, chunk).await?;
+            trace!("Read chunk at {}: {:?}", read_offset, chunk);
+            assert_eq!(&data[data_offset..data_offset + block_size], chunk);
+            read_offset += chunk.len();
+            data_offset += chunk.len();
+        }
+        */
+
+        Ok(())
+    }
+
+    /// Write data to a flash page.
+    ///
+    /// The buffer must follow alignment requirements of the target flash and a multiple of page size big.
+    ///
+    /// # Safety
+    ///
+    /// Failing to meet alignment and size requirements may result in a panic.
+    pub fn write_block_blocking<F: NorFlash>(
+        &mut self,
+        offset: usize,
+        data: &[u8],
+        flash: &mut F,
+        block_size: usize,
+    ) -> Result<(), F::Error> {
+        trace!(
+            "Writing firmware at offset 0x{:x} len {}",
+            self.0.from + offset,
+            data.len()
+        );
+
+        let mut write_offset = self.0.from + offset;
+        for chunk in data.chunks(block_size) {
+            trace!("Wrote chunk at {}: {:?}", write_offset, chunk);
+            flash.write(write_offset as u32, chunk)?;
             write_offset += chunk.len();
         }
         /*
