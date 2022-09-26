@@ -23,7 +23,7 @@ unstable-pac = []
 time-driver = []
 
 rom-func-cache = []
-disable-intrinsics = []
+intrinsics = []
 rom-v2-intrinsics = []
 
 # Enable nightly-only features
