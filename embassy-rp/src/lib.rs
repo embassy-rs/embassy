@@ -4,9 +4,12 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+mod intrinsics;
+
 pub mod dma;
 pub mod gpio;
 pub mod interrupt;
+pub mod rom_data;
 pub mod rtc;
 pub mod spi;
 #[cfg(feature = "time-driver")]
