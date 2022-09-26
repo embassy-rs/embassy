@@ -19,6 +19,8 @@ mod timer;
 mod driver_std;
 #[cfg(feature = "wasm")]
 mod driver_wasm;
+#[cfg(feature = "generic-queue")]
+mod queue_generic;
 
 pub use delay::{block_for, Delay};
 pub use duration::Duration;

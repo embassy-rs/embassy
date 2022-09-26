@@ -26,9 +26,21 @@ unstable-traits = ["embedded-hal-1"]
 # To use this you must have a time driver provided.
 defmt-timestamp-uptime = ["defmt"]
 
-# Create a global queue that can be used with any executor
+# Create a global, generic queue that can be used with any executor
 # To use this you must have a time driver provided.
 generic-queue = []
+
+# Set the number of timers for the generic queue.
+#
+# At most 1 `generic-queue-*` feature can be enabled. If none is enabled, a default of 64 timers is used.
+# 
+# When using embassy-time from libraries, you should *not* enable any `generic-queue-*` feature, to allow the
+# end user to pick.
+generic-queue-8 = ["generic-queue"]
+generic-queue-16 = ["generic-queue"]
+generic-queue-32 = ["generic-queue"]
+generic-queue-64 = ["generic-queue"]
+generic-queue-128 = ["generic-queue"]
 
 # Set the `embassy_time` tick rate.
 #
@@ -128,3 +140,5 @@ wasm-timer = { version = "0.2.5", optional = true }
 
 [dev-dependencies]
 serial_test = "0.9"
+critical-section = { version = "1.1", features = ["std"] }
+
