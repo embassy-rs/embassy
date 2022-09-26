@@ -9,8 +9,12 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb/s
 features = ["defmt"]
 target = "thumbv7em-none-eabi"
 
+[features]
+defmt = ["dep:defmt", "embassy-usb-driver/defmt"]
+
 [dependencies]
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-usb-driver = { version = "0.1.0", path = "../embassy-usb-driver" }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }

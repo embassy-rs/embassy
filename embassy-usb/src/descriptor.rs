@@ -1,6 +1,7 @@
-use super::builder::Config;
-use super::types::*;
-use super::CONFIGURATION_VALUE;
+use crate::builder::Config;
+use crate::driver::EndpointInfo;
+use crate::types::*;
+use crate::CONFIGURATION_VALUE;
 
 /// Standard descriptor types
 #[allow(missing_docs)]
