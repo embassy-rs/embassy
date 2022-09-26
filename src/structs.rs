@@ -53,6 +53,9 @@ pub struct CdcHeader {
 }
 impl_bytes!(CdcHeader);
 
+pub const BDC_VERSION: u8 = 2;
+pub const BDC_VERSION_SHIFT: u8 = 4;
+
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
