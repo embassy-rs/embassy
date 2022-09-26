@@ -1,18 +1,13 @@
-#![no_std]
-#![feature(type_alias_impl_trait)]
-
-// This mod MUST go first, so that the others see its macros.
-pub(crate) mod fmt;
-
 use core::cell::Cell;
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
-use embassy_usb::control::{self, ControlHandler, InResponse, OutResponse, Request};
-use embassy_usb::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
-use embassy_usb::types::*;
-use embassy_usb::Builder;
+
+use crate::control::{self, ControlHandler, InResponse, OutResponse, Request};
+use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
+use crate::types::*;
+use crate::Builder;
 
 /// This should be used as `device_class` when building the `UsbDevice`.
 pub const USB_CLASS_CDC: u8 = 0x02;

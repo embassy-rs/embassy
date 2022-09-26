@@ -1,5 +1,5 @@
 use crate::descriptor::descriptor_type;
-use crate::types::EndpointAddress;
+use crate::driver::EndpointAddress;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

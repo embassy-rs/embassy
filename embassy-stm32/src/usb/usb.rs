@@ -9,8 +9,9 @@ use atomic_polyfill::{AtomicBool, AtomicU8};
 use embassy_hal_common::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{block_for, Duration};
-use embassy_usb::driver::{self, EndpointAllocError, EndpointError, Event, Unsupported};
-use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
+use embassy_usb::driver::{
+    self, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
+};
 use pac::common::{Reg, RW};
 use pac::usb::vals::{EpType, Stat};
 
@@ -279,8 +280,8 @@ impl<'d, T: Instance> Driver<'d, T> {
             }
             let used = ep.used_out || ep.used_in;
             let used_dir = match D::dir() {
-                UsbDirection::Out => ep.used_out,
-                UsbDirection::In => ep.used_in,
+                Direction::Out => ep.used_out,
+                Direction::In => ep.used_in,
             };
             !used || (ep.ep_type == ep_type && !used_dir)
         });
@@ -293,7 +294,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         ep.ep_type = ep_type;
 
         let buf = match D::dir() {
-            UsbDirection::Out => {
+            Direction::Out => {
                 assert!(!ep.used_out);
                 ep.used_out = true;
 
@@ -312,7 +313,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                     _phantom: PhantomData,
                 }
             }
-            UsbDirection::In => {
+            Direction::In => {
                 assert!(!ep.used_in);
                 ep.used_in = true;
 
@@ -504,7 +505,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         // This can race, so do a retry loop.
         let reg = T::regs().epr(ep_addr.index() as _);
         match ep_addr.direction() {
-            UsbDirection::In => {
+            Direction::In => {
                 loop {
                     let r = unsafe { reg.read() };
                     match r.stat_tx() {
@@ -523,7 +524,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 }
                 EP_IN_WAKERS[ep_addr.index()].wake();
             }
-            UsbDirection::Out => {
+            Direction::Out => {
                 loop {
                     let r = unsafe { reg.read() };
                     match r.stat_rx() {
@@ -549,8 +550,8 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         let regs = T::regs();
         let epr = unsafe { regs.epr(ep_addr.index() as _).read() };
         match ep_addr.direction() {
-            UsbDirection::In => epr.stat_tx() == Stat::STALL,
-            UsbDirection::Out => epr.stat_rx() == Stat::STALL,
+            Direction::In => epr.stat_tx() == Stat::STALL,
+            Direction::Out => epr.stat_rx() == Stat::STALL,
         }
     }
 
@@ -560,7 +561,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         let reg = T::regs().epr(ep_addr.index() as _);
         trace!("EPR before: {:04x}", unsafe { reg.read() }.0);
         match ep_addr.direction() {
-            UsbDirection::In => {
+            Direction::In => {
                 loop {
                     let want_stat = match enabled {
                         false => Stat::DISABLED,
@@ -576,7 +577,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 }
                 EP_IN_WAKERS[ep_addr.index()].wake();
             }
-            UsbDirection::Out => {
+            Direction::Out => {
                 loop {
                     let want_stat = match enabled {
                         false => Stat::DISABLED,
@@ -616,14 +617,14 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 }
 
 trait Dir {
-    fn dir() -> UsbDirection;
+    fn dir() -> Direction;
     fn waker(i: usize) -> &'static AtomicWaker;
 }
 
 pub enum In {}
 impl Dir for In {
-    fn dir() -> UsbDirection {
-        UsbDirection::In
+    fn dir() -> Direction {
+        Direction::In
     }
 
     #[inline]
@@ -634,8 +635,8 @@ impl Dir for In {
 
 pub enum Out {}
 impl Dir for Out {
-    fn dir() -> UsbDirection {
-        UsbDirection::Out
+    fn dir() -> Direction {
+        Direction::Out
     }
 
     #[inline]
