@@ -8,20 +8,13 @@ use core::future::Future;
 ///
 /// The values of the enum also match the direction bit used in endpoint addresses and control
 /// request types.
-#[repr(u8)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Direction {
     /// Host to device (OUT)
-    Out = 0x00,
+    Out,
     /// Device to host (IN)
-    In = 0x80,
-}
-
-impl From<u8> for Direction {
-    fn from(value: u8) -> Self {
-        unsafe { core::mem::transmute(value & 0x80) }
-    }
+    In,
 }
 
 /// USB endpoint transfer type. The values of this enum can be directly cast into `u8` to get the
