@@ -604,6 +604,21 @@ impl FirmwareUpdater {
         self.dfu.len()
     }
 
+    /// Obtain the current state.
+    ///
+    /// This is useful to check if the bootloader has just done a swap, in order
+    /// to do verifications and self-tests of the new image before calling
+    /// `mark_booted`.
+    pub async fn get_state<F: AsyncNorFlash>(&mut self, flash: &mut F, aligned: &mut [u8]) -> Result<State, F::Error> {
+        flash.read(self.state.from as u32, aligned).await?;
+
+        if !aligned.iter().any(|&b| b != SWAP_MAGIC) {
+            Ok(State::Swap)
+        } else {
+            Ok(State::Boot)
+        }
+    }
+
     /// Mark to trigger firmware swap on next boot.
     ///
     /// # Safety
@@ -673,8 +688,8 @@ impl FirmwareUpdater {
             self.dfu.from + offset + data.len()
         );
 
-        FirmwareWriter(self)
-            .write_firmware(offset, data, flash, block_size)
+        FirmwareWriter(self.dfu)
+            .write_block(offset, data, flash, block_size)
             .await?;
 
         Ok(())
@@ -690,12 +705,27 @@ impl FirmwareUpdater {
 
         trace!("Erased from {} to {}", self.dfu.from, self.dfu.to);
 
-        Ok(FirmwareWriter(self))
+        Ok(FirmwareWriter(self.dfu))
     }
 
     //
     // Blocking API
     //
+
+    /// Obtain the current state.
+    ///
+    /// This is useful to check if the bootloader has just done a swap, in order
+    /// to do verifications and self-tests of the new image before calling
+    /// `mark_booted`.
+    pub fn get_state_blocking<F: NorFlash>(&mut self, flash: &mut F, aligned: &mut [u8]) -> Result<State, F::Error> {
+        flash.read(self.state.from as u32, aligned)?;
+
+        if !aligned.iter().any(|&b| b != SWAP_MAGIC) {
+            Ok(State::Swap)
+        } else {
+            Ok(State::Boot)
+        }
+    }
 
     /// Mark to trigger firmware swap on next boot.
     ///
@@ -764,7 +794,7 @@ impl FirmwareUpdater {
             self.dfu.from + offset + data.len()
         );
 
-        FirmwareWriter(self).write_firmware_blocking(offset, data, flash, block_size)?;
+        FirmwareWriter(self.dfu).write_block_blocking(offset, data, flash, block_size)?;
 
         Ok(())
     }
@@ -779,14 +809,14 @@ impl FirmwareUpdater {
 
         trace!("Erased from {} to {}", self.dfu.from, self.dfu.to);
 
-        Ok(FirmwareWriter(self))
+        Ok(FirmwareWriter(self.dfu))
     }
 }
 
 /// FirmwareWriter allows writing blocks to an already erased flash.
-pub struct FirmwareWriter<'a>(&'a mut FirmwareUpdater);
+pub struct FirmwareWriter(Partition);
 
-impl<'a> FirmwareWriter<'a> {
+impl FirmwareWriter {
     /// Write data to a flash page.
     ///
     /// The buffer must follow alignment requirements of the target flash and a multiple of page size big.
@@ -794,7 +824,7 @@ impl<'a> FirmwareWriter<'a> {
     /// # Safety
     ///
     /// Failing to meet alignment and size requirements may result in a panic.
-    pub async fn write_firmware<F: AsyncNorFlash>(
+    pub async fn write_block<F: AsyncNorFlash>(
         &mut self,
         offset: usize,
         data: &[u8],
@@ -803,11 +833,11 @@ impl<'a> FirmwareWriter<'a> {
     ) -> Result<(), F::Error> {
         trace!(
             "Writing firmware at offset 0x{:x} len {}",
-            self.0.dfu.from + offset,
+            self.0.from + offset,
             data.len()
         );
 
-        let mut write_offset = self.0.dfu.from + offset;
+        let mut write_offset = self.0.from + offset;
         for chunk in data.chunks(block_size) {
             trace!("Wrote chunk at {}: {:?}", write_offset, chunk);
             flash.write(write_offset as u32, chunk).await?;
@@ -838,7 +868,7 @@ impl<'a> FirmwareWriter<'a> {
     /// # Safety
     ///
     /// Failing to meet alignment and size requirements may result in a panic.
-    pub fn write_firmware_blocking<F: NorFlash>(
+    pub fn write_block_blocking<F: NorFlash>(
         &mut self,
         offset: usize,
         data: &[u8],
@@ -847,11 +877,11 @@ impl<'a> FirmwareWriter<'a> {
     ) -> Result<(), F::Error> {
         trace!(
             "Writing firmware at offset 0x{:x} len {}",
-            self.0.dfu.from + offset,
+            self.0.from + offset,
             data.len()
         );
 
-        let mut write_offset = self.0.dfu.from + offset;
+        let mut write_offset = self.0.from + offset;
         for chunk in data.chunks(block_size) {
             trace!("Wrote chunk at {}: {:?}", write_offset, chunk);
             flash.write(write_offset as u32, chunk)?;
