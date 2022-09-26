@@ -800,7 +800,7 @@ where
         };
 
         let bcd_header = BcdHeader {
-            flags: 0x20,
+            flags: BDC_VERSION << BDC_VERSION_SHIFT,
             priority: 0,
             flags2: 0,
             data_offset: 0,
