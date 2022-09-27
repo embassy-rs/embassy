@@ -7,7 +7,7 @@ use atomic_polyfill::{AtomicU32, AtomicU8};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::driver::{AlarmHandle, Driver};
-use embassy_time::TICKS_PER_SECOND;
+use embassy_time::TICK_HZ;
 use stm32_metapac::timer::regs;
 
 use crate::interrupt::{CriticalSection, InterruptExt};
@@ -153,7 +153,7 @@ impl RtcDriver {
             r.cr1().modify(|w| w.set_cen(false));
             r.cnt().write(|w| w.set_cnt(0));
 
-            let psc = timer_freq.0 / TICKS_PER_SECOND as u32 - 1;
+            let psc = timer_freq.0 / TICK_HZ as u32 - 1;
             let psc: u16 = match psc.try_into() {
                 Err(_) => panic!("psc division overflow: {}", psc),
                 Ok(n) => n,

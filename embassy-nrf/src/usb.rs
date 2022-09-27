@@ -1,5 +1,6 @@
 #![macro_use]
 
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
@@ -9,10 +10,9 @@ use cortex_m::peripheral::NVIC;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 pub use embassy_usb;
-use embassy_usb::driver::{self, EndpointError, Event, Unsupported};
-use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
-use futures::future::poll_fn;
-use futures::Future;
+use embassy_usb::driver::{
+    self, Direction, EndpointAddress, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
+};
 use pac::usbd::RegisterBlock;
 
 use crate::interrupt::{Interrupt, InterruptExt};
@@ -244,7 +244,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
         interval: u8,
     ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
         let index = self.alloc_in.allocate(ep_type)?;
-        let ep_addr = EndpointAddress::from_parts(index, UsbDirection::In);
+        let ep_addr = EndpointAddress::from_parts(index, Direction::In);
         Ok(Endpoint::new(EndpointInfo {
             addr: ep_addr,
             ep_type,
@@ -260,7 +260,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
         interval: u8,
     ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
         let index = self.alloc_out.allocate(ep_type)?;
-        let ep_addr = EndpointAddress::from_parts(index, UsbDirection::Out);
+        let ep_addr = EndpointAddress::from_parts(index, Direction::Out);
         Ok(Endpoint::new(EndpointInfo {
             addr: ep_addr,
             ep_type,
@@ -429,8 +429,8 @@ impl<'d, T: Instance, P: UsbSupply> driver::Bus for Bus<'d, T, P> {
         let regs = T::regs();
         let i = ep_addr.index();
         match ep_addr.direction() {
-            UsbDirection::Out => regs.halted.epout[i].read().getstatus().is_halted(),
-            UsbDirection::In => regs.halted.epin[i].read().getstatus().is_halted(),
+            Direction::Out => regs.halted.epout[i].read().getstatus().is_halted(),
+            Direction::In => regs.halted.epin[i].read().getstatus().is_halted(),
         }
     }
 
@@ -443,7 +443,7 @@ impl<'d, T: Instance, P: UsbSupply> driver::Bus for Bus<'d, T, P> {
         debug!("endpoint_set_enabled {:?} {}", ep_addr, enabled);
 
         match ep_addr.direction() {
-            UsbDirection::In => {
+            Direction::In => {
                 let mut was_enabled = false;
                 regs.epinen.modify(|r, w| {
                     let mut bits = r.bits();
@@ -467,7 +467,7 @@ impl<'d, T: Instance, P: UsbSupply> driver::Bus for Bus<'d, T, P> {
 
                 In::waker(i).wake();
             }
-            UsbDirection::Out => {
+            Direction::Out => {
                 regs.epouten.modify(|r, w| {
                     let mut bits = r.bits();
                     if enabled {

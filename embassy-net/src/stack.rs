@@ -1,10 +1,9 @@
 use core::cell::UnsafeCell;
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::task::{Context, Poll};
 
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
-use futures::future::poll_fn;
 use futures::pin_mut;
 use heapless::Vec;
 #[cfg(feature = "dhcpv4")]

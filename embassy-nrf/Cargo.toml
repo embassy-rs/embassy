@@ -57,7 +57,7 @@ _nrf5340-net = ["_nrf5340", "nrf5340-net-pac"]
 _nrf5340 = ["_gpio-p1", "_dppi"]
 _nrf9160 = ["nrf9160-pac", "_dppi"]
 
-_time-driver = ["dep:embassy-time", "embassy-time?/tick-32768hz"]
+_time-driver = ["dep:embassy-time", "embassy-time?/tick-hz-32_768"]
 
 _ppi = []
 _dppi = []

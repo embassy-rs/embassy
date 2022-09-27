@@ -1,9 +1,8 @@
+use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::mem;
 use core::ptr::NonNull;
 use core::task::Poll;
-
-use futures_util::future::poll_fn;
 
 use super::raw;
 

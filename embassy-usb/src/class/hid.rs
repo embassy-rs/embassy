@@ -1,23 +1,15 @@
-#![no_std]
-#![feature(generic_associated_types)]
-#![feature(type_alias_impl_trait)]
-
-//! Implements HID functionality for a usb-device device.
-
-// This mod MUST go first, so that the others see its macros.
-pub(crate) mod fmt;
-
 use core::mem::MaybeUninit;
 use core::ops::Range;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use embassy_usb::control::{ControlHandler, InResponse, OutResponse, Request, RequestType};
-use embassy_usb::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
-use embassy_usb::Builder;
 #[cfg(feature = "usbd-hid")]
 use ssmarshal::serialize;
 #[cfg(feature = "usbd-hid")]
 use usbd_hid::descriptor::AsInputReport;
+
+use crate::control::{ControlHandler, InResponse, OutResponse, Request, RequestType};
+use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
+use crate::Builder;
 
 const USB_CLASS_HID: u8 = 0x03;
 const USB_SUBCLASS_NONE: u8 = 0x00;
@@ -205,9 +197,9 @@ pub enum ReadError {
     Sync(Range<usize>),
 }
 
-impl From<embassy_usb::driver::EndpointError> for ReadError {
-    fn from(val: embassy_usb::driver::EndpointError) -> Self {
-        use embassy_usb::driver::EndpointError::*;
+impl From<EndpointError> for ReadError {
+    fn from(val: EndpointError) -> Self {
+        use EndpointError::*;
         match val {
             BufferOverflow => ReadError::BufferOverflow,
             Disabled => ReadError::Disabled,
@@ -438,7 +430,7 @@ impl<'d> ControlHandler for Control<'d> {
         }
     }
 
-    fn control_out(&mut self, req: embassy_usb::control::Request, data: &[u8]) -> OutResponse {
+    fn control_out(&mut self, req: Request, data: &[u8]) -> OutResponse {
         trace!("HID control_out {:?} {=[u8]:x}", req, data);
         if let RequestType::Class = req.request_type {
             match req.request {

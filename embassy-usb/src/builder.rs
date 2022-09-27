@@ -1,11 +1,10 @@
 use heapless::Vec;
 
-use super::control::ControlHandler;
-use super::descriptor::{BosWriter, DescriptorWriter};
-use super::driver::{Driver, Endpoint};
-use super::types::*;
-use super::{DeviceStateHandler, UsbDevice, MAX_INTERFACE_COUNT};
-use crate::{Interface, STRING_INDEX_CUSTOM_START};
+use crate::control::ControlHandler;
+use crate::descriptor::{BosWriter, DescriptorWriter};
+use crate::driver::{Driver, Endpoint, EndpointType};
+use crate::types::*;
+use crate::{DeviceStateHandler, Interface, UsbDevice, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START};
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
