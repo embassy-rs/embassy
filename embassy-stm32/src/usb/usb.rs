@@ -9,8 +9,9 @@ use atomic_polyfill::{AtomicBool, AtomicU8};
 use embassy_hal_common::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{block_for, Duration};
-use embassy_usb::driver::{
-    self, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
+use embassy_usb_driver as driver;
+use embassy_usb_driver::{
+    Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
 use pac::common::{Reg, RW};
 use pac::usb::vals::{EpType, Stat};
