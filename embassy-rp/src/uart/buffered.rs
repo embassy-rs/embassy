@@ -228,39 +228,39 @@ where
     fn on_interrupt(&mut self) {
         let r = T::regs();
         unsafe {
-            let ris = r.uartmis().read();
+            let ris = r.uartris().read();
             // Clear interrupt flags
             r.uarticr().modify(|w| {
                 w.set_rxic(true);
                 w.set_rtic(true);
             });
 
-            if ris.rxmis() {
-                if ris.pemis() {
-                    warn!("Parity error");
-                    r.uarticr().modify(|w| {
-                        w.set_peic(true);
-                    });
-                }
-                if ris.femis() {
-                    warn!("Framing error");
-                    r.uarticr().modify(|w| {
-                        w.set_feic(true);
-                    });
-                }
-                if ris.bemis() {
-                    warn!("Break error");
-                    r.uarticr().modify(|w| {
-                        w.set_beic(true);
-                    });
-                }
-                if ris.oemis() {
-                    warn!("Overrun error");
-                    r.uarticr().modify(|w| {
-                        w.set_oeic(true);
-                    });
-                }
+            if ris.peris() {
+                warn!("Parity error");
+                r.uarticr().modify(|w| {
+                    w.set_peic(true);
+                });
+            }
+            if ris.feris() {
+                warn!("Framing error");
+                r.uarticr().modify(|w| {
+                    w.set_feic(true);
+                });
+            }
+            if ris.beris() {
+                warn!("Break error");
+                r.uarticr().modify(|w| {
+                    w.set_beic(true);
+                });
+            }
+            if ris.oeris() {
+                warn!("Overrun error");
+                r.uarticr().modify(|w| {
+                    w.set_oeic(true);
+                });
+            }
 
+            if !r.uartfr().read().rxfe() {
                 let buf = self.buf.push_buf();
                 if !buf.is_empty() {
                     buf[0] = r.uartdr().read().data();
@@ -274,7 +274,7 @@ where
                 }
             }
 
-            if ris.rtmis() {
+            if ris.rtris() {
                 self.waker.wake();
             };
         }
@@ -318,27 +318,19 @@ where
     fn on_interrupt(&mut self) {
         let r = T::regs();
         unsafe {
-            let ris = r.uartris().read();
-            // Clear interrupt flags
-            r.uarticr().write(|w| {
-                w.set_rtic(true);
-            });
-
-            if ris.txris() {
-                let buf = self.buf.pop_buf();
-                if !buf.is_empty() {
-                    r.uartimsc().modify(|w| {
-                        w.set_txim(true);
-                    });
-                    r.uartdr().write(|w| w.set_data(buf[0].into()));
-                    self.buf.pop(1);
-                    self.waker.wake();
-                } else {
-                    // Disable interrupt until we have something to transmit again
-                    r.uartimsc().modify(|w| {
-                        w.set_txim(false);
-                    });
-                }
+            let buf = self.buf.pop_buf();
+            if !buf.is_empty() {
+                r.uartimsc().modify(|w| {
+                    w.set_txim(true);
+                });
+                r.uartdr().write(|w| w.set_data(buf[0].into()));
+                self.buf.pop(1);
+                self.waker.wake();
+            } else {
+                // Disable interrupt until we have something to transmit again
+                r.uartimsc().modify(|w| {
+                    w.set_txim(false);
+                });
             }
         }
     }

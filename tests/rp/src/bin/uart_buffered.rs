@@ -20,8 +20,8 @@ async fn main(_spawner: Spawner) {
     let uart = Uart::new_blocking(uart, tx, rx, config);
 
     let irq = interrupt::take!(UART0_IRQ);
-    let tx_buf = &mut [0u8; 32];
-    let rx_buf = &mut [0u8; 32];
+    let tx_buf = &mut [0u8; 16];
+    let rx_buf = &mut [0u8; 16];
     let mut state = State::new();
     let mut uart = BufferedUart::new(&mut state, uart, irq, tx_buf, rx_buf);
 
@@ -32,10 +32,11 @@ async fn main(_spawner: Spawner) {
         1_u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
         30, 31, 32,
     ];
-    uart.write(&data).await.unwrap();
+    uart.write_all(&data).await.unwrap();
+    info!("Done writing");
 
     let mut buf = [0; 32];
-    uart.read(&mut buf).await.unwrap();
+    uart.read_exact(&mut buf).await.unwrap();
     assert_eq!(buf, data);
 
     info!("Test OK");
