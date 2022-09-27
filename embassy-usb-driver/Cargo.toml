@@ -1,0 +1,16 @@
+[package]
+name = "embassy-usb-driver"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-driver-v$VERSION/embassy-usb/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-driver/src/"
+features = ["defmt"]
+target = "thumbv7em-none-eabi"
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }

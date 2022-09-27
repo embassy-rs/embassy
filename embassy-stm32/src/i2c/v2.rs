@@ -1,4 +1,5 @@
 use core::cmp;
+use core::future::poll_fn;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicUsize, Ordering};
@@ -6,7 +7,6 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use futures::future::poll_fn;
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;

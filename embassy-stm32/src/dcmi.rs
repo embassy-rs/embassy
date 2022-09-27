@@ -1,8 +1,8 @@
+use core::future::poll_fn;
 use core::task::Poll;
 
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use futures::future::poll_fn;
 
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
@@ -429,7 +429,7 @@ where
             }
         });
 
-        let (_, result) = futures::future::join(dma_read, result).await;
+        let (_, result) = embassy_futures::join::join(dma_read, result).await;
 
         unsafe { Self::toggle(false) };
 
@@ -537,7 +537,7 @@ where
 
         unsafe { Self::toggle(true) };
 
-        let (_, result) = futures::future::join(dma_result, result).await;
+        let (_, result) = embassy_futures::join::join(dma_result, result).await;
 
         unsafe { Self::toggle(false) };
 

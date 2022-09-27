@@ -1,5 +1,5 @@
 #![cfg_attr(not(any(feature = "std", feature = "wasm")), no_std)]
-#![cfg_attr(feature = "nightly", feature(generic_associated_types, type_alias_impl_trait))]
+#![cfg_attr(feature = "nightly", feature(type_alias_impl_trait))]
 #![doc = include_str!("../README.md")]
 #![allow(clippy::new_without_default)]
 #![warn(missing_docs)]

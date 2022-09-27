@@ -1,5 +1,5 @@
 //! A radio driver integration for the radio found on STM32WL family devices.
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::task::Poll;
 
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
@@ -11,7 +11,6 @@ use embassy_stm32::subghz::{
     Status, SubGhz, TcxoMode, TcxoTrim, Timeout, TxParams,
 };
 use embassy_sync::waitqueue::AtomicWaker;
-use futures::future::poll_fn;
 use lorawan_device::async_device::radio::{Bandwidth, PhyRxTx, RfConfig, RxQuality, SpreadingFactor, TxConfig};
 use lorawan_device::async_device::Timings;
 

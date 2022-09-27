@@ -1,12 +1,12 @@
 #![macro_use]
 
 use core::default::Default;
+use core::future::poll_fn;
 use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use futures::future::poll_fn;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
 use crate::dma::NoDma;

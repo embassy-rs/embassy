@@ -2,7 +2,6 @@
 #![no_main]
 #![macro_use]
 #![allow(dead_code)]
-#![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
@@ -13,6 +12,7 @@ use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{Interrupt, InterruptExt};
 use embassy_stm32::subghz::*;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -65,7 +65,7 @@ async fn main(_spawner: Spawner) {
     let button = Input::new(p.PA0, Pull::Up);
     let mut pin = ExtiInput::new(button, p.EXTI0);
 
-    static IRQ_SIGNAL: Signal<()> = Signal::new();
+    static IRQ_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
     let radio_irq = interrupt::take!(SUBGHZ_RADIO);
     radio_irq.set_handler(|_| {
         IRQ_SIGNAL.signal(());

@@ -15,7 +15,7 @@
 
 use core::cell::RefCell;
 use core::cmp::min;
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
@@ -23,11 +23,10 @@ use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorag
 use embassy_hal_common::ring_buffer::RingBuffer;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::WakerRegistration;
-use futures::future::poll_fn;
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
-use crate::gpio::Pin as GpioPin;
+use crate::gpio::{self, Pin as GpioPin};
 use crate::interrupt::InterruptExt;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
@@ -429,21 +428,23 @@ impl<'a, U: UarteInstance, T: TimerInstance> Drop for StateInner<'a, U, T> {
     fn drop(&mut self) {
         let r = U::regs();
 
-        // TODO this probably deadlocks. do like Uarte instead.
-
         self.timer.stop();
-        if let RxState::Receiving = self.rx_state {
-            r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
-        }
-        if let TxState::Transmitting(_) = self.tx_state {
-            r.tasks_stoptx.write(|w| unsafe { w.bits(1) });
-        }
-        if let RxState::Receiving = self.rx_state {
-            low_power_wait_until(|| r.events_endrx.read().bits() == 1);
-        }
-        if let TxState::Transmitting(_) = self.tx_state {
-            low_power_wait_until(|| r.events_endtx.read().bits() == 1);
-        }
+
+        r.inten.reset();
+        r.events_rxto.reset();
+        r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
+        r.events_txstopped.reset();
+        r.tasks_stoptx.write(|w| unsafe { w.bits(1) });
+
+        while r.events_txstopped.read().bits() == 0 {}
+        while r.events_rxto.read().bits() == 0 {}
+
+        r.enable.write(|w| w.enable().disabled());
+
+        gpio::deconfigure_pin(r.psel.rxd.read().bits());
+        gpio::deconfigure_pin(r.psel.txd.read().bits());
+        gpio::deconfigure_pin(r.psel.rts.read().bits());
+        gpio::deconfigure_pin(r.psel.cts.read().bits());
     }
 }
 
@@ -548,14 +549,4 @@ impl<'a, U: UarteInstance, T: TimerInstance> PeripheralState for StateInner<'a, 
         }
         trace!("irq: end");
     }
-}
-
-/// Low power blocking wait loop using WFE/SEV.
-fn low_power_wait_until(mut condition: impl FnMut() -> bool) {
-    while !condition() {
-        // WFE might "eat" an event that would have otherwise woken the executor.
-        cortex_m::asm::wfe();
-    }
-    // Retrigger an event to be transparent to the executor.
-    cortex_m::asm::sev();
 }

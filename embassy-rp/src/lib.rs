@@ -1,13 +1,18 @@
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(generic_associated_types, type_alias_impl_trait))]
+#![cfg_attr(feature = "nightly", feature(type_alias_impl_trait))]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+mod intrinsics;
+
 pub mod dma;
 pub mod gpio;
 pub mod interrupt;
+pub mod rom_data;
+pub mod rtc;
 pub mod spi;
+#[cfg(feature = "time-driver")]
 pub mod timer;
 pub mod uart;
 #[cfg(feature = "nightly")]
@@ -84,6 +89,8 @@ embassy_hal_common::peripherals! {
     DMA_CH11,
 
     USB,
+
+    RTC,
 }
 
 #[link_section = ".boot2"]
@@ -108,6 +115,7 @@ pub fn init(_config: config::Config) -> Peripherals {
 
     unsafe {
         clocks::init();
+        #[cfg(feature = "time-driver")]
         timer::init();
         dma::init();
     }

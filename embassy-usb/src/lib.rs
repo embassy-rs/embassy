@@ -1,27 +1,27 @@
 #![no_std]
-#![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+pub use embassy_usb_driver as driver;
+
 mod builder;
+pub mod class;
 pub mod control;
 pub mod descriptor;
 mod descriptor_reader;
-pub mod driver;
 pub mod types;
 
 use embassy_futures::select::{select, Either};
 use heapless::Vec;
 
-pub use self::builder::{Builder, Config};
-use self::control::*;
-use self::descriptor::*;
-use self::driver::{Bus, Driver, Event};
-use self::types::*;
+pub use crate::builder::{Builder, Config};
+use crate::control::*;
+use crate::descriptor::*;
 use crate::descriptor_reader::foreach_endpoint;
-use crate::driver::ControlPipe;
+use crate::driver::{Bus, ControlPipe, Direction, Driver, EndpointAddress, Event};
+use crate::types::*;
 
 /// The global state of the USB device.
 ///
@@ -248,11 +248,11 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     async fn handle_control(&mut self, req: [u8; 8]) {
         let req = Request::parse(&req);
 
-        trace!("control request: {:02x}", req);
+        trace!("control request: {:?}", req);
 
         match req.direction {
-            UsbDirection::In => self.handle_control_in(req).await,
-            UsbDirection::Out => self.handle_control_out(req).await,
+            Direction::In => self.handle_control_in(req).await,
+            Direction::Out => self.handle_control_out(req).await,
         }
 
         if self.inner.set_address_pending {
