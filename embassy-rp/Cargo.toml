@@ -12,7 +12,7 @@ flavors = [
 ]
 
 [features]
-defmt = ["dep:defmt", "embassy-usb?/defmt"]
+defmt = ["dep:defmt", "embassy-usb-driver?/defmt"]
 
 # Reexport the PAC for the currently enabled chip at `embassy_rp::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-rp may major-bump (breaking) the PAC version.
@@ -27,7 +27,7 @@ intrinsics = []
 rom-v2-intrinsics = []
 
 # Enable nightly-only features
-nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb", "dep:embedded-io"]
+nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb-driver", "dep:embedded-io"]
 
 # Implement embedded-hal 1.0 alpha traits.
 # Implement embedded-hal-async traits if `nightly` is set as well.
@@ -41,7 +41,7 @@ embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-2"]}
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
-embassy-usb = {version = "0.1.0", path = "../embassy-usb", optional = true }
+embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional = true }
 atomic-polyfill = "1.0.1"
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }

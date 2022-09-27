@@ -7,8 +7,9 @@ use core::task::Poll;
 use atomic_polyfill::compiler_fence;
 use embassy_hal_common::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_usb::driver::{
-    self, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
+use embassy_usb_driver as driver;
+use embassy_usb_driver::{
+    Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
 
 use crate::interrupt::{Interrupt, InterruptExt};

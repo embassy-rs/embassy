@@ -9,10 +9,8 @@ use core::task::Poll;
 use cortex_m::peripheral::NVIC;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-pub use embassy_usb;
-use embassy_usb::driver::{
-    self, Direction, EndpointAddress, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
-};
+use embassy_usb_driver as driver;
+use embassy_usb_driver::{Direction, EndpointAddress, EndpointError, EndpointInfo, EndpointType, Event, Unsupported};
 use pac::usbd::RegisterBlock;
 
 use crate::interrupt::{Interrupt, InterruptExt};
