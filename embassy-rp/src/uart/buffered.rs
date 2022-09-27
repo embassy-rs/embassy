@@ -61,17 +61,17 @@ pub struct BufferedUart<'d, T: Instance> {
     inner: PeripheralMutex<'d, FullStateInner<'d, T>>,
 }
 
-pub struct RxBufferedUart<'d, T: Instance> {
+pub struct BufferedUartRx<'d, T: Instance> {
     inner: PeripheralMutex<'d, RxStateInner<'d, T>>,
 }
 
-pub struct TxBufferedUart<'d, T: Instance> {
+pub struct BufferedUartTx<'d, T: Instance> {
     inner: PeripheralMutex<'d, TxStateInner<'d, T>>,
 }
 
 impl<'d, T: Instance> Unpin for BufferedUart<'d, T> {}
-impl<'d, T: Instance> Unpin for RxBufferedUart<'d, T> {}
-impl<'d, T: Instance> Unpin for TxBufferedUart<'d, T> {}
+impl<'d, T: Instance> Unpin for BufferedUartRx<'d, T> {}
+impl<'d, T: Instance> Unpin for BufferedUartTx<'d, T> {}
 
 impl<'d, T: Instance> BufferedUart<'d, T> {
     pub fn new<M: Mode>(
@@ -109,13 +109,13 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
     }
 }
 
-impl<'d, T: Instance> RxBufferedUart<'d, T> {
+impl<'d, T: Instance> BufferedUartRx<'d, T> {
     pub fn new<M: Mode>(
         state: &'d mut RxState<'d, T>,
         _uart: UartRx<'d, T, M>,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
         rx_buffer: &'d mut [u8],
-    ) -> RxBufferedUart<'d, T> {
+    ) -> BufferedUartRx<'d, T> {
         into_ref!(irq);
 
         let r = T::regs();
@@ -137,13 +137,13 @@ impl<'d, T: Instance> RxBufferedUart<'d, T> {
     }
 }
 
-impl<'d, T: Instance> TxBufferedUart<'d, T> {
+impl<'d, T: Instance> BufferedUartTx<'d, T> {
     pub fn new<M: Mode>(
         state: &'d mut TxState<'d, T>,
         _uart: UartTx<'d, T, M>,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
         tx_buffer: &'d mut [u8],
-    ) -> TxBufferedUart<'d, T> {
+    ) -> BufferedUartTx<'d, T> {
         into_ref!(irq);
 
         let r = T::regs();
@@ -354,11 +354,11 @@ impl<'d, T: Instance> embedded_io::Io for BufferedUart<'d, T> {
     type Error = Error;
 }
 
-impl<'d, T: Instance> embedded_io::Io for RxBufferedUart<'d, T> {
+impl<'d, T: Instance> embedded_io::Io for BufferedUartRx<'d, T> {
     type Error = Error;
 }
 
-impl<'d, T: Instance> embedded_io::Io for TxBufferedUart<'d, T> {
+impl<'d, T: Instance> embedded_io::Io for BufferedUartTx<'d, T> {
     type Error = Error;
 }
 
@@ -383,7 +383,7 @@ impl<'d, T: Instance + 'd> embedded_io::asynch::Read for BufferedUart<'d, T> {
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::Read for RxBufferedUart<'d, T> {
+impl<'d, T: Instance + 'd> embedded_io::asynch::Read for BufferedUartRx<'d, T> {
     type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
     where
         Self: 'a;
@@ -426,7 +426,7 @@ impl<'d, T: Instance + 'd> embedded_io::asynch::BufRead for BufferedUart<'d, T> 
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::BufRead for RxBufferedUart<'d, T> {
+impl<'d, T: Instance + 'd> embedded_io::asynch::BufRead for BufferedUartRx<'d, T> {
     type FillBufFuture<'a> = impl Future<Output = Result<&'a [u8], Self::Error>>
     where
         Self: 'a;
@@ -472,7 +472,7 @@ impl<'d, T: Instance + 'd> embedded_io::asynch::Write for BufferedUart<'d, T> {
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::Write for TxBufferedUart<'d, T> {
+impl<'d, T: Instance + 'd> embedded_io::asynch::Write for BufferedUartTx<'d, T> {
     type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
     where
         Self: 'a;
