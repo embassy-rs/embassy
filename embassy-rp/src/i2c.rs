@@ -499,6 +499,7 @@ macro_rules! impl_instance {
 
             type Interrupt = crate::interrupt::$irq;
 
+            #[inline]
             fn regs() -> pac::i2c::I2c {
                 pac::$type
             }
