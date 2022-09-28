@@ -1,6 +1,10 @@
+use core::future;
 use core::marker::PhantomData;
+use core::task::Poll;
 
+use embassy_cortex_m::interrupt::InterruptExt;
 use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 use pac::i2c;
 
 use crate::gpio::sealed::Pin;
@@ -79,7 +83,7 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
             // NOTE(unsafe) We have &mut self
             unsafe {
                 // wait until there is space in the FIFO to write the next byte
-                while p.ic_txflr().read().txflr() == FIFO_SIZE {}
+                while Self::tx_fifo_full() {}
 
                 p.ic_data_cmd().write(|w| {
                     w.set_restart(restart && first);
@@ -88,7 +92,7 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
                     w.set_cmd(true);
                 });
 
-                while p.ic_rxflr().read().rxflr() == 0 {
+                while Self::rx_fifo_len() == 0 {
                     self.read_and_clear_abort_reason()?;
                 }
 
@@ -165,9 +169,250 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
         // Automatic Stop
     }
 }
+
+static I2C_WAKER: AtomicWaker = AtomicWaker::new();
+
+impl<'d, T: Instance> I2c<'d, T, Async> {
+    pub fn new_async(
+        peri: impl Peripheral<P = T> + 'd,
+        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
+        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(scl, sda, irq);
+
+        let i2c = Self::new_inner(peri, scl.map_into(), sda.map_into(), config);
+
+        irq.set_handler(Self::on_interrupt);
+        unsafe {
+            let i2c = T::regs();
+
+            // mask everything initially
+            i2c.ic_intr_mask().write_value(i2c::regs::IcIntrMask(0));
+        }
+        irq.unpend();
+        debug_assert!(!irq.is_pending());
+        irq.enable();
+
+        i2c
+    }
+
+    /// Calls `f` to check if we are ready or not.
+    /// If not, `g` is called once the waker is set (to eg enable the required interrupts).
+    async fn wait_on<F, U, G>(&mut self, mut f: F, mut g: G) -> U
+    where
+        F: FnMut(&mut Self) -> Poll<U>,
+        G: FnMut(&mut Self),
+    {
+        future::poll_fn(|cx| {
+            let r = f(self);
+
+            if r.is_pending() {
+                I2C_WAKER.register(cx.waker());
+                g(self);
+            }
+            r
+        })
+        .await
+    }
+
+    // Mask interrupts and wake any task waiting for this interrupt
+    unsafe fn on_interrupt(_: *mut ()) {
+        let i2c = T::regs();
+        i2c.ic_intr_mask().write_value(pac::i2c::regs::IcIntrMask::default());
+
+        I2C_WAKER.wake();
+    }
+
+    async fn read_async_internal(&mut self, buffer: &mut [u8], restart: bool, send_stop: bool) -> Result<(), Error> {
+        if buffer.is_empty() {
+            return Err(Error::InvalidReadBufferLength);
+        }
+
+        let p = T::regs();
+
+        let mut remaining = buffer.len();
+        let mut remaining_queue = buffer.len();
+
+        let mut abort_reason = None;
+
+        while remaining > 0 {
+            // Waggle SCK - basically the same as write
+            let tx_fifo_space = Self::tx_fifo_capacity();
+            let mut batch = 0;
+
+            debug_assert!(remaining_queue > 0);
+
+            for _ in 0..remaining_queue.min(tx_fifo_space as usize) {
+                remaining_queue -= 1;
+                let last = remaining_queue == 0;
+                batch += 1;
+
+                unsafe {
+                    p.ic_data_cmd().write(|w| {
+                        w.set_restart(restart && remaining_queue == buffer.len() - 1);
+                        w.set_stop(last && send_stop);
+                        w.set_cmd(true);
+                    });
+                }
+            }
+
+            // We've either run out of txfifo or just plain finished setting up
+            // the clocks for the message - either way we need to wait for rx
+            // data.
+
+            debug_assert!(batch > 0);
+            let res = self
+                .wait_on(
+                    |me| {
+                        let rxfifo = Self::rx_fifo_len();
+                        if let Err(abort_reason) = me.read_and_clear_abort_reason() {
+                            Poll::Ready(Err(abort_reason))
+                        } else if rxfifo >= batch {
+                            Poll::Ready(Ok(rxfifo))
+                        } else {
+                            Poll::Pending
+                        }
+                    },
+                    |_me| unsafe {
+                        // Set the read threshold to the number of bytes we're
+                        // expecting so we don't get spurious interrupts.
+                        p.ic_rx_tl().write(|w| w.set_rx_tl(batch - 1));
+
+                        p.ic_intr_mask().modify(|w| {
+                            w.set_m_rx_full(true);
+                            w.set_m_tx_abrt(true);
+                        });
+                    },
+                )
+                .await;
+
+            match res {
+                Err(reason) => {
+                    abort_reason = Some(reason);
+                    // XXX keep going anyway?
+                    break;
+                }
+                Ok(rxfifo) => {
+                    // Fetch things from rx fifo. We're assuming we're the only
+                    // rxfifo reader, so nothing else can take things from it.
+                    let rxbytes = (rxfifo as usize).min(remaining);
+                    let received = buffer.len() - remaining;
+                    for b in &mut buffer[received..received + rxbytes] {
+                        *b = unsafe { p.ic_data_cmd().read().dat() };
+                    }
+                    remaining -= rxbytes;
+                }
+            };
+        }
+
+        // wait for stop condition to be emitted.
+        self.wait_on(
+            |_me| unsafe {
+                if !p.ic_raw_intr_stat().read().stop_det() && send_stop {
+                    Poll::Pending
+                } else {
+                    Poll::Ready(())
+                }
+            },
+            |_me| unsafe {
+                p.ic_intr_mask().modify(|w| {
+                    w.set_m_stop_det(true);
+                    w.set_m_tx_abrt(true);
+                });
+            },
+        )
+        .await;
+        unsafe { p.ic_clr_stop_det().read() };
+
+        if let Some(abort_reason) = abort_reason {
+            return Err(abort_reason);
+        }
+        Ok(())
+    }
+
+    async fn write_async_internal(
+        &mut self,
+        bytes: impl IntoIterator<Item = u8>,
+        send_stop: bool,
+    ) -> Result<(), Error> {
+        let p = T::regs();
+
+        let mut bytes = bytes.into_iter().peekable();
+
+        'xmit: loop {
+            let tx_fifo_space = Self::tx_fifo_capacity();
+
+            for _ in 0..tx_fifo_space {
+                if let Some(byte) = bytes.next() {
+                    let last = bytes.peek().is_none();
+
+                    unsafe {
+                        p.ic_data_cmd().write(|w| {
+                            w.set_stop(last && send_stop);
+                            w.set_cmd(false);
+                            w.set_dat(byte);
+                        });
+                    }
+                } else {
+                    break 'xmit;
+                }
+            }
+
+            self.wait_on(
+                |me| {
+                    if let Err(abort_reason) = me.read_and_clear_abort_reason() {
+                        Poll::Ready(Err(abort_reason))
+                    } else if !Self::tx_fifo_full() {
+                        Poll::Ready(Ok(()))
+                    } else {
+                        Poll::Pending
+                    }
+                },
+                |_me| unsafe {
+                    p.ic_intr_mask().modify(|w| {
+                        w.set_m_tx_empty(true);
+                        w.set_m_tx_abrt(true);
+                    })
+                },
+            )
+            .await?;
+        }
+
+        // wait for fifo to drain
+        self.wait_on(
+            |_me| unsafe {
+                if p.ic_raw_intr_stat().read().tx_empty() {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            },
+            |_me| unsafe {
+                p.ic_intr_mask().modify(|w| {
+                    w.set_m_tx_empty(true);
+                    w.set_m_tx_abrt(true);
+                });
+            },
+        )
+        .await;
+
+        Ok(())
+    }
+
+    pub async fn read_async(&mut self, addr: u16, buffer: &mut [u8]) -> Result<(), Error> {
+        Self::setup(addr)?;
+        self.read_async_internal(buffer, false, true).await
+    }
+
+    pub async fn write_async(&mut self, addr: u16, buffer: &[u8]) -> Result<(), Error> {
+        Self::setup(addr)?;
+        self.write_async_internal(buffer.iter().copied(), true).await
+    }
 }
 
-impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
+impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     fn new_inner(
         _peri: impl Peripheral<P = T> + 'd,
         scl: PeripheralRef<'d, AnyPin>,
@@ -182,6 +427,10 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
         let p = T::regs();
 
         unsafe {
+            let reset = T::reset();
+            crate::reset::reset(reset);
+            crate::reset::unreset_wait(reset);
+
             p.ic_enable().write(|w| w.set_enable(false));
 
             // Select controller mode & speed
@@ -267,9 +516,7 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
             p.ic_enable().write(|w| w.set_enable(true));
         }
 
-        Self {
-            phantom: PhantomData,
-        }
+        Self { phantom: PhantomData }
     }
 
     fn setup(addr: u16) -> Result<(), Error> {
@@ -288,6 +535,23 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
             p.ic_enable().write(|w| w.set_enable(true));
         }
         Ok(())
+    }
+
+    #[inline]
+    fn tx_fifo_full() -> bool {
+        Self::tx_fifo_capacity() == 0
+    }
+
+    #[inline]
+    fn tx_fifo_capacity() -> u8 {
+        let p = T::regs();
+        unsafe { FIFO_SIZE - p.ic_txflr().read().txflr() }
+    }
+
+    #[inline]
+    fn rx_fifo_len() -> u8 {
+        let p = T::regs();
+        unsafe { p.ic_rxflr().read().rxflr() }
     }
 
     fn read_and_clear_abort_reason(&mut self) -> Result<(), Error> {
@@ -317,7 +581,6 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
             }
         }
     }
-
 }
 
 mod eh02 {
@@ -444,6 +707,91 @@ mod eh1 {
         }
     }
 }
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+mod nightly {
+    use core::future::Future;
+
+    use embedded_hal_1::i2c::Operation;
+    use embedded_hal_async::i2c::AddressMode;
+
+    use super::*;
+
+    impl<'d, A, T> embedded_hal_async::i2c::I2c<A> for I2c<'d, T, Async>
+    where
+        A: AddressMode + Into<u16> + 'static,
+        T: Instance + 'd,
+    {
+        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
+            where Self: 'a;
+        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
+            where Self: 'a;
+        type WriteReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
+            where Self: 'a;
+        type TransactionFuture<'a, 'b> = impl Future<Output = Result<(), Error>> + 'a
+            where Self: 'a, 'b: 'a;
+
+        fn read<'a>(&'a mut self, address: A, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            let addr: u16 = address.into();
+
+            async move {
+                Self::setup(addr)?;
+                self.read_async_internal(buffer, false, true).await
+            }
+        }
+
+        fn write<'a>(&'a mut self, address: A, write: &'a [u8]) -> Self::WriteFuture<'a> {
+            let addr: u16 = address.into();
+
+            async move {
+                Self::setup(addr)?;
+                self.write_async_internal(write.iter().copied(), true).await
+            }
+        }
+
+        fn write_read<'a>(
+            &'a mut self,
+            address: A,
+            bytes: &'a [u8],
+            buffer: &'a mut [u8],
+        ) -> Self::WriteReadFuture<'a> {
+            let addr: u16 = address.into();
+
+            async move {
+                Self::setup(addr)?;
+                self.write_async_internal(bytes.iter().cloned(), false).await?;
+                self.read_async_internal(buffer, false, true).await
+            }
+        }
+
+        fn transaction<'a, 'b>(
+            &'a mut self,
+            address: A,
+            operations: &'a mut [Operation<'b>],
+        ) -> Self::TransactionFuture<'a, 'b> {
+            let addr: u16 = address.into();
+
+            async move {
+                let mut iterator = operations.iter_mut();
+
+                while let Some(op) = iterator.next() {
+                    let last = iterator.len() == 0;
+
+                    match op {
+                        Operation::Read(buffer) => {
+                            Self::setup(addr)?;
+                            self.read_async_internal(buffer, false, last).await?;
+                        }
+                        Operation::Write(buffer) => {
+                            Self::setup(addr)?;
+                            self.write_async_internal(buffer.into_iter().cloned(), last).await?;
+                        }
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+}
 
 fn i2c_reserved_addr(addr: u16) -> bool {
     (addr & 0x78) == 0 || (addr & 0x78) == 0x78
@@ -459,6 +807,7 @@ mod sealed {
         type Interrupt: Interrupt;
 
         fn regs() -> crate::pac::i2c::I2c;
+        fn reset() -> crate::pac::resets::regs::Peripherals;
     }
 
     pub trait Mode {}
@@ -485,7 +834,7 @@ impl_mode!(Async);
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_instance {
-    ($type:ident, $irq:ident, $tx_dreq:expr, $rx_dreq:expr) => {
+    ($type:ident, $irq:ident, $reset:ident, $tx_dreq:expr, $rx_dreq:expr) => {
         impl sealed::Instance for peripherals::$type {
             const TX_DREQ: u8 = $tx_dreq;
             const RX_DREQ: u8 = $rx_dreq;
@@ -496,13 +845,20 @@ macro_rules! impl_instance {
             fn regs() -> pac::i2c::I2c {
                 pac::$type
             }
+
+            #[inline]
+            fn reset() -> pac::resets::regs::Peripherals {
+                let mut ret = pac::resets::regs::Peripherals::default();
+                ret.$reset(true);
+                ret
+            }
         }
         impl Instance for peripherals::$type {}
     };
 }
 
-impl_instance!(I2C0, I2C0_IRQ, 32, 33);
-impl_instance!(I2C1, I2C1_IRQ, 34, 35);
+impl_instance!(I2C0, I2C0_IRQ, set_i2c0, 32, 33);
+impl_instance!(I2C1, I2C1_IRQ, set_i2c1, 34, 35);
 
 pub trait SdaPin<T: Instance>: sealed::SdaPin<T> + crate::gpio::Pin {}
 pub trait SclPin<T: Instance>: sealed::SclPin<T> + crate::gpio::Pin {}
