@@ -511,22 +511,23 @@ where
         cad_activity_detected: Option<&mut bool>,
     ) -> Result<(), RadioError<BUS>> {
         loop {
-            info!("process_irq loop entered"); // debug ???
+            trace!("process_irq loop entered");
 
             let de = self.sub_get_device_errors().await?;
-            info!("device_errors: rc_64khz_calibration = {}, rc_13mhz_calibration = {}, pll_calibration = {}, adc_calibration = {}, image_calibration = {}, xosc_start = {}, pll_lock = {}, pa_ramp = {}",
+            trace!("device_errors: rc_64khz_calibration = {}, rc_13mhz_calibration = {}, pll_calibration = {}, adc_calibration = {}, image_calibration = {}, xosc_start = {}, pll_lock = {}, pa_ramp = {}",
                                de.rc_64khz_calibration, de.rc_13mhz_calibration, de.pll_calibration, de.adc_calibration, de.image_calibration, de.xosc_start, de.pll_lock, de.pa_ramp);
             let st = self.sub_get_status().await?;
-            info!(
+            trace!(
                 "radio status: cmd_status: {:x}, chip_mode: {:x}",
-                st.cmd_status, st.chip_mode
+                st.cmd_status,
+                st.chip_mode
             );
 
             self.dio1.wait_for_high().await.map_err(|_| DIO1)?;
             let operating_mode = self.brd_get_operating_mode();
             let irq_flags = self.sub_get_irq_status().await?;
             self.sub_clear_irq_status(irq_flags).await?;
-            info!("process_irq DIO1 satisfied: irq_flags = {:x}", irq_flags); // debug ???
+            trace!("process_irq DIO1 satisfied: irq_flags = {:x}", irq_flags);
 
             // check for errors and unexpected interrupt masks (based on operation mode)
             if (irq_flags & IrqMask::HeaderError.value()) == IrqMask::HeaderError.value() {
@@ -568,13 +569,12 @@ where
                 return Err(RadioError::CADUnexpected);
             }
 
-            // debug ???
             if (irq_flags & IrqMask::HeaderValid.value()) == IrqMask::HeaderValid.value() {
-                info!("HeaderValid");
+                trace!("HeaderValid");
             } else if (irq_flags & IrqMask::PreambleDetected.value()) == IrqMask::PreambleDetected.value() {
-                info!("PreambleDetected");
+                trace!("PreambleDetected");
             } else if (irq_flags & IrqMask::SyncwordValid.value()) == IrqMask::SyncwordValid.value() {
-                info!("SyncwordValid");
+                trace!("SyncwordValid");
             }
 
             // handle completions

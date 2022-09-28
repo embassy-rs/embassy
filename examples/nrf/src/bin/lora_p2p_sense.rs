@@ -44,7 +44,7 @@ async fn temperature_task(
         let value = temperature.read().await;
         let mut temperature_val = value.to_num::<i32>();
 
-        info!("Temperature: {}", temperature_val); // debug ???
+        info!("Temperature: {}", temperature_val);
 
         // only report every 2 degree Celsius drops, from 9 through 5, but starting at 3 always report
 
