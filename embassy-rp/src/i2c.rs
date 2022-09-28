@@ -56,14 +56,115 @@ pub struct I2c<'d, T: Instance, M: Mode> {
 
 impl<'d, T: Instance> I2c<'d, T, Blocking> {
     pub fn new_blocking(
-        _peri: impl Peripheral<P = T> + 'd,
+        peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(scl, sda);
-        Self::new_inner(_peri, scl.map_into(), sda.map_into(), config)
+        Self::new_inner(peri, scl.map_into(), sda.map_into(), config)
     }
+
+    fn read_blocking_internal(&mut self, buffer: &mut [u8], restart: bool, send_stop: bool) -> Result<(), Error> {
+        if buffer.is_empty() {
+            return Err(Error::InvalidReadBufferLength);
+        }
+
+        let p = T::regs();
+        let lastindex = buffer.len() - 1;
+        for (i, byte) in buffer.iter_mut().enumerate() {
+            let first = i == 0;
+            let last = i == lastindex;
+
+            // NOTE(unsafe) We have &mut self
+            unsafe {
+                // wait until there is space in the FIFO to write the next byte
+                while p.ic_txflr().read().txflr() == FIFO_SIZE {}
+
+                p.ic_data_cmd().write(|w| {
+                    w.set_restart(restart && first);
+                    w.set_stop(send_stop && last);
+
+                    w.set_cmd(true);
+                });
+
+                while p.ic_rxflr().read().rxflr() == 0 {
+                    self.read_and_clear_abort_reason()?;
+                }
+
+                *byte = p.ic_data_cmd().read().dat();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn write_blocking_internal(&mut self, bytes: &[u8], send_stop: bool) -> Result<(), Error> {
+        if bytes.is_empty() {
+            return Err(Error::InvalidWriteBufferLength);
+        }
+
+        let p = T::regs();
+
+        for (i, byte) in bytes.iter().enumerate() {
+            let last = i == bytes.len() - 1;
+
+            // NOTE(unsafe) We have &mut self
+            unsafe {
+                p.ic_data_cmd().write(|w| {
+                    w.set_stop(send_stop && last);
+                    w.set_dat(*byte);
+                });
+
+                // Wait until the transmission of the address/data from the
+                // internal shift register has completed. For this to function
+                // correctly, the TX_EMPTY_CTRL flag in IC_CON must be set. The
+                // TX_EMPTY_CTRL flag was set in i2c_init.
+                while !p.ic_raw_intr_stat().read().tx_empty() {}
+
+                let abort_reason = self.read_and_clear_abort_reason();
+
+                if abort_reason.is_err() || (send_stop && last) {
+                    // If the transaction was aborted or if it completed
+                    // successfully wait until the STOP condition has occured.
+
+                    while !p.ic_raw_intr_stat().read().stop_det() {}
+
+                    p.ic_clr_stop_det().read().clr_stop_det();
+                }
+
+                // Note the hardware issues a STOP automatically on an abort
+                // condition. Note also the hardware clears RX FIFO as well as
+                // TX on abort, ecause we set hwparam
+                // IC_AVOID_RX_FIFO_FLUSH_ON_TX_ABRT to 0.
+                abort_reason?;
+            }
+        }
+        Ok(())
+    }
+
+    // =========================
+    // Blocking public API
+    // =========================
+
+    pub fn blocking_read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        Self::setup(address.into())?;
+        self.read_blocking_internal(buffer, true, true)
+        // Automatic Stop
+    }
+
+    pub fn blocking_write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error> {
+        Self::setup(address.into())?;
+        self.write_blocking_internal(bytes, true)
+    }
+
+    pub fn blocking_write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
+        Self::setup(address.into())?;
+        self.write_blocking_internal(bytes, false)?;
+        self.read_blocking_internal(buffer, true, true)
+        // Automatic Stop
+    }
+}
 }
 
 impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
@@ -217,111 +318,12 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
         }
     }
 
-    fn read_blocking_internal(&mut self, buffer: &mut [u8], restart: bool, send_stop: bool) -> Result<(), Error> {
-        if buffer.is_empty() {
-            return Err(Error::InvalidReadBufferLength);
-        }
-
-        let p = T::regs();
-        let lastindex = buffer.len() - 1;
-        for (i, byte) in buffer.iter_mut().enumerate() {
-            let first = i == 0;
-            let last = i == lastindex;
-
-            // NOTE(unsafe) We have &mut self
-            unsafe {
-                // wait until there is space in the FIFO to write the next byte
-                while p.ic_txflr().read().txflr() == FIFO_SIZE {}
-
-                p.ic_data_cmd().write(|w| {
-                    w.set_restart(restart && first);
-                    w.set_stop(send_stop && last);
-
-                    w.set_cmd(true);
-                });
-
-                while p.ic_rxflr().read().rxflr() == 0 {
-                    self.read_and_clear_abort_reason()?;
-                }
-
-                *byte = p.ic_data_cmd().read().dat();
-            }
-        }
-
-        Ok(())
-    }
-
-    fn write_blocking_internal(&mut self, bytes: &[u8], send_stop: bool) -> Result<(), Error> {
-        if bytes.is_empty() {
-            return Err(Error::InvalidWriteBufferLength);
-        }
-
-        let p = T::regs();
-
-        for (i, byte) in bytes.iter().enumerate() {
-            let last = i == bytes.len() - 1;
-
-            // NOTE(unsafe) We have &mut self
-            unsafe {
-                p.ic_data_cmd().write(|w| {
-                    w.set_stop(send_stop && last);
-                    w.set_dat(*byte);
-                });
-
-                // Wait until the transmission of the address/data from the
-                // internal shift register has completed. For this to function
-                // correctly, the TX_EMPTY_CTRL flag in IC_CON must be set. The
-                // TX_EMPTY_CTRL flag was set in i2c_init.
-                while !p.ic_raw_intr_stat().read().tx_empty() {}
-
-                let abort_reason = self.read_and_clear_abort_reason();
-
-                if abort_reason.is_err() || (send_stop && last) {
-                    // If the transaction was aborted or if it completed
-                    // successfully wait until the STOP condition has occured.
-
-                    while !p.ic_raw_intr_stat().read().stop_det() {}
-
-                    p.ic_clr_stop_det().read().clr_stop_det();
-                }
-
-                // Note the hardware issues a STOP automatically on an abort
-                // condition. Note also the hardware clears RX FIFO as well as
-                // TX on abort, ecause we set hwparam
-                // IC_AVOID_RX_FIFO_FLUSH_ON_TX_ABRT to 0.
-                abort_reason?;
-            }
-        }
-        Ok(())
-    }
-
-    // =========================
-    // Blocking public API
-    // =========================
-
-    pub fn blocking_read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        Self::setup(address.into())?;
-        self.read_blocking_internal(buffer, true, true)
-        // Automatic Stop
-    }
-
-    pub fn blocking_write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error> {
-        Self::setup(address.into())?;
-        self.write_blocking_internal(bytes, true)
-    }
-
-    pub fn blocking_write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
-        Self::setup(address.into())?;
-        self.write_blocking_internal(bytes, false)?;
-        self.read_blocking_internal(buffer, true, true)
-        // Automatic Stop
-    }
 }
 
 mod eh02 {
     use super::*;
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, T, M> {
+    impl<'d, T: Instance> embedded_hal_02::blocking::i2c::Read for I2c<'d, T, Blocking> {
         type Error = Error;
 
         fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
@@ -329,7 +331,7 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, T, M> {
+    impl<'d, T: Instance> embedded_hal_02::blocking::i2c::Write for I2c<'d, T, Blocking> {
         type Error = Error;
 
         fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
@@ -337,7 +339,7 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, T, M> {
+    impl<'d, T: Instance> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, T, Blocking> {
         type Error = Error;
 
         fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
@@ -370,7 +372,7 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, T, M> {
+    impl<'d, T: Instance> embedded_hal_1::i2c::I2c for I2c<'d, T, Blocking> {
         fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_read(address, buffer)
         }
