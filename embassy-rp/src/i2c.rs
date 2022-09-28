@@ -3,7 +3,6 @@ use core::marker::PhantomData;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use pac::i2c;
 
-use crate::dma::AnyChannel;
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
 use crate::{pac, peripherals, Peripheral};
@@ -52,9 +51,6 @@ impl Default for Config {
 const FIFO_SIZE: u8 = 16;
 
 pub struct I2c<'d, T: Instance, M: Mode> {
-    _tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
-    _rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
-    _dma_buf: [u16; 256],
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
@@ -66,7 +62,7 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
         config: Config,
     ) -> Self {
         into_ref!(scl, sda);
-        Self::new_inner(_peri, scl.map_into(), sda.map_into(), None, None, config)
+        Self::new_inner(_peri, scl.map_into(), sda.map_into(), config)
     }
 }
 
@@ -75,8 +71,6 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
         _peri: impl Peripheral<P = T> + 'd,
         scl: PeripheralRef<'d, AnyPin>,
         sda: PeripheralRef<'d, AnyPin>,
-        _tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
-        _rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         config: Config,
     ) -> Self {
         into_ref!(_peri);
@@ -173,9 +167,6 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
         }
 
         Self {
-            _tx_dma,
-            _rx_dma,
-            _dma_buf: [0; 256],
             phantom: PhantomData,
         }
     }
