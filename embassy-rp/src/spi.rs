@@ -523,25 +523,25 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::blocking::SpiBusFlush for Spi<'d, T, M> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::SpiBusFlush for Spi<'d, T, M> {
         fn flush(&mut self) -> Result<(), Self::Error> {
             Ok(())
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::blocking::SpiBusRead<u8> for Spi<'d, T, M> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::SpiBusRead<u8> for Spi<'d, T, M> {
         fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_transfer(words, &[])
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::blocking::SpiBusWrite<u8> for Spi<'d, T, M> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::SpiBusWrite<u8> for Spi<'d, T, M> {
         fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(words)
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::blocking::SpiBus<u8> for Spi<'d, T, M> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::SpiBus<u8> for Spi<'d, T, M> {
         fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
             self.blocking_transfer(read, write)
         }

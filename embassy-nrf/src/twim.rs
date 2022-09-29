@@ -793,7 +793,7 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, T: Instance> embedded_hal_1::i2c::blocking::I2c for Twim<'d, T> {
+    impl<'d, T: Instance> embedded_hal_1::i2c::I2c for Twim<'d, T> {
         fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_read(address, buffer)
         }
@@ -823,14 +823,14 @@ mod eh1 {
         fn transaction<'a>(
             &mut self,
             _address: u8,
-            _operations: &mut [embedded_hal_1::i2c::blocking::Operation<'a>],
+            _operations: &mut [embedded_hal_1::i2c::Operation<'a>],
         ) -> Result<(), Self::Error> {
             todo!();
         }
 
         fn transaction_iter<'a, O>(&mut self, _address: u8, _operations: O) -> Result<(), Self::Error>
         where
-            O: IntoIterator<Item = embedded_hal_1::i2c::blocking::Operation<'a>>,
+            O: IntoIterator<Item = embedded_hal_1::i2c::Operation<'a>>,
         {
             todo!();
         }
