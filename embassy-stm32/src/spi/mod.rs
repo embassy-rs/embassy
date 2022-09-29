@@ -843,25 +843,25 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, T: Instance, Tx, Rx> embedded_hal_1::spi::blocking::SpiBusFlush for Spi<'d, T, Tx, Rx> {
+    impl<'d, T: Instance, Tx, Rx> embedded_hal_1::spi::SpiBusFlush for Spi<'d, T, Tx, Rx> {
         fn flush(&mut self) -> Result<(), Self::Error> {
             Ok(())
         }
     }
 
-    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::blocking::SpiBusRead<W> for Spi<'d, T, NoDma, NoDma> {
+    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::SpiBusRead<W> for Spi<'d, T, NoDma, NoDma> {
         fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
             self.blocking_read(words)
         }
     }
 
-    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::blocking::SpiBusWrite<W> for Spi<'d, T, NoDma, NoDma> {
+    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::SpiBusWrite<W> for Spi<'d, T, NoDma, NoDma> {
         fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
             self.blocking_write(words)
         }
     }
 
-    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::blocking::SpiBus<W> for Spi<'d, T, NoDma, NoDma> {
+    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::SpiBus<W> for Spi<'d, T, NoDma, NoDma> {
         fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
             self.blocking_transfer(read, write)
         }

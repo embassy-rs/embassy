@@ -848,8 +848,7 @@ mod eh02 {
 
 #[cfg(feature = "unstable-traits")]
 mod eh1 {
-    use embedded_hal_1::digital::blocking::{InputPin, OutputPin, StatefulOutputPin, ToggleableOutputPin};
-    use embedded_hal_1::digital::ErrorType;
+    use embedded_hal_1::digital::{ErrorType, InputPin, OutputPin, StatefulOutputPin, ToggleableOutputPin};
 
     use super::*;
 

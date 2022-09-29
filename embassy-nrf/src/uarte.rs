@@ -1040,7 +1040,7 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, T: Instance> embedded_hal_1::serial::blocking::Write for Uarte<'d, T> {
+    impl<'d, T: Instance> embedded_hal_1::serial::Write for Uarte<'d, T> {
         fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
         }
@@ -1054,7 +1054,7 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, T: Instance> embedded_hal_1::serial::blocking::Write for UarteTx<'d, T> {
+    impl<'d, T: Instance> embedded_hal_1::serial::Write for UarteTx<'d, T> {
         fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
         }
