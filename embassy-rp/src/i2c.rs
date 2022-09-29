@@ -379,7 +379,7 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::blocking::I2c for I2c<'d, T, M> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, T, M> {
         fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_read(address, buffer)
         }
@@ -421,16 +421,14 @@ mod eh1 {
         fn transaction<'a>(
             &mut self,
             address: u8,
-            operations: &mut [embedded_hal_1::i2c::blocking::Operation<'a>],
+            operations: &mut [embedded_hal_1::i2c::Operation<'a>],
         ) -> Result<(), Self::Error> {
             Self::setup(address.into())?;
             for i in 0..operations.len() {
                 let last = i == operations.len() - 1;
                 match &mut operations[i] {
-                    embedded_hal_1::i2c::blocking::Operation::Read(buf) => {
-                        self.read_blocking_internal(buf, false, last)?
-                    }
-                    embedded_hal_1::i2c::blocking::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
+                    embedded_hal_1::i2c::Operation::Read(buf) => self.read_blocking_internal(buf, false, last)?,
+                    embedded_hal_1::i2c::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
                 }
             }
             Ok(())
@@ -438,17 +436,15 @@ mod eh1 {
 
         fn transaction_iter<'a, O>(&mut self, address: u8, operations: O) -> Result<(), Self::Error>
         where
-            O: IntoIterator<Item = embedded_hal_1::i2c::blocking::Operation<'a>>,
+            O: IntoIterator<Item = embedded_hal_1::i2c::Operation<'a>>,
         {
             Self::setup(address.into())?;
             let mut peekable = operations.into_iter().peekable();
             while let Some(operation) = peekable.next() {
                 let last = peekable.peek().is_none();
                 match operation {
-                    embedded_hal_1::i2c::blocking::Operation::Read(buf) => {
-                        self.read_blocking_internal(buf, false, last)?
-                    }
-                    embedded_hal_1::i2c::blocking::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
+                    embedded_hal_1::i2c::Operation::Read(buf) => self.read_blocking_internal(buf, false, last)?,
+                    embedded_hal_1::i2c::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
                 }
             }
             Ok(())

@@ -20,8 +20,7 @@ use core::cell::RefCell;
 
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::blocking_mutex::Mutex;
-use embedded_hal_1::i2c::blocking::{I2c, Operation};
-use embedded_hal_1::i2c::ErrorType;
+use embedded_hal_1::i2c::{ErrorType, I2c, Operation};
 
 use crate::shared_bus::I2cDeviceError;
 use crate::SetConfig;
