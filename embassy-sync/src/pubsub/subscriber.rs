@@ -28,8 +28,8 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Sub<'a, PSB, T> {
     }
 
     /// Wait for a published message
-    pub async fn next_message(&mut self) -> WaitResult<T> {
-        SubscriberWaitFuture { subscriber: self }.await
+    pub fn next_message<'s>(&'s mut self) -> SubscriberWaitFuture<'s, 'a, PSB, T> {
+        SubscriberWaitFuture { subscriber: self }
     }
 
     /// Wait for a published message (ignoring lag results)
@@ -140,7 +140,8 @@ impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS:
 }
 
 /// Future for the subscriber wait action
-struct SubscriberWaitFuture<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct SubscriberWaitFuture<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
     subscriber: &'s mut Sub<'a, PSB, T>,
 }
 

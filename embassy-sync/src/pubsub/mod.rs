@@ -562,7 +562,7 @@ mod tests {
     async fn correct_available() {
         let channel = PubSubChannel::<NoopRawMutex, u32, 4, 4, 4>::new();
 
-        let mut sub0 = channel.subscriber().unwrap();
+        let sub0 = channel.subscriber().unwrap();
         let mut sub1 = channel.subscriber().unwrap();
         let pub0 = channel.publisher().unwrap();
 
