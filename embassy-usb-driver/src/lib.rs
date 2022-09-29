@@ -17,6 +17,16 @@ pub enum Direction {
     In = 0x80,
 }
 
+impl From<u8> for Direction {
+    fn from(v: u8) -> Self {
+        if v & (Direction::In as u8) == 0 {
+            Direction::Out
+        } else {
+            Direction::In
+        }
+    }
+}
+
 /// USB endpoint transfer type. The values of this enum can be directly cast into `u8` to get the
 /// transfer bmAttributes transfer type bits.
 #[repr(u8)]

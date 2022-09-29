@@ -106,7 +106,7 @@ impl Request {
         let recipient = rt & 0b11111;
 
         Request {
-            direction: if rt & 0x80 == 0 { Direction::Out } else { Direction::In },
+            direction: rt.into(),
             request_type: unsafe { mem::transmute((rt >> 5) & 0b11) },
             recipient: if recipient <= 3 {
                 unsafe { mem::transmute(recipient) }
