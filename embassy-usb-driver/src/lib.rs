@@ -54,12 +54,16 @@ impl From<EndpointAddress> for u8 {
 }
 
 impl EndpointAddress {
-    const INBITS: u8 = Direction::In as u8;
+    const INBITS: u8 = 0x80;
 
     /// Constructs a new EndpointAddress with the given index and direction.
     #[inline]
     pub fn from_parts(index: usize, dir: Direction) -> Self {
-        EndpointAddress(index as u8 | dir as u8)
+        let dir_u8 = match dir {
+            Direction::Out => 0x00,
+            Direction::In => Self::INBITS,
+        };
+        EndpointAddress(index as u8 | dir_u8)
     }
 
     /// Gets the direction part of the address.
