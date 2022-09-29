@@ -31,16 +31,25 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Pub<'a, PSB, T> {
     }
 
     /// Publish a message. But if the message queue is full, wait for all subscribers to have read the last message
-    pub fn publish<'s>(&'s self, message: T) -> PublisherWaitFuture<'s, 'a, PSB, T> {
+    pub async fn publish<'s>(&'s self, message: T) {
         PublisherWaitFuture {
             message: Some(message),
             publisher: self,
         }
+        .await
     }
 
     /// Publish a message if there is space in the message queue
     pub fn try_publish(&self, message: T) -> Result<(), T> {
         self.channel.publish_with_context(message, None)
+    }
+
+    /// The amount of messages that can still be published without having to wait or without having to lag the subscribers
+    ///
+    /// *Note: In the time between checking this and a publish action, other publishers may have had time to publish something.
+    /// So checking doesn't give any guarantees.*
+    pub fn space(&self) -> usize {
+        self.channel.space()
     }
 }
 
@@ -158,7 +167,7 @@ impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS:
 }
 
 /// Future for the publisher wait action
-pub struct PublisherWaitFuture<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
+struct PublisherWaitFuture<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
     /// The message we need to publish
     message: Option<T>,
     publisher: &'s Pub<'a, PSB, T>,

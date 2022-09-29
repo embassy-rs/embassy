@@ -192,6 +192,10 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
         })
     }
 
+    fn available(&self, next_message_id: u64) -> u64 {
+        self.inner.lock(|s| s.borrow().next_message_id - next_message_id)
+    }
+
     fn publish_with_context(&self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), T> {
         self.inner.lock(|s| {
             let mut s = s.borrow_mut();
@@ -214,6 +218,13 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
         self.inner.lock(|s| {
             let mut s = s.borrow_mut();
             s.publish_immediate(message)
+        })
+    }
+
+    fn space(&self) -> usize {
+        self.inner.lock(|s| {
+            let s = s.borrow();
+            s.queue.capacity() - s.queue.len()
         })
     }
 
@@ -388,6 +399,10 @@ pub trait PubSubBehavior<T> {
     /// If the message is not yet present and a context is given, then its waker is registered in the subsriber wakers.
     fn get_message_with_context(&self, next_message_id: &mut u64, cx: Option<&mut Context<'_>>) -> Poll<WaitResult<T>>;
 
+    /// Get the amount of messages that are between the given the next_message_id and the most recent message.
+    /// This is not necessarily the amount of messages a subscriber can still received as it may have lagged.
+    fn available(&self, next_message_id: u64) -> u64;
+
     /// Try to publish a message to the queue.
     ///
     /// If the queue is full and a context is given, then its waker is registered in the publisher wakers.
@@ -395,6 +410,9 @@ pub trait PubSubBehavior<T> {
 
     /// Publish a message immediately
     fn publish_immediate(&self, message: T);
+
+    /// The amount of messages that can still be published without having to wait or without having to lag the subscribers
+    fn space(&self) -> usize;
 
     /// Let the channel know that a subscriber has dropped
     fn unregister_subscriber(&self, subscriber_next_message_id: u64);
@@ -538,5 +556,60 @@ mod tests {
         assert_eq!(pub0.try_publish(0), Err(0));
 
         drop(sub0);
+    }
+
+    #[futures_test::test]
+    async fn correct_available() {
+        let channel = PubSubChannel::<NoopRawMutex, u32, 4, 4, 4>::new();
+
+        let mut sub0 = channel.subscriber().unwrap();
+        let mut sub1 = channel.subscriber().unwrap();
+        let pub0 = channel.publisher().unwrap();
+
+        assert_eq!(sub0.available(), 0);
+        assert_eq!(sub1.available(), 0);
+
+        pub0.publish(42).await;
+
+        assert_eq!(sub0.available(), 1);
+        assert_eq!(sub1.available(), 1);
+
+        sub1.next_message().await;
+
+        assert_eq!(sub1.available(), 0);
+
+        pub0.publish(42).await;
+
+        assert_eq!(sub0.available(), 2);
+        assert_eq!(sub1.available(), 1);
+    }
+
+    #[futures_test::test]
+    async fn correct_space() {
+        let channel = PubSubChannel::<NoopRawMutex, u32, 4, 4, 4>::new();
+
+        let mut sub0 = channel.subscriber().unwrap();
+        let mut sub1 = channel.subscriber().unwrap();
+        let pub0 = channel.publisher().unwrap();
+
+        assert_eq!(pub0.space(), 4);
+
+        pub0.publish(42).await;
+
+        assert_eq!(pub0.space(), 3);
+
+        pub0.publish(42).await;
+
+        assert_eq!(pub0.space(), 2);
+
+        sub0.next_message().await;
+        sub0.next_message().await;
+
+        assert_eq!(pub0.space(), 2);
+
+        sub1.next_message().await;
+        assert_eq!(pub0.space(), 3);
+        sub1.next_message().await;
+        assert_eq!(pub0.space(), 4);
     }
 }

@@ -28,8 +28,8 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Sub<'a, PSB, T> {
     }
 
     /// Wait for a published message
-    pub fn next_message<'s>(&'s mut self) -> SubscriberWaitFuture<'s, 'a, PSB, T> {
-        SubscriberWaitFuture { subscriber: self }
+    pub async fn next_message(&mut self) -> WaitResult<T> {
+        SubscriberWaitFuture { subscriber: self }.await
     }
 
     /// Wait for a published message (ignoring lag results)
@@ -63,6 +63,11 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Sub<'a, PSB, T> {
                 None => break None,
             }
         }
+    }
+
+    /// The amount of messages this subscriber hasn't received yet
+    pub fn available(&self) -> u64 {
+        self.channel.available(self.next_message_id)
     }
 }
 
@@ -135,7 +140,7 @@ impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS:
 }
 
 /// Future for the subscriber wait action
-pub struct SubscriberWaitFuture<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
+struct SubscriberWaitFuture<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
     subscriber: &'s mut Sub<'a, PSB, T>,
 }
 
