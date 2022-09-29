@@ -78,6 +78,7 @@ impl<const FLASH_SIZE: usize> Flash<FLASH_SIZE> {
         });
     }
 }
+
 impl<const FLASH_SIZE: usize> ErrorType for Flash<FLASH_SIZE> {
     type Error = Error;
 }
