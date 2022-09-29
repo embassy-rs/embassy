@@ -1,4 +1,6 @@
 #![macro_use]
+// Credit: taken from `rp-hal` (also licensed Apache+MIT)
+// https://github.com/rp-rs/rp-hal/blob/main/rp2040-hal/src/intrinsics.rs
 
 /// Generate a series of aliases for an intrinsic function.
 macro_rules! intrinsics_aliases {
@@ -14,7 +16,7 @@ macro_rules! intrinsics_aliases {
         $alias:ident
         $($rest:ident)*
     ) => {
-        #[cfg(all(target_arch = "arm", not(feature = "disable-intrinsics")))]
+        #[cfg(all(target_arch = "arm", feature = "intrinsics"))]
         intrinsics! {
             extern $abi fn $alias( $($argname: $ty),* ) -> $ret {
                 $name($($argname),*)
@@ -32,7 +34,7 @@ macro_rules! intrinsics_aliases {
         $alias:ident
         $($rest:ident)*
     ) => {
-        #[cfg(all(target_arch = "arm", not(feature = "disable-intrinsics")))]
+        #[cfg(all(target_arch = "arm", feature = "intrinsics"))]
         intrinsics! {
             unsafe extern $abi fn $alias( $($argname: $ty),* ) -> $ret {
                 $name($($argname),*)
@@ -52,7 +54,7 @@ macro_rules! intrinsics_aliases {
 /// is to abstract anything special that needs to be done to override an
 /// intrinsic function.  Intrinsic generation is disabled for non-ARM targets
 /// so things like CI and docs generation do not have problems.  Additionally
-/// they can be disabled with the crate feature `disable-intrinsics` for
+/// they can be disabled by disabling the crate feature `intrinsics` for
 /// testing or comparing performance.
 ///
 /// Like the compiler-builtins macro, it accepts a series of functions that
@@ -211,13 +213,13 @@ macro_rules! intrinsics {
 
         $($rest:tt)*
     ) => {
-        #[cfg(all(target_arch = "arm", not(feature = "disable-intrinsics")))]
+        #[cfg(all(target_arch = "arm", feature = "intrinsics"))]
         $(#[$($attr)*])*
         extern $abi fn $name( $($argname: $ty),* ) -> $ret {
             $($body)*
         }
 
-        #[cfg(all(target_arch = "arm", not(feature = "disable-intrinsics")))]
+        #[cfg(all(target_arch = "arm", feature = "intrinsics"))]
         mod $name {
             #[no_mangle]
             $(#[$($attr)*])*
@@ -228,7 +230,7 @@ macro_rules! intrinsics {
 
         // Not exported, but defined so the actual implementation is
         // considered used
-        #[cfg(not(all(target_arch = "arm", not(feature = "disable-intrinsics"))))]
+        #[cfg(not(all(target_arch = "arm", feature = "intrinsics")))]
         #[allow(dead_code)]
         fn $name( $($argname: $ty),* ) -> $ret {
             $($body)*
@@ -245,13 +247,13 @@ macro_rules! intrinsics {
 
         $($rest:tt)*
     ) => {
-        #[cfg(all(target_arch = "arm", not(feature = "disable-intrinsics")))]
+        #[cfg(all(target_arch = "arm", feature = "intrinsics"))]
         $(#[$($attr)*])*
         unsafe extern $abi fn $name( $($argname: $ty),* ) -> $ret {
             $($body)*
         }
 
-        #[cfg(all(target_arch = "arm", not(feature = "disable-intrinsics")))]
+        #[cfg(all(target_arch = "arm", feature = "intrinsics"))]
         mod $name {
             #[no_mangle]
             $(#[$($attr)*])*
@@ -262,7 +264,7 @@ macro_rules! intrinsics {
 
         // Not exported, but defined so the actual implementation is
         // considered used
-        #[cfg(not(all(target_arch = "arm", not(feature = "disable-intrinsics"))))]
+        #[cfg(not(all(target_arch = "arm", feature = "intrinsics")))]
         #[allow(dead_code)]
         unsafe fn $name( $($argname: $ty),* ) -> $ret {
             $($body)*

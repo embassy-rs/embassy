@@ -12,6 +12,7 @@ pub struct Can<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Can<'d, T> {
+    /// Creates a new Bxcan instance, blocking for 11 recessive bits to sync with the CAN bus.
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
@@ -29,6 +30,28 @@ impl<'d, T: Instance> Can<'d, T> {
 
         Self {
             can: bxcan::Can::builder(BxcanInstance(peri)).enable(),
+        }
+    }
+
+    /// Creates a new Bxcan instance, keeping the peripheral in sleep mode.
+    /// You must call [Can::enable_non_blocking] to use the peripheral.
+    pub fn new_disabled(
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+    ) -> Self {
+        into_ref!(peri, rx, tx);
+
+        unsafe {
+            rx.set_as_af(rx.af_num(), AFType::Input);
+            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+        }
+
+        T::enable();
+        T::reset();
+
+        Self {
+            can: bxcan::Can::builder(BxcanInstance(peri)).leave_disabled(),
         }
     }
 }

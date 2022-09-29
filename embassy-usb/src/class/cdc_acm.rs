@@ -1,18 +1,13 @@
-#![no_std]
-#![feature(type_alias_impl_trait)]
-
-// This mod MUST go first, so that the others see its macros.
-pub(crate) mod fmt;
-
 use core::cell::Cell;
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
-use embassy_usb::control::{self, ControlHandler, InResponse, OutResponse, Request};
-use embassy_usb::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
-use embassy_usb::types::*;
-use embassy_usb::Builder;
+
+use crate::control::{self, ControlHandler, InResponse, OutResponse, Request};
+use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
+use crate::types::*;
+use crate::Builder;
 
 /// This should be used as `device_class` when building the `UsbDevice`.
 pub const USB_CLASS_CDC: u8 = 0x02;
@@ -268,7 +263,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
 }
 
 /// Number of stop bits for LineCoding
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum StopBits {
     /// 1 stop bit
@@ -292,7 +287,7 @@ impl From<u8> for StopBits {
 }
 
 /// Parity for LineCoding
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ParityType {
     None = 0,
@@ -316,7 +311,7 @@ impl From<u8> for ParityType {
 ///
 /// This is provided by the host for specifying the standard UART parameters such as baud rate. Can
 /// be ignored if you don't plan to interface with a physical UART.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct LineCoding {
     stop_bits: StopBits,

@@ -7,8 +7,10 @@ use core::task::Poll;
 use atomic_polyfill::compiler_fence;
 use embassy_hal_common::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_usb::driver::{self, EndpointAllocError, EndpointError, Event, Unsupported};
-use embassy_usb::types::{EndpointAddress, EndpointInfo, EndpointType, UsbDirection};
+use embassy_usb_driver as driver;
+use embassy_usb_driver::{
+    Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
+};
 
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::{pac, peripherals, Peripheral, RegExt};
@@ -204,8 +206,8 @@ impl<'d, T: Instance> Driver<'d, T> {
         );
 
         let alloc = match D::dir() {
-            UsbDirection::Out => &mut self.ep_out,
-            UsbDirection::In => &mut self.ep_in,
+            Direction::Out => &mut self.ep_out,
+            Direction::In => &mut self.ep_in,
         };
 
         let index = alloc.iter_mut().enumerate().find(|(i, ep)| {
@@ -254,7 +256,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         };
 
         match D::dir() {
-            UsbDirection::Out => unsafe {
+            Direction::Out => unsafe {
                 T::dpram().ep_out_control(index - 1).write(|w| {
                     w.set_enable(false);
                     w.set_buffer_address(addr);
@@ -262,7 +264,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                     w.set_endpoint_type(ep_type_reg);
                 })
             },
-            UsbDirection::In => unsafe {
+            Direction::In => unsafe {
                 T::dpram().ep_in_control(index - 1).write(|w| {
                     w.set_enable(false);
                     w.set_buffer_address(addr);
@@ -429,14 +431,14 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
         let n = ep_addr.index();
         match ep_addr.direction() {
-            UsbDirection::In => unsafe {
+            Direction::In => unsafe {
                 T::dpram().ep_in_control(n - 1).modify(|w| w.set_enable(enabled));
                 T::dpram().ep_in_buffer_control(ep_addr.index()).write(|w| {
                     w.set_pid(0, true); // first packet is DATA0, but PID is flipped before
                 });
                 EP_IN_WAKERS[n].wake();
             },
-            UsbDirection::Out => unsafe {
+            Direction::Out => unsafe {
                 T::dpram().ep_out_control(n - 1).modify(|w| w.set_enable(enabled));
 
                 T::dpram().ep_out_buffer_control(ep_addr.index()).write(|w| {
@@ -474,14 +476,14 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 }
 
 trait Dir {
-    fn dir() -> UsbDirection;
+    fn dir() -> Direction;
     fn waker(i: usize) -> &'static AtomicWaker;
 }
 
 pub enum In {}
 impl Dir for In {
-    fn dir() -> UsbDirection {
-        UsbDirection::In
+    fn dir() -> Direction {
+        Direction::In
     }
 
     #[inline]
@@ -492,8 +494,8 @@ impl Dir for In {
 
 pub enum Out {}
 impl Dir for Out {
-    fn dir() -> UsbDirection {
-        UsbDirection::Out
+    fn dir() -> Direction {
+        Direction::Out
     }
 
     #[inline]

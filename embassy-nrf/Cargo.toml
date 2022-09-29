@@ -18,10 +18,10 @@ flavors = [
 
 time = ["dep:embassy-time"]
 
-defmt = ["dep:defmt", "embassy-executor/defmt", "embassy-sync/defmt", "embassy-usb?/defmt", "embedded-io?/defmt", "embassy-embedded-hal/defmt"]
+defmt = ["dep:defmt", "embassy-executor/defmt", "embassy-sync/defmt", "embassy-usb-driver?/defmt", "embedded-io?/defmt", "embassy-embedded-hal/defmt"]
 
 # Enable nightly-only features
-nightly = ["embedded-hal-1", "embedded-hal-async", "embassy-usb", "embedded-storage-async", "dep:embedded-io", "embassy-embedded-hal/nightly"]
+nightly = ["embedded-hal-1", "embedded-hal-async", "dep:embassy-usb-driver", "embedded-storage-async", "dep:embedded-io", "embassy-embedded-hal/nightly"]
 
 # Reexport the PAC for the currently enabled chip at `embassy_nrf::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-nrf may major-bump (breaking) the PAC version.
@@ -70,7 +70,7 @@ embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-3"]}
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
-embassy-usb = {version = "0.1.0", path = "../embassy-usb", optional=true }
+embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional=true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8", optional = true}

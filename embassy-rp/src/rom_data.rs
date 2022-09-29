@@ -7,6 +7,8 @@
 //! > on the device, as well as highly optimized versions of certain key
 //! > functionality that would otherwise have to take up space in most user
 //! > binaries.
+// Credit: taken from `rp-hal` (also licensed Apache+MIT)
+// https://github.com/rp-rs/rp-hal/blob/main/rp2040-hal/src/rom_data.rs
 
 /// A bootrom function table code.
 pub type RomFnTableCode = [u8; 2];

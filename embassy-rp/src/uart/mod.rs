@@ -346,6 +346,11 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
                 w.set_fen(true);
             });
 
+            r.uartifls().write(|w| {
+                w.set_rxiflsel(0b000);
+                w.set_txiflsel(0b000);
+            });
+
             r.uartcr().write(|w| {
                 w.set_uarten(true);
                 w.set_rxe(true);
@@ -423,9 +428,11 @@ mod eh02 {
 
     impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, T, M> {
         type Error = Error;
+
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
         }
+
         fn bflush(&mut self) -> Result<(), Self::Error> {
             self.blocking_flush()
         }
@@ -433,6 +440,7 @@ mod eh02 {
 
     impl<'d, T: Instance, M: Mode> embedded_hal_02::serial::Read<u8> for Uart<'d, T, M> {
         type Error = Error;
+
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             embedded_hal_02::serial::Read::read(&mut self.rx)
         }
@@ -440,9 +448,11 @@ mod eh02 {
 
     impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, T, M> {
         type Error = Error;
+
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
         }
+
         fn bflush(&mut self) -> Result<(), Self::Error> {
             self.blocking_flush()
         }
@@ -474,6 +484,75 @@ mod eh1 {
 
     impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::ErrorType for UartRx<'d, T, M> {
         type Error = Error;
+    }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::nb::Read for UartRx<'d, T, M> {
+        fn read(&mut self) -> nb::Result<u8, Self::Error> {
+            let r = T::regs();
+            unsafe {
+                let dr = r.uartdr().read();
+
+                if dr.oe() {
+                    Err(nb::Error::Other(Error::Overrun))
+                } else if dr.be() {
+                    Err(nb::Error::Other(Error::Break))
+                } else if dr.pe() {
+                    Err(nb::Error::Other(Error::Parity))
+                } else if dr.fe() {
+                    Err(nb::Error::Other(Error::Framing))
+                } else if dr.fe() {
+                    Ok(dr.data())
+                } else {
+                    Err(nb::Error::WouldBlock)
+                }
+            }
+        }
+    }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::blocking::Write for UartTx<'d, T, M> {
+        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            self.blocking_flush()
+        }
+    }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::nb::Write for UartTx<'d, T, M> {
+        fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
+            self.blocking_write(&[char]).map_err(nb::Error::Other)
+        }
+
+        fn flush(&mut self) -> nb::Result<(), Self::Error> {
+            self.blocking_flush().map_err(nb::Error::Other)
+        }
+    }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::nb::Read for Uart<'d, T, M> {
+        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+            embedded_hal_02::serial::Read::read(&mut self.rx)
+        }
+    }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::blocking::Write for Uart<'d, T, M> {
+        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            self.blocking_flush()
+        }
+    }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::nb::Write for Uart<'d, T, M> {
+        fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
+            self.blocking_write(&[char]).map_err(nb::Error::Other)
+        }
+
+        fn flush(&mut self) -> nb::Result<(), Self::Error> {
+            self.blocking_flush().map_err(nb::Error::Other)
+        }
     }
 }
 
@@ -532,6 +611,11 @@ mod eha {
     }
 }
 
+#[cfg(feature = "nightly")]
+mod buffered;
+#[cfg(feature = "nightly")]
+pub use buffered::*;
+
 mod sealed {
     use super::*;
 
@@ -540,6 +624,8 @@ mod sealed {
     pub trait Instance {
         const TX_DREQ: u8;
         const RX_DREQ: u8;
+
+        type Interrupt: crate::interrupt::Interrupt;
 
         fn regs() -> pac::uart::Uart;
     }
@@ -572,6 +658,8 @@ macro_rules! impl_instance {
             const TX_DREQ: u8 = $tx_dreq;
             const RX_DREQ: u8 = $rx_dreq;
 
+            type Interrupt = crate::interrupt::$irq;
+
             fn regs() -> pac::uart::Uart {
                 pac::$inst
             }
@@ -580,8 +668,8 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(UART0, UART0, 20, 21);
-impl_instance!(UART1, UART1, 22, 23);
+impl_instance!(UART0, UART0_IRQ, 20, 21);
+impl_instance!(UART1, UART1_IRQ, 22, 23);
 
 pub trait TxPin<T: Instance>: sealed::TxPin<T> + crate::gpio::Pin {}
 pub trait RxPin<T: Instance>: sealed::RxPin<T> + crate::gpio::Pin {}

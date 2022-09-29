@@ -1,7 +1,8 @@
 //! USB control data types.
 use core::mem;
 
-use super::types::*;
+use crate::driver::Direction;
+use crate::types::StringIndex;
 
 /// Control request type.
 #[repr(u8)]
@@ -42,7 +43,7 @@ pub enum Recipient {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Request {
     /// Direction of the request.
-    pub direction: UsbDirection,
+    pub direction: Direction,
     /// Type of the request.
     pub request_type: RequestType,
     /// Recipient of the request.
@@ -105,7 +106,7 @@ impl Request {
         let recipient = rt & 0b11111;
 
         Request {
-            direction: rt.into(),
+            direction: if rt & 0x80 == 0 { Direction::Out } else { Direction::In },
             request_type: unsafe { mem::transmute((rt >> 5) & 0b11) },
             recipient: if recipient <= 3 {
                 unsafe { mem::transmute(recipient) }

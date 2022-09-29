@@ -12,7 +12,7 @@ flavors = [
 ]
 
 [features]
-defmt = ["dep:defmt", "embassy-usb?/defmt"]
+defmt = ["dep:defmt", "embassy-usb-driver?/defmt"]
 
 # Reexport the PAC for the currently enabled chip at `embassy_rp::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-rp may major-bump (breaking) the PAC version.
@@ -23,11 +23,11 @@ unstable-pac = []
 time-driver = []
 
 rom-func-cache = []
-disable-intrinsics = []
+intrinsics = []
 rom-v2-intrinsics = []
 
 # Enable nightly-only features
-nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb"]
+nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb-driver", "dep:embedded-io"]
 
 # Implement embedded-hal 1.0 alpha traits.
 # Implement embedded-hal-async traits if `nightly` is set as well.
@@ -41,7 +41,7 @@ embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-2"]}
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
-embassy-usb = {version = "0.1.0", path = "../embassy-usb", optional = true }
+embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional = true }
 atomic-polyfill = "1.0.1"
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
@@ -53,6 +53,7 @@ critical-section = "1.1"
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 chrono = { version = "0.4", default-features = false, optional = true }
 embedded-storage = { version = "0.3" }
+embedded-io = { version = "0.3.0", features = ["async"], optional = true }
 
 rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev="017e3c9007b2d3b6965f0d85b5bf8ce3fa6d7364", features = ["rt"] }
 #rp2040-pac2 = { path = "../../rp2040-pac2", features = ["rt"] }
