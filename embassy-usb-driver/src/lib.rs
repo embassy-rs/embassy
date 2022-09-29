@@ -12,9 +12,9 @@ use core::future::Future;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Direction {
     /// Host to device (OUT)
-    Out,
+    Out = 0x00,
     /// Device to host (IN)
-    In,
+    In = 0x80,
 }
 
 /// USB endpoint transfer type. The values of this enum can be directly cast into `u8` to get the
