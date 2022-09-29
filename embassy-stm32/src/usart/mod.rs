@@ -214,7 +214,6 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
             tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
             r.cr2().write(|_w| {});
-            r.cr3().write(|_w| {});
             r.brr().write_value(regs::Brr(div));
             r.cr1().write(|w| {
                 w.set_ue(true);
@@ -239,6 +238,29 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
             rx: UartRx::new(rx_dma),
             phantom: PhantomData {},
         }
+    }
+
+    pub fn new_with_rtscts(
+        _inner: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = TxDma> + 'd,
+        rx_dma: impl Peripheral<P = RxDma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(cts, rts);
+
+        unsafe {
+            rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
+            cts.set_as_af(cts.af_num(), AFType::Input);
+            T::regs().cr3().write(|w| {
+                w.set_rtse(true);
+                w.set_ctse(true);
+            });
+        }
+        Self::new(_inner, rx, tx, tx_dma, rx_dma, config)
     }
 
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error>
