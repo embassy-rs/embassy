@@ -46,6 +46,8 @@ pub mod flash;
 pub mod pwm;
 #[cfg(rng)]
 pub mod rng;
+#[cfg(all(rtc, not(rtc_v1)))]
+pub mod rtc;
 #[cfg(sdmmc)]
 pub mod sdmmc;
 #[cfg(spi)]
