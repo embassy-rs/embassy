@@ -368,13 +368,13 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, T: BasicInstance, RxDma> embedded_hal_1::serial::nb::Read for UartRx<'d, T, RxDma> {
+    impl<'d, T: BasicInstance, RxDma> embedded_hal_nb::serial::Read for UartRx<'d, T, RxDma> {
         fn read(&mut self) -> nb::Result<u8, Self::Error> {
             self.nb_read()
         }
     }
 
-    impl<'d, T: BasicInstance, TxDma> embedded_hal_1::serial::blocking::Write for UartTx<'d, T, TxDma> {
+    impl<'d, T: BasicInstance, TxDma> embedded_hal_1::serial::Write for UartTx<'d, T, TxDma> {
         fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
         }
@@ -384,7 +384,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: BasicInstance, TxDma> embedded_hal_1::serial::nb::Write for UartTx<'d, T, TxDma> {
+    impl<'d, T: BasicInstance, TxDma> embedded_hal_nb::serial::Write for UartTx<'d, T, TxDma> {
         fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
             self.blocking_write(&[char]).map_err(nb::Error::Other)
         }
@@ -394,13 +394,13 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_1::serial::nb::Read for Uart<'d, T, TxDma, RxDma> {
+    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::Read for Uart<'d, T, TxDma, RxDma> {
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             self.nb_read()
         }
     }
 
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_1::serial::blocking::Write for Uart<'d, T, TxDma, RxDma> {
+    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_1::serial::Write for Uart<'d, T, TxDma, RxDma> {
         fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
         }
@@ -410,7 +410,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_1::serial::nb::Write for Uart<'d, T, TxDma, RxDma> {
+    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::Write for Uart<'d, T, TxDma, RxDma> {
         fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
             self.blocking_write(&[char]).map_err(nb::Error::Other)
         }
