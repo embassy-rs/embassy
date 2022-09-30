@@ -867,7 +867,7 @@ mod eh1 {
         type Error = Infallible;
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::InputPin for Input<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Input<'d, T> {
         fn is_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_high())
         }
@@ -881,7 +881,7 @@ mod eh1 {
         type Error = Infallible;
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::OutputPin for Output<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Output<'d, T> {
         fn set_high(&mut self) -> Result<(), Self::Error> {
             Ok(self.set_high())
         }
@@ -891,7 +891,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::StatefulOutputPin for Output<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Output<'d, T> {
         fn is_set_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_set_high())
         }
@@ -901,7 +901,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::ToggleableOutputPin for Output<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::ToggleableOutputPin for Output<'d, T> {
         fn toggle(&mut self) -> Result<(), Self::Error> {
             Ok(self.toggle())
         }
@@ -911,7 +911,7 @@ mod eh1 {
         type Error = Infallible;
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::OutputPin for OutputOpenDrain<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for OutputOpenDrain<'d, T> {
         fn set_high(&mut self) -> Result<(), Self::Error> {
             Ok(self.set_high())
         }
@@ -921,7 +921,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::StatefulOutputPin for OutputOpenDrain<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for OutputOpenDrain<'d, T> {
         fn is_set_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_set_high())
         }
@@ -931,7 +931,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::ToggleableOutputPin for OutputOpenDrain<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::ToggleableOutputPin for OutputOpenDrain<'d, T> {
         fn toggle(&mut self) -> Result<(), Self::Error> {
             Ok(self.toggle())
         }
@@ -941,7 +941,7 @@ mod eh1 {
         type Error = Infallible;
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::InputPin for Flex<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Flex<'d, T> {
         fn is_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_high())
         }
@@ -951,7 +951,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::OutputPin for Flex<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Flex<'d, T> {
         fn set_high(&mut self) -> Result<(), Self::Error> {
             Ok(self.set_high())
         }
@@ -961,7 +961,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::StatefulOutputPin for Flex<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Flex<'d, T> {
         fn is_set_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_set_high())
         }
@@ -971,7 +971,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::ToggleableOutputPin for Flex<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::ToggleableOutputPin for Flex<'d, T> {
         fn toggle(&mut self) -> Result<(), Self::Error> {
             Ok(self.toggle())
         }

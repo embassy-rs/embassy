@@ -234,15 +234,15 @@ fn configure_radio(radio: &mut SubGhz<'_, NoDma, NoDma>, config: SubGhzRadioConf
     Ok(())
 }
 
-impl<RS: RadioSwitch> PhyRxTx for SubGhzRadio<'static, RS> {
+impl<'d, RS: RadioSwitch> PhyRxTx for SubGhzRadio<'d, RS> {
     type PhyError = RadioError;
 
-    type TxFuture<'m> = impl Future<Output = Result<u32, Self::PhyError>> + 'm where RS: 'm;
+    type TxFuture<'m> = impl Future<Output = Result<u32, Self::PhyError>> + 'm where Self: 'm;
     fn tx<'m>(&'m mut self, config: TxConfig, buf: &'m [u8]) -> Self::TxFuture<'m> {
         async move { self.do_tx(config, buf).await }
     }
 
-    type RxFuture<'m> = impl Future<Output = Result<(usize, RxQuality), Self::PhyError>> + 'm  where RS: 'm;
+    type RxFuture<'m> = impl Future<Output = Result<(usize, RxQuality), Self::PhyError>> + 'm  where Self: 'm;
     fn rx<'m>(&'m mut self, config: RfConfig, buf: &'m mut [u8]) -> Self::RxFuture<'m> {
         async move { self.do_rx(config, buf).await }
     }
