@@ -26,7 +26,7 @@ st7789 = "0.6.1"
 display-interface = "0.4.1"
 byte-slice-cast = { version = "1.2.0", default-features = false }
 
-embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9" }
 embedded-hal-async = { version = "0.1.0-alpha.1" }
 embedded-io = { version = "0.3.0", features = ["async", "defmt"] }
 static_cell = "1.0.0"
