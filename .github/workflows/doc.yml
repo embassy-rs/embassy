@@ -5,7 +5,7 @@ on:
     branches: [master]
 
 env:
-  BUILDER_THREADS: '2'
+  BUILDER_THREADS: '1'
 
 jobs:
   doc:
