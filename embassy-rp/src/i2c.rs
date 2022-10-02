@@ -406,9 +406,9 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         self.read_async_internal(buffer, false, true).await
     }
 
-    pub async fn write_async(&mut self, addr: u16, buffer: &[u8]) -> Result<(), Error> {
+    pub async fn write_async(&mut self, addr: u16, bytes : impl IntoIterator<Item = u8>) -> Result<(), Error> {
         Self::setup(addr)?;
-        self.write_async_internal(buffer.iter().copied(), true).await
+        self.write_async_internal(bytes, true).await
     }
 }
 
