@@ -6,7 +6,7 @@ edition = "2021"
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-v$VERSION/embassy-usb/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb/src/"
-features = ["defmt"]
+features = ["defmt", "usbd-hid"]
 target = "thumbv7em-none-eabi"
 
 [features]

@@ -8,7 +8,7 @@ edition = "2021"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-embedded-hal-v$VERSION/embassy-embedded-hal/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-embedded-hal/src/"
 features = ["nightly", "std"]
-target = "thumbv7em-none-eabi"
+target = "x86_64-unknown-linux-gnu"
 
 [features]
 std = []
