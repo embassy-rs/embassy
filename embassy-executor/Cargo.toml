@@ -7,7 +7,7 @@ edition = "2021"
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-executor-v$VERSION/embassy-executor/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-executor/src/"
-features = ["nightly", "defmt", "unstable-traits"]
+features = ["nightly", "defmt"]
 flavors = [
     { name = "std",                       target = "x86_64-unknown-linux-gnu",   features = ["std"] },
     { name = "wasm",                      target = "wasm32-unknown-unknown",     features = ["wasm"] },
