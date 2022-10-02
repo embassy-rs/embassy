@@ -22,7 +22,7 @@ use embassy_net::{PacketBoxExt, PacketBuf};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{block_for, Duration, Timer};
-use embedded_hal_1::digital::blocking::OutputPin;
+use embedded_hal_1::digital::OutputPin;
 use embedded_hal_async::spi::{SpiBusRead, SpiBusWrite, SpiDevice};
 
 use self::structs::*;
