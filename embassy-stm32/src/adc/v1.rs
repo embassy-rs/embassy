@@ -48,25 +48,33 @@ impl Resolution {
     }
 }
 
+pub trait InternalChannel<T>: sealed::InternalChannel<T> {}
+
+mod sealed {
+    pub trait InternalChannel<T> {
+        fn channel(&self) -> u8;
+    }
+}
+
 pub struct Vbat;
-impl<T: Instance> AdcPin<T> for Vbat {}
-impl<T: Instance> super::sealed::AdcPin<T> for Vbat {
+impl<T: Instance> InternalChannel<T> for Vbat {}
+impl<T: Instance> sealed::InternalChannel<T> for Vbat {
     fn channel(&self) -> u8 {
         18
     }
 }
 
 pub struct Vref;
-impl<T: Instance> AdcPin<T> for Vref {}
-impl<T: Instance> super::sealed::AdcPin<T> for Vref {
+impl<T: Instance> InternalChannel<T> for Vref {}
+impl<T: Instance> sealed::InternalChannel<T> for Vref {
     fn channel(&self) -> u8 {
         17
     }
 }
 
 pub struct Temperature;
-impl<T: Instance> AdcPin<T> for Temperature {}
-impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
+impl<T: Instance> InternalChannel<T> for Temperature {}
+impl<T: Instance> sealed::InternalChannel<T> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
@@ -219,64 +227,64 @@ impl<'d, T: Instance> Adc<'d, T> {
         ((u32::from(sample) * self.vref_mv) / self.resolution.to_max_count()) as u16
     }
 
-    fn convert(&mut self) -> u16 {
-        unsafe {
-            T::regs().isr().modify(|reg| {
-                reg.set_eoc(true);
-                reg.set_eosmp(true);
-            });
-
-            // A.7.5 Single conversion sequence code example - Software trigger
-            T::regs().cr().modify(|reg| reg.set_adstart(true));
-            while !T::regs().isr().read().eoc() {
-                // spin
-            }
-
-            T::regs().dr().read().0 as u16
-        }
-    }
-
     pub fn read<P>(&mut self, pin: &mut P) -> u16
     where
         P: AdcPin<T> + crate::gpio::sealed::Pin,
     {
+        let channel = pin.channel();
         unsafe {
-            // A.7.2 ADC enable sequence code example
-            if T::regs().isr().read().adrdy() {
-                T::regs().isr().modify(|reg| reg.set_adrdy(true));
-            }
-            T::regs().cr().modify(|reg| reg.set_aden(true));
-            while !T::regs().isr().read().adrdy() {
-                // ES0233, 2.4.3 ADEN bit cannot be set immediately after the ADC calibration
-                // Workaround: When the ADC calibration is complete (ADCAL = 0), keep setting the
-                // ADEN bit until the ADRDY flag goes high.
-                T::regs().cr().modify(|reg| reg.set_aden(true));
-            }
-
-            T::regs().cfgr1().modify(|reg| reg.set_res(self.resolution.res()));
-            Self::set_channel_sample_time(pin.channel(), self.sample_time);
             pin.set_as_analog();
-            T::regs()
-                .chselr()
-                .write(|reg| reg.set_chselx(pin.channel() as usize, true));
-
-            let value = self.convert();
-
-            // A.7.3 ADC disable code example
-            T::regs().cr().modify(|reg| reg.set_adstp(true));
-            while T::regs().cr().read().adstp() {
-                // spin
-            }
-            T::regs().cr().modify(|reg| reg.set_addis(true));
-            while T::regs().cr().read().aden() {
-                // spin
-            }
-
-            value
+            self.read_channel(channel)
         }
     }
 
-    unsafe fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {
-        T::regs().smpr().modify(|reg| reg.set_smp(sample_time.sample_time()));
+    pub fn read_internal(&mut self, channel: &mut impl InternalChannel<T>) -> u16 {
+        let channel = channel.channel();
+        unsafe {
+            self.read_channel(channel)
+        }
+    }
+
+    unsafe fn read_channel(&mut self, channel: u8) -> u16 {
+        // A.7.2 ADC enable sequence code example
+        if T::regs().isr().read().adrdy() {
+            T::regs().isr().modify(|reg| reg.set_adrdy(true));
+        }
+        T::regs().cr().modify(|reg| reg.set_aden(true));
+        while !T::regs().isr().read().adrdy() {
+            // ES0233, 2.4.3 ADEN bit cannot be set immediately after the ADC calibration
+            // Workaround: When the ADC calibration is complete (ADCAL = 0), keep setting the
+            // ADEN bit until the ADRDY flag goes high.
+            T::regs().cr().modify(|reg| reg.set_aden(true));
+        }
+
+        T::regs().cfgr1().modify(|reg| reg.set_res(self.resolution.res()));
+        T::regs().isr().modify(|reg| {
+            reg.set_eoc(true);
+            reg.set_eosmp(true);
+        });
+
+        // A.7.5 Single conversion sequence code example - Software trigger
+        T::regs()
+            .chselr()
+            .write(|reg| reg.set_chselx(channel as usize, true));
+        T::regs().smpr().modify(|reg| reg.set_smp(self.sample_time.sample_time()));
+        T::regs().cr().modify(|reg| reg.set_adstart(true));
+        while !T::regs().isr().read().eoc() {
+            // spin
+        }
+        let value = T::regs().dr().read().0 as u16;
+
+        // A.7.3 ADC disable code example
+        T::regs().cr().modify(|reg| reg.set_adstp(true));
+        while T::regs().cr().read().adstp() {
+            // spin
+        }
+        T::regs().cr().modify(|reg| reg.set_addis(true));
+        while T::regs().cr().read().aden() {
+            // spin
+        }
+
+        value
     }
 }
