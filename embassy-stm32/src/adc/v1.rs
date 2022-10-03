@@ -236,7 +236,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
+    pub fn read<P>(&mut self, pin: &mut P) -> u16
+    where
+        P: AdcPin<T> + crate::gpio::sealed::Pin,
+    {
         unsafe {
             // A.7.2 ADC enable sequence code example
             if T::regs().isr().read().adrdy() {
@@ -252,6 +255,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
             T::regs().cfgr1().modify(|reg| reg.set_res(self.resolution.res()));
             Self::set_channel_sample_time(pin.channel(), self.sample_time);
+            pin.set_as_analog();
             T::regs()
                 .chselr()
                 .write(|reg| reg.set_chselx(pin.channel() as usize, true));
