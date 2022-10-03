@@ -4,7 +4,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::Adc;
+use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_time::{Delay, Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -14,11 +14,14 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut adc = Adc::new(p.ADC, &mut Delay);
+    adc.set_sample_time(SampleTime::Cycles71_5);
     let mut pin = p.PA1;
+    let mut vref = adc.enable_temperature(&mut Delay);
 
     loop {
         let v = adc.read(&mut pin);
-        info!("--> {} - {} mV", v, adc.to_millivolts(v));
+        let r = adc.read_internal(&mut vref);
+        info!("--> {} - {} mV / vref = {} - {} mV", v, adc.to_millivolts(v), r, adc.to_millivolts(r));
         Timer::after(Duration::from_millis(100)).await;
     }
 }
