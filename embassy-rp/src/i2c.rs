@@ -135,7 +135,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         let mut remaining = buffer.len();
         let mut remaining_queue = buffer.len();
 
-        let mut abort_reason = None;
+        let mut abort_reason = Ok(());
 
         while remaining > 0 {
             // Waggle SCK - basically the same as write
@@ -190,8 +190,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
 
             match res {
                 Err(reason) => {
-                    abort_reason = Some(reason);
-                    // XXX keep going anyway?
+                    abort_reason = Err(reason);
                     break;
                 }
                 Ok(rxfifo) => {
@@ -207,29 +206,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
             };
         }
 
-        // wait for stop condition to be emitted.
-        self.wait_on(
-            |_me| unsafe {
-                if !p.ic_raw_intr_stat().read().stop_det() && send_stop {
-                    Poll::Pending
-                } else {
-                    Poll::Ready(())
-                }
-            },
-            |_me| unsafe {
-                p.ic_intr_mask().modify(|w| {
-                    w.set_m_stop_det(true);
-                    w.set_m_tx_abrt(true);
-                });
-            },
-        )
-        .await;
-        unsafe { p.ic_clr_stop_det().read() };
-
-        if let Some(abort_reason) = abort_reason {
-            return Err(abort_reason);
-        }
-        Ok(())
+        self.wait_stop_det(abort_reason, send_stop).await
     }
 
     async fn write_async_internal(
@@ -241,7 +218,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
 
         let mut bytes = bytes.into_iter().peekable();
 
-        'xmit: loop {
+        let res = 'xmit: loop {
             let tx_fifo_space = Self::tx_fifo_capacity();
 
             for _ in 0..tx_fifo_space {
@@ -256,49 +233,76 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
                         });
                     }
                 } else {
-                    break 'xmit;
+                    break 'xmit Ok(());
                 }
             }
 
-            self.wait_on(
-                |me| {
-                    if let Err(abort_reason) = me.read_and_clear_abort_reason() {
-                        Poll::Ready(Err(abort_reason))
-                    } else if !Self::tx_fifo_full() {
-                        Poll::Ready(Ok(()))
-                    } else {
-                        Poll::Pending
-                    }
-                },
-                |_me| unsafe {
-                    p.ic_intr_mask().modify(|w| {
-                        w.set_m_tx_empty(true);
-                        w.set_m_tx_abrt(true);
-                    })
-                },
-            )
-            .await?;
+            let res = self
+                .wait_on(
+                    |me| {
+                        if let abort_reason @ Err(_) = me.read_and_clear_abort_reason() {
+                            Poll::Ready(abort_reason)
+                        } else if !Self::tx_fifo_full() {
+                            Poll::Ready(Ok(()))
+                        } else {
+                            Poll::Pending
+                        }
+                    },
+                    |_me| unsafe {
+                        p.ic_intr_mask().modify(|w| {
+                            w.set_m_tx_empty(true);
+                            w.set_m_tx_abrt(true);
+                        })
+                    },
+                )
+                .await;
+            if res.is_err() {
+                break res;
+            }
+        };
+
+        self.wait_stop_det(res, send_stop).await
+    }
+
+    /// Helper to wait for a stop bit, for both tx and rx. If we had an abort,
+    /// then we'll get a hardware-generated stop, otherwise wait for a stop if
+    /// we're expecting it.
+    ///
+    /// Also handles an abort which arises while processing the tx fifo.
+    async fn wait_stop_det(&mut self, had_abort: Result<(), Error>, do_stop: bool) -> Result<(), Error> {
+        if had_abort.is_err() || do_stop {
+            let p = T::regs();
+
+            let had_abort2 = self
+                .wait_on(
+                    |me| unsafe {
+                        // We could see an abort while processing fifo backlog,
+                        // so handle it here.
+                        let abort = me.read_and_clear_abort_reason();
+                        if had_abort.is_ok() && abort.is_err() {
+                            Poll::Ready(abort)
+                        } else if p.ic_raw_intr_stat().read().stop_det() {
+                            Poll::Ready(Ok(()))
+                        } else {
+                            Poll::Pending
+                        }
+                    },
+                    |_me| unsafe {
+                        p.ic_intr_mask().modify(|w| {
+                            w.set_m_stop_det(true);
+                            w.set_m_tx_abrt(true);
+                        });
+                    },
+                )
+                .await;
+            unsafe {
+                p.ic_clr_stop_det().read();
+            }
+
+            had_abort.and(had_abort2)
+        } else {
+            had_abort
         }
-
-        // wait for fifo to drain
-        self.wait_on(
-            |_me| unsafe {
-                if p.ic_raw_intr_stat().read().tx_empty() {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            },
-            |_me| unsafe {
-                p.ic_intr_mask().modify(|w| {
-                    w.set_m_tx_empty(true);
-                    w.set_m_tx_abrt(true);
-                });
-            },
-        )
-        .await;
-
-        Ok(())
     }
 
     pub async fn read_async(&mut self, addr: u16, buffer: &mut [u8]) -> Result<(), Error> {
