@@ -243,12 +243,18 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
                         if let abort_reason @ Err(_) = me.read_and_clear_abort_reason() {
                             Poll::Ready(abort_reason)
                         } else if !Self::tx_fifo_full() {
+                            // resume if there's any space free in the tx fifo
                             Poll::Ready(Ok(()))
                         } else {
                             Poll::Pending
                         }
                     },
                     |_me| unsafe {
+                        // Set tx "free" threshold a little high so that we get
+                        // woken before the fifo completely drains to minimize
+                        // transfer stalls.
+                        p.ic_tx_tl().write(|w| w.set_tx_tl(1));
+
                         p.ic_intr_mask().modify(|w| {
                             w.set_m_tx_empty(true);
                             w.set_m_tx_abrt(true);
