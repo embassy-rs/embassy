@@ -122,6 +122,7 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
                     return (Poll::Pending, empty);
                 }
 
+                
                 let n = core::cmp::min(tx_buf.len(), buf.len());
                 tx_buf[..n].copy_from_slice(&buf[..n]);
                 state.tx.push(n);
