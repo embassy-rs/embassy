@@ -123,6 +123,14 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> ImmediatePub<'a, PSB, T> {
     pub fn try_publish(&self, message: T) -> Result<(), T> {
         self.channel.publish_with_context(message, None)
     }
+
+    /// The amount of messages that can still be published without having to wait or without having to lag the subscribers
+    ///
+    /// *Note: In the time between checking this and a publish action, other publishers may have had time to publish something.
+    /// So checking doesn't give any guarantees.*
+    pub fn space(&self) -> usize {
+        self.channel.space()
+    }
 }
 
 /// An immediate publisher that holds a dynamic reference to the channel
