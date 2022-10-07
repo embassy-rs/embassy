@@ -12,21 +12,6 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
 
-#[cfg(not(any(rcc_f4, rcc_f7)))]
-fn enable() {
-    todo!()
-}
-
-#[cfg(any(rcc_f4, rcc_f7))]
-fn enable() {
-    critical_section::with(|_| unsafe {
-        // TODO do not enable all adc clocks if not needed
-        crate::pac::RCC.apb2enr().modify(|w| w.set_adc1en(true));
-        crate::pac::RCC.apb2enr().modify(|w| w.set_adc2en(true));
-        crate::pac::RCC.apb2enr().modify(|w| w.set_adc3en(true));
-    });
-}
-
 pub enum Resolution {
     TwelveBit,
     TenBit,
@@ -164,9 +149,10 @@ where
 {
     pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
         into_ref!(_peri);
-        enable();
+        T::enable();
+        T::reset();
 
-        let presc = unsafe { Prescaler::from_pclk2(crate::rcc::get_freqs().apb2) };
+        let presc = unsafe { Prescaler::from_pclk2(T::frequency()) };
         unsafe {
             T::common_regs().ccr().modify(|w| w.set_adcpre(presc.adcpre()));
         }
@@ -286,5 +272,11 @@ where
                 .smpr1()
                 .modify(|reg| reg.set_smp((ch - 10) as _, sample_time.sample_time()));
         }
+    }
+}
+
+impl<'d, T: Instance> Drop for Adc<'d, T> {
+    fn drop(&mut self) {
+        T::disable();
     }
 }

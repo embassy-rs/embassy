@@ -30,9 +30,9 @@ pub(crate) mod sealed {
     }
 }
 
-#[cfg(not(adc_f1))]
+#[cfg(not(any(adc_f1, adc_v2)))]
 pub trait Instance: sealed::Instance + 'static {}
-#[cfg(adc_f1)]
+#[cfg(any(adc_f1, adc_v2))]
 pub trait Instance: sealed::Instance + crate::rcc::RccPeripheral + 'static {}
 #[cfg(all(not(adc_f1), not(adc_v1)))]
 pub trait Common: sealed::Common + 'static {}
