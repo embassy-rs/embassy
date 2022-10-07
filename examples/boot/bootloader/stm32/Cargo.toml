@@ -3,6 +3,7 @@ edition = "2021"
 name = "stm32-bootloader-example"
 version = "0.1.0"
 description = "Example bootloader for STM32 chips"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 defmt = { version = "0.3", optional = true }

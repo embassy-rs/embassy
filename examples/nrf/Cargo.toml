@@ -2,6 +2,7 @@
 edition = "2021"
 name = "embassy-nrf-examples"
 version = "0.1.0"
+license = "MIT OR Apache-2.0"
 
 [features]
 default = ["nightly"]
