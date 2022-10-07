@@ -50,14 +50,6 @@ impl Resolution {
     }
 }
 
-pub trait InternalChannel<T>: sealed::InternalChannel<T> {}
-
-mod sealed {
-    pub trait InternalChannel<T> {
-        fn channel(&self) -> u8;
-    }
-}
-
 // NOTE: Vrefint/Temperature/Vbat are only available on ADC3 on H7, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
 pub struct VrefInt;
 impl<T: Instance> InternalChannel<T> for VrefInt {}
