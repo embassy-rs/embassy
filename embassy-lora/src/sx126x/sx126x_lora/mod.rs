@@ -26,12 +26,12 @@ const LORA_BANDWIDTHS: [Bandwidth; 3] = [Bandwidth::_125KHz, Bandwidth::_250KHz,
 const RADIO_WAKEUP_TIME: u32 = 3;
 
 /// Provides high-level access to Semtech SX126x-based boards
-pub struct LoRa<SPI, CS, RESET, ANTRX, ANTTX, WAIT> {
+pub struct LoRa<SPI, CTRL, WAIT> {
     spi: SPI,
-    cs: CS,
-    reset: RESET,
-    antenna_rx: ANTRX,
-    antenna_tx: ANTTX,
+    cs: CTRL,
+    reset: CTRL,
+    antenna_rx: CTRL,
+    antenna_tx: CTRL,
     dio1: WAIT,
     busy: WAIT,
     operating_mode: RadioMode,
@@ -45,17 +45,14 @@ pub struct LoRa<SPI, CS, RESET, ANTRX, ANTTX, WAIT> {
     frequency_error: u32,
 }
 
-impl<SPI, CS, RESET, ANTRX, ANTTX, WAIT, BUS> LoRa<SPI, CS, RESET, ANTRX, ANTTX, WAIT>
+impl<SPI, CTRL, WAIT, BUS> LoRa<SPI, CTRL, WAIT>
 where
     SPI: SpiBus<u8, Error = BUS>,
-    CS: OutputPin,
-    RESET: OutputPin,
-    ANTRX: OutputPin,
-    ANTTX: OutputPin,
+    CTRL: OutputPin,
     WAIT: Wait,
 {
     /// Builds and returns a new instance of the radio. Only one instance of the radio should exist at a time ()
-    pub fn new(spi: SPI, cs: CS, reset: RESET, antenna_rx: ANTRX, antenna_tx: ANTTX, dio1: WAIT, busy: WAIT) -> Self {
+    pub fn new(spi: SPI, cs: CTRL, reset: CTRL, antenna_rx: CTRL, antenna_tx: CTRL, dio1: WAIT, busy: WAIT) -> Self {
         Self {
             spi,
             cs,

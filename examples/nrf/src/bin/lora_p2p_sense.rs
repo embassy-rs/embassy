@@ -97,12 +97,12 @@ async fn main(spawner: Spawner) {
         let irq = interrupt::take!(SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
         let spim = spim::Spim::new(p.TWISPI1, irq, p.P1_11, p.P1_13, p.P1_12, spi_config);
 
-        let cs = Output::new(p.P1_10, Level::High, OutputDrive::Standard);
-        let reset = Output::new(p.P1_06, Level::High, OutputDrive::Standard);
+        let cs = Output::new(p.P1_10.degrade(), Level::High, OutputDrive::Standard);
+        let reset = Output::new(p.P1_06.degrade(), Level::High, OutputDrive::Standard);
         let dio1 = Input::new(p.P1_15.degrade(), Pull::Down);
         let busy = Input::new(p.P1_14.degrade(), Pull::Down);
-        let antenna_rx = Output::new(p.P1_05, Level::Low, OutputDrive::Standard);
-        let antenna_tx = Output::new(p.P1_07, Level::Low, OutputDrive::Standard);
+        let antenna_rx = Output::new(p.P1_05.degrade(), Level::Low, OutputDrive::Standard);
+        let antenna_tx = Output::new(p.P1_07.degrade(), Level::Low, OutputDrive::Standard);
 
         match Sx126xRadio::new(spim, cs, reset, antenna_rx, antenna_tx, dio1, busy, false).await {
             Ok(r) => r,

@@ -13,13 +13,10 @@ const BRD_TCXO_WAKEUP_TIME: u32 = 10;
 // Provides board-specific functionality for Semtech SX126x-based boards.  Use #[cfg(feature = "board_type")] to specify unique board functionality.
 // The base implementation supports the RAK4631 board.
 
-impl<SPI, CS, RESET, ANTRX, ANTTX, WAIT, BUS> LoRa<SPI, CS, RESET, ANTRX, ANTTX, WAIT>
+impl<SPI, CTRL, WAIT, BUS> LoRa<SPI, CTRL, WAIT>
 where
     SPI: SpiBus<u8, Error = BUS>,
-    CS: OutputPin,
-    RESET: OutputPin,
-    ANTRX: OutputPin,
-    ANTTX: OutputPin,
+    CTRL: OutputPin,
     WAIT: Wait,
 {
     // De-initialize the radio I/Os pins interface.  Useful when going into MCU low power modes.
@@ -210,14 +207,34 @@ where
         RadioType::SX1262
     }
 
-    // Initialize the RF switch I/O pins interface
-    pub(super) async fn brd_ant_sw_on(&mut self) -> Result<(), RadioError<BUS>> {
-        Ok(()) // no operation currently
+    // Quiesce the antenna(s).
+    pub(super) fn brd_ant_sleep(&mut self) -> Result<(), RadioError<BUS>> {
+        #[cfg(feature = "rak4631")]
+        {
+            self.antenna_tx.set_low().map_err(|_| AntTx)?;
+            self.antenna_rx.set_low().map_err(|_| AntRx)?;
+        }
+        Ok(())
     }
 
-    // De-initialize the RF switch I/O pins interface for MCU low power modes
-    pub(super) async fn brd_ant_sw_off(&mut self) -> Result<(), RadioError<BUS>> {
-        Ok(()) // no operation currently
+    // Prepare the antenna(s) for a receive operation
+    pub(super) fn brd_ant_set_rx(&mut self) -> Result<(), RadioError<BUS>> {
+        #[cfg(feature = "rak4631")]
+        {
+            self.antenna_tx.set_low().map_err(|_| AntTx)?;
+            self.antenna_rx.set_high().map_err(|_| AntRx)?;
+        }
+        Ok(())
+    }
+
+    // Prepare the antenna(s) for a send operation
+    pub(super) fn brd_ant_set_tx(&mut self) -> Result<(), RadioError<BUS>> {
+        #[cfg(feature = "rak4631")]
+        {
+            self.antenna_rx.set_low().map_err(|_| AntRx)?;
+            self.antenna_tx.set_high().map_err(|_| AntTx)?;
+        }
+        Ok(())
     }
 
     // Check if the given RF frequency is supported by the hardware

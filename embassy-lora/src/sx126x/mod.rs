@@ -13,35 +13,29 @@ use sx126x_lora::LoRa;
 use self::sx126x_lora::mod_params::RadioError;
 
 /// Semtech Sx126x LoRa peripheral
-pub struct Sx126xRadio<SPI, CS, RESET, ANTRX, ANTTX, WAIT, BUS>
+pub struct Sx126xRadio<SPI, CTRL, WAIT, BUS>
 where
     SPI: SpiBus<u8, Error = BUS> + 'static,
-    CS: OutputPin + 'static,
-    RESET: OutputPin + 'static,
-    ANTRX: OutputPin + 'static,
-    ANTTX: OutputPin + 'static,
+    CTRL: OutputPin + 'static,
     WAIT: Wait + 'static,
     BUS: Error + Format + 'static,
 {
-    pub lora: LoRa<SPI, CS, RESET, ANTRX, ANTTX, WAIT>,
+    pub lora: LoRa<SPI, CTRL, WAIT>,
 }
 
-impl<SPI, CS, RESET, ANTRX, ANTTX, WAIT, BUS> Sx126xRadio<SPI, CS, RESET, ANTRX, ANTTX, WAIT, BUS>
+impl<SPI, CTRL, WAIT, BUS> Sx126xRadio<SPI, CTRL, WAIT, BUS>
 where
     SPI: SpiBus<u8, Error = BUS> + 'static,
-    CS: OutputPin + 'static,
-    RESET: OutputPin + 'static,
-    ANTRX: OutputPin + 'static,
-    ANTTX: OutputPin + 'static,
+    CTRL: OutputPin + 'static,
     WAIT: Wait + 'static,
     BUS: Error + Format + 'static,
 {
     pub async fn new(
         spi: SPI,
-        cs: CS,
-        reset: RESET,
-        antenna_rx: ANTRX,
-        antenna_tx: ANTTX,
+        cs: CTRL,
+        reset: CTRL,
+        antenna_rx: CTRL,
+        antenna_tx: CTRL,
         dio1: WAIT,
         busy: WAIT,
         enable_public_network: bool,
@@ -53,13 +47,10 @@ where
     }
 }
 
-impl<SPI, CS, RESET, ANTRX, ANTTX, WAIT, BUS> Timings for Sx126xRadio<SPI, CS, RESET, ANTRX, ANTTX, WAIT, BUS>
+impl<SPI, CTRL, WAIT, BUS> Timings for Sx126xRadio<SPI, CTRL, WAIT, BUS>
 where
     SPI: SpiBus<u8, Error = BUS> + 'static,
-    CS: OutputPin + 'static,
-    RESET: OutputPin + 'static,
-    ANTRX: OutputPin + 'static,
-    ANTTX: OutputPin + 'static,
+    CTRL: OutputPin + 'static,
     WAIT: Wait + 'static,
     BUS: Error + Format + 'static,
 {
@@ -71,13 +62,10 @@ where
     }
 }
 
-impl<SPI, CS, RESET, ANTRX, ANTTX, WAIT, BUS> PhyRxTx for Sx126xRadio<SPI, CS, RESET, ANTRX, ANTTX, WAIT, BUS>
+impl<SPI, CTRL, WAIT, BUS> PhyRxTx for Sx126xRadio<SPI, CTRL, WAIT, BUS>
 where
     SPI: SpiBus<u8, Error = BUS> + 'static,
-    CS: OutputPin + 'static,
-    RESET: OutputPin + 'static,
-    ANTRX: OutputPin + 'static,
-    ANTTX: OutputPin + 'static,
+    CTRL: OutputPin + 'static,
     WAIT: Wait + 'static,
     BUS: Error + Format + 'static,
 {
@@ -86,10 +74,7 @@ where
     type TxFuture<'m> = impl Future<Output = Result<u32, Self::PhyError>> + 'm
     where
         SPI: 'm,
-        CS: 'm,
-        RESET: 'm,
-        ANTRX: 'm,
-        ANTTX: 'm,
+        CTRL: 'm,
         WAIT: 'm,
         BUS: 'm;
 
@@ -122,10 +107,7 @@ where
     type RxFuture<'m> = impl Future<Output = Result<(usize, RxQuality), Self::PhyError>> + 'm
     where
         SPI: 'm,
-        CS: 'm,
-        RESET: 'm,
-        ANTRX: 'm,
-        ANTTX: 'm,
+        CTRL: 'm,
         WAIT: 'm,
         BUS: 'm;
 

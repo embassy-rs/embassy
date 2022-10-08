@@ -19,13 +19,10 @@ const SX126X_MAX_LORA_SYMB_NUM_TIMEOUT: u8 = 248;
 
 // Provides board-specific functionality for Semtech SX126x-based boards
 
-impl<SPI, CS, RESET, ANTRX, ANTTX, WAIT, BUS> LoRa<SPI, CS, RESET, ANTRX, ANTTX, WAIT>
+impl<SPI, CTRL, WAIT, BUS> LoRa<SPI, CTRL, WAIT>
 where
     SPI: SpiBus<u8, Error = BUS>,
-    CS: OutputPin,
-    RESET: OutputPin,
-    ANTRX: OutputPin,
-    ANTTX: OutputPin,
+    CTRL: OutputPin,
     WAIT: Wait,
 {
     // Initialize the radio driver
@@ -44,7 +41,6 @@ where
         let operating_mode = self.brd_get_operating_mode();
         if operating_mode == RadioMode::Sleep || operating_mode == RadioMode::ReceiveDutyCycle {
             self.brd_wakeup().await?;
-            self.brd_ant_sw_on().await?;
         }
         self.brd_wait_on_busy().await?;
         Ok(())
@@ -117,10 +113,7 @@ where
 
     // Set the radio in sleep mode
     pub(super) async fn sub_set_sleep(&mut self, sleep_config: SleepParams) -> Result<(), RadioError<BUS>> {
-        self.brd_ant_sw_off().await?;
-
-        let _fix_rx = self.antenna_rx.set_low();
-        let _fix_tx = self.antenna_tx.set_low();
+        self.brd_ant_sleep()?;
 
         if !sleep_config.warm_start {
             self.image_calibrated = false;
@@ -141,8 +134,7 @@ where
             self.brd_set_operating_mode(RadioMode::StandbyXOSC);
         }
 
-        let _fix_rx = self.antenna_rx.set_low();
-        let _fix_tx = self.antenna_tx.set_low();
+        self.brd_ant_sleep()?;
         Ok(())
     }
 
@@ -162,8 +154,7 @@ where
             Self::timeout_3(timeout),
         ];
 
-        let _fix_rx = self.antenna_rx.set_low();
-        let _fix_tx = self.antenna_tx.set_high();
+        self.brd_ant_set_tx()?;
 
         self.brd_set_operating_mode(RadioMode::Transmit);
         self.brd_write_command(OpCode::SetTx, &buffer).await?;
@@ -178,8 +169,7 @@ where
             Self::timeout_3(timeout),
         ];
 
-        let _fix_rx = self.antenna_rx.set_high();
-        let _fix_tx = self.antenna_tx.set_low();
+        self.brd_ant_set_rx()?;
 
         self.brd_set_operating_mode(RadioMode::Receive);
         self.brd_write_registers(Register::RxGain, &[0x94u8]).await?;
@@ -195,8 +185,7 @@ where
             Self::timeout_3(timeout),
         ];
 
-        let _fix_rx = self.antenna_rx.set_high();
-        let _fix_tx = self.antenna_tx.set_low();
+        self.brd_ant_set_rx()?;
 
         self.brd_set_operating_mode(RadioMode::Receive);
         // set max LNA gain, increase current by ~2mA for around ~3dB in sensitivity
@@ -225,8 +214,7 @@ where
 
     // Set the radio in CAD mode
     pub(super) async fn sub_set_cad(&mut self) -> Result<(), RadioError<BUS>> {
-        let _fix_rx = self.antenna_rx.set_high();
-        let _fix_tx = self.antenna_tx.set_low();
+        self.brd_ant_set_rx()?;
 
         self.brd_write_command(OpCode::SetCAD, &[]).await?;
         self.brd_set_operating_mode(RadioMode::ChannelActivityDetection);
@@ -235,8 +223,7 @@ where
 
     // Set the radio in continuous wave transmission mode
     pub(super) async fn sub_set_tx_continuous_wave(&mut self) -> Result<(), RadioError<BUS>> {
-        let _fix_rx = self.antenna_rx.set_low();
-        let _fix_tx = self.antenna_tx.set_high();
+        self.brd_ant_set_tx()?;
 
         self.brd_write_command(OpCode::SetTxContinuousWave, &[]).await?;
         self.brd_set_operating_mode(RadioMode::Transmit);
@@ -245,8 +232,7 @@ where
 
     // Set the radio in continuous preamble transmission mode
     pub(super) async fn sub_set_tx_infinite_preamble(&mut self) -> Result<(), RadioError<BUS>> {
-        let _fix_rx = self.antenna_rx.set_low();
-        let _fix_tx = self.antenna_tx.set_high();
+        self.brd_ant_set_tx()?;
 
         self.brd_write_command(OpCode::SetTxContinuousPremable, &[]).await?;
         self.brd_set_operating_mode(RadioMode::Transmit);
