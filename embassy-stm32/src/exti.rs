@@ -155,7 +155,7 @@ mod eh1 {
         type Error = Infallible;
     }
 
-    impl<'d, T: GpioPin> embedded_hal_1::digital::blocking::InputPin for ExtiInput<'d, T> {
+    impl<'d, T: GpioPin> embedded_hal_1::digital::InputPin for ExtiInput<'d, T> {
         fn is_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_high())
         }

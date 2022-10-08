@@ -23,17 +23,6 @@ impl<'d> Flash<'d> {
         Self { _inner: p }
     }
 
-    pub fn unlock(p: impl Peripheral<P = FLASH> + 'd) -> Self {
-        let flash = Self::new(p);
-
-        unsafe { family::unlock() };
-        flash
-    }
-
-    pub fn lock(&mut self) {
-        unsafe { family::lock() };
-    }
-
     pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         let offset = FLASH_BASE as u32 + offset;
         if offset as usize >= FLASH_END || offset as usize + bytes.len() > FLASH_END {
@@ -57,7 +46,12 @@ impl<'d> Flash<'d> {
 
         self.clear_all_err();
 
-        unsafe { family::blocking_write(offset, buf) }
+        unsafe {
+            family::unlock();
+            let res = family::blocking_write(offset, buf);
+            family::lock();
+            res
+        }
     }
 
     pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
@@ -72,7 +66,12 @@ impl<'d> Flash<'d> {
 
         self.clear_all_err();
 
-        unsafe { family::blocking_erase(from, to) }
+        unsafe {
+            family::unlock();
+            let res = family::blocking_erase(from, to);
+            family::lock();
+            res
+        }
     }
 
     fn clear_all_err(&mut self) {
@@ -82,7 +81,7 @@ impl<'d> Flash<'d> {
 
 impl Drop for Flash<'_> {
     fn drop(&mut self) {
-        self.lock();
+        unsafe { family::lock() };
     }
 }
 

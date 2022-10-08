@@ -2,6 +2,7 @@
 name = "embassy-rp"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-rp-v$VERSION/embassy-rp/src/"
@@ -31,7 +32,7 @@ nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "
 
 # Implement embedded-hal 1.0 alpha traits.
 # Implement embedded-hal-async traits if `nightly` is set as well.
-unstable-traits = ["embedded-hal-1"]
+unstable-traits = ["embedded-hal-1", "embedded-hal-nb"]
 
 [dependencies]
 embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
@@ -58,5 +59,6 @@ rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev="017e3c90
 #rp2040-pac2 = { path = "../../rp2040-pac2", features = ["rt"] }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
-embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8", optional = true}
-embedded-hal-async = { version = "0.1.0-alpha.1", optional = true}
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9", optional = true}
+embedded-hal-async = { version = "=0.1.0-alpha.2", optional = true}
+embedded-hal-nb = { version = "=1.0.0-alpha.1", optional = true}

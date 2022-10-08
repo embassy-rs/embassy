@@ -22,9 +22,9 @@ use core::cell::RefCell;
 
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::blocking_mutex::Mutex;
-use embedded_hal_1::digital::blocking::OutputPin;
+use embedded_hal_1::digital::OutputPin;
 use embedded_hal_1::spi;
-use embedded_hal_1::spi::blocking::SpiBusFlush;
+use embedded_hal_1::spi::SpiBusFlush;
 
 use crate::shared_bus::SpiDeviceError;
 use crate::SetConfig;
@@ -50,7 +50,7 @@ where
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<BUS, M, CS> embedded_hal_1::spi::blocking::SpiDevice for SpiDevice<'_, M, BUS, CS>
+impl<BUS, M, CS> embedded_hal_1::spi::SpiDevice for SpiDevice<'_, M, BUS, CS>
 where
     M: RawMutex,
     BUS: SpiBusFlush,
@@ -146,7 +146,7 @@ where
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<BUS, M, CS> embedded_hal_1::spi::blocking::SpiDevice for SpiDeviceWithConfig<'_, M, BUS, CS>
+impl<BUS, M, CS> embedded_hal_1::spi::SpiDevice for SpiDeviceWithConfig<'_, M, BUS, CS>
 where
     M: RawMutex,
     BUS: SpiBusFlush + SetConfig,

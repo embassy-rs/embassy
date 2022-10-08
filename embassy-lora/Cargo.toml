@@ -2,6 +2,7 @@
 name = "embassy-lora"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-lora-v$VERSION/embassy-lora/src/"
@@ -30,8 +31,8 @@ log = { version = "0.4.14", optional = true }
 embassy-time = { version = "0.1.0", path = "../embassy-time" }
 embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
 embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32", default-features = false, optional = true }
-embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8" }
-embedded-hal-async = { version = "0.1.0-alpha.1" }
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9" }
+embedded-hal-async = { version = "=0.1.0-alpha.2" }
 embassy-hal-common = { version = "0.1.0", path = "../embassy-hal-common", default-features = false }
 futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
 embedded-hal = { version = "0.2", features = ["unproven"] }
