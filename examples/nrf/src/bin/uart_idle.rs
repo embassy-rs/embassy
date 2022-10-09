@@ -15,7 +15,8 @@ async fn main(_spawner: Spawner) {
     config.baudrate = uarte::Baudrate::BAUD115200;
 
     let irq = interrupt::take!(UARTE0_UART0);
-    let mut uart = uarte::UarteWithIdle::new(p.UARTE0, p.TIMER0, p.PPI_CH0, p.PPI_CH1, irq, p.P0_08, p.P0_06, config);
+    let uart = uarte::Uarte::new(p.UARTE0, irq, p.P0_08, p.P0_06, config);
+    let (mut tx, mut rx) = uart.split_with_idle(p.TIMER0, p.PPI_CH0, p.PPI_CH1);
 
     info!("uarte initialized!");
 
@@ -23,12 +24,12 @@ async fn main(_spawner: Spawner) {
     let mut buf = [0; 8];
     buf.copy_from_slice(b"Hello!\r\n");
 
-    unwrap!(uart.write(&buf).await);
+    unwrap!(tx.write(&buf).await);
     info!("wrote hello in uart!");
 
     loop {
         info!("reading...");
-        let n = unwrap!(uart.read_until_idle(&mut buf).await);
+        let n = unwrap!(rx.read_until_idle(&mut buf).await);
         info!("got {} bytes", n);
     }
 }
