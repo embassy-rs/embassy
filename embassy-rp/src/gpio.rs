@@ -599,12 +599,12 @@ pub(crate) mod sealed {
         fn pin_bank(&self) -> u8;
 
         #[inline]
-        fn pin(&self) -> u8 {
+        fn _pin(&self) -> u8 {
             self.pin_bank() & 0x1f
         }
 
         #[inline]
-        fn bank(&self) -> Bank {
+        fn _bank(&self) -> Bank {
             if self.pin_bank() & 0x20 == 0 {
                 Bank::Bank0
             } else {
@@ -613,35 +613,35 @@ pub(crate) mod sealed {
         }
 
         fn io(&self) -> pac::io::Gpio {
-            let block = match self.bank() {
+            let block = match self._bank() {
                 Bank::Bank0 => crate::pac::IO_BANK0,
                 Bank::Qspi => crate::pac::IO_QSPI,
             };
-            block.gpio(self.pin() as _)
+            block.gpio(self._pin() as _)
         }
 
         fn pad_ctrl(&self) -> Reg<pac::pads::regs::GpioCtrl, RW> {
-            let block = match self.bank() {
+            let block = match self._bank() {
                 Bank::Bank0 => crate::pac::PADS_BANK0,
                 Bank::Qspi => crate::pac::PADS_QSPI,
             };
-            block.gpio(self.pin() as _)
+            block.gpio(self._pin() as _)
         }
 
         fn sio_out(&self) -> pac::sio::Gpio {
-            SIO.gpio_out(self.bank() as _)
+            SIO.gpio_out(self._bank() as _)
         }
 
         fn sio_oe(&self) -> pac::sio::Gpio {
-            SIO.gpio_oe(self.bank() as _)
+            SIO.gpio_oe(self._bank() as _)
         }
 
         fn sio_in(&self) -> Reg<u32, RW> {
-            SIO.gpio_in(self.bank() as _)
+            SIO.gpio_in(self._bank() as _)
         }
 
         fn int_proc(&self) -> pac::io::Int {
-            let io_block = match self.bank() {
+            let io_block = match self._bank() {
                 Bank::Bank0 => crate::pac::IO_BANK0,
                 Bank::Qspi => crate::pac::IO_QSPI,
             };
@@ -657,6 +657,18 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'stat
         AnyPin {
             pin_bank: self.pin_bank(),
         }
+    }
+
+    /// Returns the pin number within a bank
+    #[inline]
+    fn pin(&self) -> u8 {
+        self._pin()
+    }
+
+    /// Returns the bank of this pin
+    #[inline]
+    fn bank(&self) -> Bank {
+        self._bank()
     }
 }
 
