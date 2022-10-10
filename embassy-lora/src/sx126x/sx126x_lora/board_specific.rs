@@ -10,8 +10,7 @@ use super::LoRa;
 // Defines the time required for the TCXO to wakeup [ms].
 const BRD_TCXO_WAKEUP_TIME: u32 = 10;
 
-// Provides board-specific functionality for Semtech SX126x-based boards.  Use #[cfg(feature = "board_type")] to specify unique board functionality.
-// The base implementation supports the RAK4631 board.
+// Provides board-specific functionality for Semtech SX126x-based boards.
 
 impl<SPI, CTRL, WAIT, BUS> LoRa<SPI, CTRL, WAIT>
 where
@@ -203,44 +202,33 @@ where
 
     // Get the radio type
     pub(super) fn brd_get_radio_type(&mut self) -> RadioType {
-        #[cfg(feature = "rak4631")]
         RadioType::SX1262
     }
 
     // Quiesce the antenna(s).
     pub(super) fn brd_ant_sleep(&mut self) -> Result<(), RadioError<BUS>> {
-        #[cfg(feature = "rak4631")]
-        {
-            self.antenna_tx.set_low().map_err(|_| AntTx)?;
-            self.antenna_rx.set_low().map_err(|_| AntRx)?;
-        }
+        self.antenna_tx.set_low().map_err(|_| AntTx)?;
+        self.antenna_rx.set_low().map_err(|_| AntRx)?;
         Ok(())
     }
 
     // Prepare the antenna(s) for a receive operation
     pub(super) fn brd_ant_set_rx(&mut self) -> Result<(), RadioError<BUS>> {
-        #[cfg(feature = "rak4631")]
-        {
-            self.antenna_tx.set_low().map_err(|_| AntTx)?;
-            self.antenna_rx.set_high().map_err(|_| AntRx)?;
-        }
+        self.antenna_tx.set_low().map_err(|_| AntTx)?;
+        self.antenna_rx.set_high().map_err(|_| AntRx)?;
         Ok(())
     }
 
     // Prepare the antenna(s) for a send operation
     pub(super) fn brd_ant_set_tx(&mut self) -> Result<(), RadioError<BUS>> {
-        #[cfg(feature = "rak4631")]
-        {
-            self.antenna_rx.set_low().map_err(|_| AntRx)?;
-            self.antenna_tx.set_high().map_err(|_| AntTx)?;
-        }
+        self.antenna_rx.set_low().map_err(|_| AntRx)?;
+        self.antenna_tx.set_high().map_err(|_| AntTx)?;
         Ok(())
     }
 
     // Check if the given RF frequency is supported by the hardware
     pub(super) async fn brd_check_rf_frequency(&mut self, _frequency: u32) -> Result<bool, RadioError<BUS>> {
-        #[cfg(feature = "rak4631")]
-        Ok(true) // all frequencies currently supported for the SX1262 within a rak4631
+        Ok(true)
     }
 
     // Get the duration required for the TCXO to wakeup [ms].

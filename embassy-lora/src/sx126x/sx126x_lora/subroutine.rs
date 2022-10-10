@@ -564,7 +564,7 @@ where
     pub(super) async fn sub_get_rssi_inst(&mut self) -> Result<i8, RadioError<BUS>> {
         let mut buffer = [0x00u8];
         self.brd_read_command(OpCode::GetRSSIInst, &mut buffer).await?;
-        let rssi: i8 = (-(buffer[0] as i8)) >> 1; // check this ???
+        let rssi: i8 = ((-(buffer[0] as i32)) >> 1) as i8; // check this ???
         Ok(rssi)
     }
 
@@ -597,9 +597,9 @@ where
         self.brd_read_command(OpCode::GetPacketStatus, &mut status).await?;
 
         // check this ???
-        let rssi = (-(status[0] as i8)) >> 1;
+        let rssi = ((-(status[0] as i32)) >> 1) as i8;
         let snr = ((status[1] as i8) + 2) >> 2;
-        let signal_rssi = (-(status[2] as i8)) >> 1;
+        let signal_rssi = ((-(status[2] as i32)) >> 1) as i8;
         let freq_error = self.frequency_error;
 
         Ok(PacketStatus {

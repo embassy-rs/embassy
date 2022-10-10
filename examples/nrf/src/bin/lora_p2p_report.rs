@@ -1,4 +1,6 @@
 //! This example runs on the RAK4631 WisBlock, which has an nRF52840 MCU and Semtech Sx126x radio.
+//! Other nrf/sx126x combinations may work with appropriate pin modifications.
+//! It demonstates LORA P2P functionality in conjunction with example lora_p2p_sense.rs.
 #![no_std]
 #![no_main]
 #![macro_use]
@@ -18,7 +20,7 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     let mut spi_config = spim::Config::default();
-    spi_config.frequency = spim::Frequency::M1; // M16 ???
+    spi_config.frequency = spim::Frequency::M16;
 
     let mut radio = {
         let irq = interrupt::take!(SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
@@ -47,38 +49,30 @@ async fn main(_spawner: Spawner) {
     Timer::after(Duration::from_secs(5)).await;
     start_indicator.set_low();
 
-    match radio.lora.sleep().await {
-        Ok(()) => info!("Sleep successful"),
-        Err(err) => info!("Sleep unsuccessful = {}", err),
+    loop {
+        let rf_config = RfConfig {
+            frequency: 903900000, // channel in Hz
+            bandwidth: Bandwidth::_250KHz,
+            spreading_factor: SpreadingFactor::_10,
+            coding_rate: CodingRate::_4_8,
+        };
+
+        let mut buffer = [00u8; 100];
+
+        // P2P receive
+        match radio.rx(rf_config, &mut buffer).await {
+            Ok((buffer_len, rx_quality)) => info!(
+                "RX received = {:?} with length = {} rssi = {} snr = {}",
+                &buffer[0..buffer_len],
+                buffer_len,
+                rx_quality.rssi(),
+                rx_quality.snr()
+            ),
+            Err(err) => info!("RX error = {}", err),
+        }
+
+        debug_indicator.set_high();
+        Timer::after(Duration::from_secs(2)).await;
+        debug_indicator.set_low();
     }
-
-    let rf_config = RfConfig {
-        frequency: 903900000, // channel in Hz
-        bandwidth: Bandwidth::_250KHz,
-        spreading_factor: SpreadingFactor::_10,
-        coding_rate: CodingRate::_4_8,
-    };
-
-    let mut buffer = [00u8; 100];
-
-    // P2P receive
-    match radio.rx(rf_config, &mut buffer).await {
-        Ok((buffer_len, rx_quality)) => info!(
-            "RX received = {:?} with length = {} rssi = {} snr = {}",
-            &buffer[0..buffer_len],
-            buffer_len,
-            rx_quality.rssi(),
-            rx_quality.snr()
-        ),
-        Err(err) => info!("RX error = {}", err),
-    }
-
-    match radio.lora.sleep().await {
-        Ok(()) => info!("Sleep successful"),
-        Err(err) => info!("Sleep unsuccessful = {}", err),
-    }
-
-    debug_indicator.set_high();
-    Timer::after(Duration::from_secs(5)).await;
-    debug_indicator.set_low();
 }

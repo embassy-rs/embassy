@@ -7,7 +7,7 @@ pub(crate) mod fmt;
 
 #[cfg(feature = "stm32wl")]
 pub mod stm32wl;
-#[cfg(feature = "rak4631")]
+#[cfg(feature = "sx126x")]
 pub mod sx126x;
 #[cfg(feature = "sx127x")]
 pub mod sx127x;

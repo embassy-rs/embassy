@@ -9,7 +9,7 @@ src_base = "https://github.com/embassy-rs/embassy/blob/embassy-lora-v$VERSION/em
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-lora/src/"
 features = ["time", "defmt"]
 flavors = [
-    { name = "rak4631", target = "thumbv7em-none-eabihf",   features = ["rak4631"] },
+    { name = "sx126x", target = "thumbv7em-none-eabihf",   features = ["sx126x"] },
     { name = "sx127x",  target = "thumbv7em-none-eabihf", features = ["sx127x", "embassy-stm32/stm32wl55jc-cm4", "embassy-stm32/time-driver-any"] },
     { name = "stm32wl", target = "thumbv7em-none-eabihf", features = ["stm32wl", "embassy-stm32/stm32wl55jc-cm4", "embassy-stm32/time-driver-any"] },
 ]
@@ -17,7 +17,7 @@ flavors = [
 [lib]
 
 [features]
-rak4631 = []
+sx126x = []
 sx127x = []
 stm32wl = ["embassy-stm32", "embassy-stm32/subghz"]
 time = []
