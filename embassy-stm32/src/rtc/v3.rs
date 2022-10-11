@@ -32,7 +32,8 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
                 feature = "stm32wl54jc-cm0p",
                 feature = "stm32wle5ub",
                 feature = "stm32g0c1ve",
-                feature = "stm32wl55jc-cm4"
+                feature = "stm32wl55jc-cm4",
+                feature = "stm32wl55uc-cm4"
             )))]
             let config_rtcsel = stm32_metapac::rtc::vals::Rtcsel(config_rtcsel);
             #[cfg(feature = "stm32g0c1ve")]
