@@ -13,7 +13,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello Flash!");
 
-    let mut f = Flash::unlock(p.FLASH);
+    let mut f = Flash::new(p.FLASH);
 
     // Sector 5
     test_flash(&mut f, 128 * 1024, 128 * 1024);

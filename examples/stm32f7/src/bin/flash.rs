@@ -19,7 +19,7 @@ async fn main(_spawner: Spawner) {
     // wait a bit before accessing the flash
     Timer::after(Duration::from_millis(300)).await;
 
-    let mut f = Flash::unlock(p.FLASH);
+    let mut f = Flash::new(p.FLASH);
 
     info!("Reading...");
     let mut buf = [0u8; 32];
