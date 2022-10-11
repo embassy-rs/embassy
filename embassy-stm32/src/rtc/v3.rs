@@ -28,7 +28,12 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
 
             let config_rtcsel = rtc_config.clock_config as u8;
             #[cfg(rtc_v3)]
-            #[cfg(not(any(feature = "stm32wl54jc-cm0p", feature = "stm32wle5ub", feature = "stm32g0c1ve")))]
+            #[cfg(not(any(
+                feature = "stm32wl54jc-cm0p",
+                feature = "stm32wle5ub",
+                feature = "stm32g0c1ve",
+                feature = "stm32wl55jc-cm4"
+            )))]
             let config_rtcsel = stm32_metapac::rtc::vals::Rtcsel(config_rtcsel);
             #[cfg(feature = "stm32g0c1ve")]
             let config_rtcsel = stm32_metapac::rcc::vals::Rtcsel(config_rtcsel);
