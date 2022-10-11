@@ -25,10 +25,19 @@ image::bootloader_flash.png[Bootloader flash layout]
 The bootloader divides the storage into 4 main partitions, configurable when creating the bootloader
 instance or via linker scripts:
 
-* BOOTLOADER - Where the bootloader is placed. The bootloader itself consumes about 8kB of flash.
-* ACTIVE - Where the main application is placed. The bootloader will attempt to load the application at the start of this partition. This partition is only written to by the bootloader.
-* DFU - Where the application-to-be-swapped is placed. This partition is written to by the application.
-* BOOTLOADER STATE - Where the bootloader stores the current state describing if the active and dfu partitions need to be swapped. When the new firmware has been written to the DFU partition, a flag is set to instruct the bootloader that the partitions should be swapped.
+* BOOTLOADER - Where the bootloader is placed. The bootloader itself consumes about 8kB of flash, but if you need to debug it and have space available, increasing this to 24kB will allow you to run the bootloader with probe-rs.
+* ACTIVE - Where the main application is placed. The bootloader will attempt to load the application at the start of this partition. This partition is only written to by the bootloader. The size required for this partition depends on the size of your application.
+* DFU - Where the application-to-be-swapped is placed. This partition is written to by the application. This partition must be at least 1 page bigger than the ACTIVE partition, since the swap algorithm uses the extra space to ensure power safe copy of data:
++
+Partition Size~dfu~= Partition Size~active~+ Page Size~active~
++
+All values are specified in bytes.
+
+* BOOTLOADER STATE - Where the bootloader stores the current state describing if the active and dfu partitions need to be swapped. When the new firmware has been written to the DFU partition, a magic field is written to instruct the bootloader that the partitions should be swapped. This partition must be able to store a magic field as well as the partition swap progress. The partition size given by:
++
+Partition Size~state~ = Write Size~state~ + (2 × Partition Size~active~ / Page Size~active~)
++
+All values are specified in bytes.
 
 The partitions for ACTIVE (+BOOTLOADER), DFU and BOOTLOADER_STATE may be placed in separate flash. The page size used by the bootloader is determined by the lowest common multiple of the ACTIVE and DFU page sizes.
 The BOOTLOADER_STATE partition must be big enough to store one word per page in the ACTIVE and DFU partitions combined.
