@@ -27,7 +27,6 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
             assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
 
             let config_rtcsel = rtc_config.clock_config as u8;
-            #[cfg(rtc_v3)]
             #[cfg(not(any(
                 feature = "stm32wl54jc-cm0p",
                 feature = "stm32wle5ub",
