@@ -76,8 +76,6 @@ pub enum Error {
     Parity,
     /// Buffer too large for DMA
     BufferTooLong,
-    /// Buffer of length zero was given
-    BufferZeroLength,
 }
 
 pub struct Uart<'d, T: BasicInstance, TxDma = NoDma, RxDma = NoDma> {
@@ -506,7 +504,7 @@ impl<'d, T: BasicInstance, RxDma> UartRxWithIdle<'d, T, RxDma> {
         RxDma: crate::usart::RxDma<T>,
     {
         if buffer.is_empty() {
-            return Err(Error::BufferZeroLength);
+            return Ok(0);
         } else if buffer.len() > 0xFFFF {
             return Err(Error::BufferTooLong);
         }
@@ -778,7 +776,6 @@ mod eh1 {
                 Self::Overrun => embedded_hal_1::serial::ErrorKind::Overrun,
                 Self::Parity => embedded_hal_1::serial::ErrorKind::Parity,
                 Self::BufferTooLong => embedded_hal_1::serial::ErrorKind::Other,
-                Self::BufferZeroLength => embedded_hal_1::serial::ErrorKind::Other,
             }
         }
     }
