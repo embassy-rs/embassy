@@ -10,7 +10,7 @@ use embassy_stm32::dma::NoDma;
 use embassy_stm32::interrupt;
 use embassy_stm32::peripherals::{DMA2_CH7, USART1};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::usart::{Config, Uart, UartWithIdle};
+use embassy_stm32::usart::{Config, Uart};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -65,16 +65,13 @@ async fn main(spawner: Spawner) -> ! {
     let detect_previous_overrun = true;
 
     let irq = interrupt::take!(USART3);
-    let mut usart = UartWithIdle::new(
-        p.USART3,
-        irq,
-        p.PB11,
-        p.PB10,
-        NoDma,
-        p.DMA1_CH1,
-        config,
-        detect_previous_overrun,
-    );
+    let usart = Uart::new(p.USART3, p.PB11, p.PB10, NoDma, p.DMA1_CH1, config);
+    let (mut usart_rx, _) = usart.split_with_idle(irq, detect_previous_overrun);
+
+    // you could also use only Rx with Idle line detection
+    // it saves 1 pin
+    // use embassy_stm32::usart::UartRxWithIdle;
+    // let mut usart_rx = UartRxWithIdle::new(p.USART3, irq, p.PB11, p.DMA1_CH1, config, detect_previous_overrun);
 
     let emitter = Uart::new(p.USART1, p.PA10, p.PA9, p.DMA2_CH7, NoDma, config);
 
@@ -91,7 +88,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut new_pos = 0;
 
     loop {
-        let received_bytes = usart.read_until_idle(&mut buffer).await.unwrap();
+        let received_bytes = usart_rx.read_until_idle(&mut buffer).await.unwrap();
 
         info!("Received {} bytes: {}", received_bytes, buffer[..received_bytes]);
 

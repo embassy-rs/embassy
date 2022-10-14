@@ -79,7 +79,7 @@ pub enum Error {
 }
 
 pub struct Uart<'d, T: BasicInstance, TxDma = NoDma, RxDma = NoDma> {
-    phantom: PhantomData<&'d mut T>,
+    peri: PeripheralRef<'d, T>,
     tx: UartTx<'d, T, TxDma>,
     rx: UartRx<'d, T, RxDma>,
 }
@@ -221,14 +221,14 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
 
 impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     pub fn new(
-        _inner: impl Peripheral<P = T> + 'd,
+        peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(_inner, rx, tx, tx_dma, rx_dma);
+        into_ref!(peri, rx, tx, tx_dma, rx_dma);
 
         T::enable();
         T::reset();
@@ -265,9 +265,9 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         }
 
         Self {
+            peri,
             tx: UartTx::new(tx_dma),
             rx: UartRx::new(rx_dma),
-            phantom: PhantomData {},
         }
     }
 
@@ -307,11 +307,45 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     pub fn split(self) -> (UartTx<'d, T, TxDma>, UartRx<'d, T, RxDma>) {
         (self.tx, self.rx)
     }
-}
 
-pub struct UartWithIdle<'d, T: BasicInstance, TxDma = NoDma, RxDma = NoDma> {
-    tx: UartTx<'d, T, TxDma>,
-    rx: UartRxWithIdle<'d, T, RxDma>,
+    /// Split the Uart into a transmitter and receiver, which is
+    /// particuarly useful when having two tasks correlating to
+    /// transmitting and receiving. The receiver implements `read_until_idle`
+    /// when RxDma is enabled
+    pub fn split_with_idle(
+        self,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        detect_previous_overrun: bool,
+    ) -> (UartRxWithIdle<'d, T, RxDma>, UartTx<'d, T, TxDma>)
+    where
+        RxDma: crate::usart::RxDma<T>,
+    {
+        into_ref!(irq);
+        let r = T::regs();
+
+        unsafe {
+            r.cr3().modify(|w| {
+                // enable Error Interrupt: (Frame error, Noise error, Overrun error)
+                w.set_eie(true);
+            });
+        }
+
+        irq.set_handler(UartRxWithIdle::<T, RxDma>::on_interrupt);
+        irq.unpend();
+        irq.enable();
+
+        // create state once!
+        let _s = T::state();
+
+        (
+            UartRxWithIdle {
+                _peri: self.peri,
+                rx: self.rx,
+                detect_previous_overrun,
+            },
+            self.tx,
+        )
+    }
 }
 
 pub struct UartRxWithIdle<'d, T: BasicInstance, RxDma = NoDma> {
@@ -320,18 +354,17 @@ pub struct UartRxWithIdle<'d, T: BasicInstance, RxDma = NoDma> {
     detect_previous_overrun: bool,
 }
 
-impl<'d, T: BasicInstance, TxDma, RxDma> UartWithIdle<'d, T, TxDma, RxDma> {
+impl<'d, T: BasicInstance, RxDma> UartRxWithIdle<'d, T, RxDma> {
+    /// usefull if you only want Uart Rx with read_until_idle. It saves 1 pin and consumes a little less power
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
         detect_previous_overrun: bool,
     ) -> Self {
-        into_ref!(peri, irq, rx, tx, tx_dma, rx_dma);
+        into_ref!(peri, irq, rx, rx_dma);
 
         T::enable();
         T::reset();
@@ -344,7 +377,6 @@ impl<'d, T: BasicInstance, TxDma, RxDma> UartWithIdle<'d, T, TxDma, RxDma> {
 
         unsafe {
             rx.set_as_af(rx.af_num(), AFType::Input);
-            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
             r.cr2().write(|_w| {});
             r.cr3().write(|w| {
@@ -355,8 +387,6 @@ impl<'d, T: BasicInstance, TxDma, RxDma> UartWithIdle<'d, T, TxDma, RxDma> {
             r.cr1().write(|w| {
                 // enable uart
                 w.set_ue(true);
-                // enable transmitter
-                w.set_te(true);
                 // enable receiver
                 w.set_re(true);
                 // configure word size
@@ -383,12 +413,9 @@ impl<'d, T: BasicInstance, TxDma, RxDma> UartWithIdle<'d, T, TxDma, RxDma> {
         let _s = T::state();
 
         Self {
-            tx: UartTx::new(tx_dma),
-            rx: UartRxWithIdle {
-                _peri: peri,
-                rx: UartRx::new(rx_dma),
-                detect_previous_overrun,
-            },
+            _peri: peri,
+            rx: UartRx::new(rx_dma),
+            detect_previous_overrun,
         }
     }
 
@@ -441,49 +468,6 @@ impl<'d, T: BasicInstance, TxDma, RxDma> UartWithIdle<'d, T, TxDma, RxDma> {
         }
     }
 
-    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error>
-    where
-        TxDma: crate::usart::TxDma<T>,
-    {
-        self.tx.write(buffer).await
-    }
-
-    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        self.tx.blocking_write(buffer)
-    }
-
-    pub fn blocking_flush(&mut self) -> Result<(), Error> {
-        self.tx.blocking_flush()
-    }
-
-    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error>
-    where
-        RxDma: crate::usart::RxDma<T>,
-    {
-        self.rx.read(buffer).await
-    }
-
-    pub fn nb_read(&mut self) -> Result<u8, nb::Error<Error>> {
-        self.rx.nb_read()
-    }
-
-    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        self.rx.blocking_read(buffer)
-    }
-
-    pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error>
-    where
-        RxDma: crate::usart::RxDma<T>,
-    {
-        self.rx.read_until_idle(buffer).await
-    }
-
-    pub fn split(self) -> (UartRxWithIdle<'d, T, RxDma>, UartTx<'d, T, TxDma>) {
-        (self.rx, self.tx)
-    }
-}
-
-impl<'d, T: BasicInstance, RxDma> UartRxWithIdle<'d, T, RxDma> {
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error>
     where
         RxDma: crate::usart::RxDma<T>,
@@ -734,26 +718,7 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_02::serial::Read<u8> for UartWithIdle<'d, T, TxDma, RxDma> {
-        type Error = Error;
-        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-            self.nb_read()
-        }
-    }
-
     impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, T, TxDma, RxDma> {
-        type Error = Error;
-        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
-        }
-        fn bflush(&mut self) -> Result<(), Self::Error> {
-            self.blocking_flush()
-        }
-    }
-
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_02::blocking::serial::Write<u8>
-        for UartWithIdle<'d, T, TxDma, RxDma>
-    {
         type Error = Error;
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
@@ -781,10 +746,6 @@ mod eh1 {
     }
 
     impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_1::serial::ErrorType for Uart<'d, T, TxDma, RxDma> {
-        type Error = Error;
-    }
-
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_1::serial::ErrorType for UartWithIdle<'d, T, TxDma, RxDma> {
         type Error = Error;
     }
 
@@ -838,12 +799,6 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::Read for UartWithIdle<'d, T, TxDma, RxDma> {
-        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-            self.nb_read()
-        }
-    }
-
     impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_1::serial::Write for Uart<'d, T, TxDma, RxDma> {
         fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
@@ -854,27 +809,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_1::serial::Write for UartWithIdle<'d, T, TxDma, RxDma> {
-        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
-        }
-
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            self.blocking_flush()
-        }
-    }
-
     impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::Write for Uart<'d, T, TxDma, RxDma> {
-        fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-            self.blocking_write(&[char]).map_err(nb::Error::Other)
-        }
-
-        fn flush(&mut self) -> nb::Result<(), Self::Error> {
-            self.blocking_flush().map_err(nb::Error::Other)
-        }
-    }
-
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::Write for UartWithIdle<'d, T, TxDma, RxDma> {
         fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
             self.blocking_write(&[char]).map_err(nb::Error::Other)
         }
@@ -951,35 +886,7 @@ mod eha {
         }
     }
 
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_async::serial::Write for UartWithIdle<'d, T, TxDma, RxDma>
-    where
-        TxDma: crate::usart::TxDma<T>,
-    {
-        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.write(buf)
-        }
-
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            async move { Ok(()) }
-        }
-    }
-
     impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_async::serial::Read for Uart<'d, T, TxDma, RxDma>
-    where
-        RxDma: crate::usart::RxDma<T>,
-    {
-        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.read(buf)
-        }
-    }
-
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_async::serial::Read for UartWithIdle<'d, T, TxDma, RxDma>
     where
         RxDma: crate::usart::RxDma<T>,
     {
