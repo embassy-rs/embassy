@@ -600,6 +600,9 @@ impl<'d, T: BasicInstance, RxDma> UartRxWithIdle<'d, T, RxDma> {
         let res = poll_fn(move |cx| {
             let s = T::state();
 
+            ch.set_waker(cx.waker());
+            s.rx_waker.register(cx.waker());
+
             // SAFETY: read only and we only use Rx related flags
             let usart_sr = unsafe { sr(r).read() };
 
@@ -669,9 +672,6 @@ impl<'d, T: BasicInstance, RxDma> UartRxWithIdle<'d, T, RxDma> {
                 // DMA complete
                 return Poll::Ready(Ok(buffer_len));
             }
-
-            ch.set_waker(cx.waker());
-            s.rx_waker.register(cx.waker());
 
             Poll::Pending
         })
