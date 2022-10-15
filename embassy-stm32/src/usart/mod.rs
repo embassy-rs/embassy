@@ -263,17 +263,8 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
     where
         RxDma: crate::usart::RxDma<T>,
     {
-        let ch = &mut self.rx_dma;
-        let request = ch.request();
-        unsafe {
-            T::regs().cr3().modify(|reg| {
-                reg.set_dmar(true);
-            });
-        }
-        // If we don't assign future to a variable, the data register pointer
-        // is held across an await and makes the future non-Send.
-        let transfer = crate::dma::read(ch, request, rdr(T::regs()), buffer);
-        transfer.await;
+        self.inner_read(buffer, false).await?;
+
         Ok(())
     }
 
@@ -333,6 +324,13 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
     where
         RxDma: crate::usart::RxDma<T>,
     {
+        self.inner_read(buffer, true).await
+    }
+
+    async fn inner_read(&mut self, buffer: &mut [u8], enable_idle_line_detection: bool) -> Result<usize, Error>
+    where
+        RxDma: crate::usart::RxDma<T>,
+    {
         if buffer.is_empty() {
             return Ok(0);
         } else if buffer.len() > 0xFFFF {
@@ -357,7 +355,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
             if !self.detect_previous_overrun {
                 let sr = sr(r).read();
                 // This read also clears the error and idle interrupt flags on v1.
-                let _ = rdr(r).read_volatile();
+                rdr(r).read_volatile();
                 clear_interrupt_flags(r, sr);
             }
 
@@ -393,7 +391,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
 
                 let sr = sr(r).read();
                 // This read also clears the error and idle interrupt flags on v1.
-                let _ = rdr(r).read_volatile();
+                rdr(r).read_volatile();
                 clear_interrupt_flags(r, sr);
 
                 if sr.pe() {
@@ -413,16 +411,17 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
             }
 
             // clear idle flag
-            {
+            if enable_idle_line_detection {
                 let sr = sr(r).read();
                 // This read also clears the error and idle interrupt flags on v1.
-                let _ = rdr(r).read_volatile();
+                rdr(r).read_volatile();
                 clear_interrupt_flags(r, sr);
+
+                // enable idle interrupt
+                r.cr1().modify(|w| {
+                    w.set_idleie(true);
+                });
             }
-            // enable idle interrupt
-            r.cr1().modify(|w| {
-                w.set_idleie(true);
-            });
         }
 
         compiler_fence(Ordering::SeqCst);
@@ -434,61 +433,41 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
             s.rx_waker.register(cx.waker());
 
             // SAFETY: read only and we only use Rx related flags
-            let usart_sr = unsafe { sr(r).read() };
+            let sr = unsafe { sr(r).read() };
 
             // SAFETY: only clears Rx related flags
             unsafe {
                 // This read also clears the error and idle interrupt flags on v1.
-                let _ = rdr(r).read_volatile();
-
-                clear_interrupt_flags(r, usart_sr);
+                rdr(r).read_volatile();
+                clear_interrupt_flags(r, sr);
             }
 
             compiler_fence(Ordering::SeqCst);
 
-            let has_errors = usart_sr.pe() || usart_sr.fe() || usart_sr.ne() || usart_sr.ore();
+            let has_errors = sr.pe() || sr.fe() || sr.ne() || sr.ore();
 
             if has_errors {
-                // clear all interrupts and DMA Rx Request
-                // SAFETY: only clears Rx related flags
-                unsafe {
-                    r.cr1().modify(|w| {
-                        // disable RXNE interrupt
-                        w.set_rxneie(false);
-                        // disable parity interrupt
-                        w.set_peie(false);
-                        // disable idle line interrupt
-                        w.set_idleie(false);
-                    });
-                    r.cr3().modify(|w| {
-                        // disable Error Interrupt: (Frame error, Noise error, Overrun error)
-                        w.set_eie(false);
-                        // disable DMA Rx Request
-                        w.set_dmar(false);
-                    });
-                }
-
-                compiler_fence(Ordering::SeqCst);
+                // all Rx interrupts and Rx DMA Request have already been cleared in interrupt handler
 
                 // stop dma transfer
                 ch.request_stop();
                 while ch.is_running() {}
 
-                if usart_sr.pe() {
+                if sr.pe() {
                     return Poll::Ready(Err(Error::Parity));
                 }
-                if usart_sr.fe() {
+                if sr.fe() {
                     return Poll::Ready(Err(Error::Framing));
                 }
-                if usart_sr.ne() {
+                if sr.ne() {
                     return Poll::Ready(Err(Error::Noise));
                 }
-                if usart_sr.ore() {
+                if sr.ore() {
                     return Poll::Ready(Err(Error::Overrun));
                 }
             }
 
-            if usart_sr.idle() {
+            if sr.idle() {
                 // Idle line
 
                 // stop dma transfer
