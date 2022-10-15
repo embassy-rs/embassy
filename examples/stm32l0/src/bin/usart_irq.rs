@@ -22,16 +22,18 @@ async fn main(_spawner: Spawner) {
 
     let mut state = State::new();
     let irq = interrupt::take!(USART2);
-    let mut usart = BufferedUart::new(
-        &mut state,
-        p.USART2,
-        p.PA3,
-        p.PA2,
-        irq,
-        &mut TX_BUFFER,
-        &mut RX_BUFFER,
-        config,
-    );
+    let mut usart = unsafe {
+        BufferedUart::new(
+            &mut state,
+            p.USART2,
+            p.PA3,
+            p.PA2,
+            irq,
+            &mut TX_BUFFER,
+            &mut RX_BUFFER,
+            config,
+        )
+    };
 
     usart.write_all(b"Hello Embassy World!\r\n").await.unwrap();
     info!("wrote Hello, starting echo");

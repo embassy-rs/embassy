@@ -59,21 +59,21 @@ async fn main(spawner: Spawner) -> ! {
     let p = embassy_stm32::init(config());
     info!("Hello World!");
 
-    let config = Config::default();
+    let mut config = Config::default();
 
     // set to false if you don't want to detect previous overrun errors
-    let detect_previous_overrun = true;
+    config.detect_previous_overrun = true;
 
-    let irq = interrupt::take!(USART3);
-    let usart = Uart::new(p.USART3, p.PB11, p.PB10, NoDma, p.DMA1_CH1, config);
-    let (mut usart_rx, _) = usart.split_with_idle(irq, detect_previous_overrun);
+    let irq_uart3 = interrupt::take!(USART3);
+    let mut usart = Uart::new(p.USART3, p.PB11, p.PB10, irq_uart3, NoDma, p.DMA1_CH1, config);
 
     // you could also use only Rx with Idle line detection
     // it saves 1 pin
-    // use embassy_stm32::usart::UartRxWithIdle;
-    // let mut usart_rx = UartRxWithIdle::new(p.USART3, irq, p.PB11, p.DMA1_CH1, config, detect_previous_overrun);
+    // use embassy_stm32::usart::UartRx;
+    // let mut usart = UartRx::new(p.USART3, irq_uart3, p.PB11, p.DMA1_CH1, config);
 
-    let emitter = Uart::new(p.USART1, p.PA10, p.PA9, p.DMA2_CH7, NoDma, config);
+    let irq_uart1 = interrupt::take!(USART1);
+    let emitter = Uart::new(p.USART1, p.PA10, p.PA9, irq_uart1, p.DMA2_CH7, NoDma, config);
 
     // buffer of chunks of data
     let mut buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
@@ -88,7 +88,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut new_pos = 0;
 
     loop {
-        let received_bytes = usart_rx.read_until_idle(&mut buffer).await.unwrap();
+        let received_bytes = usart.read_until_idle(&mut buffer).await.unwrap();
 
         info!("Received {} bytes: {}", received_bytes, buffer[..received_bytes]);
 

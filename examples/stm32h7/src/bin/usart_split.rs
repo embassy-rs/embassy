@@ -5,6 +5,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
+use embassy_stm32::interrupt;
 use embassy_stm32::peripherals::{DMA1_CH1, UART7};
 use embassy_stm32::usart::{Config, Uart, UartRx};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -31,7 +32,8 @@ async fn main(spawner: Spawner) -> ! {
     info!("Hello World!");
 
     let config = Config::default();
-    let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, p.DMA1_CH0, p.DMA1_CH1, config);
+    let irq = interrupt::take!(UART7);
+    let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, irq, p.DMA1_CH0, p.DMA1_CH1, config);
     unwrap!(usart.blocking_write(b"Type 8 chars to echo!\r\n"));
 
     let (mut tx, rx) = usart.split();
