@@ -70,7 +70,7 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
     }
 }
 
-static I2C_WAKER: AtomicWaker = AtomicWaker::new();
+static I2C_WAKER: [AtomicWaker; 2] = [AtomicWaker::new(), AtomicWaker::new()];
 
 impl<'d, T: Instance> I2c<'d, T, Async> {
     pub fn new_async(
@@ -109,7 +109,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
             let r = f(self);
 
             if r.is_pending() {
-                I2C_WAKER.register(cx.waker());
+                I2C_WAKER[T::IDX].register(cx.waker());
                 g(self);
             }
             r
@@ -122,7 +122,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         let i2c = T::regs();
         i2c.ic_intr_mask().write_value(pac::i2c::regs::IcIntrMask::default());
 
-        I2C_WAKER.wake();
+        I2C_WAKER[T::IDX].wake();
     }
 
     async fn read_async_internal(&mut self, buffer: &mut [u8], restart: bool, send_stop: bool) -> Result<(), Error> {
@@ -813,6 +813,7 @@ mod sealed {
     pub trait Instance {
         const TX_DREQ: u8;
         const RX_DREQ: u8;
+        const IDX: usize;
 
         type Interrupt: Interrupt;
 
@@ -844,10 +845,11 @@ impl_mode!(Async);
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_instance {
-    ($type:ident, $irq:ident, $reset:ident, $tx_dreq:expr, $rx_dreq:expr) => {
+    ($type:ident, $idx:expr, $irq:ident, $reset:ident, $tx_dreq:expr, $rx_dreq:expr) => {
         impl sealed::Instance for peripherals::$type {
             const TX_DREQ: u8 = $tx_dreq;
             const RX_DREQ: u8 = $rx_dreq;
+            const IDX: usize = $idx;
 
             type Interrupt = crate::interrupt::$irq;
 
@@ -867,8 +869,8 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(I2C0, I2C0_IRQ, set_i2c0, 32, 33);
-impl_instance!(I2C1, I2C1_IRQ, set_i2c1, 34, 35);
+impl_instance!(I2C0, 0, I2C0_IRQ, set_i2c0, 32, 33);
+impl_instance!(I2C1, 1, I2C1_IRQ, set_i2c1, 34, 35);
 
 pub trait SdaPin<T: Instance>: sealed::SdaPin<T> + crate::gpio::Pin {}
 pub trait SclPin<T: Instance>: sealed::SclPin<T> + crate::gpio::Pin {}
