@@ -70,8 +70,6 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
     }
 }
 
-static I2C_WAKER: [AtomicWaker; 2] = [AtomicWaker::new(), AtomicWaker::new()];
-
 impl<'d, T: Instance> I2c<'d, T, Async> {
     pub fn new_async(
         peri: impl Peripheral<P = T> + 'd,
@@ -109,7 +107,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
             let r = f(self);
 
             if r.is_pending() {
-                I2C_WAKER[T::IDX].register(cx.waker());
+                T::waker().register(cx.waker());
                 g(self);
             }
             r
@@ -122,7 +120,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         let i2c = T::regs();
         i2c.ic_intr_mask().write_value(pac::i2c::regs::IcIntrMask::default());
 
-        I2C_WAKER[T::IDX].wake();
+        T::waker().wake();
     }
 
     async fn read_async_internal(&mut self, buffer: &mut [u8], restart: bool, send_stop: bool) -> Result<(), Error> {
@@ -809,16 +807,17 @@ fn i2c_reserved_addr(addr: u16) -> bool {
 
 mod sealed {
     use embassy_cortex_m::interrupt::Interrupt;
+    use embassy_sync::waitqueue::AtomicWaker;
 
     pub trait Instance {
         const TX_DREQ: u8;
         const RX_DREQ: u8;
-        const IDX: usize;
 
         type Interrupt: Interrupt;
 
         fn regs() -> crate::pac::i2c::I2c;
         fn reset() -> crate::pac::resets::regs::Peripherals;
+        fn waker() -> &'static AtomicWaker;
     }
 
     pub trait Mode {}
@@ -845,11 +844,10 @@ impl_mode!(Async);
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_instance {
-    ($type:ident, $idx:expr, $irq:ident, $reset:ident, $tx_dreq:expr, $rx_dreq:expr) => {
+    ($type:ident, $irq:ident, $reset:ident, $tx_dreq:expr, $rx_dreq:expr) => {
         impl sealed::Instance for peripherals::$type {
             const TX_DREQ: u8 = $tx_dreq;
             const RX_DREQ: u8 = $rx_dreq;
-            const IDX: usize = $idx;
 
             type Interrupt = crate::interrupt::$irq;
 
@@ -864,13 +862,20 @@ macro_rules! impl_instance {
                 ret.$reset(true);
                 ret
             }
+
+            #[inline]
+            fn waker() -> &'static AtomicWaker {
+                static WAKER: AtomicWaker = AtomicWaker::new();
+
+                &WAKER
+            }
         }
         impl Instance for peripherals::$type {}
     };
 }
 
-impl_instance!(I2C0, 0, I2C0_IRQ, set_i2c0, 32, 33);
-impl_instance!(I2C1, 1, I2C1_IRQ, set_i2c1, 34, 35);
+impl_instance!(I2C0, I2C0_IRQ, set_i2c0, 32, 33);
+impl_instance!(I2C1, I2C1_IRQ, set_i2c1, 34, 35);
 
 pub trait SdaPin<T: Instance>: sealed::SdaPin<T> + crate::gpio::Pin {}
 pub trait SclPin<T: Instance>: sealed::SclPin<T> + crate::gpio::Pin {}
