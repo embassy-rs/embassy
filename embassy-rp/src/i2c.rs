@@ -70,8 +70,6 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
     }
 }
 
-static I2C_WAKER: AtomicWaker = AtomicWaker::new();
-
 impl<'d, T: Instance> I2c<'d, T, Async> {
     pub fn new_async(
         peri: impl Peripheral<P = T> + 'd,
@@ -109,7 +107,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
             let r = f(self);
 
             if r.is_pending() {
-                I2C_WAKER.register(cx.waker());
+                T::waker().register(cx.waker());
                 g(self);
             }
             r
@@ -122,7 +120,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         let i2c = T::regs();
         i2c.ic_intr_mask().write_value(pac::i2c::regs::IcIntrMask::default());
 
-        I2C_WAKER.wake();
+        T::waker().wake();
     }
 
     async fn read_async_internal(&mut self, buffer: &mut [u8], restart: bool, send_stop: bool) -> Result<(), Error> {
@@ -809,6 +807,7 @@ fn i2c_reserved_addr(addr: u16) -> bool {
 
 mod sealed {
     use embassy_cortex_m::interrupt::Interrupt;
+    use embassy_sync::waitqueue::AtomicWaker;
 
     pub trait Instance {
         const TX_DREQ: u8;
@@ -818,6 +817,7 @@ mod sealed {
 
         fn regs() -> crate::pac::i2c::I2c;
         fn reset() -> crate::pac::resets::regs::Peripherals;
+        fn waker() -> &'static AtomicWaker;
     }
 
     pub trait Mode {}
@@ -861,6 +861,13 @@ macro_rules! impl_instance {
                 let mut ret = pac::resets::regs::Peripherals::default();
                 ret.$reset(true);
                 ret
+            }
+
+            #[inline]
+            fn waker() -> &'static AtomicWaker {
+                static WAKER: AtomicWaker = AtomicWaker::new();
+
+                &WAKER
             }
         }
         impl Instance for peripherals::$type {}
