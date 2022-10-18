@@ -39,6 +39,10 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
         w.set_psize(2); // 32 bits at once
     });
 
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+    atomic_polyfill::fence(atomic_polyfill::Ordering::SeqCst);
+
     let ret = {
         let mut ret: Result<(), Error> = Ok(());
         let mut offset = offset;
@@ -63,6 +67,10 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
     };
 
     bank.cr().write(|w| w.set_pg(false));
+
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+    atomic_polyfill::fence(atomic_polyfill::Ordering::SeqCst);
 
     ret
 }
