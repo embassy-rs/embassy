@@ -29,7 +29,7 @@ pub(crate) unsafe fn init() {
 }
 
 foreach_dma_channel! {
-    ($channel_peri:ident, $dma_peri:ident, gpdma, $channel_num:expr, $index:expr, $dmamux:tt) => {
+    ($channel_peri:ident, $dma_peri:ident, gpdma, $channel_num:expr, $dmamux:tt) => {
         impl crate::peripherals::$channel_peri {
             fn waker() -> &'static AtomicWaker {
                 static WAKER: AtomicWaker = AtomicWaker::new();

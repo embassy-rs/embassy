@@ -602,29 +602,15 @@ fn main() {
         }
     }
 
-    let mut dma_channel_count: usize = 0;
-    let mut bdma_channel_count: usize = 0;
-    let mut gpdma_channel_count: usize = 0;
-
     for ch in METADATA.dma_channels {
         let mut row = Vec::new();
         let dma_peri = METADATA.peripherals.iter().find(|p| p.name == ch.dma).unwrap();
         let bi = dma_peri.registers.as_ref().unwrap();
 
-        let num;
         match bi.kind {
-            "dma" => {
-                num = dma_channel_count;
-                dma_channel_count += 1;
-            }
-            "bdma" => {
-                num = bdma_channel_count;
-                bdma_channel_count += 1;
-            }
-            "gpdma" => {
-                num = gpdma_channel_count;
-                gpdma_channel_count += 1;
-            }
+            "dma" => {}
+            "bdma" => {}
+            "gpdma" => {}
             _ => panic!("bad dma channel kind {}", bi.kind),
         }
 
@@ -632,7 +618,6 @@ fn main() {
         row.push(ch.dma.to_string());
         row.push(bi.kind.to_string());
         row.push(ch.channel.to_string());
-        row.push(num.to_string());
         if let Some(dmamux) = &ch.dmamux {
             let dmamux_channel = ch.dmamux_channel.unwrap();
             row.push(format!("{{dmamux: {}, dmamux_channel: {}}}", dmamux, dmamux_channel));
@@ -642,12 +627,6 @@ fn main() {
 
         dma_channels_table.push(row);
     }
-
-    g.extend(quote! {
-        pub(crate) const DMA_CHANNEL_COUNT: usize = #dma_channel_count;
-        pub(crate) const BDMA_CHANNEL_COUNT: usize = #bdma_channel_count;
-        pub(crate) const GPDMA_CHANNEL_COUNT: usize = #gpdma_channel_count;
-    });
 
     for irq in METADATA.interrupts {
         let name = irq.name.to_ascii_uppercase();

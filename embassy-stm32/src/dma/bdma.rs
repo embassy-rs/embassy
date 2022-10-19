@@ -32,10 +32,10 @@ pub(crate) unsafe fn init() {
 }
 
 foreach_dma_channel! {
-    ($channel_peri:ident, BDMA1, bdma, $channel_num:expr, $index:expr, $dmamux:tt) => {
+    ($channel_peri:ident, BDMA1, bdma, $channel_num:expr, $dmamux:tt) => {
         // BDMA1 in H7 doesn't use DMAMUX, which breaks
     };
-    ($channel_peri:ident, $dma_peri:ident, bdma, $channel_num:expr, $index:expr, $dmamux:tt) => {
+    ($channel_peri:ident, $dma_peri:ident, bdma, $channel_num:expr, $dmamux:tt) => {
         impl crate::peripherals::$channel_peri {
             fn waker() -> &'static AtomicWaker {
                 static WAKER: AtomicWaker = AtomicWaker::new();
