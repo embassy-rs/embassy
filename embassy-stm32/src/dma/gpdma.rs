@@ -4,7 +4,6 @@ use core::task::Waker;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::{Request, TransferOptions, Word, WordSize};
-use crate::_generated::GPDMA_CHANNEL_COUNT;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac::gpdma::{vals, Gpdma};
 use crate::{interrupt, pac};
@@ -19,33 +18,6 @@ impl From<WordSize> for vals::ChTr1Dw {
     }
 }
 
-struct ChannelState {
-    waker: AtomicWaker,
-}
-
-impl ChannelState {
-    const fn new() -> Self {
-        Self {
-            waker: AtomicWaker::new(),
-        }
-    }
-}
-
-struct State {
-    channels: [ChannelState; GPDMA_CHANNEL_COUNT],
-}
-
-impl State {
-    const fn new() -> Self {
-        const CH: ChannelState = ChannelState::new();
-        Self {
-            channels: [CH; GPDMA_CHANNEL_COUNT],
-        }
-    }
-}
-
-static STATE: State = State::new();
-
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
     foreach_interrupt! {
@@ -58,6 +30,13 @@ pub(crate) unsafe fn init() {
 
 foreach_dma_channel! {
     ($channel_peri:ident, $dma_peri:ident, gpdma, $channel_num:expr, $index:expr, $dmamux:tt) => {
+        impl crate::peripherals::$channel_peri {
+            fn waker() -> &'static AtomicWaker {
+                static WAKER: AtomicWaker = AtomicWaker::new();
+                &WAKER
+            }
+        }
+
         impl crate::dma::sealed::Channel for crate::peripherals::$channel_peri {
             unsafe fn start_write<W: Word>(&mut self, request: Request, buf: *const [W], reg_addr: *mut W, options: TransferOptions) {
                 let (ptr, len) = super::slice_ptr_parts(buf);
@@ -144,12 +123,12 @@ foreach_dma_channel! {
             }
 
             fn set_waker(&mut self, waker: &Waker) {
-                unsafe {low_level_api::set_waker($index, waker )}
+                Self::waker().register(waker);
             }
 
             fn on_irq() {
                 unsafe {
-                    low_level_api::on_irq_inner(pac::$dma_peri, $channel_num, $index);
+                    low_level_api::on_irq_inner(pac::$dma_peri, $channel_num, Self::waker());
                 }
             }
         }
@@ -257,15 +236,9 @@ mod low_level_api {
         ch.br1().read().bndt()
     }
 
-    /// Sets the waker for the specified DMA channel
-    pub unsafe fn set_waker(state_number: usize, waker: &Waker) {
-        STATE.channels[state_number].waker.register(waker);
-    }
-
     /// Safety: Must be called with a matching set of parameters for a valid dma channel
-    pub unsafe fn on_irq_inner(dma: Gpdma, channel_num: u8, state_index: u8) {
+    pub unsafe fn on_irq_inner(dma: Gpdma, channel_num: u8, waker: &'static AtomicWaker) {
         let channel_num = channel_num as usize;
-        let state_index = state_index as usize;
 
         let ch = dma.ch(channel_num);
         let sr = ch.sr().read();
@@ -285,7 +258,7 @@ mod low_level_api {
 
         if sr.suspf() || sr.tcf() {
             ch.cr().write(|w| w.set_reset(true));
-            STATE.channels[state_index].waker.wake();
+            waker.wake();
         }
     }
 }
