@@ -522,7 +522,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
             trace!("wait_enabled IN WAITING");
             let index = self.info.addr.index();
             poll_fn(|cx| {
-                EP_OUT_WAKERS[index].register(cx.waker());
+                EP_IN_WAKERS[index].register(cx.waker());
                 let val = unsafe { T::dpram().ep_in_control(self.info.addr.index() - 1).read() };
                 if val.enable() {
                     Poll::Ready(())
