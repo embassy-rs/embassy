@@ -1,5 +1,7 @@
 #![macro_use]
 
+use embassy_time::Duration;
+
 use crate::interrupt::Interrupt;
 
 #[cfg_attr(i2c_v1, path = "v1.rs")]
@@ -19,6 +21,29 @@ pub enum Error {
     Crc,
     Overrun,
     ZeroLengthTransfer,
+}
+
+#[non_exhaustive]
+#[derive(Copy, Clone)]
+pub struct Config {
+    /// Enables SDA pullup, if supported by hardware.
+    pub sda_pullup: bool,
+    /// Enabled SCL pullup, if supported by hardware.
+    pub scl_pullup: bool,
+    /// If provided, I2C methods will fail with [Error::Timeout] after a given amount of time instead of spinning infinitely.
+    ///
+    /// It is possible to provide different timeout for each operation with `xxx_timeout()` methods.
+    pub timeout: Option<Duration>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            sda_pullup: false,
+            scl_pullup: false,
+            timeout: None,
+        }
+    }
 }
 
 pub(crate) mod sealed {

@@ -7,31 +7,17 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
+use embassy_time::{Duration, Instant, Timer};
+use futures::FutureExt;
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Pull;
-use crate::i2c::{Error, Instance, SclPin, SdaPin};
+use crate::i2c::{Error, Instance, SclPin, SdaPin, Config};
 use crate::interrupt::InterruptExt;
 use crate::pac::i2c;
 use crate::time::Hertz;
 use crate::Peripheral;
-
-#[non_exhaustive]
-#[derive(Copy, Clone)]
-pub struct Config {
-    pub sda_pullup: bool,
-    pub scl_pullup: bool,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            sda_pullup: false,
-            scl_pullup: false,
-        }
-    }
-}
 
 pub struct State {
     waker: AtomicWaker,
@@ -52,6 +38,7 @@ pub struct I2c<'d, T: Instance, TXDMA = NoDma, RXDMA = NoDma> {
     tx_dma: PeripheralRef<'d, TXDMA>,
     #[allow(dead_code)]
     rx_dma: PeripheralRef<'d, RXDMA>,
+    timeout: Option<Duration>,
 }
 
 impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
@@ -122,6 +109,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             _peri: peri,
             tx_dma,
             rx_dma,
+            timeout: config.timeout
         }
     }
 
@@ -147,14 +135,18 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         }
     }
 
-    unsafe fn master_read(address: u8, length: usize, stop: Stop, reload: bool, restart: bool) {
+    unsafe fn master_read(address: u8, length: usize, stop: Stop, reload: bool, restart: bool, deadline: Option<Instant>) -> Result<(), Error> {
         assert!(length < 256);
 
         if !restart {
             // Wait for any previous address sequence to end
             // automatically. This could be up to 50% of a bus
             // cycle (ie. up to 0.5/freq)
-            while T::regs().cr2().read().start() {}
+            while T::regs().cr2().read().start() {
+                if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                    return Err(Error::Timeout);
+                }
+            }
         }
 
         // Set START and prepare to receive bytes into
@@ -176,15 +168,21 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             w.set_autoend(stop.autoend());
             w.set_reload(reload);
         });
+
+        Ok(())
     }
 
-    unsafe fn master_write(address: u8, length: usize, stop: Stop, reload: bool) {
+    unsafe fn master_write(address: u8, length: usize, stop: Stop, reload: bool, deadline: Option<Instant>) -> Result<(), Error> {
         assert!(length < 256);
 
         // Wait for any previous address sequence to end
         // automatically. This could be up to 50% of a bus
         // cycle (ie. up to 0.5/freq)
-        while T::regs().cr2().read().start() {}
+        while T::regs().cr2().read().start() {
+            if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                return Err(Error::Timeout);
+            }
+        }
 
         let reload = if reload {
             i2c::vals::Reload::NOTCOMPLETED
@@ -204,12 +202,18 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             w.set_autoend(stop.autoend());
             w.set_reload(reload);
         });
+
+        Ok(())
     }
 
-    unsafe fn master_continue(length: usize, reload: bool) {
+    unsafe fn master_continue(length: usize, reload: bool, deadline: Option<Instant>) -> Result<(), Error> {
         assert!(length < 256 && length > 0);
 
-        while !T::regs().isr().read().tcr() {}
+        while !T::regs().isr().read().tcr() {
+            if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                return Err(Error::Timeout);
+            }
+        }
 
         let reload = if reload {
             i2c::vals::Reload::NOTCOMPLETED
@@ -221,6 +225,8 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             w.set_nbytes(length as u8);
             w.set_reload(reload);
         });
+
+        Ok(())
     }
 
     fn flush_txdr(&self) {
@@ -243,7 +249,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         //}
     }
 
-    fn wait_txe(&self) -> Result<(), Error> {
+    fn wait_txe(&self, deadline: Option<Instant>) -> Result<(), Error> {
         loop {
             unsafe {
                 let isr = T::regs().isr().read();
@@ -261,10 +267,14 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                     return Err(Error::Nack);
                 }
             }
+
+            if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                return Err(Error::Timeout);
+            }
         }
     }
 
-    fn wait_rxne(&self) -> Result<(), Error> {
+    fn wait_rxne(&self, deadline: Option<Instant>) -> Result<(), Error> {
         loop {
             unsafe {
                 let isr = T::regs().isr().read();
@@ -282,10 +292,14 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                     return Err(Error::Nack);
                 }
             }
+
+            if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                return Err(Error::Timeout);
+            }
         }
     }
 
-    fn wait_tc(&self) -> Result<(), Error> {
+    fn wait_tc(&self, deadline: Option<Instant>) -> Result<(), Error> {
         loop {
             unsafe {
                 let isr = T::regs().isr().read();
@@ -303,10 +317,14 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                     return Err(Error::Nack);
                 }
             }
+
+            if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                return Err(Error::Timeout);
+            }
         }
     }
 
-    fn read_internal(&mut self, address: u8, buffer: &mut [u8], restart: bool) -> Result<(), Error> {
+    fn read_internal(&mut self, address: u8, buffer: &mut [u8], restart: bool, deadline: Option<Instant>) -> Result<(), Error> {
         let completed_chunks = buffer.len() / 255;
         let total_chunks = if completed_chunks * 255 == buffer.len() {
             completed_chunks
@@ -322,20 +340,21 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 Stop::Automatic,
                 last_chunk_idx != 0,
                 restart,
-            );
+                deadline
+            )?;
         }
 
         for (number, chunk) in buffer.chunks_mut(255).enumerate() {
             if number != 0 {
                 // NOTE(unsafe) We have &mut self
                 unsafe {
-                    Self::master_continue(chunk.len(), number != last_chunk_idx);
+                    Self::master_continue(chunk.len(), number != last_chunk_idx, deadline)?;
                 }
             }
 
             for byte in chunk {
                 // Wait until we have received something
-                self.wait_rxne()?;
+                self.wait_rxne(deadline)?;
 
                 unsafe {
                     *byte = T::regs().rxdr().read().rxdata();
@@ -345,7 +364,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
 
-    fn write_internal(&mut self, address: u8, bytes: &[u8], send_stop: bool) -> Result<(), Error> {
+    fn write_internal(&mut self, address: u8, bytes: &[u8], send_stop: bool, deadline: Option<Instant>) -> Result<(), Error> {
         let completed_chunks = bytes.len() / 255;
         let total_chunks = if completed_chunks * 255 == bytes.len() {
             completed_chunks
@@ -359,14 +378,14 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         // ST SAD+W
         // NOTE(unsafe) We have &mut self
         unsafe {
-            Self::master_write(address, bytes.len().min(255), Stop::Software, last_chunk_idx != 0);
+            Self::master_write(address, bytes.len().min(255), Stop::Software, last_chunk_idx != 0, deadline)?;
         }
 
         for (number, chunk) in bytes.chunks(255).enumerate() {
             if number != 0 {
                 // NOTE(unsafe) We have &mut self
                 unsafe {
-                    Self::master_continue(chunk.len(), number != last_chunk_idx);
+                    Self::master_continue(chunk.len(), number != last_chunk_idx, deadline)?;
                 }
             }
 
@@ -374,7 +393,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 // Wait until we are allowed to send data
                 // (START has been ACKed or last byte when
                 // through)
-                self.wait_txe()?;
+                self.wait_txe(deadline)?;
 
                 unsafe {
                     T::regs().txdr().write(|w| w.set_txdata(*byte));
@@ -382,7 +401,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             }
         }
         // Wait until the write finishes
-        self.wait_tc()?;
+        self.wait_tc(deadline)?;
 
         if send_stop {
             self.master_stop();
@@ -396,6 +415,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         bytes: &[u8],
         first_slice: bool,
         last_slice: bool,
+        deadline: Option<Instant>
     ) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
@@ -447,46 +467,57 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                     total_len.min(255),
                     Stop::Software,
                     (total_chunks != 1) || !last_slice,
-                );
+                    deadline
+                )?;
             }
         } else {
             unsafe {
-                Self::master_continue(total_len.min(255), (total_chunks != 1) || !last_slice);
+                Self::master_continue(total_len.min(255), (total_chunks != 1) || !last_slice, deadline)?;
                 T::regs().cr1().modify(|w| w.set_tcie(true));
             }
         }
+
+        let mut timer = deadline.map(|d| Timer::at(d));
 
         poll_fn(|cx| {
             state.waker.register(cx.waker());
             let chunks_transferred = state.chunks_transferred.load(Ordering::Relaxed);
 
+            if let Some(timer) = timer.as_mut() {
+                if let Poll::Ready(()) = timer.poll_unpin(cx) {
+                    return Poll::Ready(Err(Error::Timeout));
+                }
+            }
+
             if chunks_transferred == total_chunks {
-                return Poll::Ready(());
+                return Poll::Ready(Ok(()));
             } else if chunks_transferred != 0 {
                 remaining_len = remaining_len.saturating_sub(255);
                 let last_piece = (chunks_transferred + 1 == total_chunks) && last_slice;
 
                 // NOTE(unsafe) self.tx_dma does not fiddle with the i2c registers
                 unsafe {
-                    Self::master_continue(remaining_len.min(255), !last_piece);
+                    if let Err(e) = Self::master_continue(remaining_len.min(255), !last_piece, deadline) {
+                        return Poll::Ready(Err(e));
+                    }
                     T::regs().cr1().modify(|w| w.set_tcie(true));
                 }
             }
             Poll::Pending
         })
-        .await;
+        .await?;
 
         dma_transfer.await;
 
         if last_slice {
             // This should be done already
-            self.wait_tc()?;
+            self.wait_tc(deadline)?;
             self.master_stop();
         }
         Ok(())
     }
 
-    async fn read_dma_internal(&mut self, address: u8, buffer: &mut [u8], restart: bool) -> Result<(), Error>
+    async fn read_dma_internal(&mut self, address: u8, buffer: &mut [u8], restart: bool, deadline: Option<Instant>) -> Result<(), Error>
     where
         RXDMA: crate::i2c::RxDma<T>,
     {
@@ -527,33 +558,43 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         // NOTE(unsafe) self.rx_dma does not fiddle with the i2c registers
         unsafe {
-            Self::master_read(address, total_len.min(255), Stop::Software, total_chunks != 1, restart);
+            Self::master_read(address, total_len.min(255), Stop::Software, total_chunks != 1, restart, deadline)?;
         }
+
+        let mut timer = deadline.map(|d| Timer::at(d));
 
         poll_fn(|cx| {
             state.waker.register(cx.waker());
             let chunks_transferred = state.chunks_transferred.load(Ordering::Relaxed);
 
+            if let Some(timer) = timer.as_mut() {
+                if let Poll::Ready(()) = timer.poll_unpin(cx) {
+                    return Poll::Ready(Err(Error::Timeout));
+                }
+            }
+
             if chunks_transferred == total_chunks {
-                return Poll::Ready(());
+                return Poll::Ready(Ok(()));
             } else if chunks_transferred != 0 {
                 remaining_len = remaining_len.saturating_sub(255);
                 let last_piece = chunks_transferred + 1 == total_chunks;
 
                 // NOTE(unsafe) self.rx_dma does not fiddle with the i2c registers
                 unsafe {
-                    Self::master_continue(remaining_len.min(255), !last_piece);
+                    if let Err(e) = Self::master_continue(remaining_len.min(255), !last_piece,deadline) {
+                        return Poll::Ready(Err(e));
+                    }
                     T::regs().cr1().modify(|w| w.set_tcie(true));
                 }
             }
             Poll::Pending
         })
-        .await;
+        .await?;
 
         dma_transfer.await;
 
         // This should be done already
-        self.wait_tc()?;
+        self.wait_tc(deadline)?;
         self.master_stop();
         Ok(())
     }
@@ -561,21 +602,32 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     // =========================
     //  Async public API
 
+    pub async fn write_timeout(&mut self, address: u8, bytes: &[u8], timeout: Option<Duration>) -> Result<(), Error>
+    where
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        let deadline = timeout.map(|t| Instant::now() + t);
+
+        if bytes.is_empty() {
+            self.write_internal(address, bytes, true, deadline)
+        } else {
+            self.write_dma_internal(address, bytes, true, true, deadline).await
+        }
+    }
+
     pub async fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
-        if bytes.is_empty() {
-            self.write_internal(address, bytes, true)
-        } else {
-            self.write_dma_internal(address, bytes, true, true).await
-        }
+        self.write_timeout(address, bytes, self.timeout).await
     }
 
-    pub async fn write_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error>
+    pub async fn write_vectored_timeout(&mut self, address: u8, bytes: &[&[u8]], timeout: Option<Duration>) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
+        let deadline = timeout.map(|t| Instant::now() + t);
+
         if bytes.is_empty() {
             return Err(Error::ZeroLengthTransfer);
         }
@@ -587,22 +639,60 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             let next = iter.next();
             let is_last = next.is_none();
 
-            self.write_dma_internal(address, c, first, is_last).await?;
+            self.write_dma_internal(address, c, first, is_last, deadline).await?;
             first = false;
             current = next;
         }
         Ok(())
     }
 
+    pub async fn write_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error>
+    where
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        self.write_vectored_timeout(address, bytes, self.timeout).await
+    }
+
+    pub async fn read_timeout(&mut self, address: u8, buffer: &mut [u8], timeout: Option<Duration>) -> Result<(), Error>
+    where
+        RXDMA: crate::i2c::RxDma<T>,
+    {
+        let deadline = timeout.map(|t| Instant::now() + t);
+
+        if buffer.is_empty() {
+            self.read_internal(address, buffer, false, deadline)
+        } else {
+            self.read_dma_internal(address, buffer, false, deadline).await
+        }
+    }
+
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error>
     where
         RXDMA: crate::i2c::RxDma<T>,
     {
-        if buffer.is_empty() {
-            self.read_internal(address, buffer, false)
+        self.read_timeout(address, buffer, self.timeout).await
+    }
+
+    pub async fn write_read_timeout(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8], timeout: Option<Duration>) -> Result<(), Error>
+    where
+        TXDMA: super::TxDma<T>,
+        RXDMA: super::RxDma<T>,
+    {
+        let deadline = timeout.map(|t| Instant::now() + t);
+
+        if bytes.is_empty() {
+            self.write_internal(address, bytes, false, deadline)?;
         } else {
-            self.read_dma_internal(address, buffer, false).await
+            self.write_dma_internal(address, bytes, true, true, deadline).await?;
         }
+
+        if buffer.is_empty() {
+            self.read_internal(address, buffer, true, deadline)?;
+        } else {
+            self.read_dma_internal(address, buffer, true, deadline).await?;
+        }
+
+        Ok(())
     }
 
     pub async fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error>
@@ -610,45 +700,48 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         TXDMA: super::TxDma<T>,
         RXDMA: super::RxDma<T>,
     {
-        if bytes.is_empty() {
-            self.write_internal(address, bytes, false)?;
-        } else {
-            self.write_dma_internal(address, bytes, true, true).await?;
-        }
-
-        if buffer.is_empty() {
-            self.read_internal(address, buffer, true)?;
-        } else {
-            self.read_dma_internal(address, buffer, true).await?;
-        }
-
-        Ok(())
+        self.write_read_timeout(address, bytes, buffer, self.timeout).await
     }
 
     // =========================
     //  Blocking public API
 
-    pub fn blocking_read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        self.read_internal(address, buffer, false)
+    pub fn blocking_read_timeout(&mut self, address: u8, buffer: &mut [u8], timeout: Option<Duration>) -> Result<(), Error> {
+        self.read_internal(address, buffer, false, timeout.map(|t| Instant::now() + t))
         // Automatic Stop
+    }
+
+    pub fn blocking_read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        self.blocking_read_timeout(address, buffer, self.timeout)
+    }
+
+    pub fn blocking_write_timeout(&mut self, address: u8, bytes: &[u8], timeout: Option<Duration>) -> Result<(), Error> {
+        self.write_internal(address, bytes, true, timeout.map(|t| Instant::now() + t))
     }
 
     pub fn blocking_write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error> {
-        self.write_internal(address, bytes, true)
+        self.blocking_write_timeout(address, bytes, self.timeout)
     }
 
-    pub fn blocking_write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
-        self.write_internal(address, bytes, false)?;
-        self.read_internal(address, buffer, true)
+    pub fn blocking_write_read_timeout(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8], timeout: Option<Duration>) -> Result<(), Error> {
+        let deadline = timeout.map(|t| Instant::now() + t);
+        self.write_internal(address, bytes, false, deadline)?;
+        self.read_internal(address, buffer, true, deadline)
         // Automatic Stop
     }
 
-    pub fn blocking_write_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error> {
+    pub fn blocking_write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
+        self.blocking_write_read_timeout(address, bytes, buffer, self.timeout)
+    }
+
+    pub fn blocking_write_vectored_timeout(&mut self, address: u8, bytes: &[&[u8]], timeout: Option<Duration>) -> Result<(), Error> {
         if bytes.is_empty() {
             return Err(Error::ZeroLengthTransfer);
         }
         let first_length = bytes[0].len();
         let last_slice_index = bytes.len() - 1;
+
+        let deadline = timeout.map(|t| Instant::now() + t);
 
         // NOTE(unsafe) We have &mut self
         unsafe {
@@ -657,7 +750,8 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 first_length.min(255),
                 Stop::Software,
                 (first_length > 255) || (last_slice_index != 0),
-            );
+                deadline
+            )?;
         }
 
         for (idx, slice) in bytes.iter().enumerate() {
@@ -673,7 +767,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             if idx != 0 {
                 // NOTE(unsafe) We have &mut self
                 unsafe {
-                    Self::master_continue(slice_len.min(255), (idx != last_slice_index) || (slice_len > 255));
+                    Self::master_continue(slice_len.min(255), (idx != last_slice_index) || (slice_len > 255), deadline)?;
                 }
             }
 
@@ -681,7 +775,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 if number != 0 {
                     // NOTE(unsafe) We have &mut self
                     unsafe {
-                        Self::master_continue(chunk.len(), (number != last_chunk_idx) || (idx != last_slice_index));
+                        Self::master_continue(chunk.len(), (number != last_chunk_idx) || (idx != last_slice_index), deadline)?;
                     }
                 }
 
@@ -689,7 +783,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                     // Wait until we are allowed to send data
                     // (START has been ACKed or last byte when
                     // through)
-                    self.wait_txe()?;
+                    self.wait_txe(deadline)?;
 
                     // Put byte on the wire
                     //self.i2c.txdr.write(|w| w.txdata().bits(*byte));
@@ -700,10 +794,14 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             }
         }
         // Wait until the write finishes
-        self.wait_tc()?;
+        self.wait_tc(deadline)?;
         self.master_stop();
 
         Ok(())
+    }
+
+    pub fn blocking_write_vectored(&mut self, address: u8, bytes: &[&[u8]]) -> Result<(), Error> {
+        self.blocking_write_vectored_timeout(address, bytes, self.timeout)
     }
 }
 

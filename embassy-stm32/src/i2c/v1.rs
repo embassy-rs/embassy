@@ -2,29 +2,14 @@ use core::marker::PhantomData;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::into_ref;
+use embassy_time::{Duration, Instant};
 
 use crate::gpio::sealed::AFType;
 use crate::gpio::Pull;
-use crate::i2c::{Error, Instance, SclPin, SdaPin};
+use crate::i2c::{Config, Error, Instance, SclPin, SdaPin};
 use crate::pac::i2c;
 use crate::time::Hertz;
 use crate::Peripheral;
-
-#[non_exhaustive]
-#[derive(Copy, Clone)]
-pub struct Config {
-    pub sda_pullup: bool,
-    pub scl_pullup: bool,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            sda_pullup: false,
-            scl_pullup: false,
-        }
-    }
-}
 
 pub struct State {}
 
@@ -36,6 +21,7 @@ impl State {
 
 pub struct I2c<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
+    timeout: Option<Duration>,
 }
 
 impl<'d, T: Instance> I2c<'d, T> {
@@ -99,7 +85,10 @@ impl<'d, T: Instance> I2c<'d, T> {
             });
         }
 
-        Self { phantom: PhantomData }
+        Self {
+            phantom: PhantomData,
+            timeout: config.timeout,
+        }
     }
 
     unsafe fn check_and_clear_error_flags(&self) -> Result<i2c::regs::Sr1, Error> {
@@ -141,15 +130,18 @@ impl<'d, T: Instance> I2c<'d, T> {
         Ok(sr1)
     }
 
-    unsafe fn write_bytes(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
+    unsafe fn write_bytes(&mut self, addr: u8, bytes: &[u8], deadline: Option<Instant>) -> Result<(), Error> {
         // Send a START condition
-
         T::regs().cr1().modify(|reg| {
             reg.set_start(true);
         });
 
         // Wait until START condition was generated
-        while !self.check_and_clear_error_flags()?.start() {}
+        while !self.check_and_clear_error_flags()?.start() {
+            if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                return Err(Error::Timeout);
+            }
+        }
 
         // Also wait until signalled we're master and everything is waiting for us
         while {
@@ -157,7 +149,11 @@ impl<'d, T: Instance> I2c<'d, T> {
 
             let sr2 = T::regs().sr2().read();
             !sr2.msl() && !sr2.busy()
-        } {}
+        } {
+            if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                return Err(Error::Timeout);
+            }
+        }
 
         // Set up current address, we're trying to talk to
         T::regs().dr().write(|reg| reg.set_dr(addr << 1));
@@ -165,26 +161,34 @@ impl<'d, T: Instance> I2c<'d, T> {
         // Wait until address was sent
         // Wait for the address to be acknowledged
         // Check for any I2C errors. If a NACK occurs, the ADDR bit will never be set.
-        while !self.check_and_clear_error_flags()?.addr() {}
+        while !self.check_and_clear_error_flags()?.addr() {
+            if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                return Err(Error::Timeout);
+            }
+        }
 
         // Clear condition by reading SR2
         let _ = T::regs().sr2().read();
 
         // Send bytes
         for c in bytes {
-            self.send_byte(*c)?;
+            self.send_byte(*c, deadline)?;
         }
 
         // Fallthrough is success
         Ok(())
     }
 
-    unsafe fn send_byte(&self, byte: u8) -> Result<(), Error> {
+    unsafe fn send_byte(&self, byte: u8, deadline: Option<Instant>) -> Result<(), Error> {
         // Wait until we're ready for sending
         while {
             // Check for any I2C errors. If a NACK occurs, the ADDR bit will never be set.
             !self.check_and_clear_error_flags()?.txe()
-        } {}
+        } {
+            if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                return Err(Error::Timeout);
+            }
+        }
 
         // Push out a byte of data
         T::regs().dr().write(|reg| reg.set_dr(byte));
@@ -193,25 +197,40 @@ impl<'d, T: Instance> I2c<'d, T> {
         while {
             // Check for any potential error conditions.
             !self.check_and_clear_error_flags()?.btf()
-        } {}
+        } {
+            if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                return Err(Error::Timeout);
+            }
+        }
 
         Ok(())
     }
 
-    unsafe fn recv_byte(&self) -> Result<u8, Error> {
+    unsafe fn recv_byte(&self, deadline: Option<Instant>) -> Result<u8, Error> {
         while {
             // Check for any potential error conditions.
             self.check_and_clear_error_flags()?;
 
             !T::regs().sr1().read().rxne()
-        } {}
+        } {
+            if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                return Err(Error::Timeout);
+            }
+        }
 
         let value = T::regs().dr().read().dr();
         Ok(value)
     }
 
-    pub fn blocking_read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_read_timeout(
+        &mut self,
+        addr: u8,
+        buffer: &mut [u8],
+        timeout: Option<Duration>,
+    ) -> Result<(), Error> {
         if let Some((last, buffer)) = buffer.split_last_mut() {
+            let deadline = timeout.map(|t| Instant::now() + t);
+
             // Send a START condition and set ACK bit
             unsafe {
                 T::regs().cr1().modify(|reg| {
@@ -221,27 +240,39 @@ impl<'d, T: Instance> I2c<'d, T> {
             }
 
             // Wait until START condition was generated
-            while unsafe { !T::regs().sr1().read().start() } {}
+            while unsafe { !self.check_and_clear_error_flags()?.start() } {
+                if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                    return Err(Error::Timeout);
+                }
+            }
 
             // Also wait until signalled we're master and everything is waiting for us
             while {
                 let sr2 = unsafe { T::regs().sr2().read() };
                 !sr2.msl() && !sr2.busy()
-            } {}
+            } {
+                if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                    return Err(Error::Timeout);
+                }
+            }
 
             // Set up current address, we're trying to talk to
             unsafe { T::regs().dr().write(|reg| reg.set_dr((addr << 1) + 1)) }
 
             // Wait until address was sent
             // Wait for the address to be acknowledged
-            while unsafe { !self.check_and_clear_error_flags()?.addr() } {}
+            while unsafe { !self.check_and_clear_error_flags()?.addr() } {
+                if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                    return Err(Error::Timeout);
+                }
+            }
 
             // Clear condition by reading SR2
             let _ = unsafe { T::regs().sr2().read() };
 
             // Receive bytes into buffer
             for c in buffer {
-                *c = unsafe { self.recv_byte()? };
+                *c = unsafe { self.recv_byte(deadline)? };
             }
 
             // Prepare to send NACK then STOP after next byte
@@ -253,10 +284,14 @@ impl<'d, T: Instance> I2c<'d, T> {
             }
 
             // Receive last byte
-            *last = unsafe { self.recv_byte()? };
+            *last = unsafe { self.recv_byte(deadline)? };
 
             // Wait for the STOP to be sent.
-            while unsafe { T::regs().cr1().read().stop() } {}
+            while unsafe { T::regs().cr1().read().stop() } {
+                if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                    return Err(Error::Timeout);
+                }
+            }
 
             // Fallthrough is success
             Ok(())
@@ -265,24 +300,48 @@ impl<'d, T: Instance> I2c<'d, T> {
         }
     }
 
-    pub fn blocking_write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
+    pub fn blocking_read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        self.blocking_read_timeout(addr, buffer, self.timeout)
+    }
+
+    pub fn blocking_write_timeout(&mut self, addr: u8, bytes: &[u8], timeout: Option<Duration>) -> Result<(), Error> {
+        let deadline = timeout.map(|t| Instant::now() + t);
+
         unsafe {
-            self.write_bytes(addr, bytes)?;
+            self.write_bytes(addr, bytes, deadline)?;
             // Send a STOP condition
             T::regs().cr1().modify(|reg| reg.set_stop(true));
             // Wait for STOP condition to transmit.
-            while T::regs().cr1().read().stop() {}
+            while T::regs().cr1().read().stop() {
+                if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                    return Err(Error::Timeout);
+                }
+            }
         };
 
         // Fallthrough is success
         Ok(())
     }
 
-    pub fn blocking_write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
-        unsafe { self.write_bytes(addr, bytes)? };
+    pub fn blocking_write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
+        self.blocking_write_timeout(addr, bytes, self.timeout)
+    }
+
+    pub fn blocking_write_read_timeout(
+        &mut self,
+        addr: u8,
+        bytes: &[u8],
+        buffer: &mut [u8],
+        timeout: Option<Duration>,
+    ) -> Result<(), Error> {
+        unsafe { self.write_bytes(addr, bytes, timeout.map(|t| Instant::now() + t))? };
         self.blocking_read(addr, buffer)?;
 
         Ok(())
+    }
+
+    pub fn blocking_write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
+        self.blocking_write_read_timeout(addr, bytes, buffer, self.timeout)
     }
 }
 
