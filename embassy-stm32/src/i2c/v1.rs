@@ -248,6 +248,8 @@ impl<'d, T: Instance> I2c<'d, T> {
 
             // Also wait until signalled we're master and everything is waiting for us
             while {
+                unsafe { self.check_and_clear_error_flags()? };
+
                 let sr2 = unsafe { T::regs().sr2().read() };
                 !sr2.msl() && !sr2.busy()
             } {
