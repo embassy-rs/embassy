@@ -136,12 +136,19 @@ impl<'d, T: Instance> I2c<'d, T> {
             reg.set_start(true);
         });
 
-        // Wait until START condition is generated and peripheral is ready
-        while {
-            let sr1 = self.check_and_clear_error_flags()?;
-            let sr2 = T::regs().sr2().read();
+        // Wait until START condition was generated
+        while !self.check_and_clear_error_flags()?.start() {
+            if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                return Err(Error::Timeout);
+            }
+        }
 
-            sr1.start() && !sr2.msl() && !sr2.busy()
+        // Also wait until signalled we're master and everything is waiting for us
+        while {
+            self.check_and_clear_error_flags()?;
+
+            let sr2 = T::regs().sr2().read();
+            !sr2.msl() && !sr2.busy()
         } {
             if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
                 return Err(Error::Timeout);
@@ -232,12 +239,17 @@ impl<'d, T: Instance> I2c<'d, T> {
                 });
             }
 
-            // Wait until START condition is generated and peripheral is ready
-            while {
-                let sr1 = unsafe { self.check_and_clear_error_flags()? };
-                let sr2 = unsafe { T::regs().sr2().read() };
+            // Wait until START condition was generated
+            while unsafe { !self.check_and_clear_error_flags()?.start() } {
+                if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
+                    return Err(Error::Timeout);
+                }
+            }
 
-                sr1.start() && !sr2.msl() && !sr2.busy()
+            // Also wait until signalled we're master and everything is waiting for us
+            while {
+                let sr2 = unsafe { T::regs().sr2().read() };
+                !sr2.msl() && !sr2.busy()
             } {
                 if deadline.map(|d| Instant::now() > d).unwrap_or(false) {
                     return Err(Error::Timeout);
