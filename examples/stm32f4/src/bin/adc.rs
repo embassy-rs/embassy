@@ -24,19 +24,40 @@ async fn main(_spawner: Spawner) {
     // Startup delay can be combined to the maximum of either
     delay.delay_us(Temperature::start_time_us().max(VrefInt::start_time_us()));
 
+    let vref_sample = adc.read_internal(&mut vrefint);
+
+    let convert_to_millivolts = |sample| {
+        // From http://www.st.com/resource/en/datasheet/DM00071990.pdf
+        // 6.3.24 Reference voltage
+        const VREF_MILLIVOLTS: u32 = 1210; // mV
+
+        (u32::from(sample) * VREF_MILLIVOLTS / u32::from(vref_sample)) as u16
+    };
+
+    let convert_to_celcius = |sample| {
+        // From http://www.st.com/resource/en/datasheet/DM00071990.pdf
+        // 6.3.22 Temperature sensor characteristics
+        const V25: i32 = 760; // mV
+        const AVG_SLOPE: f32 = 2.5; // mV/C
+
+        let sample_mv = convert_to_millivolts(sample) as i32;
+
+        (sample_mv - V25) as f32 / AVG_SLOPE + 25.0
+    };
+
     loop {
         // Read pin
         let v = adc.read(&mut pin);
-        info!("PC1: {} ({} mV)", v, adc.to_millivolts(v));
+        info!("PC1: {} ({} mV)", v, convert_to_millivolts(v));
 
         // Read internal temperature
         let v = adc.read_internal(&mut temp);
-        let celcius = Temperature::to_celcius(adc.to_millivolts(v));
+        let celcius = convert_to_celcius(v);
         info!("Internal temp: {} ({} C)", v, celcius);
 
         // Read internal voltage reference
         let v = adc.read_internal(&mut vrefint);
-        info!("VrefInt: {} ({} mV)", v, adc.to_millivolts(v));
+        info!("VrefInt: {} ({} mV)", v, convert_to_millivolts(v));
 
         Timer::after(Duration::from_millis(100)).await;
     }

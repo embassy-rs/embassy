@@ -17,10 +17,18 @@ async fn main(_spawner: Spawner) {
     let mut pin = p.PB1;
 
     let mut vref = adc.enable_vref(&mut Delay);
-    adc.calibrate(&mut vref);
+    let vref_sample = adc.read(&mut vref);
+    let convert_to_millivolts = |sample| {
+        // From http://www.st.com/resource/en/datasheet/CD00161566.pdf
+        // 5.3.4 Embedded reference voltage
+        const VREF_MV: u32 = 1200;
+
+        (u32::from(sample) * VREF_MV / u32::from(vref_sample)) as u16
+    };
+
     loop {
         let v = adc.read(&mut pin);
-        info!("--> {} - {} mV", v, adc.to_millivolts(v));
+        info!("--> {} - {} mV", v, convert_to_millivolts(v));
         Timer::after(Duration::from_millis(100)).await;
     }
 }

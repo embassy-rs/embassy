@@ -314,7 +314,6 @@ impl Prescaler {
 
 pub struct Adc<'d, T: Instance> {
     sample_time: SampleTime,
-    vref_mv: u32,
     resolution: Resolution,
     phantom: PhantomData<&'d mut T>,
 }
@@ -352,7 +351,6 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
 
         let mut s = Self {
             sample_time: Default::default(),
-            vref_mv: VREF_DEFAULT_MV,
             resolution: Resolution::default(),
             phantom: PhantomData,
         };
@@ -457,18 +455,6 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
 
     pub fn set_resolution(&mut self, resolution: Resolution) {
         self.resolution = resolution;
-    }
-
-    /// Set VREF value in millivolts. This value is used for [to_millivolts()] sample conversion.
-    ///
-    /// Use this if you have a known precise VREF (VDDA) pin reference voltage.
-    pub fn set_vref_mv(&mut self, vref_mv: u32) {
-        self.vref_mv = vref_mv;
-    }
-
-    /// Convert a measurement to millivolts
-    pub fn to_millivolts(&self, sample: u16) -> u16 {
-        ((u32::from(sample) * self.vref_mv) / self.resolution.to_max_count()) as u16
     }
 
     /// Perform a single conversion.
