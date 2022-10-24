@@ -1,9 +1,7 @@
-use core::marker::PhantomData;
-
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{AdcPin, Instance};
+use crate::adc::{Adc, AdcPin, Instance};
 use crate::Peripheral;
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -203,13 +201,9 @@ mod sample_time {
 
 pub use sample_time::SampleTime;
 
-pub struct Adc<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
-}
-
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
-        into_ref!(_peri);
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+        into_ref!(adc);
         enable();
         unsafe {
             T::regs().cr().modify(|reg| {
@@ -238,7 +232,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         delay.delay_us(1);
 
-        Self { phantom: PhantomData }
+        Self { adc }
     }
 
     pub fn enable_vrefint(&self, delay: &mut impl DelayUs<u32>) -> VrefInt {
@@ -286,27 +280,6 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
      */
 
-    /// Perform a single conversion.
-    fn convert(&mut self) -> u16 {
-        unsafe {
-            T::regs().isr().modify(|reg| {
-                reg.set_eos(true);
-                reg.set_eoc(true);
-            });
-
-            // Start conversion
-            T::regs().cr().modify(|reg| {
-                reg.set_adstart(true);
-            });
-
-            while !T::regs().isr().read().eos() {
-                // spin
-            }
-
-            T::regs().dr().read().0 as u16
-        }
-    }
-
     pub fn read(&mut self, pin: &mut impl AdcPin<T>, sample_time: SampleTime, resolution: Resolution) -> u16 {
         unsafe {
             // Make sure bits are off
@@ -348,9 +321,9 @@ impl<'d, T: Instance> Adc<'d, T> {
             // STM32L471xx: Section 2.7.3
             // STM32G4: Section 2.7.3
             #[cfg(any(rcc_l4, rcc_g4))]
-            let _ = self.convert();
+            let _ = convert(*T::regs());
 
-            let val = self.convert();
+            let val = convert(*T::regs());
 
             T::regs().cr().modify(|reg| reg.set_addis(true));
 
@@ -374,5 +347,26 @@ impl<'d, T: Instance> Adc<'d, T> {
                 .smpr2()
                 .modify(|reg| reg.set_smp((ch - 10) as _, sample_time.sample_time()));
         }
+    }
+}
+
+/// Perform a single conversion.
+pub(super) unsafe fn convert(regs: crate::pac::adc::Adc) -> u16 {
+    unsafe {
+        regs.isr().modify(|reg| {
+            reg.set_eos(true);
+            reg.set_eoc(true);
+        });
+
+        // Start conversion
+        regs.cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+
+        while !regs.isr().read().eos() {
+            // spin
+        }
+
+        regs.dr().read().0 as u16
     }
 }

@@ -1,9 +1,7 @@
-use core::marker::PhantomData;
-
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{AdcPin, Instance};
+use crate::adc::{Adc, AdcPin, Instance};
 use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -84,13 +82,9 @@ mod sample_time {
 
 pub use sample_time::SampleTime;
 
-pub struct Adc<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
-}
-
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
-        into_ref!(_peri);
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+        into_ref!(adc);
         T::enable();
         T::reset();
         unsafe {
@@ -118,7 +112,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         // One cycle after calibration
         delay.delay_us((1_000_000) / Self::freq().0 + 1);
 
-        Self { phantom: PhantomData }
+        Self { adc }
     }
 
     fn freq() -> Hertz {
@@ -156,20 +150,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         Temperature {}
     }
 
-    /// Perform a single conversion.
-    fn convert(&mut self) -> u16 {
-        unsafe {
-            T::regs().cr2().modify(|reg| {
-                reg.set_adon(true);
-                reg.set_swstart(true);
-            });
-            while T::regs().cr2().read().swstart() {}
-            while !T::regs().sr().read().eoc() {}
-
-            T::regs().dr().read().0 as u16
-        }
-    }
-
     pub fn read(&mut self, pin: &mut impl AdcPin<T>, sample_time: SampleTime) -> u16 {
         unsafe {
             Self::set_channel_sample_time(pin.channel(), sample_time);
@@ -185,11 +165,12 @@ impl<'d, T: Instance> Adc<'d, T> {
                 reg.set_swstart(false);
                 reg.set_extsel(crate::pac::adc::vals::Extsel::SWSTART);
             });
-        }
 
-        // Configure the channel to sample
-        unsafe { T::regs().sqr3().write(|reg| reg.set_sq(0, pin.channel())) }
-        self.convert()
+            // Configure the channel to sample
+            T::regs().sqr3().write(|reg| reg.set_sq(0, pin.channel()));
+
+            convert(*T::regs())
+        }
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
@@ -202,5 +183,19 @@ impl<'d, T: Instance> Adc<'d, T> {
                 .smpr1()
                 .modify(|reg| reg.set_smp((ch - 10) as _, sample_time.sample_time()));
         }
+    }
+}
+
+/// Perform a single conversion.
+pub(super) unsafe fn convert(regs: crate::pac::adc::Adc) -> u16 {
+    unsafe {
+        regs.cr2().modify(|reg| {
+            reg.set_adon(true);
+            reg.set_swstart(true);
+        });
+        while regs.cr2().read().swstart() {}
+        while !regs.sr().read().eoc() {}
+
+        regs.dr().read().0 as u16
     }
 }

@@ -12,6 +12,14 @@ mod _version;
 pub use _version::*;
 
 use crate::peripherals;
+#[cfg(not(adc_v1))]
+use crate::PeripheralRef;
+
+#[cfg(not(adc_v1))]
+pub struct Adc<'d, T: Instance> {
+    #[allow(unused)] // TODO: this will be used eventually
+    adc: PeripheralRef<'d, T>,
+}
 
 pub(crate) mod sealed {
     pub trait Instance {

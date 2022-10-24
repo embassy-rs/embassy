@@ -1,10 +1,8 @@
-use core::marker::PhantomData;
-
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
 use super::InternalChannel;
-use crate::adc::{AdcPin, Instance};
+use crate::adc::{Adc, AdcPin, Instance};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -161,16 +159,12 @@ impl Prescaler {
     }
 }
 
-pub struct Adc<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
-}
-
 impl<'d, T> Adc<'d, T>
 where
     T: Instance,
 {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
-        into_ref!(_peri);
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+        into_ref!(adc);
         T::enable();
         T::reset();
 
@@ -185,7 +179,7 @@ where
 
         delay.delay_us(ADC_POWERUP_TIME_US);
 
-        Self { phantom: PhantomData }
+        Self { adc }
     }
 
     /// Enables internal voltage reference and returns [VrefInt], which can be used in
@@ -227,30 +221,6 @@ where
         Vbat {}
     }
 
-    /// Perform a single conversion.
-    fn convert(&mut self) -> u16 {
-        unsafe {
-            // clear end of conversion flag
-            T::regs().sr().modify(|reg| {
-                reg.set_eoc(crate::pac::adc::vals::Eoc::NOTCOMPLETE);
-            });
-
-            // Start conversion
-            T::regs().cr2().modify(|reg| {
-                reg.set_swstart(true);
-            });
-
-            while T::regs().sr().read().strt() == crate::pac::adc::vals::Strt::NOTSTARTED {
-                // spin //wait for actual start
-            }
-            while T::regs().sr().read().eoc() == crate::pac::adc::vals::Eoc::NOTCOMPLETE {
-                // spin //wait for finish
-            }
-
-            T::regs().dr().read().0 as u16
-        }
-    }
-
     pub fn read<P>(&mut self, pin: &mut P, sample_time: SampleTime, resolution: Resolution) -> u16
     where
         P: AdcPin<T>,
@@ -282,9 +252,7 @@ where
         // Configure channel
         Self::set_channel_sample_time(channel, sample_time);
 
-        let val = self.convert();
-
-        val
+        convert(*T::regs())
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
@@ -303,5 +271,29 @@ where
 impl<'d, T: Instance> Drop for Adc<'d, T> {
     fn drop(&mut self) {
         T::disable();
+    }
+}
+
+/// Perform a single conversion.
+pub(super) unsafe fn convert(regs: crate::pac::adc::Adc) -> u16 {
+    unsafe {
+        // clear end of conversion flag
+        regs.sr().modify(|reg| {
+            reg.set_eoc(crate::pac::adc::vals::Eoc::NOTCOMPLETE);
+        });
+
+        // Start conversion
+        regs.cr2().modify(|reg| {
+            reg.set_swstart(true);
+        });
+
+        while regs.sr().read().strt() == crate::pac::adc::vals::Strt::NOTSTARTED {
+            // spin //wait for actual start
+        }
+        while regs.sr().read().eoc() == crate::pac::adc::vals::Eoc::NOTCOMPLETE {
+            // spin //wait for finish
+        }
+
+        regs.dr().read().0 as u16
     }
 }

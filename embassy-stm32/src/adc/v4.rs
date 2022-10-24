@@ -1,11 +1,9 @@
-use core::marker::PhantomData;
-
 use atomic_polyfill::{AtomicU8, Ordering};
 use embedded_hal_02::blocking::delay::DelayUs;
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
-use super::{AdcPin, Instance, InternalChannel};
+use super::{Adc, AdcPin, Instance, InternalChannel};
 use crate::time::Hertz;
 use crate::{pac, Peripheral};
 
@@ -312,13 +310,9 @@ impl Prescaler {
     }
 }
 
-pub struct Adc<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
-}
-
 impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
-        embassy_hal_common::into_ref!(_peri);
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
+        embassy_hal_common::into_ref!(adc);
         T::enable();
         T::reset();
 
@@ -347,7 +341,7 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
             T::regs().cr().modify(|w| w.set_boost(boost));
         }
 
-        let mut s = Self { phantom: PhantomData };
+        let mut s = Self { adc };
         s.power_up(delay);
         s.configure_differential_inputs();
 
@@ -443,27 +437,6 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
         Vbat {}
     }
 
-    /// Perform a single conversion.
-    fn convert(&mut self) -> u16 {
-        unsafe {
-            T::regs().isr().modify(|reg| {
-                reg.set_eos(true);
-                reg.set_eoc(true);
-            });
-
-            // Start conversion
-            T::regs().cr().modify(|reg| {
-                reg.set_adstart(true);
-            });
-
-            while !T::regs().isr().read().eos() {
-                // spin
-            }
-
-            T::regs().dr().read().0 as u16
-        }
-    }
-
     pub fn read<P>(&mut self, pin: &mut P, sample_time: SampleTime, resolution: Resolution) -> u16
     where
         P: AdcPin<T>,
@@ -501,7 +474,7 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
             reg.set_l(0);
         });
 
-        self.convert()
+        convert(*T::regs())
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
@@ -514,5 +487,26 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
                 .smpr(1)
                 .modify(|reg| reg.set_smp((ch - 10) as _, sample_time.sample_time()));
         }
+    }
+}
+
+/// Perform a single conversion.
+pub(super) unsafe fn convert(regs: crate::pac::adc::Adc) -> u16 {
+    unsafe {
+        regs.isr().modify(|reg| {
+            reg.set_eos(true);
+            reg.set_eoc(true);
+        });
+
+        // Start conversion
+        regs.cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+
+        while !regs.isr().read().eos() {
+            // spin
+        }
+
+        regs.dr().read().0 as u16
     }
 }
