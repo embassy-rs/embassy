@@ -292,20 +292,20 @@ impl Driver for RtcDriver {
         })
     }
 
-    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) {
+    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
         critical_section::with(|cs| {
+            let t = self.now();
+
+            // If alarm timestamp has passed don't set the alarm and return `false` to indicate that.
+            if timestamp <= t {
+                return false;
+            }
+
             let r = T::regs_gp16();
 
             let n = alarm.id() as _;
             let alarm = self.get_alarm(cs, alarm);
             alarm.timestamp.set(timestamp);
-
-            let t = self.now();
-            if timestamp <= t {
-                unsafe { r.dier().modify(|w| w.set_ccie(n + 1, false)) };
-                self.trigger_alarm(n, cs);
-                return;
-            }
 
             let safe_timestamp = timestamp.max(t + 3);
 
@@ -317,6 +317,8 @@ impl Driver for RtcDriver {
             let diff = timestamp - t;
             // NOTE(unsafe) We're in a critical section
             unsafe { r.dier().modify(|w| w.set_ccie(n + 1, diff < 0xc000)) };
+
+            true
         })
     }
 }

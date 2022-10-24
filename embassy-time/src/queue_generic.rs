@@ -2,7 +2,6 @@ use core::cell::RefCell;
 use core::cmp::Ordering;
 use core::task::Waker;
 
-use atomic_polyfill::{AtomicU64, Ordering as AtomicOrdering};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use heapless::sorted_linked_list::{LinkedIndexU8, Min, SortedLinkedList};
@@ -71,7 +70,7 @@ impl InnerQueue {
         }
     }
 
-    fn schedule_wake(&mut self, at: Instant, waker: &Waker, alarm_schedule: &AtomicU64) {
+    fn schedule_wake(&mut self, at: Instant, waker: &Waker) {
         self.queue
             .find_mut(|timer| timer.waker.will_wake(waker))
             .map(|mut timer| {
@@ -98,50 +97,54 @@ impl InnerQueue {
         // dispatch all timers that are already due
         //
         // Then update the alarm if necessary
-        self.dispatch(alarm_schedule);
+        self.dispatch();
     }
 
-    fn dispatch(&mut self, alarm_schedule: &AtomicU64) {
-        let now = Instant::now();
+    fn dispatch(&mut self) {
+        loop {
+            let now = Instant::now();
 
-        while self.queue.peek().filter(|timer| timer.at <= now).is_some() {
-            self.queue.pop().unwrap().waker.wake();
+            while self.queue.peek().filter(|timer| timer.at <= now).is_some() {
+                self.queue.pop().unwrap().waker.wake();
+            }
+
+            if self.update_alarm() {
+                break;
+            }
         }
-
-        self.update_alarm(alarm_schedule);
     }
 
-    fn update_alarm(&mut self, alarm_schedule: &AtomicU64) {
+    fn update_alarm(&mut self) -> bool {
         if let Some(timer) = self.queue.peek() {
             let new_at = timer.at;
 
             if self.alarm_at != new_at {
                 self.alarm_at = new_at;
-                alarm_schedule.store(new_at.as_ticks(), AtomicOrdering::SeqCst);
+
+                return set_alarm(self.alarm.unwrap(), self.alarm_at.as_ticks());
             }
         } else {
             self.alarm_at = Instant::MAX;
-            alarm_schedule.store(Instant::MAX.as_ticks(), AtomicOrdering::SeqCst);
         }
+
+        true
     }
 
-    fn handle_alarm(&mut self, alarm_schedule: &AtomicU64) {
+    fn handle_alarm(&mut self) {
         self.alarm_at = Instant::MAX;
 
-        self.dispatch(alarm_schedule);
+        self.dispatch();
     }
 }
 
 struct Queue {
     inner: Mutex<CriticalSectionRawMutex, RefCell<InnerQueue>>,
-    alarm_schedule: AtomicU64,
 }
 
 impl Queue {
     const fn new() -> Self {
         Self {
             inner: Mutex::new(RefCell::new(InnerQueue::new())),
-            alarm_schedule: AtomicU64::new(u64::MAX),
         }
     }
 
@@ -156,28 +159,12 @@ impl Queue {
                 set_alarm_callback(handle, Self::handle_alarm_callback, self as *const _ as _);
             }
 
-            inner.schedule_wake(at, waker, &self.alarm_schedule)
+            inner.schedule_wake(at, waker)
         });
-
-        self.update_alarm();
-    }
-
-    fn update_alarm(&self) {
-        // Need to set the alarm when we are *not* holding the mutex on the inner queue
-        // because mutexes are not re-entrant, which is a problem because `set_alarm` might immediately
-        // call us back if the timestamp is in the past.
-        let alarm_at = self.alarm_schedule.swap(u64::MAX, AtomicOrdering::SeqCst);
-
-        if alarm_at < u64::MAX {
-            set_alarm(self.inner.lock(|inner| inner.borrow().alarm.unwrap()), alarm_at);
-        }
     }
 
     fn handle_alarm(&self) {
-        self.inner
-            .lock(|inner| inner.borrow_mut().handle_alarm(&self.alarm_schedule));
-
-        self.update_alarm();
+        self.inner.lock(|inner| inner.borrow_mut().handle_alarm());
     }
 
     fn handle_alarm_callback(ctx: *mut ()) {
@@ -196,7 +183,6 @@ crate::timer_queue_impl!(static QUEUE: Queue = Queue::new());
 #[cfg(test)]
 mod tests {
     use core::cell::Cell;
-    use core::sync::atomic::Ordering;
     use core::task::{RawWaker, RawWakerVTable, Waker};
     use std::rc::Rc;
     use std::sync::Mutex;
@@ -282,20 +268,14 @@ mod tests {
             inner.ctx = ctx;
         }
 
-        fn set_alarm(&self, _alarm: AlarmHandle, timestamp: u64) {
-            let notify = {
-                let mut inner = self.0.lock().unwrap();
+        fn set_alarm(&self, _alarm: AlarmHandle, timestamp: u64) -> bool {
+            let mut inner = self.0.lock().unwrap();
 
-                if timestamp <= inner.now {
-                    Some((inner.callback, inner.ctx))
-                } else {
-                    inner.alarm = timestamp;
-                    None
-                }
-            };
-
-            if let Some((callback, ctx)) = notify {
-                (callback)(ctx);
+            if timestamp <= inner.now {
+                false
+            } else {
+                inner.alarm = timestamp;
+                true
             }
         }
     }
@@ -344,7 +324,6 @@ mod tests {
     fn setup() {
         DRIVER.reset();
 
-        QUEUE.alarm_schedule.store(u64::MAX, Ordering::SeqCst);
         QUEUE.inner.lock(|inner| {
             *inner.borrow_mut() = InnerQueue::new();
         });

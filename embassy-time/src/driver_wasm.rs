@@ -81,13 +81,15 @@ impl Driver for TimeDriver {
         }
     }
 
-    fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
+    fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) -> bool {
         self.init();
         let mut alarms = unsafe { self.alarms.as_ref() }.lock().unwrap();
         let alarm = &mut alarms[alarm.id() as usize];
         alarm.closure.replace(Closure::new(move || {
             callback(ctx);
         }));
+
+        true
     }
 
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) {
