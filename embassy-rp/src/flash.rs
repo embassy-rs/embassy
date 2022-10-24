@@ -1,5 +1,6 @@
 use embedded_storage::nor_flash::{
-    check_erase, check_read, check_write, ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
+    check_erase, check_read, check_write, ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind,
+    ReadNorFlash,
 };
 
 pub const FLASH_BASE: usize = 0x10000000;
@@ -9,7 +10,8 @@ pub const FLASH_BASE: usize = 0x10000000;
 // These limitations are currently enforced because of using the
 // RP2040 boot-rom flash functions, that are optimized for flash compatibility
 // rather than performance.
-pub const WRITE_SIZE: usize = 256;
+pub const PAGE_SIZE: usize = 256;
+pub const WRITE_SIZE: usize = 1;
 pub const READ_SIZE: usize = 1;
 pub const ERASE_SIZE: usize = 4096;
 
@@ -100,6 +102,8 @@ impl<const FLASH_SIZE: usize> ReadNorFlash for Flash<FLASH_SIZE> {
     }
 }
 
+impl<const FLASH_SIZE: usize> MultiwriteNorFlash for Flash<FLASH_SIZE> {}
+
 impl<const FLASH_SIZE: usize> NorFlash for Flash<FLASH_SIZE> {
     const WRITE_SIZE: usize = WRITE_SIZE;
 
@@ -120,12 +124,58 @@ impl<const FLASH_SIZE: usize> NorFlash for Flash<FLASH_SIZE> {
 
         trace!("Writing {:?} bytes to 0x{:x}", bytes.len(), offset);
 
-        unsafe { self.in_ram(|| ram_helpers::flash_range_program(offset, bytes, true)) };
+        let end_offset = offset as usize + bytes.len();
+
+        let padded_offset = (offset as *const u8).align_offset(PAGE_SIZE);
+        let start_padding = core::cmp::min(padded_offset, bytes.len());
+
+        // Pad in the beginning
+        if start_padding > 0 {
+            let start = PAGE_SIZE - padded_offset;
+            let end = start + start_padding;
+
+            let mut pad_buf = [0xFF_u8; PAGE_SIZE];
+            pad_buf[start..end].copy_from_slice(&bytes[..start_padding]);
+
+            let unaligned_offset = offset as usize - start;
+
+            unsafe { self.in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf, true)) }
+        }
+
+        let remaining_len = bytes.len() - start_padding;
+        let end_padding = start_padding + PAGE_SIZE * (remaining_len / PAGE_SIZE);
+
+        // Write aligned slice of length in multiples of 256 bytes
+        // If the remaining bytes to be written is more than a full page.
+        if remaining_len >= PAGE_SIZE {
+            let aligned_data = &bytes[start_padding..end_padding];
+
+            let aligned_offset = if start_padding > 0 {
+                offset as usize + padded_offset
+            } else {
+                offset as usize
+            };
+
+            unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, aligned_data, true)) }
+        }
+
+        // Pad in the end
+        let rem_offset = (end_offset as *const u8).align_offset(PAGE_SIZE);
+        let rem_padding = remaining_len % PAGE_SIZE;
+        if rem_padding > 0 {
+            let mut pad_buf = [0xFF_u8; PAGE_SIZE];
+            pad_buf[..rem_padding].copy_from_slice(&bytes[end_padding..]);
+
+            let unaligned_offset = end_offset - (PAGE_SIZE - rem_offset);
+
+            unsafe { self.in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf, true)) }
+        }
 
         Ok(())
     }
 }
 
+#[allow(dead_code)]
 mod ram_helpers {
     use core::marker::PhantomData;
 
