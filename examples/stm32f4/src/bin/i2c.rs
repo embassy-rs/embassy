@@ -4,7 +4,9 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::dma::NoDma;
 use embassy_stm32::i2c::{Error, I2c, TimeoutI2c};
+use embassy_stm32::interrupt;
 use embassy_stm32::time::Hertz;
 use embassy_time::Duration;
 use {defmt_rtt as _, panic_probe as _};
@@ -17,7 +19,17 @@ async fn main(_spawner: Spawner) -> ! {
     info!("Hello world!");
     let p = embassy_stm32::init(Default::default());
 
-    let mut i2c = I2c::new(p.I2C2, p.PB10, p.PB11, Hertz(100_000), Default::default());
+    let irq = interrupt::take!(I2C2_EV);
+    let mut i2c = I2c::new(
+        p.I2C2,
+        p.PB10,
+        p.PB11,
+        irq,
+        NoDma,
+        NoDma,
+        Hertz(100_000),
+        Default::default(),
+    );
     let mut timeout_i2c = TimeoutI2c::new(&mut i2c, Duration::from_millis(1000));
 
     let mut data = [0u8; 1];

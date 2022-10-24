@@ -1,8 +1,9 @@
 use core::marker::PhantomData;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_common::into_ref;
+use embassy_hal_common::{into_ref, PeripheralRef};
 
+use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Pull;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
@@ -34,19 +35,26 @@ impl State {
     }
 }
 
-pub struct I2c<'d, T: Instance> {
+pub struct I2c<'d, T: Instance, TXDMA = NoDma, RXDMA = NoDma> {
     phantom: PhantomData<&'d mut T>,
+    #[allow(dead_code)]
+    tx_dma: PeripheralRef<'d, TXDMA>,
+    #[allow(dead_code)]
+    rx_dma: PeripheralRef<'d, RXDMA>,
 }
 
-impl<'d, T: Instance> I2c<'d, T> {
+impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     pub fn new(
         _peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        _irq: impl Peripheral<P = T::Interrupt> + 'd,
+        tx_dma: impl Peripheral<P = TXDMA> + 'd,
+        rx_dma: impl Peripheral<P = RXDMA> + 'd,
         freq: Hertz,
         config: Config,
     ) -> Self {
-        into_ref!(scl, sda);
+        into_ref!(scl, sda, tx_dma, rx_dma);
 
         T::enable();
         T::reset();
@@ -99,7 +107,11 @@ impl<'d, T: Instance> I2c<'d, T> {
             });
         }
 
-        Self { phantom: PhantomData }
+        Self {
+            phantom: PhantomData,
+            tx_dma,
+            rx_dma,
+        }
     }
 
     unsafe fn check_and_clear_error_flags(&self) -> Result<i2c::regs::Sr1, Error> {
