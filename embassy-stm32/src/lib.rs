@@ -52,7 +52,7 @@ pub mod sdmmc;
 pub mod spi;
 #[cfg(usart)]
 pub mod usart;
-#[cfg(usb)]
+#[cfg(all(usb, feature = "time"))]
 pub mod usb;
 #[cfg(any(otgfs, otghs))]
 pub mod usb_otg;

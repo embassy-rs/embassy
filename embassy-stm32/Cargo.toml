@@ -82,9 +82,12 @@ memory-x = ["stm32-metapac/memory-x"]
 subghz = []
 exti = []
 
+# Enables additional driver features that depend on embassy-time
+time = ["dep:embassy-time"]
+
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
-_time-driver = ["dep:embassy-time"]
+_time-driver = ["time"]
 time-driver-any = ["_time-driver"]
 time-driver-tim2 = ["_time-driver"]
 time-driver-tim3 = ["_time-driver"]
