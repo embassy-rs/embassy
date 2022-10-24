@@ -3,6 +3,9 @@ use embassy_time::{Duration, Instant};
 use super::{Error, I2c, Instance};
 
 /// An I2C wrapper, which provides `embassy-time` based timeouts for all `embedded-hal` trait methods.
+///
+/// This is useful for recovering from a shorted bus or a device stuck in a clock stretching state.
+/// A regular [I2c] would freeze until condition is removed.
 pub struct TimeoutI2c<'d, T: Instance, TXDMA, RXDMA> {
     i2c: &'d mut I2c<'d, T, TXDMA, RXDMA>,
     timeout: Duration,
