@@ -160,6 +160,30 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         Ok(())
     }
 
+    pub fn nb_read(&mut self) -> Result<u8, nb::Error<Error>> {
+        let r = T::regs();
+        unsafe {
+            let sr = sr(r).read();
+            if sr.pe() {
+                rdr(r).read_volatile();
+                Err(nb::Error::Other(Error::Parity))
+            } else if sr.fe() {
+                rdr(r).read_volatile();
+                Err(nb::Error::Other(Error::Framing))
+            } else if sr.ne() {
+                rdr(r).read_volatile();
+                Err(nb::Error::Other(Error::Noise))
+            } else if sr.ore() {
+                rdr(r).read_volatile();
+                Err(nb::Error::Other(Error::Overrun))
+            } else if sr.rxne() {
+                Ok(rdr(r).read_volatile())
+            } else {
+                Err(nb::Error::WouldBlock)
+            }
+        }
+    }
+
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         unsafe {
             let r = T::regs();
@@ -263,6 +287,10 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         self.rx.read(buffer).await
     }
 
+    pub fn nb_read(&mut self) -> Result<u8, nb::Error<Error>> {
+        self.rx.nb_read()
+    }
+
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
     }
@@ -281,27 +309,7 @@ mod eh02 {
     impl<'d, T: BasicInstance, RxDma> embedded_hal_02::serial::Read<u8> for UartRx<'d, T, RxDma> {
         type Error = Error;
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-            let r = T::regs();
-            unsafe {
-                let sr = sr(r).read();
-                if sr.pe() {
-                    rdr(r).read_volatile();
-                    Err(nb::Error::Other(Error::Parity))
-                } else if sr.fe() {
-                    rdr(r).read_volatile();
-                    Err(nb::Error::Other(Error::Framing))
-                } else if sr.ne() {
-                    rdr(r).read_volatile();
-                    Err(nb::Error::Other(Error::Noise))
-                } else if sr.ore() {
-                    rdr(r).read_volatile();
-                    Err(nb::Error::Other(Error::Overrun))
-                } else if sr.rxne() {
-                    Ok(rdr(r).read_volatile())
-                } else {
-                    Err(nb::Error::WouldBlock)
-                }
-            }
+            self.nb_read()
         }
     }
 
@@ -318,7 +326,7 @@ mod eh02 {
     impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_02::serial::Read<u8> for Uart<'d, T, TxDma, RxDma> {
         type Error = Error;
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-            embedded_hal_02::serial::Read::read(&mut self.rx)
+            self.nb_read()
         }
     }
 
@@ -358,6 +366,58 @@ mod eh1 {
 
     impl<'d, T: BasicInstance, RxDma> embedded_hal_1::serial::ErrorType for UartRx<'d, T, RxDma> {
         type Error = Error;
+    }
+
+    impl<'d, T: BasicInstance, RxDma> embedded_hal_nb::serial::Read for UartRx<'d, T, RxDma> {
+        fn read(&mut self) -> nb::Result<u8, Self::Error> {
+            self.nb_read()
+        }
+    }
+
+    impl<'d, T: BasicInstance, TxDma> embedded_hal_1::serial::Write for UartTx<'d, T, TxDma> {
+        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            self.blocking_flush()
+        }
+    }
+
+    impl<'d, T: BasicInstance, TxDma> embedded_hal_nb::serial::Write for UartTx<'d, T, TxDma> {
+        fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
+            self.blocking_write(&[char]).map_err(nb::Error::Other)
+        }
+
+        fn flush(&mut self) -> nb::Result<(), Self::Error> {
+            self.blocking_flush().map_err(nb::Error::Other)
+        }
+    }
+
+    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::Read for Uart<'d, T, TxDma, RxDma> {
+        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+            self.nb_read()
+        }
+    }
+
+    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_1::serial::Write for Uart<'d, T, TxDma, RxDma> {
+        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            self.blocking_flush()
+        }
+    }
+
+    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::Write for Uart<'d, T, TxDma, RxDma> {
+        fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
+            self.blocking_write(&[char]).map_err(nb::Error::Other)
+        }
+
+        fn flush(&mut self) -> nb::Result<(), Self::Error> {
+            self.blocking_flush().map_err(nb::Error::Other)
+        }
     }
 }
 

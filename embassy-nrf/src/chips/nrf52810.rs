@@ -128,6 +128,9 @@ embassy_hal_common::peripherals! {
 
     // QDEC
     QDEC,
+
+    // PDM
+    PDM,
 }
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);

@@ -486,7 +486,7 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::nb::Read for UartRx<'d, T, M> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Read for UartRx<'d, T, M> {
         fn read(&mut self) -> nb::Result<u8, Self::Error> {
             let r = T::regs();
             unsafe {
@@ -509,7 +509,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::blocking::Write for UartTx<'d, T, M> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::Write for UartTx<'d, T, M> {
         fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
         }
@@ -519,7 +519,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::nb::Write for UartTx<'d, T, M> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Write for UartTx<'d, T, M> {
         fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
             self.blocking_write(&[char]).map_err(nb::Error::Other)
         }
@@ -529,13 +529,13 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::nb::Read for Uart<'d, T, M> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Read for Uart<'d, T, M> {
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             embedded_hal_02::serial::Read::read(&mut self.rx)
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::blocking::Write for Uart<'d, T, M> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::Write for Uart<'d, T, M> {
         fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
         }
@@ -545,7 +545,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::nb::Write for Uart<'d, T, M> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Write for Uart<'d, T, M> {
         fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
             self.blocking_write(&[char]).map_err(nb::Error::Other)
         }

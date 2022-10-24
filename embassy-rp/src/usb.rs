@@ -522,7 +522,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
             trace!("wait_enabled IN WAITING");
             let index = self.info.addr.index();
             poll_fn(|cx| {
-                EP_OUT_WAKERS[index].register(cx.waker());
+                EP_IN_WAKERS[index].register(cx.waker());
                 let val = unsafe { T::dpram().ep_in_control(self.info.addr.index() - 1).read() };
                 if val.enable() {
                     Poll::Ready(())
@@ -811,8 +811,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         async move {
             trace!("control: accept");
 
+            let bufcontrol = T::dpram().ep_in_buffer_control(0);
             unsafe {
-                let bufcontrol = T::dpram().ep_in_buffer_control(0);
                 bufcontrol.write(|w| {
                     w.set_length(0, 0);
                     w.set_pid(0, true);
@@ -826,6 +826,18 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
                     w.set_available(0, true);
                 });
             }
+
+            // wait for completion before returning, needed so
+            // set_address() doesn't happen early.
+            poll_fn(|cx| {
+                EP_IN_WAKERS[0].register(cx.waker());
+                if unsafe { bufcontrol.read().available(0) } {
+                    Poll::Pending
+                } else {
+                    Poll::Ready(())
+                }
+            })
+            .await;
         }
     }
 

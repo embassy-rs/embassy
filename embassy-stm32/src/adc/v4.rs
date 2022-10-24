@@ -5,7 +5,7 @@ use embedded_hal_02::blocking::delay::DelayUs;
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
-use super::{AdcPin, Instance};
+use super::{AdcPin, Instance, InternalChannel};
 use crate::time::Hertz;
 use crate::{pac, Peripheral};
 
@@ -50,18 +50,10 @@ impl Resolution {
     }
 }
 
-pub trait InternalChannel<T>: sealed::InternalChannel<T> {}
-
-mod sealed {
-    pub trait InternalChannel<T> {
-        fn channel(&self) -> u8;
-    }
-}
-
 // NOTE: Vrefint/Temperature/Vbat are only available on ADC3 on H7, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
 pub struct VrefInt;
 impl<T: Instance> InternalChannel<T> for VrefInt {}
-impl<T: Instance> sealed::InternalChannel<T> for VrefInt {
+impl<T: Instance> super::sealed::InternalChannel<T> for VrefInt {
     fn channel(&self) -> u8 {
         19
     }
@@ -69,7 +61,7 @@ impl<T: Instance> sealed::InternalChannel<T> for VrefInt {
 
 pub struct Temperature;
 impl<T: Instance> InternalChannel<T> for Temperature {}
-impl<T: Instance> sealed::InternalChannel<T> for Temperature {
+impl<T: Instance> super::sealed::InternalChannel<T> for Temperature {
     fn channel(&self) -> u8 {
         18
     }
@@ -77,7 +69,7 @@ impl<T: Instance> sealed::InternalChannel<T> for Temperature {
 
 pub struct Vbat;
 impl<T: Instance> InternalChannel<T> for Vbat {}
-impl<T: Instance> sealed::InternalChannel<T> for Vbat {
+impl<T: Instance> super::sealed::InternalChannel<T> for Vbat {
     fn channel(&self) -> u8 {
         // TODO this should be 14 for H7a/b/35
         17

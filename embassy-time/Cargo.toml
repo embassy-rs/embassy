@@ -2,6 +2,7 @@
 name = "embassy-time"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 
 
 [package.metadata.embassy_docs]
@@ -105,8 +106,8 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }
-embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.8", optional = true}
-embedded-hal-async = { version = "0.1.0-alpha.1", optional = true}
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9", optional = true}
+embedded-hal-async = { version = "=0.1.0-alpha.2", optional = true}
 
 futures-util = { version = "0.3.17", default-features = false }
 embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}

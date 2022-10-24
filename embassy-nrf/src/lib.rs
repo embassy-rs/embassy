@@ -76,6 +76,14 @@ pub mod gpio;
 pub mod gpiote;
 #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
 pub mod nvmc;
+#[cfg(any(
+    feature = "nrf52810",
+    feature = "nrf52811",
+    feature = "nrf52833",
+    feature = "nrf52840",
+    feature = "_nrf9160"
+))]
+pub mod pdm;
 pub mod ppi;
 #[cfg(not(any(feature = "nrf52805", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod pwm;

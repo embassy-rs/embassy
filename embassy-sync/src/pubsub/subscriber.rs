@@ -64,6 +64,11 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Sub<'a, PSB, T> {
             }
         }
     }
+
+    /// The amount of messages this subscriber hasn't received yet
+    pub fn available(&self) -> u64 {
+        self.channel.available(self.next_message_id)
+    }
 }
 
 impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Drop for Sub<'a, PSB, T> {
@@ -135,6 +140,7 @@ impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS:
 }
 
 /// Future for the subscriber wait action
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct SubscriberWaitFuture<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
     subscriber: &'s mut Sub<'a, PSB, T>,
 }

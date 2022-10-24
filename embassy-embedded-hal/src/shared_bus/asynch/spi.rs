@@ -29,7 +29,7 @@ use core::future::Future;
 
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
-use embedded_hal_1::digital::blocking::OutputPin;
+use embedded_hal_1::digital::OutputPin;
 use embedded_hal_1::spi::ErrorType;
 use embedded_hal_async::spi;
 
@@ -57,7 +57,7 @@ where
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<M, BUS, CS> spi::SpiDevice for SpiDevice<'_, M, BUS, CS>
+unsafe impl<M, BUS, CS> spi::SpiDevice for SpiDevice<'_, M, BUS, CS>
 where
     M: RawMutex + 'static,
     BUS: spi::SpiBusFlush + 'static,
@@ -122,7 +122,7 @@ where
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<M, BUS, CS> spi::SpiDevice for SpiDeviceWithConfig<'_, M, BUS, CS>
+unsafe impl<M, BUS, CS> spi::SpiDevice for SpiDeviceWithConfig<'_, M, BUS, CS>
 where
     M: RawMutex + 'static,
     BUS: spi::SpiBusFlush + SetConfig + 'static,
