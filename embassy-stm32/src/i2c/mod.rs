@@ -7,9 +7,9 @@ use crate::interrupt::Interrupt;
 mod _version;
 pub use _version::*;
 
-#[cfg(all(i2c_v1, feature = "time"))]
+#[cfg(feature = "time")]
 mod timeout;
-#[cfg(all(i2c_v1, feature = "time"))]
+#[cfg(feature = "time")]
 pub use timeout::*;
 
 use crate::peripherals;
