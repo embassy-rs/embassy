@@ -313,8 +313,6 @@ impl Prescaler {
 }
 
 pub struct Adc<'d, T: Instance> {
-    sample_time: SampleTime,
-    resolution: Resolution,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -349,11 +347,7 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
             T::regs().cr().modify(|w| w.set_boost(boost));
         }
 
-        let mut s = Self {
-            sample_time: Default::default(),
-            resolution: Resolution::default(),
-            phantom: PhantomData,
-        };
+        let mut s = Self { phantom: PhantomData };
         s.power_up(delay);
         s.configure_differential_inputs();
 
@@ -449,14 +443,6 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
         Vbat {}
     }
 
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
-    pub fn set_resolution(&mut self, resolution: Resolution) {
-        self.resolution = resolution;
-    }
-
     /// Perform a single conversion.
     fn convert(&mut self) -> u16 {
         unsafe {
@@ -478,7 +464,7 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
         }
     }
 
-    pub fn read<P>(&mut self, pin: &mut P) -> u16
+    pub fn read<P>(&mut self, pin: &mut P, sample_time: SampleTime, resolution: Resolution) -> u16
     where
         P: AdcPin<T>,
         P: crate::gpio::sealed::Pin,
@@ -486,20 +472,25 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
         unsafe {
             pin.set_as_analog();
 
-            self.read_channel(pin.channel())
+            self.read_channel(pin.channel(), sample_time, resolution)
         }
     }
 
-    pub fn read_internal(&mut self, channel: &mut impl InternalChannel<T>) -> u16 {
-        unsafe { self.read_channel(channel.channel()) }
+    pub fn read_internal(
+        &mut self,
+        channel: &mut impl InternalChannel<T>,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> u16 {
+        unsafe { self.read_channel(channel.channel(), sample_time, resolution) }
     }
 
-    unsafe fn read_channel(&mut self, channel: u8) -> u16 {
+    unsafe fn read_channel(&mut self, channel: u8, sample_time: SampleTime, resolution: Resolution) -> u16 {
         // Configure ADC
-        T::regs().cfgr().modify(|reg| reg.set_res(self.resolution.res()));
+        T::regs().cfgr().modify(|reg| reg.set_res(resolution.res()));
 
         // Configure channel
-        Self::set_channel_sample_time(channel, self.sample_time);
+        Self::set_channel_sample_time(channel, sample_time);
 
         T::regs().cfgr2().modify(|w| w.set_lshift(0));
         T::regs()

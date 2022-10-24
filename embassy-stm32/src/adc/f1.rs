@@ -85,7 +85,6 @@ mod sample_time {
 pub use sample_time::SampleTime;
 
 pub struct Adc<'d, T: Instance> {
-    sample_time: SampleTime,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -119,10 +118,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         // One cycle after calibration
         delay.delay_us((1_000_000) / Self::freq().0 + 1);
 
-        Self {
-            sample_time: Default::default(),
-            phantom: PhantomData,
-        }
+        Self { phantom: PhantomData }
     }
 
     fn freq() -> Hertz {
@@ -160,10 +156,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         Temperature {}
     }
 
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
     /// Perform a single conversion.
     fn convert(&mut self) -> u16 {
         unsafe {
@@ -178,9 +170,9 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
+    pub fn read(&mut self, pin: &mut impl AdcPin<T>, sample_time: SampleTime) -> u16 {
         unsafe {
-            Self::set_channel_sample_time(pin.channel(), self.sample_time);
+            Self::set_channel_sample_time(pin.channel(), sample_time);
             T::regs().cr1().modify(|reg| {
                 reg.set_scan(false);
                 reg.set_discen(false);

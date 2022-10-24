@@ -3,7 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_stm32::adc::{Adc, Resolution};
+use embassy_stm32::adc::{Adc, Resolution, SampleTime};
 use embassy_stm32::pac;
 use embassy_time::Delay;
 use {defmt_rtt as _, panic_probe as _};
@@ -22,12 +22,11 @@ fn main() -> ! {
     let p = embassy_stm32::init(Default::default());
 
     let mut adc = Adc::new(p.ADC1, &mut Delay);
-    //adc.enable_vref();
-    adc.set_resolution(Resolution::EightBit);
+
     let mut channel = p.PC0;
 
     loop {
-        let v = adc.read(&mut channel);
+        let v = adc.read(&mut channel, SampleTime::default(), Resolution::EightBit);
         info!("--> {}", v);
     }
 }

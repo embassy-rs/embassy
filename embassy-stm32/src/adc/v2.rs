@@ -162,8 +162,6 @@ impl Prescaler {
 }
 
 pub struct Adc<'d, T: Instance> {
-    sample_time: SampleTime,
-    resolution: Resolution,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -187,19 +185,7 @@ where
 
         delay.delay_us(ADC_POWERUP_TIME_US);
 
-        Self {
-            sample_time: Default::default(),
-            resolution: Resolution::default(),
-            phantom: PhantomData,
-        }
-    }
-
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
-    pub fn set_resolution(&mut self, resolution: Resolution) {
-        self.resolution = resolution;
+        Self { phantom: PhantomData }
     }
 
     /// Enables internal voltage reference and returns [VrefInt], which can be used in
@@ -265,7 +251,7 @@ where
         }
     }
 
-    pub fn read<P>(&mut self, pin: &mut P) -> u16
+    pub fn read<P>(&mut self, pin: &mut P, sample_time: SampleTime, resolution: Resolution) -> u16
     where
         P: AdcPin<T>,
         P: crate::gpio::sealed::Pin,
@@ -273,23 +259,28 @@ where
         unsafe {
             pin.set_as_analog();
 
-            self.read_channel(pin.channel())
+            self.read_channel(pin.channel(), sample_time, resolution)
         }
     }
 
-    pub fn read_internal(&mut self, channel: &mut impl InternalChannel<T>) -> u16 {
-        unsafe { self.read_channel(channel.channel()) }
+    pub fn read_internal(
+        &mut self,
+        channel: &mut impl InternalChannel<T>,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> u16 {
+        unsafe { self.read_channel(channel.channel(), sample_time, resolution) }
     }
 
-    unsafe fn read_channel(&mut self, channel: u8) -> u16 {
+    unsafe fn read_channel(&mut self, channel: u8, sample_time: SampleTime, resolution: Resolution) -> u16 {
         // Configure ADC
-        T::regs().cr1().modify(|reg| reg.set_res(self.resolution.res()));
+        T::regs().cr1().modify(|reg| reg.set_res(resolution.res()));
 
         // Select channel
         T::regs().sqr3().write(|reg| reg.set_sq(0, channel));
 
         // Configure channel
-        Self::set_channel_sample_time(channel, self.sample_time);
+        Self::set_channel_sample_time(channel, sample_time);
 
         let val = self.convert();
 

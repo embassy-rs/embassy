@@ -4,7 +4,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, SampleTime};
+use embassy_stm32::adc::{Adc, Resolution, SampleTime};
 use embassy_stm32::rcc::AdcClockSource;
 use embassy_stm32::time::mhz;
 use embassy_stm32::Config;
@@ -24,14 +24,12 @@ async fn main(_spawner: Spawner) {
 
     let mut adc = Adc::new(p.ADC3, &mut Delay);
 
-    adc.set_sample_time(SampleTime::Cycles32_5);
-
     let mut vrefint_channel = adc.enable_vrefint();
 
     loop {
-        let vrefint = adc.read_internal(&mut vrefint_channel);
+        let vrefint = adc.read_internal(&mut vrefint_channel, SampleTime::Cycles32_5, Resolution::TwelveBit);
         info!("vrefint: {}", vrefint);
-        let measured = adc.read(&mut p.PC0);
+        let measured = adc.read(&mut p.PC0, SampleTime::Cycles32_5, Resolution::TwelveBit);
         info!("measured: {}", measured);
         Timer::after(Duration::from_millis(500)).await;
     }
