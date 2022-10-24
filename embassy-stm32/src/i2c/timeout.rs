@@ -2,6 +2,7 @@ use embassy_time::{Duration, Instant};
 
 use super::{Error, I2c, Instance};
 
+/// An I2C wrapper, which provides `embassy-time` based timeouts for all `embedded-hal` trait methods.
 pub struct TimeoutI2c<'d, T: Instance> {
     i2c: &'d mut I2c<'d, T>,
     timeout: Duration,
@@ -23,22 +24,27 @@ impl<'d, T: Instance> TimeoutI2c<'d, T> {
         Self { i2c, timeout }
     }
 
+    /// Blocking read with a custom timeout
     pub fn blocking_read_timeout(&mut self, addr: u8, buffer: &mut [u8], timeout: Duration) -> Result<(), Error> {
         self.i2c.blocking_read_timeout(addr, buffer, timeout_fn(timeout))
     }
 
+    /// Blocking read with default timeout, provided in [`TimeoutI2c::new()`]
     pub fn blocking_read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Error> {
         self.blocking_read_timeout(addr, buffer, self.timeout)
     }
 
+    /// Blocking write with a custom timeout
     pub fn blocking_write_timeout(&mut self, addr: u8, bytes: &[u8], timeout: Duration) -> Result<(), Error> {
         self.i2c.blocking_write_timeout(addr, bytes, timeout_fn(timeout))
     }
 
+    /// Blocking write with default timeout, provided in [`TimeoutI2c::new()`]
     pub fn blocking_write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
         self.blocking_write_timeout(addr, bytes, self.timeout)
     }
 
+    /// Blocking write-read with a custom timeout
     pub fn blocking_write_read_timeout(
         &mut self,
         addr: u8,
@@ -50,6 +56,7 @@ impl<'d, T: Instance> TimeoutI2c<'d, T> {
             .blocking_write_read_timeout(addr, bytes, buffer, timeout_fn(timeout))
     }
 
+    /// Blocking write-read with default timeout, provided in [`TimeoutI2c::new()`]
     pub fn blocking_write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
         self.blocking_write_read_timeout(addr, bytes, buffer, self.timeout)
     }
