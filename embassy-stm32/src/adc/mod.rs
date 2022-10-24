@@ -17,8 +17,29 @@ use crate::PeripheralRef;
 
 #[cfg(not(adc_v1))]
 pub struct Adc<'d, T: Instance> {
+    adc: PeripheralRef<'d, T>,
+}
+
+#[cfg(not(adc_v1))]
+pub struct SingleChannel<'d, T: Instance> {
     #[allow(unused)] // TODO: this will be used eventually
     adc: PeripheralRef<'d, T>,
+}
+
+#[cfg(not(adc_v1))]
+impl<'d, T: Instance> SingleChannel<'d, T> {
+    pub fn read(&mut self) -> u16 {
+        // Some models are affected by an erratum:
+        // If we perform conversions slower than 1 kHz, the first read ADC value can be
+        // corrupted, so we discard it and measure again.
+        //
+        // STM32L471xx: Section 2.7.3
+        // STM32G4: Section 2.7.3
+        #[cfg(any(rcc_l4, rcc_g4))]
+        let _ = unsafe { convert(*T::regs()) };
+
+        unsafe { convert(*T::regs()) }
+    }
 }
 
 pub(crate) mod sealed {
@@ -43,9 +64,9 @@ pub(crate) mod sealed {
 }
 
 #[cfg(not(any(adc_f1, adc_v2)))]
-pub trait Instance: sealed::Instance + 'static {}
+pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> {}
 #[cfg(any(adc_f1, adc_v2))]
-pub trait Instance: sealed::Instance + crate::rcc::RccPeripheral + 'static {}
+pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral {}
 #[cfg(all(not(adc_f1), not(adc_v1)))]
 pub trait Common: sealed::Common + 'static {}
 pub trait AdcPin<T: Instance>: sealed::AdcPin<T> {}

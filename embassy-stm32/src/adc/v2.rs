@@ -2,7 +2,7 @@ use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
 use super::InternalChannel;
-use crate::adc::{Adc, AdcPin, Instance};
+use crate::adc::{Adc, AdcPin, Instance, SingleChannel};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -221,7 +221,12 @@ where
         Vbat {}
     }
 
-    pub fn read<P>(&mut self, pin: &mut P, sample_time: SampleTime, resolution: Resolution) -> u16
+    pub fn single_channel<'a, P>(
+        &'a mut self,
+        pin: &'a mut P,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> SingleChannel<'a, T>
     where
         P: AdcPin<T>,
         P: crate::gpio::sealed::Pin,
@@ -229,8 +234,25 @@ where
         unsafe {
             pin.set_as_analog();
 
-            self.read_channel(pin.channel(), sample_time, resolution)
+            self._single_channel(pin.channel(), sample_time, resolution)
         }
+    }
+
+    pub fn read<P>(&mut self, pin: &mut P, sample_time: SampleTime, resolution: Resolution) -> u16
+    where
+        P: AdcPin<T>,
+        P: crate::gpio::sealed::Pin,
+    {
+        self.single_channel(pin, sample_time, resolution).read()
+    }
+
+    pub fn single_channel_internal<'a>(
+        &'a mut self,
+        channel: &'a mut impl InternalChannel<T>,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> SingleChannel<'a, T> {
+        unsafe { self._single_channel(channel.channel(), sample_time, resolution) }
     }
 
     pub fn read_internal(
@@ -239,10 +261,15 @@ where
         sample_time: SampleTime,
         resolution: Resolution,
     ) -> u16 {
-        unsafe { self.read_channel(channel.channel(), sample_time, resolution) }
+        self.single_channel_internal(channel, sample_time, resolution).read()
     }
 
-    unsafe fn read_channel(&mut self, channel: u8, sample_time: SampleTime, resolution: Resolution) -> u16 {
+    unsafe fn _single_channel(
+        &mut self,
+        channel: u8,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> SingleChannel<'_, T> {
         // Configure ADC
         T::regs().cr1().modify(|reg| reg.set_res(resolution.res()));
 
@@ -252,7 +279,9 @@ where
         // Configure channel
         Self::set_channel_sample_time(channel, sample_time);
 
-        convert(*T::regs())
+        SingleChannel {
+            adc: self.adc.reborrow(),
+        }
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {

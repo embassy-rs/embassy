@@ -1,7 +1,7 @@
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{Adc, AdcPin, Instance};
+use crate::adc::{Adc, AdcPin, Instance, SingleChannel};
 use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -150,7 +150,11 @@ impl<'d, T: Instance> Adc<'d, T> {
         Temperature {}
     }
 
-    pub fn read(&mut self, pin: &mut impl AdcPin<T>, sample_time: SampleTime) -> u16 {
+    pub fn single_channel<'a>(
+        &'a mut self,
+        pin: &'a mut impl AdcPin<T>,
+        sample_time: SampleTime,
+    ) -> SingleChannel<'a, T> {
         unsafe {
             Self::set_channel_sample_time(pin.channel(), sample_time);
             T::regs().cr1().modify(|reg| {
@@ -168,9 +172,15 @@ impl<'d, T: Instance> Adc<'d, T> {
 
             // Configure the channel to sample
             T::regs().sqr3().write(|reg| reg.set_sq(0, pin.channel()));
-
-            convert(*T::regs())
         }
+
+        SingleChannel {
+            adc: self.adc.reborrow(),
+        }
+    }
+
+    pub fn read(&mut self, pin: &mut impl AdcPin<T>, sample_time: SampleTime) -> u16 {
+        self.single_channel(pin, sample_time).read()
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {

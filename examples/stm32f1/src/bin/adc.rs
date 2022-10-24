@@ -26,8 +26,10 @@ async fn main(_spawner: Spawner) {
         (u32::from(sample) * VREFINT_MV / u32::from(vrefint_sample)) as u16
     };
 
+    let mut input = adc.single_channel(&mut pin, SampleTime::default());
+
     loop {
-        let v = adc.read(&mut pin, SampleTime::default());
+        let v = input.read();
         info!("--> {} - {} mV", v, convert_to_millivolts(v));
         Timer::after(Duration::from_millis(100)).await;
     }

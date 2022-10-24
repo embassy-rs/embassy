@@ -1,7 +1,7 @@
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{Adc, AdcPin, Instance};
+use crate::adc::{Adc, AdcPin, Instance, SingleChannel};
 use crate::Peripheral;
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -280,7 +280,12 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
      */
 
-    pub fn read(&mut self, pin: &mut impl AdcPin<T>, sample_time: SampleTime, resolution: Resolution) -> u16 {
+    pub fn single_channel<'a>(
+        &'a mut self,
+        pin: &'a mut impl AdcPin<T>,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> SingleChannel<'a, T> {
         unsafe {
             // Make sure bits are off
             while T::regs().cr().read().addis() {
@@ -313,22 +318,15 @@ impl<'d, T: Instance> Adc<'d, T> {
             T::regs().sqr1().write(|reg| reg.set_sq(0, pin.channel()));
             #[cfg(stm32g0)]
             T::regs().chselr().write(|reg| reg.set_chsel(pin.channel() as u32));
-
-            // Some models are affected by an erratum:
-            // If we perform conversions slower than 1 kHz, the first read ADC value can be
-            // corrupted, so we discard it and measure again.
-            //
-            // STM32L471xx: Section 2.7.3
-            // STM32G4: Section 2.7.3
-            #[cfg(any(rcc_l4, rcc_g4))]
-            let _ = convert(*T::regs());
-
-            let val = convert(*T::regs());
-
-            T::regs().cr().modify(|reg| reg.set_addis(true));
-
-            val
         }
+
+        SingleChannel {
+            adc: self.adc.reborrow(),
+        }
+    }
+
+    pub fn read(&mut self, pin: &mut impl AdcPin<T>, sample_time: SampleTime, resolution: Resolution) -> u16 {
+        self.single_channel(pin, sample_time, resolution).read()
     }
 
     #[cfg(stm32g0)]
@@ -346,6 +344,14 @@ impl<'d, T: Instance> Adc<'d, T> {
             T::regs()
                 .smpr2()
                 .modify(|reg| reg.set_smp((ch - 10) as _, sample_time.sample_time()));
+        }
+    }
+}
+
+impl<'d, T: Instance> Drop for SingleChannel<'d, T> {
+    fn drop(&mut self) {
+        unsafe {
+            T::regs().cr().modify(|reg| reg.set_addis(true));
         }
     }
 }

@@ -22,11 +22,12 @@ fn main() -> ! {
     let p = embassy_stm32::init(Default::default());
 
     let mut adc = Adc::new(p.ADC1, &mut Delay);
+    let mut pin = p.PC0;
 
-    let mut channel = p.PC0;
+    let mut input = adc.single_channel(&mut pin, SampleTime::default(), Resolution::EightBit);
 
     loop {
-        let v = adc.read(&mut channel, SampleTime::default(), Resolution::EightBit);
+        let v = input.read();
         info!("--> {}", v);
     }
 }
