@@ -296,7 +296,7 @@ impl Driver for RtcDriver {
         critical_section::with(|cs| {
             let r = T::regs_gp16();
 
-            let n = alarm.id() as _;
+            let n = alarm.id() as usize;
             let alarm = self.get_alarm(cs, alarm);
             alarm.timestamp.set(timestamp);
 
