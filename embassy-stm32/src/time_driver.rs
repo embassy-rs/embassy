@@ -294,18 +294,22 @@ impl Driver for RtcDriver {
 
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
         critical_section::with(|cs| {
-            let t = self.now();
-
-            // If alarm timestamp has passed don't set the alarm and return `false` to indicate that.
-            if timestamp <= t {
-                return false;
-            }
-
             let r = T::regs_gp16();
 
             let n = alarm.id() as _;
             let alarm = self.get_alarm(cs, alarm);
             alarm.timestamp.set(timestamp);
+
+            let t = self.now();
+            if timestamp <= t {
+                // If alarm timestamp has passed the alarm will not fire.
+                // Disarm the alarm and return `false` to indicate that.
+                unsafe { r.dier().modify(|w| w.set_ccie(n + 1, false)) };
+
+                alarm.timestamp.set(u64::MAX);
+
+                return false;
+            }
 
             let safe_timestamp = timestamp.max(t + 3);
 

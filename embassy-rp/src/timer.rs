@@ -71,13 +71,6 @@ impl Driver for TimerDriver {
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
         let n = alarm.id() as usize;
         critical_section::with(|cs| {
-            let now = self.now();
-
-            // If alarm timestamp has passed don't set the alarm and return `false` to indicate that.
-            if timestamp <= now {
-                return false;
-            }
-
             let alarm = &self.alarms.borrow(cs)[n];
             alarm.timestamp.set(timestamp);
 
@@ -87,7 +80,18 @@ impl Driver for TimerDriver {
             // it is checked if the alarm time has passed.
             unsafe { pac::TIMER.alarm(n).write_value(timestamp as u32) };
 
-            true
+            let now = self.now();
+            if timestamp <= now {
+                // If alarm timestamp has passed the alarm will not fire.
+                // Disarm the alarm and return `false` to indicate that.
+                unsafe { pac::TIMER.armed().write(|w| w.set_armed(1 << n)) }
+
+                alarm.timestamp.set(u64::MAX);
+
+                false
+            } else {
+                true
+            }
         })
     }
 }
