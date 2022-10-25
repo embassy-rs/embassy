@@ -14,6 +14,7 @@ use crate::gpio::sealed::AFType;
 use crate::pac::lpuart::{regs, vals, Lpuart as Regs};
 #[cfg(not(any(lpuart_v1, lpuart_v2)))]
 use crate::pac::usart::{regs, vals, Usart as Regs};
+use crate::time::Hertz;
 use crate::{peripherals, Peripheral};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -159,12 +160,10 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
 
         T::enable();
         T::reset();
-        let pclk_freq = T::frequency();
-
-        // TODO: better calculation, including error checking and OVER8 if possible.
-        let div = (pclk_freq.0 + (config.baudrate / 2)) / config.baudrate * T::MULTIPLIER;
 
         let r = T::regs();
+
+        configure(r, &config, T::frequency(), T::MULTIPLIER);
 
         unsafe {
             rx.set_as_af(rx.af_num(), AFType::Input);
@@ -174,7 +173,6 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
                 // enable Error Interrupt: (Frame error, Noise error, Overrun error)
                 w.set_eie(true);
             });
-            r.brr().write_value(regs::Brr(div));
             r.cr1().write(|w| {
                 // enable uart
                 w.set_ue(true);
@@ -523,12 +521,10 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
 
         T::enable();
         T::reset();
-        let pclk_freq = T::frequency();
-
-        // TODO: better calculation, including error checking and OVER8 if possible.
-        let div = (pclk_freq.0 + (config.baudrate / 2)) / config.baudrate * T::MULTIPLIER;
 
         let r = T::regs();
+
+        configure(r, &config, T::frequency(), T::MULTIPLIER);
 
         unsafe {
             rx.set_as_af(rx.af_num(), AFType::Input);
@@ -536,7 +532,6 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
 
             r.cr2().write(|_w| {});
             r.cr3().write(|_w| {});
-            r.brr().write_value(regs::Brr(div));
             r.cr1().write(|w| {
                 w.set_ue(true);
                 w.set_te(true);
@@ -614,6 +609,15 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     /// transmitting and receiving.
     pub fn split(self) -> (UartTx<'d, T, TxDma>, UartRx<'d, T, RxDma>) {
         (self.tx, self.rx)
+    }
+}
+
+fn configure(r: Regs, config: &Config, pclk_freq: Hertz, multiplier: u32) {
+    // TODO: better calculation, including error checking and OVER8 if possible.
+    let div = (pclk_freq.0 + (config.baudrate / 2)) / config.baudrate * multiplier;
+
+    unsafe {
+        r.brr().write_value(regs::Brr(div));
     }
 }
 

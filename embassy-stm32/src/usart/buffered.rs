@@ -58,12 +58,10 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
 
         T::enable();
         T::reset();
-        let pclk_freq = T::frequency();
-
-        // TODO: better calculation, including error checking and OVER8 if possible.
-        let div = (pclk_freq.0 + (config.baudrate / 2)) / config.baudrate * T::MULTIPLIER;
 
         let r = T::regs();
+
+        configure(r, &config, T::frequency(), T::MULTIPLIER);
 
         unsafe {
             rx.set_as_af(rx.af_num(), AFType::Input);
@@ -71,7 +69,6 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
 
             r.cr2().write(|_w| {});
             r.cr3().write(|_w| {});
-            r.brr().write_value(regs::Brr(div));
             r.cr1().write(|w| {
                 w.set_ue(true);
                 w.set_te(true);
