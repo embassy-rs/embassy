@@ -198,14 +198,12 @@ impl<'d, T: Instance> Adc<'d, T> {
 
 /// Perform a single conversion.
 pub(super) unsafe fn convert(regs: crate::pac::adc::Adc) -> u16 {
-    unsafe {
-        regs.cr2().modify(|reg| {
-            reg.set_adon(true);
-            reg.set_swstart(true);
-        });
-        while regs.cr2().read().swstart() {}
-        while !regs.sr().read().eoc() {}
+    regs.cr2().modify(|reg| {
+        reg.set_adon(true);
+        reg.set_swstart(true);
+    });
+    while regs.cr2().read().swstart() {}
+    while !regs.sr().read().eoc() {}
 
-        regs.dr().read().0 as u16
-    }
+    regs.dr().read().0 as u16
 }

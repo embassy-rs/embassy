@@ -305,24 +305,22 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
 
 /// Perform a single conversion.
 pub(super) unsafe fn convert(regs: crate::pac::adc::Adc) -> u16 {
-    unsafe {
-        // clear end of conversion flag
-        regs.sr().modify(|reg| {
-            reg.set_eoc(crate::pac::adc::vals::Eoc::NOTCOMPLETE);
-        });
+    // clear end of conversion flag
+    regs.sr().modify(|reg| {
+        reg.set_eoc(crate::pac::adc::vals::Eoc::NOTCOMPLETE);
+    });
 
-        // Start conversion
-        regs.cr2().modify(|reg| {
-            reg.set_swstart(true);
-        });
+    // Start conversion
+    regs.cr2().modify(|reg| {
+        reg.set_swstart(true);
+    });
 
-        while regs.sr().read().strt() == crate::pac::adc::vals::Strt::NOTSTARTED {
-            // spin //wait for actual start
-        }
-        while regs.sr().read().eoc() == crate::pac::adc::vals::Eoc::NOTCOMPLETE {
-            // spin //wait for finish
-        }
-
-        regs.dr().read().0 as u16
+    while regs.sr().read().strt() == crate::pac::adc::vals::Strt::NOTSTARTED {
+        // spin //wait for actual start
     }
+    while regs.sr().read().eoc() == crate::pac::adc::vals::Eoc::NOTCOMPLETE {
+        // spin //wait for finish
+    }
+
+    regs.dr().read().0 as u16
 }

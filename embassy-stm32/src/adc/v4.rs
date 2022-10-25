@@ -521,21 +521,19 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
 
 /// Perform a single conversion.
 pub(super) unsafe fn convert(regs: crate::pac::adc::Adc) -> u16 {
-    unsafe {
-        regs.isr().modify(|reg| {
-            reg.set_eos(true);
-            reg.set_eoc(true);
-        });
+    regs.isr().modify(|reg| {
+        reg.set_eos(true);
+        reg.set_eoc(true);
+    });
 
-        // Start conversion
-        regs.cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
+    // Start conversion
+    regs.cr().modify(|reg| {
+        reg.set_adstart(true);
+    });
 
-        while !regs.isr().read().eos() {
-            // spin
-        }
-
-        regs.dr().read().0 as u16
+    while !regs.isr().read().eos() {
+        // spin
     }
+
+    regs.dr().read().0 as u16
 }
