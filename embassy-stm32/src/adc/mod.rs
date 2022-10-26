@@ -1,11 +1,10 @@
 #![macro_use]
 
-#[cfg_attr(adc_v4, path = "v4.rs")]
-#[cfg_attr(adc_v3, path = "v3.rs")]
-#[cfg_attr(adc_v2, path = "v2.rs")]
-#[cfg_attr(adc_g0, path = "v3.rs")]
 #[cfg_attr(adc_f1, path = "f1.rs")]
 #[cfg_attr(adc_v1, path = "v1.rs")]
+#[cfg_attr(adc_v2, path = "v2.rs")]
+#[cfg_attr(any(adc_v3, adc_g0), path = "v3.rs")]
+#[cfg_attr(adc_v4, path = "v4.rs")]
 mod _version;
 
 #[cfg(not(any(adc_f1, adc_v1)))]
