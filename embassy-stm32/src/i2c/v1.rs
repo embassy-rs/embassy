@@ -1,8 +1,9 @@
 use core::marker::PhantomData;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_common::into_ref;
+use embassy_hal_common::{into_ref, PeripheralRef};
 
+use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Pull;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
@@ -34,19 +35,26 @@ impl State {
     }
 }
 
-pub struct I2c<'d, T: Instance> {
+pub struct I2c<'d, T: Instance, TXDMA = NoDma, RXDMA = NoDma> {
     phantom: PhantomData<&'d mut T>,
+    #[allow(dead_code)]
+    tx_dma: PeripheralRef<'d, TXDMA>,
+    #[allow(dead_code)]
+    rx_dma: PeripheralRef<'d, RXDMA>,
 }
 
-impl<'d, T: Instance> I2c<'d, T> {
+impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     pub fn new(
         _peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        _irq: impl Peripheral<P = T::Interrupt> + 'd,
+        tx_dma: impl Peripheral<P = TXDMA> + 'd,
+        rx_dma: impl Peripheral<P = RXDMA> + 'd,
         freq: Hertz,
         config: Config,
     ) -> Self {
-        into_ref!(scl, sda);
+        into_ref!(scl, sda, tx_dma, rx_dma);
 
         T::enable();
         T::reset();
@@ -99,7 +107,11 @@ impl<'d, T: Instance> I2c<'d, T> {
             });
         }
 
-        Self { phantom: PhantomData }
+        Self {
+            phantom: PhantomData,
+            tx_dma,
+            rx_dma,
+        }
     }
 
     unsafe fn check_and_clear_error_flags(&self) -> Result<i2c::regs::Sr1, Error> {
@@ -141,7 +153,12 @@ impl<'d, T: Instance> I2c<'d, T> {
         Ok(sr1)
     }
 
-    unsafe fn write_bytes(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
+    unsafe fn write_bytes(
+        &mut self,
+        addr: u8,
+        bytes: &[u8],
+        check_timeout: impl Fn() -> Result<(), Error>,
+    ) -> Result<(), Error> {
         // Send a START condition
 
         T::regs().cr1().modify(|reg| {
@@ -149,7 +166,9 @@ impl<'d, T: Instance> I2c<'d, T> {
         });
 
         // Wait until START condition was generated
-        while !self.check_and_clear_error_flags()?.start() {}
+        while !self.check_and_clear_error_flags()?.start() {
+            check_timeout()?;
+        }
 
         // Also wait until signalled we're master and everything is waiting for us
         while {
@@ -157,7 +176,9 @@ impl<'d, T: Instance> I2c<'d, T> {
 
             let sr2 = T::regs().sr2().read();
             !sr2.msl() && !sr2.busy()
-        } {}
+        } {
+            check_timeout()?;
+        }
 
         // Set up current address, we're trying to talk to
         T::regs().dr().write(|reg| reg.set_dr(addr << 1));
@@ -165,26 +186,30 @@ impl<'d, T: Instance> I2c<'d, T> {
         // Wait until address was sent
         // Wait for the address to be acknowledged
         // Check for any I2C errors. If a NACK occurs, the ADDR bit will never be set.
-        while !self.check_and_clear_error_flags()?.addr() {}
+        while !self.check_and_clear_error_flags()?.addr() {
+            check_timeout()?;
+        }
 
         // Clear condition by reading SR2
         let _ = T::regs().sr2().read();
 
         // Send bytes
         for c in bytes {
-            self.send_byte(*c)?;
+            self.send_byte(*c, &check_timeout)?;
         }
 
         // Fallthrough is success
         Ok(())
     }
 
-    unsafe fn send_byte(&self, byte: u8) -> Result<(), Error> {
+    unsafe fn send_byte(&self, byte: u8, check_timeout: impl Fn() -> Result<(), Error>) -> Result<(), Error> {
         // Wait until we're ready for sending
         while {
             // Check for any I2C errors. If a NACK occurs, the ADDR bit will never be set.
             !self.check_and_clear_error_flags()?.txe()
-        } {}
+        } {
+            check_timeout()?;
+        }
 
         // Push out a byte of data
         T::regs().dr().write(|reg| reg.set_dr(byte));
@@ -193,24 +218,33 @@ impl<'d, T: Instance> I2c<'d, T> {
         while {
             // Check for any potential error conditions.
             !self.check_and_clear_error_flags()?.btf()
-        } {}
+        } {
+            check_timeout()?;
+        }
 
         Ok(())
     }
 
-    unsafe fn recv_byte(&self) -> Result<u8, Error> {
+    unsafe fn recv_byte(&self, check_timeout: impl Fn() -> Result<(), Error>) -> Result<u8, Error> {
         while {
             // Check for any potential error conditions.
             self.check_and_clear_error_flags()?;
 
             !T::regs().sr1().read().rxne()
-        } {}
+        } {
+            check_timeout()?;
+        }
 
         let value = T::regs().dr().read().dr();
         Ok(value)
     }
 
-    pub fn blocking_read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_read_timeout(
+        &mut self,
+        addr: u8,
+        buffer: &mut [u8],
+        check_timeout: impl Fn() -> Result<(), Error>,
+    ) -> Result<(), Error> {
         if let Some((last, buffer)) = buffer.split_last_mut() {
             // Send a START condition and set ACK bit
             unsafe {
@@ -221,27 +255,33 @@ impl<'d, T: Instance> I2c<'d, T> {
             }
 
             // Wait until START condition was generated
-            while unsafe { !T::regs().sr1().read().start() } {}
+            while unsafe { !self.check_and_clear_error_flags()?.start() } {
+                check_timeout()?;
+            }
 
             // Also wait until signalled we're master and everything is waiting for us
             while {
                 let sr2 = unsafe { T::regs().sr2().read() };
                 !sr2.msl() && !sr2.busy()
-            } {}
+            } {
+                check_timeout()?;
+            }
 
             // Set up current address, we're trying to talk to
             unsafe { T::regs().dr().write(|reg| reg.set_dr((addr << 1) + 1)) }
 
             // Wait until address was sent
             // Wait for the address to be acknowledged
-            while unsafe { !self.check_and_clear_error_flags()?.addr() } {}
+            while unsafe { !self.check_and_clear_error_flags()?.addr() } {
+                check_timeout()?;
+            }
 
             // Clear condition by reading SR2
             let _ = unsafe { T::regs().sr2().read() };
 
             // Receive bytes into buffer
             for c in buffer {
-                *c = unsafe { self.recv_byte()? };
+                *c = unsafe { self.recv_byte(&check_timeout)? };
             }
 
             // Prepare to send NACK then STOP after next byte
@@ -253,10 +293,12 @@ impl<'d, T: Instance> I2c<'d, T> {
             }
 
             // Receive last byte
-            *last = unsafe { self.recv_byte()? };
+            *last = unsafe { self.recv_byte(&check_timeout)? };
 
             // Wait for the STOP to be sent.
-            while unsafe { T::regs().cr1().read().stop() } {}
+            while unsafe { T::regs().cr1().read().stop() } {
+                check_timeout()?;
+            }
 
             // Fallthrough is success
             Ok(())
@@ -265,24 +307,49 @@ impl<'d, T: Instance> I2c<'d, T> {
         }
     }
 
-    pub fn blocking_write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
+    pub fn blocking_read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        self.blocking_read_timeout(addr, buffer, || Ok(()))
+    }
+
+    pub fn blocking_write_timeout(
+        &mut self,
+        addr: u8,
+        bytes: &[u8],
+        check_timeout: impl Fn() -> Result<(), Error>,
+    ) -> Result<(), Error> {
         unsafe {
-            self.write_bytes(addr, bytes)?;
+            self.write_bytes(addr, bytes, &check_timeout)?;
             // Send a STOP condition
             T::regs().cr1().modify(|reg| reg.set_stop(true));
             // Wait for STOP condition to transmit.
-            while T::regs().cr1().read().stop() {}
+            while T::regs().cr1().read().stop() {
+                check_timeout()?;
+            }
         };
 
         // Fallthrough is success
         Ok(())
     }
 
-    pub fn blocking_write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
-        unsafe { self.write_bytes(addr, bytes)? };
-        self.blocking_read(addr, buffer)?;
+    pub fn blocking_write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
+        self.blocking_write_timeout(addr, bytes, || Ok(()))
+    }
+
+    pub fn blocking_write_read_timeout(
+        &mut self,
+        addr: u8,
+        bytes: &[u8],
+        buffer: &mut [u8],
+        check_timeout: impl Fn() -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        unsafe { self.write_bytes(addr, bytes, &check_timeout)? };
+        self.blocking_read_timeout(addr, buffer, &check_timeout)?;
 
         Ok(())
+    }
+
+    pub fn blocking_write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
+        self.blocking_write_read_timeout(addr, bytes, buffer, || Ok(()))
     }
 }
 
