@@ -444,13 +444,20 @@ pub unsafe fn wake_task(task: NonNull<TaskHeader>) {
 }
 
 #[cfg(feature = "integrated-timers")]
-#[no_mangle]
-unsafe fn _embassy_time_schedule_wake(at: Instant, waker: &core::task::Waker) {
-    let task = waker::task_from_waker(waker);
-    let task = task.as_ref();
-    let expires_at = task.expires_at.get();
-    task.expires_at.set(expires_at.min(at));
+struct TimerQueue;
+
+#[cfg(feature = "integrated-timers")]
+impl embassy_time::queue::TimerQueue for TimerQueue {
+    fn schedule_wake(&'static self, at: Instant, waker: &core::task::Waker) {
+        let task = waker::task_from_waker(waker);
+        let task = unsafe { task.as_ref() };
+        let expires_at = task.expires_at.get();
+        task.expires_at.set(expires_at.min(at));
+    }
 }
+
+#[cfg(feature = "integrated-timers")]
+embassy_time::timer_queue_impl!(static TIMER_QUEUE: TimerQueue = TimerQueue);
 
 #[cfg(feature = "rtos-trace")]
 impl rtos_trace::RtosTraceOSCallbacks for Executor {
