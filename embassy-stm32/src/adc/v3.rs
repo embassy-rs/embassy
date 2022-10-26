@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{AdcPin, Instance, SampleTime};
+use crate::adc::{AdcPin, Instance, Resolution, SampleTime};
 use crate::Peripheral;
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -22,39 +22,6 @@ fn enable() {
         #[cfg(any(stm32l4, stm32l5, stm32wb))]
         crate::pac::RCC.ahb2enr().modify(|w| w.set_adcen(true));
     });
-}
-
-pub enum Resolution {
-    TwelveBit,
-    TenBit,
-    EightBit,
-    SixBit,
-}
-
-impl Default for Resolution {
-    fn default() -> Self {
-        Self::TwelveBit
-    }
-}
-
-impl Resolution {
-    fn res(&self) -> crate::pac::adc::vals::Res {
-        match self {
-            Resolution::TwelveBit => crate::pac::adc::vals::Res::TWELVEBIT,
-            Resolution::TenBit => crate::pac::adc::vals::Res::TENBIT,
-            Resolution::EightBit => crate::pac::adc::vals::Res::EIGHTBIT,
-            Resolution::SixBit => crate::pac::adc::vals::Res::SIXBIT,
-        }
-    }
-
-    pub fn to_max_count(&self) -> u32 {
-        match self {
-            Resolution::TwelveBit => (1 << 12) - 1,
-            Resolution::TenBit => (1 << 10) - 1,
-            Resolution::EightBit => (1 << 8) - 1,
-            Resolution::SixBit => (1 << 6) - 1,
-        }
-    }
 }
 
 pub struct VrefInt;

@@ -4,7 +4,7 @@ use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
 use super::InternalChannel;
-use crate::adc::{AdcPin, Instance, SampleTime};
+use crate::adc::{AdcPin, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -16,39 +16,6 @@ pub const VREF_CALIB_MV: u32 = 3300;
 
 /// ADC turn-on time
 pub const ADC_POWERUP_TIME_US: u32 = 3;
-
-pub enum Resolution {
-    TwelveBit,
-    TenBit,
-    EightBit,
-    SixBit,
-}
-
-impl Default for Resolution {
-    fn default() -> Self {
-        Self::TwelveBit
-    }
-}
-
-impl Resolution {
-    fn res(&self) -> crate::pac::adc::vals::Res {
-        match self {
-            Resolution::TwelveBit => crate::pac::adc::vals::Res::TWELVEBIT,
-            Resolution::TenBit => crate::pac::adc::vals::Res::TENBIT,
-            Resolution::EightBit => crate::pac::adc::vals::Res::EIGHTBIT,
-            Resolution::SixBit => crate::pac::adc::vals::Res::SIXBIT,
-        }
-    }
-
-    pub fn to_max_count(&self) -> u32 {
-        match self {
-            Resolution::TwelveBit => (1 << 12) - 1,
-            Resolution::TenBit => (1 << 10) - 1,
-            Resolution::EightBit => (1 << 8) - 1,
-            Resolution::SixBit => (1 << 6) - 1,
-        }
-    }
-}
 
 pub struct VrefInt;
 impl InternalChannel<ADC1> for VrefInt {}

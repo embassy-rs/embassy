@@ -11,8 +11,13 @@ mod _version;
 #[cfg(not(adc_v1))]
 mod sample_time;
 
+#[cfg(not(any(adc_f1, adc_v1)))]
+mod resolution;
+
 #[allow(unused)]
 pub use _version::*;
+#[cfg(not(any(adc_f1, adc_v1)))]
+pub use resolution::Resolution;
 #[cfg(not(adc_v1))]
 pub use sample_time::SampleTime;
 

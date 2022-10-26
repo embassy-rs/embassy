@@ -5,7 +5,7 @@ use embedded_hal_02::blocking::delay::DelayUs;
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
-use super::{AdcPin, Instance, InternalChannel, SampleTime};
+use super::{AdcPin, Instance, InternalChannel, Resolution, SampleTime};
 use crate::time::Hertz;
 use crate::{pac, Peripheral};
 
@@ -13,42 +13,6 @@ use crate::{pac, Peripheral};
 pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
-
-pub enum Resolution {
-    SixteenBit,
-    FourteenBit,
-    TwelveBit,
-    TenBit,
-    EightBit,
-}
-
-impl Default for Resolution {
-    fn default() -> Self {
-        Self::SixteenBit
-    }
-}
-
-impl Resolution {
-    fn res(&self) -> pac::adc::vals::Res {
-        match self {
-            Resolution::SixteenBit => pac::adc::vals::Res::SIXTEENBIT,
-            Resolution::FourteenBit => pac::adc::vals::Res::FOURTEENBITV,
-            Resolution::TwelveBit => pac::adc::vals::Res::TWELVEBITV,
-            Resolution::TenBit => pac::adc::vals::Res::TENBIT,
-            Resolution::EightBit => pac::adc::vals::Res::EIGHTBIT,
-        }
-    }
-
-    pub fn to_max_count(&self) -> u32 {
-        match self {
-            Resolution::SixteenBit => (1 << 16) - 1,
-            Resolution::FourteenBit => (1 << 14) - 1,
-            Resolution::TwelveBit => (1 << 12) - 1,
-            Resolution::TenBit => (1 << 10) - 1,
-            Resolution::EightBit => (1 << 8) - 1,
-        }
-    }
-}
 
 // NOTE: Vrefint/Temperature/Vbat are only available on ADC3 on H7, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
 pub struct VrefInt;
