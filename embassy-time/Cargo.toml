@@ -26,6 +26,22 @@ unstable-traits = ["embedded-hal-1"]
 # To use this you must have a time driver provided.
 defmt-timestamp-uptime = ["defmt"]
 
+# Create a global, generic queue that can be used with any executor
+# To use this you must have a time driver provided.
+generic-queue = []
+
+# Set the number of timers for the generic queue.
+#
+# At most 1 `generic-queue-*` feature can be enabled. If none is enabled, a default of 64 timers is used.
+# 
+# When using embassy-time from libraries, you should *not* enable any `generic-queue-*` feature, to allow the
+# end user to pick.
+generic-queue-8 = ["generic-queue"]
+generic-queue-16 = ["generic-queue"]
+generic-queue-32 = ["generic-queue"]
+generic-queue-64 = ["generic-queue"]
+generic-queue-128 = ["generic-queue"]
+
 # Set the `embassy_time` tick rate.
 #
 # At most 1 `tick-*` feature can be enabled. If none is enabled, a default of 1MHz is used.
@@ -111,11 +127,18 @@ embedded-hal-async = { version = "=0.1.0-alpha.3", optional = true}
 
 futures-util = { version = "0.3.17", default-features = false }
 embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
+embassy-sync = { version = "0.1", path = "../embassy-sync" }
 atomic-polyfill = "1.0.1"
 critical-section = "1.1"
 cfg-if = "1.0.0"
+heapless = "0.7"
 
 # WASM dependencies
 wasm-bindgen = { version = "0.2.81", optional = true }
 js-sys = { version = "0.3", optional = true }
 wasm-timer = { version = "0.2.5", optional = true }
+
+[dev-dependencies]
+serial_test = "0.9"
+critical-section = { version = "1.1", features = ["std"] }
+
