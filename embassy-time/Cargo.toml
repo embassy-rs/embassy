@@ -11,6 +11,9 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time/
 features = ["nightly", "defmt", "unstable-traits", "std"]
 target = "x86_64-unknown-linux-gnu"
 
+[package.metadata.docs.rs]
+features = ["nightly", "defmt", "unstable-traits", "std"]
+
 [features]
 std = ["tick-hz-1_000_000"]
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000"]
@@ -126,7 +129,6 @@ embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9", optiona
 embedded-hal-async = { version = "=0.1.0-alpha.3", optional = true}
 
 futures-util = { version = "0.3.17", default-features = false }
-embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
 embassy-sync = { version = "0.1", path = "../embassy-sync" }
 atomic-polyfill = "1.0.1"
 critical-section = "1.1"

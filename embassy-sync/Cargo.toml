@@ -19,6 +19,9 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-sync/
 features = ["nightly"]
 target = "thumbv7em-none-eabi"
 
+[package.metadata.docs.rs]
+features = ["nightly"]
+
 [features]
 nightly = ["embedded-io/async"]
 std = []
