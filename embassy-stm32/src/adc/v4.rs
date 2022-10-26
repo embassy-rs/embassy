@@ -5,7 +5,7 @@ use embedded_hal_02::blocking::delay::DelayUs;
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
-use super::{AdcPin, Instance, InternalChannel};
+use super::{AdcPin, Instance, InternalChannel, SampleTime};
 use crate::time::Hertz;
 use crate::{pac, Peripheral};
 
@@ -192,57 +192,6 @@ foreach_peripheral!(
         impl crate::rcc::RccPeripheral for crate::peripherals::ADC3 {}
     };
 );
-
-/// ADC sample time
-///
-/// The default setting is 2.5 ADC clock cycles.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub enum SampleTime {
-    /// 1.5 ADC clock cycles
-    Cycles1_5,
-
-    /// 2.5 ADC clock cycles
-    Cycles2_5,
-
-    /// 8.5 ADC clock cycles
-    Cycles8_5,
-
-    /// 16.5 ADC clock cycles
-    Cycles16_5,
-
-    /// 32.5 ADC clock cycles
-    Cycles32_5,
-
-    /// 64.5 ADC clock cycles
-    Cycles64_5,
-
-    /// 387.5 ADC clock cycles
-    Cycles387_5,
-
-    /// 810.5 ADC clock cycles
-    Cycles810_5,
-}
-
-impl SampleTime {
-    pub(crate) fn sample_time(&self) -> pac::adc::vals::Smp {
-        match self {
-            SampleTime::Cycles1_5 => pac::adc::vals::Smp::CYCLES1_5,
-            SampleTime::Cycles2_5 => pac::adc::vals::Smp::CYCLES2_5,
-            SampleTime::Cycles8_5 => pac::adc::vals::Smp::CYCLES8_5,
-            SampleTime::Cycles16_5 => pac::adc::vals::Smp::CYCLES16_5,
-            SampleTime::Cycles32_5 => pac::adc::vals::Smp::CYCLES32_5,
-            SampleTime::Cycles64_5 => pac::adc::vals::Smp::CYCLES64_5,
-            SampleTime::Cycles387_5 => pac::adc::vals::Smp::CYCLES387_5,
-            SampleTime::Cycles810_5 => pac::adc::vals::Smp::CYCLES810_5,
-        }
-    }
-}
-
-impl Default for SampleTime {
-    fn default() -> Self {
-        Self::Cycles1_5
-    }
-}
 
 // NOTE (unused): The prescaler enum closely copies the hardware capabilities,
 // but high prescaling doesn't make a lot of sense in the current implementation and is ommited.

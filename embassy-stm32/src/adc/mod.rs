@@ -8,8 +8,13 @@
 #[cfg_attr(adc_v1, path = "v1.rs")]
 mod _version;
 
+#[cfg(not(adc_v1))]
+mod sample_time;
+
 #[allow(unused)]
 pub use _version::*;
+#[cfg(not(adc_v1))]
+pub use sample_time::SampleTime;
 
 use crate::peripherals;
 

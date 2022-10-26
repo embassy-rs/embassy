@@ -4,7 +4,7 @@ use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
 use super::InternalChannel;
-use crate::adc::{AdcPin, Instance};
+use crate::adc::{AdcPin, Instance, SampleTime};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -91,42 +91,6 @@ impl InternalChannel<ADC1> for Vbat {}
 impl super::sealed::InternalChannel<ADC1> for Vbat {
     fn channel(&self) -> u8 {
         18
-    }
-}
-
-/// ADC sample time
-///
-/// The default setting is 3 ADC clock cycles.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub enum SampleTime {
-    Cycles3 = 0b000,
-    Cycles15 = 0b001,
-    Cycles28 = 0b010,
-    Cycles56 = 0b011,
-    Cycles85 = 0b100,
-    Cycles112 = 0b101,
-    Cycles144 = 0b110,
-    Cycles480 = 0b111,
-}
-
-impl SampleTime {
-    pub(crate) fn sample_time(&self) -> crate::pac::adc::vals::Smp {
-        match self {
-            SampleTime::Cycles3 => crate::pac::adc::vals::Smp::CYCLES3,
-            SampleTime::Cycles15 => crate::pac::adc::vals::Smp::CYCLES15,
-            SampleTime::Cycles28 => crate::pac::adc::vals::Smp::CYCLES28,
-            SampleTime::Cycles56 => crate::pac::adc::vals::Smp::CYCLES56,
-            SampleTime::Cycles85 => crate::pac::adc::vals::Smp::CYCLES84,
-            SampleTime::Cycles112 => crate::pac::adc::vals::Smp::CYCLES112,
-            SampleTime::Cycles144 => crate::pac::adc::vals::Smp::CYCLES144,
-            SampleTime::Cycles480 => crate::pac::adc::vals::Smp::CYCLES480,
-        }
-    }
-}
-
-impl Default for SampleTime {
-    fn default() -> Self {
-        Self::Cycles3
     }
 }
 

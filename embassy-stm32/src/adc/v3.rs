@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{AdcPin, Instance};
+use crate::adc::{AdcPin, Instance, SampleTime};
 use crate::Peripheral;
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -92,116 +92,6 @@ impl<T: Instance> super::sealed::AdcPin<T> for Vbat {
         val
     }
 }
-
-#[cfg(not(adc_g0))]
-mod sample_time {
-    /// ADC sample time
-    ///
-    /// The default setting is 2.5 ADC clock cycles.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-    pub enum SampleTime {
-        /// 2.5 ADC clock cycles
-        Cycles2_5 = 0b000,
-
-        /// 6.5 ADC clock cycles
-        Cycles6_5 = 0b001,
-
-        /// 12.5 ADC clock cycles
-        Cycles12_5 = 0b010,
-
-        /// 24.5 ADC clock cycles
-        Cycles24_5 = 0b011,
-
-        /// 47.5 ADC clock cycles
-        Cycles47_5 = 0b100,
-
-        /// 92.5 ADC clock cycles
-        Cycles92_5 = 0b101,
-
-        /// 247.5 ADC clock cycles
-        Cycles247_5 = 0b110,
-
-        /// 640.5 ADC clock cycles
-        Cycles640_5 = 0b111,
-    }
-
-    impl SampleTime {
-        pub(crate) fn sample_time(&self) -> crate::pac::adc::vals::SampleTime {
-            match self {
-                SampleTime::Cycles2_5 => crate::pac::adc::vals::SampleTime::CYCLES2_5,
-                SampleTime::Cycles6_5 => crate::pac::adc::vals::SampleTime::CYCLES6_5,
-                SampleTime::Cycles12_5 => crate::pac::adc::vals::SampleTime::CYCLES12_5,
-                SampleTime::Cycles24_5 => crate::pac::adc::vals::SampleTime::CYCLES24_5,
-                SampleTime::Cycles47_5 => crate::pac::adc::vals::SampleTime::CYCLES47_5,
-                SampleTime::Cycles92_5 => crate::pac::adc::vals::SampleTime::CYCLES92_5,
-                SampleTime::Cycles247_5 => crate::pac::adc::vals::SampleTime::CYCLES247_5,
-                SampleTime::Cycles640_5 => crate::pac::adc::vals::SampleTime::CYCLES640_5,
-            }
-        }
-    }
-
-    impl Default for SampleTime {
-        fn default() -> Self {
-            Self::Cycles2_5
-        }
-    }
-}
-
-#[cfg(adc_g0)]
-mod sample_time {
-    /// ADC sample time
-    ///
-    /// The default setting is 1.5 ADC clock cycles.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-    pub enum SampleTime {
-        /// 1.5 ADC clock cycles
-        Cycles1_5 = 0b000,
-
-        /// 3.5 ADC clock cycles
-        Cycles3_5 = 0b001,
-
-        /// 7.5 ADC clock cycles
-        Cycles7_5 = 0b010,
-
-        /// 12.5 ADC clock cycles
-        Cycles12_5 = 0b011,
-
-        /// 19.5 ADC clock cycles
-        Cycles19_5 = 0b100,
-
-        /// 39.5 ADC clock cycles
-        Cycles39_5 = 0b101,
-
-        /// 79.5 ADC clock cycles
-        Cycles79_5 = 0b110,
-
-        /// 160.5 ADC clock cycles
-        Cycles160_5 = 0b111,
-    }
-
-    impl SampleTime {
-        pub(crate) fn sample_time(&self) -> crate::pac::adc::vals::SampleTime {
-            match self {
-                SampleTime::Cycles1_5 => crate::pac::adc::vals::SampleTime::CYCLES1_5,
-                SampleTime::Cycles3_5 => crate::pac::adc::vals::SampleTime::CYCLES3_5,
-                SampleTime::Cycles7_5 => crate::pac::adc::vals::SampleTime::CYCLES7_5,
-                SampleTime::Cycles12_5 => crate::pac::adc::vals::SampleTime::CYCLES12_5,
-                SampleTime::Cycles19_5 => crate::pac::adc::vals::SampleTime::CYCLES19_5,
-                SampleTime::Cycles39_5 => crate::pac::adc::vals::SampleTime::CYCLES39_5,
-                SampleTime::Cycles79_5 => crate::pac::adc::vals::SampleTime::CYCLES79_5,
-                SampleTime::Cycles160_5 => crate::pac::adc::vals::SampleTime::CYCLES160_5,
-            }
-        }
-    }
-
-    impl Default for SampleTime {
-        fn default() -> Self {
-            Self::Cycles1_5
-        }
-    }
-}
-
-pub use sample_time::SampleTime;
 
 pub struct Adc<'d, T: Instance> {
     sample_time: SampleTime,
