@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
@@ -96,8 +94,8 @@ impl<'d, T> Adc<'d, T>
 where
     T: Instance,
 {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
-        into_ref!(_peri);
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+        into_ref!(adc);
         T::enable();
         T::reset();
 
@@ -113,8 +111,8 @@ where
         delay.delay_us(ADC_POWERUP_TIME_US);
 
         Self {
+            adc,
             sample_time: Default::default(),
-            phantom: PhantomData,
         }
     }
 

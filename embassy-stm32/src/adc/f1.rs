@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
@@ -30,8 +28,8 @@ impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
-        into_ref!(_peri);
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+        into_ref!(adc);
         T::enable();
         T::reset();
         unsafe {
@@ -60,8 +58,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         delay.delay_us((1_000_000) / Self::freq().0 + 1);
 
         Self {
+            adc,
             sample_time: Default::default(),
-            phantom: PhantomData,
         }
     }
 

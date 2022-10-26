@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use atomic_polyfill::{AtomicU8, Ordering};
 use embedded_hal_02::blocking::delay::DelayUs;
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
@@ -226,8 +224,8 @@ impl Prescaler {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
-        embassy_hal_common::into_ref!(_peri);
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
+        embassy_hal_common::into_ref!(adc);
         T::enable();
         T::reset();
 
@@ -257,8 +255,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
 
         let mut s = Self {
+            adc,
             sample_time: Default::default(),
-            phantom: PhantomData,
         };
         s.power_up(delay);
         s.configure_differential_inputs();

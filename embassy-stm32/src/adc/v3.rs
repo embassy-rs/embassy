@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
@@ -61,8 +59,8 @@ impl<T: Instance> super::sealed::AdcPin<T> for Vbat {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
-        into_ref!(_peri);
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+        into_ref!(adc);
         enable();
         unsafe {
             T::regs().cr().modify(|reg| {
@@ -92,8 +90,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         delay.delay_us(1);
 
         Self {
+            adc,
             sample_time: Default::default(),
-            phantom: PhantomData,
         }
     }
 

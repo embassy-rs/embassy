@@ -23,8 +23,9 @@ use crate::peripherals;
 
 #[cfg(not(adc_v1))]
 pub struct Adc<'d, T: Instance> {
+    #[allow(unused)]
+    adc: crate::PeripheralRef<'d, T>,
     sample_time: SampleTime,
-    phantom: core::marker::PhantomData<&'d mut T>,
 }
 
 pub(crate) mod sealed {
@@ -44,9 +45,9 @@ pub(crate) mod sealed {
 }
 
 #[cfg(not(any(adc_f1, adc_v2, adc_v4)))]
-pub trait Instance: sealed::Instance + 'static {}
+pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> {}
 #[cfg(any(adc_f1, adc_v2, adc_v4))]
-pub trait Instance: sealed::Instance + crate::rcc::RccPeripheral + 'static {}
+pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral {}
 
 pub trait AdcPin<T: Instance>: sealed::AdcPin<T> {}
 pub trait InternalChannel<T>: sealed::InternalChannel<T> {}
