@@ -29,11 +29,6 @@ pub(crate) mod sealed {
         fn common_regs() -> &'static crate::pac::adccommon::AdcCommon;
     }
 
-    #[cfg(all(not(adc_f1), not(adc_v1)))]
-    pub trait Common {
-        fn regs() -> &'static crate::pac::adccommon::AdcCommon;
-    }
-
     pub trait AdcPin<T: Instance> {
         fn channel(&self) -> u8;
     }
@@ -47,8 +42,7 @@ pub(crate) mod sealed {
 pub trait Instance: sealed::Instance + 'static {}
 #[cfg(any(adc_f1, adc_v2))]
 pub trait Instance: sealed::Instance + crate::rcc::RccPeripheral + 'static {}
-#[cfg(all(not(adc_f1), not(adc_v1)))]
-pub trait Common: sealed::Common + 'static {}
+
 pub trait AdcPin<T: Instance>: sealed::AdcPin<T> {}
 pub trait InternalChannel<T>: sealed::InternalChannel<T> {}
 
@@ -108,19 +102,6 @@ foreach_peripheral!(
         }
 
         impl crate::adc::Instance for peripherals::$inst {}
-    };
-);
-
-#[cfg(all(not(adc_f1), not(adc_v1)))]
-foreach_peripheral!(
-    (adccommon, $inst:ident) => {
-        impl sealed::Common for peripherals::$inst {
-            fn regs() -> &'static crate::pac::adccommon::AdcCommon {
-                &crate::pac::$inst
-            }
-        }
-
-        impl crate::adc::Common for peripherals::$inst {}
     };
 );
 
