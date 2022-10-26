@@ -86,7 +86,6 @@ pub use sample_time::SampleTime;
 
 pub struct Adc<'d, T: Instance> {
     sample_time: SampleTime,
-    calibrated_vdda: u32,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -122,7 +121,6 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         Self {
             sample_time: Default::default(),
-            calibrated_vdda: VDDA_CALIB_MV,
             phantom: PhantomData,
         }
     }
@@ -162,27 +160,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         Temperature {}
     }
 
-    /// Calculates the system VDDA by sampling the internal VREF channel and comparing
-    /// to the expected value. If the chip's VDDA is not stable, run this before each ADC
-    /// conversion.
-    pub fn calibrate(&mut self, vref: &mut Vref) -> u32 {
-        let old_sample_time = self.sample_time;
-        self.sample_time = SampleTime::Cycles239_5;
-
-        let vref_samp = self.read(vref);
-        self.sample_time = old_sample_time;
-
-        self.calibrated_vdda = (ADC_MAX * VREF_INT) / u32::from(vref_samp);
-        self.calibrated_vdda
-    }
-
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
         self.sample_time = sample_time;
-    }
-
-    /// Convert a measurement to millivolts
-    pub fn to_millivolts(&self, sample: u16) -> u16 {
-        ((u32::from(sample) * self.calibrated_vdda) / ADC_MAX) as u16
     }
 
     /// Perform a single conversion.
