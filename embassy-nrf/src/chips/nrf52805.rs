@@ -193,8 +193,8 @@ impl_ppi_channel!(PPI_CH29, 29 => static);
 impl_ppi_channel!(PPI_CH30, 30 => static);
 impl_ppi_channel!(PPI_CH31, 31 => static);
 
-impl_saadc_input!(P0_04, ANALOGINPUT2);
-impl_saadc_input!(P0_05, ANALOGINPUT3);
+impl_saadc_input!(P0_04, ANALOG_INPUT2);
+impl_saadc_input!(P0_05, ANALOG_INPUT3);
 
 pub mod irqs {
     use embassy_cortex_m::interrupt::_export::declare;
