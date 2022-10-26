@@ -25,11 +25,10 @@ macro_rules! impl_sample_time {
     };
 }
 
-// TODO: Fix default
 #[cfg(adc_f1)]
 impl_sample_time!(
     "1.5",
-    Cycles28_5,
+    Cycles1_5,
     crate::pac::adc::vals::SampleTime,
     (
         ("1.5", Cycles1_5, CYCLES1_5),
@@ -43,7 +42,6 @@ impl_sample_time!(
     )
 );
 
-// TODO: Fix 85 vs 84
 #[cfg(adc_v2)]
 impl_sample_time!(
     "3",
@@ -54,7 +52,7 @@ impl_sample_time!(
         ("15", Cycles15, CYCLES15),
         ("28", Cycles28, CYCLES28),
         ("56", Cycles56, CYCLES56),
-        ("85", Cycles85, CYCLES84),
+        ("84", Cycles84, CYCLES84),
         ("112", Cycles112, CYCLES112),
         ("144", Cycles144, CYCLES144),
         ("480", Cycles480, CYCLES480)
@@ -95,10 +93,9 @@ impl_sample_time!(
     )
 );
 
-// TODO: Fix default doc
 #[cfg(adc_v4)]
 impl_sample_time!(
-    "2.5",
+    "1.5",
     Cycles1_5,
     crate::pac::adc::vals::Smp,
     (
