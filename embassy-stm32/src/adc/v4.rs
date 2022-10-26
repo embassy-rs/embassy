@@ -409,7 +409,7 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
 
     unsafe fn read_channel(&mut self, channel: u8) -> u16 {
         // Configure ADC
-        T::regs().cfgr().modify(|reg| reg.set_res(self.resolution.res()));
+        T::regs().cfgr().modify(|reg| reg.set_res(self.resolution.into()));
 
         // Configure channel
         Self::set_channel_sample_time(channel, self.sample_time);
@@ -427,14 +427,11 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
+        let sample_time = sample_time.into();
         if ch <= 9 {
-            T::regs()
-                .smpr(0)
-                .modify(|reg| reg.set_smp(ch as _, sample_time.sample_time()));
+            T::regs().smpr(0).modify(|reg| reg.set_smp(ch as _, sample_time));
         } else {
-            T::regs()
-                .smpr(1)
-                .modify(|reg| reg.set_smp((ch - 10) as _, sample_time.sample_time()));
+            T::regs().smpr(1).modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
         }
     }
 }

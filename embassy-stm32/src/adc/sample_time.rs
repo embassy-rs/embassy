@@ -9,10 +9,10 @@ macro_rules! impl_sample_time {
             )*
         }
 
-        impl SampleTime {
-            pub(crate) fn sample_time(&self) -> $pac {
-                match self {
-                    $(Self::$variant => <$pac>::$pac_variant),*
+        impl From<SampleTime> for $pac {
+            fn from(sample_time: SampleTime) -> $pac {
+                match sample_time {
+                    $(SampleTime::$variant => <$pac>::$pac_variant),*
                 }
             }
         }

@@ -146,14 +146,11 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
+        let sample_time = sample_time.into();
         if ch <= 9 {
-            T::regs()
-                .smpr2()
-                .modify(|reg| reg.set_smp(ch as _, sample_time.sample_time()));
+            T::regs().smpr2().modify(|reg| reg.set_smp(ch as _, sample_time));
         } else {
-            T::regs()
-                .smpr1()
-                .modify(|reg| reg.set_smp((ch - 10) as _, sample_time.sample_time()));
+            T::regs().smpr1().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
         }
     }
 }

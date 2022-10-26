@@ -1,4 +1,5 @@
 #[cfg(any(adc_v2, adc_v3, adc_g0))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Resolution {
     TwelveBit,
     TenBit,
@@ -7,6 +8,7 @@ pub enum Resolution {
 }
 
 #[cfg(adc_v4)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Resolution {
     SixteenBit,
     FourteenBit,
@@ -28,9 +30,9 @@ impl Default for Resolution {
     }
 }
 
-impl Resolution {
-    pub(super) fn res(&self) -> crate::pac::adc::vals::Res {
-        match self {
+impl From<Resolution> for crate::pac::adc::vals::Res {
+    fn from(res: Resolution) -> crate::pac::adc::vals::Res {
+        match res {
             #[cfg(adc_v4)]
             Resolution::SixteenBit => crate::pac::adc::vals::Res::SIXTEENBIT,
             #[cfg(adc_v4)]
@@ -42,7 +44,9 @@ impl Resolution {
             Resolution::SixBit => crate::pac::adc::vals::Res::SIXBIT,
         }
     }
+}
 
+impl Resolution {
     pub fn to_max_count(&self) -> u32 {
         match self {
             #[cfg(adc_v4)]

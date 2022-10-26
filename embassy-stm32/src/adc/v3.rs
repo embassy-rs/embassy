@@ -199,9 +199,9 @@ impl<'d, T: Instance> Adc<'d, T> {
 
             // Configure ADC
             #[cfg(not(stm32g0))]
-            T::regs().cfgr().modify(|reg| reg.set_res(self.resolution.res()));
+            T::regs().cfgr().modify(|reg| reg.set_res(self.resolution.into()));
             #[cfg(stm32g0)]
-            T::regs().cfgr1().modify(|reg| reg.set_res(self.resolution.res()));
+            T::regs().cfgr1().modify(|reg| reg.set_res(self.resolution.into()));
 
             // Configure channel
             Self::set_channel_sample_time(pin.channel(), self.sample_time);
@@ -231,19 +231,16 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     #[cfg(stm32g0)]
     unsafe fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {
-        T::regs().smpr().modify(|reg| reg.set_smp1(sample_time.sample_time()));
+        T::regs().smpr().modify(|reg| reg.set_smp1(sample_time.into()));
     }
 
     #[cfg(not(stm32g0))]
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
+        let sample_time = sample_time.into();
         if ch <= 9 {
-            T::regs()
-                .smpr1()
-                .modify(|reg| reg.set_smp(ch as _, sample_time.sample_time()));
+            T::regs().smpr1().modify(|reg| reg.set_smp(ch as _, sample_time));
         } else {
-            T::regs()
-                .smpr2()
-                .modify(|reg| reg.set_smp((ch - 10) as _, sample_time.sample_time()));
+            T::regs().smpr2().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
         }
     }
 }

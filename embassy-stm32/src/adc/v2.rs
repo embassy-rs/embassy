@@ -214,7 +214,7 @@ where
 
     unsafe fn read_channel(&mut self, channel: u8) -> u16 {
         // Configure ADC
-        T::regs().cr1().modify(|reg| reg.set_res(self.resolution.res()));
+        T::regs().cr1().modify(|reg| reg.set_res(self.resolution.into()));
 
         // Select channel
         T::regs().sqr3().write(|reg| reg.set_sq(0, channel));
@@ -228,14 +228,11 @@ where
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
+        let sample_time = sample_time.into();
         if ch <= 9 {
-            T::regs()
-                .smpr2()
-                .modify(|reg| reg.set_smp(ch as _, sample_time.sample_time()));
+            T::regs().smpr2().modify(|reg| reg.set_smp(ch as _, sample_time));
         } else {
-            T::regs()
-                .smpr1()
-                .modify(|reg| reg.set_smp((ch - 10) as _, sample_time.sample_time()));
+            T::regs().smpr1().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
         }
     }
 }
