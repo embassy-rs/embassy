@@ -94,7 +94,6 @@ impl Prescaler {
 
 pub struct Adc<'d, T: Instance> {
     sample_time: SampleTime,
-    resolution: Resolution,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -120,7 +119,6 @@ where
 
         Self {
             sample_time: Default::default(),
-            resolution: Resolution::default(),
             phantom: PhantomData,
         }
     }
@@ -130,7 +128,9 @@ where
     }
 
     pub fn set_resolution(&mut self, resolution: Resolution) {
-        self.resolution = resolution;
+        unsafe {
+            T::regs().cr1().modify(|reg| reg.set_res(resolution.into()));
+        }
     }
 
     /// Enables internal voltage reference and returns [VrefInt], which can be used in
@@ -214,7 +214,6 @@ where
 
     unsafe fn read_channel(&mut self, channel: u8) -> u16 {
         // Configure ADC
-        T::regs().cr1().modify(|reg| reg.set_res(self.resolution.into()));
 
         // Select channel
         T::regs().sqr3().write(|reg| reg.set_sq(0, channel));

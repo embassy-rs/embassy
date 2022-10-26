@@ -227,7 +227,6 @@ impl Prescaler {
 
 pub struct Adc<'d, T: Instance> {
     sample_time: SampleTime,
-    resolution: Resolution,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -264,7 +263,6 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
 
         let mut s = Self {
             sample_time: Default::default(),
-            resolution: Resolution::default(),
             phantom: PhantomData,
         };
         s.power_up(delay);
@@ -367,7 +365,9 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
     }
 
     pub fn set_resolution(&mut self, resolution: Resolution) {
-        self.resolution = resolution;
+        unsafe {
+            T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
+        }
     }
 
     /// Perform a single conversion.
@@ -408,9 +408,6 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
     }
 
     unsafe fn read_channel(&mut self, channel: u8) -> u16 {
-        // Configure ADC
-        T::regs().cfgr().modify(|reg| reg.set_res(self.resolution.into()));
-
         // Configure channel
         Self::set_channel_sample_time(channel, self.sample_time);
 

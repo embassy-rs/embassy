@@ -62,7 +62,6 @@ impl<T: Instance> super::sealed::AdcPin<T> for Vbat {
 
 pub struct Adc<'d, T: Instance> {
     sample_time: SampleTime,
-    resolution: Resolution,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -99,7 +98,6 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         Self {
             sample_time: Default::default(),
-            resolution: Resolution::default(),
             phantom: PhantomData,
         }
     }
@@ -145,7 +143,12 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub fn set_resolution(&mut self, resolution: Resolution) {
-        self.resolution = resolution;
+        unsafe {
+            #[cfg(not(stm32g0))]
+            T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
+            #[cfg(stm32g0)]
+            T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
+        }
     }
 
     /*
@@ -196,12 +199,6 @@ impl<'d, T: Instance> Adc<'d, T> {
             while !T::regs().isr().read().adrdy() {
                 // spin
             }
-
-            // Configure ADC
-            #[cfg(not(stm32g0))]
-            T::regs().cfgr().modify(|reg| reg.set_res(self.resolution.into()));
-            #[cfg(stm32g0)]
-            T::regs().cfgr1().modify(|reg| reg.set_res(self.resolution.into()));
 
             // Configure channel
             Self::set_channel_sample_time(pin.channel(), self.sample_time);
