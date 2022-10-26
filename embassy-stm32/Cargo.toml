@@ -44,7 +44,7 @@ embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optiona
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9", optional = true}
-embedded-hal-async = { version = "=0.1.0-alpha.2", optional = true}
+embedded-hal-async = { version = "=0.1.0-alpha.3", optional = true}
 embedded-hal-nb = { version = "=1.0.0-alpha.1", optional = true}
 
 embedded-storage = "0.3.0"
@@ -67,7 +67,7 @@ nb = "1.0.0"
 stm32-fmc = "0.2.4"
 seq-macro = "0.3.0"
 cfg-if = "1.0.0"
-embedded-io = { version = "0.3.0", features = ["async"], optional = true }
+embedded-io = { version = "0.3.1", features = ["async"], optional = true }
 
 [build-dependencies]
 proc-macro2 = "1.0.36"

@@ -1534,14 +1534,14 @@ mod sdmmc_rs {
 
     impl<'d, T: Instance, P: Pins<T>> BlockDevice for Sdmmc<'d, T, P> {
         type Error = Error;
-        type ReadFuture<'a>
+
+        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
         where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
-        type WriteFuture<'a>
+            Self: 'a;
+
+        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
         where
-            Self: 'a,
-        = impl Future<Output = Result<(), Self::Error>> + 'a;
+            Self: 'a;
 
         fn read<'a>(
             &'a mut self,
