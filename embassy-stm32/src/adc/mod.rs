@@ -22,6 +22,12 @@ pub use sample_time::SampleTime;
 
 use crate::peripherals;
 
+#[cfg(not(adc_v1))]
+pub struct Adc<'d, T: Instance> {
+    sample_time: SampleTime,
+    phantom: core::marker::PhantomData<&'d mut T>,
+}
+
 pub(crate) mod sealed {
     pub trait Instance {
         fn regs() -> crate::pac::adc::Adc;

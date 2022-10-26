@@ -5,7 +5,7 @@ use embedded_hal_02::blocking::delay::DelayUs;
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
-use super::{AdcPin, Instance, InternalChannel, Resolution, SampleTime};
+use super::{Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
 use crate::time::Hertz;
 use crate::{pac, Peripheral};
 
@@ -223,11 +223,6 @@ impl Prescaler {
             Prescaler::DividedBy256 => Presc::DIV256,
         }
     }
-}
-
-pub struct Adc<'d, T: Instance> {
-    sample_time: SampleTime,
-    phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {

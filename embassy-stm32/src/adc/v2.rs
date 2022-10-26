@@ -4,7 +4,7 @@ use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
 use super::InternalChannel;
-use crate::adc::{AdcPin, Instance, Resolution, SampleTime};
+use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -90,11 +90,6 @@ impl Prescaler {
             Prescaler::Div8 => crate::pac::adccommon::vals::Adcpre::DIV8,
         }
     }
-}
-
-pub struct Adc<'d, T: Instance> {
-    sample_time: SampleTime,
-    phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T> Adc<'d, T>

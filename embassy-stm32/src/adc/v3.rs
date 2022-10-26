@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{AdcPin, Instance, Resolution, SampleTime};
+use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::Peripheral;
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -58,11 +58,6 @@ impl<T: Instance> super::sealed::AdcPin<T> for Vbat {
         let val = 14;
         val
     }
-}
-
-pub struct Adc<'d, T: Instance> {
-    sample_time: SampleTime,
-    phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance> Adc<'d, T> {

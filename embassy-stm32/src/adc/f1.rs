@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{AdcPin, Instance, SampleTime};
+use crate::adc::{Adc, AdcPin, Instance, SampleTime};
 use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -27,11 +27,6 @@ impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
-}
-
-pub struct Adc<'d, T: Instance> {
-    sample_time: SampleTime,
-    phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
