@@ -24,9 +24,9 @@ use crate::peripherals;
 
 pub(crate) mod sealed {
     pub trait Instance {
-        fn regs() -> &'static crate::pac::adc::Adc;
+        fn regs() -> crate::pac::adc::Adc;
         #[cfg(all(not(adc_f1), not(adc_v1)))]
-        fn common_regs() -> &'static crate::pac::adccommon::AdcCommon;
+        fn common_regs() -> crate::pac::adccommon::AdcCommon;
     }
 
     pub trait AdcPin<T: Instance> {
@@ -50,14 +50,14 @@ pub trait InternalChannel<T>: sealed::InternalChannel<T> {}
 foreach_peripheral!(
     (adc, $inst:ident) => {
         impl crate::adc::sealed::Instance for peripherals::$inst {
-            fn regs() -> &'static crate::pac::adc::Adc {
-                &crate::pac::$inst
+            fn regs() -> crate::pac::adc::Adc {
+                crate::pac::$inst
             }
             #[cfg(all(not(adc_f1), not(adc_v1)))]
-            fn common_regs() -> &'static crate::pac::adccommon::AdcCommon {
+            fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 foreach_peripheral!{
                     (adccommon, $common_inst:ident) => {
-                        return &crate::pac::$common_inst
+                        return crate::pac::$common_inst
                     };
                 }
             }
@@ -71,14 +71,14 @@ foreach_peripheral!(
 foreach_peripheral!(
     (adc, ADC3) => {
         impl crate::adc::sealed::Instance for peripherals::ADC3 {
-            fn regs() -> &'static crate::pac::adc::Adc {
-                &crate::pac::ADC3
+            fn regs() -> crate::pac::adc::Adc {
+                crate::pac::ADC3
             }
             #[cfg(all(not(adc_f1), not(adc_v1)))]
-            fn common_regs() -> &'static crate::pac::adccommon::AdcCommon {
+            fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 foreach_peripheral!{
                     (adccommon, ADC3_COMMON) => {
-                        return &crate::pac::ADC3_COMMON
+                        return crate::pac::ADC3_COMMON
                     };
                 }
             }
@@ -88,14 +88,14 @@ foreach_peripheral!(
     };
     (adc, $inst:ident) => {
         impl crate::adc::sealed::Instance for peripherals::$inst {
-            fn regs() -> &'static crate::pac::adc::Adc {
-                &crate::pac::$inst
+            fn regs() -> crate::pac::adc::Adc {
+                crate::pac::$inst
             }
             #[cfg(all(not(adc_f1), not(adc_v1)))]
-            fn common_regs() -> &'static crate::pac::adccommon::AdcCommon {
+            fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 foreach_peripheral!{
                     (adccommon, ADC_COMMON) => {
-                        return &crate::pac::ADC_COMMON
+                        return crate::pac::ADC_COMMON
                     };
                 }
             }
