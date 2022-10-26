@@ -57,19 +57,11 @@ impl Ord for Timer {
 
 struct InnerQueue {
     queue: SortedLinkedList<Timer, LinkedIndexU8, Min, { QUEUE_SIZE }>,
-    alarm: Option<AlarmHandle>,
+    alarm: AlarmHandle,
     alarm_at: Instant,
 }
 
 impl InnerQueue {
-    const fn new() -> Self {
-        Self {
-            queue: SortedLinkedList::new_u8(),
-            alarm: None,
-            alarm_at: Instant::MAX,
-        }
-    }
-
     fn schedule_wake(&mut self, at: Instant, waker: &Waker) {
         self.queue
             .find_mut(|timer| timer.waker.will_wake(waker))
@@ -121,7 +113,7 @@ impl InnerQueue {
             if self.alarm_at != new_at {
                 self.alarm_at = new_at;
 
-                return set_alarm(self.alarm.unwrap(), self.alarm_at.as_ticks());
+                return set_alarm(self.alarm, self.alarm_at.as_ticks());
             }
         } else {
             self.alarm_at = Instant::MAX;
@@ -138,13 +130,13 @@ impl InnerQueue {
 }
 
 struct Queue {
-    inner: Mutex<CriticalSectionRawMutex, RefCell<InnerQueue>>,
+    inner: Mutex<CriticalSectionRawMutex, RefCell<Option<InnerQueue>>>,
 }
 
 impl Queue {
     const fn new() -> Self {
         Self {
-            inner: Mutex::new(RefCell::new(InnerQueue::new())),
+            inner: Mutex::new(RefCell::new(None)),
         }
     }
 
@@ -152,19 +144,25 @@ impl Queue {
         self.inner.lock(|inner| {
             let mut inner = inner.borrow_mut();
 
-            if inner.alarm.is_none() {
-                let handle = unsafe { allocate_alarm() }.unwrap();
-                inner.alarm = Some(handle);
+            if inner.is_none() {}
 
-                set_alarm_callback(handle, Self::handle_alarm_callback, self as *const _ as _);
-            }
-
-            inner.schedule_wake(at, waker)
+            inner
+                .get_or_insert_with(|| {
+                    let handle = unsafe { allocate_alarm() }.unwrap();
+                    set_alarm_callback(handle, Self::handle_alarm_callback, self as *const _ as _);
+                    InnerQueue {
+                        queue: SortedLinkedList::new_u8(),
+                        alarm: handle,
+                        alarm_at: Instant::MAX,
+                    }
+                })
+                .schedule_wake(at, waker)
         });
     }
 
     fn handle_alarm(&self) {
-        self.inner.lock(|inner| inner.borrow_mut().handle_alarm());
+        self.inner
+            .lock(|inner| inner.borrow_mut().as_mut().unwrap().handle_alarm());
     }
 
     fn handle_alarm_callback(ctx: *mut ()) {
