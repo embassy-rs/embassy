@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-boot"
 version = "0.1.0"
 description = "Bootloader using Embassy"
+license = "MIT OR Apache-2.0"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-v$VERSION/embassy-boot/boot/src/"

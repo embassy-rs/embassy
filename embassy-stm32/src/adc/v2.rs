@@ -3,7 +3,9 @@ use core::marker::PhantomData;
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
+use super::InternalChannel;
 use crate::adc::{AdcPin, Instance};
+use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -12,20 +14,8 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
 
-#[cfg(not(any(rcc_f4, rcc_f7)))]
-fn enable() {
-    todo!()
-}
-
-#[cfg(any(rcc_f4, rcc_f7))]
-fn enable() {
-    critical_section::with(|_| unsafe {
-        // TODO do not enable all adc clocks if not needed
-        crate::pac::RCC.apb2enr().modify(|w| w.set_adc1en(true));
-        crate::pac::RCC.apb2enr().modify(|w| w.set_adc2en(true));
-        crate::pac::RCC.apb2enr().modify(|w| w.set_adc3en(true));
-    });
-}
+/// ADC turn-on time
+pub const ADC_POWERUP_TIME_US: u32 = 3;
 
 pub enum Resolution {
     TwelveBit,
@@ -61,24 +51,53 @@ impl Resolution {
 }
 
 pub struct VrefInt;
-impl<T: Instance> AdcPin<T> for VrefInt {}
-impl<T: Instance> super::sealed::AdcPin<T> for VrefInt {
+impl InternalChannel<ADC1> for VrefInt {}
+impl super::sealed::InternalChannel<ADC1> for VrefInt {
     fn channel(&self) -> u8 {
         17
     }
 }
 
+impl VrefInt {
+    /// Time needed for internal voltage reference to stabilize
+    pub fn start_time_us() -> u32 {
+        10
+    }
+}
+
 pub struct Temperature;
-impl<T: Instance> AdcPin<T> for Temperature {}
-impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
+impl InternalChannel<ADC1> for Temperature {}
+impl super::sealed::InternalChannel<ADC1> for Temperature {
     fn channel(&self) -> u8 {
-        16
+        cfg_if::cfg_if! {
+            if #[cfg(any(stm32f40, stm32f41))] {
+                16
+            } else {
+                18
+            }
+        }
+    }
+}
+
+impl Temperature {
+    /// Converts temperature sensor reading in millivolts to degrees celcius
+    pub fn to_celcius(sample_mv: u16) -> f32 {
+        // From 6.3.22 Temperature sensor characteristics
+        const V25: i32 = 760; // mV
+        const AVG_SLOPE: f32 = 2.5; // mV/C
+
+        (sample_mv as i32 - V25) as f32 / AVG_SLOPE + 25.0
+    }
+
+    /// Time needed for temperature sensor readings to stabilize
+    pub fn start_time_us() -> u32 {
+        10
     }
 }
 
 pub struct Vbat;
-impl<T: Instance> AdcPin<T> for Vbat {}
-impl<T: Instance> super::sealed::AdcPin<T> for Vbat {
+impl InternalChannel<ADC1> for Vbat {}
+impl super::sealed::InternalChannel<ADC1> for Vbat {
     fn channel(&self) -> u8 {
         18
     }
@@ -164,21 +183,19 @@ where
 {
     pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
         into_ref!(_peri);
-        enable();
+        T::enable();
+        T::reset();
 
-        let presc = unsafe { Prescaler::from_pclk2(crate::rcc::get_freqs().apb2) };
+        let presc = Prescaler::from_pclk2(T::frequency());
         unsafe {
             T::common_regs().ccr().modify(|w| w.set_adcpre(presc.adcpre()));
-        }
 
-        unsafe {
-            // disable before config is set
             T::regs().cr2().modify(|reg| {
-                reg.set_adon(crate::pac::adc::vals::Adon::DISABLED);
+                reg.set_adon(crate::pac::adc::vals::Adon::ENABLED);
             });
         }
 
-        delay.delay_us(20); // TODO?
+        delay.delay_us(ADC_POWERUP_TIME_US);
 
         Self {
             sample_time: Default::default(),
@@ -206,6 +223,45 @@ where
     /// Convert a measurement to millivolts
     pub fn to_millivolts(&self, sample: u16) -> u16 {
         ((u32::from(sample) * self.vref_mv) / self.resolution.to_max_count()) as u16
+    }
+
+    /// Enables internal voltage reference and returns [VrefInt], which can be used in
+    /// [Adc::read_internal()] to perform conversion.
+    pub fn enable_vrefint(&self) -> VrefInt {
+        unsafe {
+            T::common_regs().ccr().modify(|reg| {
+                reg.set_tsvrefe(crate::pac::adccommon::vals::Tsvrefe::ENABLED);
+            });
+        }
+
+        VrefInt {}
+    }
+
+    /// Enables internal temperature sensor and returns [Temperature], which can be used in
+    /// [Adc::read_internal()] to perform conversion.
+    ///
+    /// On STM32F42 and STM32F43 this can not be used together with [Vbat]. If both are enabled,
+    /// temperature sensor will return vbat value.
+    pub fn enable_temperature(&self) -> Temperature {
+        unsafe {
+            T::common_regs().ccr().modify(|reg| {
+                reg.set_tsvrefe(crate::pac::adccommon::vals::Tsvrefe::ENABLED);
+            });
+        }
+
+        Temperature {}
+    }
+
+    /// Enables vbat input and returns [Vbat], which can be used in
+    /// [Adc::read_internal()] to perform conversion.
+    pub fn enable_vbat(&self) -> Vbat {
+        unsafe {
+            T::common_regs().ccr().modify(|reg| {
+                reg.set_vbate(crate::pac::adccommon::vals::Vbate::ENABLED);
+            });
+        }
+
+        Vbat {}
     }
 
     /// Perform a single conversion.
@@ -238,42 +294,29 @@ where
         P: crate::gpio::sealed::Pin,
     {
         unsafe {
-            // dissable ADC
-            T::regs().cr2().modify(|reg| {
-                reg.set_swstart(false);
-            });
-            T::regs().cr2().modify(|reg| {
-                reg.set_adon(crate::pac::adc::vals::Adon::DISABLED);
-            });
-
             pin.set_as_analog();
 
-            // Configure ADC
-            T::regs().cr1().modify(|reg| reg.set_res(self.resolution.res()));
-
-            // Select channel
-            T::regs().sqr3().write(|reg| reg.set_sq(0, pin.channel()));
-
-            // Configure channel
-            Self::set_channel_sample_time(pin.channel(), self.sample_time);
-
-            // enable adc
-            T::regs().cr2().modify(|reg| {
-                reg.set_adon(crate::pac::adc::vals::Adon::ENABLED);
-            });
-
-            let val = self.convert();
-
-            // dissable ADC
-            T::regs().cr2().modify(|reg| {
-                reg.set_swstart(false);
-            });
-            T::regs().cr2().modify(|reg| {
-                reg.set_adon(crate::pac::adc::vals::Adon::DISABLED);
-            });
-
-            val
+            self.read_channel(pin.channel())
         }
+    }
+
+    pub fn read_internal(&mut self, channel: &mut impl InternalChannel<T>) -> u16 {
+        unsafe { self.read_channel(channel.channel()) }
+    }
+
+    unsafe fn read_channel(&mut self, channel: u8) -> u16 {
+        // Configure ADC
+        T::regs().cr1().modify(|reg| reg.set_res(self.resolution.res()));
+
+        // Select channel
+        T::regs().sqr3().write(|reg| reg.set_sq(0, channel));
+
+        // Configure channel
+        Self::set_channel_sample_time(channel, self.sample_time);
+
+        let val = self.convert();
+
+        val
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
@@ -286,5 +329,11 @@ where
                 .smpr1()
                 .modify(|reg| reg.set_smp((ch - 10) as _, sample_time.sample_time()));
         }
+    }
+}
+
+impl<'d, T: Instance> Drop for Adc<'d, T> {
+    fn drop(&mut self) {
+        T::disable();
     }
 }
