@@ -2,8 +2,16 @@
 name = "embassy-time"
 version = "0.1.0"
 edition = "2021"
+description = "Instant and Duration for embedded no-std systems, with async timer support"
+repository = "https://github.com/embassy-rs/embassy"
+readme = "README.md"
 license = "MIT OR Apache-2.0"
-
+categories = [
+    "embedded",
+    "no-std",
+    "concurrency",
+    "asynchronous",
+]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-v$VERSION/embassy-time/src/"
