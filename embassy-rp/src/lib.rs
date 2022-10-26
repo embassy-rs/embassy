@@ -96,6 +96,8 @@ embassy_hal_common::peripherals! {
     USB,
 
     RTC,
+
+    FLASH,
 }
 
 #[link_section = ".boot2"]

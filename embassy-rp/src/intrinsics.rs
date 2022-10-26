@@ -1,4 +1,5 @@
 #![macro_use]
+
 // Credit: taken from `rp-hal` (also licensed Apache+MIT)
 // https://github.com/rp-rs/rp-hal/blob/main/rp2040-hal/src/intrinsics.rs
 

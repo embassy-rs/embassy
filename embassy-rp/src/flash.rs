@@ -1,7 +1,12 @@
+use core::marker::PhantomData;
+
+use embassy_hal_common::Peripheral;
 use embedded_storage::nor_flash::{
     check_erase, check_read, check_write, ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind,
     ReadNorFlash,
 };
+
+use crate::peripherals::FLASH;
 
 pub const FLASH_BASE: usize = 0x10000000;
 
@@ -46,9 +51,13 @@ impl NorFlashError for Error {
     }
 }
 
-pub struct Flash<const FLASH_SIZE: usize>;
+pub struct Flash<'d, T: Instance, const FLASH_SIZE: usize>(PhantomData<&'d mut T>);
 
-impl<const FLASH_SIZE: usize> Flash<FLASH_SIZE> {
+impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
+    pub fn new(_flash: impl Peripheral<P = T> + 'd) -> Self {
+        Self(PhantomData)
+    }
+
     /// Make sure to uphold the contract points with rp2040-flash.
     /// - interrupts must be disabled
     /// - DMA must not access flash memory
@@ -81,11 +90,11 @@ impl<const FLASH_SIZE: usize> Flash<FLASH_SIZE> {
     }
 }
 
-impl<const FLASH_SIZE: usize> ErrorType for Flash<FLASH_SIZE> {
+impl<'d, T: Instance, const FLASH_SIZE: usize> ErrorType for Flash<'d, T, FLASH_SIZE> {
     type Error = Error;
 }
 
-impl<const FLASH_SIZE: usize> ReadNorFlash for Flash<FLASH_SIZE> {
+impl<'d, T: Instance, const FLASH_SIZE: usize> ReadNorFlash for Flash<'d, T, FLASH_SIZE> {
     const READ_SIZE: usize = READ_SIZE;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
@@ -102,15 +111,21 @@ impl<const FLASH_SIZE: usize> ReadNorFlash for Flash<FLASH_SIZE> {
     }
 }
 
-impl<const FLASH_SIZE: usize> MultiwriteNorFlash for Flash<FLASH_SIZE> {}
+impl<'d, T: Instance, const FLASH_SIZE: usize> MultiwriteNorFlash for Flash<'d, T, FLASH_SIZE> {}
 
-impl<const FLASH_SIZE: usize> NorFlash for Flash<FLASH_SIZE> {
+impl<'d, T: Instance, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, FLASH_SIZE> {
     const WRITE_SIZE: usize = WRITE_SIZE;
 
     const ERASE_SIZE: usize = ERASE_SIZE;
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
         check_erase(self, from, to)?;
+
+        trace!(
+            "Erasing from 0x{:x} to 0x{:x}",
+            FLASH_BASE as u32 + from,
+            FLASH_BASE as u32 + to
+        );
 
         let len = to - from;
 
@@ -122,7 +137,7 @@ impl<const FLASH_SIZE: usize> NorFlash for Flash<FLASH_SIZE> {
     fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
         check_write(self, offset, bytes.len())?;
 
-        trace!("Writing {:?} bytes to 0x{:x}", bytes.len(), offset);
+        trace!("Writing {:?} bytes to 0x{:x}", bytes.len(), FLASH_BASE as u32 + offset);
 
         let end_offset = offset as usize + bytes.len();
 
@@ -351,6 +366,7 @@ mod ram_helpers {
             rom_data::flash_flush_cache();
             rom_data::flash_enter_cmd_xip();
         */
+        #[cfg(target_arch = "arm")]
         core::arch::asm!(
             "mov r8, r0",
             "mov r9, r2",
@@ -402,3 +418,12 @@ mod ram_helpers {
         );
     }
 }
+
+mod sealed {
+    pub trait Instance {}
+}
+
+pub trait Instance: sealed::Instance {}
+
+impl sealed::Instance for FLASH {}
+impl Instance for FLASH {}

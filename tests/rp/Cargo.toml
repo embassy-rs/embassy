@@ -22,6 +22,7 @@ embedded-hal-async = { version = "=0.1.0-alpha.2" }
 panic-probe = { version = "0.3.0", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 embedded-io = { version = "0.3.0", features = ["async"] }
+embedded-storage = { version = "0.3" }
 
 [profile.dev]
 debug = 2
