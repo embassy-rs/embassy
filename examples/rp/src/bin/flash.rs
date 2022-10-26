@@ -18,7 +18,6 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut flash = embassy_rp::flash::Flash::<_, FLASH_SIZE>::new(p.FLASH);
-
     erase_write_sector(&mut flash, 0x00);
 
     multiwrite_bytes(&mut flash, ERASE_SIZE as u32);

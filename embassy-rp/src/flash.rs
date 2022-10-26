@@ -55,6 +55,8 @@ pub struct Flash<'d, T: Instance, const FLASH_SIZE: usize>(PhantomData<&'d mut T
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
     pub fn new(_flash: impl Peripheral<P = T> + 'd) -> Self {
+        // FIXME: WHY is this needed?!
+        cortex_m::asm::delay(50_000);
         Self(PhantomData)
     }
 
@@ -163,15 +165,24 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, FLASH_S
         // Write aligned slice of length in multiples of 256 bytes
         // If the remaining bytes to be written is more than a full page.
         if remaining_len >= PAGE_SIZE {
-            let aligned_data = &bytes[start_padding..end_padding];
-
-            let aligned_offset = if start_padding > 0 {
+            let mut aligned_offset = if start_padding > 0 {
                 offset as usize + padded_offset
             } else {
                 offset as usize
             };
 
-            unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, aligned_data, true)) }
+            if bytes.as_ptr() as usize >= 0x2000_0000 {
+                let aligned_data = &bytes[start_padding..end_padding];
+
+                unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, aligned_data, true)) }
+            } else {
+                for chunk in bytes[start_padding..end_padding].chunks_exact(PAGE_SIZE) {
+                    let mut ram_buf = [0xFF_u8; PAGE_SIZE];
+                    ram_buf.copy_from_slice(chunk);
+                    unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, &ram_buf, true)) }
+                    aligned_offset += PAGE_SIZE;
+                }
+            }
         }
 
         // Pad in the end
@@ -273,11 +284,14 @@ mod ram_helpers {
     pub unsafe fn flash_range_erase(addr: u32, len: u32, use_boot2: bool) {
         let mut boot2 = [0u32; 256 / 4];
         let ptrs = if use_boot2 {
-            rom_data::memcpy44(&mut boot2 as *mut _, 0x10000000 as *const _, 256);
+            rom_data::memcpy44(&mut boot2 as *mut _, super::FLASH_BASE as *const _, 256);
             flash_function_pointers_with_boot2(true, false, &boot2)
         } else {
             flash_function_pointers(true, false)
         };
+
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+
         write_flash_inner(addr, len, None, &ptrs as *const FlashFunctionPointers);
     }
 
@@ -300,11 +314,14 @@ mod ram_helpers {
     pub unsafe fn flash_range_erase_and_program(addr: u32, data: &[u8], use_boot2: bool) {
         let mut boot2 = [0u32; 256 / 4];
         let ptrs = if use_boot2 {
-            rom_data::memcpy44(&mut boot2 as *mut _, 0x10000000 as *const _, 256);
+            rom_data::memcpy44(&mut boot2 as *mut _, super::FLASH_BASE as *const _, 256);
             flash_function_pointers_with_boot2(true, true, &boot2)
         } else {
             flash_function_pointers(true, true)
         };
+
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+
         write_flash_inner(
             addr,
             data.len() as u32,
@@ -332,11 +349,14 @@ mod ram_helpers {
     pub unsafe fn flash_range_program(addr: u32, data: &[u8], use_boot2: bool) {
         let mut boot2 = [0u32; 256 / 4];
         let ptrs = if use_boot2 {
-            rom_data::memcpy44(&mut boot2 as *mut _, 0x10000000 as *const _, 256);
+            rom_data::memcpy44(&mut boot2 as *mut _, super::FLASH_BASE as *const _, 256);
             flash_function_pointers_with_boot2(false, true, &boot2)
         } else {
             flash_function_pointers(false, true)
         };
+
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+
         write_flash_inner(
             addr,
             data.len() as u32,
