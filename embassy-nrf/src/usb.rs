@@ -313,7 +313,7 @@ impl<'d, T: Instance, P: UsbSupply> driver::Bus for Bus<'d, T, P> {
                 }
             })
             .await;
-            regs.eventcause.write(|w| w.ready().set_bit()); // Write 1 to clear.
+            regs.eventcause.write(|w| w.ready().clear_bit_by_one());
 
             errata::post_enable();
 
@@ -367,24 +367,24 @@ impl<'d, T: Instance, P: UsbSupply> driver::Bus for Bus<'d, T, P> {
             let r = regs.eventcause.read();
 
             if r.isooutcrc().bit() {
-                regs.eventcause.write(|w| w.isooutcrc().set_bit());
+                regs.eventcause.write(|w| w.isooutcrc().detected());
                 trace!("USB event: isooutcrc");
             }
             if r.usbwuallowed().bit() {
-                regs.eventcause.write(|w| w.usbwuallowed().set_bit());
+                regs.eventcause.write(|w| w.usbwuallowed().allowed());
                 trace!("USB event: usbwuallowed");
             }
             if r.suspend().bit() {
-                regs.eventcause.write(|w| w.suspend().set_bit());
+                regs.eventcause.write(|w| w.suspend().detected());
                 regs.lowpower.write(|w| w.lowpower().low_power());
                 return Poll::Ready(Event::Suspend);
             }
             if r.resume().bit() {
-                regs.eventcause.write(|w| w.resume().set_bit());
+                regs.eventcause.write(|w| w.resume().detected());
                 return Poll::Ready(Event::Resume);
             }
             if r.ready().bit() {
-                regs.eventcause.write(|w| w.ready().set_bit());
+                regs.eventcause.write(|w| w.ready().ready());
                 trace!("USB event: ready");
             }
 
@@ -512,7 +512,7 @@ impl<'d, T: Instance, P: UsbSupply> driver::Bus for Bus<'d, T, P> {
                     } else if r.resume().bit() {
                         Poll::Ready(())
                     } else if r.usbwuallowed().bit() {
-                        regs.eventcause.write(|w| w.usbwuallowed().set_bit());
+                        regs.eventcause.write(|w| w.usbwuallowed().allowed());
 
                         regs.dpdmvalue.write(|w| w.state().resume());
                         regs.tasks_dpdmdrive.write(|w| w.tasks_dpdmdrive().set_bit());
