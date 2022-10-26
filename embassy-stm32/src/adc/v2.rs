@@ -1,10 +1,8 @@
-use core::marker::PhantomData;
-
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
 use super::InternalChannel;
-use crate::adc::{AdcPin, Instance};
+use crate::adc::{Adc, AdcPin, Instance, SingleChannel};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -161,18 +159,12 @@ impl Prescaler {
     }
 }
 
-pub struct Adc<'d, T: Instance> {
-    sample_time: SampleTime,
-    resolution: Resolution,
-    phantom: PhantomData<&'d mut T>,
-}
-
 impl<'d, T> Adc<'d, T>
 where
     T: Instance,
 {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
-        into_ref!(_peri);
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+        into_ref!(adc);
         T::enable();
         T::reset();
 
@@ -187,19 +179,7 @@ where
 
         delay.delay_us(ADC_POWERUP_TIME_US);
 
-        Self {
-            sample_time: Default::default(),
-            resolution: Resolution::default(),
-            phantom: PhantomData,
-        }
-    }
-
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
-    pub fn set_resolution(&mut self, resolution: Resolution) {
-        self.resolution = resolution;
+        Self { adc }
     }
 
     /// Enables internal voltage reference and returns [VrefInt], which can be used in
@@ -241,31 +221,12 @@ where
         Vbat {}
     }
 
-    /// Perform a single conversion.
-    fn convert(&mut self) -> u16 {
-        unsafe {
-            // clear end of conversion flag
-            T::regs().sr().modify(|reg| {
-                reg.set_eoc(crate::pac::adc::vals::Eoc::NOTCOMPLETE);
-            });
-
-            // Start conversion
-            T::regs().cr2().modify(|reg| {
-                reg.set_swstart(true);
-            });
-
-            while T::regs().sr().read().strt() == crate::pac::adc::vals::Strt::NOTSTARTED {
-                // spin //wait for actual start
-            }
-            while T::regs().sr().read().eoc() == crate::pac::adc::vals::Eoc::NOTCOMPLETE {
-                // spin //wait for finish
-            }
-
-            T::regs().dr().read().0 as u16
-        }
-    }
-
-    pub fn read<P>(&mut self, pin: &mut P) -> u16
+    pub fn single_channel<'a, P>(
+        &'a mut self,
+        pin: &'a mut P,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> SingleChannel<'a, T>
     where
         P: AdcPin<T>,
         P: crate::gpio::sealed::Pin,
@@ -273,27 +234,54 @@ where
         unsafe {
             pin.set_as_analog();
 
-            self.read_channel(pin.channel())
+            self._single_channel(pin.channel(), sample_time, resolution)
         }
     }
 
-    pub fn read_internal(&mut self, channel: &mut impl InternalChannel<T>) -> u16 {
-        unsafe { self.read_channel(channel.channel()) }
+    pub fn read<P>(&mut self, pin: &mut P, sample_time: SampleTime, resolution: Resolution) -> u16
+    where
+        P: AdcPin<T>,
+        P: crate::gpio::sealed::Pin,
+    {
+        self.single_channel(pin, sample_time, resolution).read()
     }
 
-    unsafe fn read_channel(&mut self, channel: u8) -> u16 {
+    pub fn single_channel_internal<'a>(
+        &'a mut self,
+        channel: &'a mut impl InternalChannel<T>,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> SingleChannel<'a, T> {
+        unsafe { self._single_channel(channel.channel(), sample_time, resolution) }
+    }
+
+    pub fn read_internal(
+        &mut self,
+        channel: &mut impl InternalChannel<T>,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> u16 {
+        self.single_channel_internal(channel, sample_time, resolution).read()
+    }
+
+    unsafe fn _single_channel(
+        &mut self,
+        channel: u8,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> SingleChannel<'_, T> {
         // Configure ADC
-        T::regs().cr1().modify(|reg| reg.set_res(self.resolution.res()));
+        T::regs().cr1().modify(|reg| reg.set_res(resolution.res()));
 
         // Select channel
         T::regs().sqr3().write(|reg| reg.set_sq(0, channel));
 
         // Configure channel
-        Self::set_channel_sample_time(channel, self.sample_time);
+        Self::set_channel_sample_time(channel, sample_time);
 
-        let val = self.convert();
-
-        val
+        SingleChannel {
+            adc: self.adc.reborrow(),
+        }
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
@@ -313,4 +301,26 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
     fn drop(&mut self) {
         T::disable();
     }
+}
+
+/// Perform a single conversion.
+pub(super) unsafe fn convert(regs: crate::pac::adc::Adc) -> u16 {
+    // clear end of conversion flag
+    regs.sr().modify(|reg| {
+        reg.set_eoc(crate::pac::adc::vals::Eoc::NOTCOMPLETE);
+    });
+
+    // Start conversion
+    regs.cr2().modify(|reg| {
+        reg.set_swstart(true);
+    });
+
+    while regs.sr().read().strt() == crate::pac::adc::vals::Strt::NOTSTARTED {
+        // spin //wait for actual start
+    }
+    while regs.sr().read().eoc() == crate::pac::adc::vals::Eoc::NOTCOMPLETE {
+        // spin //wait for finish
+    }
+
+    regs.dr().read().0 as u16
 }

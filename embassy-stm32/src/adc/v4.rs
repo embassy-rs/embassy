@@ -1,11 +1,9 @@
-use core::marker::PhantomData;
-
 use atomic_polyfill::{AtomicU8, Ordering};
 use embedded_hal_02::blocking::delay::DelayUs;
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
-use super::{AdcPin, Instance, InternalChannel};
+use super::{Adc, AdcPin, Instance, InternalChannel, SingleChannel};
 use crate::time::Hertz;
 use crate::{pac, Peripheral};
 
@@ -312,15 +310,9 @@ impl Prescaler {
     }
 }
 
-pub struct Adc<'d, T: Instance> {
-    sample_time: SampleTime,
-    resolution: Resolution,
-    phantom: PhantomData<&'d mut T>,
-}
-
 impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
-        embassy_hal_common::into_ref!(_peri);
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
+        embassy_hal_common::into_ref!(adc);
         T::enable();
         T::reset();
 
@@ -349,11 +341,7 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
             T::regs().cr().modify(|w| w.set_boost(boost));
         }
 
-        let mut s = Self {
-            sample_time: Default::default(),
-            resolution: Resolution::default(),
-            phantom: PhantomData,
-        };
+        let mut s = Self { adc };
         s.power_up(delay);
         s.configure_differential_inputs();
 
@@ -449,36 +437,12 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
         Vbat {}
     }
 
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
-    pub fn set_resolution(&mut self, resolution: Resolution) {
-        self.resolution = resolution;
-    }
-
-    /// Perform a single conversion.
-    fn convert(&mut self) -> u16 {
-        unsafe {
-            T::regs().isr().modify(|reg| {
-                reg.set_eos(true);
-                reg.set_eoc(true);
-            });
-
-            // Start conversion
-            T::regs().cr().modify(|reg| {
-                reg.set_adstart(true);
-            });
-
-            while !T::regs().isr().read().eos() {
-                // spin
-            }
-
-            T::regs().dr().read().0 as u16
-        }
-    }
-
-    pub fn read<P>(&mut self, pin: &mut P) -> u16
+    pub fn single_channel<'a, P>(
+        &'a mut self,
+        pin: &'a mut P,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> SingleChannel<'a, T>
     where
         P: AdcPin<T>,
         P: crate::gpio::sealed::Pin,
@@ -486,20 +450,47 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
         unsafe {
             pin.set_as_analog();
 
-            self.read_channel(pin.channel())
+            self._single_channel(pin.channel(), sample_time, resolution)
         }
     }
 
-    pub fn read_internal(&mut self, channel: &mut impl InternalChannel<T>) -> u16 {
-        unsafe { self.read_channel(channel.channel()) }
+    pub fn read<P>(&mut self, pin: &mut P, sample_time: SampleTime, resolution: Resolution) -> u16
+    where
+        P: AdcPin<T>,
+        P: crate::gpio::sealed::Pin,
+    {
+        self.single_channel(pin, sample_time, resolution).read()
     }
 
-    unsafe fn read_channel(&mut self, channel: u8) -> u16 {
+    pub fn single_channel_internal<'a>(
+        &'a mut self,
+        channel: &'a mut impl InternalChannel<T>,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> SingleChannel<'a, T> {
+        unsafe { self._single_channel(channel.channel(), sample_time, resolution) }
+    }
+
+    pub fn read_internal(
+        &mut self,
+        channel: &mut impl InternalChannel<T>,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> u16 {
+        self.single_channel_internal(channel, sample_time, resolution).read()
+    }
+
+    unsafe fn _single_channel(
+        &mut self,
+        channel: u8,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> SingleChannel<'_, T> {
         // Configure ADC
-        T::regs().cfgr().modify(|reg| reg.set_res(self.resolution.res()));
+        T::regs().cfgr().modify(|reg| reg.set_res(resolution.res()));
 
         // Configure channel
-        Self::set_channel_sample_time(channel, self.sample_time);
+        Self::set_channel_sample_time(channel, sample_time);
 
         T::regs().cfgr2().modify(|w| w.set_lshift(0));
         T::regs()
@@ -510,7 +501,9 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
             reg.set_l(0);
         });
 
-        self.convert()
+        SingleChannel {
+            adc: self.adc.reborrow(),
+        }
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
@@ -524,4 +517,23 @@ impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
                 .modify(|reg| reg.set_smp((ch - 10) as _, sample_time.sample_time()));
         }
     }
+}
+
+/// Perform a single conversion.
+pub(super) unsafe fn convert(regs: crate::pac::adc::Adc) -> u16 {
+    regs.isr().modify(|reg| {
+        reg.set_eos(true);
+        reg.set_eoc(true);
+    });
+
+    // Start conversion
+    regs.cr().modify(|reg| {
+        reg.set_adstart(true);
+    });
+
+    while !regs.isr().read().eos() {
+        // spin
+    }
+
+    regs.dr().read().0 as u16
 }

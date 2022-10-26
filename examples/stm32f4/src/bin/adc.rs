@@ -5,7 +5,7 @@
 use cortex_m::prelude::_embedded_hal_blocking_delay_DelayUs;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, Temperature, VrefInt};
+use embassy_stm32::adc::{Adc, Resolution, SampleTime, Temperature, VrefInt};
 use embassy_time::{Delay, Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) {
     // Startup delay can be combined to the maximum of either
     delay.delay_us(Temperature::start_time_us().max(VrefInt::start_time_us()));
 
-    let vrefint_sample = adc.read_internal(&mut vrefint);
+    let vrefint_sample = adc.read_internal(&mut vrefint, SampleTime::Cycles480, Resolution::TwelveBit);
 
     let convert_to_millivolts = |sample| {
         // From http://www.st.com/resource/en/datasheet/DM00071990.pdf
@@ -51,16 +51,16 @@ async fn main(_spawner: Spawner) {
 
     loop {
         // Read pin
-        let v = adc.read(&mut pin);
+        let v = adc.read(&mut pin, SampleTime::default(), Resolution::TwelveBit);
         info!("PC1: {} ({} mV)", v, convert_to_millivolts(v));
 
         // Read internal temperature
-        let v = adc.read_internal(&mut temp);
+        let v = adc.read_internal(&mut temp, SampleTime::default(), Resolution::TwelveBit);
         let celcius = convert_to_celcius(v);
         info!("Internal temp: {} ({} C)", v, celcius);
 
         // Read internal voltage reference
-        let v = adc.read_internal(&mut vrefint);
+        let v = adc.read_internal(&mut vrefint, SampleTime::default(), Resolution::TwelveBit);
         info!("VrefInt: {}", v);
 
         Timer::after(Duration::from_millis(100)).await;

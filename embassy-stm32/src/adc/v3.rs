@@ -1,9 +1,7 @@
-use core::marker::PhantomData;
-
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{AdcPin, Instance};
+use crate::adc::{Adc, AdcPin, Instance, SingleChannel};
 use crate::Peripheral;
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -203,15 +201,9 @@ mod sample_time {
 
 pub use sample_time::SampleTime;
 
-pub struct Adc<'d, T: Instance> {
-    sample_time: SampleTime,
-    resolution: Resolution,
-    phantom: PhantomData<&'d mut T>,
-}
-
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
-        into_ref!(_peri);
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+        into_ref!(adc);
         enable();
         unsafe {
             T::regs().cr().modify(|reg| {
@@ -240,11 +232,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         delay.delay_us(1);
 
-        Self {
-            sample_time: Default::default(),
-            resolution: Resolution::default(),
-            phantom: PhantomData,
-        }
+        Self { adc }
     }
 
     pub fn enable_vrefint(&self, delay: &mut impl DelayUs<u32>) -> VrefInt {
@@ -283,14 +271,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat {}
     }
 
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
-    pub fn set_resolution(&mut self, resolution: Resolution) {
-        self.resolution = resolution;
-    }
-
     /*
     /// Convert a raw sample from the `Temperature` to deg C
     pub fn to_degrees_centigrade(sample: u16) -> f32 {
@@ -300,28 +280,12 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
      */
 
-    /// Perform a single conversion.
-    fn convert(&mut self) -> u16 {
-        unsafe {
-            T::regs().isr().modify(|reg| {
-                reg.set_eos(true);
-                reg.set_eoc(true);
-            });
-
-            // Start conversion
-            T::regs().cr().modify(|reg| {
-                reg.set_adstart(true);
-            });
-
-            while !T::regs().isr().read().eos() {
-                // spin
-            }
-
-            T::regs().dr().read().0 as u16
-        }
-    }
-
-    pub fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
+    pub fn single_channel<'a>(
+        &'a mut self,
+        pin: &'a mut impl AdcPin<T>,
+        sample_time: SampleTime,
+        resolution: Resolution,
+    ) -> SingleChannel<'a, T> {
         unsafe {
             // Make sure bits are off
             while T::regs().cr().read().addis() {
@@ -342,34 +306,27 @@ impl<'d, T: Instance> Adc<'d, T> {
 
             // Configure ADC
             #[cfg(not(stm32g0))]
-            T::regs().cfgr().modify(|reg| reg.set_res(self.resolution.res()));
+            T::regs().cfgr().modify(|reg| reg.set_res(resolution.res()));
             #[cfg(stm32g0)]
-            T::regs().cfgr1().modify(|reg| reg.set_res(self.resolution.res()));
+            T::regs().cfgr1().modify(|reg| reg.set_res(resolution.res()));
 
             // Configure channel
-            Self::set_channel_sample_time(pin.channel(), self.sample_time);
+            Self::set_channel_sample_time(pin.channel(), sample_time);
 
             // Select channel
             #[cfg(not(stm32g0))]
             T::regs().sqr1().write(|reg| reg.set_sq(0, pin.channel()));
             #[cfg(stm32g0)]
             T::regs().chselr().write(|reg| reg.set_chsel(pin.channel() as u32));
-
-            // Some models are affected by an erratum:
-            // If we perform conversions slower than 1 kHz, the first read ADC value can be
-            // corrupted, so we discard it and measure again.
-            //
-            // STM32L471xx: Section 2.7.3
-            // STM32G4: Section 2.7.3
-            #[cfg(any(rcc_l4, rcc_g4))]
-            let _ = self.convert();
-
-            let val = self.convert();
-
-            T::regs().cr().modify(|reg| reg.set_addis(true));
-
-            val
         }
+
+        SingleChannel {
+            adc: self.adc.reborrow(),
+        }
+    }
+
+    pub fn read(&mut self, pin: &mut impl AdcPin<T>, sample_time: SampleTime, resolution: Resolution) -> u16 {
+        self.single_channel(pin, sample_time, resolution).read()
     }
 
     #[cfg(stm32g0)]
@@ -389,4 +346,31 @@ impl<'d, T: Instance> Adc<'d, T> {
                 .modify(|reg| reg.set_smp((ch - 10) as _, sample_time.sample_time()));
         }
     }
+}
+
+impl<'d, T: Instance> Drop for SingleChannel<'d, T> {
+    fn drop(&mut self) {
+        unsafe {
+            T::regs().cr().modify(|reg| reg.set_addis(true));
+        }
+    }
+}
+
+/// Perform a single conversion.
+pub(super) unsafe fn convert(regs: crate::pac::adc::Adc) -> u16 {
+    regs.isr().modify(|reg| {
+        reg.set_eos(true);
+        reg.set_eoc(true);
+    });
+
+    // Start conversion
+    regs.cr().modify(|reg| {
+        reg.set_adstart(true);
+    });
+
+    while !regs.isr().read().eos() {
+        // spin
+    }
+
+    regs.dr().read().0 as u16
 }
