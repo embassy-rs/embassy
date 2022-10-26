@@ -4,7 +4,7 @@ use core::task::Waker;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
-use heapless::sorted_linked_list::{LinkedIndexU8, Min, SortedLinkedList};
+use heapless::Vec;
 
 use crate::driver::{allocate_alarm, set_alarm, set_alarm_callback, AlarmHandle};
 use crate::queue::TimerQueue;
@@ -56,18 +56,17 @@ impl Ord for Timer {
 }
 
 struct InnerQueue {
-    queue: SortedLinkedList<Timer, LinkedIndexU8, Min, { QUEUE_SIZE }>,
+    queue: Vec<Timer, QUEUE_SIZE>,
     alarm: AlarmHandle,
-    alarm_at: Instant,
 }
 
 impl InnerQueue {
     fn schedule_wake(&mut self, at: Instant, waker: &Waker) {
         self.queue
-            .find_mut(|timer| timer.waker.will_wake(waker))
+            .iter_mut()
+            .find(|timer| timer.waker.will_wake(waker))
             .map(|mut timer| {
                 timer.at = min(timer.at, at);
-                timer.finish();
             })
             .unwrap_or_else(|| {
                 let mut timer = Timer {
@@ -96,35 +95,35 @@ impl InnerQueue {
         loop {
             let now = Instant::now();
 
-            while self.queue.peek().filter(|timer| timer.at <= now).is_some() {
-                self.queue.pop().unwrap().waker.wake();
+            let mut next_alarm = Instant::MAX;
+
+            let mut i = 0;
+            while i < self.queue.len() {
+                let timer = &self.queue[i];
+                if timer.at <= now {
+                    let timer = self.queue.swap_remove(i);
+                    timer.waker.wake();
+                } else {
+                    next_alarm = min(next_alarm, timer.at);
+                    i += 1;
+                }
             }
 
-            if self.update_alarm() {
+            if self.update_alarm(next_alarm) {
                 break;
             }
         }
     }
 
-    fn update_alarm(&mut self) -> bool {
-        if let Some(timer) = self.queue.peek() {
-            let new_at = timer.at;
-
-            if self.alarm_at != new_at {
-                self.alarm_at = new_at;
-
-                return set_alarm(self.alarm, self.alarm_at.as_ticks());
-            }
+    fn update_alarm(&mut self, next_alarm: Instant) -> bool {
+        if next_alarm == Instant::MAX {
+            true
         } else {
-            self.alarm_at = Instant::MAX;
+            set_alarm(self.alarm, next_alarm.as_ticks())
         }
-
-        true
     }
 
     fn handle_alarm(&mut self) {
-        self.alarm_at = Instant::MAX;
-
         self.dispatch();
     }
 }
@@ -151,9 +150,8 @@ impl Queue {
                     let handle = unsafe { allocate_alarm() }.unwrap();
                     set_alarm_callback(handle, Self::handle_alarm_callback, self as *const _ as _);
                     InnerQueue {
-                        queue: SortedLinkedList::new_u8(),
+                        queue: Vec::new(),
                         alarm: handle,
-                        alarm_at: Instant::MAX,
                     }
                 })
                 .schedule_wake(at, waker)
