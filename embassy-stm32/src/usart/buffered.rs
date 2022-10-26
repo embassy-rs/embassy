@@ -46,16 +46,44 @@ impl<'d, T: BasicInstance> Unpin for BufferedUart<'d, T> {}
 impl<'d, T: BasicInstance> BufferedUart<'d, T> {
     pub fn new(
         state: &'d mut State<'d, T>,
-        _uart: Uart<'d, T, NoDma, NoDma>,
+        _peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
+        config: Config,
     ) -> BufferedUart<'d, T> {
-        into_ref!(irq);
+        into_ref!(_peri, rx, tx, irq);
+
+        T::enable();
+        T::reset();
 
         let r = T::regs();
+
+        configure(r, &config, T::frequency(), T::MULTIPLIER);
+
         unsafe {
-            r.cr1().modify(|w| {
+            rx.set_as_af(rx.af_num(), AFType::Input);
+            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+
+            r.cr2().write(|_w| {});
+            r.cr3().write(|_w| {});
+            r.cr1().write(|w| {
+                w.set_ue(true);
+                w.set_te(true);
+                w.set_re(true);
+                w.set_m0(if config.parity != Parity::ParityNone {
+                    vals::M0::BIT9
+                } else {
+                    vals::M0::BIT8
+                });
+                w.set_pce(config.parity != Parity::ParityNone);
+                w.set_ps(match config.parity {
+                    Parity::ParityOdd => vals::Ps::ODD,
+                    Parity::ParityEven => vals::Ps::EVEN,
+                    _ => vals::Ps::EVEN,
+                });
                 w.set_rxneie(true);
                 w.set_idleie(true);
             });

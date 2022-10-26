@@ -7,6 +7,7 @@ use core::fmt::Write;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
+use embassy_stm32::interrupt;
 use embassy_stm32::usart::{Config, Uart};
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
@@ -17,7 +18,8 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mut usart = Uart::new(p.USART1, p.PE1, p.PE0, p.DMA1_CH4, NoDma, config);
+    let irq = interrupt::take!(USART1);
+    let mut usart = Uart::new(p.USART1, p.PE1, p.PE0, irq, p.DMA1_CH4, NoDma, config);
 
     for n in 0u32.. {
         let mut s: String<128> = String::new();
