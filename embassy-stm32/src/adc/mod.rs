@@ -44,9 +44,9 @@ pub(crate) mod sealed {
     }
 }
 
-#[cfg(not(any(adc_f1, adc_v2)))]
+#[cfg(not(any(adc_f1, adc_v2, adc_v4)))]
 pub trait Instance: sealed::Instance + 'static {}
-#[cfg(any(adc_f1, adc_v2))]
+#[cfg(any(adc_f1, adc_v2, adc_v4))]
 pub trait Instance: sealed::Instance + crate::rcc::RccPeripheral + 'static {}
 
 pub trait AdcPin<T: Instance>: sealed::AdcPin<T> {}

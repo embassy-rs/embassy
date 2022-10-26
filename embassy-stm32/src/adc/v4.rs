@@ -225,7 +225,7 @@ impl Prescaler {
     }
 }
 
-impl<'d, T: Instance + crate::rcc::RccPeripheral> Adc<'d, T> {
+impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
         embassy_hal_common::into_ref!(_peri);
         T::enable();
