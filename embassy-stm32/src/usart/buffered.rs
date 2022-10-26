@@ -283,7 +283,7 @@ impl<'u, 'd, T: BasicInstance> embedded_io::Io for BufferedUartTx<'u, 'd, T> {
 }
 
 impl<'d, T: BasicInstance> embedded_io::asynch::Read for BufferedUart<'d, T> {
-    type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+    type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -293,7 +293,7 @@ impl<'d, T: BasicInstance> embedded_io::asynch::Read for BufferedUart<'d, T> {
 }
 
 impl<'u, 'd, T: BasicInstance> embedded_io::asynch::Read for BufferedUartRx<'u, 'd, T> {
-    type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+    type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -303,7 +303,7 @@ impl<'u, 'd, T: BasicInstance> embedded_io::asynch::Read for BufferedUartRx<'u, 
 }
 
 impl<'d, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUart<'d, T> {
-    type FillBufFuture<'a> = impl Future<Output = Result<&'a [u8], Self::Error>>
+    type FillBufFuture<'a> = impl Future<Output = Result<&'a [u8], Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -317,7 +317,7 @@ impl<'d, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUart<'d, T> 
 }
 
 impl<'u, 'd, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUartRx<'u, 'd, T> {
-    type FillBufFuture<'a> = impl Future<Output = Result<&'a [u8], Self::Error>>
+    type FillBufFuture<'a> = impl Future<Output = Result<&'a [u8], Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -331,7 +331,7 @@ impl<'u, 'd, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUartRx<'
 }
 
 impl<'d, T: BasicInstance> embedded_io::asynch::Write for BufferedUart<'d, T> {
-    type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+    type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -339,7 +339,7 @@ impl<'d, T: BasicInstance> embedded_io::asynch::Write for BufferedUart<'d, T> {
         self.inner_write(buf)
     }
 
-    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -349,7 +349,7 @@ impl<'d, T: BasicInstance> embedded_io::asynch::Write for BufferedUart<'d, T> {
 }
 
 impl<'u, 'd, T: BasicInstance> embedded_io::asynch::Write for BufferedUartTx<'u, 'd, T> {
-    type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+    type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -357,7 +357,7 @@ impl<'u, 'd, T: BasicInstance> embedded_io::asynch::Write for BufferedUartTx<'u,
         self.inner.inner_write(buf)
     }
 
-    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
     where
         Self: 'a;
 

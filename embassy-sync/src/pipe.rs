@@ -361,7 +361,7 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for Pipe<M, N> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
         where
             Self: 'a;
 
@@ -371,7 +371,7 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for Pipe<M, N> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
         where
             Self: 'a;
 
@@ -379,7 +379,7 @@ mod io_impls {
             Pipe::write(self, buf).map(Ok)
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
         where
             Self: 'a;
 
@@ -393,7 +393,7 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for &Pipe<M, N> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
         where
             Self: 'a;
 
@@ -403,7 +403,7 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for &Pipe<M, N> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
         where
             Self: 'a;
 
@@ -411,7 +411,7 @@ mod io_impls {
             Pipe::write(self, buf).map(Ok)
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
         where
             Self: 'a;
 
@@ -425,7 +425,7 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for Reader<'_, M, N> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
         where
             Self: 'a;
 
@@ -439,7 +439,7 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for Writer<'_, M, N> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
         where
             Self: 'a;
 
@@ -447,7 +447,7 @@ mod io_impls {
             Writer::write(self, buf).map(Ok)
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
         where
             Self: 'a;
 

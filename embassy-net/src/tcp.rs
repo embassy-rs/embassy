@@ -292,7 +292,7 @@ mod embedded_io_impls {
     }
 
     impl<'d> embedded_io::asynch::Read for TcpSocket<'d> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -302,7 +302,7 @@ mod embedded_io_impls {
     }
 
     impl<'d> embedded_io::asynch::Write for TcpSocket<'d> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -310,7 +310,7 @@ mod embedded_io_impls {
             self.io.write(buf)
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -324,7 +324,7 @@ mod embedded_io_impls {
     }
 
     impl<'d> embedded_io::asynch::Read for TcpReader<'d> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -338,7 +338,7 @@ mod embedded_io_impls {
     }
 
     impl<'d> embedded_io::asynch::Write for TcpWriter<'d> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -346,7 +346,7 @@ mod embedded_io_impls {
             self.io.write(buf)
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -445,7 +445,7 @@ pub mod client {
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io::asynch::Read
         for TcpConnection<'d, N, TX_SZ, RX_SZ>
     {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -457,7 +457,7 @@ pub mod client {
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io::asynch::Write
         for TcpConnection<'d, N, TX_SZ, RX_SZ>
     {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
+        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -465,7 +465,7 @@ pub mod client {
             self.socket.write(buf)
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
     where
         Self: 'a;
 
