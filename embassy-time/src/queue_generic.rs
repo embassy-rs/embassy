@@ -1,5 +1,5 @@
 use core::cell::RefCell;
-use core::cmp::Ordering;
+use core::cmp::{min, Ordering};
 use core::task::Waker;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -74,7 +74,7 @@ impl InnerQueue {
         self.queue
             .find_mut(|timer| timer.waker.will_wake(waker))
             .map(|mut timer| {
-                timer.at = at;
+                timer.at = min(timer.at, at);
                 timer.finish();
             })
             .unwrap_or_else(|| {
