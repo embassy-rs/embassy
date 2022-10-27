@@ -5,7 +5,6 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::flash::{ERASE_SIZE, FLASH_BASE};
-use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use {defmt_rtt as _, panic_probe as _};
 
 const ADDR_OFFSET: u32 = 0x4000;
