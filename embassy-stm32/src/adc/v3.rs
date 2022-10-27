@@ -1,9 +1,7 @@
-use core::marker::PhantomData;
-
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{AdcPin, Instance};
+use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::Peripheral;
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -22,39 +20,6 @@ fn enable() {
         #[cfg(any(stm32l4, stm32l5, stm32wb))]
         crate::pac::RCC.ahb2enr().modify(|w| w.set_adcen(true));
     });
-}
-
-pub enum Resolution {
-    TwelveBit,
-    TenBit,
-    EightBit,
-    SixBit,
-}
-
-impl Default for Resolution {
-    fn default() -> Self {
-        Self::TwelveBit
-    }
-}
-
-impl Resolution {
-    fn res(&self) -> crate::pac::adc::vals::Res {
-        match self {
-            Resolution::TwelveBit => crate::pac::adc::vals::Res::TWELVEBIT,
-            Resolution::TenBit => crate::pac::adc::vals::Res::TENBIT,
-            Resolution::EightBit => crate::pac::adc::vals::Res::EIGHTBIT,
-            Resolution::SixBit => crate::pac::adc::vals::Res::SIXBIT,
-        }
-    }
-
-    pub fn to_max_count(&self) -> u32 {
-        match self {
-            Resolution::TwelveBit => (1 << 12) - 1,
-            Resolution::TenBit => (1 << 10) - 1,
-            Resolution::EightBit => (1 << 8) - 1,
-            Resolution::SixBit => (1 << 6) - 1,
-        }
-    }
 }
 
 pub struct VrefInt;
@@ -93,125 +58,9 @@ impl<T: Instance> super::sealed::AdcPin<T> for Vbat {
     }
 }
 
-#[cfg(not(adc_g0))]
-mod sample_time {
-    /// ADC sample time
-    ///
-    /// The default setting is 2.5 ADC clock cycles.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-    pub enum SampleTime {
-        /// 2.5 ADC clock cycles
-        Cycles2_5 = 0b000,
-
-        /// 6.5 ADC clock cycles
-        Cycles6_5 = 0b001,
-
-        /// 12.5 ADC clock cycles
-        Cycles12_5 = 0b010,
-
-        /// 24.5 ADC clock cycles
-        Cycles24_5 = 0b011,
-
-        /// 47.5 ADC clock cycles
-        Cycles47_5 = 0b100,
-
-        /// 92.5 ADC clock cycles
-        Cycles92_5 = 0b101,
-
-        /// 247.5 ADC clock cycles
-        Cycles247_5 = 0b110,
-
-        /// 640.5 ADC clock cycles
-        Cycles640_5 = 0b111,
-    }
-
-    impl SampleTime {
-        pub(crate) fn sample_time(&self) -> crate::pac::adc::vals::SampleTime {
-            match self {
-                SampleTime::Cycles2_5 => crate::pac::adc::vals::SampleTime::CYCLES2_5,
-                SampleTime::Cycles6_5 => crate::pac::adc::vals::SampleTime::CYCLES6_5,
-                SampleTime::Cycles12_5 => crate::pac::adc::vals::SampleTime::CYCLES12_5,
-                SampleTime::Cycles24_5 => crate::pac::adc::vals::SampleTime::CYCLES24_5,
-                SampleTime::Cycles47_5 => crate::pac::adc::vals::SampleTime::CYCLES47_5,
-                SampleTime::Cycles92_5 => crate::pac::adc::vals::SampleTime::CYCLES92_5,
-                SampleTime::Cycles247_5 => crate::pac::adc::vals::SampleTime::CYCLES247_5,
-                SampleTime::Cycles640_5 => crate::pac::adc::vals::SampleTime::CYCLES640_5,
-            }
-        }
-    }
-
-    impl Default for SampleTime {
-        fn default() -> Self {
-            Self::Cycles2_5
-        }
-    }
-}
-
-#[cfg(adc_g0)]
-mod sample_time {
-    /// ADC sample time
-    ///
-    /// The default setting is 1.5 ADC clock cycles.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-    pub enum SampleTime {
-        /// 1.5 ADC clock cycles
-        Cycles1_5 = 0b000,
-
-        /// 3.5 ADC clock cycles
-        Cycles3_5 = 0b001,
-
-        /// 7.5 ADC clock cycles
-        Cycles7_5 = 0b010,
-
-        /// 12.5 ADC clock cycles
-        Cycles12_5 = 0b011,
-
-        /// 19.5 ADC clock cycles
-        Cycles19_5 = 0b100,
-
-        /// 39.5 ADC clock cycles
-        Cycles39_5 = 0b101,
-
-        /// 79.5 ADC clock cycles
-        Cycles79_5 = 0b110,
-
-        /// 160.5 ADC clock cycles
-        Cycles160_5 = 0b111,
-    }
-
-    impl SampleTime {
-        pub(crate) fn sample_time(&self) -> crate::pac::adc::vals::SampleTime {
-            match self {
-                SampleTime::Cycles1_5 => crate::pac::adc::vals::SampleTime::CYCLES1_5,
-                SampleTime::Cycles3_5 => crate::pac::adc::vals::SampleTime::CYCLES3_5,
-                SampleTime::Cycles7_5 => crate::pac::adc::vals::SampleTime::CYCLES7_5,
-                SampleTime::Cycles12_5 => crate::pac::adc::vals::SampleTime::CYCLES12_5,
-                SampleTime::Cycles19_5 => crate::pac::adc::vals::SampleTime::CYCLES19_5,
-                SampleTime::Cycles39_5 => crate::pac::adc::vals::SampleTime::CYCLES39_5,
-                SampleTime::Cycles79_5 => crate::pac::adc::vals::SampleTime::CYCLES79_5,
-                SampleTime::Cycles160_5 => crate::pac::adc::vals::SampleTime::CYCLES160_5,
-            }
-        }
-    }
-
-    impl Default for SampleTime {
-        fn default() -> Self {
-            Self::Cycles1_5
-        }
-    }
-}
-
-pub use sample_time::SampleTime;
-
-pub struct Adc<'d, T: Instance> {
-    sample_time: SampleTime,
-    resolution: Resolution,
-    phantom: PhantomData<&'d mut T>,
-}
-
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
-        into_ref!(_peri);
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+        into_ref!(adc);
         enable();
         unsafe {
             T::regs().cr().modify(|reg| {
@@ -241,9 +90,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         delay.delay_us(1);
 
         Self {
+            adc,
             sample_time: Default::default(),
-            resolution: Resolution::default(),
-            phantom: PhantomData,
         }
     }
 
@@ -288,7 +136,12 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub fn set_resolution(&mut self, resolution: Resolution) {
-        self.resolution = resolution;
+        unsafe {
+            #[cfg(not(stm32g0))]
+            T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
+            #[cfg(stm32g0)]
+            T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
+        }
     }
 
     /*
@@ -340,12 +193,6 @@ impl<'d, T: Instance> Adc<'d, T> {
                 // spin
             }
 
-            // Configure ADC
-            #[cfg(not(stm32g0))]
-            T::regs().cfgr().modify(|reg| reg.set_res(self.resolution.res()));
-            #[cfg(stm32g0)]
-            T::regs().cfgr1().modify(|reg| reg.set_res(self.resolution.res()));
-
             // Configure channel
             Self::set_channel_sample_time(pin.channel(), self.sample_time);
 
@@ -374,19 +221,16 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     #[cfg(stm32g0)]
     unsafe fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {
-        T::regs().smpr().modify(|reg| reg.set_smp1(sample_time.sample_time()));
+        T::regs().smpr().modify(|reg| reg.set_smp1(sample_time.into()));
     }
 
     #[cfg(not(stm32g0))]
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
+        let sample_time = sample_time.into();
         if ch <= 9 {
-            T::regs()
-                .smpr1()
-                .modify(|reg| reg.set_smp(ch as _, sample_time.sample_time()));
+            T::regs().smpr1().modify(|reg| reg.set_smp(ch as _, sample_time));
         } else {
-            T::regs()
-                .smpr2()
-                .modify(|reg| reg.set_smp((ch - 10) as _, sample_time.sample_time()));
+            T::regs().smpr2().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
         }
     }
 }

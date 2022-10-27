@@ -1,9 +1,7 @@
-use core::marker::PhantomData;
-
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{AdcPin, Instance};
+use crate::adc::{Adc, AdcPin, Instance, SampleTime};
 use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -29,69 +27,9 @@ impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
     }
 }
 
-mod sample_time {
-    /// ADC sample time
-    ///
-    /// The default setting is 1.5 ADC clock cycles.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-    pub enum SampleTime {
-        /// 1.5 ADC clock cycles
-        Cycles1_5 = 0b000,
-
-        /// 7.5 ADC clock cycles
-        Cycles7_5 = 0b001,
-
-        /// 13.5 ADC clock cycles
-        Cycles13_5 = 0b010,
-
-        /// 28.5 ADC clock cycles
-        Cycles28_5 = 0b011,
-
-        /// 41.5 ADC clock cycles
-        Cycles41_5 = 0b100,
-
-        /// 55.5 ADC clock cycles
-        Cycles55_5 = 0b101,
-
-        /// 71.5 ADC clock cycles
-        Cycles71_5 = 0b110,
-
-        /// 239.5 ADC clock cycles
-        Cycles239_5 = 0b111,
-    }
-
-    impl SampleTime {
-        pub(crate) fn sample_time(&self) -> crate::pac::adc::vals::SampleTime {
-            match self {
-                SampleTime::Cycles1_5 => crate::pac::adc::vals::SampleTime::CYCLES1_5,
-                SampleTime::Cycles7_5 => crate::pac::adc::vals::SampleTime::CYCLES7_5,
-                SampleTime::Cycles13_5 => crate::pac::adc::vals::SampleTime::CYCLES13_5,
-                SampleTime::Cycles28_5 => crate::pac::adc::vals::SampleTime::CYCLES28_5,
-                SampleTime::Cycles41_5 => crate::pac::adc::vals::SampleTime::CYCLES41_5,
-                SampleTime::Cycles55_5 => crate::pac::adc::vals::SampleTime::CYCLES55_5,
-                SampleTime::Cycles71_5 => crate::pac::adc::vals::SampleTime::CYCLES71_5,
-                SampleTime::Cycles239_5 => crate::pac::adc::vals::SampleTime::CYCLES239_5,
-            }
-        }
-    }
-
-    impl Default for SampleTime {
-        fn default() -> Self {
-            Self::Cycles28_5
-        }
-    }
-}
-
-pub use sample_time::SampleTime;
-
-pub struct Adc<'d, T: Instance> {
-    sample_time: SampleTime,
-    phantom: PhantomData<&'d mut T>,
-}
-
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
-        into_ref!(_peri);
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+        into_ref!(adc);
         T::enable();
         T::reset();
         unsafe {
@@ -120,8 +58,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         delay.delay_us((1_000_000) / Self::freq().0 + 1);
 
         Self {
+            adc,
             sample_time: Default::default(),
-            phantom: PhantomData,
         }
     }
 
@@ -201,14 +139,11 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
+        let sample_time = sample_time.into();
         if ch <= 9 {
-            T::regs()
-                .smpr2()
-                .modify(|reg| reg.set_smp(ch as _, sample_time.sample_time()));
+            T::regs().smpr2().modify(|reg| reg.set_smp(ch as _, sample_time));
         } else {
-            T::regs()
-                .smpr1()
-                .modify(|reg| reg.set_smp((ch - 10) as _, sample_time.sample_time()));
+            T::regs().smpr1().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
         }
     }
 }
