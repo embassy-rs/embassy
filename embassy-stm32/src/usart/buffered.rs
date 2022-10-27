@@ -46,6 +46,51 @@ impl<'d, T: BasicInstance> Unpin for BufferedUart<'d, T> {}
 impl<'d, T: BasicInstance> BufferedUart<'d, T> {
     pub fn new(
         state: &'d mut State<'d, T>,
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+        config: Config,
+    ) -> BufferedUart<'d, T> {
+        T::enable();
+        T::reset();
+
+        Self::new_inner(state, peri, rx, tx, irq, tx_buffer, rx_buffer, config)
+    }
+
+    pub fn new_with_rtscts(
+        state: &'d mut State<'d, T>,
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+        config: Config,
+    ) -> BufferedUart<'d, T> {
+        into_ref!(cts, rts);
+
+        T::enable();
+        T::reset();
+
+        unsafe {
+            rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
+            cts.set_as_af(cts.af_num(), AFType::Input);
+            T::regs().cr3().write(|w| {
+                w.set_rtse(true);
+                w.set_ctse(true);
+            });
+        }
+
+        Self::new_inner(state, peri, rx, tx, irq, tx_buffer, rx_buffer, config)
+    }
+
+    fn new_inner(
+        state: &'d mut State<'d, T>,
         _peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
@@ -56,9 +101,6 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
     ) -> BufferedUart<'d, T> {
         into_ref!(_peri, rx, tx, irq);
 
-        T::enable();
-        T::reset();
-
         let r = T::regs();
 
         configure(r, &config, T::frequency(), T::MULTIPLIER);
@@ -68,7 +110,6 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
             tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
             r.cr2().write(|_w| {});
-            r.cr3().write(|_w| {});
             r.cr1().write(|w| {
                 w.set_ue(true);
                 w.set_te(true);
