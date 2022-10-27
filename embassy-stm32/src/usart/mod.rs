@@ -102,7 +102,80 @@ pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
 }
 
 impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
-    fn new(tx_dma: PeripheralRef<'d, TxDma>) -> Self {
+    /// usefull if you only want Uart Tx. It saves 1 pin and consumes a little less power
+    pub fn new(
+        peri: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = TxDma> + 'd,
+        config: Config,
+    ) -> Self {
+        T::enable();
+        T::reset();
+
+        Self::new_inner(peri, tx, tx_dma, config)
+    }
+
+    pub fn new_with_cts(
+        peri: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = TxDma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(cts);
+
+        T::enable();
+        T::reset();
+
+        unsafe {
+            cts.set_as_af(cts.af_num(), AFType::Input);
+            T::regs().cr3().write(|w| {
+                w.set_ctse(true);
+            });
+        }
+        Self::new_inner(peri, tx, tx_dma, config)
+    }
+
+    fn new_inner(
+        _peri: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = TxDma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(_peri, tx, tx_dma);
+
+        let r = T::regs();
+
+        configure(r, &config, T::frequency(), T::MULTIPLIER);
+
+        unsafe {
+            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+
+            r.cr2().write(|_w| {});
+            r.cr1().write(|w| {
+                // enable uart
+                w.set_ue(true);
+                // enable transceiver
+                w.set_te(true);
+                // configure word size
+                w.set_m0(if config.parity != Parity::ParityNone {
+                    vals::M0::BIT9
+                } else {
+                    vals::M0::BIT8
+                });
+                // configure parity
+                w.set_pce(config.parity != Parity::ParityNone);
+                w.set_ps(match config.parity {
+                    Parity::ParityOdd => vals::Ps::ODD,
+                    Parity::ParityEven => vals::Ps::EVEN,
+                    _ => vals::Ps::EVEN,
+                });
+            });
+        }
+
+        // create state once!
+        let _s = T::state();
+
         Self {
             tx_dma,
             phantom: PhantomData,
@@ -156,10 +229,43 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(peri, irq, rx, rx_dma);
+        T::enable();
+        T::reset();
+
+        Self::new_inner(peri, irq, rx, rx_dma, config)
+    }
+
+    pub fn new_with_rts(
+        peri: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        rx_dma: impl Peripheral<P = RxDma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(rts);
 
         T::enable();
         T::reset();
+
+        unsafe {
+            rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
+            T::regs().cr3().write(|w| {
+                w.set_rtse(true);
+            });
+        }
+
+        Self::new_inner(peri, irq, rx, rx_dma, config)
+    }
+
+    fn new_inner(
+        peri: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        rx_dma: impl Peripheral<P = RxDma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(peri, irq, rx, rx_dma);
 
         let r = T::regs();
 
@@ -169,7 +275,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
             rx.set_as_af(rx.af_num(), AFType::Input);
 
             r.cr2().write(|_w| {});
-            r.cr3().write(|w| {
+            r.cr3().modify(|w| {
                 // enable Error Interrupt: (Frame error, Noise error, Overrun error)
                 w.set_eie(true);
             });
@@ -596,7 +702,10 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         let _s = T::state();
 
         Self {
-            tx: UartTx::new(tx_dma),
+            tx: UartTx {
+                tx_dma,
+                phantom: PhantomData,
+            },
             rx: UartRx {
                 _peri: peri,
                 rx_dma,
