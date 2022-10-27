@@ -55,51 +55,10 @@ pub struct Flash<'d, T: Instance, const FLASH_SIZE: usize>(PhantomData<&'d mut T
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
     pub fn new(_flash: impl Peripheral<P = T> + 'd) -> Self {
-        // FIXME: WHY is this needed?!
-        cortex_m::asm::delay(50_000);
         Self(PhantomData)
     }
 
-    /// Make sure to uphold the contract points with rp2040-flash.
-    /// - interrupts must be disabled
-    /// - DMA must not access flash memory
-    unsafe fn in_ram(&mut self, operation: impl FnOnce()) {
-        let dma_status = &mut [false; crate::dma::CHANNEL_COUNT];
-
-        // TODO: Make sure CORE1 is paused during the entire duration of the RAM function
-
-        critical_section::with(|_| {
-            // Pause all DMA channels for the duration of the ram operation
-            for (number, status) in dma_status.iter_mut().enumerate() {
-                let ch = crate::pac::DMA.ch(number as _);
-                *status = ch.ctrl_trig().read().en();
-                if *status {
-                    ch.ctrl_trig().modify(|w| w.set_en(false));
-                }
-            }
-
-            // Run our flash operation in RAM
-            operation();
-
-            // Re-enable previously enabled DMA channels
-            for (number, status) in dma_status.iter().enumerate() {
-                let ch = crate::pac::DMA.ch(number as _);
-                if *status {
-                    ch.ctrl_trig().modify(|w| w.set_en(true));
-                }
-            }
-        });
-    }
-}
-
-impl<'d, T: Instance, const FLASH_SIZE: usize> ErrorType for Flash<'d, T, FLASH_SIZE> {
-    type Error = Error;
-}
-
-impl<'d, T: Instance, const FLASH_SIZE: usize> ReadNorFlash for Flash<'d, T, FLASH_SIZE> {
-    const READ_SIZE: usize = READ_SIZE;
-
-    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+    pub fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         check_read(self, offset, bytes.len())?;
 
         let flash_data = unsafe { core::slice::from_raw_parts((FLASH_BASE as u32 + offset) as *const u8, bytes.len()) };
@@ -108,19 +67,11 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> ReadNorFlash for Flash<'d, T, FLA
         Ok(())
     }
 
-    fn capacity(&self) -> usize {
+    pub fn capacity(&self) -> usize {
         FLASH_SIZE
     }
-}
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> MultiwriteNorFlash for Flash<'d, T, FLASH_SIZE> {}
-
-impl<'d, T: Instance, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, FLASH_SIZE> {
-    const WRITE_SIZE: usize = WRITE_SIZE;
-
-    const ERASE_SIZE: usize = ERASE_SIZE;
-
-    fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+    pub fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
         check_erase(self, from, to)?;
 
         trace!(
@@ -136,7 +87,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, FLASH_S
         Ok(())
     }
 
-    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+    pub fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
         check_write(self, offset, bytes.len())?;
 
         trace!("Writing {:?} bytes to 0x{:x}", bytes.len(), FLASH_BASE as u32 + offset);
@@ -198,6 +149,69 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, FLASH_S
         }
 
         Ok(())
+    }
+
+    /// Make sure to uphold the contract points with rp2040-flash.
+    /// - interrupts must be disabled
+    /// - DMA must not access flash memory
+    unsafe fn in_ram(&mut self, operation: impl FnOnce()) {
+        let dma_status = &mut [false; crate::dma::CHANNEL_COUNT];
+
+        // TODO: Make sure CORE1 is paused during the entire duration of the RAM function
+
+        critical_section::with(|_| {
+            // Pause all DMA channels for the duration of the ram operation
+            for (number, status) in dma_status.iter_mut().enumerate() {
+                let ch = crate::pac::DMA.ch(number as _);
+                *status = ch.ctrl_trig().read().en();
+                if *status {
+                    ch.ctrl_trig().modify(|w| w.set_en(false));
+                }
+            }
+
+            // Run our flash operation in RAM
+            operation();
+
+            // Re-enable previously enabled DMA channels
+            for (number, status) in dma_status.iter().enumerate() {
+                let ch = crate::pac::DMA.ch(number as _);
+                if *status {
+                    ch.ctrl_trig().modify(|w| w.set_en(true));
+                }
+            }
+        });
+    }
+}
+
+impl<'d, T: Instance, const FLASH_SIZE: usize> ErrorType for Flash<'d, T, FLASH_SIZE> {
+    type Error = Error;
+}
+
+impl<'d, T: Instance, const FLASH_SIZE: usize> ReadNorFlash for Flash<'d, T, FLASH_SIZE> {
+    const READ_SIZE: usize = READ_SIZE;
+
+    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        self.read(offset, bytes)
+    }
+
+    fn capacity(&self) -> usize {
+        self.capacity()
+    }
+}
+
+impl<'d, T: Instance, const FLASH_SIZE: usize> MultiwriteNorFlash for Flash<'d, T, FLASH_SIZE> {}
+
+impl<'d, T: Instance, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, FLASH_SIZE> {
+    const WRITE_SIZE: usize = WRITE_SIZE;
+
+    const ERASE_SIZE: usize = ERASE_SIZE;
+
+    fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        self.erase(from, to)
+    }
+
+    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.write(offset, bytes)
     }
 }
 

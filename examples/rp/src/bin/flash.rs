@@ -6,7 +6,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::flash::{ERASE_SIZE, FLASH_BASE};
 use embassy_rp::peripherals::FLASH;
-use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 const ADDR_OFFSET: u32 = 0x100000;
@@ -16,6 +16,12 @@ const FLASH_SIZE: usize = 2 * 1024 * 1024;
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Hello World!");
+
+    // add some delay to give an attached debug probe time to parse the
+    // defmt RTT header. Reading that header might touch flash memory, which
+    // interferes with flash write operations.
+    // https://github.com/knurling-rs/defmt/pull/683
+    Timer::after(Duration::from_millis(10)).await;
 
     let mut flash = embassy_rp::flash::Flash::<_, FLASH_SIZE>::new(p.FLASH);
     erase_write_sector(&mut flash, 0x00);
