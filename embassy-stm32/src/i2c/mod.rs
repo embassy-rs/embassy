@@ -7,6 +7,11 @@ use crate::interrupt::Interrupt;
 mod _version;
 pub use _version::*;
 
+#[cfg(feature = "time")]
+mod timeout;
+#[cfg(feature = "time")]
+pub use timeout::*;
+
 use crate::peripherals;
 
 #[derive(Debug)]

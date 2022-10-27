@@ -53,13 +53,13 @@ cortex-m = "0.7.6"
 critical-section = "1.1"
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 chrono = { version = "0.4", default-features = false, optional = true }
+embedded-io = { version = "0.3.1", features = ["async"], optional = true }
 embedded-storage = { version = "0.3" }
-embedded-io = { version = "0.3.0", features = ["async"], optional = true }
 
 rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev="017e3c9007b2d3b6965f0d85b5bf8ce3fa6d7364", features = ["rt"] }
 #rp2040-pac2 = { path = "../../rp2040-pac2", features = ["rt"] }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9", optional = true}
-embedded-hal-async = { version = "=0.1.0-alpha.2", optional = true}
+embedded-hal-async = { version = "=0.1.0-alpha.3", optional = true}
 embedded-hal-nb = { version = "=1.0.0-alpha.1", optional = true}

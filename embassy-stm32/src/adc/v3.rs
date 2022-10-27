@@ -205,7 +205,6 @@ pub use sample_time::SampleTime;
 
 pub struct Adc<'d, T: Instance> {
     sample_time: SampleTime,
-    vref_mv: u32,
     resolution: Resolution,
     phantom: PhantomData<&'d mut T>,
 }
@@ -244,7 +243,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self {
             sample_time: Default::default(),
             resolution: Resolution::default(),
-            vref_mv: VREF_DEFAULT_MV,
             phantom: PhantomData,
         }
     }
@@ -285,49 +283,12 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat {}
     }
 
-    /// Calculates the system VDDA by sampling the internal VREFINT channel and comparing
-    /// the result with the value stored at the factory. If the chip's VDDA is not stable, run
-    /// this before each ADC conversion.
-    #[cfg(not(stm32g0))] // TODO is this supposed to be public?
-    #[allow(unused)] // TODO is this supposed to be public?
-    fn calibrate(&mut self, vrefint: &mut VrefInt) {
-        #[cfg(stm32l5)]
-        let vrefint_cal: u32 = todo!();
-        #[cfg(not(stm32l5))]
-        let vrefint_cal = unsafe { crate::pac::VREFINTCAL.data().read().value() };
-        let old_sample_time = self.sample_time;
-
-        // "Table 24. Embedded internal voltage reference" states that the sample time needs to be
-        // at a minimum 4 us. With 640.5 ADC cycles we have a minimum of 8 us at 80 MHz, leaving
-        // some headroom.
-        self.sample_time = SampleTime::Cycles640_5;
-
-        // This can't actually fail, it's just in a result to satisfy hal trait
-        let vrefint_samp = self.read(vrefint);
-
-        self.sample_time = old_sample_time;
-
-        self.vref_mv = (VREF_CALIB_MV * u32::from(vrefint_cal)) / u32::from(vrefint_samp);
-    }
-
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
         self.sample_time = sample_time;
     }
 
     pub fn set_resolution(&mut self, resolution: Resolution) {
         self.resolution = resolution;
-    }
-
-    /// Set VREF value in millivolts. This value is used for [to_millivolts()] sample conversion.
-    ///
-    /// Use this if you have a known precise VREF (VDDA) pin reference voltage.
-    pub fn set_vref_mv(&mut self, vref_mv: u32) {
-        self.vref_mv = vref_mv;
-    }
-
-    /// Convert a measurement to millivolts
-    pub fn to_millivolts(&self, sample: u16) -> u16 {
-        ((u32::from(sample) * self.vref_mv) / self.resolution.to_max_count()) as u16
     }
 
     /*

@@ -354,46 +354,54 @@ impl Executor {
     /// somehow schedule for `poll()` to be called later, at a time you know for sure there's
     /// no `poll()` already running.
     pub unsafe fn poll(&'static self) {
-        #[cfg(feature = "integrated-timers")]
-        self.timer_queue.dequeue_expired(Instant::now(), |task| wake_task(task));
+        loop {
+            #[cfg(feature = "integrated-timers")]
+            self.timer_queue.dequeue_expired(Instant::now(), |task| wake_task(task));
 
-        self.run_queue.dequeue_all(|p| {
-            let task = p.as_ref();
+            self.run_queue.dequeue_all(|p| {
+                let task = p.as_ref();
+
+                #[cfg(feature = "integrated-timers")]
+                task.expires_at.set(Instant::MAX);
+
+                let state = task.state.fetch_and(!STATE_RUN_QUEUED, Ordering::AcqRel);
+                if state & STATE_SPAWNED == 0 {
+                    // If task is not running, ignore it. This can happen in the following scenario:
+                    //   - Task gets dequeued, poll starts
+                    //   - While task is being polled, it gets woken. It gets placed in the queue.
+                    //   - Task poll finishes, returning done=true
+                    //   - RUNNING bit is cleared, but the task is already in the queue.
+                    return;
+                }
+
+                #[cfg(feature = "rtos-trace")]
+                trace::task_exec_begin(p.as_ptr() as u32);
+
+                // Run the task
+                task.poll_fn.read()(p as _);
+
+                #[cfg(feature = "rtos-trace")]
+                trace::task_exec_end();
+
+                // Enqueue or update into timer_queue
+                #[cfg(feature = "integrated-timers")]
+                self.timer_queue.update(p);
+            });
 
             #[cfg(feature = "integrated-timers")]
-            task.expires_at.set(Instant::MAX);
-
-            let state = task.state.fetch_and(!STATE_RUN_QUEUED, Ordering::AcqRel);
-            if state & STATE_SPAWNED == 0 {
-                // If task is not running, ignore it. This can happen in the following scenario:
-                //   - Task gets dequeued, poll starts
-                //   - While task is being polled, it gets woken. It gets placed in the queue.
-                //   - Task poll finishes, returning done=true
-                //   - RUNNING bit is cleared, but the task is already in the queue.
-                return;
+            {
+                // If this is already in the past, set_alarm might return false
+                // In that case do another poll loop iteration.
+                let next_expiration = self.timer_queue.next_expiration();
+                if driver::set_alarm(self.alarm, next_expiration.as_ticks()) {
+                    break;
+                }
             }
 
-            #[cfg(feature = "rtos-trace")]
-            trace::task_exec_begin(p.as_ptr() as u32);
-
-            // Run the task
-            task.poll_fn.read()(p as _);
-
-            #[cfg(feature = "rtos-trace")]
-            trace::task_exec_end();
-
-            // Enqueue or update into timer_queue
-            #[cfg(feature = "integrated-timers")]
-            self.timer_queue.update(p);
-        });
-
-        #[cfg(feature = "integrated-timers")]
-        {
-            // If this is already in the past, set_alarm will immediately trigger the alarm.
-            // This will cause `signal_fn` to be called, which will cause `poll()` to be called again,
-            // so we immediately do another poll loop iteration.
-            let next_expiration = self.timer_queue.next_expiration();
-            driver::set_alarm(self.alarm, next_expiration.as_ticks());
+            #[cfg(not(feature = "integrated-timers"))]
+            {
+                break;
+            }
         }
 
         #[cfg(feature = "rtos-trace")]
@@ -436,13 +444,20 @@ pub unsafe fn wake_task(task: NonNull<TaskHeader>) {
 }
 
 #[cfg(feature = "integrated-timers")]
-#[no_mangle]
-unsafe fn _embassy_time_schedule_wake(at: Instant, waker: &core::task::Waker) {
-    let task = waker::task_from_waker(waker);
-    let task = task.as_ref();
-    let expires_at = task.expires_at.get();
-    task.expires_at.set(expires_at.min(at));
+struct TimerQueue;
+
+#[cfg(feature = "integrated-timers")]
+impl embassy_time::queue::TimerQueue for TimerQueue {
+    fn schedule_wake(&'static self, at: Instant, waker: &core::task::Waker) {
+        let task = waker::task_from_waker(waker);
+        let task = unsafe { task.as_ref() };
+        let expires_at = task.expires_at.get();
+        task.expires_at.set(expires_at.min(at));
+    }
 }
+
+#[cfg(feature = "integrated-timers")]
+embassy_time::timer_queue_impl!(static TIMER_QUEUE: TimerQueue = TimerQueue);
 
 #[cfg(feature = "rtos-trace")]
 impl rtos_trace::RtosTraceOSCallbacks for Executor {

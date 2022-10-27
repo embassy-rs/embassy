@@ -44,6 +44,7 @@ impl From<RampTime> for core::time::Duration {
     }
 }
 
+#[cfg(feature = "time")]
 impl From<RampTime> for embassy_time::Duration {
     fn from(rt: RampTime) -> Self {
         match rt {

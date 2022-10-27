@@ -243,21 +243,24 @@ impl Driver for RtcDriver {
         })
     }
 
-    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) {
+    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
         critical_section::with(|cs| {
             let n = alarm.id() as _;
             let alarm = self.get_alarm(cs, alarm);
             alarm.timestamp.set(timestamp);
 
-            let t = self.now();
-
-            // If alarm timestamp has passed, trigger it instantly.
-            if timestamp <= t {
-                self.trigger_alarm(n, cs);
-                return;
-            }
-
             let r = rtc();
+
+            let t = self.now();
+            if timestamp <= t {
+                // If alarm timestamp has passed the alarm will not fire.
+                // Disarm the alarm and return `false` to indicate that.
+                r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
+
+                alarm.timestamp.set(u64::MAX);
+
+                return false;
+            }
 
             // If it hasn't triggered yet, setup it in the compare channel.
 
@@ -287,6 +290,8 @@ impl Driver for RtcDriver {
                 // It will be setup later by `next_period`.
                 r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
             }
+
+            true
         })
     }
 }

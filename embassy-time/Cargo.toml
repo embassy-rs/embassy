@@ -2,14 +2,25 @@
 name = "embassy-time"
 version = "0.1.0"
 edition = "2021"
+description = "Instant and Duration for embedded no-std systems, with async timer support"
+repository = "https://github.com/embassy-rs/embassy"
+readme = "README.md"
 license = "MIT OR Apache-2.0"
-
+categories = [
+    "embedded",
+    "no-std",
+    "concurrency",
+    "asynchronous",
+]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-v$VERSION/embassy-time/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time/src/"
 features = ["nightly", "defmt", "unstable-traits", "std"]
 target = "x86_64-unknown-linux-gnu"
+
+[package.metadata.docs.rs]
+features = ["nightly", "defmt", "unstable-traits", "std"]
 
 [features]
 std = ["tick-hz-1_000_000"]
@@ -25,6 +36,22 @@ unstable-traits = ["embedded-hal-1"]
 # Display a timestamp of the number of seconds since startup next to defmt log messages
 # To use this you must have a time driver provided.
 defmt-timestamp-uptime = ["defmt"]
+
+# Create a global, generic queue that can be used with any executor
+# To use this you must have a time driver provided.
+generic-queue = []
+
+# Set the number of timers for the generic queue.
+#
+# At most 1 `generic-queue-*` feature can be enabled. If none is enabled, a default of 64 timers is used.
+# 
+# When using embassy-time from libraries, you should *not* enable any `generic-queue-*` feature, to allow the
+# end user to pick.
+generic-queue-8 = ["generic-queue"]
+generic-queue-16 = ["generic-queue"]
+generic-queue-32 = ["generic-queue"]
+generic-queue-64 = ["generic-queue"]
+generic-queue-128 = ["generic-queue"]
 
 # Set the `embassy_time` tick rate.
 #
@@ -107,15 +134,21 @@ log = { version = "0.4.14", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9", optional = true}
-embedded-hal-async = { version = "=0.1.0-alpha.2", optional = true}
+embedded-hal-async = { version = "=0.1.0-alpha.3", optional = true}
 
 futures-util = { version = "0.3.17", default-features = false }
-embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
+embassy-sync = { version = "0.1", path = "../embassy-sync" }
 atomic-polyfill = "1.0.1"
 critical-section = "1.1"
 cfg-if = "1.0.0"
+heapless = "0.7"
 
 # WASM dependencies
 wasm-bindgen = { version = "0.2.81", optional = true }
 js-sys = { version = "0.3", optional = true }
 wasm-timer = { version = "0.2.5", optional = true }
+
+[dev-dependencies]
+serial_test = "0.9"
+critical-section = { version = "1.1", features = ["std"] }
+

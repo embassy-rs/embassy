@@ -339,14 +339,14 @@ impl_ppi_channel!(PPI_CH13, 13 => configurable);
 impl_ppi_channel!(PPI_CH14, 14 => configurable);
 impl_ppi_channel!(PPI_CH15, 15 => configurable);
 
-impl_saadc_input!(P0_13, ANALOGINPUT0);
-impl_saadc_input!(P0_14, ANALOGINPUT1);
-impl_saadc_input!(P0_15, ANALOGINPUT2);
-impl_saadc_input!(P0_16, ANALOGINPUT3);
-impl_saadc_input!(P0_17, ANALOGINPUT4);
-impl_saadc_input!(P0_18, ANALOGINPUT5);
-impl_saadc_input!(P0_19, ANALOGINPUT6);
-impl_saadc_input!(P0_20, ANALOGINPUT7);
+impl_saadc_input!(P0_13, ANALOG_INPUT0);
+impl_saadc_input!(P0_14, ANALOG_INPUT1);
+impl_saadc_input!(P0_15, ANALOG_INPUT2);
+impl_saadc_input!(P0_16, ANALOG_INPUT3);
+impl_saadc_input!(P0_17, ANALOG_INPUT4);
+impl_saadc_input!(P0_18, ANALOG_INPUT5);
+impl_saadc_input!(P0_19, ANALOG_INPUT6);
+impl_saadc_input!(P0_20, ANALOG_INPUT7);
 
 pub mod irqs {
     use embassy_cortex_m::interrupt::_export::declare;

@@ -1,4 +1,4 @@
-#![cfg_attr(not(any(feature = "std", feature = "wasm")), no_std)]
+#![cfg_attr(not(any(feature = "std", feature = "wasm", test)), no_std)]
 #![cfg_attr(feature = "nightly", feature(type_alias_impl_trait))]
 #![doc = include_str!("../README.md")]
 #![allow(clippy::new_without_default)]
@@ -11,6 +11,7 @@ mod delay;
 pub mod driver;
 mod duration;
 mod instant;
+pub mod queue;
 mod tick;
 mod timer;
 
@@ -18,6 +19,8 @@ mod timer;
 mod driver_std;
 #[cfg(feature = "wasm")]
 mod driver_wasm;
+#[cfg(feature = "generic-queue")]
+mod queue_generic;
 
 pub use delay::{block_for, Delay};
 pub use duration::Duration;

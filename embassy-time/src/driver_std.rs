@@ -127,12 +127,14 @@ impl Driver for TimeDriver {
         alarm.ctx = ctx;
     }
 
-    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) {
+    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
         self.init();
         let mut alarms = unsafe { self.alarms.as_ref() }.lock().unwrap();
         let alarm = &mut alarms[alarm.id() as usize];
         alarm.timestamp = timestamp;
         unsafe { self.signaler.as_ref() }.signal();
+
+        true
     }
 }
 
