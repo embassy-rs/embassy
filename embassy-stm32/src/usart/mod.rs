@@ -102,7 +102,59 @@ pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
 }
 
 impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
-    fn new(tx_dma: PeripheralRef<'d, TxDma>) -> Self {
+    /// usefull if you only want Uart Tx. It saves 1 pin and consumes a little less power
+    pub fn new(
+        peri: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = TxDma> + 'd,
+        config: Config,
+    ) -> Self {
+        T::enable();
+        T::reset();
+
+        Self::new_inner(peri, tx, tx_dma, config)
+    }
+
+    pub fn new_with_cts(
+        peri: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = TxDma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(cts);
+
+        T::enable();
+        T::reset();
+
+        unsafe {
+            cts.set_as_af(cts.af_num(), AFType::Input);
+            T::regs().cr3().write(|w| {
+                w.set_ctse(true);
+            });
+        }
+        Self::new_inner(peri, tx, tx_dma, config)
+    }
+
+    fn new_inner(
+        _peri: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = TxDma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(_peri, tx, tx_dma);
+
+        let r = T::regs();
+
+        unsafe {
+            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+        }
+
+        configure(r, &config, T::frequency(), T::MULTIPLIER, false, true);
+
+        // create state once!
+        let _s = T::state();
+
         Self {
             tx_dma,
             phantom: PhantomData,
@@ -156,43 +208,51 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(peri, irq, rx, rx_dma);
+        T::enable();
+        T::reset();
+
+        Self::new_inner(peri, irq, rx, rx_dma, config)
+    }
+
+    pub fn new_with_rts(
+        peri: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        rx_dma: impl Peripheral<P = RxDma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(rts);
 
         T::enable();
         T::reset();
 
-        let r = T::regs();
+        unsafe {
+            rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
+            T::regs().cr3().write(|w| {
+                w.set_rtse(true);
+            });
+        }
 
-        configure(r, &config, T::frequency(), T::MULTIPLIER);
+        Self::new_inner(peri, irq, rx, rx_dma, config)
+    }
+
+    fn new_inner(
+        peri: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        rx_dma: impl Peripheral<P = RxDma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(peri, irq, rx, rx_dma);
+
+        let r = T::regs();
 
         unsafe {
             rx.set_as_af(rx.af_num(), AFType::Input);
-
-            r.cr2().write(|_w| {});
-            r.cr3().write(|w| {
-                // enable Error Interrupt: (Frame error, Noise error, Overrun error)
-                w.set_eie(true);
-            });
-            r.cr1().write(|w| {
-                // enable uart
-                w.set_ue(true);
-                // enable receiver
-                w.set_re(true);
-                // configure word size
-                w.set_m0(if config.parity != Parity::ParityNone {
-                    vals::M0::BIT9
-                } else {
-                    vals::M0::BIT8
-                });
-                // configure parity
-                w.set_pce(config.parity != Parity::ParityNone);
-                w.set_ps(match config.parity {
-                    Parity::ParityOdd => vals::Ps::ODD,
-                    Parity::ParityEven => vals::Ps::EVEN,
-                    _ => vals::Ps::EVEN,
-                });
-            });
         }
+
+        configure(r, &config, T::frequency(), T::MULTIPLIER, true, false);
 
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
@@ -563,30 +623,12 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
 
         let r = T::regs();
 
-        configure(r, &config, T::frequency(), T::MULTIPLIER);
-
         unsafe {
             rx.set_as_af(rx.af_num(), AFType::Input);
             tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
-
-            r.cr2().write(|_w| {});
-            r.cr1().write(|w| {
-                w.set_ue(true);
-                w.set_te(true);
-                w.set_re(true);
-                w.set_m0(if config.parity != Parity::ParityNone {
-                    vals::M0::BIT9
-                } else {
-                    vals::M0::BIT8
-                });
-                w.set_pce(config.parity != Parity::ParityNone);
-                w.set_ps(match config.parity {
-                    Parity::ParityOdd => vals::Ps::ODD,
-                    Parity::ParityEven => vals::Ps::EVEN,
-                    _ => vals::Ps::EVEN,
-                });
-            });
         }
+
+        configure(r, &config, T::frequency(), T::MULTIPLIER, true, true);
 
         irq.set_handler(UartRx::<T, RxDma>::on_interrupt);
         irq.unpend();
@@ -596,7 +638,10 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         let _s = T::state();
 
         Self {
-            tx: UartTx::new(tx_dma),
+            tx: UartTx {
+                tx_dma,
+                phantom: PhantomData,
+            },
             rx: UartRx {
                 _peri: peri,
                 rx_dma,
@@ -650,12 +695,38 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     }
 }
 
-fn configure(r: Regs, config: &Config, pclk_freq: Hertz, multiplier: u32) {
+fn configure(r: Regs, config: &Config, pclk_freq: Hertz, multiplier: u32, enable_rx: bool, enable_tx: bool) {
+    if !enable_rx && !enable_tx {
+        panic!("USART: At least one of RX or TX should be enabled");
+    }
+
     // TODO: better calculation, including error checking and OVER8 if possible.
     let div = (pclk_freq.0 + (config.baudrate / 2)) / config.baudrate * multiplier;
 
     unsafe {
         r.brr().write_value(regs::Brr(div));
+        r.cr2().write(|_w| {});
+        r.cr1().write(|w| {
+            // enable uart
+            w.set_ue(true);
+            // enable transceiver
+            w.set_te(enable_tx);
+            // enable receiver
+            w.set_re(enable_rx);
+            // configure word size
+            w.set_m0(if config.parity != Parity::ParityNone {
+                vals::M0::BIT9
+            } else {
+                vals::M0::BIT8
+            });
+            // configure parity
+            w.set_pce(config.parity != Parity::ParityNone);
+            w.set_ps(match config.parity {
+                Parity::ParityOdd => vals::Ps::ODD,
+                Parity::ParityEven => vals::Ps::EVEN,
+                _ => vals::Ps::EVEN,
+            });
+        });
     }
 }
 
