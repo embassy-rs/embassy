@@ -103,28 +103,15 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
 
         let r = T::regs();
 
-        configure(r, &config, T::frequency(), T::MULTIPLIER);
-
         unsafe {
             rx.set_as_af(rx.af_num(), AFType::Input);
             tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+        }
 
-            r.cr2().write(|_w| {});
-            r.cr1().write(|w| {
-                w.set_ue(true);
-                w.set_te(true);
-                w.set_re(true);
-                w.set_m0(if config.parity != Parity::ParityNone {
-                    vals::M0::BIT9
-                } else {
-                    vals::M0::BIT8
-                });
-                w.set_pce(config.parity != Parity::ParityNone);
-                w.set_ps(match config.parity {
-                    Parity::ParityOdd => vals::Ps::ODD,
-                    Parity::ParityEven => vals::Ps::EVEN,
-                    _ => vals::Ps::EVEN,
-                });
+        configure(r, &config, T::frequency(), T::MULTIPLIER, true, true);
+
+        unsafe {
+            r.cr1().modify(|w| {
                 w.set_rxneie(true);
                 w.set_idleie(true);
             });

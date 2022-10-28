@@ -146,32 +146,11 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
 
         let r = T::regs();
 
-        configure(r, &config, T::frequency(), T::MULTIPLIER);
-
         unsafe {
             tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
-
-            r.cr2().write(|_w| {});
-            r.cr1().write(|w| {
-                // enable uart
-                w.set_ue(true);
-                // enable transceiver
-                w.set_te(true);
-                // configure word size
-                w.set_m0(if config.parity != Parity::ParityNone {
-                    vals::M0::BIT9
-                } else {
-                    vals::M0::BIT8
-                });
-                // configure parity
-                w.set_pce(config.parity != Parity::ParityNone);
-                w.set_ps(match config.parity {
-                    Parity::ParityOdd => vals::Ps::ODD,
-                    Parity::ParityEven => vals::Ps::EVEN,
-                    _ => vals::Ps::EVEN,
-                });
-            });
         }
+
+        configure(r, &config, T::frequency(), T::MULTIPLIER, false, true);
 
         // create state once!
         let _s = T::state();
@@ -269,36 +248,11 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
 
         let r = T::regs();
 
-        configure(r, &config, T::frequency(), T::MULTIPLIER);
-
         unsafe {
             rx.set_as_af(rx.af_num(), AFType::Input);
-
-            r.cr2().write(|_w| {});
-            r.cr3().modify(|w| {
-                // enable Error Interrupt: (Frame error, Noise error, Overrun error)
-                w.set_eie(true);
-            });
-            r.cr1().write(|w| {
-                // enable uart
-                w.set_ue(true);
-                // enable receiver
-                w.set_re(true);
-                // configure word size
-                w.set_m0(if config.parity != Parity::ParityNone {
-                    vals::M0::BIT9
-                } else {
-                    vals::M0::BIT8
-                });
-                // configure parity
-                w.set_pce(config.parity != Parity::ParityNone);
-                w.set_ps(match config.parity {
-                    Parity::ParityOdd => vals::Ps::ODD,
-                    Parity::ParityEven => vals::Ps::EVEN,
-                    _ => vals::Ps::EVEN,
-                });
-            });
         }
+
+        configure(r, &config, T::frequency(), T::MULTIPLIER, true, false);
 
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
@@ -669,30 +623,12 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
 
         let r = T::regs();
 
-        configure(r, &config, T::frequency(), T::MULTIPLIER);
-
         unsafe {
             rx.set_as_af(rx.af_num(), AFType::Input);
             tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
-
-            r.cr2().write(|_w| {});
-            r.cr1().write(|w| {
-                w.set_ue(true);
-                w.set_te(true);
-                w.set_re(true);
-                w.set_m0(if config.parity != Parity::ParityNone {
-                    vals::M0::BIT9
-                } else {
-                    vals::M0::BIT8
-                });
-                w.set_pce(config.parity != Parity::ParityNone);
-                w.set_ps(match config.parity {
-                    Parity::ParityOdd => vals::Ps::ODD,
-                    Parity::ParityEven => vals::Ps::EVEN,
-                    _ => vals::Ps::EVEN,
-                });
-            });
         }
+
+        configure(r, &config, T::frequency(), T::MULTIPLIER, true, true);
 
         irq.set_handler(UartRx::<T, RxDma>::on_interrupt);
         irq.unpend();
@@ -759,12 +695,38 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     }
 }
 
-fn configure(r: Regs, config: &Config, pclk_freq: Hertz, multiplier: u32) {
+fn configure(r: Regs, config: &Config, pclk_freq: Hertz, multiplier: u32, enable_rx: bool, enable_tx: bool) {
+    if !enable_rx && !enable_tx {
+        panic!("USART: At least one of RX or TX should be enabled");
+    }
+
     // TODO: better calculation, including error checking and OVER8 if possible.
     let div = (pclk_freq.0 + (config.baudrate / 2)) / config.baudrate * multiplier;
 
     unsafe {
         r.brr().write_value(regs::Brr(div));
+        r.cr2().write(|_w| {});
+        r.cr1().write(|w| {
+            // enable uart
+            w.set_ue(true);
+            // enable transceiver
+            w.set_te(enable_tx);
+            // enable receiver
+            w.set_re(enable_rx);
+            // configure word size
+            w.set_m0(if config.parity != Parity::ParityNone {
+                vals::M0::BIT9
+            } else {
+                vals::M0::BIT8
+            });
+            // configure parity
+            w.set_pce(config.parity != Parity::ParityNone);
+            w.set_ps(match config.parity {
+                Parity::ParityOdd => vals::Ps::ODD,
+                Parity::ParityEven => vals::Ps::EVEN,
+                _ => vals::Ps::EVEN,
+            });
+        });
     }
 }
 
