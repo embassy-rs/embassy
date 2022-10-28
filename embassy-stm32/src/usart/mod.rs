@@ -525,7 +525,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
                 }
             }
 
-            if sr.idle() {
+            if enable_idle_line_detection && sr.idle() {
                 // Idle line
 
                 // stop dma transfer
