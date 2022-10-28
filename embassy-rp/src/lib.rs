@@ -20,6 +20,7 @@ pub mod uart;
 pub mod usb;
 
 mod clocks;
+pub mod flash;
 mod reset;
 
 // Reexports
@@ -95,6 +96,8 @@ embassy_hal_common::peripherals! {
     USB,
 
     RTC,
+
+    FLASH,
 }
 
 #[link_section = ".boot2"]

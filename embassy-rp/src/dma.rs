@@ -191,7 +191,7 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
     }
 }
 
-const CHANNEL_COUNT: usize = 12;
+pub(crate) const CHANNEL_COUNT: usize = 12;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AW; CHANNEL_COUNT];
 
