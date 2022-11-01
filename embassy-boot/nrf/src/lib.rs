@@ -17,9 +17,9 @@ pub struct BootLoader {
     page: AlignedBuffer<PAGE_SIZE>,
 }
 
-impl BootLoader {
+impl Default for BootLoader {
     /// Create a new bootloader instance using parameters from linker script
-    pub fn default() -> Self {
+    fn default() -> Self {
         extern "C" {
             static __bootloader_state_start: u32;
             static __bootloader_state_end: u32;
@@ -54,7 +54,9 @@ impl BootLoader {
 
         Self::new(active, dfu, state)
     }
+}
 
+impl BootLoader {
     /// Create a new bootloader instance using the supplied partitions for active, dfu and state.
     pub fn new(active: Partition, dfu: Partition, state: Partition) -> Self {
         Self {
