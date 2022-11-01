@@ -223,7 +223,7 @@ impl Gen {
     fn load_chip(&mut self, name: &str) -> Chip {
         let chip_path = self.opts.data_dir.join("chips").join(&format!("{}.json", name));
         let chip = fs::read(chip_path).expect(&format!("Could not load chip {}", name));
-        serde_yaml::from_slice(&chip).unwrap()
+        serde_json::from_slice(&chip).unwrap()
     }
 
     pub fn gen(&mut self) {
