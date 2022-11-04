@@ -238,6 +238,7 @@ embassy_hal_common::peripherals! {
 
 impl_uarte!(UARTETWISPI0, UARTE0, SERIAL0);
 impl_spim!(UARTETWISPI0, SPIM0, SERIAL0);
+impl_spis!(UARTETWISPI0, SPIS0, SERIAL0);
 impl_twim!(UARTETWISPI0, TWIM0, SERIAL0);
 
 impl_timer!(TIMER0, TIMER0, TIMER0);
