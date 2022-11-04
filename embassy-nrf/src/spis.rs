@@ -82,7 +82,15 @@ impl<'d, T: Instance> Spis<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(cs, sck, mosi);
-        Self::new_inner(spis, irq, cs.map_into(), sck.map_into(), None, Some(mosi.map_into()), config)
+        Self::new_inner(
+            spis,
+            irq,
+            cs.map_into(),
+            sck.map_into(),
+            None,
+            Some(mosi.map_into()),
+            config,
+        )
     }
 
     pub fn new_rxonly(
@@ -94,7 +102,15 @@ impl<'d, T: Instance> Spis<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(cs, sck, miso);
-        Self::new_inner(spis, irq, cs.map_into(), sck.map_into(), Some(miso.map_into()), None, config)
+        Self::new_inner(
+            spis,
+            irq,
+            cs.map_into(),
+            sck.map_into(),
+            Some(miso.map_into()),
+            None,
+            config,
+        )
     }
 
     fn new_inner(
@@ -278,7 +294,7 @@ impl<'d, T: Instance> Spis<'d, T> {
 
             // Requests acquiring the SPIS semaphore
             r.tasks_acquire.write(|w| unsafe { w.bits(1) });
-            
+
             // Wait for 'acquire' event.
             poll_fn(|cx| {
                 s.acquire_waker.register(cx.waker());
@@ -511,6 +527,5 @@ impl<'d, T: Instance> SetConfig for Spis<'d, T> {
         // Set auto acquire
         let auto_acquire = config.auto_acquire;
         r.shorts.write(|w| w.end_acquire().bit(auto_acquire));
-
     }
 }
