@@ -126,7 +126,7 @@ impl<'d, T: Instance> Spis<'d, T> {
 
         let r = T::regs();
 
-        // Configure pins
+        // Configure pins.
         sck.conf().write(|w| w.input().connect().drive().h0h1());
         cs.conf().write(|w| w.input().connect().drive().h0h1());
         if let Some(mosi) = &mosi {
@@ -149,10 +149,6 @@ impl<'d, T: Instance> Spis<'d, T> {
                     mosi.set_low();
                 }
             }
-        }
-
-        if config.auto_acquire {
-            r.shorts.write(|w| w.end_acquire().bit(true));
         }
 
         // Select pins.
@@ -193,15 +189,20 @@ impl<'d, T: Instance> Spis<'d, T> {
             w
         });
 
-        // Set over-read character
+        // Set over-read character.
         let orc = config.orc;
         r.orc.write(|w| unsafe { w.orc().bits(orc) });
 
-        // Set default character
+        // Set default character.
         let def = config.def;
         r.def.write(|w| unsafe { w.def().bits(def) });
 
-        // Disable all events interrupts
+        // Configure auto-acquire on 'transfer end' event.
+        if config.auto_acquire {
+            r.shorts.write(|w| w.end_acquire().bit(true));
+        }
+
+        // Disable all events interrupts.
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
 
         irq.set_handler(Self::on_interrupt);
@@ -245,11 +246,11 @@ impl<'d, T: Instance> Spis<'d, T> {
         r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 
-        // Reset and enable the end event
+        // Reset and enable the end event.
         r.events_end.reset();
         r.intenset.write(|w| w.end().set());
 
-        // Release the semaphore
+        // Release the semaphore.
         r.tasks_release.write(|w| unsafe { w.bits(1) });
 
         Ok(())
@@ -287,12 +288,15 @@ impl<'d, T: Instance> Spis<'d, T> {
         let r = T::regs();
         let s = T::state();
 
+        // Clear status register.
+        r.status.write(|w| w.overflow().clear().overread().clear());
+
         if r.semstat.read().bits() != 1 {
-            // Reset and enable the acquire event
+            // Reset and enable the acquire event.
             r.events_acquired.reset();
             r.intenset.write(|w| w.acquired().set());
 
-            // Requests acquiring the SPIS semaphore
+            // Request acquiring the SPIS semaphore.
             r.tasks_acquire.write(|w| unsafe { w.bits(1) });
 
             // Wait for 'acquire' event.
@@ -341,81 +345,92 @@ impl<'d, T: Instance> Spis<'d, T> {
     }
 
     /// Reads data from the SPI bus without sending anything. Blocks until the buffer has been filled.
-    /// Returns number of bytes read
+    /// Returns number of bytes read.
     pub fn blocking_read(&mut self, data: &mut [u8]) -> Result<usize, Error> {
         self.blocking_inner(data, &[]).map(|n| n.0)
     }
 
     /// Simultaneously sends and receives data. Blocks until the transmission is completed.
     /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
-    /// Returns number of bytes transferred `(n_rx, n_tx)`
+    /// Returns number of bytes transferred `(n_rx, n_tx)`.
     pub fn blocking_transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(usize, usize), Error> {
         self.blocking_inner(read, write)
     }
 
     /// Same as [`blocking_transfer`](Spis::blocking_transfer) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    /// Returns number of bytes transferred `(n_rx, n_tx)`
+    /// Returns number of bytes transferred `(n_rx, n_tx)`.
     pub fn blocking_transfer_from_ram(&mut self, read: &mut [u8], write: &[u8]) -> Result<(usize, usize), Error> {
         self.blocking_inner(read, write)
     }
 
     /// Simultaneously sends and receives data.
     /// Places the received data into the same buffer and blocks until the transmission is completed.
-    /// Returns number of bytes transferred
+    /// Returns number of bytes transferred.
     pub fn blocking_transfer_in_place(&mut self, data: &mut [u8]) -> Result<usize, Error> {
         self.blocking_inner_from_ram(data, data).map(|n| n.0)
     }
 
     /// Sends data, discarding any received data. Blocks  until the transmission is completed.
     /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
-    /// Returns number of bytes written
+    /// Returns number of bytes written.
     pub fn blocking_write(&mut self, data: &[u8]) -> Result<usize, Error> {
         self.blocking_inner(&mut [], data).map(|n| n.1)
     }
 
     /// Same as [`blocking_write`](Spis::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    /// Returns number of bytes written
+    /// Returns number of bytes written.
     pub fn blocking_write_from_ram(&mut self, data: &[u8]) -> Result<usize, Error> {
         self.blocking_inner(&mut [], data).map(|n| n.1)
     }
 
     /// Reads data from the SPI bus without sending anything.
-    /// Returns number of bytes read
+    /// Returns number of bytes read.
     pub async fn read(&mut self, data: &mut [u8]) -> Result<usize, Error> {
         self.async_inner(data, &[]).await.map(|n| n.0)
     }
 
     /// Simultaneously sends and receives data.
     /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
-    /// Returns number of bytes transferred `(n_rx, n_tx)`
+    /// Returns number of bytes transferred `(n_rx, n_tx)`.
     pub async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(usize, usize), Error> {
         self.async_inner(read, write).await
     }
 
     /// Same as [`transfer`](Spis::transfer) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    /// Returns number of bytes transferred `(n_rx, n_tx)`
+    /// Returns number of bytes transferred `(n_rx, n_tx)`.
     pub async fn transfer_from_ram(&mut self, read: &mut [u8], write: &[u8]) -> Result<(usize, usize), Error> {
         self.async_inner_from_ram(read, write).await
     }
 
     /// Simultaneously sends and receives data. Places the received data into the same buffer.
-    /// Returns number of bytes transferred
+    /// Returns number of bytes transferred.
     pub async fn transfer_in_place(&mut self, data: &mut [u8]) -> Result<usize, Error> {
         self.async_inner_from_ram(data, data).await.map(|n| n.0)
     }
 
     /// Sends data, discarding any received data.
     /// If necessary, the write buffer will be copied into RAM (see struct description for detail).
-    /// Returns number of bytes written
+    /// Returns number of bytes written.
     pub async fn write(&mut self, data: &[u8]) -> Result<usize, Error> {
         self.async_inner(&mut [], data).await.map(|n| n.1)
     }
 
     /// Same as [`write`](Spis::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    /// Returns number of bytes written
+    /// Returns number of bytes written.
     pub async fn write_from_ram(&mut self, data: &[u8]) -> Result<usize, Error> {
         self.async_inner_from_ram(&mut [], data).await.map(|n| n.1)
     }
+
+    /// Checks if last transaction overread.
+    pub fn is_overread(&mut self) -> bool {
+        T::regs().status.read().overread().is_present()
+    }
+
+    /// Checks if last transaction overflowed.
+    pub fn is_overflow(&mut self) -> bool {
+        T::regs().status.read().overflow().is_present()
+    }
+
 }
 
 impl<'d, T: Instance> Drop for Spis<'d, T> {
@@ -516,15 +531,15 @@ impl<'d, T: Instance> SetConfig for Spis<'d, T> {
             w
         });
 
-        // Set over-read character
+        // Set over-read character.
         let orc = config.orc;
         r.orc.write(|w| unsafe { w.orc().bits(orc) });
 
-        // Set default character
+        // Set default character.
         let def = config.def;
         r.def.write(|w| unsafe { w.def().bits(def) });
 
-        // Set auto acquire
+        // Configure auto-acquire on 'transfer end' event.
         let auto_acquire = config.auto_acquire;
         r.shorts.write(|w| w.end_acquire().bit(auto_acquire));
     }
