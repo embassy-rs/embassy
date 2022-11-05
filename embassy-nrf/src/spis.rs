@@ -441,7 +441,6 @@ impl<'d, T: Instance> Spis<'d, T> {
     pub fn is_overflow(&mut self) -> bool {
         T::regs().status.read().overflow().is_present()
     }
-
 }
 
 impl<'d, T: Instance> Drop for Spis<'d, T> {
