@@ -257,8 +257,18 @@ impl<'d, T: Instance> Spis<'d, T> {
     }
 
     fn blocking_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(usize, usize), Error> {
-        self.prepare(rx, tx)?;
+        compiler_fence(Ordering::SeqCst);
         let r = T::regs();
+
+        // Acquire semaphore.
+        if r.semstat.read().bits() != 1 {
+            r.events_acquired.reset();
+            r.tasks_acquire.write(|w| unsafe { w.bits(1) });
+            // Wait until CPU has acquired the semaphore.
+            while r.semstat.read().bits() != 1 {}
+        }
+
+        self.prepare(rx, tx)?;
 
         // Wait for 'end' event.
         while r.events_end.read().bits() == 0 {}
@@ -291,6 +301,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         // Clear status register.
         r.status.write(|w| w.overflow().clear().overread().clear());
 
+        // Acquire semaphore.
         if r.semstat.read().bits() != 1 {
             // Reset and enable the acquire event.
             r.events_acquired.reset();
@@ -299,10 +310,10 @@ impl<'d, T: Instance> Spis<'d, T> {
             // Request acquiring the SPIS semaphore.
             r.tasks_acquire.write(|w| unsafe { w.bits(1) });
 
-            // Wait for 'acquire' event.
+            // Wait until CPU has acquired the semaphore.
             poll_fn(|cx| {
                 s.acquire_waker.register(cx.waker());
-                if r.events_acquired.read().bits() != 0 {
+                if r.semstat.read().bits() == 1 {
                     return Poll::Ready(());
                 }
                 Poll::Pending
