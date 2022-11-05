@@ -5,7 +5,7 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_nrf::interrupt;
-use embassy_nrf::spis::{Spis, Config};
+use embassy_nrf::spis::{Config, Spis};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
