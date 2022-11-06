@@ -34,3 +34,27 @@ declare!(ADC_IRQ_FIFO);
 declare!(I2C0_IRQ);
 declare!(I2C1_IRQ);
 declare!(RTC_IRQ);
+
+pub trait InterruptFunction {
+    fn on_interrupt();
+}
+
+// Marker trait
+pub unsafe trait Registration<T: Interrupt> {}
+
+#[macro_export]
+macro_rules! register_interrupts {
+    ($name:ident: $($irq:ident),*) => {
+        struct $name;
+
+        $(
+            #[allow(non_snake_case)]
+            #[no_mangle]
+            extern "C" fn $irq() {
+                <$crate::interrupt::$irq as $crate::interrupt::InterruptFunction>::on_interrupt();
+            }
+
+            unsafe impl $crate::interrupt::Registration<$crate::interrupt::$irq> for $name {}
+        )*
+    };
+}

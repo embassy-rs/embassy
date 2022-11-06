@@ -5,7 +5,13 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use crate::dma::{AnyChannel, Channel};
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
-use crate::{pac, peripherals, Peripheral};
+use crate::pac::uart as pac;
+use crate::{peripherals, Peripheral};
+
+#[cfg(feature = "nightly")]
+mod buffered;
+#[cfg(feature = "nightly")]
+pub use buffered::*;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DataBits {
@@ -77,31 +83,26 @@ pub enum Error {
     Framing,
 }
 
-pub struct Uart<'d, T: Instance, M: Mode> {
-    tx: UartTx<'d, T, M>,
-    rx: UartRx<'d, T, M>,
+pub struct Uart<'d, M: Mode> {
+    tx: UartTx<'d, M>,
+    rx: UartRx<'d, M>,
 }
 
-pub struct UartTx<'d, T: Instance, M: Mode> {
+pub struct UartTx<'d, M: Mode> {
+    info: &'static Info,
     tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
-    phantom: PhantomData<(&'d mut T, M)>,
+    phantom: PhantomData<M>,
 }
 
-pub struct UartRx<'d, T: Instance, M: Mode> {
+pub struct UartRx<'d, M: Mode> {
+    info: &'static Info,
     rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
-    phantom: PhantomData<(&'d mut T, M)>,
+    phantom: PhantomData<M>,
 }
 
-impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
-    fn new(tx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
-        Self {
-            tx_dma,
-            phantom: PhantomData,
-        }
-    }
-
+impl<'d, M: Mode> UartTx<'d, M> {
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        let r = T::regs();
+        let r = self.info.regs;
         unsafe {
             for &b in buffer {
                 while r.uartfr().read().txff() {}
@@ -112,38 +113,31 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
     }
 
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
-        let r = T::regs();
+        let r = self.info.regs;
         unsafe { while !r.uartfr().read().txfe() {} }
         Ok(())
     }
 }
 
-impl<'d, T: Instance> UartTx<'d, T, Async> {
+impl<'d> UartTx<'d, Async> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let ch = self.tx_dma.as_mut().unwrap();
         let transfer = unsafe {
-            T::regs().uartdmacr().modify(|reg| {
+            self.info.regs.uartdmacr().modify(|reg| {
                 reg.set_txdmae(true);
             });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::write(ch, buffer, T::regs().uartdr().ptr() as *mut _, T::TX_DREQ)
+            crate::dma::write(ch, buffer, self.info.regs.uartdr().ptr() as *mut _, self.info.tx_dreq)
         };
         transfer.await;
         Ok(())
     }
 }
 
-impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
-    fn new(rx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
-        Self {
-            rx_dma,
-            phantom: PhantomData,
-        }
-    }
-
+impl<'d, M: Mode> UartRx<'d, M> {
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        let r = T::regs();
+        let r = self.info.regs;
         unsafe {
             for b in buffer {
                 *b = loop {
@@ -171,37 +165,37 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
     }
 }
 
-impl<'d, T: Instance> UartRx<'d, T, Async> {
+impl<'d> UartRx<'d, Async> {
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         let ch = self.rx_dma.as_mut().unwrap();
         let transfer = unsafe {
-            T::regs().uartdmacr().modify(|reg| {
+            self.info.regs.uartdmacr().modify(|reg| {
                 reg.set_rxdmae(true);
             });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(ch, T::regs().uartdr().ptr() as *const _, buffer, T::RX_DREQ)
+            crate::dma::read(ch, self.info.regs.uartdr().ptr() as *const _, buffer, self.info.rx_dreq)
         };
         transfer.await;
         Ok(())
     }
 }
 
-impl<'d, T: Instance> Uart<'d, T, Blocking> {
+impl<'d> Uart<'d, Blocking> {
     /// Create a new UART without hardware flow control
-    pub fn new_blocking(
-        uart: impl Peripheral<P = T> + 'd,
+    pub fn new_blocking<T: Instance>(
+        _uart: impl Peripheral<P = T> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(tx, rx);
-        Self::new_inner(uart, rx.map_into(), tx.map_into(), None, None, None, None, config)
+        Self::new_inner(T::info(), tx.map_into(), rx.map_into(), None, None, None, None, config)
     }
 
     /// Create a new UART with hardware flow control (RTS/CTS)
-    pub fn new_with_rtscts_blocking(
-        uart: impl Peripheral<P = T> + 'd,
+    pub fn new_with_rtscts_blocking<T: Instance>(
+        _uart: impl Peripheral<P = T> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
@@ -210,9 +204,9 @@ impl<'d, T: Instance> Uart<'d, T, Blocking> {
     ) -> Self {
         into_ref!(tx, rx, cts, rts);
         Self::new_inner(
-            uart,
-            rx.map_into(),
+            T::info(),
             tx.map_into(),
+            rx.map_into(),
             Some(rts.map_into()),
             Some(cts.map_into()),
             None,
@@ -222,10 +216,10 @@ impl<'d, T: Instance> Uart<'d, T, Blocking> {
     }
 }
 
-impl<'d, T: Instance> Uart<'d, T, Async> {
+impl<'d> Uart<'d, Async> {
     /// Create a new DMA enabled UART without hardware flow control
-    pub fn new(
-        uart: impl Peripheral<P = T> + 'd,
+    pub fn new<T: Instance>(
+        _uart: impl Peripheral<P = T> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx_dma: impl Peripheral<P = impl Channel> + 'd,
@@ -234,9 +228,9 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
     ) -> Self {
         into_ref!(tx, rx, tx_dma, rx_dma);
         Self::new_inner(
-            uart,
-            rx.map_into(),
+            T::info(),
             tx.map_into(),
+            rx.map_into(),
             None,
             None,
             Some(tx_dma.map_into()),
@@ -246,8 +240,8 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
     }
 
     /// Create a new DMA enabled UART with hardware flow control (RTS/CTS)
-    pub fn new_with_rtscts(
-        uart: impl Peripheral<P = T> + 'd,
+    pub fn new_with_rtscts<T: Instance>(
+        _uart: impl Peripheral<P = T> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
@@ -258,7 +252,7 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
     ) -> Self {
         into_ref!(tx, rx, cts, rts, tx_dma, rx_dma);
         Self::new_inner(
-            uart,
+            T::info(),
             rx.map_into(),
             tx.map_into(),
             Some(rts.map_into()),
@@ -270,104 +264,120 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
     }
 }
 
-impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
+impl<'d, M: Mode> Uart<'d, M> {
     fn new_inner(
-        _uart: impl Peripheral<P = T> + 'd,
-        tx: PeripheralRef<'d, AnyPin>,
-        rx: PeripheralRef<'d, AnyPin>,
-        rts: Option<PeripheralRef<'d, AnyPin>>,
-        cts: Option<PeripheralRef<'d, AnyPin>>,
+        info: &'static Info,
+        mut tx: PeripheralRef<'d, AnyPin>,
+        mut rx: PeripheralRef<'d, AnyPin>,
+        mut rts: Option<PeripheralRef<'d, AnyPin>>,
+        mut cts: Option<PeripheralRef<'d, AnyPin>>,
         tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         config: Config,
     ) -> Self {
-        into_ref!(_uart);
-
-        unsafe {
-            let r = T::regs();
-
-            tx.io().ctrl().write(|w| w.set_funcsel(2));
-            rx.io().ctrl().write(|w| w.set_funcsel(2));
-
-            tx.pad_ctrl().write(|w| {
-                w.set_ie(true);
-            });
-
-            rx.pad_ctrl().write(|w| {
-                w.set_ie(true);
-            });
-
-            if let Some(pin) = &cts {
-                pin.io().ctrl().write(|w| w.set_funcsel(2));
-                pin.pad_ctrl().write(|w| {
-                    w.set_ie(true);
-                });
-            }
-            if let Some(pin) = &rts {
-                pin.io().ctrl().write(|w| w.set_funcsel(2));
-                pin.pad_ctrl().write(|w| {
-                    w.set_ie(true);
-                });
-            }
-
-            let clk_base = crate::clocks::clk_peri_freq();
-
-            let baud_rate_div = (8 * clk_base) / config.baudrate;
-            let mut baud_ibrd = baud_rate_div >> 7;
-            let mut baud_fbrd = ((baud_rate_div & 0x7f) + 1) / 2;
-
-            if baud_ibrd == 0 {
-                baud_ibrd = 1;
-                baud_fbrd = 0;
-            } else if baud_ibrd >= 65535 {
-                baud_ibrd = 65535;
-                baud_fbrd = 0;
-            }
-
-            // Load PL011's baud divisor registers
-            r.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
-            r.uartfbrd().write_value(pac::uart::regs::Uartfbrd(baud_fbrd));
-
-            let (pen, eps) = match config.parity {
-                Parity::ParityNone => (false, false),
-                Parity::ParityOdd => (true, false),
-                Parity::ParityEven => (true, true),
-            };
-
-            // PL011 needs a (dummy) line control register write to latch in the
-            // divisors. We don't want to actually change LCR contents here.
-            r.uartlcr_h().modify(|_| {});
-
-            r.uartlcr_h().write(|w| {
-                w.set_wlen(config.data_bits.bits());
-                w.set_stp2(config.stop_bits == StopBits::STOP2);
-                w.set_pen(pen);
-                w.set_eps(eps);
-                w.set_fen(true);
-            });
-
-            r.uartifls().write(|w| {
-                w.set_rxiflsel(0b000);
-                w.set_txiflsel(0b000);
-            });
-
-            r.uartcr().write(|w| {
-                w.set_uarten(true);
-                w.set_rxe(true);
-                w.set_txe(true);
-                w.set_ctsen(cts.is_some());
-                w.set_rtsen(rts.is_some());
-            });
-        }
+        init(
+            info,
+            Some(tx.reborrow()),
+            Some(rx.reborrow()),
+            rts.as_mut().map(|x| x.reborrow()),
+            cts.as_mut().map(|x| x.reborrow()),
+            config,
+        );
 
         Self {
-            tx: UartTx::new(tx_dma),
-            rx: UartRx::new(rx_dma),
+            tx: UartTx {
+                info,
+                tx_dma,
+                phantom: PhantomData,
+            },
+            rx: UartRx {
+                info,
+                rx_dma,
+                phantom: PhantomData,
+            },
         }
     }
 }
 
-impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
+fn init(
+    info: &'static Info,
+    tx: Option<PeripheralRef<'_, AnyPin>>,
+    rx: Option<PeripheralRef<'_, AnyPin>>,
+    rts: Option<PeripheralRef<'_, AnyPin>>,
+    cts: Option<PeripheralRef<'_, AnyPin>>,
+    config: Config,
+) {
+    let r = info.regs;
+    unsafe {
+        if let Some(pin) = &tx {
+            pin.io().ctrl().write(|w| w.set_funcsel(2));
+            pin.pad_ctrl().write(|w| w.set_ie(true));
+        }
+        if let Some(pin) = &rx {
+            pin.io().ctrl().write(|w| w.set_funcsel(2));
+            pin.pad_ctrl().write(|w| w.set_ie(true));
+        }
+        if let Some(pin) = &cts {
+            pin.io().ctrl().write(|w| w.set_funcsel(2));
+            pin.pad_ctrl().write(|w| w.set_ie(true));
+        }
+        if let Some(pin) = &rts {
+            pin.io().ctrl().write(|w| w.set_funcsel(2));
+            pin.pad_ctrl().write(|w| w.set_ie(true));
+        }
+
+        let clk_base = crate::clocks::clk_peri_freq();
+
+        let baud_rate_div = (8 * clk_base) / config.baudrate;
+        let mut baud_ibrd = baud_rate_div >> 7;
+        let mut baud_fbrd = ((baud_rate_div & 0x7f) + 1) / 2;
+
+        if baud_ibrd == 0 {
+            baud_ibrd = 1;
+            baud_fbrd = 0;
+        } else if baud_ibrd >= 65535 {
+            baud_ibrd = 65535;
+            baud_fbrd = 0;
+        }
+
+        // Load PL011's baud divisor registers
+        r.uartibrd().write_value(pac::regs::Uartibrd(baud_ibrd));
+        r.uartfbrd().write_value(pac::regs::Uartfbrd(baud_fbrd));
+
+        let (pen, eps) = match config.parity {
+            Parity::ParityNone => (false, false),
+            Parity::ParityOdd => (true, false),
+            Parity::ParityEven => (true, true),
+        };
+
+        // PL011 needs a (dummy) line control register write to latch in the
+        // divisors. We don't want to actually change LCR contents here.
+        r.uartlcr_h().modify(|_| {});
+
+        r.uartlcr_h().write(|w| {
+            w.set_wlen(config.data_bits.bits());
+            w.set_stp2(config.stop_bits == StopBits::STOP2);
+            w.set_pen(pen);
+            w.set_eps(eps);
+            w.set_fen(true);
+        });
+
+        r.uartifls().write(|w| {
+            w.set_rxiflsel(0b000);
+            w.set_txiflsel(0b000);
+        });
+
+        r.uartcr().write(|w| {
+            w.set_uarten(true);
+            w.set_rxe(true);
+            w.set_txe(true);
+            w.set_ctsen(cts.is_some());
+            w.set_rtsen(rts.is_some());
+        });
+    }
+}
+
+impl<'d, M: Mode> Uart<'d, M> {
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.blocking_write(buffer)
     }
@@ -382,12 +392,12 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
 
     /// Split the Uart into a transmitter and receiver, which is particuarly
     /// useful when having two tasks correlating to transmitting and receiving.
-    pub fn split(self) -> (UartTx<'d, T, M>, UartRx<'d, T, M>) {
+    pub fn split(self) -> (UartTx<'d, M>, UartRx<'d, M>) {
         (self.tx, self.rx)
     }
 }
 
-impl<'d, T: Instance> Uart<'d, T, Async> {
+impl<'d> Uart<'d, Async> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.write(buffer).await
     }
@@ -400,10 +410,10 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
 mod eh02 {
     use super::*;
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_02::serial::Read<u8> for UartRx<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_02::serial::Read<u8> for UartRx<'d, M> {
         type Error = Error;
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-            let r = T::regs();
+            let r = self.info.regs;
             unsafe {
                 if r.uartfr().read().rxfe() {
                     return Err(nb::Error::WouldBlock);
@@ -426,7 +436,7 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, M> {
         type Error = Error;
 
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
@@ -438,7 +448,7 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_02::serial::Read<u8> for Uart<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_02::serial::Read<u8> for Uart<'d, M> {
         type Error = Error;
 
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
@@ -446,7 +456,7 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, M> {
         type Error = Error;
 
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
@@ -474,21 +484,21 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::ErrorType for Uart<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_1::serial::ErrorType for Uart<'d, M> {
         type Error = Error;
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::ErrorType for UartTx<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_1::serial::ErrorType for UartTx<'d, M> {
         type Error = Error;
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::ErrorType for UartRx<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_1::serial::ErrorType for UartRx<'d, M> {
         type Error = Error;
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Read for UartRx<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_nb::serial::Read for UartRx<'d, M> {
         fn read(&mut self) -> nb::Result<u8, Self::Error> {
-            let r = T::regs();
+            let r = self.info.regs;
             unsafe {
                 let dr = r.uartdr().read();
 
@@ -509,7 +519,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::Write for UartTx<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_1::serial::Write for UartTx<'d, M> {
         fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
         }
@@ -519,7 +529,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Write for UartTx<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_nb::serial::Write for UartTx<'d, M> {
         fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
             self.blocking_write(&[char]).map_err(nb::Error::Other)
         }
@@ -529,13 +539,13 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Read for Uart<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_nb::serial::Read for Uart<'d, M> {
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             embedded_hal_02::serial::Read::read(&mut self.rx)
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::Write for Uart<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_1::serial::Write for Uart<'d, M> {
         fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(buffer)
         }
@@ -545,7 +555,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Write for Uart<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_nb::serial::Write for Uart<'d, M> {
         fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
             self.blocking_write(&[char]).map_err(nb::Error::Other)
         }
@@ -566,7 +576,7 @@ mod eha {
 
     use super::*;
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Write for UartTx<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_async::serial::Write for UartTx<'d, M> {
         type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
         fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
@@ -580,7 +590,7 @@ mod eha {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Read for UartRx<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_async::serial::Read for UartRx<'d, M> {
         type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
         fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
@@ -588,7 +598,7 @@ mod eha {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Write for Uart<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_async::serial::Write for Uart<'d, M> {
         type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
         fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
@@ -602,7 +612,7 @@ mod eha {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Read for Uart<'d, T, M> {
+    impl<'d, M: Mode> embedded_hal_async::serial::Read for Uart<'d, M> {
         type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
         fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
@@ -610,11 +620,6 @@ mod eha {
         }
     }
 }
-
-#[cfg(feature = "nightly")]
-mod buffered;
-#[cfg(feature = "nightly")]
-pub use buffered::*;
 
 mod sealed {
     use super::*;
@@ -622,18 +627,25 @@ mod sealed {
     pub trait Mode {}
 
     pub trait Instance {
-        const TX_DREQ: u8;
-        const RX_DREQ: u8;
-
         type Interrupt: crate::interrupt::Interrupt;
-
-        fn regs() -> pac::uart::Uart;
+        fn info() -> &'static Info;
     }
     pub trait TxPin<T: Instance> {}
     pub trait RxPin<T: Instance> {}
     pub trait CtsPin<T: Instance> {}
     pub trait RtsPin<T: Instance> {}
+
+    /// Info about one concrete peripheral instance.
+    pub struct Info {
+        pub(crate) regs: pac::Uart,
+        pub(crate) tx_dreq: u8,
+        pub(crate) rx_dreq: u8,
+        pub(crate) irq: crate::pac::Interrupt,
+        pub(crate) state: &'static super::buffered::State,
+    }
 }
+
+use sealed::Info;
 
 pub trait Mode: sealed::Mode {}
 
@@ -655,16 +667,27 @@ pub trait Instance: sealed::Instance {}
 macro_rules! impl_instance {
     ($inst:ident, $irq:ident, $tx_dreq:expr, $rx_dreq:expr) => {
         impl sealed::Instance for peripherals::$inst {
-            const TX_DREQ: u8 = $tx_dreq;
-            const RX_DREQ: u8 = $rx_dreq;
-
             type Interrupt = crate::interrupt::$irq;
 
-            fn regs() -> pac::uart::Uart {
-                pac::$inst
+            fn info() -> &'static Info {
+                static STATE: buffered::State = buffered::State::new();
+                static INFO: Info = Info {
+                    regs: crate::pac::$inst,
+                    tx_dreq: $tx_dreq,
+                    rx_dreq: $rx_dreq,
+                    irq: crate::pac::Interrupt::$irq,
+                    state: &STATE,
+                };
+                &INFO
             }
         }
         impl Instance for peripherals::$inst {}
+
+        impl crate::interrupt::InterruptFunction for crate::interrupt::$irq {
+            fn on_interrupt() {
+                buffered::on_interrupt(<peripherals::$inst as sealed::Instance>::info())
+            }
+        }
     };
 }
 

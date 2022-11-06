@@ -3,8 +3,10 @@
 #![feature(type_alias_impl_trait)]
 
 use embassy_executor::Spawner;
-use embassy_rp::uart;
+use embassy_rp::{register_interrupts, uart};
 use {defmt_rtt as _, panic_probe as _};
+
+register_interrupts!(Reg: UART0_IRQ);
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
