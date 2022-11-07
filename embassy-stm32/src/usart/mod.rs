@@ -6,6 +6,8 @@ use core::task::Poll;
 
 use atomic_polyfill::{compiler_fence, Ordering};
 use embassy_cortex_m::interrupt::InterruptExt;
+use embassy_futures::select::{select, Either};
+use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::dma::NoDma;
@@ -83,6 +85,13 @@ pub enum Error {
     Parity,
     /// Buffer too large for DMA
     BufferTooLong,
+}
+
+enum ReadCompletionEvent {
+    // DMA Read transfer completed first
+    DmaCompleted,
+    // Idle line detected first
+    Idle,
 }
 
 pub struct Uart<'d, T: BasicInstance, TxDma = NoDma, RxDma = NoDma> {
@@ -385,30 +394,50 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         self.inner_read(buffer, true).await
     }
 
-    async fn inner_read(&mut self, buffer: &mut [u8], enable_idle_line_detection: bool) -> Result<usize, Error>
+    async fn inner_read_run(
+        &mut self,
+        buffer: &mut [u8],
+        enable_idle_line_detection: bool,
+    ) -> Result<ReadCompletionEvent, Error>
     where
         RxDma: crate::usart::RxDma<T>,
     {
-        if buffer.is_empty() {
-            return Ok(0);
-        } else if buffer.len() > 0xFFFF {
-            return Err(Error::BufferTooLong);
-        }
-
         let r = T::regs();
 
-        let buffer_len = buffer.len();
+        // make sure USART state is restored to neutral state when this future is dropped
+        let _drop = OnDrop::new(move || {
+            // defmt::trace!("Clear all USART interrupts and DMA Read Request");
+            // clear all interrupts and DMA Rx Request
+            // SAFETY: only clears Rx related flags
+            unsafe {
+                r.cr1().modify(|w| {
+                    // disable RXNE interrupt
+                    w.set_rxneie(false);
+                    // disable parity interrupt
+                    w.set_peie(false);
+                    // disable idle line interrupt
+                    w.set_idleie(false);
+                });
+                r.cr3().modify(|w| {
+                    // disable Error Interrupt: (Frame error, Noise error, Overrun error)
+                    w.set_eie(false);
+                    // disable DMA Rx Request
+                    w.set_dmar(false);
+                });
+            }
+        });
 
         let ch = &mut self.rx_dma;
         let request = ch.request();
 
+        // Start USART DMA
+        // will not do anything yet because DMAR is not yet set
+        // future which will complete when DMA Read request completes
+        let transfer = crate::dma::read(ch, request, rdr(T::regs()), buffer);
+
         // SAFETY: The only way we might have a problem is using split rx and tx
         // here we only modify or read Rx related flags, interrupts and DMA channel
         unsafe {
-            // Start USART DMA
-            // will not do anything yet because DMAR is not yet set
-            ch.start_read(request, rdr(r), buffer, Default::default());
-
             // clear ORE flag just before enabling DMA Rx Request: can be mandatory for the second transfer
             if !self.detect_previous_overrun {
                 let sr = sr(r).read();
@@ -443,9 +472,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
                 // something went wrong
                 // because the only way to get this flag cleared is to have an interrupt
 
-                // abort DMA transfer
-                ch.request_stop();
-                while ch.is_running() {}
+                // DMA will be stopped when transfer is dropped
 
                 let sr = sr(r).read();
                 // This read also clears the error and idle interrupt flags on v1.
@@ -468,26 +495,30 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
                 unreachable!();
             }
 
-            // clear idle flag
-            if enable_idle_line_detection {
-                let sr = sr(r).read();
-                // This read also clears the error and idle interrupt flags on v1.
-                rdr(r).read_volatile();
-                clear_interrupt_flags(r, sr);
+            if !enable_idle_line_detection {
+                transfer.await;
 
-                // enable idle interrupt
-                r.cr1().modify(|w| {
-                    w.set_idleie(true);
-                });
+                return Ok(ReadCompletionEvent::DmaCompleted);
             }
+
+            // clear idle flag
+            let sr = sr(r).read();
+            // This read also clears the error and idle interrupt flags on v1.
+            rdr(r).read_volatile();
+            clear_interrupt_flags(r, sr);
+
+            // enable idle interrupt
+            r.cr1().modify(|w| {
+                w.set_idleie(true);
+            });
         }
 
         compiler_fence(Ordering::SeqCst);
 
-        let res = poll_fn(move |cx| {
+        // future which completes when idle line is detected
+        let idle = poll_fn(move |cx| {
             let s = T::state();
 
-            ch.set_waker(cx.waker());
             s.rx_waker.register(cx.waker());
 
             // SAFETY: read only and we only use Rx related flags
@@ -507,10 +538,6 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
             if has_errors {
                 // all Rx interrupts and Rx DMA Request have already been cleared in interrupt handler
 
-                // stop dma transfer
-                ch.request_stop();
-                while ch.is_running() {}
-
                 if sr.pe() {
                     return Poll::Ready(Err(Error::Parity));
                 }
@@ -525,45 +552,54 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
                 }
             }
 
-            if enable_idle_line_detection && sr.idle() {
-                // Idle line
-
-                // stop dma transfer
-                ch.request_stop();
-                while ch.is_running() {}
-
-                let n = buffer_len - (ch.remaining_transfers() as usize);
-
-                return Poll::Ready(Ok(n));
-            } else if !ch.is_running() {
-                // DMA complete
-                return Poll::Ready(Ok(buffer_len));
+            if sr.idle() {
+                // Idle line detected
+                return Poll::Ready(Ok(()));
             }
 
             Poll::Pending
-        })
-        .await;
+        });
 
-        // clear all interrupts and DMA Rx Request
-        // SAFETY: only clears Rx related flags
-        unsafe {
-            r.cr1().modify(|w| {
-                // disable RXNE interrupt
-                w.set_rxneie(false);
-                // disable parity interrupt
-                w.set_peie(false);
-                // disable idle line interrupt
-                w.set_idleie(false);
-            });
-            r.cr3().modify(|w| {
-                // disable Error Interrupt: (Frame error, Noise error, Overrun error)
-                w.set_eie(false);
-                // disable DMA Rx Request
-                w.set_dmar(false);
-            });
+        // wait for the first of DMA request or idle line detected to completes
+        // select consumes its arguments
+        // when transfer is dropped, it will stop the DMA request
+        match select(transfer, idle).await {
+            // DMA transfer completed first
+            Either::First(()) => Ok(ReadCompletionEvent::DmaCompleted),
+
+            // Idle line detected first
+            Either::Second(Ok(())) => Ok(ReadCompletionEvent::Idle),
+
+            // error occurred
+            Either::Second(Err(e)) => Err(e),
+        }
+    }
+
+    async fn inner_read(&mut self, buffer: &mut [u8], enable_idle_line_detection: bool) -> Result<usize, Error>
+    where
+        RxDma: crate::usart::RxDma<T>,
+    {
+        if buffer.is_empty() {
+            return Ok(0);
+        } else if buffer.len() > 0xFFFF {
+            return Err(Error::BufferTooLong);
         }
 
-        res
+        let buffer_len = buffer.len();
+
+        // wait for DMA to complete or IDLE line detection if requested
+        let res = self.inner_read_run(buffer, enable_idle_line_detection).await;
+
+        let ch = &mut self.rx_dma;
+
+        match res {
+            Ok(ReadCompletionEvent::DmaCompleted) => Ok(buffer_len),
+            Ok(ReadCompletionEvent::Idle) => {
+                let n = buffer_len - (ch.remaining_transfers() as usize);
+                Ok(n)
+            }
+            Err(e) => Err(e),
+        }
     }
 }
 
