@@ -13,7 +13,7 @@ use embassy_rp::gpio::{Flex, Level, Output};
 use embassy_rp::peripherals::{PIN_23, PIN_24, PIN_25, PIN_29};
 use embedded_hal_1::spi::ErrorType;
 use embedded_hal_async::spi::{ExclusiveDevice, SpiBusFlush, SpiBusRead, SpiBusWrite};
-use embedded_io::asynch::{Read, Write};
+use embedded_io::asynch::Write;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -165,7 +165,7 @@ impl SpiBusFlush for MySpi {
 }
 
 impl SpiBusRead<u32> for MySpi {
-    type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+    type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
     where
         Self: 'a;
 
@@ -195,7 +195,7 @@ impl SpiBusRead<u32> for MySpi {
 }
 
 impl SpiBusWrite<u32> for MySpi {
-    type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>>
+    type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
     where
         Self: 'a;
 
