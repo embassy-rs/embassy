@@ -17,7 +17,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     let config = i2s::Config::default();
 
-    let mut i2s = i2s::I2s::new(p.I2S, p.P0_28, p.P0_29, p.P0_31, p.P0_11, p.P0_30, config);
+    let mut i2s = i2s::I2S::new(p.I2S, p.P0_28, p.P0_29, p.P0_31, p.P0_11, p.P0_30, config);
 
     let mut signal_buf: Aligned<[i16; 32]> = Aligned([0i16; 32]);
     let len = signal_buf.0.len() / 2;

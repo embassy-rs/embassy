@@ -9,11 +9,10 @@
 //use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
-//use crate::pac::i2s::config::mcken;
-
 //use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::interrupt::Interrupt;
+use crate::pac::i2s::CONFIG;
 use crate::Peripheral;
 
 // TODO: Define those in lib.rs somewhere else
@@ -40,7 +39,7 @@ pub enum Error {
 #[non_exhaustive]
 pub struct Config {
     pub ratio: Ratio,
-    pub sample_width: SampleWidth,
+    pub swidth: SampleWidth,
     pub align: Align,
     pub format: Format,
     pub channels: Channels,
@@ -50,7 +49,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             ratio: Ratio::_32x,
-            sample_width: SampleWidth::_16bit,
+            swidth: SampleWidth::_16bit,
             align: Align::Left,
             format: Format::I2S,
             channels: Channels::Stereo,
@@ -165,7 +164,7 @@ pub enum Mode {
 /// Interface to the UARTE peripheral using EasyDMA to offload the transmission and reception workload.
 ///
 /// For more details about EasyDMA, consult the module documentation.
-pub struct I2s<'d, T: Instance> {
+pub struct I2S<'d, T: Instance> {
     output: I2sOutput<'d, T>,
     _input: I2sInput<'d, T>,
 }
@@ -182,7 +181,7 @@ pub struct I2sInput<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
 }
 
-impl<'d, T: Instance> I2s<'d, T> {
+impl<'d, T: Instance> I2S<'d, T> {
     /// Create a new I2S
     pub fn new(
         i2s: impl Peripheral<P = T> + 'd,
@@ -215,25 +214,13 @@ impl<'d, T: Instance> I2s<'d, T> {
         lrck: PeripheralRef<'d, AnyPin>,
         sdin: PeripheralRef<'d, AnyPin>,
         sdout: PeripheralRef<'d, AnyPin>,
-        _config: Config,
+        config: Config,
     ) -> Self {
-        into_ref!(
-            i2s, // irq,
-            mck, sck, lrck, sdin, sdout
-        );
+        into_ref!(i2s, /* irq, */ mck, sck, lrck, sdin, sdout);
 
         let r = T::regs();
 
-        // TODO get configuration rather than hardcoding ratio, swidth, align, format, channels
-
-        r.config.mcken.write(|w| w.mcken().enabled());
-        r.config.mckfreq.write(|w| w.mckfreq()._32mdiv16());
-        r.config.ratio.write(|w| w.ratio()._192x());
-        r.config.mode.write(|w| w.mode().master());
-        r.config.swidth.write(|w| w.swidth()._16bit());
-        r.config.align.write(|w| w.align().left());
-        r.config.format.write(|w| w.format().i2s());
-        r.config.channels.write(|w| w.channels().stereo());
+        Self::apply_config(&r.config, &config);
 
         r.psel.mck.write(|w| {
             unsafe { w.bits(mck.psel_bits()) };
@@ -324,6 +311,62 @@ impl<'d, T: Instance> I2s<'d, T> {
     #[allow(unused_mut)]
     pub async fn tx(&mut self, ptr: *const u8, len: usize) -> Result<(), Error> {
         self.output.tx(ptr, len).await
+    }
+
+    fn apply_config(c: &CONFIG, config: &Config) {
+        // TODO support slave too
+        c.mcken.write(|w| w.mcken().enabled());
+        c.mckfreq.write(|w| w.mckfreq()._32mdiv16());
+        c.mode.write(|w| w.mode().master());
+
+        c.ratio.write(|w| {
+            let ratio = w.ratio();
+            match config.ratio {
+                Ratio::_32x => ratio._32x(),
+                Ratio::_48x => ratio._48x(),
+                Ratio::_64x => ratio._64x(),
+                Ratio::_96x => ratio._96x(),
+                Ratio::_128x => ratio._128x(),
+                Ratio::_192x => ratio._192x(),
+                Ratio::_256x => ratio._256x(),
+                Ratio::_384x => ratio._384x(),
+                Ratio::_512x => ratio._512x(),
+            }
+        });
+
+        c.swidth.write(|w| {
+            let swidth = w.swidth();
+            match config.swidth {
+                SampleWidth::_8bit => swidth._8bit(),
+                SampleWidth::_16bit => swidth._16bit(),
+                SampleWidth::_24bit => swidth._24bit(),
+            }
+        });
+
+        c.align.write(|w| {
+            let align = w.align();
+            match config.align {
+                Align::Left => align.left(),
+                Align::Right => align.right(),
+            }
+        });
+
+        c.format.write(|w| {
+            let format = w.format();
+            match config.format {
+                Format::I2S => format.i2s(),
+                Format::Aligned => format.aligned(),
+            }
+        });
+
+        c.channels.write(|w| {
+            let channels = w.channels();
+            match config.channels {
+                Channels::Stereo => channels.stereo(),
+                Channels::Left => channels.left(),
+                Channels::Right => channels.right(),
+            }
+        });
     }
 }
 
