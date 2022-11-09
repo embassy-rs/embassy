@@ -70,7 +70,7 @@ impl<'d, RS: RadioSwitch> SubGhzRadio<'d, RS> {
     /// Perform a transmission with the given parameters and payload. Returns any time adjustements needed form
     /// the upcoming RX window start.
     async fn do_tx(&mut self, config: TxConfig, buf: &[u8]) -> Result<u32, RadioError> {
-        trace!("TX request: {}", config);
+        trace!("TX request: {:?}", config);
         self.switch.set_tx();
 
         self.radio
@@ -130,7 +130,7 @@ impl<'d, RS: RadioSwitch> SubGhzRadio<'d, RS> {
     /// be able to hold a single LoRaWAN packet.
     async fn do_rx(&mut self, config: RfConfig, buf: &mut [u8]) -> Result<(usize, RxQuality), RadioError> {
         assert!(buf.len() >= 255);
-        trace!("RX request: {}", config);
+        trace!("RX request: {:?}", config);
         self.switch.set_rx();
 
         self.radio.set_rf_frequency(&RfFreq::from_frequency(config.frequency))?;
@@ -172,7 +172,11 @@ impl<'d, RS: RadioSwitch> SubGhzRadio<'d, RS> {
                 self.radio.read_buffer(ptr, &mut buf[..len as usize])?;
                 self.radio.set_standby(StandbyClk::Rc)?;
 
+                #[cfg(feature = "defmt")]
                 trace!("RX done: {=[u8]:#02X}", &mut buf[..len as usize]);
+
+                #[cfg(feature = "log")]
+                trace!("RX done: {:02x?}", &mut buf[..len as usize]);
                 return Ok((len as usize, RxQuality::new(rssi, snr as i8)));
             }
 
@@ -193,7 +197,7 @@ impl<'d, RS: RadioSwitch> SubGhzRadio<'d, RS> {
                 .clear_irq_status(irq_status)
                 .expect("error clearing irq status");
 
-            trace!("SUGHZ IRQ 0b{=u16:b}, {:?}", irq_status, status);
+            trace!("SUGHZ IRQ 0b{:016b}, {:?}", irq_status, status);
 
             if irq_status == 0 {
                 Poll::Pending
