@@ -172,6 +172,10 @@ impl<'d, RS: RadioSwitch> SubGhzRadio<'d, RS> {
                 self.radio.read_buffer(ptr, &mut buf[..len as usize])?;
                 self.radio.set_standby(StandbyClk::Rc)?;
 
+                #[cfg(feature = "defmt")]
+                trace!("RX done: {=[u8]:#02X}", &mut buf[..len as usize]);
+
+                #[cfg(feature = "log")]
                 trace!("RX done: {:02x?}", &mut buf[..len as usize]);
                 return Ok((len as usize, RxQuality::new(rssi, snr as i8)));
             }
