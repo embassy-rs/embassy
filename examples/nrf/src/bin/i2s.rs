@@ -4,9 +4,9 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt::*;
+//use defmt::*;
 use embassy_executor::Spawner;
-use embassy_nrf::{i2s};
+use embassy_nrf::i2s;
 use {defmt_rtt as _, panic_probe as _};
 
 #[repr(align(4))]
@@ -18,7 +18,7 @@ async fn main(_spawner: Spawner) {
     let config = i2s::Config::default();
 
     let mut i2s = i2s::I2s::new(p.I2S, p.P0_28, p.P0_29, p.P0_31, p.P0_11, p.P0_30, config);
-    
+
     let mut signal_buf: Aligned<[i16; 32]> = Aligned([0i16; 32]);
     let len = signal_buf.0.len() / 2;
     for x in 0..len {
@@ -31,18 +31,19 @@ async fn main(_spawner: Spawner) {
 
     i2s.start();
     i2s.set_tx_enabled(true);
-    
+
     loop {
-        i2s.tx(ptr, len).await;
+        match i2s.tx(ptr, len).await {
+            Ok(_) => todo!(),
+            Err(_) => todo!(),
+        };
     }
 }
 
 fn triangle_wave(x: i32, length: usize, amplitude: i32, phase: i32, periods: i32) -> i32 {
     let length = length as i32;
     amplitude
-        - ((2 * periods * (x + phase + length / (4 * periods)) * amplitude / length)
-            % (2 * amplitude)
-            - amplitude)
+        - ((2 * periods * (x + phase + length / (4 * periods)) * amplitude / length) % (2 * amplitude) - amplitude)
             .abs()
         - amplitude / 2
 }

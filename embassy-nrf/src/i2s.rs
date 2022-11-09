@@ -2,18 +2,19 @@
 
 //! I2S
 
-use core::future::poll_fn;
-use core::sync::atomic::{compiler_fence, Ordering};
-use core::task::Poll;
+//use core::future::poll_fn;
+//use core::sync::atomic::{compiler_fence, Ordering};
+//use core::task::Poll;
 
-use embassy_hal_common::drop::OnDrop;
+//use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
-use pac::i2s::config::mcken;
 
-use crate::{pac, Peripheral};
-use crate::interrupt::{Interrupt, InterruptExt};
-use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
-use crate::gpio::sealed::Pin as _;
+//use crate::pac::i2s::config::mcken;
+
+//use crate::gpio::sealed::Pin as _;
+use crate::gpio::{AnyPin, Pin as GpioPin};
+use crate::interrupt::Interrupt;
+use crate::Peripheral;
 
 // TODO: Define those in lib.rs somewhere else
 //
@@ -161,13 +162,12 @@ pub enum Mode {
 //     _32MDiv125 = 0x020C0000,
 // }
 
-
 /// Interface to the UARTE peripheral using EasyDMA to offload the transmission and reception workload.
 ///
 /// For more details about EasyDMA, consult the module documentation.
 pub struct I2s<'d, T: Instance> {
     output: I2sOutput<'d, T>,
-    input: I2sInput<'d, T>,    
+    _input: I2sInput<'d, T>,
 }
 
 /// Transmitter interface to the UARTE peripheral obtained
@@ -198,7 +198,13 @@ impl<'d, T: Instance> I2s<'d, T> {
         Self::new_inner(
             i2s,
             // irq,
-            mck.map_into(), sck.map_into(), lrck.map_into(), sdin.map_into(), sdout.map_into(), config)
+            mck.map_into(),
+            sck.map_into(),
+            lrck.map_into(),
+            sdin.map_into(),
+            sdout.map_into(),
+            config,
+        )
     }
 
     fn new_inner(
@@ -209,12 +215,12 @@ impl<'d, T: Instance> I2s<'d, T> {
         lrck: PeripheralRef<'d, AnyPin>,
         sdin: PeripheralRef<'d, AnyPin>,
         sdout: PeripheralRef<'d, AnyPin>,
-        config: Config,
+        _config: Config,
     ) -> Self {
         into_ref!(
-            i2s,
-            // irq,
-            mck, sck, lrck, sdin, sdout);
+            i2s, // irq,
+            mck, sck, lrck, sdin, sdout
+        );
 
         let r = T::regs();
 
@@ -260,7 +266,7 @@ impl<'d, T: Instance> I2s<'d, T> {
             output: I2sOutput {
                 _p: unsafe { i2s.clone_unchecked() },
             },
-            input: I2sInput { _p: i2s },
+            _input: I2sInput { _p: i2s },
         }
     }
 
@@ -357,7 +363,7 @@ pub(crate) mod sealed {
 
     use embassy_sync::waitqueue::AtomicWaker;
 
-    use super::*;
+    //use super::*;
 
     pub struct State {
         pub input_waker: AtomicWaker,
@@ -375,7 +381,7 @@ pub(crate) mod sealed {
     }
 
     pub trait Instance {
-        fn regs() -> &'static pac::i2s::RegisterBlock;
+        fn regs() -> &'static crate::pac::i2s::RegisterBlock;
         fn state() -> &'static State;
     }
 }
@@ -384,6 +390,8 @@ pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
     type Interrupt: Interrupt;
 }
 
+// TODO: Unsure why this macro is flagged as unused by CI when in fact it's used elsewhere?
+#[allow(unused_macros)]
 macro_rules! impl_i2s {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::i2s::sealed::Instance for peripherals::$type {
@@ -400,4 +408,3 @@ macro_rules! impl_i2s {
         }
     };
 }
-
