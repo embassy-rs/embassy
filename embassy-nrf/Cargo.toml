@@ -48,6 +48,7 @@ nrf9160-s = ["_nrf9160"]
 nrf9160-ns = ["_nrf9160"]
 
 gpiote = []
+i2s = []
 time-driver-rtc1 = ["_time-driver"]
 
 # Features starting with `_` are for internal use only. They're not intended
