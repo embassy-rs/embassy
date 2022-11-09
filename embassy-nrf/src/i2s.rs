@@ -166,7 +166,7 @@ pub enum Mode {
 /// For more details about EasyDMA, consult the module documentation.
 pub struct I2S<'d, T: Instance> {
     output: I2sOutput<'d, T>,
-    _input: I2sInput<'d, T>,
+    input: I2sInput<'d, T>,
 }
 
 /// Transmitter interface to the UARTE peripheral obtained
@@ -253,7 +253,7 @@ impl<'d, T: Instance> I2S<'d, T> {
             output: I2sOutput {
                 _p: unsafe { i2s.clone_unchecked() },
             },
-            _input: I2sInput { _p: i2s },
+            input: I2sInput { _p: i2s },
         }
     }
 
@@ -284,7 +284,7 @@ impl<'d, T: Instance> I2S<'d, T> {
 
     /// Stops the I2S transfer and waits until it has stopped.
     #[inline(always)]
-    pub async fn stop(&self) -> &Self {
+    pub async fn stop(&self) {
         todo!()
     }
 
@@ -304,15 +304,22 @@ impl<'d, T: Instance> I2S<'d, T> {
         self
     }
 
-    /// Transmits the given `tx_buffer`.
+    /// Transmits the given `buffer`.
     /// Buffer address must be 4 byte aligned and located in RAM.
-    /// Returns a value that represents the in-progress DMA transfer.
-    #[allow(unused_mut)]
     pub async fn tx<B>(&mut self, buffer: B) -> Result<(), Error>
     where
         B: Buffer,
     {
         self.output.tx(buffer).await
+    }
+
+    /// Receives data into the given `buffer` until it's filled.
+    /// Buffer address must be 4 byte aligned and located in RAM.
+    pub async fn rx<B>(&mut self, buffer: B) -> Result<(), Error>
+    where
+        B: Buffer,
+    {
+        self.input.rx(buffer).await
     }
 
     fn apply_config(c: &CONFIG, config: &Config) {
@@ -331,9 +338,9 @@ impl<'d, T: Instance> I2S<'d, T> {
 }
 
 impl<'d, T: Instance> I2sOutput<'d, T> {
-    /// Transmits the given `tx_buffer`.
+    /// Transmits the given `buffer`.
     /// Buffer address must be 4 byte aligned and located in RAM.
-    /// Returns a value that represents the in-progress DMA transfer.
+    #[allow(unused_mut)]
     pub async fn tx<B>(&mut self, buffer: B) -> Result<(), Error>
     where
         B: Buffer,
@@ -360,6 +367,42 @@ impl<'d, T: Instance> I2sOutput<'d, T> {
         // We can use some sync primitive from `embassy-sync`.
 
         r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
+        r.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
+
+        Ok(())
+    }
+}
+
+impl<'d, T: Instance> I2sInput<'d, T> {
+    /// Receives into the given `buffer`.
+    /// Buffer address must be 4 byte aligned and located in RAM.
+    #[allow(unused_mut)]
+    pub async fn rx<B>(&mut self, buffer: B) -> Result<(), Error>
+    where
+        B: Buffer,
+    {
+        let ptr = buffer.bytes_ptr();
+        let len = buffer.bytes_len();
+
+        if ptr as u32 % 4 != 0 {
+            return Err(Error::BufferMisaligned);
+        }
+        if (ptr as usize) < SRAM_LOWER || (ptr as usize) > SRAM_UPPER {
+            return Err(Error::DMABufferNotInDataMemory);
+        }
+        let maxcnt = ((len + core::mem::size_of::<u32>() - 1) / core::mem::size_of::<u32>()) as u32;
+        if maxcnt > MAX_DMA_MAXCNT {
+            return Err(Error::BufferTooLong);
+        }
+
+        let r = T::regs();
+        let _s = T::state();
+
+        // TODO we can not progress until the last buffer written in RXD.PTR
+        // has started the transmission.
+        // We can use some sync primitive from `embassy-sync`.
+
+        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
         r.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
 
         Ok(())
