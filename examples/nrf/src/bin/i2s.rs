@@ -26,14 +26,11 @@ async fn main(_spawner: Spawner) {
         signal_buf.0[2 * x + 1] = triangle_wave(x as i32, len, 2048, 0, 1) as i16;
     }
 
-    let ptr = &signal_buf.0 as *const i16 as *const u8;
-    let len = signal_buf.0.len() * core::mem::size_of::<i16>();
-
-    i2s.start();
     i2s.set_tx_enabled(true);
+    i2s.start();
 
     loop {
-        match i2s.tx(ptr, len).await {
+        match i2s.tx(signal_buf.0.as_slice()).await {
             Ok(_) => todo!(),
             Err(_) => todo!(),
         };

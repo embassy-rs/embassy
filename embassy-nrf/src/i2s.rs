@@ -284,7 +284,7 @@ impl<'d, T: Instance> I2S<'d, T> {
 
     /// Stops the I2S transfer and waits until it has stopped.
     #[inline(always)]
-    pub fn stop(&self) -> &Self {
+    pub async fn stop(&self) -> &Self {
         todo!()
     }
 
@@ -307,10 +307,12 @@ impl<'d, T: Instance> I2S<'d, T> {
     /// Transmits the given `tx_buffer`.
     /// Buffer address must be 4 byte aligned and located in RAM.
     /// Returns a value that represents the in-progress DMA transfer.
-    // TODO Define a better interface for the input buffer
     #[allow(unused_mut)]
-    pub async fn tx(&mut self, ptr: *const u8, len: usize) -> Result<(), Error> {
-        self.output.tx(ptr, len).await
+    pub async fn tx<B>(&mut self, buffer: B) -> Result<(), Error>
+    where
+        B: Buffer,
+    {
+        self.output.tx(buffer).await
     }
 
     fn apply_config(c: &CONFIG, config: &Config) {
@@ -319,54 +321,12 @@ impl<'d, T: Instance> I2S<'d, T> {
         c.mckfreq.write(|w| w.mckfreq()._32mdiv16());
         c.mode.write(|w| w.mode().master());
 
-        c.ratio.write(|w| {
-            let ratio = w.ratio();
-            match config.ratio {
-                Ratio::_32x => ratio._32x(),
-                Ratio::_48x => ratio._48x(),
-                Ratio::_64x => ratio._64x(),
-                Ratio::_96x => ratio._96x(),
-                Ratio::_128x => ratio._128x(),
-                Ratio::_192x => ratio._192x(),
-                Ratio::_256x => ratio._256x(),
-                Ratio::_384x => ratio._384x(),
-                Ratio::_512x => ratio._512x(),
-            }
-        });
-
-        c.swidth.write(|w| {
-            let swidth = w.swidth();
-            match config.swidth {
-                SampleWidth::_8bit => swidth._8bit(),
-                SampleWidth::_16bit => swidth._16bit(),
-                SampleWidth::_24bit => swidth._24bit(),
-            }
-        });
-
-        c.align.write(|w| {
-            let align = w.align();
-            match config.align {
-                Align::Left => align.left(),
-                Align::Right => align.right(),
-            }
-        });
-
-        c.format.write(|w| {
-            let format = w.format();
-            match config.format {
-                Format::I2S => format.i2s(),
-                Format::Aligned => format.aligned(),
-            }
-        });
-
-        c.channels.write(|w| {
-            let channels = w.channels();
-            match config.channels {
-                Channels::Stereo => channels.stereo(),
-                Channels::Left => channels.left(),
-                Channels::Right => channels.right(),
-            }
-        });
+        c.ratio.write(|w| unsafe { w.ratio().bits(config.ratio.into()) });
+        c.swidth.write(|w| unsafe { w.swidth().bits(config.swidth.into()) });
+        c.align.write(|w| w.align().bit(config.align.into()));
+        c.format.write(|w| w.format().bit(config.format.into()));
+        c.channels
+            .write(|w| unsafe { w.channels().bits(config.channels.into()) });
     }
 }
 
@@ -374,17 +334,22 @@ impl<'d, T: Instance> I2sOutput<'d, T> {
     /// Transmits the given `tx_buffer`.
     /// Buffer address must be 4 byte aligned and located in RAM.
     /// Returns a value that represents the in-progress DMA transfer.
-    // TODO Define a better interface for the input buffer
-    pub async fn tx(&mut self, ptr: *const u8, len: usize) -> Result<(), Error> {
+    pub async fn tx<B>(&mut self, buffer: B) -> Result<(), Error>
+    where
+        B: Buffer,
+    {
+        let ptr = buffer.bytes_ptr();
+        let len = buffer.bytes_len();
+
         if ptr as u32 % 4 != 0 {
             return Err(Error::BufferMisaligned);
         }
-        let maxcnt = (len / (core::mem::size_of::<u32>() / core::mem::size_of::<u8>())) as u32;
-        if maxcnt > MAX_DMA_MAXCNT {
-            return Err(Error::BufferTooLong);
-        }
         if (ptr as usize) < SRAM_LOWER || (ptr as usize) > SRAM_UPPER {
             return Err(Error::DMABufferNotInDataMemory);
+        }
+        let maxcnt = ((len + core::mem::size_of::<u32>() - 1) / core::mem::size_of::<u32>()) as u32;
+        if maxcnt > MAX_DMA_MAXCNT {
+            return Err(Error::BufferTooLong);
         }
 
         let r = T::regs();
@@ -398,6 +363,47 @@ impl<'d, T: Instance> I2sOutput<'d, T> {
         r.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
 
         Ok(())
+    }
+}
+
+pub trait Buffer: Sized {
+    fn bytes_ptr(&self) -> *const u8;
+    fn bytes_len(&self) -> usize;
+}
+
+impl Buffer for &[u8] {
+    #[inline]
+    fn bytes_ptr(&self) -> *const u8 {
+        self.as_ptr()
+    }
+
+    #[inline]
+    fn bytes_len(&self) -> usize {
+        self.len()
+    }
+}
+
+impl Buffer for &[i16] {
+    #[inline]
+    fn bytes_ptr(&self) -> *const u8 {
+        self.as_ptr() as *const u8
+    }
+
+    #[inline]
+    fn bytes_len(&self) -> usize {
+        self.len() * core::mem::size_of::<i16>()
+    }
+}
+
+impl Buffer for &[i32] {
+    #[inline]
+    fn bytes_ptr(&self) -> *const u8 {
+        self.as_ptr() as *const u8
+    }
+
+    #[inline]
+    fn bytes_len(&self) -> usize {
+        self.len() * core::mem::size_of::<i16>()
     }
 }
 
