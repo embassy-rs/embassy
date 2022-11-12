@@ -54,7 +54,12 @@ impl Executor {
         loop {
             unsafe {
                 self.inner.poll();
-                core::arch::asm!("wfi");
+                // we do not care about race conditions between the load and store operations, interrupts
+                // will only set this value to true.
+                // if there is work to do, loop back to polling
+                if !SIGNAL_WORK_THREAD_MODE.fetch_and(false, Ordering::SeqCst) {
+                    core::arch::asm!("wfi");
+                }
             }
         }
     }
