@@ -269,6 +269,7 @@ pub fn init(config: config::Config) -> Peripherals {
     time_driver::init(config.time_interrupt_priority);
 
     // Disable UARTE (enabled by default for some reason)
+    #[cfg(feature = "_nrf9160")]
     unsafe {
         (*pac::UARTE0::ptr()).enable.write(|w| w.enable().disabled());
         (*pac::UARTE1::ptr()).enable.write(|w| w.enable().disabled());
