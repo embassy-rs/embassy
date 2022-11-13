@@ -17,9 +17,11 @@ async fn main(_spawner: Spawner) {
     let mut spis = Spis::new(p.SPI2, irq, p.P0_31, p.P0_29, p.P0_28, p.P0_30, Config::default());
 
     loop {
-        let mut buf = [0_u8; 64];
-        if let Ok(n) = spis.read(&mut buf).await {
-            info!("RX: {:?}", buf[..n]);
+        let mut rx_buf = [0_u8; 64];
+        let tx_buf = [1_u8, 2, 3, 4, 5, 6, 7, 8];
+        if let Ok((n_rx, n_tx)) = spis.transfer(&mut rx_buf, &tx_buf).await {
+            info!("RX: {:?}", rx_buf[..n_rx]);
+            info!("TX: {:?}", tx_buf[..n_tx]);
         }
     }
 }
