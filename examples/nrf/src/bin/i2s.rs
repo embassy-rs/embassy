@@ -9,6 +9,7 @@ use core::f32::consts::PI;
 use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_nrf::i2s::{MckFreq, Mode, Ratio, MODE_MASTER_16000, MODE_MASTER_8000};
+use embassy_nrf::pac::ficr::info;
 use embassy_nrf::{i2s, interrupt};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -49,16 +50,14 @@ async fn main(_spawner: Spawner) {
     let mut buf = AlignedBuffer([0i16; BUF_SIZE]);
 
     let mut carrier = SineOsc::new();
-    carrier.set_frequency(300.0, inv_sample_rate);
+    carrier.set_frequency(240.0, inv_sample_rate);
 
-    let mut modulator = SineOsc::new();
-    modulator.set_frequency(0.01, inv_sample_rate);
-    modulator.set_amplitude(0.2);
+    // let mut modulator = SineOsc::new();
+    // modulator.set_frequency(0.01, inv_sample_rate);
+    // modulator.set_amplitude(0.2);
 
-    i2s.set_tx_enabled(true);
-    i2s.start();
-
-    loop {
+    let mut lastf = 0.0;
+    let mut generate = |buf: &mut [i16]| {
         for sample in buf.as_mut().chunks_mut(2) {
             let signal = carrier.generate();
             // let modulation = bipolar_to_unipolar(modulator.generate());
@@ -67,8 +66,18 @@ async fn main(_spawner: Spawner) {
             let value = (i16::MAX as f32 * signal) as i16;
             sample[0] = value;
             sample[1] = value;
-            // info!("{}", signal);
         }
+    };
+
+    generate(buf.as_mut().as_mut_slice());
+
+    i2s.set_tx_enabled(true);
+    i2s.start();
+
+    loop {
+        // info!("--");
+
+        generate(buf.as_mut().as_mut_slice());
 
         if let Err(err) = i2s.tx(buf.as_ref().as_slice()).await {
             error!("{}", err);

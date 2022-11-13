@@ -371,21 +371,6 @@ impl<'d, T: Instance> I2S<'d, T> {
         self.input.rx(buffer).await
     }
 
-    fn on_interrupt(_: *mut ()) {
-        let r = T::regs();
-        let s = T::state();
-
-        if r.events_txptrupd.read().bits() != 0 {
-            s.tx_waker.wake();
-            r.intenclr.write(|w| w.txptrupd().clear());
-        }
-
-        if r.events_rxptrupd.read().bits() != 0 {
-            s.rx_waker.wake();
-            r.intenclr.write(|w| w.rxptrupd().clear());
-        }
-    }
-
     fn apply_config(c: &CONFIG, config: &Config) {
         match config.mode {
             Mode::Master { freq, ratio } => {
@@ -443,14 +428,36 @@ impl<'d, T: Instance> I2S<'d, T> {
 
     fn setup_interrupt(irq: PeripheralRef<'d, T::Interrupt>, r: &RegisterBlock) {
         irq.set_handler(Self::on_interrupt);
-        irq.set_priority(Priority::P1); // TODO review priorities
+        // irq.set_priority(Priority::P1); // TODO review priorities
         irq.unpend();
         irq.enable();
 
         r.intenclr.write(|w| w.rxptrupd().clear());
         r.intenclr.write(|w| w.txptrupd().clear());
+
         r.events_rxptrupd.reset();
         r.events_txptrupd.reset();
+
+        r.intenset.write(|w| w.rxptrupd().set());
+        r.intenset.write(|w| w.txptrupd().set());
+    }
+
+    fn on_interrupt(_: *mut ()) {
+        let r = T::regs();
+        let s = T::state();
+
+        if r.events_txptrupd.read().bits() != 0 {
+            trace!("[{}] INT", s.seq.load(Ordering::Relaxed));
+            s.tx_waker.wake();
+            r.intenclr.write(|w| w.txptrupd().clear());
+        }
+
+        if r.events_rxptrupd.read().bits() != 0 {
+            s.rx_waker.wake();
+            r.intenclr.write(|w| w.rxptrupd().clear());
+        }
+
+        s.overruns.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -479,6 +486,12 @@ impl<'d, T: Instance> I2sOutput<'d, T> {
         let r = T::regs();
         let s = T::state();
 
+        let seq = s.seq.fetch_add(1, Ordering::Relaxed);
+        if r.events_txptrupd.read().bits() != 0 && seq > 0 {
+            info!("XRUN!");
+            loop {}
+        }
+
         let drop = OnDrop::new(move || {
             trace!("write drop: stopping");
 
@@ -491,18 +504,26 @@ impl<'d, T: Instance> I2sOutput<'d, T> {
             trace!("write drop: stopped");
         });
 
+        trace!("[{}] PTR", s.seq.load(Ordering::Relaxed));
         r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
         r.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
-
-        r.intenset.write(|w| w.txptrupd().set());
 
         compiler_fence(Ordering::SeqCst);
 
         poll_fn(|cx| {
             s.tx_waker.register(cx.waker());
-            if r.events_txptrupd.read().bits() != 0 {
+            if r.events_txptrupd.read().bits() != 0 || seq == 0 {
+                trace!("[{}] POLL Ready", s.seq.load(Ordering::Relaxed));
+                r.events_txptrupd.reset();
+                r.intenset.write(|w| w.txptrupd().set());
+                let overruns = s.overruns.fetch_sub(1, Ordering::Relaxed);
+                if overruns - 1 != 0 {
+                    warn!("XRUN: {}", overruns);
+                    s.overruns.store(0, Ordering::Relaxed)
+                }
                 Poll::Ready(())
             } else {
+                trace!("[{}] POLL Pending", s.seq.load(Ordering::Relaxed));
                 Poll::Pending
             }
         })
@@ -593,19 +614,26 @@ impl Buffer for &[i32] {
 }
 
 pub(crate) mod sealed {
+    use core::sync::atomic::AtomicI32;
+
     use embassy_sync::waitqueue::AtomicWaker;
 
-    //use super::*;
+    use super::*;
 
     pub struct State {
         pub rx_waker: AtomicWaker,
         pub tx_waker: AtomicWaker,
+        pub overruns: AtomicI32,
+        pub seq: AtomicI32,
     }
+
     impl State {
         pub const fn new() -> Self {
             Self {
                 rx_waker: AtomicWaker::new(),
                 tx_waker: AtomicWaker::new(),
+                overruns: AtomicI32::new(0),
+                seq: AtomicI32::new(0),
             }
         }
     }
