@@ -8,7 +8,7 @@ use core::f32::consts::PI;
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_nrf::i2s::{MckFreq, Mode, Ratio, MODE_MASTER_16000, MODE_MASTER_8000};
+use embassy_nrf::i2s::{MckFreq, Mode, Ratio, MODE_MASTER_16000, MODE_MASTER_8000, Channels};
 use embassy_nrf::pac::ficr::info;
 use embassy_nrf::{i2s, interrupt};
 use {defmt_rtt as _, panic_probe as _};
@@ -37,6 +37,7 @@ async fn main(_spawner: Spawner) {
         freq: MckFreq::_32MDiv10,
         ratio: Ratio::_256x,
     }; // 12500 Hz
+    config.channels = Channels::Left;
     let sample_rate = config.mode.sample_rate().expect("I2S Master");
     let inv_sample_rate = 1.0 / sample_rate as f32;
 
@@ -46,25 +47,24 @@ async fn main(_spawner: Spawner) {
     let mut i2s = i2s::I2S::new(p.I2S, irq, p.P0_28, p.P0_29, p.P0_31, p.P0_11, p.P0_30, config);
 
     const BUF_SAMPLES: usize = 500;
-    const BUF_SIZE: usize = BUF_SAMPLES * 2;
+    const BUF_SIZE: usize = BUF_SAMPLES;
     let mut buf = AlignedBuffer([0i16; BUF_SIZE]);
 
     let mut carrier = SineOsc::new();
-    carrier.set_frequency(240.0, inv_sample_rate);
+    carrier.set_frequency(16.0, inv_sample_rate);
 
     // let mut modulator = SineOsc::new();
     // modulator.set_frequency(0.01, inv_sample_rate);
     // modulator.set_amplitude(0.2);
 
     let mut generate = |buf: &mut [i16]| {
-        for sample in buf.as_mut().chunks_mut(2) {
+        for sample in buf.as_mut() {
             let signal = carrier.generate();
             // let modulation = bipolar_to_unipolar(modulator.generate());
             // carrier.set_frequency(200.0 + 100.0 * modulation, inv_sample_rate);
             // carrier.set_amplitude((modulation);
             let value = (i16::MAX as f32 * signal) as i16;
-            sample[0] = value;
-            sample[1] = value;
+            *sample = value;
         }
     };
 
