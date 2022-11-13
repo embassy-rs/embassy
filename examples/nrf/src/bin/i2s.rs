@@ -45,7 +45,7 @@ async fn main(_spawner: Spawner) {
     let irq = interrupt::take!(I2S);
     let mut i2s = i2s::I2S::new(p.I2S, irq, p.P0_28, p.P0_29, p.P0_31, p.P0_11, p.P0_30, config);
 
-    const BUF_SAMPLES: usize = 250;
+    const BUF_SAMPLES: usize = 500;
     const BUF_SIZE: usize = BUF_SAMPLES * 2;
     let mut buf = AlignedBuffer([0i16; BUF_SIZE]);
 
@@ -56,7 +56,6 @@ async fn main(_spawner: Spawner) {
     // modulator.set_frequency(0.01, inv_sample_rate);
     // modulator.set_amplitude(0.2);
 
-    let mut lastf = 0.0;
     let mut generate = |buf: &mut [i16]| {
         for sample in buf.as_mut().chunks_mut(2) {
             let signal = carrier.generate();
@@ -71,12 +70,14 @@ async fn main(_spawner: Spawner) {
 
     generate(buf.as_mut().as_mut_slice());
 
+    if let Err(err) = i2s.tx(buf.as_ref().as_slice()).await {
+        error!("{}", err);
+    }
+
     i2s.set_tx_enabled(true);
     i2s.start();
 
     loop {
-        // info!("--");
-
         generate(buf.as_mut().as_mut_slice());
 
         if let Err(err) = i2s.tx(buf.as_ref().as_slice()).await {

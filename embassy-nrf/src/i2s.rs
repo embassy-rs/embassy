@@ -327,6 +327,7 @@ impl<'d, T: Instance> I2S<'d, T> {
     pub fn start(&self) -> &Self {
         let r = T::regs();
         self.enable();
+        trace!("START");
         r.tasks_start.write(|w| unsafe { w.bits(1) });
         self
     }
@@ -487,8 +488,8 @@ impl<'d, T: Instance> I2sOutput<'d, T> {
         let s = T::state();
 
         let seq = s.seq.fetch_add(1, Ordering::Relaxed);
-        if r.events_txptrupd.read().bits() != 0 && seq > 0 {
-            info!("XRUN!");
+        if r.events_txptrupd.read().bits() != 0 && seq > 1 {
+            warn!("XRUN!");
             loop {}
         }
 
@@ -505,8 +506,8 @@ impl<'d, T: Instance> I2sOutput<'d, T> {
         });
 
         trace!("[{}] PTR", s.seq.load(Ordering::Relaxed));
-        r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
         r.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
+        r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
 
         compiler_fence(Ordering::SeqCst);
 
@@ -517,7 +518,7 @@ impl<'d, T: Instance> I2sOutput<'d, T> {
                 r.events_txptrupd.reset();
                 r.intenset.write(|w| w.txptrupd().set());
                 let overruns = s.overruns.fetch_sub(1, Ordering::Relaxed);
-                if overruns - 1 != 0 {
+                if overruns != 0 {
                     warn!("XRUN: {}", overruns);
                     s.overruns.store(0, Ordering::Relaxed)
                 }
