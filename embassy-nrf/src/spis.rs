@@ -201,12 +201,12 @@ impl<'d, T: Instance> Spis<'d, T> {
         let s = T::state();
 
         if r.events_end.read().bits() != 0 {
-            s.end_waker.wake();
+            s.waker.wake();
             r.intenclr.write(|w| w.end().clear());
         }
 
         if r.events_acquired.read().bits() != 0 {
-            s.acquire_waker.wake();
+            s.waker.wake();
             r.intenclr.write(|w| w.acquired().clear());
         }
     }
@@ -295,7 +295,7 @@ impl<'d, T: Instance> Spis<'d, T> {
 
             // Wait until CPU has acquired the semaphore.
             poll_fn(|cx| {
-                s.acquire_waker.register(cx.waker());
+                s.waker.register(cx.waker());
                 if r.semstat.read().bits() == 1 {
                     return Poll::Ready(());
                 }
@@ -310,7 +310,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         // Wait for 'end' event.
         r.intenset.write(|w| w.end().set());
         poll_fn(|cx| {
-            s.end_waker.register(cx.waker());
+            s.waker.register(cx.waker());
             if r.events_end.read().bits() != 0 {
                 return Poll::Ready(());
             }
@@ -451,15 +451,13 @@ pub(crate) mod sealed {
     use super::*;
 
     pub struct State {
-        pub end_waker: AtomicWaker,
-        pub acquire_waker: AtomicWaker,
+        pub waker: AtomicWaker,
     }
 
     impl State {
         pub const fn new() -> Self {
             Self {
-                end_waker: AtomicWaker::new(),
-                acquire_waker: AtomicWaker::new(),
+                waker: AtomicWaker::new(),
             }
         }
     }
