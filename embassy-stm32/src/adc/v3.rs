@@ -71,7 +71,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
             #[cfg(adc_g0)]
             T::regs().cfgr1().modify(|reg| {
-                reg.set_chselrmod(true);
+                reg.set_chselrmod(false);
             });
         }
 
@@ -200,7 +200,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             #[cfg(not(stm32g0))]
             T::regs().sqr1().write(|reg| reg.set_sq(0, pin.channel()));
             #[cfg(stm32g0)]
-            T::regs().chselr().write(|reg| reg.set_chsel(pin.channel() as u32));
+            T::regs().chselr().write(|reg| reg.set_chsel(1 << pin.channel()));
 
             // Some models are affected by an erratum:
             // If we perform conversions slower than 1 kHz, the first read ADC value can be
