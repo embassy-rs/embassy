@@ -297,9 +297,9 @@ impl<'d, T: Instance> Spis<'d, T> {
             poll_fn(|cx| {
                 s.waker.register(cx.waker());
                 if r.semstat.read().bits() == 1 {
+                    r.events_acquired.reset();
                     return Poll::Ready(());
                 }
-                r.intenset.write(|w| w.acquired().set());
                 Poll::Pending
             })
             .await;
@@ -312,9 +312,9 @@ impl<'d, T: Instance> Spis<'d, T> {
         poll_fn(|cx| {
             s.waker.register(cx.waker());
             if r.events_end.read().bits() != 0 {
+                r.events_end.reset();
                 return Poll::Ready(());
             }
-            r.intenset.write(|w| w.end().set());
             Poll::Pending
         })
         .await;
