@@ -296,7 +296,7 @@ impl<'d, T: Instance> Spis<'d, T> {
             // Wait until CPU has acquired the semaphore.
             poll_fn(|cx| {
                 s.waker.register(cx.waker());
-                if r.semstat.read().bits() == 1 {
+                if r.events_acquired.read().bits() == 1 {
                     r.events_acquired.reset();
                     return Poll::Ready(());
                 }
