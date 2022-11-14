@@ -24,8 +24,8 @@ use crate::{gpio, pac, Peripheral};
 
 #[non_exhaustive]
 pub struct Config {
-    pub addr0: u8,
-    pub addr1: Option<u8>,
+    pub address0: u8,
+    pub address1: Option<u8>,
     pub orc: u8,
     pub sda_high_drive: bool,
     pub sda_pullup: bool,
@@ -36,8 +36,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            addr0: 0x55,
-            addr1: None,
+            address0: 0x55,
+            address1: None,
             orc: 0x00,
             scl_high_drive: false,
             sda_pullup: false,
@@ -134,10 +134,10 @@ impl<'d, T: Instance> Twis<'d, T> {
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
 
         // Set address
-        r.address[0].write(|w| unsafe { w.address().bits(config.addr0) });
+        r.address[0].write(|w| unsafe { w.address().bits(config.address0) });
         r.config.modify(|_r, w| w.address0().enabled());
-        if let Some(addr1) = config.addr1 {
-            r.address[1].write(|w| unsafe { w.address().bits(addr1) });
+        if let Some(address1) = config.address1 {
+            r.address[1].write(|w| unsafe { w.address().bits(address1) });
             r.config.modify(|_r, w| w.address1().enabled());
         }
 
@@ -242,7 +242,13 @@ impl<'d, T: Instance> Twis<'d, T> {
             .write(|w| w.overflow().bit(true).overread().bit(true).dnack().bit(true));
     }
 
-    /// Wait for stop or error
+    /// Returns matched address for latest command.
+    pub fn address_match(&self) -> u8 {
+        let r = T::regs();
+        r.address[r.match_.read().bits() as usize].read().address().bits()
+    }
+
+    /// Wait for read, write, stop or error
     fn blocking_listen_wait(&mut self) -> Result<Status, Error> {
         let r = T::regs();
         loop {
@@ -267,7 +273,7 @@ impl<'d, T: Instance> Twis<'d, T> {
         }
     }
 
-    /// Wait for stop or error
+    /// Wait for stop, repeated start or error
     fn blocking_listen_wait_end(&mut self, status: Status) -> Result<Command, Error> {
         let r = T::regs();
         loop {
@@ -294,7 +300,7 @@ impl<'d, T: Instance> Twis<'d, T> {
     }
 
     /// Wait for stop or error
-    fn blocking_wait(&mut self) -> Result<(), Error> {
+    fn blocking_wait(&mut self) -> Result<usize, Error> {
         let r = T::regs();
         loop {
             // stop if an error occured
@@ -311,12 +317,42 @@ impl<'d, T: Instance> Twis<'d, T> {
                 }
             } else if r.events_stopped.read().bits() != 0 {
                 r.events_stopped.reset();
-                return Ok(());
+                let n = r.txd.amount.read().bits() as usize;
+                return Ok(n);
             }
         }
     }
 
-    /// Wait for stop or error
+    /// Wait for stop or error with timeout
+    #[cfg(feature = "time")]
+    fn blocking_wait_timeout(&mut self, timeout: Duration) -> Result<usize, Error> {
+        let r = T::regs();
+        let deadline = Instant::now() + timeout;
+        loop {
+            // stop if an error occured
+            if r.events_error.read().bits() != 0 {
+                r.events_error.reset();
+                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                let errorsrc = r.errorsrc.read();
+                if errorsrc.overread().is_detected() {
+                    return Err(Error::OverRead);
+                } else if errorsrc.dnack().is_received() {
+                    return Err(Error::DataNack);
+                } else {
+                    return Err(Error::Bus);
+                }
+            } else if r.events_stopped.read().bits() != 0 {
+                r.events_stopped.reset();
+                let n = r.txd.amount.read().bits() as usize;
+                return Ok(n);
+            } else if Instant::now() > deadline {
+                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                return Err(Error::Timeout);
+            }
+        }
+    }
+
+    /// Wait for read, write, stop or error with timeout
     #[cfg(feature = "time")]
     fn blocking_listen_wait_timeout(&mut self, timeout: Duration) -> Result<Status, Error> {
         let r = T::regs();
@@ -347,7 +383,7 @@ impl<'d, T: Instance> Twis<'d, T> {
         }
     }
 
-    /// Wait for stop or error
+    /// Wait for stop, repeated start or error with timeout
     #[cfg(feature = "time")]
     fn blocking_listen_wait_end_timeout(&mut self, status: Status, timeout: Duration) -> Result<Command, Error> {
         let r = T::regs();
@@ -379,35 +415,7 @@ impl<'d, T: Instance> Twis<'d, T> {
     }
 
     /// Wait for stop or error
-    #[cfg(feature = "time")]
-    fn blocking_wait_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
-        let r = T::regs();
-        let deadline = Instant::now() + timeout;
-        loop {
-            // stop if an error occured
-            if r.events_error.read().bits() != 0 {
-                r.events_error.reset();
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
-                let errorsrc = r.errorsrc.read();
-                if errorsrc.overread().is_detected() {
-                    return Err(Error::OverRead);
-                } else if errorsrc.dnack().is_received() {
-                    return Err(Error::DataNack);
-                } else {
-                    return Err(Error::Bus);
-                }
-            } else if r.events_stopped.read().bits() != 0 {
-                r.events_stopped.reset();
-                return Ok(());
-            } else if Instant::now() > deadline {
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
-                return Err(Error::Timeout);
-            }
-        }
-    }
-
-    /// Wait for stop or error
-    fn async_wait(&mut self) -> impl Future<Output = Result<(), Error>> {
+    fn async_wait(&mut self) -> impl Future<Output = Result<usize, Error>> {
         poll_fn(move |cx| {
             let r = T::regs();
             let s = T::state();
@@ -428,7 +436,8 @@ impl<'d, T: Instance> Twis<'d, T> {
                 }
             } else if r.events_stopped.read().bits() != 0 {
                 r.events_stopped.reset();
-                return Poll::Ready(Ok(()));
+                let n = r.txd.amount.read().bits() as usize;
+                return Poll::Ready(Ok(n));
             }
 
             Poll::Pending
@@ -462,7 +471,7 @@ impl<'d, T: Instance> Twis<'d, T> {
         })
     }
 
-    /// Wait for stop or error
+    /// Wait for stop, repeated start or error
     fn async_listen_wait_end(&mut self, status: Status) -> impl Future<Output = Result<Command, Error>> {
         poll_fn(move |cx| {
             let r = T::regs();
@@ -595,25 +604,23 @@ impl<'d, T: Instance> Twis<'d, T> {
     }
 
     /// Write to an I2C master.
-    ///
+    /// Returns the number of bytes written.
     /// The buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
-    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<usize, Error> {
         self.setup_write(buffer, false)?;
-        self.blocking_wait()?;
-        Ok(())
+        self.blocking_wait()
     }
 
     /// Same as [`blocking_write`](Twis::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub fn blocking_write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
+    pub fn blocking_write_from_ram(&mut self, buffer: &[u8]) -> Result<usize, Error> {
         self.setup_write_from_ram(buffer, false)?;
-        self.blocking_wait()?;
-        Ok(())
+        self.blocking_wait()
     }
 
     // ===========================================
 
-    /// Listen for commands from an I2C master.
+    /// Listen for commands from an I2C master with timeout.
     ///
     /// The buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
@@ -630,25 +637,27 @@ impl<'d, T: Instance> Twis<'d, T> {
     }
 
     /// Write to an I2C master with timeout.
-    ///
+    /// Returns the number of bytes written.
     /// See [`blocking_write`].
     #[cfg(feature = "time")]
-    pub fn blocking_write_timeout(&mut self, buffer: &[u8], timeout: Duration) -> Result<(), Error> {
+    pub fn blocking_write_timeout(&mut self, buffer: &[u8], timeout: Duration) -> Result<usize, Error> {
         self.setup_write(buffer, false)?;
-        self.blocking_wait_timeout(timeout)?;
-        Ok(())
+        self.blocking_wait_timeout(timeout)
     }
 
     /// Same as [`blocking_write`](Twis::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     #[cfg(feature = "time")]
-    pub fn blocking_write_from_ram_timeout(&mut self, buffer: &[u8], timeout: Duration) -> Result<(), Error> {
+    pub fn blocking_write_from_ram_timeout(&mut self, buffer: &[u8], timeout: Duration) -> Result<usize, Error> {
         self.setup_write_from_ram(buffer, false)?;
-        self.blocking_wait_timeout(timeout)?;
-        Ok(())
+        self.blocking_wait_timeout(timeout)
     }
 
     // ===========================================
 
+    /// Listen asynchronously for commands from an I2C master.
+    ///
+    /// The buffer must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
     pub async fn listen(&mut self, buffer: &mut [u8]) -> Result<Command, Error> {
         self.setup_listen(buffer, true)?;
         let status = self.async_listen_wait().await?;
@@ -660,17 +669,19 @@ impl<'d, T: Instance> Twis<'d, T> {
         Ok(Command::Read)
     }
 
-    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+    /// Async write to an I2C master.
+    /// Returns the number of bytes written.
+    /// The buffer must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<usize, Error> {
         self.setup_write(buffer, true)?;
-        self.async_wait().await?;
-        Ok(())
+        self.async_wait().await
     }
 
     /// Same as [`write`](Twis::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub async fn write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
+    pub async fn write_from_ram(&mut self, buffer: &[u8]) -> Result<usize, Error> {
         self.setup_write_from_ram(buffer, true)?;
-        self.async_wait().await?;
-        Ok(())
+        self.async_wait().await
     }
 }
 

@@ -17,7 +17,7 @@ async fn main(_spawner: Spawner) {
     let irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
     let mut config = twis::Config::default();
     // Set i2c address
-    config.addr0 = 0x55;
+    config.address0 = 0x55;
     let mut i2c = Twis::new(p.TWISPI0, irq, p.P0_03, p.P0_04, config);
 
     info!("Listening...");
