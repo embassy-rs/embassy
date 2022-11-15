@@ -120,14 +120,9 @@ impl<'d> Adc<'d> {
 
     pub fn blocking_read<PIN: Channel<Adc<'d>, ID = u8>>(&mut self, _pin: &mut PIN) -> u16 {
         let r = Self::regs();
-        let ch = PIN::channel();
         unsafe {
-            if ch == 4 {
-                r.cs().modify(|w| w.set_ts_en(true))
-            }
-            while !r.cs().read().ready() {}
             r.cs().modify(|w| {
-                w.set_ainsel(ch);
+                w.set_ainsel(PIN::channel());
                 w.set_start_once(true)
             });
             while !r.cs().read().ready() {}
