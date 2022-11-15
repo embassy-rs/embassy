@@ -61,7 +61,7 @@ async fn main(_spawner: Spawner, p: embassy_nrf::Peripherals) {
 }
 ```
 
-What happens when the `blinker` task have been spawned and main returns? Well, the main entry point is actually just like any other task, except that you can only have one and it takes some specific type arguments. The magic lies within the `#[embassy::main]` macro. The macro does the following:
+What happens when the `blinker` task has been spawned and main returns? Well, the main entry point is actually just like any other task, except that you can only have one and it takes some specific type arguments. The magic lies within the `#[embassy::main]` macro. The macro does the following:
 
 . Creates an Embassy Executor
 . Initializes the microcontroller HAL to get the `Peripherals`
