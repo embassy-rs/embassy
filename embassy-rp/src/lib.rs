@@ -6,6 +6,7 @@ pub(crate) mod fmt;
 
 mod intrinsics;
 
+pub mod adc;
 pub mod dma;
 pub mod gpio;
 pub mod i2c;
@@ -98,6 +99,8 @@ embassy_hal_common::peripherals! {
     RTC,
 
     FLASH,
+
+    ADC,
 }
 
 #[link_section = ".boot2"]
