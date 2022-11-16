@@ -3,6 +3,7 @@
 //! I2S
 
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
@@ -10,7 +11,6 @@ use embassy_cortex_m::interrupt::{InterruptExt, Priority};
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
-//use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::interrupt::Interrupt;
 use crate::pac::i2s::{RegisterBlock, CONFIG, PSEL};
@@ -31,9 +31,9 @@ pub const SRAM_UPPER: usize = 0x3000_0000;
 pub enum Error {
     BufferTooLong,
     BufferZeroLength,
-    DMABufferNotInDataMemory,
+    BufferNotInDataMemory,
     BufferMisaligned,
-    // TODO: add other error variants.
+    BufferLengthMisaligned,
 }
 
 pub const MODE_MASTER_8000: Mode = Mode::Master {
@@ -122,12 +122,12 @@ pub enum MckFreq {
 }
 
 impl MckFreq {
-    const REGISTER_VALUES: &[u32] = &[
+    const REGISTER_VALUES: &'static [u32] = &[
         0x20000000, 0x18000000, 0x16000000, 0x11000000, 0x10000000, 0x0C000000, 0x0B000000, 0x08800000, 0x08400000,
         0x08000000, 0x06000000, 0x04100000, 0x020C0000,
     ];
 
-    const FREQUENCIES: &[u32] = &[
+    const FREQUENCIES: &'static [u32] = &[
         4000000, 3200000, 2909090, 2133333, 2000000, 1523809, 1391304, 1066666, 1032258, 1000000, 761904, 507936,
         256000,
     ];
@@ -162,7 +162,7 @@ pub enum Ratio {
 }
 
 impl Ratio {
-    const RATIOS: &[u32] = &[32, 48, 64, 96, 128, 192, 256, 384, 512];
+    const RATIOS: &'static [u32] = &[32, 48, 64, 96, 128, 192, 256, 384, 512];
 
     pub fn to_divisor(&self) -> u32 {
         Self::RATIOS[u8::from(*self) as usize]
@@ -234,23 +234,10 @@ impl From<Channels> for u8 {
     }
 }
 
-/// Interface to the UARTE peripheral using EasyDMA to offload the transmission and reception workload.
+/// Interface to the I2S peripheral using EasyDMA to offload the transmission and reception workload.
 ///
 /// For more details about EasyDMA, consult the module documentation.
 pub struct I2S<'d, T: Instance> {
-    output: I2sOutput<'d, T>,
-    input: I2sInput<'d, T>,
-}
-
-/// Transmitter interface to the UARTE peripheral obtained
-/// via [Uarte]::split.
-pub struct I2sOutput<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
-}
-
-/// Receiver interface to the UARTE peripheral obtained
-/// via [Uarte]::split.
-pub struct I2sInput<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
 }
 
@@ -298,78 +285,19 @@ impl<'d, T: Instance> I2S<'d, T> {
 
         r.enable.write(|w| w.enable().enabled());
 
-        Self {
-            output: I2sOutput {
-                _p: unsafe { i2s.clone_unchecked() },
-            },
-            input: I2sInput { _p: i2s },
-        }
+        Self { _p: i2s }
     }
 
-    /// Enables the I2S module.
-    #[inline(always)]
-    pub fn enable(&self) -> &Self {
-        let r = T::regs();
-        r.enable.write(|w| w.enable().enabled());
-        self
+    pub fn output(self) -> Output<'d, T> {
+        Output { _p: self._p }
     }
 
-    /// Disables the I2S module.
-    #[inline(always)]
-    pub fn disable(&self) -> &Self {
-        let r = T::regs();
-        r.enable.write(|w| w.enable().disabled());
-        self
+    pub fn input(self) -> Input<'d, T> {
+        Input { _p: self._p }
     }
 
-    /// Starts I2S transfer.
-    #[inline(always)]
-    pub fn start(&self) -> &Self {
-        let r = T::regs();
-        self.enable();
-        trace!("START");
-        r.tasks_start.write(|w| unsafe { w.bits(1) });
-        self
-    }
-
-    /// Stops the I2S transfer and waits until it has stopped.
-    #[inline(always)]
-    pub async fn stop(&self) {
-        todo!()
-    }
-
-    /// Enables/disables I2S transmission (TX).
-    #[inline(always)]
-    pub fn set_tx_enabled(&self, enabled: bool) -> &Self {
-        let r = T::regs();
-        r.config.txen.write(|w| w.txen().bit(enabled));
-        self
-    }
-
-    /// Enables/disables I2S reception (RX).
-    #[inline(always)]
-    pub fn set_rx_enabled(&self, enabled: bool) -> &Self {
-        let r = T::regs();
-        r.config.rxen.write(|w| w.rxen().bit(enabled));
-        self
-    }
-
-    /// Transmits the given `buffer`.
-    /// Buffer address must be 4 byte aligned and located in RAM.
-    pub async fn tx<B>(&mut self, buffer: B) -> Result<(), Error>
-    where
-        B: Buffer,
-    {
-        self.output.tx(buffer).await
-    }
-
-    /// Receives data into the given `buffer` until it's filled.
-    /// Buffer address must be 4 byte aligned and located in RAM.
-    pub async fn rx<B>(&mut self, buffer: B) -> Result<(), Error>
-    where
-        B: Buffer,
-    {
-        self.input.rx(buffer).await
+    pub fn full_duplex(self) -> FullDuplex<'d, T> {
+        FullDuplex { _p: self._p }
     }
 
     fn apply_config(c: &CONFIG, config: &Config) {
@@ -433,102 +361,93 @@ impl<'d, T: Instance> I2S<'d, T> {
         irq.unpend();
         irq.enable();
 
-        r.intenclr.write(|w| w.rxptrupd().clear());
-        r.intenclr.write(|w| w.txptrupd().clear());
+        let device = Device::<T>::new();
+        device.disable_tx_ptr_interrupt();
+        device.disable_rx_ptr_interrupt();
 
-        r.events_rxptrupd.reset();
-        r.events_txptrupd.reset();
+        device.reset_tx_ptr_event();
+        device.reset_rx_ptr_event();
 
-        r.intenset.write(|w| w.rxptrupd().set());
-        r.intenset.write(|w| w.txptrupd().set());
+        device.enable_tx_ptr_interrupt();
+        device.enable_rx_ptr_interrupt();
     }
 
     fn on_interrupt(_: *mut ()) {
-        let r = T::regs();
+        let device = Device::<T>::new();
         let s = T::state();
 
-        if r.events_txptrupd.read().bits() != 0 {
-            trace!("[{}] INT", s.seq.load(Ordering::Relaxed));
+        if device.is_tx_ptr_updated() {
+            trace!("TX INT");
             s.tx_waker.wake();
-            r.intenclr.write(|w| w.txptrupd().clear());
+            device.disable_tx_ptr_interrupt();
         }
 
-        if r.events_rxptrupd.read().bits() != 0 {
+        if device.is_rx_ptr_updated() {
+            trace!("RX INT");
             s.rx_waker.wake();
-            r.intenclr.write(|w| w.rxptrupd().clear());
+            device.disable_rx_ptr_interrupt();
         }
-
-        s.overruns.fetch_add(1, Ordering::Relaxed);
     }
 }
 
-impl<'d, T: Instance> I2sOutput<'d, T> {
-    /// Transmits the given `buffer`.
-    /// Buffer address must be 4 byte aligned and located in RAM.
-    #[allow(unused_mut)]
-    pub async fn tx<B>(&mut self, buffer: B) -> Result<(), Error>
+pub struct Output<'d, T: Instance> {
+    _p: PeripheralRef<'d, T>,
+}
+
+impl<'d, T: Instance> Output<'d, T> {
+    /// Starts I2S transfer.
+    #[inline(always)]
+    pub fn start<B>(&self, buffer: B) -> Result<(), Error>
     where
         B: Buffer,
     {
-        let ptr = buffer.bytes_ptr();
-        let len = buffer.bytes_len();
+        // TODO what to do if it is started already?
 
-        if ptr as u32 % 4 != 0 {
-            return Err(Error::BufferMisaligned);
-        }
-        if (ptr as usize) < SRAM_LOWER || (ptr as usize) > SRAM_UPPER {
-            return Err(Error::DMABufferNotInDataMemory);
-        }
-        let maxcnt = ((len + core::mem::size_of::<u32>() - 1) / core::mem::size_of::<u32>()) as u32;
-        if maxcnt > MAX_DMA_MAXCNT {
-            return Err(Error::BufferTooLong);
-        }
+        let device = Device::<T>::new();
+        device.enable();
+        device.set_tx_buffer(buffer)?;
+        device.enable_tx();
+        device.start();
 
-        let r = T::regs();
-        let s = T::state();
+        Ok(())
+    }
 
-        let seq = s.seq.fetch_add(1, Ordering::Relaxed);
-        if r.events_txptrupd.read().bits() != 0 && seq > 1 {
-            warn!("XRUN!");
-            loop {}
-        }
+    /// Stops the I2S transfer and waits until it has stopped.
+    #[inline(always)]
+    pub async fn stop(&self) {
+        todo!()
+    }
 
-        let drop = OnDrop::new(move || {
-            trace!("write drop: stopping");
+    /// Transmits the given `buffer`.
+    /// Buffer address must be 4 byte aligned and located in RAM.
+    #[allow(unused_mut)]
+    pub async fn send<B>(&mut self, buffer: B) -> Result<(), Error>
+    where
+        B: Buffer,
+    {
+        trace!("SEND: {}", buffer.bytes_ptr() as u32);
 
-            r.intenclr.write(|w| w.txptrupd().clear());
-            r.events_txptrupd.reset();
-            r.config.txen.write(|w| w.txen().disabled());
-
-            // TX is stopped almost instantly, spinning is fine.
-            while r.events_txptrupd.read().bits() == 0 {}
-            trace!("write drop: stopped");
-        });
-
-        trace!("[{}] PTR", s.seq.load(Ordering::Relaxed));
-        r.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
-        r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
+        let device = Device::<T>::new();
+        let drop = device.on_tx_drop();
 
         compiler_fence(Ordering::SeqCst);
 
         poll_fn(|cx| {
-            s.tx_waker.register(cx.waker());
-            if r.events_txptrupd.read().bits() != 0 || seq == 0 {
-                trace!("[{}] POLL Ready", s.seq.load(Ordering::Relaxed));
-                r.events_txptrupd.reset();
-                r.intenset.write(|w| w.txptrupd().set());
-                let overruns = s.overruns.fetch_sub(1, Ordering::Relaxed);
-                if overruns != 0 {
-                    warn!("XRUN: {}", overruns);
-                    s.overruns.store(0, Ordering::Relaxed)
-                }
+            T::state().tx_waker.register(cx.waker());
+
+            if device.is_tx_ptr_updated() {
+                trace!("TX POLL: Ready");
+                device.reset_tx_ptr_event();
+                device.enable_tx_ptr_interrupt();
                 Poll::Ready(())
             } else {
-                trace!("[{}] POLL Pending", s.seq.load(Ordering::Relaxed));
+                trace!("TX POLL: Pending");
                 Poll::Pending
             }
         })
         .await;
+
+        device.set_tx_buffer(buffer)?;
 
         compiler_fence(Ordering::SeqCst);
         drop.defuse();
@@ -537,39 +456,179 @@ impl<'d, T: Instance> I2sOutput<'d, T> {
     }
 }
 
-impl<'d, T: Instance> I2sInput<'d, T> {
-    /// Receives into the given `buffer`.
-    /// Buffer address must be 4 byte aligned and located in RAM.
-    #[allow(unused_mut)]
-    pub async fn rx<B>(&mut self, buffer: B) -> Result<(), Error>
+pub struct Input<'d, T: Instance> {
+    _p: PeripheralRef<'d, T>,
+}
+
+impl<'d, T: Instance> Input<'d, T> {
+    // TODO
+}
+
+pub struct FullDuplex<'d, T: Instance> {
+    _p: PeripheralRef<'d, T>,
+}
+
+impl<'d, T: Instance> FullDuplex<'d, T> {
+    // TODO
+}
+
+struct Device<T>(&'static RegisterBlock, PhantomData<T>);
+
+impl<T: Instance> Device<T> {
+    fn new() -> Self {
+        Self(T::regs(), PhantomData)
+    }
+
+    #[inline(always)]
+    pub fn enable(&self) {
+        trace!("ENABLED");
+        self.0.enable.write(|w| w.enable().enabled());
+    }
+
+    #[inline(always)]
+    pub fn disable(&self) {
+        trace!("DISABLED");
+        self.0.enable.write(|w| w.enable().disabled());
+    }
+
+    #[inline(always)]
+    fn enable_tx(&self) {
+        trace!("TX ENABLED");
+        self.0.config.txen.write(|w| w.txen().enabled());
+    }
+
+    #[inline(always)]
+    fn disable_tx(&self) {
+        trace!("TX DISABLED");
+        self.0.config.txen.write(|w| w.txen().disabled());
+    }
+
+    #[inline(always)]
+    fn enable_rx(&self) {
+        trace!("RX ENABLED");
+        self.0.config.rxen.write(|w| w.rxen().enabled());
+    }
+
+    #[inline(always)]
+    fn disable_rx(&self) {
+        trace!("RX DISABLED");
+        self.0.config.rxen.write(|w| w.rxen().disabled());
+    }
+
+    #[inline(always)]
+    fn start(&self) {
+        trace!("START");
+        self.0.tasks_start.write(|w| unsafe { w.bits(1) });
+    }
+
+    #[inline]
+    fn set_tx_buffer<B>(&self, buffer: B) -> Result<(), Error>
     where
         B: Buffer,
     {
-        let ptr = buffer.bytes_ptr();
-        let len = buffer.bytes_len();
-
-        if ptr as u32 % 4 != 0 {
-            return Err(Error::BufferMisaligned);
-        }
-        if (ptr as usize) < SRAM_LOWER || (ptr as usize) > SRAM_UPPER {
-            return Err(Error::DMABufferNotInDataMemory);
-        }
-        let maxcnt = ((len + core::mem::size_of::<u32>() - 1) / core::mem::size_of::<u32>()) as u32;
-        if maxcnt > MAX_DMA_MAXCNT {
-            return Err(Error::BufferTooLong);
-        }
-
-        let r = T::regs();
-        let _s = T::state();
-
-        // TODO we can not progress until the last buffer written in RXD.PTR
-        // has started the transmission.
-        // We can use some sync primitive from `embassy-sync`.
-
-        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
-        r.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
-
+        let (ptr, maxcnt) = Self::validate_buffer(buffer)?;
+        self.0.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
+        self.0.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr) });
         Ok(())
+    }
+
+    #[inline]
+    fn set_rx_buffer<B>(&self, buffer: B) -> Result<(), Error>
+    where
+        B: Buffer,
+    {
+        let (ptr, maxcnt) = Self::validate_buffer(buffer)?;
+        self.0.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
+        self.0.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr) });
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn is_tx_ptr_updated(&self) -> bool {
+        self.0.events_txptrupd.read().bits() != 0
+    }
+
+    #[inline(always)]
+    fn is_rx_ptr_updated(&self) -> bool {
+        self.0.events_rxptrupd.read().bits() != 0
+    }
+
+    #[inline(always)]
+    fn reset_tx_ptr_event(&self) {
+        trace!("TX PTR EVENT: Reset");
+        self.0.events_txptrupd.reset();
+    }
+
+    #[inline(always)]
+    fn reset_rx_ptr_event(&self) {
+        trace!("RX PTR EVENT: Reset");
+        self.0.events_rxptrupd.reset();
+    }
+
+    #[inline(always)]
+    fn disable_tx_ptr_interrupt(&self) {
+        trace!("TX PTR INTERRUPT: Disabled");
+        self.0.intenclr.write(|w| w.txptrupd().clear());
+    }
+
+    #[inline(always)]
+    fn disable_rx_ptr_interrupt(&self) {
+        trace!("RX PTR INTERRUPT: Disabled");
+        self.0.intenclr.write(|w| w.rxptrupd().clear());
+    }
+
+    #[inline(always)]
+    fn enable_tx_ptr_interrupt(&self) {
+        trace!("TX PTR INTERRUPT: Enabled");
+        self.0.intenset.write(|w| w.txptrupd().set());
+    }
+
+    #[inline(always)]
+    fn enable_rx_ptr_interrupt(&self) {
+        trace!("RX PTR INTERRUPT: Enabled");
+        self.0.intenclr.write(|w| w.rxptrupd().clear());
+    }
+
+    #[inline]
+    fn on_tx_drop(&self) -> OnDrop<fn()> {
+        OnDrop::new(move || {
+            trace!("TX DROP: Stopping");
+
+            let device = Device::<T>::new();
+            device.disable_tx_ptr_interrupt();
+            device.reset_tx_ptr_event();
+            device.disable_tx();
+
+            // TX is stopped almost instantly, spinning is fine.
+            while !device.is_tx_ptr_updated() {}
+
+            trace!("TX DROP: Stopped");
+        })
+    }
+
+    fn validate_buffer<B>(buffer: B) -> Result<(u32, u32), Error>
+    where
+        B: Buffer,
+    {
+        let ptr = buffer.bytes_ptr() as u32;
+        let len = buffer.bytes_len();
+        let maxcnt = ((len + core::mem::size_of::<u32>() - 1) / core::mem::size_of::<u32>()) as u32;
+
+        trace!("PTR={}, MAXCNT={}", ptr, maxcnt);
+
+        // TODO can we avoid repeating all those runtime checks for the same buffer again and again?
+
+        if ptr % 4 != 0 {
+            Err(Error::BufferMisaligned)
+        } else if len % 4 != 0 {
+            Err(Error::BufferLengthMisaligned)
+        } else if (ptr as usize) < SRAM_LOWER || (ptr as usize) > SRAM_UPPER {
+            Err(Error::BufferNotInDataMemory)
+        } else if maxcnt > MAX_DMA_MAXCNT {
+            Err(Error::BufferTooLong)
+        } else {
+            Ok((ptr, maxcnt))
+        }
     }
 }
 
@@ -578,10 +637,10 @@ pub trait Buffer: Sized {
     fn bytes_len(&self) -> usize;
 }
 
-impl Buffer for &[u8] {
+impl Buffer for &[i8] {
     #[inline]
     fn bytes_ptr(&self) -> *const u8 {
-        self.as_ptr()
+        self.as_ptr() as *const u8
     }
 
     #[inline]
@@ -610,7 +669,7 @@ impl Buffer for &[i32] {
 
     #[inline]
     fn bytes_len(&self) -> usize {
-        self.len() * core::mem::size_of::<i16>()
+        self.len() * core::mem::size_of::<i32>()
     }
 }
 
@@ -624,8 +683,6 @@ pub(crate) mod sealed {
     pub struct State {
         pub rx_waker: AtomicWaker,
         pub tx_waker: AtomicWaker,
-        pub overruns: AtomicI32,
-        pub seq: AtomicI32,
     }
 
     impl State {
@@ -633,8 +690,6 @@ pub(crate) mod sealed {
             Self {
                 rx_waker: AtomicWaker::new(),
                 tx_waker: AtomicWaker::new(),
-                overruns: AtomicI32::new(0),
-                seq: AtomicI32::new(0),
             }
         }
     }
@@ -654,7 +709,7 @@ pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
 macro_rules! impl_i2s {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::i2s::sealed::Instance for peripherals::$type {
-            fn regs() -> &'static pac::i2s::RegisterBlock {
+            fn regs() -> &'static crate::pac::i2s::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
             fn state() -> &'static crate::i2s::sealed::State {

@@ -1,14 +1,13 @@
-// Example inspired by RTIC's I2S demo: https://github.com/nrf-rs/nrf-hal/blob/master/examples/i2s-controller-demo/src/main.rs
-
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
 use core::f32::consts::PI;
 
-use defmt::{error, info};
+use defmt::{error, info, trace};
 use embassy_executor::Spawner;
-use embassy_nrf::i2s::{MckFreq, Mode, Ratio, MODE_MASTER_16000, MODE_MASTER_8000, Channels};
+use embassy_nrf::gpio::{Input, Pin, Pull};
+use embassy_nrf::i2s::{Channels, MckFreq, Mode, Ratio, SampleWidth, MODE_MASTER_32000};
 use embassy_nrf::pac::ficr::info;
 use embassy_nrf::{i2s, interrupt};
 use {defmt_rtt as _, panic_probe as _};
@@ -32,60 +31,79 @@ impl<T> AsMut<T> for AlignedBuffer<T> {
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     let mut config = i2s::Config::default();
-    // config.mode = MODE_MASTER_16000;
-    config.mode = Mode::Master {
-        freq: MckFreq::_32MDiv10,
-        ratio: Ratio::_256x,
-    }; // 12500 Hz
+    config.mode = MODE_MASTER_32000;
+    // config.mode = Mode::Master {
+    //     freq: MckFreq::_32MDiv10,
+    //     ratio: Ratio::_256x,
+    // }; // 12500 Hz
     config.channels = Channels::Left;
+    config.swidth = SampleWidth::_16bit;
     let sample_rate = config.mode.sample_rate().expect("I2S Master");
     let inv_sample_rate = 1.0 / sample_rate as f32;
 
     info!("Sample rate: {}", sample_rate);
 
-    let irq = interrupt::take!(I2S);
-    let mut i2s = i2s::I2S::new(p.I2S, irq, p.P0_28, p.P0_29, p.P0_31, p.P0_11, p.P0_30, config);
+    // Wait for a button press
+    // let mut btn1 = Input::new(p.P1_00.degrade(), Pull::Up);
+    // btn1.wait_for_low().await;
 
-    const BUF_SAMPLES: usize = 500;
-    const BUF_SIZE: usize = BUF_SAMPLES;
-    let mut buf = AlignedBuffer([0i16; BUF_SIZE]);
+    let irq = interrupt::take!(I2S);
+    let mut i2s = i2s::I2S::new(p.I2S, irq, p.P0_28, p.P0_29, p.P0_31, p.P0_11, p.P0_30, config).output();
+
+    type Sample = i16;
+    const MAX_UNIPOLAR_VALUE: Sample = (1 << 15) as Sample;
+    const NUM_SAMPLES: usize = 2000;
+    let mut buffers: [AlignedBuffer<[Sample; NUM_SAMPLES]>; 3] = [
+        AlignedBuffer([0; NUM_SAMPLES]),
+        AlignedBuffer([0; NUM_SAMPLES]),
+        AlignedBuffer([0; NUM_SAMPLES]),
+    ];
 
     let mut carrier = SineOsc::new();
-    carrier.set_frequency(16.0, inv_sample_rate);
 
-    // let mut modulator = SineOsc::new();
-    // modulator.set_frequency(0.01, inv_sample_rate);
-    // modulator.set_amplitude(0.2);
+    let mut freq_mod = SineOsc::new();
+    freq_mod.set_frequency(8.0, inv_sample_rate);
+    freq_mod.set_amplitude(1.0);
 
-    let mut generate = |buf: &mut [i16]| {
-        for sample in buf.as_mut() {
+    let mut amp_mod = SineOsc::new();
+    amp_mod.set_frequency(4.0, inv_sample_rate);
+    amp_mod.set_amplitude(0.5);
+
+    let mut generate = |buf: &mut [Sample]| {
+        let ptr = buf as *const [Sample] as *const Sample as u32;
+        trace!("GEN: {}", ptr);
+
+        for sample in &mut buf.as_mut().chunks_mut(1) {
             let signal = carrier.generate();
-            // let modulation = bipolar_to_unipolar(modulator.generate());
-            // carrier.set_frequency(200.0 + 100.0 * modulation, inv_sample_rate);
-            // carrier.set_amplitude((modulation);
-            let value = (i16::MAX as f32 * signal) as i16;
-            *sample = value;
+            let freq_modulation = bipolar_to_unipolar(freq_mod.generate());
+            carrier.set_frequency(220.0 + 220.0 * freq_modulation, inv_sample_rate);
+            let amp_modulation = bipolar_to_unipolar(amp_mod.generate());
+            carrier.set_amplitude(amp_modulation);
+            let value = (MAX_UNIPOLAR_VALUE as f32 * signal) as Sample;
+            sample[0] = value;
         }
     };
 
-    generate(buf.as_mut().as_mut_slice());
+    generate(buffers[0].as_mut().as_mut_slice());
+    generate(buffers[1].as_mut().as_mut_slice());
 
-    if let Err(err) = i2s.tx(buf.as_ref().as_slice()).await {
-        error!("{}", err);
-    }
+    i2s.start(buffers[0].as_ref().as_slice()).expect("I2S Start");
 
-    i2s.set_tx_enabled(true);
-    i2s.start();
-
+    let mut index = 1;
     loop {
-        generate(buf.as_mut().as_mut_slice());
-
-        if let Err(err) = i2s.tx(buf.as_ref().as_slice()).await {
+        if let Err(err) = i2s.send(buffers[index].as_ref().as_slice()).await {
             error!("{}", err);
         }
+
+        index += 1;
+        if index >= 3 {
+            index = 0;
+        }
+        generate(buffers[index].as_mut().as_mut_slice());
     }
 }
 
+#[derive(Clone)]
 struct SineOsc {
     amplitude: f32,
     modulo: f32,
