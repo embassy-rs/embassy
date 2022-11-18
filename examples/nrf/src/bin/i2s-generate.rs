@@ -4,59 +4,41 @@
 
 use core::f32::consts::PI;
 
-use defmt::{error, info, trace};
+use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_nrf::gpio::{Input, Pin, Pull};
-use embassy_nrf::i2s::{Channels, MckFreq, Mode, Ratio, SampleWidth, MODE_MASTER_32000};
-use embassy_nrf::pac::ficr::info;
-use embassy_nrf::{i2s, interrupt};
+use embassy_nrf::i2s::{self, Sample as _};
+use embassy_nrf::interrupt;
 use {defmt_rtt as _, panic_probe as _};
-
-#[repr(align(4))]
-pub struct AlignedBuffer<T: ?Sized>(T);
-
-impl<T> AsRef<T> for AlignedBuffer<T> {
-    fn as_ref(&self) -> &T {
-        &self.0
-    }
-}
-
-impl<T> AsMut<T> for AlignedBuffer<T> {
-    fn as_mut(&mut self) -> &mut T {
-        &mut self.0
-    }
-}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
+
     let mut config = i2s::Config::default();
-    config.mode = MODE_MASTER_32000;
-    // config.mode = Mode::Master {
-    //     freq: MckFreq::_32MDiv10,
-    //     ratio: Ratio::_256x,
-    // }; // 12500 Hz
-    config.channels = Channels::Left;
-    config.swidth = SampleWidth::_16bit;
+    config.mode = i2s::ExactSampleRate::_50000.into();
+    config.channels = i2s::Channels::Left;
+    config.swidth = i2s::SampleWidth::_16bit;
     let sample_rate = config.mode.sample_rate().expect("I2S Master");
     let inv_sample_rate = 1.0 / sample_rate as f32;
 
     info!("Sample rate: {}", sample_rate);
 
     // Wait for a button press
+    // use embassy_nrf::gpio::{Input, Pin, Pull};
     // let mut btn1 = Input::new(p.P1_00.degrade(), Pull::Up);
     // btn1.wait_for_low().await;
 
     let irq = interrupt::take!(I2S);
-    let mut i2s = i2s::I2S::new(p.I2S, irq, p.P0_28, p.P0_29, p.P0_31, p.P0_11, p.P0_30, config).output();
+    let mut i2s = i2s::I2S::new(p.I2S, irq, p.P0_28, p.P0_29, p.P0_31, p.P0_27, p.P0_30, config)
+        .output();
 
     type Sample = i16;
-    const MAX_UNIPOLAR_VALUE: Sample = (1 << 15) as Sample;
-    const NUM_SAMPLES: usize = 2000;
-    let mut buffers: [AlignedBuffer<[Sample; NUM_SAMPLES]>; 3] = [
-        AlignedBuffer([0; NUM_SAMPLES]),
-        AlignedBuffer([0; NUM_SAMPLES]),
-        AlignedBuffer([0; NUM_SAMPLES]),
+    const NUM_SAMPLES: usize = 6000;
+
+    let mut buffers: [i2s::AlignedBuffer<Sample, NUM_SAMPLES>; 3] = [
+        i2s::AlignedBuffer::default(),
+        i2s::AlignedBuffer::default(),
+        i2s::AlignedBuffer::default(),
     ];
 
     let mut carrier = SineOsc::new();
@@ -66,32 +48,29 @@ async fn main(_spawner: Spawner) {
     freq_mod.set_amplitude(1.0);
 
     let mut amp_mod = SineOsc::new();
-    amp_mod.set_frequency(4.0, inv_sample_rate);
+    amp_mod.set_frequency(16.0, inv_sample_rate);
     amp_mod.set_amplitude(0.5);
 
     let mut generate = |buf: &mut [Sample]| {
-        let ptr = buf as *const [Sample] as *const Sample as u32;
-        trace!("GEN: {}", ptr);
-
-        for sample in &mut buf.as_mut().chunks_mut(1) {
-            let signal = carrier.generate();
+        for sample in &mut buf.chunks_mut(1) {
             let freq_modulation = bipolar_to_unipolar(freq_mod.generate());
-            carrier.set_frequency(220.0 + 220.0 * freq_modulation, inv_sample_rate);
+            carrier.set_frequency(220.0 + 440.0 * freq_modulation, inv_sample_rate);
             let amp_modulation = bipolar_to_unipolar(amp_mod.generate());
             carrier.set_amplitude(amp_modulation);
-            let value = (MAX_UNIPOLAR_VALUE as f32 * signal) as Sample;
+            let signal = carrier.generate();
+            let value = (Sample::SCALE as f32 * signal) as Sample;
             sample[0] = value;
         }
     };
 
-    generate(buffers[0].as_mut().as_mut_slice());
-    generate(buffers[1].as_mut().as_mut_slice());
+    generate(buffers[0].as_mut());
+    generate(buffers[1].as_mut());
 
-    i2s.start(buffers[0].as_ref().as_slice()).expect("I2S Start");
+    i2s.start(buffers[0].as_ref()).await.expect("I2S Start");
 
     let mut index = 1;
     loop {
-        if let Err(err) = i2s.send(buffers[index].as_ref().as_slice()).await {
+        if let Err(err) = i2s.send(buffers[index].as_ref()).await {
             error!("{}", err);
         }
 
@@ -99,7 +78,7 @@ async fn main(_spawner: Spawner) {
         if index >= 3 {
             index = 0;
         }
-        generate(buffers[index].as_mut().as_mut_slice());
+        generate(buffers[index].as_mut());
     }
 }
 
