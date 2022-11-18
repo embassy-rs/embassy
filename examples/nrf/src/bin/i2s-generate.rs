@@ -29,8 +29,7 @@ async fn main(_spawner: Spawner) {
     // btn1.wait_for_low().await;
 
     let irq = interrupt::take!(I2S);
-    let mut i2s = i2s::I2S::new(p.I2S, irq, p.P0_28, p.P0_29, p.P0_31, p.P0_27, p.P0_30, config)
-        .output();
+    let mut i2s = i2s::I2S::new(p.I2S, irq, p.P0_28, p.P0_29, p.P0_31, p.P0_27, p.P0_30, config).output();
 
     type Sample = i16;
     const NUM_SAMPLES: usize = 6000;
