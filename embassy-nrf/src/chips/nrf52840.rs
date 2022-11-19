@@ -330,7 +330,6 @@ pub mod irqs {
     declare!(PWM2);
     declare!(SPIM2_SPIS2_SPI2);
     declare!(RTC2);
-    declare!(I2S);
     declare!(FPU);
     declare!(USBD);
     declare!(UARTE1);
@@ -338,4 +337,5 @@ pub mod irqs {
     declare!(CRYPTOCELL);
     declare!(PWM3);
     declare!(SPIM3);
+    declare!(I2S);
 }

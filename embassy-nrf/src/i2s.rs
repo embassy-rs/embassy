@@ -14,12 +14,9 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::interrupt::Interrupt;
 use crate::pac::i2s::RegisterBlock;
-use crate::Peripheral;
+use crate::{EASY_DMA_SIZE, Peripheral};
 
 // TODO: Define those in lib.rs somewhere else
-
-/// I2S EasyDMA MAXCNT bit length = 14
-const MAX_DMA_MAXCNT: u32 = 1 << 14;
 
 /// Limits for Easy DMA - it can only read from data ram
 pub const SRAM_LOWER: usize = 0x2000_0000;
@@ -956,7 +953,7 @@ impl<T: Instance> Device<T> {
             Err(Error::BufferLengthMisaligned)
         } else if (ptr as usize) < SRAM_LOWER || (ptr as usize) > SRAM_UPPER {
             Err(Error::BufferNotInDataMemory)
-        } else if maxcnt > MAX_DMA_MAXCNT {
+        } else if maxcnt as usize > EASY_DMA_SIZE {
             Err(Error::BufferTooLong)
         } else {
             Ok((ptr, maxcnt))
