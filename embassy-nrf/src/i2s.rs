@@ -4,6 +4,8 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::size_of;
+use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
@@ -14,13 +16,8 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::interrupt::Interrupt;
 use crate::pac::i2s::RegisterBlock;
+use crate::util::{slice_in_ram_or, slice_ptr_parts};
 use crate::{Peripheral, EASY_DMA_SIZE};
-
-// TODO: Define those in lib.rs somewhere else
-
-/// Limits for Easy DMA - it can only read from data ram
-pub const SRAM_LOWER: usize = 0x2000_0000;
-pub const SRAM_UPPER: usize = 0x3000_0000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -33,159 +30,42 @@ pub enum Error {
     BufferLengthMisaligned,
 }
 
-/// Approximate sample rates.
-///
-/// Those are common sample rates that can not be configured without an small error.
-///
-/// For custom master clock configuration, please refer to [Mode].
-#[derive(Clone, Copy)]
-pub enum ApproxSampleRate {
-    _11025,
-    _16000,
-    _22050,
-    _32000,
-    _44100,
-    _48000,
-}
-
-impl From<ApproxSampleRate> for Mode {
-    fn from(value: ApproxSampleRate) -> Self {
-        match value {
-            // error = 86
-            ApproxSampleRate::_11025 => Mode::Master {
-                freq: MckFreq::_32MDiv15,
-                ratio: Ratio::_192x,
-            },
-            // error = 127
-            ApproxSampleRate::_16000 => Mode::Master {
-                freq: MckFreq::_32MDiv21,
-                ratio: Ratio::_96x,
-            },
-            // error = 172
-            ApproxSampleRate::_22050 => Mode::Master {
-                freq: MckFreq::_32MDiv15,
-                ratio: Ratio::_96x,
-            },
-            // error = 254
-            ApproxSampleRate::_32000 => Mode::Master {
-                freq: MckFreq::_32MDiv21,
-                ratio: Ratio::_48x,
-            },
-            // error = 344
-            ApproxSampleRate::_44100 => Mode::Master {
-                freq: MckFreq::_32MDiv15,
-                ratio: Ratio::_48x,
-            },
-            // error = 381
-            ApproxSampleRate::_48000 => Mode::Master {
-                freq: MckFreq::_32MDiv21,
-                ratio: Ratio::_32x,
-            },
-        }
-    }
-}
-
-impl ApproxSampleRate {
-    pub fn sample_rate(&self) -> u32 {
-        // This will always provide a Master mode, so it is safe to unwrap.
-        Mode::from(*self).sample_rate().unwrap()
-    }
-}
-
-/// Exact sample rates.
-///
-/// Those are non standard sample rates that can be configured without error.
-///
-/// For custom master clock configuration, please refer to [Mode].
-#[derive(Clone, Copy)]
-pub enum ExactSampleRate {
-    _8000,
-    _10582,
-    _12500,
-    _15625,
-    _15873,
-    _25000,
-    _31250,
-    _50000,
-    _62500,
-    _100000,
-    _125000,
-}
-
-impl ExactSampleRate {
-    pub fn sample_rate(&self) -> u32 {
-        // This will always provide a Master mode, so it is safe to unwrap.
-        Mode::from(*self).sample_rate().unwrap()
-    }
-}
-
-impl From<ExactSampleRate> for Mode {
-    fn from(value: ExactSampleRate) -> Self {
-        match value {
-            ExactSampleRate::_8000 => Mode::Master {
-                freq: MckFreq::_32MDiv125,
-                ratio: Ratio::_32x,
-            },
-            ExactSampleRate::_10582 => Mode::Master {
-                freq: MckFreq::_32MDiv63,
-                ratio: Ratio::_48x,
-            },
-            ExactSampleRate::_12500 => Mode::Master {
-                freq: MckFreq::_32MDiv10,
-                ratio: Ratio::_256x,
-            },
-            ExactSampleRate::_15625 => Mode::Master {
-                freq: MckFreq::_32MDiv32,
-                ratio: Ratio::_64x,
-            },
-            ExactSampleRate::_15873 => Mode::Master {
-                freq: MckFreq::_32MDiv63,
-                ratio: Ratio::_32x,
-            },
-            ExactSampleRate::_25000 => Mode::Master {
-                freq: MckFreq::_32MDiv10,
-                ratio: Ratio::_128x,
-            },
-            ExactSampleRate::_31250 => Mode::Master {
-                freq: MckFreq::_32MDiv32,
-                ratio: Ratio::_32x,
-            },
-            ExactSampleRate::_50000 => Mode::Master {
-                freq: MckFreq::_32MDiv10,
-                ratio: Ratio::_64x,
-            },
-            ExactSampleRate::_62500 => Mode::Master {
-                freq: MckFreq::_32MDiv16,
-                ratio: Ratio::_32x,
-            },
-            ExactSampleRate::_100000 => Mode::Master {
-                freq: MckFreq::_32MDiv10,
-                ratio: Ratio::_32x,
-            },
-            ExactSampleRate::_125000 => Mode::Master {
-                freq: MckFreq::_32MDiv8,
-                ratio: Ratio::_32x,
-            },
-        }
-    }
-}
-
 /// I2S configuration.
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct Config {
-    pub mode: Mode,
-    pub swidth: SampleWidth,
+    pub sample_width: SampleWidth,
     pub align: Align,
     pub format: Format,
     pub channels: Channels,
 }
 
+impl Config {
+    pub fn sample_width(mut self, sample_width: SampleWidth) -> Self {
+        self.sample_width = sample_width;
+        self
+    }
+
+    pub fn align(mut self, align: Align) -> Self {
+        self.align = align;
+        self
+    }
+
+    pub fn format(mut self, format: Format) -> Self {
+        self.format = format;
+        self
+    }
+
+    pub fn channels(mut self, channels: Channels) -> Self {
+        self.channels = channels;
+        self
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
-            mode: ExactSampleRate::_31250.into(),
-            swidth: SampleWidth::_16bit,
+            sample_width: SampleWidth::_16bit,
             align: Align::Left,
             format: Format::I2S,
             channels: Channels::Stereo,
@@ -195,17 +75,20 @@ impl Default for Config {
 
 /// I2S Mode
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
-pub enum Mode {
-    Master { freq: MckFreq, ratio: Ratio },
-    Slave,
+pub struct MasterClock {
+    freq: MckFreq,
+    ratio: Ratio,
 }
 
-impl Mode {
-    pub fn sample_rate(&self) -> Option<u32> {
-        match self {
-            Mode::Master { freq, ratio } => Some(freq.to_frequency() / ratio.to_divisor()),
-            Mode::Slave => None,
-        }
+impl MasterClock {
+    pub fn new(freq: MckFreq, ratio: Ratio) -> Self {
+        Self { freq, ratio }
+    }
+}
+
+impl MasterClock {
+    pub fn sample_rate(&self) -> u32 {
+        self.freq.to_frequency() / self.ratio.to_divisor()
     }
 }
 
@@ -275,14 +158,103 @@ pub enum Ratio {
 impl Ratio {
     const RATIOS: &'static [u32] = &[32, 48, 64, 96, 128, 192, 256, 384, 512];
 
+    /// Return the value that needs to be written to the register.
+    pub fn to_register_value(&self) -> u8 {
+        usize::from(*self) as u8
+    }
+
     pub fn to_divisor(&self) -> u32 {
-        Self::RATIOS[u8::from(*self) as usize]
+        Self::RATIOS[usize::from(*self)]
     }
 }
 
-impl From<Ratio> for u8 {
+impl From<Ratio> for usize {
     fn from(variant: Ratio) -> Self {
         variant as _
+    }
+}
+
+/// Approximate sample rates.
+///
+/// Those are common sample rates that can not be configured without an small error.
+///
+/// For custom master clock configuration, please refer to [MasterClock].
+#[derive(Clone, Copy)]
+pub enum ApproxSampleRate {
+    _11025,
+    _16000,
+    _22050,
+    _32000,
+    _44100,
+    _48000,
+}
+
+impl From<ApproxSampleRate> for MasterClock {
+    fn from(value: ApproxSampleRate) -> Self {
+        match value {
+            // error = 86
+            ApproxSampleRate::_11025 => MasterClock::new(MckFreq::_32MDiv15, Ratio::_192x),
+            // error = 127
+            ApproxSampleRate::_16000 => MasterClock::new(MckFreq::_32MDiv21, Ratio::_96x),
+            // error = 172
+            ApproxSampleRate::_22050 => MasterClock::new(MckFreq::_32MDiv15, Ratio::_96x),
+            // error = 254
+            ApproxSampleRate::_32000 => MasterClock::new(MckFreq::_32MDiv21, Ratio::_48x),
+            // error = 344
+            ApproxSampleRate::_44100 => MasterClock::new(MckFreq::_32MDiv15, Ratio::_48x),
+            // error = 381
+            ApproxSampleRate::_48000 => MasterClock::new(MckFreq::_32MDiv21, Ratio::_32x),
+        }
+    }
+}
+
+impl ApproxSampleRate {
+    pub fn sample_rate(&self) -> u32 {
+        MasterClock::from(*self).sample_rate()
+    }
+}
+
+/// Exact sample rates.
+///
+/// Those are non standard sample rates that can be configured without error.
+///
+/// For custom master clock configuration, please refer to [Mode].
+#[derive(Clone, Copy)]
+pub enum ExactSampleRate {
+    _8000,
+    _10582,
+    _12500,
+    _15625,
+    _15873,
+    _25000,
+    _31250,
+    _50000,
+    _62500,
+    _100000,
+    _125000,
+}
+
+impl ExactSampleRate {
+    pub fn sample_rate(&self) -> u32 {
+        MasterClock::from(*self).sample_rate()
+    }
+}
+
+impl From<ExactSampleRate> for MasterClock {
+    fn from(value: ExactSampleRate) -> Self {
+        match value {
+            ExactSampleRate::_8000 => MasterClock::new(MckFreq::_32MDiv125, Ratio::_32x),
+            ExactSampleRate::_10582 => MasterClock::new(MckFreq::_32MDiv63, Ratio::_48x),
+            ExactSampleRate::_12500 => MasterClock::new(MckFreq::_32MDiv10, Ratio::_256x),
+            ExactSampleRate::_15625 => MasterClock::new(MckFreq::_32MDiv32, Ratio::_64x),
+            ExactSampleRate::_15873 => MasterClock::new(MckFreq::_32MDiv63, Ratio::_32x),
+            ExactSampleRate::_25000 => MasterClock::new(MckFreq::_32MDiv10, Ratio::_128x),
+            ExactSampleRate::_31250 => MasterClock::new(MckFreq::_32MDiv32, Ratio::_32x),
+            ExactSampleRate::_50000 => MasterClock::new(MckFreq::_32MDiv10, Ratio::_64x),
+            ExactSampleRate::_62500 => MasterClock::new(MckFreq::_32MDiv16, Ratio::_32x),
+            ExactSampleRate::_100000 => MasterClock::new(MckFreq::_32MDiv10, Ratio::_32x),
+            ExactSampleRate::_125000 => MasterClock::new(MckFreq::_32MDiv8, Ratio::_32x),
+        }
     }
 }
 
@@ -336,10 +308,8 @@ impl From<Format> for bool {
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Channels {
     Stereo,
-    /// Mono left
-    Left,
-    /// Mono right
-    Right,
+    MonoLeft,
+    MonoRight,
 }
 
 impl From<Channels> for u8 {
@@ -350,131 +320,160 @@ impl From<Channels> for u8 {
 
 /// Interface to the I2S peripheral using EasyDMA to offload the transmission and reception workload.
 pub struct I2S<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+    i2s: PeripheralRef<'d, T>,
+    irq: PeripheralRef<'d, T::Interrupt>,
+    mck: Option<PeripheralRef<'d, AnyPin>>,
+    sck: PeripheralRef<'d, AnyPin>,
+    lrck: PeripheralRef<'d, AnyPin>,
+    sdin: Option<PeripheralRef<'d, AnyPin>>,
+    sdout: Option<PeripheralRef<'d, AnyPin>>,
+    master_clock: Option<MasterClock>,
+    config: Config,
 }
 
 impl<'d, T: Instance> I2S<'d, T> {
-    /// Create a new I2S
-    pub fn new(
+    /// Create a new I2S in master mode
+    pub fn master(
         i2s: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
         mck: impl Peripheral<P = impl GpioPin> + 'd,
         sck: impl Peripheral<P = impl GpioPin> + 'd,
         lrck: impl Peripheral<P = impl GpioPin> + 'd,
-        sdin: impl Peripheral<P = impl GpioPin> + 'd,
-        sdout: impl Peripheral<P = impl GpioPin> + 'd,
+        master_clock: MasterClock,
         config: Config,
     ) -> Self {
-        into_ref!(mck, sck, lrck, sdin, sdout);
-        Self::new_inner(
+        into_ref!(i2s, irq, mck, sck, lrck);
+        Self {
             i2s,
             irq,
-            mck.map_into(),
-            sck.map_into(),
-            lrck.map_into(),
-            sdin.map_into(),
-            sdout.map_into(),
+            mck: Some(mck.map_into()),
+            sck: sck.map_into(),
+            lrck: lrck.map_into(),
+            sdin: None,
+            sdout: None,
+            master_clock: Some(master_clock),
             config,
-        )
+        }
     }
 
-    fn new_inner(
+    /// Create a new I2S in slave mode
+    pub fn slave(
         i2s: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
-        mck: PeripheralRef<'d, AnyPin>,
-        sck: PeripheralRef<'d, AnyPin>,
-        lrck: PeripheralRef<'d, AnyPin>,
-        sdin: PeripheralRef<'d, AnyPin>,
-        sdout: PeripheralRef<'d, AnyPin>,
+        sck: impl Peripheral<P = impl GpioPin> + 'd,
+        lrck: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(i2s, irq, mck, sck, lrck, sdin, sdout);
-
-        Self::apply_config(&config);
-        Self::select_pins(mck, sck, lrck, sdin, sdout);
-        Self::setup_interrupt(irq);
-
-        T::regs().enable.write(|w| w.enable().enabled());
-
-        Self { _p: i2s }
+        into_ref!(i2s, irq, sck, lrck);
+        Self {
+            i2s,
+            irq,
+            mck: None,
+            sck: sck.map_into(),
+            lrck: lrck.map_into(),
+            sdin: None,
+            sdout: None,
+            master_clock: None,
+            config,
+        }
     }
 
     /// I2S output only
-    pub fn output(self) -> Output<'d, T> {
-        Output { _p: self._p }
+    pub fn output(mut self, sdout: impl Peripheral<P = impl GpioPin> + 'd) -> OutputStream<'d, T> {
+        self.sdout = Some(sdout.into_ref().map_into());
+        OutputStream { _p: self.build() }
     }
 
     /// I2S input only
-    pub fn input(self) -> Input<'d, T> {
-        Input { _p: self._p }
+    pub fn input(mut self, sdin: impl Peripheral<P = impl GpioPin> + 'd) -> InputStream<'d, T> {
+        self.sdin = Some(sdin.into_ref().map_into());
+        InputStream { _p: self.build() }
     }
 
     /// I2S full duplex (input and output)
-    pub fn full_duplex(self) -> FullDuplex<'d, T> {
-        FullDuplex { _p: self._p }
+    pub fn full_duplex(
+        mut self,
+        sdin: impl Peripheral<P = impl GpioPin> + 'd,
+        sdout: impl Peripheral<P = impl GpioPin> + 'd,
+    ) -> FullDuplexStream<'d, T> {
+        self.sdout = Some(sdout.into_ref().map_into());
+        self.sdin = Some(sdin.into_ref().map_into());
+        FullDuplexStream { _p: self.build() }
     }
 
-    fn apply_config(config: &Config) {
+    fn build(self) -> PeripheralRef<'d, T> {
+        self.apply_config();
+        self.select_pins();
+        self.setup_interrupt();
+
+        let device = Device::<T>::new();
+        device.enable();
+
+        self.i2s
+    }
+
+    fn apply_config(&self) {
         let c = &T::regs().config;
-        match config.mode {
-            Mode::Master { freq, ratio } => {
+        match &self.master_clock {
+            Some(MasterClock { freq, ratio }) => {
                 c.mode.write(|w| w.mode().master());
                 c.mcken.write(|w| w.mcken().enabled());
                 c.mckfreq
                     .write(|w| unsafe { w.mckfreq().bits(freq.to_register_value()) });
-                c.ratio.write(|w| unsafe { w.ratio().bits(ratio.into()) });
+                c.ratio.write(|w| unsafe { w.ratio().bits(ratio.to_register_value()) });
             }
-            Mode::Slave => {
+            None => {
                 c.mode.write(|w| w.mode().slave());
             }
         };
 
-        c.swidth.write(|w| unsafe { w.swidth().bits(config.swidth.into()) });
-        c.align.write(|w| w.align().bit(config.align.into()));
-        c.format.write(|w| w.format().bit(config.format.into()));
+        c.swidth
+            .write(|w| unsafe { w.swidth().bits(self.config.sample_width.into()) });
+        c.align.write(|w| w.align().bit(self.config.align.into()));
+        c.format.write(|w| w.format().bit(self.config.format.into()));
         c.channels
-            .write(|w| unsafe { w.channels().bits(config.channels.into()) });
+            .write(|w| unsafe { w.channels().bits(self.config.channels.into()) });
     }
 
-    fn select_pins(
-        mck: PeripheralRef<'d, AnyPin>,
-        sck: PeripheralRef<'d, AnyPin>,
-        lrck: PeripheralRef<'d, AnyPin>,
-        sdin: PeripheralRef<'d, AnyPin>,
-        sdout: PeripheralRef<'d, AnyPin>,
-    ) {
+    fn select_pins(&self) {
         let psel = &T::regs().psel;
 
-        psel.mck.write(|w| {
-            unsafe { w.bits(mck.psel_bits()) };
-            w.connect().connected()
-        });
+        if let Some(mck) = &self.mck {
+            psel.mck.write(|w| {
+                unsafe { w.bits(mck.psel_bits()) };
+                w.connect().connected()
+            });
+        }
 
         psel.sck.write(|w| {
-            unsafe { w.bits(sck.psel_bits()) };
+            unsafe { w.bits(self.sck.psel_bits()) };
             w.connect().connected()
         });
 
         psel.lrck.write(|w| {
-            unsafe { w.bits(lrck.psel_bits()) };
+            unsafe { w.bits(self.lrck.psel_bits()) };
             w.connect().connected()
         });
 
-        psel.sdin.write(|w| {
-            unsafe { w.bits(sdin.psel_bits()) };
-            w.connect().connected()
-        });
+        if let Some(sdin) = &self.sdin {
+            psel.sdin.write(|w| {
+                unsafe { w.bits(sdin.psel_bits()) };
+                w.connect().connected()
+            });
+        }
 
-        psel.sdout.write(|w| {
-            unsafe { w.bits(sdout.psel_bits()) };
-            w.connect().connected()
-        });
+        if let Some(sdout) = &self.sdout {
+            psel.sdout.write(|w| {
+                unsafe { w.bits(sdout.psel_bits()) };
+                w.connect().connected()
+            });
+        }
     }
 
-    fn setup_interrupt(irq: PeripheralRef<'d, T::Interrupt>) {
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
+    fn setup_interrupt(&self) {
+        self.irq.set_handler(Self::on_interrupt);
+        self.irq.unpend();
+        self.irq.enable();
 
         let device = Device::<T>::new();
         device.disable_tx_ptr_interrupt();
@@ -538,16 +537,31 @@ impl<'d, T: Instance> I2S<'d, T> {
         device.disable();
     }
 
-    async fn send<B>(buffer: B) -> Result<(), Error>
+    async fn send_from_ram<S>(buffer_ptr: *const [S]) -> Result<(), Error>
     where
-        B: Buffer,
+        S: Sample,
     {
-        trace!("SEND: {}", buffer.bytes_ptr() as u32);
+        trace!("SEND: {}", buffer_ptr as *const S as u32);
 
-        let device = Device::<T>::new();
-        let drop = device.on_tx_drop();
+        slice_in_ram_or(buffer_ptr, Error::BufferNotInDataMemory)?;
 
         compiler_fence(Ordering::SeqCst);
+
+        let device = Device::<T>::new();
+
+        let drop = OnDrop::new(move || {
+            trace!("TX DROP: Stopping");
+
+            let device = Device::<T>::new();
+            device.disable_tx_ptr_interrupt();
+            device.reset_tx_ptr_event();
+            device.disable_tx();
+
+            // TX is stopped almost instantly, spinning is fine.
+            while !device.is_tx_ptr_updated() {}
+
+            trace!("TX DROP: Stopped");
+        });
 
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
@@ -564,7 +578,7 @@ impl<'d, T: Instance> I2S<'d, T> {
         })
         .await;
 
-        device.set_tx_buffer(buffer)?;
+        device.update_tx(buffer_ptr)?;
 
         compiler_fence(Ordering::SeqCst);
         drop.defuse();
@@ -572,16 +586,32 @@ impl<'d, T: Instance> I2S<'d, T> {
         Ok(())
     }
 
-    async fn receive<B>(buffer: B) -> Result<(), Error>
+    async fn receive_from_ram<S>(buffer_ptr: *mut [S]) -> Result<(), Error>
     where
-        B: Buffer,
+        S: Sample,
     {
-        trace!("RECEIVE: {}", buffer.bytes_ptr() as u32);
+        trace!("RECEIVE: {}", buffer_ptr as *const S as u32);
 
-        let device = Device::<T>::new();
-        let drop = device.on_rx_drop();
+        // NOTE: RAM slice check for rx is not necessary, as a mutable
+        // slice can only be built from data located in RAM.
 
         compiler_fence(Ordering::SeqCst);
+
+        let device = Device::<T>::new();
+
+        let drop = OnDrop::new(move || {
+            trace!("RX DROP: Stopping");
+
+            let device = Device::<T>::new();
+            device.disable_rx_ptr_interrupt();
+            device.reset_rx_ptr_event();
+            device.disable_rx();
+
+            // TX is stopped almost instantly, spinning is fine.
+            while !device.is_rx_ptr_updated() {}
+
+            trace!("RX DROP: Stopped");
+        });
 
         poll_fn(|cx| {
             T::state().rx_waker.register(cx.waker());
@@ -598,9 +628,10 @@ impl<'d, T: Instance> I2S<'d, T> {
         })
         .await;
 
-        device.set_rx_buffer(buffer)?;
+        device.update_rx(buffer_ptr)?;
 
         compiler_fence(Ordering::SeqCst);
+
         drop.defuse();
 
         Ok(())
@@ -608,15 +639,15 @@ impl<'d, T: Instance> I2S<'d, T> {
 }
 
 /// I2S output
-pub struct Output<'d, T: Instance> {
+pub struct OutputStream<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
 }
 
-impl<'d, T: Instance> Output<'d, T> {
+impl<'d, T: Instance> OutputStream<'d, T> {
     /// Prepare the initial buffer and start the I2S transfer.
-    pub async fn start<B>(&self, buffer: B) -> Result<(), Error>
+    pub async fn start<S>(&self, buffer: &[S]) -> Result<(), Error>
     where
-        B: Buffer,
+        S: Sample,
     {
         let device = Device::<T>::new();
 
@@ -627,7 +658,8 @@ impl<'d, T: Instance> Output<'d, T> {
 
         device.enable();
         device.enable_tx();
-        device.set_tx_buffer(buffer)?;
+
+        device.update_tx(buffer as *const [S])?;
 
         s.started.store(true, Ordering::Relaxed);
 
@@ -647,24 +679,24 @@ impl<'d, T: Instance> Output<'d, T> {
     /// The buffer must not be written while being used by the DMA,
     /// which takes two other `send`s being awaited.
     #[allow(unused_mut)]
-    pub async fn send<B>(&mut self, buffer: B) -> Result<(), Error>
+    pub async fn send_from_ram<S>(&mut self, buffer: &[S]) -> Result<(), Error>
     where
-        B: Buffer,
+        S: Sample,
     {
-        I2S::<T>::send(buffer).await
+        I2S::<T>::send_from_ram(buffer as *const [S]).await
     }
 }
 
 /// I2S input
-pub struct Input<'d, T: Instance> {
+pub struct InputStream<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
 }
 
-impl<'d, T: Instance> Input<'d, T> {
+impl<'d, T: Instance> InputStream<'d, T> {
     /// Prepare the initial buffer and start the I2S transfer.
-    pub async fn start<B>(&self, buffer: B) -> Result<(), Error>
+    pub async fn start<S>(&self, buffer: &mut [S]) -> Result<(), Error>
     where
-        B: Buffer,
+        S: Sample,
     {
         let device = Device::<T>::new();
 
@@ -675,7 +707,8 @@ impl<'d, T: Instance> Input<'d, T> {
 
         device.enable();
         device.enable_rx();
-        device.set_rx_buffer(buffer)?;
+
+        device.update_rx(buffer as *mut [S])?;
 
         s.started.store(true, Ordering::Relaxed);
 
@@ -695,24 +728,24 @@ impl<'d, T: Instance> Input<'d, T> {
     /// The buffer must not be read while being used by the DMA,
     /// which takes two other `receive`s being awaited.
     #[allow(unused_mut)]
-    pub async fn receive<B>(&mut self, buffer: B) -> Result<(), Error>
+    pub async fn receive_from_ram<S>(&mut self, buffer: &mut [S]) -> Result<(), Error>
     where
-        B: Buffer,
+        S: Sample,
     {
-        I2S::<T>::receive(buffer).await
+        I2S::<T>::receive_from_ram(buffer as *mut [S]).await
     }
 }
 
-/// I2S ful duplex (input & output)
-pub struct FullDuplex<'d, T: Instance> {
+/// I2S full duplex stream (input & output)
+pub struct FullDuplexStream<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
 }
 
-impl<'d, T: Instance> FullDuplex<'d, T> {
+impl<'d, T: Instance> FullDuplexStream<'d, T> {
     /// Prepare the initial buffers and start the I2S transfer.
-    pub async fn start<B>(&self, buffer_out: B, buffer_in: B) -> Result<(), Error>
+    pub async fn start<S>(&self, buffer_out: &[S], buffer_in: &mut [S]) -> Result<(), Error>
     where
-        B: Buffer,
+        S: Sample,
     {
         let device = Device::<T>::new();
 
@@ -724,8 +757,9 @@ impl<'d, T: Instance> FullDuplex<'d, T> {
         device.enable();
         device.enable_tx();
         device.enable_rx();
-        device.set_tx_buffer(buffer_out)?;
-        device.set_rx_buffer(buffer_in)?;
+
+        device.update_tx(buffer_out as *const [S])?;
+        device.update_rx(buffer_in as *mut [S])?;
 
         s.started.store(true, Ordering::Relaxed);
 
@@ -745,12 +779,12 @@ impl<'d, T: Instance> FullDuplex<'d, T> {
     /// The buffers must not be written/read while being used by the DMA,
     /// which takes two other `send_and_receive` operations being awaited.
     #[allow(unused_mut)]
-    pub async fn send_and_receive<B>(&mut self, buffer_out: B, buffer_in: B) -> Result<(), Error>
+    pub async fn send_and_receive_from_ram<S>(&mut self, buffer_out: &[S], buffer_in: &mut [S]) -> Result<(), Error>
     where
-        B: Buffer,
+        S: Sample,
     {
-        I2S::<T>::send(buffer_out).await?;
-        I2S::<T>::receive(buffer_in).await?;
+        I2S::<T>::send_from_ram(buffer_out as *const [S]).await?;
+        I2S::<T>::receive_from_ram(buffer_in as *mut [S]).await?;
         Ok(())
     }
 }
@@ -833,38 +867,6 @@ impl<T: Instance> Device<T> {
         self.0.intenset.write(|w| w.stopped().set());
     }
 
-    #[inline]
-    fn set_tx_buffer<B>(&self, buffer: B) -> Result<(), Error>
-    where
-        B: Buffer,
-    {
-        let (ptr, maxcnt) = Self::validate_buffer(buffer)?;
-        self.0.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
-        self.0.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr) });
-        Ok(())
-    }
-
-    #[inline]
-    fn set_rx_buffer<B>(&self, buffer: B) -> Result<(), Error>
-    where
-        B: Buffer,
-    {
-        let (ptr, maxcnt) = Self::validate_buffer(buffer)?;
-        self.0.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
-        self.0.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr) });
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn is_tx_ptr_updated(&self) -> bool {
-        self.0.events_txptrupd.read().bits() != 0
-    }
-
-    #[inline(always)]
-    fn is_rx_ptr_updated(&self) -> bool {
-        self.0.events_rxptrupd.read().bits() != 0
-    }
-
     #[inline(always)]
     fn reset_tx_ptr_event(&self) {
         trace!("TX PTR EVENT: Reset");
@@ -901,58 +903,44 @@ impl<T: Instance> Device<T> {
         self.0.intenclr.write(|w| w.rxptrupd().clear());
     }
 
-    #[inline]
-    fn on_tx_drop(&self) -> OnDrop<fn()> {
-        OnDrop::new(move || {
-            trace!("TX DROP: Stopping");
+    #[inline(always)]
+    fn is_tx_ptr_updated(&self) -> bool {
+        self.0.events_txptrupd.read().bits() != 0
+    }
 
-            let device = Device::<T>::new();
-            device.disable_tx_ptr_interrupt();
-            device.reset_tx_ptr_event();
-            device.disable_tx();
-
-            // TX is stopped almost instantly, spinning is fine.
-            while !device.is_tx_ptr_updated() {}
-
-            trace!("TX DROP: Stopped");
-        })
+    #[inline(always)]
+    fn is_rx_ptr_updated(&self) -> bool {
+        self.0.events_rxptrupd.read().bits() != 0
     }
 
     #[inline]
-    fn on_rx_drop(&self) -> OnDrop<fn()> {
-        OnDrop::new(move || {
-            trace!("RX DROP: Stopping");
-
-            let device = Device::<T>::new();
-            device.disable_rx_ptr_interrupt();
-            device.reset_rx_ptr_event();
-            device.disable_rx();
-
-            // TX is stopped almost instantly, spinning is fine.
-            while !device.is_rx_ptr_updated() {}
-
-            trace!("RX DROP: Stopped");
-        })
+    fn update_tx<S>(&self, buffer_ptr: *const [S]) -> Result<(), Error> {
+        let (ptr, maxcnt) = Self::validated_dma_parts(buffer_ptr)?;
+        self.0.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
+        self.0.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr) });
+        Ok(())
     }
 
-    fn validate_buffer<B>(buffer: B) -> Result<(u32, u32), Error>
-    where
-        B: Buffer,
-    {
-        let ptr = buffer.bytes_ptr() as u32;
-        let len = buffer.bytes_len();
-        let maxcnt = ((len + core::mem::size_of::<u32>() - 1) / core::mem::size_of::<u32>()) as u32;
+    #[inline]
+    fn update_rx<S>(&self, buffer_ptr: *const [S]) -> Result<(), Error> {
+        let (ptr, maxcnt) = Self::validated_dma_parts(buffer_ptr)?;
+        self.0.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
+        self.0.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr) });
+        Ok(())
+    }
+
+    fn validated_dma_parts<S>(buffer_ptr: *const [S]) -> Result<(u32, u32), Error> {
+        let (ptr, len) = slice_ptr_parts(buffer_ptr);
+        let ptr = ptr as u32;
+        let bytes_len = len * size_of::<S>();
+        let maxcnt = (bytes_len / size_of::<u32>()) as u32;
 
         trace!("PTR={}, MAXCNT={}", ptr, maxcnt);
 
-        // TODO can we avoid repeating all those runtime checks for the same buffer again and again?
-
         if ptr % 4 != 0 {
             Err(Error::BufferMisaligned)
-        } else if len % 4 != 0 {
+        } else if bytes_len % 4 != 0 {
             Err(Error::BufferLengthMisaligned)
-        } else if (ptr as usize) < SRAM_LOWER || (ptr as usize) > SRAM_UPPER {
-            Err(Error::BufferNotInDataMemory)
         } else if maxcnt as usize > EASY_DMA_SIZE {
             Err(Error::BufferTooLong)
         } else {
@@ -998,57 +986,16 @@ impl<T: Sample, const N: usize> Default for AlignedBuffer<T, N> {
     }
 }
 
-impl<T: Sample, const N: usize> AsRef<[T]> for AlignedBuffer<T, N> {
-    fn as_ref(&self) -> &[T] {
+impl<T: Sample, const N: usize> Deref for AlignedBuffer<T, N> {
+    type Target = [T];
+    fn deref(&self) -> &Self::Target {
         self.0.as_slice()
     }
 }
 
-impl<T: Sample, const N: usize> AsMut<[T]> for AlignedBuffer<T, N> {
-    fn as_mut(&mut self) -> &mut [T] {
+impl<T: Sample, const N: usize> DerefMut for AlignedBuffer<T, N> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
         self.0.as_mut_slice()
-    }
-}
-
-/// Common operations required for a buffer to be used by the DMA
-pub trait Buffer: Sized {
-    fn bytes_ptr(&self) -> *const u8;
-    fn bytes_len(&self) -> usize;
-}
-
-impl Buffer for &[i8] {
-    #[inline]
-    fn bytes_ptr(&self) -> *const u8 {
-        self.as_ptr() as *const u8
-    }
-
-    #[inline]
-    fn bytes_len(&self) -> usize {
-        self.len()
-    }
-}
-
-impl Buffer for &[i16] {
-    #[inline]
-    fn bytes_ptr(&self) -> *const u8 {
-        self.as_ptr() as *const u8
-    }
-
-    #[inline]
-    fn bytes_len(&self) -> usize {
-        self.len() * core::mem::size_of::<i16>()
-    }
-}
-
-impl Buffer for &[i32] {
-    #[inline]
-    fn bytes_ptr(&self) -> *const u8 {
-        self.as_ptr() as *const u8
-    }
-
-    #[inline]
-    fn bytes_len(&self) -> usize {
-        self.len() * core::mem::size_of::<i32>()
     }
 }
 
