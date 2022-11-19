@@ -14,7 +14,7 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::interrupt::Interrupt;
 use crate::pac::i2s::RegisterBlock;
-use crate::{EASY_DMA_SIZE, Peripheral};
+use crate::{Peripheral, EASY_DMA_SIZE};
 
 // TODO: Define those in lib.rs somewhere else
 
