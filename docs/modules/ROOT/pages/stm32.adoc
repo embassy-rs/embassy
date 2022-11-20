@@ -4,9 +4,9 @@ The link:https://github.com/embassy-rs/embassy/tree/master/embassy-stm32[Embassy
 
 == The infinite variant problem
 
-STM32 microcontrollers comes in many families and flavors, and supporting all of them is a big undertaking. Embassy has taken advantage of the fact
+STM32 microcontrollers come in many families, and flavors and supporting all of them is a big undertaking. Embassy has taken advantage of the fact
 that the STM32 peripheral versions are shared across chip families. Instead of re-implementing the SPI
-peripheral for every STM32 chip family, embassy have a single SPI implementation that depends on
+peripheral for every STM32 chip family, embassy has a single SPI implementation that depends on
 code-generated register types that are identical for STM32 families with the same version of a given peripheral.
 
 === The metapac

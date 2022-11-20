@@ -116,6 +116,24 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, 
 
         mac.macqtx_fcr().modify(|w| w.set_pt(0x100));
 
+        // disable all MMC RX interrupts
+        mac.mmc_rx_interrupt_mask().write(|w| {
+            w.set_rxcrcerpim(true);
+            w.set_rxalgnerpim(true);
+            w.set_rxucgpim(true);
+            w.set_rxlpiuscim(true);
+            w.set_rxlpitrcim(true)
+        });
+
+        // disable all MMC TX interrupts
+        mac.mmc_tx_interrupt_mask().write(|w| {
+            w.set_txscolgpim(true);
+            w.set_txmcolgpim(true);
+            w.set_txgpktim(true);
+            w.set_txlpiuscim(true);
+            w.set_txlpitrcim(true);
+        });
+
         mtl.mtlrx_qomr().modify(|w| w.set_rsf(true));
         mtl.mtltx_qomr().modify(|w| w.set_tsf(true));
 
