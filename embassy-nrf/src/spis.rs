@@ -1,5 +1,4 @@
 #![macro_use]
-
 use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
@@ -10,7 +9,7 @@ pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MO
 
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
+use crate::gpio::{self, AnyPin, Pin as GpioPin};
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::util::{slice_in_ram_or, slice_ptr_parts, slice_ptr_parts_mut};
 use crate::{pac, Peripheral};
@@ -122,40 +121,25 @@ impl<'d, T: Instance> Spis<'d, T> {
         mosi: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(cs, spis, irq);
+        compiler_fence(Ordering::SeqCst);
+
+        into_ref!(spis, irq, cs, sck);
 
         let r = T::regs();
 
         // Configure pins.
         sck.conf().write(|w| w.input().connect().drive().h0h1());
+        r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
         cs.conf().write(|w| w.input().connect().drive().h0h1());
+        r.psel.csn.write(|w| unsafe { w.bits(cs.psel_bits()) });
         if let Some(mosi) = &mosi {
             mosi.conf().write(|w| w.input().connect().drive().h0h1());
+            r.psel.mosi.write(|w| unsafe { w.bits(mosi.psel_bits()) });
         }
         if let Some(miso) = &miso {
             miso.conf().write(|w| w.dir().output().drive().h0h1());
+            r.psel.miso.write(|w| unsafe { w.bits(miso.psel_bits()) });
         }
-
-        match config.mode.polarity {
-            Polarity::IdleHigh => {
-                sck.set_high();
-                if let Some(mosi) = &mosi {
-                    mosi.set_high();
-                }
-            }
-            Polarity::IdleLow => {
-                sck.set_low();
-                if let Some(mosi) = &mosi {
-                    mosi.set_low();
-                }
-            }
-        }
-
-        // Select pins.
-        r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
-        r.psel.csn.write(|w| unsafe { w.bits(cs.psel_bits()) });
-        r.psel.mosi.write(|w| unsafe { w.bits(mosi.psel_bits()) });
-        r.psel.miso.write(|w| unsafe { w.bits(miso.psel_bits()) });
 
         // Enable SPIS instance.
         r.enable.write(|w| w.enable().enabled());
@@ -217,12 +201,12 @@ impl<'d, T: Instance> Spis<'d, T> {
         let s = T::state();
 
         if r.events_end.read().bits() != 0 {
-            s.end_waker.wake();
+            s.waker.wake();
             r.intenclr.write(|w| w.end().clear());
         }
 
         if r.events_acquired.read().bits() != 0 {
-            s.acquire_waker.wake();
+            s.waker.wake();
             r.intenclr.write(|w| w.acquired().clear());
         }
     }
@@ -246,9 +230,8 @@ impl<'d, T: Instance> Spis<'d, T> {
         r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 
-        // Reset and enable the end event.
+        // Reset end event.
         r.events_end.reset();
-        r.intenset.write(|w| w.end().set());
 
         // Release the semaphore.
         r.tasks_release.write(|w| unsafe { w.bits(1) });
@@ -312,8 +295,9 @@ impl<'d, T: Instance> Spis<'d, T> {
 
             // Wait until CPU has acquired the semaphore.
             poll_fn(|cx| {
-                s.acquire_waker.register(cx.waker());
-                if r.semstat.read().bits() == 1 {
+                s.waker.register(cx.waker());
+                if r.events_acquired.read().bits() == 1 {
+                    r.events_acquired.reset();
                     return Poll::Ready(());
                 }
                 Poll::Pending
@@ -324,12 +308,13 @@ impl<'d, T: Instance> Spis<'d, T> {
         self.prepare(rx, tx)?;
 
         // Wait for 'end' event.
+        r.intenset.write(|w| w.end().set());
         poll_fn(|cx| {
-            s.end_waker.register(cx.waker());
+            s.waker.register(cx.waker());
             if r.events_end.read().bits() != 0 {
+                r.events_end.reset();
                 return Poll::Ready(());
             }
-
             Poll::Pending
         })
         .await;
@@ -466,15 +451,13 @@ pub(crate) mod sealed {
     use super::*;
 
     pub struct State {
-        pub end_waker: AtomicWaker,
-        pub acquire_waker: AtomicWaker,
+        pub waker: AtomicWaker,
     }
 
     impl State {
         pub const fn new() -> Self {
             Self {
-                end_waker: AtomicWaker::new(),
-                acquire_waker: AtomicWaker::new(),
+                waker: AtomicWaker::new(),
             }
         }
     }
