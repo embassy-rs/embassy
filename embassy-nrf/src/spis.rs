@@ -78,7 +78,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         irq: impl Peripheral<P = T::Interrupt> + 'd,
         cs: impl Peripheral<P = impl GpioPin> + 'd,
         sck: impl Peripheral<P = impl GpioPin> + 'd,
-        mosi: impl Peripheral<P = impl GpioPin> + 'd,
+        miso: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(cs, sck, mosi);
@@ -87,8 +87,8 @@ impl<'d, T: Instance> Spis<'d, T> {
             irq,
             cs.map_into(),
             sck.map_into(),
+            Some(miso.map_into()),
             None,
-            Some(mosi.map_into()),
             config,
         )
     }
@@ -98,7 +98,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         irq: impl Peripheral<P = T::Interrupt> + 'd,
         cs: impl Peripheral<P = impl GpioPin> + 'd,
         sck: impl Peripheral<P = impl GpioPin> + 'd,
-        miso: impl Peripheral<P = impl GpioPin> + 'd,
+        mosi: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(cs, sck, miso);
@@ -107,8 +107,8 @@ impl<'d, T: Instance> Spis<'d, T> {
             irq,
             cs.map_into(),
             sck.map_into(),
-            Some(miso.map_into()),
             None,
+            Some(mosi.map_into()),
             config,
         )
     }
@@ -355,7 +355,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         }
     }
 
-    /// Reads data from the SPI bus without sending anything. Blocks until the buffer has been filled.
+    /// Reads data from the SPI bus without sending anything. Blocks until `cs` is deasserted.
     /// Returns number of bytes read.
     pub fn blocking_read(&mut self, data: &mut [u8]) -> Result<usize, Error> {
         self.blocking_inner(data, &[]).map(|n| n.0)
@@ -371,7 +371,7 @@ impl<'d, T: Instance> Spis<'d, T> {
     /// Same as [`blocking_transfer`](Spis::blocking_transfer) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     /// Returns number of bytes transferred `(n_rx, n_tx)`.
     pub fn blocking_transfer_from_ram(&mut self, read: &mut [u8], write: &[u8]) -> Result<(usize, usize), Error> {
-        self.blocking_inner(read, write)
+        self.blocking_inner_from_ram(read, write)
     }
 
     /// Simultaneously sends and receives data.
@@ -391,7 +391,7 @@ impl<'d, T: Instance> Spis<'d, T> {
     /// Same as [`blocking_write`](Spis::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     /// Returns number of bytes written.
     pub fn blocking_write_from_ram(&mut self, data: &[u8]) -> Result<usize, Error> {
-        self.blocking_inner(&mut [], data).map(|n| n.1)
+        self.blocking_inner_from_ram(&mut [], data).map(|n| n.1)
     }
 
     /// Reads data from the SPI bus without sending anything.
