@@ -1,5 +1,5 @@
 use core::cell::RefCell;
-use core::future::{poll_fn, Future};
+use core::future::poll_fn;
 use core::task::Poll;
 
 use atomic_polyfill::{compiler_fence, Ordering};
@@ -339,32 +339,20 @@ impl<'u, 'd, T: BasicInstance> embedded_io::Io for BufferedUartTx<'u, 'd, T> {
 }
 
 impl<'d, T: BasicInstance> embedded_io::asynch::Read for BufferedUart<'d, T> {
-    type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.inner_read(buf)
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.inner_read(buf).await
     }
 }
 
 impl<'u, 'd, T: BasicInstance> embedded_io::asynch::Read for BufferedUartRx<'u, 'd, T> {
-    type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.inner.inner_read(buf)
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.inner.inner_read(buf).await
     }
 }
 
 impl<'d, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUart<'d, T> {
-    type FillBufFuture<'a> = impl Future<Output = Result<&'a [u8], Self::Error>> + 'a
-    where
-        Self: 'a;
-
-    fn fill_buf<'a>(&'a mut self) -> Self::FillBufFuture<'a> {
-        self.inner_fill_buf()
+    async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
+        self.inner_fill_buf().await
     }
 
     fn consume(&mut self, amt: usize) {
@@ -373,12 +361,8 @@ impl<'d, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUart<'d, T> 
 }
 
 impl<'u, 'd, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUartRx<'u, 'd, T> {
-    type FillBufFuture<'a> = impl Future<Output = Result<&'a [u8], Self::Error>> + 'a
-    where
-        Self: 'a;
-
-    fn fill_buf<'a>(&'a mut self) -> Self::FillBufFuture<'a> {
-        self.inner.inner_fill_buf()
+    async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
+        self.inner.inner_fill_buf().await
     }
 
     fn consume(&mut self, amt: usize) {
@@ -387,37 +371,21 @@ impl<'u, 'd, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUartRx<'
 }
 
 impl<'d, T: BasicInstance> embedded_io::asynch::Write for BufferedUart<'d, T> {
-    type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.inner_write(buf)
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.inner_write(buf).await
     }
 
-    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-    where
-        Self: 'a;
-
-    fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-        self.inner_flush()
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.inner_flush().await
     }
 }
 
 impl<'u, 'd, T: BasicInstance> embedded_io::asynch::Write for BufferedUartTx<'u, 'd, T> {
-    type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.inner.inner_write(buf)
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.inner.inner_write(buf).await
     }
 
-    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-    where
-        Self: 'a;
-
-    fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-        self.inner.inner_flush()
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.inner.inner_flush().await
     }
 }

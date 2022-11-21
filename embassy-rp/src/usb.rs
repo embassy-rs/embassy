@@ -1,4 +1,4 @@
-use core::future::{poll_fn, Future};
+use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;
 use core::sync::atomic::Ordering;
@@ -352,9 +352,7 @@ pub struct Bus<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
-    type PollFuture<'a> = impl Future<Output = Event> + 'a where Self: 'a;
-
-    fn poll<'a>(&'a mut self) -> Self::PollFuture<'a> {
+    async fn poll(&mut self) -> Event {
         poll_fn(move |cx| unsafe {
             BUS_WAKER.register(cx.waker());
 
@@ -406,6 +404,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             });
             Poll::Pending
         })
+        .await
     }
 
     #[inline]
@@ -456,22 +455,12 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         }
     }
 
-    type EnableFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
+    async fn enable(&mut self) {}
 
-    fn enable(&mut self) -> Self::EnableFuture<'_> {
-        async move {}
-    }
+    async fn disable(&mut self) {}
 
-    type DisableFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-
-    fn disable(&mut self) -> Self::DisableFuture<'_> {
-        async move {}
-    }
-
-    type RemoteWakeupFuture<'a> =  impl Future<Output = Result<(), Unsupported>> + 'a where Self: 'a;
-
-    fn remote_wakeup(&mut self) -> Self::RemoteWakeupFuture<'_> {
-        async move { Err(Unsupported) }
+    async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
+        Err(Unsupported)
     }
 }
 
@@ -515,24 +504,20 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         &self.info
     }
 
-    type WaitEnabledFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-
-    fn wait_enabled(&mut self) -> Self::WaitEnabledFuture<'_> {
-        async move {
-            trace!("wait_enabled IN WAITING");
-            let index = self.info.addr.index();
-            poll_fn(|cx| {
-                EP_IN_WAKERS[index].register(cx.waker());
-                let val = unsafe { T::dpram().ep_in_control(self.info.addr.index() - 1).read() };
-                if val.enable() {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-            trace!("wait_enabled IN OK");
-        }
+    async fn wait_enabled(&mut self) {
+        trace!("wait_enabled IN WAITING");
+        let index = self.info.addr.index();
+        poll_fn(|cx| {
+            EP_IN_WAKERS[index].register(cx.waker());
+            let val = unsafe { T::dpram().ep_in_control(self.info.addr.index() - 1).read() };
+            if val.enable() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+        trace!("wait_enabled IN OK");
     }
 }
 
@@ -541,117 +526,105 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         &self.info
     }
 
-    type WaitEnabledFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-
-    fn wait_enabled(&mut self) -> Self::WaitEnabledFuture<'_> {
-        async move {
-            trace!("wait_enabled OUT WAITING");
-            let index = self.info.addr.index();
-            poll_fn(|cx| {
-                EP_OUT_WAKERS[index].register(cx.waker());
-                let val = unsafe { T::dpram().ep_out_control(self.info.addr.index() - 1).read() };
-                if val.enable() {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-            trace!("wait_enabled OUT OK");
-        }
+    async fn wait_enabled(&mut self) {
+        trace!("wait_enabled OUT WAITING");
+        let index = self.info.addr.index();
+        poll_fn(|cx| {
+            EP_OUT_WAKERS[index].register(cx.waker());
+            let val = unsafe { T::dpram().ep_out_control(self.info.addr.index() - 1).read() };
+            if val.enable() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+        trace!("wait_enabled OUT OK");
     }
 }
 
 impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
-    type ReadFuture<'a> = impl Future<Output = Result<usize, EndpointError>> + 'a where Self: 'a;
-
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        async move {
-            trace!("READ WAITING, buf.len() = {}", buf.len());
-            let index = self.info.addr.index();
-            let val = poll_fn(|cx| unsafe {
-                EP_OUT_WAKERS[index].register(cx.waker());
-                let val = T::dpram().ep_out_buffer_control(index).read();
-                if val.available(0) {
-                    Poll::Pending
-                } else {
-                    Poll::Ready(val)
-                }
-            })
-            .await;
-
-            let rx_len = val.length(0) as usize;
-            if rx_len > buf.len() {
-                return Err(EndpointError::BufferOverflow);
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        trace!("READ WAITING, buf.len() = {}", buf.len());
+        let index = self.info.addr.index();
+        let val = poll_fn(|cx| unsafe {
+            EP_OUT_WAKERS[index].register(cx.waker());
+            let val = T::dpram().ep_out_buffer_control(index).read();
+            if val.available(0) {
+                Poll::Pending
+            } else {
+                Poll::Ready(val)
             }
-            self.buf.read(&mut buf[..rx_len]);
+        })
+        .await;
 
-            trace!("READ OK, rx_len = {}", rx_len);
-
-            unsafe {
-                let pid = !val.pid(0);
-                T::dpram().ep_out_buffer_control(index).write(|w| {
-                    w.set_pid(0, pid);
-                    w.set_length(0, self.info.max_packet_size);
-                });
-                cortex_m::asm::delay(12);
-                T::dpram().ep_out_buffer_control(index).write(|w| {
-                    w.set_pid(0, pid);
-                    w.set_length(0, self.info.max_packet_size);
-                    w.set_available(0, true);
-                });
-            }
-
-            Ok(rx_len)
+        let rx_len = val.length(0) as usize;
+        if rx_len > buf.len() {
+            return Err(EndpointError::BufferOverflow);
         }
+        self.buf.read(&mut buf[..rx_len]);
+
+        trace!("READ OK, rx_len = {}", rx_len);
+
+        unsafe {
+            let pid = !val.pid(0);
+            T::dpram().ep_out_buffer_control(index).write(|w| {
+                w.set_pid(0, pid);
+                w.set_length(0, self.info.max_packet_size);
+            });
+            cortex_m::asm::delay(12);
+            T::dpram().ep_out_buffer_control(index).write(|w| {
+                w.set_pid(0, pid);
+                w.set_length(0, self.info.max_packet_size);
+                w.set_available(0, true);
+            });
+        }
+
+        Ok(rx_len)
     }
 }
 
 impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
-    type WriteFuture<'a> = impl Future<Output = Result<(), EndpointError>> + 'a where Self: 'a;
-
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        async move {
-            if buf.len() > self.info.max_packet_size as usize {
-                return Err(EndpointError::BufferOverflow);
-            }
-
-            trace!("WRITE WAITING");
-
-            let index = self.info.addr.index();
-            let val = poll_fn(|cx| unsafe {
-                EP_IN_WAKERS[index].register(cx.waker());
-                let val = T::dpram().ep_in_buffer_control(index).read();
-                if val.available(0) {
-                    Poll::Pending
-                } else {
-                    Poll::Ready(val)
-                }
-            })
-            .await;
-
-            self.buf.write(buf);
-
-            unsafe {
-                let pid = !val.pid(0);
-                T::dpram().ep_in_buffer_control(index).write(|w| {
-                    w.set_pid(0, pid);
-                    w.set_length(0, buf.len() as _);
-                    w.set_full(0, true);
-                });
-                cortex_m::asm::delay(12);
-                T::dpram().ep_in_buffer_control(index).write(|w| {
-                    w.set_pid(0, pid);
-                    w.set_length(0, buf.len() as _);
-                    w.set_full(0, true);
-                    w.set_available(0, true);
-                });
-            }
-
-            trace!("WRITE OK");
-
-            Ok(())
+    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+        if buf.len() > self.info.max_packet_size as usize {
+            return Err(EndpointError::BufferOverflow);
         }
+
+        trace!("WRITE WAITING");
+
+        let index = self.info.addr.index();
+        let val = poll_fn(|cx| unsafe {
+            EP_IN_WAKERS[index].register(cx.waker());
+            let val = T::dpram().ep_in_buffer_control(index).read();
+            if val.available(0) {
+                Poll::Pending
+            } else {
+                Poll::Ready(val)
+            }
+        })
+        .await;
+
+        self.buf.write(buf);
+
+        unsafe {
+            let pid = !val.pid(0);
+            T::dpram().ep_in_buffer_control(index).write(|w| {
+                w.set_pid(0, pid);
+                w.set_length(0, buf.len() as _);
+                w.set_full(0, true);
+            });
+            cortex_m::asm::delay(12);
+            T::dpram().ep_in_buffer_control(index).write(|w| {
+                w.set_pid(0, pid);
+                w.set_length(0, buf.len() as _);
+                w.set_full(0, true);
+                w.set_available(0, true);
+            });
+        }
+
+        trace!("WRITE OK");
+
+        Ok(())
     }
 }
 
@@ -661,199 +634,183 @@ pub struct ControlPipe<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
-    type SetupFuture<'a> = impl Future<Output = [u8;8]> + 'a where Self: 'a;
-    type DataOutFuture<'a> = impl Future<Output = Result<usize, EndpointError>> + 'a where Self: 'a;
-    type DataInFuture<'a> = impl Future<Output = Result<(), EndpointError>> + 'a where Self: 'a;
-    type AcceptFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-    type RejectFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-
     fn max_packet_size(&self) -> usize {
         64
     }
 
-    fn setup<'a>(&'a mut self) -> Self::SetupFuture<'a> {
-        async move {
-            loop {
-                trace!("SETUP read waiting");
-                let regs = T::regs();
-                unsafe { regs.inte().write_set(|w| w.set_setup_req(true)) };
-
-                poll_fn(|cx| unsafe {
-                    EP_OUT_WAKERS[0].register(cx.waker());
-                    let regs = T::regs();
-                    if regs.sie_status().read().setup_rec() {
-                        Poll::Ready(())
-                    } else {
-                        Poll::Pending
-                    }
-                })
-                .await;
-
-                let mut buf = [0; 8];
-                EndpointBuffer::<T>::new(0, 8).read(&mut buf);
-
-                let regs = T::regs();
-                unsafe {
-                    regs.sie_status().write(|w| w.set_setup_rec(true));
-
-                    // set PID to 0, so (after toggling) first DATA is PID 1
-                    T::dpram().ep_in_buffer_control(0).write(|w| w.set_pid(0, false));
-                    T::dpram().ep_out_buffer_control(0).write(|w| w.set_pid(0, false));
-                }
-
-                trace!("SETUP read ok");
-                return buf;
-            }
-        }
-    }
-
-    fn data_out<'a>(&'a mut self, buf: &'a mut [u8], _first: bool, _last: bool) -> Self::DataOutFuture<'a> {
-        async move {
-            unsafe {
-                let bufcontrol = T::dpram().ep_out_buffer_control(0);
-                let pid = !bufcontrol.read().pid(0);
-                bufcontrol.write(|w| {
-                    w.set_length(0, self.max_packet_size);
-                    w.set_pid(0, pid);
-                });
-                cortex_m::asm::delay(12);
-                bufcontrol.write(|w| {
-                    w.set_length(0, self.max_packet_size);
-                    w.set_pid(0, pid);
-                    w.set_available(0, true);
-                });
-            }
-
-            trace!("control: data_out len={} first={} last={}", buf.len(), _first, _last);
-            let val = poll_fn(|cx| unsafe {
-                EP_OUT_WAKERS[0].register(cx.waker());
-                let val = T::dpram().ep_out_buffer_control(0).read();
-                if val.available(0) {
-                    Poll::Pending
-                } else {
-                    Poll::Ready(val)
-                }
-            })
-            .await;
-
-            let rx_len = val.length(0) as _;
-            trace!("control data_out DONE, rx_len = {}", rx_len);
-
-            if rx_len > buf.len() {
-                return Err(EndpointError::BufferOverflow);
-            }
-            EndpointBuffer::<T>::new(0x100, 64).read(&mut buf[..rx_len]);
-
-            Ok(rx_len)
-        }
-    }
-
-    fn data_in<'a>(&'a mut self, buf: &'a [u8], _first: bool, _last: bool) -> Self::DataInFuture<'a> {
-        async move {
-            trace!("control: data_in len={} first={} last={}", buf.len(), _first, _last);
-
-            if buf.len() > 64 {
-                return Err(EndpointError::BufferOverflow);
-            }
-            EndpointBuffer::<T>::new(0x100, 64).write(buf);
-
-            unsafe {
-                let bufcontrol = T::dpram().ep_in_buffer_control(0);
-                let pid = !bufcontrol.read().pid(0);
-                bufcontrol.write(|w| {
-                    w.set_length(0, buf.len() as _);
-                    w.set_pid(0, pid);
-                    w.set_full(0, true);
-                });
-                cortex_m::asm::delay(12);
-                bufcontrol.write(|w| {
-                    w.set_length(0, buf.len() as _);
-                    w.set_pid(0, pid);
-                    w.set_full(0, true);
-                    w.set_available(0, true);
-                });
-            }
+    async fn setup<'a>(&'a mut self) -> [u8; 8] {
+        loop {
+            trace!("SETUP read waiting");
+            let regs = T::regs();
+            unsafe { regs.inte().write_set(|w| w.set_setup_req(true)) };
 
             poll_fn(|cx| unsafe {
-                EP_IN_WAKERS[0].register(cx.waker());
-                let bufcontrol = T::dpram().ep_in_buffer_control(0);
-                if bufcontrol.read().available(0) {
-                    Poll::Pending
-                } else {
+                EP_OUT_WAKERS[0].register(cx.waker());
+                let regs = T::regs();
+                if regs.sie_status().read().setup_rec() {
                     Poll::Ready(())
+                } else {
+                    Poll::Pending
                 }
             })
             .await;
-            trace!("control: data_in DONE");
 
-            if _last {
-                // prepare status phase right away.
-                unsafe {
-                    let bufcontrol = T::dpram().ep_out_buffer_control(0);
-                    bufcontrol.write(|w| {
-                        w.set_length(0, 0);
-                        w.set_pid(0, true);
-                    });
-                    cortex_m::asm::delay(12);
-                    bufcontrol.write(|w| {
-                        w.set_length(0, 0);
-                        w.set_pid(0, true);
-                        w.set_available(0, true);
-                    });
-                }
-            }
-
-            Ok(())
-        }
-    }
-
-    fn accept<'a>(&'a mut self) -> Self::AcceptFuture<'a> {
-        async move {
-            trace!("control: accept");
-
-            let bufcontrol = T::dpram().ep_in_buffer_control(0);
-            unsafe {
-                bufcontrol.write(|w| {
-                    w.set_length(0, 0);
-                    w.set_pid(0, true);
-                    w.set_full(0, true);
-                });
-                cortex_m::asm::delay(12);
-                bufcontrol.write(|w| {
-                    w.set_length(0, 0);
-                    w.set_pid(0, true);
-                    w.set_full(0, true);
-                    w.set_available(0, true);
-                });
-            }
-
-            // wait for completion before returning, needed so
-            // set_address() doesn't happen early.
-            poll_fn(|cx| {
-                EP_IN_WAKERS[0].register(cx.waker());
-                if unsafe { bufcontrol.read().available(0) } {
-                    Poll::Pending
-                } else {
-                    Poll::Ready(())
-                }
-            })
-            .await;
-        }
-    }
-
-    fn reject<'a>(&'a mut self) -> Self::RejectFuture<'a> {
-        async move {
-            trace!("control: reject");
+            let mut buf = [0; 8];
+            EndpointBuffer::<T>::new(0, 8).read(&mut buf);
 
             let regs = T::regs();
             unsafe {
-                regs.ep_stall_arm().write_set(|w| {
-                    w.set_ep0_in(true);
-                    w.set_ep0_out(true);
-                });
-                T::dpram().ep_out_buffer_control(0).write(|w| w.set_stall(true));
-                T::dpram().ep_in_buffer_control(0).write(|w| w.set_stall(true));
+                regs.sie_status().write(|w| w.set_setup_rec(true));
+
+                // set PID to 0, so (after toggling) first DATA is PID 1
+                T::dpram().ep_in_buffer_control(0).write(|w| w.set_pid(0, false));
+                T::dpram().ep_out_buffer_control(0).write(|w| w.set_pid(0, false));
             }
+
+            trace!("SETUP read ok");
+            return buf;
+        }
+    }
+
+    async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError> {
+        unsafe {
+            let bufcontrol = T::dpram().ep_out_buffer_control(0);
+            let pid = !bufcontrol.read().pid(0);
+            bufcontrol.write(|w| {
+                w.set_length(0, self.max_packet_size);
+                w.set_pid(0, pid);
+            });
+            cortex_m::asm::delay(12);
+            bufcontrol.write(|w| {
+                w.set_length(0, self.max_packet_size);
+                w.set_pid(0, pid);
+                w.set_available(0, true);
+            });
+        }
+
+        trace!("control: data_out len={} first={} last={}", buf.len(), first, last);
+        let val = poll_fn(|cx| unsafe {
+            EP_OUT_WAKERS[0].register(cx.waker());
+            let val = T::dpram().ep_out_buffer_control(0).read();
+            if val.available(0) {
+                Poll::Pending
+            } else {
+                Poll::Ready(val)
+            }
+        })
+        .await;
+
+        let rx_len = val.length(0) as _;
+        trace!("control data_out DONE, rx_len = {}", rx_len);
+
+        if rx_len > buf.len() {
+            return Err(EndpointError::BufferOverflow);
+        }
+        EndpointBuffer::<T>::new(0x100, 64).read(&mut buf[..rx_len]);
+
+        Ok(rx_len)
+    }
+
+    async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError> {
+        trace!("control: data_in len={} first={} last={}", data.len(), first, last);
+
+        if data.len() > 64 {
+            return Err(EndpointError::BufferOverflow);
+        }
+        EndpointBuffer::<T>::new(0x100, 64).write(data);
+
+        unsafe {
+            let bufcontrol = T::dpram().ep_in_buffer_control(0);
+            let pid = !bufcontrol.read().pid(0);
+            bufcontrol.write(|w| {
+                w.set_length(0, data.len() as _);
+                w.set_pid(0, pid);
+                w.set_full(0, true);
+            });
+            cortex_m::asm::delay(12);
+            bufcontrol.write(|w| {
+                w.set_length(0, data.len() as _);
+                w.set_pid(0, pid);
+                w.set_full(0, true);
+                w.set_available(0, true);
+            });
+        }
+
+        poll_fn(|cx| unsafe {
+            EP_IN_WAKERS[0].register(cx.waker());
+            let bufcontrol = T::dpram().ep_in_buffer_control(0);
+            if bufcontrol.read().available(0) {
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
+        })
+        .await;
+        trace!("control: data_in DONE");
+
+        if last {
+            // prepare status phase right away.
+            unsafe {
+                let bufcontrol = T::dpram().ep_out_buffer_control(0);
+                bufcontrol.write(|w| {
+                    w.set_length(0, 0);
+                    w.set_pid(0, true);
+                });
+                cortex_m::asm::delay(12);
+                bufcontrol.write(|w| {
+                    w.set_length(0, 0);
+                    w.set_pid(0, true);
+                    w.set_available(0, true);
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn accept(&mut self) {
+        trace!("control: accept");
+
+        let bufcontrol = T::dpram().ep_in_buffer_control(0);
+        unsafe {
+            bufcontrol.write(|w| {
+                w.set_length(0, 0);
+                w.set_pid(0, true);
+                w.set_full(0, true);
+            });
+            cortex_m::asm::delay(12);
+            bufcontrol.write(|w| {
+                w.set_length(0, 0);
+                w.set_pid(0, true);
+                w.set_full(0, true);
+                w.set_available(0, true);
+            });
+        }
+
+        // wait for completion before returning, needed so
+        // set_address() doesn't happen early.
+        poll_fn(|cx| {
+            EP_IN_WAKERS[0].register(cx.waker());
+            if unsafe { bufcontrol.read().available(0) } {
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
+        })
+        .await;
+    }
+
+    async fn reject(&mut self) {
+        trace!("control: reject");
+
+        let regs = T::regs();
+        unsafe {
+            regs.ep_stall_arm().write_set(|w| {
+                w.set_ep0_in(true);
+                w.set_ep0_out(true);
+            });
+            T::dpram().ep_out_buffer_control(0).write(|w| w.set_stall(true));
+            T::dpram().ep_in_buffer_control(0).write(|w| w.set_stall(true));
         }
     }
 }

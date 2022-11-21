@@ -986,7 +986,7 @@ mod eha {
 
         type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+        fn flush(&mut self) -> Result<(), Self::Error> {
             async move { Ok(()) }
         }
     }
@@ -1000,7 +1000,7 @@ mod eha {
 
         type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
 
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+        fn flush(&mut self) -> Result<(), Self::Error> {
             async move { Ok(()) }
         }
     }
@@ -1010,6 +1010,28 @@ mod eha {
 
         fn read<'a>(&'a mut self, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
             self.read(buffer)
+        }
+    }
+
+    impl<'d, U: Instance, T: TimerInstance> embedded_hal_async::serial::Read for UarteWithIdle<'d, U, T> {
+        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+        fn read<'a>(&'a mut self, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            self.read(buffer)
+        }
+    }
+
+    impl<'d, U: Instance, T: TimerInstance> embedded_hal_async::serial::Write for UarteWithIdle<'d, U, T> {
+        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+        fn write<'a>(&'a mut self, buffer: &'a [u8]) -> Self::WriteFuture<'a> {
+            self.write(buffer)
+        }
+
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            async move { Ok(()) }
         }
     }
 }

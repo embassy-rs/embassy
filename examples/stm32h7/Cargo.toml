@@ -10,7 +10,7 @@ embassy-executor = { version = "0.1.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "unstable-traits", "tick-hz-32_768"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "stm32h743bi", "net", "time-driver-any", "exti", "unstable-pac", "unstable-traits"] }
 embassy-net = { path = "../../embassy-net", features = ["defmt", "nightly", "tcp", "dhcpv4", "medium-ethernet", "pool-16", "unstable-traits"] }
-embedded-io = { version = "0.3.1", features = ["async"] }
+embedded-io = { version = "0.4.0", features = ["async"] }
 
 defmt = "0.3"
 defmt-rtt = "0.3"
@@ -19,8 +19,8 @@ cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9" }
-embedded-hal-async = { version = "=0.1.0-alpha.3" }
-embedded-nal-async = "0.2.0"
+embedded-hal-async = { version = "=0.2.0-alpha.0" }
+embedded-nal-async = { git = "https://github.com/embassy-rs/embedded-nal.git", rev = "691601e550449a53ab3a7c5eaa0411aee0a64ed0" }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.7.5", default-features = false }

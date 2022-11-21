@@ -477,45 +477,34 @@ mod eh1 {
 
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 mod eha {
-    use core::future::Future;
 
     use super::*;
 
     impl<'d, T: Instance> embedded_hal_async::spi::SpiBusFlush for Spim<'d, T> {
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            async move { Ok(()) }
+        async fn flush(&mut self) -> Result<(), Error> {
+            Ok(())
         }
     }
 
     impl<'d, T: Instance> embedded_hal_async::spi::SpiBusRead<u8> for Spim<'d, T> {
-        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn read<'a>(&'a mut self, words: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.read(words)
+        async fn read(&mut self, words: &mut [u8]) -> Result<(), Error> {
+            self.read(words).await
         }
     }
 
     impl<'d, T: Instance> embedded_hal_async::spi::SpiBusWrite<u8> for Spim<'d, T> {
-        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.write(data)
+        async fn write(&mut self, data: &[u8]) -> Result<(), Error> {
+            self.write(data).await
         }
     }
 
     impl<'d, T: Instance> embedded_hal_async::spi::SpiBus<u8> for Spim<'d, T> {
-        type TransferFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn transfer<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::TransferFuture<'a> {
-            self.transfer(rx, tx)
+        async fn transfer(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Error> {
+            self.transfer(rx, tx).await
         }
 
-        type TransferInPlaceFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn transfer_in_place<'a>(&'a mut self, words: &'a mut [u8]) -> Self::TransferInPlaceFuture<'a> {
-            self.transfer_in_place(words)
+        async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Error> {
+            self.transfer_in_place(words).await
         }
     }
 }
