@@ -80,7 +80,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         miso: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(cs, sck, mosi);
+        into_ref!(cs, sck, miso);
         Self::new_inner(
             spis,
             irq,
@@ -100,7 +100,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         mosi: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(cs, sck, miso);
+        into_ref!(cs, sck, mosi);
         Self::new_inner(
             spis,
             irq,
