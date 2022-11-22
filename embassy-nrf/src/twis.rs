@@ -135,7 +135,7 @@ impl<'d, T: Instance> Twis<'d, T> {
 
         // Set address
         r.address[0].write(|w| unsafe { w.address().bits(config.address0) });
-        r.config.modify(|_r, w| w.address0().enabled());
+        r.config.write(|w| w.address0().enabled());
         if let Some(address1) = config.address1 {
             r.address[1].write(|w| unsafe { w.address().bits(address1) });
             r.config.modify(|_r, w| w.address1().enabled());
@@ -246,6 +246,11 @@ impl<'d, T: Instance> Twis<'d, T> {
     pub fn address_match(&self) -> u8 {
         let r = T::regs();
         r.address[r.match_.read().bits() as usize].read().address().bits()
+    }
+
+    /// Returns the index of the address matched in the latest command.
+    pub fn address_match_index(&self) -> usize {
+        T::regs().match_.read().bits() as _
     }
 
     /// Wait for read, write, stop or error
@@ -588,10 +593,11 @@ impl<'d, T: Instance> Twis<'d, T> {
         Ok(())
     }
 
-    /// Listen for commands from an I2C master.
-    ///
+    /// Wait for commands from an I2C master.
+    /// `buffer` is provided in case master does a 'write' and is unused for 'read'.
     /// The buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
+    /// To know which one of the addresses were matched, call `address_match` or `address_match_index`
     pub fn blocking_listen(&mut self, buffer: &mut [u8]) -> Result<Command, Error> {
         self.setup_listen(buffer, false)?;
         let status = self.blocking_listen_wait()?;
@@ -620,10 +626,11 @@ impl<'d, T: Instance> Twis<'d, T> {
 
     // ===========================================
 
-    /// Listen for commands from an I2C master with timeout.
-    ///
+    /// Wait for commands from an I2C master, with timeout.
+    /// `buffer` is provided in case master does a 'write' and is unused for 'read'.
     /// The buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
+    /// To know which one of the addresses were matched, call `address_match` or `address_match_index`
     #[cfg(feature = "time")]
     pub fn blocking_listen_timeout(&mut self, buffer: &mut [u8], timeout: Duration) -> Result<Command, Error> {
         self.setup_listen(buffer, false)?;
@@ -654,10 +661,11 @@ impl<'d, T: Instance> Twis<'d, T> {
 
     // ===========================================
 
-    /// Listen asynchronously for commands from an I2C master.
-    ///
+    /// Wait asynchronously for commands from an I2C master.
+    /// `buffer` is provided in case master does a 'write' and is unused for 'read'.
     /// The buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
+    /// To know which one of the addresses were matched, call `address_match` or `address_match_index`
     pub async fn listen(&mut self, buffer: &mut [u8]) -> Result<Command, Error> {
         self.setup_listen(buffer, true)?;
         let status = self.async_listen_wait().await?;
