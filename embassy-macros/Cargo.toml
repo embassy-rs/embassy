@@ -21,9 +21,5 @@ proc-macro2 = "1.0.29"
 proc-macro = true
 
 [features]
-std = []
-wasm = []
-riscv = []
-
 # Enabling this cause interrupt::take! to require embassy-executor
 rtos-trace-interrupt = []
