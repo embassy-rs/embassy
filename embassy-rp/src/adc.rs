@@ -65,7 +65,7 @@ impl<'d> Adc<'d> {
         irq.disable();
         irq.set_handler(|_| unsafe {
             let r = Self::regs();
-            r.inte().modify(|w| w.set_fifo(false));
+            r.inte().write(|w| w.set_fifo(false));
             WAKER.wake();
         });
         irq.unpend();
@@ -77,7 +77,7 @@ impl<'d> Adc<'d> {
     async fn wait_for_ready() {
         let r = Self::regs();
         unsafe {
-            r.inte().modify(|w| w.set_fifo(true));
+            r.inte().write(|w| w.set_fifo(true));
             compiler_fence(Ordering::SeqCst);
             poll_fn(|cx| {
                 WAKER.register(cx.waker());
