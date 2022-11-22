@@ -419,6 +419,12 @@ macro_rules! impl_channel {
                 $number as usize
             }
         }
+        impl sealed::Channel for &mut peripherals::$type {}
+        impl Channel for &mut peripherals::$type {
+            fn number(&self) -> usize {
+                $number as usize
+            }
+        }
     };
 }
 
