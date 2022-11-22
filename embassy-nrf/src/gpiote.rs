@@ -149,7 +149,7 @@ impl Iterator for BitIter {
 /// GPIOTE channel driver in input mode
 pub struct InputChannel<'d, C: Channel, T: GpioPin> {
     _ch: PeripheralRef<'d, C>,
-    pin: Input<'d, T>,
+    _pin: Input<'d, T>,
 }
 
 impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
@@ -185,7 +185,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
 
         g.events_in[num].reset();
 
-        InputChannel { _ch: ch, pin }
+        InputChannel { _ch: ch, _pin: pin }
     }
 
     pub async fn wait(&self) {
@@ -443,11 +443,11 @@ mod eh02 {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_high())
+            Ok(self._pin.is_high())
         }
 
         fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_low())
+            Ok(self._pin.is_low())
         }
     }
 }
@@ -462,11 +462,11 @@ mod eh1 {
 
     impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::InputPin for InputChannel<'d, C, T> {
         fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_high())
+            Ok(self._pin.is_high())
         }
 
         fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_low())
+            Ok(self._pin.is_low())
         }
     }
 }
