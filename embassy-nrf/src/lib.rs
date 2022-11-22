@@ -96,6 +96,7 @@ pub mod rng;
 #[cfg(not(any(feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
 pub mod spim;
+pub mod spis;
 #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
 pub mod temp;
 pub mod timer;
