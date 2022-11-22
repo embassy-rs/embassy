@@ -2,7 +2,7 @@ use core::convert::Infallible;
 use core::future::{poll_fn, Future};
 use core::task::{Context, Poll};
 
-use embassy_hal_common::{impl_peripheral, Peripheral, PeripheralRef};
+use embassy_hal_common::{impl_peripheral, Peripheral, PeripheralRef, into_ref};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::sealed::Pin as _;
@@ -148,21 +148,23 @@ impl Iterator for BitIter {
 
 /// GPIOTE channel driver in input mode
 pub struct InputChannel<'d, C: Channel, T: GpioPin> {
-    ch: C,
+    _ch: PeripheralRef<'d, C>,
     pin: Input<'d, T>,
 }
 
 impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
     fn drop(&mut self) {
         let g = regs();
-        let num = self.ch.number();
+        let num = self._ch.number();
         g.config[num].write(|w| w.mode().disabled());
         g.intenclr.write(|w| unsafe { w.bits(1 << num) });
     }
 }
 
 impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
-    pub fn new(ch: C, pin: Input<'d, T>, polarity: InputChannelPolarity) -> Self {
+    pub fn new(ch: impl Peripheral<P = C> + 'd, pin: Input<'d, T>, polarity: InputChannelPolarity) -> Self {
+        into_ref!(ch);
+
         let g = regs();
         let num = ch.number();
 
@@ -183,12 +185,12 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
 
         g.events_in[num].reset();
 
-        InputChannel { ch, pin }
+        InputChannel { _ch: ch, pin }
     }
 
     pub async fn wait(&self) {
         let g = regs();
-        let num = self.ch.number();
+        let num = self._ch.number();
 
         // Enable interrupt
         g.events_in[num].reset();
@@ -209,27 +211,28 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
     /// Returns the IN event, for use with PPI.
     pub fn event_in(&self) -> Event {
         let g = regs();
-        Event::from_reg(&g.events_in[self.ch.number()])
+        Event::from_reg(&g.events_in[self._ch.number()])
     }
 }
 
 /// GPIOTE channel driver in output mode
 pub struct OutputChannel<'d, C: Channel, T: GpioPin> {
-    ch: C,
+    _ch: PeripheralRef<'d, C>,
     _pin: Output<'d, T>,
 }
 
 impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
     fn drop(&mut self) {
         let g = regs();
-        let num = self.ch.number();
+        let num = self._ch.number();
         g.config[num].write(|w| w.mode().disabled());
         g.intenclr.write(|w| unsafe { w.bits(1 << num) });
     }
 }
 
 impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
-    pub fn new(ch: C, pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
+    pub fn new(ch: impl Peripheral<P = C> + 'd, pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
+        into_ref!(ch);
         let g = regs();
         let num = ch.number();
 
@@ -252,47 +255,47 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
             unsafe { w.psel().bits(pin.pin.pin.pin()) }
         });
 
-        OutputChannel { ch, _pin: pin }
+        OutputChannel { _ch: ch, _pin: pin }
     }
 
     /// Triggers `task out` (as configured with task_out_polarity, defaults to Toggle).
     pub fn out(&self) {
         let g = regs();
-        g.tasks_out[self.ch.number()].write(|w| unsafe { w.bits(1) });
+        g.tasks_out[self._ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
     /// Triggers `task set` (set associated pin high).
     #[cfg(not(feature = "nrf51"))]
     pub fn set(&self) {
         let g = regs();
-        g.tasks_set[self.ch.number()].write(|w| unsafe { w.bits(1) });
+        g.tasks_set[self._ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
     /// Triggers `task clear` (set associated pin low).
     #[cfg(not(feature = "nrf51"))]
     pub fn clear(&self) {
         let g = regs();
-        g.tasks_clr[self.ch.number()].write(|w| unsafe { w.bits(1) });
+        g.tasks_clr[self._ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
     /// Returns the OUT task, for use with PPI.
     pub fn task_out(&self) -> Task {
         let g = regs();
-        Task::from_reg(&g.tasks_out[self.ch.number()])
+        Task::from_reg(&g.tasks_out[self._ch.number()])
     }
 
     /// Returns the CLR task, for use with PPI.
     #[cfg(not(feature = "nrf51"))]
     pub fn task_clr(&self) -> Task {
         let g = regs();
-        Task::from_reg(&g.tasks_clr[self.ch.number()])
+        Task::from_reg(&g.tasks_clr[self._ch.number()])
     }
 
     /// Returns the SET task, for use with PPI.
     #[cfg(not(feature = "nrf51"))]
     pub fn task_set(&self) -> Task {
         let g = regs();
-        Task::from_reg(&g.tasks_set[self.ch.number()])
+        Task::from_reg(&g.tasks_set[self._ch.number()])
     }
 }
 
@@ -415,12 +418,6 @@ macro_rules! impl_channel {
     ($type:ident, $number:expr) => {
         impl sealed::Channel for peripherals::$type {}
         impl Channel for peripherals::$type {
-            fn number(&self) -> usize {
-                $number as usize
-            }
-        }
-        impl sealed::Channel for &mut peripherals::$type {}
-        impl Channel for &mut peripherals::$type {
             fn number(&self) -> usize {
                 $number as usize
             }
