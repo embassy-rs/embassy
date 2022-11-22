@@ -22,20 +22,21 @@ async fn main(_spawner: Spawner) {
 
     info!("Listening...");
     loop {
+        let response = [1, 2, 3, 4, 5, 6, 7, 8];
+        // This buffer is used if the i2c master performs a Write or WriteRead
         let mut buf = [0u8; 16];
-        let tx_buf = [1, 2, 3, 4, 5, 6, 7, 8];
         match i2c.listen(&mut buf).await {
             Ok(Command::Read) => {
-                info!("Got READ command. Writing back data:\n{:?}\n", tx_buf);
-                if let Err(e) = i2c.write(&tx_buf).await {
+                info!("Got READ command. Respond with data:\n{:?}\n", response);
+                if let Err(e) = i2c.respond_to_read(&response).await {
                     error!("{:?}", e);
                 }
             }
             Ok(Command::Write(n)) => info!("Got WRITE command with data:\n{:?}\n", buf[..n]),
             Ok(Command::WriteRead(n)) => {
                 info!("Got WRITE/READ command with data:\n{:?}", buf[..n]);
-                info!("Writing back data:\n{:?}\n", tx_buf);
-                if let Err(e) = i2c.write(&tx_buf).await {
+                info!("Respond with data:\n{:?}\n", response);
+                if let Err(e) = i2c.respond_to_read(&response).await {
                     error!("{:?}", e);
                 }
             }

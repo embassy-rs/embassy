@@ -507,7 +507,7 @@ impl<'d, T: Instance> Twis<'d, T> {
         })
     }
 
-    fn setup_write_from_ram(&mut self, buffer: &[u8], inten: bool) -> Result<(), Error> {
+    fn setup_respond_from_ram(&mut self, buffer: &[u8], inten: bool) -> Result<(), Error> {
         let r = T::regs();
 
         compiler_fence(SeqCst);
@@ -532,14 +532,14 @@ impl<'d, T: Instance> Twis<'d, T> {
         Ok(())
     }
 
-    fn setup_write(&mut self, wr_buffer: &[u8], inten: bool) -> Result<(), Error> {
-        match self.setup_write_from_ram(wr_buffer, inten) {
+    fn setup_respond(&mut self, wr_buffer: &[u8], inten: bool) -> Result<(), Error> {
+        match self.setup_respond_from_ram(wr_buffer, inten) {
             Ok(_) => Ok(()),
             Err(Error::DMABufferNotInDataMemory) => {
                 trace!("Copying TWIS tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
                 tx_ram_buf.copy_from_slice(wr_buffer);
-                self.setup_write_from_ram(&tx_ram_buf, inten)
+                self.setup_respond_from_ram(&tx_ram_buf, inten)
             }
             Err(error) => Err(error),
         }
@@ -609,18 +609,19 @@ impl<'d, T: Instance> Twis<'d, T> {
         Ok(Command::Read)
     }
 
-    /// Write to an I2C master.
+    /// Respond to an I2C master READ command.
     /// Returns the number of bytes written.
     /// The buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
-    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<usize, Error> {
-        self.setup_write(buffer, false)?;
+    pub fn blocking_respond_to_read(&mut self, buffer: &[u8]) -> Result<usize, Error> {
+        self.setup_respond(buffer, false)?;
         self.blocking_wait()
     }
 
-    /// Same as [`blocking_write`](Twis::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub fn blocking_write_from_ram(&mut self, buffer: &[u8]) -> Result<usize, Error> {
-        self.setup_write_from_ram(buffer, false)?;
+    /// Same as [`blocking_respond_to_read`](Twis::blocking_respond_to_read) but will fail instead of copying data into RAM.
+    /// Consult the module level documentation to learn more.
+    pub fn blocking_respond_to_read_from_ram(&mut self, buffer: &[u8]) -> Result<usize, Error> {
+        self.setup_respond_from_ram(buffer, false)?;
         self.blocking_wait()
     }
 
@@ -643,19 +644,24 @@ impl<'d, T: Instance> Twis<'d, T> {
         Ok(Command::Read)
     }
 
-    /// Write to an I2C master with timeout.
+    /// Respond to an I2C master READ command with timeout.
     /// Returns the number of bytes written.
-    /// See [`blocking_write`].
+    /// See [`blocking_respond_to_read`].
     #[cfg(feature = "time")]
-    pub fn blocking_write_timeout(&mut self, buffer: &[u8], timeout: Duration) -> Result<usize, Error> {
-        self.setup_write(buffer, false)?;
+    pub fn blocking_respond_to_read_timeout(&mut self, buffer: &[u8], timeout: Duration) -> Result<usize, Error> {
+        self.setup_respond(buffer, false)?;
         self.blocking_wait_timeout(timeout)
     }
 
-    /// Same as [`blocking_write`](Twis::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
+    /// Same as [`blocking_respond_to_read_timeout`](Twis::blocking_respond_to_read_timeout) but will fail instead of copying data into RAM.
+    /// Consult the module level documentation to learn more.
     #[cfg(feature = "time")]
-    pub fn blocking_write_from_ram_timeout(&mut self, buffer: &[u8], timeout: Duration) -> Result<usize, Error> {
-        self.setup_write_from_ram(buffer, false)?;
+    pub fn blocking_respond_to_read_from_ram_timeout(
+        &mut self,
+        buffer: &[u8],
+        timeout: Duration,
+    ) -> Result<usize, Error> {
+        self.setup_respond_from_ram(buffer, false)?;
         self.blocking_wait_timeout(timeout)
     }
 
@@ -677,18 +683,18 @@ impl<'d, T: Instance> Twis<'d, T> {
         Ok(Command::Read)
     }
 
-    /// Async write to an I2C master.
+    /// Respond to an I2C master READ command, asynchronously.
     /// Returns the number of bytes written.
     /// The buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
-    pub async fn write(&mut self, buffer: &[u8]) -> Result<usize, Error> {
-        self.setup_write(buffer, true)?;
+    pub async fn respond_to_read(&mut self, buffer: &[u8]) -> Result<usize, Error> {
+        self.setup_respond(buffer, true)?;
         self.async_wait().await
     }
 
-    /// Same as [`write`](Twis::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub async fn write_from_ram(&mut self, buffer: &[u8]) -> Result<usize, Error> {
-        self.setup_write_from_ram(buffer, true)?;
+    /// Same as [`respond_to_read`](Twis::respond_to_read) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
+    pub async fn respond_to_read_from_ram(&mut self, buffer: &[u8]) -> Result<usize, Error> {
+        self.setup_respond_from_ram(buffer, true)?;
         self.async_wait().await
     }
 }
