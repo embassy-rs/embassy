@@ -101,6 +101,7 @@ pub mod spis;
 pub mod temp;
 pub mod timer;
 pub mod twim;
+pub mod twis;
 pub mod uarte;
 #[cfg(any(
     feature = "_nrf5340-app",
