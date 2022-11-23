@@ -55,11 +55,19 @@ impl Executor {
             unsafe {
                 self.inner.poll();
                 // we do not care about race conditions between the load and store operations, interrupts
-                // will only set this value to true.
-                // if there is work to do, loop back to polling
-                if !SIGNAL_WORK_THREAD_MODE.fetch_and(false, Ordering::SeqCst) {
-                    core::arch::asm!("wfi");
-                }
+                //will only set this value to true.
+                critical_section::with(|_| {
+                    // if there is work to do, loop back to polling
+                    // TODO can we relax this?
+                    if SIGNAL_WORK_THREAD_MODE.load(Ordering::SeqCst) {
+                        SIGNAL_WORK_THREAD_MODE.store(false, Ordering::SeqCst);
+                    }
+                    // if not, wait for interrupt
+                    else {
+                        core::arch::asm!("wfi");
+                    }
+                });
+                // if an interrupt occurred while waiting, it will be serviced here
             }
         }
     }
