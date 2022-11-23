@@ -27,6 +27,9 @@ flavors = [
     { name = "thumbv8m.main-none-eabihf", target = "thumbv8m.main-none-eabihf",  features = [] },
 ]
 
+[package.metadata.docs.rs]
+features = ["std", "nightly", "defmt"]
+
 [features]
 default = []
 std = ["critical-section/std"]
