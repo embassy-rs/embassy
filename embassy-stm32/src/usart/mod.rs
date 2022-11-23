@@ -331,7 +331,6 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         RxDma: crate::usart::RxDma<T>,
     {
         self.inner_read(buffer, false).await?;
-
         Ok(())
     }
 
