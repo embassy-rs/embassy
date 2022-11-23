@@ -2,7 +2,7 @@ use core::convert::Infallible;
 use core::future::{poll_fn, Future};
 use core::task::{Context, Poll};
 
-use embassy_hal_common::{impl_peripheral, Peripheral, PeripheralRef};
+use embassy_hal_common::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::sealed::Pin as _;
@@ -148,7 +148,7 @@ impl Iterator for BitIter {
 
 /// GPIOTE channel driver in input mode
 pub struct InputChannel<'d, C: Channel, T: GpioPin> {
-    ch: C,
+    ch: PeripheralRef<'d, C>,
     pin: Input<'d, T>,
 }
 
@@ -162,7 +162,9 @@ impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
 }
 
 impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
-    pub fn new(ch: C, pin: Input<'d, T>, polarity: InputChannelPolarity) -> Self {
+    pub fn new(ch: impl Peripheral<P = C> + 'd, pin: Input<'d, T>, polarity: InputChannelPolarity) -> Self {
+        into_ref!(ch);
+
         let g = regs();
         let num = ch.number();
 
@@ -215,7 +217,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
 
 /// GPIOTE channel driver in output mode
 pub struct OutputChannel<'d, C: Channel, T: GpioPin> {
-    ch: C,
+    ch: PeripheralRef<'d, C>,
     _pin: Output<'d, T>,
 }
 
@@ -229,7 +231,8 @@ impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
 }
 
 impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
-    pub fn new(ch: C, pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
+    pub fn new(ch: impl Peripheral<P = C> + 'd, pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
+        into_ref!(ch);
         let g = regs();
         let num = ch.number();
 
