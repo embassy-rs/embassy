@@ -1,17 +1,19 @@
-# embassy-boot-stm32
+# embassy-boot-nrf
 
 An [Embassy](https://embassy.dev) project.
 
-An adaptation of `embassy-boot` for STM32.
+An adaptation of `embassy-boot` for nRF. 
 
 ## Features
 
+* Load applications with our without the softdevice.
 * Configure bootloader partitions based on linker script.
-* Load applications from active partition.
+* Using watchdog timer to detect application failure.
+
 
 ## Minimum supported Rust version (MSRV)
 
-`embassy-boot-stm32` requires Rust nightly to compile as it relies on async traits for interacting with the flash peripherals.
+`embassy-boot-nrf` requires Rust nightly to compile as it relies on async traits for interacting with the flash peripherals.
 
 ## License
 
