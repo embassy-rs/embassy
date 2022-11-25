@@ -65,33 +65,25 @@ where
 {
     type Bus = BUS;
 
-    type TransactionFuture<'a, R, F, Fut> = impl Future<Output = Result<R, Self::Error>> + 'a
+    async fn transaction<R, F, Fut>(&mut self, f: F) -> Result<R, Self::Error>
     where
-        Self: 'a, R: 'a, F: FnOnce(*mut Self::Bus) -> Fut + 'a,
-        Fut: Future<Output =  Result<R, <Self::Bus as ErrorType>::Error>> + 'a;
-
-    fn transaction<'a, R, F, Fut>(&'a mut self, f: F) -> Self::TransactionFuture<'a, R, F, Fut>
-    where
-        R: 'a,
-        F: FnOnce(*mut Self::Bus) -> Fut + 'a,
-        Fut: Future<Output = Result<R, <Self::Bus as ErrorType>::Error>> + 'a,
+        F: FnOnce(*mut Self::Bus) -> Fut,
+        Fut: Future<Output = Result<R, <Self::Bus as ErrorType>::Error>>,
     {
-        async move {
-            let mut bus = self.bus.lock().await;
-            self.cs.set_low().map_err(SpiDeviceError::Cs)?;
+        let mut bus = self.bus.lock().await;
+        self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
-            let f_res = f(&mut *bus).await;
+        let f_res = f(&mut *bus).await;
 
-            // On failure, it's important to still flush and deassert CS.
-            let flush_res = bus.flush().await;
-            let cs_res = self.cs.set_high();
+        // On failure, it's important to still flush and deassert CS.
+        let flush_res = bus.flush().await;
+        let cs_res = self.cs.set_high();
 
-            let f_res = f_res.map_err(SpiDeviceError::Spi)?;
-            flush_res.map_err(SpiDeviceError::Spi)?;
-            cs_res.map_err(SpiDeviceError::Cs)?;
+        let f_res = f_res.map_err(SpiDeviceError::Spi)?;
+        flush_res.map_err(SpiDeviceError::Spi)?;
+        cs_res.map_err(SpiDeviceError::Cs)?;
 
-            Ok(f_res)
-        }
+        Ok(f_res)
     }
 }
 
@@ -130,33 +122,25 @@ where
 {
     type Bus = BUS;
 
-    type TransactionFuture<'a, R, F, Fut> = impl Future<Output = Result<R, Self::Error>> + 'a
+    async fn transaction<R, F, Fut>(&mut self, f: F) -> Result<R, Self::Error>
     where
-        Self: 'a, R: 'a, F: FnOnce(*mut Self::Bus) -> Fut + 'a,
-        Fut: Future<Output =  Result<R, <Self::Bus as ErrorType>::Error>> + 'a;
-
-    fn transaction<'a, R, F, Fut>(&'a mut self, f: F) -> Self::TransactionFuture<'a, R, F, Fut>
-    where
-        R: 'a,
-        F: FnOnce(*mut Self::Bus) -> Fut + 'a,
-        Fut: Future<Output = Result<R, <Self::Bus as ErrorType>::Error>> + 'a,
+        F: FnOnce(*mut Self::Bus) -> Fut,
+        Fut: Future<Output = Result<R, <Self::Bus as ErrorType>::Error>>,
     {
-        async move {
-            let mut bus = self.bus.lock().await;
-            bus.set_config(&self.config);
-            self.cs.set_low().map_err(SpiDeviceError::Cs)?;
+        let mut bus = self.bus.lock().await;
+        bus.set_config(&self.config);
+        self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
-            let f_res = f(&mut *bus).await;
+        let f_res = f(&mut *bus).await;
 
-            // On failure, it's important to still flush and deassert CS.
-            let flush_res = bus.flush().await;
-            let cs_res = self.cs.set_high();
+        // On failure, it's important to still flush and deassert CS.
+        let flush_res = bus.flush().await;
+        let cs_res = self.cs.set_high();
 
-            let f_res = f_res.map_err(SpiDeviceError::Spi)?;
-            flush_res.map_err(SpiDeviceError::Spi)?;
-            cs_res.map_err(SpiDeviceError::Cs)?;
+        let f_res = f_res.map_err(SpiDeviceError::Spi)?;
+        flush_res.map_err(SpiDeviceError::Spi)?;
+        cs_res.map_err(SpiDeviceError::Cs)?;
 
-            Ok(f_res)
-        }
+        Ok(f_res)
     }
 }

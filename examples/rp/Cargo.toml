@@ -29,8 +29,8 @@ display-interface = "0.4.1"
 byte-slice-cast = { version = "1.2.0", default-features = false }
 
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9" }
-embedded-hal-async = { version = "0.1.0-alpha.3" }
-embedded-io = { version = "0.3.1", features = ["async", "defmt"] }
+embedded-hal-async = "0.2.0-alpha.0"
+embedded-io = { version = "0.4.0", features = ["async", "defmt"] }
 embedded-storage = { version = "0.3" }
 static_cell = "1.0.0"
 log = "0.4"

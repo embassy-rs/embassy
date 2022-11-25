@@ -18,10 +18,10 @@ cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9" }
-embedded-hal-async = { version = "=0.1.0-alpha.3" }
+embedded-hal-async = { version = "=0.2.0-alpha.0" }
 panic-probe = { version = "0.3.0", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
-embedded-io = { version = "0.3.1", features = ["async"] }
+embedded-io = { version = "0.4.0", features = ["async"] }
 embedded-storage = { version = "0.3" }
 
 [profile.dev]

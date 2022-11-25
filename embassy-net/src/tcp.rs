@@ -271,8 +271,6 @@ impl<'d> TcpIo<'d> {
 
 #[cfg(feature = "nightly")]
 mod embedded_io_impls {
-    use core::future::Future;
-
     use super::*;
 
     impl embedded_io::Error for ConnectError {
@@ -292,30 +290,18 @@ mod embedded_io_impls {
     }
 
     impl<'d> embedded_io::asynch::Read for TcpSocket<'d> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.io.read(buf)
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.io.read(buf).await
         }
     }
 
     impl<'d> embedded_io::asynch::Write for TcpSocket<'d> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.io.write(buf)
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.io.write(buf).await
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            self.io.flush()
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.io.flush().await
         }
     }
 
@@ -324,12 +310,8 @@ mod embedded_io_impls {
     }
 
     impl<'d> embedded_io::asynch::Read for TcpReader<'d> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.io.read(buf)
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.io.read(buf).await
         }
     }
 
@@ -338,27 +320,18 @@ mod embedded_io_impls {
     }
 
     impl<'d> embedded_io::asynch::Write for TcpWriter<'d> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.io.write(buf)
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.io.write(buf).await
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            self.io.flush()
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.io.flush().await
         }
     }
 }
 
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 pub mod client {
-    use core::future::Future;
     use core::mem::MaybeUninit;
     use core::ptr::NonNull;
 
@@ -385,28 +358,29 @@ pub mod client {
     {
         type Error = Error;
         type Connection<'m> = TcpConnection<'m, N, TX_SZ, RX_SZ> where Self: 'm;
-        type ConnectFuture<'m> = impl Future<Output = Result<Self::Connection<'m>, Self::Error>> + 'm
-    where
-        Self: 'm;
 
-        fn connect<'m>(&'m self, remote: embedded_nal_async::SocketAddr) -> Self::ConnectFuture<'m> {
-            async move {
-                let addr: crate::IpAddress = match remote.ip() {
-                    IpAddr::V4(addr) => crate::IpAddress::Ipv4(crate::Ipv4Address::from_bytes(&addr.octets())),
-                    #[cfg(feature = "proto-ipv6")]
-                    IpAddr::V6(addr) => crate::IpAddress::Ipv6(crate::Ipv6Address::from_bytes(&addr.octets())),
-                    #[cfg(not(feature = "proto-ipv6"))]
-                    IpAddr::V6(_) => panic!("ipv6 support not enabled"),
-                };
-                let remote_endpoint = (addr, remote.port());
-                let mut socket = TcpConnection::new(&self.stack, self.state)?;
-                socket
-                    .socket
-                    .connect(remote_endpoint)
-                    .await
-                    .map_err(|_| Error::ConnectionReset)?;
-                Ok(socket)
-            }
+        async fn connect<'a>(
+            &'a self,
+            remote: embedded_nal_async::SocketAddr,
+        ) -> Result<Self::Connection<'a>, Self::Error>
+        where
+            Self: 'a,
+        {
+            let addr: crate::IpAddress = match remote.ip() {
+                IpAddr::V4(addr) => crate::IpAddress::Ipv4(crate::Ipv4Address::from_bytes(&addr.octets())),
+                #[cfg(feature = "proto-ipv6")]
+                IpAddr::V6(addr) => crate::IpAddress::Ipv6(crate::Ipv6Address::from_bytes(&addr.octets())),
+                #[cfg(not(feature = "proto-ipv6"))]
+                IpAddr::V6(_) => panic!("ipv6 support not enabled"),
+            };
+            let remote_endpoint = (addr, remote.port());
+            let mut socket = TcpConnection::new(&self.stack, self.state)?;
+            socket
+                .socket
+                .connect(remote_endpoint)
+                .await
+                .map_err(|_| Error::ConnectionReset)?;
+            Ok(socket)
         }
     }
 
@@ -445,32 +419,20 @@ pub mod client {
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io::asynch::Read
         for TcpConnection<'d, N, TX_SZ, RX_SZ>
     {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.socket.read(buf)
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.socket.read(buf).await
         }
     }
 
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io::asynch::Write
         for TcpConnection<'d, N, TX_SZ, RX_SZ>
     {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.socket.write(buf)
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.socket.write(buf).await
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            self.socket.flush()
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.socket.flush().await
         }
     }
 

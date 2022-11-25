@@ -1048,43 +1048,35 @@ mod eh1 {
 
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 mod eha {
-    use core::future::Future;
-
     use super::super::{RxDma, TxDma};
     use super::*;
 
     impl<'d, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_async::i2c::I2c for I2c<'d, T, TXDMA, RXDMA> {
-        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.read(address, buffer)
+        async fn read<'a>(&'a mut self, address: u8, read: &'a mut [u8]) -> Result<(), Self::Error> {
+            self.read(address, read).await
         }
 
-        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.write(address, bytes)
+        async fn write<'a>(&'a mut self, address: u8, write: &'a [u8]) -> Result<(), Self::Error> {
+            self.write(address, write).await
         }
 
-        type WriteReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn write_read<'a>(
+        async fn write_read<'a>(
             &'a mut self,
             address: u8,
-            bytes: &'a [u8],
-            buffer: &'a mut [u8],
-        ) -> Self::WriteReadFuture<'a> {
-            self.write_read(address, bytes, buffer)
+            write: &'a [u8],
+            read: &'a mut [u8],
+        ) -> Result<(), Self::Error> {
+            self.write_read(address, write, read).await
         }
 
-        type TransactionFuture<'a, 'b> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a, 'b: 'a;
-
-        fn transaction<'a, 'b>(
+        async fn transaction<'a, 'b>(
             &'a mut self,
             address: u8,
-            operations: &'a mut [embedded_hal_async::i2c::Operation<'b>],
-        ) -> Self::TransactionFuture<'a, 'b> {
+            operations: &'a mut [embedded_hal_1::i2c::Operation<'b>],
+        ) -> Result<(), Self::Error> {
             let _ = address;
             let _ = operations;
-            async move { todo!() }
+            todo!()
         }
     }
 }
