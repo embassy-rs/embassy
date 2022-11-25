@@ -13,7 +13,7 @@ flavors = [
 ]
 
 [features]
-defmt = ["dep:defmt", "embassy-usb-driver?/defmt"]
+defmt = ["dep:defmt", "embassy-usb-driver?/defmt", "embassy-hal-common/defmt"]
 
 # Reexport the PAC for the currently enabled chip at `embassy_rp::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-rp may major-bump (breaking) the PAC version.
