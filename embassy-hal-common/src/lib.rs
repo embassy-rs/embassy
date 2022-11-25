@@ -4,6 +4,7 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+pub mod atomic_ring_buffer;
 pub mod drop;
 mod macros;
 mod peripheral;

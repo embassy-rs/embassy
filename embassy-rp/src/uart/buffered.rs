@@ -1,339 +1,335 @@
 use core::future::{poll_fn, Future};
-use core::task::{Poll, Waker};
+use core::slice;
+use core::task::Poll;
 
-use atomic_polyfill::{compiler_fence, Ordering};
-use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
-use embassy_hal_common::ring_buffer::RingBuffer;
-use embassy_sync::waitqueue::WakerRegistration;
+use cortex_m::peripheral::NVIC;
+use embassy_hal_common::atomic_ring_buffer::RingBuffer;
+use embassy_sync::waitqueue::AtomicWaker;
 
 use super::*;
+use crate::interrupt::Registration;
 
-pub struct State<'d, T: Instance>(StateStorage<FullStateInner<'d, T>>);
-impl<'d, T: Instance> State<'d, T> {
+pub(crate) struct State {
+    tx_waker: AtomicWaker,
+    tx_buf: RingBuffer,
+    rx_waker: AtomicWaker,
+    rx_buf: RingBuffer,
+}
+
+impl State {
     pub const fn new() -> Self {
-        Self(StateStorage::new())
+        Self {
+            rx_buf: RingBuffer::new(),
+            tx_buf: RingBuffer::new(),
+            rx_waker: AtomicWaker::new(),
+            tx_waker: AtomicWaker::new(),
+        }
     }
 }
 
-pub struct RxState<'d, T: Instance>(StateStorage<RxStateInner<'d, T>>);
-impl<'d, T: Instance> RxState<'d, T> {
-    pub const fn new() -> Self {
-        Self(StateStorage::new())
-    }
+pub struct BufferedUart<'d> {
+    info: &'static Info,
+    phantom: PhantomData<&'d mut ()>,
 }
 
-pub struct TxState<'d, T: Instance>(StateStorage<TxStateInner<'d, T>>);
-impl<'d, T: Instance> TxState<'d, T> {
-    pub const fn new() -> Self {
-        Self(StateStorage::new())
-    }
+pub struct BufferedUartRx<'d> {
+    info: &'static Info,
+    phantom: PhantomData<&'d mut ()>,
 }
 
-struct RxStateInner<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
-
-    waker: WakerRegistration,
-    buf: RingBuffer<'d>,
+pub struct BufferedUartTx<'d> {
+    info: &'static Info,
+    phantom: PhantomData<&'d mut ()>,
 }
 
-struct TxStateInner<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
-
-    waker: WakerRegistration,
-    buf: RingBuffer<'d>,
-}
-
-struct FullStateInner<'d, T: Instance> {
-    rx: RxStateInner<'d, T>,
-    tx: TxStateInner<'d, T>,
-}
-
-unsafe impl<'d, T: Instance> Send for RxStateInner<'d, T> {}
-unsafe impl<'d, T: Instance> Sync for RxStateInner<'d, T> {}
-
-unsafe impl<'d, T: Instance> Send for TxStateInner<'d, T> {}
-unsafe impl<'d, T: Instance> Sync for TxStateInner<'d, T> {}
-
-unsafe impl<'d, T: Instance> Send for FullStateInner<'d, T> {}
-unsafe impl<'d, T: Instance> Sync for FullStateInner<'d, T> {}
-
-pub struct BufferedUart<'d, T: Instance> {
-    inner: PeripheralMutex<'d, FullStateInner<'d, T>>,
-}
-
-pub struct BufferedUartRx<'d, T: Instance> {
-    inner: PeripheralMutex<'d, RxStateInner<'d, T>>,
-}
-
-pub struct BufferedUartTx<'d, T: Instance> {
-    inner: PeripheralMutex<'d, TxStateInner<'d, T>>,
-}
-
-impl<'d, T: Instance> Unpin for BufferedUart<'d, T> {}
-impl<'d, T: Instance> Unpin for BufferedUartRx<'d, T> {}
-impl<'d, T: Instance> Unpin for BufferedUartTx<'d, T> {}
-
-impl<'d, T: Instance> BufferedUart<'d, T> {
-    pub fn new<M: Mode>(
-        state: &'d mut State<'d, T>,
-        _uart: Uart<'d, T, M>,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+impl<'d> BufferedUart<'d> {
+    pub fn new<T: Instance>(
+        _uart: impl Peripheral<P = T> + 'd,
+        _irq: impl Registration<T::Interrupt>,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
-    ) -> BufferedUart<'d, T> {
-        into_ref!(irq);
+        config: Config,
+    ) -> Self {
+        into_ref!(tx, rx);
+        Self::new_inner(
+            T::info(),
+            tx.map_into(),
+            rx.map_into(),
+            None,
+            None,
+            tx_buffer,
+            rx_buffer,
+            config,
+        )
+    }
 
-        let r = T::regs();
+    pub fn new_with_rtscts<T: Instance>(
+        _uart: impl Peripheral<P = T> + 'd,
+        _irq: impl Registration<T::Interrupt>,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Self {
+        into_ref!(tx, rx, cts, rts);
+        Self::new_inner(
+            T::info(),
+            tx.map_into(),
+            rx.map_into(),
+            Some(rts.map_into()),
+            Some(cts.map_into()),
+            tx_buffer,
+            rx_buffer,
+            config,
+        )
+    }
+
+    fn new_inner(
+        info: &'static Info,
+        mut tx: PeripheralRef<'d, AnyPin>,
+        mut rx: PeripheralRef<'d, AnyPin>,
+        mut rts: Option<PeripheralRef<'d, AnyPin>>,
+        mut cts: Option<PeripheralRef<'d, AnyPin>>,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Self {
+        init(
+            info,
+            Some(tx.reborrow()),
+            Some(rx.reborrow()),
+            rts.as_mut().map(|x| x.reborrow()),
+            cts.as_mut().map(|x| x.reborrow()),
+            config,
+        );
+
+        let len = tx_buffer.len();
+        unsafe { info.state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
+        let len = rx_buffer.len();
+        unsafe { info.state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
+
         unsafe {
-            r.uartimsc().modify(|w| {
+            info.regs.uartimsc().modify(|w| {
                 w.set_rxim(true);
                 w.set_rtim(true);
                 w.set_txim(true);
             });
+
+            NVIC::unpend(info.irq);
+            NVIC::unmask(info.irq);
+            NVIC::pend(info.irq);
         }
 
         Self {
-            inner: PeripheralMutex::new(irq, &mut state.0, move || FullStateInner {
-                tx: TxStateInner {
-                    phantom: PhantomData,
-                    waker: WakerRegistration::new(),
-                    buf: RingBuffer::new(tx_buffer),
-                },
-                rx: RxStateInner {
-                    phantom: PhantomData,
-                    waker: WakerRegistration::new(),
-                    buf: RingBuffer::new(rx_buffer),
-                },
-            }),
+            info,
+            phantom: PhantomData,
         }
     }
 }
 
-impl<'d, T: Instance> BufferedUartRx<'d, T> {
-    pub fn new<M: Mode>(
-        state: &'d mut RxState<'d, T>,
-        _uart: UartRx<'d, T, M>,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+impl<'d> BufferedUartRx<'d> {
+    pub fn new<T: Instance>(
+        _uart: impl Peripheral<P = T> + 'd,
+        irq: impl Registration<T::Interrupt>,
         rx_buffer: &'d mut [u8],
-    ) -> BufferedUartRx<'d, T> {
-        into_ref!(irq);
-
-        let r = T::regs();
+        config: Config,
+    ) -> BufferedUartRx<'d> {
+        let info = T::info();
         unsafe {
-            r.uartimsc().modify(|w| {
+            info.regs.uartimsc().modify(|w| {
                 w.set_rxim(true);
                 w.set_rtim(true);
             });
+
+            NVIC::unpend(info.irq);
+            NVIC::unmask(info.irq);
         }
 
         Self {
-            inner: PeripheralMutex::new(irq, &mut state.0, move || RxStateInner {
-                phantom: PhantomData,
-
-                buf: RingBuffer::new(rx_buffer),
-                waker: WakerRegistration::new(),
-            }),
+            info,
+            phantom: PhantomData,
         }
     }
 }
 
-impl<'d, T: Instance> BufferedUartTx<'d, T> {
-    pub fn new<M: Mode>(
-        state: &'d mut TxState<'d, T>,
-        _uart: UartTx<'d, T, M>,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+impl<'d> BufferedUartTx<'d> {
+    pub fn new<T: Instance>(
+        _uart: impl Peripheral<P = T> + 'd,
+        irq: impl Registration<T::Interrupt>,
         tx_buffer: &'d mut [u8],
-    ) -> BufferedUartTx<'d, T> {
-        into_ref!(irq);
-
-        let r = T::regs();
+        config: Config,
+    ) -> BufferedUartTx<'d> {
+        let info = T::info();
         unsafe {
+            info.regs.uartimsc().modify(|w| {
+                w.set_txim(true);
+            });
+
+            NVIC::unpend(info.irq);
+            NVIC::unmask(info.irq);
+        }
+
+        Self {
+            info,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d> Drop for BufferedUart<'d> {
+    fn drop(&mut self) {
+        NVIC::mask(self.info.irq);
+    }
+}
+
+impl<'d> Drop for BufferedUartRx<'d> {
+    fn drop(&mut self) {
+        NVIC::mask(self.info.irq);
+    }
+}
+
+impl<'d> Drop for BufferedUartTx<'d> {
+    fn drop(&mut self) {
+        NVIC::mask(self.info.irq);
+    }
+}
+
+pub(crate) fn on_interrupt(info: &'static Info) {
+    trace!("on_interrupt");
+
+    let r = info.regs;
+    let s = info.state;
+
+    unsafe {
+        // RX
+
+        let ris = r.uartris().read();
+        // Clear interrupt flags
+        r.uarticr().write(|w| {
+            w.set_rxic(true);
+            w.set_rtic(true);
+        });
+
+        if ris.peris() {
+            warn!("Parity error");
+            r.uarticr().write(|w| {
+                w.set_peic(true);
+            });
+        }
+        if ris.feris() {
+            warn!("Framing error");
+            r.uarticr().write(|w| {
+                w.set_feic(true);
+            });
+        }
+        if ris.beris() {
+            warn!("Break error");
+            r.uarticr().write(|w| {
+                w.set_beic(true);
+            });
+        }
+        if ris.oeris() {
+            warn!("Overrun error");
+            r.uarticr().write(|w| {
+                w.set_oeic(true);
+            });
+        }
+
+        let rx_writer = s.rx_buf.writer();
+        if !r.uartfr().read().rxfe() {
+            let val = r.uartdr().read().data();
+            if !rx_writer.push_one(val) {
+                warn!("RX buffer full, discard received byte");
+            }
+            s.rx_waker.wake();
+        }
+
+        // TX
+        let tx_reader = s.tx_buf.reader();
+        if let Some(val) = tx_reader.pop_one() {
             r.uartimsc().modify(|w| {
                 w.set_txim(true);
             });
-        }
-
-        Self {
-            inner: PeripheralMutex::new(irq, &mut state.0, move || TxStateInner {
-                phantom: PhantomData,
-
-                buf: RingBuffer::new(tx_buffer),
-                waker: WakerRegistration::new(),
-            }),
-        }
-    }
-}
-
-impl<'d, T: Instance> PeripheralState for FullStateInner<'d, T>
-where
-    Self: 'd,
-{
-    type Interrupt = T::Interrupt;
-    fn on_interrupt(&mut self) {
-        self.rx.on_interrupt();
-        self.tx.on_interrupt();
-    }
-}
-
-impl<'d, T: Instance> RxStateInner<'d, T>
-where
-    Self: 'd,
-{
-    fn read(&mut self, buf: &mut [u8], waker: &Waker) -> (Poll<Result<usize, Error>>, bool) {
-        // We have data ready in buffer? Return it.
-        let mut do_pend = false;
-        let data = self.buf.pop_buf();
-        if !data.is_empty() {
-            let len = data.len().min(buf.len());
-            buf[..len].copy_from_slice(&data[..len]);
-
-            if self.buf.is_full() {
-                do_pend = true;
-            }
-            self.buf.pop(len);
-
-            return (Poll::Ready(Ok(len)), do_pend);
-        }
-
-        self.waker.register(waker);
-        (Poll::Pending, do_pend)
-    }
-
-    fn fill_buf<'a>(&mut self, waker: &Waker) -> Poll<Result<&'a [u8], Error>> {
-        // We have data ready in buffer? Return it.
-        let buf = self.buf.pop_buf();
-        if !buf.is_empty() {
-            let buf: &[u8] = buf;
-            // Safety: buffer lives as long as uart
-            let buf: &[u8] = unsafe { core::mem::transmute(buf) };
-            return Poll::Ready(Ok(buf));
-        }
-
-        self.waker.register(waker);
-        Poll::Pending
-    }
-
-    fn consume(&mut self, amt: usize) -> bool {
-        let full = self.buf.is_full();
-        self.buf.pop(amt);
-        full
-    }
-}
-
-impl<'d, T: Instance> PeripheralState for RxStateInner<'d, T>
-where
-    Self: 'd,
-{
-    type Interrupt = T::Interrupt;
-    fn on_interrupt(&mut self) {
-        let r = T::regs();
-        unsafe {
-            let ris = r.uartris().read();
-            // Clear interrupt flags
-            r.uarticr().modify(|w| {
-                w.set_rxic(true);
-                w.set_rtic(true);
+            r.uartdr().write(|w| w.set_data(val));
+            s.tx_waker.wake();
+        } else {
+            // Disable interrupt until we have something to transmit again
+            r.uartimsc().modify(|w| {
+                w.set_txim(false);
             });
-
-            if ris.peris() {
-                warn!("Parity error");
-                r.uarticr().modify(|w| {
-                    w.set_peic(true);
-                });
-            }
-            if ris.feris() {
-                warn!("Framing error");
-                r.uarticr().modify(|w| {
-                    w.set_feic(true);
-                });
-            }
-            if ris.beris() {
-                warn!("Break error");
-                r.uarticr().modify(|w| {
-                    w.set_beic(true);
-                });
-            }
-            if ris.oeris() {
-                warn!("Overrun error");
-                r.uarticr().modify(|w| {
-                    w.set_oeic(true);
-                });
-            }
-
-            if !r.uartfr().read().rxfe() {
-                let buf = self.buf.push_buf();
-                if !buf.is_empty() {
-                    buf[0] = r.uartdr().read().data();
-                    self.buf.push(1);
-                } else {
-                    warn!("RX buffer full, discard received byte");
-                }
-
-                if self.buf.is_full() {
-                    self.waker.wake();
-                }
-            }
-
-            if ris.rtris() {
-                self.waker.wake();
-            };
         }
     }
 }
 
-impl<'d, T: Instance> TxStateInner<'d, T>
-where
-    Self: 'd,
-{
-    fn write(&mut self, buf: &[u8], waker: &Waker) -> (Poll<Result<usize, Error>>, bool) {
-        let empty = self.buf.is_empty();
-        let tx_buf = self.buf.push_buf();
-        if tx_buf.is_empty() {
-            self.waker.register(waker);
-            return (Poll::Pending, empty);
+fn read<'a>(info: &'static Info, buf: &'a mut [u8]) -> impl Future<Output = Result<usize, Error>> + 'a {
+    poll_fn(move |cx| {
+        let rx_reader = unsafe { info.state.rx_buf.reader() };
+        let n = rx_reader.pop(|data| {
+            let n = data.len().min(buf.len());
+            buf[..n].copy_from_slice(&data[..n]);
+            n
+        });
+        if n == 0 {
+            info.state.rx_waker.register(cx.waker());
+            return Poll::Pending;
         }
 
-        let n = core::cmp::min(tx_buf.len(), buf.len());
-        tx_buf[..n].copy_from_slice(&buf[..n]);
-        self.buf.push(n);
+        Poll::Ready(Ok(n))
+    })
+}
 
-        (Poll::Ready(Ok(n)), empty)
-    }
+fn fill_buf<'a>(info: &'static Info) -> impl Future<Output = Result<&'a [u8], Error>> {
+    poll_fn(move |cx| {
+        let rx_reader = unsafe { info.state.rx_buf.reader() };
+        let (p, n) = rx_reader.pop_buf();
+        if n == 0 {
+            info.state.rx_waker.register(cx.waker());
+            return Poll::Pending;
+        }
 
-    fn flush(&mut self, waker: &Waker) -> Poll<Result<(), Error>> {
-        if !self.buf.is_empty() {
-            self.waker.register(waker);
+        let buf = unsafe { slice::from_raw_parts(p, n) };
+        Poll::Ready(Ok(buf))
+    })
+}
+
+fn consume(info: &'static Info, amt: usize) {
+    let rx_reader = unsafe { info.state.rx_buf.reader() };
+    rx_reader.pop_done(amt)
+}
+
+fn write<'a>(info: &'static Info, buf: &'a [u8]) -> impl Future<Output = Result<usize, Error>> + 'a {
+    poll_fn(move |cx| {
+        let tx_writer = unsafe { info.state.tx_buf.writer() };
+        let n = tx_writer.push(|data| {
+            let n = data.len().min(buf.len());
+            data[..n].copy_from_slice(&buf[..n]);
+            n
+        });
+        if n == 0 {
+            info.state.tx_waker.register(cx.waker());
+            return Poll::Pending;
+        } else {
+            NVIC::pend(info.irq);
+        }
+
+        Poll::Ready(Ok(n))
+    })
+}
+
+fn flush(info: &'static Info) -> impl Future<Output = Result<(), Error>> {
+    poll_fn(move |cx| {
+        if !info.state.tx_buf.is_empty() {
+            info.state.tx_waker.register(cx.waker());
             return Poll::Pending;
         }
 
         Poll::Ready(Ok(()))
-    }
-}
-
-impl<'d, T: Instance> PeripheralState for TxStateInner<'d, T>
-where
-    Self: 'd,
-{
-    type Interrupt = T::Interrupt;
-    fn on_interrupt(&mut self) {
-        let r = T::regs();
-        unsafe {
-            let buf = self.buf.pop_buf();
-            if !buf.is_empty() {
-                r.uartimsc().modify(|w| {
-                    w.set_txim(true);
-                });
-                r.uartdr().write(|w| w.set_data(buf[0].into()));
-                self.buf.pop(1);
-                self.waker.wake();
-            } else {
-                // Disable interrupt until we have something to transmit again
-                r.uartimsc().modify(|w| {
-                    w.set_txim(false);
-                });
-            }
-        }
-    }
+    })
 }
 
 impl embedded_io::Error for Error {
@@ -342,117 +338,73 @@ impl embedded_io::Error for Error {
     }
 }
 
-impl<'d, T: Instance> embedded_io::Io for BufferedUart<'d, T> {
+impl<'d> embedded_io::Io for BufferedUart<'d> {
     type Error = Error;
 }
 
-impl<'d, T: Instance> embedded_io::Io for BufferedUartRx<'d, T> {
+impl<'d> embedded_io::Io for BufferedUartRx<'d> {
     type Error = Error;
 }
 
-impl<'d, T: Instance> embedded_io::Io for BufferedUartTx<'d, T> {
+impl<'d> embedded_io::Io for BufferedUartTx<'d> {
     type Error = Error;
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::Read for BufferedUart<'d, T> {
+impl<'d> embedded_io::asynch::Read for BufferedUart<'d> {
     type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
     where
         Self: 'a;
 
     fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        poll_fn(move |cx| {
-            let (res, do_pend) = self.inner.with(|state| {
-                compiler_fence(Ordering::SeqCst);
-                state.rx.read(buf, cx.waker())
-            });
-
-            if do_pend {
-                self.inner.pend();
-            }
-
-            res
-        })
+        read(self.info, buf)
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::Read for BufferedUartRx<'d, T> {
+impl<'d> embedded_io::asynch::Read for BufferedUartRx<'d> {
     type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
     where
         Self: 'a;
 
     fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        poll_fn(move |cx| {
-            let (res, do_pend) = self.inner.with(|state| {
-                compiler_fence(Ordering::SeqCst);
-                state.read(buf, cx.waker())
-            });
-
-            if do_pend {
-                self.inner.pend();
-            }
-
-            res
-        })
+        read(self.info, buf)
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::BufRead for BufferedUart<'d, T> {
+impl<'d> embedded_io::asynch::BufRead for BufferedUart<'d> {
     type FillBufFuture<'a> = impl Future<Output = Result<&'a [u8], Self::Error>> + 'a
     where
         Self: 'a;
 
     fn fill_buf<'a>(&'a mut self) -> Self::FillBufFuture<'a> {
-        poll_fn(move |cx| {
-            self.inner.with(|state| {
-                compiler_fence(Ordering::SeqCst);
-                state.rx.fill_buf(cx.waker())
-            })
-        })
+        fill_buf(self.info)
     }
 
     fn consume(&mut self, amt: usize) {
-        let signal = self.inner.with(|state| state.rx.consume(amt));
-        if signal {
-            self.inner.pend();
-        }
+        consume(self.info, amt)
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::BufRead for BufferedUartRx<'d, T> {
+impl<'d> embedded_io::asynch::BufRead for BufferedUartRx<'d> {
     type FillBufFuture<'a> = impl Future<Output = Result<&'a [u8], Self::Error>> + 'a
     where
         Self: 'a;
 
     fn fill_buf<'a>(&'a mut self) -> Self::FillBufFuture<'a> {
-        poll_fn(move |cx| {
-            self.inner.with(|state| {
-                compiler_fence(Ordering::SeqCst);
-                state.fill_buf(cx.waker())
-            })
-        })
+        fill_buf(self.info)
     }
 
     fn consume(&mut self, amt: usize) {
-        let signal = self.inner.with(|state| state.consume(amt));
-        if signal {
-            self.inner.pend();
-        }
+        consume(self.info, amt)
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::Write for BufferedUart<'d, T> {
+impl<'d> embedded_io::asynch::Write for BufferedUart<'d> {
     type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
     where
         Self: 'a;
 
     fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        poll_fn(move |cx| {
-            let (poll, empty) = self.inner.with(|state| state.tx.write(buf, cx.waker()));
-            if empty {
-                self.inner.pend();
-            }
-            poll
-        })
+        write(self.info, buf)
     }
 
     type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
@@ -460,23 +412,17 @@ impl<'d, T: Instance + 'd> embedded_io::asynch::Write for BufferedUart<'d, T> {
         Self: 'a;
 
     fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-        poll_fn(move |cx| self.inner.with(|state| state.tx.flush(cx.waker())))
+        flush(self.info)
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::Write for BufferedUartTx<'d, T> {
+impl<'d> embedded_io::asynch::Write for BufferedUartTx<'d> {
     type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
     where
         Self: 'a;
 
     fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        poll_fn(move |cx| {
-            let (poll, empty) = self.inner.with(|state| state.write(buf, cx.waker()));
-            if empty {
-                self.inner.pend();
-            }
-            poll
-        })
+        write(self.info, buf)
     }
 
     type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
@@ -484,6 +430,6 @@ impl<'d, T: Instance + 'd> embedded_io::asynch::Write for BufferedUartTx<'d, T> 
         Self: 'a;
 
     fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-        poll_fn(move |cx| self.inner.with(|state| state.flush(cx.waker())))
+        flush(self.info)
     }
 }
