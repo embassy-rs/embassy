@@ -645,7 +645,8 @@ pub struct OutputStream<'d, T: Instance> {
 
 impl<'d, T: Instance> OutputStream<'d, T> {
     /// Prepare the initial buffer and start the I2S transfer.
-    pub async fn start<S>(&self, buffer: &[S]) -> Result<(), Error>
+    #[allow(unused_mut)]
+    pub async fn start<S>(&mut self, buffer: &[S]) -> Result<(), Error>
     where
         S: Sample,
     {
@@ -694,7 +695,8 @@ pub struct InputStream<'d, T: Instance> {
 
 impl<'d, T: Instance> InputStream<'d, T> {
     /// Prepare the initial buffer and start the I2S transfer.
-    pub async fn start<S>(&self, buffer: &mut [S]) -> Result<(), Error>
+    #[allow(unused_mut)]
+    pub async fn start<S>(&mut self, buffer: &mut [S]) -> Result<(), Error>
     where
         S: Sample,
     {
@@ -743,7 +745,8 @@ pub struct FullDuplexStream<'d, T: Instance> {
 
 impl<'d, T: Instance> FullDuplexStream<'d, T> {
     /// Prepare the initial buffers and start the I2S transfer.
-    pub async fn start<S>(&self, buffer_out: &[S], buffer_in: &mut [S]) -> Result<(), Error>
+    #[allow(unused_mut)]
+    pub async fn start<S>(&mut self, buffer_out: &[S], buffer_in: &mut [S]) -> Result<(), Error>
     where
         S: Sample,
     {
