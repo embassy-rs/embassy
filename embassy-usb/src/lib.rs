@@ -461,6 +461,16 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 },
                 _ => OutResponse::Rejected,
             },
+            (RequestType::Vendor, _) => {
+                let iface = match self.interfaces.get_mut(0) {
+                    Some(iface) => iface,
+                    None => return OutResponse::Rejected,
+                };
+                match &mut iface.handler {
+                    Some(handler) => handler.control_out(req, data),
+                    None => OutResponse::Rejected,
+                }
+            },
             (RequestType::Standard, Recipient::Interface) => {
                 let iface = match self.interfaces.get_mut(req.index as usize) {
                     Some(iface) => iface,
@@ -549,6 +559,17 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     InResponse::Accepted(&buf[..1])
                 }
                 _ => InResponse::Rejected,
+            },
+            (RequestType::Vendor, _) => {
+                let iface = match self.interfaces.get_mut(0) {
+                    Some(iface) => iface,
+                    None => return InResponse::Rejected,
+                };
+
+                match &mut iface.handler {
+                    Some(handler) => handler.control_in(req, buf),
+                    None => InResponse::Rejected,
+                }
             },
             (RequestType::Standard, Recipient::Interface) => {
                 let iface = match self.interfaces.get_mut(req.index as usize) {
