@@ -184,7 +184,7 @@ pub trait Bus {
     ///
     /// # Errors
     ///
-    /// * [`Unsupported`](crate::driver::Unsupported) - This UsbBus implementation doesn't support
+    /// * [`Unsupported`](crate::Unsupported) - This UsbBus implementation doesn't support
     ///   simulating a disconnect or it has not been enabled at creation time.
     fn force_reset(&mut self) -> Result<(), Unsupported> {
         Err(Unsupported)
@@ -194,7 +194,7 @@ pub trait Bus {
     ///
     /// # Errors
     ///
-    /// * [`Unsupported`](crate::driver::Unsupported) - This UsbBus implementation doesn't support
+    /// * [`Unsupported`](crate::Unsupported) - This UsbBus implementation doesn't support
     ///   remote wakeup or it has not been enabled at creation time.
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported>;
 }
