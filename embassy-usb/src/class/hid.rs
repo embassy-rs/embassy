@@ -299,7 +299,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
     /// **Note:** If `N` > the maximum packet size of the endpoint (i.e. output
     /// reports may be split across multiple packets) and this method's future
     /// is dropped after some packets have been read, the next call to `read()`
-    /// will return a [`ReadError::SyncError()`]. The range in the sync error
+    /// will return a [`ReadError::Sync`]. The range in the sync error
     /// indicates the portion `buf` that was filled by the current call to
     /// `read()`. If the dropped future used the same `buf`, then `buf` will
     /// contain the full report.

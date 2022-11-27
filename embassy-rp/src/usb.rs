@@ -638,7 +638,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         64
     }
 
-    async fn setup<'a>(&'a mut self) -> [u8; 8] {
+    async fn setup(&mut self) -> [u8; 8] {
         loop {
             trace!("SETUP read waiting");
             let regs = T::regs();

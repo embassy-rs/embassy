@@ -799,7 +799,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         usize::from(self.max_packet_size)
     }
 
-    async fn setup<'a>(&'a mut self) -> [u8; 8] {
+    async fn setup(&mut self) -> [u8; 8] {
         loop {
             trace!("SETUP read waiting");
             poll_fn(|cx| {

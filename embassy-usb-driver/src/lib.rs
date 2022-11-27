@@ -184,7 +184,7 @@ pub trait Bus {
     ///
     /// # Errors
     ///
-    /// * [`Unsupported`](crate::driver::Unsupported) - This UsbBus implementation doesn't support
+    /// * [`Unsupported`](crate::Unsupported) - This UsbBus implementation doesn't support
     ///   simulating a disconnect or it has not been enabled at creation time.
     fn force_reset(&mut self) -> Result<(), Unsupported> {
         Err(Unsupported)
@@ -194,7 +194,7 @@ pub trait Bus {
     ///
     /// # Errors
     ///
-    /// * [`Unsupported`](crate::driver::Unsupported) - This UsbBus implementation doesn't support
+    /// * [`Unsupported`](crate::Unsupported) - This UsbBus implementation doesn't support
     ///   remote wakeup or it has not been enabled at creation time.
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported>;
 }
@@ -220,7 +220,7 @@ pub trait ControlPipe {
     fn max_packet_size(&self) -> usize;
 
     /// Reads a single setup packet from the endpoint.
-    async fn setup<'a>(&'a mut self) -> [u8; 8];
+    async fn setup(&mut self) -> [u8; 8];
 
     /// Reads a DATA OUT packet into `buf` in response to a control write request.
     ///
