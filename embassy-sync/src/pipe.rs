@@ -352,8 +352,6 @@ where
 mod io_impls {
     use core::convert::Infallible;
 
-    use futures_util::FutureExt;
-
     use super::*;
 
     impl<M: RawMutex, const N: usize> embedded_io::Io for Pipe<M, N> {
@@ -361,30 +359,18 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for Pipe<M, N> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-        where
-            Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            Pipe::read(self, buf).map(Ok)
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            Ok(Pipe::read(self, buf).await)
         }
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for Pipe<M, N> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-        where
-            Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            Pipe::write(self, buf).map(Ok)
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            Ok(Pipe::write(self, buf).await)
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-        where
-            Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            futures_util::future::ready(Ok(()))
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
         }
     }
 
@@ -393,30 +379,18 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for &Pipe<M, N> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-        where
-            Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            Pipe::read(self, buf).map(Ok)
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            Ok(Pipe::read(self, buf).await)
         }
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for &Pipe<M, N> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-        where
-            Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            Pipe::write(self, buf).map(Ok)
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            Ok(Pipe::write(self, buf).await)
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-        where
-            Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            futures_util::future::ready(Ok(()))
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
         }
     }
 
@@ -425,12 +399,8 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for Reader<'_, M, N> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-        where
-            Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            Reader::read(self, buf).map(Ok)
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            Ok(Reader::read(self, buf).await)
         }
     }
 
@@ -439,20 +409,12 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for Writer<'_, M, N> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-        where
-            Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            Writer::write(self, buf).map(Ok)
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            Ok(Writer::write(self, buf).await)
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-        where
-            Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            futures_util::future::ready(Ok(()))
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
         }
     }
 }
