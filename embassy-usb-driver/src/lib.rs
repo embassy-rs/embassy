@@ -220,7 +220,7 @@ pub trait ControlPipe {
     fn max_packet_size(&self) -> usize;
 
     /// Reads a single setup packet from the endpoint.
-    async fn setup<'a>(&'a mut self) -> [u8; 8];
+    async fn setup(&mut self) -> [u8; 8];
 
     /// Reads a DATA OUT packet into `buf` in response to a control write request.
     ///
