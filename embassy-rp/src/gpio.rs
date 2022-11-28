@@ -452,9 +452,18 @@ impl<'d, T: Pin> Flex<'d, T> {
             self.pin.pad_ctrl().write(|w| {
                 w.set_ie(true);
                 match pull {
-                    Pull::Up => w.set_pue(true),
-                    Pull::Down => w.set_pde(true),
-                    Pull::None => {}
+                    Pull::Up => {
+                        w.set_pue(true);
+                        w.set_pde(false)
+                    }
+                    Pull::Down => {
+                        w.set_pde(true);
+                        w.set_pue(false)
+                    }
+                    Pull::None => {
+                        w.set_pue(false);
+                        w.set_pde(false)
+                    }
                 }
             });
         }
