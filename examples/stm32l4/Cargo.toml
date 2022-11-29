@@ -14,7 +14,7 @@ embassy-embedded-hal = { version = "0.1.0", path = "../../embassy-embedded-hal" 
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "unstable-pac", "stm32l4s5vi", "time-driver-any", "exti", "unstable-traits"]  }
 
 defmt = "0.3"
-defmt-rtt = "0.3"
+defmt-rtt = "0.4"
 
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"

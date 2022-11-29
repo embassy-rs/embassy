@@ -13,7 +13,7 @@ embassy-net = { path = "../../embassy-net", features = ["defmt", "nightly", "tcp
 embedded-io = { version = "0.4.0", features = ["async"] }
 
 defmt = "0.3"
-defmt-rtt = "0.3"
+defmt-rtt = "0.4"
 
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"

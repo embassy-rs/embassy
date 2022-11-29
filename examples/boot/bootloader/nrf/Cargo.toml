@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
-defmt-rtt = { version = "0.3", optional = true }
+defmt-rtt = { version = "0.4", optional = true }
 
 embassy-nrf = { path = "../../../../embassy-nrf", default-features = false, features = ["nightly"] }
 embassy-boot-nrf = { path = "../../../../embassy-boot/nrf", default-features = false }

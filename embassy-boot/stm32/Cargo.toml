@@ -15,7 +15,7 @@ target = "thumbv7em-none-eabi"
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
-defmt-rtt = { version = "0.3", optional = true }
+defmt-rtt = { version = "0.4", optional = true }
 log = { version = "0.4", optional = true }
 
 embassy-sync = { path = "../../embassy-sync" }
