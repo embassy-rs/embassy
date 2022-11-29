@@ -12,7 +12,8 @@ use {defmt_rtt as _, panic_probe as _};
 
 type Sample = i16;
 
-const NUM_SAMPLES: usize = 6000;
+const NUM_BUFFERS: usize = 2;
+const NUM_SAMPLES: usize = 50;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -30,31 +31,27 @@ async fn main(_spawner: Spawner) {
     let irq = interrupt::take!(I2S);
     let mut output_stream = I2S::master(p.I2S, irq, p.P0_25, p.P0_26, p.P0_27, master_clock, config).output(p.P0_28);
 
-    let mut buffers: [i2s::AlignedBuffer<Sample, NUM_SAMPLES>; 3] = [
-        i2s::AlignedBuffer::default(),
-        i2s::AlignedBuffer::default(),
-        i2s::AlignedBuffer::default(),
-    ];
+    let mut buffers: [i2s::AlignedBuffer<Sample, NUM_SAMPLES>; NUM_BUFFERS] =
+        [i2s::AlignedBuffer::default(); NUM_BUFFERS];
 
     let mut waveform = Waveform::new(1.0 / sample_rate as f32);
 
     waveform.process(&mut buffers[0]);
-    waveform.process(&mut buffers[1]);
 
     output_stream.start(&buffers[0]).await.expect("I2S Start");
 
     let mut index = 1;
     loop {
+        waveform.process(&mut buffers[index]);
+
         if let Err(err) = output_stream.send_from_ram(&buffers[index]).await {
             error!("{}", err);
         }
 
         index += 1;
-        if index >= 3 {
+        if index >= NUM_BUFFERS {
             index = 0;
         }
-
-        waveform.process(&mut buffers[index]);
     }
 }
 
@@ -67,7 +64,8 @@ struct Waveform {
 
 impl Waveform {
     fn new(inv_sample_rate: f32) -> Self {
-        let carrier = SineOsc::new();
+        let mut carrier = SineOsc::new();
+        carrier.set_frequency(110.0, inv_sample_rate);
 
         let mut freq_mod = SineOsc::new();
         freq_mod.set_frequency(8.0, inv_sample_rate);

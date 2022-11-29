@@ -398,6 +398,7 @@ impl<'d, T: Instance> I2S<'d, T> {
     ) -> FullDuplexStream<'d, T> {
         self.sdout = Some(sdout.into_ref().map_into());
         self.sdin = Some(sdin.into_ref().map_into());
+
         FullDuplexStream { _p: self.build() }
     }
 
@@ -549,6 +550,16 @@ impl<'d, T: Instance> I2S<'d, T> {
 
         let device = Device::<T>::new();
 
+        device.update_tx(buffer_ptr)?;
+
+        Self::wait_tx_ptr_update().await;
+
+        compiler_fence(Ordering::SeqCst);
+
+        Ok(())
+    }
+
+    async fn wait_tx_ptr_update() {
         let drop = OnDrop::new(move || {
             trace!("TX DROP: Stopping");
 
@@ -566,6 +577,7 @@ impl<'d, T: Instance> I2S<'d, T> {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
 
+            let device = Device::<T>::new();
             if device.is_tx_ptr_updated() {
                 trace!("TX POLL: Ready");
                 device.reset_tx_ptr_event();
@@ -578,12 +590,7 @@ impl<'d, T: Instance> I2S<'d, T> {
         })
         .await;
 
-        device.update_tx(buffer_ptr)?;
-
-        compiler_fence(Ordering::SeqCst);
         drop.defuse();
-
-        Ok(())
     }
 
     async fn receive_from_ram<S>(buffer_ptr: *mut [S]) -> Result<(), Error>
@@ -599,6 +606,16 @@ impl<'d, T: Instance> I2S<'d, T> {
 
         let device = Device::<T>::new();
 
+        device.update_rx(buffer_ptr)?;
+
+        Self::wait_rx_ptr_update().await;
+
+        compiler_fence(Ordering::SeqCst);
+
+        Ok(())
+    }
+
+    async fn wait_rx_ptr_update() {
         let drop = OnDrop::new(move || {
             trace!("RX DROP: Stopping");
 
@@ -616,6 +633,7 @@ impl<'d, T: Instance> I2S<'d, T> {
         poll_fn(|cx| {
             T::state().rx_waker.register(cx.waker());
 
+            let device = Device::<T>::new();
             if device.is_rx_ptr_updated() {
                 trace!("RX POLL: Ready");
                 device.reset_rx_ptr_event();
@@ -628,13 +646,7 @@ impl<'d, T: Instance> I2S<'d, T> {
         })
         .await;
 
-        device.update_rx(buffer_ptr)?;
-
-        compiler_fence(Ordering::SeqCst);
-
         drop.defuse();
-
-        Ok(())
     }
 }
 
@@ -665,6 +677,8 @@ impl<'d, T: Instance> OutputStream<'d, T> {
         s.started.store(true, Ordering::Relaxed);
 
         device.start();
+
+        I2S::<T>::wait_tx_ptr_update().await;
 
         Ok(())
     }
@@ -716,6 +730,8 @@ impl<'d, T: Instance> InputStream<'d, T> {
 
         device.start();
 
+        I2S::<T>::wait_rx_ptr_update().await;
+
         Ok(())
     }
 
@@ -746,7 +762,7 @@ pub struct FullDuplexStream<'d, T: Instance> {
 impl<'d, T: Instance> FullDuplexStream<'d, T> {
     /// Prepare the initial buffers and start the I2S transfer.
     #[allow(unused_mut)]
-    pub async fn start<S>(&mut self, buffer_out: &[S], buffer_in: &mut [S]) -> Result<(), Error>
+    pub async fn start<S>(&mut self, buffer_in: &mut [S], buffer_out: &[S]) -> Result<(), Error>
     where
         S: Sample,
     {
@@ -768,6 +784,9 @@ impl<'d, T: Instance> FullDuplexStream<'d, T> {
 
         device.start();
 
+        I2S::<T>::wait_tx_ptr_update().await;
+        I2S::<T>::wait_rx_ptr_update().await;
+
         Ok(())
     }
 
@@ -782,7 +801,7 @@ impl<'d, T: Instance> FullDuplexStream<'d, T> {
     /// The buffers must not be written/read while being used by the DMA,
     /// which takes two other `send_and_receive` operations being awaited.
     #[allow(unused_mut)]
-    pub async fn send_and_receive_from_ram<S>(&mut self, buffer_out: &[S], buffer_in: &mut [S]) -> Result<(), Error>
+    pub async fn send_and_receive_from_ram<S>(&mut self, buffer_in: &mut [S], buffer_out: &[S]) -> Result<(), Error>
     where
         S: Sample,
     {
@@ -903,7 +922,7 @@ impl<T: Instance> Device<T> {
     #[inline(always)]
     fn enable_rx_ptr_interrupt(&self) {
         trace!("RX PTR INTERRUPT: Enabled");
-        self.0.intenclr.write(|w| w.rxptrupd().clear());
+        self.0.intenset.write(|w| w.rxptrupd().set());
     }
 
     #[inline(always)]
@@ -974,6 +993,7 @@ impl Sample for i32 {
 }
 
 /// A 4-bytes aligned [Buffer].
+#[derive(Clone, Copy)]
 #[repr(align(4))]
 pub struct AlignedBuffer<T: Sample, const N: usize>([T; N]);
 
