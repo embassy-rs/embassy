@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 defmt = "0.3"
-defmt-rtt = "0.3"
+defmt-rtt = "0.4"
 panic-probe = "0.3"
 embassy-sync = { version = "0.1.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["defmt", "integrated-timers"] }
