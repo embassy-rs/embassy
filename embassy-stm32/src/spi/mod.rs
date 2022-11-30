@@ -8,7 +8,7 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
 use self::sealed::WordSize;
-use crate::dma::{slice_ptr_parts, NoDma, Transfer};
+use crate::dma::{slice_ptr_parts, Transfer};
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::AnyPin;
 use crate::pac::spi::{regs, vals, Spi as Regs};
@@ -812,7 +812,7 @@ mod eh02 {
     // some marker traits. For details, see https://github.com/rust-embedded/embedded-hal/pull/289
     macro_rules! impl_blocking {
         ($w:ident) => {
-            impl<'d, T: Instance> embedded_hal_02::blocking::spi::Write<$w> for Spi<'d, T, NoDma, NoDma> {
+            impl<'d, T: Instance, Tx, Rx> embedded_hal_02::blocking::spi::Write<$w> for Spi<'d, T, Tx, Rx> {
                 type Error = Error;
 
                 fn write(&mut self, words: &[$w]) -> Result<(), Self::Error> {
@@ -820,7 +820,7 @@ mod eh02 {
                 }
             }
 
-            impl<'d, T: Instance> embedded_hal_02::blocking::spi::Transfer<$w> for Spi<'d, T, NoDma, NoDma> {
+            impl<'d, T: Instance, Tx, Rx> embedded_hal_02::blocking::spi::Transfer<$w> for Spi<'d, T, Tx, Rx> {
                 type Error = Error;
 
                 fn transfer<'w>(&mut self, words: &'w mut [$w]) -> Result<&'w [$w], Self::Error> {
@@ -849,19 +849,19 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::SpiBusRead<W> for Spi<'d, T, NoDma, NoDma> {
+    impl<'d, T: Instance, W: Word, Tx, Rx> embedded_hal_1::spi::SpiBusRead<W> for Spi<'d, T, Tx, Rx> {
         fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
             self.blocking_read(words)
         }
     }
 
-    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::SpiBusWrite<W> for Spi<'d, T, NoDma, NoDma> {
+    impl<'d, T: Instance, W: Word, Tx, Rx> embedded_hal_1::spi::SpiBusWrite<W> for Spi<'d, T, Tx, Rx> {
         fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
             self.blocking_write(words)
         }
     }
 
-    impl<'d, T: Instance, W: Word> embedded_hal_1::spi::SpiBus<W> for Spi<'d, T, NoDma, NoDma> {
+    impl<'d, T: Instance, W: Word, Tx, Rx> embedded_hal_1::spi::SpiBus<W> for Spi<'d, T, Tx, Rx> {
         fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
             self.blocking_transfer(read, write)
         }
