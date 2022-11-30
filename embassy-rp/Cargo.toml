@@ -55,6 +55,7 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 chrono = { version = "0.4", default-features = false, optional = true }
 embedded-io = { version = "0.4.0", features = ["async"], optional = true }
 embedded-storage = { version = "0.3" }
+rand_core = "0.6.4"
 
 rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev="017e3c9007b2d3b6965f0d85b5bf8ce3fa6d7364", features = ["rt"] }
 #rp2040-pac2 = { path = "../../rp2040-pac2", features = ["rt"] }
