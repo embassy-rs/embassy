@@ -112,6 +112,9 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
 
         unsafe {
             r.cr1().modify(|w| {
+                #[cfg(lpuart_v2)]
+                w.set_fifoen(true);
+
                 w.set_rxneie(true);
                 w.set_idleie(true);
             });
