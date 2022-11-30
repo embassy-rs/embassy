@@ -21,7 +21,7 @@ pub mod uart;
 #[cfg(feature = "nightly")]
 pub mod usb;
 
-mod clocks;
+pub mod clocks;
 pub mod flash;
 mod reset;
 
