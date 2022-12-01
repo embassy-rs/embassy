@@ -22,5 +22,5 @@ cortex-m-rt = "0.7.0"
 futures = { version = "0.3.17", default-features = false, features = ["async-await", "cfg-target-has-atomic", "unstable"] }
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.9" }
-embedded-hal-async = { version = "0.1.0-alpha.3" }
+embedded-hal-async = { version = "0.2.0-alpha.0" }
 num_enum = { version = "0.5.7", default-features = false }
