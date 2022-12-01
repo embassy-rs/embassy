@@ -79,6 +79,8 @@ pub(crate) mod _generated {
 // Reexports
 pub use _generated::{peripherals, Peripherals};
 pub use embassy_cortex_m::executor;
+#[cfg(any(dma, bdma))]
+use embassy_cortex_m::interrupt::Priority;
 pub use embassy_cortex_m::interrupt::_export::interrupt;
 pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 #[cfg(feature = "unstable-pac")]
@@ -91,6 +93,10 @@ pub struct Config {
     pub rcc: rcc::Config,
     #[cfg(dbgmcu)]
     pub enable_debug_during_sleep: bool,
+    #[cfg(bdma)]
+    pub bdma_interrupt_priority: Priority,
+    #[cfg(dma)]
+    pub dma_interrupt_priority: Priority,
 }
 
 impl Default for Config {
@@ -99,6 +105,10 @@ impl Default for Config {
             rcc: Default::default(),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
+            #[cfg(bdma)]
+            bdma_interrupt_priority: Priority::P0,
+            #[cfg(dma)]
+            dma_interrupt_priority: Priority::P0,
         }
     }
 }
@@ -137,7 +147,12 @@ pub fn init(config: Config) -> Peripherals {
         }
 
         gpio::init();
-        dma::init();
+        dma::init(
+            #[cfg(bdma)]
+            config.bdma_interrupt_priority,
+            #[cfg(dma)]
+            config.dma_interrupt_priority,
+        );
         #[cfg(feature = "exti")]
         exti::init();
 

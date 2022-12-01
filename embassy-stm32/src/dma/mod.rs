@@ -12,6 +12,8 @@ use core::mem;
 use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 
+#[cfg(any(dma, bdma))]
+use embassy_cortex_m::interrupt::Priority;
 use embassy_hal_common::{impl_peripheral, into_ref};
 
 #[cfg(dmamux)]
@@ -294,11 +296,11 @@ pub struct NoDma;
 impl_peripheral!(NoDma);
 
 // safety: must be called only once at startup
-pub(crate) unsafe fn init() {
+pub(crate) unsafe fn init(#[cfg(bdma)] bdma_priority: Priority, #[cfg(dma)] dma_priority: Priority) {
     #[cfg(bdma)]
-    bdma::init();
+    bdma::init(bdma_priority);
     #[cfg(dma)]
-    dma::init();
+    dma::init(dma_priority);
     #[cfg(dmamux)]
     dmamux::init();
     #[cfg(gpdma)]
