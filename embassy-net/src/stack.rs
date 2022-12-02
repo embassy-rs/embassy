@@ -1,4 +1,4 @@
-use core::cell::UnsafeCell;
+use core::cell::RefCell;
 use core::future::{poll_fn, Future};
 use core::task::{Context, Poll};
 
@@ -62,8 +62,8 @@ pub enum ConfigStrategy {
 }
 
 pub struct Stack<D: Device> {
-    pub(crate) socket: UnsafeCell<SocketStack>,
-    inner: UnsafeCell<Inner<D>>,
+    pub(crate) socket: RefCell<SocketStack>,
+    inner: RefCell<Inner<D>>,
 }
 
 struct Inner<D: Device> {
@@ -80,8 +80,6 @@ pub(crate) struct SocketStack {
     pub(crate) waker: WakerRegistration,
     next_local_port: u16,
 }
-
-unsafe impl<D: Device> Send for Stack<D> {}
 
 impl<D: Device + 'static> Stack<D> {
     pub fn new<const ADDR: usize, const SOCK: usize, const NEIGH: usize>(
@@ -143,40 +141,38 @@ impl<D: Device + 'static> Stack<D> {
         }
 
         Self {
-            socket: UnsafeCell::new(socket),
-            inner: UnsafeCell::new(inner),
+            socket: RefCell::new(socket),
+            inner: RefCell::new(inner),
         }
     }
 
-    /// SAFETY: must not call reentrantly.
-    unsafe fn with<R>(&self, f: impl FnOnce(&SocketStack, &Inner<D>) -> R) -> R {
-        f(&*self.socket.get(), &*self.inner.get())
+    fn with<R>(&self, f: impl FnOnce(&SocketStack, &Inner<D>) -> R) -> R {
+        f(&*self.socket.borrow(), &*self.inner.borrow())
     }
 
-    /// SAFETY: must not call reentrantly.
-    unsafe fn with_mut<R>(&self, f: impl FnOnce(&mut SocketStack, &mut Inner<D>) -> R) -> R {
-        f(&mut *self.socket.get(), &mut *self.inner.get())
+    fn with_mut<R>(&self, f: impl FnOnce(&mut SocketStack, &mut Inner<D>) -> R) -> R {
+        f(&mut *self.socket.borrow_mut(), &mut *self.inner.borrow_mut())
     }
 
     pub fn ethernet_address(&self) -> [u8; 6] {
-        unsafe { self.with(|_s, i| i.device.device.ethernet_address()) }
+        self.with(|_s, i| i.device.device.ethernet_address())
     }
 
     pub fn is_link_up(&self) -> bool {
-        unsafe { self.with(|_s, i| i.link_up) }
+        self.with(|_s, i| i.link_up)
     }
 
     pub fn is_config_up(&self) -> bool {
-        unsafe { self.with(|_s, i| i.config.is_some()) }
+        self.with(|_s, i| i.config.is_some())
     }
 
     pub fn config(&self) -> Option<Config> {
-        unsafe { self.with(|_s, i| i.config.clone()) }
+        self.with(|_s, i| i.config.clone())
     }
 
     pub async fn run(&self) -> ! {
         poll_fn(|cx| {
-            unsafe { self.with_mut(|s, i| i.poll(cx, s)) }
+            self.with_mut(|s, i| i.poll(cx, s));
             Poll::<()>::Pending
         })
         .await;

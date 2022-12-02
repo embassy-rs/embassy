@@ -1,4 +1,4 @@
-use core::cell::UnsafeCell;
+use core::cell::RefCell;
 use core::future::poll_fn;
 use core::mem;
 use core::task::Poll;
@@ -68,8 +68,7 @@ impl<'a> TcpWriter<'a> {
 
 impl<'a> TcpSocket<'a> {
     pub fn new<D: Device>(stack: &'a Stack<D>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Self {
-        // safety: not accessed reentrantly.
-        let s = unsafe { &mut *stack.socket.get() };
+        let s = &mut *stack.socket.borrow_mut();
         let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
         let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
         let handle = s.sockets.add(tcp::Socket::new(
@@ -93,17 +92,15 @@ impl<'a> TcpSocket<'a> {
     where
         T: Into<IpEndpoint>,
     {
-        // safety: not accessed reentrantly.
-        let local_port = unsafe { &mut *self.io.stack.get() }.get_local_port();
+        let local_port = self.io.stack.borrow_mut().get_local_port();
 
-        // safety: not accessed reentrantly.
-        match unsafe { self.io.with_mut(|s, i| s.connect(i, remote_endpoint, local_port)) } {
+        match { self.io.with_mut(|s, i| s.connect(i, remote_endpoint, local_port)) } {
             Ok(()) => {}
             Err(tcp::ConnectError::InvalidState) => return Err(ConnectError::InvalidState),
             Err(tcp::ConnectError::Unaddressable) => return Err(ConnectError::NoRoute),
         }
 
-        poll_fn(|cx| unsafe {
+        poll_fn(|cx| {
             self.io.with_mut(|s, _| match s.state() {
                 tcp::State::Closed | tcp::State::TimeWait => Poll::Ready(Err(ConnectError::ConnectionReset)),
                 tcp::State::Listen => unreachable!(),
@@ -121,14 +118,13 @@ impl<'a> TcpSocket<'a> {
     where
         T: Into<IpListenEndpoint>,
     {
-        // safety: not accessed reentrantly.
-        match unsafe { self.io.with_mut(|s, _| s.listen(local_endpoint)) } {
+        match self.io.with_mut(|s, _| s.listen(local_endpoint)) {
             Ok(()) => {}
             Err(tcp::ListenError::InvalidState) => return Err(AcceptError::InvalidState),
             Err(tcp::ListenError::Unaddressable) => return Err(AcceptError::InvalidPort),
         }
 
-        poll_fn(|cx| unsafe {
+        poll_fn(|cx| {
             self.io.with_mut(|s, _| match s.state() {
                 tcp::State::Listen | tcp::State::SynSent | tcp::State::SynReceived => {
                     s.register_send_waker(cx.waker());
@@ -149,51 +145,49 @@ impl<'a> TcpSocket<'a> {
     }
 
     pub fn set_timeout(&mut self, duration: Option<Duration>) {
-        unsafe { self.io.with_mut(|s, _| s.set_timeout(duration)) }
+        self.io.with_mut(|s, _| s.set_timeout(duration))
     }
 
     pub fn set_keep_alive(&mut self, interval: Option<Duration>) {
-        unsafe { self.io.with_mut(|s, _| s.set_keep_alive(interval)) }
+        self.io.with_mut(|s, _| s.set_keep_alive(interval))
     }
 
     pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) {
-        unsafe { self.io.with_mut(|s, _| s.set_hop_limit(hop_limit)) }
+        self.io.with_mut(|s, _| s.set_hop_limit(hop_limit))
     }
 
     pub fn local_endpoint(&self) -> Option<IpEndpoint> {
-        unsafe { self.io.with(|s, _| s.local_endpoint()) }
+        self.io.with(|s, _| s.local_endpoint())
     }
 
     pub fn remote_endpoint(&self) -> Option<IpEndpoint> {
-        unsafe { self.io.with(|s, _| s.remote_endpoint()) }
+        self.io.with(|s, _| s.remote_endpoint())
     }
 
     pub fn state(&self) -> tcp::State {
-        unsafe { self.io.with(|s, _| s.state()) }
+        self.io.with(|s, _| s.state())
     }
 
     pub fn close(&mut self) {
-        unsafe { self.io.with_mut(|s, _| s.close()) }
+        self.io.with_mut(|s, _| s.close())
     }
 
     pub fn abort(&mut self) {
-        unsafe { self.io.with_mut(|s, _| s.abort()) }
+        self.io.with_mut(|s, _| s.abort())
     }
 
     pub fn may_send(&self) -> bool {
-        unsafe { self.io.with(|s, _| s.may_send()) }
+        self.io.with(|s, _| s.may_send())
     }
 
     pub fn may_recv(&self) -> bool {
-        unsafe { self.io.with(|s, _| s.may_recv()) }
+        self.io.with(|s, _| s.may_recv())
     }
 }
 
 impl<'a> Drop for TcpSocket<'a> {
     fn drop(&mut self) {
-        // safety: not accessed reentrantly.
-        let s = unsafe { &mut *self.io.stack.get() };
-        s.sockets.remove(self.io.handle);
+        self.io.stack.borrow_mut().sockets.remove(self.io.handle);
     }
 }
 
@@ -201,21 +195,19 @@ impl<'a> Drop for TcpSocket<'a> {
 
 #[derive(Copy, Clone)]
 struct TcpIo<'a> {
-    stack: &'a UnsafeCell<SocketStack>,
+    stack: &'a RefCell<SocketStack>,
     handle: SocketHandle,
 }
 
 impl<'d> TcpIo<'d> {
-    /// SAFETY: must not call reentrantly.
-    unsafe fn with<R>(&self, f: impl FnOnce(&tcp::Socket, &Interface) -> R) -> R {
-        let s = &*self.stack.get();
+    fn with<R>(&self, f: impl FnOnce(&tcp::Socket, &Interface) -> R) -> R {
+        let s = &*self.stack.borrow();
         let socket = s.sockets.get::<tcp::Socket>(self.handle);
         f(socket, &s.iface)
     }
 
-    /// SAFETY: must not call reentrantly.
-    unsafe fn with_mut<R>(&mut self, f: impl FnOnce(&mut tcp::Socket, &mut Interface) -> R) -> R {
-        let s = &mut *self.stack.get();
+    fn with_mut<R>(&mut self, f: impl FnOnce(&mut tcp::Socket, &mut Interface) -> R) -> R {
+        let s = &mut *self.stack.borrow_mut();
         let socket = s.sockets.get_mut::<tcp::Socket>(self.handle);
         let res = f(socket, &mut s.iface);
         s.waker.wake();
@@ -223,7 +215,7 @@ impl<'d> TcpIo<'d> {
     }
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        poll_fn(move |cx| unsafe {
+        poll_fn(move |cx| {
             // CAUTION: smoltcp semantics around EOF are different to what you'd expect
             // from posix-like IO, so we have to tweak things here.
             self.with_mut(|s, _| match s.recv_slice(buf) {
@@ -244,7 +236,7 @@ impl<'d> TcpIo<'d> {
     }
 
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        poll_fn(move |cx| unsafe {
+        poll_fn(move |cx| {
             self.with_mut(|s, _| match s.send_slice(buf) {
                 // Not ready to send (no space in the tx buffer)
                 Ok(0) => {
@@ -332,6 +324,7 @@ mod embedded_io_impls {
 
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 pub mod client {
+    use core::cell::UnsafeCell;
     use core::mem::MaybeUninit;
     use core::ptr::NonNull;
 
