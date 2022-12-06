@@ -411,6 +411,16 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     pub fn toggle(&mut self) {
         self.pin.toggle_set_as_output()
     }
+
+    #[inline]
+    pub fn is_high(&self) -> bool {
+        self.pin.is_high()
+    }
+
+    #[inline]
+    pub fn is_low(&self) -> bool {
+        self.pin.is_low()
+    }
 }
 
 /// GPIO flexible pin.
@@ -791,6 +801,18 @@ mod eh02 {
         }
     }
 
+    impl<'d, T: Pin> embedded_hal_02::digital::v2::InputPin for OutputOpenDrain<'d, T> {
+        type Error = Infallible;
+
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
+    }
+
     impl<'d, T: Pin> embedded_hal_02::digital::v2::OutputPin for OutputOpenDrain<'d, T> {
         type Error = Infallible;
 
@@ -943,6 +965,16 @@ mod eh1 {
     impl<'d, T: Pin> embedded_hal_1::digital::ToggleableOutputPin for OutputOpenDrain<'d, T> {
         fn toggle(&mut self) -> Result<(), Self::Error> {
             Ok(self.toggle())
+        }
+    }
+
+    impl<'d, T: Pin> embedded_hal_1::digital::InputPin for OutputOpenDrain<'d, T> {
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
         }
     }
 
