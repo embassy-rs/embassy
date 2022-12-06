@@ -94,7 +94,10 @@ impl<'a> TcpSocket<'a> {
     {
         let local_port = self.io.stack.borrow_mut().get_local_port();
 
-        match { self.io.with_mut(|s, i| s.connect(i, remote_endpoint, local_port)) } {
+        match {
+            self.io
+                .with_mut(|s, i| s.connect(i.context(), remote_endpoint, local_port))
+        } {
             Ok(()) => {}
             Err(tcp::ConnectError::InvalidState) => return Err(ConnectError::InvalidState),
             Err(tcp::ConnectError::Unaddressable) => return Err(ConnectError::NoRoute),

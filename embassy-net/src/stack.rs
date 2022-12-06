@@ -266,21 +266,12 @@ impl<D: Device + 'static> Inner<D> {
                     None => {}
                     Some(dhcpv4::Event::Deconfigured) => self.unapply_config(s),
                     Some(dhcpv4::Event::Configured(config)) => {
-                        let mut dns_servers = Vec::new();
-                        for s in &config.dns_servers {
-                            if let Some(addr) = s {
-                                dns_servers.push(addr.clone()).unwrap();
-                            }
-                        }
-
-                        self.apply_config(
-                            s,
-                            Config {
-                                address: config.address,
-                                gateway: config.router,
-                                dns_servers,
-                            },
-                        )
+                        let config = Config {
+                            address: config.address,
+                            gateway: config.router,
+                            dns_servers: config.dns_servers,
+                        };
+                        self.apply_config(s, config)
                     }
                 }
             } else if old_link_up {
