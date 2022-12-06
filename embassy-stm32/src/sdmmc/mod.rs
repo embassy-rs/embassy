@@ -601,7 +601,7 @@ impl SdmmcInner {
         // NOTE(unsafe) We have exclusive access to the peripheral
         unsafe {
             // While the SD/SDIO card or eMMC is in identification mode,
-            // the SDMMC_CK frequency must be less than 400 kHz.
+            // the SDMMC_CK frequency must be no more than 400 kHz.
             let (clkdiv, init_clock) = unwrap!(clk_div(ker_ck, SD_INIT_FREQ.0));
             *clock = init_clock;
 
