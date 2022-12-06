@@ -17,6 +17,8 @@ pub mod interrupt;
 pub mod pio;
 #[cfg(feature = "pio")]
 pub mod pio_instr_util;
+#[cfg(feature = "pio")]
+pub mod relocate;
 
 pub mod rom_data;
 pub mod rtc;

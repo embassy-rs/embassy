@@ -5,6 +5,7 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::pio::{PioPeripherial, PioStateMachine, ShiftDirection};
+use embassy_rp::relocate::RelocatedProgram;
 use embassy_rp::{pio_instr_util, Peripheral};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -32,11 +33,12 @@ async fn main(_spawner: Spawner) {
         ".wrap",
     );
 
-    let origin = prg.program.origin.unwrap_or(0);
-    sm.write_instr(origin as usize, &prg.program.code);
-    pio_instr_util::exec_jmp(&mut sm, origin);
+    let relocated = RelocatedProgram::new(&prg.program);
+    sm.write_instr(relocated.origin() as usize, relocated.code());
+    pio_instr_util::exec_jmp(&mut sm, relocated.origin());
     sm.set_clkdiv((125e6 / 10e3 * 256.0) as u32);
-    sm.set_wrap(prg.program.wrap.source + origin, prg.program.wrap.target + origin);
+    let pio::Wrap { source, target } = relocated.wrap();
+    sm.set_wrap(source, target);
     sm.set_autopull(true);
     sm.set_autopush(true);
     sm.set_pull_threshold(32);

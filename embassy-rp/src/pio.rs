@@ -941,7 +941,10 @@ pub trait PioStateMachine: Sized + Unpin {
         }
     }
 
-    fn write_instr(&mut self, start: usize, instrs: &[u16]) {
+    fn write_instr<I>(&mut self, start: usize, instrs: I)
+    where
+        I: Iterator<Item = u16>,
+    {
         let _ = self;
         write_instr(
             Self::Pio::PIO_NO,
@@ -1098,8 +1101,11 @@ impl<PIO: PioInstance> PioCommon for PioCommonInstance<PIO> {
     type Pio = PIO;
 }
 
-fn write_instr(pio_no: u8, start: usize, instrs: &[u16], mem_user: u32) {
-    for (i, instr) in instrs.iter().enumerate() {
+fn write_instr<I>(pio_no: u8, start: usize, instrs: I, mem_user: u32)
+where
+    I: Iterator<Item = u16>,
+{
+    for (i, instr) in instrs.enumerate() {
         let addr = (i + start) as u8;
         assert!(
             instr_mem_is_free(pio_no, addr),
@@ -1108,7 +1114,7 @@ fn write_instr(pio_no: u8, start: usize, instrs: &[u16], mem_user: u32) {
         );
         unsafe {
             PIOS[pio_no as usize].instr_mem(addr as usize).write(|w| {
-                w.set_instr_mem(*instr);
+                w.set_instr_mem(instr);
             });
             instr_mem_set_status(pio_no, addr, mem_user);
         }
@@ -1118,7 +1124,10 @@ fn write_instr(pio_no: u8, start: usize, instrs: &[u16], mem_user: u32) {
 pub trait PioCommon: Sized {
     type Pio: PioInstance;
 
-    fn write_instr(&mut self, start: usize, instrs: &[u16]) {
+    fn write_instr<I>(&mut self, start: usize, instrs: I)
+    where
+        I: Iterator<Item = u16>,
+    {
         let _ = self;
         write_instr(Self::Pio::PIO_NO, start, instrs, MEM_USED_BY_COMMON);
     }

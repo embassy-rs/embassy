@@ -6,6 +6,7 @@ use embassy_executor::Spawner;
 use embassy_rp::gpio::{AnyPin, Pin};
 use embassy_rp::pio::{Pio0, PioPeripherial, PioStateMachine, PioStateMachineInstance, ShiftDirection, Sm0, Sm1, Sm2};
 use embassy_rp::pio_instr_util;
+use embassy_rp::relocate::RelocatedProgram;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
@@ -21,15 +22,17 @@ async fn pio_task_sm0(mut sm: PioStateMachineInstance<Pio0, Sm0>, pin: AnyPin) {
         ".wrap",
     );
 
-    let origin = prg.program.origin.unwrap_or(0);
+    let relocated = RelocatedProgram::new(&prg.program);
     let out_pin = sm.make_pio_pin(pin);
     let pio_pins = [&out_pin];
     sm.set_out_pins(&pio_pins);
-    sm.write_instr(origin as usize, &prg.program.code);
-    pio_instr_util::exec_jmp(&mut sm, origin);
+    sm.write_instr(relocated.origin() as usize, relocated.code());
+    pio_instr_util::exec_jmp(&mut sm, relocated.origin());
     sm.set_clkdiv((125e6 / 20.0 / 2e2 * 256.0) as u32);
     sm.set_set_range(0, 1);
-    sm.set_wrap(prg.program.wrap.source + origin, prg.program.wrap.target + origin);
+    let pio::Wrap { source, target } = relocated.wrap();
+    sm.set_wrap(source, target);
+
     sm.set_autopull(true);
     sm.set_out_shift_dir(ShiftDirection::Left);
 
@@ -50,12 +53,14 @@ async fn pio_task_sm1(mut sm: PioStateMachineInstance<Pio0, Sm1>) {
     // Read 0b10101 repeatedly until ISR is full
     let prg = pio_proc::pio_asm!(".origin 8", "set x, 0x15", ".wrap_target", "in x, 5 [31]", ".wrap",);
 
-    let origin = prg.program.origin.unwrap_or(0);
-    sm.write_instr(origin as usize, &prg.program.code);
-    pio_instr_util::exec_jmp(&mut sm, origin);
+    let relocated = RelocatedProgram::new(&prg.program);
+    sm.write_instr(relocated.origin() as usize, relocated.code());
+    pio_instr_util::exec_jmp(&mut sm, relocated.origin());
     sm.set_clkdiv((125e6 / 2e3 * 256.0) as u32);
     sm.set_set_range(0, 0);
-    sm.set_wrap(prg.program.wrap.source + origin, prg.program.wrap.target + origin);
+    let pio::Wrap { source, target } = relocated.wrap();
+    sm.set_wrap(source, target);
+
     sm.set_autopush(true);
     sm.set_in_shift_dir(ShiftDirection::Right);
     sm.set_enable(true);
@@ -79,11 +84,13 @@ async fn pio_task_sm2(mut sm: PioStateMachineInstance<Pio0, Sm2>) {
         "irq 3 [15]",
         ".wrap",
     );
-    let origin = prg.program.origin.unwrap_or(0);
+    let relocated = RelocatedProgram::new(&prg.program);
+    sm.write_instr(relocated.origin() as usize, relocated.code());
 
-    sm.write_instr(origin as usize, &prg.program.code);
-    sm.set_wrap(prg.program.wrap.source + origin, prg.program.wrap.target + origin);
-    pio_instr_util::exec_jmp(&mut sm, origin);
+    let pio::Wrap { source, target } = relocated.wrap();
+    sm.set_wrap(source, target);
+
+    pio_instr_util::exec_jmp(&mut sm, relocated.origin());
     sm.set_clkdiv((125e6 / 2e3 * 256.0) as u32);
     sm.set_enable(true);
     loop {
