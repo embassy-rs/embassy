@@ -161,6 +161,8 @@ pub fn init(config: Config) -> Peripherals {
         // must be after rcc init
         #[cfg(feature = "_time-driver")]
         time_driver::init();
+
+        flash::init();
     }
 
     p
