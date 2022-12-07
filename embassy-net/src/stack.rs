@@ -12,7 +12,7 @@ use smoltcp::iface::{Interface, InterfaceBuilder, SocketSet, SocketStorage};
 #[cfg(feature = "medium-ethernet")]
 use smoltcp::iface::{Neighbor, NeighborCache, Route, Routes};
 #[cfg(feature = "medium-ethernet")]
-use smoltcp::phy::{Device as _, Medium};
+use smoltcp::phy::Medium;
 #[cfg(feature = "dhcpv4")]
 use smoltcp::socket::dhcpv4;
 use smoltcp::time::Instant as SmolInstant;
@@ -67,7 +67,7 @@ pub struct Stack<D: Device> {
 }
 
 struct Inner<D: Device> {
-    device: DeviceAdapter<D>,
+    device: D,
     link_up: bool,
     config: Option<Config>,
     #[cfg(feature = "dhcpv4")]
@@ -83,7 +83,7 @@ pub(crate) struct SocketStack {
 
 impl<D: Device + 'static> Stack<D> {
     pub fn new<const ADDR: usize, const SOCK: usize, const NEIGH: usize>(
-        device: D,
+        mut device: D,
         config: ConfigStrategy,
         resources: &'static mut StackResources<ADDR, SOCK, NEIGH>,
         random_seed: u64,
@@ -98,8 +98,6 @@ impl<D: Device + 'static> Stack<D> {
             [0, 0, 0, 0, 0, 0]
         };
 
-        let mut device = DeviceAdapter::new(device);
-
         let mut b = InterfaceBuilder::new();
         b = b.ip_addrs(&mut resources.addresses[..]);
         b = b.random_seed(random_seed);
@@ -111,7 +109,10 @@ impl<D: Device + 'static> Stack<D> {
             b = b.routes(Routes::new(&mut resources.routes[..]));
         }
 
-        let iface = b.finalize(&mut device);
+        let iface = b.finalize(&mut DeviceAdapter {
+            inner: &mut device,
+            cx: None,
+        });
 
         let sockets = SocketSet::new(&mut resources.sockets[..]);
 
@@ -155,7 +156,7 @@ impl<D: Device + 'static> Stack<D> {
     }
 
     pub fn ethernet_address(&self) -> [u8; 6] {
-        self.with(|_s, i| i.device.device.ethernet_address())
+        self.with(|_s, i| i.device.ethernet_address())
     }
 
     pub fn is_link_up(&self) -> bool {
@@ -238,11 +239,14 @@ impl<D: Device + 'static> Inner<D> {
     }
 
     fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
-        self.device.device.register_waker(cx.waker());
         s.waker.register(cx.waker());
 
         let timestamp = instant_to_smoltcp(Instant::now());
-        if s.iface.poll(timestamp, &mut self.device, &mut s.sockets).is_err() {
+        let mut smoldev = DeviceAdapter {
+            cx: Some(cx),
+            inner: &mut self.device,
+        };
+        if s.iface.poll(timestamp, &mut smoldev, &mut s.sockets).is_err() {
             // If poll() returns error, it may not be done yet, so poll again later.
             cx.waker().wake_by_ref();
             return;
@@ -250,7 +254,7 @@ impl<D: Device + 'static> Inner<D> {
 
         // Update link up
         let old_link_up = self.link_up;
-        self.link_up = self.device.device.link_state() == LinkState::Up;
+        self.link_up = self.device.link_state(cx) == LinkState::Up;
 
         // Print when changed
         if old_link_up != self.link_up {

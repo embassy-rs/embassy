@@ -9,8 +9,8 @@ use smoltcp::time::Duration;
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 
 use super::stack::Stack;
+use crate::device::Device;
 use crate::stack::SocketStack;
-use crate::Device;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

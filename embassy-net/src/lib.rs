@@ -8,12 +8,9 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-mod device;
-mod packet_pool;
+pub mod device;
 mod stack;
 
-pub use device::{Device, LinkState};
-pub use packet_pool::{Packet, PacketBox, PacketBoxExt, PacketBuf, MTU};
 pub use stack::{Config, ConfigStrategy, Stack, StackResources};
 
 #[cfg(feature = "tcp")]
@@ -23,7 +20,6 @@ pub mod tcp;
 pub mod udp;
 
 // smoltcp reexports
-pub use smoltcp::phy::{DeviceCapabilities, Medium};
 pub use smoltcp::time::{Duration as SmolDuration, Instant as SmolInstant};
 #[cfg(feature = "medium-ethernet")]
 pub use smoltcp::wire::{EthernetAddress, HardwareAddress};
