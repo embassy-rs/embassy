@@ -18,6 +18,9 @@ use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 use crate::{peripherals, Peripheral};
 
+/// Frequency used for SD Card initialization. Must be no higher than 400 kHz.
+const SD_INIT_FREQ: Hertz = Hertz(400_000);
+
 /// The signalling scheme used on the SDMMC bus
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -295,7 +298,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
         T::reset();
 
         let inner = T::inner();
-        let clock = unsafe { inner.new_inner(T::frequency()) };
+        unsafe { inner.new_inner() };
 
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
@@ -314,7 +317,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
             d3,
 
             config,
-            clock,
+            clock: SD_INIT_FREQ,
             signalling: Default::default(),
             card: None,
         }
@@ -415,7 +418,7 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
         T::reset();
 
         let inner = T::inner();
-        let clock = unsafe { inner.new_inner(T::frequency()) };
+        unsafe { inner.new_inner() };
 
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
@@ -434,7 +437,7 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
             d3,
 
             config,
-            clock,
+            clock: SD_INIT_FREQ,
             signalling: Default::default(),
             card: None,
         }
@@ -561,16 +564,10 @@ impl SdmmcInner {
     /// # Safety
     ///
     /// Access to `regs` registers should be exclusive
-    unsafe fn new_inner(&self, kernel_clk: Hertz) -> Hertz {
+    unsafe fn new_inner(&self) {
         let regs = self.0;
 
-        // While the SD/SDIO card or eMMC is in identification mode,
-        // the SDMMC_CK frequency must be less than 400 kHz.
-        let (clkdiv, clock) = unwrap!(clk_div(kernel_clk, 400_000));
-
         regs.clkcr().write(|w| {
-            w.set_widbus(0);
-            w.set_clkdiv(clkdiv);
             w.set_pwrsav(false);
             w.set_negedge(false);
             w.set_hwfc_en(true);
@@ -582,8 +579,6 @@ impl SdmmcInner {
         // Power off, writen 00: Clock to the card is stopped;
         // D[7:0], CMD, and CK are driven high.
         regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::Off as u8));
-
-        clock
     }
 
     /// Initializes card (if present) and sets the bus at the
@@ -605,6 +600,19 @@ impl SdmmcInner {
 
         // NOTE(unsafe) We have exclusive access to the peripheral
         unsafe {
+            // While the SD/SDIO card or eMMC is in identification mode,
+            // the SDMMC_CK frequency must be no more than 400 kHz.
+            let (clkdiv, init_clock) = unwrap!(clk_div(ker_ck, SD_INIT_FREQ.0));
+            *clock = init_clock;
+
+            // CPSMACT and DPSMACT must be 0 to set WIDBUS
+            self.wait_idle();
+
+            regs.clkcr().modify(|w| {
+                w.set_widbus(0);
+                w.set_clkdiv(clkdiv);
+            });
+
             regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
             self.cmd(Cmd::idle(), false)?;
 
