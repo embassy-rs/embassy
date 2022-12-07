@@ -1,3 +1,18 @@
+/// CDC-NCM, aka Ethernet over USB.
+///
+/// # Compatibility
+///
+/// Windows: NOT supported in Windows 10. Supported in Windows 11.
+///
+/// Linux: Well-supported since forever.
+///
+/// Android: Support for CDC-NCM is spotty and varies across manufacturers.
+///
+/// - On Pixel 4a, it refused to work on Android 11, worked on Android 12.
+/// - if the host's MAC address has the "locally-administered" bit set (bit 1 of first byte),
+///   it doesn't work! The "Ethernet tethering" option in settings doesn't get enabled.
+///   This is due to regex spaghetti: https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-mainline-12.0.0_r84/core/res/res/values/config.xml#417
+///   and this nonsense in the linux kernel: https://github.com/torvalds/linux/blob/c00c5e1d157bec0ef0b0b59aa5482eb8dc7e8e49/drivers/net/usb/usbnet.c#L1751-L1757
 use core::intrinsics::copy_nonoverlapping;
 use core::mem::{size_of, MaybeUninit};
 
@@ -5,6 +20,9 @@ use crate::control::{self, ControlHandler, InResponse, OutResponse, Request};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::*;
 use crate::Builder;
+
+#[cfg(feature = "embassy-net")]
+pub mod embassy_net;
 
 /// This should be used as `device_class` when building the `UsbDevice`.
 pub const USB_CLASS_CDC: u8 = 0x02;
