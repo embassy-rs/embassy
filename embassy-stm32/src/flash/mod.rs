@@ -181,9 +181,5 @@ cfg_if::cfg_if! {
 
 // safety: must be called only once at startup
 pub(crate) unsafe fn init() {
-    crate::pac::FLASH.acr().modify(|w| {
-        w.set_dcen(true);
-        w.set_icen(true);
-        w.set_prften(true);
-    });
+    family::init();
 }
