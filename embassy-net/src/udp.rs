@@ -7,8 +7,7 @@ use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::udp::{self, PacketMetadata};
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 
-use super::stack::SocketStack;
-use crate::{Device, Stack};
+use crate::{Device, SocketStack, Stack};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
