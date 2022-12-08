@@ -19,6 +19,8 @@ use crate::pac::i2s::RegisterBlock;
 use crate::util::{slice_in_ram_or, slice_ptr_parts};
 use crate::{Peripheral, EASY_DMA_SIZE};
 
+pub type DoubleBuffering<S, const NS: usize> = MultiBuffering<S, 2, NS>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
@@ -379,27 +381,47 @@ impl<'d, T: Instance> I2S<'d, T> {
     }
 
     /// I2S output only
-    pub fn output(mut self, sdout: impl Peripheral<P = impl GpioPin> + 'd) -> OutputStream<'d, T> {
+    pub fn output<S: Sample, const NB: usize, const NS: usize>(
+        mut self,
+        sdout: impl Peripheral<P = impl GpioPin> + 'd,
+        buffers: MultiBuffering<S, NB, NS>,
+    ) -> OutputStream<'d, T, S, NB, NS> {
         self.sdout = Some(sdout.into_ref().map_into());
-        OutputStream { _p: self.build() }
+        OutputStream {
+            _p: self.build(),
+            buffers,
+        }
     }
 
     /// I2S input only
-    pub fn input(mut self, sdin: impl Peripheral<P = impl GpioPin> + 'd) -> InputStream<'d, T> {
+    pub fn input<S: Sample, const NB: usize, const NS: usize>(
+        mut self,
+        sdin: impl Peripheral<P = impl GpioPin> + 'd,
+        buffers: MultiBuffering<S, NB, NS>,
+    ) -> InputStream<'d, T, S, NB, NS> {
         self.sdin = Some(sdin.into_ref().map_into());
-        InputStream { _p: self.build() }
+        InputStream {
+            _p: self.build(),
+            buffers,
+        }
     }
 
     /// I2S full duplex (input and output)
-    pub fn full_duplex(
+    pub fn full_duplex<S: Sample, const NB: usize, const NS: usize>(
         mut self,
         sdin: impl Peripheral<P = impl GpioPin> + 'd,
         sdout: impl Peripheral<P = impl GpioPin> + 'd,
-    ) -> FullDuplexStream<'d, T> {
+        buffers_out: MultiBuffering<S, NB, NS>,
+        buffers_in: MultiBuffering<S, NB, NS>,
+    ) -> FullDuplexStream<'d, T, S, NB, NS> {
         self.sdout = Some(sdout.into_ref().map_into());
         self.sdin = Some(sdin.into_ref().map_into());
 
-        FullDuplexStream { _p: self.build() }
+        FullDuplexStream {
+            _p: self.build(),
+            buffers_out,
+            buffers_in,
+        }
     }
 
     fn build(self) -> PeripheralRef<'d, T> {
@@ -651,14 +673,19 @@ impl<'d, T: Instance> I2S<'d, T> {
 }
 
 /// I2S output
-pub struct OutputStream<'d, T: Instance> {
+pub struct OutputStream<'d, T: Instance, S: Sample, const NB: usize, const NS: usize> {
     _p: PeripheralRef<'d, T>,
+    buffers: MultiBuffering<S, NB, NS>,
 }
 
-impl<'d, T: Instance> OutputStream<'d, T> {
+impl<'d, T: Instance, S: Sample, const NB: usize, const NS: usize> OutputStream<'d, T, S, NB, NS> {
+    /// Get a mutable reference to the current buffer.
+    pub fn buffer(&mut self) -> &mut [S] {
+        self.buffers.get_mut()
+    }
+
     /// Prepare the initial buffer and start the I2S transfer.
-    #[allow(unused_mut)]
-    pub async fn start<S>(&mut self, buffer: &[S]) -> Result<(), Error>
+    pub async fn start(&mut self) -> Result<(), Error>
     where
         S: Sample,
     {
@@ -672,7 +699,7 @@ impl<'d, T: Instance> OutputStream<'d, T> {
         device.enable();
         device.enable_tx();
 
-        device.update_tx(buffer as *const [S])?;
+        device.update_tx(self.buffers.switch())?;
 
         s.started.store(true, Ordering::Relaxed);
 
@@ -689,28 +716,30 @@ impl<'d, T: Instance> OutputStream<'d, T> {
         I2S::<T>::stop().await
     }
 
-    /// Sets the given `buffer` for transmission in the DMA.
-    /// Buffer address must be 4 byte aligned and located in RAM.
-    /// The buffer must not be written while being used by the DMA,
-    /// which takes two other `send`s being awaited.
-    #[allow(unused_mut)]
-    pub async fn send_from_ram<S>(&mut self, buffer: &[S]) -> Result<(), Error>
+    /// Sends the current buffer for transmission in the DMA.
+    /// Switches to use the next available buffer.
+    pub async fn send(&mut self) -> Result<(), Error>
     where
         S: Sample,
     {
-        I2S::<T>::send_from_ram(buffer as *const [S]).await
+        I2S::<T>::send_from_ram(self.buffers.switch()).await
     }
 }
 
 /// I2S input
-pub struct InputStream<'d, T: Instance> {
+pub struct InputStream<'d, T: Instance, S: Sample, const NB: usize, const NS: usize> {
     _p: PeripheralRef<'d, T>,
+    buffers: MultiBuffering<S, NB, NS>,
 }
 
-impl<'d, T: Instance> InputStream<'d, T> {
+impl<'d, T: Instance, S: Sample, const NB: usize, const NS: usize> InputStream<'d, T, S, NB, NS> {
+    /// Get a mutable reference to the current buffer.
+    pub fn buffer(&mut self) -> &mut [S] {
+        self.buffers.get_mut()
+    }
+
     /// Prepare the initial buffer and start the I2S transfer.
-    #[allow(unused_mut)]
-    pub async fn start<S>(&mut self, buffer: &mut [S]) -> Result<(), Error>
+    pub async fn start(&mut self) -> Result<(), Error>
     where
         S: Sample,
     {
@@ -724,7 +753,7 @@ impl<'d, T: Instance> InputStream<'d, T> {
         device.enable();
         device.enable_rx();
 
-        device.update_rx(buffer as *mut [S])?;
+        device.update_rx(self.buffers.switch())?;
 
         s.started.store(true, Ordering::Relaxed);
 
@@ -741,28 +770,32 @@ impl<'d, T: Instance> InputStream<'d, T> {
         I2S::<T>::stop().await
     }
 
-    /// Sets the given `buffer` for reception from the DMA.
-    /// Buffer address must be 4 byte aligned and located in RAM.
-    /// The buffer must not be read while being used by the DMA,
-    /// which takes two other `receive`s being awaited.
+    /// Sets the current buffer for reception from the DMA.
+    /// Switches to use the next available buffer.
     #[allow(unused_mut)]
-    pub async fn receive_from_ram<S>(&mut self, buffer: &mut [S]) -> Result<(), Error>
+    pub async fn receive(&mut self) -> Result<(), Error>
     where
         S: Sample,
     {
-        I2S::<T>::receive_from_ram(buffer as *mut [S]).await
+        I2S::<T>::receive_from_ram(self.buffers.switch_mut()).await
     }
 }
 
 /// I2S full duplex stream (input & output)
-pub struct FullDuplexStream<'d, T: Instance> {
+pub struct FullDuplexStream<'d, T: Instance, S: Sample, const NB: usize, const NS: usize> {
     _p: PeripheralRef<'d, T>,
+    buffers_out: MultiBuffering<S, NB, NS>,
+    buffers_in: MultiBuffering<S, NB, NS>,
 }
 
-impl<'d, T: Instance> FullDuplexStream<'d, T> {
+impl<'d, T: Instance, S: Sample, const NB: usize, const NS: usize> FullDuplexStream<'d, T, S, NB, NS> {
+    /// Get the current output and input buffers.
+    pub fn buffers(&mut self) -> (&mut [S], &[S]) {
+        (self.buffers_out.get_mut(), self.buffers_in.get())
+    }
+
     /// Prepare the initial buffers and start the I2S transfer.
-    #[allow(unused_mut)]
-    pub async fn start<S>(&mut self, buffer_in: &mut [S], buffer_out: &[S]) -> Result<(), Error>
+    pub async fn start(&mut self) -> Result<(), Error>
     where
         S: Sample,
     {
@@ -777,8 +810,8 @@ impl<'d, T: Instance> FullDuplexStream<'d, T> {
         device.enable_tx();
         device.enable_rx();
 
-        device.update_tx(buffer_out as *const [S])?;
-        device.update_rx(buffer_in as *mut [S])?;
+        device.update_tx(self.buffers_out.switch())?;
+        device.update_rx(self.buffers_in.switch_mut())?;
 
         s.started.store(true, Ordering::Relaxed);
 
@@ -796,17 +829,14 @@ impl<'d, T: Instance> FullDuplexStream<'d, T> {
         I2S::<T>::stop().await
     }
 
-    /// Sets the given `buffer_out` and `buffer_in` for transmission/reception from the DMA.
-    /// Buffer address must be 4 byte aligned and located in RAM.
-    /// The buffers must not be written/read while being used by the DMA,
-    /// which takes two other `send_and_receive` operations being awaited.
-    #[allow(unused_mut)]
-    pub async fn send_and_receive_from_ram<S>(&mut self, buffer_in: &mut [S], buffer_out: &[S]) -> Result<(), Error>
+    /// Sets the current buffers for output and input for transmission/reception from the DMA.
+    /// Switch to use the next available buffers for output/input.
+    pub async fn send_and_receive(&mut self) -> Result<(), Error>
     where
         S: Sample,
     {
-        I2S::<T>::send_from_ram(buffer_out as *const [S]).await?;
-        I2S::<T>::receive_from_ram(buffer_in as *mut [S]).await?;
+        I2S::<T>::send_from_ram(self.buffers_out.switch()).await?;
+        I2S::<T>::receive_from_ram(self.buffers_in.switch_mut()).await?;
         Ok(())
     }
 }
@@ -992,7 +1022,7 @@ impl Sample for i32 {
     const SCALE: Self = 1 << (Self::WIDTH - 1);
 }
 
-/// A 4-bytes aligned [Buffer].
+/// A 4-bytes aligned buffer.
 #[derive(Clone, Copy)]
 #[repr(align(4))]
 pub struct AlignedBuffer<T: Sample, const N: usize>([T; N]);
@@ -1019,6 +1049,43 @@ impl<T: Sample, const N: usize> Deref for AlignedBuffer<T, N> {
 impl<T: Sample, const N: usize> DerefMut for AlignedBuffer<T, N> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.0.as_mut_slice()
+    }
+}
+
+pub struct MultiBuffering<S: Sample, const NB: usize, const NS: usize> {
+    buffers: [AlignedBuffer<S, NS>; NB],
+    index: usize,
+}
+
+impl<S: Sample, const NB: usize, const NS: usize> MultiBuffering<S, NB, NS> {
+    pub fn new() -> Self {
+        assert!(NB > 1);
+        Self {
+            buffers: [AlignedBuffer::<S, NS>::default(); NB],
+            index: 0,
+        }
+    }
+
+    fn get(&self) -> &[S] {
+        &self.buffers[self.index]
+    }
+
+    fn get_mut(&mut self) -> &mut [S] {
+        &mut self.buffers[self.index]
+    }
+
+    /// Advance to use the next buffer and return a non mutable pointer to the previous one.
+    fn switch(&mut self) -> *const [S] {
+        let prev_index = self.index;
+        self.index = (self.index + 1) % NB;
+        self.buffers[prev_index].deref() as *const [S]
+    }
+
+    /// Advance to use the next buffer and return a mutable pointer to the previous one.
+    fn switch_mut(&mut self) -> *mut [S] {
+        let prev_index = self.index;
+        self.index = (self.index + 1) % NB;
+        self.buffers[prev_index].deref_mut() as *mut [S]
     }
 }
 

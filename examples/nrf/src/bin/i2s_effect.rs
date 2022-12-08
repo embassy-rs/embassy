@@ -6,13 +6,14 @@ use core::f32::consts::PI;
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_nrf::i2s::{self, Channels, Config, DoubleBuffering, MasterClock, Sample as _, SampleWidth, I2S};
+use embassy_nrf::i2s::{self, Channels, Config, MasterClock, MultiBuffering, Sample as _, SampleWidth, I2S};
 use embassy_nrf::interrupt;
 use {defmt_rtt as _, panic_probe as _};
 
 type Sample = i16;
 
-const NUM_SAMPLES: usize = 50;
+const NUM_BUFFERS: usize = 2;
+const NUM_SAMPLES: usize = 4;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -28,65 +29,30 @@ async fn main(_spawner: Spawner) {
         .channels(Channels::MonoLeft);
 
     let irq = interrupt::take!(I2S);
-    let buffers = DoubleBuffering::<Sample, NUM_SAMPLES>::new();
-    let mut output_stream =
-        I2S::master(p.I2S, irq, p.P0_25, p.P0_26, p.P0_27, master_clock, config).output(p.P0_28, buffers);
+    let buffers_out = MultiBuffering::<Sample, NUM_BUFFERS, NUM_SAMPLES>::new();
+    let buffers_in = MultiBuffering::<Sample, NUM_BUFFERS, NUM_SAMPLES>::new();
+    let mut full_duplex_stream = I2S::master(p.I2S, irq, p.P0_25, p.P0_26, p.P0_27, master_clock, config).full_duplex(
+        p.P0_29,
+        p.P0_28,
+        buffers_out,
+        buffers_in,
+    );
 
-    let mut waveform = Waveform::new(1.0 / sample_rate as f32);
+    let mut modulator = SineOsc::new();
+    modulator.set_frequency(8.0, 1.0 / sample_rate as f32);
+    modulator.set_amplitude(1.0);
 
-    waveform.process(output_stream.buffer());
-
-    output_stream.start().await.expect("I2S Start");
+    full_duplex_stream.start().await.expect("I2S Start");
 
     loop {
-        waveform.process(output_stream.buffer());
+        let (buff_out, buff_in) = full_duplex_stream.buffers();
+        for i in 0..NUM_SAMPLES {
+            let modulation = (Sample::SCALE as f32 * bipolar_to_unipolar(modulator.generate())) as Sample;
+            buff_out[i] = buff_in[i] * modulation;
+        }
 
-        if let Err(err) = output_stream.send().await {
+        if let Err(err) = full_duplex_stream.send_and_receive().await {
             error!("{}", err);
-        }
-    }
-}
-
-struct Waveform {
-    inv_sample_rate: f32,
-    carrier: SineOsc,
-    freq_mod: SineOsc,
-    amp_mod: SineOsc,
-}
-
-impl Waveform {
-    fn new(inv_sample_rate: f32) -> Self {
-        let mut carrier = SineOsc::new();
-        carrier.set_frequency(110.0, inv_sample_rate);
-
-        let mut freq_mod = SineOsc::new();
-        freq_mod.set_frequency(1.0, inv_sample_rate);
-        freq_mod.set_amplitude(1.0);
-
-        let mut amp_mod = SineOsc::new();
-        amp_mod.set_frequency(16.0, inv_sample_rate);
-        amp_mod.set_amplitude(0.5);
-
-        Self {
-            inv_sample_rate,
-            carrier,
-            freq_mod,
-            amp_mod,
-        }
-    }
-
-    fn process(&mut self, buf: &mut [Sample]) {
-        for sample in buf.chunks_mut(1) {
-            let freq_modulation = bipolar_to_unipolar(self.freq_mod.generate());
-            self.carrier
-                .set_frequency(110.0 + 440.0 * freq_modulation, self.inv_sample_rate);
-
-            let amp_modulation = bipolar_to_unipolar(self.amp_mod.generate());
-            self.carrier.set_amplitude(amp_modulation);
-
-            let signal = self.carrier.generate();
-
-            sample[0] = (Sample::SCALE as f32 * signal) as Sample;
         }
     }
 }
