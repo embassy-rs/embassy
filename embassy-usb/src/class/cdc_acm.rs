@@ -158,7 +158,11 @@ impl<'d> ControlHandler for Control<'d> {
 impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Creates a new CdcAcmClass with the provided UsbBus and max_packet_size in bytes. For
     /// full-speed devices, max_packet_size has to be one of 8, 16, 32 or 64.
-    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, max_packet_size: u16) -> Self {
+    pub fn new<const I: usize>(
+        builder: &mut Builder<'d, D, I>,
+        state: &'d mut State<'d>,
+        max_packet_size: u16,
+    ) -> Self {
         let control = state.control.write(Control { shared: &state.shared });
 
         let control_shared = &state.shared;

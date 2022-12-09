@@ -51,7 +51,7 @@ async fn main(_spawner: Spawner) {
 
     let mut state = State::new();
 
-    let mut builder = Builder::new(
+    let mut builder = Builder::<'_, _, 4>::new(
         driver,
         config,
         &mut device_descriptor,

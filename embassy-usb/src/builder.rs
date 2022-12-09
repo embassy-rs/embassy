@@ -4,7 +4,7 @@ use crate::control::ControlHandler;
 use crate::descriptor::{BosWriter, DescriptorWriter};
 use crate::driver::{Driver, Endpoint, EndpointType};
 use crate::types::*;
-use crate::{DeviceStateHandler, Interface, UsbDevice, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START};
+use crate::{DeviceStateHandler, Interface, UsbDevice, STRING_INDEX_CUSTOM_START};
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -118,10 +118,10 @@ impl<'a> Config<'a> {
 }
 
 /// [`UsbDevice`] builder.
-pub struct Builder<'d, D: Driver<'d>> {
+pub struct Builder<'d, D: Driver<'d>, const I: usize> {
     config: Config<'d>,
     handler: Option<&'d dyn DeviceStateHandler>,
-    interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
+    interfaces: Vec<Interface<'d>, I>,
     control_buf: &'d mut [u8],
 
     driver: D,
@@ -132,7 +132,7 @@ pub struct Builder<'d, D: Driver<'d>> {
     bos_descriptor: BosWriter<'d>,
 }
 
-impl<'d, D: Driver<'d>> Builder<'d, D> {
+impl<'d, D: Driver<'d>, const I: usize> Builder<'d, D, I> {
     /// Creates a builder for constructing a new [`UsbDevice`].
     ///
     /// `control_buf` is a buffer used for USB control request data. It should be sized
@@ -186,7 +186,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     }
 
     /// Creates the [`UsbDevice`] instance with the configuration in this builder.
-    pub fn build(mut self) -> UsbDevice<'d, D> {
+    pub fn build(mut self) -> UsbDevice<'d, D, I> {
         self.config_descriptor.end_configuration();
         self.bos_descriptor.end_bos();
 
@@ -214,7 +214,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     /// with the given class/subclass/protocol, associating all the child interfaces.
     ///
     /// If it's not set, no IAD descriptor is added.
-    pub fn function(&mut self, class: u8, subclass: u8, protocol: u8) -> FunctionBuilder<'_, 'd, D> {
+    pub fn function(&mut self, class: u8, subclass: u8, protocol: u8) -> FunctionBuilder<'_, 'd, D, I> {
         let iface_count_index = if self.config.composite_with_iads {
             self.config_descriptor.iad(
                 InterfaceNumber::new(self.interfaces.len() as _),
@@ -241,16 +241,16 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
 /// A function is a logical grouping of interfaces that perform a given USB function.
 /// If [`Config::composite_with_iads`] is set, each function will have an IAD descriptor.
 /// If not, functions will not be visible as descriptors.
-pub struct FunctionBuilder<'a, 'd, D: Driver<'d>> {
-    builder: &'a mut Builder<'d, D>,
+pub struct FunctionBuilder<'a, 'd, D: Driver<'d>, const I: usize> {
+    builder: &'a mut Builder<'d, D, I>,
     iface_count_index: Option<usize>,
 }
 
-impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
+impl<'a, 'd, D: Driver<'d>, const I: usize> FunctionBuilder<'a, 'd, D, I> {
     /// Add an interface to the function.
     ///
     /// Interface numbers are guaranteed to be allocated consecutively, starting from 0.
-    pub fn interface(&mut self) -> InterfaceBuilder<'_, 'd, D> {
+    pub fn interface(&mut self) -> InterfaceBuilder<'_, 'd, D, I> {
         if let Some(i) = self.iface_count_index {
             self.builder.config_descriptor.buf[i] += 1;
         }
@@ -276,13 +276,13 @@ impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
 }
 
 /// Interface builder.
-pub struct InterfaceBuilder<'a, 'd, D: Driver<'d>> {
-    builder: &'a mut Builder<'d, D>,
+pub struct InterfaceBuilder<'a, 'd, D: Driver<'d>, const I: usize> {
+    builder: &'a mut Builder<'d, D, I>,
     interface_number: InterfaceNumber,
     next_alt_setting_number: u8,
 }
 
-impl<'a, 'd, D: Driver<'d>> InterfaceBuilder<'a, 'd, D> {
+impl<'a, 'd, D: Driver<'d>, const I: usize> InterfaceBuilder<'a, 'd, D, I> {
     /// Get the interface number.
     pub fn interface_number(&self) -> InterfaceNumber {
         self.interface_number
@@ -306,7 +306,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceBuilder<'a, 'd, D> {
     /// Alternate setting numbers are guaranteed to be allocated consecutively, starting from 0.
     ///
     /// The first alternate setting, with number 0, is the default one.
-    pub fn alt_setting(&mut self, class: u8, subclass: u8, protocol: u8) -> InterfaceAltBuilder<'_, 'd, D> {
+    pub fn alt_setting(&mut self, class: u8, subclass: u8, protocol: u8) -> InterfaceAltBuilder<'_, 'd, D, I> {
         let number = self.next_alt_setting_number;
         self.next_alt_setting_number += 1;
         self.builder.interfaces[self.interface_number.0 as usize].num_alt_settings += 1;
@@ -324,13 +324,13 @@ impl<'a, 'd, D: Driver<'d>> InterfaceBuilder<'a, 'd, D> {
 }
 
 /// Interface alternate setting builder.
-pub struct InterfaceAltBuilder<'a, 'd, D: Driver<'d>> {
-    builder: &'a mut Builder<'d, D>,
+pub struct InterfaceAltBuilder<'a, 'd, D: Driver<'d>, const I: usize> {
+    builder: &'a mut Builder<'d, D, I>,
     interface_number: InterfaceNumber,
     alt_setting_number: u8,
 }
 
-impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
+impl<'a, 'd, D: Driver<'d>, const I: usize> InterfaceAltBuilder<'a, 'd, D, I> {
     /// Get the interface number.
     pub fn interface_number(&self) -> InterfaceNumber {
         self.interface_number

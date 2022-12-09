@@ -65,8 +65,6 @@ pub const CONFIGURATION_NONE: u8 = 0;
 /// The bConfiguration value for the single configuration supported by this device.
 pub const CONFIGURATION_VALUE: u8 = 1;
 
-pub const MAX_INTERFACE_COUNT: usize = 4;
-
 const STRING_INDEX_MANUFACTURER: u8 = 1;
 const STRING_INDEX_PRODUCT: u8 = 2;
 const STRING_INDEX_SERIAL_NUMBER: u8 = 3;
@@ -100,13 +98,13 @@ struct Interface<'d> {
     num_strings: u8,
 }
 
-pub struct UsbDevice<'d, D: Driver<'d>> {
+pub struct UsbDevice<'d, D: Driver<'d>, const I: usize> {
     control_buf: &'d mut [u8],
     control: D::ControlPipe,
-    inner: Inner<'d, D>,
+    inner: Inner<'d, D, I>,
 }
 
-struct Inner<'d, D: Driver<'d>> {
+struct Inner<'d, D: Driver<'d>, const I: usize> {
     bus: D::Bus,
     handler: Option<&'d dyn DeviceStateHandler>,
 
@@ -128,10 +126,10 @@ struct Inner<'d, D: Driver<'d>> {
     /// If true, do a set_addr after finishing the current control req.
     set_address_pending: bool,
 
-    interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
+    interfaces: Vec<Interface<'d>, I>,
 }
 
-impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
+impl<'d, D: Driver<'d>, const I: usize> UsbDevice<'d, D, I> {
     pub(crate) fn build(
         driver: D,
         config: Config<'d>,
@@ -139,9 +137,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         device_descriptor: &'d [u8],
         config_descriptor: &'d [u8],
         bos_descriptor: &'d [u8],
-        interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
+        interfaces: Vec<Interface<'d>, I>,
         control_buf: &'d mut [u8],
-    ) -> UsbDevice<'d, D> {
+    ) -> UsbDevice<'d, D, I> {
         // Start the USB bus.
         // This prevent further allocation by consuming the driver.
         let (bus, control) = driver.start(config.max_packet_size_0 as u16);
@@ -334,7 +332,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     }
 }
 
-impl<'d, D: Driver<'d>> Inner<'d, D> {
+impl<'d, D: Driver<'d>, const I: usize> Inner<'d, D, I> {
     async fn handle_bus_event(&mut self, evt: Event) {
         match evt {
             Event::Reset => {

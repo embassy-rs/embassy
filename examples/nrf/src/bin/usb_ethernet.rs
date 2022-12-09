@@ -32,7 +32,7 @@ macro_rules! singleton {
 const MTU: usize = 1514;
 
 #[embassy_executor::task]
-async fn usb_task(mut device: UsbDevice<'static, MyDriver>) -> ! {
+async fn usb_task(mut device: UsbDevice<'static, MyDriver, 4>) -> ! {
     device.run().await
 }
 

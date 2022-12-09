@@ -313,7 +313,7 @@ impl<'a> BosWriter<'a> {
         let blen = data.len();
 
         if (start + blen + 3) > self.writer.buf.len() || (blen + 3) > 255 {
-            panic!("Descriptor buffer full");
+            panic!("BOS descriptor buffer full");
         }
 
         self.writer.buf[start] = (blen + 3) as u8;

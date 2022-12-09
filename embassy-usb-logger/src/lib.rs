@@ -67,7 +67,7 @@ impl<const N: usize> UsbLogger<N> {
         config.device_protocol = 0x01;
         config.composite_with_iads = true;
 
-        let mut builder = Builder::new(
+        let mut builder = Builder::<'d, D, 4>::new(
             driver,
             config,
             &mut state.device_descriptor,

@@ -236,8 +236,8 @@ pub struct CdcNcmClass<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
-    pub fn new(
-        builder: &mut Builder<'d, D>,
+    pub fn new<const I: usize>(
+        builder: &mut Builder<'d, D, I>,
         state: &'d mut State<'d>,
         mac_address: [u8; 6],
         max_packet_size: u16,

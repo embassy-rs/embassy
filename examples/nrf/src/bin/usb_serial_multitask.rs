@@ -17,7 +17,7 @@ use {defmt_rtt as _, panic_probe as _};
 type MyDriver = Driver<'static, peripherals::USBD, PowerUsb>;
 
 #[embassy_executor::task]
-async fn usb_task(mut device: UsbDevice<'static, MyDriver>) {
+async fn usb_task(mut device: UsbDevice<'static, MyDriver, 4>) {
     device.run().await;
 }
 
