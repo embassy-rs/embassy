@@ -65,6 +65,20 @@ where
     }
 }
 
+macro_rules! state_matches {
+    ($self:ident, $pattern:pat_param) => {
+        $self.state.lock(|cell| {
+            let state = cell.replace(State::None);
+
+            let res = matches!(state, $pattern);
+
+            cell.set(state);
+
+            res
+        })
+    };
+}
+
 impl<M, T: Send> Signal<M, T>
 where
     M: RawMutex,
@@ -111,16 +125,18 @@ where
         poll_fn(move |cx| self.poll_wait(cx))
     }
 
-    /// non-blocking method to check whether this signal has been signaled.
+    /// Non-blocking method to check whether this signal has not been signaled, and is not being waited on
+    pub fn idle(&self) -> bool {
+        state_matches!(self, State::None)
+    }
+
+    /// Non-blocking method to check whether this signal is being waited on
+    pub fn waiting(&self) -> bool {
+        state_matches!(self, State::Waiting(_))
+    }
+
+    /// Non-blocking method to check whether this signal has been signaled.
     pub fn signaled(&self) -> bool {
-        self.state.lock(|cell| {
-            let state = cell.replace(State::None);
-
-            let res = matches!(state, State::Signaled(_));
-
-            cell.set(state);
-
-            res
-        })
+        state_matches!(self, State::Signaled(_))
     }
 }
