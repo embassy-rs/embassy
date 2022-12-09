@@ -199,6 +199,3 @@ pub(crate) unsafe fn blocking_wait_ready(bank: pac::flash::Bank) -> Result<(), E
         }
     }
 }
-
-// safety: must be called only once at startup
-pub(crate) unsafe fn init() {}

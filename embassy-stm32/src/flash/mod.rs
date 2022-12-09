@@ -181,5 +181,6 @@ cfg_if::cfg_if! {
 
 // safety: must be called only once at startup
 pub(crate) unsafe fn init() {
+    #[cfg(any(flash_f3, flash_f4, flash_f7))]
     family::init();
 }
