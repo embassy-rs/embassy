@@ -476,11 +476,13 @@ impl<'d, T: Pin> Flex<'d, T> {
         unsafe {
             self.pin.pad_ctrl().modify(|w| {
                 w.set_ie(true);
-                match pull {
-                    Pull::Up => w.set_pue(true),
-                    Pull::Down => w.set_pde(true),
-                    Pull::None => {}
-                }
+                let (pu, pd) = match pull {
+                    Pull::Up => (true, false),
+                    Pull::Down => (false, true),
+                    Pull::None => (false, false),
+                };
+                w.set_pue(pu);
+                w.set_pde(pd);
             });
         }
     }
