@@ -8,18 +8,22 @@
 pub(crate) mod fmt;
 
 #[cfg(feature = "nightly")]
-pub use embassy_macros::{main, task};
+pub use embassy_macros::task;
 
 cfg_if::cfg_if! {
     if #[cfg(cortex_m)] {
         #[path="arch/cortex_m.rs"]
         mod arch;
         pub use arch::*;
+        #[cfg(feature = "nightly")]
+        pub use embassy_macros::main_cortex_m as main;
     }
     else if #[cfg(target_arch="riscv32")] {
         #[path="arch/riscv32.rs"]
         mod arch;
         pub use arch::*;
+        #[cfg(feature = "nightly")]
+        pub use embassy_macros::main_riscv as main;
     }
     else if #[cfg(all(target_arch="xtensa", feature = "nightly"))] {
         #[path="arch/xtensa.rs"]
@@ -30,11 +34,15 @@ cfg_if::cfg_if! {
         #[path="arch/wasm.rs"]
         mod arch;
         pub use arch::*;
+        #[cfg(feature = "nightly")]
+        pub use embassy_macros::main_wasm as main;
     }
     else if #[cfg(feature="std")] {
         #[path="arch/std.rs"]
         mod arch;
         pub use arch::*;
+        #[cfg(feature = "nightly")]
+        pub use embassy_macros::main_std as main;
     }
 }
 

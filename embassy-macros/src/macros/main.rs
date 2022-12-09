@@ -7,7 +7,62 @@ use crate::util::ctxt::Ctxt;
 #[derive(Debug, FromMeta)]
 struct Args {}
 
-pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, TokenStream> {
+pub fn riscv() -> TokenStream {
+    quote! {
+        #[riscv_rt::entry]
+        fn main() -> ! {
+            let mut executor = ::embassy_executor::Executor::new();
+            let executor = unsafe { __make_static(&mut executor) };
+            executor.run(|spawner| {
+                spawner.must_spawn(__embassy_main(spawner));
+            })
+        }
+    }
+}
+
+pub fn cortex_m() -> TokenStream {
+    quote! {
+        #[cortex_m_rt::entry]
+        fn main() -> ! {
+            let mut executor = ::embassy_executor::Executor::new();
+            let executor = unsafe { __make_static(&mut executor) };
+            executor.run(|spawner| {
+                spawner.must_spawn(__embassy_main(spawner));
+            })
+        }
+    }
+}
+
+pub fn wasm() -> TokenStream {
+    quote! {
+        #[wasm_bindgen::prelude::wasm_bindgen(start)]
+        pub fn main() -> Result<(), wasm_bindgen::JsValue> {
+            static EXECUTOR: ::embassy_executor::_export::StaticCell<::embassy_executor::Executor> = ::embassy_executor::_export::StaticCell::new();
+            let executor = EXECUTOR.init(::embassy_executor::Executor::new());
+
+            executor.start(|spawner| {
+                spawner.spawn(__embassy_main(spawner)).unwrap();
+            });
+
+            Ok(())
+        }
+    }
+}
+
+pub fn std() -> TokenStream {
+    quote! {
+        fn main() -> ! {
+            let mut executor = ::embassy_executor::Executor::new();
+            let executor = unsafe { __make_static(&mut executor) };
+
+            executor.run(|spawner| {
+                spawner.must_spawn(__embassy_main(spawner));
+            })
+        }
+    }
+}
+
+pub fn run(args: syn::AttributeArgs, f: syn::ItemFn, main: TokenStream) -> Result<TokenStream, TokenStream> {
     #[allow(unused_variables)]
     let args = Args::from_list(&args).map_err(|e| e.write_errors())?;
 
@@ -29,46 +84,6 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
     ctxt.check()?;
 
     let f_body = f.block;
-
-    #[cfg(feature = "wasm")]
-    let main = quote! {
-        #[wasm_bindgen::prelude::wasm_bindgen(start)]
-        pub fn main() -> Result<(), wasm_bindgen::JsValue> {
-            static EXECUTOR: ::embassy_executor::_export::StaticCell<::embassy_executor::Executor> = ::embassy_executor::_export::StaticCell::new();
-            let executor = EXECUTOR.init(::embassy_executor::Executor::new());
-
-            executor.start(|spawner| {
-                spawner.spawn(__embassy_main(spawner)).unwrap();
-            });
-
-            Ok(())
-        }
-    };
-
-    #[cfg(all(feature = "std", not(feature = "wasm")))]
-    let main = quote! {
-        fn main() -> ! {
-            let mut executor = ::embassy_executor::Executor::new();
-            let executor = unsafe { __make_static(&mut executor) };
-
-            executor.run(|spawner| {
-                spawner.must_spawn(__embassy_main(spawner));
-            })
-        }
-    };
-
-    #[cfg(all(not(feature = "std"), not(feature = "wasm")))]
-    let main = quote! {
-        #[cortex_m_rt::entry]
-        fn main() -> ! {
-            let mut executor = ::embassy_executor::Executor::new();
-            let executor = unsafe { __make_static(&mut executor) };
-
-            executor.run(|spawner| {
-                spawner.must_spawn(__embassy_main(spawner));
-            })
-        }
-    };
 
     let result = quote! {
         #[::embassy_executor::task()]

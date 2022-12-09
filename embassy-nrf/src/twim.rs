@@ -841,39 +841,31 @@ mod eh1 {
 mod eha {
     use super::*;
     impl<'d, T: Instance> embedded_hal_async::i2c::I2c for Twim<'d, T> {
-        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.read(address, buffer)
+        async fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Result<(), Error> {
+            self.read(address, buffer).await
         }
 
-        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.write(address, bytes)
+        async fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Result<(), Error> {
+            self.write(address, bytes).await
         }
 
-        type WriteReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn write_read<'a>(
+        async fn write_read<'a>(
             &'a mut self,
             address: u8,
             wr_buffer: &'a [u8],
             rd_buffer: &'a mut [u8],
-        ) -> Self::WriteReadFuture<'a> {
-            self.write_read(address, wr_buffer, rd_buffer)
+        ) -> Result<(), Error> {
+            self.write_read(address, wr_buffer, rd_buffer).await
         }
 
-        type TransactionFuture<'a, 'b> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a, 'b: 'a;
-
-        fn transaction<'a, 'b>(
+        async fn transaction<'a, 'b>(
             &'a mut self,
             address: u8,
             operations: &'a mut [embedded_hal_async::i2c::Operation<'b>],
-        ) -> Self::TransactionFuture<'a, 'b> {
+        ) -> Result<(), Error> {
             let _ = address;
             let _ = operations;
-            async move { todo!() }
+            todo!()
         }
     }
 }

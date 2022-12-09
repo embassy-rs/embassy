@@ -1,6 +1,6 @@
 #![macro_use]
 
-use core::future::{poll_fn, Future};
+use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::Ordering;
 use core::task::Poll;
@@ -429,9 +429,7 @@ pub struct Bus<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
-    type PollFuture<'a> = impl Future<Output = Event> + 'a where Self: 'a;
-
-    fn poll<'a>(&'a mut self) -> Self::PollFuture<'a> {
+    async fn poll(&mut self) -> Event {
         poll_fn(move |cx| unsafe {
             BUS_WAKER.register(cx.waker());
 
@@ -488,6 +486,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 return Poll::Ready(Event::PowerDetected);
             }
         })
+        .await
     }
 
     #[inline]
@@ -598,22 +597,11 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         trace!("EPR after: {:04x}", unsafe { reg.read() }.0);
     }
 
-    type EnableFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
+    async fn enable(&mut self) {}
+    async fn disable(&mut self) {}
 
-    fn enable(&mut self) -> Self::EnableFuture<'_> {
-        async move {}
-    }
-
-    type DisableFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-
-    fn disable(&mut self) -> Self::DisableFuture<'_> {
-        async move {}
-    }
-
-    type RemoteWakeupFuture<'a> =  impl Future<Output = Result<(), Unsupported>> + 'a where Self: 'a;
-
-    fn remote_wakeup(&mut self) -> Self::RemoteWakeupFuture<'_> {
-        async move { Err(Unsupported) }
+    async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
+        Err(Unsupported)
     }
 }
 
@@ -676,24 +664,20 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         &self.info
     }
 
-    type WaitEnabledFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-
-    fn wait_enabled(&mut self) -> Self::WaitEnabledFuture<'_> {
-        async move {
-            trace!("wait_enabled OUT WAITING");
-            let index = self.info.addr.index();
-            poll_fn(|cx| {
-                EP_OUT_WAKERS[index].register(cx.waker());
-                let regs = T::regs();
-                if unsafe { regs.epr(index).read() }.stat_tx() == Stat::DISABLED {
-                    Poll::Pending
-                } else {
-                    Poll::Ready(())
-                }
-            })
-            .await;
-            trace!("wait_enabled OUT OK");
-        }
+    async fn wait_enabled(&mut self) {
+        trace!("wait_enabled OUT WAITING");
+        let index = self.info.addr.index();
+        poll_fn(|cx| {
+            EP_OUT_WAKERS[index].register(cx.waker());
+            let regs = T::regs();
+            if unsafe { regs.epr(index).read() }.stat_tx() == Stat::DISABLED {
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
+        })
+        .await;
+        trace!("wait_enabled OUT OK");
     }
 }
 
@@ -702,116 +686,104 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         &self.info
     }
 
-    type WaitEnabledFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-
-    fn wait_enabled(&mut self) -> Self::WaitEnabledFuture<'_> {
-        async move {
-            trace!("wait_enabled OUT WAITING");
-            let index = self.info.addr.index();
-            poll_fn(|cx| {
-                EP_OUT_WAKERS[index].register(cx.waker());
-                let regs = T::regs();
-                if unsafe { regs.epr(index).read() }.stat_rx() == Stat::DISABLED {
-                    Poll::Pending
-                } else {
-                    Poll::Ready(())
-                }
-            })
-            .await;
-            trace!("wait_enabled OUT OK");
-        }
+    async fn wait_enabled(&mut self) {
+        trace!("wait_enabled OUT WAITING");
+        let index = self.info.addr.index();
+        poll_fn(|cx| {
+            EP_OUT_WAKERS[index].register(cx.waker());
+            let regs = T::regs();
+            if unsafe { regs.epr(index).read() }.stat_rx() == Stat::DISABLED {
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
+        })
+        .await;
+        trace!("wait_enabled OUT OK");
     }
 }
 
 impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
-    type ReadFuture<'a> = impl Future<Output = Result<usize, EndpointError>> + 'a where Self: 'a;
-
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        async move {
-            trace!("READ WAITING, buf.len() = {}", buf.len());
-            let index = self.info.addr.index();
-            let stat = poll_fn(|cx| {
-                EP_OUT_WAKERS[index].register(cx.waker());
-                let regs = T::regs();
-                let stat = unsafe { regs.epr(index).read() }.stat_rx();
-                if matches!(stat, Stat::NAK | Stat::DISABLED) {
-                    Poll::Ready(stat)
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            if stat == Stat::DISABLED {
-                return Err(EndpointError::Disabled);
-            }
-
-            let rx_len = self.read_data(buf)?;
-
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        trace!("READ WAITING, buf.len() = {}", buf.len());
+        let index = self.info.addr.index();
+        let stat = poll_fn(|cx| {
+            EP_OUT_WAKERS[index].register(cx.waker());
             let regs = T::regs();
-            unsafe {
-                regs.epr(index).write(|w| {
-                    w.set_ep_type(convert_type(self.info.ep_type));
-                    w.set_ea(self.info.addr.index() as _);
-                    w.set_stat_rx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
-                    w.set_stat_tx(Stat(0));
-                    w.set_ctr_rx(true); // don't clear
-                    w.set_ctr_tx(true); // don't clear
-                })
-            };
-            trace!("READ OK, rx_len = {}", rx_len);
+            let stat = unsafe { regs.epr(index).read() }.stat_rx();
+            if matches!(stat, Stat::NAK | Stat::DISABLED) {
+                Poll::Ready(stat)
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
 
-            Ok(rx_len)
+        if stat == Stat::DISABLED {
+            return Err(EndpointError::Disabled);
         }
+
+        let rx_len = self.read_data(buf)?;
+
+        let regs = T::regs();
+        unsafe {
+            regs.epr(index).write(|w| {
+                w.set_ep_type(convert_type(self.info.ep_type));
+                w.set_ea(self.info.addr.index() as _);
+                w.set_stat_rx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
+                w.set_stat_tx(Stat(0));
+                w.set_ctr_rx(true); // don't clear
+                w.set_ctr_tx(true); // don't clear
+            })
+        };
+        trace!("READ OK, rx_len = {}", rx_len);
+
+        Ok(rx_len)
     }
 }
 
 impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
-    type WriteFuture<'a> = impl Future<Output = Result<(), EndpointError>> + 'a where Self: 'a;
-
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        async move {
-            if buf.len() > self.info.max_packet_size as usize {
-                return Err(EndpointError::BufferOverflow);
-            }
-
-            let index = self.info.addr.index();
-
-            trace!("WRITE WAITING");
-            let stat = poll_fn(|cx| {
-                EP_IN_WAKERS[index].register(cx.waker());
-                let regs = T::regs();
-                let stat = unsafe { regs.epr(index).read() }.stat_tx();
-                if matches!(stat, Stat::NAK | Stat::DISABLED) {
-                    Poll::Ready(stat)
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            if stat == Stat::DISABLED {
-                return Err(EndpointError::Disabled);
-            }
-
-            self.write_data(buf);
-
-            let regs = T::regs();
-            unsafe {
-                regs.epr(index).write(|w| {
-                    w.set_ep_type(convert_type(self.info.ep_type));
-                    w.set_ea(self.info.addr.index() as _);
-                    w.set_stat_tx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
-                    w.set_stat_rx(Stat(0));
-                    w.set_ctr_rx(true); // don't clear
-                    w.set_ctr_tx(true); // don't clear
-                })
-            };
-
-            trace!("WRITE OK");
-
-            Ok(())
+    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+        if buf.len() > self.info.max_packet_size as usize {
+            return Err(EndpointError::BufferOverflow);
         }
+
+        let index = self.info.addr.index();
+
+        trace!("WRITE WAITING");
+        let stat = poll_fn(|cx| {
+            EP_IN_WAKERS[index].register(cx.waker());
+            let regs = T::regs();
+            let stat = unsafe { regs.epr(index).read() }.stat_tx();
+            if matches!(stat, Stat::NAK | Stat::DISABLED) {
+                Poll::Ready(stat)
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        if stat == Stat::DISABLED {
+            return Err(EndpointError::Disabled);
+        }
+
+        self.write_data(buf);
+
+        let regs = T::regs();
+        unsafe {
+            regs.epr(index).write(|w| {
+                w.set_ep_type(convert_type(self.info.ep_type));
+                w.set_ea(self.info.addr.index() as _);
+                w.set_stat_tx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
+                w.set_stat_rx(Stat(0));
+                w.set_ctr_rx(true); // don't clear
+                w.set_ctr_tx(true); // don't clear
+            })
+        };
+
+        trace!("WRITE OK");
+
+        Ok(())
     }
 }
 
@@ -823,84 +795,16 @@ pub struct ControlPipe<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
-    type SetupFuture<'a> = impl Future<Output = [u8;8]> + 'a where Self: 'a;
-    type DataOutFuture<'a> = impl Future<Output = Result<usize, EndpointError>> + 'a where Self: 'a;
-    type DataInFuture<'a> = impl Future<Output = Result<(), EndpointError>> + 'a where Self: 'a;
-    type AcceptFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-    type RejectFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-
     fn max_packet_size(&self) -> usize {
         usize::from(self.max_packet_size)
     }
 
-    fn setup<'a>(&'a mut self) -> Self::SetupFuture<'a> {
-        async move {
-            loop {
-                trace!("SETUP read waiting");
-                poll_fn(|cx| {
-                    EP_OUT_WAKERS[0].register(cx.waker());
-                    if EP0_SETUP.load(Ordering::Relaxed) {
-                        Poll::Ready(())
-                    } else {
-                        Poll::Pending
-                    }
-                })
-                .await;
-
-                let mut buf = [0; 8];
-                let rx_len = self.ep_out.read_data(&mut buf);
-                if rx_len != Ok(8) {
-                    trace!("SETUP read failed: {:?}", rx_len);
-                    continue;
-                }
-
-                EP0_SETUP.store(false, Ordering::Relaxed);
-
-                trace!("SETUP read ok");
-                return buf;
-            }
-        }
-    }
-
-    fn data_out<'a>(&'a mut self, buf: &'a mut [u8], first: bool, last: bool) -> Self::DataOutFuture<'a> {
-        async move {
-            let regs = T::regs();
-
-            // When a SETUP is received, Stat/Stat is set to NAK.
-            // On first transfer, we must set Stat=VALID, to get the OUT data stage.
-            // We want Stat=STALL so that the host gets a STALL if it switches to the status
-            // stage too soon, except in the last transfer we set Stat=NAK so that it waits
-            // for the status stage, which we will ACK or STALL later.
-            if first || last {
-                let mut stat_rx = 0;
-                let mut stat_tx = 0;
-                if first {
-                    // change NAK -> VALID
-                    stat_rx ^= Stat::NAK.0 ^ Stat::VALID.0;
-                    stat_tx ^= Stat::NAK.0 ^ Stat::STALL.0;
-                }
-                if last {
-                    // change STALL -> VALID
-                    stat_tx ^= Stat::STALL.0 ^ Stat::NAK.0;
-                }
-                // Note: if this is the first AND last transfer, the above effectively
-                // changes stat_tx like NAK -> NAK, so noop.
-                unsafe {
-                    regs.epr(0).write(|w| {
-                        w.set_ep_type(EpType::CONTROL);
-                        w.set_stat_rx(Stat(stat_rx));
-                        w.set_stat_tx(Stat(stat_tx));
-                        w.set_ctr_rx(true); // don't clear
-                        w.set_ctr_tx(true); // don't clear
-                    })
-                }
-            }
-
-            trace!("data_out WAITING, buf.len() = {}", buf.len());
+    async fn setup(&mut self) -> [u8; 8] {
+        loop {
+            trace!("SETUP read waiting");
             poll_fn(|cx| {
                 EP_OUT_WAKERS[0].register(cx.waker());
-                let regs = T::regs();
-                if unsafe { regs.epr(0).read() }.stat_rx() == Stat::NAK {
+                if EP0_SETUP.load(Ordering::Relaxed) {
                     Poll::Ready(())
                 } else {
                     Poll::Pending
@@ -908,157 +812,209 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             })
             .await;
 
-            if EP0_SETUP.load(Ordering::Relaxed) {
-                trace!("received another SETUP, aborting data_out.");
-                return Err(EndpointError::Disabled);
+            let mut buf = [0; 8];
+            let rx_len = self.ep_out.read_data(&mut buf);
+            if rx_len != Ok(8) {
+                trace!("SETUP read failed: {:?}", rx_len);
+                continue;
             }
 
-            let rx_len = self.ep_out.read_data(buf)?;
+            EP0_SETUP.store(false, Ordering::Relaxed);
 
+            trace!("SETUP read ok");
+            return buf;
+        }
+    }
+
+    async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError> {
+        let regs = T::regs();
+
+        // When a SETUP is received, Stat/Stat is set to NAK.
+        // On first transfer, we must set Stat=VALID, to get the OUT data stage.
+        // We want Stat=STALL so that the host gets a STALL if it switches to the status
+        // stage too soon, except in the last transfer we set Stat=NAK so that it waits
+        // for the status stage, which we will ACK or STALL later.
+        if first || last {
+            let mut stat_rx = 0;
+            let mut stat_tx = 0;
+            if first {
+                // change NAK -> VALID
+                stat_rx ^= Stat::NAK.0 ^ Stat::VALID.0;
+                stat_tx ^= Stat::NAK.0 ^ Stat::STALL.0;
+            }
+            if last {
+                // change STALL -> VALID
+                stat_tx ^= Stat::STALL.0 ^ Stat::NAK.0;
+            }
+            // Note: if this is the first AND last transfer, the above effectively
+            // changes stat_tx like NAK -> NAK, so noop.
             unsafe {
                 regs.epr(0).write(|w| {
                     w.set_ep_type(EpType::CONTROL);
-                    w.set_stat_rx(Stat(match last {
-                        // If last, set STAT_RX=STALL.
-                        true => Stat::NAK.0 ^ Stat::STALL.0,
-                        // Otherwise, set STAT_RX=VALID, to allow the host to send the next packet.
-                        false => Stat::NAK.0 ^ Stat::VALID.0,
-                    }));
+                    w.set_stat_rx(Stat(stat_rx));
+                    w.set_stat_tx(Stat(stat_tx));
                     w.set_ctr_rx(true); // don't clear
                     w.set_ctr_tx(true); // don't clear
                 })
-            };
-
-            Ok(rx_len)
+            }
         }
+
+        trace!("data_out WAITING, buf.len() = {}", buf.len());
+        poll_fn(|cx| {
+            EP_OUT_WAKERS[0].register(cx.waker());
+            let regs = T::regs();
+            if unsafe { regs.epr(0).read() }.stat_rx() == Stat::NAK {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        if EP0_SETUP.load(Ordering::Relaxed) {
+            trace!("received another SETUP, aborting data_out.");
+            return Err(EndpointError::Disabled);
+        }
+
+        let rx_len = self.ep_out.read_data(buf)?;
+
+        unsafe {
+            regs.epr(0).write(|w| {
+                w.set_ep_type(EpType::CONTROL);
+                w.set_stat_rx(Stat(match last {
+                    // If last, set STAT_RX=STALL.
+                    true => Stat::NAK.0 ^ Stat::STALL.0,
+                    // Otherwise, set STAT_RX=VALID, to allow the host to send the next packet.
+                    false => Stat::NAK.0 ^ Stat::VALID.0,
+                }));
+                w.set_ctr_rx(true); // don't clear
+                w.set_ctr_tx(true); // don't clear
+            })
+        };
+
+        Ok(rx_len)
     }
 
-    fn data_in<'a>(&'a mut self, buf: &'a [u8], first: bool, last: bool) -> Self::DataInFuture<'a> {
-        async move {
-            trace!("control: data_in");
+    async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError> {
+        trace!("control: data_in");
 
-            if buf.len() > self.ep_in.info.max_packet_size as usize {
-                return Err(EndpointError::BufferOverflow);
+        if data.len() > self.ep_in.info.max_packet_size as usize {
+            return Err(EndpointError::BufferOverflow);
+        }
+
+        let regs = T::regs();
+
+        // When a SETUP is received, Stat is set to NAK.
+        // We want it to be STALL in non-last transfers.
+        // We want it to be VALID in last transfer, so the HW does the status stage.
+        if first || last {
+            let mut stat_rx = 0;
+            if first {
+                // change NAK -> STALL
+                stat_rx ^= Stat::NAK.0 ^ Stat::STALL.0;
             }
-
-            let regs = T::regs();
-
-            // When a SETUP is received, Stat is set to NAK.
-            // We want it to be STALL in non-last transfers.
-            // We want it to be VALID in last transfer, so the HW does the status stage.
-            if first || last {
-                let mut stat_rx = 0;
-                if first {
-                    // change NAK -> STALL
-                    stat_rx ^= Stat::NAK.0 ^ Stat::STALL.0;
-                }
-                if last {
-                    // change STALL -> VALID
-                    stat_rx ^= Stat::STALL.0 ^ Stat::VALID.0;
-                }
-                // Note: if this is the first AND last transfer, the above effectively
-                // does a change of NAK -> VALID.
-                unsafe {
-                    regs.epr(0).write(|w| {
-                        w.set_ep_type(EpType::CONTROL);
-                        w.set_stat_rx(Stat(stat_rx));
-                        w.set_ep_kind(last); // set OUT_STATUS if last.
-                        w.set_ctr_rx(true); // don't clear
-                        w.set_ctr_tx(true); // don't clear
-                    })
-                }
+            if last {
+                // change STALL -> VALID
+                stat_rx ^= Stat::STALL.0 ^ Stat::VALID.0;
             }
-
-            trace!("WRITE WAITING");
-            poll_fn(|cx| {
-                EP_IN_WAKERS[0].register(cx.waker());
-                EP_OUT_WAKERS[0].register(cx.waker());
-                let regs = T::regs();
-                if unsafe { regs.epr(0).read() }.stat_tx() == Stat::NAK {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            if EP0_SETUP.load(Ordering::Relaxed) {
-                trace!("received another SETUP, aborting data_in.");
-                return Err(EndpointError::Disabled);
-            }
-
-            self.ep_in.write_data(buf);
-
-            let regs = T::regs();
+            // Note: if this is the first AND last transfer, the above effectively
+            // does a change of NAK -> VALID.
             unsafe {
                 regs.epr(0).write(|w| {
                     w.set_ep_type(EpType::CONTROL);
-                    w.set_stat_tx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
+                    w.set_stat_rx(Stat(stat_rx));
                     w.set_ep_kind(last); // set OUT_STATUS if last.
                     w.set_ctr_rx(true); // don't clear
                     w.set_ctr_tx(true); // don't clear
                 })
-            };
-
-            trace!("WRITE OK");
-
-            Ok(())
-        }
-    }
-
-    fn accept<'a>(&'a mut self) -> Self::AcceptFuture<'a> {
-        async move {
-            let regs = T::regs();
-            trace!("control: accept");
-
-            self.ep_in.write_data(&[]);
-
-            // Set OUT=stall, IN=accept
-            unsafe {
-                let epr = regs.epr(0).read();
-                regs.epr(0).write(|w| {
-                    w.set_ep_type(EpType::CONTROL);
-                    w.set_stat_rx(Stat(epr.stat_rx().0 ^ Stat::STALL.0));
-                    w.set_stat_tx(Stat(epr.stat_tx().0 ^ Stat::VALID.0));
-                    w.set_ctr_rx(true); // don't clear
-                    w.set_ctr_tx(true); // don't clear
-                });
             }
-            trace!("control: accept WAITING");
+        }
 
-            // Wait is needed, so that we don't set the address too soon, breaking the status stage.
-            // (embassy-usb sets the address after accept() returns)
-            poll_fn(|cx| {
-                EP_IN_WAKERS[0].register(cx.waker());
-                let regs = T::regs();
-                if unsafe { regs.epr(0).read() }.stat_tx() == Stat::NAK {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
+        trace!("WRITE WAITING");
+        poll_fn(|cx| {
+            EP_IN_WAKERS[0].register(cx.waker());
+            EP_OUT_WAKERS[0].register(cx.waker());
+            let regs = T::regs();
+            if unsafe { regs.epr(0).read() }.stat_tx() == Stat::NAK {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        if EP0_SETUP.load(Ordering::Relaxed) {
+            trace!("received another SETUP, aborting data_in.");
+            return Err(EndpointError::Disabled);
+        }
+
+        self.ep_in.write_data(data);
+
+        let regs = T::regs();
+        unsafe {
+            regs.epr(0).write(|w| {
+                w.set_ep_type(EpType::CONTROL);
+                w.set_stat_tx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
+                w.set_ep_kind(last); // set OUT_STATUS if last.
+                w.set_ctr_rx(true); // don't clear
+                w.set_ctr_tx(true); // don't clear
             })
-            .await;
+        };
 
-            trace!("control: accept OK");
-        }
+        trace!("WRITE OK");
+
+        Ok(())
     }
 
-    fn reject<'a>(&'a mut self) -> Self::RejectFuture<'a> {
-        async move {
-            let regs = T::regs();
-            trace!("control: reject");
+    async fn accept(&mut self) {
+        let regs = T::regs();
+        trace!("control: accept");
 
-            // Set IN+OUT to stall
-            unsafe {
-                let epr = regs.epr(0).read();
-                regs.epr(0).write(|w| {
-                    w.set_ep_type(EpType::CONTROL);
-                    w.set_stat_rx(Stat(epr.stat_rx().0 ^ Stat::STALL.0));
-                    w.set_stat_tx(Stat(epr.stat_tx().0 ^ Stat::STALL.0));
-                    w.set_ctr_rx(true); // don't clear
-                    w.set_ctr_tx(true); // don't clear
-                });
+        self.ep_in.write_data(&[]);
+
+        // Set OUT=stall, IN=accept
+        unsafe {
+            let epr = regs.epr(0).read();
+            regs.epr(0).write(|w| {
+                w.set_ep_type(EpType::CONTROL);
+                w.set_stat_rx(Stat(epr.stat_rx().0 ^ Stat::STALL.0));
+                w.set_stat_tx(Stat(epr.stat_tx().0 ^ Stat::VALID.0));
+                w.set_ctr_rx(true); // don't clear
+                w.set_ctr_tx(true); // don't clear
+            });
+        }
+        trace!("control: accept WAITING");
+
+        // Wait is needed, so that we don't set the address too soon, breaking the status stage.
+        // (embassy-usb sets the address after accept() returns)
+        poll_fn(|cx| {
+            EP_IN_WAKERS[0].register(cx.waker());
+            let regs = T::regs();
+            if unsafe { regs.epr(0).read() }.stat_tx() == Stat::NAK {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
             }
+        })
+        .await;
+
+        trace!("control: accept OK");
+    }
+
+    async fn reject(&mut self) {
+        let regs = T::regs();
+        trace!("control: reject");
+
+        // Set IN+OUT to stall
+        unsafe {
+            let epr = regs.epr(0).read();
+            regs.epr(0).write(|w| {
+                w.set_ep_type(EpType::CONTROL);
+                w.set_stat_rx(Stat(epr.stat_rx().0 ^ Stat::STALL.0));
+                w.set_stat_tx(Stat(epr.stat_tx().0 ^ Stat::STALL.0));
+                w.set_ctr_rx(true); // don't clear
+                w.set_ctr_tx(true); // don't clear
+            });
         }
     }
 }

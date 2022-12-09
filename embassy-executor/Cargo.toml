@@ -1,9 +1,15 @@
 [package]
 name = "embassy-executor"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-
+description = "async/await executor designed for embedded usage"
+repository = "https://github.com/embassy-rs/embassy"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-executor-v$VERSION/embassy-executor/src/"
@@ -21,10 +27,13 @@ flavors = [
     { name = "thumbv8m.main-none-eabihf", target = "thumbv8m.main-none-eabihf",  features = [] },
 ]
 
+[package.metadata.docs.rs]
+features = ["std", "nightly", "defmt"]
+
 [features]
 default = []
-std = ["embassy-macros/std", "critical-section/std"]
-wasm = ["dep:wasm-bindgen", "dep:js-sys", "embassy-macros/wasm"]
+std = ["critical-section/std"]
+wasm = ["dep:wasm-bindgen", "dep:js-sys"]
 
 # Enable nightly-only features
 nightly = []

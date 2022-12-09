@@ -38,32 +38,31 @@ where
     E: embedded_hal_1::i2c::Error + 'static,
     T: blocking::i2c::WriteRead<Error = E> + blocking::i2c::Read<Error = E> + blocking::i2c::Write<Error = E>,
 {
-    type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-    type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-    type WriteReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-    fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        async move { self.wrapped.read(address, buffer) }
+    async fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Result<(), Self::Error> {
+        self.wrapped.read(address, buffer)
     }
 
-    fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
-        async move { self.wrapped.write(address, bytes) }
+    async fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Result<(), Self::Error> {
+        self.wrapped.write(address, bytes)
     }
 
-    fn write_read<'a>(&'a mut self, address: u8, bytes: &'a [u8], buffer: &'a mut [u8]) -> Self::WriteReadFuture<'a> {
-        async move { self.wrapped.write_read(address, bytes, buffer) }
+    async fn write_read<'a>(
+        &'a mut self,
+        address: u8,
+        bytes: &'a [u8],
+        buffer: &'a mut [u8],
+    ) -> Result<(), Self::Error> {
+        self.wrapped.write_read(address, bytes, buffer)
     }
 
-    type TransactionFuture<'a, 'b> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a, 'b: 'a;
-
-    fn transaction<'a, 'b>(
+    async fn transaction<'a, 'b>(
         &'a mut self,
         address: u8,
         operations: &'a mut [embedded_hal_async::i2c::Operation<'b>],
-    ) -> Self::TransactionFuture<'a, 'b> {
+    ) -> Result<(), Self::Error> {
         let _ = address;
         let _ = operations;
-        async move { todo!() }
+        todo!()
     }
 }
 
@@ -84,23 +83,17 @@ where
     E: embedded_hal_1::spi::Error + 'static,
     T: blocking::spi::Transfer<u8, Error = E> + blocking::spi::Write<u8, Error = E>,
 {
-    type TransferFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-    fn transfer<'a>(&'a mut self, read: &'a mut [u8], write: &'a [u8]) -> Self::TransferFuture<'a> {
-        async move {
-            // Ensure we write the expected bytes
-            for i in 0..core::cmp::min(read.len(), write.len()) {
-                read[i] = write[i].clone();
-            }
-            self.wrapped.transfer(read)?;
-            Ok(())
+    async fn transfer<'a>(&'a mut self, read: &'a mut [u8], write: &'a [u8]) -> Result<(), Self::Error> {
+        // Ensure we write the expected bytes
+        for i in 0..core::cmp::min(read.len(), write.len()) {
+            read[i] = write[i].clone();
         }
+        self.wrapped.transfer(read)?;
+        Ok(())
     }
 
-    type TransferInPlaceFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-    fn transfer_in_place<'a>(&'a mut self, _: &'a mut [u8]) -> Self::TransferInPlaceFuture<'a> {
-        async move { todo!() }
+    async fn transfer_in_place<'a>(&'a mut self, _: &'a mut [u8]) -> Result<(), Self::Error> {
+        todo!()
     }
 }
 
@@ -109,10 +102,8 @@ where
     E: embedded_hal_1::spi::Error + 'static,
     T: blocking::spi::Transfer<u8, Error = E> + blocking::spi::Write<u8, Error = E>,
 {
-    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-    fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-        async move { Ok(()) }
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 
@@ -121,13 +112,9 @@ where
     E: embedded_hal_1::spi::Error + 'static,
     T: blocking::spi::Transfer<u8, Error = E> + blocking::spi::Write<u8, Error = E>,
 {
-    type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-    fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
-        async move {
-            self.wrapped.write(data)?;
-            Ok(())
-        }
+    async fn write(&mut self, data: &[u8]) -> Result<(), Self::Error> {
+        self.wrapped.write(data)?;
+        Ok(())
     }
 }
 
@@ -136,13 +123,9 @@ where
     E: embedded_hal_1::spi::Error + 'static,
     T: blocking::spi::Transfer<u8, Error = E> + blocking::spi::Write<u8, Error = E>,
 {
-    type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-    fn read<'a>(&'a mut self, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        async move {
-            self.wrapped.transfer(data)?;
-            Ok(())
-        }
+    async fn read(&mut self, data: &mut [u8]) -> Result<(), Self::Error> {
+        self.wrapped.transfer(data)?;
+        Ok(())
     }
 }
 
@@ -192,7 +175,7 @@ where
     }
 
     type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where T: 'a;
-    fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+    fn flush(&mut self) -> Result<(), Self::Error> {
         async move { self.wrapped.bflush() }
     }
 }

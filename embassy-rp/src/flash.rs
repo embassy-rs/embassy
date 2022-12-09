@@ -59,6 +59,11 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
     }
 
     pub fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+        trace!(
+            "Reading from 0x{:x} to 0x{:x}",
+            FLASH_BASE + offset as usize,
+            FLASH_BASE + offset as usize + bytes.len()
+        );
         check_read(self, offset, bytes.len())?;
 
         let flash_data = unsafe { core::slice::from_raw_parts((FLASH_BASE as u32 + offset) as *const u8, bytes.len()) };

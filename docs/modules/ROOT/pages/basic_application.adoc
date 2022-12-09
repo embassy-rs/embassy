@@ -21,7 +21,7 @@ Then, what follows are some declarations on how to deal with panics and faults. 
 
 [source,rust]
 ----
-include::example$basic/src/main.rs[lines="11..12"]
+include::example$basic/src/main.rs[lines="10"]
 ----
 
 === Task declaration
@@ -30,7 +30,7 @@ After a bit of import declaration, the tasks run by the application should be de
 
 [source,rust]
 ----
-include::example$basic/src/main.rs[lines="13..22"]
+include::example$basic/src/main.rs[lines="12..20"]
 ----
 
 An embassy task must be declared `async`, and may NOT take generic arguments. In this case, we are handed the LED that should be blinked and the interval of the blinking.
@@ -45,23 +45,10 @@ The `Spawner` is the way the main application spawns other tasks. The `Periphera
 
 [source,rust]
 ----
-include::example$basic/src/main.rs[lines="23..-1"]
+include::example$basic/src/main.rs[lines="22..-1"]
 ----
 
-`#[embassy_executor::main]` takes an optional `config` parameter specifying a function that returns an instance of HAL's `Config` struct. For example:
-
-```rust
-fn embassy_config() -> embassy_nrf::config::Config {
-    embassy_nrf::config::Config::default()
-}
-
-#[embassy_executor::main(config = "embassy_config()")]
-async fn main(_spawner: Spawner, p: embassy_nrf::Peripherals) {
-    // ...
-}
-```
-
-What happens when the `blinker` task have been spawned and main returns? Well, the main entry point is actually just like any other task, except that you can only have one and it takes some specific type arguments. The magic lies within the `#[embassy::main]` macro. The macro does the following:
+What happens when the `blinker` task has been spawned and main returns? Well, the main entry point is actually just like any other task, except that you can only have one and it takes some specific type arguments. The magic lies within the `#[embassy::main]` macro. The macro does the following:
 
 . Creates an Embassy Executor
 . Initializes the microcontroller HAL to get the `Peripherals`
@@ -76,7 +63,7 @@ The project definition needs to contain the embassy dependencies:
 
 [source,toml]
 ----
-include::example$basic/Cargo.toml[lines="8..9"]
+include::example$basic/Cargo.toml[lines="9..11"]
 ----
 
 Depending on your microcontroller, you may need to replace `embassy-nrf` with something else (`embassy-stm32` for STM32. Remember to update feature flags as well).

@@ -43,7 +43,11 @@
 //! mutable slices always reside in RAM.
 
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(type_alias_impl_trait))]
+#![cfg_attr(
+    feature = "nightly",
+    feature(type_alias_impl_trait, async_fn_in_trait, impl_trait_projections)
+)]
+#![cfg_attr(feature = "nightly", allow(incomplete_features))]
 
 #[cfg(not(any(
     feature = "nrf51",
@@ -74,6 +78,8 @@ pub mod buffered_uarte;
 pub mod gpio;
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
+#[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
+pub mod i2s;
 pub mod nvmc;
 #[cfg(any(
     feature = "nrf52810",
@@ -95,10 +101,12 @@ pub mod rng;
 #[cfg(not(any(feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
 pub mod spim;
+pub mod spis;
 #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
 pub mod temp;
 pub mod timer;
 pub mod twim;
+pub mod twis;
 pub mod uarte;
 #[cfg(any(
     feature = "_nrf5340-app",
@@ -265,6 +273,13 @@ pub fn init(config: config::Config) -> Peripherals {
     // init RTC time driver
     #[cfg(feature = "_time-driver")]
     time_driver::init(config.time_interrupt_priority);
+
+    // Disable UARTE (enabled by default for some reason)
+    #[cfg(feature = "_nrf9160")]
+    unsafe {
+        (*pac::UARTE0::ptr()).enable.write(|w| w.enable().disabled());
+        (*pac::UARTE1::ptr()).enable.write(|w| w.enable().disabled());
+    }
 
     peripherals
 }

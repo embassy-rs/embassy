@@ -1,4 +1,4 @@
-use core::cell::UnsafeCell;
+use core::cell::RefCell;
 use core::future::poll_fn;
 use core::mem;
 use core::task::Poll;
@@ -68,8 +68,7 @@ impl<'a> TcpWriter<'a> {
 
 impl<'a> TcpSocket<'a> {
     pub fn new<D: Device>(stack: &'a Stack<D>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Self {
-        // safety: not accessed reentrantly.
-        let s = unsafe { &mut *stack.socket.get() };
+        let s = &mut *stack.socket.borrow_mut();
         let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
         let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
         let handle = s.sockets.add(tcp::Socket::new(
@@ -93,17 +92,18 @@ impl<'a> TcpSocket<'a> {
     where
         T: Into<IpEndpoint>,
     {
-        // safety: not accessed reentrantly.
-        let local_port = unsafe { &mut *self.io.stack.get() }.get_local_port();
+        let local_port = self.io.stack.borrow_mut().get_local_port();
 
-        // safety: not accessed reentrantly.
-        match unsafe { self.io.with_mut(|s, i| s.connect(i, remote_endpoint, local_port)) } {
+        match {
+            self.io
+                .with_mut(|s, i| s.connect(i.context(), remote_endpoint, local_port))
+        } {
             Ok(()) => {}
             Err(tcp::ConnectError::InvalidState) => return Err(ConnectError::InvalidState),
             Err(tcp::ConnectError::Unaddressable) => return Err(ConnectError::NoRoute),
         }
 
-        poll_fn(|cx| unsafe {
+        poll_fn(|cx| {
             self.io.with_mut(|s, _| match s.state() {
                 tcp::State::Closed | tcp::State::TimeWait => Poll::Ready(Err(ConnectError::ConnectionReset)),
                 tcp::State::Listen => unreachable!(),
@@ -121,14 +121,13 @@ impl<'a> TcpSocket<'a> {
     where
         T: Into<IpListenEndpoint>,
     {
-        // safety: not accessed reentrantly.
-        match unsafe { self.io.with_mut(|s, _| s.listen(local_endpoint)) } {
+        match self.io.with_mut(|s, _| s.listen(local_endpoint)) {
             Ok(()) => {}
             Err(tcp::ListenError::InvalidState) => return Err(AcceptError::InvalidState),
             Err(tcp::ListenError::Unaddressable) => return Err(AcceptError::InvalidPort),
         }
 
-        poll_fn(|cx| unsafe {
+        poll_fn(|cx| {
             self.io.with_mut(|s, _| match s.state() {
                 tcp::State::Listen | tcp::State::SynSent | tcp::State::SynReceived => {
                     s.register_send_waker(cx.waker());
@@ -149,51 +148,49 @@ impl<'a> TcpSocket<'a> {
     }
 
     pub fn set_timeout(&mut self, duration: Option<Duration>) {
-        unsafe { self.io.with_mut(|s, _| s.set_timeout(duration)) }
+        self.io.with_mut(|s, _| s.set_timeout(duration))
     }
 
     pub fn set_keep_alive(&mut self, interval: Option<Duration>) {
-        unsafe { self.io.with_mut(|s, _| s.set_keep_alive(interval)) }
+        self.io.with_mut(|s, _| s.set_keep_alive(interval))
     }
 
     pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) {
-        unsafe { self.io.with_mut(|s, _| s.set_hop_limit(hop_limit)) }
+        self.io.with_mut(|s, _| s.set_hop_limit(hop_limit))
     }
 
     pub fn local_endpoint(&self) -> Option<IpEndpoint> {
-        unsafe { self.io.with(|s, _| s.local_endpoint()) }
+        self.io.with(|s, _| s.local_endpoint())
     }
 
     pub fn remote_endpoint(&self) -> Option<IpEndpoint> {
-        unsafe { self.io.with(|s, _| s.remote_endpoint()) }
+        self.io.with(|s, _| s.remote_endpoint())
     }
 
     pub fn state(&self) -> tcp::State {
-        unsafe { self.io.with(|s, _| s.state()) }
+        self.io.with(|s, _| s.state())
     }
 
     pub fn close(&mut self) {
-        unsafe { self.io.with_mut(|s, _| s.close()) }
+        self.io.with_mut(|s, _| s.close())
     }
 
     pub fn abort(&mut self) {
-        unsafe { self.io.with_mut(|s, _| s.abort()) }
+        self.io.with_mut(|s, _| s.abort())
     }
 
     pub fn may_send(&self) -> bool {
-        unsafe { self.io.with(|s, _| s.may_send()) }
+        self.io.with(|s, _| s.may_send())
     }
 
     pub fn may_recv(&self) -> bool {
-        unsafe { self.io.with(|s, _| s.may_recv()) }
+        self.io.with(|s, _| s.may_recv())
     }
 }
 
 impl<'a> Drop for TcpSocket<'a> {
     fn drop(&mut self) {
-        // safety: not accessed reentrantly.
-        let s = unsafe { &mut *self.io.stack.get() };
-        s.sockets.remove(self.io.handle);
+        self.io.stack.borrow_mut().sockets.remove(self.io.handle);
     }
 }
 
@@ -201,21 +198,19 @@ impl<'a> Drop for TcpSocket<'a> {
 
 #[derive(Copy, Clone)]
 struct TcpIo<'a> {
-    stack: &'a UnsafeCell<SocketStack>,
+    stack: &'a RefCell<SocketStack>,
     handle: SocketHandle,
 }
 
 impl<'d> TcpIo<'d> {
-    /// SAFETY: must not call reentrantly.
-    unsafe fn with<R>(&self, f: impl FnOnce(&tcp::Socket, &Interface) -> R) -> R {
-        let s = &*self.stack.get();
+    fn with<R>(&self, f: impl FnOnce(&tcp::Socket, &Interface) -> R) -> R {
+        let s = &*self.stack.borrow();
         let socket = s.sockets.get::<tcp::Socket>(self.handle);
         f(socket, &s.iface)
     }
 
-    /// SAFETY: must not call reentrantly.
-    unsafe fn with_mut<R>(&mut self, f: impl FnOnce(&mut tcp::Socket, &mut Interface) -> R) -> R {
-        let s = &mut *self.stack.get();
+    fn with_mut<R>(&mut self, f: impl FnOnce(&mut tcp::Socket, &mut Interface) -> R) -> R {
+        let s = &mut *self.stack.borrow_mut();
         let socket = s.sockets.get_mut::<tcp::Socket>(self.handle);
         let res = f(socket, &mut s.iface);
         s.waker.wake();
@@ -223,7 +218,7 @@ impl<'d> TcpIo<'d> {
     }
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        poll_fn(move |cx| unsafe {
+        poll_fn(move |cx| {
             // CAUTION: smoltcp semantics around EOF are different to what you'd expect
             // from posix-like IO, so we have to tweak things here.
             self.with_mut(|s, _| match s.recv_slice(buf) {
@@ -244,7 +239,7 @@ impl<'d> TcpIo<'d> {
     }
 
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        poll_fn(move |cx| unsafe {
+        poll_fn(move |cx| {
             self.with_mut(|s, _| match s.send_slice(buf) {
                 // Not ready to send (no space in the tx buffer)
                 Ok(0) => {
@@ -271,8 +266,6 @@ impl<'d> TcpIo<'d> {
 
 #[cfg(feature = "nightly")]
 mod embedded_io_impls {
-    use core::future::Future;
-
     use super::*;
 
     impl embedded_io::Error for ConnectError {
@@ -292,30 +285,18 @@ mod embedded_io_impls {
     }
 
     impl<'d> embedded_io::asynch::Read for TcpSocket<'d> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.io.read(buf)
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.io.read(buf).await
         }
     }
 
     impl<'d> embedded_io::asynch::Write for TcpSocket<'d> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.io.write(buf)
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.io.write(buf).await
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            self.io.flush()
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.io.flush().await
         }
     }
 
@@ -324,12 +305,8 @@ mod embedded_io_impls {
     }
 
     impl<'d> embedded_io::asynch::Read for TcpReader<'d> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.io.read(buf)
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.io.read(buf).await
         }
     }
 
@@ -338,27 +315,19 @@ mod embedded_io_impls {
     }
 
     impl<'d> embedded_io::asynch::Write for TcpWriter<'d> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.io.write(buf)
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.io.write(buf).await
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            self.io.flush()
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.io.flush().await
         }
     }
 }
 
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 pub mod client {
-    use core::future::Future;
+    use core::cell::UnsafeCell;
     use core::mem::MaybeUninit;
     use core::ptr::NonNull;
 
@@ -385,28 +354,29 @@ pub mod client {
     {
         type Error = Error;
         type Connection<'m> = TcpConnection<'m, N, TX_SZ, RX_SZ> where Self: 'm;
-        type ConnectFuture<'m> = impl Future<Output = Result<Self::Connection<'m>, Self::Error>> + 'm
-    where
-        Self: 'm;
 
-        fn connect<'m>(&'m self, remote: embedded_nal_async::SocketAddr) -> Self::ConnectFuture<'m> {
-            async move {
-                let addr: crate::IpAddress = match remote.ip() {
-                    IpAddr::V4(addr) => crate::IpAddress::Ipv4(crate::Ipv4Address::from_bytes(&addr.octets())),
-                    #[cfg(feature = "proto-ipv6")]
-                    IpAddr::V6(addr) => crate::IpAddress::Ipv6(crate::Ipv6Address::from_bytes(&addr.octets())),
-                    #[cfg(not(feature = "proto-ipv6"))]
-                    IpAddr::V6(_) => panic!("ipv6 support not enabled"),
-                };
-                let remote_endpoint = (addr, remote.port());
-                let mut socket = TcpConnection::new(&self.stack, self.state)?;
-                socket
-                    .socket
-                    .connect(remote_endpoint)
-                    .await
-                    .map_err(|_| Error::ConnectionReset)?;
-                Ok(socket)
-            }
+        async fn connect<'a>(
+            &'a self,
+            remote: embedded_nal_async::SocketAddr,
+        ) -> Result<Self::Connection<'a>, Self::Error>
+        where
+            Self: 'a,
+        {
+            let addr: crate::IpAddress = match remote.ip() {
+                IpAddr::V4(addr) => crate::IpAddress::Ipv4(crate::Ipv4Address::from_bytes(&addr.octets())),
+                #[cfg(feature = "proto-ipv6")]
+                IpAddr::V6(addr) => crate::IpAddress::Ipv6(crate::Ipv6Address::from_bytes(&addr.octets())),
+                #[cfg(not(feature = "proto-ipv6"))]
+                IpAddr::V6(_) => panic!("ipv6 support not enabled"),
+            };
+            let remote_endpoint = (addr, remote.port());
+            let mut socket = TcpConnection::new(&self.stack, self.state)?;
+            socket
+                .socket
+                .connect(remote_endpoint)
+                .await
+                .map_err(|_| Error::ConnectionReset)?;
+            Ok(socket)
         }
     }
 
@@ -445,32 +415,20 @@ pub mod client {
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io::asynch::Read
         for TcpConnection<'d, N, TX_SZ, RX_SZ>
     {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.socket.read(buf)
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.socket.read(buf).await
         }
     }
 
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io::asynch::Write
         for TcpConnection<'d, N, TX_SZ, RX_SZ>
     {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.socket.write(buf)
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.socket.write(buf).await
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-    where
-        Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            self.socket.flush()
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.socket.flush().await
         }
     }
 

@@ -13,7 +13,7 @@ embassy-boot-nrf = { version = "0.1.0", path = "../../../../embassy-boot/nrf" }
 embassy-embedded-hal = { version = "0.1.0", path = "../../../../embassy-embedded-hal" }
 
 defmt = { version = "0.3", optional = true }
-defmt-rtt = { version = "0.3", optional = true }
+defmt-rtt = { version = "0.4", optional = true }
 panic-reset = { version = "0.1.1" }
 embedded-hal = { version = "0.2.6" }
 

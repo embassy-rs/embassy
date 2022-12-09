@@ -717,8 +717,6 @@ mod eh1 {
 }
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 mod nightly {
-    use core::future::Future;
-
     use embedded_hal_1::i2c::Operation;
     use embedded_hal_async::i2c::AddressMode;
 
@@ -729,74 +727,55 @@ mod nightly {
         A: AddressMode + Into<u16> + 'static,
         T: Instance + 'd,
     {
-        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-            where Self: 'a;
-        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-            where Self: 'a;
-        type WriteReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-            where Self: 'a;
-        type TransactionFuture<'a, 'b> = impl Future<Output = Result<(), Error>> + 'a
-            where Self: 'a, 'b: 'a;
-
-        fn read<'a>(&'a mut self, address: A, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
+        async fn read<'a>(&'a mut self, address: A, read: &'a mut [u8]) -> Result<(), Self::Error> {
             let addr: u16 = address.into();
 
-            async move {
-                Self::setup(addr)?;
-                self.read_async_internal(buffer, false, true).await
-            }
+            Self::setup(addr)?;
+            self.read_async_internal(read, false, true).await
         }
 
-        fn write<'a>(&'a mut self, address: A, write: &'a [u8]) -> Self::WriteFuture<'a> {
+        async fn write<'a>(&'a mut self, address: A, write: &'a [u8]) -> Result<(), Self::Error> {
             let addr: u16 = address.into();
 
-            async move {
-                Self::setup(addr)?;
-                self.write_async_internal(write.iter().copied(), true).await
-            }
+            Self::setup(addr)?;
+            self.write_async_internal(write.iter().copied(), true).await
         }
-
-        fn write_read<'a>(
+        async fn write_read<'a>(
             &'a mut self,
             address: A,
-            bytes: &'a [u8],
-            buffer: &'a mut [u8],
-        ) -> Self::WriteReadFuture<'a> {
+            write: &'a [u8],
+            read: &'a mut [u8],
+        ) -> Result<(), Self::Error> {
             let addr: u16 = address.into();
 
-            async move {
-                Self::setup(addr)?;
-                self.write_async_internal(bytes.iter().cloned(), false).await?;
-                self.read_async_internal(buffer, false, true).await
-            }
+            Self::setup(addr)?;
+            self.write_async_internal(write.iter().cloned(), false).await?;
+            self.read_async_internal(read, false, true).await
         }
-
-        fn transaction<'a, 'b>(
+        async fn transaction<'a, 'b>(
             &'a mut self,
             address: A,
             operations: &'a mut [Operation<'b>],
-        ) -> Self::TransactionFuture<'a, 'b> {
+        ) -> Result<(), Self::Error> {
             let addr: u16 = address.into();
 
-            async move {
-                let mut iterator = operations.iter_mut();
+            let mut iterator = operations.iter_mut();
 
-                while let Some(op) = iterator.next() {
-                    let last = iterator.len() == 0;
+            while let Some(op) = iterator.next() {
+                let last = iterator.len() == 0;
 
-                    match op {
-                        Operation::Read(buffer) => {
-                            Self::setup(addr)?;
-                            self.read_async_internal(buffer, false, last).await?;
-                        }
-                        Operation::Write(buffer) => {
-                            Self::setup(addr)?;
-                            self.write_async_internal(buffer.into_iter().cloned(), last).await?;
-                        }
+                match op {
+                    Operation::Read(buffer) => {
+                        Self::setup(addr)?;
+                        self.read_async_internal(buffer, false, last).await?;
+                    }
+                    Operation::Write(buffer) => {
+                        Self::setup(addr)?;
+                        self.write_async_internal(buffer.into_iter().cloned(), last).await?;
                     }
                 }
-                Ok(())
             }
+            Ok(())
         }
     }
 }

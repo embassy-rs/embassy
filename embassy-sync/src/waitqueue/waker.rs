@@ -6,7 +6,7 @@ use crate::blocking_mutex::raw::CriticalSectionRawMutex;
 use crate::blocking_mutex::Mutex;
 
 /// Utility struct to register and wake a waker.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct WakerRegistration {
     waker: Option<Waker>,
 }

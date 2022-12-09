@@ -12,8 +12,6 @@ pub enum LinkState {
     Up,
 }
 
-// 'static required due to the "fake GAT" in smoltcp::phy::Device.
-// https://github.com/smoltcp-rs/smoltcp/pull/572
 pub trait Device {
     fn is_transmit_ready(&mut self) -> bool;
     fn transmit(&mut self, pkt: PacketBuf);
@@ -25,7 +23,7 @@ pub trait Device {
     fn ethernet_address(&self) -> [u8; 6];
 }
 
-impl<T: ?Sized + Device> Device for &'static mut T {
+impl<T: ?Sized + Device> Device for &mut T {
     fn is_transmit_ready(&mut self) -> bool {
         T::is_transmit_ready(self)
     }
@@ -63,11 +61,11 @@ impl<D: Device> DeviceAdapter<D> {
     }
 }
 
-impl<'a, D: Device + 'static> SmolDevice<'a> for DeviceAdapter<D> {
-    type RxToken = RxToken;
-    type TxToken = TxToken<'a, D>;
+impl<D: Device> SmolDevice for DeviceAdapter<D> {
+    type RxToken<'a> = RxToken where Self: 'a;
+    type TxToken<'a> = TxToken<'a, D> where Self: 'a;
 
-    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+    fn receive(&mut self) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         let tx_pkt = PacketBox::new(Packet::new())?;
         let rx_pkt = self.device.receive()?;
         let rx_token = RxToken { pkt: rx_pkt };
@@ -80,7 +78,7 @@ impl<'a, D: Device + 'static> SmolDevice<'a> for DeviceAdapter<D> {
     }
 
     /// Construct a transmit token.
-    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+    fn transmit(&mut self) -> Option<Self::TxToken<'_>> {
         if !self.device.is_transmit_ready() {
             return None;
         }

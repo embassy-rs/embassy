@@ -1,6 +1,6 @@
 #![no_std]
-
-use core::future::Future;
+#![feature(async_fn_in_trait)]
+#![allow(incomplete_features)]
 
 /// Direction of USB traffic. Note that in the USB standard the direction is always indicated from
 /// the perspective of the host, which is backward for devices, but the standard directions are used
@@ -155,27 +155,14 @@ pub trait Driver<'a> {
 }
 
 pub trait Bus {
-    type EnableFuture<'a>: Future<Output = ()> + 'a
-    where
-        Self: 'a;
-    type DisableFuture<'a>: Future<Output = ()> + 'a
-    where
-        Self: 'a;
-    type PollFuture<'a>: Future<Output = Event> + 'a
-    where
-        Self: 'a;
-    type RemoteWakeupFuture<'a>: Future<Output = Result<(), Unsupported>> + 'a
-    where
-        Self: 'a;
-
     /// Enables the USB peripheral. Soon after enabling the device will be reset, so
     /// there is no need to perform a USB reset in this method.
-    fn enable(&mut self) -> Self::EnableFuture<'_>;
+    async fn enable(&mut self);
 
     /// Disables and powers down the USB peripheral.
-    fn disable(&mut self) -> Self::DisableFuture<'_>;
+    async fn disable(&mut self);
 
-    fn poll<'a>(&'a mut self) -> Self::PollFuture<'a>;
+    async fn poll(&mut self) -> Event;
 
     /// Sets the device USB address to `addr`.
     fn set_address(&mut self, addr: u8);
@@ -197,7 +184,7 @@ pub trait Bus {
     ///
     /// # Errors
     ///
-    /// * [`Unsupported`](crate::driver::Unsupported) - This UsbBus implementation doesn't support
+    /// * [`Unsupported`](crate::Unsupported) - This UsbBus implementation doesn't support
     ///   simulating a disconnect or it has not been enabled at creation time.
     fn force_reset(&mut self) -> Result<(), Unsupported> {
         Err(Unsupported)
@@ -207,87 +194,59 @@ pub trait Bus {
     ///
     /// # Errors
     ///
-    /// * [`Unsupported`](crate::driver::Unsupported) - This UsbBus implementation doesn't support
+    /// * [`Unsupported`](crate::Unsupported) - This UsbBus implementation doesn't support
     ///   remote wakeup or it has not been enabled at creation time.
-    fn remote_wakeup(&mut self) -> Self::RemoteWakeupFuture<'_>;
+    async fn remote_wakeup(&mut self) -> Result<(), Unsupported>;
 }
 
 pub trait Endpoint {
-    type WaitEnabledFuture<'a>: Future<Output = ()> + 'a
-    where
-        Self: 'a;
-
     /// Get the endpoint address
     fn info(&self) -> &EndpointInfo;
 
     /// Waits for the endpoint to be enabled.
-    fn wait_enabled(&mut self) -> Self::WaitEnabledFuture<'_>;
+    async fn wait_enabled(&mut self);
 }
 
 pub trait EndpointOut: Endpoint {
-    type ReadFuture<'a>: Future<Output = Result<usize, EndpointError>> + 'a
-    where
-        Self: 'a;
-
     /// Reads a single packet of data from the endpoint, and returns the actual length of
     /// the packet.
     ///
     /// This should also clear any NAK flags and prepare the endpoint to receive the next packet.
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a>;
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError>;
 }
 
 pub trait ControlPipe {
-    type SetupFuture<'a>: Future<Output = [u8; 8]> + 'a
-    where
-        Self: 'a;
-    type DataOutFuture<'a>: Future<Output = Result<usize, EndpointError>> + 'a
-    where
-        Self: 'a;
-    type DataInFuture<'a>: Future<Output = Result<(), EndpointError>> + 'a
-    where
-        Self: 'a;
-    type AcceptFuture<'a>: Future<Output = ()> + 'a
-    where
-        Self: 'a;
-    type RejectFuture<'a>: Future<Output = ()> + 'a
-    where
-        Self: 'a;
-
     /// Maximum packet size for the control pipe
     fn max_packet_size(&self) -> usize;
 
     /// Reads a single setup packet from the endpoint.
-    fn setup<'a>(&'a mut self) -> Self::SetupFuture<'a>;
+    async fn setup(&mut self) -> [u8; 8];
 
     /// Reads a DATA OUT packet into `buf` in response to a control write request.
     ///
     /// Must be called after `setup()` for requests with `direction` of `Out`
     /// and `length` greater than zero.
-    fn data_out<'a>(&'a mut self, buf: &'a mut [u8], first: bool, last: bool) -> Self::DataOutFuture<'a>;
+    async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError>;
 
     /// Sends a DATA IN packet with `data` in response to a control read request.
     ///
     /// If `last_packet` is true, the STATUS packet will be ACKed following the transfer of `data`.
-    fn data_in<'a>(&'a mut self, data: &'a [u8], first: bool, last: bool) -> Self::DataInFuture<'a>;
+    async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError>;
 
     /// Accepts a control request.
     ///
     /// Causes the STATUS packet for the current request to be ACKed.
-    fn accept<'a>(&'a mut self) -> Self::AcceptFuture<'a>;
+    async fn accept(&mut self);
 
     /// Rejects a control request.
     ///
     /// Sets a STALL condition on the pipe to indicate an error.
-    fn reject<'a>(&'a mut self) -> Self::RejectFuture<'a>;
+    async fn reject(&mut self);
 }
 
 pub trait EndpointIn: Endpoint {
-    type WriteFuture<'a>: Future<Output = Result<(), EndpointError>> + 'a
-    where
-        Self: 'a;
-
     /// Writes a single packet of data to the endpoint.
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a>;
+    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError>;
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

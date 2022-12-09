@@ -3,6 +3,7 @@
 use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
+use embassy_cortex_m::interrupt::Priority;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::{TransferOptions, Word, WordSize};
@@ -38,10 +39,12 @@ impl State {
 static STATE: State = State::new();
 
 /// safety: must be called only once
-pub(crate) unsafe fn init() {
+pub(crate) unsafe fn init(irq_priority: Priority) {
     foreach_interrupt! {
         ($peri:ident, bdma, $block:ident, $signal_name:ident, $irq:ident) => {
-            crate::interrupt::$irq::steal().enable();
+            let irq = crate::interrupt::$irq::steal();
+            irq.set_priority(irq_priority);
+            irq.enable();
         };
     }
     crate::_generated::init_bdma();

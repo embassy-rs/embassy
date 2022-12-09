@@ -35,7 +35,7 @@ atomic-polyfill = "1.0.1"
 critical-section = "1.1"
 heapless = "0.7.5"
 cfg-if = "1.0.0"
-embedded-io = "0.3.1"
+embedded-io = "0.4.0"
 
 [dev-dependencies]
 futures-executor = { version = "0.3.17", features = [ "thread-pool" ] }

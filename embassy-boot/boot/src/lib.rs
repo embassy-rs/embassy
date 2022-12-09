@@ -1,7 +1,7 @@
 #![feature(type_alias_impl_trait)]
 #![no_std]
 #![warn(missing_docs)]
-#![doc = include_str!("../../README.md")]
+#![doc = include_str!("../README.md")]
 mod fmt;
 
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};

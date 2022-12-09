@@ -1,4 +1,4 @@
-use core::cell::UnsafeCell;
+use core::cell::RefCell;
 use core::future::poll_fn;
 use core::mem;
 use core::task::Poll;
@@ -27,7 +27,7 @@ pub enum Error {
 }
 
 pub struct UdpSocket<'a> {
-    stack: &'a UnsafeCell<SocketStack>,
+    stack: &'a RefCell<SocketStack>,
     handle: SocketHandle,
 }
 
@@ -39,8 +39,7 @@ impl<'a> UdpSocket<'a> {
         tx_meta: &'a mut [PacketMetadata],
         tx_buffer: &'a mut [u8],
     ) -> Self {
-        // safety: not accessed reentrantly.
-        let s = unsafe { &mut *stack.socket.get() };
+        let s = &mut *stack.socket.borrow_mut();
 
         let rx_meta: &'static mut [PacketMetadata] = unsafe { mem::transmute(rx_meta) };
         let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
@@ -63,30 +62,26 @@ impl<'a> UdpSocket<'a> {
     {
         let mut endpoint = endpoint.into();
 
-        // safety: not accessed reentrantly.
         if endpoint.port == 0 {
             // If user didn't specify port allocate a dynamic port.
-            endpoint.port = unsafe { &mut *self.stack.get() }.get_local_port();
+            endpoint.port = self.stack.borrow_mut().get_local_port();
         }
 
-        // safety: not accessed reentrantly.
-        match unsafe { self.with_mut(|s, _| s.bind(endpoint)) } {
+        match self.with_mut(|s, _| s.bind(endpoint)) {
             Ok(()) => Ok(()),
             Err(udp::BindError::InvalidState) => Err(BindError::InvalidState),
             Err(udp::BindError::Unaddressable) => Err(BindError::NoRoute),
         }
     }
 
-    /// SAFETY: must not call reentrantly.
-    unsafe fn with<R>(&self, f: impl FnOnce(&udp::Socket, &Interface) -> R) -> R {
-        let s = &*self.stack.get();
+    fn with<R>(&self, f: impl FnOnce(&udp::Socket, &Interface) -> R) -> R {
+        let s = &*self.stack.borrow();
         let socket = s.sockets.get::<udp::Socket>(self.handle);
         f(socket, &s.iface)
     }
 
-    /// SAFETY: must not call reentrantly.
-    unsafe fn with_mut<R>(&self, f: impl FnOnce(&mut udp::Socket, &mut Interface) -> R) -> R {
-        let s = &mut *self.stack.get();
+    fn with_mut<R>(&self, f: impl FnOnce(&mut udp::Socket, &mut Interface) -> R) -> R {
+        let s = &mut *self.stack.borrow_mut();
         let socket = s.sockets.get_mut::<udp::Socket>(self.handle);
         let res = f(socket, &mut s.iface);
         s.waker.wake();
@@ -94,7 +89,7 @@ impl<'a> UdpSocket<'a> {
     }
 
     pub async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, IpEndpoint), Error> {
-        poll_fn(move |cx| unsafe {
+        poll_fn(move |cx| {
             self.with_mut(|s, _| match s.recv_slice(buf) {
                 Ok(x) => Poll::Ready(Ok(x)),
                 // No data ready
@@ -113,7 +108,7 @@ impl<'a> UdpSocket<'a> {
         T: Into<IpEndpoint>,
     {
         let remote_endpoint = remote_endpoint.into();
-        poll_fn(move |cx| unsafe {
+        poll_fn(move |cx| {
             self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint) {
                 // Entire datagram has been sent
                 Ok(()) => Poll::Ready(Ok(())),
@@ -128,30 +123,28 @@ impl<'a> UdpSocket<'a> {
     }
 
     pub fn endpoint(&self) -> IpListenEndpoint {
-        unsafe { self.with(|s, _| s.endpoint()) }
+        self.with(|s, _| s.endpoint())
     }
 
     pub fn is_open(&self) -> bool {
-        unsafe { self.with(|s, _| s.is_open()) }
+        self.with(|s, _| s.is_open())
     }
 
     pub fn close(&mut self) {
-        unsafe { self.with_mut(|s, _| s.close()) }
+        self.with_mut(|s, _| s.close())
     }
 
     pub fn may_send(&self) -> bool {
-        unsafe { self.with(|s, _| s.can_send()) }
+        self.with(|s, _| s.can_send())
     }
 
     pub fn may_recv(&self) -> bool {
-        unsafe { self.with(|s, _| s.can_recv()) }
+        self.with(|s, _| s.can_recv())
     }
 }
 
 impl Drop for UdpSocket<'_> {
     fn drop(&mut self) {
-        // safety: not accessed reentrantly.
-        let s = unsafe { &mut *self.stack.get() };
-        s.sockets.remove(self.handle);
+        self.stack.borrow_mut().sockets.remove(self.handle);
     }
 }

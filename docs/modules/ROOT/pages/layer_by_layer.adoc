@@ -8,7 +8,7 @@ The application we'll write is a simple 'push button, blink led' application, wh
 
 == PAC version
 
-The PAC is the lowest API for accessing peripherals and registers, if you don't count reading/writing directly to memory addresses. It provide distinct types
+The PAC is the lowest API for accessing peripherals and registers, if you don't count reading/writing directly to memory addresses. It provides distinct types
 to make accessing peripheral registers easier, but it does not prevent you from writing unsafe code.
 
 Writing an application using the PAC directly is therefore not recommended, but if the functionality you want to use is not exposed in the upper layers, that's what you need to use.
@@ -20,13 +20,13 @@ The blinky app using PAC is shown below:
 include::example$layer-by-layer/blinky-pac/src/main.rs[]
 ----
 
-As you can see, there are a lot of code needed to enable the peripheral clocks, configuring the input pins and the output pins of the application.
+As you can see, a lot of code is needed to enable the peripheral clocks and to configure the input pins and the output pins of the application.
 
 Another downside of this application is that it is busy-looping while polling the button state. This prevents the microcontroller from utilizing any sleep mode to save power.
 
 == HAL version
 
-To simplify our application, we can use the HAL instead. The HAL exposes higher level APIs that handle details such
+To simplify our application, we can use the HAL instead. The HAL exposes higher level APIs that handle details such as:
 
 * Automatically enabling the peripheral clock when you're using the peripheral
 * Deriving and applying register configuration from higher level types
@@ -39,7 +39,7 @@ The HAL example is shown below:
 include::example$layer-by-layer/blinky-hal/src/main.rs[]
 ----
 
-As you can see, the application becomes a lot simpler, even without using any async code. The `Input` and `Output` hides all the details accessing the GPIO registers, and allow you to use a much simpler API to query the state of the button and toggle the LED output accordingly.
+As you can see, the application becomes a lot simpler, even without using any async code. The `Input` and `Output` types hide all the details of accessing the GPIO registers and allow you to use a much simpler API for querying the state of the button and toggling the LED output.
 
 The same downside from the PAC example still applies though: the application is busy looping and consuming more power than necessary.
 
