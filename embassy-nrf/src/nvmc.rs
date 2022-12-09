@@ -72,18 +72,13 @@ impl<'d> Nvmc<'d> {
     }
 
     #[cfg(not(any(feature = "_nrf9160", feature = "_nrf5340")))]
-    fn erase_page(&mut self, page: u32) {
-        Self::regs().erasepage().write(|w| unsafe { w.bits(page) });
+    fn erase_page(&mut self, page_addr: u32) {
+        Self::regs().erasepage().write(|w| unsafe { w.bits(page_addr) });
     }
 
     #[cfg(any(feature = "_nrf9160", feature = "_nrf5340"))]
-    fn erase_page(&mut self, page: u32) {
-        #[cfg(not(feature = "_nrf5340-net"))]
-        const FLASH_START_ADDR: u32 = 0;
-        #[cfg(feature = "_nrf5340-net")]
-        const FLASH_START_ADDR: u32 = 0x100_0000;
-
-        let first_page_word = (FLASH_START_ADDR + page * PAGE_SIZE as u32) as *mut u32;
+    fn erase_page(&mut self, page_addr: u32) {
+        let first_page_word = page_addr as *mut u32;
         unsafe {
             first_page_word.write_volatile(0xFFFF_FFFF);
         }
@@ -150,8 +145,8 @@ impl<'d> NorFlash for Nvmc<'d> {
         self.enable_erase();
         self.wait_ready();
 
-        for page in (from..to).step_by(PAGE_SIZE) {
-            self.erase_page(page);
+        for page_addr in (from..to).step_by(PAGE_SIZE) {
+            self.erase_page(page_addr);
             self.wait_ready();
         }
 
