@@ -646,6 +646,31 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         Self::new_inner(peri, rx, tx, irq, tx_dma, rx_dma, config)
     }
 
+    #[cfg(not(usart_v1))]
+    pub fn new_with_de(
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        de: impl Peripheral<P = impl DePin<T>> + 'd,
+        tx_dma: impl Peripheral<P = TxDma> + 'd,
+        rx_dma: impl Peripheral<P = RxDma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(de);
+
+        T::enable();
+        T::reset();
+
+        unsafe {
+            de.set_as_af(de.af_num(), AFType::OutputPushPull);
+            T::regs().cr3().write(|w| {
+                w.set_dem(true);
+            });
+        }
+        Self::new_inner(peri, rx, tx, irq, tx_dma, rx_dma, config)
+    }
+
     fn new_inner(
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
@@ -1040,6 +1065,7 @@ pin_trait!(TxPin, BasicInstance);
 pin_trait!(CtsPin, BasicInstance);
 pin_trait!(RtsPin, BasicInstance);
 pin_trait!(CkPin, BasicInstance);
+pin_trait!(DePin, BasicInstance);
 
 dma_trait!(TxDma, BasicInstance);
 dma_trait!(RxDma, BasicInstance);
