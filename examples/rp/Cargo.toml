@@ -18,7 +18,8 @@ embassy-usb-logger = { version = "0.1.0", path = "../../embassy-usb-logger" }
 defmt = "0.3"
 defmt-rtt = "0.4"
 
-cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
+#cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
+cortex-m = { version = "0.7.6" }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await", "cfg-target-has-atomic", "unstable"] }
