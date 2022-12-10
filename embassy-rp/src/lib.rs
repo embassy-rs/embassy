@@ -5,7 +5,9 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+#[cfg(feature = "critical-section-impl")]
 mod critical_section_impl;
+
 mod intrinsics;
 
 pub mod adc;

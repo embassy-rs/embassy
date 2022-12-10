@@ -4,6 +4,9 @@
 //! It provides functionality for setting up the stack, and starting core1.
 //!
 //! The entrypoint for core1 can be any function that never returns, including closures.
+//!
+//! Enable the `critical-section-impl` feature in embassy-rp when sharing data across cores using
+//! the `embassy-sync` primitives and `CriticalSectionRawMutex`.
 
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -57,7 +60,6 @@ fn install_stack_guard(stack_bottom: *mut usize) {
 #[inline(always)]
 fn core1_setup(stack_bottom: *mut usize) {
     install_stack_guard(stack_bottom);
-    // TODO: irq priorities
 }
 
 /// Multicore execution management.

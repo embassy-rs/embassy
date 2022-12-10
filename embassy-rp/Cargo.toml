@@ -15,6 +15,9 @@ flavors = [
 [features]
 defmt = ["dep:defmt", "embassy-usb-driver?/defmt", "embassy-hal-common/defmt"]
 
+# critical section that is safe for multicore use
+critical-section-impl = ["critical-section/restore-state-u8"]
+
 # Reexport the PAC for the currently enabled chip at `embassy_rp::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-rp may major-bump (breaking) the PAC version.
 # If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
@@ -50,7 +53,7 @@ nb = "1.0.0"
 cfg-if = "1.0.0"
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
-critical-section = { version = "1.1", features = ["restore-state-u8"] }
+critical-section = "1.1"
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 chrono = { version = "0.4", default-features = false, optional = true }
 embedded-io = { version = "0.4.0", features = ["async"], optional = true }
