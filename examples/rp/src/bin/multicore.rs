@@ -6,7 +6,7 @@ use defmt::*;
 use embassy_executor::Executor;
 use embassy_executor::_export::StaticCell;
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::multicore::{Multicore, Stack};
+use embassy_rp::multicore::{MultiCore, Stack};
 use embassy_rp::peripherals::PIN_25;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -28,9 +28,8 @@ fn main() -> ! {
     let p = embassy_rp::init(Default::default());
     let led = Output::new(p.PIN_25, Level::Low);
 
-    let mut mc = Multicore::new();
-    let (_, core1) = mc.cores();
-    let _ = core1.spawn(unsafe { &mut CORE1_STACK.mem }, move || {
+    let mut mc = MultiCore::new();
+    let _ = mc.cores.1.spawn(unsafe { &mut CORE1_STACK.mem }, move || {
         let executor1 = EXECUTOR1.init(Executor::new());
         executor1.run(|spawner| unwrap!(spawner.spawn(core1_task(led))));
     });

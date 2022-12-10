@@ -1,4 +1,4 @@
-//! Multicore support
+//! MultiCore support
 //!
 //! This module handles setup of the 2nd cpu core on the rp2040, which we refer to as core1.
 //! It provides functionality for setting up the stack, and starting core1.
@@ -62,9 +62,9 @@ fn core1_setup(stack_bottom: *mut usize) {
     install_stack_guard(stack_bottom);
 }
 
-/// Multicore execution management.
-pub struct Multicore {
-    cores: (Core, Core),
+/// MultiCore execution management.
+pub struct MultiCore {
+    pub cores: (Core, Core),
 }
 
 /// Data type for a properly aligned stack of N 32-bit (usize) words
@@ -81,8 +81,8 @@ impl<const SIZE: usize> Stack<SIZE> {
     }
 }
 
-impl Multicore {
-    /// Create a new |Multicore| instance.
+impl MultiCore {
+    /// Create a new |MultiCore| instance.
     pub fn new() -> Self {
         Self {
             cores: (Core { id: CoreId::Core0 }, Core { id: CoreId::Core1 }),
