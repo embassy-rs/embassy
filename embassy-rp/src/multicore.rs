@@ -18,8 +18,7 @@
 //! fn main() -> ! {
 //!     let p = embassy_rp::init(Default::default());
 //!
-//!     let mut mc = MultiCore::new();
-//!     let _ = mc.cores.1.spawn(unsafe { &mut CORE1_STACK.mem }, move || {
+//!     spawn_core1(p.CORE1, unsafe { &mut CORE1_STACK }, move || {
 //!         let executor1 = EXECUTOR1.init(Executor::new());
 //!         executor1.run(|spawner| unwrap!(spawner.spawn(core1_task())));
 //!     });
@@ -28,7 +27,6 @@
 //!     executor0.run(|spawner| unwrap!(spawner.spawn(core0_task())));
 //! }
 //! ```
-//!
 
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{compiler_fence, Ordering};
