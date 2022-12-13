@@ -15,6 +15,14 @@ pub mod dma;
 pub mod gpio;
 pub mod i2c;
 pub mod interrupt;
+
+#[cfg(feature = "pio")]
+pub mod pio;
+#[cfg(feature = "pio")]
+pub mod pio_instr_util;
+#[cfg(feature = "pio")]
+pub mod relocate;
+
 pub mod rom_data;
 pub mod rtc;
 pub mod spi;
@@ -108,6 +116,9 @@ embassy_hal_common::peripherals! {
     ADC,
 
     CORE1,
+    
+    PIO0,
+    PIO1,
 }
 
 #[link_section = ".boot2"]

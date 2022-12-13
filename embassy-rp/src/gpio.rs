@@ -48,6 +48,21 @@ pub enum Pull {
     Down,
 }
 
+/// Drive strength of an output
+#[derive(Debug, Eq, PartialEq)]
+pub enum Drive {
+    _2mA,
+    _4mA,
+    _8mA,
+    _12mA,
+}
+/// Slew rate of an output
+#[derive(Debug, Eq, PartialEq)]
+pub enum SlewRate {
+    Fast,
+    Slow,
+}
+
 /// A GPIO bank with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Bank {
@@ -459,13 +474,40 @@ impl<'d, T: Pin> Flex<'d, T> {
     #[inline]
     pub fn set_pull(&mut self, pull: Pull) {
         unsafe {
-            self.pin.pad_ctrl().write(|w| {
+            self.pin.pad_ctrl().modify(|w| {
                 w.set_ie(true);
-                match pull {
-                    Pull::Up => w.set_pue(true),
-                    Pull::Down => w.set_pde(true),
-                    Pull::None => {}
-                }
+                let (pu, pd) = match pull {
+                    Pull::Up => (true, false),
+                    Pull::Down => (false, true),
+                    Pull::None => (false, false),
+                };
+                w.set_pue(pu);
+                w.set_pde(pd);
+            });
+        }
+    }
+
+    /// Set the pin's drive strength.
+    #[inline]
+    pub fn set_drive_strength(&mut self, strength: Drive) {
+        unsafe {
+            self.pin.pad_ctrl().modify(|w| {
+                w.set_drive(match strength {
+                    Drive::_2mA => pac::pads::vals::Drive::_2MA,
+                    Drive::_4mA => pac::pads::vals::Drive::_4MA,
+                    Drive::_8mA => pac::pads::vals::Drive::_8MA,
+                    Drive::_12mA => pac::pads::vals::Drive::_12MA,
+                });
+            });
+        }
+    }
+
+    // Set the pin's slew rate.
+    #[inline]
+    pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
+        unsafe {
+            self.pin.pad_ctrl().modify(|w| {
+                w.set_slewfast(slew_rate == SlewRate::Fast);
             });
         }
     }
