@@ -36,19 +36,12 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use atomic_polyfill::AtomicBool;
 
 use crate::interrupt::{Interrupt, InterruptExt};
+use crate::peripherals::CORE1;
 use crate::{interrupt, pac};
 
 const PAUSE_TOKEN: u32 = 0xDEADBEEF;
 const RESUME_TOKEN: u32 = !0xDEADBEEF;
 static IS_CORE1_INIT: AtomicBool = AtomicBool::new(false);
-
-/// Errors for multicore operations.
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Error {
-    /// Core was unresponsive to commands.
-    Unresponsive,
-}
 
 #[inline(always)]
 fn install_stack_guard(stack_bottom: *mut usize) {
@@ -81,43 +74,19 @@ fn core1_setup(stack_bottom: *mut usize) {
     install_stack_guard(stack_bottom);
 }
 
-/// MultiCore execution management.
-pub struct MultiCore {
-    pub cores: (Core0, Core1),
-}
-
-/// Data type for a properly aligned stack of N 32-bit (usize) words
+/// Data type for a properly aligned stack of N bytes
 #[repr(C, align(32))]
 pub struct Stack<const SIZE: usize> {
     /// Memory to be used for the stack
-    pub mem: [usize; SIZE],
+    pub mem: [u8; SIZE],
 }
 
 impl<const SIZE: usize> Stack<SIZE> {
     /// Construct a stack of length SIZE, initialized to 0
     pub const fn new() -> Stack<SIZE> {
-        Stack { mem: [0; SIZE] }
+        Stack { mem: [0_u8; SIZE] }
     }
 }
-
-impl MultiCore {
-    /// Create a new |MultiCore| instance.
-    pub fn new() -> Self {
-        Self {
-            cores: (Core0 {}, Core1 {}),
-        }
-    }
-
-    /// Get the available |Core| instances.
-    pub fn cores(&mut self) -> &mut (Core0, Core1) {
-        &mut self.cores
-    }
-}
-
-/// A handle for controlling a logical core.
-pub struct Core0 {}
-/// A handle for controlling a logical core.
-pub struct Core1 {}
 
 #[interrupt]
 #[link_section = ".data.ram_func"]
@@ -143,117 +112,113 @@ unsafe fn SIO_IRQ_PROC1() {
     }
 }
 
-impl Core1 {
-    /// Spawn a function on this core
-    pub fn spawn<F>(&mut self, stack: &'static mut [usize], entry: F) -> Result<(), Error>
-    where
-        F: FnOnce() -> bad::Never + Send + 'static,
-    {
-        // The first two ignored `u64` parameters are there to take up all of the registers,
-        // which means that the rest of the arguments are taken from the stack,
-        // where we're able to put them from core 0.
-        extern "C" fn core1_startup<F: FnOnce() -> bad::Never>(
-            _: u64,
-            _: u64,
-            entry: &mut ManuallyDrop<F>,
-            stack_bottom: *mut usize,
-        ) -> ! {
-            core1_setup(stack_bottom);
-            let entry = unsafe { ManuallyDrop::take(entry) };
-            // Signal that it's safe for core 0 to get rid of the original value now.
-            fifo_write(1);
+/// Spawn a function on this core
+pub fn spawn_core1<F, const SIZE: usize>(_core1: CORE1, stack: &'static mut Stack<SIZE>, entry: F)
+where
+    F: FnOnce() -> bad::Never + Send + 'static,
+{
+    // The first two ignored `u64` parameters are there to take up all of the registers,
+    // which means that the rest of the arguments are taken from the stack,
+    // where we're able to put them from core 0.
+    extern "C" fn core1_startup<F: FnOnce() -> bad::Never>(
+        _: u64,
+        _: u64,
+        entry: &mut ManuallyDrop<F>,
+        stack_bottom: *mut usize,
+    ) -> ! {
+        core1_setup(stack_bottom);
+        let entry = unsafe { ManuallyDrop::take(entry) };
+        // Signal that it's safe for core 0 to get rid of the original value now.
+        fifo_write(1);
 
-            IS_CORE1_INIT.store(true, Ordering::Release);
-            // Enable fifo interrupt on CORE1 for `pause` functionality.
-            let irq = unsafe { interrupt::SIO_IRQ_PROC1::steal() };
-            irq.enable();
+        IS_CORE1_INIT.store(true, Ordering::Release);
+        // Enable fifo interrupt on CORE1 for `pause` functionality.
+        let irq = unsafe { interrupt::SIO_IRQ_PROC1::steal() };
+        irq.enable();
 
-            entry()
-        }
-
-        // Reset the core
-        unsafe {
-            let psm = pac::PSM;
-            psm.frce_off().modify(|w| w.set_proc1(true));
-            while !psm.frce_off().read().proc1() {
-                cortex_m::asm::nop();
-            }
-            psm.frce_off().modify(|w| w.set_proc1(false));
-        }
-
-        // Set up the stack
-        let mut stack_ptr = unsafe { stack.as_mut_ptr().add(stack.len()) };
-
-        // We don't want to drop this, since it's getting moved to the other core.
-        let mut entry = ManuallyDrop::new(entry);
-
-        // Push the arguments to `core1_startup` onto the stack.
-        unsafe {
-            // Push `stack_bottom`.
-            stack_ptr = stack_ptr.sub(1);
-            stack_ptr.cast::<*mut usize>().write(stack.as_mut_ptr());
-
-            // Push `entry`.
-            stack_ptr = stack_ptr.sub(1);
-            stack_ptr.cast::<&mut ManuallyDrop<F>>().write(&mut entry);
-        }
-
-        // Make sure the compiler does not reorder the stack writes after to after the
-        // below FIFO writes, which would result in them not being seen by the second
-        // core.
-        //
-        // From the compiler perspective, this doesn't guarantee that the second core
-        // actually sees those writes. However, we know that the RP2040 doesn't have
-        // memory caches, and writes happen in-order.
-        compiler_fence(Ordering::Release);
-
-        let p = unsafe { cortex_m::Peripherals::steal() };
-        let vector_table = p.SCB.vtor.read();
-
-        // After reset, core 1 is waiting to receive commands over FIFO.
-        // This is the sequence to have it jump to some code.
-        let cmd_seq = [
-            0,
-            0,
-            1,
-            vector_table as usize,
-            stack_ptr as usize,
-            core1_startup::<F> as usize,
-        ];
-
-        let mut seq = 0;
-        let mut fails = 0;
-        loop {
-            let cmd = cmd_seq[seq] as u32;
-            if cmd == 0 {
-                fifo_drain();
-                cortex_m::asm::sev();
-            }
-            fifo_write(cmd);
-
-            let response = fifo_read();
-            if cmd == response {
-                seq += 1;
-            } else {
-                seq = 0;
-                fails += 1;
-                if fails > 16 {
-                    // The second core isn't responding, and isn't going to take the entrypoint,
-                    // so we have to drop it ourselves.
-                    drop(ManuallyDrop::into_inner(entry));
-                    return Err(Error::Unresponsive);
-                }
-            }
-            if seq >= cmd_seq.len() {
-                break;
-            }
-        }
-
-        // Wait until the other core has copied `entry` before returning.
-        fifo_read();
-
-        Ok(())
+        entry()
     }
+
+    // Reset the core
+    unsafe {
+        let psm = pac::PSM;
+        psm.frce_off().modify(|w| w.set_proc1(true));
+        while !psm.frce_off().read().proc1() {
+            cortex_m::asm::nop();
+        }
+        psm.frce_off().modify(|w| w.set_proc1(false));
+    }
+
+    let mem = unsafe { core::slice::from_raw_parts_mut(stack.mem.as_mut_ptr() as *mut usize, stack.mem.len() / 4) };
+
+    // Set up the stack
+    let mut stack_ptr = unsafe { mem.as_mut_ptr().add(mem.len()) };
+
+    // We don't want to drop this, since it's getting moved to the other core.
+    let mut entry = ManuallyDrop::new(entry);
+
+    // Push the arguments to `core1_startup` onto the stack.
+    unsafe {
+        // Push `stack_bottom`.
+        stack_ptr = stack_ptr.sub(1);
+        stack_ptr.cast::<*mut usize>().write(mem.as_mut_ptr());
+
+        // Push `entry`.
+        stack_ptr = stack_ptr.sub(1);
+        stack_ptr.cast::<&mut ManuallyDrop<F>>().write(&mut entry);
+    }
+
+    // Make sure the compiler does not reorder the stack writes after to after the
+    // below FIFO writes, which would result in them not being seen by the second
+    // core.
+    //
+    // From the compiler perspective, this doesn't guarantee that the second core
+    // actually sees those writes. However, we know that the RP2040 doesn't have
+    // memory caches, and writes happen in-order.
+    compiler_fence(Ordering::Release);
+
+    let p = unsafe { cortex_m::Peripherals::steal() };
+    let vector_table = p.SCB.vtor.read();
+
+    // After reset, core 1 is waiting to receive commands over FIFO.
+    // This is the sequence to have it jump to some code.
+    let cmd_seq = [
+        0,
+        0,
+        1,
+        vector_table as usize,
+        stack_ptr as usize,
+        core1_startup::<F> as usize,
+    ];
+
+    let mut seq = 0;
+    let mut fails = 0;
+    loop {
+        let cmd = cmd_seq[seq] as u32;
+        if cmd == 0 {
+            fifo_drain();
+            cortex_m::asm::sev();
+        }
+        fifo_write(cmd);
+
+        let response = fifo_read();
+        if cmd == response {
+            seq += 1;
+        } else {
+            seq = 0;
+            fails += 1;
+            if fails > 16 {
+                // The second core isn't responding, and isn't going to take the entrypoint
+                panic!("CORE1 not responding");
+            }
+        }
+        if seq >= cmd_seq.len() {
+            break;
+        }
+    }
+
+    // Wait until the other core has copied `entry` before returning.
+    fifo_read();
 }
 
 /// Pause execution on CORE1.

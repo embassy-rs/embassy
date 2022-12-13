@@ -106,6 +106,8 @@ embassy_hal_common::peripherals! {
     FLASH,
 
     ADC,
+
+    CORE1,
 }
 
 #[link_section = ".boot2"]
