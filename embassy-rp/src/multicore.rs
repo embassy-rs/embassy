@@ -1,4 +1,4 @@
-//! MultiCore support
+//! Multicore support
 //!
 //! This module handles setup of the 2nd cpu core on the rp2040, which we refer to as core1.
 //! It provides functionality for setting up the stack, and starting core1.
@@ -7,6 +7,28 @@
 //!
 //! Enable the `critical-section-impl` feature in embassy-rp when sharing data across cores using
 //! the `embassy-sync` primitives and `CriticalSectionRawMutex`.
+//!
+//! # Usage
+//! ```no_run
+//! static mut CORE1_STACK: Stack<4096> = Stack::new();
+//! static EXECUTOR0: StaticCell<Executor> = StaticCell::new();
+//! static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
+//!
+//! #[cortex_m_rt::entry]
+//! fn main() -> ! {
+//!     let p = embassy_rp::init(Default::default());
+//!
+//!     let mut mc = MultiCore::new();
+//!     let _ = mc.cores.1.spawn(unsafe { &mut CORE1_STACK.mem }, move || {
+//!         let executor1 = EXECUTOR1.init(Executor::new());
+//!         executor1.run(|spawner| unwrap!(spawner.spawn(core1_task())));
+//!     });
+//!
+//!     let executor0 = EXECUTOR0.init(Executor::new());
+//!     executor0.run(|spawner| unwrap!(spawner.spawn(core0_task())));
+//! }
+//! ```
+//!
 
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -26,14 +48,6 @@ static IS_CORE1_INIT: AtomicBool = AtomicBool::new(false);
 pub enum Error {
     /// Core was unresponsive to commands.
     Unresponsive,
-}
-
-/// Core ID
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum CoreId {
-    Core0,
-    Core1,
 }
 
 #[inline(always)]
