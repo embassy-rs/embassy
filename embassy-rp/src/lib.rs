@@ -116,7 +116,7 @@ embassy_hal_common::peripherals! {
     ADC,
 
     CORE1,
-    
+
     PIO0,
     PIO1,
 }
