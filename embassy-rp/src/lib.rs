@@ -5,6 +5,9 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+#[cfg(feature = "critical-section-impl")]
+mod critical_section_impl;
+
 mod intrinsics;
 
 pub mod adc;
@@ -31,6 +34,7 @@ pub mod usb;
 
 pub mod clocks;
 pub mod flash;
+pub mod multicore;
 mod reset;
 
 // Reexports
@@ -110,6 +114,8 @@ embassy_hal_common::peripherals! {
     FLASH,
 
     ADC,
+
+    CORE1,
 
     PIO0,
     PIO1,

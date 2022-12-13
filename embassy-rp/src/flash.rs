@@ -6,6 +6,7 @@ use embedded_storage::nor_flash::{
     ReadNorFlash,
 };
 
+use crate::pac;
 use crate::peripherals::FLASH;
 
 pub const FLASH_BASE: usize = 0x10000000;
@@ -28,6 +29,7 @@ pub enum Error {
     OutOfBounds,
     /// Unaligned operation or using unaligned buffers.
     Unaligned,
+    InvalidCore,
     Other,
 }
 
@@ -46,7 +48,7 @@ impl NorFlashError for Error {
         match self {
             Self::OutOfBounds => NorFlashErrorKind::OutOfBounds,
             Self::Unaligned => NorFlashErrorKind::NotAligned,
-            Self::Other => NorFlashErrorKind::Other,
+            _ => NorFlashErrorKind::Other,
         }
     }
 }
@@ -87,7 +89,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
 
         let len = to - from;
 
-        unsafe { self.in_ram(|| ram_helpers::flash_range_erase(from, len, true)) };
+        unsafe { self.in_ram(|| ram_helpers::flash_range_erase(from, len, true))? };
 
         Ok(())
     }
@@ -112,7 +114,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
 
             let unaligned_offset = offset as usize - start;
 
-            unsafe { self.in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf, true)) }
+            unsafe { self.in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf, true))? }
         }
 
         let remaining_len = bytes.len() - start_padding;
@@ -130,12 +132,12 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
             if bytes.as_ptr() as usize >= 0x2000_0000 {
                 let aligned_data = &bytes[start_padding..end_padding];
 
-                unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, aligned_data, true)) }
+                unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, aligned_data, true))? }
             } else {
                 for chunk in bytes[start_padding..end_padding].chunks_exact(PAGE_SIZE) {
                     let mut ram_buf = [0xFF_u8; PAGE_SIZE];
                     ram_buf.copy_from_slice(chunk);
-                    unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, &ram_buf, true)) }
+                    unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, &ram_buf, true))? }
                     aligned_offset += PAGE_SIZE;
                 }
             }
@@ -150,7 +152,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
 
             let unaligned_offset = end_offset - (PAGE_SIZE - rem_offset);
 
-            unsafe { self.in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf, true)) }
+            unsafe { self.in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf, true))? }
         }
 
         Ok(())
@@ -159,10 +161,17 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
     /// Make sure to uphold the contract points with rp2040-flash.
     /// - interrupts must be disabled
     /// - DMA must not access flash memory
-    unsafe fn in_ram(&mut self, operation: impl FnOnce()) {
+    unsafe fn in_ram(&mut self, operation: impl FnOnce()) -> Result<(), Error> {
         let dma_status = &mut [false; crate::dma::CHANNEL_COUNT];
 
-        // TODO: Make sure CORE1 is paused during the entire duration of the RAM function
+        // Make sure we're running on CORE0
+        let core_id: u32 = unsafe { pac::SIO.cpuid().read() };
+        if core_id != 0 {
+            return Err(Error::InvalidCore);
+        }
+
+        // Make sure CORE1 is paused during the entire duration of the RAM function
+        crate::multicore::pause_core1();
 
         critical_section::with(|_| {
             // Pause all DMA channels for the duration of the ram operation
@@ -185,6 +194,10 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
                 }
             }
         });
+
+        // Resume CORE1 execution
+        crate::multicore::resume_core1();
+        Ok(())
     }
 }
 
