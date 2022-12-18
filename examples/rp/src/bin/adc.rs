@@ -27,7 +27,9 @@ async fn main(_spawner: Spawner) {
         let level = adc.read(&mut p28).await;
         info!("Pin 28 ADC: {}", level);
         let temp = adc.read_temperature().await;
-        info!("Temp: {}", temp);
+        // According to chapter 4.9.5. Temperature Sensor in RP2040 datasheet
+        let temp: f32 = 27.0 - (temp as f32 * 3.3 / 4096.0 -0.706)/0.001721;
+        info!("Temp: {} degrees", temp);
         Timer::after(Duration::from_secs(1)).await;
     }
 }
