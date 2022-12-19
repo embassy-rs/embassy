@@ -137,6 +137,14 @@ impl<'a> Writer<'a> {
 
     /// Get a buffer where data can be pushed to.
     ///
+    /// Equivalent to [`Self::push_buf`] but returns a slice.
+    pub fn push_slice(&mut self) -> &mut [u8] {
+        let (data, len) = self.push_buf();
+        unsafe { slice::from_raw_parts_mut(data, len) }
+    }
+
+    /// Get a buffer where data can be pushed to.
+    ///
     /// Write data to the start of the buffer, then call `push_done` with
     /// however many bytes you've pushed.
     ///
@@ -202,6 +210,14 @@ impl<'a> Reader<'a> {
             }
         });
         res
+    }
+
+    /// Get a buffer where data can be popped from.
+    ///
+    /// Equivalent to [`Self::pop_buf`] but returns a slice.
+    pub fn pop_slice(&mut self) -> &mut [u8] {
+        let (data, len) = self.pop_buf();
+        unsafe { slice::from_raw_parts_mut(data, len) }
     }
 
     /// Get a buffer where data can be popped from.
