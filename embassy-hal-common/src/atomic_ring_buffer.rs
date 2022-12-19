@@ -82,10 +82,11 @@ impl RingBuffer {
     }
 
     pub fn is_full(&self) -> bool {
+        let len = self.len.load(Ordering::Relaxed);
         let start = self.start.load(Ordering::Relaxed);
         let end = self.end.load(Ordering::Relaxed);
 
-        self.wrap(end + 1) == start
+        len == 0 || self.wrap(end + 1) == start
     }
 
     pub fn is_empty(&self) -> bool {
@@ -154,7 +155,7 @@ impl<'a> Writer<'a> {
         let end = self.0.end.load(Ordering::Relaxed);
 
         let n = if start <= end {
-            len - end - (start == 0) as usize
+            len - end - (start == 0 && len != 0) as usize
         } else {
             start - end - 1
         };
@@ -326,6 +327,25 @@ mod tests {
 
             assert_eq!(rb.is_empty(), false);
             assert_eq!(rb.is_full(), true);
+        }
+    }
+
+    #[test]
+    fn zero_len() {
+        let rb = RingBuffer::new();
+        unsafe {
+            assert_eq!(rb.is_empty(), true);
+            assert_eq!(rb.is_full(), true);
+
+            rb.writer().push(|buf| {
+                assert_eq!(0, buf.len());
+                0
+            });
+
+            rb.reader().pop(|buf| {
+                assert_eq!(0, buf.len());
+                0
+            });
         }
     }
 }
