@@ -126,6 +126,13 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
 
         Self { phantom: PhantomData }
     }
+
+    pub fn split(&mut self) -> (BufferedUartRx<'d, T>, BufferedUartTx<'d, T>) {
+        (
+            BufferedUartRx { phantom: PhantomData },
+            BufferedUartTx { phantom: PhantomData },
+        )
+    }
 }
 
 impl<'d, T: Instance> BufferedUartRx<'d, T> {
