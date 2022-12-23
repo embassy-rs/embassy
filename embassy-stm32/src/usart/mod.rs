@@ -2,9 +2,9 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use atomic_polyfill::{compiler_fence, Ordering};
 use embassy_cortex_m::interrupt::InterruptExt;
 use embassy_futures::select::{select, Either};
 use embassy_hal_common::drop::OnDrop;

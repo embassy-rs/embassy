@@ -1,4 +1,5 @@
-use atomic_polyfill::{AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU8, Ordering};
+
 use embedded_hal_02::blocking::delay::DelayUs;
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
