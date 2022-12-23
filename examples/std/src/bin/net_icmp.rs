@@ -79,7 +79,7 @@ async fn main_task(spawner: Spawner) {
     let mut tx_buffer = [0; 4096];
     let mut buf = [0; 4096];
 
-    // let mut socket = IcmpSocket::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
+    let mut socket = IcmpSocket::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
     // socket.bind(9400).unwrap();
 
     loop {

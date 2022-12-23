@@ -43,7 +43,7 @@ pub use smoltcp::wire::{Ipv6Address, Ipv6Cidr};
 #[cfg(feature = "udp")]
 pub use smoltcp::{socket::udp::PacketMetadata, wire::IpListenEndpoint};
 #[cfg(feature = "icmp")]
-// pub use smoltcp::{socket::icmp::PacketMetadata, wire::IpListenEndpoint};
+pub use smoltcp::{socket::icmp::PacketMetadata, wire::IpListenEndpoint};
 
 use crate::device::{Device, DeviceAdapter, LinkState};
 
