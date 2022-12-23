@@ -95,13 +95,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         into_ref!(peri, sck, mosi, miso);
         unsafe {
             sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
-            #[cfg(any(spi_v2, spi_v3, spi_v4))]
             sck.set_speed(crate::gpio::Speed::VeryHigh);
             mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
-            #[cfg(any(spi_v2, spi_v3, spi_v4))]
             mosi.set_speed(crate::gpio::Speed::VeryHigh);
             miso.set_as_af(miso.af_num(), AFType::Input);
-            #[cfg(any(spi_v2, spi_v3, spi_v4))]
             miso.set_speed(crate::gpio::Speed::VeryHigh);
         }
 
@@ -129,10 +126,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         into_ref!(sck, miso);
         unsafe {
             sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
-            #[cfg(any(spi_v2, spi_v3, spi_v4))]
             sck.set_speed(crate::gpio::Speed::VeryHigh);
             miso.set_as_af(miso.af_num(), AFType::Input);
-            #[cfg(any(spi_v2, spi_v3, spi_v4))]
             miso.set_speed(crate::gpio::Speed::VeryHigh);
         }
 
@@ -160,10 +155,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         into_ref!(sck, mosi);
         unsafe {
             sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
-            #[cfg(any(spi_v2, spi_v3, spi_v4))]
             sck.set_speed(crate::gpio::Speed::VeryHigh);
             mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
-            #[cfg(any(spi_v2, spi_v3, spi_v4))]
             mosi.set_speed(crate::gpio::Speed::VeryHigh);
         }
 
@@ -772,10 +765,13 @@ fn finish_dma(regs: Regs) {
         #[cfg(not(any(spi_v3, spi_v4)))]
         while regs.sr().read().bsy() {}
 
+        // Disable the spi peripheral
         regs.cr1().modify(|w| {
             w.set_spe(false);
         });
 
+        // The peripheral automatically disables the DMA stream on completion without error,
+        // but it does not clear the RXDMAEN/TXDMAEN flag in CR2.
         #[cfg(not(any(spi_v3, spi_v4)))]
         regs.cr2().modify(|reg| {
             reg.set_txdmaen(false);
