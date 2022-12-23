@@ -473,8 +473,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
-        let clock_byte = 0x00u8;
-        let tx_f = crate::dma::write_repeated(&mut self.txdma, tx_request, clock_byte, clock_byte_count, tx_dst);
+        let clock_byte = [0x00u8];
+        let tx_f = crate::dma::write_repeated(&mut self.txdma, tx_request, &clock_byte, clock_byte_count, tx_dst);
 
         unsafe {
             set_txdmaen(T::REGS, true);
