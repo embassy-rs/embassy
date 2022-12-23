@@ -59,7 +59,7 @@ pub(crate) mod sealed {
         unsafe fn start_write_repeated<W: super::Word>(
             &mut self,
             request: Request,
-            repeated: &[W; 1],
+            repeated: *const [W],
             count: usize,
             reg_addr: *mut W,
             options: TransferOptions,
@@ -246,7 +246,7 @@ mod transfers {
     pub fn write_repeated<'a, W: Word>(
         channel: impl Peripheral<P = impl Channel> + 'a,
         request: Request,
-        repeated: &[W; 1],
+        repeated: *const [W],
         count: usize,
         reg_addr: *mut W,
     ) -> impl Future<Output = ()> + 'a {
