@@ -1,8 +1,8 @@
 use core::cmp;
 use core::future::poll_fn;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use core::task::Poll;
 
-use atomic_polyfill::{AtomicUsize, Ordering};
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
@@ -131,7 +131,8 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         if isr.tcr() || isr.tc() {
             let state = T::state();
-            state.chunks_transferred.fetch_add(1, Ordering::Relaxed);
+            let transferred = state.chunks_transferred.load(Ordering::Relaxed);
+            state.chunks_transferred.store(transferred + 1, Ordering::Relaxed);
             state.waker.wake();
         }
         // The flag can only be cleared by writting to nbytes, we won't do that here, so disable

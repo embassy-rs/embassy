@@ -29,9 +29,7 @@
 //! ```
 
 use core::mem::ManuallyDrop;
-use core::sync::atomic::{compiler_fence, Ordering};
-
-use atomic_polyfill::AtomicBool;
+use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::peripherals::CORE1;

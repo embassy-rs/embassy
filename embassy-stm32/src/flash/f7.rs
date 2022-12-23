@@ -1,7 +1,6 @@
 use core::convert::TryInto;
 use core::ptr::write_volatile;
-
-use atomic_polyfill::{fence, Ordering};
+use core::sync::atomic::{fence, Ordering};
 
 use crate::flash::Error;
 use crate::pac;

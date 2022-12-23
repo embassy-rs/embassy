@@ -1,10 +1,9 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;
-use core::sync::atomic::Ordering;
+use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use atomic_polyfill::compiler_fence;
 use embassy_hal_common::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;

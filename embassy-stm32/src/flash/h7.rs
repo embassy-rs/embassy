@@ -41,7 +41,7 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
 
     cortex_m::asm::isb();
     cortex_m::asm::dsb();
-    atomic_polyfill::fence(atomic_polyfill::Ordering::SeqCst);
+    core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
     let ret = {
         let mut ret: Result<(), Error> = Ok(());
@@ -70,7 +70,7 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
 
     cortex_m::asm::isb();
     cortex_m::asm::dsb();
-    atomic_polyfill::fence(atomic_polyfill::Ordering::SeqCst);
+    core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
     ret
 }
