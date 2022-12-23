@@ -13,6 +13,8 @@ pub mod device;
 pub mod tcp;
 #[cfg(feature = "udp")]
 pub mod udp;
+#[cfg(feature = "icmp")]
+pub mod icmp;
 
 use core::cell::RefCell;
 use core::future::{poll_fn, Future};
@@ -40,6 +42,8 @@ pub use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
 pub use smoltcp::wire::{Ipv6Address, Ipv6Cidr};
 #[cfg(feature = "udp")]
 pub use smoltcp::{socket::udp::PacketMetadata, wire::IpListenEndpoint};
+#[cfg(feature = "icmp")]
+// pub use smoltcp::{socket::icmp::PacketMetadata, wire::IpListenEndpoint};
 
 use crate::device::{Device, DeviceAdapter, LinkState};
 

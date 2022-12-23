@@ -20,6 +20,7 @@ defmt = ["dep:defmt", "smoltcp/defmt"]
 nightly = ["dep:embedded-io", "embedded-io?/async", "dep:embedded-nal-async"]
 unstable-traits = []
 
+icmp = ["smoltcp/socket-icmp"]
 udp = ["smoltcp/socket-udp"]
 tcp = ["smoltcp/socket-tcp"]
 dns = ["smoltcp/socket-dns"]
