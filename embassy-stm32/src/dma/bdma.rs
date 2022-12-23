@@ -78,7 +78,7 @@ foreach_dma_channel! {
                 );
             }
 
-            unsafe fn start_write_repeated<W: Word>(&mut self, _request: Request, repeated: *const [W], count: usize, reg_addr: *mut W, options: TransferOptions) {
+            unsafe fn start_write_repeated<W: Word>(&mut self, _request: Request, repeated: *const W, count: usize, reg_addr: *mut W, options: TransferOptions) {
                 low_level_api::start_transfer(
                     pac::$dma_peri,
                     $channel_num,
