@@ -36,6 +36,7 @@ pub mod clocks;
 pub mod flash;
 pub mod multicore;
 mod reset;
+pub mod watchdog;
 
 // Reexports
 
@@ -119,6 +120,8 @@ embassy_hal_common::peripherals! {
 
     PIO0,
     PIO1,
+
+    WATCHDOG,
 }
 
 #[link_section = ".boot2"]
