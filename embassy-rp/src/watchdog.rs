@@ -14,12 +14,12 @@ use crate::pac;
 use crate::peripherals::WATCHDOG;
 
 /// Watchdog peripheral
-pub struct Watchdog<'d> {
-    phantom: PhantomData<&'d WATCHDOG>,
+pub struct Watchdog {
+    phantom: PhantomData<WATCHDOG>,
     load_value: u32, // decremented by 2 per tick (µs)
 }
 
-impl<'d> Watchdog<'d> {
+impl Watchdog {
     /// Create a new `Watchdog`
     pub fn new(_watchdog: WATCHDOG) -> Self {
         Self {
@@ -35,12 +35,12 @@ impl<'d> Watchdog<'d> {
     /// * `cycles` - Total number of tick cycles before the next tick is generated.
     ///   It is expected to be the frequency in MHz of clk_ref.
     pub fn enable_tick_generation(&mut self, cycles: u8) {
-        const WATCHDOG_TICK_ENABLE_BITS: u32 = 0x200;
         unsafe {
             let watchdog = pac::WATCHDOG;
-            watchdog
-                .tick()
-                .write_value(pac::watchdog::regs::Tick(WATCHDOG_TICK_ENABLE_BITS | cycles as u32))
+            watchdog.tick().write(|w| {
+                w.set_enable(true);
+                w.set_cycles(cycles.into())
+            });
         }
     }
 
