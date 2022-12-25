@@ -473,6 +473,16 @@ impl_pin!(PIN_16, SPI0, MisoPin);
 impl_pin!(PIN_17, SPI0, CsPin);
 impl_pin!(PIN_18, SPI0, ClkPin);
 impl_pin!(PIN_19, SPI0, MosiPin);
+impl_pin!(PIN_20, SPI0, MisoPin);
+impl_pin!(PIN_21, SPI0, CsPin);
+impl_pin!(PIN_22, SPI0, ClkPin);
+impl_pin!(PIN_23, SPI0, MosiPin);
+impl_pin!(PIN_24, SPI1, MisoPin);
+impl_pin!(PIN_25, SPI1, CsPin);
+impl_pin!(PIN_26, SPI1, ClkPin);
+impl_pin!(PIN_27, SPI1, MosiPin);
+impl_pin!(PIN_28, SPI1, MisoPin);
+impl_pin!(PIN_29, SPI1, CsPin);
 
 macro_rules! impl_mode {
     ($name:ident) => {
