@@ -1071,12 +1071,14 @@ where
     }
 
     #[allow(unused)]
-    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u32]) {
+    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
         // It seems the HW force-aligns the addr
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
         // To simplify, enforce 4-align for now.
         assert!(addr % 4 == 0);
+
+        let mut buf = [0u32; BACKPLANE_MAX_TRANSFER_SIZE / 4];
 
         while !data.is_empty() {
             // Ensure transfer doesn't cross a window boundary.
@@ -1097,15 +1099,17 @@ where
                 bus.read(&mut junk).await?;
 
                 // Read data
-                bus.read(&mut data[..len / 4]).await?;
+                bus.read(&mut buf[..(len + 3) / 4]).await?;
                 Ok(())
             })
             .await
             .unwrap();
 
+            data[..len].copy_from_slice(&slice8_mut(&mut buf)[..len]);
+
             // Advance ptr.
             addr += len as u32;
-            data = &mut data[len / 4..];
+            data = &mut data[len..];
         }
     }
 
