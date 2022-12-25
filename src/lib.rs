@@ -858,7 +858,10 @@ where
 
                 if let IoctlState::Sent { buf } = self.state.ioctl_state.get() {
                     if cdc_header.id == self.ioctl_id {
-                        assert_eq!(cdc_header.status, 0); // todo propagate error instead
+                        if cdc_header.status != 0 {
+                            // TODO: propagate error instead
+                            panic!("IOCTL error {=i32}", cdc_header.status as i32);
+                        }
 
                         let resp_len = cdc_header.len as usize;
                         info!("IOCTL Response: {:02x}", &payload[CdcHeader::SIZE..][..resp_len]);
