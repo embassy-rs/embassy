@@ -21,6 +21,32 @@ macro_rules! impl_bytes {
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
+pub struct SharedMemData {
+    pub flags: u32,
+    pub trap_addr: u32,
+    pub assert_exp_addr: u32,
+    pub assert_file_addr: u32,
+    pub assert_line: u32,
+    pub console_addr: u32,
+    pub msgtrace_addr: u32,
+    pub fwid: u32,
+}
+impl_bytes!(SharedMemData);
+
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C)]
+pub struct SharedMemLog {
+    pub buf: u32,
+    pub buf_size: u32,
+    pub idx: u32,
+    pub out_idx: u32,
+}
+impl_bytes!(SharedMemLog);
+
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C)]
 pub struct SdpcmHeader {
     pub len: u16,
     pub len_inv: u16,

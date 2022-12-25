@@ -7,6 +7,9 @@ edition = "2021"
 defmt = ["dep:defmt"]
 log = ["dep:log"]
 
+# Fetch console logs from the WiFi firmware and forward them to `log` or `defmt`.
+firmware-logs = []
+
 [dependencies]
 embassy-time = { version = "0.1.0" }
 embassy-sync = { version = "0.1.0" }

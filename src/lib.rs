@@ -575,6 +575,17 @@ pub struct Runner<'a, PWR, SPI> {
     backplane_window: u32,
 
     sdpcm_seq_max: u8,
+
+    #[cfg(feature = "firmware-logs")]
+    log: LogState,
+}
+
+#[cfg(feature = "firmware-logs")]
+struct LogState {
+    addr: u32,
+    last_idx: usize,
+    buf: [u8; 256],
+    buf_count: usize,
 }
 
 pub async fn new<'a, PWR, SPI>(
@@ -598,6 +609,14 @@ where
         backplane_window: 0xAAAA_AAAA,
 
         sdpcm_seq_max: 1,
+
+        #[cfg(feature = "firmware-logs")]
+        log: LogState {
+            addr: 0,
+            last_idx: 0,
+            buf: [0; 256],
+            buf_count: 0,
+        },
     };
 
     runner.init(firmware).await;
@@ -715,12 +734,74 @@ where
         //while self.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
         //info!("clock ok");
 
+        #[cfg(feature = "firmware-logs")]
+        self.log_init().await;
+
         info!("init done ");
+    }
+
+    #[cfg(feature = "firmware-logs")]
+    async fn log_init(&mut self) {
+        // Initialize shared memory for logging.
+
+        let shared_addr = self
+            .bp_read32(CHIP.atcm_ram_base_address + CHIP.chip_ram_size - 4 - CHIP.socram_srmem_size)
+            .await;
+        info!("shared_addr {:08x}", shared_addr);
+
+        let mut shared = [0; SharedMemData::SIZE];
+        self.bp_read(shared_addr, &mut shared).await;
+        let shared = SharedMemData::from_bytes(&shared);
+        info!("shared: {:08x}", shared);
+
+        self.log.addr = shared.console_addr + 8;
+    }
+
+    #[cfg(feature = "firmware-logs")]
+    async fn log_read(&mut self) {
+        // Read log struct
+        let mut log = [0; SharedMemLog::SIZE];
+        self.bp_read(self.log.addr, &mut log).await;
+        let log = SharedMemLog::from_bytes(&log);
+
+        let idx = log.idx as usize;
+
+        // If pointer hasn't moved, no need to do anything.
+        if idx == self.log.last_idx {
+            return;
+        }
+
+        // Read entire buf for now. We could read only what we need, but then we
+        // run into annoying alignment issues in `bp_read`.
+        let mut buf = [0; 0x400];
+        self.bp_read(log.buf, &mut buf).await;
+
+        while self.log.last_idx != idx as usize {
+            let b = buf[self.log.last_idx];
+            if b == b'\r' || b == b'\n' {
+                if self.log.buf_count != 0 {
+                    let s = unsafe { core::str::from_utf8_unchecked(&self.log.buf[..self.log.buf_count]) };
+                    debug!("LOGS: {}", s);
+                    self.log.buf_count = 0;
+                }
+            } else if self.log.buf_count < self.log.buf.len() {
+                self.log.buf[self.log.buf_count] = b;
+                self.log.buf_count += 1;
+            }
+
+            self.log.last_idx += 1;
+            if self.log.last_idx == 0x400 {
+                self.log.last_idx = 0;
+            }
+        }
     }
 
     pub async fn run(mut self) -> ! {
         let mut buf = [0; 512];
         loop {
+            #[cfg(feature = "firmware-logs")]
+            self.log_read().await;
+
             // Send stuff
             // TODO flow control not yet complete
             if !self.has_credit() {
