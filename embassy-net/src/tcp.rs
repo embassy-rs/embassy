@@ -329,8 +329,8 @@ pub mod client {
     use core::cell::UnsafeCell;
     use core::mem::MaybeUninit;
     use core::ptr::NonNull;
-    use core::sync::atomic::{AtomicBool, Ordering};
 
+    use atomic_polyfill::{AtomicBool, Ordering};
     use embedded_nal_async::IpAddr;
 
     use super::*;

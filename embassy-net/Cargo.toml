@@ -45,6 +45,7 @@ stable_deref_trait = { version = "1.2.0", default-features = false }
 futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
 atomic-pool = "1.0"
 embedded-nal-async = { version = "0.3.0", optional = true }
+atomic-polyfill = { version = "1.0" }
 
 [dependencies.smoltcp]
 version = "0.8.0"
