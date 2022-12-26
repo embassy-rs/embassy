@@ -8,14 +8,14 @@ license = "MIT OR Apache-2.0"
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = ["pool-4", "defmt", "tcp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip"]
+features = ["defmt", "tcp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip"]
 target = "thumbv7em-none-eabi"
 
 [features]
 default = []
 std = []
 
-defmt = ["dep:defmt", "smoltcp/defmt"]
+defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt"]
 
 nightly = ["dep:embedded-io", "embedded-io?/async", "dep:embedded-nal-async"]
 unstable-traits = []
@@ -28,18 +28,12 @@ proto-ipv6 = ["smoltcp/proto-ipv6"]
 medium-ethernet = ["smoltcp/medium-ethernet"]
 medium-ip = ["smoltcp/medium-ip"]
 
-pool-4 = []
-pool-8 = []
-pool-16 = []
-pool-32 = []
-pool-64 = []
-pool-128 = []
-
 [dependencies]
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
+embassy-net-driver = { version = "0.1.0", path = "../embassy-net-driver" }
 embassy-time = { version = "0.1.0", path = "../embassy-time" }
 embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
 embedded-io = { version = "0.4.0", optional = true }
@@ -52,6 +46,7 @@ stable_deref_trait = { version = "1.2.0", default-features = false }
 futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
 atomic-pool = "1.0"
 embedded-nal-async = { version = "0.3.0", optional = true }
+atomic-polyfill = { version = "1.0" }
 
 [dependencies.smoltcp]
 version = "0.8.0"

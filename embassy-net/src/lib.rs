@@ -18,6 +18,7 @@ use core::cell::RefCell;
 use core::future::{poll_fn, Future};
 use core::task::{Context, Poll};
 
+use embassy_net_driver::{Driver, LinkState, Medium};
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 use futures::pin_mut;
@@ -27,8 +28,6 @@ use smoltcp::iface::SocketHandle;
 use smoltcp::iface::{Interface, InterfaceBuilder, SocketSet, SocketStorage};
 #[cfg(feature = "medium-ethernet")]
 use smoltcp::iface::{Neighbor, NeighborCache, Route, Routes};
-#[cfg(feature = "medium-ethernet")]
-use smoltcp::phy::Medium;
 #[cfg(feature = "dhcpv4")]
 use smoltcp::socket::dhcpv4;
 // smoltcp reexports
@@ -41,7 +40,7 @@ pub use smoltcp::wire::{Ipv6Address, Ipv6Cidr};
 #[cfg(feature = "udp")]
 pub use smoltcp::{socket::udp::PacketMetadata, wire::IpListenEndpoint};
 
-use crate::device::{Device, DeviceAdapter, LinkState};
+use crate::device::DriverAdapter;
 
 const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
@@ -82,12 +81,12 @@ pub enum ConfigStrategy {
     Dhcp,
 }
 
-pub struct Stack<D: Device> {
+pub struct Stack<D: Driver> {
     pub(crate) socket: RefCell<SocketStack>,
     inner: RefCell<Inner<D>>,
 }
 
-struct Inner<D: Device> {
+struct Inner<D: Driver> {
     device: D,
     link_up: bool,
     config: Option<Config>,
@@ -102,7 +101,7 @@ pub(crate) struct SocketStack {
     next_local_port: u16,
 }
 
-impl<D: Device + 'static> Stack<D> {
+impl<D: Driver + 'static> Stack<D> {
     pub fn new<const ADDR: usize, const SOCK: usize, const NEIGH: usize>(
         mut device: D,
         config: ConfigStrategy,
@@ -130,7 +129,7 @@ impl<D: Device + 'static> Stack<D> {
             b = b.routes(Routes::new(&mut resources.routes[..]));
         }
 
-        let iface = b.finalize(&mut DeviceAdapter {
+        let iface = b.finalize(&mut DriverAdapter {
             inner: &mut device,
             cx: None,
         });
@@ -211,7 +210,7 @@ impl SocketStack {
     }
 }
 
-impl<D: Device + 'static> Inner<D> {
+impl<D: Driver + 'static> Inner<D> {
     fn apply_config(&mut self, s: &mut SocketStack, config: Config) {
         #[cfg(feature = "medium-ethernet")]
         let medium = self.device.capabilities().medium;
@@ -263,7 +262,7 @@ impl<D: Device + 'static> Inner<D> {
         s.waker.register(cx.waker());
 
         let timestamp = instant_to_smoltcp(Instant::now());
-        let mut smoldev = DeviceAdapter {
+        let mut smoldev = DriverAdapter {
             cx: Some(cx),
             inner: &mut self.device,
         };

@@ -69,6 +69,7 @@ jobs:
           builder ./embassy-futures crates/embassy-futures/git.zup
           builder ./embassy-lora crates/embassy-lora/git.zup
           builder ./embassy-net crates/embassy-net/git.zup
+          builder ./embassy-net-driver crates/embassy-net-driver/git.zup
           builder ./embassy-nrf crates/embassy-nrf/git.zup
           builder ./embassy-rp crates/embassy-rp/git.zup
           builder ./embassy-sync crates/embassy-sync/git.zup

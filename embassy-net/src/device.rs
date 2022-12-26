@@ -1,93 +1,20 @@
 use core::task::Context;
 
+use embassy_net_driver::{Capabilities, Checksum, Driver, Medium, RxToken, TxToken};
 use smoltcp::phy;
-pub use smoltcp::phy::{Checksum, ChecksumCapabilities, DeviceCapabilities, Medium};
 
-#[derive(PartialEq, Eq, Clone, Copy)]
-pub enum LinkState {
-    Down,
-    Up,
-}
-
-pub trait Device {
-    type RxToken<'a>: RxToken
-    where
-        Self: 'a;
-    type TxToken<'a>: TxToken
-    where
-        Self: 'a;
-
-    fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)>;
-    fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>>;
-    fn link_state(&mut self, cx: &mut Context) -> LinkState;
-
-    fn capabilities(&self) -> phy::DeviceCapabilities;
-    fn ethernet_address(&self) -> [u8; 6];
-}
-
-impl<T: ?Sized + Device> Device for &mut T {
-    type RxToken<'a> = T::RxToken<'a>
-    where
-        Self: 'a;
-    type TxToken<'a> = T::TxToken<'a>
-    where
-        Self: 'a;
-
-    fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>> {
-        T::transmit(self, cx)
-    }
-    fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        T::receive(self, cx)
-    }
-    fn capabilities(&self) -> phy::DeviceCapabilities {
-        T::capabilities(self)
-    }
-    fn link_state(&mut self, cx: &mut Context) -> LinkState {
-        T::link_state(self, cx)
-    }
-    fn ethernet_address(&self) -> [u8; 6] {
-        T::ethernet_address(self)
-    }
-}
-
-/// A token to receive a single network packet.
-pub trait RxToken {
-    /// Consumes the token to receive a single network packet.
-    ///
-    /// This method receives a packet and then calls the given closure `f` with the raw
-    /// packet bytes as argument.
-    fn consume<R, F>(self, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R;
-}
-
-/// A token to transmit a single network packet.
-pub trait TxToken {
-    /// Consumes the token to send a single network packet.
-    ///
-    /// This method constructs a transmit buffer of size `len` and calls the passed
-    /// closure `f` with a mutable reference to that buffer. The closure should construct
-    /// a valid network packet (e.g. an ethernet packet) in the buffer. When the closure
-    /// returns, the transmit buffer is sent out.
-    fn consume<R, F>(self, len: usize, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R;
-}
-
-///////////////////////////
-
-pub(crate) struct DeviceAdapter<'d, 'c, T>
+pub(crate) struct DriverAdapter<'d, 'c, T>
 where
-    T: Device,
+    T: Driver,
 {
     // must be Some when actually using this to rx/tx
     pub cx: Option<&'d mut Context<'c>>,
     pub inner: &'d mut T,
 }
 
-impl<'d, 'c, T> phy::Device for DeviceAdapter<'d, 'c, T>
+impl<'d, 'c, T> phy::Device for DriverAdapter<'d, 'c, T>
 where
-    T: Device,
+    T: Driver,
 {
     type RxToken<'a> = RxTokenAdapter<T::RxToken<'a>> where Self: 'a;
     type TxToken<'a> = TxTokenAdapter<T::TxToken<'a>> where Self: 'a;
@@ -105,7 +32,39 @@ where
 
     /// Get a description of device capabilities.
     fn capabilities(&self) -> phy::DeviceCapabilities {
-        self.inner.capabilities()
+        fn convert(c: Checksum) -> phy::Checksum {
+            match c {
+                Checksum::Both => phy::Checksum::Both,
+                Checksum::Tx => phy::Checksum::Tx,
+                Checksum::Rx => phy::Checksum::Rx,
+                Checksum::None => phy::Checksum::None,
+            }
+        }
+        let caps: Capabilities = self.inner.capabilities();
+        let mut smolcaps = phy::DeviceCapabilities::default();
+
+        smolcaps.max_transmission_unit = caps.max_transmission_unit;
+        smolcaps.max_burst_size = caps.max_burst_size;
+        smolcaps.medium = match caps.medium {
+            #[cfg(feature = "medium-ethernet")]
+            Medium::Ethernet => phy::Medium::Ethernet,
+            #[cfg(feature = "medium-ip")]
+            Medium::Ip => phy::Medium::Ip,
+            _ => panic!(
+                "Unsupported medium {:?}. MAke sure to enable it in embassy-net's Cargo features.",
+                caps.medium
+            ),
+        };
+        smolcaps.checksum.ipv4 = convert(caps.checksum.ipv4);
+        #[cfg(feature = "proto-ipv6")]
+        {
+            smolcaps.checksum.ipv6 = convert(caps.checksum.ipv6);
+        }
+        smolcaps.checksum.tcp = convert(caps.checksum.tcp);
+        smolcaps.checksum.udp = convert(caps.checksum.udp);
+        smolcaps.checksum.icmpv4 = convert(caps.checksum.icmpv4);
+
+        smolcaps
     }
 }
 

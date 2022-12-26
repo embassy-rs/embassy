@@ -39,7 +39,7 @@ embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-4"]}
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
-embassy-net = { version = "0.1.0", path = "../embassy-net", optional = true }
+embassy-net-driver = { version = "0.1.0", path = "../embassy-net-driver" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
@@ -75,7 +75,7 @@ quote = "1.0.15"
 stm32-metapac = { version = "0.1.0", path = "../stm32-metapac", default-features = false, features = ["metadata"]}
 
 [features]
-defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-executor/defmt", "embassy-embedded-hal/defmt", "embassy-hal-common/defmt", "embedded-io?/defmt", "embassy-usb-driver?/defmt"]
+defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-executor/defmt", "embassy-embedded-hal/defmt", "embassy-hal-common/defmt", "embedded-io?/defmt", "embassy-usb-driver?/defmt", "embassy-net-driver/defmt"]
 sdmmc-rs = ["embedded-sdmmc"]
 memory-x = ["stm32-metapac/memory-x"]
 subghz = []
