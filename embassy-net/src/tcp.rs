@@ -3,12 +3,12 @@ use core::future::poll_fn;
 use core::mem;
 use core::task::Poll;
 
+use embassy_net_driver::Driver;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::tcp;
 use smoltcp::time::Duration;
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 
-use crate::device::Device;
 use crate::{SocketStack, Stack};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -66,7 +66,7 @@ impl<'a> TcpWriter<'a> {
 }
 
 impl<'a> TcpSocket<'a> {
-    pub fn new<D: Device>(stack: &'a Stack<D>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Self {
+    pub fn new<D: Driver>(stack: &'a Stack<D>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Self {
         let s = &mut *stack.socket.borrow_mut();
         let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
         let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
@@ -336,19 +336,19 @@ pub mod client {
     use super::*;
 
     /// TCP client capable of creating up to N multiple connections with tx and rx buffers according to TX_SZ and RX_SZ.
-    pub struct TcpClient<'d, D: Device, const N: usize, const TX_SZ: usize = 1024, const RX_SZ: usize = 1024> {
+    pub struct TcpClient<'d, D: Driver, const N: usize, const TX_SZ: usize = 1024, const RX_SZ: usize = 1024> {
         stack: &'d Stack<D>,
         state: &'d TcpClientState<N, TX_SZ, RX_SZ>,
     }
 
-    impl<'d, D: Device, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpClient<'d, D, N, TX_SZ, RX_SZ> {
+    impl<'d, D: Driver, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpClient<'d, D, N, TX_SZ, RX_SZ> {
         /// Create a new TcpClient
         pub fn new(stack: &'d Stack<D>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Self {
             Self { stack, state }
         }
     }
 
-    impl<'d, D: Device, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_nal_async::TcpConnect
+    impl<'d, D: Driver, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_nal_async::TcpConnect
         for TcpClient<'d, D, N, TX_SZ, RX_SZ>
     {
         type Error = Error;
@@ -386,7 +386,7 @@ pub mod client {
     }
 
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpConnection<'d, N, TX_SZ, RX_SZ> {
-        fn new<D: Device>(stack: &'d Stack<D>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Result<Self, Error> {
+        fn new<D: Driver>(stack: &'d Stack<D>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Result<Self, Error> {
             let mut bufs = state.pool.alloc().ok_or(Error::ConnectionReset)?;
             Ok(Self {
                 socket: unsafe { TcpSocket::new(stack, &mut bufs.as_mut().0, &mut bufs.as_mut().1) },

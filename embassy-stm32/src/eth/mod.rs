@@ -1,13 +1,16 @@
 #![macro_use]
-#![cfg_attr(not(feature = "embassy-net"), allow(unused))]
 
 #[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), path = "v1/mod.rs")]
 #[cfg_attr(eth_v2, path = "v2/mod.rs")]
 mod _version;
 pub mod generic_smi;
 
-pub use _version::*;
+use core::task::Context;
+
+use embassy_net_driver::{Capabilities, LinkState};
 use embassy_sync::waitqueue::AtomicWaker;
+
+pub use self::_version::*;
 
 #[allow(unused)]
 const MTU: usize = 1514;
@@ -40,92 +43,84 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
-#[cfg(feature = "embassy-net")]
-mod embassy_net_impl {
-    use core::task::Context;
+impl<'d, T: Instance, P: PHY> embassy_net_driver::Driver for Ethernet<'d, T, P> {
+    type RxToken<'a> = RxToken<'a, 'd> where Self: 'a;
+    type TxToken<'a> = TxToken<'a, 'd> where Self: 'a;
 
-    use embassy_net::device::{Device, DeviceCapabilities, LinkState};
-
-    use super::*;
-
-    impl<'d, T: Instance, P: PHY> Device for Ethernet<'d, T, P> {
-        type RxToken<'a> = RxToken<'a, 'd> where Self: 'a;
-        type TxToken<'a> = TxToken<'a, 'd> where Self: 'a;
-
-        fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-            WAKER.register(cx.waker());
-            if self.rx.available().is_some() && self.tx.available().is_some() {
-                Some((RxToken { rx: &mut self.rx }, TxToken { tx: &mut self.tx }))
-            } else {
-                None
-            }
-        }
-
-        fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>> {
-            WAKER.register(cx.waker());
-            if self.tx.available().is_some() {
-                Some(TxToken { tx: &mut self.tx })
-            } else {
-                None
-            }
-        }
-
-        fn capabilities(&self) -> DeviceCapabilities {
-            let mut caps = DeviceCapabilities::default();
-            caps.max_transmission_unit = MTU;
-            caps.max_burst_size = Some(self.tx.len());
-            caps
-        }
-
-        fn link_state(&mut self, cx: &mut Context) -> LinkState {
-            // TODO: wake cx.waker on link state change
-            cx.waker().wake_by_ref();
-            if P::poll_link(self) {
-                LinkState::Up
-            } else {
-                LinkState::Down
-            }
-        }
-
-        fn ethernet_address(&self) -> [u8; 6] {
-            self.mac_addr
+    fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        WAKER.register(cx.waker());
+        if self.rx.available().is_some() && self.tx.available().is_some() {
+            Some((RxToken { rx: &mut self.rx }, TxToken { tx: &mut self.tx }))
+        } else {
+            None
         }
     }
 
-    pub struct RxToken<'a, 'd> {
-        rx: &'a mut RDesRing<'d>,
-    }
-
-    impl<'a, 'd> embassy_net::device::RxToken for RxToken<'a, 'd> {
-        fn consume<R, F>(self, f: F) -> R
-        where
-            F: FnOnce(&mut [u8]) -> R,
-        {
-            // NOTE(unwrap): we checked the queue wasn't full when creating the token.
-            let pkt = unwrap!(self.rx.available());
-            let r = f(pkt);
-            self.rx.pop_packet();
-            r
+    fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>> {
+        WAKER.register(cx.waker());
+        if self.tx.available().is_some() {
+            Some(TxToken { tx: &mut self.tx })
+        } else {
+            None
         }
     }
 
-    pub struct TxToken<'a, 'd> {
-        tx: &'a mut TDesRing<'d>,
+    fn capabilities(&self) -> Capabilities {
+        let mut caps = Capabilities::default();
+        caps.max_transmission_unit = MTU;
+        caps.max_burst_size = Some(self.tx.len());
+        caps
     }
 
-    impl<'a, 'd> embassy_net::device::TxToken for TxToken<'a, 'd> {
-        fn consume<R, F>(self, len: usize, f: F) -> R
-        where
-            F: FnOnce(&mut [u8]) -> R,
-        {
-            // NOTE(unwrap): we checked the queue wasn't full when creating the token.
-            let pkt = unwrap!(self.tx.available());
-            let r = f(&mut pkt[..len]);
-            self.tx.transmit(len);
-            r
+    fn link_state(&mut self, cx: &mut Context) -> LinkState {
+        // TODO: wake cx.waker on link state change
+        cx.waker().wake_by_ref();
+        if P::poll_link(self) {
+            LinkState::Up
+        } else {
+            LinkState::Down
         }
+    }
+
+    fn ethernet_address(&self) -> [u8; 6] {
+        self.mac_addr
     }
 }
+
+pub struct RxToken<'a, 'd> {
+    rx: &'a mut RDesRing<'d>,
+}
+
+impl<'a, 'd> embassy_net_driver::RxToken for RxToken<'a, 'd> {
+    fn consume<R, F>(self, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        // NOTE(unwrap): we checked the queue wasn't full when creating the token.
+        let pkt = unwrap!(self.rx.available());
+        let r = f(pkt);
+        self.rx.pop_packet();
+        r
+    }
+}
+
+pub struct TxToken<'a, 'd> {
+    tx: &'a mut TDesRing<'d>,
+}
+
+impl<'a, 'd> embassy_net_driver::TxToken for TxToken<'a, 'd> {
+    fn consume<R, F>(self, len: usize, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        // NOTE(unwrap): we checked the queue wasn't full when creating the token.
+        let pkt = unwrap!(self.tx.available());
+        let r = f(&mut pkt[..len]);
+        self.tx.transmit(len);
+        r
+    }
+}
+
 /// Station Management Interface (SMI) on an ethernet PHY
 ///
 /// # Safety

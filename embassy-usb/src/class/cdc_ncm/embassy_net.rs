@@ -3,7 +3,7 @@ use core::mem::MaybeUninit;
 use core::task::Context;
 
 use embassy_futures::select::{select, Either};
-use embassy_net::device::{Device as DeviceTrait, DeviceCapabilities, LinkState, Medium};
+use embassy_net_driver::{Capabilities, LinkState, Medium};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::waitqueue::WakerRegistration;
@@ -108,7 +108,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
     ) -> (Runner<'d, D, MTU>, Device<'d, MTU>) {
         let (tx_usb, rx_usb) = self.split();
 
-        let mut caps = DeviceCapabilities::default();
+        let mut caps = Capabilities::default();
         caps.max_transmission_unit = 1514; // 1500 IP + 14 ethernet header
         caps.medium = Medium::Ethernet;
 
@@ -158,11 +158,11 @@ pub struct Device<'d, const MTU: usize> {
     rx: zerocopy_channel::Receiver<'d, NoopRawMutex, PacketBuf<MTU>>,
     tx: zerocopy_channel::Sender<'d, NoopRawMutex, PacketBuf<MTU>>,
     link_state: &'d Mutex<NoopRawMutex, RefCell<LinkStateState>>,
-    caps: DeviceCapabilities,
+    caps: Capabilities,
     ethernet_address: [u8; 6],
 }
 
-impl<'d, const MTU: usize> DeviceTrait for Device<'d, MTU> {
+impl<'d, const MTU: usize> embassy_net_driver::Driver for Device<'d, MTU> {
     type RxToken<'a> = RxToken<'a, MTU> where Self: 'a ;
     type TxToken<'a> = TxToken<'a, MTU> where Self: 'a ;
 
@@ -184,7 +184,7 @@ impl<'d, const MTU: usize> DeviceTrait for Device<'d, MTU> {
     }
 
     /// Get a description of device capabilities.
-    fn capabilities(&self) -> DeviceCapabilities {
+    fn capabilities(&self) -> Capabilities {
         self.caps.clone()
     }
 
@@ -205,7 +205,7 @@ pub struct RxToken<'a, const MTU: usize> {
     rx: zerocopy_channel::Receiver<'a, NoopRawMutex, PacketBuf<MTU>>,
 }
 
-impl<'a, const MTU: usize> embassy_net::device::RxToken for RxToken<'a, MTU> {
+impl<'a, const MTU: usize> embassy_net_driver::RxToken for RxToken<'a, MTU> {
     fn consume<R, F>(mut self, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
@@ -222,7 +222,7 @@ pub struct TxToken<'a, const MTU: usize> {
     tx: zerocopy_channel::Sender<'a, NoopRawMutex, PacketBuf<MTU>>,
 }
 
-impl<'a, const MTU: usize> embassy_net::device::TxToken for TxToken<'a, MTU> {
+impl<'a, const MTU: usize> embassy_net_driver::TxToken for TxToken<'a, MTU> {
     fn consume<R, F>(mut self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,

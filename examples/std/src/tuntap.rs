@@ -4,7 +4,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::task::Context;
 
 use async_io::Async;
-use embassy_net::device::{self, Device, DeviceCapabilities, LinkState};
+use embassy_net_driver::{self, Capabilities, Driver, LinkState};
 use log::*;
 
 pub const SIOCGIFMTU: libc::c_ulong = 0x8921;
@@ -137,7 +137,7 @@ impl TunTapDevice {
     }
 }
 
-impl Device for TunTapDevice {
+impl Driver for TunTapDevice {
     type RxToken<'a> = RxToken where Self: 'a;
     type TxToken<'a> = TxToken<'a> where Self: 'a;
 
@@ -170,8 +170,8 @@ impl Device for TunTapDevice {
         })
     }
 
-    fn capabilities(&self) -> DeviceCapabilities {
-        let mut caps = DeviceCapabilities::default();
+    fn capabilities(&self) -> Capabilities {
+        let mut caps = Capabilities::default();
         caps.max_transmission_unit = self.device.get_ref().mtu;
         caps
     }
@@ -190,7 +190,7 @@ pub struct RxToken {
     buffer: Vec<u8>,
 }
 
-impl device::RxToken for RxToken {
+impl embassy_net_driver::RxToken for RxToken {
     fn consume<R, F>(mut self, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
@@ -204,7 +204,7 @@ pub struct TxToken<'a> {
     device: &'a mut Async<TunTap>,
 }
 
-impl<'a> device::TxToken for TxToken<'a> {
+impl<'a> embassy_net_driver::TxToken for TxToken<'a> {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,

@@ -3,11 +3,12 @@ use core::future::poll_fn;
 use core::mem;
 use core::task::Poll;
 
+use embassy_net_driver::Driver;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::udp::{self, PacketMetadata};
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 
-use crate::{Device, SocketStack, Stack};
+use crate::{SocketStack, Stack};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -31,7 +32,7 @@ pub struct UdpSocket<'a> {
 }
 
 impl<'a> UdpSocket<'a> {
-    pub fn new<D: Device>(
+    pub fn new<D: Driver>(
         stack: &'a Stack<D>,
         rx_meta: &'a mut [PacketMetadata],
         rx_buffer: &'a mut [u8],

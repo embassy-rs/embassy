@@ -21,7 +21,6 @@ use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::*;
 use crate::Builder;
 
-#[cfg(feature = "embassy-net")]
 pub mod embassy_net;
 
 /// This should be used as `device_class` when building the `UsbDevice`.

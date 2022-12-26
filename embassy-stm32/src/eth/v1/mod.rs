@@ -13,7 +13,7 @@ pub(crate) use self::rx_desc::{RDes, RDesRing};
 pub(crate) use self::tx_desc::{TDes, TDesRing};
 use super::*;
 use crate::gpio::sealed::{AFType, Pin as __GpioPin};
-use crate::gpio::{AnyPin, Speed};
+use crate::gpio::AnyPin;
 #[cfg(eth_v1a)]
 use crate::pac::AFIO;
 #[cfg(any(eth_v1b, eth_v1c))]
@@ -66,7 +66,7 @@ macro_rules! config_pins {
         critical_section::with(|_| {
             $(
                 $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                $pin.set_speed(Speed::VeryHigh);
+                $pin.set_speed(crate::gpio::Speed::VeryHigh);
             )*
         })
     };

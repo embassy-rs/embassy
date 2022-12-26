@@ -16,7 +16,7 @@ embassy-executor = { version = "0.1.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac"] }
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"], optional = true }
-embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt", "embassy-net"], optional = true }
+embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"], optional = true }
 embedded-io = "0.4.0"
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["sx126x", "time", "defmt"], optional = true }
 
