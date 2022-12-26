@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = ["pool-4", "defmt", "tcp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip"]
+features = ["defmt", "tcp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip"]
 target = "thumbv7em-none-eabi"
 
 [features]
@@ -27,13 +27,6 @@ dhcpv4 = ["medium-ethernet", "smoltcp/socket-dhcpv4"]
 proto-ipv6 = ["smoltcp/proto-ipv6"]
 medium-ethernet = ["smoltcp/medium-ethernet"]
 medium-ip = ["smoltcp/medium-ip"]
-
-pool-4 = []
-pool-8 = []
-pool-16 = []
-pool-32 = []
-pool-64 = []
-pool-128 = []
 
 [dependencies]
 

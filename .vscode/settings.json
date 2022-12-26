@@ -10,7 +10,6 @@
     // These are needed to prevent embassy-net from failing to build
     //"embassy-net/medium-ethernet",
     //"embassy-net/tcp",
-    //"embassy-net/pool-16",
     //"time-tick-16mhz",
     //"defmt-timestamp-uptime",
     //"nightly",
