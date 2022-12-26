@@ -185,7 +185,10 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             CS_INTERFACE,
             &[
                 CDC_TYPE_ACM, // bDescriptorSubtype
-                0x00,         // bmCapabilities
+                0x02,         // bmCapabilities:
+                              // D1: Device supports the request combination of
+                              // Set_Line_Coding, Set_Control_Line_State, Get_Line_Coding,
+                              // and the Notification Serial_State.
             ],
         );
         alt.descriptor(
