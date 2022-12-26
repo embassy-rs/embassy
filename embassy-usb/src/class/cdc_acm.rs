@@ -18,7 +18,6 @@ const CDC_PROTOCOL_NONE: u8 = 0x00;
 
 const CS_INTERFACE: u8 = 0x24;
 const CDC_TYPE_HEADER: u8 = 0x00;
-const CDC_TYPE_CALL_MANAGEMENT: u8 = 0x01;
 const CDC_TYPE_ACM: u8 = 0x02;
 const CDC_TYPE_UNION: u8 = 0x06;
 
@@ -195,14 +194,6 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
                 CDC_TYPE_UNION, // bDescriptorSubtype
                 comm_if.into(), // bControlInterface
                 data_if.into(), // bSubordinateInterface
-            ],
-        );
-        alt.descriptor(
-            CS_INTERFACE,
-            &[
-                CDC_TYPE_CALL_MANAGEMENT, // bDescriptorSubtype
-                0x00,                     // bmCapabilities
-                data_if.into(),           // bDataInterface
             ],
         );
 
