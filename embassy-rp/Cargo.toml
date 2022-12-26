@@ -71,7 +71,4 @@ embedded-hal-nb = { version = "=1.0.0-alpha.1", optional = true}
 
 paste = "1.0"
 pio-proc = {version= "0.2", optional = true}
-pio = {version= "0.2", optional = true}
-
-[patch.crates-io]
-pio = {git = "https://github.com/rp-rs/pio-rs.git"}
+pio = {version= "0.2.1", optional = true}

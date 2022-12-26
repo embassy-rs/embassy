@@ -36,10 +36,7 @@ embedded-storage = { version = "0.3" }
 static_cell = "1.0.0"
 log = "0.4"
 pio-proc = "0.2"
-pio = "0.2"
+pio = "0.2.1"
 
 [profile.release]
 debug = true
-
-[patch.crates-io]
-pio = {git = "https://github.com/rp-rs/pio-rs.git"}
