@@ -14,7 +14,7 @@ firmware-logs = []
 embassy-time = { version = "0.1.0" }
 embassy-sync = { version = "0.1.0" }
 embassy-futures = { version = "0.1.0" }
-embassy-net = { version = "0.1.0" }
+embassy-net-driver-channel = { version = "0.1.0" }
 atomic-polyfill = "0.1.5"
 
 defmt = { version = "0.3", optional = true }
