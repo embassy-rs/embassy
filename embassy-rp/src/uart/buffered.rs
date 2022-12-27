@@ -402,27 +402,45 @@ pub(crate) unsafe fn on_interrupt<T: Instance>(_: *mut ()) {
         }
 
         let mut rx_writer = s.rx_buf.writer();
-        if !r.uartfr().read().rxfe() {
-            let val = r.uartdr().read().data();
-            if !rx_writer.push_one(val) {
-                warn!("RX buffer full, discard received byte");
+        let rx_buf = rx_writer.push_slice();
+        let mut n_read = 0;
+        for rx_byte in rx_buf {
+            if r.uartfr().read().rxfe() {
+                break;
             }
+            *rx_byte = r.uartdr().read().data();
+            n_read += 1;
+        }
+        if n_read > 0 {
+            rx_writer.push_done(n_read);
             s.rx_waker.wake();
         }
 
         // TX
         let mut tx_reader = s.tx_buf.reader();
-        if let Some(val) = tx_reader.pop_one() {
-            r.uartimsc().modify(|w| {
-                w.set_txim(true);
-            });
-            r.uartdr().write(|w| w.set_data(val));
-            s.tx_waker.wake();
-        } else {
+        let tx_buf = tx_reader.pop_slice();
+        if tx_buf.len() == 0 {
             // Disable interrupt until we have something to transmit again
             r.uartimsc().modify(|w| {
                 w.set_txim(false);
             });
+        } else {
+            r.uartimsc().modify(|w| {
+                w.set_txim(true);
+            });
+
+            let mut n_written = 0;
+            for tx_byte in tx_buf.iter_mut() {
+                if r.uartfr().read().txff() {
+                    break;
+                }
+                r.uartdr().write(|w| w.set_data(*tx_byte));
+                n_written += 1;
+            }
+            if n_written > 0 {
+                tx_reader.pop_done(n_written);
+                s.tx_waker.wake();
+            }
         }
     }
 }
