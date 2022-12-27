@@ -34,24 +34,25 @@ impl<const MTU: usize, const N_RX: usize, const N_TX: usize> State<MTU, N_RX, N_
 struct StateInner<'d, const MTU: usize> {
     rx: zerocopy_channel::Channel<'d, NoopRawMutex, PacketBuf<MTU>>,
     tx: zerocopy_channel::Channel<'d, NoopRawMutex, PacketBuf<MTU>>,
-    link_state: Mutex<NoopRawMutex, RefCell<LinkStateState>>,
+    shared: Mutex<NoopRawMutex, RefCell<Shared>>,
 }
 
 /// State of the LinkState
-struct LinkStateState {
-    state: LinkState,
+struct Shared {
+    link_state: LinkState,
     waker: WakerRegistration,
+    ethernet_address: [u8; 6],
 }
 
 pub struct Runner<'d, const MTU: usize> {
     tx_chan: zerocopy_channel::Receiver<'d, NoopRawMutex, PacketBuf<MTU>>,
     rx_chan: zerocopy_channel::Sender<'d, NoopRawMutex, PacketBuf<MTU>>,
-    link_state: &'d Mutex<NoopRawMutex, RefCell<LinkStateState>>,
+    shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
 }
 
 pub struct RxRunner<'d, const MTU: usize> {
     rx_chan: zerocopy_channel::Sender<'d, NoopRawMutex, PacketBuf<MTU>>,
-    link_state: &'d Mutex<NoopRawMutex, RefCell<LinkStateState>>,
+    shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
 }
 
 pub struct TxRunner<'d, const MTU: usize> {
@@ -62,7 +63,7 @@ impl<'d, const MTU: usize> Runner<'d, MTU> {
     pub fn split(self) -> (RxRunner<'d, MTU>, TxRunner<'d, MTU>) {
         (
             RxRunner {
-                link_state: self.link_state,
+                shared: self.shared,
                 rx_chan: self.rx_chan,
             },
             TxRunner { tx_chan: self.tx_chan },
@@ -70,9 +71,17 @@ impl<'d, const MTU: usize> Runner<'d, MTU> {
     }
 
     pub fn set_link_state(&mut self, state: LinkState) {
-        self.link_state.lock(|s| {
+        self.shared.lock(|s| {
             let s = &mut *s.borrow_mut();
-            s.state = state;
+            s.link_state = state;
+            s.waker.wake();
+        });
+    }
+
+    pub fn set_ethernet_address(&mut self, address: [u8; 6]) {
+        self.shared.lock(|s| {
+            let s = &mut *s.borrow_mut();
+            s.ethernet_address = address;
             s.waker.wake();
         });
     }
@@ -124,9 +133,17 @@ impl<'d, const MTU: usize> Runner<'d, MTU> {
 
 impl<'d, const MTU: usize> RxRunner<'d, MTU> {
     pub fn set_link_state(&mut self, state: LinkState) {
-        self.link_state.lock(|s| {
+        self.shared.lock(|s| {
             let s = &mut *s.borrow_mut();
-            s.state = state;
+            s.link_state = state;
+            s.waker.wake();
+        });
+    }
+
+    pub fn set_ethernet_address(&mut self, address: [u8; 6]) {
+        self.shared.lock(|s| {
+            let s = &mut *s.borrow_mut();
+            s.ethernet_address = address;
             s.waker.wake();
         });
     }
@@ -194,8 +211,9 @@ pub fn new<'d, const MTU: usize, const N_RX: usize, const N_TX: usize>(
     let state = unsafe { &mut *state_uninit }.write(StateInner {
         rx: zerocopy_channel::Channel::new(&mut state.rx[..]),
         tx: zerocopy_channel::Channel::new(&mut state.tx[..]),
-        link_state: Mutex::new(RefCell::new(LinkStateState {
-            state: LinkState::Down,
+        shared: Mutex::new(RefCell::new(Shared {
+            link_state: LinkState::Down,
+            ethernet_address,
             waker: WakerRegistration::new(),
         })),
     });
@@ -207,12 +225,11 @@ pub fn new<'d, const MTU: usize, const N_RX: usize, const N_TX: usize>(
         Runner {
             tx_chan: tx_receiver,
             rx_chan: rx_sender,
-            link_state: &state.link_state,
+            shared: &state.shared,
         },
         Device {
             caps,
-            ethernet_address,
-            link_state: &state.link_state,
+            shared: &state.shared,
             rx: rx_receiver,
             tx: tx_sender,
         },
@@ -233,9 +250,8 @@ impl<const MTU: usize> PacketBuf<MTU> {
 pub struct Device<'d, const MTU: usize> {
     rx: zerocopy_channel::Receiver<'d, NoopRawMutex, PacketBuf<MTU>>,
     tx: zerocopy_channel::Sender<'d, NoopRawMutex, PacketBuf<MTU>>,
-    link_state: &'d Mutex<NoopRawMutex, RefCell<LinkStateState>>,
+    shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
     caps: Capabilities,
-    ethernet_address: [u8; 6],
 }
 
 impl<'d, const MTU: usize> embassy_net_driver::Driver for Device<'d, MTU> {
@@ -265,14 +281,14 @@ impl<'d, const MTU: usize> embassy_net_driver::Driver for Device<'d, MTU> {
     }
 
     fn ethernet_address(&self) -> [u8; 6] {
-        self.ethernet_address
+        self.shared.lock(|s| s.borrow().ethernet_address)
     }
 
     fn link_state(&mut self, cx: &mut Context) -> LinkState {
-        self.link_state.lock(|s| {
+        self.shared.lock(|s| {
             let s = &mut *s.borrow_mut();
             s.waker.register(cx.waker());
-            s.state
+            s.link_state
         })
     }
 }

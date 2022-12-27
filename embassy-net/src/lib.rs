@@ -111,20 +111,13 @@ impl<D: Driver + 'static> Stack<D> {
         #[cfg(feature = "medium-ethernet")]
         let medium = device.capabilities().medium;
 
-        #[cfg(feature = "medium-ethernet")]
-        let ethernet_addr = if medium == Medium::Ethernet {
-            device.ethernet_address()
-        } else {
-            [0, 0, 0, 0, 0, 0]
-        };
-
         let mut b = InterfaceBuilder::new();
         b = b.ip_addrs(&mut resources.addresses[..]);
         b = b.random_seed(random_seed);
 
         #[cfg(feature = "medium-ethernet")]
         if medium == Medium::Ethernet {
-            b = b.hardware_addr(HardwareAddress::Ethernet(EthernetAddress(ethernet_addr)));
+            b = b.hardware_addr(HardwareAddress::Ethernet(EthernetAddress(device.ethernet_address())));
             b = b.neighbor_cache(NeighborCache::new(&mut resources.neighbor_cache[..]));
             b = b.routes(Routes::new(&mut resources.routes[..]));
         }
@@ -260,6 +253,13 @@ impl<D: Driver + 'static> Inner<D> {
 
     fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
         s.waker.register(cx.waker());
+
+        #[cfg(feature = "medium-ethernet")]
+        if self.device.capabilities().medium == Medium::Ethernet {
+            s.iface.set_hardware_addr(HardwareAddress::Ethernet(EthernetAddress(
+                self.device.ethernet_address(),
+            )));
+        }
 
         let timestamp = instant_to_smoltcp(Instant::now());
         let mut smoldev = DriverAdapter {
