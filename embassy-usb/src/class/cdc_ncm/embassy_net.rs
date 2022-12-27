@@ -25,16 +25,16 @@ pub struct Runner<'d, D: Driver<'d>, const MTU: usize> {
 
 impl<'d, D: Driver<'d>, const MTU: usize> Runner<'d, D, MTU> {
     pub async fn run(mut self) -> ! {
-        let (mut rx_chan, mut tx_chan) = self.ch.split();
+        let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
         let rx_fut = async move {
             loop {
                 trace!("WAITING for connection");
-                rx_chan.set_link_state(LinkState::Down);
+                state_chan.set_link_state(LinkState::Down);
 
                 self.rx_usb.wait_connection().await.unwrap();
 
                 trace!("Connected");
-                rx_chan.set_link_state(LinkState::Up);
+                state_chan.set_link_state(LinkState::Up);
 
                 loop {
                     let p = rx_chan.rx_buf().await;

@@ -50,9 +50,13 @@ pub struct Runner<'d, const MTU: usize> {
     shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
 }
 
+#[derive(Clone, Copy)]
+pub struct StateRunner<'d> {
+    shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
+}
+
 pub struct RxRunner<'d, const MTU: usize> {
     rx_chan: zerocopy_channel::Sender<'d, NoopRawMutex, PacketBuf<MTU>>,
-    shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
 }
 
 pub struct TxRunner<'d, const MTU: usize> {
@@ -60,14 +64,16 @@ pub struct TxRunner<'d, const MTU: usize> {
 }
 
 impl<'d, const MTU: usize> Runner<'d, MTU> {
-    pub fn split(self) -> (RxRunner<'d, MTU>, TxRunner<'d, MTU>) {
+    pub fn split(self) -> (StateRunner<'d>, RxRunner<'d, MTU>, TxRunner<'d, MTU>) {
         (
-            RxRunner {
-                shared: self.shared,
-                rx_chan: self.rx_chan,
-            },
+            StateRunner { shared: self.shared },
+            RxRunner { rx_chan: self.rx_chan },
             TxRunner { tx_chan: self.tx_chan },
         )
+    }
+
+    pub fn state_runner(&self) -> StateRunner<'d> {
+        StateRunner { shared: self.shared }
     }
 
     pub fn set_link_state(&mut self, state: LinkState) {
@@ -131,8 +137,8 @@ impl<'d, const MTU: usize> Runner<'d, MTU> {
     }
 }
 
-impl<'d, const MTU: usize> RxRunner<'d, MTU> {
-    pub fn set_link_state(&mut self, state: LinkState) {
+impl<'d> StateRunner<'d> {
+    pub fn set_link_state(&self, state: LinkState) {
         self.shared.lock(|s| {
             let s = &mut *s.borrow_mut();
             s.link_state = state;
@@ -140,14 +146,16 @@ impl<'d, const MTU: usize> RxRunner<'d, MTU> {
         });
     }
 
-    pub fn set_ethernet_address(&mut self, address: [u8; 6]) {
+    pub fn set_ethernet_address(&self, address: [u8; 6]) {
         self.shared.lock(|s| {
             let s = &mut *s.borrow_mut();
             s.ethernet_address = address;
             s.waker.wake();
         });
     }
+}
 
+impl<'d, const MTU: usize> RxRunner<'d, MTU> {
     pub async fn rx_buf(&mut self) -> &mut [u8] {
         let p = self.rx_chan.send().await;
         &mut p.buf
