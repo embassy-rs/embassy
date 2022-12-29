@@ -70,7 +70,7 @@ impl<'d, T: Pin> Input<'d, T> {
 }
 
 /// Digital input or output level.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Level {
     /// Logical low.
