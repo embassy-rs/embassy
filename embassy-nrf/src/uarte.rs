@@ -166,7 +166,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
     }
 
     /// Split the Uarte into a transmitter and receiver, which is
-    /// particuarly useful when having two tasks correlating to
+    /// particularly useful when having two tasks correlating to
     /// transmitting and receiving.
     pub fn split(self) -> (UarteTx<'d, T>, UarteRx<'d, T>) {
         (self.tx, self.rx)
