@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
-defmt-rtt = { version = "0.3", optional = true }
+defmt-rtt = { version = "0.4", optional = true }
 
 embassy-stm32 = { path = "../../../../embassy-stm32", default-features = false, features = ["nightly"] }
 embassy-boot-stm32 = { path = "../../../../embassy-boot/stm32", default-features = false }

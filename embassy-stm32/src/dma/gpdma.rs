@@ -75,15 +75,14 @@ foreach_dma_channel! {
                 )
             }
 
-            unsafe fn start_write_repeated<W: Word>(&mut self, request: Request, repeated: W, count: usize, reg_addr: *mut W, options: TransferOptions) {
-                let buf = [repeated];
+            unsafe fn start_write_repeated<W: Word>(&mut self, request: Request, repeated: *const W, count: usize, reg_addr: *mut W, options: TransferOptions) {
                 low_level_api::start_transfer(
                     pac::$dma_peri,
                     $channel_num,
                     request,
                     low_level_api::Dir::MemoryToPeripheral,
                     reg_addr as *const u32,
-                    buf.as_ptr() as *mut u32,
+                    repeated as *mut u32,
                     count,
                     false,
                     W::bits(),

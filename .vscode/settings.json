@@ -5,20 +5,14 @@
   "rust-analyzer.cargo.noDefaultFeatures": true,
   "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
+  //"rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
   "rust-analyzer.cargo.features": [
-    // These are needed to prevent embassy-net from failing to build
-    //"embassy-net/medium-ethernet",
-    //"embassy-net/tcp",
-    //"embassy-net/pool-16",
-    //"time-tick-16mhz",
-    //"defmt-timestamp-uptime",
     "nightly",
-    //"unstable-traits",
   ],
   "rust-analyzer.linkedProjects": [
     // Declare for the target you wish to develop
-    //"embassy-executor/Cargo.toml",
-    //"embassy-sync/Cargo.toml",
+    // "embassy-executor/Cargo.toml",
+    // "embassy-sync/Cargo.toml",
     "examples/nrf/Cargo.toml",
     // "examples/nrf-rtos-trace/Cargo.toml",
     // "examples/rp/Cargo.toml",

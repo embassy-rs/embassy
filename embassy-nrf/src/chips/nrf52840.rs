@@ -164,6 +164,9 @@ embassy_hal_common::peripherals! {
 
     // PDM
     PDM,
+
+    // I2S
+    I2S,
 }
 
 #[cfg(feature = "nightly")]
@@ -292,6 +295,8 @@ impl_saadc_input!(P0_29, ANALOG_INPUT5);
 impl_saadc_input!(P0_30, ANALOG_INPUT6);
 impl_saadc_input!(P0_31, ANALOG_INPUT7);
 
+impl_i2s!(I2S, I2S, I2S);
+
 pub mod irqs {
     use embassy_cortex_m::interrupt::_export::declare;
 
@@ -332,7 +337,6 @@ pub mod irqs {
     declare!(PWM2);
     declare!(SPIM2_SPIS2_SPI2);
     declare!(RTC2);
-    declare!(I2S);
     declare!(FPU);
     declare!(USBD);
     declare!(UARTE1);
@@ -340,4 +344,5 @@ pub mod irqs {
     declare!(CRYPTOCELL);
     declare!(PWM3);
     declare!(SPIM3);
+    declare!(I2S);
 }

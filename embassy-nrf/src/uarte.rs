@@ -53,7 +53,6 @@ impl Default for Config {
 #[non_exhaustive]
 pub enum Error {
     BufferTooLong,
-    BufferZeroLength,
     DMABufferNotInDataMemory,
     // TODO: add other error variants.
 }
@@ -370,10 +369,11 @@ impl<'d, T: Instance> UarteTx<'d, T> {
     }
 
     pub async fn write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
         if buffer.len() == 0 {
-            return Err(Error::BufferZeroLength);
+            return Ok(());
         }
+
+        slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
         if buffer.len() > EASY_DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
@@ -437,10 +437,11 @@ impl<'d, T: Instance> UarteTx<'d, T> {
     }
 
     pub fn blocking_write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
         if buffer.len() == 0 {
-            return Err(Error::BufferZeroLength);
+            return Ok(());
         }
+
+        slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
         if buffer.len() > EASY_DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
@@ -550,7 +551,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
 
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         if buffer.len() == 0 {
-            return Err(Error::BufferZeroLength);
+            return Ok(());
         }
         if buffer.len() > EASY_DMA_SIZE {
             return Err(Error::BufferTooLong);
@@ -603,7 +604,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
 
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         if buffer.len() == 0 {
-            return Err(Error::BufferZeroLength);
+            return Ok(());
         }
         if buffer.len() > EASY_DMA_SIZE {
             return Err(Error::BufferTooLong);
@@ -672,7 +673,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
 
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() == 0 {
-            return Err(Error::BufferZeroLength);
+            return Ok(0);
         }
         if buffer.len() > EASY_DMA_SIZE {
             return Err(Error::BufferTooLong);
@@ -728,7 +729,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
 
     pub fn blocking_read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() == 0 {
-            return Err(Error::BufferZeroLength);
+            return Ok(0);
         }
         if buffer.len() > EASY_DMA_SIZE {
             return Err(Error::BufferTooLong);
@@ -918,7 +919,6 @@ mod eh1 {
         fn kind(&self) -> embedded_hal_1::serial::ErrorKind {
             match *self {
                 Self::BufferTooLong => embedded_hal_1::serial::ErrorKind::Other,
-                Self::BufferZeroLength => embedded_hal_1::serial::ErrorKind::Other,
                 Self::DMABufferNotInDataMemory => embedded_hal_1::serial::ErrorKind::Other,
             }
         }

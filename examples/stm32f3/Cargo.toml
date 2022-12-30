@@ -13,7 +13,7 @@ embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defm
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 
 defmt = "0.3"
-defmt-rtt = "0.3"
+defmt-rtt = "0.4"
 
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"

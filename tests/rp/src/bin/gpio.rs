@@ -78,16 +78,16 @@ async fn main(_spawner: Spawner) {
         a.set_as_input();
 
         // When an OutputOpenDrain is high, it doesn't drive the pin.
+        b.set_high();
         a.set_pull(Pull::Up);
         delay();
         assert!(a.is_high());
         a.set_pull(Pull::Down);
         delay();
         assert!(a.is_low());
-
-        b.set_low();
 
         // When an OutputOpenDrain is low, it drives the pin low.
+        b.set_low();
         a.set_pull(Pull::Up);
         delay();
         assert!(a.is_low());
@@ -95,14 +95,36 @@ async fn main(_spawner: Spawner) {
         delay();
         assert!(a.is_low());
 
+        // Check high again
         b.set_high();
-
         a.set_pull(Pull::Up);
         delay();
         assert!(a.is_high());
         a.set_pull(Pull::Down);
         delay();
         assert!(a.is_low());
+
+        // When an OutputOpenDrain is high, it reads the input value in the pin.
+        b.set_high();
+        a.set_as_input();
+        a.set_pull(Pull::Up);
+        delay();
+        assert!(b.is_high());
+        a.set_as_output();
+        a.set_low();
+        delay();
+        assert!(b.is_low());
+
+        // When an OutputOpenDrain is low, it always reads low.
+        b.set_low();
+        a.set_as_input();
+        a.set_pull(Pull::Up);
+        delay();
+        assert!(b.is_low());
+        a.set_as_output();
+        a.set_low();
+        delay();
+        assert!(b.is_low());
     }
 
     // FLEX
