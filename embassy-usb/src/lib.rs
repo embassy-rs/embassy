@@ -470,7 +470,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     Some(handler) => handler.control_out(req, data),
                     None => OutResponse::Rejected,
                 }
-            },
+            }
             (RequestType::Standard, Recipient::Interface) => {
                 let iface = match self.interfaces.get_mut(req.index as usize) {
                     Some(iface) => iface,
@@ -570,7 +570,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     Some(handler) => handler.control_in(req, buf),
                     None => InResponse::Rejected,
                 }
-            },
+            }
             (RequestType::Standard, Recipient::Interface) => {
                 let iface = match self.interfaces.get_mut(req.index as usize) {
                     Some(iface) => iface,
