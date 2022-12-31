@@ -48,11 +48,12 @@ where
         assert_eq!(val, TEST_PATTERN);
     }
 
-    pub async fn wlan_read(&mut self, buf: &mut [u32]) {
-        let cmd = cmd_word(READ, INC_ADDR, FUNC_WLAN, 0, buf.len() as u32 * 4);
+    pub async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32) {
+        let cmd = cmd_word(READ, INC_ADDR, FUNC_WLAN, 0, len_in_u8);
+        let len_in_u32 = (len_in_u8 as usize + 3) / 4;
         transaction!(&mut self.spi, |bus| async {
             bus.write(&[cmd]).await?;
-            bus.read(buf).await?;
+            bus.read(&mut buf[..len_in_u32]).await?;
             Ok(())
         })
         .await
