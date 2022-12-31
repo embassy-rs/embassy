@@ -34,7 +34,7 @@ async fn wifi_task(
 }
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<cyw43::NetDevice<'static>>) -> ! {
+async fn net_task(stack: &'static Stack<cyw43::NetDriver<'static>>) -> ! {
     stack.run().await
 }
 
@@ -66,11 +66,11 @@ async fn main(spawner: Spawner) {
     let spi = ExclusiveDevice::new(bus, cs);
 
     let state = singleton!(cyw43::State::new());
-    let (mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
+    let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
 
     spawner.spawn(wifi_task(runner)).unwrap();
 
-    let net_device = control.init(clm).await;
+    control.init(clm).await;
 
     //control.join_open(env!("WIFI_NETWORK")).await;
     control.join_wpa2(env!("WIFI_NETWORK"), env!("WIFI_PASSWORD")).await;
