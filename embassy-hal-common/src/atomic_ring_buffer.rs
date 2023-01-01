@@ -81,6 +81,10 @@ impl RingBuffer {
         Writer(self)
     }
 
+    pub fn len(&self) -> usize {
+        self.len.load(Ordering::Relaxed)
+    }
+
     pub fn is_full(&self) -> bool {
         let len = self.len.load(Ordering::Relaxed);
         let start = self.start.load(Ordering::Relaxed);

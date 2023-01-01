@@ -27,7 +27,8 @@ impl State {
 }
 
 pub struct BufferedUart<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+    rx: BufferedUartRx<'d, T>,
+    tx: BufferedUartTx<'d, T>,
 }
 
 pub struct BufferedUartRx<'d, T: Instance> {
@@ -91,7 +92,10 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
             rx_buffer,
             config,
         );
-        Self { phantom: PhantomData }
+        Self {
+            rx: BufferedUartRx { phantom: PhantomData },
+            tx: BufferedUartTx { phantom: PhantomData },
+        }
     }
 
     pub fn new_with_rtscts(
@@ -116,14 +120,14 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
             rx_buffer,
             config,
         );
-        Self { phantom: PhantomData }
+        Self {
+            rx: BufferedUartRx { phantom: PhantomData },
+            tx: BufferedUartTx { phantom: PhantomData },
+        }
     }
 
-    pub fn split(&mut self) -> (BufferedUartRx<'d, T>, BufferedUartTx<'d, T>) {
-        (
-            BufferedUartRx { phantom: PhantomData },
-            BufferedUartTx { phantom: PhantomData },
-        )
+    pub fn split(self) -> (BufferedUartRx<'d, T>, BufferedUartTx<'d, T>) {
+        (self.rx, self.tx)
     }
 }
 
@@ -269,35 +273,32 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
     }
 }
 
-impl<'d, T: Instance> Drop for BufferedUart<'d, T> {
-    fn drop(&mut self) {
-        unsafe {
-            T::Interrupt::steal().disable();
-            let state = T::state();
-            state.tx_buf.deinit();
-            state.rx_buf.deinit();
-        }
-    }
-}
-
 impl<'d, T: Instance> Drop for BufferedUartRx<'d, T> {
     fn drop(&mut self) {
+        let state = T::state();
         unsafe {
-            T::Interrupt::steal().disable();
-            let state = T::state();
-            state.tx_buf.deinit();
             state.rx_buf.deinit();
+
+            // TX is inactive if the the buffer is not available.
+            // We can now unregister the interrupt handler
+            if state.tx_buf.len() == 0 {
+                T::Interrupt::steal().disable();
+            }
         }
     }
 }
 
 impl<'d, T: Instance> Drop for BufferedUartTx<'d, T> {
     fn drop(&mut self) {
+        let state = T::state();
         unsafe {
-            T::Interrupt::steal().disable();
-            let state = T::state();
             state.tx_buf.deinit();
-            state.rx_buf.deinit();
+
+            // RX is inactive if the the buffer is not available.
+            // We can now unregister the interrupt handler
+            if state.rx_buf.len() == 0 {
+                T::Interrupt::steal().disable();
+            }
         }
     }
 }
