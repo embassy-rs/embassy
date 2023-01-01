@@ -685,7 +685,7 @@ where
 
                 if status & STATUS_F2_PKT_AVAILABLE != 0 {
                     let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                    self.bus.wlan_read(&mut buf[..(len as usize + 3) / 4]).await;
+                    self.bus.wlan_read(&mut buf, len).await;
                     trace!("rx {:02x}", &slice8_mut(&mut buf)[..(len as usize).min(48)]);
                     self.rx(&slice8_mut(&mut buf)[..len as usize]);
                 }
