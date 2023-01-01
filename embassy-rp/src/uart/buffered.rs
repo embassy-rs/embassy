@@ -38,6 +38,38 @@ pub struct BufferedUartTx<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
 
+fn init<'d, T: Instance + 'd>(
+    irq: PeripheralRef<'d, T::Interrupt>,
+    tx: Option<PeripheralRef<'d, AnyPin>>,
+    rx: Option<PeripheralRef<'d, AnyPin>>,
+    rts: Option<PeripheralRef<'d, AnyPin>>,
+    cts: Option<PeripheralRef<'d, AnyPin>>,
+    tx_buffer: &'d mut [u8],
+    rx_buffer: &'d mut [u8],
+    config: Config,
+) {
+    let regs = T::regs();
+    unsafe {
+        regs.uartimsc().modify(|w| {
+            w.set_rxim(true);
+            w.set_rtim(true);
+            w.set_txim(true);
+        });
+    }
+
+    super::Uart::<'d, T, Async>::init(tx, rx, rts, cts, config);
+
+    let state = T::state();
+    let len = tx_buffer.len();
+    unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
+    let len = rx_buffer.len();
+    unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
+
+    irq.set_handler(on_interrupt::<T>);
+    irq.unpend();
+    irq.enable();
+}
+
 impl<'d, T: Instance> BufferedUart<'d, T> {
     pub fn new(
         _uart: impl Peripheral<P = T> + 'd,
@@ -48,17 +80,18 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(tx, rx);
-        Self::new_inner(
+        into_ref!(irq, tx, rx);
+        init::<T>(
             irq,
-            tx.map_into(),
-            rx.map_into(),
+            Some(tx.map_into()),
+            Some(rx.map_into()),
             None,
             None,
             tx_buffer,
             rx_buffer,
             config,
-        )
+        );
+        Self { phantom: PhantomData }
     }
 
     pub fn new_with_rtscts(
@@ -72,58 +105,17 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(tx, rx, cts, rts);
-        Self::new_inner(
+        into_ref!(irq, tx, rx, cts, rts);
+        init::<T>(
             irq,
-            tx.map_into(),
-            rx.map_into(),
+            Some(tx.map_into()),
+            Some(rx.map_into()),
             Some(rts.map_into()),
             Some(cts.map_into()),
             tx_buffer,
             rx_buffer,
             config,
-        )
-    }
-
-    fn new_inner(
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
-        mut tx: PeripheralRef<'d, AnyPin>,
-        mut rx: PeripheralRef<'d, AnyPin>,
-        mut rts: Option<PeripheralRef<'d, AnyPin>>,
-        mut cts: Option<PeripheralRef<'d, AnyPin>>,
-        tx_buffer: &'d mut [u8],
-        rx_buffer: &'d mut [u8],
-        config: Config,
-    ) -> Self {
-        into_ref!(irq);
-        super::Uart::<'d, T, Async>::init(
-            Some(tx.reborrow()),
-            Some(rx.reborrow()),
-            rts.as_mut().map(|x| x.reborrow()),
-            cts.as_mut().map(|x| x.reborrow()),
-            config,
         );
-
-        let state = T::state();
-        let regs = T::regs();
-
-        let len = tx_buffer.len();
-        unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
-        let len = rx_buffer.len();
-        unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
-
-        unsafe {
-            regs.uartimsc().modify(|w| {
-                w.set_rxim(true);
-                w.set_rtim(true);
-                w.set_txim(true);
-            });
-        }
-
-        irq.set_handler(on_interrupt::<T>);
-        irq.unpend();
-        irq.enable();
-
         Self { phantom: PhantomData }
     }
 
@@ -143,8 +135,9 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(rx);
-        Self::new_inner(irq, rx.map_into(), None, rx_buffer, config)
+        into_ref!(irq, rx);
+        init::<T>(irq, None, Some(rx.map_into()), None, None, &mut [], rx_buffer, config);
+        Self { phantom: PhantomData }
     }
 
     pub fn new_with_rts(
@@ -155,43 +148,17 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(rx, rts);
-        Self::new_inner(irq, rx.map_into(), Some(rts.map_into()), rx_buffer, config)
-    }
-
-    fn new_inner(
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
-        mut rx: PeripheralRef<'d, AnyPin>,
-        mut rts: Option<PeripheralRef<'d, AnyPin>>,
-        rx_buffer: &'d mut [u8],
-        config: Config,
-    ) -> Self {
-        into_ref!(irq);
-        super::Uart::<'d, T, Async>::init(
+        into_ref!(irq, rx, rts);
+        init::<T>(
+            irq,
             None,
-            Some(rx.reborrow()),
-            rts.as_mut().map(|x| x.reborrow()),
+            Some(rx.map_into()),
+            Some(rts.map_into()),
             None,
+            &mut [],
+            rx_buffer,
             config,
         );
-
-        let state = T::state();
-        let regs = T::regs();
-
-        let len = rx_buffer.len();
-        unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
-
-        unsafe {
-            regs.uartimsc().modify(|w| {
-                w.set_rxim(true);
-                w.set_rtim(true);
-            });
-        }
-
-        irq.set_handler(on_interrupt::<T>);
-        irq.unpend();
-        irq.enable();
-
         Self { phantom: PhantomData }
     }
 
@@ -231,7 +198,7 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
     fn consume(amt: usize) {
         let state = T::state();
         let mut rx_reader = unsafe { state.rx_buf.reader() };
-        rx_reader.pop_done(amt)
+        rx_reader.pop_done(amt);
     }
 }
 
@@ -243,8 +210,9 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(tx);
-        Self::new_inner(irq, tx.map_into(), None, tx_buffer, config)
+        into_ref!(irq, tx);
+        init::<T>(irq, Some(tx.map_into()), None, None, None, tx_buffer, &mut [], config);
+        Self { phantom: PhantomData }
     }
 
     pub fn new_with_cts(
@@ -255,42 +223,17 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(tx, cts);
-        Self::new_inner(irq, tx.map_into(), Some(cts.map_into()), tx_buffer, config)
-    }
-
-    fn new_inner(
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
-        mut tx: PeripheralRef<'d, AnyPin>,
-        mut cts: Option<PeripheralRef<'d, AnyPin>>,
-        tx_buffer: &'d mut [u8],
-        config: Config,
-    ) -> Self {
-        into_ref!(irq);
-        super::Uart::<'d, T, Async>::init(
-            Some(tx.reborrow()),
+        into_ref!(irq, tx, cts);
+        init::<T>(
+            irq,
+            Some(tx.map_into()),
             None,
             None,
-            cts.as_mut().map(|x| x.reborrow()),
+            Some(cts.map_into()),
+            tx_buffer,
+            &mut [],
             config,
         );
-
-        let state = T::state();
-        let regs = T::regs();
-
-        let len = tx_buffer.len();
-        unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
-
-        unsafe {
-            regs.uartimsc().modify(|w| {
-                w.set_txim(true);
-            });
-        }
-
-        irq.set_handler(on_interrupt::<T>);
-        irq.unpend();
-        irq.enable();
-
         Self { phantom: PhantomData }
     }
 
@@ -306,10 +249,9 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
             if n == 0 {
                 state.tx_waker.register(cx.waker());
                 return Poll::Pending;
-            } else {
-                unsafe { T::Interrupt::steal() }.pend();
             }
 
+            unsafe { T::Interrupt::steal() }.pend();
             Poll::Ready(Ok(n))
         })
     }
