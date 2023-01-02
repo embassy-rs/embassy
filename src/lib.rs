@@ -228,7 +228,7 @@ impl PowerManagementMode {
 }
 
 impl<'a> Control<'a> {
-    pub async fn init(&mut self, clm: &[u8], power_save_mode: PowerManagementMode) {
+    pub async fn init(&mut self, clm: &[u8]) {
         const CHUNK_SIZE: usize = 1024;
 
         info!("Downloading CLM...");
@@ -323,21 +323,6 @@ impl<'a> Control<'a> {
 
         Timer::after(Duration::from_millis(100)).await;
 
-        // power save mode
-        if power_save_mode != PowerManagementMode::None {
-            let mode = power_save_mode.mode();
-            if mode == 2 {
-                self.set_iovar_u32("pm2_sleep_ret", power_save_mode.sleep_ret_ms() as u32)
-                    .await;
-                self.set_iovar_u32("bcn_li_bcn", power_save_mode.beacon_period() as u32)
-                    .await;
-                self.set_iovar_u32("bcn_li_dtim", power_save_mode.dtim_period() as u32)
-                    .await;
-                self.set_iovar_u32("assoc_listen", power_save_mode.assoc() as u32).await;
-            }
-            self.ioctl_set_u32(86, 0, mode).await;
-        }
-
         self.ioctl_set_u32(110, 0, 1).await; // SET_GMODE = auto
         self.ioctl_set_u32(142, 0, 0).await; // SET_BAND = any
 
@@ -347,6 +332,18 @@ impl<'a> Control<'a> {
         self.state_ch.set_link_state(LinkState::Up); // TODO do on join/leave
 
         info!("INIT DONE");
+    }
+
+    pub async fn set_power_management(&mut self, mode: PowerManagementMode) {
+        // power save mode
+        let mode_num = mode.mode();
+        if mode_num == 2 {
+            self.set_iovar_u32("pm2_sleep_ret", mode.sleep_ret_ms() as u32).await;
+            self.set_iovar_u32("bcn_li_bcn", mode.beacon_period() as u32).await;
+            self.set_iovar_u32("bcn_li_dtim", mode.dtim_period() as u32).await;
+            self.set_iovar_u32("assoc_listen", mode.assoc() as u32).await;
+        }
+        self.ioctl_set_u32(86, 0, mode_num).await;
     }
 
     pub async fn join_open(&mut self, ssid: &str) {
