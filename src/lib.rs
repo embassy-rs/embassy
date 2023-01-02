@@ -143,6 +143,90 @@ pub struct Control<'a> {
     ioctl_state: &'a Cell<IoctlState>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerManagementMode {
+    /// Custom, officially unsupported mode. Use at your own risk.
+    /// All power-saving features set to their max at only a marginal decrease in power consumption
+    /// as oppposed to `Aggressive`.
+    SuperSave,
+
+    /// Aggressive power saving mode.
+    Aggressive,
+
+    /// The default mode.
+    PowerSave,
+
+    /// Performance is prefered over power consumption but still some power is conserved as opposed to
+    /// `None`.
+    Performance,
+
+    /// Unlike all the other PM modes, this lowers the power consumption at all times at the cost of
+    /// a much lower throughput.
+    ThroughputThrottling,
+
+    /// No power management is configured. This consumes the most power.
+    None,
+}
+
+impl Default for PowerManagementMode {
+    fn default() -> Self {
+        Self::PowerSave
+    }
+}
+
+impl PowerManagementMode {
+    fn sleep_ret_ms(&self) -> u16 {
+        match self {
+            PowerManagementMode::SuperSave => 2000,
+            PowerManagementMode::Aggressive => 2000,
+            PowerManagementMode::PowerSave => 200,
+            PowerManagementMode::Performance => 20,
+            PowerManagementMode::ThroughputThrottling => 0, // value doesn't matter
+            PowerManagementMode::None => 0,                 // value doesn't matter
+        }
+    }
+
+    fn beacon_period(&self) -> u8 {
+        match self {
+            PowerManagementMode::SuperSave => 255,
+            PowerManagementMode::Aggressive => 1,
+            PowerManagementMode::PowerSave => 1,
+            PowerManagementMode::Performance => 1,
+            PowerManagementMode::ThroughputThrottling => 0, // value doesn't matter
+            PowerManagementMode::None => 0,                 // value doesn't matter
+        }
+    }
+
+    fn dtim_period(&self) -> u8 {
+        match self {
+            PowerManagementMode::SuperSave => 255,
+            PowerManagementMode::Aggressive => 1,
+            PowerManagementMode::PowerSave => 1,
+            PowerManagementMode::Performance => 1,
+            PowerManagementMode::ThroughputThrottling => 0, // value doesn't matter
+            PowerManagementMode::None => 0,                 // value doesn't matter
+        }
+    }
+
+    fn assoc(&self) -> u8 {
+        match self {
+            PowerManagementMode::SuperSave => 255,
+            PowerManagementMode::Aggressive => 10,
+            PowerManagementMode::PowerSave => 10,
+            PowerManagementMode::Performance => 1,
+            PowerManagementMode::ThroughputThrottling => 0, // value doesn't matter
+            PowerManagementMode::None => 0,                 // value doesn't matter
+        }
+    }
+
+    fn mode(&self) -> u32 {
+        match self {
+            PowerManagementMode::ThroughputThrottling => 1,
+            _ => 2,
+        }
+    }
+}
+
 impl<'a> Control<'a> {
     pub async fn init(&mut self, clm: &[u8]) {
         const CHUNK_SIZE: usize = 1024;
@@ -239,13 +323,6 @@ impl<'a> Control<'a> {
 
         Timer::after(Duration::from_millis(100)).await;
 
-        // power save mode 2
-        self.set_iovar_u32("pm2_sleep_ret", 0xc8).await;
-        self.set_iovar_u32("bcn_li_bcn", 1).await;
-        self.set_iovar_u32("bcn_li_dtim", 1).await;
-        self.set_iovar_u32("assoc_listen", 10).await;
-        self.ioctl_set_u32(0x86, 0, 2).await;
-
         self.ioctl_set_u32(110, 0, 1).await; // SET_GMODE = auto
         self.ioctl_set_u32(142, 0, 0).await; // SET_BAND = any
 
@@ -255,6 +332,18 @@ impl<'a> Control<'a> {
         self.state_ch.set_link_state(LinkState::Up); // TODO do on join/leave
 
         info!("INIT DONE");
+    }
+
+    pub async fn set_power_management(&mut self, mode: PowerManagementMode) {
+        // power save mode
+        let mode_num = mode.mode();
+        if mode_num == 2 {
+            self.set_iovar_u32("pm2_sleep_ret", mode.sleep_ret_ms() as u32).await;
+            self.set_iovar_u32("bcn_li_bcn", mode.beacon_period() as u32).await;
+            self.set_iovar_u32("bcn_li_dtim", mode.dtim_period() as u32).await;
+            self.set_iovar_u32("assoc_listen", mode.assoc() as u32).await;
+        }
+        self.ioctl_set_u32(86, 0, mode_num).await;
     }
 
     pub async fn join_open(&mut self, ssid: &str) {

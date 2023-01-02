@@ -71,6 +71,9 @@ async fn main(spawner: Spawner) {
     spawner.spawn(wifi_task(runner)).unwrap();
 
     control.init(clm).await;
+    control
+        .set_power_management(cyw43::PowerManagementMode::PowerSave)
+        .await;
 
     //control.join_open(env!("WIFI_NETWORK")).await;
     control.join_wpa2(env!("WIFI_NETWORK"), env!("WIFI_PASSWORD")).await;
