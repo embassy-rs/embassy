@@ -1,6 +1,7 @@
 use darling::FromMeta;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use syn::{parse_quote, ItemFn};
 
 use crate::util::ctxt::Ctxt;
 
@@ -57,18 +58,25 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
     task_inner.vis = syn::Visibility::Inherited;
     task_inner.sig.ident = task_inner_ident.clone();
 
-    let result = quote! {
-        // This is the user's task function, renamed.
-        // We put it outside the #task_ident fn below, because otherwise
-        // the items defined there (such as POOL) would be in scope
-        // in the user's code.
-        #task_inner
-
+    let mut task_outer: ItemFn = parse_quote! {
         #visibility fn #task_ident(#fargs) -> ::embassy_executor::SpawnToken<impl Sized> {
             type Fut = impl ::core::future::Future + 'static;
             static POOL: ::embassy_executor::raw::TaskPool<Fut, #pool_size> = ::embassy_executor::raw::TaskPool::new();
             unsafe { POOL._spawn_async_fn(move || #task_inner_ident(#(#arg_names,)*)) }
         }
+    };
+
+    task_outer.attrs.append(&mut task_inner.attrs.clone());
+
+    let result = quote! {
+        // This is the user's task function, renamed.
+        // We put it outside the #task_ident fn below, because otherwise
+        // the items defined there (such as POOL) would be in scope
+        // in the user's code.
+        #[doc(hidden)]
+        #task_inner
+
+        #task_outer
     };
 
     Ok(result)
