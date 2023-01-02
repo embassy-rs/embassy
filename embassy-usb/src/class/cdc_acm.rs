@@ -18,7 +18,6 @@ const CDC_PROTOCOL_NONE: u8 = 0x00;
 
 const CS_INTERFACE: u8 = 0x24;
 const CDC_TYPE_HEADER: u8 = 0x00;
-const CDC_TYPE_CALL_MANAGEMENT: u8 = 0x01;
 const CDC_TYPE_ACM: u8 = 0x02;
 const CDC_TYPE_UNION: u8 = 0x06;
 
@@ -186,7 +185,10 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             CS_INTERFACE,
             &[
                 CDC_TYPE_ACM, // bDescriptorSubtype
-                0x00,         // bmCapabilities
+                0x02,         // bmCapabilities:
+                              // D1: Device supports the request combination of
+                              // Set_Line_Coding, Set_Control_Line_State, Get_Line_Coding,
+                              // and the Notification Serial_State.
             ],
         );
         alt.descriptor(
@@ -195,14 +197,6 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
                 CDC_TYPE_UNION, // bDescriptorSubtype
                 comm_if.into(), // bControlInterface
                 data_if.into(), // bSubordinateInterface
-            ],
-        );
-        alt.descriptor(
-            CS_INTERFACE,
-            &[
-                CDC_TYPE_CALL_MANAGEMENT, // bDescriptorSubtype
-                0x00,                     // bmCapabilities
-                data_if.into(),           // bDataInterface
             ],
         );
 
