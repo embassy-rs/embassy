@@ -23,7 +23,7 @@ fn main() -> ! {
     */
 
     let mut bl: BootLoader = BootLoader::default();
-    let flash: WatchdogFlash<'_, FLASH_SIZE> = WatchdogFlash::start(p.FLASH, p.WATCHDOG, Duration::from_secs(8));
+    let flash = WatchdogFlash::<FLASH_SIZE>::start(p.FLASH, p.WATCHDOG, Duration::from_secs(8));
     let mut flash = BootFlash::<_, ERASE_SIZE>::new(flash);
     let start = bl.prepare(&mut SingleFlashConfig::new(&mut flash));
     core::mem::drop(flash);

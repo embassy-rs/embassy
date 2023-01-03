@@ -93,7 +93,7 @@ impl Default for BootLoader {
     }
 }
 
-/// A flash implementation that wraps FLASH and will pet a watchdog when touching flash.
+/// A flash implementation that will feed a watchdog when touching flash.
 pub struct WatchdogFlash<'d, const SIZE: usize> {
     flash: Flash<'d, FLASH, SIZE>,
     watchdog: Watchdog,
