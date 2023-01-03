@@ -20,6 +20,8 @@ log = { version = "0.4", optional = true }
 embassy-sync = { path = "../../embassy-sync" }
 embassy-rp = { path = "../../embassy-rp", default-features = false, features = ["nightly"] }
 embassy-boot = { path = "../boot", default-features = false }
+embassy-time = { path = "../../embassy-time", features = ["nightly"] }
+
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.0"

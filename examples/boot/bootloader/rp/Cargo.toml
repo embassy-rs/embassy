@@ -11,6 +11,8 @@ defmt-rtt = { version = "0.4", optional = true }
 
 embassy-rp = { path = "../../../../embassy-rp", default-features = false, features = ["nightly"] }
 embassy-boot-rp = { path = "../../../../embassy-boot/rp", default-features = false }
+embassy-time = { path = "../../../../embassy-time", features = ["nightly"] }
+
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.0"
