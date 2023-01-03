@@ -32,3 +32,7 @@ cargo objcopy --release --bin b -- -O binary b.bin
 ```
 cargo flash --release --bin a --chip nRF52840_xxAA
 ```
+
+You should then see a solid LED. Pressing button 1 will cause the DFU to be loaded by the bootloader. Upon
+successfully loading, you'll see the LED flash. After 5 seconds, because there is no petting of the watchdog,
+you'll see the LED go solid again. This indicates that the bootloader has reverted the update.
