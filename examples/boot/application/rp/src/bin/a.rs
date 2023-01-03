@@ -7,6 +7,7 @@ use embassy_boot_rp::*;
 use embassy_executor::Spawner;
 use embassy_rp::flash::Flash;
 use embassy_rp::gpio::{Level, Output};
+use embassy_rp::watchdog::Watchdog;
 use embassy_time::{Duration, Timer};
 #[cfg(feature = "panic-probe")]
 use panic_probe as _;
@@ -21,11 +22,16 @@ async fn main(_s: Spawner) {
     let p = embassy_rp::init(Default::default());
     let mut led = Output::new(p.PIN_25, Level::Low);
 
+    // Override bootloader watchdog
+    let mut watchdog = Watchdog::new(p.WATCHDOG);
+    watchdog.start(Duration::from_secs(8));
+
     let mut flash: Flash<_, FLASH_SIZE> = Flash::new(p.FLASH);
 
     let mut updater = FirmwareUpdater::default();
 
     Timer::after(Duration::from_secs(5)).await;
+    watchdog.feed();
     led.set_high();
     let mut offset = 0;
     let mut buf: AlignedBuffer<4096> = AlignedBuffer([0; 4096]);
@@ -43,6 +49,7 @@ async fn main(_s: Spawner) {
             .unwrap();
         offset += chunk.len();
     }
+    watchdog.feed();
     defmt::info!("firmware written, marking update");
     updater.mark_updated_blocking(&mut flash, &mut buf.0[..1]).unwrap();
     Timer::after(Duration::from_secs(2)).await;

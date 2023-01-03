@@ -5,8 +5,8 @@ use cortex_m_rt::{entry, exception};
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
 use embassy_boot_rp::*;
-use embassy_rp::flash::{Flash, ERASE_SIZE};
-use embassy_rp::peripherals::FLASH;
+use embassy_rp::flash::ERASE_SIZE;
+use embassy_time::Duration;
 
 const FLASH_SIZE: usize = 2 * 1024 * 1024;
 
@@ -23,7 +23,7 @@ fn main() -> ! {
     */
 
     let mut bl: BootLoader = BootLoader::default();
-    let flash: Flash<'_, FLASH, FLASH_SIZE> = Flash::new(p.FLASH);
+    let flash: WatchdogFlash<'_, FLASH_SIZE> = WatchdogFlash::start(p.FLASH, p.WATCHDOG, Duration::from_secs(8));
     let mut flash = BootFlash::<_, ERASE_SIZE>::new(flash);
     let start = bl.prepare(&mut SingleFlashConfig::new(&mut flash));
     core::mem::drop(flash);
