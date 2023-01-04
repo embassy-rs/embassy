@@ -98,7 +98,19 @@ pub struct UartRx<'d, T: Instance, M: Mode> {
 }
 
 impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
-    fn new(tx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
+    /// Create a new DMA-enabled UART which can only send data
+    pub fn new(
+        _uart: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl Channel> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(tx, tx_dma);
+        Uart::<T, M>::init(Some(tx.map_into()), None, None, None, config);
+        Self::new_inner(Some(tx_dma.map_into()))
+    }
+
+    fn new_inner(tx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
         Self {
             tx_dma,
             phantom: PhantomData,
@@ -140,7 +152,19 @@ impl<'d, T: Instance> UartTx<'d, T, Async> {
 }
 
 impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
-    fn new(rx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
+    /// Create a new DMA-enabled UART which can only send data
+    pub fn new(
+        _uart: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        rx_dma: impl Peripheral<P = impl Channel> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(rx, rx_dma);
+        Uart::<T, M>::init(Some(rx.map_into()), None, None, None, config);
+        Self::new_inner(Some(rx_dma.map_into()))
+    }
+
+    fn new_inner(rx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
         Self {
             rx_dma,
             phantom: PhantomData,
@@ -295,8 +319,8 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
         );
 
         Self {
-            tx: UartTx::new(tx_dma),
-            rx: UartRx::new(rx_dma),
+            tx: UartTx::new_inner(tx_dma),
+            rx: UartRx::new_inner(rx_dma),
         }
     }
 
