@@ -8,6 +8,7 @@ use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::nvmc::Nvmc;
+use embassy_nrf::wdt::{self, Watchdog};
 use panic_reset as _;
 
 static APP_B: &[u8] = include_bytes!("../../b.bin");
@@ -19,6 +20,23 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
     //let mut led = Output::new(p.P1_10, Level::Low, OutputDrive::Standard);
     //let mut button = Input::new(p.P1_02, Pull::Up);
+
+    // The following code block illustrates how to obtain a watchdog that is configured
+    // as per the existing watchdog. Ordinarily, we'd use the handle returned to "pet" the
+    // watchdog periodically. If we don't, and we're not going to for this example, then
+    // the watchdog will cause the device to reset as per its configured timeout in the bootloader.
+    // This helps is avoid a situation where new firmware might be bad and block our executor.
+    // If firmware is bad in this way then the bootloader will revert to any previous version.
+    let wdt_config = wdt::Config::try_new(&p.WDT).unwrap();
+    let (_wdt, [_wdt_handle]) = match Watchdog::try_new(p.WDT, wdt_config) {
+        Ok(x) => x,
+        Err(_) => {
+            // Watchdog already active with the wrong number of handles, waiting for it to timeout...
+            loop {
+                cortex_m::asm::wfe();
+            }
+        }
+    };
 
     let nvmc = Nvmc::new(p.NVMC);
     let mut nvmc = BlockingAsync::new(nvmc);

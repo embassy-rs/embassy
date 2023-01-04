@@ -149,11 +149,7 @@ pub struct WatchdogFlash<'d> {
 
 impl<'d> WatchdogFlash<'d> {
     /// Start a new watchdog with a given flash and WDT peripheral and a timeout
-    pub fn start(flash: Nvmc<'d>, wdt: WDT, timeout: u32) -> Self {
-        let mut config = wdt::Config::default();
-        config.timeout_ticks = 32768 * timeout; // timeout seconds
-        config.run_during_sleep = true;
-        config.run_during_debug_halt = false;
+    pub fn start(flash: Nvmc<'d>, wdt: WDT, config: wdt::Config) -> Self {
         let (_wdt, [wdt]) = match wdt::Watchdog::try_new(wdt, config) {
             Ok(x) => x,
             Err(_) => {
