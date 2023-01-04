@@ -49,15 +49,6 @@ fn init<'d, T: Instance + 'd>(
     rx_buffer: &'d mut [u8],
     config: Config,
 ) {
-    let regs = T::regs();
-    unsafe {
-        regs.uartimsc().modify(|w| {
-            w.set_rxim(true);
-            w.set_rtim(true);
-            w.set_txim(true);
-        });
-    }
-
     super::Uart::<'d, T, Async>::init(tx, rx, rts, cts, config);
 
     let state = T::state();
@@ -168,6 +159,8 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
 
     fn read<'a>(buf: &'a mut [u8]) -> impl Future<Output = Result<usize, Error>> + 'a {
         poll_fn(move |cx| {
+            unsafe { T::Interrupt::steal() }.pend();
+
             let state = T::state();
             let mut rx_reader = unsafe { state.rx_buf.reader() };
             let n = rx_reader.pop(|data| {
@@ -186,6 +179,8 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
 
     fn fill_buf<'a>() -> impl Future<Output = Result<&'a [u8], Error>> {
         poll_fn(move |cx| {
+            unsafe { T::Interrupt::steal() }.pend();
+
             let state = T::state();
             let mut rx_reader = unsafe { state.rx_buf.reader() };
             let (p, n) = rx_reader.pop_buf();
@@ -310,40 +305,31 @@ pub(crate) unsafe fn on_interrupt<T: Instance>(_: *mut ()) {
     let s = T::state();
 
     unsafe {
-        // RX
-
         let ris = r.uartris().read();
-        // Clear interrupt flags
-        r.uarticr().write(|w| {
-            w.set_rxic(true);
-            w.set_rtic(true);
-        });
+        let mut mis = r.uartimsc().read();
 
-        if ris.peris() {
-            warn!("Parity error");
-            r.uarticr().write(|w| {
-                w.set_peic(true);
-            });
-        }
+        // Errors
         if ris.feris() {
             warn!("Framing error");
-            r.uarticr().write(|w| {
-                w.set_feic(true);
-            });
+        }
+        if ris.peris() {
+            warn!("Parity error");
         }
         if ris.beris() {
             warn!("Break error");
-            r.uarticr().write(|w| {
-                w.set_beic(true);
-            });
         }
         if ris.oeris() {
             warn!("Overrun error");
-            r.uarticr().write(|w| {
-                w.set_oeic(true);
-            });
         }
+        // Clear any error flags
+        r.uarticr().write(|w| {
+            w.set_feic(true);
+            w.set_peic(true);
+            w.set_beic(true);
+            w.set_oeic(true);
+        });
 
+        // RX
         let mut rx_writer = s.rx_buf.writer();
         let rx_buf = rx_writer.push_slice();
         let mut n_read = 0;
@@ -358,33 +344,30 @@ pub(crate) unsafe fn on_interrupt<T: Instance>(_: *mut ()) {
             rx_writer.push_done(n_read);
             s.rx_waker.wake();
         }
+        // Disable any further RX interrupts when the buffer becomes full.
+        mis.set_rxim(!s.rx_buf.is_full());
+        mis.set_rtim(!s.rx_buf.is_full());
 
         // TX
         let mut tx_reader = s.tx_buf.reader();
         let tx_buf = tx_reader.pop_slice();
-        if tx_buf.len() == 0 {
-            // Disable interrupt until we have something to transmit again
-            r.uartimsc().modify(|w| {
-                w.set_txim(false);
-            });
-        } else {
-            r.uartimsc().modify(|w| {
-                w.set_txim(true);
-            });
-
-            let mut n_written = 0;
-            for tx_byte in tx_buf.iter_mut() {
-                if r.uartfr().read().txff() {
-                    break;
-                }
-                r.uartdr().write(|w| w.set_data(*tx_byte));
-                n_written += 1;
+        let mut n_written = 0;
+        for tx_byte in tx_buf.iter_mut() {
+            if r.uartfr().read().txff() {
+                break;
             }
-            if n_written > 0 {
-                tx_reader.pop_done(n_written);
-                s.tx_waker.wake();
-            }
+            r.uartdr().write(|w| w.set_data(*tx_byte));
+            n_written += 1;
         }
+        if n_written > 0 {
+            tx_reader.pop_done(n_written);
+            s.tx_waker.wake();
+        }
+        // Disable the TX interrupt when we do not have more data to send.
+        mis.set_txim(!s.tx_buf.is_empty());
+
+        // Update interrupt mask.
+        r.uartimsc().write_value(mis);
     }
 }
 
