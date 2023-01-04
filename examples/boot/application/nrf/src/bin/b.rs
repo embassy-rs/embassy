@@ -12,7 +12,10 @@ use panic_reset as _;
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
-    //let mut led = Output::new(p.P1_10, Level::Low, OutputDrive::Standard);
+    // let mut led = Output::new(p.P1_10, Level::Low, OutputDrive::Standard);
+
+    // nRF91 DK
+    // let mut led = Output::new(p.P0_02, Level::Low, OutputDrive::Standard);
 
     loop {
         led.set_high();

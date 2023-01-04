@@ -2,7 +2,7 @@
 # https://rust-lang.github.io/rustup-components-history
 [toolchain]
 channel = "nightly-2022-11-22"
-components = [ "rust-src", "rustfmt" ]
+components = [ "rust-src", "rustfmt", "llvm-tools-preview" ]
 targets = [
     "thumbv7em-none-eabi",
     "thumbv7m-none-eabi",
