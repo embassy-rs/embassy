@@ -23,6 +23,30 @@ pub struct Config {
     pub run_during_debug_halt: bool,
 }
 
+impl Config {
+    /// Create a config structure from the current configuration of the WDT
+    /// peripheral.
+    pub fn try_new(_wdt: &peripherals::WDT) -> Option<Self> {
+        let r = unsafe { &*WDT::ptr() };
+
+        #[cfg(not(feature = "_nrf9160"))]
+        let runstatus = r.runstatus.read().runstatus().bit();
+        #[cfg(feature = "_nrf9160")]
+        let runstatus = r.runstatus.read().runstatuswdt().bit();
+
+        if runstatus {
+            let config = r.config.read();
+            Some(Self {
+                timeout_ticks: r.crv.read().bits(),
+                run_during_sleep: config.sleep().bit(),
+                run_during_debug_halt: config.halt().bit(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
