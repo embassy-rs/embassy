@@ -273,8 +273,8 @@ pub trait EndpointOut: Endpoint {
 /// calls to `data_in` or `data_out` for the status zero-length packet. The status stage should
 /// be triggered by either `accept()`, or `data_in` with `last = true`.
 ///
-/// Note that the host can abandon a control request and send a new STATUS packet any time. If
-/// a STATUS packet arrives at any time during `data_out`, `data_in`, `accept` or `reject`,
+/// Note that the host can abandon a control request and send a new SETUP packet any time. If
+/// a SETUP packet arrives at any time during `data_out`, `data_in`, `accept` or `reject`,
 /// the driver must immediately return (with `EndpointError::Disabled` from `data_in`, `data_out`)
 /// to let the stack call `setup()` again to start handling the new control request. Not doing
 /// so will cause things to get stuck, because the host will never read/send the packet we're
