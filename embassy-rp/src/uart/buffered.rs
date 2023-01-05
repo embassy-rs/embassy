@@ -7,6 +7,7 @@ use embassy_hal_common::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::*;
+use crate::RegExt;
 
 pub struct State {
     tx_waker: AtomicWaker,
@@ -56,6 +57,19 @@ fn init<'d, T: Instance + 'd>(
     unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
     let len = rx_buffer.len();
     unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
+
+    // From the datasheet:
+    // "The transmit interrupt is based on a transition through a level, rather
+    // than on the level itself. When the interrupt and the UART is enabled
+    // before any data is written to the transmit FIFO the interrupt is not set.
+    // The interrupt is only set, after written data leaves the single location
+    // of the transmit FIFO and it becomes empty."
+    //
+    // This means we can leave the interrupt enabled the whole time as long as
+    // we clear it after it happens. The downside is that the we manually have
+    // to pend the ISR when we want data transmission to start.
+    let regs = T::regs();
+    unsafe { regs.uartimsc().write_set(|w| w.set_txim(true)) };
 
     irq.set_handler(on_interrupt::<T>);
     irq.unpend();
@@ -159,8 +173,6 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
 
     fn read<'a>(buf: &'a mut [u8]) -> impl Future<Output = Result<usize, Error>> + 'a {
         poll_fn(move |cx| {
-            unsafe { T::Interrupt::steal() }.pend();
-
             let state = T::state();
             let mut rx_reader = unsafe { state.rx_buf.reader() };
             let n = rx_reader.pop(|data| {
@@ -173,14 +185,22 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
                 return Poll::Pending;
             }
 
+            // (Re-)Enable the interrupt to receive more data in case it was
+            // disabled because the buffer was full.
+            let regs = T::regs();
+            unsafe {
+                regs.uartimsc().write_set(|w| {
+                    w.set_rxim(true);
+                    w.set_rtim(true);
+                });
+            }
+
             Poll::Ready(Ok(n))
         })
     }
 
     fn fill_buf<'a>() -> impl Future<Output = Result<&'a [u8], Error>> {
         poll_fn(move |cx| {
-            unsafe { T::Interrupt::steal() }.pend();
-
             let state = T::state();
             let mut rx_reader = unsafe { state.rx_buf.reader() };
             let (p, n) = rx_reader.pop_buf();
@@ -198,6 +218,16 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         let state = T::state();
         let mut rx_reader = unsafe { state.rx_buf.reader() };
         rx_reader.pop_done(amt);
+
+        // (Re-)Enable the interrupt to receive more data in case it was
+        // disabled because the buffer was full.
+        let regs = T::regs();
+        unsafe {
+            regs.uartimsc().write_set(|w| {
+                w.set_rxim(true);
+                w.set_rtim(true);
+            });
+        }
     }
 }
 
@@ -250,6 +280,10 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
                 return Poll::Pending;
             }
 
+            // The TX interrupt only triggers when the there was data in the
+            // FIFO and the number of bytes drops below a threshold. When the
+            // FIFO was empty we have to manually pend the interrupt to shovel
+            // TX data from the buffer into the FIFO.
             unsafe { T::Interrupt::steal() }.pend();
             Poll::Ready(Ok(n))
         })
@@ -299,14 +333,22 @@ impl<'d, T: Instance> Drop for BufferedUartTx<'d, T> {
 }
 
 pub(crate) unsafe fn on_interrupt<T: Instance>(_: *mut ()) {
-    trace!("on_interrupt");
-
     let r = T::regs();
     let s = T::state();
 
     unsafe {
+        // Clear TX and error interrupt flags
+        // RX interrupt flags are cleared by reading from the FIFO.
         let ris = r.uartris().read();
-        let mut mis = r.uartimsc().read();
+        r.uarticr().write(|w| {
+            w.set_txic(ris.txris());
+            w.set_feic(ris.feris());
+            w.set_peic(ris.peris());
+            w.set_beic(ris.beris());
+            w.set_oeic(ris.oeris());
+        });
+
+        trace!("on_interrupt ris={=u32:#X}", ris.0);
 
         // Errors
         if ris.feris() {
@@ -321,13 +363,6 @@ pub(crate) unsafe fn on_interrupt<T: Instance>(_: *mut ()) {
         if ris.oeris() {
             warn!("Overrun error");
         }
-        // Clear any error flags
-        r.uarticr().write(|w| {
-            w.set_feic(true);
-            w.set_peic(true);
-            w.set_beic(true);
-            w.set_oeic(true);
-        });
 
         // RX
         let mut rx_writer = s.rx_buf.writer();
@@ -345,8 +380,12 @@ pub(crate) unsafe fn on_interrupt<T: Instance>(_: *mut ()) {
             s.rx_waker.wake();
         }
         // Disable any further RX interrupts when the buffer becomes full.
-        mis.set_rxim(!s.rx_buf.is_full());
-        mis.set_rtim(!s.rx_buf.is_full());
+        if s.rx_buf.is_full() {
+            r.uartimsc().write_clear(|w| {
+                w.set_rxim(true);
+                w.set_rtim(true);
+            });
+        }
 
         // TX
         let mut tx_reader = s.tx_buf.reader();
@@ -363,11 +402,9 @@ pub(crate) unsafe fn on_interrupt<T: Instance>(_: *mut ()) {
             tx_reader.pop_done(n_written);
             s.tx_waker.wake();
         }
-        // Disable the TX interrupt when we do not have more data to send.
-        mis.set_txim(!s.tx_buf.is_empty());
-
-        // Update interrupt mask.
-        r.uartimsc().write_value(mis);
+        // The TX interrupt only triggers once when the FIFO threshold is
+        // crossed. No need to disable it when the buffer becomes empty
+        // as it does re-trigger anymore once we have cleared it.
     }
 }
 
