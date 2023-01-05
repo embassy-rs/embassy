@@ -348,7 +348,7 @@ pub(crate) unsafe fn on_interrupt<T: Instance>(_: *mut ()) {
             w.set_oeic(ris.oeris());
         });
 
-        trace!("on_interrupt ris={=u32:#X}", ris.0);
+        trace!("on_interrupt ris={:#X}", ris.0);
 
         // Errors
         if ris.feris() {
