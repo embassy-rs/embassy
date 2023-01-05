@@ -215,6 +215,70 @@ pub trait EndpointOut: Endpoint {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError>;
 }
 
+/// Trait for USB control pipe.
+///
+/// The USB control pipe owns both OUT ep 0 and IN ep 0 in a single
+/// unit, and manages them together to implement the control pipe state machine.
+///
+/// The reason this is a separate trait instead of using EndpointOut/EndpointIn is that
+/// many USB peripherals treat the control pipe endpoints differently (different registers,
+/// different procedures), usually to accelerate processing in hardware somehow. A separate
+/// trait allows the driver to handle it specially.
+///
+/// The call sequences made by the USB stack to the ControlPipe are the following:
+///
+/// - control in/out with len=0:
+///
+/// ```not_rust
+/// setup()
+/// (...processing...)
+/// accept() or reject()
+/// ```
+///
+/// - control out with len != 0:
+///
+/// ```not_rust
+/// setup()
+/// data_out(first=true, last=false)
+/// data_out(first=false, last=false)
+/// ...
+/// data_out(first=false, last=false)
+/// data_out(first=false, last=true)
+/// (...processing...)
+/// accept() or reject()
+/// ```
+///
+/// - control in with len != 0, accepted:
+///
+/// ```not_rust
+/// setup()
+/// (...processing...)
+/// data_in(first=true, last=false)
+/// data_in(first=false, last=false)
+/// ...
+/// data_in(first=false, last=false)
+/// data_in(first=false, last=true)
+/// (NO `accept()`!!! This is because calling `data_in` already implies acceptance.)
+/// ```
+///
+/// - control in with len != 0, rejected:
+///
+/// ```not_rust
+/// setup()
+/// (...processing...)
+/// reject()
+/// ```
+///
+/// The driver is responsible for handling the status stage. The stack DOES NOT do zero-length
+/// calls to `data_in` or `data_out` for the status zero-length packet. The status stage should
+/// be triggered by either `accept()`, or `data_in` with `last = true`.
+///
+/// Note that the host can abandon a control request and send a new STATUS packet any time. If
+/// a STATUS packet arrives at any time during `data_out`, `data_in`, `accept` or `reject`,
+/// the driver must immediately return (with `EndpointError::Disabled` from `data_in`, `data_out`)
+/// to let the stack call `setup()` again to start handling the new control request. Not doing
+/// so will cause things to get stuck, because the host will never read/send the packet we're
+/// waiting for.
 pub trait ControlPipe {
     /// Maximum packet size for the control pipe
     fn max_packet_size(&self) -> usize;
