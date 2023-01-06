@@ -68,5 +68,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Test
-        run: cd embassy-sync && cargo test
+
+      - name: Test boot
+        working-directory: ./embassy-boot/boot
+        run: cargo test && cargo test --features "ed25519-dalek" && cargo test --features "ed25519-salty"
+
+      - name: Test sync
+        working-directory: ./embassy-sync
+        run: cargo test

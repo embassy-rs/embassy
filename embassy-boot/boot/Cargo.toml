@@ -25,12 +25,26 @@ features = ["defmt"]
 [dependencies]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4", optional = true  }
+ed25519-dalek = { version = "1.0.1", default_features = false, features = ["u32_backend"], optional = true }
 embassy-sync = { version = "0.1.0", path = "../../embassy-sync" }
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.3.0"
+salty = { git = "https://github.com/ycrypto/salty.git", rev = "a9f17911a5024698406b75c0fac56ab5ccf6a8c7", optional = true }
+signature = { version = "1.6.4", default-features = false }
 
 [dev-dependencies]
 log = "0.4"
 env_logger = "0.9"
-rand = "0.8"
+rand = "0.7" # ed25519-dalek v1.0.1 depends on this exact version
 futures = { version = "0.3", features = ["executor"] }
+
+[dev-dependencies.ed25519-dalek]
+default_features = false
+features = ["rand", "std", "u32_backend"]
+
+[features]
+ed25519-dalek = ["dep:ed25519-dalek", "_verify"]
+ed25519-salty = ["dep:salty", "_verify"]
+
+#Internal features
+_verify = []
