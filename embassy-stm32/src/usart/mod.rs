@@ -948,6 +948,45 @@ mod eio {
             self.blocking_flush()
         }
     }
+
+    impl<T, RxDma> Io for UartRx<'_, T, RxDma>
+    where
+        T: BasicInstance,
+    {
+        type Error = Error;
+    }
+
+    impl<T, RxDma> Read for UartRx<'_, T, RxDma>
+    where
+        T: BasicInstance,
+        RxDma: super::RxDma<T>,
+    {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.read_until_idle(buf).await
+        }
+    }
+
+    impl<T, TxDma> Io for UartTx<'_, T, TxDma>
+    where
+        T: BasicInstance,
+    {
+        type Error = Error;
+    }
+
+    impl<T, TxDma> Write for UartTx<'_, T, TxDma>
+    where
+        T: BasicInstance,
+        TxDma: super::TxDma<T>,
+    {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.write(buf).await?;
+            Ok(buf.len())
+        }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.blocking_flush()
+        }
+    }
 }
 
 #[cfg(all(
