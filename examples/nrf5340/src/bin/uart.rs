@@ -15,7 +15,7 @@ async fn main(_spawner: Spawner) {
     config.baudrate = uarte::Baudrate::BAUD115200;
 
     let irq = interrupt::take!(SERIAL0);
-    let mut uart = uarte::Uarte::new(p.UARTETWISPI0, irq, p.P0_08, p.P0_06, config);
+    let mut uart = uarte::Uarte::new(p.UARTETWISPI0, irq, p.P1_00, p.P1_01, config);
 
     info!("uarte initialized!");
 
