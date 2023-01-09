@@ -45,7 +45,7 @@ You can run an example by opening a terminal and entering the following commands
 
 [source, bash]
 ----
-cd examples/nrf
+cd examples/nrf52840
 cargo run --bin blinky --release
 ----
 
