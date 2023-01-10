@@ -19,7 +19,7 @@ Rust's <a href="https://rust-lang.github.io/async-book/">async/await</a> allows 
 No more messing with hardware timers. <a href="https://docs.embassy.dev/embassy-time">embassy_time</a> provides Instant, Duration and Timer types that are globally available and never overflow.
 
 - **Real-time ready** - 
-Tasks on the same async executor run cooperatively, but you can create multiple executors with different priorities, so that higher priority tasks preempt lower priority ones. See the <a href="https://github.com/embassy-rs/embassy/blob/master/examples/nrf/src/bin/multiprio.rs">example</a>.
+Tasks on the same async executor run cooperatively, but you can create multiple executors with different priorities, so that higher priority tasks preempt lower priority ones. See the <a href="https://github.com/embassy-rs/embassy/blob/master/examples/nrf52840/src/bin/multiprio.rs">example</a>.
 
 - **Low-power ready** - 
 Easily build devices with years of battery life. The async executor automatically puts the core to sleep when there's no work to do. Tasks are woken by interrupts, there is no busy-loop polling while waiting.
@@ -87,7 +87,8 @@ async fn main(spawner: Spawner) {
 
 Examples are found in the `examples/` folder seperated by the chip manufacturer they are designed to run on. For example:
 
-*   `examples/nrf` run on the `nrf52840-dk` board (PCA10056) but should be easily adaptable to other nRF52 chips and boards.
+*   `examples/nrf52840` run on the `nrf52840-dk` board (PCA10056) but should be easily adaptable to other nRF52 chips and boards.
+*   `examples/nrf5340` run on the `nrf5340-dk` board (PCA10095).
 *   `examples/stm32xx` for the various STM32 families.
 *   `examples/rp` are for the RP2040 chip.
 *   `examples/std` are designed to run locally on your PC.
@@ -110,7 +111,7 @@ cargo install probe-run
 - Change directory to the sample's base directory. For example:
 
 ```bash
-cd examples/nrf
+cd examples/nrf52840
 ```
 
 - Run the example

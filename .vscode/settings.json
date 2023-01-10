@@ -13,7 +13,8 @@
     // Declare for the target you wish to develop
     // "embassy-executor/Cargo.toml",
     // "embassy-sync/Cargo.toml",
-    "examples/nrf/Cargo.toml",
+    "examples/nrf52840/Cargo.toml",
+    //"examples/nrf5340/Cargo.toml",
     // "examples/nrf-rtos-trace/Cargo.toml",
     // "examples/rp/Cargo.toml",
     // "examples/std/Cargo.toml",
