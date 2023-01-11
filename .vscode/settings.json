@@ -1,7 +1,7 @@
 {
   "editor.formatOnSave": true,
-  "rust-analyzer.checkOnSave.allTargets": false,
-  "rust-analyzer.checkOnSave.noDefaultFeatures": true,
+  "rust-analyzer.check.allTargets": false,
+  "rust-analyzer.check.noDefaultFeatures": true,
   "rust-analyzer.cargo.noDefaultFeatures": true,
   "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
