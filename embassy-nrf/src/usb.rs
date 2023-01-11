@@ -391,11 +391,6 @@ impl<'d, T: Instance, P: UsbSupply> driver::Bus for Bus<'d, T, P> {
         .await
     }
 
-    #[inline]
-    fn set_address(&mut self, _addr: u8) {
-        // Nothing to do, the peripheral handles this.
-    }
-
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
         let regs = T::regs();
         unsafe {
@@ -840,6 +835,11 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     async fn reject(&mut self) {
         let regs = T::regs();
         regs.tasks_ep0stall.write(|w| w.tasks_ep0stall().bit(true));
+    }
+
+    async fn accept_set_address(&mut self, _addr: u8) {
+        self.accept().await;
+        // Nothing to do, the peripheral handles this.
     }
 }
 

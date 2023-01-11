@@ -489,18 +489,6 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         .await
     }
 
-    #[inline]
-    fn set_address(&mut self, addr: u8) {
-        let regs = T::regs();
-        trace!("setting addr: {}", addr);
-        unsafe {
-            regs.daddr().write(|w| {
-                w.set_ef(true);
-                w.set_add(addr);
-            })
-        }
-    }
-
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
         // This can race, so do a retry loop.
         let reg = T::regs().epr(ep_addr.index() as _);
@@ -1015,6 +1003,19 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
                 w.set_ctr_rx(true); // don't clear
                 w.set_ctr_tx(true); // don't clear
             });
+        }
+    }
+
+    async fn accept_set_address(&mut self, addr: u8) {
+        self.accept().await;
+
+        let regs = T::regs();
+        trace!("setting addr: {}", addr);
+        unsafe {
+            regs.daddr().write(|w| {
+                w.set_ef(true);
+                w.set_add(addr);
+            })
         }
     }
 }

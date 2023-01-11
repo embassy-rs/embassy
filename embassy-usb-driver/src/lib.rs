@@ -164,9 +164,6 @@ pub trait Bus {
 
     async fn poll(&mut self) -> Event;
 
-    /// Sets the device USB address to `addr`.
-    fn set_address(&mut self, addr: u8);
-
     /// Enables or disables an endpoint.
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool);
 
@@ -306,6 +303,12 @@ pub trait ControlPipe {
     ///
     /// Sets a STALL condition on the pipe to indicate an error.
     async fn reject(&mut self);
+
+    /// Accept SET_ADDRESS control and change bus address.
+    ///
+    /// For most drivers this function should firstly call `accept()` and then change the bus address.
+    /// However, there are peripherals (Synopsys USB OTG) that have reverse order.
+    async fn accept_set_address(&mut self, addr: u8);
 }
 
 pub trait EndpointIn: Endpoint {
