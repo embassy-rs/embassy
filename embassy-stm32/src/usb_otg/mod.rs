@@ -3,6 +3,15 @@ use embassy_cortex_m::interrupt::Interrupt;
 use crate::peripherals;
 use crate::rcc::RccPeripheral;
 
+#[cfg(feature = "nightly")]
+mod usb;
+#[cfg(feature = "nightly")]
+pub use usb::*;
+
+// Using Instance::ENDPOINT_COUNT requires feature(const_generic_expr) so just define maximum eps
+#[cfg(feature = "nightly")]
+const MAX_EP_COUNT: usize = 9;
+
 pub(crate) mod sealed {
     pub trait Instance {
         const HIGH_SPEED: bool;
@@ -10,6 +19,8 @@ pub(crate) mod sealed {
         const ENDPOINT_COUNT: usize;
 
         fn regs() -> crate::pac::otg::Otg;
+        #[cfg(feature = "nightly")]
+        fn state() -> &'static super::State<{ super::MAX_EP_COUNT }>;
     }
 }
 
@@ -86,6 +97,12 @@ foreach_interrupt!(
             fn regs() -> crate::pac::otg::Otg {
                 crate::pac::USB_OTG_FS
             }
+
+            #[cfg(feature = "nightly")]
+            fn state() -> &'static State<MAX_EP_COUNT> {
+                static STATE: State<MAX_EP_COUNT> = State::new();
+                &STATE
+            }
         }
 
         impl Instance for peripherals::USB_OTG_FS {
@@ -128,6 +145,12 @@ foreach_interrupt!(
             fn regs() -> crate::pac::otg::Otg {
                 // OTG HS registers are a superset of FS registers
                 crate::pac::otg::Otg(crate::pac::USB_OTG_HS.0)
+            }
+
+            #[cfg(feature = "nightly")]
+            fn state() -> &'static State<MAX_EP_COUNT> {
+                static STATE: State<MAX_EP_COUNT> = State::new();
+                &STATE
             }
         }
 
