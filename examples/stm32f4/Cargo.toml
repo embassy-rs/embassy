@@ -10,6 +10,7 @@ embassy-sync = { version = "0.1.0", path = "../../embassy-sync", features = ["de
 embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["defmt", "integrated-timers"] }
 embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "unstable-traits", "tick-hz-32_768"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "unstable-traits", "defmt", "stm32f429zi", "unstable-pac", "memory-x", "time-driver-any", "exti"]  }
+embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -26,5 +27,5 @@ embedded-storage = "0.3.0"
 micromath = "2.0.0"
 static_cell = "1.0"
 
-usb-device = "0.2"
-usbd-serial = "0.1.1"
+[profile.release]
+debug = 2

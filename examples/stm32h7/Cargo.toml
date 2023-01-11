@@ -11,6 +11,7 @@ embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["de
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "stm32h743bi", "time-driver-any", "exti", "unstable-pac", "unstable-traits"] }
 embassy-net = { path = "../../embassy-net", features = ["defmt", "nightly", "tcp", "dhcpv4", "medium-ethernet", "unstable-traits"] }
 embedded-io = { version = "0.4.0", features = ["async"] }
+embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
