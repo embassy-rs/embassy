@@ -58,7 +58,7 @@ pub mod spi;
 pub mod usart;
 #[cfg(all(usb, feature = "time"))]
 pub mod usb;
-#[cfg(any(otgfs, otghs))]
+#[cfg(otg)]
 pub mod usb_otg;
 
 #[cfg(iwdg)]

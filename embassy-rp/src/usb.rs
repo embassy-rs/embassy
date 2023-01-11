@@ -406,13 +406,6 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         .await
     }
 
-    #[inline]
-    fn set_address(&mut self, addr: u8) {
-        let regs = T::regs();
-        trace!("setting addr: {}", addr);
-        unsafe { regs.addr_endp().write(|w| w.set_address(addr)) }
-    }
-
     fn endpoint_set_stalled(&mut self, _ep_addr: EndpointAddress, _stalled: bool) {
         todo!();
     }
@@ -811,5 +804,13 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             T::dpram().ep_out_buffer_control(0).write(|w| w.set_stall(true));
             T::dpram().ep_in_buffer_control(0).write(|w| w.set_stall(true));
         }
+    }
+
+    async fn accept_set_address(&mut self, addr: u8) {
+        self.accept().await;
+
+        let regs = T::regs();
+        trace!("setting addr: {}", addr);
+        unsafe { regs.addr_endp().write(|w| w.set_address(addr)) }
     }
 }

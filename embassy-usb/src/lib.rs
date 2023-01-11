@@ -122,10 +122,9 @@ struct Inner<'d, D: Driver<'d>> {
 
     /// Our device address, or 0 if none.
     address: u8,
-    /// When receiving a set addr control request, we have to apply it AFTER we've
-    /// finished handling the control request, as the status stage still has to be
-    /// handled with addr 0.
-    /// If true, do a set_addr after finishing the current control req.
+    /// SET_ADDRESS requests have special handling depending on the driver.
+    /// This flag indicates that requests must be handled by `ControlPipe::accept_set_address()`
+    /// instead of regular `accept()`.
     set_address_pending: bool,
 
     interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
@@ -254,11 +253,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             Direction::In => self.handle_control_in(req).await,
             Direction::Out => self.handle_control_out(req).await,
         }
-
-        if self.inner.set_address_pending {
-            self.inner.bus.set_address(self.inner.address);
-            self.inner.set_address_pending = false;
-        }
     }
 
     async fn handle_control_in(&mut self, req: Request) {
@@ -328,7 +322,14 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         trace!("  control out data: {:02x?}", data);
 
         match self.inner.handle_control_out(req, data) {
-            OutResponse::Accepted => self.control.accept().await,
+            OutResponse::Accepted => {
+                if self.inner.set_address_pending {
+                    self.control.accept_set_address(self.inner.address).await;
+                    self.inner.set_address_pending = false;
+                } else {
+                    self.control.accept().await
+                }
+            }
             OutResponse::Rejected => self.control.reject().await,
         }
     }
@@ -655,7 +656,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         buf[1] = descriptor_type::STRING;
                         let mut pos = 2;
                         for c in s.encode_utf16() {
-                            if pos >= buf.len() {
+                            if pos + 2 >= buf.len() {
                                 panic!("control buffer too small");
                             }
 
