@@ -154,6 +154,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
             block_for(Duration::from_millis(100));
 
+            #[cfg(not(usb_v4))]
             regs.btable().write(|w| w.set_btable(0));
 
             dp.set_as_af(dp.af_num(), AFType::OutputPushPull);
