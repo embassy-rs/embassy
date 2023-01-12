@@ -150,7 +150,7 @@ foreach_dma_channel! {
             fn is_running(&self) -> bool {
                 unsafe {low_level_api::is_running(pac::$dma_peri, $channel_num)}
             }
-            fn remaining_transfers(&mut self) -> u16 {
+            fn remaining_transfers(&self) -> u16 {
                 unsafe {low_level_api::get_remaining_transfers(pac::$dma_peri, $channel_num)}
             }
 
@@ -162,6 +162,14 @@ foreach_dma_channel! {
                 unsafe {
                     low_level_api::on_irq_inner(pac::$dma_peri, $channel_num, $index);
                 }
+            }
+
+            fn get_tcif(&self) -> bool {
+                unsafe {low_level_api::get_tcif(pac::$dma_peri, $channel_num)}
+            }
+
+            fn clear_tcif(&mut self) {
+                unsafe {low_level_api::clear_tcif(pac::$dma_peri, $channel_num);}
             }
         }
 
@@ -193,6 +201,7 @@ mod low_level_api {
             "Peripheral flow control not supported"
         );
         assert!(options.fifo_threshold.is_none(), "FIFO mode not supported");
+        assert!(options.circ == false, "Circular mode not supported");
 
         let ch = dma.ch(channel_number as _);
 
@@ -220,7 +229,7 @@ mod low_level_api {
             }
             w.set_dir(dir);
             w.set_teie(true);
-            w.set_tcie(true);
+            w.set_tcie(options.tcie);
             w.set_en(true);
         });
     }
@@ -278,5 +287,16 @@ mod low_level_api {
             cr.write(|_| ()); // Disable channel interrupts with the default value.
             STATE.ch_wakers[index].wake();
         }
+    }
+
+    pub unsafe fn get_tcif(dma: pac::bdma::Dma, channel_num: u8) -> bool {
+        let channel_num = channel_num as usize;
+        let isr = dma.isr().read();
+        isr.tcif(channel_num)
+    }
+
+    pub unsafe fn clear_tcif(dma: pac::bdma::Dma, channel_num: u8) {
+        let channel_num = channel_num as usize;
+        dma.ifcr().write(|w| w.set_tcif(channel_num, true));
     }
 }

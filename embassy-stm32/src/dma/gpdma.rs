@@ -138,7 +138,7 @@ foreach_dma_channel! {
                 unsafe {low_level_api::is_running(pac::$dma_peri, $channel_num)}
             }
 
-            fn remaining_transfers(&mut self) -> u16 {
+            fn remaining_transfers(&self) -> u16 {
                 unsafe {low_level_api::get_remaining_transfers(pac::$dma_peri, $channel_num)}
             }
 
@@ -150,6 +150,14 @@ foreach_dma_channel! {
                 unsafe {
                     low_level_api::on_irq_inner(pac::$dma_peri, $channel_num, $index);
                 }
+            }
+
+            fn get_tcif(&self) -> bool {
+                unsafe {low_level_api::get_tcif(pac::$dma_peri, $channel_num)}
+            }
+
+            fn clear_tcif(&mut self) {
+                unsafe {low_level_api::clear_tcif(pac::$dma_peri, $channel_num);}
             }
         }
         impl crate::dma::Channel for crate::peripherals::$channel_peri { }
@@ -185,6 +193,7 @@ mod low_level_api {
             "Peripheral flow control not supported"
         );
         assert!(options.fifo_threshold.is_none(), "FIFO mode not supported");
+        assert!(options.circ == false, "Circular mode not supported");
 
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
@@ -222,7 +231,7 @@ mod low_level_api {
 
         ch.cr().write(|w| {
             // Enable interrupts
-            w.set_tcie(true);
+            w.set_tcie(options.tcie);
             w.set_useie(true);
             w.set_dteie(true);
             w.set_suspie(true);
@@ -238,8 +247,9 @@ mod low_level_api {
         let ch = dma.ch(channel_number as _);
 
         // Disable the channel. Keep the IEs enabled so the irqs still fire.
+        let tcie = ch.cr().read().tcie();
         ch.cr().write(|w| {
-            w.set_tcie(true);
+            w.set_tcie(tcie);
             w.set_useie(true);
             w.set_dteie(true);
             w.set_suspie(true);
@@ -294,5 +304,18 @@ mod low_level_api {
             ch.cr().write(|w| w.set_reset(true));
             STATE.channels[state_index].waker.wake();
         }
+    }
+
+    pub unsafe fn get_tcif(dma: Gpdma, channel_num: u8) -> bool {
+        let channel_num = channel_num as usize;
+        let ch = dma.ch(channel_num);
+        let sr = ch.sr().read();
+        sr.tcf()
+    }
+
+    pub unsafe fn clear_tcif(dma: Gpdma, channel_num: u8) {
+        let channel_num = channel_num as usize;
+        let ch = dma.ch(channel_num);
+        ch.fcr().write(|w| w.set_tcf(true));
     }
 }

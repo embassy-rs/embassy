@@ -200,7 +200,7 @@ foreach_dma_channel! {
                 unsafe {low_level_api::is_running(pac::$dma_peri, $channel_num)}
             }
 
-            fn remaining_transfers(&mut self) -> u16 {
+            fn remaining_transfers(&self) -> u16 {
                 unsafe {low_level_api::get_remaining_transfers(pac::$dma_peri, $channel_num)}
             }
 
@@ -212,6 +212,14 @@ foreach_dma_channel! {
                 unsafe {
                     low_level_api::on_irq_inner(pac::$dma_peri, $channel_num, $index);
                 }
+            }
+
+            fn get_tcif(&self) -> bool {
+                unsafe {low_level_api::get_tcif(pac::$dma_peri, $channel_num)}
+            }
+
+            fn clear_tcif(&mut self) {
+                unsafe {low_level_api::clear_tcif(pac::$dma_peri, $channel_num);}
             }
         }
         impl crate::dma::Channel for crate::peripherals::$channel_peri { }
@@ -269,7 +277,12 @@ mod low_level_api {
             }
             w.set_pinc(vals::Inc::FIXED);
             w.set_teie(true);
-            w.set_tcie(true);
+            w.set_circ(if options.circ {
+                vals::Circ::ENABLED
+            } else {
+                vals::Circ::DISABLED
+            });
+            w.set_tcie(options.tcie);
             #[cfg(dma_v1)]
             w.set_trbuff(true);
 
@@ -332,7 +345,7 @@ mod low_level_api {
             }
             w.set_pinc(vals::Inc::FIXED);
             w.set_teie(true);
-            w.set_tcie(true);
+            w.set_tcie(options.tcie);
 
             #[cfg(dma_v1)]
             w.set_trbuff(true);
@@ -378,9 +391,10 @@ mod low_level_api {
         let ch = dma.st(channel_number as _);
 
         // Disable the channel. Keep the IEs enabled so the irqs still fire.
+        let tcie = ch.cr().read().tcie();
         ch.cr().write(|w| {
             w.set_teie(true);
-            w.set_tcie(true);
+            w.set_tcie(tcie);
         });
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
@@ -436,5 +450,16 @@ mod low_level_api {
             dma.ifcr(channel_num / 4).write(|w| w.set_tcif(channel_num % 4, true));
             STATE.channels[state_index].waker.wake();
         }
+    }
+
+    pub unsafe fn get_tcif(dma: pac::dma::Dma, channel_num: u8) -> bool {
+        let channel_num = channel_num as usize;
+        let isr = dma.isr(channel_num / 4).read();
+        isr.tcif(channel_num % 4)
+    }
+
+    pub unsafe fn clear_tcif(dma: pac::dma::Dma, channel_num: u8) {
+        let channel_num = channel_num as usize;
+        dma.ifcr(channel_num / 4).write(|w| w.set_tcif(channel_num % 4, true));
     }
 }
