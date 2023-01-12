@@ -130,6 +130,7 @@ pub struct Builder<'d, D: Driver<'d>> {
     device_descriptor: DescriptorWriter<'d>,
     config_descriptor: DescriptorWriter<'d>,
     bos_descriptor: BosWriter<'d>,
+    msos_descriptor: Option<crate::msos::MsOsDescriptorSet<'d>>,
 }
 
 impl<'d, D: Driver<'d>> Builder<'d, D> {
@@ -182,6 +183,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             device_descriptor,
             config_descriptor,
             bos_descriptor,
+            msos_descriptor: None,
         }
     }
 
@@ -199,6 +201,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             self.bos_descriptor.writer.into_buf(),
             self.interfaces,
             self.control_buf,
+            self.msos_descriptor,
         )
     }
 
@@ -233,6 +236,18 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             builder: self,
             iface_count_index,
         }
+    }
+
+    /// Add an MS OS 2.0 Descriptor Set.
+    ///
+    /// Panics if called more than once.
+    pub fn msos_descriptor(&mut self, msos_descriptor: crate::msos::MsOsDescriptorSet<'d>) {
+        if self.msos_descriptor.is_some() {
+            panic!("msos_descriptor already set");
+        }
+        self.msos_descriptor
+            .insert(msos_descriptor)
+            .write_bos_capability(&mut self.bos_descriptor);
     }
 }
 
