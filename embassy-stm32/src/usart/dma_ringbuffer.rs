@@ -208,7 +208,15 @@ impl<'a> DmaRingBuffer<'a> {
         let length = usize::min(data_range.len(), buf.len());
 
         // Copy from dma buffer into read buffer
-        buf[0..length].copy_from_slice(&self.dma_buf[data_range.start..data_range.start + length]);
+        // We need to do it like this instead of a simple copy_from_slice() because
+        // reading from a part of memory that may be simultaneously written to is unsafe
+        unsafe {
+            let dma_buf = self.dma_buf.as_ptr();
+
+            for i in 0..length {
+                buf[i] = core::ptr::read_volatile(dma_buf.offset((data_range.start + i) as isize));
+            }
+        }
 
         length
     }
