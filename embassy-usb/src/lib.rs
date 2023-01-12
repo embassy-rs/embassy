@@ -13,6 +13,7 @@ pub mod class;
 pub mod control;
 pub mod descriptor;
 mod descriptor_reader;
+pub mod msos;
 pub mod types;
 
 use embassy_futures::select::{select, Either};
@@ -135,6 +136,8 @@ struct Inner<'d, D: Driver<'d>> {
     set_address_pending: bool,
 
     interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
+
+    msos_descriptor: Option<crate::msos::MsOsDescriptorSet<'d>>,
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
@@ -147,6 +150,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         bos_descriptor: &'d [u8],
         interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
         control_buf: &'d mut [u8],
+        msos_descriptor: Option<crate::msos::MsOsDescriptorSet<'d>>,
     ) -> UsbDevice<'d, D> {
         // Start the USB bus.
         // This prevent further allocation by consuming the driver.
@@ -170,6 +174,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 address: 0,
                 set_address_pending: false,
                 interfaces,
+                msos_descriptor,
             },
         }
     }
@@ -601,6 +606,18 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 match &mut iface.handler {
                     Some(handler) => handler.control_in(req, buf),
                     None => InResponse::Rejected,
+                }
+            }
+            (RequestType::Vendor, Recipient::Device) => {
+                if let Some(msos) = &self.msos_descriptor {
+                    if req.request == msos.vendor_code() && req.index == 7 {
+                        // Index 7 retrieves the MS OS Descriptor Set
+                        InResponse::Accepted(msos.descriptor())
+                    } else {
+                        InResponse::Rejected
+                    }
+                } else {
+                    InResponse::Rejected
                 }
             }
             _ => InResponse::Rejected,
