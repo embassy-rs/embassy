@@ -69,6 +69,7 @@ impl<'a> DmaRingBuffer<'a> {
     pub fn clear(&mut self) {
         self.first = 0;
         self.ndtr = self.dma_buf.len();
+        self.expect_next_read_to_wrap = false;
     }
 
     /// The buffer end position
