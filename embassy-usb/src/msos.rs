@@ -2,8 +2,6 @@
 //!
 //! <https://docs.microsoft.com/en-us/windows-hardware/drivers/usbcon/microsoft-os-2-0-descriptors-specification>
 
-#![allow(dead_code)]
-
 use core::mem::size_of;
 use core::ops::Range;
 
@@ -89,17 +87,6 @@ impl<'a> DescriptorSetBuilder<'a> {
         let end = start + size;
         desc.write_to(&mut self.buf[start..end]);
         self.used += size;
-    }
-
-    pub fn subset(&mut self, build_subset: impl FnOnce(&mut DescriptorSetBuilder<'_>)) {
-        self.used += {
-            let mut subset = DescriptorSetBuilder {
-                used: 0,
-                buf: self.remaining(),
-            };
-            build_subset(&mut subset);
-            subset.used
-        };
     }
 
     pub fn remaining(&mut self) -> &mut [u8] {
