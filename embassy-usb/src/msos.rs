@@ -205,7 +205,7 @@ impl<'a> DeviceDescriptorSetBuilder<'a> {
         let used = self.builder.used;
         let buf = self.builder.buf;
         // Update length in header with final length
-        let total_len = &mut buf[4..6];
+        let total_len = &mut buf[8..10];
         total_len.copy_from_slice((used as u16).to_le_bytes().as_slice());
 
         MsOsDescriptorSet {
@@ -528,7 +528,7 @@ impl<'a> RegistryPropertyFeatureDescriptor<'a> {
         unsafe { core::slice::from_raw_parts(s.as_ptr() as *const u8, (s.len() + 1) * 2) }
     }
 
-    /// A registry property that sets the DeviceInterfaceGUID to the device interface class for USB devices which are
+    /// A registry property that sets the DeviceInterfaceGUIDs to the device interface class for USB devices which are
     /// attached to a USB hub.
     pub fn new_usb_deviceinterfaceguid() -> Self {
         // Can't use defmt::panic in constant expressions (inside u16cstr!)
@@ -540,9 +540,9 @@ impl<'a> RegistryPropertyFeatureDescriptor<'a> {
             };
         }
 
-        Self::new_string(
-            u16cstr!("DeviceInterfaceGUID"),
-            u16cstr!("{A5DCBF10-6530-11D2-901F-00C04FB951ED}"),
+        Self::new_multi_string(
+            u16cstr!("DeviceInterfaceGUIDs"),
+            u16cstr!("{A5DCBF10-6530-11D2-901F-00C04FB951ED}").as_slice_with_nul(),
         )
     }
 
