@@ -306,14 +306,25 @@ impl<'a, 'd, D: Driver<'d>> InterfaceBuilder<'a, 'd, D> {
     /// Alternate setting numbers are guaranteed to be allocated consecutively, starting from 0.
     ///
     /// The first alternate setting, with number 0, is the default one.
-    pub fn alt_setting(&mut self, class: u8, subclass: u8, protocol: u8) -> InterfaceAltBuilder<'_, 'd, D> {
+    pub fn alt_setting(
+        &mut self,
+        class: u8,
+        subclass: u8,
+        protocol: u8,
+        interface_string: Option<StringIndex>,
+    ) -> InterfaceAltBuilder<'_, 'd, D> {
         let number = self.next_alt_setting_number;
         self.next_alt_setting_number += 1;
         self.builder.interfaces[self.interface_number.0 as usize].num_alt_settings += 1;
 
-        self.builder
-            .config_descriptor
-            .interface_alt(self.interface_number, number, class, subclass, protocol, None);
+        self.builder.config_descriptor.interface_alt(
+            self.interface_number,
+            number,
+            class,
+            subclass,
+            protocol,
+            interface_string,
+        );
 
         InterfaceAltBuilder {
             builder: self.builder,

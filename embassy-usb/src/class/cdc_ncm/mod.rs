@@ -254,7 +254,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
             mac_addr_str: [0; 12],
         }));
         let comm_if = iface.interface_number();
-        let mut alt = iface.alt_setting(USB_CLASS_CDC, CDC_SUBCLASS_NCM, CDC_PROTOCOL_NONE);
+        let mut alt = iface.alt_setting(USB_CLASS_CDC, CDC_SUBCLASS_NCM, CDC_PROTOCOL_NONE, None);
 
         alt.descriptor(
             CS_INTERFACE,
@@ -304,8 +304,8 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
         let mut iface = func.interface();
         iface.handler(state.data_control.write(DataControl {}));
         let data_if = iface.interface_number();
-        let _alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NTB);
-        let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NTB);
+        let _alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NTB, None);
+        let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NTB, None);
         let read_ep = alt.endpoint_bulk_out(max_packet_size);
         let write_ep = alt.endpoint_bulk_in(max_packet_size);
 
