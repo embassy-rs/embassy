@@ -29,7 +29,7 @@ async fn main(spawner: Spawner) {
     let irq = interrupt::take!(UART0_IRQ);
     let tx_buf = &mut singleton!([0u8; 16])[..];
     let rx_buf = &mut singleton!([0u8; 16])[..];
-    let mut uart = BufferedUart::new(uart, irq, tx_pin, rx_pin, tx_buf, rx_buf, Config::default());
+    let uart = BufferedUart::new(uart, irq, tx_pin, rx_pin, tx_buf, rx_buf, Config::default());
     let (rx, mut tx) = uart.split();
 
     unwrap!(spawner.spawn(reader(rx)));
