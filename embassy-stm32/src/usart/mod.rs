@@ -912,7 +912,7 @@ mod eh1 {
 
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 mod eio {
-    use embedded_io::asynch::Read;
+    use embedded_io::asynch::Write;
     use embedded_io::Io;
 
     use super::*;
