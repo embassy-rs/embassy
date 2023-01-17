@@ -10,6 +10,7 @@ use crate::time::Hertz;
 #[cfg_attr(rcc_f3, path = "f3.rs")]
 #[cfg_attr(any(rcc_f4, rcc_f410), path = "f4.rs")]
 #[cfg_attr(rcc_f7, path = "f7.rs")]
+#[cfg_attr(rcc_c0, path = "c0.rs")]
 #[cfg_attr(rcc_g0, path = "g0.rs")]
 #[cfg_attr(rcc_g4, path = "g4.rs")]
 #[cfg_attr(any(rcc_h7, rcc_h7ab), path = "h7.rs")]
@@ -30,9 +31,9 @@ pub struct Clocks {
     // APB
     pub apb1: Hertz,
     pub apb1_tim: Hertz,
-    #[cfg(not(rcc_g0))]
+    #[cfg(not(any(rcc_c0, rcc_g0)))]
     pub apb2: Hertz,
-    #[cfg(not(rcc_g0))]
+    #[cfg(not(any(rcc_c0, rcc_g0)))]
     pub apb2_tim: Hertz,
     #[cfg(any(rcc_wl5, rcc_wle, rcc_u5))]
     pub apb3: Hertz,
