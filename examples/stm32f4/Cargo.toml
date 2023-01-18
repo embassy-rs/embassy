@@ -4,13 +4,13 @@ name = "embassy-stm32f4-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
-
 [dependencies]
 embassy-sync = { version = "0.1.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["defmt", "integrated-timers"] }
 embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "unstable-traits", "tick-hz-32_768"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "unstable-traits", "defmt", "stm32f429zi", "unstable-pac", "memory-x", "time-driver-any", "exti"]  }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
+embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "nightly"], optional = true }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -26,6 +26,10 @@ nb = "1.0.0"
 embedded-storage = "0.3.0"
 micromath = "2.0.0"
 static_cell = "1.0"
+
+[[bin]]
+name = "usb_ethernet"
+required-features = ["embassy-net"]
 
 [profile.release]
 debug = 2
