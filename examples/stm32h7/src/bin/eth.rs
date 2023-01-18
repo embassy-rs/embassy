@@ -70,20 +70,15 @@ async fn main(spawner: Spawner) -> ! {
         0,
     );
 
-    let config = embassy_net::ConfigStrategy::Dhcp;
-    //let config = embassy_net::ConfigStrategy::Static(embassy_net::Config {
+    let config = embassy_net::Config::Dhcp(Default::default());
+    //let config = embassy_net::Config::Static(embassy_net::StaticConfig {
     //    address: Ipv4Cidr::new(Ipv4Address::new(10, 42, 0, 61), 24),
     //    dns_servers: Vec::new(),
     //    gateway: Some(Ipv4Address::new(10, 42, 0, 1)),
     //});
 
     // Init network stack
-    let stack = &*singleton!(Stack::new(
-        device,
-        config,
-        singleton!(StackResources::<1, 2, 8>::new()),
-        seed
-    ));
+    let stack = &*singleton!(Stack::new(device, config, singleton!(StackResources::<1>::new()), seed));
 
     // Launch network task
     unwrap!(spawner.spawn(net_task(&stack)));

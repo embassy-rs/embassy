@@ -1,9 +1,11 @@
 #![feature(type_alias_impl_trait)]
 
+use std::default::Default;
+
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{ConfigStrategy, Ipv4Address, Ipv4Cidr, Stack, StackResources};
+use embassy_net::{Config, Ipv4Address, Ipv4Cidr, Stack, StackResources};
 use embedded_io::asynch::Write;
 use heapless::Vec;
 use log::*;
@@ -48,13 +50,13 @@ async fn main_task(spawner: Spawner) {
 
     // Choose between dhcp or static ip
     let config = if opts.static_ip {
-        ConfigStrategy::Static(embassy_net::Config {
+        Config::Static(embassy_net::StaticConfig {
             address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 2), 24),
             dns_servers: Vec::new(),
             gateway: Some(Ipv4Address::new(192, 168, 69, 1)),
         })
     } else {
-        ConfigStrategy::Dhcp
+        Config::Dhcp(Default::default())
     };
 
     // Generate random seed
@@ -63,12 +65,7 @@ async fn main_task(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    let stack = &*singleton!(Stack::new(
-        device,
-        config,
-        singleton!(StackResources::<1, 2, 8>::new()),
-        seed
-    ));
+    let stack = &*singleton!(Stack::new(device, config, singleton!(StackResources::<1>::new()), seed));
 
     // Launch network task
     spawner.spawn(net_task(stack)).unwrap();
