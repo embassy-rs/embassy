@@ -483,7 +483,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         state.chunks_transferred.store(0, Ordering::Relaxed);
         let mut remaining_len = total_len;
 
-        let _on_drop = OnDrop::new(|| {
+        let on_drop = OnDrop::new(|| {
             let regs = T::regs();
             unsafe {
                 regs.cr1().modify(|w| {
@@ -542,6 +542,9 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             self.wait_tc(&check_timeout)?;
             self.master_stop();
         }
+
+        drop(on_drop);
+
         Ok(())
     }
 
@@ -580,7 +583,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         state.chunks_transferred.store(0, Ordering::Relaxed);
         let mut remaining_len = total_len;
 
-        let _on_drop = OnDrop::new(|| {
+        let on_drop = OnDrop::new(|| {
             let regs = T::regs();
             unsafe {
                 regs.cr1().modify(|w| {
@@ -629,6 +632,9 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         // This should be done already
         self.wait_tc(&check_timeout)?;
         self.master_stop();
+
+        drop(on_drop);
+
         Ok(())
     }
 

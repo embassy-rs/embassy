@@ -225,7 +225,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
     /// also cause the sampling to be stopped.
     pub async fn sample(&mut self, buf: &mut [i16; N]) {
         // In case the future is dropped, stop the task and wait for it to end.
-        OnDrop::new(Self::stop_sampling_immediately);
+        let on_drop = OnDrop::new(Self::stop_sampling_immediately);
 
         let r = Self::regs();
 
@@ -258,6 +258,8 @@ impl<'d, const N: usize> Saadc<'d, N> {
             Poll::Pending
         })
         .await;
+
+        drop(on_drop);
     }
 
     /// Continuous sampling with double buffers.
@@ -335,7 +337,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
         S: FnMut(&[[i16; N]]) -> SamplerState,
     {
         // In case the future is dropped, stop the task and wait for it to end.
-        OnDrop::new(Self::stop_sampling_immediately);
+        let on_drop = OnDrop::new(Self::stop_sampling_immediately);
 
         let r = Self::regs();
 
@@ -382,7 +384,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
         let mut current_buffer = 0;
 
         // Wait for events and complete when the sampler indicates it has had enough.
-        poll_fn(|cx| {
+        let r = poll_fn(|cx| {
             let r = Self::regs();
 
             WAKER.register(cx.waker());
@@ -419,6 +421,10 @@ impl<'d, const N: usize> Saadc<'d, N> {
             Poll::Pending
         })
         .await;
+
+        drop(on_drop);
+
+        r
     }
 
     // Stop sampling and wait for it to stop in a blocking fashion
