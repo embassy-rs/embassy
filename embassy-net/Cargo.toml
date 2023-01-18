@@ -51,7 +51,7 @@ atomic-polyfill = { version = "1.0" }
 [dependencies.smoltcp]
 version = "0.8.0"
 git = "https://github.com/smoltcp-rs/smoltcp"
-rev = "b7a7c4b1c56e8d4c2524c1e3a056c745a13cc09f"
+rev = "7b631c27cefe9b29e322a507c076b4156f477ee2"
 default-features = false
 features = [
   "proto-ipv4",

@@ -23,11 +23,11 @@ use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 use futures::pin_mut;
 use heapless::Vec;
+#[cfg(feature = "medium-ethernet")]
+use smoltcp::iface::Routes;
 #[cfg(feature = "dhcpv4")]
 use smoltcp::iface::SocketHandle;
 use smoltcp::iface::{Interface, InterfaceBuilder, SocketSet, SocketStorage};
-#[cfg(feature = "medium-ethernet")]
-use smoltcp::iface::{Neighbor, NeighborCache, Route, Routes};
 #[cfg(feature = "dhcpv4")]
 use smoltcp::socket::dhcpv4;
 // smoltcp reexports
@@ -45,25 +45,16 @@ use crate::device::DriverAdapter;
 const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
 
-pub struct StackResources<const ADDR: usize, const SOCK: usize, const NEIGHBOR: usize> {
-    addresses: [IpCidr; ADDR],
+pub struct StackResources<const SOCK: usize, const NEIGHBOR: usize> {
+    addresses: [IpCidr; 5],
     sockets: [SocketStorage<'static>; SOCK],
-
-    #[cfg(feature = "medium-ethernet")]
-    routes: [Option<(IpCidr, Route)>; 1],
-    #[cfg(feature = "medium-ethernet")]
-    neighbor_cache: [Option<(IpAddress, Neighbor)>; NEIGHBOR],
 }
 
-impl<const ADDR: usize, const SOCK: usize, const NEIGHBOR: usize> StackResources<ADDR, SOCK, NEIGHBOR> {
+impl<const SOCK: usize, const NEIGHBOR: usize> StackResources<SOCK, NEIGHBOR> {
     pub fn new() -> Self {
         Self {
-            addresses: [IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 32); ADDR],
+            addresses: [IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 32); 5],
             sockets: [SocketStorage::EMPTY; SOCK],
-            #[cfg(feature = "medium-ethernet")]
-            routes: [None; 1],
-            #[cfg(feature = "medium-ethernet")]
-            neighbor_cache: [None; NEIGHBOR],
         }
     }
 }
@@ -105,21 +96,20 @@ impl<D: Driver + 'static> Stack<D> {
     pub fn new<const ADDR: usize, const SOCK: usize, const NEIGH: usize>(
         mut device: D,
         config: ConfigStrategy,
-        resources: &'static mut StackResources<ADDR, SOCK, NEIGH>,
+        resources: &'static mut StackResources<SOCK, NEIGH>,
         random_seed: u64,
     ) -> Self {
         #[cfg(feature = "medium-ethernet")]
         let medium = device.capabilities().medium;
 
         let mut b = InterfaceBuilder::new();
-        b = b.ip_addrs(&mut resources.addresses[..]);
+        b = b.ip_addrs(Vec::<IpCidr, 5>::from_iter(resources.addresses));
         b = b.random_seed(random_seed);
 
         #[cfg(feature = "medium-ethernet")]
         if medium == Medium::Ethernet {
             b = b.hardware_addr(HardwareAddress::Ethernet(EthernetAddress(device.ethernet_address())));
-            b = b.neighbor_cache(NeighborCache::new(&mut resources.neighbor_cache[..]));
-            b = b.routes(Routes::new(&mut resources.routes[..]));
+            b = b.routes(Routes::new());
         }
 
         let iface = b.finalize(&mut DriverAdapter {
@@ -266,7 +256,7 @@ impl<D: Driver + 'static> Inner<D> {
             cx: Some(cx),
             inner: &mut self.device,
         };
-        if s.iface.poll(timestamp, &mut smoldev, &mut s.sockets).is_err() {
+        if !s.iface.poll(timestamp, &mut smoldev, &mut s.sockets) {
             // If poll() returns error, it may not be done yet, so poll again later.
             cx.waker().wake_by_ref();
             return;
