@@ -1126,6 +1126,8 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointOut for Endpoint<'d, T, Out> {
 
 impl<'d, T: Instance> embassy_usb_driver::EndpointIn for Endpoint<'d, T, In> {
     async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+        trace!("write ep={} data={}", self.info.addr, buf);
+
         if buf.len() > self.info.max_packet_size as usize {
             return Err(EndpointError::BufferOverflow);
         }
@@ -1134,18 +1136,21 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointIn for Endpoint<'d, T, In> {
         let index = self.info.addr.index();
         let state = T::state();
 
-        // Wait for previous transfer to complete
+        // Wait for previous transfer to complete and check if endpoint is disabled
         poll_fn(|cx| {
             state.ep_in_wakers[index].register(cx.waker());
 
             // SAFETY: atomic read with no side effects
-            if unsafe { r.diepctl(index).read().epena() } {
-                Poll::Pending
+            let diepctl = unsafe { r.diepctl(index).read() };
+            if !diepctl.usbaep() {
+                Poll::Ready(Err(EndpointError::Disabled))
+            } else if !diepctl.epena() {
+                Poll::Ready(Ok(()))
             } else {
-                Poll::Ready(())
+                Poll::Pending
             }
         })
-        .await;
+        .await?;
 
         if buf.len() > 0 {
             poll_fn(|cx| {
@@ -1201,7 +1206,7 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointIn for Endpoint<'d, T, In> {
             unsafe { r.fifo(index).write_value(regs::Fifo(u32::from_ne_bytes(tmp))) };
         }
 
-        trace!("WRITE OK");
+        trace!("write done ep={}", self.info.addr);
 
         Ok(())
     }
@@ -1239,8 +1244,8 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
                     // Clear NAK to indicate we are ready to receive more data
                     T::regs().doepctl(self.ep_out.info.addr.index()).modify(|w| {
                         w.set_cnak(true);
-                    })
-                };
+                    });
+                }
 
                 trace!("SETUP received: {:?}", data);
                 Poll::Ready(data)
