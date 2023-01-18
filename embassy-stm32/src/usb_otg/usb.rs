@@ -791,6 +791,9 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
                         w.set_usbaep(enabled);
                     })
                 });
+
+                // Wake `Endpoint::wait_enabled()`
+                T::state().ep_out_wakers[ep_addr.index()].wake();
             }
             Direction::In => {
                 // SAFETY: DIEPCTL is shared with `Endpoint` so critical section is needed for RMW
@@ -807,6 +810,9 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
                         w.set_usbaep(enabled);
                     })
                 });
+
+                // Wake `Endpoint::wait_enabled()`
+                T::state().ep_in_wakers[ep_addr.index()].wake();
             }
         }
     }
@@ -1031,7 +1037,21 @@ impl<'d, T: Instance> embassy_usb_driver::Endpoint for Endpoint<'d, T, In> {
         &self.info
     }
 
-    async fn wait_enabled(&mut self) {}
+    async fn wait_enabled(&mut self) {
+        poll_fn(|cx| {
+            let ep_index = self.info.addr.index();
+
+            T::state().ep_in_wakers[ep_index].register(cx.waker());
+
+            // SAFETY: atomic read without side effects
+            if unsafe { T::regs().diepctl(ep_index).read().usbaep() } {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
 }
 
 impl<'d, T: Instance> embassy_usb_driver::Endpoint for Endpoint<'d, T, Out> {
@@ -1039,7 +1059,21 @@ impl<'d, T: Instance> embassy_usb_driver::Endpoint for Endpoint<'d, T, Out> {
         &self.info
     }
 
-    async fn wait_enabled(&mut self) {}
+    async fn wait_enabled(&mut self) {
+        poll_fn(|cx| {
+            let ep_index = self.info.addr.index();
+
+            T::state().ep_out_wakers[ep_index].register(cx.waker());
+
+            // SAFETY: atomic read without side effects
+            if unsafe { T::regs().doepctl(ep_index).read().usbaep() } {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
 }
 
 impl<'d, T: Instance> embassy_usb_driver::EndpointOut for Endpoint<'d, T, Out> {
