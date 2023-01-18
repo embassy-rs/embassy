@@ -1126,7 +1126,7 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointOut for Endpoint<'d, T, Out> {
 
 impl<'d, T: Instance> embassy_usb_driver::EndpointIn for Endpoint<'d, T, In> {
     async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
-        trace!("write ep={} data={}", self.info.addr, buf);
+        trace!("write ep={:?} data={:?}", self.info.addr, buf);
 
         if buf.len() > self.info.max_packet_size as usize {
             return Err(EndpointError::BufferOverflow);
@@ -1206,7 +1206,7 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointIn for Endpoint<'d, T, In> {
             unsafe { r.fifo(index).write_value(regs::Fifo(u32::from_ne_bytes(tmp))) };
         }
 
-        trace!("write done ep={}", self.info.addr);
+        trace!("write done ep={:?}", self.info.addr);
 
         Ok(())
     }
