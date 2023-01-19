@@ -23,11 +23,9 @@ use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 use futures::pin_mut;
 use heapless::Vec;
-#[cfg(feature = "medium-ethernet")]
-use smoltcp::iface::Routes;
 #[cfg(feature = "dhcpv4")]
 use smoltcp::iface::SocketHandle;
-use smoltcp::iface::{Interface, InterfaceBuilder, SocketSet, SocketStorage};
+use smoltcp::iface::{Interface, SocketSet, SocketStorage};
 #[cfg(feature = "dhcpv4")]
 use smoltcp::socket::dhcpv4;
 use smoltcp::socket::dhcpv4::RetryConfig;
@@ -111,7 +109,7 @@ struct Inner<D: Driver> {
 
 pub(crate) struct SocketStack {
     pub(crate) sockets: SocketSet<'static>,
-    pub(crate) iface: Interface<'static>,
+    pub(crate) iface: Interface,
     pub(crate) waker: WakerRegistration,
     next_local_port: u16,
 }
@@ -126,19 +124,20 @@ impl<D: Driver + 'static> Stack<D> {
         #[cfg(feature = "medium-ethernet")]
         let medium = device.capabilities().medium;
 
-        let mut b = InterfaceBuilder::new();
-        b = b.random_seed(random_seed);
-
+        let mut iface_cfg = smoltcp::iface::Config::new();
+        iface_cfg.random_seed = random_seed;
         #[cfg(feature = "medium-ethernet")]
         if medium == Medium::Ethernet {
-            b = b.hardware_addr(HardwareAddress::Ethernet(EthernetAddress(device.ethernet_address())));
-            b = b.routes(Routes::new());
+            iface_cfg.hardware_addr = Some(HardwareAddress::Ethernet(EthernetAddress(device.ethernet_address())));
         }
 
-        let iface = b.finalize(&mut DriverAdapter {
-            inner: &mut device,
-            cx: None,
-        });
+        let iface = Interface::new(
+            iface_cfg,
+            &mut DriverAdapter {
+                inner: &mut device,
+                cx: None,
+            },
+        );
 
         let sockets = SocketSet::new(&mut resources.sockets[..]);
 
@@ -226,7 +225,13 @@ impl<D: Driver + 'static> Inner<D> {
         debug!("Acquired IP configuration:");
 
         debug!("   IP address:      {}", config.address);
-        self.set_ipv4_addr(s, config.address);
+        s.iface.update_ip_addrs(|addrs| {
+            if addrs.is_empty() {
+                addrs.push(IpCidr::Ipv4(config.address)).unwrap();
+            } else {
+                addrs[0] = IpCidr::Ipv4(config.address);
+            }
+        });
 
         #[cfg(feature = "medium-ethernet")]
         if medium == Medium::Ethernet {
@@ -258,19 +263,12 @@ impl<D: Driver + 'static> Inner<D> {
         let medium = self.device.capabilities().medium;
 
         debug!("Lost IP configuration");
-        self.set_ipv4_addr(s, Ipv4Cidr::new(Ipv4Address::UNSPECIFIED, 0));
+        s.iface.update_ip_addrs(|ip_addrs| ip_addrs.clear());
         #[cfg(feature = "medium-ethernet")]
         if medium == Medium::Ethernet {
             s.iface.routes_mut().remove_default_ipv4_route();
         }
         self.config = None
-    }
-
-    fn set_ipv4_addr(&mut self, s: &mut SocketStack, cidr: Ipv4Cidr) {
-        s.iface.update_ip_addrs(|addrs| {
-            let dest = addrs.iter_mut().next().unwrap();
-            *dest = IpCidr::Ipv4(cidr);
-        });
     }
 
     fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
