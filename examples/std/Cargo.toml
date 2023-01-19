@@ -17,7 +17,7 @@ async-io = "1.6.0"
 env_logger = "0.9.0"
 futures = { version = "0.3.17" }
 log = "0.4.14"
-nix = "0.22.1"
+nix = "0.26.2"
 libc = "0.2.101"
 clap = { version = "3.0.0-beta.5", features = ["derive"] }
 rand_core = { version = "0.6.3", features = ["std"] }

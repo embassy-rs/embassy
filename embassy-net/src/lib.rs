@@ -25,11 +25,11 @@ use futures::pin_mut;
 use heapless::Vec;
 #[cfg(feature = "dhcpv4")]
 use smoltcp::iface::SocketHandle;
-use smoltcp::iface::{Interface, InterfaceBuilder, SocketSet, SocketStorage};
-#[cfg(feature = "medium-ethernet")]
-use smoltcp::iface::{Neighbor, NeighborCache, Route, Routes};
+use smoltcp::iface::{Interface, SocketSet, SocketStorage};
 #[cfg(feature = "dhcpv4")]
 use smoltcp::socket::dhcpv4;
+use smoltcp::socket::dhcpv4::RetryConfig;
+use smoltcp::time::Duration;
 // smoltcp reexports
 pub use smoltcp::time::{Duration as SmolDuration, Instant as SmolInstant};
 #[cfg(feature = "medium-ethernet")]
@@ -45,40 +45,53 @@ use crate::device::DriverAdapter;
 const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
 
-pub struct StackResources<const ADDR: usize, const SOCK: usize, const NEIGHBOR: usize> {
-    addresses: [IpCidr; ADDR],
+pub struct StackResources<const SOCK: usize> {
     sockets: [SocketStorage<'static>; SOCK],
-
-    #[cfg(feature = "medium-ethernet")]
-    routes: [Option<(IpCidr, Route)>; 1],
-    #[cfg(feature = "medium-ethernet")]
-    neighbor_cache: [Option<(IpAddress, Neighbor)>; NEIGHBOR],
 }
 
-impl<const ADDR: usize, const SOCK: usize, const NEIGHBOR: usize> StackResources<ADDR, SOCK, NEIGHBOR> {
+impl<const SOCK: usize> StackResources<SOCK> {
     pub fn new() -> Self {
         Self {
-            addresses: [IpCidr::new(Ipv4Address::UNSPECIFIED.into(), 32); ADDR],
             sockets: [SocketStorage::EMPTY; SOCK],
-            #[cfg(feature = "medium-ethernet")]
-            routes: [None; 1],
-            #[cfg(feature = "medium-ethernet")]
-            neighbor_cache: [None; NEIGHBOR],
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Config {
+pub struct StaticConfig {
     pub address: Ipv4Cidr,
     pub gateway: Option<Ipv4Address>,
     pub dns_servers: Vec<Ipv4Address, 3>,
 }
 
-pub enum ConfigStrategy {
-    Static(Config),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DhcpConfig {
+    pub max_lease_duration: Option<Duration>,
+    pub retry_config: RetryConfig,
+    /// Ignore NAKs.
+    pub ignore_naks: bool,
+    /// Server port config
+    pub server_port: u16,
+    /// Client port config
+    pub client_port: u16,
+}
+
+impl Default for DhcpConfig {
+    fn default() -> Self {
+        Self {
+            max_lease_duration: Default::default(),
+            retry_config: Default::default(),
+            ignore_naks: Default::default(),
+            server_port: smoltcp::wire::DHCP_SERVER_PORT,
+            client_port: smoltcp::wire::DHCP_CLIENT_PORT,
+        }
+    }
+}
+
+pub enum Config {
+    Static(StaticConfig),
     #[cfg(feature = "dhcpv4")]
-    Dhcp,
+    Dhcp(DhcpConfig),
 }
 
 pub struct Stack<D: Driver> {
@@ -89,43 +102,42 @@ pub struct Stack<D: Driver> {
 struct Inner<D: Driver> {
     device: D,
     link_up: bool,
-    config: Option<Config>,
+    config: Option<StaticConfig>,
     #[cfg(feature = "dhcpv4")]
     dhcp_socket: Option<SocketHandle>,
 }
 
 pub(crate) struct SocketStack {
     pub(crate) sockets: SocketSet<'static>,
-    pub(crate) iface: Interface<'static>,
+    pub(crate) iface: Interface,
     pub(crate) waker: WakerRegistration,
     next_local_port: u16,
 }
 
 impl<D: Driver + 'static> Stack<D> {
-    pub fn new<const ADDR: usize, const SOCK: usize, const NEIGH: usize>(
+    pub fn new<const SOCK: usize>(
         mut device: D,
-        config: ConfigStrategy,
-        resources: &'static mut StackResources<ADDR, SOCK, NEIGH>,
+        config: Config,
+        resources: &'static mut StackResources<SOCK>,
         random_seed: u64,
     ) -> Self {
         #[cfg(feature = "medium-ethernet")]
         let medium = device.capabilities().medium;
 
-        let mut b = InterfaceBuilder::new();
-        b = b.ip_addrs(&mut resources.addresses[..]);
-        b = b.random_seed(random_seed);
-
+        let mut iface_cfg = smoltcp::iface::Config::new();
+        iface_cfg.random_seed = random_seed;
         #[cfg(feature = "medium-ethernet")]
         if medium == Medium::Ethernet {
-            b = b.hardware_addr(HardwareAddress::Ethernet(EthernetAddress(device.ethernet_address())));
-            b = b.neighbor_cache(NeighborCache::new(&mut resources.neighbor_cache[..]));
-            b = b.routes(Routes::new(&mut resources.routes[..]));
+            iface_cfg.hardware_addr = Some(HardwareAddress::Ethernet(EthernetAddress(device.ethernet_address())));
         }
 
-        let iface = b.finalize(&mut DriverAdapter {
-            inner: &mut device,
-            cx: None,
-        });
+        let iface = Interface::new(
+            iface_cfg,
+            &mut DriverAdapter {
+                inner: &mut device,
+                cx: None,
+            },
+        );
 
         let sockets = SocketSet::new(&mut resources.sockets[..]);
 
@@ -146,10 +158,12 @@ impl<D: Driver + 'static> Stack<D> {
         };
 
         match config {
-            ConfigStrategy::Static(config) => inner.apply_config(&mut socket, config),
+            Config::Static(config) => inner.apply_config(&mut socket, config),
             #[cfg(feature = "dhcpv4")]
-            ConfigStrategy::Dhcp => {
-                let handle = socket.sockets.add(smoltcp::socket::dhcpv4::Socket::new());
+            Config::Dhcp(config) => {
+                let mut dhcp_socket = smoltcp::socket::dhcpv4::Socket::new();
+                inner.apply_dhcp_config(&mut dhcp_socket, config);
+                let handle = socket.sockets.add(dhcp_socket);
                 inner.dhcp_socket = Some(handle);
             }
         }
@@ -180,7 +194,7 @@ impl<D: Driver + 'static> Stack<D> {
         self.with(|_s, i| i.config.is_some())
     }
 
-    pub fn config(&self) -> Option<Config> {
+    pub fn config(&self) -> Option<StaticConfig> {
         self.with(|_s, i| i.config.clone())
     }
 
@@ -195,7 +209,7 @@ impl<D: Driver + 'static> Stack<D> {
 }
 
 impl SocketStack {
-    #[allow(clippy::absurd_extreme_comparisons)]
+    #[allow(clippy::absurd_extreme_comparisons, dead_code)]
     pub fn get_local_port(&mut self) -> u16 {
         let res = self.next_local_port;
         self.next_local_port = if res >= LOCAL_PORT_MAX { LOCAL_PORT_MIN } else { res + 1 };
@@ -204,14 +218,20 @@ impl SocketStack {
 }
 
 impl<D: Driver + 'static> Inner<D> {
-    fn apply_config(&mut self, s: &mut SocketStack, config: Config) {
+    fn apply_config(&mut self, s: &mut SocketStack, config: StaticConfig) {
         #[cfg(feature = "medium-ethernet")]
         let medium = self.device.capabilities().medium;
 
         debug!("Acquired IP configuration:");
 
         debug!("   IP address:      {}", config.address);
-        self.set_ipv4_addr(s, config.address);
+        s.iface.update_ip_addrs(|addrs| {
+            if addrs.is_empty() {
+                addrs.push(IpCidr::Ipv4(config.address)).unwrap();
+            } else {
+                addrs[0] = IpCidr::Ipv4(config.address);
+            }
+        });
 
         #[cfg(feature = "medium-ethernet")]
         if medium == Medium::Ethernet {
@@ -230,25 +250,25 @@ impl<D: Driver + 'static> Inner<D> {
         self.config = Some(config)
     }
 
+    fn apply_dhcp_config(&self, socket: &mut smoltcp::socket::dhcpv4::Socket, config: DhcpConfig) {
+        socket.set_ignore_naks(config.ignore_naks);
+        socket.set_max_lease_duration(config.max_lease_duration);
+        socket.set_ports(config.server_port, config.client_port);
+        socket.set_retry_config(config.retry_config);
+    }
+
     #[allow(unused)] // used only with dhcp
     fn unapply_config(&mut self, s: &mut SocketStack) {
         #[cfg(feature = "medium-ethernet")]
         let medium = self.device.capabilities().medium;
 
         debug!("Lost IP configuration");
-        self.set_ipv4_addr(s, Ipv4Cidr::new(Ipv4Address::UNSPECIFIED, 0));
+        s.iface.update_ip_addrs(|ip_addrs| ip_addrs.clear());
         #[cfg(feature = "medium-ethernet")]
         if medium == Medium::Ethernet {
             s.iface.routes_mut().remove_default_ipv4_route();
         }
         self.config = None
-    }
-
-    fn set_ipv4_addr(&mut self, s: &mut SocketStack, cidr: Ipv4Cidr) {
-        s.iface.update_ip_addrs(|addrs| {
-            let dest = addrs.iter_mut().next().unwrap();
-            *dest = IpCidr::Ipv4(cidr);
-        });
     }
 
     fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
@@ -266,11 +286,7 @@ impl<D: Driver + 'static> Inner<D> {
             cx: Some(cx),
             inner: &mut self.device,
         };
-        if s.iface.poll(timestamp, &mut smoldev, &mut s.sockets).is_err() {
-            // If poll() returns error, it may not be done yet, so poll again later.
-            cx.waker().wake_by_ref();
-            return;
-        }
+        s.iface.poll(timestamp, &mut smoldev, &mut s.sockets);
 
         // Update link up
         let old_link_up = self.link_up;
@@ -290,7 +306,7 @@ impl<D: Driver + 'static> Inner<D> {
                     None => {}
                     Some(dhcpv4::Event::Deconfigured) => self.unapply_config(s),
                     Some(dhcpv4::Event::Configured(config)) => {
-                        let config = Config {
+                        let config = StaticConfig {
                             address: config.address,
                             gateway: config.router,
                             dns_servers: config.dns_servers,

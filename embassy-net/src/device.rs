@@ -2,6 +2,7 @@ use core::task::Context;
 
 use embassy_net_driver::{Capabilities, Checksum, Driver, Medium, RxToken, TxToken};
 use smoltcp::phy;
+use smoltcp::time::Instant;
 
 pub(crate) struct DriverAdapter<'d, 'c, T>
 where
@@ -19,14 +20,14 @@ where
     type RxToken<'a> = RxTokenAdapter<T::RxToken<'a>> where Self: 'a;
     type TxToken<'a> = TxTokenAdapter<T::TxToken<'a>> where Self: 'a;
 
-    fn receive(&mut self) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+    fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         self.inner
             .receive(self.cx.as_deref_mut().unwrap())
             .map(|(rx, tx)| (RxTokenAdapter(rx), TxTokenAdapter(tx)))
     }
 
     /// Construct a transmit token.
-    fn transmit(&mut self) -> Option<Self::TxToken<'_>> {
+    fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
         self.inner.transmit(self.cx.as_deref_mut().unwrap()).map(TxTokenAdapter)
     }
 
@@ -76,9 +77,9 @@ impl<T> phy::RxToken for RxTokenAdapter<T>
 where
     T: RxToken,
 {
-    fn consume<R, F>(self, _timestamp: smoltcp::time::Instant, f: F) -> smoltcp::Result<R>
+    fn consume<R, F>(self, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
+        F: FnOnce(&mut [u8]) -> R,
     {
         self.0.consume(|buf| f(buf))
     }
@@ -92,9 +93,9 @@ impl<T> phy::TxToken for TxTokenAdapter<T>
 where
     T: TxToken,
 {
-    fn consume<R, F>(self, _timestamp: smoltcp::time::Instant, len: usize, f: F) -> smoltcp::Result<R>
+    fn consume<R, F>(self, len: usize, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
+        F: FnOnce(&mut [u8]) -> R,
     {
         self.0.consume(len, |buf| f(buf))
     }

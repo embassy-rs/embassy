@@ -101,8 +101,8 @@ async fn main(spawner: Spawner) {
     let (runner, device) = class.into_embassy_net_device::<MTU, 4, 4>(singleton!(NetState::new()), our_mac_addr);
     unwrap!(spawner.spawn(usb_ncm_task(runner)));
 
-    let config = embassy_net::ConfigStrategy::Dhcp;
-    //let config = embassy_net::ConfigStrategy::Static(embassy_net::Config {
+    let config = embassy_net::Config::Dhcp(Default::default());
+    //let config = embassy_net::Config::Static(embassy_net::StaticConfig {
     //    address: Ipv4Cidr::new(Ipv4Address::new(10, 42, 0, 61), 24),
     //    dns_servers: Vec::new(),
     //    gateway: Some(Ipv4Address::new(10, 42, 0, 1)),
@@ -115,12 +115,7 @@ async fn main(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    let stack = &*singleton!(Stack::new(
-        device,
-        config,
-        singleton!(StackResources::<1, 2, 8>::new()),
-        seed
-    ));
+    let stack = &*singleton!(Stack::new(device, config, singleton!(StackResources::<2>::new()), seed));
 
     unwrap!(spawner.spawn(net_task(stack)));
 
