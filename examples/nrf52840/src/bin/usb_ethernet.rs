@@ -115,7 +115,7 @@ async fn main(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    let stack = &*singleton!(Stack::new(device, config, singleton!(StackResources::<1>::new()), seed));
+    let stack = &*singleton!(Stack::new(device, config, singleton!(StackResources::<2>::new()), seed));
 
     unwrap!(spawner.spawn(net_task(stack)));
 
