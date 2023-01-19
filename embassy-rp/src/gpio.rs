@@ -743,6 +743,7 @@ macro_rules! impl_pin {
     ($name:ident, $bank:expr, $pin_num:expr) => {
         impl Pin for peripherals::$name {}
         impl sealed::Pin for peripherals::$name {
+            #[inline]
             fn pin_bank(&self) -> u8 {
                 ($bank as u8) * 32 + $pin_num
             }
