@@ -288,11 +288,7 @@ impl<D: Driver + 'static> Inner<D> {
             cx: Some(cx),
             inner: &mut self.device,
         };
-        if !s.iface.poll(timestamp, &mut smoldev, &mut s.sockets) {
-            // If poll() returns error, it may not be done yet, so poll again later.
-            cx.waker().wake_by_ref();
-            return;
-        }
+        s.iface.poll(timestamp, &mut smoldev, &mut s.sockets);
 
         // Update link up
         let old_link_up = self.link_up;
