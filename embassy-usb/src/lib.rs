@@ -1,5 +1,6 @@
 #![no_std]
 #![feature(type_alias_impl_trait)]
+#![feature(async_fn_in_trait)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
