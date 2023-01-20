@@ -24,7 +24,8 @@ use crate::time::Hertz;
 mod _version;
 pub use _version::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Clocks {
     pub sys: Hertz,
 
@@ -72,6 +73,7 @@ static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
 ///
 /// Safety: Sets a mutable global.
 pub(crate) unsafe fn set_freqs(freqs: Clocks) {
+    debug!("rcc: {:?}", freqs);
     CLOCK_FREQS.as_mut_ptr().write(freqs);
 }
 
