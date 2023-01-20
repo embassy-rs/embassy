@@ -1532,7 +1532,7 @@ foreach_peripheral!(
     };
 );
 
-#[cfg(feature = "sdmmc-rs")]
+#[cfg(feature = "embedded-sdmmc")]
 mod sdmmc_rs {
     use core::future::Future;
 
@@ -1540,7 +1540,7 @@ mod sdmmc_rs {
 
     use super::*;
 
-    impl<'d, T: Instance, P: Pins<T>> BlockDevice for Sdmmc<'d, T, P> {
+    impl<'d, T: Instance, Dma: SdmmcDma<T>> BlockDevice for Sdmmc<'d, T, Dma> {
         type Error = Error;
 
         type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
@@ -1558,19 +1558,14 @@ mod sdmmc_rs {
             _reason: &str,
         ) -> Self::ReadFuture<'a> {
             async move {
-                let card_capacity = self.card()?.card_type;
-                let inner = T::inner();
-                let state = T::state();
                 let mut address = start_block_idx.0;
 
                 for block in blocks.iter_mut() {
                     let block: &mut [u8; 512] = &mut block.contents;
 
                     // NOTE(unsafe) Block uses align(4)
-                    let buf = unsafe { &mut *(block as *mut [u8; 512] as *mut [u32; 128]) };
-                    inner
-                        .read_block(address, buf, card_capacity, state, self.config.data_transfer_timeout)
-                        .await?;
+                    let block = unsafe { &mut *(block as *mut _ as *mut DataBlock) };
+                    self.read_block(address, block).await?;
                     address += 1;
                 }
                 Ok(())
@@ -1579,19 +1574,14 @@ mod sdmmc_rs {
 
         fn write<'a>(&'a mut self, blocks: &'a [Block], start_block_idx: BlockIdx) -> Self::WriteFuture<'a> {
             async move {
-                let card = self.card.as_mut().ok_or(Error::NoCard)?;
-                let inner = T::inner();
-                let state = T::state();
                 let mut address = start_block_idx.0;
 
                 for block in blocks.iter() {
                     let block: &[u8; 512] = &block.contents;
 
                     // NOTE(unsafe) DataBlock uses align 4
-                    let buf = unsafe { &*(block as *const [u8; 512] as *const [u32; 128]) };
-                    inner
-                        .write_block(address, buf, card, state, self.config.data_transfer_timeout)
-                        .await?;
+                    let block = unsafe { &*(block as *const _ as *const DataBlock) };
+                    self.write_block(address, block).await?;
                     address += 1;
                 }
                 Ok(())

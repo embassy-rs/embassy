@@ -58,7 +58,7 @@ cortex-m = "0.7.6"
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 rand_core = "0.6.3"
 sdio-host = "0.5.0"
-embedded-sdmmc = { git = "https://github.com/thalesfragoso/embedded-sdmmc-rs", branch = "async", optional = true }
+embedded-sdmmc = { git = "https://github.com/embassy-rs/embedded-sdmmc-rs", rev = "46d1b1c2ff13e31e282ec1e352421721694f126a", optional = true }
 critical-section = "1.1"
 atomic-polyfill = "1.0.1"
 stm32-metapac = { version = "0.1.0", path = "../stm32-metapac", features = ["rt"] }
@@ -77,7 +77,6 @@ stm32-metapac = { version = "0.1.0", path = "../stm32-metapac", default-features
 
 [features]
 defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-executor/defmt", "embassy-embedded-hal/defmt", "embassy-hal-common/defmt", "embedded-io?/defmt", "embassy-usb-driver?/defmt", "embassy-net-driver/defmt"]
-sdmmc-rs = ["embedded-sdmmc"]
 memory-x = ["stm32-metapac/memory-x"]
 subghz = []
 exti = []
