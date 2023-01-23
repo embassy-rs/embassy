@@ -10,6 +10,8 @@ pub const FORCE_COPY_BUFFER_SIZE: usize = 255;
 // nrf52832xxAB = 256kb
 pub const FLASH_SIZE: usize = 512 * 1024;
 
+pub const RESET_PIN: u32 = 21;
+
 embassy_hal_common::peripherals! {
     // RTC
     RTC0,
@@ -109,7 +111,9 @@ embassy_hal_common::peripherals! {
     P0_06,
     P0_07,
     P0_08,
+    #[cfg(feature = "nfc-pins-as-gpio")]
     P0_09,
+    #[cfg(feature = "nfc-pins-as-gpio")]
     P0_10,
     P0_11,
     P0_12,
@@ -121,6 +125,7 @@ embassy_hal_common::peripherals! {
     P0_18,
     P0_19,
     P0_20,
+    #[cfg(feature="reset-pin-as-gpio")]
     P0_21,
     P0_22,
     P0_23,
@@ -178,7 +183,9 @@ impl_pin!(P0_05, 0, 5);
 impl_pin!(P0_06, 0, 6);
 impl_pin!(P0_07, 0, 7);
 impl_pin!(P0_08, 0, 8);
+#[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P0_09, 0, 9);
+#[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P0_10, 0, 10);
 impl_pin!(P0_11, 0, 11);
 impl_pin!(P0_12, 0, 12);
@@ -190,6 +197,7 @@ impl_pin!(P0_17, 0, 17);
 impl_pin!(P0_18, 0, 18);
 impl_pin!(P0_19, 0, 19);
 impl_pin!(P0_20, 0, 20);
+#[cfg(feature = "reset-pin-as-gpio")]
 impl_pin!(P0_21, 0, 21);
 impl_pin!(P0_22, 0, 22);
 impl_pin!(P0_23, 0, 23);

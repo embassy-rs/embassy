@@ -34,21 +34,29 @@ unstable-pac = []
 # Implement embedded-hal-async traits if `nightly` is set as well.
 unstable-traits = ["embedded-hal-1"]
 
-nrf52805 = ["nrf52805-pac", "_ppi"]
-nrf52810 = ["nrf52810-pac", "_ppi"]
-nrf52811 = ["nrf52811-pac", "_ppi"]
-nrf52820 = ["nrf52820-pac", "_ppi"]
-nrf52832 = ["nrf52832-pac", "_ppi"]
-nrf52833 = ["nrf52833-pac", "_ppi", "_gpio-p1"]
-nrf52840 = ["nrf52840-pac", "_ppi", "_gpio-p1"]
-nrf5340-app-s = ["_nrf5340-app"]
-nrf5340-app-ns = ["_nrf5340-app"]
+nrf52805 = ["nrf52805-pac", "_nrf52"]
+nrf52810 = ["nrf52810-pac", "_nrf52"]
+nrf52811 = ["nrf52811-pac", "_nrf52"]
+nrf52820 = ["nrf52820-pac", "_nrf52"]
+nrf52832 = ["nrf52832-pac", "_nrf52"]
+nrf52833 = ["nrf52833-pac", "_nrf52", "_gpio-p1"]
+nrf52840 = ["nrf52840-pac", "_nrf52", "_gpio-p1"]
+nrf5340-app-s = ["_nrf5340-app", "_s"]
+nrf5340-app-ns = ["_nrf5340-app", "_ns"]
 nrf5340-net = ["_nrf5340-net"]
-nrf9160-s = ["_nrf9160"]
-nrf9160-ns = ["_nrf9160"]
+nrf9160-s = ["_nrf9160", "_s"]
+nrf9160-ns = ["_nrf9160", "_ns"]
 
 gpiote = []
 time-driver-rtc1 = ["_time-driver"]
+
+# Allow using the NFC pins as regular GPIO pins (P0_09/P0_10 on nRF52, P0_02/P0_03 on nRF53)
+nfc-pins-as-gpio = []
+
+# Allow using the RST pin as a regular GPIO pin.
+# nrf52805, nrf52810, nrf52811, nrf52832: P0_21
+# nrf52820, nrf52833, nrf52840: P0_18
+reset-pin-as-gpio = []
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
@@ -57,8 +65,13 @@ _nrf5340-app = ["_nrf5340", "nrf5340-app-pac"]
 _nrf5340-net = ["_nrf5340", "nrf5340-net-pac"]
 _nrf5340 = ["_gpio-p1", "_dppi"]
 _nrf9160 = ["nrf9160-pac", "_dppi"]
+_nrf52 = ["_ppi"]
 
 _time-driver = ["dep:embassy-time", "embassy-time?/tick-hz-32_768"]
+
+# trustzone state.
+_s = []
+_ns = []
 
 _ppi = []
 _dppi = []

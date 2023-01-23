@@ -24,6 +24,12 @@
 )))]
 compile_error!("No chip feature activated. You must activate exactly one of the following features: nrf52810, nrf52811, nrf52832, nrf52833, nrf52840");
 
+#[cfg(all(feature = "reset-pin-as-gpio", not(feature = "_nrf52")))]
+compile_error!("feature `reset-pin-as-gpio` is only valid for nRF52 series chips.");
+
+#[cfg(all(feature = "nfc-pins-as-gpio", not(any(feature = "_nrf52", feature = "_nrf5340-app"))))]
+compile_error!("feature `nfc-pins-as-gpio` is only valid for nRF52, or nRF53's application core.");
+
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 pub(crate) mod util;
@@ -139,6 +145,19 @@ pub mod config {
         ExternalFullSwing,
     }
 
+    /// SWD access port protection setting.
+    #[non_exhaustive]
+    pub enum Debug {
+        /// Debugging is allowed (APPROTECT is disabled). Default.
+        Allowed,
+        /// Debugging is not allowed (APPROTECT is enabled).
+        Disallowed,
+        /// APPROTECT is not configured (neither to enable it or disable it).
+        /// This can be useful if you're already doing it by other means and
+        /// you don't want embassy-nrf to touch UICR.
+        NotConfigured,
+    }
+
     /// Configuration for peripherals. Default configuration should work on any nRF chip.
     #[non_exhaustive]
     pub struct Config {
@@ -152,6 +171,8 @@ pub mod config {
         /// Time driver interrupt priority. Should be lower priority than softdevice if used.
         #[cfg(feature = "_time-driver")]
         pub time_interrupt_priority: crate::interrupt::Priority,
+        /// Enable or disable the debug port.
+        pub debug: Debug,
     }
 
     impl Default for Config {
@@ -166,9 +187,77 @@ pub mod config {
                 gpiote_interrupt_priority: crate::interrupt::Priority::P0,
                 #[cfg(feature = "_time-driver")]
                 time_interrupt_priority: crate::interrupt::Priority::P0,
+
+                // In NS mode, default to NotConfigured, assuming the S firmware will do it.
+                #[cfg(feature = "_ns")]
+                debug: Debug::NotConfigured,
+                #[cfg(not(feature = "_ns"))]
+                debug: Debug::Allowed,
             }
         }
     }
+}
+
+#[cfg(feature = "_nrf9160")]
+#[allow(unused)]
+mod consts {
+    pub const UICR_APPROTECT: *mut u32 = 0x00FF8000 as *mut u32;
+    pub const UICR_SECUREAPPROTECT: *mut u32 = 0x00FF802C as *mut u32;
+    pub const APPROTECT_ENABLED: u32 = 0x0000_0000;
+}
+
+#[cfg(feature = "_nrf5340-app")]
+#[allow(unused)]
+mod consts {
+    pub const UICR_APPROTECT: *mut u32 = 0x00FF8000 as *mut u32;
+    pub const UICR_SECUREAPPROTECT: *mut u32 = 0x00FF801C as *mut u32;
+    pub const UICR_NFCPINS: *mut u32 = 0x00FF8028 as *mut u32;
+    pub const APPROTECT_ENABLED: u32 = 0x0000_0000;
+    pub const APPROTECT_DISABLED: u32 = 0x50FA50FA;
+}
+
+#[cfg(feature = "_nrf5340-net")]
+#[allow(unused)]
+mod consts {
+    pub const UICR_APPROTECT: *mut u32 = 0x01FF8000 as *mut u32;
+    pub const APPROTECT_ENABLED: u32 = 0x0000_0000;
+    pub const APPROTECT_DISABLED: u32 = 0x50FA50FA;
+}
+
+#[cfg(feature = "_nrf52")]
+#[allow(unused)]
+mod consts {
+    pub const UICR_PSELRESET1: *mut u32 = 0x10001200 as *mut u32;
+    pub const UICR_PSELRESET2: *mut u32 = 0x10001204 as *mut u32;
+    pub const UICR_NFCPINS: *mut u32 = 0x1000120C as *mut u32;
+    pub const UICR_APPROTECT: *mut u32 = 0x10001208 as *mut u32;
+    pub const APPROTECT_ENABLED: u32 = 0x0000_0000;
+    pub const APPROTECT_DISABLED: u32 = 0x0000_005a;
+}
+
+unsafe fn uicr_write(address: *mut u32, value: u32) -> bool {
+    let curr_val = address.read_volatile();
+    if curr_val == value {
+        return false;
+    }
+
+    // Writing to UICR can only change `1` bits to `0` bits.
+    // If this write would change `0` bits to `1` bits, we can't do it.
+    // It is only possible to do when erasing UICR, which is forbidden if
+    // APPROTECT is enabled.
+    if (!curr_val) & value != 0 {
+        panic!("Cannot write UICR address={:08x} value={:08x}", address as u32, value)
+    }
+
+    let nvmc = &*pac::NVMC::ptr();
+    nvmc.config.write(|w| w.wen().wen());
+    while nvmc.ready.read().ready().is_busy() {}
+    address.write_volatile(value);
+    while nvmc.ready.read().ready().is_busy() {}
+    nvmc.config.reset();
+    while nvmc.ready.read().ready().is_busy() {}
+
+    true
 }
 
 /// Initialize peripherals with the provided configuration. This should only be called once at startup.
@@ -176,6 +265,73 @@ pub fn init(config: config::Config) -> Peripherals {
     // Do this first, so that it panics if user is calling `init` a second time
     // before doing anything important.
     let peripherals = Peripherals::take();
+
+    let mut needs_reset = false;
+
+    // Setup debug protection.
+    match config.debug {
+        config::Debug::Allowed => {
+            #[cfg(feature = "_nrf52")]
+            unsafe {
+                let variant = (0x1000_0104 as *mut u32).read_volatile();
+                // Get the letter for the build code (b'A' .. b'F')
+                let build_code = (variant >> 8) as u8;
+
+                if build_code >= b'F' {
+                    // Chips with build code F and higher (revision 3 and higher) have an
+                    // improved APPROTECT ("hardware and software controlled access port protection")
+                    // which needs explicit action by the firmware to keep it unlocked
+
+                    // UICR.APPROTECT = SwDisabled
+                    needs_reset |= uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);
+                    // APPROTECT.DISABLE = SwDisabled
+                    (0x4000_0558 as *mut u32).write_volatile(consts::APPROTECT_DISABLED);
+                } else {
+                    // nothing to do on older chips, debug is allowed by default.
+                }
+            }
+
+            #[cfg(feature = "_nrf5340")]
+            unsafe {
+                let p = &*pac::CTRLAP::ptr();
+
+                needs_reset |= uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);
+                p.approtect.disable.write(|w| w.bits(consts::APPROTECT_DISABLED));
+
+                #[cfg(feature = "_nrf5340-app")]
+                {
+                    needs_reset |= uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_DISABLED);
+                    p.secureapprotect.disable.write(|w| w.bits(consts::APPROTECT_DISABLED));
+                }
+            }
+
+            // nothing to do on the nrf9160, debug is allowed by default.
+        }
+        config::Debug::Disallowed => unsafe {
+            // UICR.APPROTECT = Enabled
+            needs_reset |= uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_ENABLED);
+            #[cfg(any(feature = "_nrf5340-app", feature = "_nrf9160"))]
+            {
+                needs_reset |= uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_ENABLED);
+            }
+        },
+        config::Debug::NotConfigured => {}
+    }
+
+    #[cfg(all(feature = "_nrf52", not(feature = "reset-pin-as-gpio")))]
+    unsafe {
+        needs_reset |= uicr_write(consts::UICR_PSELRESET1, chip::RESET_PIN);
+        needs_reset |= uicr_write(consts::UICR_PSELRESET2, chip::RESET_PIN);
+    }
+
+    #[cfg(all(any(feature = "_nrf52", feature = "_nrf5340-app"), feature = "nfc-pins-as-gpio"))]
+    unsafe {
+        needs_reset |= uicr_write(consts::UICR_NFCPINS, 0);
+    }
+
+    if needs_reset {
+        cortex_m::peripheral::SCB::sys_reset();
+    }
 
     let r = unsafe { &*pac::CLOCK::ptr() };
 
