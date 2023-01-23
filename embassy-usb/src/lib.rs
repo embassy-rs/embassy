@@ -12,6 +12,7 @@ pub mod class;
 pub mod control;
 pub mod descriptor;
 mod descriptor_reader;
+mod packed;
 pub mod types;
 
 use embassy_futures::select::{select, Either};

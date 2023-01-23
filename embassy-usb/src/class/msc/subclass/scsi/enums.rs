@@ -1,6 +1,6 @@
-use crate::gen_enum;
+use crate::packed_enum;
 
-gen_enum! {
+packed_enum! {
     #[derive(Clone, Copy, Eq, PartialEq, Debug)]
     pub enum PeripheralQualifier<u8> {
         /// A peripheral device having the specified peripheral device type is connected to this logical unit. If the device server is unable to determine whether or not a peripheral device is connected, it also shall use this peripheral qualifier. This peripheral qualifier does not mean that the peripheral device connected to the logical unit is ready for access.
@@ -12,7 +12,7 @@ gen_enum! {
     }
 }
 
-gen_enum! {
+packed_enum! {
     #[derive(Clone, Copy, Eq, PartialEq, Debug)]
     pub enum PeripheralDeviceType<u8> {
         /// Direct access block device (e.g., magnetic disk)

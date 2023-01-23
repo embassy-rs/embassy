@@ -11,7 +11,6 @@ use super::{CommandError, CommandSetHandler, DataPipeError, DataPipeIn, DataPipe
 use crate::class::msc::{MscProtocol, MscSubclass, USB_CLASS_MSC};
 use crate::control::{ControlHandler, InResponse, Request, RequestType};
 use crate::driver::Driver;
-use crate::types::InterfaceNumber;
 use crate::Builder;
 
 const REQ_GET_MAX_LUN: u8 = 0xFE;
@@ -51,7 +50,6 @@ impl ControlHandler for Control {
 }
 
 pub struct BulkOnlyTransport<'d, D: Driver<'d>, C: CommandSetHandler> {
-    msc_if: InterfaceNumber,
     read_ep: D::EndpointOut,
     write_ep: D::EndpointIn,
     max_packet_size: u16,
@@ -77,14 +75,12 @@ impl<'d, D: Driver<'d>, C: CommandSetHandler> BulkOnlyTransport<'d, D, C> {
         let mut iface = func.interface();
         iface.handler(control);
 
-        let msc_if = iface.interface_number();
         let mut alt = iface.alt_setting(USB_CLASS_MSC, subclass as _, MscProtocol::BulkOnlyTransport as _);
 
         let read_ep = alt.endpoint_bulk_out(max_packet_size);
         let write_ep = alt.endpoint_bulk_in(max_packet_size);
 
         Self {
-            msc_if,
             read_ep,
             write_ep,
             max_packet_size,

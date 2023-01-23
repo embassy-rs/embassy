@@ -1,12 +1,6 @@
 pub mod subclass;
 pub mod transport;
 
-use core::marker::PhantomData;
-
-use crate::driver::Driver;
-use crate::types::InterfaceNumber;
-use crate::Builder;
-
 /// USB Mass Storage Class ID
 ///
 /// Section 4.3 [USB Bulk Only Transport Spec](https://www.usb.org/document-library/mass-storage-bulk-only-10)
