@@ -1,15 +1,15 @@
-pub mod command_block_wrapper;
-pub mod command_status_wrapper;
+pub mod cbw;
+pub mod csw;
 
 use core::mem::{size_of, MaybeUninit};
 
 use embassy_usb_driver::{Direction, Endpoint, EndpointError, EndpointIn, EndpointOut};
 
-use self::command_block_wrapper::CommandBlockWrapper;
-use self::command_status_wrapper::{CommandStatus, CommandStatusWrapper};
+use self::cbw::CommandBlockWrapper;
+use self::csw::{CommandStatus, CommandStatusWrapper};
 use super::{CommandError, CommandSetHandler, DataPipeError, DataPipeIn, DataPipeOut};
 use crate::class::msc::{MscProtocol, MscSubclass, USB_CLASS_MSC};
-use crate::control::{ControlHandler, InResponse, OutResponse, Request, RequestType};
+use crate::control::{ControlHandler, InResponse, Request, RequestType};
 use crate::driver::Driver;
 use crate::types::InterfaceNumber;
 use crate::Builder;
