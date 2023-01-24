@@ -60,6 +60,10 @@ where
         smolcaps.checksum.tcp = convert(caps.checksum.tcp);
         smolcaps.checksum.udp = convert(caps.checksum.udp);
         smolcaps.checksum.icmpv4 = convert(caps.checksum.icmpv4);
+        #[cfg(feature = "proto-ipv6")]
+        {
+            smolcaps.checksum.icmpv6 = convert(caps.checksum.icmpv6);
+        }
 
         smolcaps
     }
