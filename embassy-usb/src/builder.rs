@@ -401,4 +401,17 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     pub fn endpoint_interrupt_out(&mut self, max_packet_size: u16, interval: u8) -> D::EndpointOut {
         self.endpoint_out(EndpointType::Interrupt, max_packet_size, interval)
     }
+
+    /// Allocate a ISOCHRONOUS IN endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    pub fn endpoint_isochronous_in(&mut self, max_packet_size: u16, interval: u8) -> D::EndpointIn {
+        self.endpoint_in(EndpointType::Isochronous, max_packet_size, interval)
+    }
+
+    /// Allocate a ISOCHRONOUS OUT endpoint and write its descriptor.
+    pub fn endpoint_isochronous_out(&mut self, max_packet_size: u16, interval: u8) -> D::EndpointOut {
+        self.endpoint_out(EndpointType::Isochronous, max_packet_size, interval)
+    }
 }
