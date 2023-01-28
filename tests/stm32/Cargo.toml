@@ -29,6 +29,7 @@ embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9" }
 embedded-hal-async = { version = "=0.2.0-alpha.0" }
 panic-probe = { version = "0.3.0", features = ["print-defmt"] }
 rand_core = { version = "0.6", default-features = false }
+rand_chacha = { version = "0.3", default-features = false }
 
 [profile.dev]
 debug = 2

@@ -6,12 +6,12 @@
 mod example_common;
 use embassy_executor::Spawner;
 use embassy_stm32::interrupt;
-use embassy_stm32::rng::Rng;
 use embassy_stm32::usart::{Config, DataBits, Parity, StopBits, Uart};
 use embassy_time::Delay;
 use embedded_hal_async::delay::DelayUs;
 use example_common::*;
-use rand_core::RngCore;
+use rand_chacha::ChaCha8Rng;
+use rand_core::{RngCore, SeedableRng};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -79,7 +79,7 @@ async fn main(_spawner: Spawner) {
     let (_, rx) = usart.split();
     let mut dma_buf = [0; 128];
     let mut rx = rx.into_ring_buffered(&mut dma_buf);
-    let mut rng = Rng::new(p.RNG);
+    let mut rng = ChaCha8Rng::seed_from_u64(1337);
     let mut delay = Delay;
 
     info!("Ready to receive...");
