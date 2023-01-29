@@ -444,14 +444,10 @@ impl Executor {
     }
 }
 
-/// Wake a task by raw pointer.
+/// Wake a task by `TaskRef`.
 ///
-/// You can obtain task pointers from `Waker`s using [`task_from_waker`].
-///
-/// # Safety
-///
-/// `task` must be a valid task pointer obtained from [`task_from_waker`].
-pub unsafe fn wake_task(task: TaskRef) {
+/// You can obtain a `TaskRef` from a `Waker` using [`task_from_waker`].
+pub fn wake_task(task: TaskRef) {
     critical_section::with(|cs| {
         let header = task.header();
         let state = header.state.load(Ordering::Relaxed);
@@ -465,8 +461,10 @@ pub unsafe fn wake_task(task: TaskRef) {
         header.state.store(state | STATE_RUN_QUEUED, Ordering::Relaxed);
 
         // We have just marked the task as scheduled, so enqueue it.
-        let executor = &*header.executor.get();
-        executor.enqueue(cs, task);
+        unsafe {
+            let executor = &*header.executor.get();
+            executor.enqueue(cs, task);
+        }
     })
 }
 
