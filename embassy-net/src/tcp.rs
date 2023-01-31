@@ -389,7 +389,7 @@ pub mod client {
         fn new<D: Driver>(stack: &'d Stack<D>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Result<Self, Error> {
             let mut bufs = state.pool.alloc().ok_or(Error::ConnectionReset)?;
             Ok(Self {
-                socket: unsafe { TcpSocket::new(stack, &mut bufs.as_mut().0, &mut bufs.as_mut().1) },
+                socket: unsafe { TcpSocket::new(stack, &mut bufs.as_mut().1, &mut bufs.as_mut().0) },
                 state,
                 bufs,
             })
