@@ -46,29 +46,13 @@ pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
 pub(crate) struct TaskHeader {
     pub(crate) state: AtomicU32,
     pub(crate) run_queue_item: RunQueueItem,
-    pub(crate) executor: Cell<*const Executor>,         // Valid if state != 0
-    pub(crate) poll_fn: UninitCell<unsafe fn(TaskRef)>, // Valid if STATE_SPAWNED
+    pub(crate) executor: Cell<*const Executor>, // Valid if state != 0
+    poll_fn: unsafe fn(TaskRef),
 
     #[cfg(feature = "integrated-timers")]
     pub(crate) expires_at: Cell<Instant>,
     #[cfg(feature = "integrated-timers")]
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
-}
-
-impl TaskHeader {
-    const fn new() -> Self {
-        Self {
-            state: AtomicU32::new(0),
-            run_queue_item: RunQueueItem::new(),
-            executor: Cell::new(ptr::null()),
-            poll_fn: UninitCell::uninit(),
-
-            #[cfg(feature = "integrated-timers")]
-            expires_at: Cell::new(Instant::from_ticks(0)),
-            #[cfg(feature = "integrated-timers")]
-            timer_queue_item: timer_queue::TimerQueueItem::new(),
-        }
-    }
 }
 
 /// This is essentially a `&'static TaskStorage<F>` where the type of the future has been erased.
@@ -128,7 +112,17 @@ impl<F: Future + 'static> TaskStorage<F> {
     /// Create a new TaskStorage, in not-spawned state.
     pub const fn new() -> Self {
         Self {
-            raw: TaskHeader::new(),
+            raw: TaskHeader {
+                state: AtomicU32::new(0),
+                run_queue_item: RunQueueItem::new(),
+                executor: Cell::new(ptr::null()),
+                poll_fn: Self::poll,
+
+                #[cfg(feature = "integrated-timers")]
+                expires_at: Cell::new(Instant::from_ticks(0)),
+                #[cfg(feature = "integrated-timers")]
+                timer_queue_item: timer_queue::TimerQueueItem::new(),
+            },
             future: UninitCell::uninit(),
         }
     }
@@ -164,7 +158,6 @@ impl<F: Future + 'static> TaskStorage<F> {
 
     unsafe fn spawn_initialize(&'static self, future: impl FnOnce() -> F) -> TaskRef {
         // Initialize the task
-        self.raw.poll_fn.write(Self::poll);
         self.future.write(future());
         TaskRef::new(self)
     }
@@ -405,7 +398,7 @@ impl Executor {
                 trace::task_exec_begin(p.as_ptr() as u32);
 
                 // Run the task
-                task.poll_fn.read()(p);
+                (task.poll_fn)(p);
 
                 #[cfg(feature = "rtos-trace")]
                 trace::task_exec_end();
