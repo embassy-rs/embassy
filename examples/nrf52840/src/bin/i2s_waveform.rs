@@ -23,9 +23,9 @@ async fn main(_spawner: Spawner) {
     let sample_rate = master_clock.sample_rate();
     info!("Sample rate: {}", sample_rate);
 
-    let config = Config::default()
-        .sample_width(SampleWidth::_16bit)
-        .channels(Channels::MonoLeft);
+    let mut config = Config::default();
+    config.sample_width = SampleWidth::_16bit;
+    config.channels = Channels::MonoLeft;
 
     let irq = interrupt::take!(I2S);
     let buffers = DoubleBuffering::<Sample, NUM_SAMPLES>::new();

@@ -1,11 +1,7 @@
+//! I2C-compatible Two Wire Interface in slave mode (TWIM) driver.
+
 #![macro_use]
 
-//! HAL interface to the TWIS peripheral.
-//!
-//! See product specification:
-//!
-//! - nRF52832: Section 33
-//! - nRF52840: Section 6.31
 use core::future::{poll_fn, Future};
 use core::sync::atomic::compiler_fence;
 use core::sync::atomic::Ordering::SeqCst;
@@ -22,14 +18,37 @@ use crate::interrupt::{Interrupt, InterruptExt};
 use crate::util::slice_in_ram_or;
 use crate::{gpio, pac, Peripheral};
 
+/// TWIS config.
 #[non_exhaustive]
 pub struct Config {
+    /// First address
     pub address0: u8,
+
+    /// Second address, optional.
     pub address1: Option<u8>,
+
+    /// Overread character.
+    ///
+    /// If the master keeps clocking the bus after all the bytes in the TX buffer have
+    /// already been transmitted, this byte will be constantly transmitted.
     pub orc: u8,
+
+    /// Enable high drive for the SDA line.
     pub sda_high_drive: bool,
+
+    /// Enable internal pullup for the SDA line.
+    ///
+    /// Note that using external pullups is recommended for I2C, and
+    /// most boards already have them.
     pub sda_pullup: bool,
+
+    /// Enable high drive for the SCL line.
     pub scl_high_drive: bool,
+
+    /// Enable internal pullup for the SCL line.
+    ///
+    /// Note that using external pullups is recommended for I2C, and
+    /// most boards already have them.
     pub scl_pullup: bool,
 }
 
@@ -54,36 +73,48 @@ enum Status {
     Write,
 }
 
+/// TWIS error.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
+    /// TX buffer was too long.
     TxBufferTooLong,
+    /// TX buffer was too long.
     RxBufferTooLong,
+    /// Didn't receive an ACK bit after a data byte.
     DataNack,
+    /// Bus error.
     Bus,
-    DMABufferNotInDataMemory,
+    /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
+    BufferNotInRAM,
+    /// Overflow
     Overflow,
+    /// Overread
     OverRead,
+    /// Timeout
     Timeout,
 }
 
+/// Received command
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Command {
+    /// Read
     Read,
+    /// Write+read
     WriteRead(usize),
+    /// Write
     Write(usize),
 }
 
-/// Interface to a TWIS instance using EasyDMA to offload the transmission and reception workload.
-///
-/// For more details about EasyDMA, consult the module documentation.
+/// TWIS driver.
 pub struct Twis<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Instance> Twis<'d, T> {
+    /// Create a new TWIS driver.
     pub fn new(
         twis: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
@@ -174,7 +205,7 @@ impl<'d, T: Instance> Twis<'d, T> {
 
     /// Set TX buffer, checking that it is in RAM and has suitable length.
     unsafe fn set_tx_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(buffer, Error::BufferNotInRAM)?;
 
         if buffer.len() > EASY_DMA_SIZE {
             return Err(Error::TxBufferTooLong);
@@ -535,7 +566,7 @@ impl<'d, T: Instance> Twis<'d, T> {
     fn setup_respond(&mut self, wr_buffer: &[u8], inten: bool) -> Result<(), Error> {
         match self.setup_respond_from_ram(wr_buffer, inten) {
             Ok(_) => Ok(()),
-            Err(Error::DMABufferNotInDataMemory) => {
+            Err(Error::BufferNotInRAM) => {
                 trace!("Copying TWIS tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
                 tx_ram_buf.copy_from_slice(wr_buffer);
@@ -737,7 +768,9 @@ pub(crate) mod sealed {
     }
 }
 
+/// TWIS peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
+    /// Interrupt for this peripheral.
     type Interrupt: Interrupt;
 }
 

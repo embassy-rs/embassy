@@ -6,7 +6,10 @@ pub fn run(name: syn::Ident) -> Result<TokenStream, TokenStream> {
     let name_interrupt = format_ident!("{}", name);
     let name_handler = format!("__EMBASSY_{}_HANDLER", name);
 
+    let doc = format!("{} interrupt singleton.", name);
+
     let result = quote! {
+        #[doc = #doc]
         #[allow(non_camel_case_types)]
         pub struct #name_interrupt(());
         unsafe impl ::embassy_cortex_m::interrupt::Interrupt for #name_interrupt {

@@ -1,3 +1,5 @@
+//! Pulse Width Modulation (PWM) driver.
+
 #![macro_use]
 
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -32,6 +34,7 @@ pub struct SequencePwm<'d, T: Instance> {
     ch3: Option<PeripheralRef<'d, AnyPin>>,
 }
 
+/// PWM error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
@@ -41,7 +44,7 @@ pub enum Error {
     /// Min Sequence count is 1
     SequenceTimesAtLeastOne,
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
-    DMABufferNotInDataMemory,
+    BufferNotInRAM,
 }
 
 const MAX_SEQUENCE_LEN: usize = 32767;
@@ -358,6 +361,7 @@ pub struct Sequence<'s> {
 }
 
 impl<'s> Sequence<'s> {
+    /// Create a new `Sequence`
     pub fn new(words: &'s [u16], config: SequenceConfig) -> Self {
         Self { words, config }
     }
@@ -367,7 +371,7 @@ impl<'s> Sequence<'s> {
 /// Takes at one sequence along with its configuration.
 #[non_exhaustive]
 pub struct SingleSequencer<'d, 's, T: Instance> {
-    pub sequencer: Sequencer<'d, 's, T>,
+    sequencer: Sequencer<'d, 's, T>,
 }
 
 impl<'d, 's, T: Instance> SingleSequencer<'d, 's, T> {
@@ -428,8 +432,8 @@ impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
         let sequence0 = &self.sequence0;
         let alt_sequence = self.sequence1.as_ref().unwrap_or(&self.sequence0);
 
-        slice_in_ram_or(sequence0.words, Error::DMABufferNotInDataMemory)?;
-        slice_in_ram_or(alt_sequence.words, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(sequence0.words, Error::BufferNotInRAM)?;
+        slice_in_ram_or(alt_sequence.words, Error::BufferNotInRAM)?;
 
         if sequence0.words.len() > MAX_SEQUENCE_LEN || alt_sequence.words.len() > MAX_SEQUENCE_LEN {
             return Err(Error::SequenceTooLong);
@@ -536,13 +540,21 @@ pub enum SequenceMode {
 /// PWM Base clock is system clock (16MHz) divided by prescaler
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Prescaler {
+    /// Divide by 1
     Div1,
+    /// Divide by 2
     Div2,
+    /// Divide by 4
     Div4,
+    /// Divide by 8
     Div8,
+    /// Divide by 16
     Div16,
+    /// Divide by 32
     Div32,
+    /// Divide by 64
     Div64,
+    /// Divide by 128
     Div128,
 }
 
@@ -828,7 +840,9 @@ pub(crate) mod sealed {
     }
 }
 
+/// PWM peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
+    /// Interrupt for this peripheral.
     type Interrupt: Interrupt;
 }
 

@@ -1,4 +1,4 @@
-//! Temperature sensor interface.
+//! Builtin temperature sensor driver.
 
 use core::future::poll_fn;
 use core::task::Poll;
@@ -12,7 +12,7 @@ use crate::interrupt::InterruptExt;
 use crate::peripherals::TEMP;
 use crate::{interrupt, pac, Peripheral};
 
-/// Integrated temperature sensor.
+/// Builtin temperature sensor driver.
 pub struct Temp<'d> {
     _irq: PeripheralRef<'d, interrupt::TEMP>,
 }
@@ -20,6 +20,7 @@ pub struct Temp<'d> {
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 impl<'d> Temp<'d> {
+    /// Create a new temperature sensor driver.
     pub fn new(_t: impl Peripheral<P = TEMP> + 'd, irq: impl Peripheral<P = interrupt::TEMP> + 'd) -> Self {
         into_ref!(_t, irq);
 

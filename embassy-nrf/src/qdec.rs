@@ -1,4 +1,4 @@
-//! Quadrature decoder interface
+//! Quadrature decoder (QDEC) driver.
 
 use core::future::poll_fn;
 use core::task::Poll;
@@ -12,17 +12,23 @@ use crate::interrupt::InterruptExt;
 use crate::peripherals::QDEC;
 use crate::{interrupt, pac, Peripheral};
 
-/// Quadrature decoder
+/// Quadrature decoder driver.
 pub struct Qdec<'d> {
     _p: PeripheralRef<'d, QDEC>,
 }
 
+/// QDEC config
 #[non_exhaustive]
 pub struct Config {
+    /// Number of samples
     pub num_samples: NumSamples,
+    /// Sample period
     pub period: SamplePeriod,
+    /// Set LED output pin polarity
     pub led_polarity: LedPolarity,
+    /// Enable/disable input debounce filters
     pub debounce: bool,
+    /// Time period the LED is switched ON prior to sampling (0..511 us).
     pub led_pre_usecs: u16,
 }
 
@@ -41,6 +47,7 @@ impl Default for Config {
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 impl<'d> Qdec<'d> {
+    /// Create a new QDEC.
     pub fn new(
         qdec: impl Peripheral<P = QDEC> + 'd,
         irq: impl Peripheral<P = interrupt::QDEC> + 'd,
@@ -52,6 +59,7 @@ impl<'d> Qdec<'d> {
         Self::new_inner(qdec, irq, a.map_into(), b.map_into(), None, config)
     }
 
+    /// Create a new QDEC, with a pin for LED output.
     pub fn new_with_led(
         qdec: impl Peripheral<P = QDEC> + 'd,
         irq: impl Peripheral<P = interrupt::QDEC> + 'd,
@@ -170,36 +178,61 @@ impl<'d> Qdec<'d> {
     }
 }
 
+/// Sample period
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum SamplePeriod {
+    /// 128 us
     _128us,
+    /// 256 us
     _256us,
+    /// 512 us
     _512us,
+    /// 1024 us
     _1024us,
+    /// 2048 us
     _2048us,
+    /// 4096 us
     _4096us,
+    /// 8192 us
     _8192us,
+    /// 16384 us
     _16384us,
+    /// 32 ms
     _32ms,
+    /// 65 ms
     _65ms,
+    /// 131 ms
     _131ms,
 }
 
+/// Number of samples taken.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum NumSamples {
+    /// 10 samples
     _10smpl,
+    /// 40 samples
     _40smpl,
+    /// 80 samples
     _80smpl,
+    /// 120 samples
     _120smpl,
+    /// 160 samples
     _160smpl,
+    /// 200 samples
     _200smpl,
+    /// 240 samples
     _240smpl,
+    /// 280 samples
     _280smpl,
+    /// 1 sample
     _1smpl,
 }
 
+/// LED polarity
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum LedPolarity {
+    /// Active high (a high output turns on the LED).
     ActiveHigh,
+    /// Active low (a low output turns on the LED).
     ActiveLow,
 }

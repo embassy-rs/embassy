@@ -1,3 +1,5 @@
+//! GPIO task/event (GPIOTE) driver.
+
 use core::convert::Infallible;
 use core::future::{poll_fn, Future};
 use core::task::{Context, Poll};
@@ -11,29 +13,38 @@ use crate::interrupt::{Interrupt, InterruptExt};
 use crate::ppi::{Event, Task};
 use crate::{interrupt, pac, peripherals};
 
-pub const CHANNEL_COUNT: usize = 8;
+/// Amount of GPIOTE channels in the chip.
+const CHANNEL_COUNT: usize = 8;
 
 #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
-pub const PIN_COUNT: usize = 48;
+const PIN_COUNT: usize = 48;
 #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
-pub const PIN_COUNT: usize = 32;
+const PIN_COUNT: usize = 32;
 
 #[allow(clippy::declare_interior_mutable_const)]
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AW; CHANNEL_COUNT];
 static PORT_WAKERS: [AtomicWaker; PIN_COUNT] = [NEW_AW; PIN_COUNT];
 
+/// Polarity for listening to events for GPIOTE input channels.
 pub enum InputChannelPolarity {
+    /// Don't listen for any pin changes.
     None,
+    /// Listen for high to low changes.
     HiToLo,
+    /// Listen for low to high changes.
     LoToHi,
+    /// Listen for any change, either low to high or high to low.
     Toggle,
 }
 
-/// Polarity of the `task out` operation.
+/// Polarity of the OUT task operation for GPIOTE output channels.
 pub enum OutputChannelPolarity {
+    /// Set the pin high.
     Set,
+    /// Set the pin low.
     Clear,
+    /// Toggle the pin.
     Toggle,
 }
 
@@ -162,6 +173,7 @@ impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
 }
 
 impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
+    /// Create a new GPIOTE input channel driver.
     pub fn new(ch: impl Peripheral<P = C> + 'd, pin: Input<'d, T>, polarity: InputChannelPolarity) -> Self {
         into_ref!(ch);
 
@@ -188,6 +200,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
         InputChannel { ch, pin }
     }
 
+    /// Asynchronously wait for an event in this channel.
     pub async fn wait(&self) {
         let g = regs();
         let num = self.ch.number();
@@ -231,6 +244,7 @@ impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
 }
 
 impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
+    /// Create a new GPIOTE output channel driver.
     pub fn new(ch: impl Peripheral<P = C> + 'd, pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
         into_ref!(ch);
         let g = regs();
@@ -258,20 +272,20 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
         OutputChannel { ch, _pin: pin }
     }
 
-    /// Triggers `task out` (as configured with task_out_polarity, defaults to Toggle).
+    /// Triggers the OUT task (does the action as configured with task_out_polarity, defaults to Toggle).
     pub fn out(&self) {
         let g = regs();
         g.tasks_out[self.ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
-    /// Triggers `task set` (set associated pin high).
+    /// Triggers the SET task (set associated pin high).
     #[cfg(not(feature = "nrf51"))]
     pub fn set(&self) {
         let g = regs();
         g.tasks_set[self.ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
-    /// Triggers `task clear` (set associated pin low).
+    /// Triggers the CLEAR task (set associated pin low).
     #[cfg(not(feature = "nrf51"))]
     pub fn clear(&self) {
         let g = regs();
@@ -336,48 +350,58 @@ impl<'a> Future for PortInputFuture<'a> {
 }
 
 impl<'d, T: GpioPin> Input<'d, T> {
+    /// Wait until the pin is high. If it is already high, return immediately.
     pub async fn wait_for_high(&mut self) {
         self.pin.wait_for_high().await
     }
 
+    /// Wait until the pin is low. If it is already low, return immediately.
     pub async fn wait_for_low(&mut self) {
         self.pin.wait_for_low().await
     }
 
+    /// Wait for the pin to undergo a transition from low to high.
     pub async fn wait_for_rising_edge(&mut self) {
         self.pin.wait_for_rising_edge().await
     }
 
+    /// Wait for the pin to undergo a transition from high to low.
     pub async fn wait_for_falling_edge(&mut self) {
         self.pin.wait_for_falling_edge().await
     }
 
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
     pub async fn wait_for_any_edge(&mut self) {
         self.pin.wait_for_any_edge().await
     }
 }
 
 impl<'d, T: GpioPin> Flex<'d, T> {
+    /// Wait until the pin is high. If it is already high, return immediately.
     pub async fn wait_for_high(&mut self) {
         self.pin.conf().modify(|_, w| w.sense().high());
         PortInputFuture::new(&mut self.pin).await
     }
 
+    /// Wait until the pin is low. If it is already low, return immediately.
     pub async fn wait_for_low(&mut self) {
         self.pin.conf().modify(|_, w| w.sense().low());
         PortInputFuture::new(&mut self.pin).await
     }
 
+    /// Wait for the pin to undergo a transition from low to high.
     pub async fn wait_for_rising_edge(&mut self) {
         self.wait_for_low().await;
         self.wait_for_high().await;
     }
 
+    /// Wait for the pin to undergo a transition from high to low.
     pub async fn wait_for_falling_edge(&mut self) {
         self.wait_for_high().await;
         self.wait_for_low().await;
     }
 
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
     pub async fn wait_for_any_edge(&mut self) {
         if self.is_high() {
             self.pin.conf().modify(|_, w| w.sense().low());
@@ -394,8 +418,17 @@ mod sealed {
     pub trait Channel {}
 }
 
+/// GPIOTE channel trait.
+///
+/// Implemented by all GPIOTE channels.
 pub trait Channel: sealed::Channel + Sized {
+    /// Get the channel number.
     fn number(&self) -> usize;
+
+    /// Convert this channel to a type-erased `AnyChannel`.
+    ///
+    /// This allows using several channels in situations that might require
+    /// them to be the same type, like putting them in an array.
     fn degrade(self) -> AnyChannel {
         AnyChannel {
             number: self.number() as u8,
@@ -403,6 +436,12 @@ pub trait Channel: sealed::Channel + Sized {
     }
 }
 
+/// Type-erased channel.
+///
+/// Obtained by calling `Channel::degrade`.
+///
+/// This allows using several channels in situations that might require
+/// them to be the same type, like putting them in an array.
 pub struct AnyChannel {
     number: u8,
 }

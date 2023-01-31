@@ -10,7 +10,7 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_futures::select::{select, Either};
 use embassy_nrf::gpio::{Input, Pin, Pull};
-use embassy_nrf::usb::{Driver, PowerUsb};
+use embassy_nrf::usb::{Driver, HardwareVbusDetect};
 use embassy_nrf::{interrupt, pac};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
@@ -34,7 +34,7 @@ async fn main(_spawner: Spawner) {
     // Create the driver, from the HAL.
     let irq = interrupt::take!(USBD);
     let power_irq = interrupt::take!(POWER_CLOCK);
-    let driver = Driver::new(p.USBD, irq, PowerUsb::new(power_irq));
+    let driver = Driver::new(p.USBD, irq, HardwareVbusDetect::new(power_irq));
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);
