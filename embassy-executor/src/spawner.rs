@@ -89,10 +89,10 @@ impl Spawner {
     ///
     /// Panics if the current executor is not an Embassy executor.
     pub async fn for_current_executor() -> Self {
-        poll_fn(|cx| unsafe {
+        poll_fn(|cx| {
             let task = raw::task_from_waker(cx.waker());
-            let executor = task.header().executor.get();
-            Poll::Ready(Self::new(&*executor))
+            let executor = unsafe { task.header().executor.get().unwrap_unchecked() };
+            Poll::Ready(Self::new(executor))
         })
         .await
     }
@@ -165,10 +165,10 @@ impl SendSpawner {
     ///
     /// Panics if the current executor is not an Embassy executor.
     pub async fn for_current_executor() -> Self {
-        poll_fn(|cx| unsafe {
+        poll_fn(|cx| {
             let task = raw::task_from_waker(cx.waker());
-            let executor = task.header().executor.get();
-            Poll::Ready(Self::new(&*executor))
+            let executor = unsafe { task.header().executor.get().unwrap_unchecked() };
+            Poll::Ready(Self::new(executor))
         })
         .await
     }

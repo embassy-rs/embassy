@@ -15,10 +15,10 @@ mod waker;
 
 use core::cell::Cell;
 use core::future::Future;
+use core::mem;
 use core::pin::Pin;
 use core::ptr::NonNull;
 use core::task::{Context, Poll};
-use core::{mem, ptr};
 
 use atomic_polyfill::{AtomicU32, Ordering};
 use critical_section::CriticalSection;
@@ -46,7 +46,7 @@ pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
 pub(crate) struct TaskHeader {
     pub(crate) state: AtomicU32,
     pub(crate) run_queue_item: RunQueueItem,
-    pub(crate) executor: Cell<*const Executor>, // Valid if state != 0
+    pub(crate) executor: Cell<Option<&'static Executor>>,
     poll_fn: unsafe fn(TaskRef),
 
     #[cfg(feature = "integrated-timers")]
@@ -115,7 +115,7 @@ impl<F: Future + 'static> TaskStorage<F> {
             raw: TaskHeader {
                 state: AtomicU32::new(0),
                 run_queue_item: RunQueueItem::new(),
-                executor: Cell::new(ptr::null()),
+                executor: Cell::new(None),
                 poll_fn: Self::poll,
 
                 #[cfg(feature = "integrated-timers")]
@@ -346,7 +346,7 @@ impl Executor {
     /// In this case, the task's Future must be Send. This is because this is effectively
     /// sending the task to the executor thread.
     pub(super) unsafe fn spawn(&'static self, task: TaskRef) {
-        task.header().executor.set(self);
+        task.header().executor.set(Some(self));
 
         #[cfg(feature = "rtos-trace")]
         trace::task_new(task.as_ptr() as u32);
@@ -455,7 +455,7 @@ pub fn wake_task(task: TaskRef) {
 
         // We have just marked the task as scheduled, so enqueue it.
         unsafe {
-            let executor = &*header.executor.get();
+            let executor = header.executor.get().unwrap_unchecked();
             executor.enqueue(cs, task);
         }
     })
