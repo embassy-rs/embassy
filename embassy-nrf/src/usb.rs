@@ -235,7 +235,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
         &mut self,
         ep_type: EndpointType,
         packet_size: u16,
-        interval: u8,
+        interval_ms: u8,
     ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
         let index = self.alloc_in.allocate(ep_type)?;
         let ep_addr = EndpointAddress::from_parts(index, Direction::In);
@@ -243,7 +243,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
             addr: ep_addr,
             ep_type,
             max_packet_size: packet_size,
-            interval,
+            interval_ms,
         }))
     }
 
@@ -251,7 +251,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
         &mut self,
         ep_type: EndpointType,
         packet_size: u16,
-        interval: u8,
+        interval_ms: u8,
     ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
         let index = self.alloc_out.allocate(ep_type)?;
         let ep_addr = EndpointAddress::from_parts(index, Direction::Out);
@@ -259,7 +259,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
             addr: ep_addr,
             ep_type,
             max_packet_size: packet_size,
-            interval,
+            interval_ms,
         }))
     }
 

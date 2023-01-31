@@ -349,11 +349,11 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         self.builder.config_descriptor.write(descriptor_type, descriptor)
     }
 
-    fn endpoint_in(&mut self, ep_type: EndpointType, max_packet_size: u16, interval: u8) -> D::EndpointIn {
+    fn endpoint_in(&mut self, ep_type: EndpointType, max_packet_size: u16, interval_ms: u8) -> D::EndpointIn {
         let ep = self
             .builder
             .driver
-            .alloc_endpoint_in(ep_type, max_packet_size, interval)
+            .alloc_endpoint_in(ep_type, max_packet_size, interval_ms)
             .expect("alloc_endpoint_in failed");
 
         self.builder.config_descriptor.endpoint(ep.info());
@@ -361,11 +361,11 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         ep
     }
 
-    fn endpoint_out(&mut self, ep_type: EndpointType, max_packet_size: u16, interval: u8) -> D::EndpointOut {
+    fn endpoint_out(&mut self, ep_type: EndpointType, max_packet_size: u16, interval_ms: u8) -> D::EndpointOut {
         let ep = self
             .builder
             .driver
-            .alloc_endpoint_out(ep_type, max_packet_size, interval)
+            .alloc_endpoint_out(ep_type, max_packet_size, interval_ms)
             .expect("alloc_endpoint_out failed");
 
         self.builder.config_descriptor.endpoint(ep.info());
@@ -393,25 +393,25 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ///
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
-    pub fn endpoint_interrupt_in(&mut self, max_packet_size: u16, interval: u8) -> D::EndpointIn {
-        self.endpoint_in(EndpointType::Interrupt, max_packet_size, interval)
+    pub fn endpoint_interrupt_in(&mut self, max_packet_size: u16, interval_ms: u8) -> D::EndpointIn {
+        self.endpoint_in(EndpointType::Interrupt, max_packet_size, interval_ms)
     }
 
     /// Allocate a INTERRUPT OUT endpoint and write its descriptor.
-    pub fn endpoint_interrupt_out(&mut self, max_packet_size: u16, interval: u8) -> D::EndpointOut {
-        self.endpoint_out(EndpointType::Interrupt, max_packet_size, interval)
+    pub fn endpoint_interrupt_out(&mut self, max_packet_size: u16, interval_ms: u8) -> D::EndpointOut {
+        self.endpoint_out(EndpointType::Interrupt, max_packet_size, interval_ms)
     }
 
     /// Allocate a ISOCHRONOUS IN endpoint and write its descriptor.
     ///
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
-    pub fn endpoint_isochronous_in(&mut self, max_packet_size: u16, interval: u8) -> D::EndpointIn {
-        self.endpoint_in(EndpointType::Isochronous, max_packet_size, interval)
+    pub fn endpoint_isochronous_in(&mut self, max_packet_size: u16, interval_ms: u8) -> D::EndpointIn {
+        self.endpoint_in(EndpointType::Isochronous, max_packet_size, interval_ms)
     }
 
     /// Allocate a ISOCHRONOUS OUT endpoint and write its descriptor.
-    pub fn endpoint_isochronous_out(&mut self, max_packet_size: u16, interval: u8) -> D::EndpointOut {
-        self.endpoint_out(EndpointType::Isochronous, max_packet_size, interval)
+    pub fn endpoint_isochronous_out(&mut self, max_packet_size: u16, interval_ms: u8) -> D::EndpointOut {
+        self.endpoint_out(EndpointType::Isochronous, max_packet_size, interval_ms)
     }
 }

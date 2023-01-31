@@ -268,13 +268,13 @@ impl<'d, T: Instance> Driver<'d, T> {
         &mut self,
         ep_type: EndpointType,
         max_packet_size: u16,
-        interval: u8,
+        interval_ms: u8,
     ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
         trace!(
-            "allocating type={:?} mps={:?} interval={}, dir={:?}",
+            "allocating type={:?} mps={:?} interval_ms={}, dir={:?}",
             ep_type,
             max_packet_size,
-            interval,
+            interval_ms,
             D::dir()
         );
 
@@ -345,7 +345,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 addr: EndpointAddress::from_parts(index, D::dir()),
                 ep_type,
                 max_packet_size,
-                interval,
+                interval_ms,
             },
             buf,
         })
@@ -362,18 +362,18 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         &mut self,
         ep_type: EndpointType,
         max_packet_size: u16,
-        interval: u8,
+        interval_ms: u8,
     ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, max_packet_size, interval)
+        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
     }
 
     fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
         max_packet_size: u16,
-        interval: u8,
+        interval_ms: u8,
     ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, max_packet_size, interval)
+        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
     }
 
     fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
