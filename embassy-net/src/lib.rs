@@ -11,6 +11,8 @@ pub(crate) mod fmt;
 pub use embassy_net_driver as driver;
 
 mod device;
+#[cfg(feature = "dns")]
+pub mod dns;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 #[cfg(feature = "udp")]

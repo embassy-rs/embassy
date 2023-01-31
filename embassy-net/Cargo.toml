@@ -13,7 +13,7 @@ target = "thumbv7em-none-eabi"
 
 [features]
 default = []
-std = []
+std = ["smoltcp/alloc", "managed/std"]
 
 defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt"]
 
@@ -22,7 +22,7 @@ unstable-traits = []
 
 udp = ["smoltcp/socket-udp"]
 tcp = ["smoltcp/socket-tcp"]
-dns = ["smoltcp/socket-dns"]
+dns = ["smoltcp/socket-dns", "smoltcp/proto-dns"]
 dhcpv4 = ["medium-ethernet", "smoltcp/socket-dhcpv4"]
 proto-ipv6 = ["smoltcp/proto-ipv6"]
 medium-ethernet = ["smoltcp/medium-ethernet"]
