@@ -9,7 +9,7 @@ use super::{rdr, sr, BasicInstance, Error, UartRx};
 use crate::dma::TransferOptions;
 use crate::usart::dma_ringbuffer::OverrunError;
 
-pub struct BufferedUartRx<'d, T: BasicInstance, RxDma: super::RxDma<T>> {
+pub struct RingBufferedUartRx<'d, T: BasicInstance, RxDma: super::RxDma<T>> {
     uart: UartRx<'d, T, RxDma>,
     ring_buf: DmaRingBuffer<'d>,
 }
@@ -32,17 +32,17 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
     /// Turn the `UartRx` into a buffered uart which can continously receive in the background
     /// without the possibility of loosing bytes. The `dma_buf` is a buffer registered to the
     /// DMA controller, and must be sufficiently large, such that it will not overflow.
-    pub fn into_ring_buffered(self, dma_buf: &'d mut [u8]) -> BufferedUartRx<'d, T, RxDma> {
+    pub fn into_ring_buffered(self, dma_buf: &'d mut [u8]) -> RingBufferedUartRx<'d, T, RxDma> {
         assert!(dma_buf.len() > 0 && dma_buf.len() <= 0xFFFF);
 
-        BufferedUartRx {
+        RingBufferedUartRx {
             uart: self,
             ring_buf: DmaRingBuffer::new(dma_buf),
         }
     }
 }
 
-impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> BufferedUartRx<'d, T, RxDma> {
+impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxDma> {
     /// Start receiving in the background into the previously provided `dma_buf` buffer.
     pub fn start(&mut self) -> Result<(), Error> {
         let ch = &mut self.uart.rx_dma;
@@ -262,7 +262,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> BufferedUartRx<'d, T, RxDma> 
     }
 }
 
-impl<T: BasicInstance, RxDma: super::RxDma<T>> Drop for BufferedUartRx<'_, T, RxDma> {
+impl<T: BasicInstance, RxDma: super::RxDma<T>> Drop for RingBufferedUartRx<'_, T, RxDma> {
     fn drop(&mut self) {
         Self::teardown_uart();
     }
@@ -273,10 +273,10 @@ mod eio {
     use embedded_io::asynch::Read;
     use embedded_io::Io;
 
-    use super::BufferedUartRx;
+    use super::RingBufferedUartRx;
     use crate::usart::{BasicInstance, Error, RxDma};
 
-    impl<T, Rx> Io for BufferedUartRx<'_, T, Rx>
+    impl<T, Rx> Io for RingBufferedUartRx<'_, T, Rx>
     where
         T: BasicInstance,
         Rx: RxDma<T>,
@@ -284,7 +284,7 @@ mod eio {
         type Error = Error;
     }
 
-    impl<T, Rx> Read for BufferedUartRx<'_, T, Rx>
+    impl<T, Rx> Read for RingBufferedUartRx<'_, T, Rx>
     where
         T: BasicInstance,
         Rx: RxDma<T>,

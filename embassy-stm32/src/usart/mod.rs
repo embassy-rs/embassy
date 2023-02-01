@@ -1059,6 +1059,7 @@ pub use buffered::*;
 mod buffered;
 mod dma_ringbuffer;
 mod rx_ringbuffered;
+pub use rx_ringbuffered::RingBufferedUartRx;
 
 #[cfg(usart_v1)]
 fn tdr(r: crate::pac::usart::Usart) -> *mut u8 {
