@@ -47,7 +47,7 @@ pub(crate) struct TaskHeader {
     pub(crate) state: AtomicU32,
     pub(crate) run_queue_item: RunQueueItem,
     pub(crate) executor: Cell<Option<&'static Executor>>,
-    poll_fn: unsafe fn(TaskRef),
+    poll_fn: Cell<Option<unsafe fn(TaskRef)>>,
 
     #[cfg(feature = "integrated-timers")]
     pub(crate) expires_at: Cell<Instant>,
@@ -116,7 +116,8 @@ impl<F: Future + 'static> TaskStorage<F> {
                 state: AtomicU32::new(0),
                 run_queue_item: RunQueueItem::new(),
                 executor: Cell::new(None),
-                poll_fn: Self::poll,
+                // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
+                poll_fn: Cell::new(None),
 
                 #[cfg(feature = "integrated-timers")]
                 expires_at: Cell::new(Instant::from_ticks(0)),
@@ -188,6 +189,7 @@ impl<F: Future + 'static> AvailableTask<F> {
 
     fn initialize(self, future: impl FnOnce() -> F) -> TaskRef {
         unsafe {
+            self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             self.task.future.write(future());
         }
         TaskRef::new(self.task)
@@ -410,7 +412,7 @@ impl Executor {
                 trace::task_exec_begin(p.as_ptr() as u32);
 
                 // Run the task
-                (task.poll_fn)(p);
+                task.poll_fn.get().unwrap_unchecked()(p);
 
                 #[cfg(feature = "rtos-trace")]
                 trace::task_exec_end();
