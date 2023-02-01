@@ -80,7 +80,7 @@ enum Status {
 pub enum Error {
     /// TX buffer was too long.
     TxBufferTooLong,
-    /// TX buffer was too long.
+    /// RX buffer was too long.
     RxBufferTooLong,
     /// Didn't receive an ACK bit after a data byte.
     DataNack,
