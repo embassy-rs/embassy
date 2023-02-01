@@ -1,4 +1,4 @@
-//! General purpose input/output for nRF.
+//! General purpose input/output (GPIO) driver.
 #![macro_use]
 
 use core::convert::Infallible;

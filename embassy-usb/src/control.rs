@@ -126,17 +126,23 @@ impl Request {
     }
 }
 
+/// Response for a CONTROL OUT request.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum OutResponse {
+    /// The request was accepted.
     Accepted,
+    /// The request was rejected.
     Rejected,
 }
 
+/// Response for a CONTROL IN request.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum InResponse<'a> {
+    /// The request was accepted. The buffer contains the response data.
     Accepted(&'a [u8]),
+    /// The request was rejected.
     Rejected,
 }
 
@@ -148,6 +154,7 @@ pub trait ControlHandler {
     /// Called after a USB reset after the bus reset sequence is complete.
     fn reset(&mut self) {}
 
+    /// Called when a "set alternate setting" control request is done on the interface.
     fn set_alternate_setting(&mut self, alternate_setting: u8) {
         let _ = alternate_setting;
     }

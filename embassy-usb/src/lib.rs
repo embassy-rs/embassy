@@ -1,5 +1,7 @@
 #![no_std]
 #![feature(type_alias_impl_trait)]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
@@ -46,10 +48,13 @@ pub enum UsbDeviceState {
     Configured,
 }
 
+/// Error returned by [`UsbDevice::remote_wakeup`].
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RemoteWakeupError {
+    /// The USB device is not suspended, or remote wakeup was not enabled.
     InvalidState,
+    /// The underlying driver doesn't support remote wakeup.
     Unsupported,
 }
 
@@ -65,6 +70,7 @@ pub const CONFIGURATION_NONE: u8 = 0;
 /// The bConfiguration value for the single configuration supported by this device.
 pub const CONFIGURATION_VALUE: u8 = 1;
 
+/// Maximum interface count, configured at compile time.
 pub const MAX_INTERFACE_COUNT: usize = 4;
 
 const STRING_INDEX_MANUFACTURER: u8 = 1;
@@ -100,6 +106,7 @@ struct Interface<'d> {
     num_strings: u8,
 }
 
+/// Main struct for the USB device stack.
 pub struct UsbDevice<'d, D: Driver<'d>> {
     control_buf: &'d mut [u8],
     control: D::ControlPipe,
@@ -489,7 +496,6 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         .unwrap();
 
                         // TODO check it is valid (not out of range)
-                        // TODO actually enable/disable endpoints.
 
                         if let Some(handler) = &mut iface.handler {
                             handler.set_alternate_setting(new_altsetting);

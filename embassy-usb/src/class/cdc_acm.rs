@@ -1,3 +1,5 @@
+//! CDC-ACM class implementation, aka Serial over USB.
+
 use core::cell::Cell;
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -28,12 +30,14 @@ const REQ_SET_LINE_CODING: u8 = 0x20;
 const REQ_GET_LINE_CODING: u8 = 0x21;
 const REQ_SET_CONTROL_LINE_STATE: u8 = 0x22;
 
+/// Internal state for CDC-ACM
 pub struct State<'a> {
     control: MaybeUninit<Control<'a>>,
     shared: ControlShared,
 }
 
 impl<'a> State<'a> {
+    /// Create a new `State`.
     pub fn new() -> Self {
         Self {
             control: MaybeUninit::uninit(),
@@ -284,10 +288,15 @@ impl From<u8> for StopBits {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ParityType {
+    /// No parity bit.
     None = 0,
+    /// Parity bit is 1 if the amount of `1` bits in the data byte is odd.
     Odd = 1,
+    /// Parity bit is 1 if the amount of `1` bits in the data byte is even.
     Even = 2,
+    /// Parity bit is always 1
     Mark = 3,
+    /// Parity bit is always 0
     Space = 4,
 }
 

@@ -1,8 +1,6 @@
-#![macro_use]
-
-//! Async UART
+//! Universal Asynchronous Receiver Transmitter (UART) driver.
 //!
-//! Async UART is provided in two flavors - this one and also [crate::buffered_uarte::BufferedUarte].
+//! The UART driver is provided in two flavors - this one and also [crate::buffered_uarte::BufferedUarte].
 //! The [Uarte] here is useful for those use-cases where reading the UARTE peripheral is
 //! exclusively awaited on. If the [Uarte] is required to be awaited on with some other future,
 //! for example when using `futures_util::future::select`, then you should consider
@@ -12,6 +10,8 @@
 //! An advantage of the [Uarte] has over [crate::buffered_uarte::BufferedUarte] is that less
 //! memory may be used given that buffers are passed in directly to its read and write
 //! methods.
+
+#![macro_use]
 
 use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -32,10 +32,13 @@ use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::util::slice_in_ram_or;
 use crate::{pac, Peripheral};
 
+/// UARTE config.
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct Config {
+    /// Parity bit.
     pub parity: Parity,
+    /// Baud rate.
     pub baudrate: Baudrate,
 }
 
@@ -48,31 +51,33 @@ impl Default for Config {
     }
 }
 
+/// UART error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
+    /// Buffer was too long.
     BufferTooLong,
-    DMABufferNotInDataMemory,
-    // TODO: add other error variants.
+    /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
+    BufferNotInRAM,
 }
 
-/// Interface to the UARTE peripheral using EasyDMA to offload the transmission and reception workload.
-///
-/// For more details about EasyDMA, consult the module documentation.
+/// UARTE driver.
 pub struct Uarte<'d, T: Instance> {
     tx: UarteTx<'d, T>,
     rx: UarteRx<'d, T>,
 }
 
-/// Transmitter interface to the UARTE peripheral obtained
-/// via [Uarte]::split.
+/// Transmitter part of the UARTE driver.
+///
+/// This can be obtained via [`Uarte::split`], or created directly.
 pub struct UarteTx<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
 }
 
-/// Receiver interface to the UARTE peripheral obtained
-/// via [Uarte]::split.
+/// Receiver part of the UARTE driver.
+///
+/// This can be obtained via [`Uarte::split`], or created directly.
 pub struct UarteRx<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
 }
@@ -165,16 +170,16 @@ impl<'d, T: Instance> Uarte<'d, T> {
         }
     }
 
-    /// Split the Uarte into a transmitter and receiver, which is
-    /// particularly useful when having two tasks correlating to
-    /// transmitting and receiving.
+    /// Split the Uarte into the transmitter and receiver parts.
+    ///
+    /// This is useful to concurrently transmit and receive from independent tasks.
     pub fn split(self) -> (UarteTx<'d, T>, UarteRx<'d, T>) {
         (self.tx, self.rx)
     }
 
-    /// Split the Uarte into a transmitter and receiver that will
-    /// return on idle, which is determined as the time it takes
-    /// for two bytes to be received.
+    /// Split the Uarte into the transmitter and receiver with idle support parts.
+    ///
+    /// This is useful to concurrently transmit and receive from independent tasks.
     pub fn split_with_idle<U: TimerInstance>(
         self,
         timer: impl Peripheral<P = U> + 'd,
@@ -247,10 +252,12 @@ impl<'d, T: Instance> Uarte<'d, T> {
         }
     }
 
+    /// Read bytes until the buffer is filled.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.read(buffer).await
     }
 
+    /// Write all bytes in the buffer.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.write(buffer).await
     }
@@ -260,10 +267,12 @@ impl<'d, T: Instance> Uarte<'d, T> {
         self.tx.write_from_ram(buffer).await
     }
 
+    /// Read bytes until the buffer is filled.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
     }
 
+    /// Write all bytes in the buffer.
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.blocking_write(buffer)
     }
@@ -355,10 +364,11 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         Self { _p: uarte }
     }
 
+    /// Write all bytes in the buffer.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         match self.write_from_ram(buffer).await {
             Ok(_) => Ok(()),
-            Err(Error::DMABufferNotInDataMemory) => {
+            Err(Error::BufferNotInRAM) => {
                 trace!("Copying UARTE tx buffer into RAM for DMA");
                 let ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..buffer.len()];
                 ram_buf.copy_from_slice(buffer);
@@ -368,12 +378,13 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         }
     }
 
+    /// Same as [`write`](Self::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub async fn write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
         if buffer.len() == 0 {
             return Ok(());
         }
 
-        slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(buffer, Error::BufferNotInRAM)?;
         if buffer.len() > EASY_DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
@@ -423,10 +434,11 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         Ok(())
     }
 
+    /// Write all bytes in the buffer.
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         match self.blocking_write_from_ram(buffer) {
             Ok(_) => Ok(()),
-            Err(Error::DMABufferNotInDataMemory) => {
+            Err(Error::BufferNotInRAM) => {
                 trace!("Copying UARTE tx buffer into RAM for DMA");
                 let ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..buffer.len()];
                 ram_buf.copy_from_slice(buffer);
@@ -436,12 +448,13 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         }
     }
 
+    /// Same as [`write_from_ram`](Self::write_from_ram) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub fn blocking_write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
         if buffer.len() == 0 {
             return Ok(());
         }
 
-        slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(buffer, Error::BufferNotInRAM)?;
         if buffer.len() > EASY_DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
@@ -549,6 +562,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         Self { _p: uarte }
     }
 
+    /// Read bytes until the buffer is filled.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         if buffer.len() == 0 {
             return Ok(());
@@ -602,6 +616,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         Ok(())
     }
 
+    /// Read bytes until the buffer is filled.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         if buffer.len() == 0 {
             return Ok(());
@@ -653,6 +668,9 @@ impl<'a, T: Instance> Drop for UarteRx<'a, T> {
     }
 }
 
+/// Receiver part of the UARTE driver, with `read_until_idle` support.
+///
+/// This can be obtained via [`Uarte::split_with_idle`].
 pub struct UarteRxWithIdle<'d, T: Instance, U: TimerInstance> {
     rx: UarteRx<'d, T>,
     timer: Timer<'d, U>,
@@ -661,16 +679,21 @@ pub struct UarteRxWithIdle<'d, T: Instance, U: TimerInstance> {
 }
 
 impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
+    /// Read bytes until the buffer is filled.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.ppi_ch1.disable();
         self.rx.read(buffer).await
     }
 
+    /// Read bytes until the buffer is filled.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.ppi_ch1.disable();
         self.rx.blocking_read(buffer)
     }
 
+    /// Read bytes until the buffer is filled, or the line becomes idle.
+    ///
+    /// Returns the amount of bytes read.
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() == 0 {
             return Ok(0);
@@ -727,6 +750,9 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
         Ok(n)
     }
 
+    /// Read bytes until the buffer is filled, or the line becomes idle.
+    ///
+    /// Returns the amount of bytes read.
     pub fn blocking_read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() == 0 {
             return Ok(0);
@@ -860,7 +886,9 @@ pub(crate) mod sealed {
     }
 }
 
+/// UARTE peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+    /// Interrupt for this peripheral.
     type Interrupt: Interrupt;
 }
 
@@ -919,7 +947,7 @@ mod eh1 {
         fn kind(&self) -> embedded_hal_1::serial::ErrorKind {
             match *self {
                 Self::BufferTooLong => embedded_hal_1::serial::ErrorKind::Other,
-                Self::DMABufferNotInDataMemory => embedded_hal_1::serial::ErrorKind::Other,
+                Self::BufferNotInRAM => embedded_hal_1::serial::ErrorKind::Other,
             }
         }
     }

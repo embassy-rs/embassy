@@ -1,3 +1,5 @@
+//! Universal Serial Bus (USB) driver.
+
 #![macro_use]
 
 use core::future::poll_fn;
@@ -24,38 +26,38 @@ static EP_IN_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
 static EP_OUT_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
 static READY_ENDPOINTS: AtomicU32 = AtomicU32::new(0);
 
+/// Trait for detecting USB VBUS power.
+///
 /// There are multiple ways to detect USB power. The behavior
 /// here provides a hook into determining whether it is.
-pub trait UsbSupply {
+pub trait VbusDetect {
+    /// Report whether power is detected.
+    ///
+    /// This is indicated by the `USBREGSTATUS.VBUSDETECT` register, or the
+    /// `USBDETECTED`, `USBREMOVED` events from the `POWER` peripheral.
     fn is_usb_detected(&self) -> bool;
+
+    /// Wait until USB power is ready.
+    ///
+    /// USB power ready is indicated by the `USBREGSTATUS.OUTPUTRDY` register, or the
+    /// `USBPWRRDY` event from the `POWER` peripheral.
     async fn wait_power_ready(&mut self) -> Result<(), ()>;
 }
 
-pub struct Driver<'d, T: Instance, P: UsbSupply> {
-    _p: PeripheralRef<'d, T>,
-    alloc_in: Allocator,
-    alloc_out: Allocator,
-    usb_supply: P,
-}
-
-/// Uses the POWER peripheral to detect when power is available
-/// for USB. Unsuitable for usage with the nRF softdevice.
+/// [`VbusDetect`] implementation using the native hardware POWER peripheral.
+///
+/// Unsuitable for usage with the nRF softdevice, since it reserves exclusive acces
+/// to POWER. In that case, use [`VbusDetectSignal`].
 #[cfg(not(feature = "_nrf5340-app"))]
-pub struct PowerUsb {
+pub struct HardwareVbusDetect {
     _private: (),
-}
-
-/// Can be used to signal that power is available. Particularly suited for
-/// use with the nRF softdevice.
-pub struct SignalledSupply {
-    usb_detected: AtomicBool,
-    power_ready: AtomicBool,
 }
 
 static POWER_WAKER: AtomicWaker = NEW_AW;
 
 #[cfg(not(feature = "_nrf5340-app"))]
-impl PowerUsb {
+impl HardwareVbusDetect {
+    /// Create a new `VbusDetectNative`.
     pub fn new(power_irq: impl Interrupt) -> Self {
         let regs = unsafe { &*pac::POWER::ptr() };
 
@@ -92,7 +94,7 @@ impl PowerUsb {
 }
 
 #[cfg(not(feature = "_nrf5340-app"))]
-impl UsbSupply for PowerUsb {
+impl VbusDetect for HardwareVbusDetect {
     fn is_usb_detected(&self) -> bool {
         let regs = unsafe { &*pac::POWER::ptr() };
         regs.usbregstatus.read().vbusdetect().is_vbus_present()
@@ -115,7 +117,20 @@ impl UsbSupply for PowerUsb {
     }
 }
 
-impl SignalledSupply {
+/// Software-backed [`VbusDetect`] implementation.
+///
+/// This implementation does not interact with the hardware, it allows user code
+/// to notify the power events by calling functions instead.
+///
+/// This is suitable for use with the nRF softdevice, by calling the functions
+/// when the softdevice reports power-related events.
+pub struct SoftwareVbusDetect {
+    usb_detected: AtomicBool,
+    power_ready: AtomicBool,
+}
+
+impl SoftwareVbusDetect {
+    /// Create a new `SoftwareVbusDetect`.
     pub fn new(usb_detected: bool, power_ready: bool) -> Self {
         BUS_WAKER.wake();
 
@@ -125,6 +140,9 @@ impl SignalledSupply {
         }
     }
 
+    /// Report whether power was detected.
+    ///
+    /// Equivalent to the `USBDETECTED`, `USBREMOVED` events from the `POWER` peripheral.
     pub fn detected(&self, detected: bool) {
         self.usb_detected.store(detected, Ordering::Relaxed);
         self.power_ready.store(false, Ordering::Relaxed);
@@ -132,13 +150,16 @@ impl SignalledSupply {
         POWER_WAKER.wake();
     }
 
+    /// Report when USB power is ready.
+    ///
+    /// Equivalent to the `USBPWRRDY` event from the `POWER` peripheral.
     pub fn ready(&self) {
         self.power_ready.store(true, Ordering::Relaxed);
         POWER_WAKER.wake();
     }
 }
 
-impl UsbSupply for &SignalledSupply {
+impl VbusDetect for &SoftwareVbusDetect {
     fn is_usb_detected(&self) -> bool {
         self.usb_detected.load(Ordering::Relaxed)
     }
@@ -159,7 +180,16 @@ impl UsbSupply for &SignalledSupply {
     }
 }
 
-impl<'d, T: Instance, P: UsbSupply> Driver<'d, T, P> {
+/// USB driver.
+pub struct Driver<'d, T: Instance, P: VbusDetect> {
+    _p: PeripheralRef<'d, T>,
+    alloc_in: Allocator,
+    alloc_out: Allocator,
+    usb_supply: P,
+}
+
+impl<'d, T: Instance, P: VbusDetect> Driver<'d, T, P> {
+    /// Create a new USB driver.
     pub fn new(usb: impl Peripheral<P = T> + 'd, irq: impl Peripheral<P = T::Interrupt> + 'd, usb_supply: P) -> Self {
         into_ref!(usb, irq);
         irq.set_handler(Self::on_interrupt);
@@ -225,7 +255,7 @@ impl<'d, T: Instance, P: UsbSupply> Driver<'d, T, P> {
     }
 }
 
-impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P> {
+impl<'d, T: Instance, P: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, T, P> {
     type EndpointOut = Endpoint<'d, T, Out>;
     type EndpointIn = Endpoint<'d, T, In>;
     type ControlPipe = ControlPipe<'d, T>;
@@ -235,7 +265,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
         &mut self,
         ep_type: EndpointType,
         packet_size: u16,
-        interval: u8,
+        interval_ms: u8,
     ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
         let index = self.alloc_in.allocate(ep_type)?;
         let ep_addr = EndpointAddress::from_parts(index, Direction::In);
@@ -243,7 +273,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
             addr: ep_addr,
             ep_type,
             max_packet_size: packet_size,
-            interval,
+            interval_ms,
         }))
     }
 
@@ -251,7 +281,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
         &mut self,
         ep_type: EndpointType,
         packet_size: u16,
-        interval: u8,
+        interval_ms: u8,
     ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
         let index = self.alloc_out.allocate(ep_type)?;
         let ep_addr = EndpointAddress::from_parts(index, Direction::Out);
@@ -259,7 +289,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
             addr: ep_addr,
             ep_type,
             max_packet_size: packet_size,
-            interval,
+            interval_ms,
         }))
     }
 
@@ -278,13 +308,14 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
     }
 }
 
-pub struct Bus<'d, T: Instance, P: UsbSupply> {
+/// USB bus.
+pub struct Bus<'d, T: Instance, P: VbusDetect> {
     _p: PeripheralRef<'d, T>,
     power_available: bool,
     usb_supply: P,
 }
 
-impl<'d, T: Instance, P: UsbSupply> driver::Bus for Bus<'d, T, P> {
+impl<'d, T: Instance, P: VbusDetect> driver::Bus for Bus<'d, T, P> {
     async fn enable(&mut self) {
         let regs = T::regs();
 
@@ -513,7 +544,10 @@ impl<'d, T: Instance, P: UsbSupply> driver::Bus for Bus<'d, T, P> {
     }
 }
 
+/// Type-level marker for OUT endpoints.
 pub enum Out {}
+
+/// Type-level marker for IN endpoints.
 pub enum In {}
 
 trait EndpointDir {
@@ -556,6 +590,7 @@ impl EndpointDir for Out {
     }
 }
 
+/// USB endpoint.
 pub struct Endpoint<'d, T: Instance, Dir> {
     _phantom: PhantomData<(&'d mut T, Dir)>,
     info: EndpointInfo,
@@ -715,6 +750,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
     }
 }
 
+/// USB control pipe.
 pub struct ControlPipe<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
     max_packet_size: u16,
@@ -905,7 +941,9 @@ pub(crate) mod sealed {
     }
 }
 
+/// USB peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+    /// Interrupt for this peripheral.
     type Interrupt: Interrupt;
 }
 

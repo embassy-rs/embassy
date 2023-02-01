@@ -1,11 +1,7 @@
+//! I2C-compatible Two Wire Interface in master mode (TWIM) driver.
+
 #![macro_use]
 
-//! HAL interface to the TWIM peripheral.
-//!
-//! See product specification:
-//!
-//! - nRF52832: Section 33
-//! - nRF52840: Section 6.31
 use core::future::{poll_fn, Future};
 use core::sync::atomic::compiler_fence;
 use core::sync::atomic::Ordering::SeqCst;
@@ -23,22 +19,39 @@ use crate::interrupt::{Interrupt, InterruptExt};
 use crate::util::{slice_in_ram, slice_in_ram_or};
 use crate::{gpio, pac, Peripheral};
 
+/// TWI frequency
 #[derive(Clone, Copy)]
 pub enum Frequency {
-    #[doc = "26738688: 100 kbps"]
+    /// 100 kbps
     K100 = 26738688,
-    #[doc = "67108864: 250 kbps"]
+    /// 250 kbps
     K250 = 67108864,
-    #[doc = "104857600: 400 kbps"]
+    /// 400 kbps
     K400 = 104857600,
 }
 
+/// TWIM config.
 #[non_exhaustive]
 pub struct Config {
+    /// Frequency
     pub frequency: Frequency,
+
+    /// Enable high drive for the SDA line.
     pub sda_high_drive: bool,
+
+    /// Enable internal pullup for the SDA line.
+    ///
+    /// Note that using external pullups is recommended for I2C, and
+    /// most boards already have them.
     pub sda_pullup: bool,
+
+    /// Enable high drive for the SCL line.
     pub scl_high_drive: bool,
+
+    /// Enable internal pullup for the SCL line.
+    ///
+    /// Note that using external pullups is recommended for I2C, and
+    /// most boards already have them.
     pub scl_pullup: bool,
 }
 
@@ -54,29 +67,38 @@ impl Default for Config {
     }
 }
 
+/// TWI error.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
+    /// TX buffer was too long.
     TxBufferTooLong,
+    /// RX buffer was too long.
     RxBufferTooLong,
+    /// Data transmit failed.
     Transmit,
+    /// Data reception failed.
     Receive,
-    DMABufferNotInDataMemory,
+    /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
+    BufferNotInRAM,
+    /// Didn't receive an ACK bit after the address byte. Address might be wrong, or the i2c device chip might not be connected properly.
     AddressNack,
+    /// Didn't receive an ACK bit after a data byte.
     DataNack,
+    /// Overrun error.
     Overrun,
+    /// Timeout error.
     Timeout,
 }
 
-/// Interface to a TWIM instance using EasyDMA to offload the transmission and reception workload.
-///
-/// For more details about EasyDMA, consult the module documentation.
+/// TWI driver.
 pub struct Twim<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Instance> Twim<'d, T> {
+    /// Create a new TWI driver.
     pub fn new(
         twim: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
@@ -153,7 +175,7 @@ impl<'d, T: Instance> Twim<'d, T> {
 
     /// Set TX buffer, checking that it is in RAM and has suitable length.
     unsafe fn set_tx_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(buffer, Error::BufferNotInRAM)?;
 
         if buffer.len() > EASY_DMA_SIZE {
             return Err(Error::TxBufferTooLong);
@@ -233,7 +255,7 @@ impl<'d, T: Instance> Twim<'d, T> {
             return Err(Error::DataNack);
         }
         if err.overrun().is_received() {
-            return Err(Error::DataNack);
+            return Err(Error::Overrun);
         }
         Ok(())
     }
@@ -435,7 +457,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     ) -> Result<(), Error> {
         match self.setup_write_read_from_ram(address, wr_buffer, rd_buffer, inten) {
             Ok(_) => Ok(()),
-            Err(Error::DMABufferNotInDataMemory) => {
+            Err(Error::BufferNotInRAM) => {
                 trace!("Copying TWIM tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
                 tx_ram_buf.copy_from_slice(wr_buffer);
@@ -448,7 +470,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     fn setup_write(&mut self, address: u8, wr_buffer: &[u8], inten: bool) -> Result<(), Error> {
         match self.setup_write_from_ram(address, wr_buffer, inten) {
             Ok(_) => Ok(()),
-            Err(Error::DMABufferNotInDataMemory) => {
+            Err(Error::BufferNotInRAM) => {
                 trace!("Copying TWIM tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
                 tx_ram_buf.copy_from_slice(wr_buffer);
@@ -612,6 +634,10 @@ impl<'d, T: Instance> Twim<'d, T> {
 
     // ===========================================
 
+    /// Read from an I2C slave.
+    ///
+    /// The buffer must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
         self.setup_read(address, buffer, true)?;
         self.async_wait().await;
@@ -621,6 +647,10 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
+    /// Write to an I2C slave.
+    ///
+    /// The buffer must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
     pub async fn write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
         self.setup_write(address, buffer, true)?;
         self.async_wait().await;
@@ -640,6 +670,11 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
+    /// Write data to an I2C slave, then read data from the slave without
+    /// triggering a stop condition between the two.
+    ///
+    /// The buffers must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
     pub async fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Error> {
         self.setup_write_read(address, wr_buffer, rd_buffer, true)?;
         self.async_wait().await;
@@ -705,7 +740,9 @@ pub(crate) mod sealed {
     }
 }
 
+/// TWIM peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
+    /// Interrupt for this peripheral.
     type Interrupt: Interrupt;
 }
 
@@ -776,7 +813,7 @@ mod eh1 {
                 Self::RxBufferTooLong => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::Transmit => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::Receive => embedded_hal_1::i2c::ErrorKind::Other,
-                Self::DMABufferNotInDataMemory => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::BufferNotInRAM => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::AddressNack => {
                     embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Address)
                 }

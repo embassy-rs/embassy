@@ -1,3 +1,9 @@
+//! Timer driver.
+//!
+//! Important note! This driver is very low level. For most time-related use cases, like
+//! "sleep for X seconds", "do something every X seconds", or measuring time, you should
+//! use [`embassy-time`](https://crates.io/crates/embassy-time) instead!
+
 #![macro_use]
 
 use core::future::poll_fn;
@@ -28,9 +34,13 @@ pub(crate) mod sealed {
     pub trait TimerType {}
 }
 
+/// Basic Timer instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+    /// Interrupt for this peripheral.
     type Interrupt: Interrupt;
 }
+
+/// Extended timer instance.
 pub trait ExtendedInstance: Instance + sealed::ExtendedInstance {}
 
 macro_rules! impl_timer {
@@ -61,18 +71,28 @@ macro_rules! impl_timer {
     };
 }
 
+/// Timer frequency
 #[repr(u8)]
 pub enum Frequency {
-    // I'd prefer not to prefix these with `F`, but Rust identifiers can't start with digits.
+    /// 16MHz
     F16MHz = 0,
+    /// 8MHz
     F8MHz = 1,
+    /// 4MHz
     F4MHz = 2,
+    /// 2MHz
     F2MHz = 3,
+    /// 1MHz
     F1MHz = 4,
+    /// 500kHz
     F500kHz = 5,
+    /// 250kHz
     F250kHz = 6,
+    /// 125kHz
     F125kHz = 7,
+    /// 62500Hz
     F62500Hz = 8,
+    /// 31250Hz
     F31250Hz = 9,
 }
 
@@ -86,7 +106,10 @@ pub enum Frequency {
 
 pub trait TimerType: sealed::TimerType {}
 
+/// Marker type indicating the timer driver can await expiration (it owns the timer interrupt).
 pub enum Awaitable {}
+
+/// Marker type indicating the timer driver cannot await expiration (it does not own the timer interrupt).
 pub enum NotAwaitable {}
 
 impl sealed::TimerType for Awaitable {}
@@ -94,12 +117,14 @@ impl sealed::TimerType for NotAwaitable {}
 impl TimerType for Awaitable {}
 impl TimerType for NotAwaitable {}
 
+/// Timer driver.
 pub struct Timer<'d, T: Instance, I: TimerType = NotAwaitable> {
     _p: PeripheralRef<'d, T>,
     _i: PhantomData<I>,
 }
 
 impl<'d, T: Instance> Timer<'d, T, Awaitable> {
+    /// Create a new async-capable timer driver.
     pub fn new_awaitable(timer: impl Peripheral<P = T> + 'd, irq: impl Peripheral<P = T::Interrupt> + 'd) -> Self {
         into_ref!(irq);
 
@@ -107,16 +132,17 @@ impl<'d, T: Instance> Timer<'d, T, Awaitable> {
         irq.unpend();
         irq.enable();
 
-        Self::new_irqless(timer)
+        Self::new_inner(timer)
     }
 }
+
 impl<'d, T: Instance> Timer<'d, T, NotAwaitable> {
-    /// Create a `Timer` without an interrupt, meaning `Cc::wait` won't work.
+    /// Create a `Timer` driver without an interrupt, meaning `Cc::wait` won't work.
     ///
     /// This can be useful for triggering tasks via PPI
     /// `Uarte` uses this internally.
     pub fn new(timer: impl Peripheral<P = T> + 'd) -> Self {
-        Self::new_irqless(timer)
+        Self::new_inner(timer)
     }
 }
 
@@ -124,7 +150,7 @@ impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
     /// Create a `Timer` without an interrupt, meaning `Cc::wait` won't work.
     ///
     /// This is used by the public constructors.
-    fn new_irqless(timer: impl Peripheral<P = T> + 'd) -> Self {
+    fn new_inner(timer: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(timer);
 
         let regs = T::regs();

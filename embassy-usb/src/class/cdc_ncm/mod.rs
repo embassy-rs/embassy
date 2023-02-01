@@ -1,18 +1,19 @@
-/// CDC-NCM, aka Ethernet over USB.
-///
-/// # Compatibility
-///
-/// Windows: NOT supported in Windows 10. Supported in Windows 11.
-///
-/// Linux: Well-supported since forever.
-///
-/// Android: Support for CDC-NCM is spotty and varies across manufacturers.
-///
-/// - On Pixel 4a, it refused to work on Android 11, worked on Android 12.
-/// - if the host's MAC address has the "locally-administered" bit set (bit 1 of first byte),
-///   it doesn't work! The "Ethernet tethering" option in settings doesn't get enabled.
-///   This is due to regex spaghetti: https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-mainline-12.0.0_r84/core/res/res/values/config.xml#417
-///   and this nonsense in the linux kernel: https://github.com/torvalds/linux/blob/c00c5e1d157bec0ef0b0b59aa5482eb8dc7e8e49/drivers/net/usb/usbnet.c#L1751-L1757
+//! CDC-NCM class implementation, aka Ethernet over USB.
+//!
+//! # Compatibility
+//!
+//! Windows: NOT supported in Windows 10 (though there's apparently a driver you can install?). Supported out of the box in Windows 11.
+//!
+//! Linux: Well-supported since forever.
+//!
+//! Android: Support for CDC-NCM is spotty and varies across manufacturers.
+//!
+//! - On Pixel 4a, it refused to work on Android 11, worked on Android 12.
+//! - if the host's MAC address has the "locally-administered" bit set (bit 1 of first byte),
+//!   it doesn't work! The "Ethernet tethering" option in settings doesn't get enabled.
+//!   This is due to regex spaghetti: https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-mainline-12.0.0_r84/core/res/res/values/config.xml#417
+//!   and this nonsense in the linux kernel: https://github.com/torvalds/linux/blob/c00c5e1d157bec0ef0b0b59aa5482eb8dc7e8e49/drivers/net/usb/usbnet.c#L1751-L1757
+
 use core::intrinsics::copy_nonoverlapping;
 use core::mem::{size_of, MaybeUninit};
 
@@ -114,6 +115,7 @@ fn byteify<T>(buf: &mut [u8], data: T) -> &[u8] {
     &buf[..len]
 }
 
+/// Internal state for the CDC-NCM class.
 pub struct State<'a> {
     comm_control: MaybeUninit<CommControl<'a>>,
     data_control: MaybeUninit<DataControl>,
@@ -121,6 +123,7 @@ pub struct State<'a> {
 }
 
 impl<'a> State<'a> {
+    /// Create a new `State`.
     pub fn new() -> Self {
         Self {
             comm_control: MaybeUninit::uninit(),
@@ -223,6 +226,7 @@ impl ControlHandler for DataControl {
     }
 }
 
+/// CDC-NCM class
 pub struct CdcNcmClass<'d, D: Driver<'d>> {
     _comm_if: InterfaceNumber,
     comm_ep: D::EndpointIn,
@@ -235,6 +239,7 @@ pub struct CdcNcmClass<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
+    /// Create a new CDC NCM class.
     pub fn new(
         builder: &mut Builder<'d, D>,
         state: &'d mut State<'d>,
@@ -319,6 +324,9 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
         }
     }
 
+    /// Split the class into a sender and receiver.
+    ///
+    /// This allows concurrently sending and receiving packets from separate tasks.
     pub fn split(self) -> (Sender<'d, D>, Receiver<'d, D>) {
         (
             Sender {
@@ -334,12 +342,18 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
     }
 }
 
+/// CDC NCM class packet sender.
+///
+/// You can obtain a `Sender` with [`CdcNcmClass::split`]
 pub struct Sender<'d, D: Driver<'d>> {
     write_ep: D::EndpointIn,
     seq: u16,
 }
 
 impl<'d, D: Driver<'d>> Sender<'d, D> {
+    /// Write a packet.
+    ///
+    /// This waits until the packet is succesfully stored in the CDC-NCM endpoint buffers.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
         let seq = self.seq;
         self.seq = self.seq.wrapping_add(1);
@@ -393,6 +407,9 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
     }
 }
 
+/// CDC NCM class packet receiver.
+///
+/// You can obtain a `Receiver` with [`CdcNcmClass::split`]
 pub struct Receiver<'d, D: Driver<'d>> {
     data_if: InterfaceNumber,
     comm_ep: D::EndpointIn,
@@ -400,7 +417,9 @@ pub struct Receiver<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> Receiver<'d, D> {
-    /// Reads a single packet from the OUT endpoint.
+    /// Write a network packet.
+    ///
+    /// This waits until a packet is succesfully received from the endpoint buffers.
     pub async fn read_packet(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         // Retry loop
         loop {

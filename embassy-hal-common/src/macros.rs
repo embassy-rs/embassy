@@ -1,10 +1,12 @@
 #[macro_export]
 macro_rules! peripherals {
     ($($(#[$cfg:meta])? $name:ident),*$(,)?) => {
+        /// Types for the peripheral singletons.
         pub mod peripherals {
             $(
                 $(#[$cfg])?
                 #[allow(non_camel_case_types)]
+                #[doc = concat!(stringify!($name), " peripheral")]
                 pub struct $name { _private: () }
 
                 $(#[$cfg])?
@@ -25,9 +27,13 @@ macro_rules! peripherals {
             )*
         }
 
+        /// Struct containing all the peripheral singletons.
+        ///
+        /// To obtain the peripherals, you must initialize the HAL, by calling [`crate::init`].
         #[allow(non_snake_case)]
         pub struct Peripherals {
             $(
+                #[doc = concat!(stringify!($name), " peripheral")]
                 $(#[$cfg])?
                 pub $name: peripherals::$name,
             )*

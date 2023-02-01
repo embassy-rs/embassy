@@ -1,4 +1,4 @@
-//! HAL interface to the WDT peripheral.
+//! Watchdog Timer (WDT) driver.
 //!
 //! This HAL implements a basic watchdog timer with 1..=8 handles.
 //! Once the watchdog has been started, it cannot be stopped.
@@ -8,6 +8,7 @@ use crate::peripherals;
 
 const MIN_TICKS: u32 = 15;
 
+/// WDT configuration.
 #[non_exhaustive]
 pub struct Config {
     /// Number of 32768 Hz ticks in each watchdog period.
@@ -57,13 +58,13 @@ impl Default for Config {
     }
 }
 
-/// An interface to the Watchdog.
+/// Watchdog driver.
 pub struct Watchdog {
     _private: (),
 }
 
 impl Watchdog {
-    /// Try to create a new watchdog instance from the peripheral.
+    /// Try to create a new watchdog driver.
     ///
     /// This function will return an error if the watchdog is already active
     /// with a `config` different to the requested one, or a different number of
@@ -155,6 +156,7 @@ impl Watchdog {
     }
 }
 
+/// Watchdog handle.
 pub struct WatchdogHandle {
     index: u8,
 }

@@ -1,4 +1,4 @@
-//! Non-Volatile Memory Controller (NVMC) module.
+//! Non-Volatile Memory Controller (NVMC, AKA internal flash) driver.
 
 use core::{ptr, slice};
 

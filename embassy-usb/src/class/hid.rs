@@ -1,3 +1,5 @@
+//! USB HID (Human Interface Device) class implementation.
+
 use core::mem::MaybeUninit;
 use core::ops::Range;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -28,6 +30,7 @@ const HID_REQ_SET_REPORT: u8 = 0x09;
 const HID_REQ_GET_PROTOCOL: u8 = 0x03;
 const HID_REQ_SET_PROTOCOL: u8 = 0x0b;
 
+/// Configuration for the HID class.
 pub struct Config<'d> {
     /// HID report descriptor.
     pub report_descriptor: &'d [u8],
@@ -46,11 +49,15 @@ pub struct Config<'d> {
     pub max_packet_size: u16,
 }
 
+/// Report ID
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ReportId {
+    /// IN report
     In(u8),
+    /// OUT report
     Out(u8),
+    /// Feature report
     Feature(u8),
 }
 
@@ -65,12 +72,14 @@ impl ReportId {
     }
 }
 
+/// Internal state for USB HID.
 pub struct State<'d> {
     control: MaybeUninit<Control<'d>>,
     out_report_offset: AtomicUsize,
 }
 
 impl<'d> State<'d> {
+    /// Create a new `State`.
     pub fn new() -> Self {
         State {
             control: MaybeUninit::uninit(),
@@ -79,6 +88,7 @@ impl<'d> State<'d> {
     }
 }
 
+/// USB HID reader/writer.
 pub struct HidReaderWriter<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> {
     reader: HidReader<'d, D, READ_N>,
     writer: HidWriter<'d, D, WRITE_N>,
@@ -180,20 +190,30 @@ impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> HidReaderWrit
     }
 }
 
+/// USB HID writer.
+///
+/// You can obtain a `HidWriter` using [`HidReaderWriter::split`].
 pub struct HidWriter<'d, D: Driver<'d>, const N: usize> {
     ep_in: D::EndpointIn,
 }
 
+/// USB HID reader.
+///
+/// You can obtain a `HidReader` using [`HidReaderWriter::split`].
 pub struct HidReader<'d, D: Driver<'d>, const N: usize> {
     ep_out: D::EndpointOut,
     offset: &'d AtomicUsize,
 }
 
+/// Error when reading a HID report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ReadError {
+    /// The given buffer was too small to read the received report.
     BufferOverflow,
+    /// The endpoint is disabled.
     Disabled,
+    /// The report was only partially read. See [`HidReader::read`] for details.
     Sync(Range<usize>),
 }
 
@@ -344,6 +364,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
     }
 }
 
+/// Handler for HID-related control requests.
 pub trait RequestHandler {
     /// Reads the value of report `id` into `buf` returning the size.
     ///
