@@ -1,3 +1,5 @@
+#![cfg(feature = "msos-descriptor")]
+
 //! Microsoft OS Descriptors
 //!
 //! <https://docs.microsoft.com/en-us/windows-hardware/drivers/usbcon/microsoft-os-2-0-descriptors-specification>
@@ -5,10 +7,9 @@
 use core::mem::size_of;
 use core::ops::Range;
 
-pub use widestring::{u16cstr, U16CStr};
+pub use widestring::{u16cstr, u16str, U16CStr, U16Str};
 
-use crate::descriptor::{capability_type, BosWriter};
-use crate::types::InterfaceNumber;
+use super::{capability_type, BosWriter};
 
 fn write_u16<T: Into<u16>>(buf: &mut [u8], range: Range<usize>, data: T) {
     (&mut buf[range]).copy_from_slice(data.into().to_le_bytes().as_slice())
@@ -17,13 +18,12 @@ fn write_u16<T: Into<u16>>(buf: &mut [u8], range: Range<usize>, data: T) {
 /// A serialized Microsoft OS 2.0 Descriptor set.
 ///
 /// Create with [`DeviceDescriptorSetBuilder`].
-pub struct MsOsDescriptorSet<'a> {
-    descriptor: &'a [u8],
-    windows_version: u32,
+pub struct MsOsDescriptorSet<'d> {
+    descriptor: &'d [u8],
     vendor_code: u8,
 }
 
-impl<'a> MsOsDescriptorSet<'a> {
+impl<'d> MsOsDescriptorSet<'d> {
     pub fn descriptor(&self) -> &[u8] {
         self.descriptor
     }
@@ -32,9 +32,150 @@ impl<'a> MsOsDescriptorSet<'a> {
         self.vendor_code
     }
 
-    pub fn write_bos_capability(&self, bos: &mut BosWriter) {
-        let windows_version = self.windows_version.to_le_bytes();
-        let len = self.descriptor.len().to_le_bytes();
+    pub fn is_empty(&self) -> bool {
+        self.descriptor.is_empty()
+    }
+}
+
+/// Writes a Microsoft OS 2.0 Descriptor set into a buffer.
+pub struct MsOsDescriptorWriter<'d> {
+    pub buf: &'d mut [u8],
+
+    position: usize,
+    config_mark: Option<usize>,
+    function_mark: Option<usize>,
+    vendor_code: u8,
+}
+
+impl<'d> MsOsDescriptorWriter<'d> {
+    pub(crate) fn new(buf: &'d mut [u8]) -> Self {
+        MsOsDescriptorWriter {
+            buf,
+            position: 0,
+            config_mark: None,
+            function_mark: None,
+            vendor_code: 0,
+        }
+    }
+
+    pub(crate) fn build(mut self, bos: &mut BosWriter) -> MsOsDescriptorSet<'d> {
+        self.end();
+
+        if self.is_empty() {
+            MsOsDescriptorSet {
+                descriptor: &[],
+                vendor_code: 0,
+            }
+        } else {
+            self.write_bos(bos);
+            MsOsDescriptorSet {
+                descriptor: &self.buf[..self.position],
+                vendor_code: self.vendor_code,
+            }
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.position == 0
+    }
+
+    pub fn is_in_config_subset(&self) -> bool {
+        self.config_mark.is_some()
+    }
+
+    pub fn is_in_function_subset(&self) -> bool {
+        self.function_mark.is_some()
+    }
+
+    /// Write the MS OS descriptor set header.
+    ///
+    /// - `windows_version` is an NTDDI version constant that describes a windows version. See the [`windows_version`]
+    /// module.
+    /// - `vendor_code` is the vendor request code used to read the MS OS descriptor set.
+    pub fn header(&mut self, windows_version: u32, vendor_code: u8) {
+        assert!(self.is_empty(), "You can only call MsOsDescriptorWriter::header once");
+        self.write(DescriptorSetHeader::new(windows_version));
+        self.vendor_code = vendor_code;
+    }
+
+    /// Add a device level feature descriptor.
+    ///
+    /// Note that some feature descriptors may only be used at the device level in non-composite devices.
+    /// Those features must be written before the first call to [`Self::configuration`].
+    pub fn device_feature<T: DeviceLevelDescriptor>(&mut self, desc: T) {
+        assert!(
+            !self.is_empty(),
+            "device features may only be added after the header is written"
+        );
+        assert!(
+            self.config_mark.is_none(),
+            "device features must be added before the first configuration subset"
+        );
+        self.write(desc);
+    }
+
+    /// Add a configuration subset.
+    pub fn configuration(&mut self, config: u8) {
+        assert!(
+            !self.is_empty(),
+            "MsOsDescriptorWriter: configuration must be called after header"
+        );
+        Self::end_subset::<ConfigurationSubsetHeader>(self.buf, self.position, &mut self.config_mark);
+        self.config_mark = Some(self.position);
+        self.write(ConfigurationSubsetHeader::new(config));
+    }
+
+    /// Add a function subset.
+    pub fn function(&mut self, first_interface: u8) {
+        assert!(
+            self.config_mark.is_some(),
+            "MsOsDescriptorWriter: function subset requires a configuration subset"
+        );
+        self.end_function();
+        self.function_mark = Some(self.position);
+        self.write(FunctionSubsetHeader::new(first_interface));
+    }
+
+    /// Add a function level feature descriptor.
+    ///
+    /// Note that some features may only be used at the function level. Those features must be written after a call
+    /// to [`Self::function`].
+    pub fn function_feature<T: FunctionLevelDescriptor>(&mut self, desc: T) {
+        assert!(
+            self.function_mark.is_some(),
+            "function features may only be added to a function subset"
+        );
+        self.write(desc);
+    }
+
+    pub fn end_function(&mut self) {
+        Self::end_subset::<FunctionSubsetHeader>(self.buf, self.position, &mut self.function_mark);
+    }
+
+    fn write<T: Descriptor>(&mut self, desc: T) {
+        desc.write_to(&mut self.buf[self.position..]);
+        self.position += desc.size();
+    }
+
+    fn end_subset<T: DescriptorSet>(buf: &mut [u8], position: usize, mark: &mut Option<usize>) {
+        if let Some(mark) = mark.take() {
+            let len = position - mark;
+            let p = mark + T::LENGTH_OFFSET;
+            buf[p..(p + 2)].copy_from_slice(&(len as u16).to_le_bytes());
+        }
+    }
+
+    fn end(&mut self) {
+        if self.position > 0 {
+            Self::end_subset::<FunctionSubsetHeader>(self.buf, self.position, &mut self.function_mark);
+            Self::end_subset::<ConfigurationSubsetHeader>(self.buf, self.position, &mut self.config_mark);
+            Self::end_subset::<DescriptorSetHeader>(self.buf, self.position, &mut Some(0));
+        }
+    }
+
+    fn write_bos(&mut self, bos: &mut BosWriter) {
+        let windows_version = &self.buf[4..8];
+        let len = (self.position as u16).to_le_bytes();
         bos.capability(
             capability_type::PLATFORM,
             &[
@@ -67,30 +208,7 @@ impl<'a> MsOsDescriptorSet<'a> {
                 self.vendor_code,
                 0x0, // Device does not support alternate enumeration
             ],
-        )
-    }
-}
-
-/// A helper struct to implement the different descriptor set builders.
-struct DescriptorSetBuilder<'a> {
-    used: usize,
-    buf: &'a mut [u8],
-}
-
-impl<'a> DescriptorSetBuilder<'a> {
-    pub fn descriptor<T>(&mut self, desc: T)
-    where
-        T: Descriptor + 'a,
-    {
-        let size = desc.size();
-        let start = self.used;
-        let end = start + size;
-        desc.write_to(&mut self.buf[start..end]);
-        self.used += size;
-    }
-
-    pub fn remaining(&mut self) -> &mut [u8] {
-        &mut self.buf[self.used..]
+        );
     }
 }
 
@@ -120,182 +238,27 @@ pub mod windows_version {
     pub const WIN10: u32 = 0x0A000000;
 }
 
-/// Helps build a Microsoft OS 2.0 Descriptor set.
-///
-/// # Example
-/// ```rust
-/// # use embassy_usb::types::InterfaceNumber;
-/// # use embassy_usb::msos::*;
-/// # let cdc_interface = unsafe { core::mem::transmute::<u8, InterfaceNumber>(0) };
-/// # let dfu_interface = unsafe { core::mem::transmute::<u8, InterfaceNumber>(1) };
-/// let mut buf = [0u8; 256];
-/// let mut builder = DeviceDescriptorSetBuilder::new(&mut buf[..], windows_version::WIN8_1);
-/// builder.feature(MinimumRecoveryTimeDescriptor::new(5, 10));
-/// builder.feature(ModelIdDescriptor::new(0xdeadbeef1234u128));
-/// builder.configuration(1, |conf| {
-///     conf.function(cdc_interface, |func| {
-///         func.winusb_device();
-///         func.feature(VendorRevisionDescriptor::new(1));
-///     });
-///     conf.function(dfu_interface, |func| {
-///         func.winusb_device();
-///         func.feature(VendorRevisionDescriptor::new(1));
-///     });
-/// });
-/// ```
-pub struct DeviceDescriptorSetBuilder<'a> {
-    builder: DescriptorSetBuilder<'a>,
-    windows_version: u32,
-    vendor_code: u8,
-}
+mod sealed {
+    use core::mem::size_of;
 
-impl<'a> DeviceDescriptorSetBuilder<'a> {
-    /// Create a device descriptor set builder.
-    ///
-    /// - `windows_version` is an NTDDI version constant that describes a windows version. See the [`windows_version`]
-    /// module.
-    /// - `vendor_code` is the vendor request code used to read the MS OS descriptor set.
-    pub fn new<'b: 'a>(buf: &'b mut [u8], windows_version: u32, vendor_code: u8) -> Self {
-        let mut builder = DescriptorSetBuilder { used: 0, buf };
-        builder.descriptor(DescriptorSetHeader {
-            wLength: (size_of::<DescriptorSetHeader>() as u16).to_le(),
-            wDescriptorType: (DescriptorSetHeader::TYPE as u16).to_le(),
-            dwWindowsVersion: windows_version.to_le(),
-            wTotalLength: 0,
-        });
-        Self {
-            builder,
-            windows_version,
-            vendor_code,
+    /// A trait for descriptors
+    pub trait Descriptor: Sized {
+        const TYPE: super::DescriptorType;
+
+        /// The size of the descriptor's header.
+        fn size(&self) -> usize {
+            size_of::<Self>()
         }
+
+        fn write_to(&self, buf: &mut [u8]);
     }
 
-    /// Add a device-level feature descriptor.
-    ///
-    /// Note that some feature descriptors may only be used at the device level in non-composite devices.
-    pub fn feature<T>(&mut self, desc: T)
-    where
-        T: Descriptor + DeviceLevelDescriptor + 'a,
-    {
-        self.builder.descriptor(desc)
-    }
-
-    /// Add a configuration subset.
-    pub fn configuration(&mut self, configuration: u8, build_conf: impl FnOnce(&mut ConfigurationSubsetBuilder<'_>)) {
-        let mut cb = ConfigurationSubsetBuilder::new(self.builder.remaining(), configuration);
-        build_conf(&mut cb);
-        self.builder.used += cb.finalize();
-    }
-
-    /// Finishes writing the data.
-    pub fn finalize(self) -> MsOsDescriptorSet<'a> {
-        let used = self.builder.used;
-        let buf = self.builder.buf;
-        // Update length in header with final length
-        let total_len = &mut buf[8..10];
-        total_len.copy_from_slice((used as u16).to_le_bytes().as_slice());
-
-        MsOsDescriptorSet {
-            descriptor: &buf[..used],
-            windows_version: self.windows_version,
-            vendor_code: self.vendor_code,
-        }
+    pub trait DescriptorSet: Descriptor {
+        const LENGTH_OFFSET: usize;
     }
 }
 
-pub struct ConfigurationSubsetBuilder<'a> {
-    builder: DescriptorSetBuilder<'a>,
-}
-
-impl<'a> ConfigurationSubsetBuilder<'a> {
-    pub fn new<'b: 'a>(buf: &'b mut [u8], configuration: u8) -> Self {
-        let mut builder = DescriptorSetBuilder { used: 0, buf };
-        builder.descriptor(ConfigurationSubsetHeader {
-            wLength: (size_of::<ConfigurationSubsetHeader>() as u16).to_le(),
-            wDescriptorType: (ConfigurationSubsetHeader::TYPE as u16).to_le(),
-            bConfigurationValue: configuration,
-            bReserved: 0,
-            wTotalLength: 0,
-        });
-        Self { builder }
-    }
-
-    /// Add a function subset.
-    pub fn function(&mut self, interface: InterfaceNumber, build_func: impl FnOnce(&mut FunctionSubsetBuilder<'_>)) {
-        let mut fb = FunctionSubsetBuilder::new(self.builder.remaining(), interface);
-        build_func(&mut fb);
-        self.builder.used += fb.finalize();
-    }
-
-    /// Finishes writing the data. Returns the total number of bytes used by the descriptor set.
-    pub fn finalize(self) -> usize {
-        let used = self.builder.used;
-        let buf = self.builder.buf;
-        // Update length in header with final length
-        let total_len = &mut buf[6..8];
-        total_len.copy_from_slice((used as u16).to_le_bytes().as_slice());
-        used
-    }
-}
-
-pub struct FunctionSubsetBuilder<'a> {
-    builder: DescriptorSetBuilder<'a>,
-}
-
-impl<'a> FunctionSubsetBuilder<'a> {
-    pub fn new<'b: 'a>(buf: &'b mut [u8], interface: InterfaceNumber) -> Self {
-        let mut builder = DescriptorSetBuilder { used: 0, buf };
-        builder.descriptor(FunctionSubsetHeader {
-            wLength: (size_of::<FunctionSubsetHeader>() as u16).to_le(),
-            wDescriptorType: (FunctionSubsetHeader::TYPE as u16).to_le(),
-            bFirstInterface: interface.0,
-            bReserved: 0,
-            wSubsetLength: 0,
-        });
-        Self { builder }
-    }
-
-    /// Add a function-level descriptor.
-    ///
-    /// Note that many descriptors can only be used at function-level in a composite device.
-    pub fn feature<T>(&mut self, desc: T)
-    where
-        T: Descriptor + FunctionLevelDescriptor + 'a,
-    {
-        self.builder.descriptor(desc)
-    }
-
-    /// Adds the feature descriptors to configure this function to use the WinUSB driver.
-    ///
-    /// Adds a compatible id descriptor "WINUSB" and a registry descriptor that sets the DeviceInterfaceGUID to the
-    /// USB_DEVICE GUID.
-    pub fn winusb_device(&mut self) {
-        self.feature(CompatibleIdFeatureDescriptor::new_winusb());
-        self.feature(RegistryPropertyFeatureDescriptor::new_usb_deviceinterfaceguid());
-    }
-
-    /// Finishes writing the data. Returns the total number of bytes used by the descriptor set.
-    pub fn finalize(self) -> usize {
-        let used = self.builder.used;
-        let buf = self.builder.buf;
-        // Update length in header with final length
-        let total_len = &mut buf[6..8];
-        total_len.copy_from_slice((used as u16).to_le_bytes().as_slice());
-        used
-    }
-}
-
-/// A trait for descriptors
-pub trait Descriptor: Sized {
-    const TYPE: DescriptorType;
-
-    /// The size of the descriptor's header.
-    fn size(&self) -> usize {
-        size_of::<Self>()
-    }
-
-    fn write_to(&self, buf: &mut [u8]);
-}
+use sealed::*;
 
 /// Copies the data of `t` into `buf`.
 ///
@@ -303,7 +266,7 @@ pub trait Descriptor: Sized {
 /// The type `T` must be able to be safely cast to `&[u8]`. (e.g. it is a `#[repr(packed)]` struct)
 unsafe fn transmute_write_to<T: Sized>(t: &T, buf: &mut [u8]) {
     let bytes = core::slice::from_raw_parts((t as *const T) as *const u8, size_of::<T>());
-    assert!(buf.len() >= bytes.len());
+    assert!(buf.len() >= bytes.len(), "MSOS descriptor buffer full");
     (&mut buf[..bytes.len()]).copy_from_slice(bytes);
 }
 
@@ -354,11 +317,26 @@ pub struct DescriptorSetHeader {
     wTotalLength: u16,
 }
 
+impl DescriptorSetHeader {
+    pub fn new(windows_version: u32) -> Self {
+        DescriptorSetHeader {
+            wLength: (size_of::<Self>() as u16).to_le(),
+            wDescriptorType: (Self::TYPE as u16).to_le(),
+            dwWindowsVersion: windows_version.to_le(),
+            wTotalLength: 0,
+        }
+    }
+}
+
 impl Descriptor for DescriptorSetHeader {
     const TYPE: DescriptorType = DescriptorType::SetHeaderDescriptor;
     fn write_to(&self, buf: &mut [u8]) {
         unsafe { transmute_write_to(self, buf) }
     }
+}
+
+impl DescriptorSet for DescriptorSetHeader {
+    const LENGTH_OFFSET: usize = 8;
 }
 
 /// Table 11. Configuration subset header.
@@ -372,11 +350,27 @@ pub struct ConfigurationSubsetHeader {
     wTotalLength: u16,
 }
 
+impl ConfigurationSubsetHeader {
+    pub fn new(config: u8) -> Self {
+        ConfigurationSubsetHeader {
+            wLength: (size_of::<Self>() as u16).to_le(),
+            wDescriptorType: (Self::TYPE as u16).to_le(),
+            bConfigurationValue: config,
+            bReserved: 0,
+            wTotalLength: 0,
+        }
+    }
+}
+
 impl Descriptor for ConfigurationSubsetHeader {
     const TYPE: DescriptorType = DescriptorType::SubsetHeaderConfiguration;
     fn write_to(&self, buf: &mut [u8]) {
         unsafe { transmute_write_to(self, buf) }
     }
+}
+
+impl DescriptorSet for ConfigurationSubsetHeader {
+    const LENGTH_OFFSET: usize = 6;
 }
 
 /// Table 12. Function subset header.
@@ -390,6 +384,18 @@ pub struct FunctionSubsetHeader {
     wSubsetLength: u16,
 }
 
+impl FunctionSubsetHeader {
+    pub fn new(first_interface: u8) -> Self {
+        FunctionSubsetHeader {
+            wLength: (size_of::<Self>() as u16).to_le(),
+            wDescriptorType: (Self::TYPE as u16).to_le(),
+            bFirstInterface: first_interface,
+            bReserved: 0,
+            wSubsetLength: 0,
+        }
+    }
+}
+
 impl Descriptor for FunctionSubsetHeader {
     const TYPE: DescriptorType = DescriptorType::SubsetHeaderFunction;
     fn write_to(&self, buf: &mut [u8]) {
@@ -397,16 +403,17 @@ impl Descriptor for FunctionSubsetHeader {
     }
 }
 
+impl DescriptorSet for FunctionSubsetHeader {
+    const LENGTH_OFFSET: usize = 6;
+}
+
 // Feature Descriptors
 
 /// A marker trait for feature descriptors that are valid at the device level.
-pub trait DeviceLevelDescriptor {}
+pub trait DeviceLevelDescriptor: Descriptor {}
 
 /// A marker trait for feature descriptors that are valid at the function level.
-pub trait FunctionLevelDescriptor {
-    /// `true` when the feature descriptor may only be used at the function level in composite devices.
-    const COMPOSITE_ONLY: bool = false;
-}
+pub trait FunctionLevelDescriptor: Descriptor {}
 
 /// Table 13. Microsoft OS 2.0 compatible ID descriptor.
 #[allow(non_snake_case)]
@@ -419,9 +426,7 @@ pub struct CompatibleIdFeatureDescriptor {
 }
 
 impl DeviceLevelDescriptor for CompatibleIdFeatureDescriptor {}
-impl FunctionLevelDescriptor for CompatibleIdFeatureDescriptor {
-    const COMPOSITE_ONLY: bool = true;
-}
+impl FunctionLevelDescriptor for CompatibleIdFeatureDescriptor {}
 
 impl Descriptor for CompatibleIdFeatureDescriptor {
     const TYPE: DescriptorType = DescriptorType::FeatureCompatibleId;
@@ -462,16 +467,12 @@ pub struct RegistryPropertyFeatureDescriptor<'a> {
     wLength: u16,
     wDescriptorType: u16,
     wPropertyDataType: u16,
-    wPropertyNameLength: u16,
     PropertyName: &'a [u8],
-    wPropertyDataLength: u16,
     PropertyData: &'a [u8],
 }
 
 impl<'a> DeviceLevelDescriptor for RegistryPropertyFeatureDescriptor<'a> {}
-impl<'a> FunctionLevelDescriptor for RegistryPropertyFeatureDescriptor<'a> {
-    const COMPOSITE_ONLY: bool = true;
-}
+impl<'a> FunctionLevelDescriptor for RegistryPropertyFeatureDescriptor<'a> {}
 
 impl<'a> Descriptor for RegistryPropertyFeatureDescriptor<'a> {
     const TYPE: DescriptorType = DescriptorType::FeatureRegProperty;
@@ -479,45 +480,22 @@ impl<'a> Descriptor for RegistryPropertyFeatureDescriptor<'a> {
         10 + self.PropertyName.len() + self.PropertyData.len()
     }
     fn write_to(&self, buf: &mut [u8]) {
-        assert!(buf.len() >= self.size());
-        assert!(self.wPropertyNameLength as usize == self.PropertyName.len());
-        assert!(self.wPropertyDataLength as usize == self.PropertyData.len());
+        assert!(buf.len() >= self.size(), "MSOS descriptor buffer full");
         write_u16(buf, 0..2, self.wLength);
         write_u16(buf, 2..4, self.wDescriptorType);
         write_u16(buf, 4..6, self.wPropertyDataType);
-        write_u16(buf, 6..8, self.wPropertyNameLength);
+        write_u16(buf, 6..8, (self.PropertyName.len() as u16).to_le());
         let pne = 8 + self.PropertyName.len();
         (&mut buf[8..pne]).copy_from_slice(self.PropertyName);
         let pds = pne + 2;
         let pde = pds + self.PropertyData.len();
-        write_u16(buf, pne..pds, self.wPropertyDataLength);
+        write_u16(buf, pne..pds, (self.PropertyData.len() as u16).to_le());
         (&mut buf[pds..pde]).copy_from_slice(self.PropertyData);
     }
 }
 
 impl<'a> RegistryPropertyFeatureDescriptor<'a> {
-    /// A registry property.
-    ///
-    /// `name` should be a NUL-terminated 16-bit Unicode string.
-    pub fn new_raw<'n: 'a, 'd: 'a>(name: &'a [u8], data: &'d [u8], data_type: PropertyDataType) -> Self {
-        Self {
-            wLength: ((10 + name.len() + data.len()) as u16).to_le(),
-            wDescriptorType: (Self::TYPE as u16).to_le(),
-            wPropertyDataType: (data_type as u16).to_le(),
-            wPropertyNameLength: (name.len() as u16).to_le(),
-            PropertyName: name,
-            wPropertyDataLength: (data.len() as u16).to_le(),
-            PropertyData: data,
-        }
-    }
-
-    fn u16str_bytes(s: &U16CStr) -> &[u8] {
-        unsafe { core::slice::from_raw_parts(s.as_ptr() as *const u8, (s.len() + 1) * 2) }
-    }
-
-    /// A registry property that sets the DeviceInterfaceGUIDs to the device interface class for USB devices which are
-    /// attached to a USB hub.
-    pub fn new_usb_deviceinterfaceguid() -> Self {
+    pub const DEVICE_INTERFACE_GUIDS_NAME: &U16CStr = {
         // Can't use defmt::panic in constant expressions (inside u16cstr!)
         macro_rules! panic {
             ($($x:tt)*) => {
@@ -527,10 +505,25 @@ impl<'a> RegistryPropertyFeatureDescriptor<'a> {
             };
         }
 
-        Self::new_multi_string(
-            u16cstr!("DeviceInterfaceGUIDs"),
-            u16cstr!("{A5DCBF10-6530-11D2-901F-00C04FB951ED}").as_slice_with_nul(),
-        )
+        u16cstr!("DeviceInterfaceGUIDs")
+    };
+
+    /// A registry property.
+    ///
+    /// `name` should be a NUL-terminated 16-bit Unicode string.
+    pub fn new_raw<'n: 'a, 'd: 'a>(name: &'a [u8], data: &'d [u8], data_type: PropertyDataType) -> Self {
+        assert!(name.len() < usize::from(u16::MAX) && data.len() < usize::from(u16::MAX));
+        Self {
+            wLength: ((10 + name.len() + data.len()) as u16).to_le(),
+            wDescriptorType: (Self::TYPE as u16).to_le(),
+            wPropertyDataType: (data_type as u16).to_le(),
+            PropertyName: name,
+            PropertyData: data,
+        }
+    }
+
+    fn u16str_bytes(s: &U16CStr) -> &[u8] {
+        unsafe { core::slice::from_raw_parts(s.as_ptr() as *const u8, (s.len() + 1) * 2) }
     }
 
     /// A registry property containing a NUL-terminated 16-bit Unicode string.
@@ -558,6 +551,10 @@ impl<'a> RegistryPropertyFeatureDescriptor<'a> {
 
     /// A registry property containing multiple NUL-terminated 16-bit Unicode strings.
     pub fn new_multi_string<'n: 'a, 'd: 'a>(name: &'n U16CStr, data: &'d [u16]) -> Self {
+        assert!(
+            data.len() >= 2 && data[data.len() - 1] == 0 && data[data.len() - 2] == 0,
+            "multi-strings must end in double nul terminators"
+        );
         Self::new_raw(
             Self::u16str_bytes(name),
             unsafe { core::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 2) },
