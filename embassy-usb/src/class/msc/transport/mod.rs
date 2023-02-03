@@ -26,6 +26,12 @@ pub enum CommandError {
     CommandError,
 }
 
+impl From<DataPipeError> for CommandError {
+    fn from(e: DataPipeError) -> Self {
+        Self::PipeError(e)
+    }
+}
+
 /// A pipe that allows [CommandSetHandler] to write command-specific data.
 pub trait DataPipeIn {
     /// Sends data to host.

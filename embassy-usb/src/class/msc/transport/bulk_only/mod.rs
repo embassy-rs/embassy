@@ -151,7 +151,7 @@ impl<'d, D: Driver<'d>, C: CommandSetHandler> BulkOnlyTransport<'d, D, C> {
             ep: &mut self.write_ep,
             data_residue: cbw.data_transfer_length as _,
             max_packet_size: self.max_packet_size,
-            last_packet_full: true,
+            last_packet_size: 0,
         };
 
         let status = match self.handler.command_in(cbw.lun, cbw.data(), &mut pipe_in).await {
@@ -201,12 +201,12 @@ pub struct BulkOnlyTransportDataPipeIn<'d, E: EndpointIn> {
     // requested transfer size minus already transfered bytes
     data_residue: u32,
     max_packet_size: u16,
-    last_packet_full: bool,
+    last_packet_size: u16,
 }
 
 impl<'d, E: EndpointIn> DataPipeIn for BulkOnlyTransportDataPipeIn<'d, E> {
     async fn write(&mut self, buf: &[u8]) -> Result<(), DataPipeError> {
-        if !self.last_packet_full {
+        if self.last_packet_size > 0 && self.last_packet_size != self.max_packet_size {
             return Err(DataPipeError::TransferFinalized);
         }
 
@@ -217,7 +217,7 @@ impl<'d, E: EndpointIn> DataPipeIn for BulkOnlyTransportDataPipeIn<'d, E> {
 
             self.ep.write(chunk).await?;
             self.data_residue -= chunk.len() as u32;
-            self.last_packet_full = chunk.len() == self.max_packet_size.into();
+            self.last_packet_size = chunk.len() as u16;
         }
 
         Ok(())
@@ -227,7 +227,7 @@ impl<'d, E: EndpointIn> DataPipeIn for BulkOnlyTransportDataPipeIn<'d, E> {
 impl<'d, E: EndpointIn> BulkOnlyTransportDataPipeIn<'d, E> {
     async fn finalize(&mut self) -> Result<(), DataPipeError> {
         // Send ZLP only if last packet was full and transfer size was not exhausted
-        if self.last_packet_full && self.data_residue != 0 {
+        if self.last_packet_size == self.max_packet_size && self.data_residue != 0 {
             self.ep.write(&[]).await?;
         }
 

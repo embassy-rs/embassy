@@ -12,78 +12,53 @@ macro_rules! const_assert {
 }
 
 pub trait PackedField {
-    type Output<'a>;
+    type Get<'a>;
+    type Set<'a>;
 
     fn assert<const OFFSET: usize, const SIZE: usize>() {}
-    fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Output<'a>;
-    fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self);
-}
-
-impl PackedField for &[u8] {
-    type Output<'a> = &'a [u8];
-
-    fn assert<const OFFSET: usize, const SIZE: usize>() {
-        const_assert!(OFFSET: usize => OFFSET % 8 == 0, "bit packing for u8 slices is not supported");
-    }
-
-    fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Output<'a> {
-        data
-    }
-
-    fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self) {
-        data.copy_from_slice(val)
-    }
-}
-
-impl PackedField for &mut [u8] {
-    type Output<'a> = &'a [u8];
-
-    fn assert<const OFFSET: usize, const SIZE: usize>() {
-        const_assert!(OFFSET: usize => OFFSET % 8 == 0, "bit packing for u8 slices is not supported");
-    }
-
-    fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Output<'a> {
-        data
-    }
-
-    fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self) {
-        data.copy_from_slice(val)
-    }
+    fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Get<'a>;
+    fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self::Set<'_>);
 }
 
 impl<const N: usize> PackedField for [u8; N] {
-    type Output<'a> = [u8; N];
+    type Get<'a> = &'a [u8];
+    type Set<'a> = &'a [u8];
 
     fn assert<const OFFSET: usize, const SIZE: usize>() {
-        const_assert!(N: usize, SIZE: usize => SIZE == N, "Incorrect array size");
+        const_assert!(N: usize, SIZE: usize => SIZE == N*8, "Incorrect array size");
         const_assert!(OFFSET: usize => OFFSET % 8 == 0, "bit packing for arrays is not supported");
     }
 
-    fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Output<'a> {
-        data.try_into().unwrap()
+    fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Get<'a> {
+        let byte = OFFSET / 8;
+        let size_bytes = SIZE / 8;
+        &data[byte..byte + size_bytes]
     }
 
-    fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self) {
-        data.copy_from_slice(&val)
+    fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self::Set<'_>) {
+        let byte = OFFSET / 8;
+        let size_bytes = SIZE / 8;
+        data[byte..byte + size_bytes].copy_from_slice(&val)
     }
 }
 
 impl PackedField for bool {
-    type Output<'a> = bool;
+    type Get<'a> = bool;
+    type Set<'a> = bool;
 
     fn assert<const OFFSET: usize, const SIZE: usize>() {
         const_assert!(SIZE: usize => SIZE == 1, "bool size must equal 1");
     }
 
     #[inline]
-    fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Output<'a> {
+    fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Get<'a> {
         let byte = OFFSET / 8;
         let bit = OFFSET % 8;
         (data[byte] & (1 << bit)) != 0
     }
 
     #[inline]
-    fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self) {
+    fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self::Set<'_>) {
         let byte = OFFSET / 8;
         let bit = OFFSET % 8;
         let mask = (val as u8) << bit;
@@ -92,7 +67,8 @@ impl PackedField for bool {
 }
 
 impl PackedField for u8 {
-    type Output<'a> = u8;
+    type Get<'a> = u8;
+    type Set<'a> = u8;
 
     fn assert<const OFFSET: usize, const SIZE: usize>() {
         const_assert!(SIZE: usize => SIZE <= 8, "u8 is not large enough");
@@ -103,7 +79,7 @@ impl PackedField for u8 {
     }
 
     #[inline]
-    fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Output<'a> {
+    fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Get<'a> {
         let byte = OFFSET / 8;
         let bit = OFFSET % 8;
         let mask = (0xFF >> SIZE) << bit;
@@ -111,7 +87,7 @@ impl PackedField for u8 {
     }
 
     #[inline]
-    fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self) {
+    fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self::Set<'_>) {
         let byte = OFFSET / 8;
         let bit = OFFSET % 8;
         let mask = (0xFF >> SIZE) << bit;
@@ -119,27 +95,38 @@ impl PackedField for u8 {
     }
 }
 
+/// Big Endian
+pub struct BE<T>(T);
+
+/// Little Endian
+pub struct LE<T>(T);
+
 macro_rules! impl_packed_field_int {
     ($ty:ty, $size:literal) => {
-        impl PackedField for $ty {
-            type Output<'a> = $ty;
+        impl_packed_field_int!(BE<$ty>, $ty, $size, from_be_bytes, to_be_bytes);
+        impl_packed_field_int!(LE<$ty>, $ty, $size, from_le_bytes, to_le_bytes);
+    };
+    ($wrapper:ty, $ty:ty, $size:literal, $from_bytes_fn:ident, $to_bytes_fn:ident) => {
+        impl PackedField for $wrapper {
+            type Get<'a> = $ty;
+            type Set<'a> = $ty;
 
             fn assert<const OFFSET: usize, const SIZE: usize>() {
-                const_assert!(SIZE: usize => SIZE <= $size, "type is not large enough");
+                const_assert!(SIZE: usize => SIZE == $size, "type size mismatch");
                 // most protocols only use bit packing at byte (u8) boundaries, so this is okay for now
                 const_assert!(OFFSET: usize => OFFSET % 8 == 0, "bit packing for this type is not supported");
             }
 
             #[inline]
-            fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Output<'a> {
+            fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Get<'a> {
                 let byte = OFFSET / 8;
-                unsafe { *(data[byte..].as_ptr() as *const $ty)}
+                <$ty>::$from_bytes_fn(data[byte..byte+(SIZE/8)].try_into().unwrap())
             }
 
             #[inline]
-            fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self) {
+            fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self::Set<'_>) {
                 let byte = OFFSET / 8;
-                unsafe { *(data[byte..].as_ptr() as *mut $ty) = val; }
+                data[byte..byte+(SIZE/8)].copy_from_slice(&val.$to_bytes_fn())
             }
         }
     };
@@ -160,6 +147,7 @@ macro_rules! packed_struct {
         $(#[$meta:meta])*
         $sv:vis struct $name:ident<$size:literal> {
             $(
+                $(#[doc = $field_doc:literal])*
                 #[offset = $offset:expr, size = $bit_size:expr]
                 $field:ident: $ty:ty,
             )*
@@ -171,7 +159,8 @@ macro_rules! packed_struct {
         }
 
         impl $name<[u8; $size]> {
-            const SIZE: usize = $size;
+            /// Packed struct size in bytes
+            pub const SIZE: usize = $size;
 
             pub fn new() -> Self {
                 Self {
@@ -180,7 +169,7 @@ macro_rules! packed_struct {
             }
         }
 
-        impl<'d, T: AsRef<[u8]> + crate::packed::PackedField<Output<'d> = T> + 'd> $name<T> {
+        impl<T: AsRef<[u8]>> $name<T> {
             pub const unsafe fn from_bytes_unchecked(data: T) -> Self {
                 Self { data }
             }
@@ -193,9 +182,11 @@ macro_rules! packed_struct {
                 }
             }
 
+            // Generate getter methods for fields
             $(
+                $(#[doc = $field_doc])*
                 #[inline]
-                pub fn $field(&self) -> <$ty as crate::packed::PackedField>::Output<'d> {
+                pub fn $field(&self) -> <$ty as crate::packed::PackedField>::Get<'_> {
                     const _: () = core::assert!($offset + $bit_size <= $size * 8, "Field offset is out of range");
                     <$ty as crate::packed::PackedField>::assert::<{$offset}, {$bit_size}>();
                     <$ty as crate::packed::PackedField>::get::<{$offset}, {$bit_size}>(self.data.as_ref())
@@ -203,11 +194,13 @@ macro_rules! packed_struct {
             )*
         }
 
-        impl<'d, T: AsRef<[u8]> + AsMut<[u8]> + crate::packed::PackedField<Output<'d> = T> + 'd> $name<T> {
+        impl<T: AsRef<[u8]> + AsMut<[u8]>> $name<T> {
+            // Generate setter methods for fields
             $(
                 paste::paste! {
+                    $(#[doc = $field_doc])*
                     #[inline]
-                    pub fn [<set_$field>](&mut self, val: $ty) {
+                    pub fn [<set_$field>](&mut self, val: <$ty as crate::packed::PackedField>::Set<'_>) {
                         const _: () = core::assert!($offset + $bit_size <= $size * 8, "Field offset is out of range");
                         <$ty as crate::packed::PackedField>::assert::<{$offset}, {$bit_size}>();
                         <$ty as crate::packed::PackedField>::set::<{$offset}, {$bit_size}>(self.data.as_mut(), val)
@@ -216,22 +209,23 @@ macro_rules! packed_struct {
             )*
         }
 
-        impl<T: AsRef<[u8]> + for<'a> crate::packed::PackedField<Output<'a> = T>> crate::packed::PackedField for $name<T> {
-            type Output<'a> = Self;
+        impl crate::packed::PackedField for $name<[u8; $size]> {
+            type Get<'a> = $name<&'a [u8]>;
+            type Set<'a> = $name<&'a [u8]>;
 
-            fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Output<'a> {
-                <T as crate::packed::PackedField>::assert::<OFFSET, SIZE>();
-                let val = <T as crate::packed::PackedField>::get::<OFFSET, SIZE>(data);
-                unsafe { Self::from_bytes_unchecked(val) }
+            fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Get<'a> {
+                <[u8; $size] as crate::packed::PackedField>::assert::<OFFSET, SIZE>();
+                let val = <[u8; $size] as crate::packed::PackedField>::get::<OFFSET, SIZE>(data);
+                unsafe { Self::Get::from_bytes_unchecked(val) }
             }
 
-            fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self) {
-                <T as crate::packed::PackedField>::assert::<OFFSET, SIZE>();
-                <T as crate::packed::PackedField>::set::<OFFSET, SIZE>(data, val.data);
+            fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self::Set<'_>) {
+                <[u8; $size] as crate::packed::PackedField>::assert::<OFFSET, SIZE>();
+                <[u8; $size] as crate::packed::PackedField>::set::<OFFSET, SIZE>(data, &val.data);
             }
         }
 
-        impl<T: AsRef<[u8]> + for<'a> crate::packed::PackedField<Output<'a> = T>> core::fmt::Debug for $name<T> {
+        impl<T: AsRef<[u8]>> core::fmt::Debug for $name<T> {
             fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 f.debug_struct(stringify!($name))
                     $(
@@ -240,18 +234,18 @@ macro_rules! packed_struct {
                     .finish()
             }
         }
+
+        impl<T: AsRef<[u8]>> defmt::Format for $name<T> {
+            fn format(&self, f: defmt::Formatter) {
+                defmt::write!(f, "{} {{ ", stringify!($name));
+                $(
+                    defmt::write!(f, "{}: {} ", stringify!($field), self.$field());
+                )*
+                defmt::write!(f, "}}");
+            }
+        }
     }
 }
-
-// packed_struct!(pub struct Test<8> {
-//     #[offset = 8 * 6, size = 8]
-//     test: u8,
-// });
-
-// pub fn test() -> u8 {
-//     let t = Test::new();
-//     t.test()
-// }
 
 #[macro_export]
 macro_rules! packed_enum {
@@ -290,27 +284,21 @@ macro_rules! packed_enum {
         }
 
         impl crate::packed::PackedField for $name {
-            type Output<'a> = Result<Self, $ty>;
+            type Get<'a> = Result<Self, $ty>;
+            type Set<'a> = Self;
 
             #[inline]
-            fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Output<'a> {
+            fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Get<'a> {
                 <$ty as crate::packed::PackedField>::assert::<OFFSET, SIZE>();
                 let val = <$ty as crate::packed::PackedField>::get::<OFFSET, SIZE>(data);
                 Self::try_from(val)
             }
 
             #[inline]
-            fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self) {
+            fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self::Set<'_>) {
                 <$ty as crate::packed::PackedField>::assert::<OFFSET, SIZE>();
                 <$ty as crate::packed::PackedField>::set::<OFFSET, SIZE>(data, val.into());
             }
         }
     };
 }
-
-// gen_enum! {
-//     pub enum Testas<u8> {
-//         Hello = 0b111,
-//         Test = 0b1111,
-//     }
-// }

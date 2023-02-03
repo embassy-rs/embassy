@@ -3,12 +3,14 @@
 #![feature(type_alias_impl_trait)]
 #![feature(async_fn_in_trait)]
 
-use defmt::{panic, *};
+use defmt::{panic, todo, *};
 use embassy_executor::Spawner;
 use embassy_stm32::time::mhz;
 use embassy_stm32::usb_otg::{Driver, Instance};
 use embassy_stm32::{interrupt, Config};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
+use embassy_usb::class::msc::subclass::scsi::block_device::BlockDevice;
+use embassy_usb::class::msc::subclass::scsi::Scsi;
 use embassy_usb::class::msc::transport::bulk_only::BulkOnlyTransport;
 use embassy_usb::class::msc::transport::CommandSetHandler;
 use embassy_usb::class::msc::MscSubclass;
@@ -17,26 +19,58 @@ use embassy_usb::Builder;
 use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
 
-struct CommandSet {}
+// struct CommandSet {}
 
-impl CommandSetHandler for CommandSet {
-    async fn command_out(
-        &mut self,
-        lun: u8,
-        cmd: &[u8],
-        pipe: &mut impl embassy_usb::class::msc::transport::DataPipeOut,
-    ) -> Result<(), embassy_usb::class::msc::transport::CommandError> {
-        info!("CMD_OUT: {:?}", cmd);
+// impl CommandSetHandler for CommandSet {
+//     async fn command_out(
+//         &mut self,
+//         lun: u8,
+//         cmd: &[u8],
+//         pipe: &mut impl embassy_usb::class::msc::transport::DataPipeOut,
+//     ) -> Result<(), embassy_usb::class::msc::transport::CommandError> {
+//         info!("CMD_OUT: {:?}", cmd);
+//         Ok(())
+//     }
+
+//     async fn command_in(
+//         &mut self,
+//         lun: u8,
+//         cmd: &[u8],
+//         pipe: &mut impl embassy_usb::class::msc::transport::DataPipeIn,
+//     ) -> Result<(), embassy_usb::class::msc::transport::CommandError> {
+//         info!("CMD_IN: {:?}", cmd);
+//         Ok(())
+//     }
+// }
+
+struct Device {
+    data: [u8; 512 * 128],
+}
+
+impl BlockDevice for Device {
+    fn block_size(&self) -> usize {
+        512
+    }
+
+    fn num_blocks(&self) -> u32 {
+        (self.data.len() / self.block_size()) as u32 - 1
+    }
+
+    fn read_block(
+        &self,
+        lba: u32,
+        block: &mut [u8],
+    ) -> Result<(), embassy_usb::class::msc::subclass::scsi::block_device::BlockDeviceError> {
+        block.copy_from_slice(&self.data[lba as usize * 512..(lba as usize + 1) * 512]);
         Ok(())
     }
 
-    async fn command_in(
+    fn write_block(
         &mut self,
-        lun: u8,
-        cmd: &[u8],
-        pipe: &mut impl embassy_usb::class::msc::transport::DataPipeIn,
-    ) -> Result<(), embassy_usb::class::msc::transport::CommandError> {
-        info!("CMD_IN: {:?}", cmd);
+        lba: u32,
+        block: &[u8],
+    ) -> Result<(), embassy_usb::class::msc::subclass::scsi::block_device::BlockDeviceError> {
+        self.data[lba as usize * 512..(lba as usize + 1) * 512].copy_from_slice(block);
         Ok(())
     }
 }
@@ -88,13 +122,15 @@ async fn main(_spawner: Spawner) {
         None,
     );
 
+    let scsi = Scsi::new(Device { data: [0u8; 512 * 128] });
+
     let mut msc = BulkOnlyTransport::new(
         &mut builder,
         &mut state,
         MscSubclass::ScsiTransparentCommandSet,
         64,
         0,
-        CommandSet {},
+        scsi,
     );
 
     // Build the builder.
