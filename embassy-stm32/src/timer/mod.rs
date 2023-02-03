@@ -10,6 +10,9 @@ pub mod low_level {
     pub use super::sealed::*;
 }
 
+#[cfg(feature = "nightly")]
+pub mod window_watchdog;
+
 pub(crate) mod sealed {
     use super::*;
     pub trait Basic16bitInstance: RccPeripheral {
