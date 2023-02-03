@@ -28,6 +28,21 @@ impl<'d, T: Pin> Flex<'d, T> {
         Self { pin }
     }
 
+    #[inline]
+    pub fn degrade(mut self) -> Flex<'d, AnyPin> {
+        // Safety: We are about to drop the other copy of this pin, so
+        // this clone is safe.
+        let pin = unsafe { self.pin.clone_unchecked() };
+
+        // We don't want to run the destructor here, because that would
+        // deconfigure the pin.
+        core::mem::forget(self);
+
+        Flex {
+            pin: pin.map_into::<AnyPin>(),
+        }
+    }
+
     /// Put the pin into input mode.
     #[inline]
     pub fn set_as_input(&mut self, pull: Pull) {
@@ -287,6 +302,13 @@ impl<'d, T: Pin> Input<'d, T> {
     }
 
     #[inline]
+    pub fn degrade(self) -> Input<'d, AnyPin> {
+        Input {
+            pin: self.pin.degrade(),
+        }
+    }
+
+    #[inline]
     pub fn is_high(&self) -> bool {
         self.pin.is_high()
     }
@@ -343,6 +365,13 @@ impl<'d, T: Pin> Output<'d, T> {
         }
         pin.set_as_output(speed);
         Self { pin }
+    }
+
+    #[inline]
+    pub fn degrade(self) -> Output<'d, AnyPin> {
+        Output {
+            pin: self.pin.degrade(),
+        }
     }
 
     /// Set the output as high.
@@ -405,6 +434,13 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
 
         pin.set_as_input_output(speed, pull);
         Self { pin }
+    }
+
+    #[inline]
+    pub fn degrade(self) -> Output<'d, AnyPin> {
+        Output {
+            pin: self.pin.degrade(),
+        }
     }
 
     #[inline]
