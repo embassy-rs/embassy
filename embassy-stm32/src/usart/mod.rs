@@ -1148,7 +1148,7 @@ macro_rules! impl_lpuart {
 
 foreach_interrupt!(
     ($inst:ident, lpuart, $block:ident, $signal_name:ident, $irq:ident) => {
-        impl_lpuart!($inst, $irq, 255);
+        impl_lpuart!($inst, $irq, 256);
     };
 
     ($inst:ident, usart, $block:ident, $signal_name:ident, $irq:ident) => {
