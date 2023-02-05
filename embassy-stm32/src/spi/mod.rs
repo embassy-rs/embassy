@@ -10,7 +10,7 @@ pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MO
 use self::sealed::WordSize;
 use crate::dma::{slice_ptr_parts, Transfer};
 use crate::gpio::sealed::{AFType, Pin as _};
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, Pull};
 use crate::pac::spi::{regs, vals, Spi as Regs};
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
@@ -93,8 +93,14 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         config: Config,
     ) -> Self {
         into_ref!(peri, sck, mosi, miso);
+
+        let sck_pull_mode = match config.mode.polarity {
+            Polarity::IdleLow => Pull::Down,
+            Polarity::IdleHigh => Pull::Up,
+        };
+
         unsafe {
-            sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
+            sck.set_as_af_pull(sck.af_num(), AFType::OutputPushPull, sck_pull_mode);
             sck.set_speed(crate::gpio::Speed::VeryHigh);
             mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
             mosi.set_speed(crate::gpio::Speed::VeryHigh);
