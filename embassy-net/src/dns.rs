@@ -11,6 +11,7 @@ use smoltcp::iface::{Interface, SocketHandle};
 pub use smoltcp::socket::dns::DnsQuery;
 use smoltcp::socket::dns::{self, GetQueryResultError, StartQueryError, MAX_ADDRESS_COUNT};
 pub use smoltcp::wire::{DnsQueryType, IpAddress};
+use embassy_hal_common::drop::OnDrop;
 
 use crate::{SocketStack, Stack};
 
@@ -93,7 +94,15 @@ impl<'a> DnsSocket<'a> {
             Err(e) => return Err(e.into()),
         };
 
-        poll_fn(|cx| {
+        let handle = self.handle;
+        let drop = OnDrop::new(|| {
+            let s = &mut *self.stack.borrow_mut();
+            let socket = s.sockets.get_mut::<dns::Socket>(handle);
+            socket.cancel_query(query);
+            s.waker.wake();
+        });
+
+        let res = poll_fn(|cx| {
             self.with_mut(|s, _| match s.get_query_result(query) {
                 Ok(addrs) => Poll::Ready(Ok(addrs)),
                 Err(GetQueryResultError::Pending) => {
@@ -103,7 +112,10 @@ impl<'a> DnsSocket<'a> {
                 Err(e) => Poll::Ready(Err(e.into())),
             })
         })
-        .await
+        .await;
+
+        drop.defuse();
+        res
     }
 }
 
