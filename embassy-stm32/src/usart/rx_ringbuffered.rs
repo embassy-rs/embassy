@@ -45,12 +45,18 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
 impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxDma> {
     /// Start receiving in the background into the previously provided `dma_buf` buffer.
     pub fn start(&mut self) -> Result<(), Error> {
-        let ch = &mut self.uart.rx_dma;
-        let request = ch.request();
-
         // Clear the ring buffer so that it is ready to receive data
         self.ring_buf.clear();
 
+        self.setup_uart();
+
+        Ok(())
+    }
+
+    /// Start uart background receive
+    fn setup_uart(&mut self) {
+        let ch = &mut self.uart.rx_dma;
+        let request = ch.request();
         unsafe {
             // Start dma read
             // The memory address cannot be changed once the transfer is started
@@ -62,13 +68,6 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
 
         compiler_fence(Ordering::SeqCst);
 
-        Self::setup_uart();
-
-        Ok(())
-    }
-
-    /// Start uart background receive
-    fn setup_uart() {
         let r = T::regs();
         // clear all interrupts and DMA Rx Request
         // SAFETY: only clears Rx related flags
@@ -91,7 +90,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
     }
 
     /// Stop uart background receive
-    fn teardown_uart() {
+    fn teardown_uart(&mut self) {
         let r = T::regs();
         // clear all interrupts and DMA Rx Request
         // SAFETY: only clears Rx related flags
@@ -111,6 +110,12 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
                 w.set_dmar(false);
             });
         }
+
+        compiler_fence(Ordering::SeqCst);
+
+        let ch = &mut self.uart.rx_dma;
+        ch.request_stop();
+        while ch.is_running() {}
     }
 
     /// Read bytes that are readily available in the ring buffer.
@@ -136,18 +141,15 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
 
         let has_errors = sr.pe() || sr.fe() || sr.ne() || sr.ore();
         if has_errors {
-            Self::teardown_uart();
+            self.teardown_uart();
 
             if sr.pe() {
                 return Err(Error::Parity);
-            }
-            if sr.fe() {
+            } else if sr.fe() {
                 return Err(Error::Framing);
-            }
-            if sr.ne() {
+            } else if sr.ne() {
                 return Err(Error::Noise);
-            }
-            if sr.ore() {
+            } else {
                 return Err(Error::Overrun);
             }
         }
@@ -163,7 +165,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
             Err(OverrunError) => {
                 // Stop any transfer from now on
                 // The user must re-start to receive any more data
-                Self::teardown_uart();
+                self.teardown_uart();
                 return Err(Error::Overrun);
             }
         }
@@ -216,18 +218,13 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
 
             let has_errors = sr.pe() || sr.fe() || sr.ne() || sr.ore();
             if has_errors {
-                Self::teardown_uart();
-
                 if sr.pe() {
                     return Poll::Ready(Err(Error::Parity));
-                }
-                if sr.fe() {
+                } else if sr.fe() {
                     return Poll::Ready(Err(Error::Framing));
-                }
-                if sr.ne() {
+                } else if sr.ne() {
                     return Poll::Ready(Err(Error::Noise));
-                }
-                if sr.ore() {
+                } else {
                     return Poll::Ready(Err(Error::Overrun));
                 }
             }
@@ -252,19 +249,26 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
         compiler_fence(Ordering::SeqCst);
 
         let new_ndtr = self.uart.ndtr();
-        if new_ndtr == old_ndtr {
+        if new_ndtr != old_ndtr {
+            // NDTR has already changed, no reason to poll
+            Ok(())
+        } else {
             // NDTR has not changed since we first read from the ring buffer
             // Wait for RXNE interrupt...
-            rxne.await?;
+            match rxne.await {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    self.teardown_uart();
+                    Err(e)
+                }
+            }
         }
-
-        Ok(())
     }
 }
 
 impl<T: BasicInstance, RxDma: super::RxDma<T>> Drop for RingBufferedUartRx<'_, T, RxDma> {
     fn drop(&mut self) {
-        Self::teardown_uart();
+        self.teardown_uart();
     }
 }
 
