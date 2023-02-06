@@ -4,6 +4,7 @@ use core::future::poll_fn;
 use core::mem;
 use core::task::Poll;
 
+use embassy_hal_common::drop::OnDrop;
 use embassy_net_driver::Driver;
 use heapless::Vec;
 use managed::ManagedSlice;
@@ -11,7 +12,6 @@ use smoltcp::iface::{Interface, SocketHandle};
 pub use smoltcp::socket::dns::DnsQuery;
 use smoltcp::socket::dns::{self, GetQueryResultError, StartQueryError, MAX_ADDRESS_COUNT};
 pub use smoltcp::wire::{DnsQueryType, IpAddress};
-use embassy_hal_common::drop::OnDrop;
 
 use crate::{SocketStack, Stack};
 
