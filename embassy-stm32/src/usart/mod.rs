@@ -770,7 +770,14 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, multiplier: u32, enable
 
     unsafe {
         r.brr().write_value(regs::Brr(div));
-        r.cr2().write(|_w| {});
+        r.cr2().write(|w| {
+            w.set_stop(match config.stop_bits {
+                StopBits::STOP0P5 => vals::Stop::STOP0P5,
+                StopBits::STOP1 => vals::Stop::STOP1,
+                StopBits::STOP1P5 => vals::Stop::STOP1P5,
+                StopBits::STOP2 => vals::Stop::STOP2,
+            });
+        });
         r.cr1().write(|w| {
             // enable uart
             w.set_ue(true);
@@ -1148,7 +1155,7 @@ macro_rules! impl_lpuart {
 
 foreach_interrupt!(
     ($inst:ident, lpuart, $block:ident, $signal_name:ident, $irq:ident) => {
-        impl_lpuart!($inst, $irq, 255);
+        impl_lpuart!($inst, $irq, 256);
     };
 
     ($inst:ident, usart, $block:ident, $signal_name:ident, $irq:ident) => {
