@@ -7,6 +7,7 @@
 use core::mem::size_of;
 
 use super::{capability_type, BosWriter};
+use crate::types::InterfaceNumber;
 
 /// A serialized Microsoft OS 2.0 Descriptor set.
 ///
@@ -125,7 +126,7 @@ impl<'d> MsOsDescriptorWriter<'d> {
     }
 
     /// Add a function subset.
-    pub fn function(&mut self, first_interface: u8) {
+    pub fn function(&mut self, first_interface: InterfaceNumber) {
         assert!(
             self.config_mark.is_some(),
             "MsOsDescriptorWriter: function subset requires a configuration subset"
@@ -376,14 +377,14 @@ impl DescriptorSet for ConfigurationSubsetHeader {
 pub struct FunctionSubsetHeader {
     wLength: u16,
     wDescriptorType: u16,
-    bFirstInterface: u8,
+    bFirstInterface: InterfaceNumber,
     bReserved: u8,
     wSubsetLength: u16,
 }
 
 impl FunctionSubsetHeader {
     /// Creates a function subset header
-    pub fn new(first_interface: u8) -> Self {
+    pub fn new(first_interface: InterfaceNumber) -> Self {
         FunctionSubsetHeader {
             wLength: (size_of::<Self>() as u16).to_le(),
             wDescriptorType: (Self::TYPE as u16).to_le(),

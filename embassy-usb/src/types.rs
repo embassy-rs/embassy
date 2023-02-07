@@ -3,6 +3,7 @@
 /// A handle for a USB interface that contains its number.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(transparent)]
 pub struct InterfaceNumber(pub u8);
 
 impl InterfaceNumber {
@@ -20,6 +21,7 @@ impl From<InterfaceNumber> for u8 {
 /// A handle for a USB string descriptor that contains its index.
 #[derive(Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(transparent)]
 pub struct StringIndex(pub u8);
 
 impl StringIndex {

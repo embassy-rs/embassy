@@ -346,7 +346,7 @@ impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
         }
 
         if !self.builder.msos_descriptor.is_in_function_subset() {
-            self.builder.msos_descriptor.function(self.first_interface.0);
+            self.builder.msos_descriptor.function(self.first_interface);
         }
 
         #[cfg(feature = "msos-descriptor")]

@@ -12,6 +12,7 @@ use embassy_nrf::{interrupt, pac};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::msos::{self, windows_version};
+use embassy_usb::types::InterfaceNumber;
 use embassy_usb::{Builder, Config};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -77,7 +78,7 @@ async fn main(_spawner: Spawner) {
     // Inside a class constructor, you would just need to call `FunctionBuilder::msos_feature` instead.
     let msos_writer = builder.msos_writer();
     msos_writer.configuration(0);
-    msos_writer.function(0);
+    msos_writer.function(InterfaceNumber(0));
     msos_writer.function_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
     msos_writer.function_feature(msos::RegistryPropertyFeatureDescriptor::new(
         "DeviceInterfaceGUIDs",
