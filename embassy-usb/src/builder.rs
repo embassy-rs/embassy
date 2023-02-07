@@ -308,7 +308,10 @@ impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
         };
 
         if self.builder.interfaces.push(iface).is_err() {
-            panic!("max interface count reached")
+            panic!(
+                "embassy-usb: interface list full. Increase the `max_interface_count` compile-time setting. Current value: {}",
+                MAX_INTERFACE_COUNT
+            )
         }
 
         InterfaceBuilder {

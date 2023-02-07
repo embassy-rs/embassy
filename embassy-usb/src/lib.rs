@@ -16,10 +16,16 @@ mod descriptor_reader;
 pub mod msos;
 pub mod types;
 
+mod config {
+    #![allow(unused)]
+    include!(concat!(env!("OUT_DIR"), "/config.rs"));
+}
+
 use embassy_futures::select::{select, Either};
 use heapless::Vec;
 
 pub use crate::builder::{Builder, Config};
+use crate::config::*;
 use crate::control::*;
 use crate::descriptor::*;
 use crate::descriptor_reader::foreach_endpoint;
@@ -70,9 +76,6 @@ pub const CONFIGURATION_NONE: u8 = 0;
 
 /// The bConfiguration value for the single configuration supported by this device.
 pub const CONFIGURATION_VALUE: u8 = 1;
-
-/// Maximum interface count, configured at compile time.
-pub const MAX_INTERFACE_COUNT: usize = 4;
 
 const STRING_INDEX_MANUFACTURER: u8 = 1;
 const STRING_INDEX_PRODUCT: u8 = 2;
