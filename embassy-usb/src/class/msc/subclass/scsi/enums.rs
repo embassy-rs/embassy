@@ -199,12 +199,18 @@ pub enum AdditionalSenseCode {
     InvalidFieldInCdb,
     /// ASC 0x0, ASCQ: 0x0 - NO ADDITIONAL SENSE INFORMATION
     NoAdditionalSenseInformation,
+    /// ASC 0x11, ASCQ: 0x0 - UNRECOVERED READ ERROR
+    UnrecoveredReadError,
     /// ASC 0xC, ASCQ: 0x0 - WRITE ERROR
     WriteError,
     /// ASC 0x51, ASCQ: 0x0 - ERASE FAILURE
     EraseFailure,
     /// ASC 0x21, ASCQ: 0x0 - LOGICAL BLOCK ADDRESS OUT OF RANGE
     LogicalBlockAddressOutOfRange,
+    /// ASC 0x3A, ASCQ: 0x0 - MEDIUM NOT PRESENT
+    MediumNotPresent,
+    /// ASC 0x25, ASCQ: 0x00 - LOGICAL UNIT NOT SUPPORTED
+    LogicalUnitNotSupported,
 }
 
 impl AdditionalSenseCode {
@@ -215,9 +221,12 @@ impl AdditionalSenseCode {
             AdditionalSenseCode::InvalidPacketSize => 100,
             AdditionalSenseCode::InvalidFieldInCdb => 36,
             AdditionalSenseCode::NoAdditionalSenseInformation => 0,
+            AdditionalSenseCode::UnrecoveredReadError => 0x11,
             AdditionalSenseCode::WriteError => 12,
             AdditionalSenseCode::EraseFailure => 81,
             AdditionalSenseCode::LogicalBlockAddressOutOfRange => 33,
+            AdditionalSenseCode::MediumNotPresent => 0x3A,
+            AdditionalSenseCode::LogicalUnitNotSupported => 0x25,
         }
     }
 
@@ -228,9 +237,12 @@ impl AdditionalSenseCode {
             AdditionalSenseCode::InvalidPacketSize => 1,
             AdditionalSenseCode::InvalidFieldInCdb => 0,
             AdditionalSenseCode::NoAdditionalSenseInformation => 0,
+            AdditionalSenseCode::UnrecoveredReadError => 0,
             AdditionalSenseCode::WriteError => 0,
             AdditionalSenseCode::EraseFailure => 0,
             AdditionalSenseCode::LogicalBlockAddressOutOfRange => 0,
+            AdditionalSenseCode::MediumNotPresent => 0,
+            AdditionalSenseCode::LogicalUnitNotSupported => 0,
         }
     }
 }

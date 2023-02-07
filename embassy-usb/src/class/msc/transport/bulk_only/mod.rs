@@ -8,7 +8,7 @@ use embassy_usb_driver::{Direction, Endpoint, EndpointError, EndpointIn, Endpoin
 use self::cbw::CommandBlockWrapper;
 use self::csw::{CommandStatus, CommandStatusWrapper};
 use super::{CommandError, CommandSetHandler, DataPipeError, DataPipeIn, DataPipeOut};
-use crate::class::msc::{MscProtocol, MscSubclass, USB_CLASS_MSC};
+use crate::class::msc::{MscProtocol, USB_CLASS_MSC};
 use crate::control::{ControlHandler, InResponse, Request, RequestType};
 use crate::driver::Driver;
 use crate::Builder;
@@ -57,25 +57,19 @@ pub struct BulkOnlyTransport<'d, D: Driver<'d>, C: CommandSetHandler> {
 }
 
 impl<'d, D: Driver<'d>, C: CommandSetHandler> BulkOnlyTransport<'d, D, C> {
-    pub fn new(
-        builder: &mut Builder<'d, D>,
-        state: &'d mut State,
-        subclass: MscSubclass,
-        max_packet_size: u16,
-        max_lun: u8,
-        handler: C,
-    ) -> Self {
-        assert!(max_lun < 16, "BulkOnlyTransport supports maximum 16 LUNs");
+    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State, max_packet_size: u16, handler: C) -> Self {
+        assert!(C::MAX_LUN < 16, "BulkOnlyTransport supports maximum 16 LUNs");
 
-        let control = state.control.write(Control { max_lun });
+        let control = state.control.write(Control { max_lun: C::MAX_LUN });
 
-        let mut func = builder.function(USB_CLASS_MSC, subclass as _, MscProtocol::BulkOnlyTransport as _);
+        let subclass = C::MSC_SUBCLASS as u8;
+        let mut func = builder.function(USB_CLASS_MSC, subclass, MscProtocol::BulkOnlyTransport as _);
 
         // Control interface
         let mut iface = func.interface();
         iface.handler(control);
 
-        let mut alt = iface.alt_setting(USB_CLASS_MSC, subclass as _, MscProtocol::BulkOnlyTransport as _);
+        let mut alt = iface.alt_setting(USB_CLASS_MSC, subclass, MscProtocol::BulkOnlyTransport as _);
 
         let read_ep = alt.endpoint_bulk_out(max_packet_size);
         let write_ep = alt.endpoint_bulk_in(max_packet_size);
