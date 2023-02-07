@@ -16,7 +16,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
-use embassy_usb::{Builder, Config, DeviceStateHandler};
+use embassy_usb::{Builder, Config, Handler};
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -52,7 +52,7 @@ async fn main(_spawner: Spawner) {
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
     let request_handler = MyRequestHandler {};
-    let device_state_handler = MyDeviceStateHandler::new();
+    let mut device_handler = MyDeviceHandler::new();
 
     let mut state = State::new();
 
@@ -63,8 +63,9 @@ async fn main(_spawner: Spawner) {
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut control_buf,
-        Some(&device_state_handler),
     );
+
+    builder.handler(&mut device_handler);
 
     // Create classes on the builder.
     let config = embassy_usb::class::hid::Config {
@@ -164,20 +165,20 @@ impl RequestHandler for MyRequestHandler {
     }
 }
 
-struct MyDeviceStateHandler {
+struct MyDeviceHandler {
     configured: AtomicBool,
 }
 
-impl MyDeviceStateHandler {
+impl MyDeviceHandler {
     fn new() -> Self {
-        MyDeviceStateHandler {
+        MyDeviceHandler {
             configured: AtomicBool::new(false),
         }
     }
 }
 
-impl DeviceStateHandler for MyDeviceStateHandler {
-    fn enabled(&self, enabled: bool) {
+impl Handler for MyDeviceHandler {
+    fn enabled(&mut self, enabled: bool) {
         self.configured.store(false, Ordering::Relaxed);
         SUSPENDED.store(false, Ordering::Release);
         if enabled {
@@ -187,17 +188,17 @@ impl DeviceStateHandler for MyDeviceStateHandler {
         }
     }
 
-    fn reset(&self) {
+    fn reset(&mut self) {
         self.configured.store(false, Ordering::Relaxed);
         info!("Bus reset, the Vbus current limit is 100mA");
     }
 
-    fn addressed(&self, addr: u8) {
+    fn addressed(&mut self, addr: u8) {
         self.configured.store(false, Ordering::Relaxed);
         info!("USB address set to: {}", addr);
     }
 
-    fn configured(&self, configured: bool) {
+    fn configured(&mut self, configured: bool) {
         self.configured.store(configured, Ordering::Relaxed);
         if configured {
             info!("Device configured, it may now draw up to the configured current limit from Vbus.")
@@ -206,7 +207,7 @@ impl DeviceStateHandler for MyDeviceStateHandler {
         }
     }
 
-    fn suspended(&self, suspended: bool) {
+    fn suspended(&mut self, suspended: bool) {
         if suspended {
             info!("Device suspended, the Vbus current limit is 500µA (or 2.5mA for high-power devices with remote wakeup enabled).");
             SUSPENDED.store(true, Ordering::Release);

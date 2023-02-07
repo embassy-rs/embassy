@@ -1,9 +1,10 @@
 //! USB types.
 
 /// A handle for a USB interface that contains its number.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct InterfaceNumber(pub(crate) u8);
+#[repr(transparent)]
+pub struct InterfaceNumber(pub u8);
 
 impl InterfaceNumber {
     pub(crate) fn new(index: u8) -> InterfaceNumber {
@@ -20,7 +21,8 @@ impl From<InterfaceNumber> for u8 {
 /// A handle for a USB string descriptor that contains its index.
 #[derive(Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct StringIndex(u8);
+#[repr(transparent)]
+pub struct StringIndex(pub u8);
 
 impl StringIndex {
     pub(crate) fn new(index: u8) -> StringIndex {

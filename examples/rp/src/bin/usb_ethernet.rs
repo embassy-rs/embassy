@@ -73,7 +73,6 @@ async fn main(spawner: Spawner) {
         &mut singleton!([0; 256])[..],
         &mut singleton!([0; 256])[..],
         &mut singleton!([0; 128])[..],
-        None,
     );
 
     // Our MAC addr.

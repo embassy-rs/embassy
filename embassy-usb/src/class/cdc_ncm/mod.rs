@@ -17,10 +17,10 @@
 use core::intrinsics::copy_nonoverlapping;
 use core::mem::{size_of, MaybeUninit};
 
-use crate::control::{self, ControlHandler, InResponse, OutResponse, Request};
+use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::*;
-use crate::Builder;
+use crate::{Builder, Handler};
 
 pub mod embassy_net;
 
@@ -117,8 +117,7 @@ fn byteify<T>(buf: &mut [u8], data: T) -> &[u8] {
 
 /// Internal state for the CDC-NCM class.
 pub struct State<'a> {
-    comm_control: MaybeUninit<CommControl<'a>>,
-    data_control: MaybeUninit<DataControl>,
+    control: MaybeUninit<Control<'a>>,
     shared: ControlShared,
 }
 
@@ -126,8 +125,7 @@ impl<'a> State<'a> {
     /// Create a new `State`.
     pub fn new() -> Self {
         Self {
-            comm_control: MaybeUninit::uninit(),
-            data_control: MaybeUninit::uninit(),
+            control: MaybeUninit::uninit(),
             shared: Default::default(),
         }
     }
@@ -144,29 +142,55 @@ impl Default for ControlShared {
     }
 }
 
-struct CommControl<'a> {
+struct Control<'a> {
     mac_addr_string: StringIndex,
     shared: &'a ControlShared,
     mac_addr_str: [u8; 12],
+    comm_if: InterfaceNumber,
+    data_if: InterfaceNumber,
 }
 
-impl<'d> ControlHandler for CommControl<'d> {
-    fn control_out(&mut self, req: control::Request, _data: &[u8]) -> OutResponse {
+impl<'d> Handler for Control<'d> {
+    fn set_alternate_setting(&mut self, iface: InterfaceNumber, alternate_setting: u8) {
+        if iface != self.data_if {
+            return;
+        }
+
+        match alternate_setting {
+            ALTERNATE_SETTING_ENABLED => info!("ncm: interface enabled"),
+            ALTERNATE_SETTING_DISABLED => info!("ncm: interface disabled"),
+            _ => unreachable!(),
+        }
+    }
+
+    fn control_out(&mut self, req: control::Request, _data: &[u8]) -> Option<OutResponse> {
+        if (req.request_type, req.recipient, req.index)
+            != (RequestType::Class, Recipient::Interface, self.comm_if.0 as u16)
+        {
+            return None;
+        }
+
         match req.request {
             REQ_SEND_ENCAPSULATED_COMMAND => {
                 // We don't actually support encapsulated commands but pretend we do for standards
                 // compatibility.
-                OutResponse::Accepted
+                Some(OutResponse::Accepted)
             }
             REQ_SET_NTB_INPUT_SIZE => {
                 // TODO
-                OutResponse::Accepted
+                Some(OutResponse::Accepted)
             }
-            _ => OutResponse::Rejected,
+            _ => Some(OutResponse::Rejected),
         }
     }
 
-    fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
+    fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> Option<InResponse<'a>> {
+        if (req.request_type, req.recipient, req.index)
+            != (RequestType::Class, Recipient::Interface, self.comm_if.0 as u16)
+        {
+            return None;
+        }
+
         match req.request {
             REQ_GET_NTB_PARAMETERS => {
                 let res = NtbParameters {
@@ -187,9 +211,9 @@ impl<'d> ControlHandler for CommControl<'d> {
                         max_datagram_count: 1, // We only decode 1 packet per NTB
                     },
                 };
-                InResponse::Accepted(byteify(buf, res))
+                Some(InResponse::Accepted(byteify(buf, res)))
             }
-            _ => InResponse::Rejected,
+            _ => Some(InResponse::Rejected),
         }
     }
 
@@ -210,18 +234,6 @@ impl<'d> ControlHandler for CommControl<'d> {
         } else {
             warn!("unknown string index requested");
             None
-        }
-    }
-}
-
-struct DataControl {}
-
-impl ControlHandler for DataControl {
-    fn set_alternate_setting(&mut self, alternate_setting: u8) {
-        match alternate_setting {
-            ALTERNATE_SETTING_ENABLED => info!("ncm: interface enabled"),
-            ALTERNATE_SETTING_DISABLED => info!("ncm: interface disabled"),
-            _ => unreachable!(),
         }
     }
 }
@@ -253,11 +265,6 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
         // Control interface
         let mut iface = func.interface();
         let mac_addr_string = iface.string();
-        iface.handler(state.comm_control.write(CommControl {
-            mac_addr_string,
-            shared: &state.shared,
-            mac_addr_str: [0; 12],
-        }));
         let comm_if = iface.interface_number();
         let mut alt = iface.alt_setting(USB_CLASS_CDC, CDC_SUBCLASS_NCM, CDC_PROTOCOL_NONE, None);
 
@@ -307,12 +314,22 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
 
         // Data interface
         let mut iface = func.interface();
-        iface.handler(state.data_control.write(DataControl {}));
         let data_if = iface.interface_number();
         let _alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NTB, None);
         let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NTB, None);
         let read_ep = alt.endpoint_bulk_out(max_packet_size);
         let write_ep = alt.endpoint_bulk_in(max_packet_size);
+
+        drop(func);
+
+        let control = state.control.write(Control {
+            mac_addr_string,
+            shared: &state.shared,
+            mac_addr_str: [0; 12],
+            comm_if,
+            data_if,
+        });
+        builder.handler(control);
 
         CdcNcmClass {
             _comm_if: comm_if,
