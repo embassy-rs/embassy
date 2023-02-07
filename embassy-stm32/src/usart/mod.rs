@@ -1045,6 +1045,9 @@ pub use buffered::*;
 #[cfg(feature = "nightly")]
 mod buffered;
 
+pub use buffered_dma_tx::*;
+mod buffered_dma_tx;
+
 #[cfg(usart_v1)]
 fn tdr(r: crate::pac::usart::Usart) -> *mut u8 {
     r.dr().ptr() as _
