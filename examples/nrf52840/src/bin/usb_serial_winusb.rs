@@ -7,7 +7,7 @@ use core::mem;
 use defmt::{info, panic};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_nrf::usb::{Driver, Instance, PowerUsb, UsbSupply};
+use embassy_nrf::usb::{Driver, HardwareVbusDetect, Instance, VbusDetect};
 use embassy_nrf::{interrupt, pac};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
@@ -15,17 +15,8 @@ use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Builder, Config};
 use {defmt_rtt as _, panic_probe as _};
 
-const DEVICE_INTERFACE_GUIDS: &[u16] = {
-    // Can't use defmt::panic in constant expressions (inside u16str!)
-    macro_rules! panic {
-            ($($x:tt)*) => {
-                {
-                    ::core::panic!($($x)*);
-                }
-            };
-        }
-    msos::u16str!("{EAA9A5DC-30BA-44BC-9232-606CDC875321}\0\0").as_slice()
-};
+// This is a randomly generated GUID to allow clients on Windows to find our device
+const DEVICE_INTERFACE_GUIDS: &[&str] = &["{EAA9A5DC-30BA-44BC-9232-606CDC875321}"];
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -39,7 +30,7 @@ async fn main(_spawner: Spawner) {
     // Create the driver, from the HAL.
     let irq = interrupt::take!(USBD);
     let power_irq = interrupt::take!(POWER_CLOCK);
-    let driver = Driver::new(p.USBD, irq, PowerUsb::new(power_irq));
+    let driver = Driver::new(p.USBD, irq, HardwareVbusDetect::new(power_irq));
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);
@@ -89,9 +80,9 @@ async fn main(_spawner: Spawner) {
     msos_writer.configuration(0);
     msos_writer.function(0);
     msos_writer.function_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
-    msos_writer.function_feature(msos::RegistryPropertyFeatureDescriptor::new_multi_string(
-        msos::RegistryPropertyFeatureDescriptor::DEVICE_INTERFACE_GUIDS_NAME,
-        DEVICE_INTERFACE_GUIDS,
+    msos_writer.function_feature(msos::RegistryPropertyFeatureDescriptor::new(
+        "DeviceInterfaceGUIDs",
+        msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
     ));
 
     // Build the builder.
@@ -126,7 +117,7 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-async fn echo<'d, T: Instance + 'd, P: UsbSupply + 'd>(
+async fn echo<'d, T: Instance + 'd, P: VbusDetect + 'd>(
     class: &mut CdcAcmClass<'d, Driver<'d, T, P>>,
 ) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
