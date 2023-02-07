@@ -33,6 +33,12 @@ medium-ip = ["smoltcp/medium-ip"]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
+smoltcp = { version = "0.9.0", default-features = false, features = [
+  "proto-ipv4",
+  "socket",
+  "async",
+]}
+
 embassy-net-driver = { version = "0.1.0", path = "../embassy-net-driver" }
 embassy-time = { version = "0.1.0", path = "../embassy-time" }
 embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
@@ -47,14 +53,3 @@ futures = { version = "0.3.17", default-features = false, features = [ "async-aw
 atomic-pool = "1.0"
 embedded-nal-async = { version = "0.3.0", optional = true }
 atomic-polyfill = { version = "1.0" }
-
-[dependencies.smoltcp]
-version = "0.8.0"
-git = "https://github.com/smoltcp-rs/smoltcp"
-rev = "5740b765749b95c18aace5de8dc21cab75ba33d4"
-default-features = false
-features = [
-  "proto-ipv4",
-  "socket",
-  "async",
-]
