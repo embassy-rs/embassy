@@ -82,32 +82,87 @@ const STRING_INDEX_PRODUCT: u8 = 2;
 const STRING_INDEX_SERIAL_NUMBER: u8 = 3;
 const STRING_INDEX_CUSTOM_START: u8 = 4;
 
-/// A handler trait for changes in the device state of the [UsbDevice].
-pub trait DeviceStateHandler {
+/// Handler for device events and control requests.
+///
+/// All methods are optional callbacks that will be called by
+/// [`UsbDevice::run()`](crate::UsbDevice::run)
+pub trait Handler {
     /// Called when the USB device has been enabled or disabled.
-    fn enabled(&self, _enabled: bool) {}
+    fn enabled(&mut self, _enabled: bool) {}
 
-    /// Called when the host resets the device.
-    fn reset(&self) {}
+    /// Called after a USB reset after the bus reset sequence is complete.
+    fn reset(&mut self) {}
 
     /// Called when the host has set the address of the device to `addr`.
-    fn addressed(&self, _addr: u8) {}
+    fn addressed(&mut self, _addr: u8) {}
 
     /// Called when the host has enabled or disabled the configuration of the device.
-    fn configured(&self, _configured: bool) {}
+    fn configured(&mut self, _configured: bool) {}
 
     /// Called when the bus has entered or exited the suspend state.
-    fn suspended(&self, _suspended: bool) {}
+    fn suspended(&mut self, _suspended: bool) {}
 
     /// Called when remote wakeup feature is enabled or disabled.
-    fn remote_wakeup_enabled(&self, _enabled: bool) {}
+    fn remote_wakeup_enabled(&mut self, _enabled: bool) {}
+
+    /// Called when a "set alternate setting" control request is done on the interface.
+    fn set_alternate_setting(&mut self, iface: InterfaceNumber, alternate_setting: u8) {
+        let _ = iface;
+        let _ = alternate_setting;
+    }
+
+    /// Called when a control request is received with direction HostToDevice.
+    ///
+    /// # Arguments
+    ///
+    /// * `req` - The request from the SETUP packet.
+    /// * `data` - The data from the request.
+    ///
+    /// # Returns
+    ///
+    /// If you didn't handle this request (for example if it's for the wrong interface), return
+    /// `None`. In this case, the the USB stack will continue calling the other handlers, to see
+    /// if another handles it.
+    ///
+    /// If you did, return `Some` with either `Accepted` or `Rejected`. This will make the USB stack
+    /// respond to the control request, and stop calling other handlers.
+    fn control_out(&mut self, req: Request, data: &[u8]) -> Option<OutResponse> {
+        let _ = (req, data);
+        None
+    }
+
+    /// Called when a control request is received with direction DeviceToHost.
+    ///
+    /// You should write the response somewhere (usually to `buf`, but you may use another buffer
+    /// owned by yourself, or a static buffer), then return `InResponse::Accepted(data)`.
+    ///
+    /// # Arguments
+    ///
+    /// * `req` - The request from the SETUP packet.
+    ///
+    /// # Returns
+    ///
+    /// If you didn't handle this request (for example if it's for the wrong interface), return
+    /// `None`. In this case, the the USB stack will continue calling the other handlers, to see
+    /// if another handles it.
+    ///
+    /// If you did, return `Some` with either `Accepted` or `Rejected`. This will make the USB stack
+    /// respond to the control request, and stop calling other handlers.
+    fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> Option<InResponse<'a>> {
+        let _ = (req, buf);
+        None
+    }
+
+    /// Called when a GET_DESCRIPTOR STRING control request is received.
+    fn get_string(&mut self, index: StringIndex, lang_id: u16) -> Option<&str> {
+        let _ = (index, lang_id);
+        None
+    }
 }
 
-struct Interface<'d> {
-    handler: Option<&'d mut dyn ControlHandler>,
+struct Interface {
     current_alt_setting: u8,
     num_alt_settings: u8,
-    num_strings: u8,
 }
 
 /// Main struct for the USB device stack.
@@ -119,7 +174,6 @@ pub struct UsbDevice<'d, D: Driver<'d>> {
 
 struct Inner<'d, D: Driver<'d>> {
     bus: D::Bus,
-    handler: Option<&'d dyn DeviceStateHandler>,
 
     config: Config<'d>,
     device_descriptor: &'d [u8],
@@ -138,7 +192,9 @@ struct Inner<'d, D: Driver<'d>> {
     /// instead of regular `accept()`.
     set_address_pending: bool,
 
-    interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
+    interfaces: Vec<Interface, MAX_INTERFACE_COUNT>,
+    handlers: Vec<&'d mut dyn Handler, MAX_HANDLER_COUNT>,
+
     #[cfg(feature = "msos-descriptor")]
     msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
 }
@@ -147,11 +203,11 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     pub(crate) fn build(
         driver: D,
         config: Config<'d>,
-        handler: Option<&'d dyn DeviceStateHandler>,
+        handlers: Vec<&'d mut dyn Handler, MAX_HANDLER_COUNT>,
         device_descriptor: &'d [u8],
         config_descriptor: &'d [u8],
         bos_descriptor: &'d [u8],
-        interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
+        interfaces: Vec<Interface, MAX_INTERFACE_COUNT>,
         control_buf: &'d mut [u8],
         #[cfg(feature = "msos-descriptor")] msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
     ) -> UsbDevice<'d, D> {
@@ -165,7 +221,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             inner: Inner {
                 bus,
                 config,
-                handler,
                 device_descriptor,
                 config_descriptor,
                 bos_descriptor,
@@ -177,6 +232,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 address: 0,
                 set_address_pending: false,
                 interfaces,
+                handlers,
                 #[cfg(feature = "msos-descriptor")]
                 msos_descriptor,
             },
@@ -221,7 +277,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             self.inner.suspended = false;
             self.inner.remote_wakeup_enabled = false;
 
-            if let Some(h) = &self.inner.handler {
+            for h in &mut self.inner.handlers {
                 h.enabled(false);
             }
         }
@@ -250,7 +306,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             self.inner.bus.remote_wakeup().await?;
             self.inner.suspended = false;
 
-            if let Some(h) = &self.inner.handler {
+            for h in &mut self.inner.handlers {
                 h.suspended(false);
             }
 
@@ -361,29 +417,29 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 self.remote_wakeup_enabled = false;
                 self.address = 0;
 
-                for iface in self.interfaces.iter_mut() {
-                    iface.current_alt_setting = 0;
-                    if let Some(h) = &mut iface.handler {
-                        h.reset();
-                        h.set_alternate_setting(0);
-                    }
+                for h in &mut self.handlers {
+                    h.reset();
                 }
 
-                if let Some(h) = &self.handler {
-                    h.reset();
+                for (i, iface) in self.interfaces.iter_mut().enumerate() {
+                    iface.current_alt_setting = 0;
+
+                    for h in &mut self.handlers {
+                        h.set_alternate_setting(InterfaceNumber::new(i as _), 0);
+                    }
                 }
             }
             Event::Resume => {
                 trace!("usb: resume");
                 self.suspended = false;
-                if let Some(h) = &self.handler {
+                for h in &mut self.handlers {
                     h.suspended(false);
                 }
             }
             Event::Suspend => {
                 trace!("usb: suspend");
                 self.suspended = true;
-                if let Some(h) = &self.handler {
+                for h in &mut self.handlers {
                     h.suspended(true);
                 }
             }
@@ -392,7 +448,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 self.bus.enable().await;
                 self.device_state = UsbDeviceState::Default;
 
-                if let Some(h) = &self.handler {
+                for h in &mut self.handlers {
                     h.enabled(true);
                 }
             }
@@ -401,7 +457,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 self.bus.disable().await;
                 self.device_state = UsbDeviceState::Unpowered;
 
-                if let Some(h) = &self.handler {
+                for h in &mut self.handlers {
                     h.enabled(false);
                 }
             }
@@ -416,14 +472,14 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
             (RequestType::Standard, Recipient::Device) => match (req.request, req.value) {
                 (Request::CLEAR_FEATURE, Request::FEATURE_DEVICE_REMOTE_WAKEUP) => {
                     self.remote_wakeup_enabled = false;
-                    if let Some(h) = &self.handler {
+                    for h in &mut self.handlers {
                         h.remote_wakeup_enabled(false);
                     }
                     OutResponse::Accepted
                 }
                 (Request::SET_FEATURE, Request::FEATURE_DEVICE_REMOTE_WAKEUP) => {
                     self.remote_wakeup_enabled = true;
-                    if let Some(h) = &self.handler {
+                    for h in &mut self.handlers {
                         h.remote_wakeup_enabled(true);
                     }
                     OutResponse::Accepted
@@ -432,7 +488,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     self.address = addr as u8;
                     self.set_address_pending = true;
                     self.device_state = UsbDeviceState::Addressed;
-                    if let Some(h) = &self.handler {
+                    for h in &mut self.handlers {
                         h.addressed(self.address);
                     }
                     OutResponse::Accepted
@@ -443,14 +499,14 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
                     // Enable all endpoints of selected alt settings.
                     foreach_endpoint(self.config_descriptor, |ep| {
-                        let iface = &self.interfaces[ep.interface as usize];
+                        let iface = &self.interfaces[ep.interface.0 as usize];
                         self.bus
                             .endpoint_set_enabled(ep.ep_address, iface.current_alt_setting == ep.interface_alt);
                     })
                     .unwrap();
 
-                    // Notify handler.
-                    if let Some(h) = &self.handler {
+                    // Notify handlers.
+                    for h in &mut self.handlers {
                         h.configured(true);
                     }
 
@@ -468,8 +524,8 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         })
                         .unwrap();
 
-                        // Notify handler.
-                        if let Some(h) = &self.handler {
+                        // Notify handlers.
+                        for h in &mut self.handlers {
                             h.configured(false);
                         }
 
@@ -479,7 +535,8 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 _ => OutResponse::Rejected,
             },
             (RequestType::Standard, Recipient::Interface) => {
-                let iface = match self.interfaces.get_mut(req.index as usize) {
+                let iface_num = InterfaceNumber::new(req.index as _);
+                let iface = match self.interfaces.get_mut(iface_num.0 as usize) {
                     Some(iface) => iface,
                     None => return OutResponse::Rejected,
                 };
@@ -497,7 +554,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
                         // Enable/disable EPs of this interface as needed.
                         foreach_endpoint(self.config_descriptor, |ep| {
-                            if ep.interface == req.index as u8 {
+                            if ep.interface == iface_num {
                                 self.bus
                                     .endpoint_set_enabled(ep.ep_address, iface.current_alt_setting == ep.interface_alt);
                             }
@@ -506,8 +563,8 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
                         // TODO check it is valid (not out of range)
 
-                        if let Some(handler) = &mut iface.handler {
-                            handler.set_alternate_setting(new_altsetting);
+                        for h in &mut self.handlers {
+                            h.set_alternate_setting(iface_num, new_altsetting);
                         }
                         OutResponse::Accepted
                     }
@@ -527,17 +584,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 }
                 _ => OutResponse::Rejected,
             },
-            (RequestType::Class, Recipient::Interface) => {
-                let iface = match self.interfaces.get_mut(req.index as usize) {
-                    Some(iface) => iface,
-                    None => return OutResponse::Rejected,
-                };
-                match &mut iface.handler {
-                    Some(handler) => handler.control_out(req, data),
-                    None => OutResponse::Rejected,
-                }
-            }
-            _ => OutResponse::Rejected,
+            _ => self.handle_control_out_delegated(req, data),
         }
     }
 
@@ -582,11 +629,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         buf[0] = iface.current_alt_setting;
                         InResponse::Accepted(&buf[..1])
                     }
-                    Request::GET_DESCRIPTOR => match &mut iface.handler {
-                        Some(handler) => handler.get_descriptor(req, buf),
-                        None => InResponse::Rejected,
-                    },
-                    _ => InResponse::Rejected,
+                    _ => self.handle_control_in_delegated(req, buf),
                 }
             }
             (RequestType::Standard, Recipient::Endpoint) => match req.request {
@@ -601,32 +644,46 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 }
                 _ => InResponse::Rejected,
             },
-            (RequestType::Class, Recipient::Interface) => {
-                let iface = match self.interfaces.get_mut(req.index as usize) {
-                    Some(iface) => iface,
-                    None => return InResponse::Rejected,
-                };
-
-                match &mut iface.handler {
-                    Some(handler) => handler.control_in(req, buf),
-                    None => InResponse::Rejected,
-                }
-            }
             #[cfg(feature = "msos-descriptor")]
             (RequestType::Vendor, Recipient::Device) => {
-                if !self.msos_descriptor.is_empty() {
-                    if req.request == self.msos_descriptor.vendor_code() && req.index == 7 {
-                        // Index 7 retrieves the MS OS Descriptor Set
-                        InResponse::Accepted(self.msos_descriptor.descriptor())
-                    } else {
-                        InResponse::Rejected
-                    }
+                if !self.msos_descriptor.is_empty()
+                    && req.request == self.msos_descriptor.vendor_code()
+                    && req.index == 7
+                {
+                    // Index 7 retrieves the MS OS Descriptor Set
+                    InResponse::Accepted(self.msos_descriptor.descriptor())
                 } else {
-                    InResponse::Rejected
+                    self.handle_control_in_delegated(req, buf)
                 }
             }
-            _ => InResponse::Rejected,
+            _ => self.handle_control_in_delegated(req, buf),
         }
+    }
+
+    fn handle_control_out_delegated(&mut self, req: Request, data: &[u8]) -> OutResponse {
+        for h in &mut self.handlers {
+            if let Some(res) = h.control_out(req, data) {
+                return res;
+            }
+        }
+        OutResponse::Rejected
+    }
+
+    fn handle_control_in_delegated<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
+        unsafe fn extend_lifetime<'x, 'y>(r: InResponse<'x>) -> InResponse<'y> {
+            core::mem::transmute(r)
+        }
+
+        for h in &mut self.handlers {
+            if let Some(res) = h.control_in(req, buf) {
+                // safety: the borrow checker isn't smart enough to know this pattern (returning a
+                // borrowed value from inside the loop) is sound. Workaround by unsafely extending lifetime.
+                // Also, Polonius (the WIP new borrow checker) does accept it.
+
+                return unsafe { extend_lifetime(res) };
+            }
+        }
+        InResponse::Rejected
     }
 
     fn handle_get_descriptor<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
@@ -649,30 +706,16 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         STRING_INDEX_PRODUCT => self.config.product,
                         STRING_INDEX_SERIAL_NUMBER => self.config.serial_number,
                         _ => {
-                            // Find out which iface owns this string index.
-                            let mut index_left = index - STRING_INDEX_CUSTOM_START;
-                            let mut the_iface = None;
-                            for iface in &mut self.interfaces {
-                                if index_left < iface.num_strings {
-                                    the_iface = Some(iface);
+                            let mut s = None;
+                            for handler in &mut self.handlers {
+                                let index = StringIndex::new(index);
+                                let lang_id = req.index;
+                                if let Some(res) = handler.get_string(index, lang_id) {
+                                    s = Some(res);
                                     break;
                                 }
-                                index_left -= iface.num_strings;
                             }
-
-                            if let Some(iface) = the_iface {
-                                if let Some(handler) = &mut iface.handler {
-                                    let index = StringIndex::new(index);
-                                    let lang_id = req.index;
-                                    handler.get_string(index, lang_id)
-                                } else {
-                                    warn!("String requested to an interface with no handler.");
-                                    None
-                                }
-                            } else {
-                                warn!("String requested but didn't match to an interface.");
-                                None
-                            }
+                            s
                         }
                     };
 

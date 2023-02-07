@@ -65,7 +65,6 @@ async fn main(_spawner: Spawner) {
         &mut bos_descriptor,
         &mut msos_descriptor,
         &mut control_buf,
-        None,
     );
 
     builder.msos_descriptor(windows_version::WIN8_1, 2);

@@ -2,7 +2,6 @@
 use core::mem;
 
 use crate::driver::Direction;
-use crate::types::StringIndex;
 
 /// Control request type.
 #[repr(u8)]
@@ -144,61 +143,4 @@ pub enum InResponse<'a> {
     Accepted(&'a [u8]),
     /// The request was rejected.
     Rejected,
-}
-
-/// Handler for control requests.
-///
-/// All methods are optional callbacks that will be called by
-/// [`UsbDevice::run()`](crate::UsbDevice::run)
-pub trait ControlHandler {
-    /// Called after a USB reset after the bus reset sequence is complete.
-    fn reset(&mut self) {}
-
-    /// Called when a "set alternate setting" control request is done on the interface.
-    fn set_alternate_setting(&mut self, alternate_setting: u8) {
-        let _ = alternate_setting;
-    }
-
-    /// Called when a control request is received with direction HostToDevice.
-    ///
-    /// # Arguments
-    ///
-    /// * `req` - The request from the SETUP packet.
-    /// * `data` - The data from the request.
-    fn control_out(&mut self, req: Request, data: &[u8]) -> OutResponse {
-        let _ = (req, data);
-        OutResponse::Rejected
-    }
-
-    /// Called when a control request is received with direction DeviceToHost.
-    ///
-    /// You should write the response somewhere (usually to `buf`, but you may use another buffer
-    /// owned by yourself, or a static buffer), then return `InResponse::Accepted(data)`.
-    ///
-    /// # Arguments
-    ///
-    /// * `req` - The request from the SETUP packet.
-    fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
-        let _ = (req, buf);
-        InResponse::Rejected
-    }
-
-    /// Called when a GET DESCRIPTOR control request is received on the interface.
-    ///
-    /// You should write the response somewhere (usually to `buf`, but you may use another buffer
-    /// owned by yourself, or a static buffer), then return `InResponse::Accepted(data)`.
-    ///
-    /// # Arguments
-    ///
-    /// * `req` - The request from the SETUP packet.
-    fn get_descriptor<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
-        let _ = (req, buf);
-        InResponse::Rejected
-    }
-
-    /// Called when a GET_DESCRIPTOR STRING control request is received.
-    fn get_string(&mut self, index: StringIndex, lang_id: u16) -> Option<&str> {
-        let _ = (index, lang_id);
-        None
-    }
 }

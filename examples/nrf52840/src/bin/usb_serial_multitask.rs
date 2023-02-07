@@ -83,7 +83,6 @@ async fn main(spawner: Spawner) {
         &mut res.config_descriptor,
         &mut res.bos_descriptor,
         &mut res.control_buf,
-        None,
     );
 
     // Create classes on the builder.

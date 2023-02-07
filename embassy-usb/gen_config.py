@@ -28,6 +28,7 @@ def feature(name, default, min, max, pow2=None):
 
 
 feature("max_interface_count", default=4, min=1, max=8)
+feature("max_handler_count", default=4, min=1, max=8)
 
 # ========= Update Cargo.toml
 

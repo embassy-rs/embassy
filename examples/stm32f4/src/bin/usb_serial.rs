@@ -57,7 +57,6 @@ async fn main(_spawner: Spawner) {
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut control_buf,
-        None,
     );
 
     // Create classes on the builder.
