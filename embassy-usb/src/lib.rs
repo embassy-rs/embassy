@@ -13,6 +13,7 @@ pub mod class;
 pub mod control;
 pub mod descriptor;
 mod descriptor_reader;
+pub mod msos;
 pub mod types;
 
 use embassy_futures::select::{select, Either};
@@ -135,6 +136,8 @@ struct Inner<'d, D: Driver<'d>> {
     set_address_pending: bool,
 
     interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
+    #[cfg(feature = "msos-descriptor")]
+    msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
@@ -147,6 +150,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         bos_descriptor: &'d [u8],
         interfaces: Vec<Interface<'d>, MAX_INTERFACE_COUNT>,
         control_buf: &'d mut [u8],
+        #[cfg(feature = "msos-descriptor")] msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
     ) -> UsbDevice<'d, D> {
         // Start the USB bus.
         // This prevent further allocation by consuming the driver.
@@ -170,6 +174,8 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 address: 0,
                 set_address_pending: false,
                 interfaces,
+                #[cfg(feature = "msos-descriptor")]
+                msos_descriptor,
             },
         }
     }
@@ -601,6 +607,19 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 match &mut iface.handler {
                     Some(handler) => handler.control_in(req, buf),
                     None => InResponse::Rejected,
+                }
+            }
+            #[cfg(feature = "msos-descriptor")]
+            (RequestType::Vendor, Recipient::Device) => {
+                if !self.msos_descriptor.is_empty() {
+                    if req.request == self.msos_descriptor.vendor_code() && req.index == 7 {
+                        // Index 7 retrieves the MS OS Descriptor Set
+                        InResponse::Accepted(self.msos_descriptor.descriptor())
+                    } else {
+                        InResponse::Rejected
+                    }
+                } else {
+                    InResponse::Rejected
                 }
             }
             _ => InResponse::Rejected,
