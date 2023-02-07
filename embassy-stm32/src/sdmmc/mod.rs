@@ -39,9 +39,6 @@ impl Default for Signalling {
     }
 }
 
-#[repr(align(4))]
-pub struct DataBlock([u8; 512]);
-
 /// Errors
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone)]
@@ -58,6 +55,10 @@ pub enum Error {
     BadClock,
     SignalingSwitchFailed,
     PeripheralBusy,
+    /// Buffers must be aligned to 4 bytes
+    UnalignedBuffer,
+    /// Buffer capacity did not match block size
+    UnsupportedBufferSize,
 }
 
 /// A SD command
@@ -471,17 +472,22 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
     }
 
     #[inline(always)]
-    pub async fn read_block(&mut self, block_idx: u32, buffer: &mut DataBlock) -> Result<(), Error> {
+    pub async fn read_block(&mut self, block_idx: u32, buffer: &mut [u8]) -> Result<(), Error> {
         let card_capacity = self.card()?.card_type;
         let inner = T::inner();
         let state = T::state();
 
-        // NOTE(unsafe) DataBlock uses align 4
-        let buf = unsafe { &mut *((&mut buffer.0) as *mut [u8; 512] as *mut [u32; 128]) };
+        let (prefix, aligned, suffix) = unsafe { buffer.align_to_mut::<u32>() };
+        if !prefix.is_empty() || !suffix.is_empty() {
+            return Err(Error::UnalignedBuffer);
+        }
+
+        let block: &mut [u32; 128] = aligned.try_into().map_err(|_| Error::UnsupportedBufferSize)?;
+
         inner
             .read_block(
                 block_idx,
-                buf,
+                block,
                 card_capacity,
                 state,
                 self.config.data_transfer_timeout,
@@ -490,17 +496,22 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
             .await
     }
 
-    pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error> {
+    pub async fn write_block(&mut self, block_idx: u32, buffer: &[u8]) -> Result<(), Error> {
         let card = self.card.as_mut().ok_or(Error::NoCard)?;
         let inner = T::inner();
         let state = T::state();
 
-        // NOTE(unsafe) DataBlock uses align 4
-        let buf = unsafe { &*((&buffer.0) as *const [u8; 512] as *const [u32; 128]) };
+        let (prefix, aligned, suffix) = unsafe { buffer.align_to::<u32>() };
+        if !prefix.is_empty() || !suffix.is_empty() {
+            return Err(Error::UnalignedBuffer);
+        }
+
+        let block: &[u32; 128] = aligned.try_into().map_err(|_| Error::UnsupportedBufferSize)?;
+
         inner
             .write_block(
                 block_idx,
-                buf,
+                block,
                 card,
                 state,
                 self.config.data_transfer_timeout,
