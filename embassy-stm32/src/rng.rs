@@ -90,8 +90,10 @@ impl<'d, T: Instance> Rng<'d, T> {
 impl<'d, T: Instance> RngCore for Rng<'d, T> {
     fn next_u32(&mut self) -> u32 {
         loop {
-            let bits = unsafe { T::regs().sr().read() };
-            if bits.drdy() {
+            let sr = unsafe { T::regs().sr().read() };
+            if sr.seis() | sr.ceis() {
+                self.reset();
+            } else if sr.drdy() {
                 return unsafe { T::regs().dr().read() };
             }
         }
