@@ -8,7 +8,9 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-pub mod device;
+pub use embassy_net_driver as driver;
+
+mod device;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 #[cfg(feature = "udp")]
