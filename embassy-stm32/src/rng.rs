@@ -32,6 +32,11 @@ impl<'d, T: Instance> Rng<'d, T> {
     }
 
     pub fn reset(&mut self) {
+        //stm32wl gets stuck if there is a seed error
+        #[cfg(stm32wl)]
+        if unsafe { T::regs().sr().read().seis()} {
+            T::reset();
+        }
         unsafe {
             T::regs().cr().modify(|reg| {
                 reg.set_rngen(true);
