@@ -32,8 +32,9 @@ impl<'d, T: Instance> Rng<'d, T> {
     }
 
     pub fn reset(&mut self) {
+        // rng_v2 locks up on seed error, needs reset
         #[cfg(rng_v2)]
-        if unsafe { T::regs().sr().read().seis()} {
+        if unsafe { T::regs().sr().read().seis() } {
             T::reset();
         }
         unsafe {
