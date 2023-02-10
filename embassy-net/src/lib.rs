@@ -171,7 +171,7 @@ impl<D: Driver + 'static> Stack<D> {
             #[cfg(feature = "dhcpv4")]
             dhcp_socket: None,
             #[cfg(feature = "dns")]
-            dns_socket: socket.sockets.add(dns::Socket::new(&[], &mut resources.queries)),
+            dns_socket: socket.sockets.add(dns::Socket::new(&[], managed::ManagedSlice::Borrowed(&mut resources.queries))),
         };
 
         match config {
