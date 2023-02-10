@@ -6,7 +6,7 @@ use core::future::poll_fn;
 use core::ptr;
 use core::task::Poll;
 
-use embassy_hal_common::drop::DropBomb;
+use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::gpio::{self, Pin as GpioPin};
@@ -190,7 +190,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         // Enable it
         r.enable.write(|w| w.enable().enabled());
 
-        let mut res = Self {
+        let res = Self {
             dpm_enabled: config.deep_power_down.is_some(),
             irq,
         };
@@ -200,7 +200,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
 
         r.tasks_activate.write(|w| w.tasks_activate().bit(true));
 
-        res.blocking_wait_ready();
+        Self::blocking_wait_ready();
 
         res
     }
@@ -217,7 +217,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
 
     /// Do a custom QSPI instruction.
     pub async fn custom_instruction(&mut self, opcode: u8, req: &[u8], resp: &mut [u8]) -> Result<(), Error> {
-        let bomb = DropBomb::new();
+        let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         let len = core::cmp::max(req.len(), resp.len()) as u8;
         self.custom_instruction_start(opcode, req, len)?;
@@ -226,7 +226,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
 
         self.custom_instruction_finish(resp)?;
 
-        bomb.defuse();
+        ondrop.defuse();
 
         Ok(())
     }
@@ -236,7 +236,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         let len = core::cmp::max(req.len(), resp.len()) as u8;
         self.custom_instruction_start(opcode, req, len)?;
 
-        self.blocking_wait_ready();
+        Self::blocking_wait_ready();
 
         self.custom_instruction_finish(resp)?;
 
@@ -312,7 +312,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         .await
     }
 
-    fn blocking_wait_ready(&mut self) {
+    fn blocking_wait_ready() {
         loop {
             let r = T::regs();
             if r.events_ready.read().bits() != 0 {
@@ -382,36 +382,36 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
 
     /// Read data from the flash memory.
     pub async fn read(&mut self, address: usize, data: &mut [u8]) -> Result<(), Error> {
-        let bomb = DropBomb::new();
+        let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         self.start_read(address, data)?;
         self.wait_ready().await;
 
-        bomb.defuse();
+        ondrop.defuse();
 
         Ok(())
     }
 
     /// Write data to the flash memory.
     pub async fn write(&mut self, address: usize, data: &[u8]) -> Result<(), Error> {
-        let bomb = DropBomb::new();
+        let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         self.start_write(address, data)?;
         self.wait_ready().await;
 
-        bomb.defuse();
+        ondrop.defuse();
 
         Ok(())
     }
 
     /// Erase a sector on the flash memory.
     pub async fn erase(&mut self, address: usize) -> Result<(), Error> {
-        let bomb = DropBomb::new();
+        let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         self.start_erase(address)?;
         self.wait_ready().await;
 
-        bomb.defuse();
+        ondrop.defuse();
 
         Ok(())
     }
@@ -419,21 +419,21 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
     /// Read data from the flash memory, blocking version.
     pub fn blocking_read(&mut self, address: usize, data: &mut [u8]) -> Result<(), Error> {
         self.start_read(address, data)?;
-        self.blocking_wait_ready();
+        Self::blocking_wait_ready();
         Ok(())
     }
 
     /// Write data to the flash memory, blocking version.
     pub fn blocking_write(&mut self, address: usize, data: &[u8]) -> Result<(), Error> {
         self.start_write(address, data)?;
-        self.blocking_wait_ready();
+        Self::blocking_wait_ready();
         Ok(())
     }
 
     /// Erase a sector on the flash memory, blocking version.
     pub fn blocking_erase(&mut self, address: usize) -> Result<(), Error> {
         self.start_erase(address)?;
-        self.blocking_wait_ready();
+        Self::blocking_wait_ready();
         Ok(())
     }
 }
