@@ -13,7 +13,7 @@ target = "thumbv7em-none-eabi"
 
 [features]
 default = []
-std = ["smoltcp/alloc", "managed/std"]
+std = []
 
 defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt"]
 
