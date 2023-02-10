@@ -328,9 +328,11 @@ impl<D: Driver + 'static> Inner<D> {
         }
 
         #[cfg(feature = "dns")]
-        let socket = s.sockets.get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket);
-        let servers: Vec<IpAddress, 3> = config.dns_servers.iter().map(|c| IpAddress::Ipv4(*c)).collect();
-        socket.update_servers(&servers[..]);
+        {
+            let socket = s.sockets.get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket);
+            let servers: Vec<IpAddress, 3> = config.dns_servers.iter().map(|c| IpAddress::Ipv4(*c)).collect();
+            socket.update_servers(&servers[..]);
+        }
 
         self.config = Some(config)
     }
