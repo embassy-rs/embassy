@@ -1,19 +1,10 @@
 //! DNS socket with async support.
-use core::cell::RefCell;
-use core::future::poll_fn;
-use core::mem;
-use core::task::Poll;
-
-use embassy_hal_common::drop::OnDrop;
-use embassy_net_driver::Driver;
 use heapless::Vec;
-use managed::ManagedSlice;
-use smoltcp::iface::{Interface, SocketHandle};
-pub use smoltcp::socket::dns::DnsQuery;
-use smoltcp::socket::dns::{self, GetQueryResultError, StartQueryError, MAX_ADDRESS_COUNT};
+pub use smoltcp::socket::dns::{DnsQuery, Socket, MAX_ADDRESS_COUNT};
+pub(crate) use smoltcp::socket::dns::{GetQueryResultError, StartQueryError};
 pub use smoltcp::wire::{DnsQueryType, IpAddress};
 
-use crate::{SocketStack, Stack};
+use crate::{Driver, Stack};
 
 /// Errors returned by DnsSocket.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -46,81 +37,64 @@ impl From<StartQueryError> for Error {
 }
 
 /// Async socket for making DNS queries.
-pub struct DnsSocket<'a> {
-    stack: &'a RefCell<SocketStack>,
-    handle: SocketHandle,
+pub struct DnsSocket<'a, D>
+where
+    D: Driver + 'static,
+{
+    stack: &'a Stack<D>,
 }
 
-impl<'a> DnsSocket<'a> {
+impl<'a, D> DnsSocket<'a, D>
+where
+    D: Driver + 'static,
+{
     /// Create a new DNS socket using the provided stack and query storage.
     ///
     /// DNS servers are derived from the stack configuration.
     ///
     /// NOTE: If using DHCP, make sure it has reconfigured the stack to ensure the DNS servers are updated.
-    pub fn new<D, Q>(stack: &'a Stack<D>, queries: Q) -> Self
-    where
-        D: Driver + 'static,
-        Q: Into<ManagedSlice<'a, Option<DnsQuery>>>,
-    {
-        let servers = stack
-            .config()
-            .map(|c| {
-                let v: Vec<IpAddress, 3> = c.dns_servers.iter().map(|c| IpAddress::Ipv4(*c)).collect();
-                v
-            })
-            .unwrap_or(Vec::new());
-        let s = &mut *stack.socket.borrow_mut();
-        let queries: ManagedSlice<'static, Option<DnsQuery>> = unsafe { mem::transmute(queries.into()) };
-
-        let handle = s.sockets.add(dns::Socket::new(&servers[..], queries));
-        Self {
-            stack: &stack.socket,
-            handle,
-        }
-    }
-
-    fn with_mut<R>(&mut self, f: impl FnOnce(&mut dns::Socket, &mut Interface) -> R) -> R {
-        let s = &mut *self.stack.borrow_mut();
-        let socket = s.sockets.get_mut::<dns::Socket>(self.handle);
-        let res = f(socket, &mut s.iface);
-        s.waker.wake();
-        res
+    pub fn new(stack: &'a Stack<D>) -> Self {
+        Self { stack }
     }
 
     /// Make a query for a given name and return the corresponding IP addresses.
-    pub async fn query(&mut self, name: &str, qtype: DnsQueryType) -> Result<Vec<IpAddress, MAX_ADDRESS_COUNT>, Error> {
-        let query = match { self.with_mut(|s, i| s.start_query(i.context(), name, qtype)) } {
-            Ok(handle) => handle,
-            Err(e) => return Err(e.into()),
-        };
-
-        let handle = self.handle;
-        let drop = OnDrop::new(|| {
-            let s = &mut *self.stack.borrow_mut();
-            let socket = s.sockets.get_mut::<dns::Socket>(handle);
-            socket.cancel_query(query);
-            s.waker.wake();
-        });
-
-        let res = poll_fn(|cx| {
-            self.with_mut(|s, _| match s.get_query_result(query) {
-                Ok(addrs) => Poll::Ready(Ok(addrs)),
-                Err(GetQueryResultError::Pending) => {
-                    s.register_query_waker(query, cx.waker());
-                    Poll::Pending
-                }
-                Err(e) => Poll::Ready(Err(e.into())),
-            })
-        })
-        .await;
-
-        drop.defuse();
-        res
+    pub async fn query(&self, name: &str, qtype: DnsQueryType) -> Result<Vec<IpAddress, MAX_ADDRESS_COUNT>, Error> {
+        self.stack.dns_query(name, qtype).await
     }
 }
 
-impl<'a> Drop for DnsSocket<'a> {
-    fn drop(&mut self) {
-        self.stack.borrow_mut().sockets.remove(self.handle);
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+impl<'a, D> embedded_nal_async::Dns for DnsSocket<'a, D>
+where
+    D: Driver + 'static,
+{
+    type Error = Error;
+
+    async fn get_host_by_name(
+        &self,
+        host: &str,
+        addr_type: embedded_nal_async::AddrType,
+    ) -> Result<embedded_nal_async::IpAddr, Self::Error> {
+        use embedded_nal_async::{AddrType, IpAddr};
+        let qtype = match addr_type {
+            AddrType::IPv6 => DnsQueryType::Aaaa,
+            _ => DnsQueryType::A,
+        };
+        let addrs = self.query(host, qtype).await?;
+        if let Some(first) = addrs.get(0) {
+            Ok(match first {
+                IpAddress::Ipv4(addr) => IpAddr::V4(addr.0.into()),
+                IpAddress::Ipv6(addr) => IpAddr::V6(addr.0.into()),
+            })
+        } else {
+            Err(Error::Failed)
+        }
+    }
+
+    async fn get_host_by_address(
+        &self,
+        _addr: embedded_nal_async::IpAddr,
+    ) -> Result<heapless::String<256>, Self::Error> {
+        todo!()
     }
 }

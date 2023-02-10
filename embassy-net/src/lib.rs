@@ -48,15 +48,22 @@ use crate::device::DriverAdapter;
 
 const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
+const MAX_QUERIES: usize = 2;
 
 pub struct StackResources<const SOCK: usize> {
     sockets: [SocketStorage<'static>; SOCK],
+    #[cfg(feature = "dns")]
+    queries: Option<[Option<dns::DnsQuery>; MAX_QUERIES]>,
 }
 
 impl<const SOCK: usize> StackResources<SOCK> {
     pub fn new() -> Self {
+        #[cfg(feature = "dns")]
+        const INIT: Option<dns::DnsQuery> = None;
         Self {
             sockets: [SocketStorage::EMPTY; SOCK],
+            #[cfg(feature = "dns")]
+            queries: Some([INIT; MAX_QUERIES]),
         }
     }
 }
@@ -109,6 +116,8 @@ struct Inner<D: Driver> {
     config: Option<StaticConfig>,
     #[cfg(feature = "dhcpv4")]
     dhcp_socket: Option<SocketHandle>,
+    #[cfg(feature = "dns")]
+    dns_socket: Option<SocketHandle>,
 }
 
 pub(crate) struct SocketStack {
@@ -153,6 +162,8 @@ impl<D: Driver + 'static> Stack<D> {
             config: None,
             #[cfg(feature = "dhcpv4")]
             dhcp_socket: None,
+            #[cfg(feature = "dns")]
+            dns_socket: None,
         };
         let mut socket = SocketStack {
             sockets,
@@ -161,8 +172,17 @@ impl<D: Driver + 'static> Stack<D> {
             next_local_port,
         };
 
+        #[cfg(feature = "dns")]
+        {
+            if let Some(queries) = resources.queries.take() {
+                inner.dns_socket = Some(socket.sockets.add(dns::Socket::new(&[], queries)));
+            }
+        }
+
         match config {
-            Config::Static(config) => inner.apply_config(&mut socket, config),
+            Config::Static(config) => {
+                inner.apply_config(&mut socket, config);
+            }
             #[cfg(feature = "dhcpv4")]
             Config::Dhcp(config) => {
                 let mut dhcp_socket = smoltcp::socket::dhcpv4::Socket::new();
@@ -210,6 +230,59 @@ impl<D: Driver + 'static> Stack<D> {
         .await;
         unreachable!()
     }
+
+    #[cfg(feature = "dns")]
+    async fn dns_query(
+        &self,
+        name: &str,
+        qtype: dns::DnsQueryType,
+    ) -> Result<Vec<IpAddress, { dns::MAX_ADDRESS_COUNT }>, dns::Error> {
+        let query = self.with_mut(|s, i| {
+            if let Some(dns_handle) = i.dns_socket {
+                let socket = s.sockets.get_mut::<dns::Socket>(dns_handle);
+                match socket.start_query(s.iface.context(), name, qtype) {
+                    Ok(handle) => Ok(handle),
+                    Err(e) => Err(e.into()),
+                }
+            } else {
+                Err(dns::Error::Failed)
+            }
+        })?;
+
+        use embassy_hal_common::drop::OnDrop;
+        let drop = OnDrop::new(|| {
+            self.with_mut(|s, i| {
+                if let Some(dns_handle) = i.dns_socket {
+                    let socket = s.sockets.get_mut::<dns::Socket>(dns_handle);
+                    socket.cancel_query(query);
+                    s.waker.wake();
+                }
+            })
+        });
+
+        let res = poll_fn(|cx| {
+            self.with_mut(|s, i| {
+                if let Some(dns_handle) = i.dns_socket {
+                    let socket = s.sockets.get_mut::<dns::Socket>(dns_handle);
+                    match socket.get_query_result(query) {
+                        Ok(addrs) => Poll::Ready(Ok(addrs)),
+                        Err(dns::GetQueryResultError::Pending) => {
+                            socket.register_query_waker(query, cx.waker());
+                            Poll::Pending
+                        }
+                        Err(e) => Poll::Ready(Err(e.into())),
+                    }
+                } else {
+                    Poll::Ready(Err(dns::Error::Failed))
+                }
+            })
+        })
+        .await;
+
+        drop.defuse();
+
+        res
+    }
 }
 
 impl SocketStack {
@@ -249,6 +322,13 @@ impl<D: Driver + 'static> Inner<D> {
         }
         for (i, s) in config.dns_servers.iter().enumerate() {
             debug!("   DNS server {}:    {}", i, s);
+        }
+
+        #[cfg(feature = "dns")]
+        if let Some(dns_socket) = self.dns_socket {
+            let socket = s.sockets.get_mut::<smoltcp::socket::dns::Socket>(dns_socket);
+            let servers: Vec<IpAddress, 3> = config.dns_servers.iter().map(|c| IpAddress::Ipv4(*c)).collect();
+            socket.update_servers(&servers[..]);
         }
 
         self.config = Some(config)
@@ -326,6 +406,7 @@ impl<D: Driver + 'static> Inner<D> {
         //if old_link_up || self.link_up {
         //    self.poll_configurator(timestamp)
         //}
+        //
 
         if let Some(poll_at) = s.iface.poll_at(timestamp, &mut s.sockets) {
             let t = Timer::at(instant_from_smoltcp(poll_at));

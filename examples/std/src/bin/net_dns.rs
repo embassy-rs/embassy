@@ -71,8 +71,7 @@ async fn main_task(spawner: Spawner) {
     spawner.spawn(net_task(stack)).unwrap();
 
     // Then we can use it!
-
-    let mut socket = DnsSocket::new(stack, vec![]);
+    let socket = DnsSocket::new(stack);
 
     let host = "example.com";
     info!("querying host {:?}...", host);
