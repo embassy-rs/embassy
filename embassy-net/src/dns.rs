@@ -80,6 +80,7 @@ where
         if let Some(first) = addrs.get(0) {
             Ok(match first {
                 IpAddress::Ipv4(addr) => IpAddr::V4(addr.0.into()),
+                #[cfg(feature = "proto-ipv6")]
                 IpAddress::Ipv6(addr) => IpAddr::V6(addr.0.into()),
             })
         } else {
