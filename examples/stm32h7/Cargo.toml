@@ -21,7 +21,7 @@ cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9" }
 embedded-hal-async = { version = "=0.2.0-alpha.0" }
-embedded-nal-async = "0.3.0"
+embedded-nal-async = "0.4.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.7.5", default-features = false }
