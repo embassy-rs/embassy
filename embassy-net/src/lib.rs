@@ -231,12 +231,9 @@ impl<D: Driver + 'static> Stack<D> {
         unreachable!()
     }
 
+    /// Make a query for a given name and return the corresponding IP addresses.
     #[cfg(feature = "dns")]
-    async fn dns_query(
-        &self,
-        name: &str,
-        qtype: dns::DnsQueryType,
-    ) -> Result<Vec<IpAddress, { dns::MAX_ADDRESS_COUNT }>, dns::Error> {
+    pub async fn dns_query(&self, name: &str, qtype: dns::DnsQueryType) -> Result<Vec<IpAddress, 1>, dns::Error> {
         let query = self.with_mut(|s, i| {
             if let Some(dns_handle) = i.dns_socket {
                 let socket = s.sockets.get_mut::<dns::Socket>(dns_handle);

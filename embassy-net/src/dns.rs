@@ -1,6 +1,6 @@
 //! DNS socket with async support.
 use heapless::Vec;
-pub use smoltcp::socket::dns::{DnsQuery, Socket, MAX_ADDRESS_COUNT};
+pub use smoltcp::socket::dns::{DnsQuery, Socket};
 pub(crate) use smoltcp::socket::dns::{GetQueryResultError, StartQueryError};
 pub use smoltcp::wire::{DnsQueryType, IpAddress};
 
@@ -48,9 +48,7 @@ impl<'a, D> DnsSocket<'a, D>
 where
     D: Driver + 'static,
 {
-    /// Create a new DNS socket using the provided stack and query storage.
-    ///
-    /// DNS servers are derived from the stack configuration.
+    /// Create a new DNS socket using the provided stack.
     ///
     /// NOTE: If using DHCP, make sure it has reconfigured the stack to ensure the DNS servers are updated.
     pub fn new(stack: &'a Stack<D>) -> Self {
@@ -58,7 +56,7 @@ where
     }
 
     /// Make a query for a given name and return the corresponding IP addresses.
-    pub async fn query(&self, name: &str, qtype: DnsQueryType) -> Result<Vec<IpAddress, MAX_ADDRESS_COUNT>, Error> {
+    pub async fn query(&self, name: &str, qtype: DnsQueryType) -> Result<Vec<IpAddress, 1>, Error> {
         self.stack.dns_query(name, qtype).await
     }
 }
