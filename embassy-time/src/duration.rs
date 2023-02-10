@@ -81,6 +81,11 @@ impl Duration {
         }
     }
 
+    /// Creates a duration corresponding to the specified Hz.
+    pub const fn from_hz(hz: u64) -> Duration {
+        Duration { ticks: TICK_HZ / hz }
+    }
+
     /// Adds one Duration to another, returning a new Duration or None in the event of an overflow.
     pub fn checked_add(self, rhs: Duration) -> Option<Duration> {
         self.ticks.checked_add(rhs.ticks).map(|ticks| Duration { ticks })
