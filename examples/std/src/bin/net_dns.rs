@@ -4,7 +4,7 @@ use std::default::Default;
 
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
-use embassy_net::dns::{DnsQueryType, DnsSocket};
+use embassy_net::dns::DnsQueryType;
 use embassy_net::{Config, Ipv4Address, Ipv4Cidr, Stack, StackResources};
 use heapless::Vec;
 use log::*;
@@ -65,17 +65,14 @@ async fn main_task(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    let stack = &*singleton!(Stack::new(device, config, singleton!(StackResources::<2>::new()), seed));
+    let stack: &Stack<_> = &*singleton!(Stack::new(device, config, singleton!(StackResources::<2>::new()), seed));
 
     // Launch network task
     spawner.spawn(net_task(stack)).unwrap();
 
-    // Then we can use it!
-    let socket = DnsSocket::new(stack);
-
     let host = "example.com";
     info!("querying host {:?}...", host);
-    match socket.query(host, DnsQueryType::A).await {
+    match stack.dns_query(host, DnsQueryType::A).await {
         Ok(r) => {
             info!("query response: {:?}", r);
         }
