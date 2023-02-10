@@ -48,7 +48,8 @@ use crate::device::DriverAdapter;
 
 const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
-const MAX_QUERIES: usize = 2;
+#[cfg(feature = "dns")]
+const MAX_QUERIES: usize = 4;
 
 pub struct StackResources<const SOCK: usize> {
     sockets: [SocketStorage<'static>; SOCK],
