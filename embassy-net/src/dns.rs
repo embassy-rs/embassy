@@ -10,8 +10,6 @@ use crate::{Driver, Stack};
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
-    /// No available query slot
-    NoFreeSlot,
     /// Invalid name
     InvalidName,
     /// Name too long
@@ -29,7 +27,7 @@ impl From<GetQueryResultError> for Error {
 impl From<StartQueryError> for Error {
     fn from(e: StartQueryError) -> Self {
         match e {
-            StartQueryError::NoFreeSlot => Self::NoFreeSlot,
+            StartQueryError::NoFreeSlot => Self::Failed,
             StartQueryError::InvalidName => Self::InvalidName,
             StartQueryError::NameTooLong => Self::NameTooLong,
         }

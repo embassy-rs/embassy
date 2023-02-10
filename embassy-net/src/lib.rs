@@ -119,6 +119,8 @@ struct Inner<D: Driver> {
     dhcp_socket: Option<SocketHandle>,
     #[cfg(feature = "dns")]
     dns_socket: SocketHandle,
+    #[cfg(feature = "dns")]
+    dns_waker: WakerRegistration,
 }
 
 pub(crate) struct SocketStack {
@@ -157,7 +159,6 @@ impl<D: Driver + 'static> Stack<D> {
 
         let next_local_port = (random_seed % (LOCAL_PORT_MAX - LOCAL_PORT_MIN) as u64) as u16 + LOCAL_PORT_MIN;
 
-
         let mut socket = SocketStack {
             sockets,
             iface,
@@ -172,7 +173,12 @@ impl<D: Driver + 'static> Stack<D> {
             #[cfg(feature = "dhcpv4")]
             dhcp_socket: None,
             #[cfg(feature = "dns")]
-            dns_socket: socket.sockets.add(dns::Socket::new(&[], managed::ManagedSlice::Borrowed(&mut resources.queries))),
+            dns_socket: socket.sockets.add(dns::Socket::new(
+                &[],
+                managed::ManagedSlice::Borrowed(&mut resources.queries),
+            )),
+            #[cfg(feature = "dns")]
+            dns_waker: WakerRegistration::new(),
         };
 
         match config {
@@ -230,10 +236,20 @@ impl<D: Driver + 'static> Stack<D> {
     /// Make a query for a given name and return the corresponding IP addresses.
     #[cfg(feature = "dns")]
     pub async fn dns_query(&self, name: &str, qtype: dns::DnsQueryType) -> Result<Vec<IpAddress, 1>, dns::Error> {
-        let query = self.with_mut(|s, i| {
-            let socket = s.sockets.get_mut::<dns::Socket>(i.dns_socket);
-            socket.start_query(s.iface.context(), name, qtype)
-        })?;
+        let query = poll_fn(|cx| {
+            self.with_mut(|s, i| {
+                let socket = s.sockets.get_mut::<dns::Socket>(i.dns_socket);
+                match socket.start_query(s.iface.context(), name, qtype) {
+                    Ok(handle) => Poll::Ready(Ok(handle)),
+                    Err(dns::StartQueryError::NoFreeSlot) => {
+                        i.dns_waker.register(cx.waker());
+                        Poll::Pending
+                    }
+                    Err(e) => Poll::Ready(Err(e)),
+                }
+            })
+        })
+        .await?;
 
         use embassy_hal_common::drop::OnDrop;
         let drop = OnDrop::new(|| {
@@ -241,6 +257,7 @@ impl<D: Driver + 'static> Stack<D> {
                 let socket = s.sockets.get_mut::<dns::Socket>(i.dns_socket);
                 socket.cancel_query(query);
                 s.waker.wake();
+                i.dns_waker.wake();
             })
         });
 
@@ -248,12 +265,18 @@ impl<D: Driver + 'static> Stack<D> {
             self.with_mut(|s, i| {
                 let socket = s.sockets.get_mut::<dns::Socket>(i.dns_socket);
                 match socket.get_query_result(query) {
-                    Ok(addrs) => Poll::Ready(Ok(addrs)),
+                    Ok(addrs) => {
+                        i.dns_waker.wake();
+                        Poll::Ready(Ok(addrs))
+                    }
                     Err(dns::GetQueryResultError::Pending) => {
                         socket.register_query_waker(query, cx.waker());
                         Poll::Pending
                     }
-                    Err(e) => Poll::Ready(Err(e.into())),
+                    Err(e) => {
+                        i.dns_waker.wake();
+                        Poll::Ready(Err(e.into()))
+                    }
                 }
             })
         })
