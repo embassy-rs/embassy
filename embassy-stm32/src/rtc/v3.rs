@@ -15,7 +15,12 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
                 while !crate::pac::PWR.cr1().read().dbp() {}
             }
 
-            #[cfg(not(feature = "stm32g0c1ve"))]
+            #[cfg(not(any(
+                feature = "stm32g0c1ve",
+                feature = "stm32g491re",
+                feature = "stm32u585zi",
+                feature = "stm32g473cc"
+            )))]
             {
                 crate::pac::PWR
                     .cr1()
@@ -32,7 +37,11 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
                 feature = "stm32wle5ub",
                 feature = "stm32g0c1ve",
                 feature = "stm32wl55jc-cm4",
-                feature = "stm32wl55uc-cm4"
+                feature = "stm32wl55uc-cm4",
+                feature = "stm32g491re",
+                feature = "stm32g473cc",
+                feature = "stm32u585zi",
+                feature = "stm32wle5jb"
             )))]
             let config_rtcsel = stm32_metapac::rtc::vals::Rtcsel(config_rtcsel);
             #[cfg(feature = "stm32g0c1ve")]
