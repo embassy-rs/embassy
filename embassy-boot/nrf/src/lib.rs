@@ -1,7 +1,7 @@
 #![no_std]
 #![feature(type_alias_impl_trait)]
 #![warn(missing_docs)]
-#![doc = include_str!("../../README.md")]
+#![doc = include_str!("../README.md")]
 mod fmt;
 
 pub use embassy_boot::{AlignedBuffer, BootFlash, FirmwareUpdater, FlashConfig, Partition, SingleFlashConfig};
@@ -17,9 +17,9 @@ pub struct BootLoader {
     page: AlignedBuffer<PAGE_SIZE>,
 }
 
-impl BootLoader {
+impl Default for BootLoader {
     /// Create a new bootloader instance using parameters from linker script
-    pub fn default() -> Self {
+    fn default() -> Self {
         extern "C" {
             static __bootloader_state_start: u32;
             static __bootloader_state_end: u32;
@@ -54,7 +54,9 @@ impl BootLoader {
 
         Self::new(active, dfu, state)
     }
+}
 
+impl BootLoader {
     /// Create a new bootloader instance using the supplied partitions for active, dfu and state.
     pub fn new(active: Partition, dfu: Partition, state: Partition) -> Self {
         Self {
@@ -147,11 +149,7 @@ pub struct WatchdogFlash<'d> {
 
 impl<'d> WatchdogFlash<'d> {
     /// Start a new watchdog with a given flash and WDT peripheral and a timeout
-    pub fn start(flash: Nvmc<'d>, wdt: WDT, timeout: u32) -> Self {
-        let mut config = wdt::Config::default();
-        config.timeout_ticks = 32768 * timeout; // timeout seconds
-        config.run_during_sleep = true;
-        config.run_during_debug_halt = false;
+    pub fn start(flash: Nvmc<'d>, wdt: WDT, config: wdt::Config) -> Self {
         let (_wdt, [wdt]) = match wdt::Watchdog::try_new(wdt, config) {
             Ok(x) => x,
             Err(_) => {

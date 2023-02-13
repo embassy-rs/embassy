@@ -1,15 +1,28 @@
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(type_alias_impl_trait))]
+#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
+#![cfg_attr(feature = "nightly", allow(incomplete_features))]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+#[cfg(feature = "critical-section-impl")]
+mod critical_section_impl;
+
 mod intrinsics;
 
+pub mod adc;
 pub mod dma;
 pub mod gpio;
 pub mod i2c;
 pub mod interrupt;
+
+#[cfg(feature = "pio")]
+pub mod pio;
+#[cfg(feature = "pio")]
+pub mod pio_instr_util;
+#[cfg(feature = "pio")]
+pub mod relocate;
+
 pub mod rom_data;
 pub mod rtc;
 pub mod spi;
@@ -19,8 +32,11 @@ pub mod uart;
 #[cfg(feature = "nightly")]
 pub mod usb;
 
-mod clocks;
+pub mod clocks;
+pub mod flash;
+pub mod multicore;
 mod reset;
+pub mod watchdog;
 
 // Reexports
 
@@ -95,6 +111,17 @@ embassy_hal_common::peripherals! {
     USB,
 
     RTC,
+
+    FLASH,
+
+    ADC,
+
+    CORE1,
+
+    PIO0,
+    PIO1,
+
+    WATCHDOG,
 }
 
 #[link_section = ".boot2"]

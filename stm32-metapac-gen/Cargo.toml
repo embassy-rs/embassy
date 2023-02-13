@@ -7,7 +7,9 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 regex = "1.5.4"
-chiptool = { git = "https://github.com/embassy-rs/chiptool", rev = "28ffa8a19d84914089547f52900ffb5877a5dc23" }
+chiptool = { git = "https://github.com/embassy-rs/chiptool", rev = "1d9e0a39a6acc291e50cabc4ed617a87f06d5e89" }
 serde = { version = "1.0.130", features = [ "derive" ] }
+serde_json = "1.0.87"
 serde_yaml = "0.8.21"
 proc-macro2 = "1.0.29"
+

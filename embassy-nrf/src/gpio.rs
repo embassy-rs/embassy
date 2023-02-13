@@ -1,4 +1,4 @@
-//! General purpose input/output for nRF.
+//! General purpose input/output (GPIO) driver.
 #![macro_use]
 
 use core::convert::Infallible;
@@ -70,7 +70,7 @@ impl<'d, T: Pin> Input<'d, T> {
 }
 
 /// Digital input or output level.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Level {
     /// Logical low.
@@ -88,9 +88,9 @@ impl From<bool> for Level {
     }
 }
 
-impl Into<bool> for Level {
-    fn into(self) -> bool {
-        match self {
+impl From<Level> for bool {
+    fn from(level: Level) -> bool {
+        match level {
             Level::Low => false,
             Level::High => true,
         }

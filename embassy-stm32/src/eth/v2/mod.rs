@@ -1,35 +1,28 @@
-use core::marker::PhantomData;
+mod descriptors;
+
 use core::sync::atomic::{fence, Ordering};
-use core::task::Waker;
 
-use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
+use embassy_cortex_m::interrupt::InterruptExt;
 use embassy_hal_common::{into_ref, PeripheralRef};
-use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
-use embassy_sync::waitqueue::AtomicWaker;
 
+pub(crate) use self::descriptors::{RDes, RDesRing, TDes, TDesRing};
+use super::*;
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::{AnyPin, Speed};
 use crate::pac::{ETH, RCC, SYSCFG};
 use crate::Peripheral;
 
-mod descriptors;
-use descriptors::DescriptorRing;
+const MTU: usize = 1514; // 14 Ethernet header + 1500 IP packet
 
-use super::*;
-
-pub struct State<'d, T: Instance, const TX: usize, const RX: usize>(StateStorage<Inner<'d, T, TX, RX>>);
-impl<'d, T: Instance, const TX: usize, const RX: usize> State<'d, T, TX, RX> {
-    pub const fn new() -> Self {
-        Self(StateStorage::new())
-    }
-}
-pub struct Ethernet<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> {
-    state: PeripheralMutex<'d, Inner<'d, T, TX, RX>>,
+pub struct Ethernet<'d, T: Instance, P: PHY> {
+    _peri: PeripheralRef<'d, T>,
+    pub(crate) tx: TDesRing<'d>,
+    pub(crate) rx: RDesRing<'d>,
     pins: [PeripheralRef<'d, AnyPin>; 9],
     _phy: P,
     clock_range: u8,
     phy_addr: u8,
-    mac_addr: [u8; 6],
+    pub(crate) mac_addr: [u8; 6],
 }
 
 macro_rules! config_pins {
@@ -44,10 +37,9 @@ macro_rules! config_pins {
     };
 }
 
-impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, P, TX, RX> {
-    /// safety: the returned instance is not leak-safe
-    pub unsafe fn new(
-        state: &'d mut State<'d, T, TX, RX>,
+impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
+    pub fn new<const TX: usize, const RX: usize>(
+        queue: &'d mut PacketQueue<TX, RX>,
         peri: impl Peripheral<P = T> + 'd,
         interrupt: impl Peripheral<P = crate::interrupt::ETH> + 'd,
         ref_clk: impl Peripheral<P = impl RefClkPin<T>> + 'd,
@@ -63,108 +55,123 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, 
         mac_addr: [u8; 6],
         phy_addr: u8,
     ) -> Self {
-        into_ref!(interrupt, ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
+        into_ref!(peri, interrupt, ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
-        // Enable the necessary Clocks
-        // NOTE(unsafe) We have exclusive access to the registers
-        critical_section::with(|_| {
-            RCC.apb4enr().modify(|w| w.set_syscfgen(true));
-            RCC.ahb1enr().modify(|w| {
-                w.set_eth1macen(true);
-                w.set_eth1txen(true);
-                w.set_eth1rxen(true);
+        unsafe {
+            // Enable the necessary Clocks
+            // NOTE(unsafe) We have exclusive access to the registers
+            critical_section::with(|_| {
+                RCC.apb4enr().modify(|w| w.set_syscfgen(true));
+                RCC.ahb1enr().modify(|w| {
+                    w.set_eth1macen(true);
+                    w.set_eth1txen(true);
+                    w.set_eth1rxen(true);
+                });
+
+                // RMII
+                SYSCFG.pmcr().modify(|w| w.set_epis(0b100));
             });
 
-            // RMII
-            SYSCFG.pmcr().modify(|w| w.set_epis(0b100));
-        });
+            config_pins!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
-        config_pins!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
+            // NOTE(unsafe) We have exclusive access to the registers
+            let dma = ETH.ethernet_dma();
+            let mac = ETH.ethernet_mac();
+            let mtl = ETH.ethernet_mtl();
 
-        // NOTE(unsafe) We are ourselves not leak-safe.
-        let state = PeripheralMutex::new(interrupt, &mut state.0, || Inner::new(peri));
+            // Reset and wait
+            dma.dmamr().modify(|w| w.set_swr(true));
+            while dma.dmamr().read().swr() {}
 
-        // NOTE(unsafe) We have exclusive access to the registers
-        let dma = ETH.ethernet_dma();
-        let mac = ETH.ethernet_mac();
-        let mtl = ETH.ethernet_mtl();
+            mac.maccr().modify(|w| {
+                w.set_ipg(0b000); // 96 bit times
+                w.set_acs(true);
+                w.set_fes(true);
+                w.set_dm(true);
+                // TODO: Carrier sense ? ECRSFD
+            });
 
-        // Reset and wait
-        dma.dmamr().modify(|w| w.set_swr(true));
-        while dma.dmamr().read().swr() {}
+            // Note: Writing to LR triggers synchronisation of both LR and HR into the MAC core,
+            // so the LR write must happen after the HR write.
+            mac.maca0hr()
+                .modify(|w| w.set_addrhi(u16::from(mac_addr[4]) | (u16::from(mac_addr[5]) << 8)));
+            mac.maca0lr().write(|w| {
+                w.set_addrlo(
+                    u32::from(mac_addr[0])
+                        | (u32::from(mac_addr[1]) << 8)
+                        | (u32::from(mac_addr[2]) << 16)
+                        | (u32::from(mac_addr[3]) << 24),
+                )
+            });
 
-        mac.maccr().modify(|w| {
-            w.set_ipg(0b000); // 96 bit times
-            w.set_acs(true);
-            w.set_fes(true);
-            w.set_dm(true);
-            // TODO: Carrier sense ? ECRSFD
-        });
+            mac.macqtx_fcr().modify(|w| w.set_pt(0x100));
 
-        // Note: Writing to LR triggers synchronisation of both LR and HR into the MAC core,
-        // so the LR write must happen after the HR write.
-        mac.maca0hr()
-            .modify(|w| w.set_addrhi(u16::from(mac_addr[4]) | (u16::from(mac_addr[5]) << 8)));
-        mac.maca0lr().write(|w| {
-            w.set_addrlo(
-                u32::from(mac_addr[0])
-                    | (u32::from(mac_addr[1]) << 8)
-                    | (u32::from(mac_addr[2]) << 16)
-                    | (u32::from(mac_addr[3]) << 24),
-            )
-        });
+            // disable all MMC RX interrupts
+            mac.mmc_rx_interrupt_mask().write(|w| {
+                w.set_rxcrcerpim(true);
+                w.set_rxalgnerpim(true);
+                w.set_rxucgpim(true);
+                w.set_rxlpiuscim(true);
+                w.set_rxlpitrcim(true)
+            });
 
-        mac.macqtx_fcr().modify(|w| w.set_pt(0x100));
+            // disable all MMC TX interrupts
+            mac.mmc_tx_interrupt_mask().write(|w| {
+                w.set_txscolgpim(true);
+                w.set_txmcolgpim(true);
+                w.set_txgpktim(true);
+                w.set_txlpiuscim(true);
+                w.set_txlpitrcim(true);
+            });
 
-        mtl.mtlrx_qomr().modify(|w| w.set_rsf(true));
-        mtl.mtltx_qomr().modify(|w| w.set_tsf(true));
+            mtl.mtlrx_qomr().modify(|w| w.set_rsf(true));
+            mtl.mtltx_qomr().modify(|w| w.set_tsf(true));
 
-        dma.dmactx_cr().modify(|w| w.set_txpbl(1)); // 32 ?
-        dma.dmacrx_cr().modify(|w| {
-            w.set_rxpbl(1); // 32 ?
-            w.set_rbsz(MTU as u16);
-        });
+            dma.dmactx_cr().modify(|w| w.set_txpbl(1)); // 32 ?
+            dma.dmacrx_cr().modify(|w| {
+                w.set_rxpbl(1); // 32 ?
+                w.set_rbsz(MTU as u16);
+            });
 
-        // NOTE(unsafe) We got the peripheral singleton, which means that `rcc::init` was called
-        let hclk = crate::rcc::get_freqs().ahb1;
-        let hclk_mhz = hclk.0 / 1_000_000;
+            // NOTE(unsafe) We got the peripheral singleton, which means that `rcc::init` was called
+            let hclk = crate::rcc::get_freqs().ahb1;
+            let hclk_mhz = hclk.0 / 1_000_000;
 
-        // Set the MDC clock frequency in the range 1MHz - 2.5MHz
-        let clock_range = match hclk_mhz {
-            0..=34 => 2,    // Divide by 16
-            35..=59 => 3,   // Divide by 26
-            60..=99 => 0,   // Divide by 42
-            100..=149 => 1, // Divide by 62
-            150..=249 => 4, // Divide by 102
-            250..=310 => 5, // Divide by 124
-            _ => {
-                panic!("HCLK results in MDC clock > 2.5MHz even for the highest CSR clock divider")
-            }
-        };
+            // Set the MDC clock frequency in the range 1MHz - 2.5MHz
+            let clock_range = match hclk_mhz {
+                0..=34 => 2,    // Divide by 16
+                35..=59 => 3,   // Divide by 26
+                60..=99 => 0,   // Divide by 42
+                100..=149 => 1, // Divide by 62
+                150..=249 => 4, // Divide by 102
+                250..=310 => 5, // Divide by 124
+                _ => {
+                    panic!("HCLK results in MDC clock > 2.5MHz even for the highest CSR clock divider")
+                }
+            };
 
-        let pins = [
-            ref_clk.map_into(),
-            mdio.map_into(),
-            mdc.map_into(),
-            crs.map_into(),
-            rx_d0.map_into(),
-            rx_d1.map_into(),
-            tx_d0.map_into(),
-            tx_d1.map_into(),
-            tx_en.map_into(),
-        ];
+            let pins = [
+                ref_clk.map_into(),
+                mdio.map_into(),
+                mdc.map_into(),
+                crs.map_into(),
+                rx_d0.map_into(),
+                rx_d1.map_into(),
+                tx_d0.map_into(),
+                tx_d1.map_into(),
+                tx_en.map_into(),
+            ];
 
-        let mut this = Self {
-            state,
-            pins,
-            _phy: phy,
-            clock_range,
-            phy_addr,
-            mac_addr,
-        };
-
-        this.state.with(|s| {
-            s.desc_ring.init();
+            let mut this = Self {
+                _peri: peri,
+                tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
+                rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
+                pins,
+                _phy: phy,
+                clock_range,
+                phy_addr,
+                mac_addr,
+            };
 
             fence(Ordering::SeqCst);
 
@@ -187,17 +194,37 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, 
                 w.set_rie(true);
                 w.set_tie(true);
             });
-        });
-        P::phy_reset(&mut this);
-        P::phy_init(&mut this);
 
-        this
+            P::phy_reset(&mut this);
+            P::phy_init(&mut this);
+
+            interrupt.set_handler(Self::on_interrupt);
+            interrupt.enable();
+
+            this
+        }
+    }
+
+    fn on_interrupt(_cx: *mut ()) {
+        WAKER.wake();
+
+        // TODO: Check and clear more flags
+        unsafe {
+            let dma = ETH.ethernet_dma();
+
+            dma.dmacsr().modify(|w| {
+                w.set_ti(true);
+                w.set_ri(true);
+                w.set_nis(true);
+            });
+            // Delay two peripheral's clock
+            dma.dmacsr().read();
+            dma.dmacsr().read();
+        }
     }
 }
 
-unsafe impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> StationManagement
-    for Ethernet<'d, T, P, TX, RX>
-{
+unsafe impl<'d, T: Instance, P: PHY> StationManagement for Ethernet<'d, T, P> {
     fn smi_read(&mut self, reg: u8) -> u16 {
         // NOTE(unsafe) These registers aren't used in the interrupt and we have `&mut self`
         unsafe {
@@ -233,44 +260,7 @@ unsafe impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> StationMa
     }
 }
 
-impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Device for Ethernet<'d, T, P, TX, RX> {
-    fn is_transmit_ready(&mut self) -> bool {
-        self.state.with(|s| s.desc_ring.tx.available())
-    }
-
-    fn transmit(&mut self, pkt: PacketBuf) {
-        self.state.with(|s| unwrap!(s.desc_ring.tx.transmit(pkt)));
-    }
-
-    fn receive(&mut self) -> Option<PacketBuf> {
-        self.state.with(|s| s.desc_ring.rx.pop_packet())
-    }
-
-    fn register_waker(&mut self, waker: &Waker) {
-        WAKER.register(waker);
-    }
-
-    fn capabilities(&self) -> DeviceCapabilities {
-        let mut caps = DeviceCapabilities::default();
-        caps.max_transmission_unit = MTU;
-        caps.max_burst_size = Some(TX.min(RX));
-        caps
-    }
-
-    fn link_state(&mut self) -> LinkState {
-        if P::poll_link(self) {
-            LinkState::Up
-        } else {
-            LinkState::Down
-        }
-    }
-
-    fn ethernet_address(&self) -> [u8; 6] {
-        self.mac_addr
-    }
-}
-
-impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Drop for Ethernet<'d, T, P, TX, RX> {
+impl<'d, T: Instance, P: PHY> Drop for Ethernet<'d, T, P> {
     fn drop(&mut self) {
         // NOTE(unsafe) We have `&mut self` and the interrupt doesn't use this registers
         unsafe {
@@ -307,46 +297,3 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Drop for Etherne
         })
     }
 }
-
-//----------------------------------------------------------------------
-
-struct Inner<'d, T: Instance, const TX: usize, const RX: usize> {
-    _peri: PhantomData<&'d mut T>,
-    desc_ring: DescriptorRing<TX, RX>,
-}
-
-impl<'d, T: Instance, const TX: usize, const RX: usize> Inner<'d, T, TX, RX> {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd) -> Self {
-        Self {
-            _peri: PhantomData,
-            desc_ring: DescriptorRing::new(),
-        }
-    }
-}
-
-impl<'d, T: Instance, const TX: usize, const RX: usize> PeripheralState for Inner<'d, T, TX, RX> {
-    type Interrupt = crate::interrupt::ETH;
-
-    fn on_interrupt(&mut self) {
-        unwrap!(self.desc_ring.tx.on_interrupt());
-        self.desc_ring.rx.on_interrupt();
-
-        WAKER.wake();
-
-        // TODO: Check and clear more flags
-        unsafe {
-            let dma = ETH.ethernet_dma();
-
-            dma.dmacsr().modify(|w| {
-                w.set_ti(true);
-                w.set_ri(true);
-                w.set_nis(true);
-            });
-            // Delay two peripheral's clock
-            dma.dmacsr().read();
-            dma.dmacsr().read();
-        }
-    }
-}
-
-static WAKER: AtomicWaker = AtomicWaker::new();

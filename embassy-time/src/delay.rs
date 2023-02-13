@@ -33,26 +33,18 @@ mod eh1 {
 
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 mod eha {
-    use core::future::Future;
-
-    use futures_util::FutureExt;
-
     use super::*;
     use crate::Timer;
 
     impl embedded_hal_async::delay::DelayUs for Delay {
         type Error = core::convert::Infallible;
 
-        type DelayUsFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn delay_us(&mut self, micros: u32) -> Self::DelayUsFuture<'_> {
-            Timer::after(Duration::from_micros(micros as _)).map(Ok)
+        async fn delay_us(&mut self, micros: u32) -> Result<(), Self::Error> {
+            Ok(Timer::after(Duration::from_micros(micros as _)).await)
         }
 
-        type DelayMsFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn delay_ms(&mut self, millis: u32) -> Self::DelayMsFuture<'_> {
-            Timer::after(Duration::from_millis(millis as _)).map(Ok)
+        async fn delay_ms(&mut self, millis: u32) -> Result<(), Self::Error> {
+            Ok(Timer::after(Duration::from_millis(millis as _)).await)
         }
     }
 }

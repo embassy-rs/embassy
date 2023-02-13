@@ -1,3 +1,5 @@
+//! Random Number Generator (RNG) driver.
+
 use core::future::poll_fn;
 use core::ptr;
 use core::sync::atomic::{AtomicPtr, Ordering};
@@ -128,10 +130,11 @@ impl<'d> Rng<'d> {
     /// However, this makes the generation of numbers slower.
     ///
     /// Defaults to disabled.
-    pub fn bias_correction(&self, enable: bool) {
+    pub fn set_bias_correction(&self, enable: bool) {
         RNG::regs().config.write(|w| w.dercen().bit(enable))
     }
 
+    /// Fill the buffer with random bytes.
     pub async fn fill_bytes(&mut self, dest: &mut [u8]) {
         if dest.len() == 0 {
             return; // Nothing to fill
@@ -175,6 +178,7 @@ impl<'d> Rng<'d> {
         drop(on_drop);
     }
 
+    /// Fill the buffer with random bytes, blocking version.
     pub fn blocking_fill_bytes(&mut self, dest: &mut [u8]) {
         self.start();
 

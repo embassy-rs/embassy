@@ -1,11 +1,24 @@
-# Bootloader for STM32
+# embassy-boot-stm32
 
-The bootloader uses `embassy-boot` to interact with the flash.
+An [Embassy](https://embassy.dev) project.
 
-# Usage
+An adaptation of `embassy-boot` for STM32.
 
-Flash the bootloader
+## Features
 
-```
-cargo flash --features embassy-stm32/stm32wl55jc-cm4 --release --chip STM32WLE5JCIx
-```
+* Configure bootloader partitions based on linker script.
+* Load applications from active partition.
+
+## Minimum supported Rust version (MSRV)
+
+`embassy-boot-stm32` requires Rust nightly to compile as it relies on async traits for interacting with the flash peripherals.
+
+## License
+
+This work is licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
+  <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+
+at your option.

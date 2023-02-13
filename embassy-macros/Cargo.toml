@@ -3,6 +3,13 @@ name = "embassy-macros"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "macros for creating the entry point and tasks for embassy-executor"
+repository = "https://github.com/embassy-rs/embassy"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+]
 
 [dependencies]
 syn = { version = "1.0.76", features = ["full", "extra-traits"] }
@@ -14,8 +21,5 @@ proc-macro2 = "1.0.29"
 proc-macro = true
 
 [features]
-std = []
-wasm = []
-
 # Enabling this cause interrupt::take! to require embassy-executor
 rtos-trace-interrupt = []

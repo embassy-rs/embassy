@@ -158,7 +158,7 @@ impl Into<u8> for APBPrescaler {
 impl Into<u8> for AHBPrescaler {
     fn into(self) -> u8 {
         match self {
-            AHBPrescaler::NotDivided => 1,
+            AHBPrescaler::NotDivided => 0x0,
             AHBPrescaler::Div2 => 0x08,
             AHBPrescaler::Div3 => 0x01,
             AHBPrescaler::Div4 => 0x09,

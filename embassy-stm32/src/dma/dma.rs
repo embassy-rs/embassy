@@ -1,6 +1,7 @@
 use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
+use embassy_cortex_m::interrupt::Priority;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::{Burst, FlowControl, Request, TransferOptions, Word, WordSize};
@@ -67,10 +68,12 @@ impl State {
 static STATE: State = State::new();
 
 /// safety: must be called only once
-pub(crate) unsafe fn init() {
+pub(crate) unsafe fn init(irq_priority: Priority) {
     foreach_interrupt! {
         ($peri:ident, dma, $block:ident, $signal_name:ident, $irq:ident) => {
-            interrupt::$irq::steal().enable();
+            let irq = interrupt::$irq::steal();
+            irq.set_priority(irq_priority);
+            irq.enable();
         };
     }
     crate::_generated::init_dma();
@@ -99,15 +102,14 @@ foreach_dma_channel! {
                 )
             }
 
-            unsafe fn start_write_repeated<W: Word>(&mut self, request: Request, repeated: W, count: usize, reg_addr: *mut W, options: TransferOptions) {
-                let buf = [repeated];
+            unsafe fn start_write_repeated<W: Word>(&mut self, request: Request, repeated: *const W, count: usize, reg_addr: *mut W, options: TransferOptions) {
                 low_level_api::start_transfer(
                     pac::$dma_peri,
                     $channel_num,
                     request,
                     vals::Dir::MEMORYTOPERIPHERAL,
                     reg_addr as *const u32,
-                    buf.as_ptr() as *mut u32,
+                    repeated as *mut u32,
                     count,
                     false,
                     vals::Size::from(W::bits()),

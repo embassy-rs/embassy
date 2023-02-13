@@ -13,7 +13,10 @@ flavors = [
 ]
 
 [features]
-defmt = ["dep:defmt", "embassy-usb-driver?/defmt"]
+defmt = ["dep:defmt", "embassy-usb-driver?/defmt", "embassy-hal-common/defmt"]
+
+# critical section that is safe for multicore use
+critical-section-impl = ["critical-section/restore-state-u8"]
 
 # Reexport the PAC for the currently enabled chip at `embassy_rp::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-rp may major-bump (breaking) the PAC version.
@@ -26,6 +29,7 @@ time-driver = []
 rom-func-cache = []
 intrinsics = []
 rom-v2-intrinsics = []
+pio = ["dep:pio", "dep:pio-proc"]
 
 # Enable nightly-only features
 nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb-driver", "dep:embedded-io"]
@@ -53,12 +57,18 @@ cortex-m = "0.7.6"
 critical-section = "1.1"
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 chrono = { version = "0.4", default-features = false, optional = true }
-embedded-io = { version = "0.3.0", features = ["async"], optional = true }
+embedded-io = { version = "0.4.0", features = ["async"], optional = true }
+embedded-storage = { version = "0.3" }
+rand_core = "0.6.4"
 
 rp2040-pac2 = { git = "https://github.com/embassy-rs/rp2040-pac2", rev="017e3c9007b2d3b6965f0d85b5bf8ce3fa6d7364", features = ["rt"] }
 #rp2040-pac2 = { path = "../../rp2040-pac2", features = ["rt"] }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9", optional = true}
-embedded-hal-async = { version = "=0.1.0-alpha.2", optional = true}
+embedded-hal-async = { version = "=0.2.0-alpha.0", optional = true}
 embedded-hal-nb = { version = "=1.0.0-alpha.1", optional = true}
+
+paste = "1.0"
+pio-proc = {version= "0.2", optional = true}
+pio = {version= "0.2.1", optional = true}

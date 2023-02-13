@@ -1,8 +1,8 @@
 use core::cell::RefCell;
-use core::future::{poll_fn, Future};
+use core::future::poll_fn;
+use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use atomic_polyfill::{compiler_fence, Ordering};
 use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::WakerRegistration;
@@ -46,16 +46,102 @@ impl<'d, T: BasicInstance> Unpin for BufferedUart<'d, T> {}
 impl<'d, T: BasicInstance> BufferedUart<'d, T> {
     pub fn new(
         state: &'d mut State<'d, T>,
-        _uart: Uart<'d, T, NoDma, NoDma>,
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
+        config: Config,
     ) -> BufferedUart<'d, T> {
-        into_ref!(irq);
+        T::enable();
+        T::reset();
+
+        Self::new_inner(state, peri, rx, tx, irq, tx_buffer, rx_buffer, config)
+    }
+
+    pub fn new_with_rtscts(
+        state: &'d mut State<'d, T>,
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+        config: Config,
+    ) -> BufferedUart<'d, T> {
+        into_ref!(cts, rts);
+
+        T::enable();
+        T::reset();
+
+        unsafe {
+            rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
+            cts.set_as_af(cts.af_num(), AFType::Input);
+            T::regs().cr3().write(|w| {
+                w.set_rtse(true);
+                w.set_ctse(true);
+            });
+        }
+
+        Self::new_inner(state, peri, rx, tx, irq, tx_buffer, rx_buffer, config)
+    }
+
+    #[cfg(not(usart_v1))]
+    pub fn new_with_de(
+        state: &'d mut State<'d, T>,
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        de: impl Peripheral<P = impl DePin<T>> + 'd,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+        config: Config,
+    ) -> BufferedUart<'d, T> {
+        into_ref!(de);
+
+        T::enable();
+        T::reset();
+
+        unsafe {
+            de.set_as_af(de.af_num(), AFType::OutputPushPull);
+            T::regs().cr3().write(|w| {
+                w.set_dem(true);
+            });
+        }
+
+        Self::new_inner(state, peri, rx, tx, irq, tx_buffer, rx_buffer, config)
+    }
+
+    fn new_inner(
+        state: &'d mut State<'d, T>,
+        _peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+        config: Config,
+    ) -> BufferedUart<'d, T> {
+        into_ref!(_peri, rx, tx, irq);
 
         let r = T::regs();
+
+        unsafe {
+            rx.set_as_af(rx.af_num(), AFType::Input);
+            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+        }
+
+        configure(r, &config, T::frequency(), T::MULTIPLIER, true, true);
+
         unsafe {
             r.cr1().modify(|w| {
+                #[cfg(lpuart_v2)]
+                w.set_fifoen(true);
+
                 w.set_rxneie(true);
                 w.set_idleie(true);
             });
@@ -283,32 +369,20 @@ impl<'u, 'd, T: BasicInstance> embedded_io::Io for BufferedUartTx<'u, 'd, T> {
 }
 
 impl<'d, T: BasicInstance> embedded_io::asynch::Read for BufferedUart<'d, T> {
-    type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-    where
-        Self: 'a;
-
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.inner_read(buf)
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.inner_read(buf).await
     }
 }
 
 impl<'u, 'd, T: BasicInstance> embedded_io::asynch::Read for BufferedUartRx<'u, 'd, T> {
-    type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-    where
-        Self: 'a;
-
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.inner.inner_read(buf)
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.inner.inner_read(buf).await
     }
 }
 
 impl<'d, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUart<'d, T> {
-    type FillBufFuture<'a> = impl Future<Output = Result<&'a [u8], Self::Error>>
-    where
-        Self: 'a;
-
-    fn fill_buf<'a>(&'a mut self) -> Self::FillBufFuture<'a> {
-        self.inner_fill_buf()
+    async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
+        self.inner_fill_buf().await
     }
 
     fn consume(&mut self, amt: usize) {
@@ -317,12 +391,8 @@ impl<'d, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUart<'d, T> 
 }
 
 impl<'u, 'd, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUartRx<'u, 'd, T> {
-    type FillBufFuture<'a> = impl Future<Output = Result<&'a [u8], Self::Error>>
-    where
-        Self: 'a;
-
-    fn fill_buf<'a>(&'a mut self) -> Self::FillBufFuture<'a> {
-        self.inner.inner_fill_buf()
+    async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
+        self.inner.inner_fill_buf().await
     }
 
     fn consume(&mut self, amt: usize) {
@@ -331,37 +401,21 @@ impl<'u, 'd, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUartRx<'
 }
 
 impl<'d, T: BasicInstance> embedded_io::asynch::Write for BufferedUart<'d, T> {
-    type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-    where
-        Self: 'a;
-
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.inner_write(buf)
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.inner_write(buf).await
     }
 
-    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
-    where
-        Self: 'a;
-
-    fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-        self.inner_flush()
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.inner_flush().await
     }
 }
 
 impl<'u, 'd, T: BasicInstance> embedded_io::asynch::Write for BufferedUartTx<'u, 'd, T> {
-    type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-    where
-        Self: 'a;
-
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.inner.inner_write(buf)
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.inner.inner_write(buf).await
     }
 
-    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
-    where
-        Self: 'a;
-
-    fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-        self.inner.inner_flush()
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.inner.inner_flush().await
     }
 }

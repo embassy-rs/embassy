@@ -138,6 +138,9 @@ embassy_hal_common::peripherals! {
 
     // QDEC
     QDEC,
+
+    // I2S
+    I2S,
 }
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
@@ -146,8 +149,15 @@ impl_spim!(TWISPI0, SPIM0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
 impl_spim!(TWISPI1, SPIM1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
 impl_spim!(SPI2, SPIM2, SPIM2_SPIS2_SPI2);
 
+impl_spis!(TWISPI0, SPIS0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+impl_spis!(TWISPI1, SPIS1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+impl_spis!(SPI2, SPIS2, SPIM2_SPIS2_SPI2);
+
 impl_twim!(TWISPI0, TWIM0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
 impl_twim!(TWISPI1, TWIM1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+
+impl_twis!(TWISPI0, TWIS0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+impl_twis!(TWISPI1, TWIS1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
 
 impl_pwm!(PWM0, PWM0, PWM0);
 impl_pwm!(PWM1, PWM1, PWM1);
@@ -225,14 +235,16 @@ impl_ppi_channel!(PPI_CH29, 29 => static);
 impl_ppi_channel!(PPI_CH30, 30 => static);
 impl_ppi_channel!(PPI_CH31, 31 => static);
 
-impl_saadc_input!(P0_02, ANALOGINPUT0);
-impl_saadc_input!(P0_03, ANALOGINPUT1);
-impl_saadc_input!(P0_04, ANALOGINPUT2);
-impl_saadc_input!(P0_05, ANALOGINPUT3);
-impl_saadc_input!(P0_28, ANALOGINPUT4);
-impl_saadc_input!(P0_29, ANALOGINPUT5);
-impl_saadc_input!(P0_30, ANALOGINPUT6);
-impl_saadc_input!(P0_31, ANALOGINPUT7);
+impl_saadc_input!(P0_02, ANALOG_INPUT0);
+impl_saadc_input!(P0_03, ANALOG_INPUT1);
+impl_saadc_input!(P0_04, ANALOG_INPUT2);
+impl_saadc_input!(P0_05, ANALOG_INPUT3);
+impl_saadc_input!(P0_28, ANALOG_INPUT4);
+impl_saadc_input!(P0_29, ANALOG_INPUT5);
+impl_saadc_input!(P0_30, ANALOG_INPUT6);
+impl_saadc_input!(P0_31, ANALOG_INPUT7);
+
+impl_i2s!(I2S, I2S, I2S);
 
 pub mod irqs {
     use embassy_cortex_m::interrupt::_export::declare;
@@ -274,6 +286,6 @@ pub mod irqs {
     declare!(PWM2);
     declare!(SPIM2_SPIS2_SPI2);
     declare!(RTC2);
-    declare!(I2S);
     declare!(FPU);
+    declare!(I2S);
 }

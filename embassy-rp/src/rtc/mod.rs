@@ -145,6 +145,8 @@ impl<'d, T: Instance> RealTimeClock<'d, T> {
                 filter.write_setup_1(w);
             });
 
+            self.inner.regs().inte().modify(|w| w.set_rtc(true));
+
             // Set the enable bit and check if it is set
             self.inner.regs().irq_setup_0().modify(|w| w.set_match_ena(true));
             while !self.inner.regs().irq_setup_0().read().match_active() {
@@ -162,7 +164,7 @@ impl<'d, T: Instance> RealTimeClock<'d, T> {
     }
 }
 
-/// Errors that can occur on methods on [RtcClock]
+/// Errors that can occur on methods on [RealTimeClock]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RtcError {
     /// An invalid DateTime was given or stored on the hardware.

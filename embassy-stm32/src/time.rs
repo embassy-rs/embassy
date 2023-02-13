@@ -2,6 +2,7 @@
 
 /// Hertz
 #[derive(PartialEq, PartialOrd, Clone, Copy, Debug, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Hertz(pub u32);
 
 impl Hertz {

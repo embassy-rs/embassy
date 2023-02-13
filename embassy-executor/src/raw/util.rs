@@ -25,9 +25,3 @@ impl<T> UninitCell<T> {
         ptr::drop_in_place(self.as_mut_ptr())
     }
 }
-
-impl<T: Copy> UninitCell<T> {
-    pub unsafe fn read(&self) -> T {
-        ptr::read(self.as_mut_ptr())
-    }
-}

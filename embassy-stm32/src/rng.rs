@@ -32,6 +32,11 @@ impl<'d, T: Instance> Rng<'d, T> {
     }
 
     pub fn reset(&mut self) {
+        // rng_v2 locks up on seed error, needs reset
+        #[cfg(rng_v2)]
+        if unsafe { T::regs().sr().read().seis() } {
+            T::reset();
+        }
         unsafe {
             T::regs().cr().modify(|reg| {
                 reg.set_rngen(true);
@@ -90,8 +95,10 @@ impl<'d, T: Instance> Rng<'d, T> {
 impl<'d, T: Instance> RngCore for Rng<'d, T> {
     fn next_u32(&mut self) -> u32 {
         loop {
-            let bits = unsafe { T::regs().sr().read() };
-            if bits.drdy() {
+            let sr = unsafe { T::regs().sr().read() };
+            if sr.seis() | sr.ceis() {
+                self.reset();
+            } else if sr.drdy() {
                 return unsafe { T::regs().dr().read() };
             }
         }

@@ -1,3 +1,4 @@
+/// Peripheral Access Crate
 #[allow(unused_imports)]
 #[rustfmt::skip]
 pub mod pac {
@@ -104,6 +105,8 @@ pub mod pac {
 pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
+pub const FLASH_SIZE: usize = 256 * 1024;
+
 embassy_hal_common::peripherals! {
     // RTC
     RTC0,
@@ -111,6 +114,9 @@ embassy_hal_common::peripherals! {
 
     // WDT
     WDT,
+
+    // NVMC
+    NVMC,
 
     // UARTE, TWI & SPI
     UARTETWISPI0,
@@ -238,7 +244,9 @@ embassy_hal_common::peripherals! {
 
 impl_uarte!(UARTETWISPI0, UARTE0, SERIAL0);
 impl_spim!(UARTETWISPI0, SPIM0, SERIAL0);
+impl_spis!(UARTETWISPI0, SPIS0, SERIAL0);
 impl_twim!(UARTETWISPI0, TWIM0, SERIAL0);
+impl_twis!(UARTETWISPI0, TWIS0, SERIAL0);
 
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);

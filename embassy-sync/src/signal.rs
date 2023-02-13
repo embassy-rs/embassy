@@ -56,6 +56,15 @@ where
     }
 }
 
+impl<M, T> Default for Signal<M, T>
+where
+    M: RawMutex,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<M, T: Send> Signal<M, T>
 where
     M: RawMutex,

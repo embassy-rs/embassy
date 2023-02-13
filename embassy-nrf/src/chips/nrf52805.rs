@@ -131,7 +131,11 @@ impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
 
 impl_spim!(SPI0, SPIM0, SPIM0_SPIS0_SPI0);
 
+impl_spis!(SPI0, SPIS0, SPIM0_SPIS0_SPI0);
+
 impl_twim!(TWI0, TWIM0, TWIM0_TWIS0_TWI0);
+
+impl_twis!(TWI0, TWIS0, TWIM0_TWIS0_TWI0);
 
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
@@ -193,8 +197,8 @@ impl_ppi_channel!(PPI_CH29, 29 => static);
 impl_ppi_channel!(PPI_CH30, 30 => static);
 impl_ppi_channel!(PPI_CH31, 31 => static);
 
-impl_saadc_input!(P0_04, ANALOGINPUT2);
-impl_saadc_input!(P0_05, ANALOGINPUT3);
+impl_saadc_input!(P0_04, ANALOG_INPUT2);
+impl_saadc_input!(P0_05, ANALOG_INPUT3);
 
 pub mod irqs {
     use embassy_cortex_m::interrupt::_export::declare;

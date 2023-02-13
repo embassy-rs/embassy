@@ -1,13 +1,15 @@
+//! CDC-ACM class implementation, aka Serial over USB.
+
 use core::cell::Cell;
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 
-use crate::control::{self, ControlHandler, InResponse, OutResponse, Request};
+use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::*;
-use crate::Builder;
+use crate::{Builder, Handler};
 
 /// This should be used as `device_class` when building the `UsbDevice`.
 pub const USB_CLASS_CDC: u8 = 0x02;
@@ -18,7 +20,6 @@ const CDC_PROTOCOL_NONE: u8 = 0x00;
 
 const CS_INTERFACE: u8 = 0x24;
 const CDC_TYPE_HEADER: u8 = 0x00;
-const CDC_TYPE_CALL_MANAGEMENT: u8 = 0x01;
 const CDC_TYPE_ACM: u8 = 0x02;
 const CDC_TYPE_UNION: u8 = 0x06;
 
@@ -29,12 +30,14 @@ const REQ_SET_LINE_CODING: u8 = 0x20;
 const REQ_GET_LINE_CODING: u8 = 0x21;
 const REQ_SET_CONTROL_LINE_STATE: u8 = 0x22;
 
+/// Internal state for CDC-ACM
 pub struct State<'a> {
     control: MaybeUninit<Control<'a>>,
     shared: ControlShared,
 }
 
 impl<'a> State<'a> {
+    /// Create a new `State`.
     pub fn new() -> Self {
         Self {
             control: MaybeUninit::uninit(),
@@ -64,6 +67,7 @@ pub struct CdcAcmClass<'d, D: Driver<'d>> {
 }
 
 struct Control<'a> {
+    comm_if: InterfaceNumber,
     shared: &'a ControlShared,
 }
 
@@ -95,7 +99,7 @@ impl<'a> Control<'a> {
     }
 }
 
-impl<'d> ControlHandler for Control<'d> {
+impl<'d> Handler for Control<'d> {
     fn reset(&mut self) {
         let shared = self.shared();
         shared.line_coding.lock(|x| x.set(LineCoding::default()));
@@ -103,12 +107,18 @@ impl<'d> ControlHandler for Control<'d> {
         shared.rts.store(false, Ordering::Relaxed);
     }
 
-    fn control_out(&mut self, req: control::Request, data: &[u8]) -> OutResponse {
+    fn control_out(&mut self, req: control::Request, data: &[u8]) -> Option<OutResponse> {
+        if (req.request_type, req.recipient, req.index)
+            != (RequestType::Class, Recipient::Interface, self.comm_if.0 as u16)
+        {
+            return None;
+        }
+
         match req.request {
             REQ_SEND_ENCAPSULATED_COMMAND => {
                 // We don't actually support encapsulated commands but pretend we do for standards
                 // compatibility.
-                OutResponse::Accepted
+                Some(OutResponse::Accepted)
             }
             REQ_SET_LINE_CODING if data.len() >= 7 => {
                 let coding = LineCoding {
@@ -120,7 +130,7 @@ impl<'d> ControlHandler for Control<'d> {
                 self.shared().line_coding.lock(|x| x.set(coding));
                 debug!("Set line coding to: {:?}", coding);
 
-                OutResponse::Accepted
+                Some(OutResponse::Accepted)
             }
             REQ_SET_CONTROL_LINE_STATE => {
                 let dtr = (req.value & 0x0001) != 0;
@@ -131,13 +141,19 @@ impl<'d> ControlHandler for Control<'d> {
                 shared.rts.store(rts, Ordering::Relaxed);
                 debug!("Set dtr {}, rts {}", dtr, rts);
 
-                OutResponse::Accepted
+                Some(OutResponse::Accepted)
             }
-            _ => OutResponse::Rejected,
+            _ => Some(OutResponse::Rejected),
         }
     }
 
-    fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
+    fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> Option<InResponse<'a>> {
+        if (req.request_type, req.recipient, req.index)
+            != (RequestType::Class, Recipient::Interface, self.comm_if.0 as u16)
+        {
+            return None;
+        }
+
         match req.request {
             // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
             REQ_GET_LINE_CODING if req.length == 7 => {
@@ -148,9 +164,9 @@ impl<'d> ControlHandler for Control<'d> {
                 buf[4] = coding.stop_bits as u8;
                 buf[5] = coding.parity_type as u8;
                 buf[6] = coding.data_bits;
-                InResponse::Accepted(&buf[0..7])
+                Some(InResponse::Accepted(&buf[0..7]))
             }
-            _ => InResponse::Rejected,
+            _ => Some(InResponse::Rejected),
         }
     }
 }
@@ -159,20 +175,15 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Creates a new CdcAcmClass with the provided UsbBus and max_packet_size in bytes. For
     /// full-speed devices, max_packet_size has to be one of 8, 16, 32 or 64.
     pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, max_packet_size: u16) -> Self {
-        let control = state.control.write(Control { shared: &state.shared });
-
-        let control_shared = &state.shared;
-
         assert!(builder.control_buf_len() >= 7);
 
         let mut func = builder.function(USB_CLASS_CDC, CDC_SUBCLASS_ACM, CDC_PROTOCOL_NONE);
 
         // Control interface
         let mut iface = func.interface();
-        iface.handler(control);
         let comm_if = iface.interface_number();
         let data_if = u8::from(comm_if) + 1;
-        let mut alt = iface.alt_setting(USB_CLASS_CDC, CDC_SUBCLASS_ACM, CDC_PROTOCOL_NONE);
+        let mut alt = iface.alt_setting(USB_CLASS_CDC, CDC_SUBCLASS_ACM, CDC_PROTOCOL_NONE, None);
 
         alt.descriptor(
             CS_INTERFACE,
@@ -186,7 +197,10 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             CS_INTERFACE,
             &[
                 CDC_TYPE_ACM, // bDescriptorSubtype
-                0x00,         // bmCapabilities
+                0x02,         // bmCapabilities:
+                              // D1: Device supports the request combination of
+                              // Set_Line_Coding, Set_Control_Line_State, Get_Line_Coding,
+                              // and the Notification Serial_State.
             ],
         );
         alt.descriptor(
@@ -197,23 +211,25 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
                 data_if.into(), // bSubordinateInterface
             ],
         );
-        alt.descriptor(
-            CS_INTERFACE,
-            &[
-                CDC_TYPE_CALL_MANAGEMENT, // bDescriptorSubtype
-                0x00,                     // bmCapabilities
-                data_if.into(),           // bDataInterface
-            ],
-        );
 
         let comm_ep = alt.endpoint_interrupt_in(8, 255);
 
         // Data interface
         let mut iface = func.interface();
         let data_if = iface.interface_number();
-        let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NONE);
+        let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NONE, None);
         let read_ep = alt.endpoint_bulk_out(max_packet_size);
         let write_ep = alt.endpoint_bulk_in(max_packet_size);
+
+        drop(func);
+
+        let control = state.control.write(Control {
+            shared: &state.shared,
+            comm_if,
+        });
+        builder.handler(control);
+
+        let control_shared = &state.shared;
 
         CdcAcmClass {
             _comm_ep: comm_ep,
@@ -290,10 +306,15 @@ impl From<u8> for StopBits {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ParityType {
+    /// No parity bit.
     None = 0,
+    /// Parity bit is 1 if the amount of `1` bits in the data byte is odd.
     Odd = 1,
+    /// Parity bit is 1 if the amount of `1` bits in the data byte is even.
     Even = 2,
+    /// Parity bit is always 1
     Mark = 3,
+    /// Parity bit is always 0
     Space = 4,
 }
 

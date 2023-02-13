@@ -6,6 +6,7 @@
 mod example_common;
 use defmt::assert_eq;
 use embassy_executor::Spawner;
+use embassy_stm32::interrupt;
 use embassy_stm32::usart::{Config, Uart};
 use example_common::*;
 
@@ -17,22 +18,53 @@ async fn main(_spawner: Spawner) {
     // Arduino pins D0 and D1
     // They're connected together with a 1K resistor.
     #[cfg(feature = "stm32f103c8")]
-    let (tx, rx, usart, tx_dma, rx_dma) = (p.PA9, p.PA10, p.USART1, p.DMA1_CH4, p.DMA1_CH5);
+    let (tx, rx, usart, irq, tx_dma, rx_dma) = (
+        p.PA9,
+        p.PA10,
+        p.USART1,
+        interrupt::take!(USART1),
+        p.DMA1_CH4,
+        p.DMA1_CH5,
+    );
     #[cfg(feature = "stm32g491re")]
-    let (tx, rx, usart, tx_dma, rx_dma) = (p.PC4, p.PC5, p.USART1, p.DMA1_CH1, p.DMA1_CH2);
+    let (tx, rx, usart, irq, tx_dma, rx_dma) =
+        (p.PC4, p.PC5, p.USART1, interrupt::take!(USART1), p.DMA1_CH1, p.DMA1_CH2);
     #[cfg(feature = "stm32g071rb")]
-    let (tx, rx, usart, tx_dma, rx_dma) = (p.PC4, p.PC5, p.USART1, p.DMA1_CH1, p.DMA1_CH2);
+    let (tx, rx, usart, irq, tx_dma, rx_dma) =
+        (p.PC4, p.PC5, p.USART1, interrupt::take!(USART1), p.DMA1_CH1, p.DMA1_CH2);
     #[cfg(feature = "stm32f429zi")]
-    let (tx, rx, usart, tx_dma, rx_dma) = (p.PG14, p.PG9, p.USART6, p.DMA2_CH6, p.DMA2_CH1);
+    let (tx, rx, usart, irq, tx_dma, rx_dma) = (
+        p.PG14,
+        p.PG9,
+        p.USART6,
+        interrupt::take!(USART6),
+        p.DMA2_CH6,
+        p.DMA2_CH1,
+    );
     #[cfg(feature = "stm32wb55rg")]
-    let (tx, rx, usart, tx_dma, rx_dma) = (p.PA2, p.PA3, p.LPUART1, p.DMA1_CH1, p.DMA1_CH2);
+    let (tx, rx, usart, irq, tx_dma, rx_dma) = (
+        p.PA2,
+        p.PA3,
+        p.LPUART1,
+        interrupt::take!(LPUART1),
+        p.DMA1_CH1,
+        p.DMA1_CH2,
+    );
     #[cfg(feature = "stm32h755zi")]
-    let (tx, rx, usart, tx_dma, rx_dma) = (p.PB6, p.PB7, p.USART1, p.DMA1_CH0, p.DMA1_CH1);
+    let (tx, rx, usart, irq, tx_dma, rx_dma) =
+        (p.PB6, p.PB7, p.USART1, interrupt::take!(USART1), p.DMA1_CH0, p.DMA1_CH1);
     #[cfg(feature = "stm32u585ai")]
-    let (tx, rx, usart, tx_dma, rx_dma) = (p.PD8, p.PD9, p.USART3, p.GPDMA1_CH0, p.GPDMA1_CH1);
+    let (tx, rx, usart, irq, tx_dma, rx_dma) = (
+        p.PD8,
+        p.PD9,
+        p.USART3,
+        interrupt::take!(USART3),
+        p.GPDMA1_CH0,
+        p.GPDMA1_CH1,
+    );
 
     let config = Config::default();
-    let mut usart = Uart::new(usart, rx, tx, tx_dma, rx_dma, config);
+    let mut usart = Uart::new(usart, rx, tx, irq, tx_dma, rx_dma, config);
 
     // We can't send too many bytes, they have to fit in the FIFO.
     // This is because we aren't sending+receiving at the same time.

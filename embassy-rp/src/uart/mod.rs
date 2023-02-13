@@ -7,6 +7,11 @@ use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
 use crate::{pac, peripherals, Peripheral};
 
+#[cfg(feature = "nightly")]
+mod buffered;
+#[cfg(feature = "nightly")]
+pub use buffered::{BufferedUart, BufferedUartRx, BufferedUartTx};
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DataBits {
     DataBits5,
@@ -93,7 +98,19 @@ pub struct UartRx<'d, T: Instance, M: Mode> {
 }
 
 impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
-    fn new(tx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
+    /// Create a new DMA-enabled UART which can only send data
+    pub fn new(
+        _uart: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl Channel> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(tx, tx_dma);
+        Uart::<T, M>::init(Some(tx.map_into()), None, None, None, config);
+        Self::new_inner(Some(tx_dma.map_into()))
+    }
+
+    fn new_inner(tx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
         Self {
             tx_dma,
             phantom: PhantomData,
@@ -135,7 +152,19 @@ impl<'d, T: Instance> UartTx<'d, T, Async> {
 }
 
 impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
-    fn new(rx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
+    /// Create a new DMA-enabled UART which can only send data
+    pub fn new(
+        _uart: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        rx_dma: impl Peripheral<P = impl Channel> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(rx, rx_dma);
+        Uart::<T, M>::init(Some(rx.map_into()), None, None, None, config);
+        Self::new_inner(Some(rx_dma.map_into()))
+    }
+
+    fn new_inner(rx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
         Self {
             rx_dma,
             phantom: PhantomData,
@@ -196,7 +225,7 @@ impl<'d, T: Instance> Uart<'d, T, Blocking> {
         config: Config,
     ) -> Self {
         into_ref!(tx, rx);
-        Self::new_inner(uart, rx.map_into(), tx.map_into(), None, None, None, None, config)
+        Self::new_inner(uart, tx.map_into(), rx.map_into(), None, None, None, None, config)
     }
 
     /// Create a new UART with hardware flow control (RTS/CTS)
@@ -211,8 +240,8 @@ impl<'d, T: Instance> Uart<'d, T, Blocking> {
         into_ref!(tx, rx, cts, rts);
         Self::new_inner(
             uart,
-            rx.map_into(),
             tx.map_into(),
+            rx.map_into(),
             Some(rts.map_into()),
             Some(cts.map_into()),
             None,
@@ -235,8 +264,8 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
         into_ref!(tx, rx, tx_dma, rx_dma);
         Self::new_inner(
             uart,
-            rx.map_into(),
             tx.map_into(),
+            rx.map_into(),
             None,
             None,
             Some(tx_dma.map_into()),
@@ -259,8 +288,8 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
         into_ref!(tx, rx, cts, rts, tx_dma, rx_dma);
         Self::new_inner(
             uart,
-            rx.map_into(),
             tx.map_into(),
+            rx.map_into(),
             Some(rts.map_into()),
             Some(cts.map_into()),
             Some(tx_dma.map_into()),
@@ -273,41 +302,52 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
 impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
     fn new_inner(
         _uart: impl Peripheral<P = T> + 'd,
-        tx: PeripheralRef<'d, AnyPin>,
-        rx: PeripheralRef<'d, AnyPin>,
-        rts: Option<PeripheralRef<'d, AnyPin>>,
-        cts: Option<PeripheralRef<'d, AnyPin>>,
+        mut tx: PeripheralRef<'d, AnyPin>,
+        mut rx: PeripheralRef<'d, AnyPin>,
+        mut rts: Option<PeripheralRef<'d, AnyPin>>,
+        mut cts: Option<PeripheralRef<'d, AnyPin>>,
         tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         config: Config,
     ) -> Self {
-        into_ref!(_uart);
+        Self::init(
+            Some(tx.reborrow()),
+            Some(rx.reborrow()),
+            rts.as_mut().map(|x| x.reborrow()),
+            cts.as_mut().map(|x| x.reborrow()),
+            config,
+        );
 
+        Self {
+            tx: UartTx::new_inner(tx_dma),
+            rx: UartRx::new_inner(rx_dma),
+        }
+    }
+
+    fn init(
+        tx: Option<PeripheralRef<'_, AnyPin>>,
+        rx: Option<PeripheralRef<'_, AnyPin>>,
+        rts: Option<PeripheralRef<'_, AnyPin>>,
+        cts: Option<PeripheralRef<'_, AnyPin>>,
+        config: Config,
+    ) {
+        let r = T::regs();
         unsafe {
-            let r = T::regs();
-
-            tx.io().ctrl().write(|w| w.set_funcsel(2));
-            rx.io().ctrl().write(|w| w.set_funcsel(2));
-
-            tx.pad_ctrl().write(|w| {
-                w.set_ie(true);
-            });
-
-            rx.pad_ctrl().write(|w| {
-                w.set_ie(true);
-            });
-
+            if let Some(pin) = &tx {
+                pin.io().ctrl().write(|w| w.set_funcsel(2));
+                pin.pad_ctrl().write(|w| w.set_ie(true));
+            }
+            if let Some(pin) = &rx {
+                pin.io().ctrl().write(|w| w.set_funcsel(2));
+                pin.pad_ctrl().write(|w| w.set_ie(true));
+            }
             if let Some(pin) = &cts {
                 pin.io().ctrl().write(|w| w.set_funcsel(2));
-                pin.pad_ctrl().write(|w| {
-                    w.set_ie(true);
-                });
+                pin.pad_ctrl().write(|w| w.set_ie(true));
             }
             if let Some(pin) = &rts {
                 pin.io().ctrl().write(|w| w.set_funcsel(2));
-                pin.pad_ctrl().write(|w| {
-                    w.set_ie(true);
-                });
+                pin.pad_ctrl().write(|w| w.set_ie(true));
             }
 
             let clk_base = crate::clocks::clk_peri_freq();
@@ -358,11 +398,6 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
                 w.set_ctsen(cts.is_some());
                 w.set_rtsen(rts.is_some());
             });
-        }
-
-        Self {
-            tx: UartTx::new(tx_dma),
-            rx: UartRx::new(rx_dma),
         }
     }
 }
@@ -611,11 +646,6 @@ mod eha {
     }
 }
 
-#[cfg(feature = "nightly")]
-mod buffered;
-#[cfg(feature = "nightly")]
-pub use buffered::*;
-
 mod sealed {
     use super::*;
 
@@ -628,6 +658,9 @@ mod sealed {
         type Interrupt: crate::interrupt::Interrupt;
 
         fn regs() -> pac::uart::Uart;
+
+        #[cfg(feature = "nightly")]
+        fn state() -> &'static buffered::State;
     }
     pub trait TxPin<T: Instance> {}
     pub trait RxPin<T: Instance> {}
@@ -662,6 +695,12 @@ macro_rules! impl_instance {
 
             fn regs() -> pac::uart::Uart {
                 pac::$inst
+            }
+
+            #[cfg(feature = "nightly")]
+            fn state() -> &'static buffered::State {
+                static STATE: buffered::State = buffered::State::new();
+                &STATE
             }
         }
         impl Instance for peripherals::$inst {}

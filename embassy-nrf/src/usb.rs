@@ -1,6 +1,8 @@
+//! Universal Serial Bus (USB) driver.
+
 #![macro_use]
 
-use core::future::{poll_fn, Future};
+use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
@@ -24,42 +26,38 @@ static EP_IN_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
 static EP_OUT_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
 static READY_ENDPOINTS: AtomicU32 = AtomicU32::new(0);
 
+/// Trait for detecting USB VBUS power.
+///
 /// There are multiple ways to detect USB power. The behavior
 /// here provides a hook into determining whether it is.
-pub trait UsbSupply {
+pub trait VbusDetect {
+    /// Report whether power is detected.
+    ///
+    /// This is indicated by the `USBREGSTATUS.VBUSDETECT` register, or the
+    /// `USBDETECTED`, `USBREMOVED` events from the `POWER` peripheral.
     fn is_usb_detected(&self) -> bool;
 
-    type UsbPowerReadyFuture<'a>: Future<Output = Result<(), ()>> + 'a
-    where
-        Self: 'a;
-    fn wait_power_ready(&mut self) -> Self::UsbPowerReadyFuture<'_>;
+    /// Wait until USB power is ready.
+    ///
+    /// USB power ready is indicated by the `USBREGSTATUS.OUTPUTRDY` register, or the
+    /// `USBPWRRDY` event from the `POWER` peripheral.
+    async fn wait_power_ready(&mut self) -> Result<(), ()>;
 }
 
-pub struct Driver<'d, T: Instance, P: UsbSupply> {
-    _p: PeripheralRef<'d, T>,
-    alloc_in: Allocator,
-    alloc_out: Allocator,
-    usb_supply: P,
-}
-
-/// Uses the POWER peripheral to detect when power is available
-/// for USB. Unsuitable for usage with the nRF softdevice.
+/// [`VbusDetect`] implementation using the native hardware POWER peripheral.
+///
+/// Unsuitable for usage with the nRF softdevice, since it reserves exclusive acces
+/// to POWER. In that case, use [`VbusDetectSignal`].
 #[cfg(not(feature = "_nrf5340-app"))]
-pub struct PowerUsb {
+pub struct HardwareVbusDetect {
     _private: (),
-}
-
-/// Can be used to signal that power is available. Particularly suited for
-/// use with the nRF softdevice.
-pub struct SignalledSupply {
-    usb_detected: AtomicBool,
-    power_ready: AtomicBool,
 }
 
 static POWER_WAKER: AtomicWaker = NEW_AW;
 
 #[cfg(not(feature = "_nrf5340-app"))]
-impl PowerUsb {
+impl HardwareVbusDetect {
+    /// Create a new `VbusDetectNative`.
     pub fn new(power_irq: impl Interrupt) -> Self {
         let regs = unsafe { &*pac::POWER::ptr() };
 
@@ -96,14 +94,13 @@ impl PowerUsb {
 }
 
 #[cfg(not(feature = "_nrf5340-app"))]
-impl UsbSupply for PowerUsb {
+impl VbusDetect for HardwareVbusDetect {
     fn is_usb_detected(&self) -> bool {
         let regs = unsafe { &*pac::POWER::ptr() };
         regs.usbregstatus.read().vbusdetect().is_vbus_present()
     }
 
-    type UsbPowerReadyFuture<'a> = impl Future<Output = Result<(), ()>> + 'a where Self: 'a;
-    fn wait_power_ready(&mut self) -> Self::UsbPowerReadyFuture<'_> {
+    async fn wait_power_ready(&mut self) -> Result<(), ()> {
         poll_fn(move |cx| {
             POWER_WAKER.register(cx.waker());
             let regs = unsafe { &*pac::POWER::ptr() };
@@ -116,10 +113,24 @@ impl UsbSupply for PowerUsb {
                 Poll::Pending
             }
         })
+        .await
     }
 }
 
-impl SignalledSupply {
+/// Software-backed [`VbusDetect`] implementation.
+///
+/// This implementation does not interact with the hardware, it allows user code
+/// to notify the power events by calling functions instead.
+///
+/// This is suitable for use with the nRF softdevice, by calling the functions
+/// when the softdevice reports power-related events.
+pub struct SoftwareVbusDetect {
+    usb_detected: AtomicBool,
+    power_ready: AtomicBool,
+}
+
+impl SoftwareVbusDetect {
+    /// Create a new `SoftwareVbusDetect`.
     pub fn new(usb_detected: bool, power_ready: bool) -> Self {
         BUS_WAKER.wake();
 
@@ -129,6 +140,9 @@ impl SignalledSupply {
         }
     }
 
+    /// Report whether power was detected.
+    ///
+    /// Equivalent to the `USBDETECTED`, `USBREMOVED` events from the `POWER` peripheral.
     pub fn detected(&self, detected: bool) {
         self.usb_detected.store(detected, Ordering::Relaxed);
         self.power_ready.store(false, Ordering::Relaxed);
@@ -136,19 +150,21 @@ impl SignalledSupply {
         POWER_WAKER.wake();
     }
 
+    /// Report when USB power is ready.
+    ///
+    /// Equivalent to the `USBPWRRDY` event from the `POWER` peripheral.
     pub fn ready(&self) {
         self.power_ready.store(true, Ordering::Relaxed);
         POWER_WAKER.wake();
     }
 }
 
-impl UsbSupply for &SignalledSupply {
+impl VbusDetect for &SoftwareVbusDetect {
     fn is_usb_detected(&self) -> bool {
         self.usb_detected.load(Ordering::Relaxed)
     }
 
-    type UsbPowerReadyFuture<'a> = impl Future<Output = Result<(), ()>> + 'a where Self: 'a;
-    fn wait_power_ready(&mut self) -> Self::UsbPowerReadyFuture<'_> {
+    async fn wait_power_ready(&mut self) -> Result<(), ()> {
         poll_fn(move |cx| {
             POWER_WAKER.register(cx.waker());
 
@@ -160,10 +176,20 @@ impl UsbSupply for &SignalledSupply {
                 Poll::Pending
             }
         })
+        .await
     }
 }
 
-impl<'d, T: Instance, P: UsbSupply> Driver<'d, T, P> {
+/// USB driver.
+pub struct Driver<'d, T: Instance, P: VbusDetect> {
+    _p: PeripheralRef<'d, T>,
+    alloc_in: Allocator,
+    alloc_out: Allocator,
+    usb_supply: P,
+}
+
+impl<'d, T: Instance, P: VbusDetect> Driver<'d, T, P> {
+    /// Create a new USB driver.
     pub fn new(usb: impl Peripheral<P = T> + 'd, irq: impl Peripheral<P = T::Interrupt> + 'd, usb_supply: P) -> Self {
         into_ref!(usb, irq);
         irq.set_handler(Self::on_interrupt);
@@ -229,7 +255,7 @@ impl<'d, T: Instance, P: UsbSupply> Driver<'d, T, P> {
     }
 }
 
-impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P> {
+impl<'d, T: Instance, P: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, T, P> {
     type EndpointOut = Endpoint<'d, T, Out>;
     type EndpointIn = Endpoint<'d, T, In>;
     type ControlPipe = ControlPipe<'d, T>;
@@ -239,7 +265,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
         &mut self,
         ep_type: EndpointType,
         packet_size: u16,
-        interval: u8,
+        interval_ms: u8,
     ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
         let index = self.alloc_in.allocate(ep_type)?;
         let ep_addr = EndpointAddress::from_parts(index, Direction::In);
@@ -247,7 +273,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
             addr: ep_addr,
             ep_type,
             max_packet_size: packet_size,
-            interval,
+            interval_ms,
         }))
     }
 
@@ -255,7 +281,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
         &mut self,
         ep_type: EndpointType,
         packet_size: u16,
-        interval: u8,
+        interval_ms: u8,
     ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
         let index = self.alloc_out.allocate(ep_type)?;
         let ep_addr = EndpointAddress::from_parts(index, Direction::Out);
@@ -263,7 +289,7 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
             addr: ep_addr,
             ep_type,
             max_packet_size: packet_size,
-            interval,
+            interval_ms,
         }))
     }
 
@@ -282,68 +308,60 @@ impl<'d, T: Instance, P: UsbSupply + 'd> driver::Driver<'d> for Driver<'d, T, P>
     }
 }
 
-pub struct Bus<'d, T: Instance, P: UsbSupply> {
+/// USB bus.
+pub struct Bus<'d, T: Instance, P: VbusDetect> {
     _p: PeripheralRef<'d, T>,
     power_available: bool,
     usb_supply: P,
 }
 
-impl<'d, T: Instance, P: UsbSupply> driver::Bus for Bus<'d, T, P> {
-    type EnableFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-    type DisableFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-    type PollFuture<'a> = impl Future<Output = Event> + 'a where Self: 'a;
-    type RemoteWakeupFuture<'a> = impl Future<Output = Result<(), Unsupported>> + 'a where Self: 'a;
+impl<'d, T: Instance, P: VbusDetect> driver::Bus for Bus<'d, T, P> {
+    async fn enable(&mut self) {
+        let regs = T::regs();
 
-    fn enable(&mut self) -> Self::EnableFuture<'_> {
-        async move {
-            let regs = T::regs();
+        errata::pre_enable();
 
-            errata::pre_enable();
+        regs.enable.write(|w| w.enable().enabled());
 
-            regs.enable.write(|w| w.enable().enabled());
-
-            // Wait until the peripheral is ready.
-            regs.intenset.write(|w| w.usbevent().set_bit());
-            poll_fn(|cx| {
-                BUS_WAKER.register(cx.waker());
-                if regs.eventcause.read().ready().is_ready() {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-            regs.eventcause.write(|w| w.ready().set_bit()); // Write 1 to clear.
-
-            errata::post_enable();
-
-            unsafe { NVIC::unmask(pac::Interrupt::USBD) };
-
-            regs.intenset.write(|w| {
-                w.usbreset().set_bit();
-                w.usbevent().set_bit();
-                w.epdata().set_bit();
-                w
-            });
-
-            if self.usb_supply.wait_power_ready().await.is_ok() {
-                // Enable the USB pullup, allowing enumeration.
-                regs.usbpullup.write(|w| w.connect().enabled());
-                trace!("enabled");
+        // Wait until the peripheral is ready.
+        regs.intenset.write(|w| w.usbevent().set_bit());
+        poll_fn(|cx| {
+            BUS_WAKER.register(cx.waker());
+            if regs.eventcause.read().ready().is_ready() {
+                Poll::Ready(())
             } else {
-                trace!("usb power not ready due to usb removal");
+                Poll::Pending
             }
+        })
+        .await;
+        regs.eventcause.write(|w| w.ready().clear_bit_by_one());
+
+        errata::post_enable();
+
+        unsafe { NVIC::unmask(pac::Interrupt::USBD) };
+
+        regs.intenset.write(|w| {
+            w.usbreset().set_bit();
+            w.usbevent().set_bit();
+            w.epdata().set_bit();
+            w
+        });
+
+        if self.usb_supply.wait_power_ready().await.is_ok() {
+            // Enable the USB pullup, allowing enumeration.
+            regs.usbpullup.write(|w| w.connect().enabled());
+            trace!("enabled");
+        } else {
+            trace!("usb power not ready due to usb removal");
         }
     }
 
-    fn disable(&mut self) -> Self::DisableFuture<'_> {
-        async move {
-            let regs = T::regs();
-            regs.enable.write(|x| x.enable().disabled());
-        }
+    async fn disable(&mut self) {
+        let regs = T::regs();
+        regs.enable.write(|x| x.enable().disabled());
     }
 
-    fn poll<'a>(&'a mut self) -> Self::PollFuture<'a> {
+    async fn poll(&mut self) -> Event {
         poll_fn(move |cx| {
             BUS_WAKER.register(cx.waker());
             let regs = T::regs();
@@ -367,24 +385,24 @@ impl<'d, T: Instance, P: UsbSupply> driver::Bus for Bus<'d, T, P> {
             let r = regs.eventcause.read();
 
             if r.isooutcrc().bit() {
-                regs.eventcause.write(|w| w.isooutcrc().set_bit());
+                regs.eventcause.write(|w| w.isooutcrc().detected());
                 trace!("USB event: isooutcrc");
             }
             if r.usbwuallowed().bit() {
-                regs.eventcause.write(|w| w.usbwuallowed().set_bit());
+                regs.eventcause.write(|w| w.usbwuallowed().allowed());
                 trace!("USB event: usbwuallowed");
             }
             if r.suspend().bit() {
-                regs.eventcause.write(|w| w.suspend().set_bit());
+                regs.eventcause.write(|w| w.suspend().detected());
                 regs.lowpower.write(|w| w.lowpower().low_power());
                 return Poll::Ready(Event::Suspend);
             }
             if r.resume().bit() {
-                regs.eventcause.write(|w| w.resume().set_bit());
+                regs.eventcause.write(|w| w.resume().detected());
                 return Poll::Ready(Event::Resume);
             }
             if r.ready().bit() {
-                regs.eventcause.write(|w| w.ready().set_bit());
+                regs.eventcause.write(|w| w.ready().ready());
                 trace!("USB event: ready");
             }
 
@@ -401,11 +419,7 @@ impl<'d, T: Instance, P: UsbSupply> driver::Bus for Bus<'d, T, P> {
 
             Poll::Pending
         })
-    }
-
-    #[inline]
-    fn set_address(&mut self, _addr: u8) {
-        // Nothing to do, the peripheral handles this.
+        .await
     }
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
@@ -493,46 +507,47 @@ impl<'d, T: Instance, P: UsbSupply> driver::Bus for Bus<'d, T, P> {
     }
 
     #[inline]
-    fn remote_wakeup(&mut self) -> Self::RemoteWakeupFuture<'_> {
-        async move {
-            let regs = T::regs();
+    async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
+        let regs = T::regs();
 
-            if regs.lowpower.read().lowpower().is_low_power() {
-                errata::pre_wakeup();
+        if regs.lowpower.read().lowpower().is_low_power() {
+            errata::pre_wakeup();
 
-                regs.lowpower.write(|w| w.lowpower().force_normal());
+            regs.lowpower.write(|w| w.lowpower().force_normal());
 
-                poll_fn(|cx| {
-                    BUS_WAKER.register(cx.waker());
-                    let regs = T::regs();
-                    let r = regs.eventcause.read();
+            poll_fn(|cx| {
+                BUS_WAKER.register(cx.waker());
+                let regs = T::regs();
+                let r = regs.eventcause.read();
 
-                    if regs.events_usbreset.read().bits() != 0 {
-                        Poll::Ready(())
-                    } else if r.resume().bit() {
-                        Poll::Ready(())
-                    } else if r.usbwuallowed().bit() {
-                        regs.eventcause.write(|w| w.usbwuallowed().set_bit());
+                if regs.events_usbreset.read().bits() != 0 {
+                    Poll::Ready(())
+                } else if r.resume().bit() {
+                    Poll::Ready(())
+                } else if r.usbwuallowed().bit() {
+                    regs.eventcause.write(|w| w.usbwuallowed().allowed());
 
-                        regs.dpdmvalue.write(|w| w.state().resume());
-                        regs.tasks_dpdmdrive.write(|w| w.tasks_dpdmdrive().set_bit());
+                    regs.dpdmvalue.write(|w| w.state().resume());
+                    regs.tasks_dpdmdrive.write(|w| w.tasks_dpdmdrive().set_bit());
 
-                        Poll::Ready(())
-                    } else {
-                        Poll::Pending
-                    }
-                })
-                .await;
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await;
 
-                errata::post_wakeup();
-            }
-
-            Ok(())
+            errata::post_wakeup();
         }
+
+        Ok(())
     }
 }
 
+/// Type-level marker for OUT endpoints.
 pub enum Out {}
+
+/// Type-level marker for IN endpoints.
 pub enum In {}
 
 trait EndpointDir {
@@ -575,6 +590,7 @@ impl EndpointDir for Out {
     }
 }
 
+/// USB endpoint.
 pub struct Endpoint<'d, T: Instance, Dir> {
     _phantom: PhantomData<(&'d mut T, Dir)>,
     info: EndpointInfo,
@@ -594,9 +610,7 @@ impl<'d, T: Instance, Dir: EndpointDir> driver::Endpoint for Endpoint<'d, T, Dir
         &self.info
     }
 
-    type WaitEnabledFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-
-    fn wait_enabled(&mut self) -> Self::WaitEnabledFuture<'_> {
+    async fn wait_enabled(&mut self) {
         let i = self.info.addr.index();
         assert!(i != 0);
 
@@ -608,6 +622,7 @@ impl<'d, T: Instance, Dir: EndpointDir> driver::Endpoint for Endpoint<'d, T, Dir
                 Poll::Pending
             }
         })
+        .await
     }
 }
 
@@ -712,173 +727,155 @@ unsafe fn write_dma<T: Instance>(i: usize, buf: &[u8]) {
 }
 
 impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
-    type ReadFuture<'a> = impl Future<Output = Result<usize, EndpointError>> + 'a where Self: 'a;
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let i = self.info.addr.index();
+        assert!(i != 0);
 
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        async move {
-            let i = self.info.addr.index();
-            assert!(i != 0);
+        self.wait_data_ready().await.map_err(|_| EndpointError::Disabled)?;
 
-            self.wait_data_ready().await.map_err(|_| EndpointError::Disabled)?;
-
-            unsafe { read_dma::<T>(i, buf) }
-        }
+        unsafe { read_dma::<T>(i, buf) }
     }
 }
 
 impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
-    type WriteFuture<'a> = impl Future<Output = Result<(), EndpointError>> + 'a where Self: 'a;
+    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+        let i = self.info.addr.index();
+        assert!(i != 0);
 
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        async move {
-            let i = self.info.addr.index();
-            assert!(i != 0);
+        self.wait_data_ready().await.map_err(|_| EndpointError::Disabled)?;
 
-            self.wait_data_ready().await.map_err(|_| EndpointError::Disabled)?;
+        unsafe { write_dma::<T>(i, buf) }
 
-            unsafe { write_dma::<T>(i, buf) }
-
-            Ok(())
-        }
+        Ok(())
     }
 }
 
+/// USB control pipe.
 pub struct ControlPipe<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
     max_packet_size: u16,
 }
 
 impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
-    type SetupFuture<'a> = impl Future<Output = [u8;8]> + 'a where Self: 'a;
-    type DataOutFuture<'a> = impl Future<Output = Result<usize, EndpointError>> + 'a where Self: 'a;
-    type DataInFuture<'a> = impl Future<Output = Result<(), EndpointError>> + 'a where Self: 'a;
-    type AcceptFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-    type RejectFuture<'a> = impl Future<Output = ()> + 'a where Self: 'a;
-
     fn max_packet_size(&self) -> usize {
         usize::from(self.max_packet_size)
     }
 
-    fn setup<'a>(&'a mut self) -> Self::SetupFuture<'a> {
-        async move {
+    async fn setup(&mut self) -> [u8; 8] {
+        let regs = T::regs();
+
+        // Reset shorts
+        regs.shorts.write(|w| w);
+
+        // Wait for SETUP packet
+        regs.intenset.write(|w| w.ep0setup().set());
+        poll_fn(|cx| {
+            EP0_WAKER.register(cx.waker());
             let regs = T::regs();
+            if regs.events_ep0setup.read().bits() != 0 {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
 
-            // Reset shorts
-            regs.shorts.write(|w| w);
+        regs.events_ep0setup.reset();
 
-            // Wait for SETUP packet
-            regs.intenset.write(|w| w.ep0setup().set());
-            poll_fn(|cx| {
-                EP0_WAKER.register(cx.waker());
-                let regs = T::regs();
-                if regs.events_ep0setup.read().bits() != 0 {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
+        let mut buf = [0; 8];
+        buf[0] = regs.bmrequesttype.read().bits() as u8;
+        buf[1] = regs.brequest.read().brequest().bits();
+        buf[2] = regs.wvaluel.read().wvaluel().bits();
+        buf[3] = regs.wvalueh.read().wvalueh().bits();
+        buf[4] = regs.windexl.read().windexl().bits();
+        buf[5] = regs.windexh.read().windexh().bits();
+        buf[6] = regs.wlengthl.read().wlengthl().bits();
+        buf[7] = regs.wlengthh.read().wlengthh().bits();
 
-            regs.events_ep0setup.reset();
-
-            let mut buf = [0; 8];
-            buf[0] = regs.bmrequesttype.read().bits() as u8;
-            buf[1] = regs.brequest.read().brequest().bits();
-            buf[2] = regs.wvaluel.read().wvaluel().bits();
-            buf[3] = regs.wvalueh.read().wvalueh().bits();
-            buf[4] = regs.windexl.read().windexl().bits();
-            buf[5] = regs.windexh.read().windexh().bits();
-            buf[6] = regs.wlengthl.read().wlengthl().bits();
-            buf[7] = regs.wlengthh.read().wlengthh().bits();
-
-            buf
-        }
+        buf
     }
 
-    fn data_out<'a>(&'a mut self, buf: &'a mut [u8], _first: bool, _last: bool) -> Self::DataOutFuture<'a> {
-        async move {
+    async fn data_out(&mut self, buf: &mut [u8], _first: bool, _last: bool) -> Result<usize, EndpointError> {
+        let regs = T::regs();
+
+        regs.events_ep0datadone.reset();
+
+        // This starts a RX on EP0. events_ep0datadone notifies when done.
+        regs.tasks_ep0rcvout.write(|w| w.tasks_ep0rcvout().set_bit());
+
+        // Wait until ready
+        regs.intenset.write(|w| {
+            w.usbreset().set();
+            w.ep0setup().set();
+            w.ep0datadone().set()
+        });
+        poll_fn(|cx| {
+            EP0_WAKER.register(cx.waker());
             let regs = T::regs();
+            if regs.events_ep0datadone.read().bits() != 0 {
+                Poll::Ready(Ok(()))
+            } else if regs.events_usbreset.read().bits() != 0 {
+                trace!("aborted control data_out: usb reset");
+                Poll::Ready(Err(EndpointError::Disabled))
+            } else if regs.events_ep0setup.read().bits() != 0 {
+                trace!("aborted control data_out: received another SETUP");
+                Poll::Ready(Err(EndpointError::Disabled))
+            } else {
+                Poll::Pending
+            }
+        })
+        .await?;
 
-            regs.events_ep0datadone.reset();
-
-            // This starts a RX on EP0. events_ep0datadone notifies when done.
-            regs.tasks_ep0rcvout.write(|w| w.tasks_ep0rcvout().set_bit());
-
-            // Wait until ready
-            regs.intenset.write(|w| {
-                w.usbreset().set();
-                w.ep0setup().set();
-                w.ep0datadone().set()
-            });
-            poll_fn(|cx| {
-                EP0_WAKER.register(cx.waker());
-                let regs = T::regs();
-                if regs.events_ep0datadone.read().bits() != 0 {
-                    Poll::Ready(Ok(()))
-                } else if regs.events_usbreset.read().bits() != 0 {
-                    trace!("aborted control data_out: usb reset");
-                    Poll::Ready(Err(EndpointError::Disabled))
-                } else if regs.events_ep0setup.read().bits() != 0 {
-                    trace!("aborted control data_out: received another SETUP");
-                    Poll::Ready(Err(EndpointError::Disabled))
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await?;
-
-            unsafe { read_dma::<T>(0, buf) }
-        }
+        unsafe { read_dma::<T>(0, buf) }
     }
 
-    fn data_in<'a>(&'a mut self, buf: &'a [u8], _first: bool, last: bool) -> Self::DataInFuture<'a> {
-        async move {
+    async fn data_in(&mut self, buf: &[u8], _first: bool, last: bool) -> Result<(), EndpointError> {
+        let regs = T::regs();
+        regs.events_ep0datadone.reset();
+
+        regs.shorts.write(|w| w.ep0datadone_ep0status().bit(last));
+
+        // This starts a TX on EP0. events_ep0datadone notifies when done.
+        unsafe { write_dma::<T>(0, buf) }
+
+        regs.intenset.write(|w| {
+            w.usbreset().set();
+            w.ep0setup().set();
+            w.ep0datadone().set()
+        });
+
+        poll_fn(|cx| {
+            cx.waker().wake_by_ref();
+            EP0_WAKER.register(cx.waker());
             let regs = T::regs();
-            regs.events_ep0datadone.reset();
-
-            regs.shorts.write(|w| w.ep0datadone_ep0status().bit(last));
-
-            // This starts a TX on EP0. events_ep0datadone notifies when done.
-            unsafe { write_dma::<T>(0, buf) }
-
-            regs.intenset.write(|w| {
-                w.usbreset().set();
-                w.ep0setup().set();
-                w.ep0datadone().set()
-            });
-
-            poll_fn(|cx| {
-                cx.waker().wake_by_ref();
-                EP0_WAKER.register(cx.waker());
-                let regs = T::regs();
-                if regs.events_ep0datadone.read().bits() != 0 {
-                    Poll::Ready(Ok(()))
-                } else if regs.events_usbreset.read().bits() != 0 {
-                    trace!("aborted control data_in: usb reset");
-                    Poll::Ready(Err(EndpointError::Disabled))
-                } else if regs.events_ep0setup.read().bits() != 0 {
-                    trace!("aborted control data_in: received another SETUP");
-                    Poll::Ready(Err(EndpointError::Disabled))
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await
-        }
+            if regs.events_ep0datadone.read().bits() != 0 {
+                Poll::Ready(Ok(()))
+            } else if regs.events_usbreset.read().bits() != 0 {
+                trace!("aborted control data_in: usb reset");
+                Poll::Ready(Err(EndpointError::Disabled))
+            } else if regs.events_ep0setup.read().bits() != 0 {
+                trace!("aborted control data_in: received another SETUP");
+                Poll::Ready(Err(EndpointError::Disabled))
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
     }
 
-    fn accept<'a>(&'a mut self) -> Self::AcceptFuture<'a> {
-        async move {
-            let regs = T::regs();
-            regs.tasks_ep0status.write(|w| w.tasks_ep0status().bit(true));
-        }
+    async fn accept(&mut self) {
+        let regs = T::regs();
+        regs.tasks_ep0status.write(|w| w.tasks_ep0status().bit(true));
     }
 
-    fn reject<'a>(&'a mut self) -> Self::RejectFuture<'a> {
-        async move {
-            let regs = T::regs();
-            regs.tasks_ep0stall.write(|w| w.tasks_ep0stall().bit(true));
-        }
+    async fn reject(&mut self) {
+        let regs = T::regs();
+        regs.tasks_ep0stall.write(|w| w.tasks_ep0stall().bit(true));
+    }
+
+    async fn accept_set_address(&mut self, _addr: u8) {
+        self.accept().await;
+        // Nothing to do, the peripheral handles this.
     }
 }
 
@@ -944,7 +941,9 @@ pub(crate) mod sealed {
     }
 }
 
+/// USB peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+    /// Interrupt for this peripheral.
     type Interrupt: Interrupt;
 }
 

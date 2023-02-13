@@ -1,3 +1,5 @@
+//! USB HID (Human Interface Device) class implementation.
+
 use core::mem::MaybeUninit;
 use core::ops::Range;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -7,9 +9,10 @@ use ssmarshal::serialize;
 #[cfg(feature = "usbd-hid")]
 use usbd_hid::descriptor::AsInputReport;
 
-use crate::control::{ControlHandler, InResponse, OutResponse, Request, RequestType};
+use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
-use crate::Builder;
+use crate::types::InterfaceNumber;
+use crate::{Builder, Handler};
 
 const USB_CLASS_HID: u8 = 0x03;
 const USB_SUBCLASS_NONE: u8 = 0x00;
@@ -28,6 +31,7 @@ const HID_REQ_SET_REPORT: u8 = 0x09;
 const HID_REQ_GET_PROTOCOL: u8 = 0x03;
 const HID_REQ_SET_PROTOCOL: u8 = 0x0b;
 
+/// Configuration for the HID class.
 pub struct Config<'d> {
     /// HID report descriptor.
     pub report_descriptor: &'d [u8],
@@ -46,11 +50,15 @@ pub struct Config<'d> {
     pub max_packet_size: u16,
 }
 
+/// Report ID
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ReportId {
+    /// IN report
     In(u8),
+    /// OUT report
     Out(u8),
+    /// Feature report
     Feature(u8),
 }
 
@@ -65,12 +73,14 @@ impl ReportId {
     }
 }
 
+/// Internal state for USB HID.
 pub struct State<'d> {
     control: MaybeUninit<Control<'d>>,
     out_report_offset: AtomicUsize,
 }
 
 impl<'d> State<'d> {
+    /// Create a new `State`.
     pub fn new() -> Self {
         State {
             control: MaybeUninit::uninit(),
@@ -79,6 +89,7 @@ impl<'d> State<'d> {
     }
 }
 
+/// USB HID reader/writer.
 pub struct HidReaderWriter<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> {
     reader: HidReader<'d, D, READ_N>,
     writer: HidWriter<'d, D, WRITE_N>,
@@ -90,18 +101,12 @@ fn build<'d, D: Driver<'d>>(
     config: Config<'d>,
     with_out_endpoint: bool,
 ) -> (Option<D::EndpointOut>, D::EndpointIn, &'d AtomicUsize) {
-    let control = state.control.write(Control::new(
-        config.report_descriptor,
-        config.request_handler,
-        &state.out_report_offset,
-    ));
-
     let len = config.report_descriptor.len();
 
     let mut func = builder.function(USB_CLASS_HID, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE);
     let mut iface = func.interface();
-    iface.handler(control);
-    let mut alt = iface.alt_setting(USB_CLASS_HID, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE);
+    let if_num = iface.interface_number();
+    let mut alt = iface.alt_setting(USB_CLASS_HID, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE, None);
 
     // HID descriptor
     alt.descriptor(
@@ -128,6 +133,16 @@ fn build<'d, D: Driver<'d>>(
     } else {
         None
     };
+
+    drop(func);
+
+    let control = state.control.write(Control::new(
+        if_num,
+        config.report_descriptor,
+        config.request_handler,
+        &state.out_report_offset,
+    ));
+    builder.handler(control);
 
     (ep_out, ep_in, &state.out_report_offset)
 }
@@ -180,20 +195,30 @@ impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> HidReaderWrit
     }
 }
 
+/// USB HID writer.
+///
+/// You can obtain a `HidWriter` using [`HidReaderWriter::split`].
 pub struct HidWriter<'d, D: Driver<'d>, const N: usize> {
     ep_in: D::EndpointIn,
 }
 
+/// USB HID reader.
+///
+/// You can obtain a `HidReader` using [`HidReaderWriter::split`].
 pub struct HidReader<'d, D: Driver<'d>, const N: usize> {
     ep_out: D::EndpointOut,
     offset: &'d AtomicUsize,
 }
 
+/// Error when reading a HID report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ReadError {
+    /// The given buffer was too small to read the received report.
     BufferOverflow,
+    /// The endpoint is disabled.
     Disabled,
+    /// The report was only partially read. See [`HidReader::read`] for details.
     Sync(Range<usize>),
 }
 
@@ -299,7 +324,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
     /// **Note:** If `N` > the maximum packet size of the endpoint (i.e. output
     /// reports may be split across multiple packets) and this method's future
     /// is dropped after some packets have been read, the next call to `read()`
-    /// will return a [`ReadError::SyncError()`]. The range in the sync error
+    /// will return a [`ReadError::Sync`]. The range in the sync error
     /// indicates the portion `buf` that was filled by the current call to
     /// `read()`. If the dropped future used the same `buf`, then `buf` will
     /// contain the full report.
@@ -344,6 +369,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
     }
 }
 
+/// Handler for HID-related control requests.
 pub trait RequestHandler {
     /// Reads the value of report `id` into `buf` returning the size.
     ///
@@ -379,6 +405,7 @@ pub trait RequestHandler {
 }
 
 struct Control<'d> {
+    if_num: InterfaceNumber,
     report_descriptor: &'d [u8],
     request_handler: Option<&'d dyn RequestHandler>,
     out_report_offset: &'d AtomicUsize,
@@ -387,11 +414,13 @@ struct Control<'d> {
 
 impl<'d> Control<'d> {
     fn new(
+        if_num: InterfaceNumber,
         report_descriptor: &'d [u8],
         request_handler: Option<&'d dyn RequestHandler>,
         out_report_offset: &'d AtomicUsize,
     ) -> Self {
         Control {
+            if_num,
             report_descriptor,
             request_handler,
             out_report_offset,
@@ -417,88 +446,100 @@ impl<'d> Control<'d> {
     }
 }
 
-impl<'d> ControlHandler for Control<'d> {
+impl<'d> Handler for Control<'d> {
     fn reset(&mut self) {
         self.out_report_offset.store(0, Ordering::Release);
     }
 
-    fn get_descriptor<'a>(&'a mut self, req: Request, _buf: &'a mut [u8]) -> InResponse<'a> {
-        match (req.value >> 8) as u8 {
-            HID_DESC_DESCTYPE_HID_REPORT => InResponse::Accepted(self.report_descriptor),
-            HID_DESC_DESCTYPE_HID => InResponse::Accepted(&self.hid_descriptor),
-            _ => InResponse::Rejected,
+    fn control_out(&mut self, req: Request, data: &[u8]) -> Option<OutResponse> {
+        if (req.request_type, req.recipient, req.index)
+            != (RequestType::Class, Recipient::Interface, self.if_num.0 as u16)
+        {
+            return None;
         }
-    }
 
-    fn control_out(&mut self, req: Request, data: &[u8]) -> OutResponse {
         trace!("HID control_out {:?} {=[u8]:x}", req, data);
-        if let RequestType::Class = req.request_type {
-            match req.request {
-                HID_REQ_SET_IDLE => {
-                    if let Some(handler) = self.request_handler {
-                        let id = req.value as u8;
-                        let id = (id != 0).then(|| ReportId::In(id));
-                        let dur = u32::from(req.value >> 8);
-                        let dur = if dur == 0 { u32::MAX } else { 4 * dur };
-                        handler.set_idle_ms(id, dur);
-                    }
-                    OutResponse::Accepted
-                }
-                HID_REQ_SET_REPORT => match (ReportId::try_from(req.value), self.request_handler) {
-                    (Ok(id), Some(handler)) => handler.set_report(id, data),
-                    _ => OutResponse::Rejected,
-                },
-                HID_REQ_SET_PROTOCOL => {
-                    if req.value == 1 {
-                        OutResponse::Accepted
-                    } else {
-                        warn!("HID Boot Protocol is unsupported.");
-                        OutResponse::Rejected // UNSUPPORTED: Boot Protocol
-                    }
-                }
-                _ => OutResponse::Rejected,
-            }
-        } else {
-            OutResponse::Rejected // UNSUPPORTED: SET_DESCRIPTOR
-        }
-    }
-
-    fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
-        trace!("HID control_in {:?}", req);
         match req.request {
-            HID_REQ_GET_REPORT => {
-                let size = match ReportId::try_from(req.value) {
-                    Ok(id) => self.request_handler.and_then(|x| x.get_report(id, buf)),
-                    Err(_) => None,
-                };
-
-                if let Some(size) = size {
-                    InResponse::Accepted(&buf[0..size])
-                } else {
-                    InResponse::Rejected
-                }
-            }
-            HID_REQ_GET_IDLE => {
+            HID_REQ_SET_IDLE => {
                 if let Some(handler) = self.request_handler {
                     let id = req.value as u8;
                     let id = (id != 0).then(|| ReportId::In(id));
-                    if let Some(dur) = handler.get_idle_ms(id) {
-                        let dur = u8::try_from(dur / 4).unwrap_or(0);
-                        buf[0] = dur;
-                        InResponse::Accepted(&buf[0..1])
-                    } else {
-                        InResponse::Rejected
-                    }
+                    let dur = u32::from(req.value >> 8);
+                    let dur = if dur == 0 { u32::MAX } else { 4 * dur };
+                    handler.set_idle_ms(id, dur);
+                }
+                Some(OutResponse::Accepted)
+            }
+            HID_REQ_SET_REPORT => match (ReportId::try_from(req.value), self.request_handler) {
+                (Ok(id), Some(handler)) => Some(handler.set_report(id, data)),
+                _ => Some(OutResponse::Rejected),
+            },
+            HID_REQ_SET_PROTOCOL => {
+                if req.value == 1 {
+                    Some(OutResponse::Accepted)
                 } else {
-                    InResponse::Rejected
+                    warn!("HID Boot Protocol is unsupported.");
+                    Some(OutResponse::Rejected) // UNSUPPORTED: Boot Protocol
                 }
             }
-            HID_REQ_GET_PROTOCOL => {
-                // UNSUPPORTED: Boot Protocol
-                buf[0] = 1;
-                InResponse::Accepted(&buf[0..1])
+            _ => Some(OutResponse::Rejected),
+        }
+    }
+
+    fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> Option<InResponse<'a>> {
+        if req.index != self.if_num.0 as u16 {
+            return None;
+        }
+
+        match (req.request_type, req.recipient) {
+            (RequestType::Standard, Recipient::Interface) => match req.request {
+                Request::GET_DESCRIPTOR => match (req.value >> 8) as u8 {
+                    HID_DESC_DESCTYPE_HID_REPORT => Some(InResponse::Accepted(self.report_descriptor)),
+                    HID_DESC_DESCTYPE_HID => Some(InResponse::Accepted(&self.hid_descriptor)),
+                    _ => Some(InResponse::Rejected),
+                },
+
+                _ => Some(InResponse::Rejected),
+            },
+            (RequestType::Class, Recipient::Interface) => {
+                trace!("HID control_in {:?}", req);
+                match req.request {
+                    HID_REQ_GET_REPORT => {
+                        let size = match ReportId::try_from(req.value) {
+                            Ok(id) => self.request_handler.and_then(|x| x.get_report(id, buf)),
+                            Err(_) => None,
+                        };
+
+                        if let Some(size) = size {
+                            Some(InResponse::Accepted(&buf[0..size]))
+                        } else {
+                            Some(InResponse::Rejected)
+                        }
+                    }
+                    HID_REQ_GET_IDLE => {
+                        if let Some(handler) = self.request_handler {
+                            let id = req.value as u8;
+                            let id = (id != 0).then(|| ReportId::In(id));
+                            if let Some(dur) = handler.get_idle_ms(id) {
+                                let dur = u8::try_from(dur / 4).unwrap_or(0);
+                                buf[0] = dur;
+                                Some(InResponse::Accepted(&buf[0..1]))
+                            } else {
+                                Some(InResponse::Rejected)
+                            }
+                        } else {
+                            Some(InResponse::Rejected)
+                        }
+                    }
+                    HID_REQ_GET_PROTOCOL => {
+                        // UNSUPPORTED: Boot Protocol
+                        buf[0] = 1;
+                        Some(InResponse::Accepted(&buf[0..1]))
+                    }
+                    _ => Some(InResponse::Rejected),
+                }
             }
-            _ => InResponse::Rejected,
+            _ => None,
         }
     }
 }

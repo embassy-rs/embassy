@@ -1,7 +1,6 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::mem;
-use core::ptr::NonNull;
 use core::task::Poll;
 
 use super::raw;
@@ -22,12 +21,12 @@ use super::raw;
 /// Once you've invoked a task function and obtained a SpawnToken, you *must* spawn it.
 #[must_use = "Calling a task function does nothing on its own. You must spawn the returned SpawnToken, typically with Spawner::spawn()"]
 pub struct SpawnToken<S> {
-    raw_task: Option<NonNull<raw::TaskHeader>>,
+    raw_task: Option<raw::TaskRef>,
     phantom: PhantomData<*mut S>,
 }
 
 impl<S> SpawnToken<S> {
-    pub(crate) unsafe fn new(raw_task: NonNull<raw::TaskHeader>) -> Self {
+    pub(crate) unsafe fn new(raw_task: raw::TaskRef) -> Self {
         Self {
             raw_task: Some(raw_task),
             phantom: PhantomData,
@@ -90,10 +89,10 @@ impl Spawner {
     ///
     /// Panics if the current executor is not an Embassy executor.
     pub async fn for_current_executor() -> Self {
-        poll_fn(|cx| unsafe {
+        poll_fn(|cx| {
             let task = raw::task_from_waker(cx.waker());
-            let executor = (*task.as_ptr()).executor.get();
-            Poll::Ready(Self::new(&*executor))
+            let executor = unsafe { task.header().executor.get().unwrap_unchecked() };
+            Poll::Ready(Self::new(executor))
         })
         .await
     }
@@ -166,10 +165,10 @@ impl SendSpawner {
     ///
     /// Panics if the current executor is not an Embassy executor.
     pub async fn for_current_executor() -> Self {
-        poll_fn(|cx| unsafe {
+        poll_fn(|cx| {
             let task = raw::task_from_waker(cx.waker());
-            let executor = (*task.as_ptr()).executor.get();
-            Poll::Ready(Self::new(&*executor))
+            let executor = unsafe { task.header().executor.get().unwrap_unchecked() };
+            Poll::Ready(Self::new(executor))
         })
         .await
     }

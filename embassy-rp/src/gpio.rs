@@ -48,6 +48,21 @@ pub enum Pull {
     Down,
 }
 
+/// Drive strength of an output
+#[derive(Debug, Eq, PartialEq)]
+pub enum Drive {
+    _2mA,
+    _4mA,
+    _8mA,
+    _12mA,
+}
+/// Slew rate of an output
+#[derive(Debug, Eq, PartialEq)]
+pub enum SlewRate {
+    Fast,
+    Slow,
+}
+
 /// A GPIO bank with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Bank {
@@ -411,6 +426,16 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     pub fn toggle(&mut self) {
         self.pin.toggle_set_as_output()
     }
+
+    #[inline]
+    pub fn is_high(&self) -> bool {
+        self.pin.is_high()
+    }
+
+    #[inline]
+    pub fn is_low(&self) -> bool {
+        self.pin.is_low()
+    }
 }
 
 /// GPIO flexible pin.
@@ -449,13 +474,40 @@ impl<'d, T: Pin> Flex<'d, T> {
     #[inline]
     pub fn set_pull(&mut self, pull: Pull) {
         unsafe {
-            self.pin.pad_ctrl().write(|w| {
+            self.pin.pad_ctrl().modify(|w| {
                 w.set_ie(true);
-                match pull {
-                    Pull::Up => w.set_pue(true),
-                    Pull::Down => w.set_pde(true),
-                    Pull::None => {}
-                }
+                let (pu, pd) = match pull {
+                    Pull::Up => (true, false),
+                    Pull::Down => (false, true),
+                    Pull::None => (false, false),
+                };
+                w.set_pue(pu);
+                w.set_pde(pd);
+            });
+        }
+    }
+
+    /// Set the pin's drive strength.
+    #[inline]
+    pub fn set_drive_strength(&mut self, strength: Drive) {
+        unsafe {
+            self.pin.pad_ctrl().modify(|w| {
+                w.set_drive(match strength {
+                    Drive::_2mA => pac::pads::vals::Drive::_2MA,
+                    Drive::_4mA => pac::pads::vals::Drive::_4MA,
+                    Drive::_8mA => pac::pads::vals::Drive::_8MA,
+                    Drive::_12mA => pac::pads::vals::Drive::_12MA,
+                });
+            });
+        }
+    }
+
+    // Set the pin's slew rate.
+    #[inline]
+    pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
+        unsafe {
+            self.pin.pad_ctrl().modify(|w| {
+                w.set_slewfast(slew_rate == SlewRate::Fast);
             });
         }
     }
@@ -691,6 +743,7 @@ macro_rules! impl_pin {
     ($name:ident, $bank:expr, $pin_num:expr) => {
         impl Pin for peripherals::$name {}
         impl sealed::Pin for peripherals::$name {
+            #[inline]
             fn pin_bank(&self) -> u8 {
                 ($bank as u8) * 32 + $pin_num
             }
@@ -791,6 +844,18 @@ mod eh02 {
         }
     }
 
+    impl<'d, T: Pin> embedded_hal_02::digital::v2::InputPin for OutputOpenDrain<'d, T> {
+        type Error = Infallible;
+
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
+    }
+
     impl<'d, T: Pin> embedded_hal_02::digital::v2::OutputPin for OutputOpenDrain<'d, T> {
         type Error = Infallible;
 
@@ -870,9 +935,6 @@ mod eh02 {
 mod eh1 {
     use core::convert::Infallible;
 
-    #[cfg(feature = "nightly")]
-    use futures::FutureExt;
-
     use super::*;
 
     impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Input<'d, T> {
@@ -949,6 +1011,16 @@ mod eh1 {
         }
     }
 
+    impl<'d, T: Pin> embedded_hal_1::digital::InputPin for OutputOpenDrain<'d, T> {
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
+    }
+
     impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Flex<'d, T> {
         type Error = Infallible;
     }
@@ -991,57 +1063,57 @@ mod eh1 {
 
     #[cfg(feature = "nightly")]
     impl<'d, T: Pin> embedded_hal_async::digital::Wait for Flex<'d, T> {
-        type WaitForHighFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn wait_for_high<'a>(&'a mut self) -> Self::WaitForHighFuture<'a> {
-            self.wait_for_high().map(Ok)
+        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_high().await;
+            Ok(())
         }
 
-        type WaitForLowFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn wait_for_low<'a>(&'a mut self) -> Self::WaitForLowFuture<'a> {
-            self.wait_for_low().map(Ok)
+        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_low().await;
+            Ok(())
         }
 
-        type WaitForRisingEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn wait_for_rising_edge<'a>(&'a mut self) -> Self::WaitForRisingEdgeFuture<'a> {
-            self.wait_for_rising_edge().map(Ok)
+        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_rising_edge().await;
+            Ok(())
         }
 
-        type WaitForFallingEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn wait_for_falling_edge<'a>(&'a mut self) -> Self::WaitForFallingEdgeFuture<'a> {
-            self.wait_for_falling_edge().map(Ok)
+        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_falling_edge().await;
+            Ok(())
         }
 
-        type WaitForAnyEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn wait_for_any_edge<'a>(&'a mut self) -> Self::WaitForAnyEdgeFuture<'a> {
-            self.wait_for_any_edge().map(Ok)
+        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_any_edge().await;
+            Ok(())
         }
     }
 
     #[cfg(feature = "nightly")]
     impl<'d, T: Pin> embedded_hal_async::digital::Wait for Input<'d, T> {
-        type WaitForHighFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn wait_for_high<'a>(&'a mut self) -> Self::WaitForHighFuture<'a> {
-            self.wait_for_high().map(Ok)
+        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_high().await;
+            Ok(())
         }
 
-        type WaitForLowFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn wait_for_low<'a>(&'a mut self) -> Self::WaitForLowFuture<'a> {
-            self.wait_for_low().map(Ok)
+        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_low().await;
+            Ok(())
         }
 
-        type WaitForRisingEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn wait_for_rising_edge<'a>(&'a mut self) -> Self::WaitForRisingEdgeFuture<'a> {
-            self.wait_for_rising_edge().map(Ok)
+        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_rising_edge().await;
+            Ok(())
         }
 
-        type WaitForFallingEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn wait_for_falling_edge<'a>(&'a mut self) -> Self::WaitForFallingEdgeFuture<'a> {
-            self.wait_for_falling_edge().map(Ok)
+        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_falling_edge().await;
+            Ok(())
         }
 
-        type WaitForAnyEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn wait_for_any_edge<'a>(&'a mut self) -> Self::WaitForAnyEdgeFuture<'a> {
-            self.wait_for_any_edge().map(Ok)
+        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_any_edge().await;
+            Ok(())
         }
     }
 }

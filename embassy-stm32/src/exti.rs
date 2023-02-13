@@ -25,11 +25,11 @@ fn cpu_regs() -> pac::exti::Exti {
     EXTI
 }
 
-#[cfg(not(any(exti_g0, exti_l5, gpio_v1, exti_u5)))]
+#[cfg(not(any(exti_c0, exti_g0, exti_l5, gpio_v1, exti_u5)))]
 fn exticr_regs() -> pac::syscfg::Syscfg {
     pac::SYSCFG
 }
-#[cfg(any(exti_g0, exti_l5, exti_u5))]
+#[cfg(any(exti_c0, exti_g0, exti_l5, exti_u5))]
 fn exticr_regs() -> pac::exti::Exti {
     EXTI
 }
@@ -39,9 +39,9 @@ fn exticr_regs() -> pac::afio::Afio {
 }
 
 pub unsafe fn on_irq() {
-    #[cfg(not(any(exti_g0, exti_l5, exti_u5)))]
+    #[cfg(not(any(exti_c0, exti_g0, exti_l5, exti_u5)))]
     let bits = EXTI.pr(0).read().0;
-    #[cfg(any(exti_g0, exti_l5, exti_u5))]
+    #[cfg(any(exti_c0, exti_g0, exti_l5, exti_u5))]
     let bits = EXTI.rpr(0).read().0 | EXTI.fpr(0).read().0;
 
     // Mask all the channels that fired.
@@ -53,9 +53,9 @@ pub unsafe fn on_irq() {
     }
 
     // Clear pending
-    #[cfg(not(any(exti_g0, exti_l5, exti_u5)))]
+    #[cfg(not(any(exti_c0, exti_g0, exti_l5, exti_u5)))]
     EXTI.pr(0).write_value(Lines(bits));
-    #[cfg(any(exti_g0, exti_l5, exti_u5))]
+    #[cfg(any(exti_c0, exti_g0, exti_l5, exti_u5))]
     {
         EXTI.rpr(0).write_value(Lines(bits));
         EXTI.fpr(0).write_value(Lines(bits));
@@ -167,39 +167,33 @@ mod eh1 {
 }
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 mod eha {
-    use futures::FutureExt;
 
     use super::*;
 
     impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for ExtiInput<'d, T> {
-        type WaitForHighFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn wait_for_high<'a>(&'a mut self) -> Self::WaitForHighFuture<'a> {
-            self.wait_for_high().map(Ok)
+        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_high().await;
+            Ok(())
         }
 
-        type WaitForLowFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn wait_for_low<'a>(&'a mut self) -> Self::WaitForLowFuture<'a> {
-            self.wait_for_low().map(Ok)
+        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_low().await;
+            Ok(())
         }
 
-        type WaitForRisingEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn wait_for_rising_edge<'a>(&'a mut self) -> Self::WaitForRisingEdgeFuture<'a> {
-            self.wait_for_rising_edge().map(Ok)
+        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_rising_edge().await;
+            Ok(())
         }
 
-        type WaitForFallingEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn wait_for_falling_edge<'a>(&'a mut self) -> Self::WaitForFallingEdgeFuture<'a> {
-            self.wait_for_falling_edge().map(Ok)
+        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_falling_edge().await;
+            Ok(())
         }
 
-        type WaitForAnyEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn wait_for_any_edge<'a>(&'a mut self) -> Self::WaitForAnyEdgeFuture<'a> {
-            self.wait_for_any_edge().map(Ok)
+        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_any_edge().await;
+            Ok(())
         }
     }
 }
@@ -218,9 +212,9 @@ impl<'a> ExtiInputFuture<'a> {
             EXTI.ftsr(0).modify(|w| w.set_line(pin, falling));
 
             // clear pending bit
-            #[cfg(not(any(exti_g0, exti_l5, exti_u5)))]
+            #[cfg(not(any(exti_c0, exti_g0, exti_l5, exti_u5)))]
             EXTI.pr(0).write(|w| w.set_line(pin, true));
-            #[cfg(any(exti_g0, exti_l5, exti_u5))]
+            #[cfg(any(exti_c0, exti_g0, exti_l5, exti_u5))]
             {
                 EXTI.rpr(0).write(|w| w.set_line(pin, true));
                 EXTI.fpr(0).write(|w| w.set_line(pin, true));

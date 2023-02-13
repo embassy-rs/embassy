@@ -1,3 +1,5 @@
+//! Serial Peripheral Instance in master mode (SPIM) driver.
+
 #![macro_use]
 
 use core::future::poll_fn;
@@ -16,27 +18,37 @@ use crate::interrupt::{Interrupt, InterruptExt};
 use crate::util::{slice_in_ram_or, slice_ptr_parts, slice_ptr_parts_mut};
 use crate::{pac, Peripheral};
 
+/// SPIM error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
+    /// TX buffer was too long.
     TxBufferTooLong,
+    /// RX buffer was too long.
     RxBufferTooLong,
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
-    DMABufferNotInDataMemory,
+    BufferNotInRAM,
 }
 
-/// Interface for the SPIM peripheral using EasyDMA to offload the transmission and reception workload.
-///
-/// For more details about EasyDMA, consult the module documentation.
+/// SPIM driver.
 pub struct Spim<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
 }
 
+/// SPIM configuration.
 #[non_exhaustive]
 pub struct Config {
+    /// Frequency
     pub frequency: Frequency,
+
+    /// SPI mode
     pub mode: Mode,
+
+    /// Overread character.
+    ///
+    /// When doing bidirectional transfers, if the TX buffer is shorter than the RX buffer,
+    /// this byte will be transmitted in the MOSI line for the left-over bytes.
     pub orc: u8,
 }
 
@@ -51,6 +63,7 @@ impl Default for Config {
 }
 
 impl<'d, T: Instance> Spim<'d, T> {
+    /// Create a new SPIM driver.
     pub fn new(
         spim: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
@@ -70,6 +83,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         )
     }
 
+    /// Create a new SPIM driver, capable of TX only (MOSI only).
     pub fn new_txonly(
         spim: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
@@ -81,6 +95,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         Self::new_inner(spim, irq, sck.map_into(), None, Some(mosi.map_into()), config)
     }
 
+    /// Create a new SPIM driver, capable of RX only (MISO only).
     pub fn new_rxonly(
         spim: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
@@ -194,7 +209,7 @@ impl<'d, T: Instance> Spim<'d, T> {
     }
 
     fn prepare(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
-        slice_in_ram_or(tx, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(tx, Error::BufferNotInRAM)?;
         // NOTE: RAM slice check for rx is not necessary, as a mutable
         // slice can only be built from data located in RAM.
 
@@ -236,7 +251,7 @@ impl<'d, T: Instance> Spim<'d, T> {
     fn blocking_inner(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Error> {
         match self.blocking_inner_from_ram(rx, tx) {
             Ok(_) => Ok(()),
-            Err(Error::DMABufferNotInDataMemory) => {
+            Err(Error::BufferNotInRAM) => {
                 trace!("Copying SPIM tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..tx.len()];
                 tx_ram_buf.copy_from_slice(tx);
@@ -268,7 +283,7 @@ impl<'d, T: Instance> Spim<'d, T> {
     async fn async_inner(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Error> {
         match self.async_inner_from_ram(rx, tx).await {
             Ok(_) => Ok(()),
-            Err(Error::DMABufferNotInDataMemory) => {
+            Err(Error::BufferNotInRAM) => {
                 trace!("Copying SPIM tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..tx.len()];
                 tx_ram_buf.copy_from_slice(tx);
@@ -385,7 +400,9 @@ pub(crate) mod sealed {
     }
 }
 
+/// SPIM peripheral instance
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
+    /// Interrupt for this peripheral.
     type Interrupt: Interrupt;
 }
 
@@ -437,7 +454,7 @@ mod eh1 {
             match *self {
                 Self::TxBufferTooLong => embedded_hal_1::spi::ErrorKind::Other,
                 Self::RxBufferTooLong => embedded_hal_1::spi::ErrorKind::Other,
-                Self::DMABufferNotInDataMemory => embedded_hal_1::spi::ErrorKind::Other,
+                Self::BufferNotInRAM => embedded_hal_1::spi::ErrorKind::Other,
             }
         }
     }
@@ -477,45 +494,34 @@ mod eh1 {
 
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 mod eha {
-    use core::future::Future;
 
     use super::*;
 
     impl<'d, T: Instance> embedded_hal_async::spi::SpiBusFlush for Spim<'d, T> {
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            async move { Ok(()) }
+        async fn flush(&mut self) -> Result<(), Error> {
+            Ok(())
         }
     }
 
     impl<'d, T: Instance> embedded_hal_async::spi::SpiBusRead<u8> for Spim<'d, T> {
-        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn read<'a>(&'a mut self, words: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.read(words)
+        async fn read(&mut self, words: &mut [u8]) -> Result<(), Error> {
+            self.read(words).await
         }
     }
 
     impl<'d, T: Instance> embedded_hal_async::spi::SpiBusWrite<u8> for Spim<'d, T> {
-        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn write<'a>(&'a mut self, data: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.write(data)
+        async fn write(&mut self, data: &[u8]) -> Result<(), Error> {
+            self.write(data).await
         }
     }
 
     impl<'d, T: Instance> embedded_hal_async::spi::SpiBus<u8> for Spim<'d, T> {
-        type TransferFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn transfer<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Self::TransferFuture<'a> {
-            self.transfer(rx, tx)
+        async fn transfer(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Error> {
+            self.transfer(rx, tx).await
         }
 
-        type TransferInPlaceFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn transfer_in_place<'a>(&'a mut self, words: &'a mut [u8]) -> Self::TransferInPlaceFuture<'a> {
-            self.transfer_in_place(words)
+        async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Error> {
+            self.transfer_in_place(words).await
         }
     }
 }

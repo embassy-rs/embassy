@@ -1,4 +1,4 @@
-//! HAL interface to the WDT peripheral.
+//! Watchdog Timer (WDT) driver.
 //!
 //! This HAL implements a basic watchdog timer with 1..=8 handles.
 //! Once the watchdog has been started, it cannot be stopped.
@@ -8,6 +8,7 @@ use crate::peripherals;
 
 const MIN_TICKS: u32 = 15;
 
+/// WDT configuration.
 #[non_exhaustive]
 pub struct Config {
     /// Number of 32768 Hz ticks in each watchdog period.
@@ -23,6 +24,30 @@ pub struct Config {
     pub run_during_debug_halt: bool,
 }
 
+impl Config {
+    /// Create a config structure from the current configuration of the WDT
+    /// peripheral.
+    pub fn try_new(_wdt: &peripherals::WDT) -> Option<Self> {
+        let r = unsafe { &*WDT::ptr() };
+
+        #[cfg(not(feature = "_nrf9160"))]
+        let runstatus = r.runstatus.read().runstatus().bit();
+        #[cfg(feature = "_nrf9160")]
+        let runstatus = r.runstatus.read().runstatuswdt().bit();
+
+        if runstatus {
+            let config = r.config.read();
+            Some(Self {
+                timeout_ticks: r.crv.read().bits(),
+                run_during_sleep: config.sleep().bit(),
+                run_during_debug_halt: config.halt().bit(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -33,13 +58,13 @@ impl Default for Config {
     }
 }
 
-/// An interface to the Watchdog.
+/// Watchdog driver.
 pub struct Watchdog {
     _private: (),
 }
 
 impl Watchdog {
-    /// Try to create a new watchdog instance from the peripheral.
+    /// Try to create a new watchdog driver.
     ///
     /// This function will return an error if the watchdog is already active
     /// with a `config` different to the requested one, or a different number of
@@ -131,6 +156,7 @@ impl Watchdog {
     }
 }
 
+/// Watchdog handle.
 pub struct WatchdogHandle {
     index: u8,
 }

@@ -1,5 +1,9 @@
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(type_alias_impl_trait))]
+#![cfg_attr(
+    feature = "nightly",
+    feature(type_alias_impl_trait, async_fn_in_trait, impl_trait_projections)
+)]
+#![cfg_attr(feature = "nightly", allow(incomplete_features))]
 
 // This must go FIRST so that all the other modules see its macros.
 pub mod fmt;
@@ -54,9 +58,9 @@ pub mod sdmmc;
 pub mod spi;
 #[cfg(usart)]
 pub mod usart;
-#[cfg(usb)]
+#[cfg(all(usb, feature = "time"))]
 pub mod usb;
-#[cfg(any(otgfs, otghs))]
+#[cfg(otg)]
 pub mod usb_otg;
 
 #[cfg(iwdg)]
@@ -77,6 +81,8 @@ pub(crate) mod _generated {
 // Reexports
 pub use _generated::{peripherals, Peripherals};
 pub use embassy_cortex_m::executor;
+#[cfg(any(dma, bdma))]
+use embassy_cortex_m::interrupt::Priority;
 pub use embassy_cortex_m::interrupt::_export::interrupt;
 pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 #[cfg(feature = "unstable-pac")]
@@ -89,6 +95,10 @@ pub struct Config {
     pub rcc: rcc::Config,
     #[cfg(dbgmcu)]
     pub enable_debug_during_sleep: bool,
+    #[cfg(bdma)]
+    pub bdma_interrupt_priority: Priority,
+    #[cfg(dma)]
+    pub dma_interrupt_priority: Priority,
 }
 
 impl Default for Config {
@@ -97,6 +107,10 @@ impl Default for Config {
             rcc: Default::default(),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
+            #[cfg(bdma)]
+            bdma_interrupt_priority: Priority::P0,
+            #[cfg(dma)]
+            dma_interrupt_priority: Priority::P0,
         }
     }
 }
@@ -109,7 +123,7 @@ pub fn init(config: Config) -> Peripherals {
         #[cfg(dbgmcu)]
         if config.enable_debug_during_sleep {
             crate::pac::DBGMCU.cr().modify(|cr| {
-                #[cfg(any(dbgmcu_f0, dbgmcu_g0, dbgmcu_u5))]
+                #[cfg(any(dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u5))]
                 {
                     cr.set_dbg_stop(true);
                     cr.set_dbg_standby(true);
@@ -135,7 +149,12 @@ pub fn init(config: Config) -> Peripherals {
         }
 
         gpio::init();
-        dma::init();
+        dma::init(
+            #[cfg(bdma)]
+            config.bdma_interrupt_priority,
+            #[cfg(dma)]
+            config.dma_interrupt_priority,
+        );
         #[cfg(feature = "exti")]
         exti::init();
 

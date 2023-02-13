@@ -1,3 +1,4 @@
+/// Peripheral Access Crate
 #[allow(unused_imports)]
 #[rustfmt::skip]
 pub mod pac {
@@ -213,6 +214,8 @@ pub mod pac {
 pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
+pub const FLASH_SIZE: usize = 1024 * 1024;
+
 embassy_hal_common::peripherals! {
     // USB
     USBD,
@@ -223,6 +226,9 @@ embassy_hal_common::peripherals! {
 
     // WDT
     WDT,
+
+    // NVMC
+    NVMC,
 
     // UARTE, TWI & SPI
     UARTETWISPI0,
@@ -361,10 +367,20 @@ impl_spim!(UARTETWISPI1, SPIM1, SERIAL1);
 impl_spim!(UARTETWISPI2, SPIM2, SERIAL2);
 impl_spim!(UARTETWISPI3, SPIM3, SERIAL3);
 
+impl_spis!(UARTETWISPI0, SPIS0, SERIAL0);
+impl_spis!(UARTETWISPI1, SPIS1, SERIAL1);
+impl_spis!(UARTETWISPI2, SPIS2, SERIAL2);
+impl_spis!(UARTETWISPI3, SPIS3, SERIAL3);
+
 impl_twim!(UARTETWISPI0, TWIM0, SERIAL0);
 impl_twim!(UARTETWISPI1, TWIM1, SERIAL1);
 impl_twim!(UARTETWISPI2, TWIM2, SERIAL2);
 impl_twim!(UARTETWISPI3, TWIM3, SERIAL3);
+
+impl_twis!(UARTETWISPI0, TWIS0, SERIAL0);
+impl_twis!(UARTETWISPI1, TWIS1, SERIAL1);
+impl_twis!(UARTETWISPI2, TWIS2, SERIAL2);
+impl_twis!(UARTETWISPI3, TWIS3, SERIAL3);
 
 impl_pwm!(PWM0, PWM0, PWM0);
 impl_pwm!(PWM1, PWM1, PWM1);
@@ -458,14 +474,14 @@ impl_ppi_channel!(PPI_CH29, 29 => configurable);
 impl_ppi_channel!(PPI_CH30, 30 => configurable);
 impl_ppi_channel!(PPI_CH31, 31 => configurable);
 
-impl_saadc_input!(P0_13, ANALOGINPUT0);
-impl_saadc_input!(P0_14, ANALOGINPUT1);
-impl_saadc_input!(P0_15, ANALOGINPUT2);
-impl_saadc_input!(P0_16, ANALOGINPUT3);
-impl_saadc_input!(P0_17, ANALOGINPUT4);
-impl_saadc_input!(P0_18, ANALOGINPUT5);
-impl_saadc_input!(P0_19, ANALOGINPUT6);
-impl_saadc_input!(P0_20, ANALOGINPUT7);
+impl_saadc_input!(P0_13, ANALOG_INPUT0);
+impl_saadc_input!(P0_14, ANALOG_INPUT1);
+impl_saadc_input!(P0_15, ANALOG_INPUT2);
+impl_saadc_input!(P0_16, ANALOG_INPUT3);
+impl_saadc_input!(P0_17, ANALOG_INPUT4);
+impl_saadc_input!(P0_18, ANALOG_INPUT5);
+impl_saadc_input!(P0_19, ANALOG_INPUT6);
+impl_saadc_input!(P0_20, ANALOG_INPUT7);
 
 pub mod irqs {
     use embassy_cortex_m::interrupt::_export::declare;

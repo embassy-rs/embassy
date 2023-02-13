@@ -1,3 +1,5 @@
+//! Successive Approximation Analog-to-Digital Converter (SAADC) driver.
+
 #![macro_use]
 
 use core::future::poll_fn;
@@ -20,6 +22,7 @@ use crate::ppi::{ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::{interrupt, pac, peripherals, Peripheral};
 
+/// SAADC error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
@@ -102,17 +105,17 @@ impl<'d> ChannelConfig<'d> {
     }
 }
 
-/// The state of a continuously running sampler. While it reflects
-/// the progress of a sampler, it also signals what should be done
-/// next. For example, if the sampler has stopped then the Saadc implementation
-/// can then tear down its infrastructure.
+/// Value returned by the SAADC callback, deciding what happens next.
 #[derive(PartialEq)]
-pub enum SamplerState {
-    Sampled,
-    Stopped,
+pub enum CallbackResult {
+    /// The SAADC should keep sampling and calling the callback.
+    Continue,
+    /// The SAADC should stop sampling, and return.
+    Stop,
 }
 
 impl<'d, const N: usize> Saadc<'d, N> {
+    /// Create a new SAADC driver.
     pub fn new(
         saadc: impl Peripheral<P = peripherals::SAADC> + 'd,
         irq: impl Peripheral<P = interrupt::SAADC> + 'd,
@@ -225,7 +228,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
     /// also cause the sampling to be stopped.
     pub async fn sample(&mut self, buf: &mut [i16; N]) {
         // In case the future is dropped, stop the task and wait for it to end.
-        OnDrop::new(Self::stop_sampling_immediately);
+        let on_drop = OnDrop::new(Self::stop_sampling_immediately);
 
         let r = Self::regs();
 
@@ -258,6 +261,8 @@ impl<'d, const N: usize> Saadc<'d, N> {
             Poll::Pending
         })
         .await;
+
+        drop(on_drop);
     }
 
     /// Continuous sampling with double buffers.
@@ -283,7 +288,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
     /// free the buffers from being used by the peripheral. Cancellation will
     /// also cause the sampling to be stopped.
 
-    pub async fn run_task_sampler<S, T: TimerInstance, const N0: usize>(
+    pub async fn run_task_sampler<F, T: TimerInstance, const N0: usize>(
         &mut self,
         timer: &mut T,
         ppi_ch1: &mut impl ConfigurableChannel,
@@ -291,9 +296,9 @@ impl<'d, const N: usize> Saadc<'d, N> {
         frequency: Frequency,
         sample_counter: u32,
         bufs: &mut [[[i16; N]; N0]; 2],
-        sampler: S,
+        callback: F,
     ) where
-        S: FnMut(&[[i16; N]]) -> SamplerState,
+        F: FnMut(&[[i16; N]]) -> CallbackResult,
     {
         let r = Self::regs();
 
@@ -319,23 +324,23 @@ impl<'d, const N: usize> Saadc<'d, N> {
             || {
                 sample_ppi.enable();
             },
-            sampler,
+            callback,
         )
         .await;
     }
 
-    async fn run_sampler<I, S, const N0: usize>(
+    async fn run_sampler<I, F, const N0: usize>(
         &mut self,
         bufs: &mut [[[i16; N]; N0]; 2],
         sample_rate_divisor: Option<u16>,
         mut init: I,
-        mut sampler: S,
+        mut callback: F,
     ) where
         I: FnMut(),
-        S: FnMut(&[[i16; N]]) -> SamplerState,
+        F: FnMut(&[[i16; N]]) -> CallbackResult,
     {
         // In case the future is dropped, stop the task and wait for it to end.
-        OnDrop::new(Self::stop_sampling_immediately);
+        let on_drop = OnDrop::new(Self::stop_sampling_immediately);
 
         let r = Self::regs();
 
@@ -382,7 +387,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
         let mut current_buffer = 0;
 
         // Wait for events and complete when the sampler indicates it has had enough.
-        poll_fn(|cx| {
+        let r = poll_fn(|cx| {
             let r = Self::regs();
 
             WAKER.register(cx.waker());
@@ -393,12 +398,15 @@ impl<'d, const N: usize> Saadc<'d, N> {
                 r.events_end.reset();
                 r.intenset.write(|w| w.end().set());
 
-                if sampler(&bufs[current_buffer]) == SamplerState::Sampled {
-                    let next_buffer = 1 - current_buffer;
-                    current_buffer = next_buffer;
-                } else {
-                    return Poll::Ready(());
-                };
+                match callback(&bufs[current_buffer]) {
+                    CallbackResult::Continue => {
+                        let next_buffer = 1 - current_buffer;
+                        current_buffer = next_buffer;
+                    }
+                    CallbackResult::Stop => {
+                        return Poll::Ready(());
+                    }
+                }
             }
 
             if r.events_started.read().bits() != 0 {
@@ -419,6 +427,10 @@ impl<'d, const N: usize> Saadc<'d, N> {
             Poll::Pending
         })
         .await;
+
+        drop(on_drop);
+
+        r
     }
 
     // Stop sampling and wait for it to stop in a blocking fashion
@@ -452,7 +464,7 @@ impl<'d> Saadc<'d, 1> {
         sample_rate_divisor: u16,
         sampler: S,
     ) where
-        S: FnMut(&[[i16; 1]]) -> SamplerState,
+        S: FnMut(&[[i16; 1]]) -> CallbackResult,
     {
         self.run_sampler(bufs, Some(sample_rate_divisor), || {}, sampler).await;
     }
@@ -652,6 +664,10 @@ pub(crate) mod sealed {
 
 /// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
 pub trait Input: sealed::Input + Into<AnyInput> + Peripheral<P = Self> + Sized + 'static {
+    /// Convert this SAADC input to a type-erased `AnyInput`.
+    ///
+    /// This allows using several inputs  in situations that might require
+    /// them to be the same type, like putting them in an array.
     fn degrade_saadc(self) -> AnyInput {
         AnyInput {
             channel: self.channel(),
@@ -659,6 +675,10 @@ pub trait Input: sealed::Input + Into<AnyInput> + Peripheral<P = Self> + Sized +
     }
 }
 
+/// A type-erased SAADC input.
+///
+/// This allows using several inputs  in situations that might require
+/// them to be the same type, like putting them in an array.
 pub struct AnyInput {
     channel: InputChannel,
 }

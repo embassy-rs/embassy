@@ -10,6 +10,7 @@ use crate::time::Hertz;
 #[cfg_attr(rcc_f3, path = "f3.rs")]
 #[cfg_attr(any(rcc_f4, rcc_f410), path = "f4.rs")]
 #[cfg_attr(rcc_f7, path = "f7.rs")]
+#[cfg_attr(rcc_c0, path = "c0.rs")]
 #[cfg_attr(rcc_g0, path = "g0.rs")]
 #[cfg_attr(rcc_g4, path = "g4.rs")]
 #[cfg_attr(any(rcc_h7, rcc_h7ab), path = "h7.rs")]
@@ -23,16 +24,17 @@ use crate::time::Hertz;
 mod _version;
 pub use _version::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Clocks {
     pub sys: Hertz,
 
     // APB
     pub apb1: Hertz,
     pub apb1_tim: Hertz,
-    #[cfg(not(rcc_g0))]
+    #[cfg(not(any(rcc_c0, rcc_g0)))]
     pub apb2: Hertz,
-    #[cfg(not(rcc_g0))]
+    #[cfg(not(any(rcc_c0, rcc_g0)))]
     pub apb2_tim: Hertz,
     #[cfg(any(rcc_wl5, rcc_wle, rcc_u5))]
     pub apb3: Hertz,
@@ -71,6 +73,7 @@ static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
 ///
 /// Safety: Sets a mutable global.
 pub(crate) unsafe fn set_freqs(freqs: Clocks) {
+    debug!("rcc: {:?}", freqs);
     CLOCK_FREQS.as_mut_ptr().write(freqs);
 }
 

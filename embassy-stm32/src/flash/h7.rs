@@ -39,6 +39,10 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
         w.set_psize(2); // 32 bits at once
     });
 
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+    core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
     let ret = {
         let mut ret: Result<(), Error> = Ok(());
         let mut offset = offset;
@@ -64,6 +68,10 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
 
     bank.cr().write(|w| w.set_pg(false));
 
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+    core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
     ret
 }
 
@@ -71,24 +79,19 @@ pub(crate) unsafe fn blocking_erase(from: u32, to: u32) -> Result<(), Error> {
     let from = from - super::FLASH_BASE as u32;
     let to = to - super::FLASH_BASE as u32;
 
-    let bank_size = (super::FLASH_SIZE / 2) as u32;
-
-    let (bank, start, end) = if to <= bank_size {
+    let (start, end) = if to <= super::FLASH_SIZE as u32 {
         let start_sector = from / super::ERASE_SIZE as u32;
         let end_sector = to / super::ERASE_SIZE as u32;
-        (0, start_sector, end_sector)
-    } else if from >= SECOND_BANK_OFFSET as u32 && to <= (SECOND_BANK_OFFSET as u32 + bank_size) {
-        let start_sector = (from - SECOND_BANK_OFFSET as u32) / super::ERASE_SIZE as u32;
-        let end_sector = (to - SECOND_BANK_OFFSET as u32) / super::ERASE_SIZE as u32;
-        (1, start_sector, end_sector)
+        (start_sector, end_sector)
     } else {
-        error!("Attempting to write outside of defined sectors");
+        error!("Attempting to write outside of defined sectors {:x} {:x}", from, to);
         return Err(Error::Unaligned);
     };
 
-    trace!("Erasing bank {}, sectors from {} to {}", bank, start, end);
+    trace!("Erasing sectors from {} to {}", start, end);
     for sector in start..end {
-        let ret = erase_sector(pac::FLASH.bank(bank), sector as u8);
+        let bank = if sector >= 8 { 1 } else { 0 };
+        let ret = erase_sector(pac::FLASH.bank(bank), (sector % 8) as u8);
         if ret.is_err() {
             return ret;
         }
