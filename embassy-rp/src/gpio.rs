@@ -16,7 +16,7 @@ const NEW_AW: AtomicWaker = AtomicWaker::new();
 static INTERRUPT_WAKERS: [AtomicWaker; PIN_COUNT] = [NEW_AW; PIN_COUNT];
 
 /// Represents a digital input or output level.
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Level {
     Low,
     High,
