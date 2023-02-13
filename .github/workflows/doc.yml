@@ -17,7 +17,7 @@ jobs:
     strategy:
       matrix:
         crates:
-          - stm32
+          #- stm32  # runs out of disk space...
           - rest
 
     # This will ensure at most one doc build job is running at a time
@@ -46,7 +46,7 @@ jobs:
 
       - name: Install docserver
         run: |
-          wget -q -O /usr/local/bin/builder "https://github.com/embassy-rs/docserver/releases/download/v0.3/builder"
+          wget -q -O /usr/local/bin/builder "https://github.com/embassy-rs/docserver/releases/download/v0.4/builder"
           chmod +x /usr/local/bin/builder
 
       - name: build-stm32
