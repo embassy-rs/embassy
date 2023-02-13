@@ -70,12 +70,14 @@ jobs:
           builder ./embassy-lora crates/embassy-lora/git.zup
           builder ./embassy-net crates/embassy-net/git.zup
           builder ./embassy-net-driver crates/embassy-net-driver/git.zup
+          builder ./embassy-net-driver-channel crates/embassy-net-driver-channel/git.zup
           builder ./embassy-nrf crates/embassy-nrf/git.zup
           builder ./embassy-rp crates/embassy-rp/git.zup
           builder ./embassy-sync crates/embassy-sync/git.zup
           builder ./embassy-time crates/embassy-time/git.zup
           builder ./embassy-usb crates/embassy-usb/git.zup
           builder ./embassy-usb-driver crates/embassy-usb-driver/git.zup
+          builder ./embassy-usb-logger crates/embassy-usb-logger/git.zup
 
       - name: upload
         run: |
