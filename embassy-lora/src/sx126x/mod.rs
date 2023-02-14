@@ -34,8 +34,8 @@ where
         spi: SPI,
         cs: CTRL,
         reset: CTRL,
-        antenna_rx: CTRL,
-        antenna_tx: CTRL,
+        antenna_rx: Option<CTRL>,
+        antenna_tx: Option<CTRL>,
         dio1: WAIT,
         busy: WAIT,
         enable_public_network: bool,
@@ -110,7 +110,6 @@ where
         CTRL: 'm,
         WAIT: 'm,
         BUS: 'm;
-
     fn rx<'m>(&'m mut self, config: RfConfig, receiving_buffer: &'m mut [u8]) -> Self::RxFuture<'m> {
         trace!("RX START");
         async move {

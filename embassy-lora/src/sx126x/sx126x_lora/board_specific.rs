@@ -25,9 +25,8 @@ where
 
     // Initialize the TCXO power pin
     pub(super) async fn brd_io_tcxo_init(&mut self) -> Result<(), RadioError<BUS>> {
-        let timeout = self.brd_get_board_tcxo_wakeup_time() << 6;
-        self.sub_set_dio3_as_tcxo_ctrl(TcxoCtrlVoltage::Ctrl1V7, timeout)
-            .await?;
+        //let timeout = self.brd_get_board_tcxo_wakeup_time() << 6;
+        //self.sub_set_dio3_as_tcxo_ctrl(TcxoCtrlVoltage::Ctrl1V7, timeout).await?;
         Ok(())
     }
 
@@ -207,22 +206,34 @@ where
 
     // Quiesce the antenna(s).
     pub(super) fn brd_ant_sleep(&mut self) -> Result<(), RadioError<BUS>> {
-        self.antenna_tx.set_low().map_err(|_| AntTx)?;
-        self.antenna_rx.set_low().map_err(|_| AntRx)?;
+        if let Some(antenna_tx) = &mut self.antenna_tx {
+            antenna_tx.set_low().map_err(|_| AntTx)?;
+        }
+        if let Some(antenna_rx) = &mut self.antenna_rx {
+            antenna_rx.set_low().map_err(|_| AntRx)?;
+        }
         Ok(())
     }
 
     // Prepare the antenna(s) for a receive operation
     pub(super) fn brd_ant_set_rx(&mut self) -> Result<(), RadioError<BUS>> {
-        self.antenna_tx.set_low().map_err(|_| AntTx)?;
-        self.antenna_rx.set_high().map_err(|_| AntRx)?;
+        if let Some(antenna_tx) = &mut self.antenna_tx {
+            antenna_tx.set_low().map_err(|_| AntTx)?;
+        }
+        if let Some(antenna_rx) = &mut self.antenna_rx {
+            antenna_rx.set_high().map_err(|_| AntRx)?;
+        }
         Ok(())
     }
 
     // Prepare the antenna(s) for a send operation
     pub(super) fn brd_ant_set_tx(&mut self) -> Result<(), RadioError<BUS>> {
-        self.antenna_rx.set_low().map_err(|_| AntRx)?;
-        self.antenna_tx.set_high().map_err(|_| AntTx)?;
+        if let Some(antenna_tx) = &mut self.antenna_tx {
+            antenna_tx.set_low().map_err(|_| AntTx)?;
+        }
+        if let Some(antenna_rx) = &mut self.antenna_rx {
+            antenna_rx.set_high().map_err(|_| AntRx)?;
+        }
         Ok(())
     }
 

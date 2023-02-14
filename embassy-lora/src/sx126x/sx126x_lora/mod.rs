@@ -30,8 +30,8 @@ pub struct LoRa<SPI, CTRL, WAIT> {
     spi: SPI,
     cs: CTRL,
     reset: CTRL,
-    antenna_rx: CTRL,
-    antenna_tx: CTRL,
+    antenna_rx: Option<CTRL>,
+    antenna_tx: Option<CTRL>,
     dio1: WAIT,
     busy: WAIT,
     operating_mode: RadioMode,
@@ -52,7 +52,15 @@ where
     WAIT: Wait,
 {
     /// Builds and returns a new instance of the radio. Only one instance of the radio should exist at a time ()
-    pub fn new(spi: SPI, cs: CTRL, reset: CTRL, antenna_rx: CTRL, antenna_tx: CTRL, dio1: WAIT, busy: WAIT) -> Self {
+    pub fn new(
+        spi: SPI,
+        cs: CTRL,
+        reset: CTRL,
+        antenna_rx: Option<CTRL>,
+        antenna_tx: Option<CTRL>,
+        dio1: WAIT,
+        busy: WAIT,
+    ) -> Self {
         Self {
             spi,
             cs,
