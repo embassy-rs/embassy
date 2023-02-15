@@ -9,7 +9,7 @@ use core::convert::Infallible;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Stack, StackResources};
+use embassy_net::{Config, Stack, StackResources};
 use embassy_rp::gpio::{Flex, Level, Output};
 use embassy_rp::peripherals::{PIN_23, PIN_24, PIN_25, PIN_29};
 use embedded_hal_1::spi::ErrorType;
@@ -78,8 +78,8 @@ async fn main(spawner: Spawner) {
     //control.join_open(env!("WIFI_NETWORK")).await;
     control.join_wpa2(env!("WIFI_NETWORK"), env!("WIFI_PASSWORD")).await;
 
-    let config = embassy_net::ConfigStrategy::Dhcp;
-    //let config = embassy_net::ConfigStrategy::Static(embassy_net::Config {
+    let config = Config::Dhcp(Default::default());
+    //let config = embassy_net::Config::Static(embassy_net::Config {
     //    address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 2), 24),
     //    dns_servers: Vec::new(),
     //    gateway: Some(Ipv4Address::new(192, 168, 69, 1)),
@@ -92,7 +92,7 @@ async fn main(spawner: Spawner) {
     let stack = &*singleton!(Stack::new(
         net_device,
         config,
-        singleton!(StackResources::<1, 2, 8>::new()),
+        singleton!(StackResources::<2>::new()),
         seed
     ));
 
