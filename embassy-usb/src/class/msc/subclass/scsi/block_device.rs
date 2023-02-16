@@ -31,8 +31,8 @@ pub trait BlockDevice {
     /// to read/write functions.
     fn block_size(&self) -> Result<usize, BlockDeviceError>;
 
-    /// Number of blocks in device (max LBA index)
-    fn max_lba(&self) -> Result<u32, BlockDeviceError>;
+    /// Number of blocks in device
+    fn num_blocks(&self) -> Result<u32, BlockDeviceError>;
 
     /// Read the block indicated by `lba` into the provided buffer
     async fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError>;

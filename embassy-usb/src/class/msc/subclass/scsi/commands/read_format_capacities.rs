@@ -27,9 +27,9 @@ packed_struct! {
         #[offset = 3*8, size = 8]
         capacity_list_length: u8,
         #[offset = 4*8, size = 32]
-        max_lba: BE<u32>,
+        num_blocks: BE<u32>,
         #[offset = 8*8, size = 2]
-        descriptor_type: BE<u32>,
+        descriptor_type: u8,
         // TODO should be 24 bits
         #[offset = 8*8, size = 32]
         block_size: BE<u32>,

@@ -8,9 +8,11 @@ use core::mem::MaybeUninit;
 use self::block_device::{BlockDevice, BlockDeviceError};
 use self::enums::AdditionalSenseCode;
 use crate::class::msc::subclass::scsi::commands::{
-    InquiryCommand, InquiryResponse, ModeParameterHeader6, ModeSense6Command, PreventAllowMediumRemoval, Read10Command,
-    ReadCapacity10Command, ReadCapacity10Response, ReadFormatCapacitiesCommand, ReadFormatCapacitiesResponse,
-    RequestSenseCommand, RequestSenseResponse, TestUnitReadyCommand, Write10Command,
+    CachingModePage, InformationalExceptionsControlModePage, InquiryCommand, InquiryResponse, ModeParameter6Writer,
+    ModeParameterHeader6, ModeSense6Command, PageCode, PreventAllowMediumRemoval, Read10Command, ReadCapacity10Command,
+    ReadCapacity10Response, ReadFormatCapacitiesCommand, ReadFormatCapacitiesResponse, RequestSenseCommand,
+    RequestSenseResponse, SupportedVitalProductDataPages, TestUnitReadyCommand, UnitSerialNumberPage,
+    VitalProductDataPage, Write10Command,
 };
 use crate::class::msc::subclass::scsi::enums::{
     PeripheralDeviceType, PeripheralQualifier, ResponseCode, ResponseDataFormat, SenseKey, SpcVersion,
@@ -31,17 +33,18 @@ pub struct SenseData {
     asc: AdditionalSenseCode,
 }
 
-pub struct Scsi<B: BlockDevice> {
+pub struct Scsi<'d, B: BlockDevice> {
     /// Backing storage block device
     device: B,
+    buffer: &'d mut [u8],
     /// Last operation sense data
     sense: Option<SenseData>,
     vendor_id: [u8; 8],
     product_id: [u8; 16],
 }
 
-impl<B: BlockDevice> Scsi<B> {
-    pub fn new(device: B, vendor: &str, product: &str) -> Self {
+impl<'d, B: BlockDevice> Scsi<'d, B> {
+    pub fn new(device: B, buffer: &'d mut [u8], vendor: &str, product: &str) -> Self {
         let mut vendor_id = [b' '; 8];
         fill_from_slice(&mut vendor_id, vendor.as_bytes());
 
@@ -50,6 +53,7 @@ impl<B: BlockDevice> Scsi<B> {
 
         Self {
             device,
+            buffer,
             sense: None,
             vendor_id,
             product_id,
@@ -82,27 +86,32 @@ impl<B: BlockDevice> Scsi<B> {
                 // If the device server does not support the medium changer prevent state, it shall terminate the
                 // PREVENT ALLOW MEDIUM REMOVAL command with CHECK CONDITION status with the sense
                 // key set to ILLEGAL REQUEST and the additional sense code set to INVALID FIELD IN CDB.
-                Err(InternalError::CustomSenseData(SenseData {
-                    key: SenseKey::IllegalRequest,
-                    asc: AdditionalSenseCode::InvalidFieldInCdb,
-                }))
+                if req.prevent() {
+                    Err(ERR_INVALID_FIELD_IN_CBD)
+                } else {
+                    Ok(())
+                }
             }
             Write10Command::OPCODE => {
                 let req = Write10Command::from_bytes(cmd).ok_or(InternalError::CommandParseError)?;
                 debug!("{:?}", req);
 
-                let mut data = MaybeUninit::<[u8; 512]>::uninit();
-
                 let start_lba = req.lba();
                 let transfer_length = req.transfer_length() as u32;
 
-                if start_lba + transfer_length > self.device.max_lba()? + 1 {
+                if start_lba + transfer_length > self.device.num_blocks()? {
                     return Err(InternalError::LbaOutOfRange);
                 }
 
+                let block_size = self.device.block_size()?;
+                assert!(
+                    block_size <= self.buffer.len(),
+                    "SCSI buffer smaller than device block size"
+                );
+
                 for lba in start_lba..start_lba + transfer_length {
-                    pipe.read(unsafe { data.assume_init_mut() }).await?;
-                    self.device.write_block(lba, unsafe { data.assume_init_ref() }).await?;
+                    pipe.read(&mut self.buffer[..block_size]).await?;
+                    self.device.write_block(lba, &self.buffer[..block_size]).await?;
                 }
 
                 Ok(())
@@ -128,38 +137,116 @@ impl<B: BlockDevice> Scsi<B> {
                 let req = InquiryCommand::from_bytes(cmd).ok_or(InternalError::CommandParseError)?;
                 debug!("{:#?}", req);
 
-                let mut resp = InquiryResponse::new();
-                resp.set_peripheral_device_type(PeripheralDeviceType::DirectAccessBlock);
-                resp.set_peripheral_qualifier(PeripheralQualifier::Connected);
-                resp.set_removable_medium(true);
-                resp.set_version(SpcVersion::Spc3);
-                resp.set_response_data_format(ResponseDataFormat::Standard);
-                resp.set_hierarchical_support(false);
-                resp.set_normal_aca(false);
-                resp.set_additional_length((InquiryResponse::SIZE - 4) as u8);
-                resp.set_protect(false);
-                resp.set_third_party_copy(false);
-                resp.set_target_port_group_support(TargetPortGroupSupport::Unsupported);
-                resp.set_access_controls_coordinator(false);
-                resp.set_scc_supported(false);
-                resp.set_multi_port(false);
-                resp.set_enclosure_services(false);
-                resp.set_vendor_identification(&self.vendor_id);
-                resp.set_product_identification(&self.product_id);
-                resp.set_product_revision_level(&[b' '; 4]);
+                if req.enable_vital_product_data() {
+                    match req.page_code() {
+                        Ok(VitalProductDataPage::SupportedVitalProductDataPages) => {
+                            const SUPPORTED_PAGES: [VitalProductDataPage; 2] = [
+                                VitalProductDataPage::SupportedVitalProductDataPages,
+                                VitalProductDataPage::UnitSerialNumber,
+                            ];
+                            let mut buf = [0u8; SupportedVitalProductDataPages::SIZE + SUPPORTED_PAGES.len()];
+                            let mut svpdp = SupportedVitalProductDataPages::from_bytes(&mut buf).unwrap();
+                            svpdp.set_page_code(VitalProductDataPage::SupportedVitalProductDataPages);
+                            svpdp.set_page_length(SUPPORTED_PAGES.len() as u8);
 
-                pipe.write(&resp.data).await?;
-                Ok(())
+                            for (i, page) in SUPPORTED_PAGES.iter().enumerate() {
+                                buf[SupportedVitalProductDataPages::SIZE + i] = (*page).into();
+                            }
+
+                            pipe.write(&buf).await?;
+                            Ok(())
+                        }
+                        Ok(VitalProductDataPage::UnitSerialNumber) => {
+                            const SERIAL_NUMBER: &[u8; 8] = b"01020304";
+                            let mut buf = [0u8; UnitSerialNumberPage::SIZE + SERIAL_NUMBER.len()];
+                            let mut usnp = UnitSerialNumberPage::from_bytes(&mut buf).unwrap();
+                            usnp.set_page_code(VitalProductDataPage::UnitSerialNumber);
+                            usnp.set_page_length(SERIAL_NUMBER.len() as u8);
+
+                            buf[UnitSerialNumberPage::SIZE..].copy_from_slice(SERIAL_NUMBER);
+
+                            pipe.write(&buf).await?;
+                            Ok(())
+                        }
+                        _ => Err(ERR_INVALID_FIELD_IN_CBD),
+                    }
+                } else {
+                    let mut resp = InquiryResponse::new();
+                    resp.set_peripheral_device_type(PeripheralDeviceType::DirectAccessBlock);
+                    resp.set_peripheral_qualifier(PeripheralQualifier::Connected);
+                    resp.set_removable_medium(true);
+                    resp.set_version(SpcVersion::Spc3);
+                    resp.set_response_data_format(ResponseDataFormat::Standard);
+                    resp.set_hierarchical_support(false);
+                    resp.set_normal_aca(false);
+                    resp.set_additional_length((InquiryResponse::SIZE - 4) as u8);
+                    resp.set_protect(false);
+                    resp.set_third_party_copy(false);
+                    resp.set_target_port_group_support(TargetPortGroupSupport::Unsupported);
+                    resp.set_access_controls_coordinator(false);
+                    resp.set_scc_supported(false);
+                    resp.set_multi_port(false);
+                    resp.set_enclosure_services(false);
+                    resp.set_vendor_identification(&self.vendor_id);
+                    resp.set_product_identification(&self.product_id);
+                    resp.set_product_revision_level(b"1.00");
+
+                    pipe.write(&resp.data).await?;
+                    Ok(())
+                }
             }
             ModeSense6Command::OPCODE => {
                 let req = ModeSense6Command::from_bytes(cmd).ok_or(InternalError::CommandParseError)?;
-                debug!("{:?}", req);
+                debug!("{:?} {:?}", req, cmd);
 
-                let mut header = ModeParameterHeader6::new();
-                header.set_mode_data_length(ModeParameterHeader6::SIZE as u8 - 1);
-                pipe.write(&header.data).await?;
+                // let mut buf = [0u8; ModeParameterHeader6::SIZE + CachingModePage::SIZE];
+                // let mut header = ModeParameterHeader6::from_bytes(&mut buf[..ModeParameterHeader6::SIZE]).unwrap();
+                // header.set_mode_data_length((ModeParameterHeader6::SIZE + CachingModePage::SIZE - 1) as u8);
 
-                Ok(())
+                // let mut caching_mode_page =
+                //     CachingModePage::from_bytes(&mut buf[ModeParameterHeader6::SIZE..]).unwrap();
+                // caching_mode_page.set_page_code(PageCode::CachingModePage);
+                // caching_mode_page.set_page_length(CachingModePage::SIZE as u8 - 2);
+                // caching_mode_page.set_read_cache_disable(true);
+                // caching_mode_page.set_write_cache_enable(false);
+
+                // pipe.write(&buf).await?;
+
+                let mut writer = ModeParameter6Writer::new(self.buffer).map_err(|_| ERR_INVALID_FIELD_IN_CBD)?;
+
+                let all_pages = matches!(req.page_code(), Ok(PageCode::AllPages));
+
+                if all_pages || matches!(req.page_code(), Ok(PageCode::Caching)) {
+                    let mut caching_mode_page = CachingModePage::from_bytes(
+                        writer
+                            .write_page(PageCode::Caching, CachingModePage::SIZE)
+                            .map_err(|_| ERR_INVALID_FIELD_IN_CBD)?,
+                    )
+                    .unwrap();
+
+                    caching_mode_page.set_read_cache_disable(true);
+                    caching_mode_page.set_write_cache_enable(false);
+                }
+
+                if all_pages || matches!(req.page_code(), Ok(PageCode::InformationalExceptionsControl)) {
+                    let mut _iec = InformationalExceptionsControlModePage::from_bytes(
+                        writer
+                            .write_page(
+                                PageCode::InformationalExceptionsControl,
+                                InformationalExceptionsControlModePage::SIZE,
+                            )
+                            .map_err(|_| ERR_INVALID_FIELD_IN_CBD)?,
+                    )
+                    .unwrap();
+                }
+
+                // Should never return zero pages
+                if writer.page_size() == 0 {
+                    Err(ERR_INVALID_FIELD_IN_CBD)
+                } else {
+                    pipe.write(writer.finalize()).await?;
+                    Ok(())
+                }
             }
             RequestSenseCommand::OPCODE => {
                 let req = RequestSenseCommand::from_bytes(cmd).ok_or(InternalError::CommandParseError)?;
@@ -190,7 +277,7 @@ impl<B: BlockDevice> Scsi<B> {
                 debug!("{:?}", req);
 
                 let mut resp = ReadCapacity10Response::new();
-                resp.set_max_lba(self.device.max_lba()?);
+                resp.set_max_lba(self.device.num_blocks()? - 1);
                 resp.set_block_size(self.device.block_size()? as u32);
 
                 pipe.write(&resp.data).await?;
@@ -202,8 +289,9 @@ impl<B: BlockDevice> Scsi<B> {
 
                 let mut resp = ReadFormatCapacitiesResponse::new();
                 resp.set_capacity_list_length(8);
-                resp.set_max_lba(self.device.max_lba()?);
+                resp.set_num_blocks(self.device.num_blocks()?);
                 resp.set_block_size(self.device.block_size()? as u32);
+                resp.set_descriptor_type(0x03);
 
                 pipe.write(&resp.data).await?;
                 return Ok(());
@@ -212,19 +300,23 @@ impl<B: BlockDevice> Scsi<B> {
                 let req = Read10Command::from_bytes(cmd).ok_or(InternalError::CommandParseError)?;
                 debug!("{:?}", req);
 
-                let mut data = MaybeUninit::<[u8; 512]>::uninit();
-
                 let start_lba = req.lba();
                 let transfer_length = req.transfer_length() as u32;
 
-                if start_lba + transfer_length > self.device.max_lba()? + 1 {
+                if start_lba + transfer_length > self.device.num_blocks()? {
                     return Err(InternalError::LbaOutOfRange);
                 }
 
-                for lba in start_lba..start_lba + transfer_length {
-                    self.device.read_block(lba, unsafe { data.assume_init_mut() }).await?;
+                let block_size = self.device.block_size()?;
+                assert!(
+                    block_size <= self.buffer.len(),
+                    "SCSI buffer smaller than device block size"
+                );
 
-                    pipe.write(unsafe { data.assume_init_ref() }).await?;
+                for lba in start_lba..start_lba + transfer_length {
+                    self.device.read_block(lba, &mut self.buffer[..block_size]).await?;
+
+                    pipe.write(&self.buffer[..block_size]).await?;
                 }
 
                 Ok(())
@@ -234,7 +326,7 @@ impl<B: BlockDevice> Scsi<B> {
     }
 }
 
-impl<B: BlockDevice> CommandSetHandler for Scsi<B> {
+impl<'d, B: BlockDevice> CommandSetHandler for Scsi<'d, B> {
     const MSC_SUBCLASS: MscSubclass = MscSubclass::ScsiTransparentCommandSet;
     const MAX_LUN: u8 = 0;
 
@@ -301,6 +393,12 @@ enum InternalError {
     /// Custom sense data
     CustomSenseData(SenseData),
 }
+
+/// Commonly used error (IllegalRequest, InvalidFieldInCdb)
+const ERR_INVALID_FIELD_IN_CBD: InternalError = InternalError::CustomSenseData(SenseData {
+    key: SenseKey::IllegalRequest,
+    asc: AdditionalSenseCode::InvalidFieldInCdb,
+});
 
 impl InternalError {
     fn into_sense_data(self) -> SenseData {

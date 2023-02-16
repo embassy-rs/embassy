@@ -1,4 +1,5 @@
 use super::control::Control;
+use super::PageCode;
 use crate::class::msc::subclass::scsi::enums::PageControl;
 use crate::packed_struct;
 
@@ -13,7 +14,7 @@ packed_struct! {
         disable_block_descriptors: bool,
         /// The PAGE CODE and SUBPAGE CODE fields specify which mode pages and subpages to return
         #[offset = 2*8+0, size = 6]
-        page_code: u8,
+        page_code: PageCode,
         #[offset = 2*8+6, size = 2]
         page_control: PageControl,
         #[offset = 3*8+0, size = 8]

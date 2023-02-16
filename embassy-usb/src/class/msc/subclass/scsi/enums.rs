@@ -246,3 +246,56 @@ impl AdditionalSenseCode {
         }
     }
 }
+
+packed_enum! {
+    /// Method Of Reporting Informational Exceptions
+    #[derive(Clone, Copy, Eq, PartialEq, Debug)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub enum Mrie<u8> {
+        /// The device server shall not report information exception conditions.
+        NoReportingOfInformationalExceptionCondition = 0x0,
+        /// The device server shall report informational exception conditions by establishing a unit attention
+        /// condition (see SAM-5) for the initiator port associated with every I_T nexus, with the additional sense code set to indicate the
+        /// cause of the informational exception condition.
+        ///
+        /// As defined in SAM-5, the command that has the CHECK CONDITION status with the sense key set to UNIT ATTENTION is not
+        /// processed before the informational exception condition is reported.
+        GenerateUnitAttention = 0x2,
+        /// The device server shall report informational exception conditions, if the reporting of
+        /// recovered errors is allowed, [a] by returning a CHECK CONDITION status. If the TEST bit is set to zero, the status may be returned
+        /// after the informational exception condition occurs on any command for which GOOD status or INTERMEDIATE status would have
+        /// been returned. If the TEST bit is set to one, the status shall be returned on the next command received on any I_T nexus that is
+        /// normally capable of returning an informational exception condition when the test bit is set to zero. The sense key shall be set to
+        /// RECOVERED ERROR and the additional sense code shall indicate the cause of the informational exception condition.
+        ///
+        /// The command that returns the CHECK CONDITION for the informational exception shall complete without error before any
+        /// informational exception condition may be reported.
+        ConditionallyGenerateRecoveredError = 0x3,
+        /// The device server shall report informational exception conditions, regardless of
+        /// whether the reporting of recovered errors is allowed, [a] by returning a CHECK CONDITION status. If the TEST bit is set to zero, the
+        /// status may be returned after the informational exception condition occurs on any command for which GOOD status or
+        /// INTERMEDIATE status would have been returned. If the TEST bit is set to one, the status shall be returned on the next command
+        /// received on any I_T nexus that is normally capable of returning an informational exception condition when the TEST bit is set to
+        /// zero. The sense key shall be set to RECOVERED ERROR and the additional sense code shall indicate the cause of the informational
+        /// exception condition.
+        ///
+        /// The command that returns the CHECK CONDITION for the informational exception shall complete without error before any
+        /// informational exception condition may be reported.
+        UnconditionallyGenerateRecoveredError = 0x4,
+        /// The device server shall report informational exception conditions by returning a CHECK CONDITION status. If
+        /// the TEST bit is set to zero, the status may be returned after the informational exception condition occurs on any command for
+        /// which GOOD status or INTERMEDIATE status would have been returned. If the TEST bit is set to one, the status shall be returned on
+        /// the next command received on any I_T nexus that is normally capable of returning an informational exception condition when
+        /// the TEST bit is set to zero. The sense key shall be set to NO SENSE and the additional sense code shall indicate the cause of the
+        /// informational exception condition.
+        ///
+        /// The command that returns the CHECK CONDITION for the informational exception shall complete without error before any
+        /// informational exception condition may be reported.
+        GenerateNoSense = 0x5,
+        /// The device server shall preserve the informational exception(s)
+        /// information. To find out about information exception conditions the application client polls the device server by issuing a
+        /// REQUEST SENSE command. In the REQUEST SENSE parameter data that contains the sense data, the sense key shall be set to NO
+        /// SENSE and the additional sense code shall indicate the cause of the informational exception condition.
+        OnlyReportInformationalExceptionConditionOnRequest = 0x6,
+    }
+}

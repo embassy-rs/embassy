@@ -83,23 +83,17 @@ impl<'d, D: Driver<'d>, C: CommandSetHandler> BulkOnlyTransport<'d, D, C> {
     }
 
     async fn receive_control_block_wrapper(&mut self) -> CommandBlockWrapper {
-        let mut cbw_buf = [0u8; size_of::<CommandBlockWrapper>()];
+        let mut cbw_buf = [0u8; 64];
 
         loop {
             // CBW is always sent at a packet boundary and is a short packet of 31 bytes
             match self.read_ep.read(&mut cbw_buf).await {
-                Ok(len) => {
-                    if len != cbw_buf.len() {
-                        error!("Invalid CBW length");
+                Ok(_) => match CommandBlockWrapper::from_bytes(&cbw_buf) {
+                    Ok(cbw) => return cbw,
+                    Err(e) => {
+                        error!("Invalid CBW: {:?}", e);
                     }
-
-                    match CommandBlockWrapper::from_bytes(&cbw_buf) {
-                        Ok(cbw) => return cbw,
-                        Err(e) => {
-                            error!("Invalid CBW: {:?}", e);
-                        }
-                    }
-                }
+                },
                 Err(e) => match e {
                     EndpointError::BufferOverflow => {
                         error!("Host sent too long CBW");

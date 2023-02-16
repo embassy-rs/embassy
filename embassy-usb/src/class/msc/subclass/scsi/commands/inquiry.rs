@@ -21,7 +21,16 @@ use crate::class::msc::subclass::scsi::enums::{
     PeripheralDeviceType, PeripheralQualifier, ResponseDataFormat, SpcVersion, TargetPortGroupSupport,
 };
 use crate::packed::BE;
-use crate::packed_struct;
+use crate::{packed_enum, packed_struct};
+
+packed_enum! {
+    #[derive(Clone, Copy, Eq, PartialEq, Debug)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub enum VitalProductDataPage<u8> {
+        SupportedVitalProductDataPages = 0x00,
+        UnitSerialNumber = 0x80,
+    }
+}
 
 packed_struct! {
     pub struct InquiryCommand<6> {
@@ -30,7 +39,7 @@ packed_struct! {
         #[offset = 1*8, size = 1]
         enable_vital_product_data: bool,
         #[offset = 2*8, size = 8]
-        page_code: u8,
+        page_code: VitalProductDataPage,
         #[offset = 3*8, size = 16]
         allocation_length: BE<u16>,
         #[offset = 5*8, size = 8]
@@ -119,5 +128,31 @@ packed_struct! {
         /// The PRODUCT REVISION LEVEL field contains four bytes of left-aligned ASCII data defined by the vendor.
         #[offset = 32*8+0, size = 4*8]
         product_revision_level: [u8; 4],
+    }
+}
+
+packed_struct! {
+    pub struct SupportedVitalProductDataPages<4> {
+        #[offset = 0*8+0, size = 5]
+        peripheral_device_type: PeripheralDeviceType,
+        #[offset = 0*8+5, size = 3]
+        peripheral_qualifier: PeripheralQualifier,
+        #[offset = 1*8, size = 8]
+        page_code: VitalProductDataPage,
+        #[offset = 3*8, size = 8]
+        page_length: u8,
+    }
+}
+
+packed_struct! {
+    pub struct UnitSerialNumberPage<4> {
+        #[offset = 0*8+0, size = 5]
+        peripheral_device_type: PeripheralDeviceType,
+        #[offset = 0*8+5, size = 3]
+        peripheral_qualifier: PeripheralQualifier,
+        #[offset = 1*8, size = 8]
+        page_code: VitalProductDataPage,
+        #[offset = 3*8, size = 8]
+        page_length: u8,
     }
 }

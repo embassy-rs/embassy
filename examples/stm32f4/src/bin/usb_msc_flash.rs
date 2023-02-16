@@ -3,8 +3,12 @@
 #![feature(type_alias_impl_trait)]
 #![feature(async_fn_in_trait)]
 
+use core::cell::RefCell;
+use core::ops::Range;
+
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::flash::{self, Flash};
 use embassy_stm32::time::mhz;
 use embassy_stm32::usb_otg::Driver;
 use embassy_stm32::{interrupt, Config};
@@ -12,17 +16,27 @@ use embassy_usb::class::msc::subclass::scsi::block_device::{BlockDevice, BlockDe
 use embassy_usb::class::msc::subclass::scsi::Scsi;
 use embassy_usb::class::msc::transport::bulk_only::BulkOnlyTransport;
 use embassy_usb::Builder;
+use embedded_storage::nor_flash::RmwMultiwriteNorFlashStorage;
+use embedded_storage::{ReadStorage, Storage};
 use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
 
-// 512 is a standard block size supported by most systems
+// Ideally we would use 128K block size, which is the flash sector size of STM32,
+// however, most operating systems only support 512 or 4096 byte blocks.
+//
+// To work around this limitation we must use RmwMultiwriteNorFlashStorage, which performs
+// read-modify(-erase)-write operations on flash storage and optimises the number of erase
+// operations.
+//
+// WARNING: this example is way too slow to
 const BLOCK_SIZE: usize = 512;
 
-struct RamBlockDevice {
-    data: [u8; BLOCK_SIZE * 128],
+struct FlashBlockDevice<'d> {
+    flash: RefCell<RmwMultiwriteNorFlashStorage<'d, Flash<'d>>>,
+    range: Range<usize>,
 }
 
-impl BlockDevice for RamBlockDevice {
+impl<'d> BlockDevice for FlashBlockDevice<'d> {
     fn status(&self) -> Result<(), BlockDeviceError> {
         Ok(())
     }
@@ -32,16 +46,22 @@ impl BlockDevice for RamBlockDevice {
     }
 
     fn num_blocks(&self) -> Result<u32, BlockDeviceError> {
-        Ok((self.data.len() / self.block_size().unwrap()) as u32)
+        Ok((self.range.len() / BLOCK_SIZE) as u32)
     }
 
     async fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError> {
-        block.copy_from_slice(&self.data[lba as usize * BLOCK_SIZE..(lba as usize + 1) * BLOCK_SIZE]);
+        self.flash
+            .borrow_mut()
+            .read(self.range.start as u32 + (lba * BLOCK_SIZE as u32), block)
+            .map_err(|_| BlockDeviceError::ReadError)?;
         Ok(())
     }
 
     async fn write_block(&mut self, lba: u32, block: &[u8]) -> Result<(), BlockDeviceError> {
-        self.data[lba as usize * BLOCK_SIZE..(lba as usize + 1) * BLOCK_SIZE].copy_from_slice(block);
+        let mut flash = self.flash.borrow_mut();
+        flash
+            .write(self.range.start as u32 + (lba * BLOCK_SIZE as u32), block)
+            .map_err(|_| BlockDeviceError::WriteError)?;
         Ok(())
     }
 }
@@ -93,16 +113,18 @@ async fn main(_spawner: Spawner) {
         None,
     );
 
-    // Create SCSI target for our block device
+    let mut flash_buffer = [0u8; flash::ERASE_SIZE];
+    let flash = RefCell::new(RmwMultiwriteNorFlashStorage::new(
+        Flash::new(p.FLASH),
+        &mut flash_buffer,
+    ));
+
+    // Use upper 1MB of the 2MB flash
+    let range = (1024 * 1024)..(2048 * 1024);
+
     let mut scsi_buffer = [0u8; BLOCK_SIZE];
-    let scsi = Scsi::new(
-        RamBlockDevice {
-            data: [0u8; BLOCK_SIZE * 128],
-        },
-        &mut scsi_buffer,
-        "Embassy",
-        "MSC",
-    );
+    // Create SCSI target for our block device
+    let scsi = Scsi::new(FlashBlockDevice { flash, range }, &mut scsi_buffer, "Embassy", "MSC");
 
     // Use bulk-only transport for our SCSI target
     let mut msc_transport = BulkOnlyTransport::new(&mut builder, &mut state, 64, scsi);

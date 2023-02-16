@@ -82,7 +82,7 @@ impl PackedField for u8 {
     fn get<'a, const OFFSET: usize, const SIZE: usize>(data: &'a [u8]) -> Self::Get<'a> {
         let byte = OFFSET / 8;
         let bit = OFFSET % 8;
-        let mask = (0xFF >> SIZE) << bit;
+        let mask = (0xFF >> (8 - SIZE)) << bit;
         (data[byte] & mask) >> bit
     }
 
@@ -90,7 +90,7 @@ impl PackedField for u8 {
     fn set<const OFFSET: usize, const SIZE: usize>(data: &mut [u8], val: Self::Set<'_>) {
         let byte = OFFSET / 8;
         let bit = OFFSET % 8;
-        let mask = (0xFF >> SIZE) << bit;
+        let mask = (0xFF >> (8 - SIZE)) << bit;
         data[byte] = (val << bit) | (data[byte] & !mask);
     }
 }
