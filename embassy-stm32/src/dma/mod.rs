@@ -188,6 +188,19 @@ pub enum FlowControl {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum FifoThreshold {
+    /// 1/4 full FIFO
+    Quarter,
+    /// 1/2 full FIFO
+    Half,
+    /// 3/4 full FIFO
+    ThreeQuarters,
+    /// Full FIFO
+    Full,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TransferOptions {
     /// Peripheral burst transfer configuration
     pub pburst: Burst,
@@ -195,6 +208,8 @@ pub struct TransferOptions {
     pub mburst: Burst,
     /// Flow control configuration
     pub flow_ctrl: FlowControl,
+    /// FIFO threshold for DMA FIFO mode. If none, direct mode is used.
+    pub fifo_threshold: Option<FifoThreshold>,
 }
 
 impl Default for TransferOptions {
@@ -203,6 +218,7 @@ impl Default for TransferOptions {
             pburst: Burst::Single,
             mburst: Burst::Single,
             flow_ctrl: FlowControl::Dma,
+            fifo_threshold: None,
         }
     }
 }
