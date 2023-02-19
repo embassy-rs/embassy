@@ -22,7 +22,7 @@ use embassy_futures::yield_now;
 use embassy_net_driver_channel as ch;
 use embassy_time::{block_for, Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
-use embedded_hal_async::spi::{SpiBusRead, SpiBusWrite, SpiDevice};
+use embedded_hal_async::spi::SpiDevice;
 
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;

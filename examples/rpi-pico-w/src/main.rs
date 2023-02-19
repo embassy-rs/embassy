@@ -4,21 +4,25 @@
 #![feature(async_fn_in_trait)]
 #![allow(incomplete_features)]
 
+mod pio;
+
 use core::convert::Infallible;
+use core::str::from_utf8;
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Config, Stack, StackResources};
 use embassy_rp::gpio::{Flex, Level, Output};
-use embassy_rp::peripherals::{PIN_23, PIN_24, PIN_25, PIN_29};
+use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIN_24, PIN_25, PIN_29};
+use embassy_rp::pio::{Pio0, PioPeripherial, PioStateMachineInstance, Sm0};
 use embedded_hal_1::spi::ErrorType;
 use embedded_hal_async::spi::{ExclusiveDevice, SpiBusFlush, SpiBusRead, SpiBusWrite};
 use embedded_io::asynch::Write;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-use core::str::from_utf8;
+use crate::pio::PioSpi;
 
 macro_rules! singleton {
     ($val:expr) => {{
@@ -30,7 +34,11 @@ macro_rules! singleton {
 
 #[embassy_executor::task]
 async fn wifi_task(
-    runner: cyw43::Runner<'static, Output<'static, PIN_23>, ExclusiveDevice<MySpi, Output<'static, PIN_25>>>,
+    runner: cyw43::Runner<
+        'static,
+        Output<'static, PIN_23>,
+        ExclusiveDevice<PioSpi<PioStateMachineInstance<Pio0, Sm0>, DMA_CH0>, Output<'static, PIN_25>>,
+    >,
 ) -> ! {
     runner.run().await
 }
@@ -59,12 +67,15 @@ async fn main(spawner: Spawner) {
 
     let pwr = Output::new(p.PIN_23, Level::Low);
     let cs = Output::new(p.PIN_25, Level::High);
-    let clk = Output::new(p.PIN_29, Level::Low);
-    let mut dio = Flex::new(p.PIN_24);
-    dio.set_low();
-    dio.set_as_output();
+    // let clk = Output::new(p.PIN_29, Level::Low);
+    // let mut dio = Flex::new(p.PIN_24);
+    // dio.set_low();
+    // dio.set_as_output();
+    // // let bus = MySpi { clk, dio };
 
-    let bus = MySpi { clk, dio };
+    let (_, sm, _, _, _) = p.PIO0.split();
+    let dma = p.DMA_CH0;
+    let bus = PioSpi::new(sm, p.PIN_24, p.PIN_29, dma);
     let spi = ExclusiveDevice::new(bus, cs);
 
     let state = singleton!(cyw43::State::new());
@@ -110,6 +121,7 @@ async fn main(spawner: Spawner) {
         let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
         socket.set_timeout(Some(embassy_net::SmolDuration::from_secs(10)));
 
+        control.gpio_set(0, false).await;
         info!("Listening on TCP:1234...");
         if let Err(e) = socket.accept(1234).await {
             warn!("accept error: {:?}", e);
@@ -117,6 +129,7 @@ async fn main(spawner: Spawner) {
         }
 
         info!("Received connection from {:?}", socket.remote_endpoint());
+        control.gpio_set(0, true).await;
 
         loop {
             let n = match socket.read(&mut buf).await {

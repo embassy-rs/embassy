@@ -3,7 +3,7 @@ use core::slice;
 use embassy_time::{Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
 use embedded_hal_1::spi::ErrorType;
-use embedded_hal_async::spi::{transaction, SpiBusRead, SpiBusWrite, SpiDevice};
+use embedded_hal_async::spi::{transaction, SpiDevice};
 
 use crate::consts::*;
 
