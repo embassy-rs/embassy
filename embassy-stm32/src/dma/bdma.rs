@@ -192,6 +192,7 @@ mod low_level_api {
             options.flow_ctrl == crate::dma::FlowControl::Dma,
             "Peripheral flow control not supported"
         );
+        assert!(options.fifo_threshold.is_none(), "FIFO mode not supported");
 
         let ch = dma.ch(channel_number as _);
 

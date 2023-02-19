@@ -4,7 +4,7 @@ use core::task::Waker;
 use embassy_cortex_m::interrupt::Priority;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use super::{Burst, FlowControl, Request, TransferOptions, Word, WordSize};
+use super::{Burst, FifoThreshold, FlowControl, Request, TransferOptions, Word, WordSize};
 use crate::_generated::DMA_CHANNEL_COUNT;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac::dma::{regs, vals};
@@ -36,6 +36,17 @@ impl From<FlowControl> for vals::Pfctrl {
         match flow {
             FlowControl::Dma => vals::Pfctrl::DMA,
             FlowControl::Peripheral => vals::Pfctrl::PERIPHERAL,
+        }
+    }
+}
+
+impl From<FifoThreshold> for vals::Fth {
+    fn from(value: FifoThreshold) -> Self {
+        match value {
+            FifoThreshold::Quarter => vals::Fth::QUARTER,
+            FifoThreshold::Half => vals::Fth::HALF,
+            FifoThreshold::ThreeQuarters => vals::Fth::THREEQUARTERS,
+            FifoThreshold::Full => vals::Fth::FULL,
         }
     }
 }
@@ -236,6 +247,16 @@ mod low_level_api {
         ch.par().write_value(peri_addr as u32);
         ch.m0ar().write_value(mem_addr as u32);
         ch.ndtr().write_value(regs::Ndtr(mem_len as _));
+        ch.fcr().write(|w| {
+            if let Some(fth) = options.fifo_threshold {
+                // FIFO mode
+                w.set_dmdis(vals::Dmdis::DISABLED);
+                w.set_fth(fth.into());
+            } else {
+                // Direct mode
+                w.set_dmdis(vals::Dmdis::ENABLED);
+            }
+        });
         ch.cr().write(|w| {
             w.set_dir(dir);
             w.set_msize(data_size);

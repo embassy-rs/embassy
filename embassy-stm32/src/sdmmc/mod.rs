@@ -2,6 +2,7 @@
 
 use core::default::Default;
 use core::future::poll_fn;
+use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
@@ -40,7 +41,23 @@ impl Default for Signalling {
 }
 
 #[repr(align(4))]
-pub struct DataBlock([u8; 512]);
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DataBlock(pub [u8; 512]);
+
+impl Deref for DataBlock {
+    type Target = [u8; 512];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for DataBlock {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 /// Errors
 #[non_exhaustive]
@@ -570,6 +587,12 @@ impl SdmmcInner {
         regs.clkcr().write(|w| {
             w.set_pwrsav(false);
             w.set_negedge(false);
+
+            // Hardware flow control is broken on SDIOv1 and causes clock glitches, which result in CRC errors.
+            // See chip erratas for more details.
+            #[cfg(sdmmc_v1)]
+            w.set_hwfc_en(false);
+            #[cfg(sdmmc_v2)]
             w.set_hwfc_en(true);
 
             #[cfg(sdmmc_v1)]
@@ -807,10 +830,16 @@ impl SdmmcInner {
         let regs = self.0;
         let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
 
+        // sdmmc_v1 uses different cmd/dma order than v2, but only for writes
+        #[cfg(sdmmc_v1)]
+        self.cmd(Cmd::write_single_block(address), true)?;
+
         unsafe {
             self.prepare_datapath_write(buffer as *const [u32; 128], 512, 9, data_transfer_timeout, dma);
             self.data_interrupts(true);
         }
+
+        #[cfg(sdmmc_v2)]
         self.cmd(Cmd::write_single_block(address), true)?;
 
         let res = poll_fn(|cx| {
@@ -922,7 +951,9 @@ impl SdmmcInner {
                 let request = dma.request();
                 dma.start_read(request, regs.fifor().ptr() as *const u32, buffer, crate::dma::TransferOptions {
                     pburst: crate::dma::Burst::Incr4,
+                    mburst: crate::dma::Burst::Incr4,
                     flow_ctrl: crate::dma::FlowControl::Peripheral,
+                    fifo_threshold: Some(crate::dma::FifoThreshold::Full),
                     ..Default::default()
                 });
             } else if #[cfg(sdmmc_v2)] {
@@ -970,7 +1001,9 @@ impl SdmmcInner {
                 let request = dma.request();
                 dma.start_write(request, buffer, regs.fifor().ptr() as *mut u32, crate::dma::TransferOptions {
                     pburst: crate::dma::Burst::Incr4,
+                    mburst: crate::dma::Burst::Incr4,
                     flow_ctrl: crate::dma::FlowControl::Peripheral,
+                    fifo_threshold: Some(crate::dma::FifoThreshold::Full),
                     ..Default::default()
                 });
             } else if #[cfg(sdmmc_v2)] {
@@ -982,6 +1015,11 @@ impl SdmmcInner {
         regs.dctrl().modify(|w| {
             w.set_dblocksize(block_size);
             w.set_dtdir(false);
+            #[cfg(sdmmc_v1)]
+            {
+                w.set_dmaen(true);
+                w.set_dten(true);
+            }
         });
     }
 
