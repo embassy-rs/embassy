@@ -161,6 +161,17 @@ impl ErrorType for MySpi {
     type Error = Infallible;
 }
 
+impl cyw43::SpiBusCyw43<u32> for MySpi {
+    async fn cmd_write<'a>(&'a mut self, write: &'a [u32]) -> Result<(), Self::Error> {
+        self.write(write).await
+    }
+
+    async fn cmd_read<'a>(&'a mut self, write: &'a [u32], read: &'a mut [u32]) -> Result<(), Self::Error> {
+        self.write(write).await?;
+        self.read(read).await
+    }
+}
+
 impl SpiBusFlush for MySpi {
     async fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
