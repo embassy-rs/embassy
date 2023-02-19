@@ -1174,7 +1174,7 @@ impl<const SM_NO: u8> SmInstance for SmInstanceBase<SM_NO> {
     const SM_NO: u8 = SM_NO;
 }
 
-pub trait PioPeripherial: Sized {
+pub trait PioPeripheral: Sized {
     type Pio: PioInstance;
     fn pio(&self) -> u8 {
         let _ = self;
@@ -1249,7 +1249,7 @@ pub type Sm3 = SmInstanceBase<3>;
 
 macro_rules! impl_pio_sm {
     ($name:ident, $pio:expr) => {
-        impl PioPeripherial for peripherals::$name {
+        impl PioPeripheral for peripherals::$name {
             type Pio = PioInstanceBase<$pio>;
         }
     };
