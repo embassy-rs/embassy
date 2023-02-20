@@ -18,6 +18,9 @@ use embedded_io::asynch::Write;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
+use heapless::String;
+
+
 macro_rules! singleton {
     ($val:expr) => {{
         type T = impl Sized;
@@ -129,7 +132,8 @@ async fn main(spawner: Spawner) {
                 }
             };
 
-            info!("rxd {:02x}", &buf[..n]);
+            info!("rxd {}", asciify(&buf[..n]));
+
 
             match socket.write_all(&buf[..n]).await {
                 Ok(()) => {}
@@ -213,4 +217,8 @@ impl SpiBusWrite<u32> for MySpi {
         self.dio.set_as_input();
         Ok(())
     }
+}
+
+fn asciify(buf: &[u8],) -> String<4096> {
+    buf.into_iter().map(|c| *c as char).into_iter().collect()
 }
