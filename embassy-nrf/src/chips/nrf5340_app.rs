@@ -304,7 +304,9 @@ embassy_hal_common::peripherals! {
     // GPIO port 0
     P0_00,
     P0_01,
+    #[cfg(feature = "nfc-pins-as-gpio")]
     P0_02,
+    #[cfg(feature = "nfc-pins-as-gpio")]
     P0_03,
     P0_04,
     P0_05,
@@ -393,7 +395,9 @@ impl_timer!(TIMER2, TIMER2, TIMER2);
 
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);
+#[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P0_02, 0, 2);
+#[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P0_03, 0, 3);
 impl_pin!(P0_04, 0, 4);
 impl_pin!(P0_05, 0, 5);

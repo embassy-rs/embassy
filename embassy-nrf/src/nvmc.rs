@@ -85,23 +85,23 @@ impl<'d> Nvmc<'d> {
     }
 
     fn enable_erase(&self) {
-        #[cfg(not(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns")))]
+        #[cfg(not(feature = "_ns"))]
         Self::regs().config.write(|w| w.wen().een());
-        #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
+        #[cfg(feature = "_ns")]
         Self::regs().configns.write(|w| w.wen().een());
     }
 
     fn enable_read(&self) {
-        #[cfg(not(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns")))]
+        #[cfg(not(feature = "_ns"))]
         Self::regs().config.write(|w| w.wen().ren());
-        #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
+        #[cfg(feature = "_ns")]
         Self::regs().configns.write(|w| w.wen().ren());
     }
 
     fn enable_write(&self) {
-        #[cfg(not(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns")))]
+        #[cfg(not(feature = "_ns"))]
         Self::regs().config.write(|w| w.wen().wen());
-        #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
+        #[cfg(feature = "_ns")]
         Self::regs().configns.write(|w| w.wen().wen());
     }
 }
