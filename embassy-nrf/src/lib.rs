@@ -235,10 +235,26 @@ mod consts {
     pub const APPROTECT_DISABLED: u32 = 0x0000_005a;
 }
 
-unsafe fn uicr_write(address: *mut u32, value: u32) -> bool {
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+enum WriteResult {
+    /// Word was written successfully, needs reset.
+    Written,
+    /// Word was already set to the value we wanted to write, nothing was done.
+    Noop,
+    /// Word is already set to something else, we couldn't write the desired value.
+    Failed,
+}
+
+unsafe fn uicr_write(address: *mut u32, value: u32) -> WriteResult {
     let curr_val = address.read_volatile();
     if curr_val == value {
-        return false;
+        return WriteResult::Noop;
+    }
+
+    // We can only change `1` bits to `0` bits.
+    if curr_val & value != value {
+        return WriteResult::Failed;
     }
 
     // Writing to UICR can only change `1` bits to `0` bits.
@@ -257,7 +273,7 @@ unsafe fn uicr_write(address: *mut u32, value: u32) -> bool {
     nvmc.config.reset();
     while nvmc.ready.read().ready().is_busy() {}
 
-    true
+    WriteResult::Written
 }
 
 /// Initialize peripherals with the provided configuration. This should only be called once at startup.
@@ -283,7 +299,8 @@ pub fn init(config: config::Config) -> Peripherals {
                     // which needs explicit action by the firmware to keep it unlocked
 
                     // UICR.APPROTECT = SwDisabled
-                    needs_reset |= uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);
+                    let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);
+                    needs_reset |= res == WriteResult::Written;
                     // APPROTECT.DISABLE = SwDisabled
                     (0x4000_0558 as *mut u32).write_volatile(consts::APPROTECT_DISABLED);
                 } else {
@@ -295,12 +312,14 @@ pub fn init(config: config::Config) -> Peripherals {
             unsafe {
                 let p = &*pac::CTRLAP::ptr();
 
-                needs_reset |= uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);
+                let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);
+                needs_reset |= res == WriteResult::Written;
                 p.approtect.disable.write(|w| w.bits(consts::APPROTECT_DISABLED));
 
                 #[cfg(feature = "_nrf5340-app")]
                 {
-                    needs_reset |= uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_DISABLED);
+                    let res = uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_DISABLED);
+                    needs_reset |= res == WriteResult::Written;
                     p.secureapprotect.disable.write(|w| w.bits(consts::APPROTECT_DISABLED));
                 }
             }
@@ -309,24 +328,57 @@ pub fn init(config: config::Config) -> Peripherals {
         }
         config::Debug::Disallowed => unsafe {
             // UICR.APPROTECT = Enabled
-            needs_reset |= uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_ENABLED);
+            let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_ENABLED);
+            needs_reset |= res == WriteResult::Written;
             #[cfg(any(feature = "_nrf5340-app", feature = "_nrf9160"))]
             {
-                needs_reset |= uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_ENABLED);
+                let res = uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_ENABLED);
+                needs_reset |= res == WriteResult::Written;
             }
         },
         config::Debug::NotConfigured => {}
     }
 
-    #[cfg(all(feature = "_nrf52", not(feature = "reset-pin-as-gpio")))]
+    #[cfg(feature = "_nrf52")]
     unsafe {
-        needs_reset |= uicr_write(consts::UICR_PSELRESET1, chip::RESET_PIN);
-        needs_reset |= uicr_write(consts::UICR_PSELRESET2, chip::RESET_PIN);
+        let value = if cfg!(feature = "reset-pin-as-gpio") {
+            !0
+        } else {
+            chip::RESET_PIN
+        };
+        let res1 = uicr_write(consts::UICR_PSELRESET1, value);
+        let res2 = uicr_write(consts::UICR_PSELRESET2, value);
+        needs_reset |= res1 == WriteResult::Written || res2 == WriteResult::Written;
+        if res1 == WriteResult::Failed || res2 == WriteResult::Failed {
+            #[cfg(not(feature = "reset-pin-as-gpio"))]
+            warn!(
+                "You have requested enabling chip reset functionality on the reset pin, by not enabling the Cargo feature `reset-pin-as-gpio`.\n\
+                However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
+                To fix this, erase UICR manually, for example using `probe-rs-cli erase` or `nrfjprog --eraseuicr`."
+            );
+            #[cfg(feature = "reset-pin-as-gpio")]
+            warn!(
+                "You have requested using the reset pin as GPIO, by enabling the Cargo feature `reset-pin-as-gpio`.\n\
+                However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
+                To fix this, erase UICR manually, for example using `probe-rs-cli erase` or `nrfjprog --eraseuicr`."
+            );
+        }
     }
 
-    #[cfg(all(any(feature = "_nrf52", feature = "_nrf5340-app"), feature = "nfc-pins-as-gpio"))]
+    #[cfg(any(feature = "_nrf52", feature = "_nrf5340-app"))]
     unsafe {
-        needs_reset |= uicr_write(consts::UICR_NFCPINS, 0);
+        let value = if cfg!(feature = "nfc-pins-as-gpio") { 0 } else { !0 };
+        let res = uicr_write(consts::UICR_NFCPINS, value);
+        needs_reset |= res == WriteResult::Written;
+        if res == WriteResult::Failed {
+            // with nfc-pins-as-gpio, this can never fail because we're writing all zero bits.
+            #[cfg(not(feature = "nfc-pins-as-gpio"))]
+            warn!(
+                "You have requested to use P0.09 and P0.10 pins for NFC, by not enabling the Cargo feature `nfc-pins-as-gpio`.\n\
+                However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
+                To fix this, erase UICR manually, for example using `probe-rs-cli erase` or `nrfjprog --eraseuicr`."
+            );
+        }
     }
 
     if needs_reset {
