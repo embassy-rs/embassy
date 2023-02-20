@@ -78,14 +78,12 @@ impl<'a> DmaRingBuffer<'a> {
     }
 
     /// Returns whether the buffer is empty
-    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.first == self.end()
     }
 
     /// The current number of bytes in the buffer
     /// This may change at any time if dma is currently active
-    #[cfg(test)]
     pub fn len(&self) -> usize {
         // Read out a stable end (the dma periheral can change it at anytime)
         let end = self.end();
@@ -107,11 +105,16 @@ impl<'a> DmaRingBuffer<'a> {
         if self.first == end {
             // The buffer is currently empty
 
-            // Return a buffer overflow error if TCIF is asserted as the DMA controller in this case has wrapped.
-            // This is the special case where exactly n*dma_buf.len(), n = 1,2,..., bytes have been written since last read.
             if dma.tcif() {
-                dma.clear_tcif();
-                return Err(OverrunError);
+                // The dma controller has written such that the ring buffer now wraps
+                // This is the special case where exactly n*dma_buf.len(), n = 1,2,..., bytes was written,
+                // but where additional bytes are now written causing the ring buffer to wrap.
+                // This is only an error if the writing has passed the current unread region.
+                self.ndtr = dma.ndtr();
+                if self.end() > self.first {
+                    dma.clear_tcif();
+                    return Err(OverrunError);
+                }
             }
 
             self.expect_next_read_to_wrap = false;
@@ -371,7 +374,7 @@ mod tests {
         let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
         ringbuf.first = 6;
         ringbuf.ndtr = 10;
-        ctrl.set_next_ndtr(10);
+        ctrl.set_next_ndtr(9);
 
         assert!(ringbuf.is_empty()); // The ring buffer thinks that it is empty
 
