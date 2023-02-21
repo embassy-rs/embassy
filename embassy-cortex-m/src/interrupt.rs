@@ -15,12 +15,12 @@ pub mod _export {
 
 /// Implementation detail, do not use outside embassy crates.
 #[doc(hidden)]
-pub struct Handler {
+pub struct DynHandler {
     pub func: AtomicPtr<()>,
     pub ctx: AtomicPtr<()>,
 }
 
-impl Handler {
+impl DynHandler {
     pub const fn new() -> Self {
         Self {
             func: AtomicPtr::new(ptr::null_mut()),
@@ -51,7 +51,7 @@ pub unsafe trait Interrupt: Peripheral<P = Self> {
 
     /// Implementation detail, do not use outside embassy crates.
     #[doc(hidden)]
-    unsafe fn __handler(&self) -> &'static Handler;
+    unsafe fn __handler(&self) -> &'static DynHandler;
 }
 
 /// Represents additional behavior for all interrupts.
