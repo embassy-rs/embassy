@@ -254,10 +254,19 @@ impl<'d> TcpIo<'d> {
         .await
     }
 
-    #[allow(unused)]
     async fn flush(&mut self) -> Result<(), Error> {
-        poll_fn(move |_| {
-            Poll::Ready(Ok(())) // TODO: Is there a better implementation for this?
+        poll_fn(move |cx| {
+            self.with_mut(|s, _| {
+                // If there are outstanding send operations, register for wake up and wait
+                // smoltcp issues wake-ups when octets are dequeued from the send buffer
+                if s.send_queue() > 0 {
+                    s.register_send_waker(cx.waker());
+                    Poll::Pending
+                // No outstanding sends, socket is flushed
+                } else {
+                    Poll::Ready(Ok(()))
+                }
+            })
         })
         .await
     }
