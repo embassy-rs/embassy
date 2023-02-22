@@ -231,10 +231,10 @@ embassy_hal_common::peripherals! {
     NVMC,
 
     // UARTE, TWI & SPI
-    UARTETWISPI0,
-    UARTETWISPI1,
-    UARTETWISPI2,
-    UARTETWISPI3,
+    SERIAL0,
+    SERIAL1,
+    SERIAL2,
+    SERIAL3,
 
     // SAADC
     SAADC,
@@ -359,30 +359,30 @@ embassy_hal_common::peripherals! {
 #[cfg(feature = "nightly")]
 impl_usb!(USBD, USBD, USBD);
 
-impl_uarte!(UARTETWISPI0, UARTE0, SERIAL0);
-impl_uarte!(UARTETWISPI1, UARTE1, SERIAL1);
-impl_uarte!(UARTETWISPI2, UARTE2, SERIAL2);
-impl_uarte!(UARTETWISPI3, UARTE3, SERIAL3);
+impl_uarte!(SERIAL0, UARTE0, SERIAL0);
+impl_uarte!(SERIAL1, UARTE1, SERIAL1);
+impl_uarte!(SERIAL2, UARTE2, SERIAL2);
+impl_uarte!(SERIAL3, UARTE3, SERIAL3);
 
-impl_spim!(UARTETWISPI0, SPIM0, SERIAL0);
-impl_spim!(UARTETWISPI1, SPIM1, SERIAL1);
-impl_spim!(UARTETWISPI2, SPIM2, SERIAL2);
-impl_spim!(UARTETWISPI3, SPIM3, SERIAL3);
+impl_spim!(SERIAL0, SPIM0, SERIAL0);
+impl_spim!(SERIAL1, SPIM1, SERIAL1);
+impl_spim!(SERIAL2, SPIM2, SERIAL2);
+impl_spim!(SERIAL3, SPIM3, SERIAL3);
 
-impl_spis!(UARTETWISPI0, SPIS0, SERIAL0);
-impl_spis!(UARTETWISPI1, SPIS1, SERIAL1);
-impl_spis!(UARTETWISPI2, SPIS2, SERIAL2);
-impl_spis!(UARTETWISPI3, SPIS3, SERIAL3);
+impl_spis!(SERIAL0, SPIS0, SERIAL0);
+impl_spis!(SERIAL1, SPIS1, SERIAL1);
+impl_spis!(SERIAL2, SPIS2, SERIAL2);
+impl_spis!(SERIAL3, SPIS3, SERIAL3);
 
-impl_twim!(UARTETWISPI0, TWIM0, SERIAL0);
-impl_twim!(UARTETWISPI1, TWIM1, SERIAL1);
-impl_twim!(UARTETWISPI2, TWIM2, SERIAL2);
-impl_twim!(UARTETWISPI3, TWIM3, SERIAL3);
+impl_twim!(SERIAL0, TWIM0, SERIAL0);
+impl_twim!(SERIAL1, TWIM1, SERIAL1);
+impl_twim!(SERIAL2, TWIM2, SERIAL2);
+impl_twim!(SERIAL3, TWIM3, SERIAL3);
 
-impl_twis!(UARTETWISPI0, TWIS0, SERIAL0);
-impl_twis!(UARTETWISPI1, TWIS1, SERIAL1);
-impl_twis!(UARTETWISPI2, TWIS2, SERIAL2);
-impl_twis!(UARTETWISPI3, TWIS3, SERIAL3);
+impl_twis!(SERIAL0, TWIS0, SERIAL0);
+impl_twis!(SERIAL1, TWIS1, SERIAL1);
+impl_twis!(SERIAL2, TWIS2, SERIAL2);
+impl_twis!(SERIAL3, TWIS3, SERIAL3);
 
 impl_pwm!(PWM0, PWM0, PWM0);
 impl_pwm!(PWM1, PWM1, PWM1);
