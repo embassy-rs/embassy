@@ -63,6 +63,10 @@ impl<'a> TcpWriter<'a> {
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         self.io.write(buf).await
     }
+
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.io.flush().await
+    }
 }
 
 impl<'a> TcpSocket<'a> {
@@ -144,6 +148,10 @@ impl<'a> TcpSocket<'a> {
 
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         self.io.write(buf).await
+    }
+
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.io.flush().await
     }
 
     pub fn set_timeout(&mut self, duration: Option<Duration>) {
