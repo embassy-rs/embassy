@@ -1580,7 +1580,7 @@ cfg_if::cfg_if! {
         // F1 uses AHB1(HCLK), which is correct in PAC
         macro_rules! kernel_clk {
             ($inst:ident) => {
-                peripherals::$inst::frequency()
+                <peripherals::$inst as crate::rcc::sealed::RccPeripheral>::frequency()
             }
         }
     } else if #[cfg(any(stm32f2, stm32f4))] {
@@ -1619,7 +1619,7 @@ cfg_if::cfg_if! {
         // Use default peripheral clock and hope it works
         macro_rules! kernel_clk {
             ($inst:ident) => {
-                peripherals::$inst::frequency()
+                <peripherals::$inst as crate::rcc::sealed::RccPeripheral>::frequency()
             }
         }
     }
