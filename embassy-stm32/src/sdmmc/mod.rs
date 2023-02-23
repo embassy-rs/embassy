@@ -491,7 +491,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
                 bus_width,
                 &mut self.card,
                 &mut self.signalling,
-                Self::kernel_clock(),
+                T::kernel_clk(),
                 &mut self.clock,
                 T::state(),
                 self.config.data_transfer_timeout,
@@ -562,44 +562,6 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
 
         regs.data_interrupts(false);
         state.wake();
-    }
-
-    /// Returns kernel clock (SDIOCLK) for the SD-card facing domain
-    fn kernel_clock() -> Hertz {
-        cfg_if::cfg_if! {
-            // TODO, these could not be implemented, because required clocks are not exposed in RCC:
-            // - H7 uses pll1_q_ck or pll2_r_ck depending on SDMMCSEL
-            // - L1 uses pll48
-            // - L4 uses clk48(pll48)
-            // - L4+, L5, U5 uses clk48(pll48) or PLLSAI3CLK(PLLP) depending on SDMMCSEL
-            if #[cfg(stm32f1)] {
-                // F1 uses AHB1(HCLK), which is correct in PAC
-                T::frequency()
-            } else if #[cfg(any(stm32f2, stm32f4))] {
-                // F2, F4 always use pll48
-                critical_section::with(|_| unsafe {
-                    crate::rcc::get_freqs().pll48
-                }).expect("PLL48 is required for SDIO")
-            } else if #[cfg(stm32f7)] {
-                critical_section::with(|_| unsafe {
-                    use core::any::TypeId;
-                    let sdmmcsel = if TypeId::of::<T>() == TypeId::of::<crate::peripherals::SDMMC1>() {
-                        crate::pac::RCC.dckcfgr2().read().sdmmc1sel()
-                    } else {
-                        crate::pac::RCC.dckcfgr2().read().sdmmc2sel()
-                    };
-
-                    if sdmmcsel == crate::pac::rcc::vals::Sdmmcsel::SYSCLK {
-                        crate::rcc::get_freqs().sys
-                    } else {
-                        crate::rcc::get_freqs().pll48.expect("PLL48 is required for SDMMC")
-                    }
-                })
-            } else {
-                // Use default peripheral clock and hope it works
-                T::frequency()
-            }
-        }
     }
 }
 
@@ -1580,6 +1542,7 @@ pub(crate) mod sealed {
 
         fn inner() -> SdmmcInner;
         fn state() -> &'static AtomicWaker;
+        fn kernel_clk() -> Hertz;
     }
 
     pub trait Pins<T: Instance> {}
@@ -1607,6 +1570,61 @@ cfg_if::cfg_if! {
     }
 }
 
+cfg_if::cfg_if! {
+    // TODO, these could not be implemented, because required clocks are not exposed in RCC:
+    // - H7 uses pll1_q_ck or pll2_r_ck depending on SDMMCSEL
+    // - L1 uses pll48
+    // - L4 uses clk48(pll48)
+    // - L4+, L5, U5 uses clk48(pll48) or PLLSAI3CLK(PLLP) depending on SDMMCSEL
+    if #[cfg(stm32f1)] {
+        // F1 uses AHB1(HCLK), which is correct in PAC
+        macro_rules! kernel_clk {
+            ($inst:ident) => {
+                peripherals::$inst::frequency()
+            }
+        }
+    } else if #[cfg(any(stm32f2, stm32f4))] {
+        // F2, F4 always use pll48
+        macro_rules! kernel_clk {
+            ($inst:ident) => {
+                critical_section::with(|_| unsafe {
+                    crate::rcc::get_freqs().pll48
+                }).expect("PLL48 is required for SDIO")
+            }
+        }
+    } else if #[cfg(stm32f7)] {
+        macro_rules! kernel_clk {
+            (SDMMC1) => {
+                critical_section::with(|_| unsafe {
+                    let sdmmcsel = crate::pac::RCC.dckcfgr2().read().sdmmc1sel();
+                    if sdmmcsel == crate::pac::rcc::vals::Sdmmcsel::SYSCLK {
+                        crate::rcc::get_freqs().sys
+                    } else {
+                        crate::rcc::get_freqs().pll48.expect("PLL48 is required for SDMMC")
+                    }
+                })
+            };
+            (SDMMC2) => {
+                critical_section::with(|_| unsafe {
+                    let sdmmcsel = crate::pac::RCC.dckcfgr2().read().sdmmc2sel();
+                    if sdmmcsel == crate::pac::rcc::vals::Sdmmcsel::SYSCLK {
+                        crate::rcc::get_freqs().sys
+                    } else {
+                        crate::rcc::get_freqs().pll48.expect("PLL48 is required for SDMMC")
+                    }
+                })
+            };
+        }
+    } else {
+        // Use default peripheral clock and hope it works
+        macro_rules! kernel_clk {
+            ($inst:ident) => {
+                peripherals::$inst::frequency()
+            }
+        }
+    }
+}
+
 foreach_peripheral!(
     (sdmmc, $inst:ident) => {
         impl sealed::Instance for peripherals::$inst {
@@ -1620,6 +1638,10 @@ foreach_peripheral!(
             fn state() -> &'static ::embassy_sync::waitqueue::AtomicWaker {
                 static WAKER: ::embassy_sync::waitqueue::AtomicWaker = ::embassy_sync::waitqueue::AtomicWaker::new();
                 &WAKER
+            }
+
+            fn kernel_clk() -> Hertz {
+                kernel_clk!($inst)
             }
         }
 
