@@ -103,9 +103,8 @@ impl RingBuffer {
     fn wrap(&self, n: usize) -> usize {
         let len = self.len.load(Ordering::Relaxed);
 
-        assert!(n <= len);
-        if n == len {
-            0
+        if n >= len {
+            n - len
         } else {
             n
         }
@@ -147,6 +146,14 @@ impl<'a> Writer<'a> {
         unsafe { slice::from_raw_parts_mut(data, len) }
     }
 
+    /// Get up to two buffers where data can be pushed to.
+    ///
+    /// Equivalent to [`Self::push_bufs`] but returns slices.
+    pub fn push_slices(&mut self) -> [&mut [u8]; 2] {
+        let [(d0, l0), (d1, l1)] = self.push_bufs();
+        unsafe { [slice::from_raw_parts_mut(d0, l0), slice::from_raw_parts_mut(d1, l1)] }
+    }
+
     /// Get a buffer where data can be pushed to.
     ///
     /// Write data to the start of the buffer, then call `push_done` with
@@ -174,6 +181,36 @@ impl<'a> Writer<'a> {
 
         trace!("  ringbuf: push_buf {:?}..{:?}", end, end + n);
         (unsafe { buf.add(end) }, n)
+    }
+
+    /// Get up to two buffers where data can be pushed to.
+    ///
+    /// Write data starting at the beginning of the first buffer, then call
+    /// `push_done` with however many bytes you've pushed.
+    ///
+    /// The buffers are suitable to DMA to.
+    ///
+    /// If the ringbuf is full, both buffers will be zero length.
+    /// If there is only area available, the second buffer will be zero length.
+    ///
+    /// The buffer stays valid as long as no other `Writer` method is called
+    /// and `init`/`deinit` aren't called on the ringbuf.
+    pub fn push_bufs(&mut self) -> [(*mut u8, usize); 2] {
+        // Ordering: as per push_buf()
+        let start = self.0.start.load(Ordering::Acquire);
+        let buf = self.0.buf.load(Ordering::Relaxed);
+        let len = self.0.len.load(Ordering::Relaxed);
+        let end = self.0.end.load(Ordering::Relaxed);
+
+        let n0 = if start <= end {
+            len - end - (start == 0 && len != 0) as usize
+        } else {
+            start - end - 1
+        };
+        let n1 = if start > 0 && start <= end { start - 1 } else { 0 };
+
+        trace!("  ringbuf: push_bufs [{:?}..{:?}, {:?}..{:?}]", end, end + n0, 0, n1);
+        [(unsafe { buf.add(end) }, n0), (buf, n1)]
     }
 
     pub fn push_done(&mut self, n: usize) {

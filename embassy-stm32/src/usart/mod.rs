@@ -1,5 +1,6 @@
 #![macro_use]
 
+use core::cmp;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -44,6 +45,16 @@ pub enum StopBits {
     STOP1P5,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Oversampling {
+    #[doc = "Automatically determine oversampling ratio"]
+    Auto,
+    #[doc = "Use 8x oversampling"]
+    By8,
+    #[doc = "Use 16x oversampling"]
+    By16,
+}
+
 #[non_exhaustive]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Config {
@@ -55,6 +66,7 @@ pub struct Config {
     /// read will abort, the error reported and cleared
     /// if false, the error is ignored and cleared
     pub detect_previous_overrun: bool,
+    pub oversampling: Oversampling,
 }
 
 impl Default for Config {
@@ -66,6 +78,7 @@ impl Default for Config {
             parity: Parity::ParityNone,
             // historical behavior
             detect_previous_overrun: false,
+            oversampling: Oversampling::Auto,
         }
     }
 }
@@ -765,11 +778,18 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, multiplier: u32, enable
         panic!("USART: At least one of RX or TX should be enabled");
     }
 
-    // TODO: better calculation, including error checking and OVER8 if possible.
-    let div = (pclk_freq.0 + (config.baudrate / 2)) / config.baudrate * multiplier;
+    let Some(div) = calculate_dividers(
+        pclk_freq.0 * multiplier,
+        config.baudrate,
+        config.oversampling,
+    ) else {
+        panic!("USART: unable to achieve target baudrate");
+    };
 
     unsafe {
-        r.brr().write_value(regs::Brr(div));
+        #[cfg(usart_v2)]
+        r.presc().write_value(regs::Presc(div.presc as u32));
+        r.brr().write_value(regs::Brr(div.usartdiv as u32));
         r.cr2().write(|w| {
             w.set_stop(match config.stop_bits {
                 StopBits::STOP0P5 => vals::Stop::STOP0P5,
@@ -798,8 +818,76 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, multiplier: u32, enable
                 Parity::ParityEven => vals::Ps::EVEN,
                 _ => vals::Ps::EVEN,
             });
+            /* FIXME: over8 missing from pac */
+            if div.over8 {
+                w.0 |= 1 << 15;
+            }
         });
     }
+}
+
+#[cfg(usart_v1)]
+const PRESC_VALS: [u16; 1] = [1];
+
+#[cfg(usart_v2)]
+const PRESC_VALS: [u16; 12] = [1, 2, 4, 6, 8, 10, 12, 16, 32, 64, 128, 256];
+
+struct Dividers {
+    over8: bool,
+    #[allow(unused)]
+    presc: u8,
+    usartdiv: u16,
+}
+
+fn calculate_dividers(clock: u32, br: u32, os: Oversampling) -> Option<Dividers> {
+    let mut r = Dividers {
+        over8: false,
+        usartdiv: 0,
+        presc: 0,
+    };
+    let mut error = br;
+
+    let mut find_best_div = |osr: u8| {
+        for (presc, presc_val) in PRESC_VALS.iter().enumerate() {
+            let brp = br * *presc_val as u32;
+            let div = cmp::min((clock + brp / 2) / brp, if osr == 16 { 0xffff } else { 0x7fff });
+            if div < osr as u32 {
+                return;
+            }
+            let act = clock / (*presc_val as u32 * div);
+            let e = br.abs_diff(act);
+            if e <= error {
+                error = e;
+                r = Dividers {
+                    over8: osr == 8,
+                    presc: presc as u8,
+                    usartdiv: div as u16,
+                };
+            }
+        }
+    };
+
+    for osr in match os {
+        Oversampling::Auto => [8, 16].as_slice(),
+        Oversampling::By8 => &[8],
+        Oversampling::By16 => &[16],
+    } {
+        find_best_div(*osr);
+    }
+
+    /* 8x oversampling uses a 3-bit fraction */
+    if r.over8 {
+        r.usartdiv = r.usartdiv << 1 & 0xfff0 | r.usartdiv & 0x7;
+    }
+
+    /* fail if baud rate error is > 2.5% */
+    /* generally a combined error of 5% is acceptable between nodes so we limit
+     * our error to half that */
+    if error * 1000 / br > 25 {
+        return None;
+    }
+
+    Some(r)
 }
 
 mod eh02 {
@@ -1044,6 +1132,9 @@ mod eha {
 pub use buffered::*;
 #[cfg(feature = "nightly")]
 mod buffered;
+
+pub use buffered_dma_tx::*;
+mod buffered_dma_tx;
 
 #[cfg(usart_v1)]
 fn tdr(r: crate::pac::usart::Usart) -> *mut u8 {

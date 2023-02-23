@@ -432,12 +432,8 @@ mod low_level_api {
         }
 
         if isr.tcif(channel_num % 4) && cr.read().tcie() {
-            if cr.read().dbm() == vals::Dbm::DISABLED {
-                cr.write(|_| ()); // Disable channel with the default value.
-            } else {
-                // for double buffered mode, clear TCIF flag but do not stop the transfer
-                dma.ifcr(channel_num / 4).write(|w| w.set_tcif(channel_num % 4, true));
-            }
+            /* acknowledge transfer complete interrupt */
+            dma.ifcr(channel_num / 4).write(|w| w.set_tcif(channel_num % 4, true));
             STATE.channels[state_index].waker.wake();
         }
     }
