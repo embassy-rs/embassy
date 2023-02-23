@@ -17,6 +17,7 @@ const ALLOW_WRITES: bool = false;
 async fn main(_spawner: Spawner) -> ! {
     let mut config = Config::default();
     config.rcc.sys_ck = Some(mhz(48));
+    config.rcc.pll48 = true;
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
@@ -38,7 +39,7 @@ async fn main(_spawner: Spawner) -> ! {
     // Should print 400kHz for initialization
     info!("Configured clock: {}", sdmmc.clock().0);
 
-    unwrap!(sdmmc.init_card(mhz(24)).await);
+    unwrap!(sdmmc.init_card(mhz(48)).await);
 
     let card = unwrap!(sdmmc.card());
 

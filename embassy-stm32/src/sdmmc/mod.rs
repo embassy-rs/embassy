@@ -140,10 +140,21 @@ cfg_if::cfg_if! {
         /// Calculate clock divisor. Returns a SDMMC_CK less than or equal to
         /// `sdmmc_ck` in Hertz.
         ///
-        /// Returns `(clk_div, clk_f)`, where `clk_div` is the divisor register
-        /// value and `clk_f` is the resulting new clock frequency.
-        fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(u8, Hertz), Error> {
-            let clk_div = match ker_ck.0 / sdmmc_ck {
+        /// Returns `(bypass, clk_div, clk_f)`, where `bypass` enables clock divisor bypass (only sdmmc_v1),
+        /// `clk_div` is the divisor register value and `clk_f` is the resulting new clock frequency.
+        fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u8, Hertz), Error> {
+            // sdmmc_v1 maximum clock is 50 MHz
+            if sdmmc_ck > 50_000_000 {
+                return Err(Error::BadClock);
+            }
+
+            // bypass divisor
+            if ker_ck.0 <= sdmmc_ck {
+                return Ok((true, 0, ker_ck));
+            }
+
+            // `ker_ck / sdmmc_ck` rounded up
+            let clk_div = match (ker_ck.0 + sdmmc_ck - 1) / sdmmc_ck {
                 0 | 1 => Ok(0),
                 x @ 2..=258 => {
                     Ok((x - 2) as u8)
@@ -153,22 +164,24 @@ cfg_if::cfg_if! {
 
             // SDIO_CK frequency = SDIOCLK / [CLKDIV + 2]
             let clk_f = Hertz(ker_ck.0 / (clk_div as u32 + 2));
-            Ok((clk_div, clk_f))
+            Ok((false, clk_div, clk_f))
         }
     } else if #[cfg(sdmmc_v2)] {
         /// Calculate clock divisor. Returns a SDMMC_CK less than or equal to
         /// `sdmmc_ck` in Hertz.
         ///
-        /// Returns `(clk_div, clk_f)`, where `clk_div` is the divisor register
-        /// value and `clk_f` is the resulting new clock frequency.
-        fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(u16, Hertz), Error> {
+        /// Returns `(bypass, clk_div, clk_f)`, where `bypass` enables clock divisor bypass (only sdmmc_v1),
+        /// `clk_div` is the divisor register value and `clk_f` is the resulting new clock frequency.
+        fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u16, Hertz), Error> {
+            // `ker_ck / sdmmc_ck` rounded up
             match (ker_ck.0 + sdmmc_ck - 1) / sdmmc_ck {
-                0 | 1 => Ok((0, ker_ck)),
+                0 | 1 => Ok((false, 0, ker_ck)),
                 x @ 2..=2046 => {
+                    // SDMMC_CK frequency = SDMMCCLK / [CLKDIV + 2]
                     let clk_div = ((x + 1) / 2) as u16;
                     let clk = Hertz(ker_ck.0 / (clk_div as u32 * 2));
 
-                    Ok((clk_div, clk))
+                    Ok((false, clk_div, clk))
                 }
                 _ => Err(Error::BadClock),
             }
@@ -478,7 +491,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
                 bus_width,
                 &mut self.card,
                 &mut self.signalling,
-                T::frequency(),
+                Self::kernel_clock(),
                 &mut self.clock,
                 T::state(),
                 self.config.data_transfer_timeout,
@@ -549,6 +562,44 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
 
         regs.data_interrupts(false);
         state.wake();
+    }
+
+    /// Returns kernel clock (SDIOCLK) for the SD-card facing domain
+    fn kernel_clock() -> Hertz {
+        cfg_if::cfg_if! {
+            // TODO, these could not be implemented, because required clocks are not exposed in RCC:
+            // - H7 uses pll1_q_ck or pll2_r_ck depending on SDMMCSEL
+            // - L1 uses pll48
+            // - L4 uses clk48(pll48)
+            // - L4+, L5, U5 uses clk48(pll48) or PLLSAI3CLK(PLLP) depending on SDMMCSEL
+            if #[cfg(stm32f1)] {
+                // F1 uses AHB1(HCLK), which is correct in PAC
+                T::frequency()
+            } else if #[cfg(any(stm32f2, stm32f4))] {
+                // F2, F4 always use pll48
+                critical_section::with(|_| unsafe {
+                    crate::rcc::get_freqs().pll48
+                }).expect("PLL48 is required for SDIO")
+            } else if #[cfg(stm32f7)] {
+                critical_section::with(|_| unsafe {
+                    use core::any::TypeId;
+                    let sdmmcsel = if TypeId::of::<T>() == TypeId::of::<crate::peripherals::SDMMC1>() {
+                        crate::pac::RCC.dckcfgr2().read().sdmmc1sel()
+                    } else {
+                        crate::pac::RCC.dckcfgr2().read().sdmmc2sel()
+                    };
+
+                    if sdmmcsel == crate::pac::rcc::vals::Sdmmcsel::SYSCLK {
+                        crate::rcc::get_freqs().sys
+                    } else {
+                        crate::rcc::get_freqs().pll48.expect("PLL48 is required for SDMMC")
+                    }
+                })
+            } else {
+                // Use default peripheral clock and hope it works
+                T::frequency()
+            }
+        }
     }
 }
 
@@ -625,7 +676,7 @@ impl SdmmcInner {
         unsafe {
             // While the SD/SDIO card or eMMC is in identification mode,
             // the SDMMC_CK frequency must be no more than 400 kHz.
-            let (clkdiv, init_clock) = unwrap!(clk_div(ker_ck, SD_INIT_FREQ.0));
+            let (_bypass, clkdiv, init_clock) = unwrap!(clk_div(ker_ck, SD_INIT_FREQ.0));
             *clock = init_clock;
 
             // CPSMACT and DPSMACT must be 0 to set WIDBUS
@@ -634,6 +685,8 @@ impl SdmmcInner {
             regs.clkcr().modify(|w| {
                 w.set_widbus(0);
                 w.set_clkdiv(clkdiv);
+                #[cfg(sdmmc_v1)]
+                w.set_bypass(_bypass);
             });
 
             regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
@@ -1052,7 +1105,8 @@ impl SdmmcInner {
             _ => panic!("Invalid Bus Width"),
         };
 
-        let (clkdiv, new_clock) = clk_div(ker_ck, freq)?;
+        let (_bypass, clkdiv, new_clock) = clk_div(ker_ck, freq)?;
+
         // Enforce AHB and SDMMC_CK clock relation. See RM0433 Rev 7
         // Section 55.5.8
         let sdmmc_bus_bandwidth = new_clock.0 * width_u32;
@@ -1063,7 +1117,11 @@ impl SdmmcInner {
         unsafe {
             // CPSMACT and DPSMACT must be 0 to set CLKDIV
             self.wait_idle();
-            regs.clkcr().modify(|w| w.set_clkdiv(clkdiv));
+            regs.clkcr().modify(|w| {
+                w.set_clkdiv(clkdiv);
+                #[cfg(sdmmc_v1)]
+                w.set_bypass(_bypass);
+            });
         }
 
         Ok(())
@@ -1152,7 +1210,6 @@ impl SdmmcInner {
     }
 
     /// Query the card status (CMD13, returns R1)
-    ///
     fn read_status(&self, card: &Card) -> Result<CardStatus, Error> {
         let regs = self.0;
         let rca = card.rca;
