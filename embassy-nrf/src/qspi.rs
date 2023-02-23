@@ -133,25 +133,26 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
 
         let r = T::regs();
 
-        sck.set_high();
-        csn.set_high();
-        io0.set_high();
-        io1.set_high();
-        io2.set_high();
-        io3.set_high();
-        sck.conf().write(|w| w.dir().output().drive().h0h1());
-        csn.conf().write(|w| w.dir().output().drive().h0h1());
-        io0.conf().write(|w| w.dir().output().drive().h0h1());
-        io1.conf().write(|w| w.dir().output().drive().h0h1());
-        io2.conf().write(|w| w.dir().output().drive().h0h1());
-        io3.conf().write(|w| w.dir().output().drive().h0h1());
+        macro_rules! config_pin {
+            ($pin:ident) => {
+                $pin.set_high();
+                $pin.conf().write(|w| {
+                    w.dir().output();
+                    w.drive().h0h1();
+                    #[cfg(feature = "_nrf5340-s")]
+                    w.mcusel().peripheral();
+                    w
+                });
+                r.psel.$pin.write(|w| unsafe { w.bits($pin.psel_bits()) });
+            };
+        }
 
-        r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
-        r.psel.csn.write(|w| unsafe { w.bits(csn.psel_bits()) });
-        r.psel.io0.write(|w| unsafe { w.bits(io0.psel_bits()) });
-        r.psel.io1.write(|w| unsafe { w.bits(io1.psel_bits()) });
-        r.psel.io2.write(|w| unsafe { w.bits(io2.psel_bits()) });
-        r.psel.io3.write(|w| unsafe { w.bits(io3.psel_bits()) });
+        config_pin!(sck);
+        config_pin!(csn);
+        config_pin!(io0);
+        config_pin!(io1);
+        config_pin!(io2);
+        config_pin!(io3);
 
         r.ifconfig0.write(|w| {
             w.addrmode().variant(config.address_mode);
