@@ -525,42 +525,43 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> NorFlash for Qspi<'d, T, FLASH_SI
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "nightly")]
-    {
-        use embedded_storage_async::nor_flash::{AsyncNorFlash, AsyncReadNorFlash};
-        use core::future::Future;
+#[cfg(feature = "nightly")]
+mod _eh1 {
+    use core::future::Future;
 
-        impl<'d, T: Instance, const FLASH_SIZE: usize> AsyncNorFlash for Qspi<'d, T, FLASH_SIZE> {
-            const WRITE_SIZE: usize = <Self as NorFlash>::WRITE_SIZE;
-            const ERASE_SIZE: usize = <Self as NorFlash>::ERASE_SIZE;
+    use embedded_storage_async::nor_flash::{AsyncNorFlash, AsyncReadNorFlash};
 
-            type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-            fn write<'a>(&'a mut self, offset: u32, data: &'a [u8]) -> Self::WriteFuture<'a> {
-                async move { self.write(offset as usize, data).await }
-            }
+    use super::*;
 
-            type EraseFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-            fn erase<'a>(&'a mut self, from: u32, to: u32) -> Self::EraseFuture<'a> {
-                async move {
-                    for address in (from as usize..to as usize).step_by(<Self as AsyncNorFlash>::ERASE_SIZE) {
-                        self.erase(address).await?
-                    }
-                    Ok(())
-                }
-            }
+    impl<'d, T: Instance, const FLASH_SIZE: usize> AsyncNorFlash for Qspi<'d, T, FLASH_SIZE> {
+        const WRITE_SIZE: usize = <Self as NorFlash>::WRITE_SIZE;
+        const ERASE_SIZE: usize = <Self as NorFlash>::ERASE_SIZE;
+
+        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        fn write<'a>(&'a mut self, offset: u32, data: &'a [u8]) -> Self::WriteFuture<'a> {
+            async move { self.write(offset as usize, data).await }
         }
 
-        impl<'d, T: Instance, const FLASH_SIZE: usize> AsyncReadNorFlash for Qspi<'d, T, FLASH_SIZE> {
-            const READ_SIZE: usize = 4;
-            type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-            fn read<'a>(&'a mut self, address: u32, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-                async move { self.read(address as usize, data).await }
+        type EraseFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        fn erase<'a>(&'a mut self, from: u32, to: u32) -> Self::EraseFuture<'a> {
+            async move {
+                for address in (from as usize..to as usize).step_by(<Self as AsyncNorFlash>::ERASE_SIZE) {
+                    self.erase(address).await?
+                }
+                Ok(())
             }
+        }
+    }
 
-            fn capacity(&self) -> usize {
-                FLASH_SIZE
-            }
+    impl<'d, T: Instance, const FLASH_SIZE: usize> AsyncReadNorFlash for Qspi<'d, T, FLASH_SIZE> {
+        const READ_SIZE: usize = 4;
+        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        fn read<'a>(&'a mut self, address: u32, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            async move { self.read(address as usize, data).await }
+        }
+
+        fn capacity(&self) -> usize {
+            FLASH_SIZE
         }
     }
 }
