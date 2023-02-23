@@ -192,3 +192,19 @@ impl<'a> fmt::Display for Duration {
 const fn div_ceil(num: u64, den: u64) -> u64 {
     (num + den - 1) / den
 }
+
+impl TryFrom<core::time::Duration> for Duration {
+    type Error = <u64 as TryFrom<u128>>::Error;
+
+    /// Converts using [`Duration::from_micros`]. Fails if value can not be represented as u64.
+    fn try_from(value: core::time::Duration) -> Result<Self, Self::Error> {
+        Ok(Self::from_micros(value.as_micros().try_into()?))
+    }
+}
+
+impl From<Duration> for core::time::Duration {
+    /// Converts using [`Duration::as_micros`].
+    fn from(value: Duration) -> Self {
+        core::time::Duration::from_micros(value.as_micros())
+    }
+}
