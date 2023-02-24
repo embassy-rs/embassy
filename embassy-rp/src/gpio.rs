@@ -193,6 +193,7 @@ unsafe fn IO_IRQ_BANK0() {
     }
 }
 
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 struct InputFuture<'a, T: Pin> {
     pin: PeripheralRef<'a, T>,
     level: InterruptTrigger,

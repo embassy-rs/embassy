@@ -24,6 +24,7 @@ pub fn yield_now() -> impl Future<Output = ()> {
     YieldNowFuture { yielded: false }
 }
 
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 struct YieldNowFuture {
     yielded: bool,
 }

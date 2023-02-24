@@ -315,6 +315,7 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
 
 // =======================
 
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub(crate) struct PortInputFuture<'a> {
     pin: PeripheralRef<'a, AnyPin>,
 }
