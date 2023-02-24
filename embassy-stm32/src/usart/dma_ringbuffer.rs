@@ -78,12 +78,14 @@ impl<'a> DmaRingBuffer<'a> {
     }
 
     /// Returns whether the buffer is empty
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.first == self.end()
     }
 
     /// The current number of bytes in the buffer
     /// This may change at any time if dma is currently active
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         // Read out a stable end (the dma periheral can change it at anytime)
         let end = self.end();
