@@ -120,6 +120,7 @@ unsafe fn PIO1_IRQ_0() {
 }
 
 /// Future that waits for TX-FIFO to become writable
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct FifoOutFuture<'a, PIO: PioInstance, SM: PioStateMachine + Unpin> {
     sm: &'a mut SM,
     pio: PhantomData<PIO>,
@@ -182,6 +183,7 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine + Unpin> Drop for FifoOutFuture<'
 }
 
 /// Future that waits for RX-FIFO to become readable
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct FifoInFuture<'a, PIO: PioInstance, SM: PioStateMachine> {
     sm: &'a mut SM,
     pio: PhantomData<PIO>,
@@ -241,6 +243,7 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine> Drop for FifoInFuture<'d, PIO, S
 }
 
 /// Future that waits for IRQ
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct IrqFuture<PIO: PioInstance> {
     pio: PhantomData<PIO>,
     irq_no: u8,
