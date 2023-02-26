@@ -764,14 +764,6 @@ impl SdmmcInner {
         }
         self.cmd(Cmd::read_single_block(address), true)?;
 
-        // Start data DMA transfer *after* sending the command
-        // #[cfg(sdmmc_v1)]
-        // unsafe {
-        //     regs.dctrl().modify(|w| {
-        //         w.set_dmaen(true);
-        //     });
-        // }
-
         let res = poll_fn(|cx| {
             waker_reg.register(cx.waker());
             let status = unsafe { regs.star().read() };
@@ -815,16 +807,10 @@ impl SdmmcInner {
         let regs = self.0;
         let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
 
-        // sdmmc_v1 uses different cmd/dma order than v2, but only for writes
-        #[cfg(sdmmc_v1)]
-        self.cmd(Cmd::write_single_block(address), true)?;
-
         unsafe {
             self.prepare_datapath_write(buffer as *const [u32; 128], 512, 9, data_transfer_timeout, dma);
             self.data_interrupts(true);
         }
-
-        #[cfg(sdmmc_v2)]
         self.cmd(Cmd::write_single_block(address), true)?;
 
         let res = poll_fn(|cx| {
@@ -936,9 +922,7 @@ impl SdmmcInner {
                 let request = dma.request();
                 dma.start_read(request, regs.fifor().ptr() as *const u32, buffer, crate::dma::TransferOptions {
                     pburst: crate::dma::Burst::Incr4,
-                    mburst: crate::dma::Burst::Incr4,
                     flow_ctrl: crate::dma::FlowControl::Peripheral,
-                    fifo_threshold: Some(crate::dma::FifoThreshold::Full),
                     ..Default::default()
                 });
             } else if #[cfg(sdmmc_v2)] {
@@ -952,8 +936,8 @@ impl SdmmcInner {
             w.set_dtdir(true);
             #[cfg(sdmmc_v1)]
             {
-                w.set_dten(true);
                 w.set_dmaen(true);
+                w.set_dten(true);
             }
         });
     }
@@ -986,9 +970,7 @@ impl SdmmcInner {
                 let request = dma.request();
                 dma.start_write(request, buffer, regs.fifor().ptr() as *mut u32, crate::dma::TransferOptions {
                     pburst: crate::dma::Burst::Incr4,
-                    mburst: crate::dma::Burst::Incr4,
                     flow_ctrl: crate::dma::FlowControl::Peripheral,
-                    fifo_threshold: Some(crate::dma::FifoThreshold::Full),
                     ..Default::default()
                 });
             } else if #[cfg(sdmmc_v2)] {
@@ -1000,11 +982,6 @@ impl SdmmcInner {
         regs.dctrl().modify(|w| {
             w.set_dblocksize(block_size);
             w.set_dtdir(false);
-            #[cfg(sdmmc_v1)]
-            {
-                w.set_dten(true);
-                w.set_dmaen(true);
-            }
         });
     }
 
