@@ -1,6 +1,6 @@
-#![macro_use]
+//! Inter-IC Sound (I2S) driver.
 
-//! Support for I2S audio
+#![macro_use]
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
@@ -19,16 +19,23 @@ use crate::pac::i2s::RegisterBlock;
 use crate::util::{slice_in_ram_or, slice_ptr_parts};
 use crate::{Peripheral, EASY_DMA_SIZE};
 
+/// Type alias for `MultiBuffering` with 2 buffers.
 pub type DoubleBuffering<S, const NS: usize> = MultiBuffering<S, 2, NS>;
 
+/// I2S transfer error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
+    /// The buffer is too long.
     BufferTooLong,
+    /// The buffer is empty.
     BufferZeroLength,
-    BufferNotInDataMemory,
+    /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
+    BufferNotInRAM,
+    /// The buffer address is not aligned.
     BufferMisaligned,
+    /// The buffer length is not a multiple of the alignment.
     BufferLengthMisaligned,
 }
 
@@ -36,32 +43,14 @@ pub enum Error {
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct Config {
+    /// Sample width
     pub sample_width: SampleWidth,
+    /// Alignment
     pub align: Align,
+    /// Sample format
     pub format: Format,
+    /// Channel configuration.
     pub channels: Channels,
-}
-
-impl Config {
-    pub fn sample_width(mut self, sample_width: SampleWidth) -> Self {
-        self.sample_width = sample_width;
-        self
-    }
-
-    pub fn align(mut self, align: Align) -> Self {
-        self.align = align;
-        self
-    }
-
-    pub fn format(mut self, format: Format) -> Self {
-        self.format = format;
-        self
-    }
-
-    pub fn channels(mut self, channels: Channels) -> Self {
-        self.channels = channels;
-        self
-    }
 }
 
 impl Default for Config {
@@ -75,7 +64,7 @@ impl Default for Config {
     }
 }
 
-/// I2S Mode
+/// I2S clock configuration.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub struct MasterClock {
     freq: MckFreq,
@@ -83,12 +72,14 @@ pub struct MasterClock {
 }
 
 impl MasterClock {
+    /// Create a new `MasterClock`.
     pub fn new(freq: MckFreq, ratio: Ratio) -> Self {
         Self { freq, ratio }
     }
 }
 
 impl MasterClock {
+    /// Get the sample rate for this clock configuration.
     pub fn sample_rate(&self) -> u32 {
         self.freq.to_frequency() / self.ratio.to_divisor()
     }
@@ -97,18 +88,31 @@ impl MasterClock {
 /// Master clock generator frequency.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum MckFreq {
+    /// 32 Mhz / 8 = 4000.00 kHz
     _32MDiv8,
+    /// 32 Mhz / 10 = 3200.00 kHz
     _32MDiv10,
+    /// 32 Mhz / 11 = 2909.09 kHz
     _32MDiv11,
+    /// 32 Mhz / 15 = 2133.33 kHz
     _32MDiv15,
+    /// 32 Mhz / 16 = 2000.00 kHz
     _32MDiv16,
+    /// 32 Mhz / 21 = 1523.81 kHz
     _32MDiv21,
+    /// 32 Mhz / 23 = 1391.30 kHz
     _32MDiv23,
+    /// 32 Mhz / 30 = 1066.67 kHz
     _32MDiv30,
+    /// 32 Mhz / 31 = 1032.26 kHz
     _32MDiv31,
+    /// 32 Mhz / 32 = 1000.00 kHz
     _32MDiv32,
+    /// 32 Mhz / 42 = 761.90 kHz
     _32MDiv42,
+    /// 32 Mhz / 63 = 507.94 kHz
     _32MDiv63,
+    /// 32 Mhz / 125 = 256.00 kHz
     _32MDiv125,
 }
 
@@ -146,14 +150,23 @@ impl From<MckFreq> for usize {
 ///
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Ratio {
+    /// Divide by 32
     _32x,
+    /// Divide by 48
     _48x,
+    /// Divide by 64
     _64x,
+    /// Divide by 96
     _96x,
+    /// Divide by 128
     _128x,
+    /// Divide by 192
     _192x,
+    /// Divide by 256
     _256x,
+    /// Divide by 384
     _384x,
+    /// Divide by 512
     _512x,
 }
 
@@ -165,6 +178,7 @@ impl Ratio {
         usize::from(*self) as u8
     }
 
+    /// Return the divisor for this ratio
     pub fn to_divisor(&self) -> u32 {
         Self::RATIOS[usize::from(*self)]
     }
@@ -183,11 +197,17 @@ impl From<Ratio> for usize {
 /// For custom master clock configuration, please refer to [MasterClock].
 #[derive(Clone, Copy)]
 pub enum ApproxSampleRate {
+    /// 11025 Hz
     _11025,
+    /// 16000 Hz
     _16000,
+    /// 22050 Hz
     _22050,
+    /// 32000 Hz
     _32000,
+    /// 44100 Hz
     _44100,
+    /// 48000 Hz
     _48000,
 }
 
@@ -211,6 +231,7 @@ impl From<ApproxSampleRate> for MasterClock {
 }
 
 impl ApproxSampleRate {
+    /// Get the sample rate as an integer.
     pub fn sample_rate(&self) -> u32 {
         MasterClock::from(*self).sample_rate()
     }
@@ -223,20 +244,32 @@ impl ApproxSampleRate {
 /// For custom master clock configuration, please refer to [Mode].
 #[derive(Clone, Copy)]
 pub enum ExactSampleRate {
+    /// 8000 Hz
     _8000,
+    /// 10582 Hz
     _10582,
+    /// 12500 Hz
     _12500,
+    /// 15625 Hz
     _15625,
+    /// 15873 Hz
     _15873,
+    /// 25000 Hz
     _25000,
+    /// 31250 Hz
     _31250,
+    /// 50000 Hz
     _50000,
+    /// 62500 Hz
     _62500,
+    /// 100000 Hz
     _100000,
+    /// 125000 Hz
     _125000,
 }
 
 impl ExactSampleRate {
+    /// Get the sample rate as an integer.
     pub fn sample_rate(&self) -> u32 {
         MasterClock::from(*self).sample_rate()
     }
@@ -263,8 +296,11 @@ impl From<ExactSampleRate> for MasterClock {
 /// Sample width.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum SampleWidth {
+    /// 8 bit samples.
     _8bit,
+    /// 16 bit samples.
     _16bit,
+    /// 24 bit samples.
     _24bit,
 }
 
@@ -277,7 +313,9 @@ impl From<SampleWidth> for u8 {
 /// Channel used for the most significant sample value in a frame.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Align {
+    /// Left-align samples.
     Left,
+    /// Right-align samples.
     Right,
 }
 
@@ -293,7 +331,9 @@ impl From<Align> for bool {
 /// Frame format.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Format {
+    /// I2S frame format
     I2S,
+    /// Aligned frame format
     Aligned,
 }
 
@@ -309,8 +349,11 @@ impl From<Format> for bool {
 /// Channels
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Channels {
+    /// Stereo (2 channels).
     Stereo,
+    /// Mono, left channel only.
     MonoLeft,
+    /// Mono, right channel only.
     MonoRight,
 }
 
@@ -320,7 +363,7 @@ impl From<Channels> for u8 {
     }
 }
 
-/// Interface to the I2S peripheral using EasyDMA to offload the transmission and reception workload.
+/// I2S driver.
 pub struct I2S<'d, T: Instance> {
     i2s: PeripheralRef<'d, T>,
     irq: PeripheralRef<'d, T::Interrupt>,
@@ -566,7 +609,7 @@ impl<'d, T: Instance> I2S<'d, T> {
     {
         trace!("SEND: {}", buffer_ptr as *const S as u32);
 
-        slice_in_ram_or(buffer_ptr, Error::BufferNotInDataMemory)?;
+        slice_in_ram_or(buffer_ptr, Error::BufferNotInRAM)?;
 
         compiler_fence(Ordering::SeqCst);
 
@@ -1003,7 +1046,10 @@ impl<T: Instance> Device<T> {
 
 /// Sample details
 pub trait Sample: Sized + Copy + Default {
+    /// Width of this sample type.
     const WIDTH: usize;
+
+    /// Scale of this sample.
     const SCALE: Self;
 }
 
@@ -1022,12 +1068,13 @@ impl Sample for i32 {
     const SCALE: Self = 1 << (Self::WIDTH - 1);
 }
 
-/// A 4-bytes aligned buffer.
+/// A 4-bytes aligned buffer. Needed for DMA access.
 #[derive(Clone, Copy)]
 #[repr(align(4))]
 pub struct AlignedBuffer<T: Sample, const N: usize>([T; N]);
 
 impl<T: Sample, const N: usize> AlignedBuffer<T, N> {
+    /// Create a new `AlignedBuffer`.
     pub fn new(array: [T; N]) -> Self {
         Self(array)
     }
@@ -1052,12 +1099,14 @@ impl<T: Sample, const N: usize> DerefMut for AlignedBuffer<T, N> {
     }
 }
 
+/// Set of multiple buffers, for multi-buffering transfers.
 pub struct MultiBuffering<S: Sample, const NB: usize, const NS: usize> {
     buffers: [AlignedBuffer<S, NS>; NB],
     index: usize,
 }
 
 impl<S: Sample, const NB: usize, const NS: usize> MultiBuffering<S, NB, NS> {
+    /// Create a new `MultiBuffering`.
     pub fn new() -> Self {
         assert!(NB > 1);
         Self {
@@ -1119,7 +1168,9 @@ pub(crate) mod sealed {
     }
 }
 
+/// I2S peripehral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+    /// Interrupt for this peripheral.
     type Interrupt: Interrupt;
 }
 

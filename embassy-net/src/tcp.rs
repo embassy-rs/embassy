@@ -63,6 +63,10 @@ impl<'a> TcpWriter<'a> {
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         self.io.write(buf).await
     }
+
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.io.flush().await
+    }
 }
 
 impl<'a> TcpSocket<'a> {
@@ -144,6 +148,10 @@ impl<'a> TcpSocket<'a> {
 
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         self.io.write(buf).await
+    }
+
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.io.flush().await
     }
 
     pub fn set_timeout(&mut self, duration: Option<Duration>) {
@@ -254,10 +262,19 @@ impl<'d> TcpIo<'d> {
         .await
     }
 
-    #[allow(unused)]
     async fn flush(&mut self) -> Result<(), Error> {
-        poll_fn(move |_| {
-            Poll::Ready(Ok(())) // TODO: Is there a better implementation for this?
+        poll_fn(move |cx| {
+            self.with_mut(|s, _| {
+                // If there are outstanding send operations, register for wake up and wait
+                // smoltcp issues wake-ups when octets are dequeued from the send buffer
+                if s.send_queue() > 0 {
+                    s.register_send_waker(cx.waker());
+                    Poll::Pending
+                // No outstanding sends, socket is flushed
+                } else {
+                    Poll::Ready(Ok(()))
+                }
+            })
         })
         .await
     }
@@ -389,7 +406,7 @@ pub mod client {
         fn new<D: Driver>(stack: &'d Stack<D>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Result<Self, Error> {
             let mut bufs = state.pool.alloc().ok_or(Error::ConnectionReset)?;
             Ok(Self {
-                socket: unsafe { TcpSocket::new(stack, &mut bufs.as_mut().0, &mut bufs.as_mut().1) },
+                socket: unsafe { TcpSocket::new(stack, &mut bufs.as_mut().1, &mut bufs.as_mut().0) },
                 state,
                 bufs,
             })

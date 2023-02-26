@@ -198,6 +198,7 @@ mod eha {
     }
 }
 
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 struct ExtiInputFuture<'a> {
     pin: u8,
     phantom: PhantomData<&'a mut AnyPin>,

@@ -74,7 +74,6 @@ impl<const N: usize> UsbLogger<N> {
             &mut state.config_descriptor,
             &mut state.bos_descriptor,
             &mut state.control_buf,
-            None,
         );
 
         // Create classes on the builder.

@@ -194,13 +194,13 @@ impl<'d, T: Instance> Driver<'d, T> {
         &mut self,
         ep_type: EndpointType,
         max_packet_size: u16,
-        interval: u8,
+        interval_ms: u8,
     ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
         trace!(
-            "allocating type={:?} mps={:?} interval={}, dir={:?}",
+            "allocating type={:?} mps={:?} interval_ms={}, dir={:?}",
             ep_type,
             max_packet_size,
-            interval,
+            interval_ms,
             D::dir()
         );
 
@@ -219,14 +219,16 @@ impl<'d, T: Instance> Driver<'d, T> {
         let (index, ep) = index.ok_or(EndpointAllocError)?;
         assert!(!ep.used);
 
-        if max_packet_size > 64 {
+        // as per datasheet, the maximum buffer size is 64, except for isochronous
+        // endpoints, which are allowed to be up to 1023 bytes.
+        if (ep_type != EndpointType::Isochronous && max_packet_size > 64) || max_packet_size > 1023 {
             warn!("max_packet_size too high: {}", max_packet_size);
             return Err(EndpointAllocError);
         }
 
         // ep mem addrs must be 64-byte aligned, so there's no point in trying
         // to allocate smaller chunks to save memory.
-        let len = 64;
+        let len = (max_packet_size + 63) / 64 * 64;
 
         let addr = self.ep_mem_free;
         if addr + len > EP_MEMORY_SIZE as _ {
@@ -279,7 +281,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 addr: EndpointAddress::from_parts(index, D::dir()),
                 ep_type,
                 max_packet_size,
-                interval,
+                interval_ms,
             },
             buf,
         })
@@ -296,18 +298,18 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         &mut self,
         ep_type: EndpointType,
         max_packet_size: u16,
-        interval: u8,
+        interval_ms: u8,
     ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, max_packet_size, interval)
+        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
     }
 
     fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
         max_packet_size: u16,
-        interval: u8,
+        interval_ms: u8,
     ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, max_packet_size, interval)
+        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
     }
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {

@@ -176,8 +176,16 @@ mod low_level_api {
         mem_len: usize,
         incr_mem: bool,
         data_size: WordSize,
-        _options: TransferOptions,
+        options: TransferOptions,
     ) {
+        assert!(options.mburst == crate::dma::Burst::Single, "Burst mode not supported");
+        assert!(options.pburst == crate::dma::Burst::Single, "Burst mode not supported");
+        assert!(
+            options.flow_ctrl == crate::dma::FlowControl::Dma,
+            "Peripheral flow control not supported"
+        );
+        assert!(options.fifo_threshold.is_none(), "FIFO mode not supported");
+
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
 

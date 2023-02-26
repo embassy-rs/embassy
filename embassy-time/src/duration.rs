@@ -81,6 +81,20 @@ impl Duration {
         }
     }
 
+    /// Creates a duration corresponding to the specified Hz.
+    /// NOTE: Giving this function a hz >= the TICK_HZ of your platform will clamp the Duration to 1
+    /// tick. Doing so will not deadlock, but will certainly not produce the desired output.
+    pub const fn from_hz(hz: u64) -> Duration {
+        let ticks = {
+            if hz >= TICK_HZ {
+                1
+            } else {
+                (TICK_HZ + hz / 2) / hz
+            }
+        };
+        Duration { ticks }
+    }
+
     /// Adds one Duration to another, returning a new Duration or None in the event of an overflow.
     pub fn checked_add(self, rhs: Duration) -> Option<Duration> {
         self.ticks.checked_add(rhs.ticks).map(|ticks| Duration { ticks })
@@ -177,4 +191,20 @@ impl<'a> fmt::Display for Duration {
 #[inline]
 const fn div_ceil(num: u64, den: u64) -> u64 {
     (num + den - 1) / den
+}
+
+impl TryFrom<core::time::Duration> for Duration {
+    type Error = <u64 as TryFrom<u128>>::Error;
+
+    /// Converts using [`Duration::from_micros`]. Fails if value can not be represented as u64.
+    fn try_from(value: core::time::Duration) -> Result<Self, Self::Error> {
+        Ok(Self::from_micros(value.as_micros().try_into()?))
+    }
+}
+
+impl From<Duration> for core::time::Duration {
+    /// Converts using [`Duration::as_micros`].
+    fn from(value: Duration) -> Self {
+        core::time::Duration::from_micros(value.as_micros())
+    }
 }

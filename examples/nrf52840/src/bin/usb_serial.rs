@@ -7,7 +7,7 @@ use core::mem;
 use defmt::{info, panic};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_nrf::usb::{Driver, Instance, PowerUsb, UsbSupply};
+use embassy_nrf::usb::{Driver, HardwareVbusDetect, Instance, VbusDetect};
 use embassy_nrf::{interrupt, pac};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) {
     // Create the driver, from the HAL.
     let irq = interrupt::take!(USBD);
     let power_irq = interrupt::take!(POWER_CLOCK);
-    let driver = Driver::new(p.USBD, irq, PowerUsb::new(power_irq));
+    let driver = Driver::new(p.USBD, irq, HardwareVbusDetect::new(power_irq));
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);
@@ -59,7 +59,6 @@ async fn main(_spawner: Spawner) {
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut control_buf,
-        None,
     );
 
     // Create classes on the builder.
@@ -97,7 +96,7 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-async fn echo<'d, T: Instance + 'd, P: UsbSupply + 'd>(
+async fn echo<'d, T: Instance + 'd, P: VbusDetect + 'd>(
     class: &mut CdcAcmClass<'d, Driver<'d, T, P>>,
 ) -> Result<(), Disconnected> {
     let mut buf = [0; 64];

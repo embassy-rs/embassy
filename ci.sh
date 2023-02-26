@@ -46,8 +46,8 @@ cargo batch  \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52810,gpiote,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52811,gpiote,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52820,gpiote,time-driver-rtc1 \
-    --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52832,gpiote,time-driver-rtc1 \
-    --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52833,gpiote,time-driver-rtc1,unstable-traits \
+    --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52832,gpiote,time-driver-rtc1,reset-pin-as-gpio \
+    --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52833,gpiote,time-driver-rtc1,unstable-traits,nfc-pins-as-gpio \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nightly,nrf9160-s,gpiote,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nightly,nrf9160-ns,gpiote,time-driver-rtc1,unstable-traits \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nightly,nrf5340-app-s,gpiote,time-driver-rtc1,unstable-traits \
@@ -63,7 +63,8 @@ cargo batch  \
     --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv6m-none-eabi --features nightly,intrinsics \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f410tb,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f411ce,defmt,exti,time-driver-any,unstable-traits \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f429zi,log,exti,time-driver-any,unstable-traits \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f413vh,defmt,exti,time-driver-any,unstable-traits \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f429zi,log,exti,time-driver-any,unstable-traits,embedded-sdmmc \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32h755zi-cm7,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32h7b3ai,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32l476vg,defmt,exti,time-driver-any,unstable-traits \

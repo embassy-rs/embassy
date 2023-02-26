@@ -1,6 +1,6 @@
 #![macro_use]
 
-//! HAL interface for the PPI and DPPI peripheral.
+//! Programmable Peripheral Interconnect (PPI/DPPI) driver.
 //!
 //! The (Distributed) Programmable Peripheral Interconnect interface allows for an autonomous interoperability
 //! between peripherals through their events and tasks. There are fixed PPI channels and fully

@@ -1,4 +1,4 @@
-//! Async buffered UART
+//! Async buffered UART driver.
 //!
 //! WARNING!!! The functionality provided here is intended to be used only
 //! in situations where hardware flow control are available i.e. CTS and RTS.
@@ -69,7 +69,7 @@ struct StateInner<'d, U: UarteInstance, T: TimerInstance> {
     tx_waker: WakerRegistration,
 }
 
-/// Interface to a UARTE instance
+/// Buffered UARTE driver.
 pub struct BufferedUarte<'d, U: UarteInstance, T: TimerInstance> {
     inner: RefCell<PeripheralMutex<'d, StateInner<'d, U, T>>>,
 }
@@ -199,6 +199,9 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         });
     }
 
+    /// Split the UART in reader and writer parts.
+    ///
+    /// This allows reading and writing concurrently from independent tasks.
     pub fn split<'u>(&'u mut self) -> (BufferedUarteRx<'u, 'd, U, T>, BufferedUarteTx<'u, 'd, U, T>) {
         (BufferedUarteRx { inner: self }, BufferedUarteTx { inner: self })
     }
@@ -320,10 +323,12 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     }
 }
 
+/// Reader part of the buffered UARTE driver.
 pub struct BufferedUarteTx<'u, 'd, U: UarteInstance, T: TimerInstance> {
     inner: &'u BufferedUarte<'d, U, T>,
 }
 
+/// Writer part of the buffered UARTE driver.
 pub struct BufferedUarteRx<'u, 'd, U: UarteInstance, T: TimerInstance> {
     inner: &'u BufferedUarte<'d, U, T>,
 }

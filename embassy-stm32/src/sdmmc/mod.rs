@@ -2,6 +2,7 @@
 
 use core::default::Default;
 use core::future::poll_fn;
+use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
@@ -40,7 +41,23 @@ impl Default for Signalling {
 }
 
 #[repr(align(4))]
-pub struct DataBlock([u8; 512]);
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DataBlock(pub [u8; 512]);
+
+impl Deref for DataBlock {
+    type Target = [u8; 512];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for DataBlock {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 /// Errors
 #[non_exhaustive]
@@ -123,10 +140,21 @@ cfg_if::cfg_if! {
         /// Calculate clock divisor. Returns a SDMMC_CK less than or equal to
         /// `sdmmc_ck` in Hertz.
         ///
-        /// Returns `(clk_div, clk_f)`, where `clk_div` is the divisor register
-        /// value and `clk_f` is the resulting new clock frequency.
-        fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(u8, Hertz), Error> {
-            let clk_div = match ker_ck.0 / sdmmc_ck {
+        /// Returns `(bypass, clk_div, clk_f)`, where `bypass` enables clock divisor bypass (only sdmmc_v1),
+        /// `clk_div` is the divisor register value and `clk_f` is the resulting new clock frequency.
+        fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u8, Hertz), Error> {
+            // sdmmc_v1 maximum clock is 50 MHz
+            if sdmmc_ck > 50_000_000 {
+                return Err(Error::BadClock);
+            }
+
+            // bypass divisor
+            if ker_ck.0 <= sdmmc_ck {
+                return Ok((true, 0, ker_ck));
+            }
+
+            // `ker_ck / sdmmc_ck` rounded up
+            let clk_div = match (ker_ck.0 + sdmmc_ck - 1) / sdmmc_ck {
                 0 | 1 => Ok(0),
                 x @ 2..=258 => {
                     Ok((x - 2) as u8)
@@ -136,22 +164,24 @@ cfg_if::cfg_if! {
 
             // SDIO_CK frequency = SDIOCLK / [CLKDIV + 2]
             let clk_f = Hertz(ker_ck.0 / (clk_div as u32 + 2));
-            Ok((clk_div, clk_f))
+            Ok((false, clk_div, clk_f))
         }
     } else if #[cfg(sdmmc_v2)] {
         /// Calculate clock divisor. Returns a SDMMC_CK less than or equal to
         /// `sdmmc_ck` in Hertz.
         ///
-        /// Returns `(clk_div, clk_f)`, where `clk_div` is the divisor register
-        /// value and `clk_f` is the resulting new clock frequency.
-        fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(u16, Hertz), Error> {
+        /// Returns `(bypass, clk_div, clk_f)`, where `bypass` enables clock divisor bypass (only sdmmc_v1),
+        /// `clk_div` is the divisor register value and `clk_f` is the resulting new clock frequency.
+        fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u16, Hertz), Error> {
+            // `ker_ck / sdmmc_ck` rounded up
             match (ker_ck.0 + sdmmc_ck - 1) / sdmmc_ck {
-                0 | 1 => Ok((0, ker_ck)),
+                0 | 1 => Ok((false, 0, ker_ck)),
                 x @ 2..=2046 => {
+                    // SDMMC_CK frequency = SDMMCCLK / [CLKDIV + 2]
                     let clk_div = ((x + 1) / 2) as u16;
                     let clk = Hertz(ker_ck.0 / (clk_div as u32 * 2));
 
-                    Ok((clk_div, clk))
+                    Ok((false, clk_div, clk))
                 }
                 _ => Err(Error::BadClock),
             }
@@ -461,7 +491,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
                 bus_width,
                 &mut self.card,
                 &mut self.signalling,
-                T::frequency(),
+                T::kernel_clk(),
                 &mut self.clock,
                 T::state(),
                 self.config.data_transfer_timeout,
@@ -570,6 +600,12 @@ impl SdmmcInner {
         regs.clkcr().write(|w| {
             w.set_pwrsav(false);
             w.set_negedge(false);
+
+            // Hardware flow control is broken on SDIOv1 and causes clock glitches, which result in CRC errors.
+            // See chip erratas for more details.
+            #[cfg(sdmmc_v1)]
+            w.set_hwfc_en(false);
+            #[cfg(sdmmc_v2)]
             w.set_hwfc_en(true);
 
             #[cfg(sdmmc_v1)]
@@ -602,7 +638,7 @@ impl SdmmcInner {
         unsafe {
             // While the SD/SDIO card or eMMC is in identification mode,
             // the SDMMC_CK frequency must be no more than 400 kHz.
-            let (clkdiv, init_clock) = unwrap!(clk_div(ker_ck, SD_INIT_FREQ.0));
+            let (_bypass, clkdiv, init_clock) = unwrap!(clk_div(ker_ck, SD_INIT_FREQ.0));
             *clock = init_clock;
 
             // CPSMACT and DPSMACT must be 0 to set WIDBUS
@@ -611,6 +647,8 @@ impl SdmmcInner {
             regs.clkcr().modify(|w| {
                 w.set_widbus(0);
                 w.set_clkdiv(clkdiv);
+                #[cfg(sdmmc_v1)]
+                w.set_bypass(_bypass);
             });
 
             regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
@@ -807,10 +845,16 @@ impl SdmmcInner {
         let regs = self.0;
         let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
 
+        // sdmmc_v1 uses different cmd/dma order than v2, but only for writes
+        #[cfg(sdmmc_v1)]
+        self.cmd(Cmd::write_single_block(address), true)?;
+
         unsafe {
             self.prepare_datapath_write(buffer as *const [u32; 128], 512, 9, data_transfer_timeout, dma);
             self.data_interrupts(true);
         }
+
+        #[cfg(sdmmc_v2)]
         self.cmd(Cmd::write_single_block(address), true)?;
 
         let res = poll_fn(|cx| {
@@ -922,7 +966,9 @@ impl SdmmcInner {
                 let request = dma.request();
                 dma.start_read(request, regs.fifor().ptr() as *const u32, buffer, crate::dma::TransferOptions {
                     pburst: crate::dma::Burst::Incr4,
+                    mburst: crate::dma::Burst::Incr4,
                     flow_ctrl: crate::dma::FlowControl::Peripheral,
+                    fifo_threshold: Some(crate::dma::FifoThreshold::Full),
                     ..Default::default()
                 });
             } else if #[cfg(sdmmc_v2)] {
@@ -970,7 +1016,9 @@ impl SdmmcInner {
                 let request = dma.request();
                 dma.start_write(request, buffer, regs.fifor().ptr() as *mut u32, crate::dma::TransferOptions {
                     pburst: crate::dma::Burst::Incr4,
+                    mburst: crate::dma::Burst::Incr4,
                     flow_ctrl: crate::dma::FlowControl::Peripheral,
+                    fifo_threshold: Some(crate::dma::FifoThreshold::Full),
                     ..Default::default()
                 });
             } else if #[cfg(sdmmc_v2)] {
@@ -982,6 +1030,11 @@ impl SdmmcInner {
         regs.dctrl().modify(|w| {
             w.set_dblocksize(block_size);
             w.set_dtdir(false);
+            #[cfg(sdmmc_v1)]
+            {
+                w.set_dmaen(true);
+                w.set_dten(true);
+            }
         });
     }
 
@@ -1014,7 +1067,8 @@ impl SdmmcInner {
             _ => panic!("Invalid Bus Width"),
         };
 
-        let (clkdiv, new_clock) = clk_div(ker_ck, freq)?;
+        let (_bypass, clkdiv, new_clock) = clk_div(ker_ck, freq)?;
+
         // Enforce AHB and SDMMC_CK clock relation. See RM0433 Rev 7
         // Section 55.5.8
         let sdmmc_bus_bandwidth = new_clock.0 * width_u32;
@@ -1025,7 +1079,11 @@ impl SdmmcInner {
         unsafe {
             // CPSMACT and DPSMACT must be 0 to set CLKDIV
             self.wait_idle();
-            regs.clkcr().modify(|w| w.set_clkdiv(clkdiv));
+            regs.clkcr().modify(|w| {
+                w.set_clkdiv(clkdiv);
+                #[cfg(sdmmc_v1)]
+                w.set_bypass(_bypass);
+            });
         }
 
         Ok(())
@@ -1114,7 +1172,6 @@ impl SdmmcInner {
     }
 
     /// Query the card status (CMD13, returns R1)
-    ///
     fn read_status(&self, card: &Card) -> Result<CardStatus, Error> {
         let regs = self.0;
         let rca = card.rca;
@@ -1485,6 +1542,7 @@ pub(crate) mod sealed {
 
         fn inner() -> SdmmcInner;
         fn state() -> &'static AtomicWaker;
+        fn kernel_clk() -> Hertz;
     }
 
     pub trait Pins<T: Instance> {}
@@ -1512,6 +1570,61 @@ cfg_if::cfg_if! {
     }
 }
 
+cfg_if::cfg_if! {
+    // TODO, these could not be implemented, because required clocks are not exposed in RCC:
+    // - H7 uses pll1_q_ck or pll2_r_ck depending on SDMMCSEL
+    // - L1 uses pll48
+    // - L4 uses clk48(pll48)
+    // - L4+, L5, U5 uses clk48(pll48) or PLLSAI3CLK(PLLP) depending on SDMMCSEL
+    if #[cfg(stm32f1)] {
+        // F1 uses AHB1(HCLK), which is correct in PAC
+        macro_rules! kernel_clk {
+            ($inst:ident) => {
+                <peripherals::$inst as crate::rcc::sealed::RccPeripheral>::frequency()
+            }
+        }
+    } else if #[cfg(any(stm32f2, stm32f4))] {
+        // F2, F4 always use pll48
+        macro_rules! kernel_clk {
+            ($inst:ident) => {
+                critical_section::with(|_| unsafe {
+                    crate::rcc::get_freqs().pll48
+                }).expect("PLL48 is required for SDIO")
+            }
+        }
+    } else if #[cfg(stm32f7)] {
+        macro_rules! kernel_clk {
+            (SDMMC1) => {
+                critical_section::with(|_| unsafe {
+                    let sdmmcsel = crate::pac::RCC.dckcfgr2().read().sdmmc1sel();
+                    if sdmmcsel == crate::pac::rcc::vals::Sdmmcsel::SYSCLK {
+                        crate::rcc::get_freqs().sys
+                    } else {
+                        crate::rcc::get_freqs().pll48.expect("PLL48 is required for SDMMC")
+                    }
+                })
+            };
+            (SDMMC2) => {
+                critical_section::with(|_| unsafe {
+                    let sdmmcsel = crate::pac::RCC.dckcfgr2().read().sdmmc2sel();
+                    if sdmmcsel == crate::pac::rcc::vals::Sdmmcsel::SYSCLK {
+                        crate::rcc::get_freqs().sys
+                    } else {
+                        crate::rcc::get_freqs().pll48.expect("PLL48 is required for SDMMC")
+                    }
+                })
+            };
+        }
+    } else {
+        // Use default peripheral clock and hope it works
+        macro_rules! kernel_clk {
+            ($inst:ident) => {
+                <peripherals::$inst as crate::rcc::sealed::RccPeripheral>::frequency()
+            }
+        }
+    }
+}
+
 foreach_peripheral!(
     (sdmmc, $inst:ident) => {
         impl sealed::Instance for peripherals::$inst {
@@ -1526,13 +1639,17 @@ foreach_peripheral!(
                 static WAKER: ::embassy_sync::waitqueue::AtomicWaker = ::embassy_sync::waitqueue::AtomicWaker::new();
                 &WAKER
             }
+
+            fn kernel_clk() -> Hertz {
+                kernel_clk!($inst)
+            }
         }
 
         impl Instance for peripherals::$inst {}
     };
 );
 
-#[cfg(feature = "sdmmc-rs")]
+#[cfg(feature = "embedded-sdmmc")]
 mod sdmmc_rs {
     use core::future::Future;
 
@@ -1540,7 +1657,7 @@ mod sdmmc_rs {
 
     use super::*;
 
-    impl<'d, T: Instance, P: Pins<T>> BlockDevice for Sdmmc<'d, T, P> {
+    impl<'d, T: Instance, Dma: SdmmcDma<T>> BlockDevice for Sdmmc<'d, T, Dma> {
         type Error = Error;
 
         type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
@@ -1558,19 +1675,14 @@ mod sdmmc_rs {
             _reason: &str,
         ) -> Self::ReadFuture<'a> {
             async move {
-                let card_capacity = self.card()?.card_type;
-                let inner = T::inner();
-                let state = T::state();
                 let mut address = start_block_idx.0;
 
                 for block in blocks.iter_mut() {
                     let block: &mut [u8; 512] = &mut block.contents;
 
                     // NOTE(unsafe) Block uses align(4)
-                    let buf = unsafe { &mut *(block as *mut [u8; 512] as *mut [u32; 128]) };
-                    inner
-                        .read_block(address, buf, card_capacity, state, self.config.data_transfer_timeout)
-                        .await?;
+                    let block = unsafe { &mut *(block as *mut _ as *mut DataBlock) };
+                    self.read_block(address, block).await?;
                     address += 1;
                 }
                 Ok(())
@@ -1579,19 +1691,14 @@ mod sdmmc_rs {
 
         fn write<'a>(&'a mut self, blocks: &'a [Block], start_block_idx: BlockIdx) -> Self::WriteFuture<'a> {
             async move {
-                let card = self.card.as_mut().ok_or(Error::NoCard)?;
-                let inner = T::inner();
-                let state = T::state();
                 let mut address = start_block_idx.0;
 
                 for block in blocks.iter() {
                     let block: &[u8; 512] = &block.contents;
 
                     // NOTE(unsafe) DataBlock uses align 4
-                    let buf = unsafe { &*(block as *const [u8; 512] as *const [u32; 128]) };
-                    inner
-                        .write_block(address, buf, card, state, self.config.data_transfer_timeout)
-                        .await?;
+                    let block = unsafe { &*(block as *const _ as *const DataBlock) };
+                    self.write_block(address, block).await?;
                     address += 1;
                 }
                 Ok(())

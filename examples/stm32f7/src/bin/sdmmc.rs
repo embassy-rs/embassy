@@ -13,6 +13,7 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) -> ! {
     let mut config = Config::default();
     config.rcc.sys_ck = Some(mhz(200));
+    config.rcc.pll48 = true;
     let p = embassy_stm32::init(config);
 
     info!("Hello World!");

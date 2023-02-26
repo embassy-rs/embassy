@@ -1,4 +1,4 @@
-//! PDM mirophone interface
+//! Pulse Density Modulation (PDM) mirophone driver.
 
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -22,12 +22,16 @@ pub struct Pdm<'d> {
     phantom: PhantomData<&'d PDM>,
 }
 
+/// PDM error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
+    /// Buffer is too long.
     BufferTooLong,
+    /// Buffer is empty
     BufferZeroLength,
+    /// PDM is not running
     NotRunning,
 }
 
@@ -119,6 +123,7 @@ impl<'d> Pdm<'d> {
         r.events_started.reset();
     }
 
+    /// Sample data into the given buffer.
     pub async fn sample(&mut self, buffer: &mut [i16]) -> Result<(), Error> {
         if buffer.len() == 0 {
             return Err(Error::BufferZeroLength);
@@ -215,14 +220,21 @@ impl Default for Config {
     }
 }
 
+/// PDM operation mode.
 #[derive(PartialEq)]
 pub enum OperationMode {
+    /// Mono (1 channel)
     Mono,
+    /// Stereo (2 channels)
     Stereo,
 }
+
+/// PDM edge polarity
 #[derive(PartialEq)]
 pub enum Edge {
+    /// Left edge is rising
     LeftRising,
+    /// Left edge is falling
     LeftFalling,
 }
 

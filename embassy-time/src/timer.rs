@@ -26,6 +26,7 @@ pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Out
 }
 
 /// A future that completes at a specified [Instant](struct.Instant.html).
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Timer {
     expires_at: Instant,
     yielded_once: bool,

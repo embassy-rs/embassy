@@ -1,6 +1,8 @@
 #![no_std]
 #![feature(async_fn_in_trait)]
 #![allow(incomplete_features)]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 /// Direction of USB traffic. Note that in the USB standard the direction is always indicated from
 /// the perspective of the host, which is backward for devices, but the standard directions are used
@@ -95,46 +97,65 @@ impl EndpointAddress {
     }
 }
 
+/// Infomation for an endpoint.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct EndpointInfo {
+    /// Endpoint's address.
     pub addr: EndpointAddress,
+    /// Endpoint's type.
     pub ep_type: EndpointType,
+    /// Max packet size, in bytes.
     pub max_packet_size: u16,
-    pub interval: u8,
+    /// Polling interval, in milliseconds.
+    pub interval_ms: u8,
 }
 
-/// Driver for a specific USB peripheral. Implement this to add support for a new hardware
-/// platform.
+/// Main USB driver trait.
+///
+/// Implement this to add support for a new hardware platform.
 pub trait Driver<'a> {
+    /// Type of the OUT endpoints for this driver.
     type EndpointOut: EndpointOut + 'a;
+    /// Type of the IN endpoints for this driver.
     type EndpointIn: EndpointIn + 'a;
+    /// Type of the control pipe for this driver.
     type ControlPipe: ControlPipe + 'a;
+    /// Type for bus control for this driver.
     type Bus: Bus + 'a;
 
-    /// Allocates an endpoint and specified endpoint parameters. This method is called by the device
-    /// and class implementations to allocate endpoints, and can only be called before
-    /// [`start`](Self::start) is called.
+    /// Allocates an OUT endpoint.
+    ///
+    /// This method is called by the USB stack to allocate endpoints.
+    /// It can only be called before [`start`](Self::start) is called.
     ///
     /// # Arguments
     ///
-    /// * `ep_addr` - A static endpoint address to allocate. If Some, the implementation should
-    ///   attempt to return an endpoint with the specified address. If None, the implementation
-    ///   should return the next available one.
+    /// * `ep_type` - the endpoint's type.
     /// * `max_packet_size` - Maximum packet size in bytes.
-    /// * `interval` - Polling interval parameter for interrupt endpoints.
+    /// * `interval_ms` - Polling interval parameter for interrupt endpoints.
     fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
         max_packet_size: u16,
-        interval: u8,
+        interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError>;
 
+    /// Allocates an IN endpoint.
+    ///
+    /// This method is called by the USB stack to allocate endpoints.
+    /// It can only be called before [`start`](Self::start) is called.
+    ///
+    /// # Arguments
+    ///
+    /// * `ep_type` - the endpoint's type.
+    /// * `max_packet_size` - Maximum packet size in bytes.
+    /// * `interval_ms` - Polling interval parameter for interrupt endpoints.
     fn alloc_endpoint_in(
         &mut self,
         ep_type: EndpointType,
         max_packet_size: u16,
-        interval: u8,
+        interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError>;
 
     /// Start operation of the USB device.
@@ -146,35 +167,37 @@ pub trait Driver<'a> {
     /// This consumes the `Driver` instance, so it's no longer possible to allocate more
     /// endpoints.
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe);
-
-    /// Indicates that `set_device_address` must be called before accepting the corresponding
-    /// control transfer, not after.
-    ///
-    /// The default value for this constant is `false`, which corresponds to the USB 2.0 spec, 9.4.6
-    const QUIRK_SET_ADDRESS_BEFORE_STATUS: bool = false;
 }
 
+/// USB bus trait.
+///
+/// This trait provides methods that act on the whole bus. It is kept owned by
+/// the main USB task, and used to manage the bus.
 pub trait Bus {
-    /// Enables the USB peripheral. Soon after enabling the device will be reset, so
-    /// there is no need to perform a USB reset in this method.
+    /// Enable the USB peripheral.
     async fn enable(&mut self);
 
-    /// Disables and powers down the USB peripheral.
+    /// Disable and powers down the USB peripheral.
     async fn disable(&mut self);
 
+    /// Wait for a bus-related event.
+    ///
+    /// This method should asynchronously wait for an event to happen, then
+    /// return it. See [`Event`] for the list of events this method should return.
     async fn poll(&mut self) -> Event;
 
-    /// Enables or disables an endpoint.
+    /// Enable or disable an endpoint.
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool);
 
-    /// Sets or clears the STALL condition for an endpoint. If the endpoint is an OUT endpoint, it
-    /// should be prepared to receive data again. Only used during control transfers.
+    /// Set or clear the STALL condition for an endpoint.
+    ///
+    /// If the endpoint is an OUT endpoint, it should be prepared to receive data again.
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool);
 
-    /// Gets whether the STALL condition is set for an endpoint. Only used during control transfers.
+    /// Get whether the STALL condition is set for an endpoint.
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool;
 
-    /// Simulates a disconnect from the USB bus, causing the host to reset and re-enumerate the
+    /// Simulate a disconnect from the USB bus, causing the host to reset and re-enumerate the
     /// device.
     ///
     /// The default implementation just returns `Unsupported`.
@@ -187,7 +210,7 @@ pub trait Bus {
         Err(Unsupported)
     }
 
-    /// Initiates a remote wakeup of the host by the device.
+    /// Initiate a remote wakeup of the host by the device.
     ///
     /// # Errors
     ///
@@ -196,25 +219,27 @@ pub trait Bus {
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported>;
 }
 
+/// Endpoint trait, common for OUT and IN.
 pub trait Endpoint {
     /// Get the endpoint address
     fn info(&self) -> &EndpointInfo;
 
-    /// Waits for the endpoint to be enabled.
+    /// Wait for the endpoint to be enabled.
     async fn wait_enabled(&mut self);
 }
 
+/// OUT Endpoint trait.
 pub trait EndpointOut: Endpoint {
-    /// Reads a single packet of data from the endpoint, and returns the actual length of
+    /// Read a single packet of data from the endpoint, and return the actual length of
     /// the packet.
     ///
     /// This should also clear any NAK flags and prepare the endpoint to receive the next packet.
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError>;
 }
 
-/// Trait for USB control pipe.
+/// USB control pipe trait.
 ///
-/// The USB control pipe owns both OUT ep 0 and IN ep 0 in a single
+/// The USB control pipe owns both OUT endpoint 0 and IN endpoint 0 in a single
 /// unit, and manages them together to implement the control pipe state machine.
 ///
 /// The reason this is a separate trait instead of using EndpointOut/EndpointIn is that
@@ -230,6 +255,14 @@ pub trait EndpointOut: Endpoint {
 /// setup()
 /// (...processing...)
 /// accept() or reject()
+/// ```
+///
+/// - control out for setting the device address:
+///
+/// ```not_rust
+/// setup()
+/// (...processing...)
+/// accept_set_address(addr) or reject()
 /// ```
 ///
 /// - control out with len != 0:
@@ -280,26 +313,26 @@ pub trait ControlPipe {
     /// Maximum packet size for the control pipe
     fn max_packet_size(&self) -> usize;
 
-    /// Reads a single setup packet from the endpoint.
+    /// Read a single setup packet from the endpoint.
     async fn setup(&mut self) -> [u8; 8];
 
-    /// Reads a DATA OUT packet into `buf` in response to a control write request.
+    /// Read a DATA OUT packet into `buf` in response to a control write request.
     ///
     /// Must be called after `setup()` for requests with `direction` of `Out`
     /// and `length` greater than zero.
     async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError>;
 
-    /// Sends a DATA IN packet with `data` in response to a control read request.
+    /// Send a DATA IN packet with `data` in response to a control read request.
     ///
     /// If `last_packet` is true, the STATUS packet will be ACKed following the transfer of `data`.
     async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError>;
 
-    /// Accepts a control request.
+    /// Accept a control request.
     ///
     /// Causes the STATUS packet for the current request to be ACKed.
     async fn accept(&mut self);
 
-    /// Rejects a control request.
+    /// Reject a control request.
     ///
     /// Sets a STALL condition on the pipe to indicate an error.
     async fn reject(&mut self);
@@ -311,8 +344,9 @@ pub trait ControlPipe {
     async fn accept_set_address(&mut self, addr: u8);
 }
 
+/// IN Endpoint trait.
 pub trait EndpointIn: Endpoint {
-    /// Writes a single packet of data to the endpoint.
+    /// Write a single packet of data to the endpoint.
     async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError>;
 }
 
@@ -338,18 +372,22 @@ pub enum Event {
     PowerRemoved,
 }
 
+/// Allocating an endpoint failed.
+///
+/// This can be due to running out of endpoints, or out of endpoint memory,
+/// or because the hardware doesn't support the requested combination of features.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct EndpointAllocError;
 
+/// Operation is unsupported by the driver.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Operation is unsupported by the driver.
 pub struct Unsupported;
 
+/// Errors returned by [`EndpointIn::write`] and [`EndpointOut::read`]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Errors returned by [`EndpointIn::write`] and [`EndpointOut::read`]
 pub enum EndpointError {
     /// Either the packet to be written is too long to fit in the transmission
     /// buffer or the received packet is too long to fit in `buf`.

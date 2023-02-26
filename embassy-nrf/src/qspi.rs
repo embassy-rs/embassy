@@ -1,10 +1,12 @@
+//! Quad Serial Peripheral Interface (QSPI) flash driver.
+
 #![macro_use]
 
 use core::future::poll_fn;
 use core::ptr;
 use core::task::Poll;
 
-use embassy_hal_common::drop::DropBomb;
+use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::gpio::{self, Pin as GpioPin};
@@ -15,6 +17,7 @@ pub use crate::pac::qspi::ifconfig0::{
 pub use crate::pac::qspi::ifconfig1::SPIMODE_A as SpiMode;
 use crate::{pac, Peripheral};
 
+/// Deep power-down config.
 pub struct DeepPowerDownConfig {
     /// Time required for entering DPM, in units of 16us
     pub enter_time: u16,
@@ -22,37 +25,62 @@ pub struct DeepPowerDownConfig {
     pub exit_time: u16,
 }
 
+/// QSPI bus frequency.
 pub enum Frequency {
+    /// 32 Mhz
     M32 = 0,
+    /// 16 Mhz
     M16 = 1,
+    /// 10.7 Mhz
     M10_7 = 2,
+    /// 8 Mhz
     M8 = 3,
+    /// 6.4 Mhz
     M6_4 = 4,
+    /// 5.3 Mhz
     M5_3 = 5,
+    /// 4.6 Mhz
     M4_6 = 6,
+    /// 4 Mhz
     M4 = 7,
+    /// 3.6 Mhz
     M3_6 = 8,
+    /// 3.2 Mhz
     M3_2 = 9,
+    /// 2.9 Mhz
     M2_9 = 10,
+    /// 2.7 Mhz
     M2_7 = 11,
+    /// 2.5 Mhz
     M2_5 = 12,
+    /// 2.3 Mhz
     M2_3 = 13,
+    /// 2.1 Mhz
     M2_1 = 14,
+    /// 2 Mhz
     M2 = 15,
 }
 
+/// QSPI config.
 #[non_exhaustive]
 pub struct Config {
+    /// XIP offset.
     pub xip_offset: u32,
+    /// Opcode used for read operations.
     pub read_opcode: ReadOpcode,
+    /// Opcode used for write operations.
     pub write_opcode: WriteOpcode,
+    /// Page size for write operations.
     pub write_page_size: WritePageSize,
+    /// Configuration for deep power down. If None, deep power down is disabled.
     pub deep_power_down: Option<DeepPowerDownConfig>,
+    /// QSPI bus frequency.
     pub frequency: Frequency,
     /// Value is specified in number of 16 MHz periods (62.5 ns)
     pub sck_delay: u8,
     /// Whether data is captured on the clock rising edge and data is output on a falling edge (MODE0) or vice-versa (MODE3)
     pub spi_mode: SpiMode,
+    /// Addressing mode (24-bit or 32-bit)
     pub address_mode: AddressMode,
 }
 
@@ -72,20 +100,24 @@ impl Default for Config {
     }
 }
 
+/// Error
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
+    /// Operation address was out of bounds.
     OutOfBounds,
     // TODO add "not in data memory" error and check for it
 }
 
+/// QSPI flash driver.
 pub struct Qspi<'d, T: Instance, const FLASH_SIZE: usize> {
     irq: PeripheralRef<'d, T::Interrupt>,
     dpm_enabled: bool,
 }
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
+    /// Create a new QSPI driver.
     pub fn new(
         _qspi: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
@@ -158,7 +190,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         // Enable it
         r.enable.write(|w| w.enable().enabled());
 
-        let mut res = Self {
+        let res = Self {
             dpm_enabled: config.deep_power_down.is_some(),
             irq,
         };
@@ -168,7 +200,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
 
         r.tasks_activate.write(|w| w.tasks_activate().bit(true));
 
-        res.blocking_wait_ready();
+        Self::blocking_wait_ready();
 
         res
     }
@@ -183,8 +215,9 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         }
     }
 
+    /// Do a custom QSPI instruction.
     pub async fn custom_instruction(&mut self, opcode: u8, req: &[u8], resp: &mut [u8]) -> Result<(), Error> {
-        let bomb = DropBomb::new();
+        let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         let len = core::cmp::max(req.len(), resp.len()) as u8;
         self.custom_instruction_start(opcode, req, len)?;
@@ -193,16 +226,17 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
 
         self.custom_instruction_finish(resp)?;
 
-        bomb.defuse();
+        ondrop.defuse();
 
         Ok(())
     }
 
+    /// Do a custom QSPI instruction, blocking version.
     pub fn blocking_custom_instruction(&mut self, opcode: u8, req: &[u8], resp: &mut [u8]) -> Result<(), Error> {
         let len = core::cmp::max(req.len(), resp.len()) as u8;
         self.custom_instruction_start(opcode, req, len)?;
 
-        self.blocking_wait_ready();
+        Self::blocking_wait_ready();
 
         self.custom_instruction_finish(resp)?;
 
@@ -278,7 +312,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         .await
     }
 
-    fn blocking_wait_ready(&mut self) {
+    fn blocking_wait_ready() {
         loop {
             let r = T::regs();
             if r.events_ready.read().bits() != 0 {
@@ -346,54 +380,60 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         Ok(())
     }
 
+    /// Read data from the flash memory.
     pub async fn read(&mut self, address: usize, data: &mut [u8]) -> Result<(), Error> {
-        let bomb = DropBomb::new();
+        let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         self.start_read(address, data)?;
         self.wait_ready().await;
 
-        bomb.defuse();
+        ondrop.defuse();
 
         Ok(())
     }
 
+    /// Write data to the flash memory.
     pub async fn write(&mut self, address: usize, data: &[u8]) -> Result<(), Error> {
-        let bomb = DropBomb::new();
+        let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         self.start_write(address, data)?;
         self.wait_ready().await;
 
-        bomb.defuse();
+        ondrop.defuse();
 
         Ok(())
     }
 
+    /// Erase a sector on the flash memory.
     pub async fn erase(&mut self, address: usize) -> Result<(), Error> {
-        let bomb = DropBomb::new();
+        let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         self.start_erase(address)?;
         self.wait_ready().await;
 
-        bomb.defuse();
+        ondrop.defuse();
 
         Ok(())
     }
 
+    /// Read data from the flash memory, blocking version.
     pub fn blocking_read(&mut self, address: usize, data: &mut [u8]) -> Result<(), Error> {
         self.start_read(address, data)?;
-        self.blocking_wait_ready();
+        Self::blocking_wait_ready();
         Ok(())
     }
 
+    /// Write data to the flash memory, blocking version.
     pub fn blocking_write(&mut self, address: usize, data: &[u8]) -> Result<(), Error> {
         self.start_write(address, data)?;
-        self.blocking_wait_ready();
+        Self::blocking_wait_ready();
         Ok(())
     }
 
+    /// Erase a sector on the flash memory, blocking version.
     pub fn blocking_erase(&mut self, address: usize) -> Result<(), Error> {
         self.start_erase(address)?;
-        self.blocking_wait_ready();
+        Self::blocking_wait_ready();
         Ok(())
     }
 }
@@ -547,7 +587,9 @@ pub(crate) mod sealed {
     }
 }
 
+/// QSPI peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
+    /// Interrupt for this peripheral.
     type Interrupt: Interrupt;
 }
 

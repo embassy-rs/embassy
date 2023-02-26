@@ -4,7 +4,7 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{AnyPin, Pin};
-use embassy_rp::pio::{Pio0, PioPeripherial, PioStateMachine, PioStateMachineInstance, ShiftDirection, Sm0, Sm1, Sm2};
+use embassy_rp::pio::{Pio0, PioPeripheral, PioStateMachine, PioStateMachineInstance, ShiftDirection, Sm0, Sm1, Sm2};
 use embassy_rp::pio_instr_util;
 use embassy_rp::relocate::RelocatedProgram;
 use {defmt_rtt as _, panic_probe as _};

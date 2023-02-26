@@ -5,7 +5,7 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_nrf::interrupt;
-use embassy_nrf::saadc::{ChannelConfig, Config, Saadc, SamplerState};
+use embassy_nrf::saadc::{CallbackResult, ChannelConfig, Config, Saadc};
 use embassy_nrf::timer::Frequency;
 use embassy_time::Duration;
 use {defmt_rtt as _, panic_probe as _};
@@ -61,7 +61,7 @@ async fn main(_p: Spawner) {
                     c = 0;
                     a = 0;
                 }
-                SamplerState::Sampled
+                CallbackResult::Continue
             },
         )
         .await;

@@ -1,4 +1,4 @@
-//! General purpose input/output for nRF.
+//! General purpose input/output (GPIO) driver.
 #![macro_use]
 
 use core::convert::Infallible;
@@ -88,9 +88,9 @@ impl From<bool> for Level {
     }
 }
 
-impl Into<bool> for Level {
-    fn into(self) -> bool {
-        match self {
+impl From<Level> for bool {
+    fn from(level: Level) -> bool {
+        match level {
             Level::Low => false,
             Level::High => true,
         }
