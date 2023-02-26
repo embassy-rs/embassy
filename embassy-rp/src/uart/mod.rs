@@ -296,7 +296,7 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
             Some(rx_dma.map_into()),
             config,
         )
-    }
+    }    
 }
 
 impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
@@ -322,6 +322,25 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
             tx: UartTx::new_inner(tx_dma),
             rx: UartRx::new_inner(rx_dma),
         }
+    }
+
+    fn baudrate_calculations(baudrate: u32) -> (u32, u32) {
+	
+        let clk_base = crate::clocks::clk_peri_freq();
+	
+        let baud_rate_div = (8 * clk_base) / baudrate;
+        let mut baud_ibrd = baud_rate_div >> 7;
+        let mut baud_fbrd = ((baud_rate_div & 0x7f) + 1) / 2;
+
+        if baud_ibrd == 0 {
+            baud_ibrd = 1;
+            baud_fbrd = 0;
+        } else if baud_ibrd >= 65535 {
+            baud_ibrd = 65535;
+            baud_fbrd = 0;
+        }
+
+	(baud_ibrd, baud_fbrd)
     }
 
     fn init(
@@ -350,19 +369,7 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
                 pin.pad_ctrl().write(|w| w.set_ie(true));
             }
 
-            let clk_base = crate::clocks::clk_peri_freq();
-
-            let baud_rate_div = (8 * clk_base) / config.baudrate;
-            let mut baud_ibrd = baud_rate_div >> 7;
-            let mut baud_fbrd = ((baud_rate_div & 0x7f) + 1) / 2;
-
-            if baud_ibrd == 0 {
-                baud_ibrd = 1;
-                baud_fbrd = 0;
-            } else if baud_ibrd >= 65535 {
-                baud_ibrd = 65535;
-                baud_fbrd = 0;
-            }
+	    let (baud_ibrd, baud_fbrd) = Uart::<T,M>::baudrate_calculations(config.baudrate);
 
             // Load PL011's baud divisor registers
             r.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
@@ -399,6 +406,21 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
                 w.set_rtsen(rts.is_some());
             });
         }
+    }
+
+    pub fn set_baudrate(&mut self, baudrate: u32) {
+	
+	let r = T::regs();
+	
+	let (baud_ibrd, baud_fbrd) = Self::baudrate_calculations(baudrate);
+
+        unsafe {
+	    
+	    // Load PL011's baud divisor registers
+            r.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
+            r.uartfbrd().write_value(pac::uart::regs::Uartfbrd(baud_fbrd));
+	}
+	
     }
 }
 
