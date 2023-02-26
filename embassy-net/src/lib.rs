@@ -236,6 +236,22 @@ impl<D: Driver + 'static> Stack<D> {
     /// Make a query for a given name and return the corresponding IP addresses.
     #[cfg(feature = "dns")]
     pub async fn dns_query(&self, name: &str, qtype: dns::DnsQueryType) -> Result<Vec<IpAddress, 1>, dns::Error> {
+        // For A and AAAA queries we try detect whether `name` is just an IP address
+        match qtype {
+            dns::DnsQueryType::A => {
+                if let Ok(ip) = name.parse().map(IpAddress::Ipv4) {
+                    return Ok([ip].into_iter().collect());
+                }
+            }
+            #[cfg(feature = "proto-ipv6")]
+            dns::DnsQueryType::Aaaa => {
+                if let Ok(ip) = name.parse().map(IpAddress::Ipv6) {
+                    return Ok([ip].into_iter().collect());
+                }
+            }
+            _ => {}
+        }
+
         let query = poll_fn(|cx| {
             self.with_mut(|s, i| {
                 let socket = s.sockets.get_mut::<dns::Socket>(i.dns_socket);
