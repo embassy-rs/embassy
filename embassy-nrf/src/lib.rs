@@ -95,14 +95,39 @@ pub mod wdt;
 #[cfg_attr(feature = "_nrf9160", path = "chips/nrf9160.rs")]
 mod chip;
 
-pub use chip::EASY_DMA_SIZE;
-
 pub mod interrupt {
-    //! nRF interrupts for cortex-m devices.
+    //! Interrupt definitions and macros to bind them.
     pub use cortex_m::interrupt::{CriticalSection, Mutex};
     pub use embassy_cortex_m::interrupt::*;
 
     pub use crate::chip::irqs::*;
+
+    /// Macro to bind interrupts to handlers.
+    ///
+    /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
+    /// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
+    /// prove at compile-time that the right interrupts have been bound.
+    // developer note: this macro can't be in `embassy-cortex-m` due to the use of `$crate`.
+    #[macro_export]
+    macro_rules! bind_interrupts {
+        ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
+            $vis struct $name;
+
+            $(
+                #[allow(non_snake_case)]
+                #[no_mangle]
+                unsafe extern "C" fn $irq() {
+                    $(
+                        <$handler as $crate::interrupt::Handler<$crate::interrupt::$irq>>::on_interrupt();
+                    )*
+                }
+
+                $(
+                    unsafe impl $crate::interrupt::Binding<$crate::interrupt::$irq, $handler> for $name {}
+                )*
+            )*
+        };
+    }
 }
 
 // Reexports
@@ -111,7 +136,7 @@ pub mod interrupt {
 pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
-pub use chip::{peripherals, Peripherals};
+pub use chip::{peripherals, Peripherals, EASY_DMA_SIZE};
 pub use embassy_cortex_m::executor;
 pub use embassy_cortex_m::interrupt::_export::interrupt;
 pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
