@@ -5,10 +5,10 @@
 
 use core::cell::RefCell;
 
-use defmt::*;
+use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_stm32::peripherals::{DMA2_CH6, SDIO};
-use embassy_stm32::sdmmc::{self, Sdmmc};
+use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::time::{mhz, Hertz};
 use embassy_stm32::usb_otg::Driver;
 use embassy_stm32::{interrupt, Config};
@@ -44,6 +44,13 @@ impl<'d> BlockDevice for SdmmcBlockDevice<'d> {
     }
 
     async fn read_block(&self, lba: u32, block: &mut [u8]) -> Result<(), BlockDeviceError> {
+        if block.as_ptr() as usize % 4 != 0 {
+            panic!("Invalid block alignment for SDMMC");
+        }
+
+        let block: &mut [u8; BLOCK_SIZE] = block.try_into().unwrap();
+        let block = unsafe { core::mem::transmute(block) };
+
         self.sdmmc.borrow_mut().read_block(lba, block).await.map_err(|e| {
             error!("SDMMC read error: {:?}", e);
             BlockDeviceError::ReadError
@@ -51,6 +58,13 @@ impl<'d> BlockDevice for SdmmcBlockDevice<'d> {
     }
 
     async fn write_block(&mut self, lba: u32, block: &[u8]) -> Result<(), BlockDeviceError> {
+        if block.as_ptr() as usize % 4 != 0 {
+            panic!("Invalid block alignment for SDMMC");
+        }
+
+        let block: &[u8; BLOCK_SIZE] = block.try_into().unwrap();
+        let block = unsafe { core::mem::transmute(block) };
+
         self.sdmmc.borrow_mut().write_block(lba, block).await.map_err(|e| {
             error!("SDMMC write error: {:?}", e);
             BlockDeviceError::WriteError
@@ -71,8 +85,6 @@ async fn main(_spawner: Spawner) {
 
     let p = embassy_stm32::init(config);
 
-    let mut config = sdmmc::Config::default();
-    // config.data_transfer_timeout = 20_000_000;
     let mut sdmmc = Sdmmc::new_4bit(
         p.SDIO,
         interrupt::take!(SDIO),
@@ -83,7 +95,7 @@ async fn main(_spawner: Spawner) {
         p.PC9,
         p.PC10,
         p.PC11,
-        config,
+        Default::default(),
     );
 
     sdmmc.init_card(SDIO_FREQ).await.expect("SD card init failed");
@@ -123,7 +135,6 @@ async fn main(_spawner: Spawner) {
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut control_buf,
-        None,
     );
 
     // Create SCSI target for our block device

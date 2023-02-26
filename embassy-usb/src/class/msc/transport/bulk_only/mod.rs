@@ -9,9 +9,10 @@ use self::cbw::CommandBlockWrapper;
 use self::csw::{CommandStatus, CommandStatusWrapper};
 use super::{CommandError, CommandSetHandler, DataPipeError, DataPipeIn, DataPipeOut};
 use crate::class::msc::{MscProtocol, USB_CLASS_MSC};
-use crate::control::{ControlHandler, InResponse, Request, RequestType};
+use crate::control::{InResponse, Request, RequestType};
 use crate::driver::Driver;
-use crate::Builder;
+use crate::types::InterfaceNumber;
+use crate::{Builder, Handler};
 
 const REQ_GET_MAX_LUN: u8 = 0xFE;
 const REQ_BULK_ONLY_RESET: u8 = 0xFF;
@@ -30,21 +31,26 @@ impl Default for State {
 
 pub struct Control {
     max_lun: u8,
+    if_num: InterfaceNumber,
 }
 
-impl ControlHandler for Control {
-    fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
+impl Handler for Control {
+    fn control_in<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> Option<InResponse<'a>> {
+        if req.index != self.if_num.0 as u16 {
+            return None;
+        }
+
         match (req.request_type, req.request) {
             (RequestType::Class, REQ_GET_MAX_LUN) => {
                 debug!("REQ_GET_MAX_LUN");
                 buf[0] = self.max_lun;
-                InResponse::Accepted(&buf[..1])
+                Some(InResponse::Accepted(&buf[..1]))
             }
             (RequestType::Class, REQ_BULK_ONLY_RESET) => {
                 debug!("REQ_BULK_ONLY_RESET");
-                InResponse::Accepted(&[])
+                Some(InResponse::Accepted(&[]))
             }
-            _ => InResponse::Rejected,
+            _ => Some(InResponse::Rejected),
         }
     }
 }
@@ -60,19 +66,24 @@ impl<'d, D: Driver<'d>, C: CommandSetHandler> BulkOnlyTransport<'d, D, C> {
     pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State, max_packet_size: u16, handler: C) -> Self {
         assert!(C::MAX_LUN < 16, "BulkOnlyTransport supports maximum 16 LUNs");
 
-        let control = state.control.write(Control { max_lun: C::MAX_LUN });
-
         let subclass = C::MSC_SUBCLASS as u8;
         let mut func = builder.function(USB_CLASS_MSC, subclass, MscProtocol::BulkOnlyTransport as _);
 
         // Control interface
         let mut iface = func.interface();
-        iface.handler(control);
 
-        let mut alt = iface.alt_setting(USB_CLASS_MSC, subclass, MscProtocol::BulkOnlyTransport as _);
+        let mut alt = iface.alt_setting(USB_CLASS_MSC, subclass, MscProtocol::BulkOnlyTransport as _, None);
 
         let read_ep = alt.endpoint_bulk_out(max_packet_size);
         let write_ep = alt.endpoint_bulk_in(max_packet_size);
+
+        let control = state.control.write(Control {
+            max_lun: C::MAX_LUN,
+            if_num: iface.interface_number(),
+        });
+
+        drop(func);
+        builder.handler(control);
 
         Self {
             read_ep,
