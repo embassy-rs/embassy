@@ -1,6 +1,7 @@
 use core::marker::PhantomData;
 use core::ptr;
-use core::sync::atomic::{AtomicBool, Ordering};
+
+use atomic_polyfill::{AtomicBool, Ordering};
 
 use super::{raw, Spawner};
 
