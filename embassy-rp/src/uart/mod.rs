@@ -299,7 +299,7 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
     }    
 }
 
-impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
+impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
     fn new_inner(
         _uart: impl Peripheral<P = T> + 'd,
         mut tx: PeripheralRef<'d, AnyPin>,
@@ -350,7 +350,7 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
                 pin.pad_ctrl().write(|w| w.set_ie(true));
             }
 
-	    Uart::<T,M>::set_baudrate_inner(config.baudrate);
+	    Self::set_baudrate_inner(config.baudrate);
 
             let (pen, eps) = match config.parity {
                 Parity::ParityNone => (false, false),
