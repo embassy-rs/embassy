@@ -296,7 +296,7 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
             Some(rx_dma.map_into()),
             config,
         )
-    }    
+    }
 }
 
 impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
@@ -350,7 +350,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
                 pin.pad_ctrl().write(|w| w.set_ie(true));
             }
 
-	    Self::set_baudrate_inner(config.baudrate);
+            Self::set_baudrate_inner(config.baudrate);
 
             let (pen, eps) = match config.parity {
                 Parity::ParityNone => (false, false),
@@ -385,22 +385,20 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
         }
     }
 
-
     /// sets baudrate on runtime    
     pub fn set_baudrate(&mut self, baudrate: u32) {
-	Self::set_baudrate_inner(baudrate);
+        Self::set_baudrate_inner(baudrate);
     }
 
-
     fn set_baudrate_inner(baudrate: u32) {
-	let r = T::regs();
-	
+        let r = T::regs();
+
         let clk_base = crate::clocks::clk_peri_freq();
-	
+
         let baud_rate_div = (8 * clk_base) / baudrate;
         let mut baud_ibrd = baud_rate_div >> 7;
         let mut baud_fbrd = ((baud_rate_div & 0x7f) + 1) / 2;
-	
+
         if baud_ibrd == 0 {
             baud_ibrd = 1;
             baud_fbrd = 0;
@@ -408,15 +406,13 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
             baud_ibrd = 65535;
             baud_fbrd = 0;
         }
-	
+
         unsafe {
-	    
-	    // Load PL011's baud divisor registers
+            // Load PL011's baud divisor registers
             r.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
             r.uartfbrd().write_value(pac::uart::regs::Uartfbrd(baud_fbrd));
-	}
+        }
     }
-    
 }
 
 impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
