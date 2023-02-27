@@ -1,18 +1,22 @@
 //! Executor specific to cortex-m devices.
-use core::marker::PhantomData;
 
+use core::cell::UnsafeCell;
+use core::mem::MaybeUninit;
+
+use atomic_polyfill::{AtomicBool, Ordering};
+use cortex_m::interrupt::InterruptNumber;
+use cortex_m::peripheral::NVIC;
 pub use embassy_executor::*;
 
-use crate::interrupt::{Interrupt, InterruptExt};
+#[derive(Clone, Copy)]
+struct N(u16);
+unsafe impl cortex_m::interrupt::InterruptNumber for N {
+    fn number(self) -> u16 {
+        self.0
+    }
+}
 
 fn pend_by_number(n: u16) {
-    #[derive(Clone, Copy)]
-    struct N(u16);
-    unsafe impl cortex_m::interrupt::InterruptNumber for N {
-        fn number(self) -> u16 {
-            self.0
-        }
-    }
     cortex_m::peripheral::NVIC::pend(N(n))
 }
 
@@ -37,26 +41,37 @@ fn pend_by_number(n: u16) {
 ///
 /// It is somewhat more complex to use, it's recommended to use the thread-mode
 /// [`Executor`] instead, if it works for your use case.
-pub struct InterruptExecutor<I: Interrupt> {
-    irq: I,
-    inner: raw::Executor,
-    not_send: PhantomData<*mut ()>,
+pub struct InterruptExecutor {
+    started: AtomicBool,
+    executor: UnsafeCell<MaybeUninit<raw::Executor>>,
 }
 
-impl<I: Interrupt> InterruptExecutor<I> {
-    /// Create a new Executor.
-    pub fn new(irq: I) -> Self {
-        let ctx = irq.number() as *mut ();
+unsafe impl Send for InterruptExecutor {}
+unsafe impl Sync for InterruptExecutor {}
+
+impl InterruptExecutor {
+    /// Create a new, not started `InterruptExecutor`.
+    #[inline]
+    pub const fn new() -> Self {
         Self {
-            irq,
-            inner: raw::Executor::new(|ctx| pend_by_number(ctx as u16), ctx),
-            not_send: PhantomData,
+            started: AtomicBool::new(false),
+            executor: UnsafeCell::new(MaybeUninit::uninit()),
         }
+    }
+
+    /// Executor interrupt callback.
+    ///
+    /// # Safety
+    ///
+    /// You MUST call this from the interrupt handler, and from nowhere else.
+    pub unsafe fn on_interrupt(&'static self) {
+        let executor = unsafe { (&*self.executor.get()).assume_init_ref() };
+        executor.poll();
     }
 
     /// Start the executor.
     ///
-    /// This initializes the executor, configures and enables the interrupt, and returns.
+    /// This initializes the executor, enables the interrupt, and returns.
     /// The executor keeps running in the background through the interrupt.
     ///
     /// This returns a [`SendSpawner`] you can use to spawn tasks on it. A [`SendSpawner`]
@@ -67,23 +82,35 @@ impl<I: Interrupt> InterruptExecutor<I> {
     /// To obtain a [`Spawner`](embassy_executor::Spawner) for this executor, use [`Spawner::for_current_executor()`](embassy_executor::Spawner::for_current_executor()) from
     /// a task running in it.
     ///
-    /// This function requires `&'static mut self`. This means you have to store the
-    /// Executor instance in a place where it'll live forever and grants you mutable
-    /// access. There's a few ways to do this:
+    /// # Interrupt requirements
     ///
-    /// - a [StaticCell](https://docs.rs/static_cell/latest/static_cell/) (safe)
-    /// - a `static mut` (unsafe)
-    /// - a local variable in a function you know never returns (like `fn main() -> !`), upgrading its lifetime with `transmute`. (unsafe)
-    pub fn start(&'static mut self) -> SendSpawner {
-        self.irq.disable();
+    /// You must write the interrupt handler yourself, and make it call [`on_interrupt()`](Self::on_interrupt).
+    ///
+    /// This method already enables (unmasks) the interrupt, you must NOT do it yourself.
+    ///
+    /// You must set the interrupt priority before calling this method. You MUST NOT
+    /// do it after.
+    ///
+    pub fn start(&'static self, irq: impl InterruptNumber) -> SendSpawner {
+        if self
+            .started
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            panic!("InterruptExecutor::start() called multiple times on the same executor.");
+        }
 
-        self.irq.set_handler(|ctx| unsafe {
-            let executor = &*(ctx as *const raw::Executor);
-            executor.poll();
-        });
-        self.irq.set_handler_context(&self.inner as *const _ as _);
-        self.irq.enable();
+        unsafe {
+            (&mut *self.executor.get()).as_mut_ptr().write(raw::Executor::new(
+                |ctx| pend_by_number(ctx as u16),
+                irq.number() as *mut (),
+            ))
+        }
 
-        self.inner.spawner().make_send()
+        let executor = unsafe { (&*self.executor.get()).assume_init_ref() };
+
+        unsafe { NVIC::unmask(irq) }
+
+        executor.spawner().make_send()
     }
 }
