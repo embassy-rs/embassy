@@ -39,6 +39,24 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
             rx_buf: [Packet([0; RX_BUFFER_SIZE]); RX],
         }
     }
+
+    // Allow to initialize a Self without requiring it to go on the stack
+    #[cfg(feature = "nightly")]
+    pub const unsafe fn init(this: &mut core::mem::MaybeUninit<Self>) {
+        let this: &mut Self = unsafe { this.assume_init_mut() };
+        let mut i = 0;
+        while i < TX {
+            this.tx_desc[i] = TDes::new();
+            this.tx_buf[i] = Packet([0; TX_BUFFER_SIZE]);
+            i += 1;
+        }
+        i = 0;
+        while i < RX {
+            this.rx_desc[i] = RDes::new();
+            this.rx_buf[i] = Packet([0; RX_BUFFER_SIZE]);
+            i += 1;
+        }
+    }
 }
 
 static WAKER: AtomicWaker = AtomicWaker::new();
