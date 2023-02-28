@@ -456,12 +456,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::REGS.cr1().modify(|w| {
                 w.set_spe(false);
             });
-            set_rxdmaen(T::REGS, true);
         }
 
         // SPIv3 clears rxfifo on SPE=0
         #[cfg(not(any(spi_v3, spi_v4)))]
         flush_rx_fifo(T::REGS);
+
+        set_rxdmaen(T::REGS, true);
 
         let clock_byte_count = data.len();
 
@@ -510,12 +511,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::REGS.cr1().modify(|w| {
                 w.set_spe(false);
             });
-            set_rxdmaen(T::REGS, true);
         }
 
         // SPIv3 clears rxfifo on SPE=0
         #[cfg(not(any(spi_v3, spi_v4)))]
         flush_rx_fifo(T::REGS);
+
+        set_rxdmaen(T::REGS, true);
 
         let rx_request = self.rxdma.request();
         let rx_src = T::REGS.rx_ptr();
