@@ -456,7 +456,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::REGS.cr1().modify(|w| {
                 w.set_spe(false);
             });
-            set_rxdmaen(T::REGS, true);
         }
 
         // SPIv3 clears rxfifo on SPE=0
@@ -476,6 +475,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let tx_f = crate::dma::write_repeated(&mut self.txdma, tx_request, &clock_byte, clock_byte_count, tx_dst);
 
         unsafe {
+            set_rxdmaen(T::REGS, true);
             set_txdmaen(T::REGS, true);
             T::REGS.cr1().modify(|w| {
                 w.set_spe(true);
@@ -510,7 +510,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::REGS.cr1().modify(|w| {
                 w.set_spe(false);
             });
-            set_rxdmaen(T::REGS, true);
         }
 
         // SPIv3 clears rxfifo on SPE=0
@@ -528,6 +527,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let tx_f = Transfer::new(&mut self.txdma);
 
         unsafe {
+            set_rxdmaen(T::REGS, true);
             set_txdmaen(T::REGS, true);
             T::REGS.cr1().modify(|w| {
                 w.set_spe(true);
