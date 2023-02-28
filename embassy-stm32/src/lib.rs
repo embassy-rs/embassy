@@ -1,13 +1,7 @@
 #![no_std]
 #![cfg_attr(
     feature = "nightly",
-    feature(
-        type_alias_impl_trait,
-        async_fn_in_trait,
-        impl_trait_projections,
-        const_mut_refs,
-        const_maybe_uninit_assume_init
-    )
+    feature(type_alias_impl_trait, async_fn_in_trait, impl_trait_projections)
 )]
 #![cfg_attr(feature = "nightly", allow(incomplete_features))]
 

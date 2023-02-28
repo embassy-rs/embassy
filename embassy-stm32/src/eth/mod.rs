@@ -5,6 +5,7 @@
 mod _version;
 pub mod generic_smi;
 
+use core::mem::MaybeUninit;
 use core::task::Context;
 
 use embassy_net_driver::{Capabilities, LinkState};
@@ -30,43 +31,19 @@ pub struct PacketQueue<const TX: usize, const RX: usize> {
 
 impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     pub const fn new() -> Self {
-        #[cfg(feature = "nightly")]
-        {
-            let mut this = core::mem::MaybeUninit::uninit();
-            unsafe {
-                Self::init(&mut this);
-                this.assume_init()
-            }
-        }
-        #[cfg(not(feature = "nightly"))]
-        {
-            const NEW_TDES: TDes = TDes::new();
-            const NEW_RDES: RDes = RDes::new();
-            Self {
-                tx_desc: [NEW_TDES; TX],
-                rx_desc: [NEW_RDES; RX],
-                tx_buf: [Packet([0; TX_BUFFER_SIZE]); TX],
-                rx_buf: [Packet([0; RX_BUFFER_SIZE]); RX],
-            }
+        const NEW_TDES: TDes = TDes::new();
+        const NEW_RDES: RDes = RDes::new();
+        Self {
+            tx_desc: [NEW_TDES; TX],
+            rx_desc: [NEW_RDES; RX],
+            tx_buf: [Packet([0; TX_BUFFER_SIZE]); TX],
+            rx_buf: [Packet([0; RX_BUFFER_SIZE]); RX],
         }
     }
 
     // Allow to initialize a Self without requiring it to go on the stack
-    #[cfg(feature = "nightly")]
-    pub const unsafe fn init(this: &mut core::mem::MaybeUninit<Self>) {
-        let this: &mut Self = unsafe { this.assume_init_mut() };
-        let mut i = 0;
-        while i < TX {
-            this.tx_desc[i] = TDes::new();
-            this.tx_buf[i] = Packet([0; TX_BUFFER_SIZE]);
-            i += 1;
-        }
-        i = 0;
-        while i < RX {
-            this.rx_desc[i] = RDes::new();
-            this.rx_buf[i] = Packet([0; RX_BUFFER_SIZE]);
-            i += 1;
-        }
+    pub unsafe fn init(this: &mut MaybeUninit<Self>) {
+        this.as_mut_ptr().write_bytes(0u8, core::mem::size_of::<Self>());
     }
 }
 
