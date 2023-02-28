@@ -3,7 +3,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 
 use futures_util::future::{select, Either};
-use futures_util::{pin_mut, Stream};
+use futures_util::{pin_mut, Stream, StreamExt};
 
 use crate::{Duration, Instant};
 
@@ -131,6 +131,11 @@ impl Ticker {
     pub fn every(duration: Duration) -> Self {
         let expires_at = Instant::now() + duration;
         Self { expires_at, duration }
+    }
+
+    /// Waits for the next tick
+    pub async fn next(&mut self) {
+        <Self as StreamExt>::next(self).await;
     }
 }
 
