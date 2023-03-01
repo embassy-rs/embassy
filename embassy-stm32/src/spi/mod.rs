@@ -115,7 +115,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             Some(miso.map_into()),
             txdma,
             rxdma,
-            freq,
+            Some(freq),
             config,
         )
     }
@@ -144,7 +144,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             Some(miso.map_into()),
             txdma,
             rxdma,
-            freq,
+            Some(freq),
             config,
         )
     }
@@ -173,7 +173,33 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             None,
             txdma,
             rxdma,
-            freq,
+            Some(freq),
+            config,
+        )
+    }
+
+    pub fn new_rxonly_slave(
+        peri: impl Peripheral<P = T> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        txdma: impl Peripheral<P = Tx> + 'd, // TODO remove
+        rxdma: impl Peripheral<P = Rx> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(sck, mosi);
+        unsafe {
+            sck.set_as_af(sck.af_num(), AFType::Input);
+            mosi.set_as_af(mosi.af_num(), AFType::Input);
+        }
+
+        Self::new_inner(
+            peri,
+            Some(sck.map_into()),
+            None,
+            Some(mosi.map_into()), /* miso/mosi reversed in slave mode */
+            txdma,
+            rxdma,
+            None,
             config,
         )
     }
@@ -188,7 +214,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         freq: Hertz,
         config: Config,
     ) -> Self {
-        Self::new_inner(peri, None, None, None, txdma, rxdma, freq, config)
+        Self::new_inner(peri, None, None, None, txdma, rxdma, Some(freq), config)
     }
 
     fn new_inner(
@@ -198,13 +224,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         miso: Option<PeripheralRef<'d, AnyPin>>,
         txdma: impl Peripheral<P = Tx> + 'd,
         rxdma: impl Peripheral<P = Rx> + 'd,
-        freq: Hertz,
+        freq: Option<Hertz>, /* None in slave mode */
         config: Config,
     ) -> Self {
         into_ref!(peri, txdma, rxdma);
 
         let pclk = T::frequency();
-        let br = compute_baud_rate(pclk, freq.into());
+        let br = freq.map(|f| compute_baud_rate(pclk, f.into()));
 
         let cpha = config.raw_phase();
         let cpol = config.raw_polarity();
@@ -223,12 +249,17 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
 
-                w.set_mstr(vals::Mstr::MASTER);
-                w.set_br(br);
+                if let Some(br) = br {
+                    w.set_mstr(vals::Mstr::MASTER);
+                    w.set_br(br);
+                    w.set_ssm(true);
+                } else {
+                    w.set_mstr(vals::Mstr::SLAVE);
+                    w.set_ssm(false);
+                }
                 w.set_spe(true);
                 w.set_lsbfirst(lsbfirst);
                 w.set_ssi(true);
-                w.set_ssm(true);
                 w.set_crcen(false);
                 w.set_bidimode(vals::Bidimode::UNIDIRECTIONAL);
                 if mosi.is_none() {
@@ -248,11 +279,16 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
 
-                w.set_mstr(vals::Mstr::MASTER);
-                w.set_br(br);
+                if let Some(br) = br {
+                    w.set_mstr(vals::Mstr::MASTER);
+                    w.set_br(br);
+                    w.set_ssm(true);
+                } else {
+                    w.set_mstr(vals::Mstr::SLAVE);
+                    w.set_ssm(false);
+                }
                 w.set_lsbfirst(lsbfirst);
                 w.set_ssi(true);
-                w.set_ssm(true);
                 w.set_crcen(false);
                 w.set_bidimode(vals::Bidimode::UNIDIRECTIONAL);
                 w.set_spe(true);
@@ -267,8 +303,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
-                w.set_ssm(true);
-                w.set_master(vals::Master::MASTER);
+                if let Some(_) = br {
+                    w.set_mstr(vals::Mstr::MASTER);
+                    w.set_ssm(true);
+                } else {
+                    w.set_mstr(vals::Mstr::SLAVE);
+                    w.set_ssm(false);
+                }
                 w.set_comm(vals::Comm::FULLDUPLEX);
                 w.set_ssom(vals::Ssom::ASSERTED);
                 w.set_midi(0);
@@ -278,7 +319,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
             T::REGS.cfg1().modify(|w| {
                 w.set_crcen(false);
-                w.set_mbr(br);
+                if let Some(br) = br {
+                    w.set_br(br);
+                }
                 w.set_dsize(WordSize::EightBit.dsize());
             });
             T::REGS.cr2().modify(|w| {
@@ -469,10 +512,21 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         unsafe { self.rxdma.start_read(rx_request, rx_src, data, Default::default()) };
         let rx_f = Transfer::new(&mut self.rxdma);
 
+        let master = unsafe { T::REGS.cr1().read().mstr() == vals::Mstr::MASTER };
         let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
         let clock_byte = 0x00u8;
-        let tx_f = crate::dma::write_repeated(&mut self.txdma, tx_request, &clock_byte, clock_byte_count, tx_dst);
+        let tx_f = if master {
+            Some(crate::dma::write_repeated(
+                &mut self.txdma,
+                tx_request,
+                &clock_byte,
+                clock_byte_count,
+                tx_dst,
+            ))
+        } else {
+            None
+        };
 
         unsafe {
             set_rxdmaen(T::REGS, true);
@@ -486,7 +540,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             });
         }
 
-        join(tx_f, rx_f).await;
+        if let Some(tx_f) = tx_f {
+            join(tx_f, rx_f).await;
+        } else {
+            rx_f.await;
+        }
 
         finish_dma(T::REGS);
 
@@ -769,7 +827,9 @@ fn finish_dma(regs: Regs) {
         #[cfg(any(spi_v3, spi_v4))]
         while !regs.sr().read().txc() {}
         #[cfg(not(any(spi_v3, spi_v4)))]
-        while regs.sr().read().bsy() {}
+        if regs.cr1().read().mstr() == vals::Mstr::MASTER {
+		while regs.sr().read().bsy() {}
+	}
 
         // Disable the spi peripheral
         regs.cr1().modify(|w| {
