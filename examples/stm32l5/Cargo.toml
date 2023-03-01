@@ -4,8 +4,6 @@ name = "embassy-stm32l5-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
-[features]
-
 [dependencies]
 embassy-sync = { version = "0.1.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["defmt", "integrated-timers"] }
