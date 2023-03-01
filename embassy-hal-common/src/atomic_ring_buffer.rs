@@ -14,10 +14,18 @@ use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 /// One concurrent writer and one concurrent reader are supported, even at
 /// different execution priorities (like main and irq).
 pub struct RingBuffer {
-    buf: AtomicPtr<u8>,
-    len: AtomicUsize,
-    start: AtomicUsize,
-    end: AtomicUsize,
+    pub buf: AtomicPtr<u8>,
+    pub len: AtomicUsize,
+
+    // start and end wrap at len*2, not at len.
+    // This allows distinguishing "full" and "empty".
+    // full is when start+len == end (modulo len*2)
+    // empty is when start == end
+    //
+    // This avoids having to consider the ringbuffer "full" at len-1 instead of len.
+    // The usual solution is adding a "full" flag, but that can't be made atomic
+    pub start: AtomicUsize,
+    pub end: AtomicUsize,
 }
 
 pub struct Reader<'a>(&'a RingBuffer);
@@ -90,7 +98,7 @@ impl RingBuffer {
         let start = self.start.load(Ordering::Relaxed);
         let end = self.end.load(Ordering::Relaxed);
 
-        len == 0 || self.wrap(end + 1) == start
+        self.wrap(start + len) == end
     }
 
     pub fn is_empty(&self) -> bool {
@@ -100,15 +108,13 @@ impl RingBuffer {
         start == end
     }
 
-    fn wrap(&self, n: usize) -> usize {
+    fn wrap(&self, mut n: usize) -> usize {
         let len = self.len.load(Ordering::Relaxed);
 
-        assert!(n <= len);
-        if n == len {
-            0
-        } else {
-            n
+        if n >= len * 2 {
+            n -= len * 2
         }
+        n
     }
 }
 
@@ -161,16 +167,25 @@ impl<'a> Writer<'a> {
     pub fn push_buf(&mut self) -> (*mut u8, usize) {
         // Ordering: popping writes `start` last, so we read `start` first.
         // Read it with Acquire ordering, so that the next accesses can't be reordered up past it.
-        let start = self.0.start.load(Ordering::Acquire);
+        let mut start = self.0.start.load(Ordering::Acquire);
         let buf = self.0.buf.load(Ordering::Relaxed);
         let len = self.0.len.load(Ordering::Relaxed);
-        let end = self.0.end.load(Ordering::Relaxed);
+        let mut end = self.0.end.load(Ordering::Relaxed);
 
-        let n = if start <= end {
-            len - end - (start == 0 && len != 0) as usize
-        } else {
-            start - end - 1
-        };
+        let empty = start == end;
+
+        if start >= len {
+            start -= len
+        }
+        if end >= len {
+            end -= len
+        }
+
+        if start == end && !empty {
+            // full
+            return (buf, 0);
+        }
+        let n = if start > end { start - end } else { len - end };
 
         trace!("  ringbuf: push_buf {:?}..{:?}", end, end + n);
         (unsafe { buf.add(end) }, n)
@@ -239,12 +254,23 @@ impl<'a> Reader<'a> {
         // Ordering: pushing writes `end` last, so we read `end` first.
         // Read it with Acquire ordering, so that the next accesses can't be reordered up past it.
         // This is needed to guarantee we "see" the data written by the writer.
-        let end = self.0.end.load(Ordering::Acquire);
+        let mut end = self.0.end.load(Ordering::Acquire);
         let buf = self.0.buf.load(Ordering::Relaxed);
         let len = self.0.len.load(Ordering::Relaxed);
-        let start = self.0.start.load(Ordering::Relaxed);
+        let mut start = self.0.start.load(Ordering::Relaxed);
 
-        let n = if end < start { len - start } else { end - start };
+        if start == end {
+            return (buf, 0);
+        }
+
+        if start >= len {
+            start -= len
+        }
+        if end >= len {
+            end -= len
+        }
+
+        let n = if end > start { end - start } else { len - start };
 
         trace!("  ringbuf: pop_buf {:?}..{:?}", start, start + n);
         (unsafe { buf.add(start) }, n)
@@ -280,12 +306,12 @@ mod tests {
             assert_eq!(rb.is_full(), false);
 
             rb.writer().push(|buf| {
-                // If capacity is 4, we can fill it up to 3.
-                assert_eq!(3, buf.len());
+                assert_eq!(4, buf.len());
                 buf[0] = 1;
                 buf[1] = 2;
                 buf[2] = 3;
-                3
+                buf[3] = 4;
+                4
             });
 
             assert_eq!(rb.is_empty(), false);
@@ -301,7 +327,7 @@ mod tests {
             assert_eq!(rb.is_full(), true);
 
             rb.reader().pop(|buf| {
-                assert_eq!(3, buf.len());
+                assert_eq!(4, buf.len());
                 assert_eq!(1, buf[0]);
                 1
             });
@@ -310,7 +336,7 @@ mod tests {
             assert_eq!(rb.is_full(), false);
 
             rb.reader().pop(|buf| {
-                assert_eq!(2, buf.len());
+                assert_eq!(3, buf.len());
                 0
             });
 
@@ -318,10 +344,15 @@ mod tests {
             assert_eq!(rb.is_full(), false);
 
             rb.reader().pop(|buf| {
-                assert_eq!(2, buf.len());
+                assert_eq!(3, buf.len());
                 assert_eq!(2, buf[0]);
                 assert_eq!(3, buf[1]);
                 2
+            });
+            rb.reader().pop(|buf| {
+                assert_eq!(1, buf.len());
+                assert_eq!(4, buf[0]);
+                1
             });
 
             assert_eq!(rb.is_empty(), true);
@@ -333,16 +364,25 @@ mod tests {
             });
 
             rb.writer().push(|buf| {
-                assert_eq!(1, buf.len());
+                assert_eq!(4, buf.len());
                 buf[0] = 10;
                 1
             });
 
             rb.writer().push(|buf| {
-                assert_eq!(2, buf.len());
+                assert_eq!(3, buf.len());
                 buf[0] = 11;
                 buf[1] = 12;
                 2
+            });
+
+            assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_full(), false);
+
+            rb.writer().push(|buf| {
+                assert_eq!(1, buf.len());
+                buf[0] = 13;
+                1
             });
 
             assert_eq!(rb.is_empty(), false);
