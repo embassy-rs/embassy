@@ -67,6 +67,10 @@ pub mod wdg;
 #[cfg(feature = "subghz")]
 pub mod subghz;
 
+/// Provides access to unique device ID and flash size in kb
+#[cfg(feature = "device-signature")]
+pub mod device_signature;
+
 // This must go last, so that it sees all the impl_foo! macros defined earlier.
 pub(crate) mod _generated {
     #![allow(dead_code)]
