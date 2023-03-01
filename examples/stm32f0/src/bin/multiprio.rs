@@ -57,11 +57,14 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
+use core::mem;
+
+use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
 use defmt::*;
 use embassy_stm32::executor::{Executor, InterruptExecutor};
 use embassy_stm32::interrupt;
-use embassy_stm32::interrupt::InterruptExt;
+use embassy_stm32::pac::Interrupt;
 use embassy_time::{Duration, Instant, Timer};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -108,27 +111,34 @@ async fn run_low() {
     }
 }
 
-static EXECUTOR_HIGH: StaticCell<InterruptExecutor<interrupt::USART1>> = StaticCell::new();
-static EXECUTOR_MED: StaticCell<InterruptExecutor<interrupt::USART2>> = StaticCell::new();
+static EXECUTOR_HIGH: InterruptExecutor = InterruptExecutor::new();
+static EXECUTOR_MED: InterruptExecutor = InterruptExecutor::new();
 static EXECUTOR_LOW: StaticCell<Executor> = StaticCell::new();
+
+#[interrupt]
+unsafe fn USART1() {
+    EXECUTOR_HIGH.on_interrupt()
+}
+
+#[interrupt]
+unsafe fn USART2() {
+    EXECUTOR_MED.on_interrupt()
+}
 
 #[entry]
 fn main() -> ! {
     // Initialize and create handle for devicer peripherals
     let _p = embassy_stm32::init(Default::default());
+    let mut nvic: NVIC = unsafe { mem::transmute(()) };
 
     // High-priority executor: USART1, priority level 6
-    let irq = interrupt::take!(USART1);
-    irq.set_priority(interrupt::Priority::P6);
-    let executor = EXECUTOR_HIGH.init(InterruptExecutor::new(irq));
-    let spawner = executor.start();
+    unsafe { nvic.set_priority(Interrupt::USART1, 6 << 4) };
+    let spawner = EXECUTOR_HIGH.start(Interrupt::USART1);
     unwrap!(spawner.spawn(run_high()));
 
     // Medium-priority executor: USART2, priority level 7
-    let irq = interrupt::take!(USART2);
-    irq.set_priority(interrupt::Priority::P7);
-    let executor = EXECUTOR_MED.init(InterruptExecutor::new(irq));
-    let spawner = executor.start();
+    unsafe { nvic.set_priority(Interrupt::USART2, 7 << 4) };
+    let spawner = EXECUTOR_MED.start(Interrupt::USART2);
     unwrap!(spawner.spawn(run_med()));
 
     // Low priority executor: runs in thread mode, using WFE/SEV
