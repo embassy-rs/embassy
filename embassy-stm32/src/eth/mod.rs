@@ -44,7 +44,7 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     // Allow to initialize a Self without requiring it to go on the stack
     pub fn init(this: &mut MaybeUninit<Self>) {
         unsafe {
-            this.as_mut_ptr().write_bytes(0u8, core::mem::size_of::<Self>());
+            this.as_mut_ptr().write_bytes(0u8, 1);
         }
     }
 }
