@@ -7,6 +7,7 @@ use embassy_hal_common::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_hal_02::adc::{Channel, OneShot};
 
+use crate::gpio::Pin;
 use crate::interrupt::{self, InterruptExt};
 use crate::peripherals::ADC;
 use crate::{pac, peripherals, Peripheral};
@@ -90,9 +91,17 @@ impl<'d> Adc<'d> {
         }
     }
 
-    pub async fn read<PIN: Channel<Adc<'d>, ID = u8>>(&mut self, _pin: &mut PIN) -> u16 {
+    pub async fn read<PIN: Channel<Adc<'d>, ID = u8> + Pin>(&mut self, pin: &mut PIN) -> u16 {
         let r = Self::regs();
         unsafe {
+            // disable pull-down and pull-up resistors
+            // pull-down resistors are enabled by default
+            pin.pad_ctrl().modify(|w| {
+                w.set_ie(true);
+                let (pu, pd) = (false, false);
+                w.set_pue(pu);
+                w.set_pde(pd);
+            });
             r.cs().modify(|w| {
                 w.set_ainsel(PIN::channel());
                 w.set_start_once(true)

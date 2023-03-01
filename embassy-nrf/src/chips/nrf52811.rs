@@ -6,6 +6,8 @@ pub const FORCE_COPY_BUFFER_SIZE: usize = 256;
 
 pub const FLASH_SIZE: usize = 192 * 1024;
 
+pub const RESET_PIN: u32 = 21;
+
 embassy_hal_common::peripherals! {
     // RTC
     RTC0,
@@ -111,6 +113,7 @@ embassy_hal_common::peripherals! {
     P0_18,
     P0_19,
     P0_20,
+    #[cfg(feature="reset-pin-as-gpio")]
     P0_21,
     P0_22,
     P0_23,
@@ -172,6 +175,7 @@ impl_pin!(P0_17, 0, 17);
 impl_pin!(P0_18, 0, 18);
 impl_pin!(P0_19, 0, 19);
 impl_pin!(P0_20, 0, 20);
+#[cfg(feature = "reset-pin-as-gpio")]
 impl_pin!(P0_21, 0, 21);
 impl_pin!(P0_22, 0, 22);
 impl_pin!(P0_23, 0, 23);
