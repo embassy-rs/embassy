@@ -122,7 +122,11 @@ where
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
 
         // "Set up the interrupt mask and enable interrupts"
-        self.bus.bp_write32(CHIP.sdiod_core_base_address + 0x24, 0xF0).await;
+        // self.bus.bp_write32(CHIP.sdiod_core_base_address + 0x24, 0xF0).await;
+
+        self.bus
+            .write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, IRQ_F2_PACKET_AVAILABLE)
+            .await;
 
         // "Lower F2 Watermark to avoid DMA Hang in F2 when SD Clock is stopped."
         // Sounds scary...
@@ -227,22 +231,22 @@ where
             #[cfg(feature = "firmware-logs")]
             self.log_read().await;
 
-            let ev = || async {
-                // TODO use IRQs
-                yield_now().await;
-            };
-
             if self.has_credit() {
                 let ioctl = self.ioctl_state.wait_pending();
                 let tx = self.ch.tx_buf();
+                let ev = self.bus.wait_for_event();
 
-                match select3(ioctl, tx, ev()).await {
-                    Either3::First(PendingIoctl { buf, kind, cmd, iface }) => {
-                        warn!("ioctl");
-                        self.send_ioctl(kind, cmd, iface, unsafe { &*buf }).await;
+                match select3(ioctl, tx, ev).await {
+                    Either3::First(PendingIoctl {
+                        buf: iobuf,
+                        kind,
+                        cmd,
+                        iface,
+                    }) => {
+                        self.send_ioctl(kind, cmd, iface, unsafe { &*iobuf }).await;
+                        self.check_status(&mut buf).await;
                     }
                     Either3::Second(packet) => {
-                        warn!("packet");
                         trace!("tx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
                         let mut buf = [0; 512];
@@ -284,47 +288,51 @@ where
 
                         self.bus.wlan_write(&buf[..(total_len / 4)]).await;
                         self.ch.tx_done();
+                        self.check_status(&mut buf).await;
                     }
                     Either3::Third(()) => {
-                        // Receive stuff
-                        let irq = self.bus.read16(FUNC_BUS, REG_BUS_INTERRUPT).await;
-
-                        if irq & IRQ_F2_PACKET_AVAILABLE != 0 {
-                            let mut status = 0xFFFF_FFFF;
-                            while status == 0xFFFF_FFFF {
-                                status = self.bus.read32(FUNC_BUS, REG_BUS_STATUS).await;
-                            }
-
-                            if status & STATUS_F2_PKT_AVAILABLE != 0 {
-                                let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                                self.bus.wlan_read(&mut buf, len).await;
-                                trace!("rx {:02x}", Bytes(&slice8_mut(&mut buf)[..(len as usize).min(48)]));
-                                self.rx(&slice8_mut(&mut buf)[..len as usize]);
-                            }
-                        }
+                        self.handle_irq(&mut buf).await;
                     }
                 }
             } else {
                 warn!("TX stalled");
-                ev().await;
-
-                // Receive stuff
-                let irq = self.bus.read16(FUNC_BUS, REG_BUS_INTERRUPT).await;
-
-                if irq & IRQ_F2_PACKET_AVAILABLE != 0 {
-                    let mut status = 0xFFFF_FFFF;
-                    while status == 0xFFFF_FFFF {
-                        status = self.bus.read32(FUNC_BUS, REG_BUS_STATUS).await;
-                    }
-
-                    if status & STATUS_F2_PKT_AVAILABLE != 0 {
-                        let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                        self.bus.wlan_read(&mut buf, len).await;
-                        trace!("rx {:02x}", Bytes(&slice8_mut(&mut buf)[..(len as usize).min(48)]));
-                        self.rx(&slice8_mut(&mut buf)[..len as usize]);
-                    }
-                }
+                self.bus.wait_for_event().await;
+                self.handle_irq(&mut buf).await;
             }
+        }
+    }
+
+    /// Wait for IRQ on F2 packet available
+    async fn handle_irq(&mut self, buf: &mut [u32; 512]) {
+        self.bus.clear_event();
+        // Receive stuff
+        let irq = self.bus.read16(FUNC_BUS, REG_BUS_INTERRUPT).await;
+        trace!("irq{}", FormatInterrupt(irq));
+
+        if irq & IRQ_F2_PACKET_AVAILABLE != 0 {
+            self.check_status(buf).await;
+        }
+    }
+
+    /// Handle F2 events while status register is set
+    async fn check_status(&mut self, buf: &mut [u32; 512]) {
+        loop {
+            let mut status = 0xFFFF_FFFF;
+            while status == 0xFFFF_FFFF {
+                status = self.bus.read32(FUNC_BUS, REG_BUS_STATUS).await;
+            }
+            trace!("check status{}", FormatStatus(status));
+
+            if status & STATUS_F2_PKT_AVAILABLE != 0 {
+                let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
+                self.bus.wlan_read(buf, len).await;
+                trace!("rx {:02x}", Bytes(&slice8_mut(buf)[..(len as usize).min(48)]));
+                self.rx(&slice8_mut(buf)[..len as usize]);
+            } else {
+                break;
+            }
+
+            yield_now().await;
         }
     }
 

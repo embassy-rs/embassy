@@ -227,4 +227,10 @@ impl cyw43::SpiBusCyw43 for MySpi {
         self.read(read).await;
         self.cs.set_high();
     }
+
+    async fn wait_for_event(&mut self) {}
+
+    fn clear_event(&mut self) {}
+
+    
 }

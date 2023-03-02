@@ -14,6 +14,8 @@ pub(crate) const REG_BUS_TEST_RW: u32 = 0x18;
 pub(crate) const REG_BUS_RESP_DELAY: u32 = 0x1c;
 pub(crate) const WORD_LENGTH_32: u32 = 0x1;
 pub(crate) const HIGH_SPEED: u32 = 0x10;
+pub(crate) const INTERRUPT_HIGH: u32 = 1 << 5;
+pub(crate) const WAKE_UP: u32 = 1 << 7;
 
 // SPI_STATUS_REGISTER bits
 pub(crate) const STATUS_DATA_NOT_AVAILABLE: u32 = 0x00000001;
