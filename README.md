@@ -14,6 +14,9 @@ Rust's <a href="https://rust-lang.github.io/async-book/">async/await</a> allows 
 - **Hardware Abstraction Layers** - HALs implement safe, idiomatic Rust APIs to use the hardware capabilities, so raw register manipulation is not needed. The Embassy project maintains HALs for select hardware, but you can still use HALs from other projects with Embassy.
   - <a href="https://docs.embassy.dev/embassy-stm32/">embassy-stm32</a>, for all STM32 microcontroller families.
   - <a href="https://docs.embassy.dev/embassy-nrf/">embassy-nrf</a>, for the Nordic Semiconductor nRF52, nRF53, nRF91 series.
+  - <a href="https://github.com/esp-rs">esp-rs</a>, for the Espressif Systems ESP32 series of chips.
+    - Embassy HAL support for Espressif chips is being developed in the [esp-rs/esp-hal](https://github.com/esp-rs/esp-hal) repository.
+    - Async WiFi, Bluetooth and ESP-NOW is being developed in the [esp-rs/esp-wifi](https://github.com/esp-rs/esp-wifi) repository.
 
 - **Time that Just Works** - 
 No more messing with hardware timers. <a href="https://docs.embassy.dev/embassy-time">embassy_time</a> provides Instant, Duration and Timer types that are globally available and never overflow.
