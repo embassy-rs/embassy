@@ -153,6 +153,14 @@ impl<'a> Writer<'a> {
         unsafe { slice::from_raw_parts_mut(data, len) }
     }
 
+    /// Get up to two buffers where data can be pushed to.
+    ///
+    /// Equivalent to [`Self::push_bufs`] but returns slices.
+    pub fn push_slices(&mut self) -> [&mut [u8]; 2] {
+        let [(d0, l0), (d1, l1)] = self.push_bufs();
+        unsafe { [slice::from_raw_parts_mut(d0, l0), slice::from_raw_parts_mut(d1, l1)] }
+    }
+
     /// Get a buffer where data can be pushed to.
     ///
     /// Write data to the start of the buffer, then call `push_done` with
@@ -189,6 +197,45 @@ impl<'a> Writer<'a> {
 
         trace!("  ringbuf: push_buf {:?}..{:?}", end, end + n);
         (unsafe { buf.add(end) }, n)
+    }
+
+    /// Get up to two buffers where data can be pushed to.
+    ///
+    /// Write data starting at the beginning of the first buffer, then call
+    /// `push_done` with however many bytes you've pushed.
+    ///
+    /// The buffers are suitable to DMA to.
+    ///
+    /// If the ringbuf is full, both buffers will be zero length.
+    /// If there is only area available, the second buffer will be zero length.
+    ///
+    /// The buffer stays valid as long as no other `Writer` method is called
+    /// and `init`/`deinit` aren't called on the ringbuf.
+    pub fn push_bufs(&mut self) -> [(*mut u8, usize); 2] {
+        // Ordering: as per push_buf()
+        let mut start = self.0.start.load(Ordering::Acquire);
+        let buf = self.0.buf.load(Ordering::Relaxed);
+        let len = self.0.len.load(Ordering::Relaxed);
+        let mut end = self.0.end.load(Ordering::Relaxed);
+
+        let empty = start == end;
+
+        if start >= len {
+            start -= len
+        }
+        if end >= len {
+            end -= len
+        }
+
+        if start == end && !empty {
+            // full
+            return [(buf, 0), (buf, 0)];
+        }
+        let n0 = if start > end { start - end } else { len - end };
+        let n1 = if start <= end { start } else { 0 };
+
+        trace!("  ringbuf: push_bufs [{:?}..{:?}, {:?}..{:?}]", end, end + n0, 0, n1);
+        [(unsafe { buf.add(end) }, n0), (buf, n1)]
     }
 
     pub fn push_done(&mut self, n: usize) {
@@ -406,6 +453,106 @@ mod tests {
                 assert_eq!(0, buf.len());
                 0
             });
+        }
+    }
+
+    #[test]
+    fn push_slices() {
+        init();
+
+        let mut b = [0; 4];
+        let rb = RingBuffer::new();
+        unsafe {
+            rb.init(b.as_mut_ptr(), 4);
+
+            /* push 3 -> [1 2 3 x] */
+            let mut w = rb.writer();
+            let ps = w.push_slices();
+            assert_eq!(4, ps[0].len());
+            assert_eq!(0, ps[1].len());
+            ps[0][0] = 1;
+            ps[0][1] = 2;
+            ps[0][2] = 3;
+            w.push_done(3);
+            drop(w);
+
+            /* pop 2 -> [x x 3 x] */
+            rb.reader().pop(|buf| {
+                assert_eq!(3, buf.len());
+                assert_eq!(1, buf[0]);
+                assert_eq!(2, buf[1]);
+                assert_eq!(3, buf[2]);
+                2
+            });
+
+            /* push 3 -> [5 6 3 4] */
+            let mut w = rb.writer();
+            let ps = w.push_slices();
+            assert_eq!(1, ps[0].len());
+            assert_eq!(2, ps[1].len());
+            ps[0][0] = 4;
+            ps[1][0] = 5;
+            ps[1][1] = 6;
+            w.push_done(3);
+            drop(w);
+
+            /* buf is now full */
+            let mut w = rb.writer();
+            let ps = w.push_slices();
+            assert_eq!(0, ps[0].len());
+            assert_eq!(0, ps[1].len());
+
+            /* pop 2 -> [5 6 x x] */
+            rb.reader().pop(|buf| {
+                assert_eq!(2, buf.len());
+                assert_eq!(3, buf[0]);
+                assert_eq!(4, buf[1]);
+                2
+            });
+
+            /* should now have one push slice again */
+            let mut w = rb.writer();
+            let ps = w.push_slices();
+            assert_eq!(2, ps[0].len());
+            assert_eq!(0, ps[1].len());
+            drop(w);
+
+            /* pop 2 -> [x x x x] */
+            rb.reader().pop(|buf| {
+                assert_eq!(2, buf.len());
+                assert_eq!(5, buf[0]);
+                assert_eq!(6, buf[1]);
+                2
+            });
+
+            /* should now have two push slices */
+            let mut w = rb.writer();
+            let ps = w.push_slices();
+            assert_eq!(2, ps[0].len());
+            assert_eq!(2, ps[1].len());
+            drop(w);
+
+            /* make sure we exercise all wrap around cases properly */
+            for _ in 0..10 {
+                /* should be empty, push 1 */
+                let mut w = rb.writer();
+                let ps = w.push_slices();
+                assert_eq!(4, ps[0].len() + ps[1].len());
+                w.push_done(1);
+                drop(w);
+
+                /* should have 1 element */
+                let mut w = rb.writer();
+                let ps = w.push_slices();
+                assert_eq!(3, ps[0].len() + ps[1].len());
+                drop(w);
+
+                /* pop 1 */
+                rb.reader().pop(|buf| {
+                    assert_eq!(1, buf.len());
+                    1
+                });
+            }
         }
     }
 }
