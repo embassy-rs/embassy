@@ -276,6 +276,106 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     pub async fn wait_connection(&mut self) {
         self.read_ep.wait_enabled().await
     }
+
+    /// Split the class into a sender and receiver.
+    ///
+    /// This allows concurrently sending and receiving packets from separate tasks.
+    pub fn split(self) -> (Sender<'d, D>, Receiver<'d, D>) {
+        (
+            Sender {
+                write_ep: self.write_ep,
+                control: self.control,
+            },
+            Receiver {
+                read_ep: self.read_ep,
+                control: self.control,
+            },
+        )
+    }
+}
+
+/// CDC ACM class packet sender.
+///
+/// You can obtain a `Sender` with [`CdcAcmClass::split`]
+pub struct Sender<'d, D: Driver<'d>> {
+    write_ep: D::EndpointIn,
+    control: &'d ControlShared,
+}
+
+impl<'d, D: Driver<'d>> Sender<'d, D> {
+    /// Gets the maximum packet size in bytes.
+    pub fn max_packet_size(&self) -> u16 {
+        // The size is the same for both endpoints.
+        self.write_ep.info().max_packet_size
+    }
+
+    /// Gets the current line coding. The line coding contains information that's mainly relevant
+    /// for USB to UART serial port emulators, and can be ignored if not relevant.
+    pub fn line_coding(&self) -> LineCoding {
+        self.control.line_coding.lock(|x| x.get())
+    }
+
+    /// Gets the DTR (data terminal ready) state
+    pub fn dtr(&self) -> bool {
+        self.control.dtr.load(Ordering::Relaxed)
+    }
+
+    /// Gets the RTS (request to send) state
+    pub fn rts(&self) -> bool {
+        self.control.rts.load(Ordering::Relaxed)
+    }
+
+    /// Writes a single packet into the IN endpoint.
+    pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
+        self.write_ep.write(data).await
+    }
+
+    /// Waits for the USB host to enable this interface
+    pub async fn wait_connection(&mut self) {
+        self.write_ep.wait_enabled().await
+    }
+}
+
+/// CDC ACM class packet receiver.
+///
+/// You can obtain a `Receiver` with [`CdcAcmClass::split`]
+pub struct Receiver<'d, D: Driver<'d>> {
+    read_ep: D::EndpointOut,
+    control: &'d ControlShared,
+}
+
+impl<'d, D: Driver<'d>> Receiver<'d, D> {
+    /// Gets the maximum packet size in bytes.
+    pub fn max_packet_size(&self) -> u16 {
+        // The size is the same for both endpoints.
+        self.read_ep.info().max_packet_size
+    }
+
+    /// Gets the current line coding. The line coding contains information that's mainly relevant
+    /// for USB to UART serial port emulators, and can be ignored if not relevant.
+    pub fn line_coding(&self) -> LineCoding {
+        self.control.line_coding.lock(|x| x.get())
+    }
+
+    /// Gets the DTR (data terminal ready) state
+    pub fn dtr(&self) -> bool {
+        self.control.dtr.load(Ordering::Relaxed)
+    }
+
+    /// Gets the RTS (request to send) state
+    pub fn rts(&self) -> bool {
+        self.control.rts.load(Ordering::Relaxed)
+    }
+
+    /// Reads a single packet from the OUT endpoint.
+    pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
+        self.read_ep.read(data).await
+    }
+
+    /// Waits for the USB host to enable this interface
+    pub async fn wait_connection(&mut self) {
+        self.read_ep.wait_enabled().await
+    }
 }
 
 /// Number of stop bits for LineCoding
