@@ -296,7 +296,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         }
 
         // Received some bytes, wake task.
-        if r.inten.read().rxdrdy().bit_is_set() && r.events_rxdrdy.read().events_rxdrdy().bit_is_set() {
+        if r.inten.read().rxdrdy().bit_is_set() && r.events_rxdrdy.read().bits() != 0 {
             r.intenclr.write(|w| w.rxdrdy().clear());
             r.events_rxdrdy.reset();
             s.rx_waker.wake();
