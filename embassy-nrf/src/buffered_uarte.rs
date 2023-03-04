@@ -46,6 +46,14 @@ mod sealed {
     }
 }
 
+/// UART error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Error {
+    // No errors for now
+}
+
 pub(crate) use sealed::State;
 
 impl State {
@@ -380,7 +388,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         (BufferedUarteRx { inner: self }, BufferedUarteTx { inner: self })
     }
 
-    async fn inner_read(&self, buf: &mut [u8]) -> Result<usize, core::convert::Infallible> {
+    async fn inner_read(&self, buf: &mut [u8]) -> Result<usize, Error> {
         let data = self.inner_fill_buf().await?;
         let n = data.len().min(buf.len());
         buf[..n].copy_from_slice(&data[..n]);
@@ -388,7 +396,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         Ok(n)
     }
 
-    async fn inner_write<'a>(&'a self, buf: &'a [u8]) -> Result<usize, core::convert::Infallible> {
+    async fn inner_write<'a>(&'a self, buf: &'a [u8]) -> Result<usize, Error> {
         poll_fn(move |cx| {
             //trace!("poll_write: {:?}", buf.len());
             let s = U::buffered_state();
@@ -415,7 +423,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         .await
     }
 
-    async fn inner_flush<'a>(&'a self) -> Result<(), core::convert::Infallible> {
+    async fn inner_flush<'a>(&'a self) -> Result<(), Error> {
         poll_fn(move |cx| {
             //trace!("poll_flush");
             let s = U::buffered_state();
@@ -430,7 +438,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         .await
     }
 
-    async fn inner_fill_buf<'a>(&'a self) -> Result<&'a [u8], core::convert::Infallible> {
+    async fn inner_fill_buf<'a>(&'a self) -> Result<&'a [u8], Error> {
         poll_fn(move |cx| {
             compiler_fence(Ordering::SeqCst);
             //trace!("poll_read");
@@ -492,6 +500,31 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         rx.pop_done(amt);
         U::regs().intenset.write(|w| w.rxstarted().set());
     }
+
+    /// Pull some bytes from this source into the specified buffer, returning how many bytes were read.
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        self.inner_read(buf).await
+    }
+
+    /// Return the contents of the internal buffer, filling it with more data from the inner reader if it is empty.
+    pub async fn fill_buf(&mut self) -> Result<&[u8], Error> {
+        self.inner_fill_buf().await
+    }
+
+    /// Tell this buffer that `amt` bytes have been consumed from the buffer, so they should no longer be returned in calls to `fill_buf`.
+    pub fn consume(&mut self, amt: usize) {
+        self.inner_consume(amt)
+    }
+
+    /// Write a buffer into this writer, returning how many bytes were written.
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        self.inner_write(buf).await
+    }
+
+    /// Flush this output stream, ensuring that all intermediately buffered contents reach their destination.
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.inner_flush().await
+    }
 }
 
 /// Reader part of the buffered UARTE driver.
@@ -499,72 +532,112 @@ pub struct BufferedUarteTx<'u, 'd, U: UarteInstance, T: TimerInstance> {
     inner: &'u BufferedUarte<'d, U, T>,
 }
 
+impl<'u, 'd, U: UarteInstance, T: TimerInstance> BufferedUarteTx<'u, 'd, U, T> {
+    /// Write a buffer into this writer, returning how many bytes were written.
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        self.inner.inner_write(buf).await
+    }
+
+    /// Flush this output stream, ensuring that all intermediately buffered contents reach their destination.
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.inner.inner_flush().await
+    }
+}
+
 /// Writer part of the buffered UARTE driver.
 pub struct BufferedUarteRx<'u, 'd, U: UarteInstance, T: TimerInstance> {
     inner: &'u BufferedUarte<'d, U, T>,
 }
 
-impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::Io for BufferedUarte<'d, U, T> {
-    type Error = core::convert::Infallible;
-}
-
-impl<'u, 'd, U: UarteInstance, T: TimerInstance> embedded_io::Io for BufferedUarteRx<'u, 'd, U, T> {
-    type Error = core::convert::Infallible;
-}
-
-impl<'u, 'd, U: UarteInstance, T: TimerInstance> embedded_io::Io for BufferedUarteTx<'u, 'd, U, T> {
-    type Error = core::convert::Infallible;
-}
-
-impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Read for BufferedUarte<'d, U, T> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.inner_read(buf).await
-    }
-}
-
-impl<'u, 'd: 'u, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Read for BufferedUarteRx<'u, 'd, U, T> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+impl<'u, 'd, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'u, 'd, U, T> {
+    /// Pull some bytes from this source into the specified buffer, returning how many bytes were read.
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.inner.inner_read(buf).await
     }
-}
 
-impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::BufRead for BufferedUarte<'d, U, T> {
-    async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
-        self.inner_fill_buf().await
-    }
-
-    fn consume(&mut self, amt: usize) {
-        self.inner_consume(amt)
-    }
-}
-
-impl<'u, 'd: 'u, U: UarteInstance, T: TimerInstance> embedded_io::asynch::BufRead for BufferedUarteRx<'u, 'd, U, T> {
-    async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
+    /// Return the contents of the internal buffer, filling it with more data from the inner reader if it is empty.
+    pub async fn fill_buf(&mut self) -> Result<&[u8], Error> {
         self.inner.inner_fill_buf().await
     }
 
-    fn consume(&mut self, amt: usize) {
+    /// Tell this buffer that `amt` bytes have been consumed from the buffer, so they should no longer be returned in calls to `fill_buf`.
+    pub fn consume(&mut self, amt: usize) {
         self.inner.inner_consume(amt)
     }
 }
 
-impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Write for BufferedUarte<'d, U, T> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        self.inner_write(buf).await
+#[cfg(feature = "nightly")]
+mod _embedded_io {
+    use super::*;
+
+    impl embedded_io::Error for Error {
+        fn kind(&self) -> embedded_io::ErrorKind {
+            match *self {}
+        }
     }
 
-    async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.inner_flush().await
-    }
-}
-
-impl<'u, 'd: 'u, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Write for BufferedUarteTx<'u, 'd, U, T> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        self.inner.inner_write(buf).await
+    impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::Io for BufferedUarte<'d, U, T> {
+        type Error = Error;
     }
 
-    async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.inner.inner_flush().await
+    impl<'u, 'd, U: UarteInstance, T: TimerInstance> embedded_io::Io for BufferedUarteRx<'u, 'd, U, T> {
+        type Error = Error;
+    }
+
+    impl<'u, 'd, U: UarteInstance, T: TimerInstance> embedded_io::Io for BufferedUarteTx<'u, 'd, U, T> {
+        type Error = Error;
+    }
+
+    impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Read for BufferedUarte<'d, U, T> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.inner_read(buf).await
+        }
+    }
+
+    impl<'u, 'd: 'u, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Read for BufferedUarteRx<'u, 'd, U, T> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.inner.inner_read(buf).await
+        }
+    }
+
+    impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::BufRead for BufferedUarte<'d, U, T> {
+        async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
+            self.inner_fill_buf().await
+        }
+
+        fn consume(&mut self, amt: usize) {
+            self.inner_consume(amt)
+        }
+    }
+
+    impl<'u, 'd: 'u, U: UarteInstance, T: TimerInstance> embedded_io::asynch::BufRead for BufferedUarteRx<'u, 'd, U, T> {
+        async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
+            self.inner.inner_fill_buf().await
+        }
+
+        fn consume(&mut self, amt: usize) {
+            self.inner.inner_consume(amt)
+        }
+    }
+
+    impl<'d, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Write for BufferedUarte<'d, U, T> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.inner_write(buf).await
+        }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.inner_flush().await
+        }
+    }
+
+    impl<'u, 'd: 'u, U: UarteInstance, T: TimerInstance> embedded_io::asynch::Write for BufferedUarteTx<'u, 'd, U, T> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.inner.inner_write(buf).await
+        }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.inner.inner_flush().await
+        }
     }
 }
 

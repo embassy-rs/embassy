@@ -37,7 +37,6 @@ pub(crate) mod util;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
 
-#[cfg(feature = "nightly")]
 pub mod buffered_uarte;
 pub mod gpio;
 #[cfg(feature = "gpiote")]

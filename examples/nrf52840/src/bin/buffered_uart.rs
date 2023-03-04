@@ -6,7 +6,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nrf::buffered_uarte::BufferedUarte;
 use embassy_nrf::{interrupt, uarte};
-use embedded_io::asynch::{BufRead, Write};
+use embedded_io::asynch::Write;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
