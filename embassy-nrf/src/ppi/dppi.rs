@@ -6,7 +6,7 @@ use crate::{pac, Peripheral};
 const DPPI_ENABLE_BIT: u32 = 0x8000_0000;
 const DPPI_CHANNEL_MASK: u32 = 0x0000_00FF;
 
-fn regs() -> &'static pac::dppic::RegisterBlock {
+pub(crate) fn regs() -> &'static pac::dppic::RegisterBlock {
     unsafe { &*pac::DPPIC::ptr() }
 }
 

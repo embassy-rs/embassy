@@ -883,6 +883,7 @@ pub(crate) mod sealed {
     pub trait Instance {
         fn regs() -> &'static pac::uarte0::RegisterBlock;
         fn state() -> &'static State;
+        fn buffered_state() -> &'static crate::buffered_uarte::State;
     }
 }
 
@@ -900,6 +901,10 @@ macro_rules! impl_uarte {
             }
             fn state() -> &'static crate::uarte::sealed::State {
                 static STATE: crate::uarte::sealed::State = crate::uarte::sealed::State::new();
+                &STATE
+            }
+            fn buffered_state() -> &'static crate::buffered_uarte::State {
+                static STATE: crate::buffered_uarte::State = crate::buffered_uarte::State::new();
                 &STATE
             }
         }

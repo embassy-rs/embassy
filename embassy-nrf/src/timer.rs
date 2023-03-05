@@ -132,7 +132,21 @@ impl<'d, T: Instance> Timer<'d, T, Awaitable> {
         irq.unpend();
         irq.enable();
 
-        Self::new_inner(timer)
+        Self::new_inner(timer, false)
+    }
+
+    /// Create a new async-capable timer driver in counter mode.
+    pub fn new_awaitable_counter(
+        timer: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+    ) -> Self {
+        into_ref!(irq);
+
+        irq.set_handler(Self::on_interrupt);
+        irq.unpend();
+        irq.enable();
+
+        Self::new_inner(timer, true)
     }
 }
 
@@ -142,7 +156,15 @@ impl<'d, T: Instance> Timer<'d, T, NotAwaitable> {
     /// This can be useful for triggering tasks via PPI
     /// `Uarte` uses this internally.
     pub fn new(timer: impl Peripheral<P = T> + 'd) -> Self {
-        Self::new_inner(timer)
+        Self::new_inner(timer, false)
+    }
+
+    /// Create a `Timer` driver in counter mode without an interrupt, meaning `Cc::wait` won't work.
+    ///
+    /// This can be useful for triggering tasks via PPI
+    /// `Uarte` uses this internally.
+    pub fn new_counter(timer: impl Peripheral<P = T> + 'd) -> Self {
+        Self::new_inner(timer, true)
     }
 }
 
@@ -150,7 +172,7 @@ impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
     /// Create a `Timer` without an interrupt, meaning `Cc::wait` won't work.
     ///
     /// This is used by the public constructors.
-    fn new_inner(timer: impl Peripheral<P = T> + 'd) -> Self {
+    fn new_inner(timer: impl Peripheral<P = T> + 'd, is_counter: bool) -> Self {
         into_ref!(timer);
 
         let regs = T::regs();
@@ -164,8 +186,11 @@ impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
         // since changing BITMODE while running can cause 'unpredictable behaviour' according to the specification.
         this.stop();
 
-        // Set the instance to timer mode.
-        regs.mode.write(|w| w.mode().timer());
+        if is_counter {
+            regs.mode.write(|w| w.mode().counter());
+        } else {
+            regs.mode.write(|w| w.mode().timer());
+        }
 
         // Make the counter's max value as high as possible.
         // TODO: is there a reason someone would want to set this lower?
@@ -223,6 +248,14 @@ impl<'d, T: Instance, I: TimerType> Timer<'d, T, I> {
     /// When triggered, this task resets the timer's counter to 0.
     pub fn task_clear(&self) -> Task {
         Task::from_reg(&T::regs().tasks_clear)
+    }
+
+    /// Returns the COUNT task, for use with PPI.
+    ///
+    /// When triggered, this task increments the timer's counter by 1.
+    /// Only works in counter mode.
+    pub fn task_count(&self) -> Task {
+        Task::from_reg(&T::regs().tasks_count)
     }
 
     /// Change the timer's frequency.
