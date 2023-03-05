@@ -1,25 +1,37 @@
 //! Pulse Density Modulation (PDM) mirophone driver.
 
+#![macro_use]
+
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
+use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
-use embassy_sync::waitqueue::AtomicWaker;
 use futures::future::poll_fn;
 
 use crate::chip::EASY_DMA_SIZE;
 use crate::gpio::sealed::Pin;
 use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::interrupt::{self, InterruptExt};
-use crate::peripherals::PDM;
-use crate::{pac, Peripheral};
+use crate::Peripheral;
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        T::regs().intenclr.write(|w| w.end().clear());
+        T::state().waker.wake();
+    }
+}
 
 /// PDM microphone interface
-pub struct Pdm<'d> {
-    irq: PeripheralRef<'d, interrupt::PDM>,
-    phantom: PhantomData<&'d PDM>,
+pub struct Pdm<'d, T: Instance> {
+    _peri: PeripheralRef<'d, T>,
 }
 
 /// PDM error.
@@ -35,32 +47,30 @@ pub enum Error {
     NotRunning,
 }
 
-static WAKER: AtomicWaker = AtomicWaker::new();
 static DUMMY_BUFFER: [i16; 1] = [0; 1];
 
-impl<'d> Pdm<'d> {
+impl<'d, T: Instance> Pdm<'d, T> {
     /// Create PDM driver
     pub fn new(
-        pdm: impl Peripheral<P = PDM> + 'd,
-        irq: impl Peripheral<P = interrupt::PDM> + 'd,
+        pdm: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: impl Peripheral<P = impl GpioPin> + 'd,
         din: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(clk, din);
-        Self::new_inner(pdm, irq, clk.map_into(), din.map_into(), config)
+        into_ref!(pdm, clk, din);
+        Self::new_inner(pdm, clk.map_into(), din.map_into(), config)
     }
 
     fn new_inner(
-        _pdm: impl Peripheral<P = PDM> + 'd,
-        irq: impl Peripheral<P = interrupt::PDM> + 'd,
+        pdm: PeripheralRef<'d, T>,
         clk: PeripheralRef<'d, AnyPin>,
         din: PeripheralRef<'d, AnyPin>,
         config: Config,
     ) -> Self {
-        into_ref!(irq);
+        into_ref!(pdm);
 
-        let r = Self::regs();
+        let r = T::regs();
 
         // setup gpio pins
         din.conf().write(|w| w.input().set_bit());
@@ -84,26 +94,18 @@ impl<'d> Pdm<'d> {
         r.gainr.write(|w| w.gainr().default_gain());
 
         // IRQ
-        irq.disable();
-        irq.set_handler(|_| {
-            let r = Self::regs();
-            r.intenclr.write(|w| w.end().clear());
-            WAKER.wake();
-        });
-        irq.enable();
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         r.enable.write(|w| w.enable().set_bit());
 
-        Self {
-            phantom: PhantomData,
-            irq,
-        }
+        Self { _peri: pdm }
     }
 
     /// Start sampling microphon data into a dummy buffer
     /// Usefull to start the microphon and keep it active between recording samples
     pub async fn start(&mut self) {
-        let r = Self::regs();
+        let r = T::regs();
 
         // start dummy sampling because microphon needs some setup time
         r.sample
@@ -113,13 +115,13 @@ impl<'d> Pdm<'d> {
             .maxcnt
             .write(|w| unsafe { w.buffsize().bits(DUMMY_BUFFER.len() as _) });
 
-        r.tasks_start.write(|w| w.tasks_start().set_bit());
+        r.tasks_start.write(|w| unsafe { w.bits(1) });
     }
 
     /// Stop sampling microphon data inta a dummy buffer
     pub async fn stop(&mut self) {
-        let r = Self::regs();
-        r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+        let r = T::regs();
+        r.tasks_stop.write(|w| unsafe { w.bits(1) });
         r.events_started.reset();
     }
 
@@ -132,9 +134,9 @@ impl<'d> Pdm<'d> {
             return Err(Error::BufferTooLong);
         }
 
-        let r = Self::regs();
+        let r = T::regs();
 
-        if r.events_started.read().events_started().bit_is_clear() {
+        if r.events_started.read().bits() == 0 {
             return Err(Error::NotRunning);
         }
 
@@ -179,7 +181,7 @@ impl<'d> Pdm<'d> {
     }
 
     async fn wait_for_sample() {
-        let r = Self::regs();
+        let r = T::regs();
 
         r.events_end.reset();
         r.intenset.write(|w| w.end().set());
@@ -187,8 +189,8 @@ impl<'d> Pdm<'d> {
         compiler_fence(Ordering::SeqCst);
 
         poll_fn(|cx| {
-            WAKER.register(cx.waker());
-            if r.events_end.read().events_end().bit_is_set() {
+            T::state().waker.register(cx.waker());
+            if r.events_end.read().bits() != 0 {
                 return Poll::Ready(());
             }
             Poll::Pending
@@ -196,10 +198,6 @@ impl<'d> Pdm<'d> {
         .await;
 
         compiler_fence(Ordering::SeqCst);
-    }
-
-    fn regs() -> &'static pac::pdm::RegisterBlock {
-        unsafe { &*pac::PDM::ptr() }
     }
 }
 
@@ -238,17 +236,60 @@ pub enum Edge {
     LeftFalling,
 }
 
-impl<'d> Drop for Pdm<'d> {
+impl<'d, T: Instance> Drop for Pdm<'d, T> {
     fn drop(&mut self) {
-        let r = Self::regs();
+        let r = T::regs();
 
-        r.tasks_stop.write(|w| w.tasks_stop().set_bit());
-
-        self.irq.disable();
+        r.tasks_stop.write(|w| unsafe { w.bits(1) });
 
         r.enable.write(|w| w.enable().disabled());
 
         r.psel.din.reset();
         r.psel.clk.reset();
     }
+}
+
+pub(crate) mod sealed {
+    use embassy_sync::waitqueue::AtomicWaker;
+
+    /// Peripheral static state
+    pub struct State {
+        pub waker: AtomicWaker,
+    }
+
+    impl State {
+        pub const fn new() -> Self {
+            Self {
+                waker: AtomicWaker::new(),
+            }
+        }
+    }
+
+    pub trait Instance {
+        fn regs() -> &'static crate::pac::pdm::RegisterBlock;
+        fn state() -> &'static State;
+    }
+}
+
+/// PDM peripheral instance.
+pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+    /// Interrupt for this peripheral.
+    type Interrupt: Interrupt;
+}
+
+macro_rules! impl_pdm {
+    ($type:ident, $pac_type:ident, $irq:ident) => {
+        impl crate::pdm::sealed::Instance for peripherals::$type {
+            fn regs() -> &'static crate::pac::pdm::RegisterBlock {
+                unsafe { &*pac::$pac_type::ptr() }
+            }
+            fn state() -> &'static crate::pdm::sealed::State {
+                static STATE: crate::pdm::sealed::State = crate::pdm::sealed::State::new();
+                &STATE
+            }
+        }
+        impl crate::pdm::Instance for peripherals::$type {
+            type Interrupt = crate::interrupt::$irq;
+        }
+    };
 }

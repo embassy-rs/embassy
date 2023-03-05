@@ -5,8 +5,12 @@
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
-use embassy_nrf::{interrupt, spim};
+use embassy_nrf::{bind_interrupts, peripherals, spim};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -16,8 +20,7 @@ async fn main(_spawner: Spawner) {
     let mut config = spim::Config::default();
     config.frequency = spim::Frequency::M16;
 
-    let irq = interrupt::take!(SPIM3);
-    let mut spim = spim::Spim::new(p.SPI3, irq, p.P0_29, p.P0_28, p.P0_30, config);
+    let mut spim = spim::Spim::new(p.SPI3, Irqs, p.P0_29, p.P0_28, p.P0_30, config);
 
     let mut ncs = Output::new(p.P0_31, Level::High, OutputDrive::Standard);
 

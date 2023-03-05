@@ -4,13 +4,17 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_nrf::interrupt;
 use embassy_nrf::saadc::{CallbackResult, ChannelConfig, Config, Saadc};
 use embassy_nrf::timer::Frequency;
+use embassy_nrf::{bind_interrupts, saadc};
 use embassy_time::Duration;
 use {defmt_rtt as _, panic_probe as _};
 
 // Demonstrates both continuous sampling and scanning multiple channels driven by a PPI linked timer
+
+bind_interrupts!(struct Irqs {
+    SAADC => saadc::InterruptHandler;
+});
 
 #[embassy_executor::main]
 async fn main(_p: Spawner) {
@@ -21,7 +25,7 @@ async fn main(_p: Spawner) {
     let channel_3_config = ChannelConfig::single_ended(&mut p.P0_04);
     let mut saadc = Saadc::new(
         p.SAADC,
-        interrupt::take!(SAADC),
+        Irqs,
         config,
         [channel_1_config, channel_2_config, channel_3_config],
     );

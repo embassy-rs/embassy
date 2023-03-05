@@ -14,6 +14,7 @@
 #![macro_use]
 
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
@@ -26,7 +27,7 @@ pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Pari
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::{self, Interrupt, InterruptExt};
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::util::slice_in_ram_or;
@@ -62,6 +63,27 @@ pub enum Error {
     BufferNotInRAM,
 }
 
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let r = T::regs();
+        let s = T::state();
+
+        if r.events_endrx.read().bits() != 0 {
+            s.endrx_waker.wake();
+            r.intenclr.write(|w| w.endrx().clear());
+        }
+        if r.events_endtx.read().bits() != 0 {
+            s.endtx_waker.wake();
+            r.intenclr.write(|w| w.endtx().clear());
+        }
+    }
+}
+
 /// UARTE driver.
 pub struct Uarte<'d, T: Instance> {
     tx: UarteTx<'d, T>,
@@ -86,19 +108,19 @@ impl<'d, T: Instance> Uarte<'d, T> {
     /// Create a new UARTE without hardware flow control
     pub fn new(
         uarte: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rxd: impl Peripheral<P = impl GpioPin> + 'd,
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(rxd, txd);
-        Self::new_inner(uarte, irq, rxd.map_into(), txd.map_into(), None, None, config)
+        Self::new_inner(uarte, rxd.map_into(), txd.map_into(), None, None, config)
     }
 
     /// Create a new UARTE with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts(
         uarte: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rxd: impl Peripheral<P = impl GpioPin> + 'd,
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         cts: impl Peripheral<P = impl GpioPin> + 'd,
@@ -108,7 +130,6 @@ impl<'d, T: Instance> Uarte<'d, T> {
         into_ref!(rxd, txd, cts, rts);
         Self::new_inner(
             uarte,
-            irq,
             rxd.map_into(),
             txd.map_into(),
             Some(cts.map_into()),
@@ -119,14 +140,13 @@ impl<'d, T: Instance> Uarte<'d, T> {
 
     fn new_inner(
         uarte: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
         rxd: PeripheralRef<'d, AnyPin>,
         txd: PeripheralRef<'d, AnyPin>,
         cts: Option<PeripheralRef<'d, AnyPin>>,
         rts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(uarte, irq);
+        into_ref!(uarte);
 
         let r = T::regs();
 
@@ -148,9 +168,8 @@ impl<'d, T: Instance> Uarte<'d, T> {
         }
         r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
 
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         let hardware_flow_control = match (rts.is_some(), cts.is_some()) {
             (false, false) => false,
@@ -238,20 +257,6 @@ impl<'d, T: Instance> Uarte<'d, T> {
         Event::from_reg(&r.events_endtx)
     }
 
-    fn on_interrupt(_: *mut ()) {
-        let r = T::regs();
-        let s = T::state();
-
-        if r.events_endrx.read().bits() != 0 {
-            s.endrx_waker.wake();
-            r.intenclr.write(|w| w.endrx().clear());
-        }
-        if r.events_endtx.read().bits() != 0 {
-            s.endtx_waker.wake();
-            r.intenclr.write(|w| w.endtx().clear());
-        }
-    }
-
     /// Read bytes until the buffer is filled.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.read(buffer).await
@@ -308,34 +313,33 @@ impl<'d, T: Instance> UarteTx<'d, T> {
     /// Create a new tx-only UARTE without hardware flow control
     pub fn new(
         uarte: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(txd);
-        Self::new_inner(uarte, irq, txd.map_into(), None, config)
+        Self::new_inner(uarte, txd.map_into(), None, config)
     }
 
     /// Create a new tx-only UARTE with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts(
         uarte: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         cts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(txd, cts);
-        Self::new_inner(uarte, irq, txd.map_into(), Some(cts.map_into()), config)
+        Self::new_inner(uarte, txd.map_into(), Some(cts.map_into()), config)
     }
 
     fn new_inner(
         uarte: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
         txd: PeripheralRef<'d, AnyPin>,
         cts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(uarte, irq);
+        into_ref!(uarte);
 
         let r = T::regs();
 
@@ -354,9 +358,8 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         let hardware_flow_control = cts.is_some();
         configure(r, config, hardware_flow_control);
 
-        irq.set_handler(Uarte::<T>::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
@@ -506,34 +509,33 @@ impl<'d, T: Instance> UarteRx<'d, T> {
     /// Create a new rx-only UARTE without hardware flow control
     pub fn new(
         uarte: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rxd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(rxd);
-        Self::new_inner(uarte, irq, rxd.map_into(), None, config)
+        Self::new_inner(uarte, rxd.map_into(), None, config)
     }
 
     /// Create a new rx-only UARTE with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts(
         uarte: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rxd: impl Peripheral<P = impl GpioPin> + 'd,
         rts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(rxd, rts);
-        Self::new_inner(uarte, irq, rxd.map_into(), Some(rts.map_into()), config)
+        Self::new_inner(uarte, rxd.map_into(), Some(rts.map_into()), config)
     }
 
     fn new_inner(
         uarte: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
         rxd: PeripheralRef<'d, AnyPin>,
         rts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(uarte, irq);
+        into_ref!(uarte);
 
         let r = T::regs();
 
@@ -549,9 +551,8 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         r.psel.txd.write(|w| w.connect().disconnected());
         r.psel.cts.write(|w| w.connect().disconnected());
 
-        irq.set_handler(Uarte::<T>::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         let hardware_flow_control = rts.is_some();
         configure(r, config, hardware_flow_control);

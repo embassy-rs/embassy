@@ -13,14 +13,44 @@ pub mod _export {
     pub use embassy_macros::{cortex_m_interrupt as interrupt, cortex_m_interrupt_declare as declare};
 }
 
+/// Interrupt handler trait.
+///
+/// Drivers that need to handle interrupts implement this trait.
+/// The user must ensure `on_interrupt()` is called every time the interrupt fires.
+/// Drivers must use use [`Binding`] to assert at compile time that the user has done so.
+pub trait Handler<I: Interrupt> {
+    /// Interrupt handler function.
+    ///
+    /// Must be called every time the `I` interrupt fires, synchronously from
+    /// the interrupt handler context.
+    ///
+    /// # Safety
+    ///
+    /// This function must ONLY be called from the interrupt handler for `I`.
+    unsafe fn on_interrupt();
+}
+
+/// Compile-time assertion that an interrupt has been bound to a handler.
+///
+/// For the vast majority of cases, you should use the `bind_interrupts!`
+/// macro instead of writing `unsafe impl`s of this trait.
+///
+/// # Safety
+///
+/// By implementing this trait, you are asserting that you have arranged for `H::on_interrupt()`
+/// to be called every time the `I` interrupt fires.
+///
+/// This allows drivers to check bindings at compile-time.
+pub unsafe trait Binding<I: Interrupt, H: Handler<I>> {}
+
 /// Implementation detail, do not use outside embassy crates.
 #[doc(hidden)]
-pub struct Handler {
+pub struct DynHandler {
     pub func: AtomicPtr<()>,
     pub ctx: AtomicPtr<()>,
 }
 
-impl Handler {
+impl DynHandler {
     pub const fn new() -> Self {
         Self {
             func: AtomicPtr::new(ptr::null_mut()),
@@ -51,7 +81,7 @@ pub unsafe trait Interrupt: Peripheral<P = Self> {
 
     /// Implementation detail, do not use outside embassy crates.
     #[doc(hidden)]
-    unsafe fn __handler(&self) -> &'static Handler;
+    unsafe fn __handler(&self) -> &'static DynHandler;
 }
 
 /// Represents additional behavior for all interrupts.

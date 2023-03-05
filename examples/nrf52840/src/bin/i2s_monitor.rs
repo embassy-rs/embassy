@@ -5,13 +5,17 @@
 use defmt::{debug, error, info};
 use embassy_executor::Spawner;
 use embassy_nrf::i2s::{self, Channels, Config, DoubleBuffering, MasterClock, Sample as _, SampleWidth, I2S};
-use embassy_nrf::interrupt;
 use embassy_nrf::pwm::{Prescaler, SimplePwm};
+use embassy_nrf::{bind_interrupts, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 type Sample = i16;
 
 const NUM_SAMPLES: usize = 500;
+
+bind_interrupts!(struct Irqs {
+    I2S => i2s::InterruptHandler<peripherals::I2S>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -26,10 +30,9 @@ async fn main(_spawner: Spawner) {
     config.sample_width = SampleWidth::_16bit;
     config.channels = Channels::MonoLeft;
 
-    let irq = interrupt::take!(I2S);
     let buffers = DoubleBuffering::<Sample, NUM_SAMPLES>::new();
     let mut input_stream =
-        I2S::master(p.I2S, irq, p.P0_25, p.P0_26, p.P0_27, master_clock, config).input(p.P0_29, buffers);
+        I2S::new_master(p.I2S, Irqs, p.P0_25, p.P0_26, p.P0_27, master_clock, config).input(p.P0_29, buffers);
 
     // Configure the PWM to use the pins corresponding to the RGB leds
     let mut pwm = SimplePwm::new_3ch(p.PWM0, p.P0_23, p.P0_22, p.P0_24);

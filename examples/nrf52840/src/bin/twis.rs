@@ -6,19 +6,21 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_nrf::interrupt;
 use embassy_nrf::twis::{self, Command, Twis};
+use embassy_nrf::{bind_interrupts, peripherals};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0 => twis::InterruptHandler<peripherals::TWISPI0>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
 
-    let irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
     let mut config = twis::Config::default();
-    // Set i2c address
-    config.address0 = 0x55;
-    let mut i2c = Twis::new(p.TWISPI0, irq, p.P0_03, p.P0_04, config);
+    config.address0 = 0x55; // Set i2c address
+    let mut i2c = Twis::new(p.TWISPI0, Irqs, p.P0_03, p.P0_04, config);
 
     info!("Listening...");
     loop {

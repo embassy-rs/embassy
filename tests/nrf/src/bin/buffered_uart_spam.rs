@@ -7,13 +7,18 @@ use core::ptr::NonNull;
 
 use defmt::{assert_eq, *};
 use embassy_executor::Spawner;
-use embassy_nrf::buffered_uarte::BufferedUarte;
+use embassy_nrf::buffered_uarte::{self, BufferedUarte};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::ppi::{Event, Ppi, Task};
 use embassy_nrf::uarte::Uarte;
-use embassy_nrf::{interrupt, pac, uarte};
+use embassy_nrf::{bind_interrupts, pac, peripherals, uarte};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    UARTE0_UART0 => buffered_uarte::InterruptHandler<peripherals::UARTE0>;
+    UARTE1 => uarte::InterruptHandler<peripherals::UARTE1>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -33,7 +38,7 @@ async fn main(_spawner: Spawner) {
         p.PPI_CH0,
         p.PPI_CH1,
         p.PPI_GROUP0,
-        interrupt::take!(UARTE0_UART0),
+        Irqs,
         p.P1_03,
         p.P1_04,
         config.clone(),
@@ -49,7 +54,7 @@ async fn main(_spawner: Spawner) {
     // Tx spam in a loop.
     const NSPAM: usize = 17;
     static mut TX_BUF: [u8; NSPAM] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-    let _spam = Uarte::new(p.UARTE1, interrupt::take!(UARTE1), p.P1_01, p.P1_02, config.clone());
+    let _spam = Uarte::new(p.UARTE1, Irqs, p.P1_01, p.P1_02, config.clone());
     let spam_peri: pac::UARTE1 = unsafe { mem::transmute(()) };
     let event = unsafe { Event::new_unchecked(NonNull::new_unchecked(&spam_peri.events_endtx as *const _ as _)) };
     let task = unsafe { Task::new_unchecked(NonNull::new_unchecked(&spam_peri.tasks_starttx as *const _ as _)) };

@@ -30,7 +30,7 @@ pub fn run(name: syn::Ident) -> Result<TokenStream, TokenStream> {
             pub unsafe extern "C" fn trampoline() {
                 extern "C" {
                     #[link_name = #name_handler]
-                    static HANDLER: interrupt::Handler;
+                    static HANDLER: interrupt::DynHandler;
                 }
 
                 let func = HANDLER.func.load(interrupt::_export::atomic::Ordering::Relaxed);

@@ -7,14 +7,20 @@ use core::mem;
 use defmt::{info, panic};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_nrf::usb::{Driver, HardwareVbusDetect, Instance, VbusDetect};
-use embassy_nrf::{interrupt, pac};
+use embassy_nrf::usb::vbus_detect::{HardwareVbusDetect, VbusDetect};
+use embassy_nrf::usb::{Driver, Instance};
+use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::types::InterfaceNumber;
 use embassy_usb::{Builder, Config};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    USBD => usb::InterruptHandler<peripherals::USBD>;
+    POWER_CLOCK => usb::vbus_detect::InterruptHandler;
+});
 
 // This is a randomly generated GUID to allow clients on Windows to find our device
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{EAA9A5DC-30BA-44BC-9232-606CDC875321}"];
@@ -29,9 +35,7 @@ async fn main(_spawner: Spawner) {
     while clock.events_hfclkstarted.read().bits() != 1 {}
 
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(USBD);
-    let power_irq = interrupt::take!(POWER_CLOCK);
-    let driver = Driver::new(p.USBD, irq, HardwareVbusDetect::new(power_irq));
+    let driver = Driver::new(p.USBD, Irqs, HardwareVbusDetect::new(Irqs));
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);

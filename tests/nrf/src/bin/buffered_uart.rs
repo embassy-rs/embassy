@@ -5,9 +5,13 @@
 use defmt::{assert_eq, *};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_nrf::buffered_uarte::BufferedUarte;
-use embassy_nrf::{interrupt, uarte};
+use embassy_nrf::buffered_uarte::{self, BufferedUarte};
+use embassy_nrf::{bind_interrupts, peripherals, uarte};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    UARTE0_UART0 => buffered_uarte::InterruptHandler<peripherals::UARTE0>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -25,7 +29,7 @@ async fn main(_spawner: Spawner) {
         p.PPI_CH0,
         p.PPI_CH1,
         p.PPI_GROUP0,
-        interrupt::take!(UARTE0_UART0),
+        Irqs,
         p.P1_03,
         p.P1_02,
         config.clone(),

@@ -14,7 +14,7 @@ use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::gpio::{AnyPin, Pin as GpioPin};
-use crate::interrupt::Interrupt;
+use crate::interrupt::{self, Interrupt};
 use crate::pac::i2s::RegisterBlock;
 use crate::util::{slice_in_ram_or, slice_ptr_parts};
 use crate::{Peripheral, EASY_DMA_SIZE};
@@ -363,10 +363,39 @@ impl From<Channels> for u8 {
     }
 }
 
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let device = Device::<T>::new();
+        let s = T::state();
+
+        if device.is_tx_ptr_updated() {
+            trace!("TX INT");
+            s.tx_waker.wake();
+            device.disable_tx_ptr_interrupt();
+        }
+
+        if device.is_rx_ptr_updated() {
+            trace!("RX INT");
+            s.rx_waker.wake();
+            device.disable_rx_ptr_interrupt();
+        }
+
+        if device.is_stopped() {
+            trace!("STOPPED INT");
+            s.stop_waker.wake();
+            device.disable_stopped_interrupt();
+        }
+    }
+}
+
 /// I2S driver.
 pub struct I2S<'d, T: Instance> {
     i2s: PeripheralRef<'d, T>,
-    irq: PeripheralRef<'d, T::Interrupt>,
     mck: Option<PeripheralRef<'d, AnyPin>>,
     sck: PeripheralRef<'d, AnyPin>,
     lrck: PeripheralRef<'d, AnyPin>,
@@ -378,19 +407,18 @@ pub struct I2S<'d, T: Instance> {
 
 impl<'d, T: Instance> I2S<'d, T> {
     /// Create a new I2S in master mode
-    pub fn master(
+    pub fn new_master(
         i2s: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         mck: impl Peripheral<P = impl GpioPin> + 'd,
         sck: impl Peripheral<P = impl GpioPin> + 'd,
         lrck: impl Peripheral<P = impl GpioPin> + 'd,
         master_clock: MasterClock,
         config: Config,
     ) -> Self {
-        into_ref!(i2s, irq, mck, sck, lrck);
+        into_ref!(i2s, mck, sck, lrck);
         Self {
             i2s,
-            irq,
             mck: Some(mck.map_into()),
             sck: sck.map_into(),
             lrck: lrck.map_into(),
@@ -402,17 +430,16 @@ impl<'d, T: Instance> I2S<'d, T> {
     }
 
     /// Create a new I2S in slave mode
-    pub fn slave(
+    pub fn new_slave(
         i2s: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sck: impl Peripheral<P = impl GpioPin> + 'd,
         lrck: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(i2s, irq, sck, lrck);
+        into_ref!(i2s, sck, lrck);
         Self {
             i2s,
-            irq,
             mck: None,
             sck: sck.map_into(),
             lrck: lrck.map_into(),
@@ -537,9 +564,8 @@ impl<'d, T: Instance> I2S<'d, T> {
     }
 
     fn setup_interrupt(&self) {
-        self.irq.set_handler(Self::on_interrupt);
-        self.irq.unpend();
-        self.irq.enable();
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         let device = Device::<T>::new();
         device.disable_tx_ptr_interrupt();
@@ -553,29 +579,6 @@ impl<'d, T: Instance> I2S<'d, T> {
         device.enable_tx_ptr_interrupt();
         device.enable_rx_ptr_interrupt();
         device.enable_stopped_interrupt();
-    }
-
-    fn on_interrupt(_: *mut ()) {
-        let device = Device::<T>::new();
-        let s = T::state();
-
-        if device.is_tx_ptr_updated() {
-            trace!("TX INT");
-            s.tx_waker.wake();
-            device.disable_tx_ptr_interrupt();
-        }
-
-        if device.is_rx_ptr_updated() {
-            trace!("RX INT");
-            s.rx_waker.wake();
-            device.disable_rx_ptr_interrupt();
-        }
-
-        if device.is_stopped() {
-            trace!("STOPPED INT");
-            s.stop_waker.wake();
-            device.disable_stopped_interrupt();
-        }
     }
 
     async fn stop() {
@@ -1168,7 +1171,7 @@ pub(crate) mod sealed {
     }
 }
 
-/// I2S peripehral instance.
+/// I2S peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: Interrupt;

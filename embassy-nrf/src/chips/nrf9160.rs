@@ -301,6 +301,8 @@ impl_pwm!(PWM1, PWM1, PWM1);
 impl_pwm!(PWM2, PWM2, PWM2);
 impl_pwm!(PWM3, PWM3, PWM3);
 
+impl_pdm!(PDM, PDM, PDM);
+
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
