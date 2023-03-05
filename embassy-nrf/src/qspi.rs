@@ -8,6 +8,7 @@ use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
+use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
 use crate::gpio::{self, Pin as GpioPin};
 use crate::interrupt::{Interrupt, InterruptExt};
@@ -82,6 +83,8 @@ pub struct Config {
     pub spi_mode: SpiMode,
     /// Addressing mode (24-bit or 32-bit)
     pub address_mode: AddressMode,
+    /// Flash memory capacity in bytes. This is the value reported by the `embedded-storage` traits.
+    pub capacity: u32,
 }
 
 impl Default for Config {
@@ -96,6 +99,7 @@ impl Default for Config {
             sck_delay: 80,
             spi_mode: SpiMode::MODE0,
             address_mode: AddressMode::_24BIT,
+            capacity: 0,
         }
     }
 }
@@ -111,12 +115,13 @@ pub enum Error {
 }
 
 /// QSPI flash driver.
-pub struct Qspi<'d, T: Instance, const FLASH_SIZE: u32> {
+pub struct Qspi<'d, T: Instance> {
     irq: PeripheralRef<'d, T::Interrupt>,
     dpm_enabled: bool,
+    capacity: u32,
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: u32> Qspi<'d, T, FLASH_SIZE> {
+impl<'d, T: Instance> Qspi<'d, T> {
     /// Create a new QSPI driver.
     pub fn new(
         _qspi: impl Peripheral<P = T> + 'd,
@@ -128,7 +133,7 @@ impl<'d, T: Instance, const FLASH_SIZE: u32> Qspi<'d, T, FLASH_SIZE> {
         io2: impl Peripheral<P = impl GpioPin> + 'd,
         io3: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
-    ) -> Qspi<'d, T, FLASH_SIZE> {
+    ) -> Self {
         into_ref!(irq, sck, csn, io0, io1, io2, io3);
 
         let r = T::regs();
@@ -194,6 +199,7 @@ impl<'d, T: Instance, const FLASH_SIZE: u32> Qspi<'d, T, FLASH_SIZE> {
         let res = Self {
             dpm_enabled: config.deep_power_down.is_some(),
             irq,
+            capacity: config.capacity,
         };
 
         r.events_ready.reset();
@@ -326,7 +332,7 @@ impl<'d, T: Instance, const FLASH_SIZE: u32> Qspi<'d, T, FLASH_SIZE> {
         assert_eq!(data.as_ptr() as u32 % 4, 0);
         assert_eq!(data.len() as u32 % 4, 0);
         assert_eq!(address % 4, 0);
-        if address > FLASH_SIZE {
+        if address > self.capacity {
             return Err(Error::OutOfBounds);
         }
 
@@ -348,7 +354,7 @@ impl<'d, T: Instance, const FLASH_SIZE: u32> Qspi<'d, T, FLASH_SIZE> {
         assert_eq!(data.len() as u32 % 4, 0);
         assert_eq!(address % 4, 0);
 
-        if address > FLASH_SIZE {
+        if address > self.capacity {
             return Err(Error::OutOfBounds);
         }
 
@@ -366,7 +372,7 @@ impl<'d, T: Instance, const FLASH_SIZE: u32> Qspi<'d, T, FLASH_SIZE> {
 
     fn start_erase(&mut self, address: u32) -> Result<(), Error> {
         assert_eq!(address % 4096, 0);
-        if address > FLASH_SIZE {
+        if address > self.capacity {
             return Err(Error::OutOfBounds);
         }
 
@@ -439,7 +445,7 @@ impl<'d, T: Instance, const FLASH_SIZE: u32> Qspi<'d, T, FLASH_SIZE> {
     }
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: u32> Drop for Qspi<'d, T, FLASH_SIZE> {
+impl<'d, T: Instance> Drop for Qspi<'d, T> {
     fn drop(&mut self) {
         let r = T::regs();
 
@@ -484,9 +490,7 @@ impl<'d, T: Instance, const FLASH_SIZE: u32> Drop for Qspi<'d, T, FLASH_SIZE> {
     }
 }
 
-use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
-
-impl<'d, T: Instance, const FLASH_SIZE: u32> ErrorType for Qspi<'d, T, FLASH_SIZE> {
+impl<'d, T: Instance> ErrorType for Qspi<'d, T> {
     type Error = Error;
 }
 
@@ -496,7 +500,7 @@ impl NorFlashError for Error {
     }
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: u32> ReadNorFlash for Qspi<'d, T, FLASH_SIZE> {
+impl<'d, T: Instance> ReadNorFlash for Qspi<'d, T> {
     const READ_SIZE: usize = 4;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
@@ -505,11 +509,11 @@ impl<'d, T: Instance, const FLASH_SIZE: u32> ReadNorFlash for Qspi<'d, T, FLASH_
     }
 
     fn capacity(&self) -> usize {
-        FLASH_SIZE as usize
+        self.capacity as usize
     }
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: u32> NorFlash for Qspi<'d, T, FLASH_SIZE> {
+impl<'d, T: Instance> NorFlash for Qspi<'d, T> {
     const WRITE_SIZE: usize = 4;
     const ERASE_SIZE: usize = 4096;
 
@@ -534,7 +538,7 @@ mod _eh1 {
 
     use super::*;
 
-    impl<'d, T: Instance, const FLASH_SIZE: u32> AsyncNorFlash for Qspi<'d, T, FLASH_SIZE> {
+    impl<'d, T: Instance> AsyncNorFlash for Qspi<'d, T> {
         const WRITE_SIZE: usize = <Self as NorFlash>::WRITE_SIZE;
         const ERASE_SIZE: usize = <Self as NorFlash>::ERASE_SIZE;
 
@@ -554,7 +558,7 @@ mod _eh1 {
         }
     }
 
-    impl<'d, T: Instance, const FLASH_SIZE: u32> AsyncReadNorFlash for Qspi<'d, T, FLASH_SIZE> {
+    impl<'d, T: Instance> AsyncReadNorFlash for Qspi<'d, T> {
         const READ_SIZE: usize = 4;
         type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
         fn read<'a>(&'a mut self, address: u32, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
@@ -562,7 +566,7 @@ mod _eh1 {
         }
 
         fn capacity(&self) -> usize {
-            FLASH_SIZE as usize
+            self.capacity as usize
         }
     }
 }

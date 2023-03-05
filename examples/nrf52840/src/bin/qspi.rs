@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) {
     config.write_page_size = qspi::WritePageSize::_256BYTES;
 
     let irq = interrupt::take!(QSPI);
-    let mut q: qspi::Qspi<_, 67108864> = qspi::Qspi::new(
+    let mut q = qspi::Qspi::new(
         p.QSPI, irq, p.P0_19, p.P0_17, p.P0_20, p.P0_21, p.P0_22, p.P0_23, config,
     );
 

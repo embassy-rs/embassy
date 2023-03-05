@@ -31,7 +31,7 @@ async fn main(_p: Spawner) {
             exit_time: 3,  // tRDP = 35uS
         });
 
-        let mut q: qspi::Qspi<_, 67108864> = qspi::Qspi::new(
+        let mut q = qspi::Qspi::new(
             &mut p.QSPI,
             &mut irq,
             &mut p.P0_19,
