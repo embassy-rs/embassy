@@ -10,13 +10,17 @@ use embassy_net::tcp::TcpSocket;
 use embassy_net::{Stack, StackResources};
 use embassy_nrf::rng::Rng;
 use embassy_nrf::usb::{Driver, HardwareVbusDetect};
-use embassy_nrf::{interrupt, pac, peripherals};
+use embassy_nrf::{bind_interrupts, interrupt, pac, peripherals, rng};
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, Config, UsbDevice};
 use embedded_io::asynch::Write;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    RNG => rng::InterruptHandler<peripherals::RNG>;
+});
 
 type MyDriver = Driver<'static, peripherals::USBD, HardwareVbusDetect>;
 
@@ -108,7 +112,7 @@ async fn main(spawner: Spawner) {
     //});
 
     // Generate random seed
-    let mut rng = Rng::new(p.RNG, interrupt::take!(RNG));
+    let mut rng = Rng::new(p.RNG, Irqs);
     let mut seed = [0; 8];
     rng.blocking_fill_bytes(&mut seed);
     let seed = u64::from_le_bytes(seed);

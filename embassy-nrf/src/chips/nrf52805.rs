@@ -142,6 +142,8 @@ impl_twis!(TWI0, TWIS0, TWIM0_TWIS0_TWI0);
 
 impl_qdec!(QDEC, QDEC, QDEC);
 
+impl_rng!(RNG, RNG, RNG);
+
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
