@@ -250,6 +250,9 @@ embassy_hal_common::peripherals! {
     TIMER1,
     TIMER2,
 
+    // QSPI
+    QSPI,
+
     // GPIOTE
     GPIOTE_CH0,
     GPIOTE_CH1,
@@ -392,6 +395,8 @@ impl_pwm!(PWM3, PWM3, PWM3);
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
+
+impl_qspi!(QSPI, QSPI, QSPI);
 
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);

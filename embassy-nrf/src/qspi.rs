@@ -8,6 +8,7 @@ use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
+use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
 use crate::gpio::{self, Pin as GpioPin};
 use crate::interrupt::{Interrupt, InterruptExt};
@@ -82,6 +83,8 @@ pub struct Config {
     pub spi_mode: SpiMode,
     /// Addressing mode (24-bit or 32-bit)
     pub address_mode: AddressMode,
+    /// Flash memory capacity in bytes. This is the value reported by the `embedded-storage` traits.
+    pub capacity: u32,
 }
 
 impl Default for Config {
@@ -96,6 +99,7 @@ impl Default for Config {
             sck_delay: 80,
             spi_mode: SpiMode::MODE0,
             address_mode: AddressMode::_24BIT,
+            capacity: 0,
         }
     }
 }
@@ -111,12 +115,13 @@ pub enum Error {
 }
 
 /// QSPI flash driver.
-pub struct Qspi<'d, T: Instance, const FLASH_SIZE: usize> {
+pub struct Qspi<'d, T: Instance> {
     irq: PeripheralRef<'d, T::Interrupt>,
     dpm_enabled: bool,
+    capacity: u32,
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
+impl<'d, T: Instance> Qspi<'d, T> {
     /// Create a new QSPI driver.
     pub fn new(
         _qspi: impl Peripheral<P = T> + 'd,
@@ -128,30 +133,31 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         io2: impl Peripheral<P = impl GpioPin> + 'd,
         io3: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
-    ) -> Qspi<'d, T, FLASH_SIZE> {
+    ) -> Self {
         into_ref!(irq, sck, csn, io0, io1, io2, io3);
 
         let r = T::regs();
 
-        sck.set_high();
-        csn.set_high();
-        io0.set_high();
-        io1.set_high();
-        io2.set_high();
-        io3.set_high();
-        sck.conf().write(|w| w.dir().output().drive().h0h1());
-        csn.conf().write(|w| w.dir().output().drive().h0h1());
-        io0.conf().write(|w| w.dir().output().drive().h0h1());
-        io1.conf().write(|w| w.dir().output().drive().h0h1());
-        io2.conf().write(|w| w.dir().output().drive().h0h1());
-        io3.conf().write(|w| w.dir().output().drive().h0h1());
+        macro_rules! config_pin {
+            ($pin:ident) => {
+                $pin.set_high();
+                $pin.conf().write(|w| {
+                    w.dir().output();
+                    w.drive().h0h1();
+                    #[cfg(feature = "_nrf5340-s")]
+                    w.mcusel().peripheral();
+                    w
+                });
+                r.psel.$pin.write(|w| unsafe { w.bits($pin.psel_bits()) });
+            };
+        }
 
-        r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
-        r.psel.csn.write(|w| unsafe { w.bits(csn.psel_bits()) });
-        r.psel.io0.write(|w| unsafe { w.bits(io0.psel_bits()) });
-        r.psel.io1.write(|w| unsafe { w.bits(io1.psel_bits()) });
-        r.psel.io2.write(|w| unsafe { w.bits(io2.psel_bits()) });
-        r.psel.io3.write(|w| unsafe { w.bits(io3.psel_bits()) });
+        config_pin!(sck);
+        config_pin!(csn);
+        config_pin!(io0);
+        config_pin!(io1);
+        config_pin!(io2);
+        config_pin!(io3);
 
         r.ifconfig0.write(|w| {
             w.addrmode().variant(config.address_mode);
@@ -193,6 +199,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         let res = Self {
             dpm_enabled: config.deep_power_down.is_some(),
             irq,
+            capacity: config.capacity,
         };
 
         r.events_ready.reset();
@@ -321,17 +328,15 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         }
     }
 
-    fn start_read(&mut self, address: usize, data: &mut [u8]) -> Result<(), Error> {
+    fn start_read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
+        // TODO: Return these as errors instead.
         assert_eq!(data.as_ptr() as u32 % 4, 0);
         assert_eq!(data.len() as u32 % 4, 0);
-        assert_eq!(address as u32 % 4, 0);
-        if address > FLASH_SIZE {
-            return Err(Error::OutOfBounds);
-        }
+        assert_eq!(address % 4, 0);
 
         let r = T::regs();
 
-        r.read.src.write(|w| unsafe { w.src().bits(address as u32) });
+        r.read.src.write(|w| unsafe { w.src().bits(address) });
         r.read.dst.write(|w| unsafe { w.dst().bits(data.as_ptr() as u32) });
         r.read.cnt.write(|w| unsafe { w.cnt().bits(data.len() as u32) });
 
@@ -342,18 +347,15 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         Ok(())
     }
 
-    fn start_write(&mut self, address: usize, data: &[u8]) -> Result<(), Error> {
+    fn start_write(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
+        // TODO: Return these as errors instead.
         assert_eq!(data.as_ptr() as u32 % 4, 0);
         assert_eq!(data.len() as u32 % 4, 0);
-        assert_eq!(address as u32 % 4, 0);
-
-        if address > FLASH_SIZE {
-            return Err(Error::OutOfBounds);
-        }
+        assert_eq!(address % 4, 0);
 
         let r = T::regs();
         r.write.src.write(|w| unsafe { w.src().bits(data.as_ptr() as u32) });
-        r.write.dst.write(|w| unsafe { w.dst().bits(address as u32) });
+        r.write.dst.write(|w| unsafe { w.dst().bits(address) });
         r.write.cnt.write(|w| unsafe { w.cnt().bits(data.len() as u32) });
 
         r.events_ready.reset();
@@ -363,14 +365,12 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         Ok(())
     }
 
-    fn start_erase(&mut self, address: usize) -> Result<(), Error> {
-        assert_eq!(address as u32 % 4096, 0);
-        if address > FLASH_SIZE {
-            return Err(Error::OutOfBounds);
-        }
+    fn start_erase(&mut self, address: u32) -> Result<(), Error> {
+        // TODO: Return these as errors instead.
+        assert_eq!(address % 4096, 0);
 
         let r = T::regs();
-        r.erase.ptr.write(|w| unsafe { w.ptr().bits(address as u32) });
+        r.erase.ptr.write(|w| unsafe { w.ptr().bits(address) });
         r.erase.len.write(|w| w.len()._4kb());
 
         r.events_ready.reset();
@@ -380,8 +380,12 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         Ok(())
     }
 
-    /// Read data from the flash memory.
-    pub async fn read(&mut self, address: usize, data: &mut [u8]) -> Result<(), Error> {
+    /// Raw QSPI read.
+    ///
+    /// The difference with `read` is that this does not do bounds checks
+    /// against the flash capacity. It is intended for use when QSPI is used as
+    /// a raw bus, not with flash memory.    
+    pub async fn read_raw(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
         let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         self.start_read(address, data)?;
@@ -392,8 +396,12 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         Ok(())
     }
 
-    /// Write data to the flash memory.
-    pub async fn write(&mut self, address: usize, data: &[u8]) -> Result<(), Error> {
+    /// Raw QSPI write.
+    ///
+    /// The difference with `write` is that this does not do bounds checks
+    /// against the flash capacity. It is intended for use when QSPI is used as
+    /// a raw bus, not with flash memory.
+    pub async fn write_raw(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
         let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         self.start_write(address, data)?;
@@ -404,8 +412,46 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
         Ok(())
     }
 
+    /// Raw QSPI read, blocking version.
+    ///
+    /// The difference with `blocking_read` is that this does not do bounds checks
+    /// against the flash capacity. It is intended for use when QSPI is used as
+    /// a raw bus, not with flash memory.
+    pub fn blocking_read_raw(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
+        self.start_read(address, data)?;
+        Self::blocking_wait_ready();
+        Ok(())
+    }
+
+    /// Raw QSPI write, blocking version.
+    ///
+    /// The difference with `blocking_write` is that this does not do bounds checks
+    /// against the flash capacity. It is intended for use when QSPI is used as
+    /// a raw bus, not with flash memory.
+    pub fn blocking_write_raw(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
+        self.start_write(address, data)?;
+        Self::blocking_wait_ready();
+        Ok(())
+    }
+
+    /// Read data from the flash memory.
+    pub async fn read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
+        self.bounds_check(address, data.len())?;
+        self.read_raw(address, data).await
+    }
+
+    /// Write data to the flash memory.
+    pub async fn write(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
+        self.bounds_check(address, data.len())?;
+        self.write_raw(address, data).await
+    }
+
     /// Erase a sector on the flash memory.
-    pub async fn erase(&mut self, address: usize) -> Result<(), Error> {
+    pub async fn erase(&mut self, address: u32) -> Result<(), Error> {
+        if address >= self.capacity {
+            return Err(Error::OutOfBounds);
+        }
+
         let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         self.start_erase(address)?;
@@ -417,28 +463,39 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Qspi<'d, T, FLASH_SIZE> {
     }
 
     /// Read data from the flash memory, blocking version.
-    pub fn blocking_read(&mut self, address: usize, data: &mut [u8]) -> Result<(), Error> {
-        self.start_read(address, data)?;
-        Self::blocking_wait_ready();
-        Ok(())
+    pub fn blocking_read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
+        self.bounds_check(address, data.len())?;
+        self.blocking_read_raw(address, data)
     }
 
     /// Write data to the flash memory, blocking version.
-    pub fn blocking_write(&mut self, address: usize, data: &[u8]) -> Result<(), Error> {
-        self.start_write(address, data)?;
-        Self::blocking_wait_ready();
-        Ok(())
+    pub fn blocking_write(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
+        self.bounds_check(address, data.len())?;
+        self.blocking_write_raw(address, data)
     }
 
     /// Erase a sector on the flash memory, blocking version.
-    pub fn blocking_erase(&mut self, address: usize) -> Result<(), Error> {
+    pub fn blocking_erase(&mut self, address: u32) -> Result<(), Error> {
+        if address >= self.capacity {
+            return Err(Error::OutOfBounds);
+        }
+
         self.start_erase(address)?;
         Self::blocking_wait_ready();
         Ok(())
     }
+
+    fn bounds_check(&self, address: u32, len: usize) -> Result<(), Error> {
+        let len_u32: u32 = len.try_into().map_err(|_| Error::OutOfBounds)?;
+        let end_address = address.checked_add(len_u32).ok_or(Error::OutOfBounds)?;
+        if end_address > self.capacity {
+            return Err(Error::OutOfBounds);
+        }
+        Ok(())
+    }
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> Drop for Qspi<'d, T, FLASH_SIZE> {
+impl<'d, T: Instance> Drop for Qspi<'d, T> {
     fn drop(&mut self) {
         let r = T::regs();
 
@@ -483,9 +540,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Drop for Qspi<'d, T, FLASH_SIZE> 
     }
 }
 
-use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
-
-impl<'d, T: Instance, const FLASH_SIZE: usize> ErrorType for Qspi<'d, T, FLASH_SIZE> {
+impl<'d, T: Instance> ErrorType for Qspi<'d, T> {
     type Error = Error;
 }
 
@@ -495,72 +550,73 @@ impl NorFlashError for Error {
     }
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> ReadNorFlash for Qspi<'d, T, FLASH_SIZE> {
+impl<'d, T: Instance> ReadNorFlash for Qspi<'d, T> {
     const READ_SIZE: usize = 4;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_read(offset as usize, bytes)?;
+        self.blocking_read(offset, bytes)?;
         Ok(())
     }
 
     fn capacity(&self) -> usize {
-        FLASH_SIZE
+        self.capacity as usize
     }
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> NorFlash for Qspi<'d, T, FLASH_SIZE> {
+impl<'d, T: Instance> NorFlash for Qspi<'d, T> {
     const WRITE_SIZE: usize = 4;
     const ERASE_SIZE: usize = 4096;
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        for address in (from as usize..to as usize).step_by(<Self as NorFlash>::ERASE_SIZE) {
+        for address in (from..to).step_by(<Self as NorFlash>::ERASE_SIZE) {
             self.blocking_erase(address)?;
         }
         Ok(())
     }
 
     fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(offset as usize, bytes)?;
+        self.blocking_write(offset, bytes)?;
         Ok(())
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "nightly")]
-    {
-        use embedded_storage_async::nor_flash::{AsyncNorFlash, AsyncReadNorFlash};
-        use core::future::Future;
+#[cfg(feature = "nightly")]
+mod _eh1 {
+    use core::future::Future;
 
-        impl<'d, T: Instance, const FLASH_SIZE: usize> AsyncNorFlash for Qspi<'d, T, FLASH_SIZE> {
-            const WRITE_SIZE: usize = <Self as NorFlash>::WRITE_SIZE;
-            const ERASE_SIZE: usize = <Self as NorFlash>::ERASE_SIZE;
+    use embedded_storage_async::nor_flash::{AsyncNorFlash, AsyncReadNorFlash};
 
-            type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-            fn write<'a>(&'a mut self, offset: u32, data: &'a [u8]) -> Self::WriteFuture<'a> {
-                async move { self.write(offset as usize, data).await }
-            }
+    use super::*;
 
-            type EraseFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-            fn erase<'a>(&'a mut self, from: u32, to: u32) -> Self::EraseFuture<'a> {
-                async move {
-                    for address in (from as usize..to as usize).step_by(<Self as AsyncNorFlash>::ERASE_SIZE) {
-                        self.erase(address).await?
-                    }
-                    Ok(())
-                }
-            }
+    impl<'d, T: Instance> AsyncNorFlash for Qspi<'d, T> {
+        const WRITE_SIZE: usize = <Self as NorFlash>::WRITE_SIZE;
+        const ERASE_SIZE: usize = <Self as NorFlash>::ERASE_SIZE;
+
+        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        fn write<'a>(&'a mut self, offset: u32, data: &'a [u8]) -> Self::WriteFuture<'a> {
+            async move { self.write(offset, data).await }
         }
 
-        impl<'d, T: Instance, const FLASH_SIZE: usize> AsyncReadNorFlash for Qspi<'d, T, FLASH_SIZE> {
-            const READ_SIZE: usize = 4;
-            type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-            fn read<'a>(&'a mut self, address: u32, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-                async move { self.read(address as usize, data).await }
+        type EraseFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        fn erase<'a>(&'a mut self, from: u32, to: u32) -> Self::EraseFuture<'a> {
+            async move {
+                for address in (from..to).step_by(<Self as AsyncNorFlash>::ERASE_SIZE) {
+                    self.erase(address).await?
+                }
+                Ok(())
             }
+        }
+    }
 
-            fn capacity(&self) -> usize {
-                FLASH_SIZE
-            }
+    impl<'d, T: Instance> AsyncReadNorFlash for Qspi<'d, T> {
+        const READ_SIZE: usize = 4;
+        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        fn read<'a>(&'a mut self, address: u32, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            async move { self.read(address, data).await }
+        }
+
+        fn capacity(&self) -> usize {
+            self.capacity as usize
         }
     }
 }

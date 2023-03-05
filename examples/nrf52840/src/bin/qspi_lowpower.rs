@@ -6,6 +6,7 @@ use core::mem;
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
+use embassy_nrf::qspi::Frequency;
 use embassy_nrf::{interrupt, qspi};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
@@ -23,6 +24,8 @@ async fn main(_p: Spawner) {
     loop {
         // Config for the MX25R64 present in the nRF52840 DK
         let mut config = qspi::Config::default();
+        config.capacity = 8 * 1024 * 1024; // 8 MB
+        config.frequency = Frequency::M32;
         config.read_opcode = qspi::ReadOpcode::READ4IO;
         config.write_opcode = qspi::WriteOpcode::PP4IO;
         config.write_page_size = qspi::WritePageSize::_256BYTES;
@@ -31,7 +34,7 @@ async fn main(_p: Spawner) {
             exit_time: 3,  // tRDP = 35uS
         });
 
-        let mut q: qspi::Qspi<_, 67108864> = qspi::Qspi::new(
+        let mut q = qspi::Qspi::new(
             &mut p.QSPI,
             &mut irq,
             &mut p.P0_19,
