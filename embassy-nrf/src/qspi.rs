@@ -3,6 +3,7 @@
 #![macro_use]
 
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::ptr;
 use core::task::Poll;
 
@@ -11,12 +12,12 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
 use crate::gpio::{self, Pin as GpioPin};
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::{self, Interrupt, InterruptExt};
 pub use crate::pac::qspi::ifconfig0::{
     ADDRMODE_A as AddressMode, PPSIZE_A as WritePageSize, READOC_A as ReadOpcode, WRITEOC_A as WriteOpcode,
 };
 pub use crate::pac::qspi::ifconfig1::SPIMODE_A as SpiMode;
-use crate::{pac, Peripheral};
+use crate::Peripheral;
 
 /// Deep power-down config.
 pub struct DeepPowerDownConfig {
@@ -114,9 +115,26 @@ pub enum Error {
     // TODO add "not in data memory" error and check for it
 }
 
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let r = T::regs();
+        let s = T::state();
+
+        if r.events_ready.read().bits() != 0 {
+            s.waker.wake();
+            r.intenclr.write(|w| w.ready().clear());
+        }
+    }
+}
+
 /// QSPI flash driver.
 pub struct Qspi<'d, T: Instance> {
-    irq: PeripheralRef<'d, T::Interrupt>,
+    _peri: PeripheralRef<'d, T>,
     dpm_enabled: bool,
     capacity: u32,
 }
@@ -124,8 +142,8 @@ pub struct Qspi<'d, T: Instance> {
 impl<'d, T: Instance> Qspi<'d, T> {
     /// Create a new QSPI driver.
     pub fn new(
-        _qspi: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        qspi: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sck: impl Peripheral<P = impl GpioPin> + 'd,
         csn: impl Peripheral<P = impl GpioPin> + 'd,
         io0: impl Peripheral<P = impl GpioPin> + 'd,
@@ -134,7 +152,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
         io3: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(irq, sck, csn, io0, io1, io2, io3);
+        into_ref!(qspi, sck, csn, io0, io1, io2, io3);
 
         let r = T::regs();
 
@@ -189,16 +207,15 @@ impl<'d, T: Instance> Qspi<'d, T> {
             w
         });
 
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         // Enable it
         r.enable.write(|w| w.enable().enabled());
 
         let res = Self {
+            _peri: qspi,
             dpm_enabled: config.deep_power_down.is_some(),
-            irq,
             capacity: config.capacity,
         };
 
@@ -210,16 +227,6 @@ impl<'d, T: Instance> Qspi<'d, T> {
         Self::blocking_wait_ready();
 
         res
-    }
-
-    fn on_interrupt(_: *mut ()) {
-        let r = T::regs();
-        let s = T::state();
-
-        if r.events_ready.read().bits() != 0 {
-            s.ready_waker.wake();
-            r.intenclr.write(|w| w.ready().clear());
-        }
     }
 
     /// Do a custom QSPI instruction.
@@ -310,7 +317,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
         poll_fn(move |cx| {
             let r = T::regs();
             let s = T::state();
-            s.ready_waker.register(cx.waker());
+            s.waker.register(cx.waker());
             if r.events_ready.read().bits() != 0 {
                 return Poll::Ready(());
             }
@@ -525,8 +532,6 @@ impl<'d, T: Instance> Drop for Qspi<'d, T> {
 
         r.enable.write(|w| w.enable().disabled());
 
-        self.irq.disable();
-
         // Note: we do NOT deconfigure CSN here. If DPM is in use and we disconnect CSN,
         // leaving it floating, the flash chip might read it as zero which would cause it to
         // spuriously exit DPM.
@@ -624,27 +629,27 @@ mod _eh1 {
 pub(crate) mod sealed {
     use embassy_sync::waitqueue::AtomicWaker;
 
-    use super::*;
-
+    /// Peripheral static state
     pub struct State {
-        pub ready_waker: AtomicWaker,
+        pub waker: AtomicWaker,
     }
+
     impl State {
         pub const fn new() -> Self {
             Self {
-                ready_waker: AtomicWaker::new(),
+                waker: AtomicWaker::new(),
             }
         }
     }
 
     pub trait Instance {
-        fn regs() -> &'static pac::qspi::RegisterBlock;
+        fn regs() -> &'static crate::pac::qspi::RegisterBlock;
         fn state() -> &'static State;
     }
 }
 
 /// QSPI peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
+pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: Interrupt;
 }
@@ -652,7 +657,7 @@ pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
 macro_rules! impl_qspi {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::qspi::sealed::Instance for peripherals::$type {
-            fn regs() -> &'static pac::qspi::RegisterBlock {
+            fn regs() -> &'static crate::pac::qspi::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
             fn state() -> &'static crate::qspi::sealed::State {

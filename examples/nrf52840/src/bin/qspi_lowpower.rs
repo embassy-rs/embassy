@@ -7,7 +7,7 @@ use core::mem;
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_nrf::qspi::Frequency;
-use embassy_nrf::{interrupt, qspi};
+use embassy_nrf::{bind_interrupts, peripherals, qspi};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -16,10 +16,13 @@ use {defmt_rtt as _, panic_probe as _};
 #[repr(C, align(4))]
 struct AlignedBuf([u8; 64]);
 
+bind_interrupts!(struct Irqs {
+    QSPI => qspi::InterruptHandler<peripherals::QSPI>;
+});
+
 #[embassy_executor::main]
 async fn main(_p: Spawner) {
     let mut p = embassy_nrf::init(Default::default());
-    let mut irq = interrupt::take!(QSPI);
 
     loop {
         // Config for the MX25R64 present in the nRF52840 DK
@@ -36,7 +39,7 @@ async fn main(_p: Spawner) {
 
         let mut q = qspi::Qspi::new(
             &mut p.QSPI,
-            &mut irq,
+            Irqs,
             &mut p.P0_19,
             &mut p.P0_17,
             &mut p.P0_20,
