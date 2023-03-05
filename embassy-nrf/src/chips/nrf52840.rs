@@ -208,6 +208,8 @@ impl_timer!(TIMER4, TIMER4, TIMER4, extended);
 
 impl_qspi!(QSPI, QSPI, QSPI);
 
+impl_pdm!(PDM, PDM, PDM);
+
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);
 impl_pin!(P0_02, 0, 2);

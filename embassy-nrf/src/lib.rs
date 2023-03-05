@@ -47,8 +47,10 @@ pub mod nvmc;
 #[cfg(any(
     feature = "nrf52810",
     feature = "nrf52811",
+    feature = "nrf52832",
     feature = "nrf52833",
     feature = "nrf52840",
+    feature = "_nrf5340-app",
     feature = "_nrf9160"
 ))]
 pub mod pdm;
