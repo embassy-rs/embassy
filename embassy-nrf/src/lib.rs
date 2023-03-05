@@ -100,7 +100,7 @@ mod chip;
 pub mod interrupt {
     //! Interrupt definitions and macros to bind them.
     pub use cortex_m::interrupt::{CriticalSection, Mutex};
-    pub use embassy_cortex_m::interrupt::*;
+    pub use embassy_cortex_m::interrupt::{Binding, Handler, Interrupt, InterruptExt, Priority};
 
     pub use crate::chip::irqs::*;
 
