@@ -1,9 +1,9 @@
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 
 use futures_util::future::{select, Either};
-use futures_util::{pin_mut, Stream, StreamExt};
+use futures_util::{pin_mut, Stream};
 
 use crate::{Duration, Instant};
 
@@ -134,8 +134,17 @@ impl Ticker {
     }
 
     /// Waits for the next tick
-    pub async fn next(&mut self) {
-        <Self as StreamExt>::next(self).await;
+    pub fn next(&mut self) -> impl Future<Output = ()> + '_ {
+        poll_fn(|cx| {
+            if self.expires_at <= Instant::now() {
+                let dur = self.duration;
+                self.expires_at += dur;
+                Poll::Ready(())
+            } else {
+                schedule_wake(self.expires_at, cx.waker());
+                Poll::Pending
+            }
+        })
     }
 }
 
