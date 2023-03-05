@@ -57,7 +57,7 @@ pub mod pdm;
 pub mod ppi;
 #[cfg(not(any(feature = "nrf52805", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod pwm;
-#[cfg(not(any(feature = "nrf51", feature = "_nrf9160", feature = "_nrf5340")))]
+#[cfg(not(any(feature = "nrf51", feature = "_nrf9160", feature = "_nrf5340-net")))]
 pub mod qdec;
 #[cfg(any(feature = "nrf52840", feature = "_nrf5340-app"))]
 pub mod qspi;

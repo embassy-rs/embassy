@@ -153,6 +153,8 @@ impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
 impl_timer!(TIMER3, TIMER3, TIMER3, extended);
 
+impl_qdec!(QDEC, QDEC, QDEC);
+
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);
 impl_pin!(P0_02, 0, 2);

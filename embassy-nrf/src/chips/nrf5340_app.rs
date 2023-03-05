@@ -37,7 +37,7 @@ pub mod pac {
         pdm0_ns as pdm,
         power_ns as power,
         pwm0_ns as pwm0,
-        qdec0_ns as qdec0,
+        qdec0_ns as qdec,
         qspi_ns as qspi,
         regulators_ns as regulators,
         reset_ns as reset,
@@ -256,6 +256,10 @@ embassy_hal_common::peripherals! {
     // PDM
     PDM0,
 
+    // QDEC
+    QDEC0,
+    QDEC1,
+
     // GPIOTE
     GPIOTE_CH0,
     GPIOTE_CH1,
@@ -402,6 +406,9 @@ impl_timer!(TIMER2, TIMER2, TIMER2);
 impl_qspi!(QSPI, QSPI, QSPI);
 
 impl_pdm!(PDM0, PDM0, PDM0);
+
+impl_qdec!(QDEC0, QDEC0, QDEC0);
+impl_qdec!(QDEC1, QDEC1, QDEC1);
 
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);

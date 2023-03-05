@@ -199,6 +199,8 @@ impl_pwm!(PWM3, PWM3, PWM3);
 
 impl_pdm!(PDM, PDM, PDM);
 
+impl_qdec!(QDEC, QDEC, QDEC);
+
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
