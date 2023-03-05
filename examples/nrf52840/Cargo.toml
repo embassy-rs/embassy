@@ -6,7 +6,6 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = ["nightly"]
-msos-descriptor = ["embassy-usb/msos-descriptor"]
 nightly = ["embassy-executor/nightly", "embassy-nrf/nightly", "embassy-net/nightly", "embassy-nrf/unstable-traits", "embassy-usb", "embedded-io/async", "embassy-net",
            "embassy-lora", "lorawan-device", "lorawan"]
 
@@ -17,7 +16,7 @@ embassy-executor = { version = "0.1.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"], optional = true }
-embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"], optional = true }
+embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt", "msos-descriptor",], optional = true }
 embedded-io = "0.4.0"
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["sx126x", "time", "defmt"], optional = true }
 
@@ -36,7 +35,3 @@ rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.3.0"
 usbd-hid = "0.6.0"
 serde = { version = "1.0.136", default-features = false }
-
-[[bin]]
-name = "usb_serial_winusb"
-required-features = ["msos-descriptor"]

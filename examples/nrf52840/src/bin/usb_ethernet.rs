@@ -9,8 +9,9 @@ use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Stack, StackResources};
 use embassy_nrf::rng::Rng;
-use embassy_nrf::usb::{Driver, HardwareVbusDetect};
-use embassy_nrf::{bind_interrupts, interrupt, pac, peripherals, rng};
+use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
+use embassy_nrf::usb::Driver;
+use embassy_nrf::{bind_interrupts, pac, peripherals, rng, usb};
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, Config, UsbDevice};
@@ -19,6 +20,8 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
+    USBD => usb::InterruptHandler<peripherals::USBD>;
+    POWER_CLOCK => usb::vbus_detect::InterruptHandler;
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
@@ -60,9 +63,7 @@ async fn main(spawner: Spawner) {
     while clock.events_hfclkstarted.read().bits() != 1 {}
 
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(USBD);
-    let power_irq = interrupt::take!(POWER_CLOCK);
-    let driver = Driver::new(p.USBD, irq, HardwareVbusDetect::new(power_irq));
+    let driver = Driver::new(p.USBD, Irqs, HardwareVbusDetect::new(Irqs));
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);
@@ -85,6 +86,7 @@ async fn main(spawner: Spawner) {
         &mut singleton!([0; 256])[..],
         &mut singleton!([0; 256])[..],
         &mut singleton!([0; 256])[..],
+        &mut singleton!([0; 128])[..],
         &mut singleton!([0; 128])[..],
     );
 
