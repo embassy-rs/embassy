@@ -329,12 +329,10 @@ impl<'d, T: Instance> Qspi<'d, T> {
     }
 
     fn start_read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
+        // TODO: Return these as errors instead.
         assert_eq!(data.as_ptr() as u32 % 4, 0);
         assert_eq!(data.len() as u32 % 4, 0);
         assert_eq!(address % 4, 0);
-        if address > self.capacity {
-            return Err(Error::OutOfBounds);
-        }
 
         let r = T::regs();
 
@@ -350,13 +348,10 @@ impl<'d, T: Instance> Qspi<'d, T> {
     }
 
     fn start_write(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
+        // TODO: Return these as errors instead.
         assert_eq!(data.as_ptr() as u32 % 4, 0);
         assert_eq!(data.len() as u32 % 4, 0);
         assert_eq!(address % 4, 0);
-
-        if address > self.capacity {
-            return Err(Error::OutOfBounds);
-        }
 
         let r = T::regs();
         r.write.src.write(|w| unsafe { w.src().bits(data.as_ptr() as u32) });
@@ -371,10 +366,8 @@ impl<'d, T: Instance> Qspi<'d, T> {
     }
 
     fn start_erase(&mut self, address: u32) -> Result<(), Error> {
+        // TODO: Return these as errors instead.
         assert_eq!(address % 4096, 0);
-        if address > self.capacity {
-            return Err(Error::OutOfBounds);
-        }
 
         let r = T::regs();
         r.erase.ptr.write(|w| unsafe { w.ptr().bits(address) });
@@ -387,8 +380,12 @@ impl<'d, T: Instance> Qspi<'d, T> {
         Ok(())
     }
 
-    /// Read data from the flash memory.
-    pub async fn read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
+    /// Raw QSPI read.
+    ///
+    /// The difference with `read` is that this does not do bounds checks
+    /// against the flash capacity. It is intended for use when QSPI is used as
+    /// a raw bus, not with flash memory.    
+    pub async fn read_raw(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
         let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         self.start_read(address, data)?;
@@ -399,8 +396,12 @@ impl<'d, T: Instance> Qspi<'d, T> {
         Ok(())
     }
 
-    /// Write data to the flash memory.
-    pub async fn write(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
+    /// Raw QSPI write.
+    ///
+    /// The difference with `write` is that this does not do bounds checks
+    /// against the flash capacity. It is intended for use when QSPI is used as
+    /// a raw bus, not with flash memory.
+    pub async fn write_raw(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
         let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         self.start_write(address, data)?;
@@ -411,8 +412,46 @@ impl<'d, T: Instance> Qspi<'d, T> {
         Ok(())
     }
 
+    /// Raw QSPI read, blocking version.
+    ///
+    /// The difference with `blocking_read` is that this does not do bounds checks
+    /// against the flash capacity. It is intended for use when QSPI is used as
+    /// a raw bus, not with flash memory.
+    pub fn blocking_read_raw(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
+        self.start_read(address, data)?;
+        Self::blocking_wait_ready();
+        Ok(())
+    }
+
+    /// Raw QSPI write, blocking version.
+    ///
+    /// The difference with `blocking_write` is that this does not do bounds checks
+    /// against the flash capacity. It is intended for use when QSPI is used as
+    /// a raw bus, not with flash memory.
+    pub fn blocking_write_raw(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
+        self.start_write(address, data)?;
+        Self::blocking_wait_ready();
+        Ok(())
+    }
+
+    /// Read data from the flash memory.
+    pub async fn read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
+        self.bounds_check(address, data.len())?;
+        self.read_raw(address, data).await
+    }
+
+    /// Write data to the flash memory.
+    pub async fn write(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
+        self.bounds_check(address, data.len())?;
+        self.write_raw(address, data).await
+    }
+
     /// Erase a sector on the flash memory.
     pub async fn erase(&mut self, address: u32) -> Result<(), Error> {
+        if address >= self.capacity {
+            return Err(Error::OutOfBounds);
+        }
+
         let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         self.start_erase(address)?;
@@ -425,22 +464,33 @@ impl<'d, T: Instance> Qspi<'d, T> {
 
     /// Read data from the flash memory, blocking version.
     pub fn blocking_read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
-        self.start_read(address, data)?;
-        Self::blocking_wait_ready();
-        Ok(())
+        self.bounds_check(address, data.len())?;
+        self.blocking_read_raw(address, data)
     }
 
     /// Write data to the flash memory, blocking version.
     pub fn blocking_write(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
-        self.start_write(address, data)?;
-        Self::blocking_wait_ready();
-        Ok(())
+        self.bounds_check(address, data.len())?;
+        self.blocking_write_raw(address, data)
     }
 
     /// Erase a sector on the flash memory, blocking version.
     pub fn blocking_erase(&mut self, address: u32) -> Result<(), Error> {
+        if address >= self.capacity {
+            return Err(Error::OutOfBounds);
+        }
+
         self.start_erase(address)?;
         Self::blocking_wait_ready();
+        Ok(())
+    }
+
+    fn bounds_check(&self, address: u32, len: usize) -> Result<(), Error> {
+        let len_u32: u32 = len.try_into().map_err(|_| Error::OutOfBounds)?;
+        let end_address = address.checked_add(len_u32).ok_or(Error::OutOfBounds)?;
+        if end_address > self.capacity {
+            return Err(Error::OutOfBounds);
+        }
         Ok(())
     }
 }
