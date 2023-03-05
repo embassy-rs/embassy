@@ -3,6 +3,7 @@
 #![macro_use]
 
 use core::future::{poll_fn, Future};
+use core::marker::PhantomData;
 use core::sync::atomic::compiler_fence;
 use core::sync::atomic::Ordering::SeqCst;
 use core::task::Poll;
@@ -14,7 +15,7 @@ use embassy_time::{Duration, Instant};
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::Pin as GpioPin;
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::{self, Interrupt, InterruptExt};
 use crate::util::slice_in_ram_or;
 use crate::{gpio, pac, Peripheral};
 
@@ -108,6 +109,31 @@ pub enum Command {
     Write(usize),
 }
 
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let r = T::regs();
+        let s = T::state();
+
+        if r.events_read.read().bits() != 0 || r.events_write.read().bits() != 0 {
+            s.waker.wake();
+            r.intenclr.modify(|_r, w| w.read().clear().write().clear());
+        }
+        if r.events_stopped.read().bits() != 0 {
+            s.waker.wake();
+            r.intenclr.modify(|_r, w| w.stopped().clear());
+        }
+        if r.events_error.read().bits() != 0 {
+            s.waker.wake();
+            r.intenclr.modify(|_r, w| w.error().clear());
+        }
+    }
+}
+
 /// TWIS driver.
 pub struct Twis<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
@@ -117,12 +143,12 @@ impl<'d, T: Instance> Twis<'d, T> {
     /// Create a new TWIS driver.
     pub fn new(
         twis: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sda: impl Peripheral<P = impl GpioPin> + 'd,
         scl: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(twis, irq, sda, scl);
+        into_ref!(twis, sda, scl);
 
         let r = T::regs();
 
@@ -178,29 +204,10 @@ impl<'d, T: Instance> Twis<'d, T> {
         // Generate suspend on read event
         r.shorts.write(|w| w.read_suspend().enabled());
 
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         Self { _p: twis }
-    }
-
-    fn on_interrupt(_: *mut ()) {
-        let r = T::regs();
-        let s = T::state();
-
-        if r.events_read.read().bits() != 0 || r.events_write.read().bits() != 0 {
-            s.waker.wake();
-            r.intenclr.modify(|_r, w| w.read().clear().write().clear());
-        }
-        if r.events_stopped.read().bits() != 0 {
-            s.waker.wake();
-            r.intenclr.modify(|_r, w| w.stopped().clear());
-        }
-        if r.events_error.read().bits() != 0 {
-            s.waker.wake();
-            r.intenclr.modify(|_r, w| w.error().clear());
-        }
     }
 
     /// Set TX buffer, checking that it is in RAM and has suitable length.
