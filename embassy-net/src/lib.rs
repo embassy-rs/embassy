@@ -304,6 +304,43 @@ impl<D: Driver + 'static> Stack<D> {
     }
 }
 
+#[cfg(feature = "igmp")]
+impl<D: Driver + smoltcp::phy::Device + 'static> Stack<D> {
+    pub(crate) fn join_multicast_group<T>(&self, addr: T) -> Result<bool, smoltcp::iface::MulticastError>
+        where
+            T: Into<IpAddress>
+    {
+        let addr = addr.into();
+
+        self.with_mut(|s, i| {
+            s.iface.join_multicast_group(
+                &mut i.device,
+                addr,
+                instant_to_smoltcp(Instant::now()),
+            )
+        })
+    }
+
+    pub(crate) fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, smoltcp::iface::MulticastError>
+        where
+            T: Into<IpAddress>
+    {
+        let addr = addr.into();
+
+        self.with_mut(|s, i| {
+            s.iface.leave_multicast_group(
+                &mut i.device,
+                addr,
+                instant_to_smoltcp(Instant::now()),
+            )
+        })
+    }
+
+    pub(crate) fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
+        self.socket.borrow().iface.has_multicast_group(addr)
+    }
+}
+
 impl SocketStack {
     #[allow(clippy::absurd_extreme_comparisons, dead_code)]
     pub fn get_local_port(&mut self) -> u16 {

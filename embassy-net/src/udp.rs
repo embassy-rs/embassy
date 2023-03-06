@@ -6,9 +6,9 @@ use core::task::Poll;
 use embassy_net_driver::Driver;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::udp::{self, PacketMetadata};
-use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
+use smoltcp::wire::{IpAddress, IpEndpoint, IpListenEndpoint};
 
-use crate::{SocketStack, Stack};
+use crate::Stack;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -26,13 +26,13 @@ pub enum Error {
     NoRoute,
 }
 
-pub struct UdpSocket<'a> {
-    stack: &'a RefCell<SocketStack>,
+pub struct UdpSocket<'a, D: Driver> {
+    stack: &'a Stack<D>,
     handle: SocketHandle,
 }
 
-impl<'a> UdpSocket<'a> {
-    pub fn new<D: Driver>(
+impl<'a, D: Driver> UdpSocket<'a, D> {
+    pub fn new(
         stack: &'a Stack<D>,
         rx_meta: &'a mut [PacketMetadata],
         rx_buffer: &'a mut [u8],
@@ -51,7 +51,7 @@ impl<'a> UdpSocket<'a> {
         ));
 
         Self {
-            stack: &stack.socket,
+            stack,
             handle,
         }
     }
@@ -64,7 +64,7 @@ impl<'a> UdpSocket<'a> {
 
         if endpoint.port == 0 {
             // If user didn't specify port allocate a dynamic port.
-            endpoint.port = self.stack.borrow_mut().get_local_port();
+            endpoint.port = self.stack.socket.borrow_mut().get_local_port();
         }
 
         match self.with_mut(|s, _| s.bind(endpoint)) {
@@ -75,13 +75,13 @@ impl<'a> UdpSocket<'a> {
     }
 
     fn with<R>(&self, f: impl FnOnce(&udp::Socket, &Interface) -> R) -> R {
-        let s = &*self.stack.borrow();
+        let s = &*self.stack.socket.borrow();
         let socket = s.sockets.get::<udp::Socket>(self.handle);
         f(socket, &s.iface)
     }
 
     fn with_mut<R>(&self, f: impl FnOnce(&mut udp::Socket, &mut Interface) -> R) -> R {
-        let s = &mut *self.stack.borrow_mut();
+        let s = &mut *self.stack.socket.borrow_mut();
         let socket = s.sockets.get_mut::<udp::Socket>(self.handle);
         let res = f(socket, &mut s.iface);
         s.waker.wake();
@@ -143,8 +143,29 @@ impl<'a> UdpSocket<'a> {
     }
 }
 
-impl Drop for UdpSocket<'_> {
+#[cfg(feature = "igmp")]
+impl<'a, D: Driver + smoltcp::phy::Device + 'static> UdpSocket<'a, D> {
+    pub fn join_multicast_group<T>(&self, addr: T) -> Result<bool, smoltcp::iface::MulticastError>
+        where
+            T: Into<IpAddress>
+    {
+        self.stack.join_multicast_group(addr)
+    }
+
+    pub fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, smoltcp::iface::MulticastError>
+        where
+            T: Into<IpAddress>
+    {
+        self.stack.leave_multicast_group(addr)
+    }
+
+    pub fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
+        self.stack.has_multicast_group(addr)
+    }
+}
+
+impl<D: Driver> Drop for UdpSocket<'_, D> {
     fn drop(&mut self) {
-        self.stack.borrow_mut().sockets.remove(self.handle);
+        self.stack.socket.borrow_mut().sockets.remove(self.handle);
     }
 }
