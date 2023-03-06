@@ -1,7 +1,5 @@
 //! Adapters between embedded-hal traits.
 
-use core::future::Future;
-
 use embedded_hal_02::{blocking, serial};
 
 /// Wrapper that implements async traits using blocking implementations.
@@ -182,7 +180,7 @@ where
 
 /// NOR flash wrapper
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
-use embedded_storage_async::nor_flash::{AsyncNorFlash, AsyncReadNorFlash};
+use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
 
 impl<T> ErrorType for BlockingAsync<T>
 where
@@ -198,14 +196,12 @@ where
     const WRITE_SIZE: usize = <T as NorFlash>::WRITE_SIZE;
     const ERASE_SIZE: usize = <T as NorFlash>::ERASE_SIZE;
 
-    type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-    fn write<'a>(&'a mut self, offset: u32, data: &'a [u8]) -> Self::WriteFuture<'a> {
-        async move { self.wrapped.write(offset, data) }
+    async fn write(&mut self, offset: u32, data: &[u8]) -> Result<(), Self::Error> {
+        self.wrapped.write(offset, data)
     }
 
-    type EraseFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-    fn erase<'a>(&'a mut self, from: u32, to: u32) -> Self::EraseFuture<'a> {
-        async move { self.wrapped.erase(from, to) }
+    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        self.wrapped.erase(from, to)
     }
 }
 
@@ -214,9 +210,8 @@ where
     T: ReadNorFlash,
 {
     const READ_SIZE: usize = <T as ReadNorFlash>::READ_SIZE;
-    type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-    fn read<'a>(&'a mut self, address: u32, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        async move { self.wrapped.read(address, data) }
+    async fn read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Self::Error> {
+        self.wrapped.read(address, data)
     }
 
     fn capacity(&self) -> usize {

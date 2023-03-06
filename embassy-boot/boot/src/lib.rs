@@ -5,7 +5,7 @@
 mod fmt;
 
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
-use embedded_storage_async::nor_flash::AsyncNorFlash;
+use embedded_storage_async::nor_flash::NorFlash as AsyncNorFlash;
 
 const BOOT_MAGIC: u8 = 0xD0;
 const SWAP_MAGIC: u8 = 0xF0;
@@ -1199,7 +1199,7 @@ mod tests {
     use core::future::Future;
 
     use embedded_storage::nor_flash::ErrorType;
-    use embedded_storage_async::nor_flash::AsyncReadNorFlash;
+    use embedded_storage_async::nor_flash::ReadNorFlash as AsyncReadNorFlash;
     use futures::executor::block_on;
 
     use super::*;
