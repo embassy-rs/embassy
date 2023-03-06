@@ -5,7 +5,7 @@
 mod fmt;
 
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
-use embedded_storage_async::nor_flash::AsyncNorFlash;
+use embedded_storage_async::nor_flash::NorFlash as AsyncNorFlash;
 
 const BOOT_MAGIC: u8 = 0xD0;
 const SWAP_MAGIC: u8 = 0xF0;
