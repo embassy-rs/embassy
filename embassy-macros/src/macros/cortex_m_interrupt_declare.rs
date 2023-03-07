@@ -21,9 +21,9 @@ pub fn run(name: syn::Ident) -> Result<TokenStream, TokenStream> {
             unsafe fn steal() -> Self {
                 Self(())
             }
-            unsafe fn __handler(&self) -> &'static ::embassy_cortex_m::interrupt::Handler {
+            unsafe fn __handler(&self) -> &'static ::embassy_cortex_m::interrupt::DynHandler {
                 #[export_name = #name_handler]
-                static HANDLER: ::embassy_cortex_m::interrupt::Handler = ::embassy_cortex_m::interrupt::Handler::new();
+                static HANDLER: ::embassy_cortex_m::interrupt::DynHandler = ::embassy_cortex_m::interrupt::DynHandler::new();
                 &HANDLER
             }
         }

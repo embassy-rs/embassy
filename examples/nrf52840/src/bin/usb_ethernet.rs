@@ -9,14 +9,21 @@ use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Stack, StackResources};
 use embassy_nrf::rng::Rng;
-use embassy_nrf::usb::{Driver, HardwareVbusDetect};
-use embassy_nrf::{interrupt, pac, peripherals};
+use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
+use embassy_nrf::usb::Driver;
+use embassy_nrf::{bind_interrupts, pac, peripherals, rng, usb};
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, Config, UsbDevice};
 use embedded_io::asynch::Write;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    USBD => usb::InterruptHandler<peripherals::USBD>;
+    POWER_CLOCK => usb::vbus_detect::InterruptHandler;
+    RNG => rng::InterruptHandler<peripherals::RNG>;
+});
 
 type MyDriver = Driver<'static, peripherals::USBD, HardwareVbusDetect>;
 
@@ -46,31 +53,8 @@ async fn net_task(stack: &'static Stack<Device<'static, MTU>>) -> ! {
     stack.run().await
 }
 
-#[inline(never)]
-pub fn test_function() -> (usize, u32, [u32; 2]) {
-    let mut array = [3; 2];
-
-    let mut index = 0;
-    let mut result = 0;
-
-    for x in [1, 2] {
-        if x == 1 {
-            array[1] = 99;
-        } else {
-            index = if x == 2 { 1 } else { 0 };
-
-            // grabs value from array[0], not array[1]
-            result = array[index];
-        }
-    }
-
-    (index, result, array)
-}
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    info!("{:?}", test_function());
-
     let p = embassy_nrf::init(Default::default());
     let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 
@@ -79,9 +63,7 @@ async fn main(spawner: Spawner) {
     while clock.events_hfclkstarted.read().bits() != 1 {}
 
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(USBD);
-    let power_irq = interrupt::take!(POWER_CLOCK);
-    let driver = Driver::new(p.USBD, irq, HardwareVbusDetect::new(power_irq));
+    let driver = Driver::new(p.USBD, Irqs, HardwareVbusDetect::new(Irqs));
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);
@@ -104,6 +86,7 @@ async fn main(spawner: Spawner) {
         &mut singleton!([0; 256])[..],
         &mut singleton!([0; 256])[..],
         &mut singleton!([0; 256])[..],
+        &mut singleton!([0; 128])[..],
         &mut singleton!([0; 128])[..],
     );
 
@@ -131,7 +114,7 @@ async fn main(spawner: Spawner) {
     //});
 
     // Generate random seed
-    let mut rng = Rng::new(p.RNG, interrupt::take!(RNG));
+    let mut rng = Rng::new(p.RNG, Irqs);
     let mut seed = [0; 8];
     rng.blocking_fill_bytes(&mut seed);
     let seed = u64::from_le_bytes(seed);

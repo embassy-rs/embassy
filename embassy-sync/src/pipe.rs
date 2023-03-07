@@ -48,6 +48,7 @@ where
 }
 
 /// Future returned by [`Pipe::write`] and  [`Writer::write`].
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct WriteFuture<'p, M, const N: usize>
 where
     M: RawMutex,
@@ -110,6 +111,7 @@ where
 }
 
 /// Future returned by [`Pipe::read`] and  [`Reader::read`].
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct ReadFuture<'p, M, const N: usize>
 where
     M: RawMutex,

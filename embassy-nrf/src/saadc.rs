@@ -6,6 +6,7 @@ use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
+use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -17,7 +18,6 @@ use saadc::oversample::OVERSAMPLE_A;
 use saadc::resolution::VAL_A;
 
 use self::sealed::Input as _;
-use crate::interrupt::InterruptExt;
 use crate::ppi::{ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::{interrupt, pac, peripherals, Peripheral};
@@ -28,9 +28,30 @@ use crate::{interrupt, pac, peripherals, Peripheral};
 #[non_exhaustive]
 pub enum Error {}
 
-/// One-shot and continuous SAADC.
-pub struct Saadc<'d, const N: usize> {
-    _p: PeripheralRef<'d, peripherals::SAADC>,
+/// Interrupt handler.
+pub struct InterruptHandler {
+    _private: (),
+}
+
+impl interrupt::Handler<interrupt::SAADC> for InterruptHandler {
+    unsafe fn on_interrupt() {
+        let r = unsafe { &*SAADC::ptr() };
+
+        if r.events_calibratedone.read().bits() != 0 {
+            r.intenclr.write(|w| w.calibratedone().clear());
+            WAKER.wake();
+        }
+
+        if r.events_end.read().bits() != 0 {
+            r.intenclr.write(|w| w.end().clear());
+            WAKER.wake();
+        }
+
+        if r.events_started.read().bits() != 0 {
+            r.intenclr.write(|w| w.started().clear());
+            WAKER.wake();
+        }
+    }
 }
 
 static WAKER: AtomicWaker = AtomicWaker::new();
@@ -114,15 +135,20 @@ pub enum CallbackResult {
     Stop,
 }
 
+/// One-shot and continuous SAADC.
+pub struct Saadc<'d, const N: usize> {
+    _p: PeripheralRef<'d, peripherals::SAADC>,
+}
+
 impl<'d, const N: usize> Saadc<'d, N> {
     /// Create a new SAADC driver.
     pub fn new(
         saadc: impl Peripheral<P = peripherals::SAADC> + 'd,
-        irq: impl Peripheral<P = interrupt::SAADC> + 'd,
+        _irq: impl interrupt::Binding<interrupt::SAADC, InterruptHandler> + 'd,
         config: Config,
         channel_configs: [ChannelConfig; N],
     ) -> Self {
-        into_ref!(saadc, irq);
+        into_ref!(saadc);
 
         let r = unsafe { &*SAADC::ptr() };
 
@@ -163,30 +189,10 @@ impl<'d, const N: usize> Saadc<'d, N> {
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0x003F_FFFF) });
 
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        unsafe { interrupt::SAADC::steal() }.unpend();
+        unsafe { interrupt::SAADC::steal() }.enable();
 
         Self { _p: saadc }
-    }
-
-    fn on_interrupt(_ctx: *mut ()) {
-        let r = Self::regs();
-
-        if r.events_calibratedone.read().bits() != 0 {
-            r.intenclr.write(|w| w.calibratedone().clear());
-            WAKER.wake();
-        }
-
-        if r.events_end.read().bits() != 0 {
-            r.intenclr.write(|w| w.end().clear());
-            WAKER.wake();
-        }
-
-        if r.events_started.read().bits() != 0 {
-            r.intenclr.write(|w| w.started().clear());
-            WAKER.wake();
-        }
     }
 
     fn regs() -> &'static saadc::RegisterBlock {

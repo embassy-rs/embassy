@@ -181,6 +181,7 @@ where
 }
 
 /// Future returned by [`Channel::recv`] and  [`Receiver::recv`].
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct RecvFuture<'ch, M, T, const N: usize>
 where
     M: RawMutex,
@@ -203,6 +204,7 @@ where
 }
 
 /// Future returned by [`DynamicReceiver::recv`].
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct DynamicRecvFuture<'ch, T> {
     channel: &'ch dyn DynamicChannel<T>,
 }
@@ -219,6 +221,7 @@ impl<'ch, T> Future for DynamicRecvFuture<'ch, T> {
 }
 
 /// Future returned by [`Channel::send`] and  [`Sender::send`].
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct SendFuture<'ch, M, T, const N: usize>
 where
     M: RawMutex,
@@ -250,6 +253,7 @@ where
 impl<'ch, M, T, const N: usize> Unpin for SendFuture<'ch, M, T, N> where M: RawMutex {}
 
 /// Future returned by [`DynamicSender::send`].
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct DynamicSendFuture<'ch, T> {
     channel: &'ch dyn DynamicChannel<T>,
     message: Option<T>,
