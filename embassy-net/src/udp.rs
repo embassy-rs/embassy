@@ -143,19 +143,19 @@ impl<'a, D: Driver> UdpSocket<'a, D> {
 impl<'a, D: Driver + smoltcp::phy::Device + 'static> UdpSocket<'a, D> {
     pub fn join_multicast_group<T>(&self, addr: T) -> Result<bool, smoltcp::iface::MulticastError>
     where
-        T: Into<IpAddress>,
+        T: Into<smoltcp::wire::IpAddress>,
     {
         self.stack.join_multicast_group(addr)
     }
 
     pub fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, smoltcp::iface::MulticastError>
     where
-        T: Into<IpAddress>,
+        T: Into<smoltcp::wire::IpAddress>,
     {
         self.stack.leave_multicast_group(addr)
     }
 
-    pub fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
+    pub fn has_multicast_group<T: Into<smoltcp::wire::IpAddress>>(&self, addr: T) -> bool {
         self.stack.has_multicast_group(addr)
     }
 }
