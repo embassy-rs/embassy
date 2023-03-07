@@ -1197,6 +1197,7 @@ impl FirmwareWriter {
 #[cfg(test)]
 mod tests {
     use core::convert::Infallible;
+
     use embedded_storage::nor_flash::ErrorType;
     use embedded_storage_async::nor_flash::ReadNorFlash as AsyncReadNorFlash;
     use futures::executor::block_on;
@@ -1535,9 +1536,9 @@ mod tests {
         const READ_SIZE: usize = 1;
 
         async fn read(&mut self, offset: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
-                let len = buf.len();
-                buf[..].copy_from_slice(&self.0[offset as usize..offset as usize + len]);
-                Ok(())
+            let len = buf.len();
+            buf[..].copy_from_slice(&self.0[offset as usize..offset as usize + len]);
+            Ok(())
         }
 
         fn capacity(&self) -> usize {
