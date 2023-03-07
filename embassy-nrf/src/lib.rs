@@ -273,28 +273,24 @@ enum WriteResult {
 }
 
 unsafe fn uicr_write(address: *mut u32, value: u32) -> WriteResult {
+    uicr_write_masked(address, value, 0xFFFF_FFFF)
+}
+
+unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteResult {
     let curr_val = address.read_volatile();
-    if curr_val == value {
+    if curr_val & mask == value & mask {
         return WriteResult::Noop;
     }
 
     // We can only change `1` bits to `0` bits.
-    if curr_val & value != value {
+    if curr_val & value & mask != value & mask {
         return WriteResult::Failed;
-    }
-
-    // Writing to UICR can only change `1` bits to `0` bits.
-    // If this write would change `0` bits to `1` bits, we can't do it.
-    // It is only possible to do when erasing UICR, which is forbidden if
-    // APPROTECT is enabled.
-    if (!curr_val) & value != 0 {
-        panic!("Cannot write UICR address={:08x} value={:08x}", address as u32, value)
     }
 
     let nvmc = &*pac::NVMC::ptr();
     nvmc.config.write(|w| w.wen().wen());
     while nvmc.ready.read().ready().is_busy() {}
-    address.write_volatile(value);
+    address.write_volatile(value | !mask);
     while nvmc.ready.read().ready().is_busy() {}
     nvmc.config.reset();
     while nvmc.ready.read().ready().is_busy() {}
@@ -393,8 +389,8 @@ pub fn init(config: config::Config) -> Peripherals {
 
     #[cfg(any(feature = "_nrf52", feature = "_nrf5340-app"))]
     unsafe {
-        let value = if cfg!(feature = "nfc-pins-as-gpio") { 0 } else { !0 };
-        let res = uicr_write(consts::UICR_NFCPINS, value);
+        let value = if cfg!(feature = "nfc-pins-as-gpio") { 0 } else { 1 };
+        let res = uicr_write_masked(consts::UICR_NFCPINS, value, 1);
         needs_reset |= res == WriteResult::Written;
         if res == WriteResult::Failed {
             // with nfc-pins-as-gpio, this can never fail because we're writing all zero bits.
