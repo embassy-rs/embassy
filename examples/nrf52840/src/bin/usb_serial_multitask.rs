@@ -6,13 +6,28 @@ use core::mem;
 
 use defmt::{info, panic, unwrap};
 use embassy_executor::Spawner;
-use embassy_nrf::usb::{Driver, HardwareVbusDetect};
-use embassy_nrf::{interrupt, pac, peripherals};
+use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
+use embassy_nrf::usb::Driver;
+use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config, UsbDevice};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    USBD => usb::InterruptHandler<peripherals::USBD>;
+    POWER_CLOCK => usb::vbus_detect::InterruptHandler;
+});
+
+macro_rules! singleton {
+    ($val:expr) => {{
+        type T = impl Sized;
+        static STATIC_CELL: StaticCell<T> = StaticCell::new();
+        let (x,) = STATIC_CELL.init(($val,));
+        x
+    }};
+}
 
 type MyDriver = Driver<'static, peripherals::USBD, HardwareVbusDetect>;
 
@@ -39,10 +54,9 @@ async fn main(spawner: Spawner) {
     info!("Enabling ext hfosc...");
     clock.tasks_hfclkstart.write(|w| unsafe { w.bits(1) });
     while clock.events_hfclkstarted.read().bits() != 1 {}
+
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(USBD);
-    let power_irq = interrupt::take!(POWER_CLOCK);
-    let driver = Driver::new(p.USBD, irq, HardwareVbusDetect::new(power_irq));
+    let driver = Driver::new(p.USBD, Irqs, HardwareVbusDetect::new(Irqs));
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);
@@ -59,34 +73,21 @@ async fn main(spawner: Spawner) {
     config.device_protocol = 0x01;
     config.composite_with_iads = true;
 
-    struct Resources {
-        device_descriptor: [u8; 256],
-        config_descriptor: [u8; 256],
-        bos_descriptor: [u8; 256],
-        control_buf: [u8; 64],
-        serial_state: State<'static>,
-    }
-    static RESOURCES: StaticCell<Resources> = StaticCell::new();
-    let res = RESOURCES.init(Resources {
-        device_descriptor: [0; 256],
-        config_descriptor: [0; 256],
-        bos_descriptor: [0; 256],
-        control_buf: [0; 64],
-        serial_state: State::new(),
-    });
+    let state = singleton!(State::new());
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     let mut builder = Builder::new(
         driver,
         config,
-        &mut res.device_descriptor,
-        &mut res.config_descriptor,
-        &mut res.bos_descriptor,
-        &mut res.control_buf,
+        &mut singleton!([0; 256])[..],
+        &mut singleton!([0; 256])[..],
+        &mut singleton!([0; 256])[..],
+        &mut singleton!([0; 128])[..],
+        &mut singleton!([0; 128])[..],
     );
 
     // Create classes on the builder.
-    let class = CdcAcmClass::new(&mut builder, &mut res.serial_state, 64);
+    let class = CdcAcmClass::new(&mut builder, state, 64);
 
     // Build the builder.
     let usb = builder.build();

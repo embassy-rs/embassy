@@ -4,8 +4,13 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_nrf::{interrupt, uarte};
+use embassy_nrf::peripherals::SERIAL0;
+use embassy_nrf::{bind_interrupts, uarte};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    SERIAL0 => uarte::InterruptHandler<SERIAL0>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -14,8 +19,7 @@ async fn main(_spawner: Spawner) {
     config.parity = uarte::Parity::EXCLUDED;
     config.baudrate = uarte::Baudrate::BAUD115200;
 
-    let irq = interrupt::take!(SERIAL0);
-    let mut uart = uarte::Uarte::new(p.SERIAL0, irq, p.P1_00, p.P1_01, config);
+    let mut uart = uarte::Uarte::new(p.SERIAL0, Irqs, p.P1_00, p.P1_01, config);
 
     info!("uarte initialized!");
 

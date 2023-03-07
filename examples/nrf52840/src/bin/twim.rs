@@ -8,19 +8,22 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_nrf::interrupt;
 use embassy_nrf::twim::{self, Twim};
+use embassy_nrf::{bind_interrupts, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 const ADDRESS: u8 = 0x50;
+
+bind_interrupts!(struct Irqs {
+    SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0 => twim::InterruptHandler<peripherals::TWISPI0>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     info!("Initializing TWI...");
     let config = twim::Config::default();
-    let irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-    let mut twi = Twim::new(p.TWISPI0, irq, p.P0_03, p.P0_04, config);
+    let mut twi = Twim::new(p.TWISPI0, Irqs, p.P0_03, p.P0_04, config);
 
     info!("Reading...");
 

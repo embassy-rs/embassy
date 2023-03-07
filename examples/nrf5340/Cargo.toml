@@ -4,24 +4,13 @@ name = "embassy-nrf5340-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
-[features]
-default = ["nightly"]
-nightly = [
-    "embassy-executor/nightly",
-    "embassy-nrf/nightly",
-    "embassy-net/nightly",
-    "embassy-nrf/unstable-traits",
-    "embassy-usb",
-    "embedded-io/async",
-    "embassy-net",
-]
-
 [dependencies]
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-sync = { version = "0.1.0", path = "../../embassy-sync", features = [
     "defmt",
 ] }
 embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = [
+    "nightly",
     "defmt",
     "integrated-timers",
 ] }
@@ -30,6 +19,8 @@ embassy-time = { version = "0.1.0", path = "../../embassy-time", features = [
     "defmt-timestamp-uptime",
 ] }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = [
+    "nightly",
+    "unstable-traits",
     "defmt",
     "nrf5340-app-s",
     "time-driver-rtc1",
@@ -37,16 +28,16 @@ embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = [
     "unstable-pac",
 ] }
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features = [
+    "nightly",
     "defmt",
     "tcp",
     "dhcpv4",
     "medium-ethernet",
-], optional = true }
+] }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = [
     "defmt",
-], optional = true }
-embedded-io = "0.4.0"
-
+] }
+embedded-io = { version = "0.4.0", features = [ "async" ]}
 
 defmt = "0.3"
 defmt-rtt = "0.4"

@@ -150,6 +150,12 @@ impl_twis!(TWISPI0, TWIS0, TWIM0_TWIS0_TWI0_SPIM0_SPIS0_SPI0);
 
 impl_pwm!(PWM0, PWM0, PWM0);
 
+impl_pdm!(PDM, PDM, PDM);
+
+impl_qdec!(QDEC, QDEC, QDEC);
+
+impl_rng!(RNG, RNG, RNG);
+
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);

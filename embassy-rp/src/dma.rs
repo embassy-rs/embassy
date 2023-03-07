@@ -151,6 +151,7 @@ fn copy_inner<'a, C: Channel>(
     Transfer::new(ch)
 }
 
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a, C: Channel> {
     channel: PeripheralRef<'a, C>,
 }

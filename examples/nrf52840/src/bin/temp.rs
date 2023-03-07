@@ -4,16 +4,19 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_nrf::interrupt;
 use embassy_nrf::temp::Temp;
+use embassy_nrf::{bind_interrupts, temp};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    TEMP => temp::InterruptHandler;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
-    let irq = interrupt::take!(TEMP);
-    let mut temp = Temp::new(p.TEMP, irq);
+    let mut temp = Temp::new(p.TEMP, Irqs);
 
     loop {
         let value = temp.read().await;
