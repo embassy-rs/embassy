@@ -1423,7 +1423,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature="_verify")]
+    #[cfg(feature = "_verify")]
     fn test_verify() {
         // The following key setup is based on:
         // https://docs.rs/ed25519-dalek/latest/ed25519_dalek/#example
