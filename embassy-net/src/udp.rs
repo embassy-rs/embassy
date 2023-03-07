@@ -50,10 +50,7 @@ impl<'a, D: Driver> UdpSocket<'a, D> {
             udp::PacketBuffer::new(tx_meta, tx_buffer),
         ));
 
-        Self {
-            stack,
-            handle,
-        }
+        Self { stack, handle }
     }
 
     pub fn bind<T>(&mut self, endpoint: T) -> Result<(), BindError>
@@ -146,15 +143,15 @@ impl<'a, D: Driver> UdpSocket<'a, D> {
 #[cfg(feature = "igmp")]
 impl<'a, D: Driver + smoltcp::phy::Device + 'static> UdpSocket<'a, D> {
     pub fn join_multicast_group<T>(&self, addr: T) -> Result<bool, smoltcp::iface::MulticastError>
-        where
-            T: Into<IpAddress>
+    where
+        T: Into<IpAddress>,
     {
         self.stack.join_multicast_group(addr)
     }
 
     pub fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, smoltcp::iface::MulticastError>
-        where
-            T: Into<IpAddress>
+    where
+        T: Into<IpAddress>,
     {
         self.stack.leave_multicast_group(addr)
     }
