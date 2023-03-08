@@ -587,9 +587,7 @@ impl<'d, T: Instance> NorFlash for Qspi<'d, T> {
 
 #[cfg(feature = "nightly")]
 mod _eh1 {
-    use core::future::Future;
-
-    use embedded_storage_async::nor_flash::{AsyncNorFlash, AsyncReadNorFlash};
+    use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
 
     use super::*;
 
@@ -597,27 +595,22 @@ mod _eh1 {
         const WRITE_SIZE: usize = <Self as NorFlash>::WRITE_SIZE;
         const ERASE_SIZE: usize = <Self as NorFlash>::ERASE_SIZE;
 
-        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn write<'a>(&'a mut self, offset: u32, data: &'a [u8]) -> Self::WriteFuture<'a> {
-            async move { self.write(offset, data).await }
+        async fn write(&mut self, offset: u32, data: &[u8]) -> Result<(), Self::Error> {
+            self.write(offset, data).await
         }
 
-        type EraseFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn erase<'a>(&'a mut self, from: u32, to: u32) -> Self::EraseFuture<'a> {
-            async move {
-                for address in (from..to).step_by(<Self as AsyncNorFlash>::ERASE_SIZE) {
-                    self.erase(address).await?
-                }
-                Ok(())
+        async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+            for address in (from..to).step_by(<Self as AsyncNorFlash>::ERASE_SIZE) {
+                self.erase(address).await?
             }
+            Ok(())
         }
     }
 
     impl<'d, T: Instance> AsyncReadNorFlash for Qspi<'d, T> {
         const READ_SIZE: usize = 4;
-        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-        fn read<'a>(&'a mut self, address: u32, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            async move { self.read(address, data).await }
+        async fn read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Self::Error> {
+            self.read(address, data).await
         }
 
         fn capacity(&self) -> usize {
