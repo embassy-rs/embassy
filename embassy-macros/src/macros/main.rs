@@ -105,10 +105,11 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn, main: TokenStream) -> Resul
     ctxt.check()?;
 
     let f_body = f.block;
+    let out = &f.sig.output;
 
     let result = quote! {
         #[::embassy_executor::task()]
-        async fn __embassy_main(#fargs) {
+        async fn __embassy_main(#fargs) #out {
             #f_body
         }
 
