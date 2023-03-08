@@ -106,7 +106,7 @@ async fn main(spawner: Spawner) -> ! {
             let r = socket.write_all(b"Hello\n").await;
             if let Err(e) = r {
                 info!("write error: {:?}", e);
-                return;
+                continue;
             }
             Timer::after(Duration::from_secs(1)).await;
         }

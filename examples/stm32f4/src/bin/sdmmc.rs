@@ -14,7 +14,7 @@ use {defmt_rtt as _, panic_probe as _};
 const ALLOW_WRITES: bool = false;
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.sys_ck = Some(mhz(48));
     config.rcc.pll48 = true;
@@ -75,6 +75,4 @@ async fn main(_spawner: Spawner) -> ! {
 
     sdmmc.read_block(block_idx, &mut block).await.unwrap();
     info!("Read: {=[u8]:X}...{=[u8]:X}", block[..8], block[512 - 8..]);
-
-    loop {}
 }
