@@ -306,7 +306,7 @@ impl<D: Driver + 'static> Stack<D> {
 
 #[cfg(feature = "igmp")]
 impl<D: Driver + smoltcp::phy::Device + 'static> Stack<D> {
-    pub(crate) fn join_multicast_group<T>(&self, addr: T) -> Result<bool, smoltcp::iface::MulticastError>
+    pub fn join_multicast_group<T>(&self, addr: T) -> Result<bool, smoltcp::iface::MulticastError>
     where
         T: Into<IpAddress>,
     {
@@ -318,7 +318,7 @@ impl<D: Driver + smoltcp::phy::Device + 'static> Stack<D> {
         })
     }
 
-    pub(crate) fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, smoltcp::iface::MulticastError>
+    pub fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, smoltcp::iface::MulticastError>
     where
         T: Into<IpAddress>,
     {
@@ -330,7 +330,7 @@ impl<D: Driver + smoltcp::phy::Device + 'static> Stack<D> {
         })
     }
 
-    pub(crate) fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
+    pub fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
         self.socket.borrow().iface.has_multicast_group(addr)
     }
 }
