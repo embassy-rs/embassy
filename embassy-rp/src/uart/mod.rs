@@ -1,12 +1,11 @@
 use core::marker::PhantomData;
 
-use embassy_cortex_m::interrupt::InterruptExt;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::dma::{AnyChannel, Channel};
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
-use crate::{pac, peripherals, Peripheral, RegExt};
+use crate::{pac, peripherals, Peripheral};
 
 #[cfg(feature = "nightly")]
 mod buffered;
