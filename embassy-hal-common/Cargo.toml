@@ -9,5 +9,6 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
+atomic-polyfill = "1.0.2"
 
 num-traits = { version = "0.2.14", default-features = false }

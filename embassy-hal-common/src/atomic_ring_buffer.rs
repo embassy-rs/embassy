@@ -1,5 +1,6 @@
 use core::slice;
-use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+
+use atomic_polyfill::{AtomicPtr, AtomicUsize, Ordering};
 
 /// Atomic reusable ringbuffer
 ///
