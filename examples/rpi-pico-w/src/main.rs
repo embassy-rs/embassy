@@ -1,4 +1,4 @@
-#![no_std]
+#![no_std] 
 #![no_main]
 #![feature(type_alias_impl_trait)]
 #![feature(async_fn_in_trait)]
@@ -17,6 +17,8 @@ use embedded_hal_async::spi::{ExclusiveDevice, SpiBusFlush, SpiBusRead, SpiBusWr
 use embedded_io::asynch::Write;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
+
+use core::str::from_utf8;
 
 macro_rules! singleton {
     ($val:expr) => {{
@@ -129,7 +131,8 @@ async fn main(spawner: Spawner) {
                 }
             };
 
-            info!("rxd {:02x}", &buf[..n]);
+            info!("rxd {}", from_utf8(&buf[..n]).unwrap());
+
 
             match socket.write_all(&buf[..n]).await {
                 Ok(()) => {}
