@@ -1,5 +1,7 @@
 use embassy_hal_common::{into_ref, PeripheralRef};
-use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
+use embedded_storage::nor_flash::{
+    ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
+};
 
 pub use crate::pac::{ERASE_SIZE, ERASE_VALUE, FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
 use crate::peripherals::FLASH;
@@ -135,6 +137,8 @@ impl<'d> NorFlash for Flash<'d> {
         self.blocking_write(offset, bytes)
     }
 }
+
+impl<'d> MultiwriteNorFlash for Flash<'d> {}
 
 /*
 cfg_if::cfg_if! {
