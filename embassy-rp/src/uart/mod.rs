@@ -135,6 +135,21 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
     }
 }
 
+impl<'d, T: Instance> UartTx<'d, T, Blocking> {
+    #[cfg(feature = "nightly")]
+    pub fn into_buffered(
+        self,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        tx_buffer: &'d mut [u8],
+    ) -> BufferedUartTx<'d, T> {
+        into_ref!(irq);
+
+        buffered::init_buffers::<T>(irq, tx_buffer, &mut []);
+
+        BufferedUartTx { phantom: PhantomData }
+    }
+}
+
 impl<'d, T: Instance> UartTx<'d, T, Async> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let ch = self.tx_dma.as_mut().unwrap();
@@ -200,6 +215,21 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
     }
 }
 
+impl<'d, T: Instance> UartRx<'d, T, Blocking> {
+    #[cfg(feature = "nightly")]
+    pub fn into_buffered(
+        self,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        rx_buffer: &'d mut [u8],
+    ) -> BufferedUartRx<'d, T> {
+        into_ref!(irq);
+
+        buffered::init_buffers::<T>(irq, &mut [], rx_buffer);
+
+        BufferedUartRx { phantom: PhantomData }
+    }
+}
+
 impl<'d, T: Instance> UartRx<'d, T, Async> {
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         let ch = self.rx_dma.as_mut().unwrap();
@@ -248,6 +278,23 @@ impl<'d, T: Instance> Uart<'d, T, Blocking> {
             None,
             config,
         )
+    }
+
+    #[cfg(feature = "nightly")]
+    pub fn into_buffered(
+        self,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+    ) -> BufferedUart<'d, T> {
+        into_ref!(irq);
+
+        buffered::init_buffers::<T>(irq, tx_buffer, rx_buffer);
+
+        BufferedUart {
+            rx: BufferedUartRx { phantom: PhantomData },
+            tx: BufferedUartTx { phantom: PhantomData },
+        }
     }
 }
 
