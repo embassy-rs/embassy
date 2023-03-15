@@ -94,8 +94,7 @@ impl<'a> UdpSocket<'a> {
                 Ok(x) => Poll::Ready(Ok(x)),
                 // No data ready
                 Err(udp::RecvError::Exhausted) => {
-                    //s.register_recv_waker(cx.waker());
-                    cx.waker().wake_by_ref();
+                    s.register_recv_waker(cx.waker());
                     Poll::Pending
                 }
             })
