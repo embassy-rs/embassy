@@ -4,11 +4,14 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_nrf::buffered_uarte::{BufferedUarte, State};
-use embassy_nrf::{interrupt, uarte};
-use embedded_io::asynch::{BufRead, Write};
-use futures::pin_mut;
+use embassy_nrf::buffered_uarte::{self, BufferedUarte};
+use embassy_nrf::{bind_interrupts, peripherals, uarte};
+use embedded_io::asynch::Write;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    UARTE0_UART0 => buffered_uarte::InterruptHandler<peripherals::UARTE0>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -20,25 +23,19 @@ async fn main(_spawner: Spawner) {
     let mut tx_buffer = [0u8; 4096];
     let mut rx_buffer = [0u8; 4096];
 
-    let irq = interrupt::take!(UARTE0_UART0);
-    let mut state = State::new();
-    // Please note - important to have hardware flow control (https://github.com/embassy-rs/embassy/issues/536)
-    let u = BufferedUarte::new(
-        &mut state,
+    let mut u = BufferedUarte::new(
         p.UARTE0,
         p.TIMER0,
         p.PPI_CH0,
         p.PPI_CH1,
-        irq,
+        p.PPI_GROUP0,
+        Irqs,
         p.P0_08,
         p.P0_06,
-        p.P0_07,
-        p.P0_05,
         config,
         &mut rx_buffer,
         &mut tx_buffer,
     );
-    pin_mut!(u);
 
     info!("uarte initialized!");
 

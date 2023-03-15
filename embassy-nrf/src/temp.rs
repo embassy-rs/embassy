@@ -3,6 +3,7 @@
 use core::future::poll_fn;
 use core::task::Poll;
 
+use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -12,27 +13,39 @@ use crate::interrupt::InterruptExt;
 use crate::peripherals::TEMP;
 use crate::{interrupt, pac, Peripheral};
 
+/// Interrupt handler.
+pub struct InterruptHandler {
+    _private: (),
+}
+
+impl interrupt::Handler<interrupt::TEMP> for InterruptHandler {
+    unsafe fn on_interrupt() {
+        let r = unsafe { &*pac::TEMP::PTR };
+        r.intenclr.write(|w| w.datardy().clear());
+        WAKER.wake();
+    }
+}
+
 /// Builtin temperature sensor driver.
 pub struct Temp<'d> {
-    _irq: PeripheralRef<'d, interrupt::TEMP>,
+    _peri: PeripheralRef<'d, TEMP>,
 }
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 impl<'d> Temp<'d> {
     /// Create a new temperature sensor driver.
-    pub fn new(_t: impl Peripheral<P = TEMP> + 'd, irq: impl Peripheral<P = interrupt::TEMP> + 'd) -> Self {
-        into_ref!(_t, irq);
+    pub fn new(
+        _peri: impl Peripheral<P = TEMP> + 'd,
+        _irq: impl interrupt::Binding<interrupt::TEMP, InterruptHandler> + 'd,
+    ) -> Self {
+        into_ref!(_peri);
 
         // Enable interrupt that signals temperature values
-        irq.disable();
-        irq.set_handler(|_| {
-            let t = Self::regs();
-            t.intenclr.write(|w| w.datardy().clear());
-            WAKER.wake();
-        });
-        irq.enable();
-        Self { _irq: irq }
+        unsafe { interrupt::TEMP::steal() }.unpend();
+        unsafe { interrupt::TEMP::steal() }.enable();
+
+        Self { _peri }
     }
 
     /// Perform an asynchronous temperature measurement. The returned future

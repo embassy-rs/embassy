@@ -22,7 +22,7 @@ embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["un
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9" }
 embedded-hal-async = { version = "=0.2.0-alpha.0", optional = true }
 embedded-storage = "0.3.0"
-embedded-storage-async = { version = "0.3.0", optional = true }
+embedded-storage-async = { version = "0.4.0", optional = true }
 nb = "1.0.0"
 
 defmt = { version = "0.3", optional = true }

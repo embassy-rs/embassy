@@ -146,6 +146,9 @@ embassy_hal_common::peripherals! {
 
     // I2S
     I2S,
+
+    // PDM
+    PDM,
 }
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
@@ -167,6 +170,12 @@ impl_twis!(TWISPI1, TWIS1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
 impl_pwm!(PWM0, PWM0, PWM0);
 impl_pwm!(PWM1, PWM1, PWM1);
 impl_pwm!(PWM2, PWM2, PWM2);
+
+impl_pdm!(PDM, PDM, PDM);
+
+impl_qdec!(QDEC, QDEC, QDEC);
+
+impl_rng!(RNG, RNG, RNG);
 
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);

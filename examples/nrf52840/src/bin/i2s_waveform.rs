@@ -7,12 +7,16 @@ use core::f32::consts::PI;
 use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_nrf::i2s::{self, Channels, Config, DoubleBuffering, MasterClock, Sample as _, SampleWidth, I2S};
-use embassy_nrf::interrupt;
+use embassy_nrf::{bind_interrupts, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 type Sample = i16;
 
 const NUM_SAMPLES: usize = 50;
+
+bind_interrupts!(struct Irqs {
+    I2S => i2s::InterruptHandler<peripherals::I2S>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -27,10 +31,9 @@ async fn main(_spawner: Spawner) {
     config.sample_width = SampleWidth::_16bit;
     config.channels = Channels::MonoLeft;
 
-    let irq = interrupt::take!(I2S);
     let buffers = DoubleBuffering::<Sample, NUM_SAMPLES>::new();
     let mut output_stream =
-        I2S::master(p.I2S, irq, p.P0_25, p.P0_26, p.P0_27, master_clock, config).output(p.P0_28, buffers);
+        I2S::new_master(p.I2S, Irqs, p.P0_25, p.P0_26, p.P0_27, master_clock, config).output(p.P0_28, buffers);
 
     let mut waveform = Waveform::new(1.0 / sample_rate as f32);
 

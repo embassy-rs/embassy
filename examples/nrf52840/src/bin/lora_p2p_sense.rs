@@ -12,12 +12,16 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_lora::sx126x::*;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pin as _, Pull};
-use embassy_nrf::{interrupt, spim};
+use embassy_nrf::{bind_interrupts, peripherals, spim};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::pubsub::{PubSubChannel, Publisher};
 use embassy_time::{Duration, Timer};
 use lorawan_device::async_device::radio::{Bandwidth, CodingRate, PhyRxTx, RfConfig, SpreadingFactor, TxConfig};
 use {defmt_rtt as _, panic_probe as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1 => spim::InterruptHandler<peripherals::TWISPI1>;
+});
 
 // Message bus: queue of 2, 1 subscriber (Lora P2P), 2 publishers (temperature, motion detection)
 static MESSAGE_BUS: PubSubChannel<CriticalSectionRawMutex, Message, 2, 1, 2> = PubSubChannel::new();
@@ -58,8 +62,7 @@ async fn main(spawner: Spawner) {
     spi_config.frequency = spim::Frequency::M16;
 
     let mut radio = {
-        let irq = interrupt::take!(SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
-        let spim = spim::Spim::new(p.TWISPI1, irq, p.P1_11, p.P1_13, p.P1_12, spi_config);
+        let spim = spim::Spim::new(p.TWISPI1, Irqs, p.P1_11, p.P1_13, p.P1_12, spi_config);
 
         let cs = Output::new(p.P1_10.degrade(), Level::High, OutputDrive::Standard);
         let reset = Output::new(p.P1_06.degrade(), Level::High, OutputDrive::Standard);

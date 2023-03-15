@@ -4,16 +4,20 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_nrf::interrupt;
-use embassy_nrf::pdm::{Config, Pdm};
+use embassy_nrf::pdm::{self, Config, Pdm};
+use embassy_nrf::{bind_interrupts, peripherals};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    PDM => pdm::InterruptHandler<peripherals::PDM>;
+});
 
 #[embassy_executor::main]
 async fn main(_p: Spawner) {
     let p = embassy_nrf::init(Default::default());
     let config = Config::default();
-    let mut pdm = Pdm::new(p.PDM, interrupt::take!(PDM), p.P0_01, p.P0_00, config);
+    let mut pdm = Pdm::new(p.PDM, Irqs, p.P0_01, p.P0_00, config);
 
     loop {
         pdm.start().await;

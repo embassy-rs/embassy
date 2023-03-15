@@ -3,6 +3,7 @@
 #![macro_use]
 
 use core::future::{poll_fn, Future};
+use core::marker::PhantomData;
 use core::sync::atomic::compiler_fence;
 use core::sync::atomic::Ordering::SeqCst;
 use core::task::Poll;
@@ -15,7 +16,7 @@ use embassy_time::{Duration, Instant};
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::Pin as GpioPin;
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::{self, Interrupt, InterruptExt};
 use crate::util::{slice_in_ram, slice_in_ram_or};
 use crate::{gpio, pac, Peripheral};
 
@@ -92,6 +93,27 @@ pub enum Error {
     Timeout,
 }
 
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let r = T::regs();
+        let s = T::state();
+
+        if r.events_stopped.read().bits() != 0 {
+            s.end_waker.wake();
+            r.intenclr.write(|w| w.stopped().clear());
+        }
+        if r.events_error.read().bits() != 0 {
+            s.end_waker.wake();
+            r.intenclr.write(|w| w.error().clear());
+        }
+    }
+}
+
 /// TWI driver.
 pub struct Twim<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
@@ -101,12 +123,12 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// Create a new TWI driver.
     pub fn new(
         twim: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sda: impl Peripheral<P = impl GpioPin> + 'd,
         scl: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(twim, irq, sda, scl);
+        into_ref!(twim, sda, scl);
 
         let r = T::regs();
 
@@ -152,25 +174,10 @@ impl<'d, T: Instance> Twim<'d, T> {
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
 
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         Self { _p: twim }
-    }
-
-    fn on_interrupt(_: *mut ()) {
-        let r = T::regs();
-        let s = T::state();
-
-        if r.events_stopped.read().bits() != 0 {
-            s.end_waker.wake();
-            r.intenclr.write(|w| w.stopped().clear());
-        }
-        if r.events_error.read().bits() != 0 {
-            s.end_waker.wake();
-            r.intenclr.write(|w| w.error().clear());
-        }
     }
 
     /// Set TX buffer, checking that it is in RAM and has suitable length.

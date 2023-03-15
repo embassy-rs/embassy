@@ -5,6 +5,7 @@
 mod _version;
 pub mod generic_smi;
 
+use core::mem::MaybeUninit;
 use core::task::Context;
 
 use embassy_net_driver::{Capabilities, LinkState};
@@ -37,6 +38,13 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
             rx_desc: [NEW_RDES; RX],
             tx_buf: [Packet([0; TX_BUFFER_SIZE]); TX],
             rx_buf: [Packet([0; RX_BUFFER_SIZE]); RX],
+        }
+    }
+
+    // Allow to initialize a Self without requiring it to go on the stack
+    pub fn init(this: &mut MaybeUninit<Self>) {
+        unsafe {
+            this.as_mut_ptr().write_bytes(0u8, 1);
         }
     }
 }

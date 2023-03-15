@@ -1,11 +1,12 @@
-#![feature(type_alias_impl_trait)]
+#![feature(async_fn_in_trait)]
+#![allow(incomplete_features)]
 #![no_std]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 mod fmt;
 
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
-use embedded_storage_async::nor_flash::AsyncNorFlash;
+use embedded_storage_async::nor_flash::NorFlash as AsyncNorFlash;
 
 const BOOT_MAGIC: u8 = 0xD0;
 const SWAP_MAGIC: u8 = 0xF0;
@@ -1196,10 +1197,9 @@ impl FirmwareWriter {
 #[cfg(test)]
 mod tests {
     use core::convert::Infallible;
-    use core::future::Future;
 
     use embedded_storage::nor_flash::ErrorType;
-    use embedded_storage_async::nor_flash::AsyncReadNorFlash;
+    use embedded_storage_async::nor_flash::ReadNorFlash as AsyncReadNorFlash;
     use futures::executor::block_on;
 
     use super::*;
@@ -1535,13 +1535,10 @@ mod tests {
     {
         const READ_SIZE: usize = 1;
 
-        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a;
-        fn read<'a>(&'a mut self, offset: u32, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            async move {
-                let len = buf.len();
-                buf[..].copy_from_slice(&self.0[offset as usize..offset as usize + len]);
-                Ok(())
-            }
+        async fn read(&mut self, offset: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
+            let len = buf.len();
+            buf[..].copy_from_slice(&self.0[offset as usize..offset as usize + len]);
+            Ok(())
         }
 
         fn capacity(&self) -> usize {
@@ -1555,38 +1552,32 @@ mod tests {
         const WRITE_SIZE: usize = WRITE_SIZE;
         const ERASE_SIZE: usize = ERASE_SIZE;
 
-        type EraseFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a;
-        fn erase(&mut self, from: u32, to: u32) -> Self::EraseFuture<'_> {
-            async move {
-                let from = from as usize;
-                let to = to as usize;
-                assert!(from % ERASE_SIZE == 0);
-                assert!(to % ERASE_SIZE == 0);
-                for i in from..to {
-                    self.0[i] = 0xFF;
-                }
-                Ok(())
+        async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+            let from = from as usize;
+            let to = to as usize;
+            assert!(from % ERASE_SIZE == 0);
+            assert!(to % ERASE_SIZE == 0);
+            for i in from..to {
+                self.0[i] = 0xFF;
             }
+            Ok(())
         }
 
-        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a;
-        fn write<'a>(&'a mut self, offset: u32, data: &'a [u8]) -> Self::WriteFuture<'a> {
+        async fn write(&mut self, offset: u32, data: &[u8]) -> Result<(), Self::Error> {
             info!("Writing {} bytes to 0x{:x}", data.len(), offset);
-            async move {
-                assert!(data.len() % WRITE_SIZE == 0);
-                assert!(offset as usize % WRITE_SIZE == 0);
-                assert!(
-                    offset as usize + data.len() <= SIZE,
-                    "OFFSET: {}, LEN: {}, FLASH SIZE: {}",
-                    offset,
-                    data.len(),
-                    SIZE
-                );
+            assert!(data.len() % WRITE_SIZE == 0);
+            assert!(offset as usize % WRITE_SIZE == 0);
+            assert!(
+                offset as usize + data.len() <= SIZE,
+                "OFFSET: {}, LEN: {}, FLASH SIZE: {}",
+                offset,
+                data.len(),
+                SIZE
+            );
 
-                self.0[offset as usize..offset as usize + data.len()].copy_from_slice(data);
+            self.0[offset as usize..offset as usize + data.len()].copy_from_slice(data);
 
-                Ok(())
-            }
+            Ok(())
         }
     }
 }

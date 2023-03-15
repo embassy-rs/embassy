@@ -13,7 +13,7 @@ const ADDRESS: u8 = 0x5F;
 const WHOAMI: u8 = 0x0F;
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     let irq = interrupt::take!(I2C2_EV);
     let mut i2c = I2c::new(

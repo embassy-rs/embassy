@@ -28,30 +28,23 @@ impl State {
 }
 
 pub struct BufferedUart<'d, T: Instance> {
-    rx: BufferedUartRx<'d, T>,
-    tx: BufferedUartTx<'d, T>,
+    pub(crate) rx: BufferedUartRx<'d, T>,
+    pub(crate) tx: BufferedUartTx<'d, T>,
 }
 
 pub struct BufferedUartRx<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+    pub(crate) phantom: PhantomData<&'d mut T>,
 }
 
 pub struct BufferedUartTx<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+    pub(crate) phantom: PhantomData<&'d mut T>,
 }
 
-fn init<'d, T: Instance + 'd>(
+pub(crate) fn init_buffers<'d, T: Instance + 'd>(
     irq: PeripheralRef<'d, T::Interrupt>,
-    tx: Option<PeripheralRef<'d, AnyPin>>,
-    rx: Option<PeripheralRef<'d, AnyPin>>,
-    rts: Option<PeripheralRef<'d, AnyPin>>,
-    cts: Option<PeripheralRef<'d, AnyPin>>,
     tx_buffer: &'d mut [u8],
     rx_buffer: &'d mut [u8],
-    config: Config,
 ) {
-    super::Uart::<'d, T, Async>::init(tx, rx, rts, cts, config);
-
     let state = T::state();
     let len = tx_buffer.len();
     unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
@@ -69,7 +62,13 @@ fn init<'d, T: Instance + 'd>(
     // we clear it after it happens. The downside is that the we manually have
     // to pend the ISR when we want data transmission to start.
     let regs = T::regs();
-    unsafe { regs.uartimsc().write_set(|w| w.set_txim(true)) };
+    unsafe {
+        regs.uartimsc().write_set(|w| {
+            w.set_rxim(true);
+            w.set_rtim(true);
+            w.set_txim(true);
+        });
+    };
 
     irq.set_handler(on_interrupt::<T>);
     irq.unpend();
@@ -87,16 +86,10 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(irq, tx, rx);
-        init::<T>(
-            irq,
-            Some(tx.map_into()),
-            Some(rx.map_into()),
-            None,
-            None,
-            tx_buffer,
-            rx_buffer,
-            config,
-        );
+
+        super::Uart::<'d, T, Async>::init(Some(tx.map_into()), Some(rx.map_into()), None, None, config);
+        init_buffers::<T>(irq, tx_buffer, rx_buffer);
+
         Self {
             rx: BufferedUartRx { phantom: PhantomData },
             tx: BufferedUartTx { phantom: PhantomData },
@@ -115,20 +108,32 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(irq, tx, rx, cts, rts);
-        init::<T>(
-            irq,
+
+        super::Uart::<'d, T, Async>::init(
             Some(tx.map_into()),
             Some(rx.map_into()),
             Some(rts.map_into()),
             Some(cts.map_into()),
-            tx_buffer,
-            rx_buffer,
             config,
         );
+        init_buffers::<T>(irq, tx_buffer, rx_buffer);
+
         Self {
             rx: BufferedUartRx { phantom: PhantomData },
             tx: BufferedUartTx { phantom: PhantomData },
         }
+    }
+
+    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.tx.blocking_write(buffer)
+    }
+
+    pub fn blocking_flush(&mut self) -> Result<(), Error> {
+        self.tx.blocking_flush()
+    }
+
+    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.rx.blocking_read(buffer)
     }
 
     pub fn split(self) -> (BufferedUartRx<'d, T>, BufferedUartTx<'d, T>) {
@@ -145,7 +150,10 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(irq, rx);
-        init::<T>(irq, None, Some(rx.map_into()), None, None, &mut [], rx_buffer, config);
+
+        super::Uart::<'d, T, Async>::init(None, Some(rx.map_into()), None, None, config);
+        init_buffers::<T>(irq, &mut [], rx_buffer);
+
         Self { phantom: PhantomData }
     }
 
@@ -158,16 +166,10 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(irq, rx, rts);
-        init::<T>(
-            irq,
-            None,
-            Some(rx.map_into()),
-            Some(rts.map_into()),
-            None,
-            &mut [],
-            rx_buffer,
-            config,
-        );
+
+        super::Uart::<'d, T, Async>::init(None, Some(rx.map_into()), Some(rts.map_into()), None, config);
+        init_buffers::<T>(irq, &mut [], rx_buffer);
+
         Self { phantom: PhantomData }
     }
 
@@ -197,6 +199,32 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
 
             Poll::Ready(Ok(n))
         })
+    }
+
+    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<(), Error> {
+        loop {
+            let state = T::state();
+            let mut rx_reader = unsafe { state.rx_buf.reader() };
+            let n = rx_reader.pop(|data| {
+                let n = data.len().min(buf.len());
+                buf[..n].copy_from_slice(&data[..n]);
+                n
+            });
+
+            if n > 0 {
+                // (Re-)Enable the interrupt to receive more data in case it was
+                // disabled because the buffer was full.
+                let regs = T::regs();
+                unsafe {
+                    regs.uartimsc().write_set(|w| {
+                        w.set_rxim(true);
+                        w.set_rtim(true);
+                    });
+                }
+
+                return Ok(());
+            }
+        }
     }
 
     fn fill_buf<'a>() -> impl Future<Output = Result<&'a [u8], Error>> {
@@ -240,7 +268,10 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(irq, tx);
-        init::<T>(irq, Some(tx.map_into()), None, None, None, tx_buffer, &mut [], config);
+
+        super::Uart::<'d, T, Async>::init(Some(tx.map_into()), None, None, None, config);
+        init_buffers::<T>(irq, tx_buffer, &mut []);
+
         Self { phantom: PhantomData }
     }
 
@@ -253,16 +284,10 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(irq, tx, cts);
-        init::<T>(
-            irq,
-            Some(tx.map_into()),
-            None,
-            None,
-            Some(cts.map_into()),
-            tx_buffer,
-            &mut [],
-            config,
-        );
+
+        super::Uart::<'d, T, Async>::init(Some(tx.map_into()), None, None, Some(cts.map_into()), config);
+        init_buffers::<T>(irq, tx_buffer, &mut []);
+
         Self { phantom: PhantomData }
     }
 
@@ -299,6 +324,36 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
 
             Poll::Ready(Ok(()))
         })
+    }
+
+    pub fn blocking_write(&mut self, buf: &[u8]) -> Result<(), Error> {
+        loop {
+            let state = T::state();
+            let mut tx_writer = unsafe { state.tx_buf.writer() };
+            let n = tx_writer.push(|data| {
+                let n = data.len().min(buf.len());
+                data[..n].copy_from_slice(&buf[..n]);
+                n
+            });
+
+            if n != 0 {
+                // The TX interrupt only triggers when the there was data in the
+                // FIFO and the number of bytes drops below a threshold. When the
+                // FIFO was empty we have to manually pend the interrupt to shovel
+                // TX data from the buffer into the FIFO.
+                unsafe { T::Interrupt::steal() }.pend();
+                return Ok(());
+            }
+        }
+    }
+
+    pub fn blocking_flush(&mut self) -> Result<(), Error> {
+        loop {
+            let state = T::state();
+            if state.tx_buf.is_empty() {
+                return Ok(());
+            }
+        }
     }
 }
 
@@ -475,5 +530,192 @@ impl<'d, T: Instance + 'd> embedded_io::asynch::Write for BufferedUartTx<'d, T> 
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
         Self::flush().await
+    }
+}
+
+mod eh02 {
+    use super::*;
+
+    impl<'d, T: Instance> embedded_hal_02::serial::Read<u8> for BufferedUartRx<'d, T> {
+        type Error = Error;
+
+        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+            let r = T::regs();
+            unsafe {
+                if r.uartfr().read().rxfe() {
+                    return Err(nb::Error::WouldBlock);
+                }
+
+                let dr = r.uartdr().read();
+
+                if dr.oe() {
+                    Err(nb::Error::Other(Error::Overrun))
+                } else if dr.be() {
+                    Err(nb::Error::Other(Error::Break))
+                } else if dr.pe() {
+                    Err(nb::Error::Other(Error::Parity))
+                } else if dr.fe() {
+                    Err(nb::Error::Other(Error::Framing))
+                } else {
+                    Ok(dr.data())
+                }
+            }
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_02::blocking::serial::Write<u8> for BufferedUartTx<'d, T> {
+        type Error = Error;
+
+        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn bflush(&mut self) -> Result<(), Self::Error> {
+            self.blocking_flush()
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_02::serial::Read<u8> for BufferedUart<'d, T> {
+        type Error = Error;
+
+        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+            embedded_hal_02::serial::Read::read(&mut self.rx)
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_02::blocking::serial::Write<u8> for BufferedUart<'d, T> {
+        type Error = Error;
+
+        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn bflush(&mut self) -> Result<(), Self::Error> {
+            self.blocking_flush()
+        }
+    }
+}
+
+#[cfg(feature = "unstable-traits")]
+mod eh1 {
+    use super::*;
+
+    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for BufferedUart<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for BufferedUartTx<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for BufferedUartRx<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_nb::serial::Read for BufferedUartRx<'d, T> {
+        fn read(&mut self) -> nb::Result<u8, Self::Error> {
+            embedded_hal_02::serial::Read::read(self)
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::serial::Write for BufferedUartTx<'d, T> {
+        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            self.blocking_flush()
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_nb::serial::Write for BufferedUartTx<'d, T> {
+        fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
+            self.blocking_write(&[char]).map_err(nb::Error::Other)
+        }
+
+        fn flush(&mut self) -> nb::Result<(), Self::Error> {
+            self.blocking_flush().map_err(nb::Error::Other)
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_nb::serial::Read for BufferedUart<'d, T> {
+        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+            embedded_hal_02::serial::Read::read(&mut self.rx)
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_1::serial::Write for BufferedUart<'d, T> {
+        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(buffer)
+        }
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            self.blocking_flush()
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_nb::serial::Write for BufferedUart<'d, T> {
+        fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
+            self.blocking_write(&[char]).map_err(nb::Error::Other)
+        }
+
+        fn flush(&mut self) -> nb::Result<(), Self::Error> {
+            self.blocking_flush().map_err(nb::Error::Other)
+        }
+    }
+}
+
+#[cfg(all(
+    feature = "unstable-traits",
+    feature = "nightly",
+    feature = "_todo_embedded_hal_serial"
+))]
+mod eha {
+    use core::future::Future;
+
+    use super::*;
+
+    impl<'d, T: Instance> embedded_hal_async::serial::Write for BufferedUartTx<'d, T> {
+        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+            Self::write(buf)
+        }
+
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            Self::flush()
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::serial::Read for BufferedUartRx<'d, T> {
+        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            Self::read(buf)
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::serial::Write for BufferedUart<'d, T> {
+        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+            BufferedUartTx::<'d, T>::write(buf)
+        }
+
+        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
+            BufferedUartTx::<'d, T>::flush()
+        }
+    }
+
+    impl<'d, T: Instance> embedded_hal_async::serial::Read for BufferedUart<'d, T> {
+        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+
+        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+            BufferedUartRx::<'d, T>::read(buf)
+        }
     }
 }

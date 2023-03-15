@@ -2,10 +2,12 @@
 
 #![macro_use]
 
+pub mod vbus_detect;
+
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
-use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 use core::task::Poll;
 
 use cortex_m::peripheral::NVIC;
@@ -15,7 +17,8 @@ use embassy_usb_driver as driver;
 use embassy_usb_driver::{Direction, EndpointAddress, EndpointError, EndpointInfo, EndpointType, Event, Unsupported};
 use pac::usbd::RegisterBlock;
 
-use crate::interrupt::{Interrupt, InterruptExt};
+use self::vbus_detect::VbusDetect;
+use crate::interrupt::{self, Interrupt, InterruptExt};
 use crate::util::slice_in_ram;
 use crate::{pac, Peripheral};
 
@@ -26,185 +29,13 @@ static EP_IN_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
 static EP_OUT_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
 static READY_ENDPOINTS: AtomicU32 = AtomicU32::new(0);
 
-/// Trait for detecting USB VBUS power.
-///
-/// There are multiple ways to detect USB power. The behavior
-/// here provides a hook into determining whether it is.
-pub trait VbusDetect {
-    /// Report whether power is detected.
-    ///
-    /// This is indicated by the `USBREGSTATUS.VBUSDETECT` register, or the
-    /// `USBDETECTED`, `USBREMOVED` events from the `POWER` peripheral.
-    fn is_usb_detected(&self) -> bool;
-
-    /// Wait until USB power is ready.
-    ///
-    /// USB power ready is indicated by the `USBREGSTATUS.OUTPUTRDY` register, or the
-    /// `USBPWRRDY` event from the `POWER` peripheral.
-    async fn wait_power_ready(&mut self) -> Result<(), ()>;
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
 }
 
-/// [`VbusDetect`] implementation using the native hardware POWER peripheral.
-///
-/// Unsuitable for usage with the nRF softdevice, since it reserves exclusive acces
-/// to POWER. In that case, use [`VbusDetectSignal`].
-#[cfg(not(feature = "_nrf5340-app"))]
-pub struct HardwareVbusDetect {
-    _private: (),
-}
-
-static POWER_WAKER: AtomicWaker = NEW_AW;
-
-#[cfg(not(feature = "_nrf5340-app"))]
-impl HardwareVbusDetect {
-    /// Create a new `VbusDetectNative`.
-    pub fn new(power_irq: impl Interrupt) -> Self {
-        let regs = unsafe { &*pac::POWER::ptr() };
-
-        power_irq.set_handler(Self::on_interrupt);
-        power_irq.unpend();
-        power_irq.enable();
-
-        regs.intenset
-            .write(|w| w.usbdetected().set().usbremoved().set().usbpwrrdy().set());
-
-        Self { _private: () }
-    }
-
-    #[cfg(not(feature = "_nrf5340-app"))]
-    fn on_interrupt(_: *mut ()) {
-        let regs = unsafe { &*pac::POWER::ptr() };
-
-        if regs.events_usbdetected.read().bits() != 0 {
-            regs.events_usbdetected.reset();
-            BUS_WAKER.wake();
-        }
-
-        if regs.events_usbremoved.read().bits() != 0 {
-            regs.events_usbremoved.reset();
-            BUS_WAKER.wake();
-            POWER_WAKER.wake();
-        }
-
-        if regs.events_usbpwrrdy.read().bits() != 0 {
-            regs.events_usbpwrrdy.reset();
-            POWER_WAKER.wake();
-        }
-    }
-}
-
-#[cfg(not(feature = "_nrf5340-app"))]
-impl VbusDetect for HardwareVbusDetect {
-    fn is_usb_detected(&self) -> bool {
-        let regs = unsafe { &*pac::POWER::ptr() };
-        regs.usbregstatus.read().vbusdetect().is_vbus_present()
-    }
-
-    async fn wait_power_ready(&mut self) -> Result<(), ()> {
-        poll_fn(move |cx| {
-            POWER_WAKER.register(cx.waker());
-            let regs = unsafe { &*pac::POWER::ptr() };
-
-            if regs.usbregstatus.read().outputrdy().is_ready() {
-                Poll::Ready(Ok(()))
-            } else if !self.is_usb_detected() {
-                Poll::Ready(Err(()))
-            } else {
-                Poll::Pending
-            }
-        })
-        .await
-    }
-}
-
-/// Software-backed [`VbusDetect`] implementation.
-///
-/// This implementation does not interact with the hardware, it allows user code
-/// to notify the power events by calling functions instead.
-///
-/// This is suitable for use with the nRF softdevice, by calling the functions
-/// when the softdevice reports power-related events.
-pub struct SoftwareVbusDetect {
-    usb_detected: AtomicBool,
-    power_ready: AtomicBool,
-}
-
-impl SoftwareVbusDetect {
-    /// Create a new `SoftwareVbusDetect`.
-    pub fn new(usb_detected: bool, power_ready: bool) -> Self {
-        BUS_WAKER.wake();
-
-        Self {
-            usb_detected: AtomicBool::new(usb_detected),
-            power_ready: AtomicBool::new(power_ready),
-        }
-    }
-
-    /// Report whether power was detected.
-    ///
-    /// Equivalent to the `USBDETECTED`, `USBREMOVED` events from the `POWER` peripheral.
-    pub fn detected(&self, detected: bool) {
-        self.usb_detected.store(detected, Ordering::Relaxed);
-        self.power_ready.store(false, Ordering::Relaxed);
-        BUS_WAKER.wake();
-        POWER_WAKER.wake();
-    }
-
-    /// Report when USB power is ready.
-    ///
-    /// Equivalent to the `USBPWRRDY` event from the `POWER` peripheral.
-    pub fn ready(&self) {
-        self.power_ready.store(true, Ordering::Relaxed);
-        POWER_WAKER.wake();
-    }
-}
-
-impl VbusDetect for &SoftwareVbusDetect {
-    fn is_usb_detected(&self) -> bool {
-        self.usb_detected.load(Ordering::Relaxed)
-    }
-
-    async fn wait_power_ready(&mut self) -> Result<(), ()> {
-        poll_fn(move |cx| {
-            POWER_WAKER.register(cx.waker());
-
-            if self.power_ready.load(Ordering::Relaxed) {
-                Poll::Ready(Ok(()))
-            } else if !self.usb_detected.load(Ordering::Relaxed) {
-                Poll::Ready(Err(()))
-            } else {
-                Poll::Pending
-            }
-        })
-        .await
-    }
-}
-
-/// USB driver.
-pub struct Driver<'d, T: Instance, P: VbusDetect> {
-    _p: PeripheralRef<'d, T>,
-    alloc_in: Allocator,
-    alloc_out: Allocator,
-    usb_supply: P,
-}
-
-impl<'d, T: Instance, P: VbusDetect> Driver<'d, T, P> {
-    /// Create a new USB driver.
-    pub fn new(usb: impl Peripheral<P = T> + 'd, irq: impl Peripheral<P = T::Interrupt> + 'd, usb_supply: P) -> Self {
-        into_ref!(usb, irq);
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
-
-        Self {
-            _p: usb,
-            alloc_in: Allocator::new(),
-            alloc_out: Allocator::new(),
-            usb_supply,
-        }
-    }
-
-    fn on_interrupt(_: *mut ()) {
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
         let regs = T::regs();
 
         if regs.events_usbreset.read().bits() != 0 {
@@ -255,11 +86,40 @@ impl<'d, T: Instance, P: VbusDetect> Driver<'d, T, P> {
     }
 }
 
-impl<'d, T: Instance, P: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, T, P> {
+/// USB driver.
+pub struct Driver<'d, T: Instance, V: VbusDetect> {
+    _p: PeripheralRef<'d, T>,
+    alloc_in: Allocator,
+    alloc_out: Allocator,
+    vbus_detect: V,
+}
+
+impl<'d, T: Instance, V: VbusDetect> Driver<'d, T, V> {
+    /// Create a new USB driver.
+    pub fn new(
+        usb: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        vbus_detect: V,
+    ) -> Self {
+        into_ref!(usb);
+
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
+
+        Self {
+            _p: usb,
+            alloc_in: Allocator::new(),
+            alloc_out: Allocator::new(),
+            vbus_detect,
+        }
+    }
+}
+
+impl<'d, T: Instance, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, T, V> {
     type EndpointOut = Endpoint<'d, T, Out>;
     type EndpointIn = Endpoint<'d, T, In>;
     type ControlPipe = ControlPipe<'d, T>;
-    type Bus = Bus<'d, T, P>;
+    type Bus = Bus<'d, T, V>;
 
     fn alloc_endpoint_in(
         &mut self,
@@ -298,7 +158,7 @@ impl<'d, T: Instance, P: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, T, P
             Bus {
                 _p: unsafe { self._p.clone_unchecked() },
                 power_available: false,
-                usb_supply: self.usb_supply,
+                vbus_detect: self.vbus_detect,
             },
             ControlPipe {
                 _p: self._p,
@@ -309,13 +169,13 @@ impl<'d, T: Instance, P: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, T, P
 }
 
 /// USB bus.
-pub struct Bus<'d, T: Instance, P: VbusDetect> {
+pub struct Bus<'d, T: Instance, V: VbusDetect> {
     _p: PeripheralRef<'d, T>,
     power_available: bool,
-    usb_supply: P,
+    vbus_detect: V,
 }
 
-impl<'d, T: Instance, P: VbusDetect> driver::Bus for Bus<'d, T, P> {
+impl<'d, T: Instance, V: VbusDetect> driver::Bus for Bus<'d, T, V> {
     async fn enable(&mut self) {
         let regs = T::regs();
 
@@ -347,7 +207,7 @@ impl<'d, T: Instance, P: VbusDetect> driver::Bus for Bus<'d, T, P> {
             w
         });
 
-        if self.usb_supply.wait_power_ready().await.is_ok() {
+        if self.vbus_detect.wait_power_ready().await.is_ok() {
             // Enable the USB pullup, allowing enumeration.
             regs.usbpullup.write(|w| w.connect().enabled());
             trace!("enabled");
@@ -406,7 +266,7 @@ impl<'d, T: Instance, P: VbusDetect> driver::Bus for Bus<'d, T, P> {
                 trace!("USB event: ready");
             }
 
-            if self.usb_supply.is_usb_detected() != self.power_available {
+            if self.vbus_detect.is_usb_detected() != self.power_available {
                 self.power_available = !self.power_available;
                 if self.power_available {
                     trace!("Power event: available");

@@ -135,6 +135,21 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
     }
 }
 
+impl<'d, T: Instance> UartTx<'d, T, Blocking> {
+    #[cfg(feature = "nightly")]
+    pub fn into_buffered(
+        self,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        tx_buffer: &'d mut [u8],
+    ) -> BufferedUartTx<'d, T> {
+        into_ref!(irq);
+
+        buffered::init_buffers::<T>(irq, tx_buffer, &mut []);
+
+        BufferedUartTx { phantom: PhantomData }
+    }
+}
+
 impl<'d, T: Instance> UartTx<'d, T, Async> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let ch = self.tx_dma.as_mut().unwrap();
@@ -200,6 +215,21 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
     }
 }
 
+impl<'d, T: Instance> UartRx<'d, T, Blocking> {
+    #[cfg(feature = "nightly")]
+    pub fn into_buffered(
+        self,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        rx_buffer: &'d mut [u8],
+    ) -> BufferedUartRx<'d, T> {
+        into_ref!(irq);
+
+        buffered::init_buffers::<T>(irq, &mut [], rx_buffer);
+
+        BufferedUartRx { phantom: PhantomData }
+    }
+}
+
 impl<'d, T: Instance> UartRx<'d, T, Async> {
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         let ch = self.rx_dma.as_mut().unwrap();
@@ -248,6 +278,23 @@ impl<'d, T: Instance> Uart<'d, T, Blocking> {
             None,
             config,
         )
+    }
+
+    #[cfg(feature = "nightly")]
+    pub fn into_buffered(
+        self,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+    ) -> BufferedUart<'d, T> {
+        into_ref!(irq);
+
+        buffered::init_buffers::<T>(irq, tx_buffer, rx_buffer);
+
+        BufferedUart {
+            rx: BufferedUartRx { phantom: PhantomData },
+            tx: BufferedUartTx { phantom: PhantomData },
+        }
     }
 }
 
@@ -299,7 +346,7 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
     }
 }
 
-impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
+impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
     fn new_inner(
         _uart: impl Peripheral<P = T> + 'd,
         mut tx: PeripheralRef<'d, AnyPin>,
@@ -350,23 +397,7 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
                 pin.pad_ctrl().write(|w| w.set_ie(true));
             }
 
-            let clk_base = crate::clocks::clk_peri_freq();
-
-            let baud_rate_div = (8 * clk_base) / config.baudrate;
-            let mut baud_ibrd = baud_rate_div >> 7;
-            let mut baud_fbrd = ((baud_rate_div & 0x7f) + 1) / 2;
-
-            if baud_ibrd == 0 {
-                baud_ibrd = 1;
-                baud_fbrd = 0;
-            } else if baud_ibrd >= 65535 {
-                baud_ibrd = 65535;
-                baud_fbrd = 0;
-            }
-
-            // Load PL011's baud divisor registers
-            r.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
-            r.uartfbrd().write_value(pac::uart::regs::Uartfbrd(baud_fbrd));
+            Self::set_baudrate_inner(config.baudrate);
 
             let (pen, eps) = match config.parity {
                 Parity::ParityNone => (false, false),
@@ -398,6 +429,35 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
                 w.set_ctsen(cts.is_some());
                 w.set_rtsen(rts.is_some());
             });
+        }
+    }
+
+    /// sets baudrate on runtime    
+    pub fn set_baudrate(&mut self, baudrate: u32) {
+        Self::set_baudrate_inner(baudrate);
+    }
+
+    fn set_baudrate_inner(baudrate: u32) {
+        let r = T::regs();
+
+        let clk_base = crate::clocks::clk_peri_freq();
+
+        let baud_rate_div = (8 * clk_base) / baudrate;
+        let mut baud_ibrd = baud_rate_div >> 7;
+        let mut baud_fbrd = ((baud_rate_div & 0x7f) + 1) / 2;
+
+        if baud_ibrd == 0 {
+            baud_ibrd = 1;
+            baud_fbrd = 0;
+        } else if baud_ibrd >= 65535 {
+            baud_ibrd = 65535;
+            baud_fbrd = 0;
+        }
+
+        unsafe {
+            // Load PL011's baud divisor registers
+            r.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
+            r.uartfbrd().write_value(pac::uart::regs::Uartfbrd(baud_fbrd));
         }
     }
 }

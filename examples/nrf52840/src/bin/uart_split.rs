@@ -6,12 +6,16 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nrf::peripherals::UARTE0;
 use embassy_nrf::uarte::UarteRx;
-use embassy_nrf::{interrupt, uarte};
+use embassy_nrf::{bind_interrupts, uarte};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use {defmt_rtt as _, panic_probe as _};
 
 static CHANNEL: Channel<ThreadModeRawMutex, [u8; 8], 1> = Channel::new();
+
+bind_interrupts!(struct Irqs {
+    UARTE0_UART0 => uarte::InterruptHandler<UARTE0>;
+});
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -20,8 +24,7 @@ async fn main(spawner: Spawner) {
     config.parity = uarte::Parity::EXCLUDED;
     config.baudrate = uarte::Baudrate::BAUD115200;
 
-    let irq = interrupt::take!(UARTE0_UART0);
-    let uart = uarte::Uarte::new(p.UARTE0, irq, p.P0_08, p.P0_06, config);
+    let uart = uarte::Uarte::new(p.UARTE0, Irqs, p.P0_08, p.P0_06, config);
     let (mut tx, rx) = uart.split();
 
     info!("uarte initialized!");

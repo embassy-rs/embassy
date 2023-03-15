@@ -15,7 +15,7 @@ const ADDRESS: u8 = 0x5F;
 const WHOAMI: u8 = 0x0F;
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(_spawner: Spawner) {
     info!("Hello world!");
     let p = embassy_stm32::init(Default::default());
 

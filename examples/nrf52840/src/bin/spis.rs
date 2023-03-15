@@ -4,17 +4,20 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_nrf::interrupt;
 use embassy_nrf::spis::{Config, Spis};
+use embassy_nrf::{bind_interrupts, peripherals, spis};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    SPIM2_SPIS2_SPI2 => spis::InterruptHandler<peripherals::SPI2>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     info!("Running!");
 
-    let irq = interrupt::take!(SPIM2_SPIS2_SPI2);
-    let mut spis = Spis::new(p.SPI2, irq, p.P0_31, p.P0_29, p.P0_28, p.P0_30, Config::default());
+    let mut spis = Spis::new(p.SPI2, Irqs, p.P0_31, p.P0_29, p.P0_28, p.P0_30, Config::default());
 
     loop {
         let mut rx_buf = [0_u8; 64];

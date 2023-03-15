@@ -285,6 +285,7 @@ mod transfers {
         Transfer::new(channel)
     }
 
+    #[must_use = "futures do nothing unless you `.await` or poll them"]
     pub(crate) struct Transfer<'a, C: Channel> {
         channel: PeripheralRef<'a, C>,
     }

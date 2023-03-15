@@ -1,6 +1,7 @@
 use darling::FromMeta;
 use proc_macro2::TokenStream;
 use quote::quote;
+use syn::{ReturnType, Type};
 
 use crate::util::ctxt::Ctxt;
 
@@ -76,6 +77,26 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn, main: TokenStream) -> Resul
     if !f.sig.generics.params.is_empty() {
         ctxt.error_spanned_by(&f.sig, "main function must not be generic");
     }
+    if !f.sig.generics.where_clause.is_none() {
+        ctxt.error_spanned_by(&f.sig, "main function must not have `where` clauses");
+    }
+    if !f.sig.abi.is_none() {
+        ctxt.error_spanned_by(&f.sig, "main function must not have an ABI qualifier");
+    }
+    if !f.sig.variadic.is_none() {
+        ctxt.error_spanned_by(&f.sig, "main function must not be variadic");
+    }
+    match &f.sig.output {
+        ReturnType::Default => {}
+        ReturnType::Type(_, ty) => match &**ty {
+            Type::Tuple(tuple) if tuple.elems.is_empty() => {}
+            Type::Never(_) => {}
+            _ => ctxt.error_spanned_by(
+                &f.sig,
+                "main function must either not return a value, return `()` or return `!`",
+            ),
+        },
+    }
 
     if fargs.len() != 1 {
         ctxt.error_spanned_by(&f.sig, "main function must have 1 argument: the spawner.");
@@ -84,10 +105,11 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn, main: TokenStream) -> Resul
     ctxt.check()?;
 
     let f_body = f.block;
+    let out = &f.sig.output;
 
     let result = quote! {
         #[::embassy_executor::task()]
-        async fn __embassy_main(#fargs) {
+        async fn __embassy_main(#fargs) #out {
             #f_body
         }
 

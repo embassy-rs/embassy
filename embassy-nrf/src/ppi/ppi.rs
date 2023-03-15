@@ -14,7 +14,7 @@ impl Event {
     }
 }
 
-fn regs() -> &'static pac::ppi::RegisterBlock {
+pub(crate) fn regs() -> &'static pac::ppi::RegisterBlock {
     unsafe { &*pac::PPI::ptr() }
 }
 
