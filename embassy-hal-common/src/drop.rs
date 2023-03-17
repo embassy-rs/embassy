@@ -1,6 +1,7 @@
 use core::mem;
 use core::mem::MaybeUninit;
 
+#[must_use = "to delay the drop handler invokation to the end of the scope"]
 pub struct OnDrop<F: FnOnce()> {
     f: MaybeUninit<F>,
 }
@@ -27,6 +28,7 @@ impl<F: FnOnce()> Drop for OnDrop<F> {
 ///
 /// To correctly dispose of this device, call the [defuse](struct.DropBomb.html#method.defuse)
 /// method before this object is dropped.
+#[must_use = "to delay the drop bomb invokation to the end of the scope"]
 pub struct DropBomb {
     _private: (),
 }
