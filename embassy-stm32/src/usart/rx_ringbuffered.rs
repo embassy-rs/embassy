@@ -232,13 +232,6 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
             // waiting for data.
             let new_ndtr = self.uart.ndtr();
             if new_ndtr != old_ndtr {
-                // Some data was received as NDTR has changed: disable RXNEIE
-                // SAFETY: only clears Rx related flags
-                unsafe {
-                    r.cr1().modify(|w| {
-                        // disable RXNE detection
-                        w.set_rxneie(false);
-                    });
                 // Some data was received as NDTR has changed
                 Poll::Ready(Ok(()))
             } else {
