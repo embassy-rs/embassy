@@ -12,6 +12,9 @@ use core::sync::atomic::{compiler_fence, Ordering};
 ///
 /// The ring buffer controls the TCIF (transfer completed interrupt flag) to
 /// detect buffer overruns, hence this interrupt must be disabled.
+/// The buffer can detect overruns up to one period, that is, for a X byte buffer,
+/// overruns can be detected if they happen from byte X+1 up to 2X. After this
+/// point, overrunds may or may not be detected.
 ///
 /// # Buffer layout
 ///
