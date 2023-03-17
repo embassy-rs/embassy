@@ -1,14 +1,18 @@
 use std::path::Path;
-use std::{env, io};
+use std::time::Duration;
+use std::{env, io, thread};
 
 use rand::random;
 use serial::SerialPort;
 
 pub fn main() {
     if let Some(port_name) = env::args().nth(1) {
+        let sleep = env::args().position(|x| x == "--sleep").is_some();
+
         println!("Saturating port {:?} with 115200 8N1", port_name);
+        println!("Sleep: {}", sleep);
         let mut port = serial::open(&port_name).unwrap();
-        if saturate(&mut port).is_err() {
+        if saturate(&mut port, sleep).is_err() {
             eprintln!("Unable to saturate port");
         }
     } else {
@@ -19,7 +23,7 @@ pub fn main() {
     }
 }
 
-fn saturate<T: SerialPort>(port: &mut T) -> io::Result<()> {
+fn saturate<T: SerialPort>(port: &mut T, sleep: bool) -> io::Result<()> {
     port.reconfigure(&|settings| {
         settings.set_baud_rate(serial::Baud115200)?;
         settings.set_char_size(serial::Bits8);
@@ -34,6 +38,13 @@ fn saturate<T: SerialPort>(port: &mut T) -> io::Result<()> {
         let buf: Vec<u8> = (written..written + len).map(|x| x as u8).collect();
 
         port.write_all(&buf)?;
+
+        if sleep {
+            let micros = (random::<usize>() % 1000) as u64;
+            println!("Sleeping {}us", micros);
+            port.flush().unwrap();
+            thread::sleep(Duration::from_micros(micros));
+        }
 
         written += len;
         println!("Written: {}", written);
