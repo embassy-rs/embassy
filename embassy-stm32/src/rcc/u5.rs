@@ -481,7 +481,7 @@ pub(crate) unsafe fn init(config: Config) {
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
-            let freq = ahb_freq / (1 << (pre as u8 - 3));
+            let freq = ahb_freq / pre as u32;
             (freq, freq * 2)
         }
     };
@@ -491,7 +491,7 @@ pub(crate) unsafe fn init(config: Config) {
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
-            let freq = ahb_freq / (1 << (pre as u8 - 3));
+            let freq = ahb_freq / pre as u32;
             (freq, freq * 2)
         }
     };
