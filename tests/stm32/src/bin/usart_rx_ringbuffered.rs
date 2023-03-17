@@ -6,15 +6,60 @@
 mod example_common;
 use embassy_executor::Spawner;
 use embassy_stm32::interrupt;
-use embassy_stm32::usart::{Config, DataBits, Parity, StopBits, Uart};
+use embassy_stm32::usart::{Config, DataBits, Parity, RingBufferedUartRx, StopBits, Uart, UartTx};
 use embassy_time::Delay;
 use embedded_hal_async::delay::DelayUs;
 use example_common::*;
 use rand_chacha::ChaCha8Rng;
 use rand_core::{RngCore, SeedableRng};
 
+#[cfg(feature = "stm32f103c8")]
+mod board {
+    pub type Uart = embassy_stm32::peripherals::USART1;
+    pub type TxDma = embassy_stm32::peripherals::DMA1_CH4;
+    pub type RxDma = embassy_stm32::peripherals::DMA1_CH5;
+}
+#[cfg(feature = "stm32g491re")]
+mod board {
+    pub type Uart = embassy_stm32::peripherals::USART1;
+    pub type TxDma = embassy_stm32::peripherals::DMA1_CH1;
+    pub type RxDma = embassy_stm32::peripherals::DMA1_CH2;
+}
+#[cfg(feature = "stm32g071rb")]
+mod board {
+    pub type Uart = embassy_stm32::peripherals::USART1;
+    pub type TxDma = embassy_stm32::peripherals::DMA1_CH1;
+    pub type RxDma = embassy_stm32::peripherals::DMA1_CH2;
+}
+#[cfg(feature = "stm32f429zi")]
+mod board {
+    pub type Uart = embassy_stm32::peripherals::USART6;
+    pub type TxDma = embassy_stm32::peripherals::DMA2_CH6;
+    pub type RxDma = embassy_stm32::peripherals::DMA2_CH1;
+}
+#[cfg(feature = "stm32wb55rg")]
+mod board {
+    pub type Uart = embassy_stm32::peripherals::LPUART1;
+    pub type TxDma = embassy_stm32::peripherals::DMA1_CH1;
+    pub type RxDma = embassy_stm32::peripherals::DMA1_CH2;
+}
+#[cfg(feature = "stm32h755zi")]
+mod board {
+    pub type Uart = embassy_stm32::peripherals::USART1;
+    pub type TxDma = embassy_stm32::peripherals::DMA1_CH0;
+    pub type RxDma = embassy_stm32::peripherals::DMA1_CH1;
+}
+#[cfg(feature = "stm32u585ai")]
+mod board {
+    pub type Uart = embassy_stm32::peripherals::USART3;
+    pub type TxDma = embassy_stm32::peripherals::GPDMA1_CH0;
+    pub type RxDma = embassy_stm32::peripherals::GPDMA1_CH1;
+}
+
+const ONE_BYTE_DURATION_US: u32 = 9_000_000 / 115200;
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(config());
     info!("Hello World!");
 
@@ -73,20 +118,51 @@ async fn main(_spawner: Spawner) {
     config.data_bits = DataBits::DataBits8;
     config.stop_bits = StopBits::STOP1;
     config.parity = Parity::ParityNone;
-    const ONE_BYTE_DURATION_US: u32 = 9_000_000 / 115200;
 
     let usart = Uart::new(usart, rx, tx, irq, tx_dma, rx_dma, config);
-    let (_, rx) = usart.split();
-    let mut dma_buf = [0; 128];
-    let mut rx = rx.into_ring_buffered(&mut dma_buf);
+    let (tx, rx) = usart.split();
+    static mut DMA_BUF: [u8; 64] = [0; 64];
+    let dma_buf = unsafe { DMA_BUF.as_mut() };
+    let rx = rx.into_ring_buffered(dma_buf);
+
+    info!("Spawning tasks");
+    spawner.spawn(transmit_task(tx)).unwrap();
+    spawner.spawn(receive_task(rx)).unwrap();
+}
+
+#[embassy_executor::task]
+async fn transmit_task(mut tx: UartTx<'static, board::Uart, board::TxDma>) {
     let mut rng = ChaCha8Rng::seed_from_u64(1337);
     let mut delay = Delay;
 
-    info!("Ready to receive...");
-    let mut expected = None;
+    info!("Starting random transmissions into void...");
+
+    let mut i = 0;
     loop {
-        let mut buf = [0; 32];
-        let max_len = (16 + (rng.next_u32() % 16)) as usize; // Read between 16 an 32 bytes
+        let buf = [0; 32];
+        let len = 1 + (rng.next_u32() as usize % (buf.len() - 1));
+        tx.write(&buf[..len]).await.unwrap();
+        delay.delay_us(rng.next_u32() % 10000).await.unwrap();
+
+        i += 1;
+        if i % 1000 == 0 {
+            trace!("Wrote {} times", i);
+        }
+    }
+}
+
+#[embassy_executor::task]
+async fn receive_task(mut rx: RingBufferedUartRx<'static, board::Uart, board::RxDma>) {
+    info!("Ready to receive...");
+
+    let mut rng = ChaCha8Rng::seed_from_u64(1337);
+    let mut delay = Delay;
+
+    let mut i = 0;
+    let mut expected: Option<u8> = None;
+    loop {
+        let mut buf = [0; 100];
+        let max_len = 1 + (rng.next_u32() as usize % (buf.len() - 1));
         let received = rx.read(&mut buf[..max_len]).await.unwrap();
 
         if expected.is_none() {
@@ -94,10 +170,11 @@ async fn main(_spawner: Spawner) {
             expected = Some(buf[0]);
         }
 
-        for byte in buf.iter() {
+        for byte in &buf[..received] {
             if byte != &expected.unwrap() {
-                error!("Test fail");
+                error!("Test fail! received {}, expected {}", *byte, expected.unwrap());
                 cortex_m::asm::bkpt();
+                return;
             }
             expected = Some(expected.unwrap().overflowing_add(1).0);
         }
@@ -105,6 +182,11 @@ async fn main(_spawner: Spawner) {
         if received < max_len {
             let byte_count = rng.next_u32() % 64;
             delay.delay_us(byte_count * ONE_BYTE_DURATION_US).await.unwrap();
+        }
+
+        i += 1;
+        if i % 1000 == 0 {
+            trace!("Read {} times", i);
         }
     }
 }
