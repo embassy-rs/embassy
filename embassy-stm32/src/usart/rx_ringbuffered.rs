@@ -137,17 +137,16 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
         }
 
         // SAFETY: read only and we only use Rx related flags
-        let sr = unsafe { sr(r).read() };
-
-        let has_errors = sr.pe() || sr.fe() || sr.ne() || sr.ore();
+        let s = unsafe { sr(r).read() };
+        let has_errors = s.pe() || s.fe() || s.ne() || s.ore();
         if has_errors {
             self.teardown_uart();
 
-            if sr.pe() {
+            if s.pe() {
                 return Err(Error::Parity);
-            } else if sr.fe() {
+            } else if s.fe() {
                 return Err(Error::Framing);
-            } else if sr.ne() {
+            } else if s.ne() {
                 return Err(Error::Noise);
             } else {
                 return Err(Error::Overrun);
@@ -204,7 +203,8 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
             });
         }
 
-        // future which completes when RX "not empty" is detected
+        // future which completes when RX "not empty" is detected,
+        // i.e. when there is data in uart rx register
         let rxne = poll_fn(|cx| {
             let s = T::state();
 
@@ -214,21 +214,22 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
             compiler_fence(Ordering::SeqCst);
 
             // SAFETY: read only and we only use Rx related flags
-            let sr = unsafe { sr(r).read() };
-
-            let has_errors = sr.pe() || sr.fe() || sr.ne() || sr.ore();
+            let s = unsafe { sr(r).read() };
+            let has_errors = s.pe() || s.fe() || s.ne() || s.ore();
             if has_errors {
-                if sr.pe() {
+                if s.pe() {
                     return Poll::Ready(Err(Error::Parity));
-                } else if sr.fe() {
+                } else if s.fe() {
                     return Poll::Ready(Err(Error::Framing));
-                } else if sr.ne() {
+                } else if s.ne() {
                     return Poll::Ready(Err(Error::Noise));
                 } else {
                     return Poll::Ready(Err(Error::Overrun));
                 }
             }
 
+            // Re-sample ndtr and determine if it has changed since we started
+            // waiting for data.
             let new_ndtr = self.uart.ndtr();
             if new_ndtr != old_ndtr {
                 // Some data was received as NDTR has changed: disable RXNEIE
@@ -238,19 +239,32 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
                         // disable RXNE detection
                         w.set_rxneie(false);
                     });
+                // Some data was received as NDTR has changed
+                Poll::Ready(Ok(()))
+            } else {
+                // It may be that the DMA controller is currently busy consuming the
+                // RX data register. We therefore wait register to become empty.
+                while unsafe { sr(r).read().rxne() } {}
+
+                compiler_fence(Ordering::SeqCst);
+
+                // Re-get again: This time we know that the DMA controller has consumed
+                // the current read register if it was busy doing so
+                let new_ndtr = self.uart.ndtr();
+                if new_ndtr != old_ndtr {
+                    // Some data was received as NDTR has changed
+                    Poll::Ready(Ok(()))
+                } else {
+                    Poll::Pending
                 }
-
-                return Poll::Ready(Ok(()));
             }
-
-            Poll::Pending
         });
 
         compiler_fence(Ordering::SeqCst);
 
         let new_ndtr = self.uart.ndtr();
         if new_ndtr != old_ndtr {
-            // NDTR has already changed, no reason to poll
+            // Fast path - NDTR has already changed, no reason to poll
             Ok(())
         } else {
             // NDTR has not changed since we first read from the ring buffer
