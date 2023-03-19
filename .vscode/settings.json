@@ -1,9 +1,11 @@
 {
   "editor.formatOnSave": true,
+  "[toml]": {
+    "editor.formatOnSave": false
+  },
   "rust-analyzer.check.allTargets": false,
   "rust-analyzer.check.noDefaultFeatures": true,
   "rust-analyzer.cargo.noDefaultFeatures": true,
-  "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
   //"rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
   "rust-analyzer.cargo.features": [
@@ -38,8 +40,4 @@
     // "examples/stm32wl55/Cargo.toml",
     // "examples/wasm/Cargo.toml",
   ],
-  "rust-analyzer.imports.granularity.enforce": true,
-  "rust-analyzer.imports.granularity.group": "module",
-  "rust-analyzer.cargo.buildScripts.enable": true,
-  "rust-analyzer.procMacro.attributes.enable": false,
 }
