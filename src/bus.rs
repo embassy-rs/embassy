@@ -4,6 +4,7 @@ use embassy_time::{Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
 use embedded_hal_1::spi::ErrorType;
 use embedded_hal_async::spi::{transaction, SpiDevice};
+use futures::FutureExt;
 
 use crate::consts::*;
 
@@ -46,18 +47,40 @@ where
         self.pwr.set_high().unwrap();
         Timer::after(Duration::from_millis(250)).await;
 
-        while self.read32_swapped(REG_BUS_TEST_RO).await != FEEDBEAD {}
+        while self
+            .read32_swapped(REG_BUS_TEST_RO)
+            .inspect(|v| defmt::trace!("{:#x}", v))
+            .await
+            != FEEDBEAD
+        {}
 
         self.write32_swapped(REG_BUS_TEST_RW, TEST_PATTERN).await;
-        let val = self.read32_swapped(REG_BUS_TEST_RW).await;
+        let val = self
+            .read32_swapped(REG_BUS_TEST_RW)
+            .inspect(|v| defmt::trace!("{:#x}", v))
+            .await;
         assert_eq!(val, TEST_PATTERN);
+
+        self.read32_swapped(REG_BUS_CTRL)
+            .inspect(|v| defmt::trace!("{:#010b}", (v & 0xff)))
+            .await;
 
         // 32-bit word length, little endian (which is the default endianess).
         self.write32_swapped(REG_BUS_CTRL, WORD_LENGTH_32 | HIGH_SPEED).await;
 
-        let val = self.read32(FUNC_BUS, REG_BUS_TEST_RO).await;
+        self.read8(FUNC_BUS, REG_BUS_CTRL)
+            .inspect(|v| defmt::trace!("{:#b}", v))
+            .await;
+
+        let val = self
+            .read32(FUNC_BUS, REG_BUS_TEST_RO)
+            .inspect(|v| defmt::trace!("{:#x}", v))
+            .await;
         assert_eq!(val, FEEDBEAD);
-        let val = self.read32(FUNC_BUS, REG_BUS_TEST_RW).await;
+        let val = self
+            .read32(FUNC_BUS, REG_BUS_TEST_RW)
+            .inspect(|v| defmt::trace!("{:#x}", v))
+            .await;
         assert_eq!(val, TEST_PATTERN);
     }
 

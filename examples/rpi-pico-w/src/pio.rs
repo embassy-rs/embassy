@@ -2,7 +2,7 @@ use core::slice;
 
 use cyw43::SpiBusCyw43;
 use embassy_rp::dma::Channel;
-use embassy_rp::gpio::{Pin, Pull};
+use embassy_rp::gpio::{Drive, Pin, Pull, SlewRate};
 use embassy_rp::pio::{PioStateMachine, ShiftDirection};
 use embassy_rp::relocate::RelocatedProgram;
 use embassy_rp::{pio_instr_util, Peripheral};
@@ -43,10 +43,11 @@ where
             "out pins, 1    side 0"
             "jmp x-- lp     side 1"
             "set pindirs, 0 side 0"
-            // "nop            side 1"
+            "nop            side 1"
             "lp2:"
-            "in pins, 1     side 0"
-            "jmp y-- lp2    side 1"
+            "in pins, 1     side 1"
+            "jmp y-- lp2    side 0"
+
             ".wrap"
         );
 
@@ -55,15 +56,22 @@ where
         let mut pin_io = sm.make_pio_pin(dio);
         pin_io.set_pull(Pull::Down);
         pin_io.set_schmitt(true);
-        let pin_clk = sm.make_pio_pin(clk);
+        pin_io.set_input_sync_bypass(true);
+
+        let mut pin_clk = sm.make_pio_pin(clk);
+        pin_clk.set_drive_strength(Drive::_12mA);
+        pin_clk.set_slew_rate(SlewRate::Fast);
 
         sm.write_instr(relocated.origin() as usize, relocated.code());
 
+        // 32 Mhz
+        sm.set_clkdiv(0x03E8);
+
         // 16 Mhz
-        sm.set_clkdiv(0x07d0);
+        // sm.set_clkdiv(0x07d0);
 
         // 8Mhz
-        sm.set_clkdiv(0x0a_00);
+        // sm.set_clkdiv(0x0a_00);
 
         // 1Mhz
         // sm.set_clkdiv(0x7d_00);
