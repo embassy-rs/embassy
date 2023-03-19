@@ -28,6 +28,7 @@ embedded-graphics = "0.7.1"
 st7789 = "0.6.1"
 display-interface = "0.4.1"
 byte-slice-cast = { version = "1.2.0", default-features = false }
+smart-leds = "0.3.0"
 
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9" }
 embedded-hal-async = "0.2.0-alpha.0"
