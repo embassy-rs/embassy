@@ -3,6 +3,9 @@
 
 use core::num;
 
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::pubsub::{PubSubChannel, Publisher, Subscriber};
+
 #[derive(Clone, Copy, PartialEq, Eq, num_enum::FromPrimitive)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
@@ -279,4 +282,15 @@ pub enum Event {
     MGMT_FRAME_TXSTATUS = 189,
     /// highest val + 1 for range checking
     LAST = 190,
+}
+
+pub type EventQueue = PubSubChannel<CriticalSectionRawMutex, EventStatus, 2, 1, 1>;
+pub type EventPublisher<'a> = Publisher<'a, CriticalSectionRawMutex, EventStatus, 2, 1, 1>;
+pub type EventSubscriber<'a> = Subscriber<'a, CriticalSectionRawMutex, EventStatus, 2, 1, 1>;
+
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct EventStatus {
+    pub event_type: Event,
+    pub status: u32,
 }

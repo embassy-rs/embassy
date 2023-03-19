@@ -19,13 +19,15 @@ use core::slice;
 use ch::driver::LinkState;
 use embassy_futures::yield_now;
 use embassy_net_driver_channel as ch;
+use embassy_sync::pubsub::PubSubBehavior;
 use embassy_time::{block_for, Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
 use embedded_hal_async::spi::{SpiBusRead, SpiBusWrite, SpiDevice};
+use events::EventQueue;
 
 use crate::bus::Bus;
 use crate::consts::*;
-use crate::events::Event;
+use crate::events::{Event, EventStatus};
 use crate::structs::*;
 
 const MTU: usize = 1514;
@@ -127,6 +129,7 @@ enum IoctlState {
 pub struct State {
     ioctl_state: Cell<IoctlState>,
     ch: ch::State<MTU, 4, 4>,
+    events: EventQueue,
 }
 
 impl State {
@@ -134,12 +137,14 @@ impl State {
         Self {
             ioctl_state: Cell::new(IoctlState::Idle),
             ch: ch::State::new(),
+            events: EventQueue::new(),
         }
     }
 }
 
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
+    event_sub: &'a EventQueue,
     ioctl_state: &'a Cell<IoctlState>,
 }
 
@@ -313,6 +318,7 @@ impl<'a> Control<'a> {
         evts.unset(Event::PROBREQ_MSG_RX);
         evts.unset(Event::PROBRESP_MSG);
         evts.unset(Event::PROBRESP_MSG);
+        evts.unset(Event::ROAM);
 
         self.set_iovar("bsscfg:event_msgs", &evts.to_bytes()).await;
 
@@ -393,7 +399,21 @@ impl<'a> Control<'a> {
             ssid: [0; 32],
         };
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
+
+        let mut subscriber = self.event_sub.subscriber().unwrap();
         self.ioctl(IoctlType::Set, 26, 0, &mut i.to_bytes()).await; // set_ssid
+
+        loop {
+            let msg = subscriber.next_message_pure().await;
+            if msg.event_type == Event::AUTH && msg.status != 0 {
+                // retry
+                defmt::warn!("JOIN failed with status={}", msg.status);
+                self.ioctl(IoctlType::Set, 26, 0, &mut i.to_bytes()).await;
+            } else if msg.event_type == Event::JOIN && msg.status == 0 {
+                // successful join
+                break;
+            }
+        }
 
         info!("JOINED");
     }
@@ -489,6 +509,8 @@ pub struct Runner<'a, PWR, SPI> {
     sdpcm_seq: u8,
     sdpcm_seq_max: u8,
 
+    events: &'a EventQueue,
+
     #[cfg(feature = "firmware-logs")]
     log: LogState,
 }
@@ -526,6 +548,8 @@ where
         sdpcm_seq: 0,
         sdpcm_seq_max: 1,
 
+        events: &state.events,
+
         #[cfg(feature = "firmware-logs")]
         log: LogState {
             addr: 0,
@@ -541,6 +565,7 @@ where
         device,
         Control {
             state_ch,
+            event_sub: &&state.events,
             ioctl_state: &state.ioctl_state,
         },
         runner,
@@ -883,13 +908,16 @@ where
                     return;
                 }
 
+                let evt_type = events::Event::from(event_packet.msg.event_type as u8);
                 let evt_data = &bcd_packet[EventMessage::SIZE..][..event_packet.msg.datalen as usize];
-                debug!(
-                    "=== EVENT {}: {} {:02x}",
-                    events::Event::from(event_packet.msg.event_type as u8),
-                    event_packet.msg,
-                    evt_data
-                );
+                debug!("=== EVENT {}: {} {:02x}", evt_type, event_packet.msg, evt_data);
+
+                if evt_type == events::Event::AUTH || evt_type == events::Event::JOIN {
+                    self.events.publish_immediate(EventStatus {
+                        status: event_packet.msg.status,
+                        event_type: evt_type,
+                    });
+                }
             }
             CHANNEL_TYPE_DATA => {
                 let bcd_header = BcdHeader::from_bytes(&payload[..BcdHeader::SIZE].try_into().unwrap());

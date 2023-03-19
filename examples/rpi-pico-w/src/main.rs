@@ -70,15 +70,10 @@ async fn main(spawner: Spawner) {
     let state = singleton!(cyw43::State::new());
     let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
 
-    spawner.spawn(wifi_task(runner)).unwrap();
-
     control.init(clm).await;
     control
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;
-
-    //control.join_open(env!("WIFI_NETWORK")).await;
-    control.join_wpa2(env!("WIFI_NETWORK"), env!("WIFI_PASSWORD")).await;
 
     let config = Config::Dhcp(Default::default());
     //let config = embassy_net::Config::Static(embassy_net::Config {
@@ -98,7 +93,11 @@ async fn main(spawner: Spawner) {
         seed
     ));
 
+    unwrap!(spawner.spawn(wifi_task(runner)));
     unwrap!(spawner.spawn(net_task(stack)));
+
+    //control.join_open(env!("WIFI_NETWORK")).await;
+    control.join_wpa2(env!("WIFI_NETWORK"), env!("WIFI_PASSWORD")).await;
 
     // And now we can use it!
 
