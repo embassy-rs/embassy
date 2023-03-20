@@ -1,9 +1,13 @@
+use core::future::poll_fn;
 use core::ops::{Deref, DerefMut};
+use core::task::Poll;
 
 pub use bxcan;
+use bxcan::Frame;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::gpio::sealed::AFType;
+use crate::interrupt::{Interrupt, InterruptExt};
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
 
@@ -39,8 +43,12 @@ impl<'d, T: Instance> Can<'d, T> {
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        tx_irq: impl Peripheral<P = T::TXInterrupt> + 'd,
+        rx0_irq: impl Peripheral<P = T::RX0Interrupt> + 'd,
+        rx1_irq: impl Peripheral<P = T::RX1Interrupt> + 'd,
+        sce_irq: impl Peripheral<P = T::SCEInterrupt> + 'd,
     ) -> Self {
-        into_ref!(peri, rx, tx);
+        into_ref!(peri, rx, tx, tx_irq, rx0_irq, rx1_irq, sce_irq);
 
         unsafe {
             rx.set_as_af(rx.af_num(), AFType::Input);
@@ -50,10 +58,75 @@ impl<'d, T: Instance> Can<'d, T> {
         T::enable();
         T::reset();
 
+        tx_irq.unpend();
+        tx_irq.set_handler(Self::tx_interrupt);
+        tx_irq.enable();
+
+        rx0_irq.unpend();
+        rx0_irq.set_handler(Self::rx0_interrupt);
+        rx0_irq.enable();
+
+        rx1_irq.unpend();
+        rx1_irq.set_handler(Self::rx1_interrupt);
+        rx1_irq.enable();
+
+        sce_irq.unpend();
+        sce_irq.set_handler(Self::sce_interrupt);
+        sce_irq.enable();
+
         Self {
             can: bxcan::Can::builder(BxcanInstance(peri)).leave_disabled(),
         }
     }
+
+    pub async fn transmit_async(&mut self, frame: &Frame) {
+        defmt::info!("Staring async frame transmission");
+        let tx_status = self.queue_transmit(frame).await;
+        self.wait_transission(tx_status.mailbox()).await;
+    }
+
+    async fn queue_transmit(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
+        poll_fn(|cx| {
+            if let Ok(status) = self.can.transmit(frame) {
+                defmt::info!("Frame queued successfully in mb{}", status.mailbox());
+                return Poll::Ready(status);
+            }
+            defmt::info!("Mailboxes full, waiting to queue");
+            T::state().tx_waker.register(cx.waker());
+            Poll::Pending
+        })
+        .await
+    }
+
+    async fn wait_transission(&mut self, mb: bxcan::Mailbox) {
+        poll_fn(|cx| unsafe {
+            defmt::info!("Waiting for tx to complete");
+            if T::regs().tsr().read().tme(mb.index()) {
+                defmt::info!("TX complete for mb {}", mb);
+                return Poll::Ready(());
+            }
+            defmt::info!("TX not complete, waiting for signal on mb {}", mb);
+            T::state().tx_waker.register(cx.waker());
+            Poll::Pending
+        })
+        .await;
+    }
+
+    unsafe fn tx_interrupt(_: *mut ()) {
+        defmt::info!("bxCAN TX interrupt fired!");
+        T::regs().tsr().write(|v| {
+            v.set_rqcp(0, true);
+            v.set_rqcp(1, true);
+            v.set_rqcp(2, true);
+        });
+        T::state().tx_waker.wake();
+    }
+
+    unsafe fn rx0_interrupt(_: *mut ()) {}
+
+    unsafe fn rx1_interrupt(_: *mut ()) {}
+
+    unsafe fn sce_interrupt(_: *mut ()) {}
 }
 
 impl<'d, T: Instance> Drop for Can<'d, T> {
@@ -80,14 +153,51 @@ impl<'d, T: Instance> DerefMut for Can<'d, T> {
 }
 
 pub(crate) mod sealed {
+    use embassy_sync::waitqueue::AtomicWaker;
+    pub struct State {
+        pub tx_waker: AtomicWaker,
+        pub rx0_waker: AtomicWaker,
+        pub rx1_waker: AtomicWaker,
+        pub sce_waker: AtomicWaker,
+    }
+
+    impl State {
+        pub const fn new() -> Self {
+            Self {
+                tx_waker: AtomicWaker::new(),
+                rx0_waker: AtomicWaker::new(),
+                rx1_waker: AtomicWaker::new(),
+                sce_waker: AtomicWaker::new(),
+            }
+        }
+    }
+
     pub trait Instance {
         const REGISTERS: *mut bxcan::RegisterBlock;
 
         fn regs() -> &'static crate::pac::can::Can;
+        fn state() -> &'static State;
     }
 }
 
-pub trait Instance: sealed::Instance + RccPeripheral {}
+pub trait TXInstance {
+    type TXInterrupt: crate::interrupt::Interrupt;
+}
+
+pub trait RX0Instance {
+    type RX0Interrupt: crate::interrupt::Interrupt;
+}
+
+pub trait RX1Instance {
+    type RX1Interrupt: crate::interrupt::Interrupt;
+}
+
+pub trait SCEInstance {
+    type SCEInterrupt: crate::interrupt::Interrupt;
+}
+
+pub trait InterruptableInstance: TXInstance + RX0Instance + RX1Instance + SCEInstance {}
+pub trait Instance: sealed::Instance + RccPeripheral + InterruptableInstance + 'static {}
 
 pub struct BxcanInstance<'a, T>(PeripheralRef<'a, T>);
 
@@ -103,10 +213,39 @@ foreach_peripheral!(
             fn regs() -> &'static crate::pac::can::Can {
                 &crate::pac::$inst
             }
+
+            fn state() -> &'static sealed::State {
+                static STATE: sealed::State = sealed::State::new();
+                &STATE
+            }
         }
 
         impl Instance for peripherals::$inst {}
 
+        foreach_interrupt!(
+            ($inst,can,CAN,TX,$irq:ident) => {
+                impl TXInstance for peripherals::$inst {
+                    type TXInterrupt = crate::interrupt::$irq;
+                }
+            };
+            ($inst,can,CAN,RX0,$irq:ident) => {
+                impl RX0Instance for peripherals::$inst {
+                    type RX0Interrupt = crate::interrupt::$irq;
+                }
+            };
+            ($inst,can,CAN,RX1,$irq:ident) => {
+                impl RX1Instance for peripherals::$inst {
+                    type RX1Interrupt = crate::interrupt::$irq;
+                }
+            };
+            ($inst,can,CAN,SCE,$irq:ident) => {
+                impl SCEInstance for peripherals::$inst {
+                    type SCEInterrupt = crate::interrupt::$irq;
+                }
+            };
+        );
+
+        impl InterruptableInstance for peripherals::$inst {}
     };
 );
 
@@ -147,3 +286,17 @@ foreach_peripheral!(
 
 pin_trait!(RxPin, Instance);
 pin_trait!(TxPin, Instance);
+
+trait Index {
+    fn index(&self) -> usize;
+}
+
+impl Index for bxcan::Mailbox {
+    fn index(&self) -> usize {
+        match self {
+            bxcan::Mailbox::Mailbox0 => 0,
+            bxcan::Mailbox::Mailbox1 => 1,
+            bxcan::Mailbox::Mailbox2 => 2,
+        }
+    }
+}
